@@ -496,12 +496,34 @@ pub struct Pool {
 }
 impl Pool {
     pub(crate) fn scoped(&self, config: Config) -> Result<Arc<Self>, Error> {
-        Self::new(
+        let mut pool = Self::new(
             config,
             self.state.clone(),
             self.base_url.clone(),
             self.binary.clone(),
-        )
+        )?;
+        Arc::get_mut(&mut pool).unwrap().installation = self.installation.clone();
+        Ok(pool)
+    }
+    #[cfg(test)]
+    pub(crate) fn for_test(
+        config: Config,
+        state: PathBuf,
+        installation: PathBuf,
+        home: PathBuf,
+        workspace: PathBuf,
+        binary: PathBuf,
+    ) -> Arc<Self> {
+        Arc::new(Self {
+            config,
+            state,
+            installation,
+            home,
+            workspace,
+            base_url: "http://127.0.0.1:9".into(),
+            binary,
+            clients: Mutex::new(BTreeMap::new()),
+        })
     }
     pub fn new(
         config: Config,

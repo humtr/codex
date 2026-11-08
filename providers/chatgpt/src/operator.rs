@@ -770,10 +770,11 @@ fn app_lane_requires_host_stop(lane: &Value) -> bool {
 }
 fn controller_matches(record: &Record, args: &Value) -> bool {
     args["controller"].as_str() == Some(&record.capability)
-        && !record
+        && (!record
             .selection
             .as_ref()
             .is_some_and(|s| s.inference == Inference::Submitted)
+            || record.phase == "native_summary")
         && record.accepted
         && matches!(
             record.phase.as_str(),
@@ -941,6 +942,12 @@ impl Operator {
         }
     }
     fn app_route(&self, record: &Record, turn: Option<&str>) -> Result<Option<ReturnPath>, Error> {
+        if matches!(
+            record.phase.as_str(),
+            "native_compacting" | "native_summary"
+        ) {
+            return Ok(None);
+        }
         if self.mcp_host.source_turn_pending(&record.thread, turn)? {
             return Ok(Some(ReturnPath::Mcp));
         }
@@ -1443,7 +1450,10 @@ impl Operator {
         {
             let item = history
                 .iter()
-                .find(|row| row["item"]["id"] == call["id"])
+                .find(|row| {
+                    row["item"]["id"] == call["id"]
+                        && crate::mcp::native_history_item_result(&row["item"]).is_some()
+                })
                 .ok_or(Error("operator_unreturned_calls_require_reconciliation"))?;
             receipts.push(item.clone());
         }
@@ -1464,6 +1474,7 @@ impl Operator {
     }
     async fn owned_jobs(&self, native: &Native, record: &Record) -> Result<Vec<Value>, Error> {
         let owned = self.broker.recorded_calls(&record.token)?;
+        let active_claims = self.broker.active_claim_ids(&[record.id.as_str()])?;
         let app_owned = self
             .app_route(record, record.native_turn.as_deref())?
             .is_some();
@@ -1481,7 +1492,13 @@ impl Operator {
                 .ok_or(Error("native_jobs_unobservable"))?;
             jobs.extend(
                 data.iter()
-                    .filter(|job| app_owned || owned.iter().any(|call| call["id"] == job["itemId"]))
+                    .filter(|job| {
+                        app_owned
+                            || owned.iter().any(|call| call["id"] == job["itemId"])
+                            || job["itemId"]
+                                .as_str()
+                                .is_some_and(|id| active_claims.contains(id))
+                    })
                     .cloned(),
             );
             cursor = response["nextCursor"].clone();
@@ -3698,13 +3715,19 @@ impl Operator {
                 let (mut record, native) = self.binding(&args, false).await?;
                 let mut resumed = false;
                 if joining {
-                    if record.phase == "completed" {
+                    if matches!(
+                        record.phase.as_str(),
+                        "completed" | "native_summary_offered"
+                    ) {
                         resumed = self
                             .resume_unloaded_native(&record, &native, receipt)
                             .await?;
                     }
                     record = self.observe_native(record, &native).await?.0;
-                    if record.phase != "completed" {
+                    if !matches!(
+                        record.phase.as_str(),
+                        "completed" | "native_summary_offered"
+                    ) {
                         return Err(Error("native_writer_unsettled"));
                     }
                     let pool = self.work_pool(&record).await?;
@@ -3731,11 +3754,28 @@ impl Operator {
                     && (args["controller"].as_str() != Some(&record.capability)
                         || !matches!(
                             record.phase.as_str(),
-                            "waiting_native" | "completed" | "queued"
+                            "waiting_native" | "completed" | "queued" | "native_summary_offered"
                         )
-                        || record.phase == "completed" && record.selection.is_none())
+                        || matches!(
+                            record.phase.as_str(),
+                            "completed" | "native_summary_offered"
+                        ) && record.selection.is_none())
                 {
                     return Err(Error("operator_controller_fenced"));
+                }
+                if !joining && record.phase == "native_summary_offered" {
+                    let state = native
+                        .call(
+                            "thread/read",
+                            json!({"threadId":record.thread,"includeTurns":false}),
+                        )
+                        .await?;
+                    if state["thread"]["status"]["type"] != "idle"
+                        || !self.broker.unsettled(&record.token).await?.is_empty()
+                        || !self.owned_jobs(&native, &record).await?.is_empty()
+                    {
+                        return Err(Error("native_writer_unsettled"));
+                    }
                 }
                 if !joining {
                     resumed = self
@@ -3830,7 +3870,11 @@ impl Operator {
                     let work = works.get_mut(&record.thread).unwrap();
                     if !matches!(
                         work.record.phase.as_str(),
-                        "waiting_native" | "completed" | "queued" | "admitting"
+                        "waiting_native"
+                            | "completed"
+                            | "queued"
+                            | "admitting"
+                            | "native_summary_offered"
                     ) || work.stops_in_progress != 0
                         || work.record.capability != record.capability
                         || work.record.generation != record.generation
@@ -3851,7 +3895,11 @@ impl Operator {
                             assignment.started_at_unix_ms = Some(unix_ms());
                         }
                     }
-                    if record.phase == "completed" || owner_changed {
+                    if matches!(
+                        record.phase.as_str(),
+                        "completed" | "native_summary_offered"
+                    ) || owner_changed
+                    {
                         self.preserve_controller(&work.record)?;
                         work.record.generation += 1;
                         work.record.capability = random_id()?;
@@ -3927,15 +3975,15 @@ impl Operator {
                     return Err(Error("native_writer_unsettled"));
                 }
                 self.verify_identity(&record).await?;
+                if !self.broker.unsettled(&record.token).await?.is_empty()
+                    || !self.owned_jobs(&native, &record).await?.is_empty()
+                {
+                    return Err(Error("native_writer_unsettled"));
+                }
                 // Native permits official compaction after a failed turn once
                 // its writer is settled. The Provider's completed work phase
                 // is not Native's compaction admission contract.
                 if record.phase == "waiting_native" {
-                    if !self.broker.unsettled(&record.token).await?.is_empty()
-                        || !self.owned_jobs(&native, &record).await?.is_empty()
-                    {
-                        return Err(Error("native_writer_unsettled"));
-                    }
                     let state = native
                         .call(
                             "thread/read",
@@ -3946,7 +3994,7 @@ impl Operator {
                         return Err(Error("native_writer_unsettled"));
                     }
                 }
-                {
+                let (previous_phase, previous_accepted) = {
                     let mut works = self.works.lock().await;
                     let work = works.get_mut(&record.thread).unwrap();
                     if work.record.phase != record.phase
@@ -3960,8 +4008,10 @@ impl Operator {
                         return Err(Error("native_writer_unsettled"));
                     }
                     self.mutation_intent(receipt)?;
-                    work.record.phase = "native_compacting".into();
-                    work.record.token = self
+                    let previous_phase = work.record.phase.clone();
+                    let previous_accepted = work.record.accepted;
+                    self.broker.retire(&work.record.token, false).await?;
+                    let next_token = self
                         .broker
                         .register_scoped(
                             &record.id,
@@ -3970,12 +4020,30 @@ impl Operator {
                             record.workspace.as_deref(),
                         )
                         .await?;
+                    work.record.token = next_token;
+                    work.record.phase = "native_compacting".into();
                     work.record.accepted = true;
                     self.persist(&work.record)?;
-                }
-                native
+                    (previous_phase, previous_accepted)
+                };
+                if let Err(error) = native
                     .call("thread/compact/start", json!({"threadId":record.thread}))
-                    .await?;
+                    .await
+                {
+                    let mut works = self.works.lock().await;
+                    if let Some(work) = works.get_mut(&record.thread) {
+                        if work.record.capability == record.capability
+                            && work.record.phase == "native_compacting"
+                            && work.active.is_none()
+                        {
+                            let _ = self.broker.retire(&work.record.token, false).await;
+                            work.record.phase = previous_phase;
+                            work.record.accepted = previous_accepted;
+                            let _ = self.persist(&work.record);
+                        }
+                    }
+                    return Err(error);
+                }
                 Ok(json!({"requested":true,"chat_replaced":false}))
             }
             Some("takeover") => {
@@ -4040,7 +4108,11 @@ impl Operator {
                 let (record, native) = self.binding(&args, false).await?;
                 if !matches!(
                     record.phase.as_str(),
-                    "reconciliation_required" | "stop_requested" | "completed" | "stopped"
+                    "reconciliation_required"
+                        | "stop_requested"
+                        | "completed"
+                        | "stopped"
+                        | "native_summary_offered"
                 ) {
                     return Err(Error("operator_explicit_handoff_required"));
                 }
@@ -4143,6 +4215,13 @@ impl Operator {
                     work.record.assignment.as_mut().unwrap().budget = budget;
                 }
                 let _ = self.broker.retire(&record.token, true).await;
+                if self.broker.has_pending_processes(&[record.id.as_str()])? {
+                    if let Some(workspace) = record.workspace.as_deref() {
+                        self.broker
+                            .settle_native_processes(&[record.id.as_str()], workspace, &history)
+                            .await?;
+                    }
+                }
                 work.record.capability = random_id()?;
                 work.record.generation += 1;
                 work.record.pending.clear();
@@ -4157,13 +4236,16 @@ impl Operator {
                         record.workspace.as_deref(),
                     )
                     .await?;
-                work.record.phase =
-                    if record.phase == "completed" && state["thread"]["status"]["type"] == "idle" {
-                        "completed"
-                    } else {
-                        "waiting_native"
-                    }
-                    .into();
+                work.record.phase = if matches!(
+                    record.phase.as_str(),
+                    "completed" | "native_summary_offered"
+                ) && state["thread"]["status"]["type"] == "idle"
+                {
+                    "completed"
+                } else {
+                    "waiting_native"
+                }
+                .into();
                 work.record.accepted = false;
                 self.persist(&work.record)?;
                 Ok(
@@ -5916,9 +5998,12 @@ impl Operator {
             && request.turn.is_some()
             && request.turn != record.native_turn
             && request.compaction.is_none();
-        if recovery && new_user_turn {
+        let recovery_history = if recovery && new_user_turn {
             self.recovery_receipts(&native, &record).await?;
-        }
+            Some(Self::history(&native, &record.thread).await?)
+        } else {
+            None
+        };
         if new_user_turn {
             let mut works = self.works.lock().await;
             let work = works.get_mut(&request.thread).unwrap();
@@ -5927,6 +6012,15 @@ impl Operator {
             }
             self.preserve_controller(&work.record)?;
             let _ = self.broker.retire(&record.token, recovery).await;
+            if let Some(history) = &recovery_history {
+                if self.broker.has_pending_processes(&[record.id.as_str()])? {
+                    if let Some(workspace) = record.workspace.as_deref() {
+                        self.broker
+                            .settle_native_processes(&[record.id.as_str()], workspace, history)
+                            .await?;
+                    }
+                }
+            }
             work.record.capability = random_id()?;
             work.record.generation += 1;
             work.record.token = self
@@ -6403,6 +6497,19 @@ impl Host for Operator {
                     // work between admission and installation of its cancel.
                     if cancel.is_cancelled() {
                         return Err(Error("cancelled_before_dispatch"));
+                    }
+                    if request.compaction.is_none() {
+                        if let Some(checkpoint) = &work.checkpoint {
+                            if !checkpoint.acknowledged(&request) {
+                                return Err(Error("native_summary_commit_unconfirmed"));
+                            }
+                            work.checkpoint = None;
+                            if work.record.phase == "native_summary_offered" {
+                                work.record.phase = "completed".into();
+                            }
+                            this.persist(&work.record)?;
+                            *record = work.record.clone();
+                        }
                     }
                     admit_app_round(work, record, request.turn.as_deref())?;
                     work.app_round = Some(AppRound {
@@ -7623,6 +7730,8 @@ mod local_tests {
             return_path: ReturnPath::Mcp,
         });
         assert!(!controller_matches(&record, &current));
+        record.phase = "native_summary".into();
+        assert!(controller_matches(&record, &current));
     }
 
     #[test]
@@ -7832,5 +7941,313 @@ mod local_tests {
             ),
             Err(Error("operator_call_changed"))
         );
+    }
+
+    #[test]
+    #[ignore = "subprocess peer for compact lease and rollback regression"]
+    fn compact_transport_peer() {
+        let root =
+            std::path::PathBuf::from(std::env::var_os("CODEX_OPERATOR_COMPACT_FIXTURE").unwrap());
+        assert!(root.join("owned").is_file());
+        let workspace = std::fs::canonicalize(root.join("work")).unwrap();
+        tokio::runtime::Runtime::new().unwrap().block_on(async {
+            use futures_util::{SinkExt, StreamExt};
+            let listener =
+                tokio::net::UnixListener::bind(root.join("socket-path").read_link().unwrap())
+                    .unwrap();
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(
+                root.join("socket-path").read_link().unwrap(),
+                std::fs::Permissions::from_mode(0o600),
+            )
+            .unwrap();
+            std::fs::write(root.join("ready"), b"ready").unwrap();
+            let (stream, _) = listener.accept().await.unwrap();
+            let mut socket = tokio_tungstenite::accept_async(stream).await.unwrap();
+            let mut compact_attempts = 0u32;
+            while let Some(Ok(message)) = socket.next().await {
+                if !message.is_text() {
+                    continue;
+                }
+                let row: Value = serde_json::from_str(message.to_text().unwrap()).unwrap();
+                let Some(id) = row.get("id") else {
+                    continue;
+                };
+                let reply = match row["method"].as_str().unwrap() {
+                    "initialize" => json!({"id":id,"result":{}}),
+                    "thread/loaded/list" => {
+                        json!({"id":id,"result":{"data":["compact-thread"],"nextCursor":null}})
+                    }
+                    "thread/read" => json!({
+                        "id": id,
+                        "result": {
+                            "thread": {
+                                "id": "compact-thread",
+                                "cwd": workspace,
+                                "modelProvider": "chatgpt_desktop",
+                                "status": {"type": "systemError"},
+                                "turns": [{"id": "failed-turn", "status": "failed"}]
+                            }
+                        }
+                    }),
+                    "thread/items/list" | "thread/backgroundTerminals/list" => {
+                        json!({"id":id,"result":{"data":[],"nextCursor":null}})
+                    }
+                    "thread/compact/start" => {
+                        compact_attempts += 1;
+                        if compact_attempts == 1 {
+                            json!({"id":id,"error":{"code":-32000,"message":"synthetic compact rejection"}})
+                        } else {
+                            json!({"id":id,"result":{}})
+                        }
+                    }
+                    other => panic!("unexpected RPC method: {other}"),
+                };
+                socket.send(reply.to_string().into()).await.unwrap();
+                if compact_attempts == 2 {
+                    break;
+                }
+            }
+        });
+    }
+
+    #[tokio::test]
+    async fn compact_retires_settled_idle_lease_rejects_unsettled_calls_and_rolls_back_failed_start(
+    ) {
+        struct Fixture {
+            root: std::path::PathBuf,
+            child: Option<std::process::Child>,
+        }
+        impl Drop for Fixture {
+            fn drop(&mut self) {
+                if let Some(child) = &mut self.child {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                }
+                let _ = std::fs::remove_dir_all(&self.root);
+            }
+        }
+        struct NoopBridge;
+        impl crate::app::Bridge for NoopBridge {
+            fn operation(&self, _command: Value) -> BoxFuture<'static, Result<Value, Error>> {
+                Box::pin(async { Err(Error("unexpected_app_bridge_call")) })
+            }
+        }
+        let root = std::env::temp_dir().join(format!("oc.{}", &random_id().unwrap()[..8]));
+        crate::journal::private_directory(&root).unwrap();
+        let mut fixture = Fixture {
+            root: root.clone(),
+            child: None,
+        };
+        std::fs::write(root.join("owned"), b"owned compact fixture").unwrap();
+        let installation = root.join("i");
+        let home = root.join("h");
+        let workspace = root.join("work");
+        for dir in [&installation, &home, &workspace] {
+            crate::journal::private_directory(dir).unwrap();
+        }
+        let workspace = std::fs::canonicalize(&workspace).unwrap();
+        let program = installation.join(".local/lib/codex/core/generations/f/runtime");
+        crate::journal::private_directory(program.parent().unwrap()).unwrap();
+        std::fs::copy(std::env::current_exe().unwrap(), &program).unwrap();
+        let invocation = codex_runtime_binding::encode_invocation(&[
+            "--config".into(),
+            "model_provider=\"chatgpt_desktop\"".into(),
+        ])
+        .unwrap()
+        .unwrap();
+        let name = codex_runtime_binding::configuration_namespace(
+            &home,
+            program.as_os_str(),
+            None,
+            Some(&invocation),
+            b"",
+            None,
+        );
+        let directory = installation
+            .join(".local/share/codex/core/catalogs")
+            .join(name);
+        crate::journal::private_directory(&directory.join("config")).unwrap();
+        std::os::unix::fs::symlink(directory.join("s"), root.join("socket-path")).unwrap();
+        fixture.child = Some(
+            std::process::Command::new(&program)
+                .args([
+                    "--ignored",
+                    "--exact",
+                    "operator::local_tests::compact_transport_peer",
+                ])
+                .env("CODEX_OPERATOR_COMPACT_FIXTURE", &root)
+                .spawn()
+                .unwrap(),
+        );
+        let pid = fixture.child.as_ref().unwrap().id();
+        for (name, bytes) in [
+            (
+                "owner",
+                codex_runtime_binding::configuration_owner_bytes(
+                    &home,
+                    program.as_os_str(),
+                    false,
+                    true,
+                ),
+            ),
+            ("invocation", invocation),
+            ("config/config.toml", vec![]),
+            ("pid", pid.to_string().into_bytes()),
+        ] {
+            use std::os::unix::fs::OpenOptionsExt;
+            let mut file = std::fs::File::options()
+                .write(true)
+                .create_new(true)
+                .mode(0o600)
+                .open(directory.join(name))
+                .unwrap();
+            use std::io::Write;
+            file.write_all(&bytes).unwrap();
+        }
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while !root.join("ready").exists() {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+        let owner = crate::operator_native::Owner::load(&directory, &home, &installation).unwrap();
+        let mut config = Config::default();
+        config.execution.core = Some(program.clone());
+        config.execution.home = Some(home.clone());
+        config.execution.workspace = Some(workspace.clone());
+        let state = root.join("state");
+        let journal = Arc::new(Journal::open(&state).unwrap());
+        let broker = Broker::new(journal.clone());
+        let pool = Pool::for_test(
+            config.clone(),
+            state,
+            installation,
+            home,
+            workspace.clone(),
+            program,
+        );
+        let mut record = fixture_record(&root);
+        record.id = "work-compact".into();
+        record.thread = "compact-thread".into();
+        record.execution = owner;
+        record.workspace = Some(workspace.clone());
+        record.phase = "reconciliation_required".into();
+        record.accepted = false;
+        record.native_turn = Some("failed-turn".into());
+        // Register an active lease on the work before compaction is requested.
+        let tools = BTreeMap::from([(
+            "exec_command".into(),
+            crate::protocol::Tool {
+                name: "exec_command".into(),
+                namespace: None,
+                kind: crate::protocol::ToolKind::Function,
+                declaration: json!({"type":"object"}),
+            },
+        )]);
+        let unsettled_token = broker
+            .register_scoped(&record.id, tools.clone(), false, Some(&workspace))
+            .await
+            .unwrap();
+        record.token = unsettled_token.clone();
+        let work_key = digest(&("operator-work-v1", &record.id));
+        journal.write(&work_key, &record).unwrap();
+        journal
+            .write(
+                &work_index_key(),
+                &WorkIndex {
+                    ids: vec![record.id.clone()],
+                    pending: None,
+                },
+            )
+            .unwrap();
+        let operator = Operator::new(
+            pool,
+            broker.clone(),
+            journal.clone(),
+            config,
+            Arc::new(NoopBridge),
+            "fixture-token".into(),
+        )
+        .unwrap();
+        let controller = {
+            let mut works = operator.works.lock().await;
+            let work = works.get_mut(&record.thread).unwrap();
+            work.record.phase = "waiting_native".into();
+            work.record.accepted = false;
+            journal.write(&work_key, &work.record).unwrap();
+            work.record.capability.clone()
+        };
+        // 1. An unsettled MCP call must block compaction without changing phase.
+        broker
+            .enqueue(
+                &unsettled_token,
+                &crate::mcp::Arguments {
+                    call_id: "unsettled-before-compact".into(),
+                    name: "exec_command".into(),
+                    input: "{\"cmd\":\"true\"}".into(),
+                    report: String::new(),
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            operator
+                .call(
+                    "codex_sessions",
+                    json!({"action":"compact","work_id":record.id,"controller":controller})
+                )
+                .await
+                .unwrap_err(),
+            Error("native_writer_unsettled")
+        );
+        let saved: Record = journal.read(&work_key).unwrap().unwrap();
+        assert_eq!(saved.phase, "waiting_native");
+        assert!(!saved.accepted);
+        let _ = broker.retire(&unsettled_token, true).await;
+
+        // Re-register a settled idle lease on the same work (no pending calls).
+        let idle_token = broker
+            .register_scoped(&record.id, BTreeMap::new(), false, Some(&workspace))
+            .await
+            .unwrap();
+        {
+            let mut works = operator.works.lock().await;
+            let work = works.get_mut(&record.thread).unwrap();
+            work.record.token = idle_token;
+            journal.write(&work_key, &work.record).unwrap();
+        }
+
+        // 2. First compact call retires the settled idle lease (avoiding mcp_owner_conflict),
+        // and when thread/compact/start is rejected by Native, rolls back phase/accepted.
+        assert_eq!(
+            operator
+                .call(
+                    "codex_sessions",
+                    json!({"action":"compact","work_id":record.id,"controller":controller})
+                )
+                .await
+                .unwrap_err(),
+            Error("native_request_rejected")
+        );
+        let rolled_back: Record = journal.read(&work_key).unwrap().unwrap();
+        assert_eq!(rolled_back.phase, "waiting_native");
+        assert!(!rolled_back.accepted);
+        assert_eq!(rolled_back.capability, controller);
+
+        // 3. Second compact call succeeds without mcp_owner_conflict and transitions to native_compacting.
+        let compacted = operator
+            .call(
+                "codex_sessions",
+                json!({"action":"compact","work_id":record.id,"controller":controller}),
+            )
+            .await
+            .unwrap();
+        assert_eq!(compacted, json!({"requested":true,"chat_replaced":false}));
+        let persisted: Record = journal.read(&work_key).unwrap().unwrap();
+        assert_eq!(persisted.phase, "native_compacting");
+        assert!(persisted.accepted);
+        assert!(fixture.child.as_mut().unwrap().wait().unwrap().success());
     }
 }
