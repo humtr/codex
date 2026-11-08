@@ -345,6 +345,7 @@ async fn evaluate_bridge(app: &App, command: &Value) -> Result<Value, Error> {
         "app_auth_context_unavailable",
         "app_auth_loading",
         "app_lane_busy",
+        "app_lane_missing",
         "app_stop_unconfirmed",
         "app_lane_declaration_changed",
         "app_hooks_changed",
@@ -2661,7 +2662,11 @@ async fn stop_lane(
             && (http_failure(lane.last_error.as_deref()).is_some()
                 || matches!(
                     lane.last_error.as_deref(),
-                    Some("app_bridge_owner_mismatch" | "app_lane_missing")
+                    Some(
+                        "app_bridge_owner_mismatch"
+                            | "app_lane_missing"
+                            | "app_bridge_operation_failed"
+                    )
                 ))
         {
             let identity = bridge
