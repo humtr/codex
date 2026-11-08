@@ -140,7 +140,20 @@ async function termuxCodexBridge(command) {
         let resumeToken,resumeOffset,resumeNetwork=false,reattached=false;
         const current=()=>lane.epoch===epoch&&lane.streamSerial===serial&&!lane.stopRequested;
         const previousToken=options.onResumeToken;
-        options.onResumeToken=value=>{if(current())resumeToken=value;return previousToken?.(value);};
+        options.onResumeToken=value=>{
+          if(current()){
+            resumeToken=value;
+            const id=value?.conversationId,auth=scope.get(shared.xNt),who=lane.accountIdentity;
+            // This owned SDK response token can identify the original server
+            // conversation even when the separate ID-change callback was lost.
+            // Bind only once; a conflicting or cross-account token is not proof.
+            if(lane.serverId==null&&typeof id==='string'&&id.length<=256&&
+              /^[a-zA-Z0-9_-]+$/.test(id)&&typeof value?.resumeToken==='string'&&value.resumeToken&&
+              (owned.conversation_id==null||owned.conversation_id===lane.localId||owned.conversation_id===id)&&
+              chatAuth(auth)&&auth.accountId===who.account&&auth.userId===who.user&&auth.accountStructure===who.structure)lane.serverId=id;
+          }
+          return previousToken?.(value);
+        };
         const observeError=(stage,error,network)=>{
           if(lane.epoch!==epoch||lane.streamSerial!==serial)return;
           const value={stage,http_status:Number.isInteger(error?.responseStatus)?error.responseStatus:null,
@@ -189,17 +202,17 @@ async function termuxCodexBridge(command) {
             // SDK has already exhausted its built-in resume. An authoritative
             // streaming observation permits one same-response reattachment,
             // not resubmission of any model input or Native effect.
-            // A 413 specifically on SDK resume may reject the observer's
-            // payload while leaving the admitted original inference streaming.
+            // A 404 or 413 specifically on SDK resume can reject the observer
+            // while the admitted original inference remains streaming.
             // Reobserve only that response at its saved offset and token,
             // after the exact account and server status are independently checked.
-            const oversizedResume=lane.transportObservation?.resume?.stage==='error'&&
+            const rejectedResume=lane.transportObservation?.resume?.stage==='error'&&
               lane.transportObservation?.http_rejection?.stage==='resume'&&
-              lane.transportObservation.http_rejection.http_status===413&&
+              [404,413].includes(lane.transportObservation.http_rejection.http_status)&&
               typeof resumeToken?.resumeToken==='string'&&!!resumeToken.resumeToken&&
               resumeToken.conversationId===conversation;
-            if(reattached||(!resumeNetwork&&!oversizedResume)||
-              (Number.isInteger(value?.responseStatus)&&!oversizedResume)||!Number.isSafeInteger(resumeOffset)||
+            if(reattached||(!resumeNetwork&&!rejectedResume)||
+              (Number.isInteger(value?.responseStatus)&&!rejectedResume)||!Number.isSafeInteger(resumeOffset)||
               typeof conversation!=='string'||resumeToken&&resumeToken.conversationId!==conversation||
               typeof client.resumeCompletionStream!=='function')return failed(value);
             reattached=true;
@@ -271,10 +284,19 @@ async function termuxCodexBridge(command) {
       }
       lane.sent.add(ids);
       const before = options.chatgptSse?.onBeforeRequestStart;
+      // Inspect the final JSON body handed to the SDK HTTP stream transport,
+      // not the Provider's earlier Native input projection. Never retain body
+      // text or authentication data in the observation.
+      const bodyBytes=typeof options?.body==='string'?new TextEncoder().encode(options.body).byteLength:null;
       return state.saved.streamPost.call(this,path,{...options,retry: undefined,chatgptSse: {...options.chatgptSse,onBeforeRequestStart(value) {
         if (lane.starts.has(ids)) fail('app_dispatch_replayed');
         before?.(value);
         lane.starts.add(ids); lane.roundStarts++;
+        lane.transportObservation??={};
+        lane.transportObservation.wire_request={stage:'sdk_stream_post',path,method:'POST',
+          body_utf8_bytes:bodyBytes,message_count:roles.length,
+          user_role_objects:roles.filter(role=>role==='user').length,
+          tool_role_objects:roles.filter(role=>role==='tool').length};
         if(!hostReply&&roles.includes('user'))lane.dispatchedInput={
           conversation_id:request.conversation_id??null,parent_message_id:request.parent_message_id??null,
           requested_model:request.model??null,
@@ -293,8 +315,12 @@ async function termuxCodexBridge(command) {
     globalThis[slot] = state;
     return {ready: true};
   }
-  if (!state && command.op === 'release') return {released:true};
-  if (!state || state.owner !== command.owner) fail('app_bridge_owner_mismatch');
+  if (!state) {
+    if (command.op === 'release') return {released:true};
+    if (command.op === 'dispose') return {disposed:true};
+    fail('app_lane_missing');
+  }
+  if (state.owner !== command.owner) fail('app_bridge_owner_mismatch');
   // Retiring an owned observer admits no new inference or execution. Its
   // cancellation/quiescence checks still apply when the implementation changed.
   const retiring=['stop','release','dispose'].includes(command.op);
@@ -758,7 +784,7 @@ async function termuxCodexBridge(command) {
     lane.stopRequested = true;
     const who=identity(),sameAccount=()=>['account','user','structure'].every(k=>identity()[k]===who[k]&&(!lane.accountIdentity||lane.accountIdentity[k]===who[k]));
     if(!sameAccount())fail('app_account_changed');
-    const completed=()=>!lane.localCancellationStarted&&lane.terminals.includes('done')&&lane.pending!==true&&lane.streamActive!==true;
+    const completed=()=>!lane.localCancellationStarted&&(lane.terminals.includes('done')||!lane.priorStreamUnsettled&&lane.serverId==null&&lane.error!=null&&lane.transportObservation?.http_rejection?.stage==='stream')&&lane.pending!==true&&lane.streamActive!==true;
     if(completed())lane.completedBeforeCancellation=true;
     // Low-level eHt/JU only cancels the client transport. It does not call the
     // installed client's stopCompletion -> /stop_conversation operation.
@@ -840,7 +866,11 @@ async function termuxCodexBridge(command) {
     const epoch = lane.epoch;
     const options = {conversationId: lane.localId,parentMessageId:lane.selectedParent??undefined,conversationOrigin:null,tppExecutionTarget:null,requestInput:{isEverydayWorkMode:false},projectId:lane.project??undefined,model: command.model,thinkingEffort: command.thinkingEffort ?? null,isTemporaryChat: false,
       onCompletion:completion(lane),
-      onServerThreadIdChange: id => { lane.serverId = id; },requireResponseAcceptance: true,startupSignal: lane.controller.signal};
+      onServerThreadIdChange: id => {
+        if(typeof id!=='string'||!id||id.length>256||!/^[-a-zA-Z0-9_]+$/.test(id))fail('app_conversation_identity_invalid');
+        if(lane.serverId!=null&&lane.serverId!==id)fail('app_conversation_identity_changed');
+        lane.serverId=id;
+      },requireResponseAcceptance: true,startupSignal: lane.controller.signal};
     let pending;
     lane.pending = true;
     try {

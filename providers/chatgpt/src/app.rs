@@ -345,6 +345,7 @@ async fn evaluate_bridge(app: &App, command: &Value) -> Result<Value, Error> {
         "app_auth_context_unavailable",
         "app_auth_loading",
         "app_lane_busy",
+        "app_lane_missing",
         "app_stop_unconfirmed",
         "app_lane_declaration_changed",
         "app_hooks_changed",
@@ -1837,7 +1838,11 @@ async fn exchange(
         };
     }
     if lane.phase == Phase::CancelRequested {
-        return stop_lane(bridge, journal, key, lane).await;
+        match stop_lane(bridge, journal, key, lane).await {
+            Err(Error("app_stop_acknowledged"))
+                if request_digest != lane.request && new_turn(lane, request) => {}
+            other => return other,
+        }
     }
     let observed = bridge
         .operation(json!({"op":"identity","lane":lane.marker}))
@@ -2642,7 +2647,34 @@ async fn stop_lane(
             if state["round"] == lane.round {
                 observe_counts(journal, key, lane, state)?;
             }
-            if state["stopped"] == true {
+            if state["stopped"] == true
+                || state["localStreamStopped"] == true
+                    && state["approvalPending"] != true
+                    && state["serverId"].is_null()
+                    && state["transportObservation"]["http_rejection"]["stage"] == "stream"
+            {
+                lane.phase = Phase::Stopped;
+                journal.write(key, lane)?;
+                return Err(Error("app_stop_acknowledged"));
+            }
+        } else if observed == Err(Error("app_lane_missing"))
+            && lane.conversation_id.is_none()
+            && (http_failure(lane.last_error.as_deref()).is_some()
+                || matches!(
+                    lane.last_error.as_deref(),
+                    Some(
+                        "app_bridge_owner_mismatch"
+                            | "app_lane_missing"
+                            | "app_bridge_operation_failed"
+                    )
+                ))
+        {
+            let identity = bridge
+                .operation(json!({"op":"identity","lane":lane.marker}))
+                .await?;
+            Identity::parse(&identity)?;
+            if identity["present"] == false {
+                bridge.fence_tools(lane.marker.clone()).await?;
                 lane.phase = Phase::Stopped;
                 journal.write(key, lane)?;
                 return Err(Error("app_stop_acknowledged"));
@@ -2657,6 +2689,17 @@ async fn stop_lane(
         observed = bridge
             .operation(json!({"op":"snapshot","lane":lane.marker}))
             .await;
+        if !observed
+            .as_ref()
+            .is_ok_and(|state| state["stopped"] == true)
+        {
+            // The execution snapshot can disappear when MCP is fenced. The
+            // owned Stop reuses its original remote request and refreshes its
+            // independent server confirmation; it never submits model input.
+            observed = bridge
+                .operation(json!({"op":"stop","lane":lane.marker}))
+                .await;
+        }
     }
 }
 
@@ -3903,6 +3946,41 @@ mod approval_tests {
         }
     }
     #[tokio::test]
+    async fn stop_reobserves_its_original_request_after_execution_lease_retired() {
+        struct Receipt(std::sync::atomic::AtomicBool);
+        impl Bridge for Receipt {
+            fn operation(&self, command: Value) -> BoxFuture<'static, Result<Value, Error>> {
+                let result = match command["op"].as_str().unwrap() {
+                    "stop" => Ok(
+                        json!({"stopped":self.0.swap(true, std::sync::atomic::Ordering::SeqCst)}),
+                    ),
+                    "snapshot" => Err(Error("mcp_turn_unavailable")),
+                    _ => panic!("Stop recovery must not submit input or restore execution"),
+                };
+                Box::pin(async move { result })
+            }
+        }
+        let root = std::env::temp_dir().join(format!("stop-retired-{}", random_id().unwrap()));
+        let journal = Arc::new(Journal::open(&root).unwrap());
+        let mut lane = Lane::new("original-native-work").unwrap();
+        lane.phase = Phase::Unknown;
+        journal
+            .write(&context::digest(&"original-native-work"), &lane)
+            .unwrap();
+        let host = AppHost::new(
+            Arc::new(Receipt(std::sync::atomic::AtomicBool::new(false))),
+            journal,
+        );
+        assert!(
+            tokio::time::timeout(Duration::from_secs(2), host.stop("original-native-work"))
+                .await
+                .expect("original Stop must remain observable after its execution lease retires")
+                .unwrap()
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
     async fn stop_reuses_committed_settlement_after_app_context_disappears() {
         let root = std::env::temp_dir().join(format!("settled-stop-{}", random_id().unwrap()));
         let journal = Arc::new(Journal::open(&root).unwrap());
@@ -4110,5 +4188,115 @@ mod approval_tests {
         assert_eq!(calls.len(), before + 1);
         assert_eq!(calls.last().unwrap()["op"], "identity");
         assert!(calls.iter().all(|v| v["op"] != "submit"));
+    }
+    struct PreConversation413 {
+        calls: SyncMutex<Vec<Value>>,
+        disposed: AtomicBool,
+    }
+    impl Bridge for PreConversation413 {
+        fn operation(&self, command: Value) -> BoxFuture<'static, Result<Value, Error>> {
+            self.calls.lock().unwrap().push(command.clone());
+            let disposed = self.disposed.load(Ordering::SeqCst);
+            let result = match command["op"].as_str().unwrap() {
+                "stop" if disposed => Err(Error("app_lane_missing")),
+                "stop" => Ok(json!({
+                    "round": "failed-413",
+                    "stopped": true,
+                    "localStreamStopped": true,
+                    "approvalPending": false,
+                    "serverId": Value::Null,
+                    "transportObservation": {"http_rejection": {"stage": "stream", "http_status": 413}}
+                })),
+                "identity" => Ok(json!({
+                    "generation": "generation",
+                    "account": "account",
+                    "user": "user",
+                    "structure": "personal",
+                    "present": !disposed || command["lane"] != "old-413-lane"
+                })),
+                "release" => Ok(json!({"released": true})),
+                "open" => Ok(json!({"localId": "new-local"})),
+                "submit" => Ok(json!({"started": true})),
+                "snapshot" => Ok(json!({
+                    "round": self.calls.lock().unwrap().iter().rev().find(|v| v["op"] == "submit").unwrap()["round"],
+                    "messages": [{
+                        "id": "compacted-reply",
+                        "author": {"role": "assistant"},
+                        "recipient": "all",
+                        "channel": "final",
+                        "content": {"content_type": "text", "parts": ["RECOVERED_AFTER_413"]},
+                        "status": "finished_successfully",
+                        "end_turn": true
+                    }],
+                    "terminals": ["done"],
+                    "roundStarts": 1,
+                    "userMessages": 1,
+                    "toolMessages": 0,
+                    "dispatches": 1,
+                    "serverId": "new-server-chat"
+                })),
+                _ => panic!("unexpected op {}", command["op"]),
+            };
+            Box::pin(async move { result })
+        }
+    }
+    #[tokio::test]
+    async fn pre_conversation_http_413_cancel_requested_settles_and_admits_compacted_followup_turn()
+    {
+        for disposed in [false, true] {
+            for error in ["app_http_payload_too_large", "app_bridge_owner_mismatch"] {
+                let root = std::env::temp_dir().join(format!("p413-{}", random_id().unwrap()));
+                let journal = Arc::new(Journal::open(&root).unwrap());
+                let bridge = Arc::new(PreConversation413 {
+                    calls: SyncMutex::new(Vec::new()),
+                    disposed: AtomicBool::new(disposed),
+                });
+                let host = AppHost::new(bridge.clone(), journal.clone());
+                let mut lane = Lane::new("native-thread").unwrap();
+                lane.marker = "old-413-lane".into();
+                lane.phase = Phase::CancelRequested;
+                lane.round = "failed-413".into();
+                lane.turn = Some("failed-turn".into());
+                lane.last_error = Some(error.into());
+                lane.identity = Some(
+                    Identity::parse(&json!({
+                        "generation": "generation",
+                        "account": "account",
+                        "user": "user",
+                        "structure": "personal"
+                    }))
+                    .unwrap(),
+                );
+                let key = context::digest(&"native-thread");
+                journal.write(&key, &lane).unwrap();
+                let mut request = Request::parse(
+                    json!({
+                        "stream": true,
+                        "model": "chatgpt-desktop/gpt-6",
+                        "input": [{"role": "user", "content": "Continue after official Native compaction"}]
+                    }),
+                    & crate::config::Config::default(),
+                    Some("native-thread"),
+                )
+                .unwrap();
+                request.turn = Some("compacted-turn".into());
+                let (tx, mut rx) = mpsc::channel(16);
+                host.exchange(request, tx, CancellationToken::new())
+                    .await
+                    .unwrap();
+                let mut texts = Vec::new();
+                while let Ok(event) = rx.try_recv() {
+                    if let Event::Text { delta, .. } = event {
+                        texts.push(delta);
+                    }
+                }
+                assert_eq!(texts, vec!["RECOVERED_AFTER_413"]);
+                let saved: Lane = journal.read(&key).unwrap().unwrap();
+                assert_eq!(saved.phase, Phase::Idle);
+                assert_ne!(saved.marker, "old-413-lane");
+                assert_eq!(saved.conversation_id.as_deref(), Some("new-server-chat"));
+                std::fs::remove_dir_all(root).unwrap();
+            }
+        }
     }
 }

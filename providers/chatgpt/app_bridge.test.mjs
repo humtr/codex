@@ -311,7 +311,7 @@ async function fixture(run){
   const approved=options.toolApproval?{id:"app-approval",author:{role:"tool"},metadata:{jit_plugin_data:{from_client:{type:options.toolApproval.action,target_message_id:options.toolApproval.targetMessageId,remember_answer:options.toolApproval.actionData?.remember_answer??false}}}}:undefined;
   const messages=[...(options.prependMessages||[]),options.userCompletionMessages?.message,approved,...(options.userCompletionMessages?.extraDeveloperInstructionMessages||[])].filter(Boolean);
   const client=globalThis.appBridgeFixture.client;
-  options.onServerThreadIdChange?.('server-owned');
+  if(!globalThis.appBridgeFixture.suppressServerId)options.onServerThreadIdChange?.(options.conversationId?.startsWith('owned-')||!options.conversationId?'server-owned':options.conversationId);
   const request=client.prepareCompletionStream({conversation_id:messages.some(m=>m.author.role==='tool')?'server-owned':undefined,gizmo_id:options.projectId,local_function_signatures:[{name:'handoff'}],messages});
   client.startCompletionStream({request,...globalThis.appBridgeFixture.streamCallbacks});
   if(globalThis.appBridgeFixture.holdSubmission)await new Promise(resolve=>{globalThis.appBridgeFixture.releaseSubmission=resolve;});
@@ -327,9 +327,10 @@ async function fixture(run){
  try{await run({f,bindings,original});}finally{delete globalThis[slot];delete globalThis[readSlot];delete globalThis.appBridgeFixture;globalThis.document=oldDocument;rmSync(root,{recursive:true});}
 }
 
-for(const outcome of ['recovered','recovered-413','second-failure','terminal','unavailable','stop','account','superseded'])
+for(const outcome of ['recovered','recovered-413','recovered-413-token-only','recovered-404','terminal-404','second-failure','terminal','unavailable','stop','account','superseded'])
 test('SDK exhaustion reobserves only its owned response: '+outcome,async()=>fixture(async({f,bindings})=>{
  let failed=0;const resumes=[];
+ f.suppressServerId=outcome==='recovered-413-token-only';
  f.streamCallbacks={onRecoverableError:()=>{failed++;f.submitOptions.onCompletion('failed');}};
  f.client.startCompletionStream=options=>{f.options.push(options);f.wire.streamPost('/f/conversation',{body:JSON.stringify(options.request),chatgptSse:{}});return true;};
  f.client.resumeCompletionStream=options=>{resumes.push(options);return 'same-response-observer';};
@@ -339,8 +340,13 @@ test('SDK exhaustion reobserves only its owned response: '+outcome,async()=>fixt
  await Promise.resolve();
  const original=f.options[0],lane=globalThis[slot].lanes.get('reattach');
  original.onResumeToken({conversationId:'server-owned',resumeToken:'SECRET'});
- const oversizedResume=outcome==='recovered-413';
- original.onResume({type:'error',attemptCount:1,offset:42,isNetworkError:!oversizedResume,error:oversizedResume?{responseStatus:413}:{errorKind:'network'}});
+ if(outcome==='recovered-413-token-only'){
+  expect(lane.serverId).toBe('server-owned');
+  expect(()=>f.submitOptions.onServerThreadIdChange('other-response')).toThrow('app_conversation_identity_changed');
+  expect(lane.serverId).toBe('server-owned');
+ }
+ const rejectedResume=outcome.startsWith('recovered-413')?413:outcome.endsWith('-404')?404:null;
+ original.onResume({type:'error',attemptCount:1,offset:42,isNetworkError:rejectedResume===null,error:rejectedResume?{responseStatus:rejectedResume}:{errorKind:'network'}});
  let resolveStatus;
  f.chatGet=async(path,options)=>{
   expect(path).toBe('/conversation/{conversation_id}/stream_status');
@@ -348,9 +354,9 @@ test('SDK exhaustion reobserves only its owned response: '+outcome,async()=>fixt
   expect(options.parameters.path.conversation_id).toBe('server-owned');
   await new Promise(resolve=>{resolveStatus=resolve;});
   if(outcome==='unavailable')throw Error('status unavailable');
-  return {status:outcome==='terminal'?'COMPLETE':'IS_STREAMING'};
+  return {status:outcome.startsWith('terminal')?'COMPLETE':'IS_STREAMING'};
  };
- original.onRecoverableError(oversizedResume?{responseStatus:413}:{errorKind:'network'});
+ original.onRecoverableError(rejectedResume?{responseStatus:rejectedResume}:{errorKind:'network'});
  expect((await bridge({op:'snapshot',owner:'owned',lane:'reattach'})).error).toBeNull();
  // The app's obsolete failed callback must not terminate a pending rejoin.
  f.submitOptions.onCompletion('failed');
@@ -358,12 +364,12 @@ test('SDK exhaustion reobserves only its owned response: '+outcome,async()=>fixt
  if(outcome==='stop')lane.stopRequested=true;
  if(outcome==='account')f.authLoading=true;
  if(outcome==='superseded')lane.streamSerial++;
- resolveStatus();await new Promise(resolve=>setTimeout(resolve,0));
- if(['recovered','recovered-413','second-failure'].includes(outcome)){
+ resolveStatus?.();await new Promise(resolve=>setTimeout(resolve,0));
+ if(['recovered','recovered-413','recovered-413-token-only','recovered-404','second-failure'].includes(outcome)){
   expect(resumes).toHaveLength(1);
   expect(resumes[0].request).toEqual({conversation_id:'server-owned',offset:42});
   expect(resumes[0].conduitToken).toBe('SECRET');
-  if(outcome==='recovered'||outcome==='recovered-413'){
+  if(outcome==='recovered'||outcome.startsWith('recovered-413')||outcome==='recovered-404'){
    resumes[0].onUpdate({message:{id:'same-response-final',author:{role:'assistant'},channel:'final',status:'finished_successfully',end_turn:true,content:{content_type:'text',parts:['Recovered final']}}});
    resumes[0].onComplete({reason:'done'});
    f.submitOptions.onCompletion('failed');
@@ -377,7 +383,7 @@ test('SDK exhaustion reobserves only its owned response: '+outcome,async()=>fixt
   }
  }else{
   expect(resumes).toHaveLength(0);
-  if(['unavailable','terminal','account'].includes(outcome))expect(failed).toBe(1);
+  if(['unavailable','terminal','terminal-404','account'].includes(outcome))expect(failed).toBe(1);
  }
  expect(f.sent).toHaveLength(1);
  expect(lane.userMessages).toBe(1);
@@ -531,6 +537,14 @@ test('a new bridge revision refuses old hooks without replacing active or idle l
  expect(globalThis[slot].revision).toBe('2'.repeat(64));
 }));
 
+test('uninitialized or disposed bridge reports missing lane on stop/snapshot and acknowledges release/dispose',async()=>fixture(async({bindings})=>{
+ delete globalThis[slot];
+ expect(await bridge({op:'release',owner:'owned',lane:'any'})).toEqual({released:true});
+ expect(await bridge({op:'dispose',owner:'owned'})).toEqual({disposed:true});
+ await expect(bridge({op:'stop',owner:'owned',lane:'any'})).rejects.toThrow('app_lane_missing');
+ await expect(bridge({op:'snapshot',owner:'owned',lane:'any'})).rejects.toThrow('app_lane_missing');
+}));
+
 test('reveal selects the exact owned local conversation without inference or host approval',async()=>fixture(async({f,bindings})=>{
  await bridge({op:'init',owner:'owned',bindings});
  await bridge({op:'open',owner:'owned',lane:'chosen',signature:{name:'owned'}});
@@ -610,7 +624,7 @@ for(const status of ['completed','failed','interrupted'])test('submission recove
  raw.onResume({type:'error',attemptCount:1,error:{responseStatus:404,error:'PRIVATE ERROR'},isNetworkError:false});
  let snapshot=await bridge({op:'snapshot',owner:'owned',lane:'recovered'});
  expect(snapshot.terminals).toEqual([]);expect(snapshot.streamActive).toBe(true);
- expect(snapshot.transportObservation).toEqual({first_error:{stage:'stream',http_status:null,network:true},resume:{stage:'error',attempt:1},http_rejection:{stage:'resume',http_status:404}});
+ expect(snapshot.transportObservation).toMatchObject({first_error:{stage:'stream',http_status:null,network:true},resume:{stage:'error',attempt:1},http_rejection:{stage:'resume',http_status:404}});
  // The app hydrates the saved final and invokes its high-level completion,
  // without invoking raw.onComplete. Public text alone cannot settle the lane.
  f.nodes={final:{message:{id:'final',author:{role:'assistant'},recipient:'all',channel:'final',content:{content_type:'text',parts:['Recovered answer']},status:'finished_successfully',end_turn:true}}};
@@ -626,7 +640,11 @@ for(const status of ['completed','failed','interrupted'])test('submission recove
  await submit('second');await Promise.resolve();
  completed('completed');raw.onResume({type:'error',attemptCount:9,error:{responseStatus:503}});
  const next=await bridge({op:'snapshot',owner:'owned',lane:'recovered'});
- expect(next.round).toBe('second');expect(next.terminals).toEqual([]);expect(next.streamActive).toBe(true);expect(next.transportObservation).toBe(null);
+ expect(next.round).toBe('second');expect(next.terminals).toEqual([]);expect(next.streamActive).toBe(true);
+ expect(next.transportObservation.resume).toBeUndefined();
+ expect(next.transportObservation.first_error).toBeUndefined();
+ expect(next.transportObservation.http_rejection).toBeUndefined();
+ expect(next.transportObservation.wire_request).toMatchObject({stage:'sdk_stream_post',path:'/f/conversation',method:'POST'});
  f.submitOptions.onCompletion('completed');
  await bridge({op:'release',owner:'owned',lane:'recovered'});
 }));
@@ -985,9 +1003,32 @@ for(const finish of ['stream-error','sdk-failed'])test('HTTP 413 resume is a typ
  const snapshot=await bridge({op:'snapshot',owner:'owned',lane:'too-large'});
  expect(snapshot.error).toBe('app_http_payload_too_large');
  expect(snapshot.transportObservation).toMatchObject({first_error:{stage:'resume',http_status:413,network:false},resume:{stage:'error',attempt:0}});
+ const bytes=Buffer.byteLength(JSON.stringify(f.sent[0]),'utf8');
+ expect(snapshot.transportObservation.wire_request).toMatchObject({
+  stage:'sdk_stream_post',path:'/f/conversation',method:'POST',body_utf8_bytes:bytes,
+  message_count:f.sent[0].messages.length,user_role_objects:f.sent[0].messages.filter(m=>m.author.role==='user').length
+ });
  expect(snapshot.streamActive).toBe(false);
  expect(f.sent).toHaveLength(1);
  expect(JSON.stringify(snapshot)).not.toContain('PRIVATE REQUEST TEXT');
+}));
+
+test('initial stream HTTP 413 without server conversation id settles Stop without remote stopCompletion',async()=>fixture(async({f,bindings})=>{
+ f.suppressServerId=true;
+ f.client.startCompletionStream=options=>{f.options.push(options);f.wire.streamPost('/f/conversation',{body:JSON.stringify(options.request),chatgptSse:{}});return true;};
+ await bridge({op:'init',owner:'owned',returnPath:'mcp',bindings});
+ await bridge({op:'open',owner:'owned',lane:'initial-413',signature:{name:'unused'}});
+ await bridge({op:'submit',owner:'owned',lane:'initial-413',round:'original',messages:[{role:'user',text:'Oversized initial request'}]});
+ await Promise.resolve();
+ const stream=f.options[0],privateError={responseStatus:413,message:'PRIVATE REQUEST TEXT'};
+ stream.onStreamErrorObserved(privateError);
+ f.submitOptions.onCompletion('failed');
+ const snapshot=await bridge({op:'snapshot',owner:'owned',lane:'initial-413'});
+ expect(snapshot.error).toBe('app_http_payload_too_large');
+ expect(snapshot.serverId).toBeUndefined();
+ expect(snapshot.transportObservation.http_rejection).toEqual({stage:'stream',http_status:413});
+ const stopped=await bridge({op:'stop',owner:'owned',lane:'initial-413'});
+ expect(stopped.stopped).toBe(true);
 }));
 
 for(const op of ['chat_read','chat_adopt'])for(const status of [401,403,404,429,500,503,null])test(op+' failure preserves static HTTP cause without exception details: '+status,async()=>fixture(async({f,bindings})=>{

@@ -627,11 +627,23 @@ operations, authority or effects and exposes the evidence/action needed to
 settle them. It must have a supported exit when safe continuation is established. Confirmed
 failures, invalid identities/calls and exhausted budgets remain explicit; no
 fabricated success, unlimited observation or automatic mutation replay follows.
+A resume-stage HTTP404, like HTTP413, does not prove the admitted server response
+has stopped. The existing bounded same-response reobservation may proceed only
+with its matching owned token/offset, unchanged account and independently verified
+IS_STREAMING status. A terminal/missing conversation never authorizes resubmission.
 An authoritative completion with no usable output retains available results
 and reports that outcome without permanently disabling the work. Native owns
 an explicitly requested fork of a verified committed checkpoint; a child does
 not inherit its parent's execution capability or silently replay uncertain work.
 
+Stop confirmation must remain observable after an execution lease retires.
+Reobserve the same idempotent owned Stop when an ordinary execution snapshot
+cannot confirm it; this must not send another remote cancellation or input.
+Native-confirmed Stop with no owned jobs settles that work's observed process
+session reservations independently of remote Chat Stop acknowledgment. Unknown
+remote progress keeps its own work/input admission fenced; it cannot retain a
+terminated Native process lease or block independent Native tools. Non-session
+unknown effects still require their own qualified non-execution/settlement proof.
 A Native command's observed process exit can settle its matching reservation
 even if the model stopped before polling it. Match its original call/process
 identity and preserve the original running-tool return and failed exit. The
