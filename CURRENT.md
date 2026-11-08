@@ -59,13 +59,47 @@ One used the actual Linux ChatGPT app SDK through its registered connector,
 tunnel, Provider and Native; the other also verified missing-workdir failure,
 exact retry after creating that directory and successful following execution.
 Both works completed through their original finish calls and then reported
-Native idle with 0 unconfirmed effects. The original work also remains completed
-and idle with 0 effects; its failed call receipt is unchanged.
+Native idle with 0 unconfirmed effects. At that recovery boundary the original
+work also reported completed/idle with 0 effects; its failed call receipt was
+unchanged. A later submitted-model continuation failed as described below.
 Immutable candidate, rollback bindings, process observations and refresh records:
 `~/.cache/codex/acceptance/native-startup-recovery-a9fde76aff53/`.
 Original SDK replies/source are retained in
 `$TMPDIR/native-unlock-proof-v3cn27yt/`. This is an unsigned development recovery,
 not public signed delivery. The existing stream-continuity source is unchanged.
+
+### P0 handoff: long-context submitted inference fails with HTTP413
+
+The next user continuation on original thread
+`01a1b8e9-2bd5-7f32-8ce1-e927e06363c5`, turn
+`01a1b946-3260-7f72-ae35-76063fc84fcf`, failed with
+`stream disconnected before completion: app_round_failed`. Native effects remain
+0 with no pending calls; this is a different failure from resource settlement.
+The app transport recorded HTTP413, network=false, stage=resume, attempt=0.
+Live owned app observation found 283 local messages (181 user,100 assistant,
+2 system), serialized message data of1,030,422 bytes, no observed server
+conversation ID or terminal, accepted=false, pending=false and streamActive=false.
+These bytes measure local message JSON, not the exact wire body or an established
+server threshold. Do not infer zero original transmission from these facts or
+resubmit the failed operation silently.
+
+AppHost successor creation reimports the full Native context when the prior app
+generation/lane is unavailable. The current bridge retains the numeric failure
+in transportObservation, but its callback reduces the error to app_submit_failed
+and Rust then exposes app_round_failed. The receiving session must investigate
+that context admission/recovery boundary and preserve the actual error cause.
+Do not silently truncate Native history or create a parallel summary authority.
+
+A separate fresh Native submitted-inference probe used gpt-6/none, exactly one
+app dispatch and no tools. Actual model text APP_MODEL_STREAM_OK reached the
+original Native final and the work completed/idle with0 effects. Its thread is
+`01a1b952-f76e-79a3-8dd4-39e158733195`. The prior attached-inference build proof
+did not qualify submitted-model continuation of an existing large conversation;
+the fresh model proof also does not qualify this failed original continuation.
+Cold/fresh, settled restart with long context and normal tool-return continuation
+need distinct real-model acceptance. The original request was preserved, with no
+replay, runtime replacement or modification of the protected stream worktree.
+Evidence: `$TMPDIR/app-round-failure-rluk9xmo/evidence/`.
 
 ### P0 handoff: cross-work Native availability and parallel builds
 
