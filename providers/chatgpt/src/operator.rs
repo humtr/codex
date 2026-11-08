@@ -1603,9 +1603,15 @@ impl Operator {
             }
         }
         let token_refs: Vec<&str> = tokens.iter().map(String::as_str).collect();
-        if self
+        // An exact physical claim may survive after the Provider mirror has
+        // already settled. Checking only broker receipts misses that orphan.
+        let shared_orphan = self
             .broker
-            .has_unsettled_stopped_effects(&lanes, &token_refs)?
+            .has_stopped_shared_unexecuted(&record.id, workspace)?;
+        if shared_orphan
+            || self
+                .broker
+                .has_unsettled_stopped_effects(&lanes, &token_refs)?
             || crate::app::has_stopped_pending_calls(&self.journal, &record.thread)?
         {
             let committed =
@@ -1614,6 +1620,10 @@ impl Operator {
             self.broker
                 .reconcile_stopped_unexecuted(&lanes, &token_refs, &committed)
                 .await?;
+            // Only this work's unmaterialized, non-session effects may be
+            // removed. AppHost/external lanes are reconciled separately.
+            self.broker
+                .settle_stopped_shared_unexecuted(&record.id, workspace, &committed)?;
             self.mcp_host
                 .clear_unexecuted_stopped_calls(&record.thread, &committed)
                 .await?;

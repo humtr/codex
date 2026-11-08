@@ -7,7 +7,7 @@ use crate::native_effect::{self, Effect};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     fs::{self, File, OpenOptions},
     io::{Read, Write},
     os::{
@@ -289,6 +289,65 @@ pub(crate) fn verified_exec_not_spawned(value: &serde_json::Value) -> bool {
 }
 
 impl Guard {
+    /// Read-only trigger for a confirmed stopped work whose shared reservation
+    /// outlived its Provider mirror. Never treat a live process session as orphaned.
+    pub(crate) fn has_stopped_unexecuted(
+        cwd: &Path,
+        private_test_home: Option<&Path>,
+        thread: &str,
+    ) -> Result<bool, String> {
+        let ledger = match private_test_home {
+            Some(home) => Ledger::at(cwd, home)?,
+            None => Ledger::new(cwd)?,
+        };
+        ledger.transact(|state| {
+            Ok((
+                state
+                    .claims
+                    .values()
+                    .any(|held| held.thread == thread && held.session.is_none()),
+                false,
+            ))
+        })
+    }
+
+    /// Called only after Native has confirmed Stop, no owned jobs, and a complete
+    /// authoritative item-ID scan. Never infer non-execution from a Provider
+    /// receipt, a process PID, the elapsed time, or an empty Provider mirror.
+    /// Only the same work's non-session reservations absent from Native items
+    /// may be reconciled; all other reservations remain untouched.
+    pub(crate) fn settle_stopped_unexecuted(
+        cwd: &Path,
+        private_test_home: Option<&Path>,
+        thread: &str,
+        native_item_ids: &BTreeSet<String>,
+    ) -> Result<usize, String> {
+        let ledger = match private_test_home {
+            Some(home) => Ledger::at(cwd, home)?,
+            None => Ledger::new(cwd)?,
+        };
+        let prefix = format!("{thread}:");
+        ledger.transact(|state| {
+            let mut absent = Vec::new();
+            for (identity, held) in &state.claims {
+                if held.thread != thread || held.session.is_some() {
+                    continue;
+                }
+                let call_id = identity
+                    .strip_prefix(&prefix)
+                    .filter(|id| !id.is_empty())
+                    .ok_or_else(|| "native_effect_identity_changed".to_owned())?;
+                if !native_item_ids.contains(call_id) {
+                    absent.push(identity.clone());
+                }
+            }
+            for identity in &absent {
+                state.claims.remove(identity);
+            }
+            Ok((absent.len(), !absent.is_empty()))
+        })
+    }
+
     /// The authoritative Native owner has confirmed termination: either a
     /// matching terminal command item or Stop with no owned background jobs.
     /// Release only the original session IDs on this same thread; unknown
@@ -695,6 +754,43 @@ mod tests {
         );
         denied.observed(Some(&denial)).unwrap();
         assert!(apply(&cwd, &home, "two", "after", "a").is_ok());
+    }
+
+    #[test]
+    fn stopped_claim_reconciliation_retains_an_observed_live_session() {
+        let cwd = root();
+        let home = root();
+        let mut executing = Guard::begin_with(
+            &cwd,
+            "running-work",
+            "call",
+            "functions.exec_command",
+            r#"{"cmd":"sleep 30"}"#,
+            Ledger::at(&cwd, &home).unwrap(),
+        )
+        .unwrap();
+        executing
+            .observed(Some(&serde_json::json!({
+                "output":"Process running with session ID 83\nOutput:\n"
+            })))
+            .unwrap();
+        assert!(!Guard::has_stopped_unexecuted(&cwd, Some(&home), "running-work").unwrap());
+        assert_eq!(
+            Guard::settle_stopped_unexecuted(
+                &cwd,
+                Some(&home),
+                "running-work",
+                &BTreeSet::new()
+            )
+            .unwrap(),
+            0
+        );
+        assert_eq!(
+            apply(&cwd, &home, "other-work", "blocked", "any")
+                .err()
+                .as_deref(),
+            Some("native_resource_busy")
+        );
     }
 
     #[test]
