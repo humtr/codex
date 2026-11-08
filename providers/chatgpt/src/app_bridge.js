@@ -18,6 +18,11 @@ async function termuxCodexBridge(command) {
       // host-reply stream owns its own completion, even within the same epoch.
       if(status==='completed'){lane.terminals=['done'];lane.streamActive=false;}
       else if(['failed','interrupted'].includes(status)){
+        // A superseded local observer cannot undo a successful reattachment.
+        // While reobserving the exact response, the old SDK failure is not
+        // evidence that inference or its saved result has failed.
+        if(lane.terminals.includes('done')||status==='failed'&&lane.streamActive&&
+          ['checking','started'].includes(lane.transportObservation?.reattach))return;
         lane.error=status==='failed'?'app_completion_failed':'app_completion_interrupted';
         lane.streamActive=false;
       }
@@ -121,6 +126,10 @@ async function termuxCodexBridge(command) {
         const options = {...args[0],request: owned}, epoch = lane.epoch;
         const serial=lane.streamSerial=(lane.streamSerial??0)+1;
         lane.streamActive = true;
+        let resumeToken,resumeOffset,resumeNetwork=false,reattached=false;
+        const current=()=>lane.epoch===epoch&&lane.streamSerial===serial&&!lane.stopRequested;
+        const previousToken=options.onResumeToken;
+        options.onResumeToken=value=>{if(current())resumeToken=value;return previousToken?.(value);};
         const observeError=(stage,error,network)=>{
           if(lane.epoch!==epoch||lane.streamSerial!==serial)return;
           const value={stage,http_status:Number.isInteger(error?.responseStatus)?error.responseStatus:null,
@@ -134,6 +143,9 @@ async function termuxCodexBridge(command) {
           if(lane.epoch===epoch&&lane.streamSerial===serial&&['attempted','started','succeeded','error','response'].includes(value?.type)){
             lane.transportObservation??={};
             lane.transportObservation.resume={stage:value.type,attempt:Number.isSafeInteger(value.attemptCount)?value.attemptCount:null};
+            if(Number.isSafeInteger(value.offset)&&value.offset>=0)resumeOffset=value.offset;
+            if(value.type==='error')resumeNetwork=value.isNetworkError===true;
+            else if(value.type==='succeeded')resumeNetwork=false;
             if(value.type==='error')observeError('resume',value.error,value.isNetworkError);
           }
           return previousResume?.(value);
@@ -147,9 +159,55 @@ async function termuxCodexBridge(command) {
             return previous?.(update);
           };
         }
-        const previousDone = options.onComplete, previousError = options.onError;
-        options.onComplete = value => { if (lane.epoch === epoch&&lane.streamSerial===serial) { lane.terminals.push(value.reason); lane.streamActive = false; } return previousDone?.(value); };
-        options.onError = value => { if (lane.epoch === epoch&&lane.streamSerial===serial) {lane.error = failureCode(lane,'app_stream_failed');lane.streamActive=false;} return previousError?.(value); };
+        const previousDone=options.onComplete;
+        options.onComplete=value=>{if(lane.epoch===epoch&&lane.streamSerial===serial){lane.terminals.push(value.reason);lane.streamActive=false;}return previousDone?.(value);};
+        const previousCallbacks={onError:options.onError,onRecoverableError:options.onRecoverableError};
+        for(const event of ['onError','onRecoverableError']) {
+          const previous=previousCallbacks[event]??previousCallbacks.onError;
+          const failed=value=>{
+            if(!current())return;
+            if(lane.transportObservation?.reattach)lane.transportObservation.reattach='failed';
+            if(event==='onError'||!previousCallbacks.onRecoverableError){lane.error=failureCode(lane,'app_stream_failed');lane.streamActive=false;}
+            return previous?.(value);
+          };
+          options[event]=value=>{
+            if(!current())return;
+            const conversation=lane.serverId;
+            // SDK has already exhausted its built-in resume. An authoritative
+            // streaming observation permits one same-response reattachment,
+            // not resubmission of any model input or Native effect.
+            if(reattached||!resumeNetwork||Number.isInteger(value?.responseStatus)||!Number.isSafeInteger(resumeOffset)||
+              typeof conversation!=='string'||resumeToken&&resumeToken.conversationId!==conversation||
+              typeof client.resumeCompletionStream!=='function')return failed(value);
+            reattached=true;
+            const sameAccount=()=>{
+              const auth=scope.get(shared.xNt),who=lane.accountIdentity;
+              return chatAuth(auth)&&auth.accountId===who.account&&auth.userId===who.user&&auth.accountStructure===who.structure;
+            };
+            void(async()=>{
+              if(!sameAccount())return failed(value);
+              lane.transportObservation??={};lane.transportObservation.reattach='checking';
+              let raw;
+              try {
+                raw=await wire.safeGet('/conversation/{conversation_id}/stream_status',{
+                  parameters:{path:{conversation_id:conversation}},additionalHeaders:{'ChatGPT-Account-ID':lane.accountIdentity.account},retry:'never'});
+              } catch {
+                if(current())lane.transportObservation.reattach='status_unavailable';
+                return failed(value);
+              }
+              if(!current()||lane.terminals.includes('done'))return;
+              if(!sameAccount()||(raw?.data??raw)?.status!=='IS_STREAMING')return failed(value);
+              try {
+                lane.transportObservation.reattach='started';
+                client.resumeCompletionStream({...options,conduitToken:resumeToken?.resumeToken,
+                  request:{conversation_id:conversation,offset:resumeOffset}});
+              } catch {
+                if(current())lane.transportObservation.reattach='failed';
+                failed(value);
+              }
+            })();
+          };
+        }
         const failed=error=>{if(lane.epoch===epoch&&lane.streamSerial===serial){lane.error=failureCode(lane,'app_stream_failed');lane.streamActive=false;}throw error;};
         try {const started=state.saved[name].call(this,options);return started&&typeof started.then==='function'?Promise.resolve(started).catch(failed):started;}
         catch(error){return failed(error);}

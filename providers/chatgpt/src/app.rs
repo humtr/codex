@@ -505,6 +505,17 @@ impl SubmittedInput {
     }
 }
 
+// The same canonical input boundary decides both AppHost's stopped-round
+// continuation and Operator's permission to retire an active predecessor.
+pub(crate) fn appended_steer(previous: &Request, current: &Request) -> bool {
+    previous.thread == current.thread
+        && previous.turn.is_some()
+        && previous.turn == current.turn
+        && previous.compaction.is_none()
+        && current.compaction.is_none()
+        && SubmittedInput::capture(previous, 0).has_appended_steer(current)
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 struct Lane {
     native_thread: String,
@@ -2847,6 +2858,7 @@ mod approval_tests {
             Some("steer-boundary"),
         )
         .unwrap();
+        original.turn = Some("canonical-turn".into());
         original.input.push(json!({"type":"function_call_output","call_id":"prior-call","output":"original result"}));
         let boundary = SubmittedInput::capture(&original, 0);
         assert!(!boundary.has_appended_steer(&original));
@@ -2858,9 +2870,11 @@ mod approval_tests {
             .input
             .push(json!({"role":"user","content":"new steer"}));
         assert!(boundary.has_appended_steer(&continuation));
+        assert!(appended_steer(&original, &continuation));
         let mut changed = continuation.clone();
         changed.input[1]["content"] = json!("rewritten original");
         assert!(!boundary.has_appended_steer(&changed));
+        assert!(!appended_steer(&original, &changed));
         changed = continuation.clone();
         changed.input[2]["output"] = json!("changed result");
         assert!(!boundary.has_appended_steer(&changed));
@@ -2869,6 +2883,9 @@ mod approval_tests {
             .input
             .push(json!({"role":"developer","content":"policy only"}));
         assert!(!boundary.has_appended_steer(&context_only));
+        assert!(!appended_steer(&original, &context_only));
+        continuation.turn = Some("different-turn".into());
+        assert!(!appended_steer(&original, &continuation));
     }
 
     #[derive(Default)]

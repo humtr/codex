@@ -313,7 +313,7 @@ async function fixture(run){
   const client=globalThis.appBridgeFixture.client;
   options.onServerThreadIdChange?.('server-owned');
   const request=client.prepareCompletionStream({conversation_id:messages.some(m=>m.author.role==='tool')?'server-owned':undefined,gizmo_id:options.projectId,local_function_signatures:[{name:'handoff'}],messages});
-  client.startCompletionStream({request});
+  client.startCompletionStream({request,...globalThis.appBridgeFixture.streamCallbacks});
   if(globalThis.appBridgeFixture.holdSubmission)await new Promise(resolve=>{globalThis.appBridgeFixture.releaseSubmission=resolve;});
   return true;
  }
@@ -326,6 +326,61 @@ async function fixture(run){
  const bindings={initial:pathToFileURL(join(root,'initial.mjs')).href,shared:pathToFileURL(join(root,'shared.mjs')).href};
  try{await run({f,bindings,original});}finally{delete globalThis[slot];delete globalThis[readSlot];delete globalThis.appBridgeFixture;globalThis.document=oldDocument;rmSync(root,{recursive:true});}
 }
+
+for(const outcome of ['recovered','second-failure','terminal','unavailable','stop','account','superseded'])
+test('SDK exhaustion reobserves only its owned response: '+outcome,async()=>fixture(async({f,bindings})=>{
+ let failed=0;const resumes=[];
+ f.streamCallbacks={onRecoverableError:()=>{failed++;f.submitOptions.onCompletion('failed');}};
+ f.client.startCompletionStream=options=>{f.options.push(options);f.wire.streamPost('/f/conversation',{body:JSON.stringify(options.request),chatgptSse:{}});return true;};
+ f.client.resumeCompletionStream=options=>{resumes.push(options);return 'same-response-observer';};
+ await bridge({op:'init',owner:'owned',returnPath:'mcp',bindings});
+ await bridge({op:'open',owner:'owned',lane:'reattach',signature:{name:'unused'}});
+ await bridge({op:'submit',owner:'owned',lane:'reattach',round:'first',messages:[{role:'user',text:'Original input'}]});
+ await Promise.resolve();
+ const original=f.options[0],lane=globalThis[slot].lanes.get('reattach');
+ original.onResumeToken({conversationId:'server-owned',resumeToken:'SECRET'});
+ original.onResume({type:'error',attemptCount:1,offset:42,isNetworkError:true,error:{errorKind:'network'}});
+ let resolveStatus;
+ f.chatGet=async(path,options)=>{
+  expect(path).toBe('/conversation/{conversation_id}/stream_status');
+  expect(options.retry).toBe('never');
+  expect(options.parameters.path.conversation_id).toBe('server-owned');
+  await new Promise(resolve=>{resolveStatus=resolve;});
+  if(outcome==='unavailable')throw Error('status unavailable');
+  return {status:outcome==='terminal'?'COMPLETE':'IS_STREAMING'};
+ };
+ original.onRecoverableError({errorKind:'network'});
+ expect((await bridge({op:'snapshot',owner:'owned',lane:'reattach'})).error).toBeNull();
+ // The app's obsolete failed callback must not terminate a pending rejoin.
+ f.submitOptions.onCompletion('failed');
+ expect(lane.error).toBeNull();
+ if(outcome==='stop')lane.stopRequested=true;
+ if(outcome==='account')f.authLoading=true;
+ if(outcome==='superseded')lane.streamSerial++;
+ resolveStatus();await new Promise(resolve=>setTimeout(resolve,0));
+ if(['recovered','second-failure'].includes(outcome)){
+  expect(resumes).toHaveLength(1);
+  expect(resumes[0].request).toEqual({conversation_id:'server-owned',offset:42});
+  expect(resumes[0].conduitToken).toBe('SECRET');
+  if(outcome==='recovered'){
+   resumes[0].onUpdate({message:{id:'same-response-final',author:{role:'assistant'},channel:'final',status:'finished_successfully',end_turn:true,content:{content_type:'text',parts:['Recovered final']}}});
+   resumes[0].onComplete({reason:'done'});
+   f.submitOptions.onCompletion('failed');
+   const snapshot=await bridge({op:'snapshot',owner:'owned',lane:'reattach'});
+   expect(snapshot.terminals).toEqual(['done']);expect(snapshot.error).toBeNull();
+   expect(snapshot.messages.find(m=>m.id==='same-response-final').content.parts).toEqual(['Recovered final']);
+   expect(JSON.stringify(snapshot)).not.toContain('SECRET');
+  }else{
+   resumes[0].onRecoverableError({errorKind:'network'});
+   expect(lane.error).toBe('app_completion_failed');expect(resumes).toHaveLength(1);expect(failed).toBe(1);
+  }
+ }else{
+  expect(resumes).toHaveLength(0);
+  if(['unavailable','terminal','account'].includes(outcome))expect(failed).toBe(1);
+ }
+ expect(f.sent).toHaveLength(1);
+ expect(lane.userMessages).toBe(1);
+}));
 
 test('owned app hooks preserve unowned requests, actual feature gates and public-only output',async()=>fixture(async({f,bindings,original})=>{
  expect(await bridge({op:'init',owner:'owned',bindings})).toEqual({ready:true});
