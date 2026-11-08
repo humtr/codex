@@ -323,7 +323,7 @@ fn installed_compiler() -> Option<PathBuf> {
 
 pub(crate) fn classify(tool: &str, input: &str, workspace: Option<&Path>) -> Effect {
     match tool {
-        "clock.curr_time" | "clock.sleep" | "functions.view_image" => Effect::Read,
+        "tool_search" | "clock.curr_time" | "clock.sleep" | "functions.view_image" => Effect::Read,
         "functions.exec_command" if is_simple_read_command(input) => Effect::Read,
         "functions.exec_command" => workspace
             .and_then(|root| object_compile(input, root, &installed_compiler()?))
@@ -449,6 +449,14 @@ pub(crate) fn conflicts(first: &Effect, second: &Effect) -> bool {
 mod tests {
     use super::*;
     use std::os::unix::fs::symlink;
+
+    #[test]
+    fn metadata_discovery_is_read_only_during_an_unconfirmed_native_effect() {
+        let lookup = classify("tool_search", r#"{"query":"codex_sessions list"}"#, None);
+        assert_eq!(lookup, Effect::Read);
+        assert!(!conflicts(&lookup, &Effect::Opaque));
+        assert!(!conflicts(&Effect::Opaque, &lookup));
+    }
 
     fn temp() -> PathBuf {
         let path = std::env::temp_dir().join(format!(
