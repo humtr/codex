@@ -2569,6 +2569,97 @@ mod native_concurrency_tests {
             .unwrap();
     }
 
+    #[tokio::test]
+    async fn nc_confirmed_stop_releases_orphaned_physical_claim_after_mirror_settled() {
+        let (root, journal, catalog) = fixture();
+        fs::write(root.join("file"), "original\n").unwrap();
+        let broker = Broker::new(journal.clone());
+        let token = broker
+            .register_scoped("stopped-work", catalog, false, Some(&root))
+            .await
+            .unwrap();
+        let call = Arguments {
+            call_id: "orphaned-shell".into(),
+            name: "functions.exec_command".into(),
+            input: r#"{"cmd":"printf updated > file"}"#.into(),
+            report: "bounded fixture".into(),
+        };
+        let id = accepted(&broker, &token, &call).await;
+        broker
+            .settle(
+                &token,
+                &[(id.clone(), json!({"output":"connection closed before terminal proof"}))],
+            )
+            .await
+            .unwrap();
+
+        // Simulate the observed crash/recovery split: the original call
+        // result is durable and the Provider mirror has no active writer,
+        // but the OS-shared journal still contains the exact opaque claim.
+        let key = digest(&"native-effect-claims-v1");
+        let mut mirror: ActiveEffects = journal.read(&key).unwrap().unwrap();
+        assert!(mirror.claims.remove(&id).is_some());
+        journal.write(&key, &mirror).unwrap();
+        assert_eq!(
+            broker.effect_status("stopped-work").unwrap()["unconfirmed_effects"],
+            0
+        );
+        let competing = r#"{"cmd":"printf other > file"}"#;
+        assert_eq!(
+            broker
+                .admit_external_tool(
+                    "other-work",
+                    "before",
+                    "functions.exec_command",
+                    competing,
+                    &root
+                )
+                .await,
+            Err(Error("native_resource_busy"))
+        );
+
+        // An observed Native item is evidence that the original call may
+        // have executed; a stopped work must not free its reservation.
+        broker
+            .reconcile_stopped_unexecuted(
+                &["stopped-work"],
+                &[&token],
+                &BTreeSet::from([id.clone()]),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            broker
+                .admit_external_tool(
+                    "other-work",
+                    "still-blocked",
+                    "functions.exec_command",
+                    competing,
+                    &root
+                )
+                .await,
+            Err(Error("native_resource_busy"))
+        );
+
+        // A verified Native Stop with no jobs and complete item history
+        // absent the original call ID allows exact non-dispatch settlement.
+        broker
+            .reconcile_stopped_unexecuted(&["stopped-work"], &[&token], &BTreeSet::new())
+            .await
+            .unwrap();
+        assert_eq!(broker.recorded_calls(&token).unwrap()[0]["settled"], true);
+        broker
+            .admit_external_tool(
+                "other-work",
+                "after-confirmed-stop",
+                "functions.exec_command",
+                competing,
+                &root,
+            )
+            .await
+            .unwrap();
+    }
+
     fn fixture() -> (PathBuf, Arc<Journal>, BTreeMap<String, Tool>) {
         let root = std::env::temp_dir().join(format!("broker-resource-{}", random_id().unwrap()));
         fs::create_dir(&root).unwrap();
