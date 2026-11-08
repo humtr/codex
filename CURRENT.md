@@ -5,6 +5,41 @@ and must be reread after recovery. This file distinguishes source implementation
 automated proof, actual Android execution, connected-client proof, public signed
 delivery and device activation. None substitutes for the next boundary.
 
+## Native startup failure settlement
+
+The isolated fix over7471ed71 changes only Provider's shared
+`native_claims::verified_exec_not_spawned` result classifier. Native produces the
+canonical exec failure; AppHost projects it to `{id, name, output}`; McpBridge
+persists that original result and Broker/shared claims consume the same proof.
+The classifier previously required `type=function_call_output`, which AppHost's
+projection omits. Thus a committed pre-spawn failure retained both resource
+claims. Both envelopes now recognize the same unframed handler rejection;
+stdout, unknown results, process exit rules and call-ID admission are unchanged.
+No executor, retry path, timeout, ownership override or stream change was added.
+
+Evidence is retained at `$TMPDIR/native-startup-settlement-kk2v4h4_/evidence`.
+The new Broker regression fails on the original classifier (one effect remains)
+and passes after the fix. It covers late/duplicate settlement, exact retry and
+an injected unknown result at the settlement boundary: that effect remains
+reserved and a competing work is rejected. Existing denial/stdout tests also
+cover the projected envelope. The extended adapter qualification passed on
+actual Android Native0.167.0: a nonexistent workdir produced failed/-1/null
+process ID, effects became0, two subsequent commands succeeded on the same work,
+and two failed-call retries produced no process or marker even after the workdir
+was created. Native history contains exactly one failed command item. The
+synthetic app made no model request; the original TUI received the final.
+`scripts/check.sh provider` passes:277 Rust,114 JavaScript and84 Python tests,
+formatting, Clippy and the release build. The30 default-ignored Rust cases require
+separate explicit environments; the applicable Android service was armed above.
+Builds used debug=0/incremental=false and a separate1GiB compiler cache. Fixture
+payloads were archived through `clean_development.py`; original results, Native
+history, logs and accepted proof executables are retained.
+Earlier fixture path-length and input-delivery failures remain in the evidence;
+the qualification driver now uses explicit bracketed paste. Product TUI code is
+unchanged. The running Provider and original work/effect were not modified;
+deployment and release of that operating lock remain separate, unfinished work.
+Reread AGENTS.md and inspect this local diff before continuing development.
+
 ## Pro handoff entry
 
 Active P0 implementation now uses fix/attached-native-development-loop-20261106

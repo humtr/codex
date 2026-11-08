@@ -76,7 +76,7 @@ def probe(args):
             cwd=root / 'w', stdin=slave, stdout=slave, stderr=slave, start_new_session=True)
         os.close(slave)
         wait(lambda: 'GPT-6' in screen, 'TUI readiness')
-        os.write(master, b'Run two actual Native tool calls and retain their results.')
+        os.write(master, b'\x1b[200~Verify Native startup failure and subsequent tools.\x1b[201~')
         time.sleep(.3)
         os.write(master, b'\r')
         work = wait(lambda: next(iter(rpc('codex_sessions', {'action': 'list'})['work']), None),
@@ -95,7 +95,23 @@ def probe(args):
         token = wait(current_lease, 'McpBridge offered lease')
         catalog = rpc('native_catalog', {'turn_token': token})
         name = next(name for name in catalog if name.rsplit('.', 1)[-1] == 'exec_command')
-        results = []
+        missing = root / 'missing-workdir'
+        failed_args = {'turn_token': token, 'call_id': 'startup-failure', 'name': name,
+            'input': json.dumps({'cmd': 'printf unexpected > duplicate-execution',
+                                 'workdir': str(missing), 'login': False}),
+            'report': 'Verify a definite Native process creation failure.'}
+        failed = rpc('native_tool', failed_args)
+        (root / 'startup-failure-result.json').write_text(json.dumps(failed, indent=2) + '\n')
+        assert 'Failed to create unified exec process' in json.dumps(failed), failed
+        status = rpc('codex_status', {'work_id': work['work_id']})
+        (root / 'startup-failure-status.json').write_text(json.dumps(status, indent=2) + '\n')
+        assert status['native_effects']['unconfirmed_effects'] == 0, status['native_effects']
+        # Make the previously invalid workdir executable: a redispatch would now
+        # leave a file, so an equal reply alone cannot hide duplicate execution.
+        missing.mkdir()
+        assert rpc('native_tool', failed_args) == failed
+        assert not (missing / 'duplicate-execution').exists()
+        results = [failed]
         with concurrent.futures.ThreadPoolExecutor(max_workers=2) as clients:
             for index in (1, 2):
                 arguments = {'turn_token': token, 'call_id': f'opaque-{index}', 'name': name,
@@ -110,17 +126,26 @@ def probe(args):
                 assert f'ADAPTER_TOOL_{index}' in json.dumps(result), result
                 assert (root / 'w/adapter-effects').read_text() == ''.join(f'{n}\n' for n in range(1, index + 1))
                 results.append(result)
+        assert rpc('native_tool', failed_args) == failed
+        assert not (missing / 'duplicate-execution').exists()
         (root / 'hold-adapter-final').unlink()
         wait(lambda: rpc('codex_status', {'work_id': work['work_id']})['completed'],
              'completed actual Native round')
         history = native_rpc(home, 'thread/read', {'threadId': thread, 'includeTurns': True})
         assert all(f'ADAPTER_TOOL_{index}' in json.dumps(history) for index in (1, 2))
+        failed_items = [item for turn in history['thread']['turns'] for item in turn['items']
+                        if item.get('type') == 'commandExecution' and item.get('cwd') == str(missing)]
+        assert len(failed_items) == 1, failed_items
+        assert failed_items[0]['source'] == 'unifiedExecStartup'
+        assert failed_items[0]['status'] == 'failed' and failed_items[0]['exitCode'] == -1
+        assert failed_items[0]['processId'] is None
         (root / 'native-original-history.json').write_text(json.dumps(history, indent=2) + '\n')
         (root / 'original-tool-results.json').write_text(json.dumps(results, indent=2) + '\n')
         wait(lambda: 'OWNED_MANAGED_ROUND_COMPLETE' in screen, 'final reaches original TUI')
         return {'accepted': True, 'fixture': str(root), 'actual_native_tools': 2,
                 'exact_retry_observers': 2, 'native_final': True, 'live_tui_final': True,
-                'model_requests': 0}
+                'model_requests': 0, 'startup_failure_settled': True,
+                'failed_call_retries_without_execution': 2}
     finally:
         (root / 'terminal.txt').write_text(screen)
         if terminal is not None and terminal.poll() is None:

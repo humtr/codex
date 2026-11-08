@@ -269,16 +269,25 @@ fn process_status(value: &serde_json::Value) -> (Option<u64>, bool) {
     (running, exited)
 }
 
-/// A Native approval rejection returned by the exec handler before spawning, or
+/// A Native exec handler rejection returned before spawning, or
 /// a Provider non-dispatch receipt recorded after a confirmed Native Stop proves
 /// the offered call ID never reached Native thread items, is not a live shell.
 /// Match only the handler's own unframed failure envelope or the Provider's
 /// non-dispatch receipt; ordinary stdout is always preceded by an execution
 /// status header and must never be allowed to forge this evidence.
+/// AppHost projects function results to {id, name, output} for McpBridge;
+/// that trusted envelope carries the same handler output without `type`.
 pub(crate) fn verified_exec_not_spawned(value: &serde_json::Value) -> bool {
     (value.get("error").and_then(serde_json::Value::as_str) == Some("native_call_not_dispatched")
         && value.get("executed") == Some(&serde_json::Value::Bool(false)))
-        || (value.get("type").and_then(serde_json::Value::as_str) == Some("function_call_output")
+        || ((value.get("type").and_then(serde_json::Value::as_str) == Some("function_call_output")
+            || (value.get("type").is_none()
+                && value.get("name").and_then(serde_json::Value::as_str)
+                    == Some("functions.exec_command")
+                && value
+                    .get("id")
+                    .and_then(serde_json::Value::as_str)
+                    .is_some()))
             && value
                 .get("output")
                 .and_then(serde_json::Value::as_str)
@@ -646,11 +655,25 @@ mod tests {
             "output":"exec_command failed: CreateProcess { message: \"Rejected(\\\"The owned fixture command was denied.\\\")\" }"
         });
         assert!(verified_exec_not_spawned(&denial));
+        let mut projected = serde_json::json!({"id":"original", "name":"functions.exec_command",
+            "output":denial["output"]});
+        assert!(verified_exec_not_spawned(&projected));
+        projected["type"] = serde_json::json!("unrecognized_output");
+        assert!(!verified_exec_not_spawned(&projected));
+        projected.as_object_mut().unwrap().remove("type");
+        projected["name"] = serde_json::json!("other_tool");
+        assert!(!verified_exec_not_spawned(&projected));
+        projected["name"] = serde_json::json!("functions.exec_command");
+        projected.as_object_mut().unwrap().remove("id");
+        assert!(!verified_exec_not_spawned(&projected));
         let output_as_stdout = serde_json::json!({
             "type":"function_call_output",
             "output": format!("Chunk ID: abc\nProcess running with session ID 81\nOutput:\n{}",denial["output"].as_str().unwrap())
         });
         assert!(!verified_exec_not_spawned(&output_as_stdout));
+        let projected_stdout = serde_json::json!({"id":"original", "name":"functions.exec_command",
+            "output":output_as_stdout["output"]});
+        assert!(!verified_exec_not_spawned(&projected_stdout));
         let ledger = Ledger::at(&cwd, &home).unwrap();
         let mut running = Guard::begin_with(
             &cwd,

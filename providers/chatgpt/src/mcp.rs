@@ -2606,6 +2606,70 @@ mod native_concurrency_tests {
     }
 
     #[tokio::test]
+    async fn normalized_startup_failure_settles_only_its_original_effect() {
+        let (root, journal, tools) = fixture();
+        let broker = Broker::new(journal.clone());
+        let token = broker
+            .register_scoped("startup-work", tools.clone(), false, Some(&root))
+            .await
+            .unwrap();
+        let exec = Arguments {
+            call_id: "missing-workdir".into(),
+            name: "functions.exec_command".into(),
+            input: json!({"cmd":"printf must-not-run", "workdir":root.join("missing")}).to_string(),
+            report: String::new(),
+        };
+        let id = accepted(&broker, &token, &exec).await;
+        // AppHost's production result envelope, as retained by McpBridge.
+        let failure = json!({"id":id,"name":exec.name,
+            "output":"exec_command failed: CreateProcess { message: \"Rejected(\\\"Failed to create unified exec process: No such file or directory (os error 2)\\\")\" }"});
+        broker
+            .settle(&token, &[(id.clone(), failure.clone())])
+            .await
+            .unwrap();
+        assert_eq!(
+            broker.effect_status("startup-work").unwrap()["unconfirmed_effects"],
+            0
+        );
+        // Duplicate and late receipt delivery cannot offer the command again.
+        broker
+            .settle(&token, &[(id.clone(), failure.clone())])
+            .await
+            .unwrap();
+        assert_eq!(broker.invoke(&token, exec.clone()).await.unwrap(), failure);
+        assert!(broker.offer(&token).await.unwrap().is_empty());
+        let mut next = exec.clone();
+        next.call_id = "next".into();
+        next.input = json!({"cmd":"printf next"}).to_string();
+        let next_id = accepted(&broker, &token, &next).await;
+        // A returned error without the handler's pre-spawn envelope is unknown.
+        let unknown =
+            json!({"id":next_id,"name":exec.name,"output":"connection lost after dispatch"});
+        broker.settle(&token, &[(next_id, unknown)]).await.unwrap();
+        assert_eq!(
+            broker.effect_status("startup-work").unwrap()["unconfirmed_effects"],
+            1
+        );
+        broker.settle(&token, &[(id, failure)]).await.unwrap();
+        assert_eq!(
+            broker.effect_status("startup-work").unwrap()["unconfirmed_effects"],
+            1
+        );
+        let other = broker
+            .register_scoped("other-work", tools, false, Some(&root))
+            .await
+            .unwrap();
+        next.call_id = "other".into();
+        broker.enqueue(&other, &next).await.unwrap();
+        assert!(broker.offer(&other).await.unwrap().is_empty());
+        assert_eq!(
+            broker.invoke(&other, next).await.unwrap()["error"],
+            "native_resource_busy"
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
     async fn nc_conflicting_native_tool_returns_pre_effect_receipt_without_late_dispatch() {
         let (root, journal, tools) = fixture();
         fs::write(root.join("file"), "alpha\n").unwrap();
