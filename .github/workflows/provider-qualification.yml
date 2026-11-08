@@ -2,7 +2,7 @@ name: Optional ChatGPT provider source qualification
 on:
   workflow_dispatch:
   push:
-    branches: [rewrite/rust-core, fix/stopped-native-shared-claim-reconciliation]
+    branches: [rewrite/rust-core]
     paths:
       - providers/chatgpt/**
       - crates/runtime-binding/**
