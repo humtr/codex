@@ -697,7 +697,14 @@ async fn http_413_snapshot_preserves_native_submission_and_specific_status() {
     assert_eq!(state["app_dispatches"], 1);
     assert_eq!(state["user_role_objects"], 1);
     assert_eq!(state["phase"], "unknown");
-    let submitted = app.state.lock().unwrap().commands.iter().filter(|v| v["op"] == "submit").count();
+    let submitted = app
+        .state
+        .lock()
+        .unwrap()
+        .commands
+        .iter()
+        .filter(|v| v["op"] == "submit")
+        .count();
     assert_eq!(submitted, 1, "the original request must not be replayed");
 }
 
