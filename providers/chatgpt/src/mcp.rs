@@ -2588,7 +2588,10 @@ mod native_concurrency_tests {
         broker
             .settle(
                 &token,
-                &[(id.clone(), json!({"output":"connection closed before terminal proof"}))],
+                &[(
+                    id.clone(),
+                    json!({"output":"connection closed before terminal proof"}),
+                )],
             )
             .await
             .unwrap();
