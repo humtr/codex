@@ -1615,6 +1615,7 @@ impl Operator {
         &self,
         native: &Native,
         record: &Record,
+        host_stopped: bool,
     ) -> Result<(), Error> {
         let workspace = record
             .workspace
@@ -1631,6 +1632,11 @@ impl Operator {
             self.broker
                 .settle_stopped_processes(lane, workspace)
                 .await?;
+        }
+        // Native owns process termination; remote inference has no authority
+        // to retain a Native session lease after confirmed Stop with no jobs.
+        if !host_stopped {
+            return Ok(());
         }
         let mut tokens = vec![record.token.clone()];
         if let Some(marker) = app_marker.as_deref() {
@@ -4047,7 +4053,7 @@ impl Operator {
                 // or unexecuted offered calls. Never release an unknown/
                 // reconciliation-required execution.
                 if record.phase == "stopped" {
-                    self.reconcile_stopped_work_effects(&native, &record)
+                    self.reconcile_stopped_work_effects(&native, &record, true)
                         .await?;
                 }
                 let recovered = self.recovery_receipts(&native, &record).await?;
@@ -5295,12 +5301,10 @@ impl Operator {
                 stopped = true;
             }
         }
-        if stopped {
-            // Both the Native thread and all its owned background terminals
-            // have been confirmed stopped. Only its previously observed
-            // process sessions and offered calls proven absent from Native
-            // thread items may now relinquish shared writer reservations.
-            self.reconcile_stopped_work_effects(&native, &record)
+        if confirmed && jobs.as_ref().is_ok_and(|jobs| jobs.is_empty()) {
+            // Release Native process leases even while remote Stop is pending.
+            // Unexecuted-call reconciliation still requires the whole-work Stop.
+            self.reconcile_stopped_work_effects(&native, &record, stopped)
                 .await?;
         }
         Ok(

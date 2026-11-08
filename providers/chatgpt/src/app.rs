@@ -2657,6 +2657,17 @@ async fn stop_lane(
         observed = bridge
             .operation(json!({"op":"snapshot","lane":lane.marker}))
             .await;
+        if !observed
+            .as_ref()
+            .is_ok_and(|state| state["stopped"] == true)
+        {
+            // The execution snapshot can disappear when MCP is fenced. The
+            // owned Stop reuses its original remote request and refreshes its
+            // independent server confirmation; it never submits model input.
+            observed = bridge
+                .operation(json!({"op":"stop","lane":lane.marker}))
+                .await;
+        }
     }
 }
 
@@ -3902,6 +3913,41 @@ mod approval_tests {
             std::fs::remove_dir_all(root).unwrap();
         }
     }
+    #[tokio::test]
+    async fn stop_reobserves_its_original_request_after_execution_lease_retired() {
+        struct Receipt(std::sync::atomic::AtomicBool);
+        impl Bridge for Receipt {
+            fn operation(&self, command: Value) -> BoxFuture<'static, Result<Value, Error>> {
+                let result = match command["op"].as_str().unwrap() {
+                    "stop" => Ok(
+                        json!({"stopped":self.0.swap(true, std::sync::atomic::Ordering::SeqCst)}),
+                    ),
+                    "snapshot" => Err(Error("mcp_turn_unavailable")),
+                    _ => panic!("Stop recovery must not submit input or restore execution"),
+                };
+                Box::pin(async move { result })
+            }
+        }
+        let root = std::env::temp_dir().join(format!("stop-retired-{}", random_id().unwrap()));
+        let journal = Arc::new(Journal::open(&root).unwrap());
+        let mut lane = Lane::new("original-native-work").unwrap();
+        lane.phase = Phase::Unknown;
+        journal
+            .write(&context::digest(&"original-native-work"), &lane)
+            .unwrap();
+        let host = AppHost::new(
+            Arc::new(Receipt(std::sync::atomic::AtomicBool::new(false))),
+            journal,
+        );
+        assert!(
+            tokio::time::timeout(Duration::from_secs(2), host.stop("original-native-work"))
+                .await
+                .expect("original Stop must remain observable after its execution lease retires")
+                .unwrap()
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     #[tokio::test]
     async fn stop_reuses_committed_settlement_after_app_context_disappears() {
         let root = std::env::temp_dir().join(format!("settled-stop-{}", random_id().unwrap()));

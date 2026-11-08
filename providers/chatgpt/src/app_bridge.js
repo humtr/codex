@@ -202,17 +202,17 @@ async function termuxCodexBridge(command) {
             // SDK has already exhausted its built-in resume. An authoritative
             // streaming observation permits one same-response reattachment,
             // not resubmission of any model input or Native effect.
-            // A 413 specifically on SDK resume may reject the observer's
-            // payload while leaving the admitted original inference streaming.
+            // A 404 or 413 specifically on SDK resume can reject the observer
+            // while the admitted original inference remains streaming.
             // Reobserve only that response at its saved offset and token,
             // after the exact account and server status are independently checked.
-            const oversizedResume=lane.transportObservation?.resume?.stage==='error'&&
+            const rejectedResume=lane.transportObservation?.resume?.stage==='error'&&
               lane.transportObservation?.http_rejection?.stage==='resume'&&
-              lane.transportObservation.http_rejection.http_status===413&&
+              [404,413].includes(lane.transportObservation.http_rejection.http_status)&&
               typeof resumeToken?.resumeToken==='string'&&!!resumeToken.resumeToken&&
               resumeToken.conversationId===conversation;
-            if(reattached||(!resumeNetwork&&!oversizedResume)||
-              (Number.isInteger(value?.responseStatus)&&!oversizedResume)||!Number.isSafeInteger(resumeOffset)||
+            if(reattached||(!resumeNetwork&&!rejectedResume)||
+              (Number.isInteger(value?.responseStatus)&&!rejectedResume)||!Number.isSafeInteger(resumeOffset)||
               typeof conversation!=='string'||resumeToken&&resumeToken.conversationId!==conversation||
               typeof client.resumeCompletionStream!=='function')return failed(value);
             reattached=true;

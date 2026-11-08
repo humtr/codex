@@ -327,7 +327,7 @@ async function fixture(run){
  try{await run({f,bindings,original});}finally{delete globalThis[slot];delete globalThis[readSlot];delete globalThis.appBridgeFixture;globalThis.document=oldDocument;rmSync(root,{recursive:true});}
 }
 
-for(const outcome of ['recovered','recovered-413','recovered-413-token-only','second-failure','terminal','unavailable','stop','account','superseded'])
+for(const outcome of ['recovered','recovered-413','recovered-413-token-only','recovered-404','terminal-404','second-failure','terminal','unavailable','stop','account','superseded'])
 test('SDK exhaustion reobserves only its owned response: '+outcome,async()=>fixture(async({f,bindings})=>{
  let failed=0;const resumes=[];
  f.suppressServerId=outcome==='recovered-413-token-only';
@@ -345,8 +345,8 @@ test('SDK exhaustion reobserves only its owned response: '+outcome,async()=>fixt
   expect(()=>f.submitOptions.onServerThreadIdChange('other-response')).toThrow('app_conversation_identity_changed');
   expect(lane.serverId).toBe('server-owned');
  }
- const oversizedResume=outcome==='recovered-413'||outcome==='recovered-413-token-only';
- original.onResume({type:'error',attemptCount:1,offset:42,isNetworkError:!oversizedResume,error:oversizedResume?{responseStatus:413}:{errorKind:'network'}});
+ const rejectedResume=outcome.startsWith('recovered-413')?413:outcome.endsWith('-404')?404:null;
+ original.onResume({type:'error',attemptCount:1,offset:42,isNetworkError:rejectedResume===null,error:rejectedResume?{responseStatus:rejectedResume}:{errorKind:'network'}});
  let resolveStatus;
  f.chatGet=async(path,options)=>{
   expect(path).toBe('/conversation/{conversation_id}/stream_status');
@@ -354,9 +354,9 @@ test('SDK exhaustion reobserves only its owned response: '+outcome,async()=>fixt
   expect(options.parameters.path.conversation_id).toBe('server-owned');
   await new Promise(resolve=>{resolveStatus=resolve;});
   if(outcome==='unavailable')throw Error('status unavailable');
-  return {status:outcome==='terminal'?'COMPLETE':'IS_STREAMING'};
+  return {status:outcome.startsWith('terminal')?'COMPLETE':'IS_STREAMING'};
  };
- original.onRecoverableError(oversizedResume?{responseStatus:413}:{errorKind:'network'});
+ original.onRecoverableError(rejectedResume?{responseStatus:rejectedResume}:{errorKind:'network'});
  expect((await bridge({op:'snapshot',owner:'owned',lane:'reattach'})).error).toBeNull();
  // The app's obsolete failed callback must not terminate a pending rejoin.
  f.submitOptions.onCompletion('failed');
@@ -365,11 +365,11 @@ test('SDK exhaustion reobserves only its owned response: '+outcome,async()=>fixt
  if(outcome==='account')f.authLoading=true;
  if(outcome==='superseded')lane.streamSerial++;
  resolveStatus?.();await new Promise(resolve=>setTimeout(resolve,0));
- if(['recovered','recovered-413','recovered-413-token-only','second-failure'].includes(outcome)){
+ if(['recovered','recovered-413','recovered-413-token-only','recovered-404','second-failure'].includes(outcome)){
   expect(resumes).toHaveLength(1);
   expect(resumes[0].request).toEqual({conversation_id:'server-owned',offset:42});
   expect(resumes[0].conduitToken).toBe('SECRET');
-  if(outcome==='recovered'||outcome==='recovered-413'||outcome==='recovered-413-token-only'){
+  if(outcome==='recovered'||outcome.startsWith('recovered-413')||outcome==='recovered-404'){
    resumes[0].onUpdate({message:{id:'same-response-final',author:{role:'assistant'},channel:'final',status:'finished_successfully',end_turn:true,content:{content_type:'text',parts:['Recovered final']}}});
    resumes[0].onComplete({reason:'done'});
    f.submitOptions.onCompletion('failed');
@@ -383,7 +383,7 @@ test('SDK exhaustion reobserves only its owned response: '+outcome,async()=>fixt
   }
  }else{
   expect(resumes).toHaveLength(0);
-  if(['unavailable','terminal','account'].includes(outcome))expect(failed).toBe(1);
+  if(['unavailable','terminal','terminal-404','account'].includes(outcome))expect(failed).toBe(1);
  }
  expect(f.sent).toHaveLength(1);
  expect(lane.userMessages).toBe(1);
