@@ -36,9 +36,65 @@ payloads were archived through `clean_development.py`; original results, Native
 history, logs and accepted proof executables are retained.
 Earlier fixture path-length and input-delivery failures remain in the evidence;
 the qualification driver now uses explicit bracketed paste. Product TUI code is
-unchanged. The running Provider and original work/effect were not modified;
-deployment and release of that operating lock remain separate, unfinished work.
-Reread AGENTS.md and inspect this local diff before continuing development.
+unchanged.
+
+**Operating recovery.** After explicit user authorization, source a9fde76
+was packaged/read back with the existing candidate verifier and activated in
+the existing account Provider and MCP tunnel. The old supervised Provider and
+MCP forwarder exited; the port, account, journals and rollback files were retained.
+Only this account's Provider/MCP services were restarted; no Native Stop or
+Native process kill was requested and no effect ledger was edited. On the
+first new Native offer, normal persisted-receipt reconciliation consumed the
+original failed result and removed effect
+`fea67b3386666159ff492c5eb3e3daae8ecf87a2da3cc4046c258ccfb384350b`;
+the original work now reports 0 unconfirmed effects. The shared physical ledger
+was empty before recovery: this incident's blocker was the Provider-wide mirror.
+It must not be described as only a per-session lock.
+
+The existing `scripts/d3_refresh.mjs` passed against the live Provider-owned CDP
+binding: 17 full input schemas matched, app query caches were invalidated and
+the registered connector's live MCP probe succeeded, with no model request.
+Two new Native works passed source creation/edit and actual Clang build/run.
+One used the actual Linux ChatGPT app SDK through its registered connector,
+tunnel, Provider and Native; the other also verified missing-workdir failure,
+exact retry after creating that directory and successful following execution.
+Both works completed through their original finish calls and then reported
+Native idle with 0 unconfirmed effects. The original work also remains completed
+and idle with 0 effects; its failed call receipt is unchanged.
+Immutable candidate, rollback bindings, process observations and refresh records:
+`~/.cache/codex/acceptance/native-startup-recovery-a9fde76aff53/`.
+Original SDK replies/source are retained in
+`$TMPDIR/native-unlock-proof-v3cn27yt/`. This is an unsigned development recovery,
+not public signed delivery. The existing stream-continuity source is unchanged.
+
+### P0 handoff: cross-work Native availability and parallel builds
+
+Track cross-work starvation as a **P0 availability defect** for the receiving
+development session, as requested by the user, tied to NC-17/19/27/28. A failed or unresolved
+work must not make independent development/build work unusable. Allocation alone
+does not prove availability: the next work's tools, edits and build must run.
+The current startup-result fix repairs this incident; it does not qualify
+general Native parallelism.
+
+`native_effect::conflicts` treats any non-read operation versus an opaque claim
+as conflicting. `Broker::offer`/`admit_external_tool` apply that over all claims
+in the Provider, while `native_claims` can additionally share physical claims
+across Provider processes. Arbitrary build commands and tool search can classify
+as opaque. The failure therefore spreads beyond its owning work, including to
+different worktrees. Scoped recovery that keeps independent work available
+remains unqualified.
+
+The successor must review the actual producers/callers and SPEC 4.5-4.6, then
+correct resource admission and recovery at their owner. Prove two independent
+Native builds with separate outputs can make progress while another work waits
+or fails; also prove a genuine common-output conflict is rejected, uncertain
+execution remains protected, duplicate calls never rerun, and late settlement
+cannot release another work's effect. Merely changing cwd, relabelling opaque
+tools as reads, adding retries/timeouts or disabling the common guard is not
+acceptance. Establish/enforce the resource boundary needed to admit concurrency.
+Reread AGENTS.md, this CURRENT section and the actual diff after handoff; the
+source fix is a9fde76 and its operating evidence is above. Preserve the original
+dirty checkout and `$TMPDIR/stream-continuity-a8LzJwwp/source`.
 
 ## Pro handoff entry
 
