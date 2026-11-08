@@ -45,7 +45,7 @@ jobs:
           set +e
           "$BUN" test providers/chatgpt/app_bridge.test.mjs
           js_status=$?
-          cargo "+$version" test --manifest-path providers/chatgpt/Cargo.toml --locked --lib nc_confirmed_stop_releases_orphaned_physical_claim_after_mirror_settled
+          cargo "+$version" test --manifest-path providers/chatgpt/Cargo.toml --locked --lib
           claim_status=$?
           cargo "+$version" test --manifest-path providers/chatgpt/Cargo.toml --locked --test app_engine http_413_snapshot_preserves_native_submission_and_specific_status
           rust_status=$?
