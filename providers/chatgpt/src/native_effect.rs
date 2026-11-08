@@ -37,6 +37,7 @@ enum FileOperation {
     Update,
     Add,
     Delete,
+    Input,
 }
 
 fn version(bytes: &[u8]) -> String {
@@ -252,10 +253,81 @@ fn is_simple_read_command(input: &str) -> bool {
         && !path.split('/').any(|part| part == ".." || part.is_empty())
 }
 
+/// A direct installed compiler invocation with one declared source and object
+/// output has a bounded file effect. This is intentionally not a generic shell
+/// parser: a linker, build script, wrapper, environment assignment or extra
+/// argv returns to opaque admission.
+fn object_compile(input: &str, workspace: &Path, compiler: &Path) -> Option<Effect> {
+    let value: serde_json::Value = serde_json::from_str(input).ok()?;
+    let arguments = value.as_object()?;
+    if arguments.keys().any(|key| {
+        !matches!(
+            key.as_str(),
+            "cmd" | "workdir" | "login" | "yield_time_ms" | "max_output_tokens"
+        )
+    }) || value["login"] != false
+        || fs::canonicalize(value["workdir"].as_str()?).ok()? != workspace
+    {
+        return None;
+    }
+    let words = value["cmd"]
+        .as_str()?
+        .split_ascii_whitespace()
+        .collect::<Vec<_>>();
+    if words.first().copied()? != compiler.to_str()? {
+        return None;
+    }
+    let args = &words[1..];
+    let args = match args {
+        ["-O0" | "-O1" | "-O2" | "-O3", remaining @ ..] => remaining,
+        _ => args,
+    };
+    let ["-c", source, "-o", output] = args else {
+        return None;
+    };
+    let operand = |value: &str| {
+        !value.is_empty()
+            && value.split('/').all(|part| {
+                !part.is_empty()
+                    && part != "."
+                    && part != ".."
+                    && part.bytes().all(|byte| {
+                        byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-')
+                    })
+            })
+    };
+    if !operand(source) || !operand(output) {
+        return None;
+    }
+    let source = snapshot(workspace, source, FileOperation::Input, Vec::new())?;
+    let output_path = workspace.join(output);
+    let output = snapshot(
+        workspace,
+        output,
+        if output_path.exists() {
+            FileOperation::Update
+        } else {
+            FileOperation::Add
+        },
+        Vec::new(),
+    )?;
+    (!source.matches(&output)).then_some(Effect::Paths(vec![source, output]))
+}
+
+fn installed_compiler() -> Option<PathBuf> {
+    let prefix = fs::canonicalize(std::env::var_os("PREFIX")?).ok()?;
+    let command = prefix.join("bin/clang");
+    let executable = fs::canonicalize(&command).ok()?;
+    (executable.starts_with(prefix) && fs::metadata(executable).ok()?.is_file()).then_some(command)
+}
+
 pub(crate) fn classify(tool: &str, input: &str, workspace: Option<&Path>) -> Effect {
     match tool {
         "clock.curr_time" | "clock.sleep" | "functions.view_image" => Effect::Read,
         "functions.exec_command" if is_simple_read_command(input) => Effect::Read,
+        "functions.exec_command" => workspace
+            .and_then(|root| object_compile(input, root, &installed_compiler()?))
+            .unwrap_or(Effect::Opaque),
         "functions.apply_patch" | "apply_patch" => workspace
             .and_then(|root| parse_patch(input, root))
             .unwrap_or(Effect::Opaque),
@@ -330,7 +402,7 @@ impl FileEffect {
             }
             return Ok(());
         }
-        if self.operation != FileOperation::Update {
+        if self.operation != FileOperation::Update || self.anchors.is_empty() {
             return Err("native_resource_version_conflict");
         }
         // Rebase a text hunk only when each unchanged old-side anchor survives
@@ -364,9 +436,12 @@ pub(crate) fn conflicts(first: &Effect, second: &Effect) -> bool {
     match (first, second) {
         (Effect::Read, _) | (_, Effect::Read) => false,
         (Effect::Opaque, _) | (_, Effect::Opaque) => true,
-        (Effect::Paths(left), Effect::Paths(right)) => {
-            left.iter().any(|a| right.iter().any(|b| a.matches(b)))
-        }
+        (Effect::Paths(left), Effect::Paths(right)) => left.iter().any(|a| {
+            right.iter().any(|b| {
+                !(a.operation == FileOperation::Input && b.operation == FileOperation::Input)
+                    && a.matches(b)
+            })
+        }),
     }
 }
 
@@ -386,6 +461,58 @@ mod tests {
     }
     fn update(path: &str, old: &str, new: &str) -> String {
         format!("*** Begin Patch\n*** Update File: {path}\n@@\n-{old}\n+{new}\n*** End Patch\n")
+    }
+    #[test]
+    fn direct_compiler_proves_input_output_scope_but_unknown_shell_stays_opaque() {
+        let root = temp();
+        fs::write(root.join("a.c"), "int a(void){return 1;}\n").unwrap();
+        fs::write(root.join("b.c"), "int b(void){return 2;}\n").unwrap();
+        let compiler = Path::new("/trusted/clang");
+        let build = |source: &str, output: &str, command: Option<&str>| {
+            object_compile(
+                &serde_json::json!({"cmd":command.map(str::to_owned).unwrap_or_else(||
+                    format!("/trusted/clang -c {source} -o {output}")),
+                    "login":false,"workdir":root})
+                .to_string(),
+                &root,
+                compiler,
+            )
+        };
+        let a = build("a.c", "a.o", None).unwrap();
+        let b = build("b.c", "b.o", None).unwrap();
+        let same_source = build("a.c", "alternate.o", None).unwrap();
+        let same_output = build("b.c", "a.o", None).unwrap();
+        assert!(!conflicts(&a, &b));
+        assert!(
+            !conflicts(&a, &same_source),
+            "two pinned reads are compatible"
+        );
+        assert!(conflicts(&a, &same_output));
+        assert!(conflicts(
+            &a,
+            &classify(
+                "functions.apply_patch",
+                &update("a.c", "int a(void){return 1;}", "int a(void){return 3;}"),
+                Some(&root)
+            )
+        ));
+        assert_eq!(can_offer(&a, &root), Ok(()));
+        fs::write(root.join("a.c"), "int a(void){return 4;}\n").unwrap();
+        assert_eq!(
+            can_offer(&a, &root),
+            Err("native_resource_version_conflict")
+        );
+        for command in [
+            "/trusted/clang -c a.c -o a.o; touch shared",
+            "/trusted/clang -shared a.c -o a.o",
+            "/trusted/clang -c a.c -o ../../shared.o",
+            "/trusted/clang -c a.c -o a.c",
+            "/trusted/clang -c a.c -o /outside.o",
+            "clang -c a.c -o a.o",
+        ] {
+            assert!(build("a.c", "a.o", Some(command)).is_none(), "{command}");
+        }
+        fs::remove_dir_all(root).unwrap();
     }
     #[test]
     fn nc_independent_reads_writes_and_inode_aliases() {

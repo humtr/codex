@@ -18,11 +18,45 @@ distinguishes normative Markdown from signed Provider assets, release notes and
 qualification fixtures. The final focused checks and source revisions are recorded
 in Git. This is source housekeeping, **not** new Native/Android/model acceptance.
 
-The branch has not been pushed or activated. In particular the newly named GitHub
-workflow has no inherited success from earlier `rald7-full-acceptance.yml` runs;
-any future accepted-source promotion requires the new exact workflow's own proof
-and coordinated accepted-controller references. Existing signed/current and
+The functional renames are pushed to `rewrite/rust-core` and the newly named
+Source acceptance workflow has independently passed at `cc535d18` (GitHub
+Actions run 42425389151). Historical success on the old workflow was not
+inherited. Source acceptance of the naming changes does **not** constitute
+Provider replacement, signed delivery or device activation; the operating and
 rollback generations remain the ones identified below.
+
+## Stream, HTTP 413 and Native effect recovery source (not activated)
+
+PR #27 is a source-only candidate based on the completed functional naming
+refactor. Its resource fix reconciles a stopped work's shared physical opaque
+claim only after Native Stop, no owned jobs and a complete native item-ID check;
+a read of the Provider mirror alone never authorizes release. Independent
+direct Clang object builds declare their actual source/output paths, while
+unproved commands retain opaque conflict protection. The preserved seven-file
+stream patch makes a lost SSE subscriber independent of admitted Native work,
+and error propagation reports HTTP 413 without silently replaying input.
+Reobservation after a resume-stage 413 requires an original server response
+still in IS_STREAMING, exact account, matching token and verified offset.
+
+The original unresolved incident `c3d911e2…` has one submitted app round,
+283 imported role objects, a first resume HTTP 413, no observed server
+conversation ID and Native `reconciliation_required`. That case cannot be
+classified as recovered merely because a smaller new work or a controlled
+same-response reattach passes. Preserve its original saved source, Native
+history, input and effects; verify source correlation or canonical compaction
+before authorizing any continuation. Its input is not safe to replay on an
+unknown delivery result. The separate stopped Native work `0b51cc34…` still
+has a physical shared opaque claim in the installed Provider as of this
+source review; the new recovery code has not yet run in that operating process.
+
+Focused P0 and HTTP 413 regressions passed red-before/green-after in isolated
+GitHub Actions; the combined `4c16c399` regression run 42451065597 passed
+104 JavaScript and 193 Rust library tests (2 Android-conditional ignored), plus
+the HTTP 413 Native integration test. Official optional Provider source and
+Android candidate qualification is separate from signed or active deployment.
+No Provider/MCP process replacement, live 283-object recovery, simultaneous
+Android Native builds or connected-client schema refresh is established by
+these source and CI results.
 
 ## Active operating deployment
 
