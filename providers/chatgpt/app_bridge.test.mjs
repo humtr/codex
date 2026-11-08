@@ -327,7 +327,7 @@ async function fixture(run){
  try{await run({f,bindings,original});}finally{delete globalThis[slot];delete globalThis[readSlot];delete globalThis.appBridgeFixture;globalThis.document=oldDocument;rmSync(root,{recursive:true});}
 }
 
-for(const outcome of ['recovered','second-failure','terminal','unavailable','stop','account','superseded'])
+for(const outcome of ['recovered','recovered-413','second-failure','terminal','unavailable','stop','account','superseded'])
 test('SDK exhaustion reobserves only its owned response: '+outcome,async()=>fixture(async({f,bindings})=>{
  let failed=0;const resumes=[];
  f.streamCallbacks={onRecoverableError:()=>{failed++;f.submitOptions.onCompletion('failed');}};
@@ -339,7 +339,8 @@ test('SDK exhaustion reobserves only its owned response: '+outcome,async()=>fixt
  await Promise.resolve();
  const original=f.options[0],lane=globalThis[slot].lanes.get('reattach');
  original.onResumeToken({conversationId:'server-owned',resumeToken:'SECRET'});
- original.onResume({type:'error',attemptCount:1,offset:42,isNetworkError:true,error:{errorKind:'network'}});
+ const oversizedResume=outcome==='recovered-413';
+ original.onResume({type:'error',attemptCount:1,offset:42,isNetworkError:!oversizedResume,error:oversizedResume?{responseStatus:413}:{errorKind:'network'}});
  let resolveStatus;
  f.chatGet=async(path,options)=>{
   expect(path).toBe('/conversation/{conversation_id}/stream_status');
@@ -349,7 +350,7 @@ test('SDK exhaustion reobserves only its owned response: '+outcome,async()=>fixt
   if(outcome==='unavailable')throw Error('status unavailable');
   return {status:outcome==='terminal'?'COMPLETE':'IS_STREAMING'};
  };
- original.onRecoverableError({errorKind:'network'});
+ original.onRecoverableError(oversizedResume?{responseStatus:413}:{errorKind:'network'});
  expect((await bridge({op:'snapshot',owner:'owned',lane:'reattach'})).error).toBeNull();
  // The app's obsolete failed callback must not terminate a pending rejoin.
  f.submitOptions.onCompletion('failed');
@@ -358,11 +359,11 @@ test('SDK exhaustion reobserves only its owned response: '+outcome,async()=>fixt
  if(outcome==='account')f.authLoading=true;
  if(outcome==='superseded')lane.streamSerial++;
  resolveStatus();await new Promise(resolve=>setTimeout(resolve,0));
- if(['recovered','second-failure'].includes(outcome)){
+ if(['recovered','recovered-413','second-failure'].includes(outcome)){
   expect(resumes).toHaveLength(1);
   expect(resumes[0].request).toEqual({conversation_id:'server-owned',offset:42});
   expect(resumes[0].conduitToken).toBe('SECRET');
-  if(outcome==='recovered'){
+  if(outcome==='recovered'||outcome==='recovered-413'){
    resumes[0].onUpdate({message:{id:'same-response-final',author:{role:'assistant'},channel:'final',status:'finished_successfully',end_turn:true,content:{content_type:'text',parts:['Recovered final']}}});
    resumes[0].onComplete({reason:'done'});
    f.submitOptions.onCompletion('failed');
