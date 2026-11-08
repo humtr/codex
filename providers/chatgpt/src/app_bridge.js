@@ -189,7 +189,17 @@ async function termuxCodexBridge(command) {
             // SDK has already exhausted its built-in resume. An authoritative
             // streaming observation permits one same-response reattachment,
             // not resubmission of any model input or Native effect.
-            if(reattached||!resumeNetwork||Number.isInteger(value?.responseStatus)||!Number.isSafeInteger(resumeOffset)||
+            // A 413 specifically on SDK resume may reject the observer's
+            // payload while leaving the admitted original inference streaming.
+            // Reobserve only that response at its saved offset and token,
+            // after the exact account and server status are independently checked.
+            const oversizedResume=lane.transportObservation?.resume?.stage==='error'&&
+              lane.transportObservation?.http_rejection?.stage==='resume'&&
+              lane.transportObservation.http_rejection.http_status===413&&
+              typeof resumeToken?.resumeToken==='string'&&!!resumeToken.resumeToken&&
+              resumeToken.conversationId===conversation;
+            if(reattached||(!resumeNetwork&&!oversizedResume)||
+              (Number.isInteger(value?.responseStatus)&&!oversizedResume)||!Number.isSafeInteger(resumeOffset)||
               typeof conversation!=='string'||resumeToken&&resumeToken.conversationId!==conversation||
               typeof client.resumeCompletionStream!=='function')return failed(value);
             reattached=true;
