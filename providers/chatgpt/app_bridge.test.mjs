@@ -537,6 +537,14 @@ test('a new bridge revision refuses old hooks without replacing active or idle l
  expect(globalThis[slot].revision).toBe('2'.repeat(64));
 }));
 
+test('uninitialized or disposed bridge reports missing lane on stop/snapshot and acknowledges release/dispose',async()=>fixture(async({bindings})=>{
+ delete globalThis[slot];
+ expect(await bridge({op:'release',owner:'owned',lane:'any'})).toEqual({released:true});
+ expect(await bridge({op:'dispose',owner:'owned'})).toEqual({disposed:true});
+ await expect(bridge({op:'stop',owner:'owned',lane:'any'})).rejects.toThrow('app_lane_missing');
+ await expect(bridge({op:'snapshot',owner:'owned',lane:'any'})).rejects.toThrow('app_lane_missing');
+}));
+
 test('reveal selects the exact owned local conversation without inference or host approval',async()=>fixture(async({f,bindings})=>{
  await bridge({op:'init',owner:'owned',bindings});
  await bridge({op:'open',owner:'owned',lane:'chosen',signature:{name:'owned'}});

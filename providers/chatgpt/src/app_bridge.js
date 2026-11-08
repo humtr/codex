@@ -315,8 +315,12 @@ async function termuxCodexBridge(command) {
     globalThis[slot] = state;
     return {ready: true};
   }
-  if (!state && command.op === 'release') return {released:true};
-  if (!state || state.owner !== command.owner) fail('app_bridge_owner_mismatch');
+  if (!state) {
+    if (command.op === 'release') return {released:true};
+    if (command.op === 'dispose') return {disposed:true};
+    fail('app_lane_missing');
+  }
+  if (state.owner !== command.owner) fail('app_bridge_owner_mismatch');
   // Retiring an owned observer admits no new inference or execution. Its
   // cancellation/quiescence checks still apply when the implementation changed.
   const retiring=['stop','release','dispose'].includes(command.op);

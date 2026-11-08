@@ -2658,7 +2658,11 @@ async fn stop_lane(
             }
         } else if observed == Err(Error("app_lane_missing"))
             && lane.conversation_id.is_none()
-            && http_failure(lane.last_error.as_deref()).is_some()
+            && (http_failure(lane.last_error.as_deref()).is_some()
+                || matches!(
+                    lane.last_error.as_deref(),
+                    Some("app_bridge_owner_mismatch" | "app_lane_missing")
+                ))
         {
             let identity = bridge
                 .operation(json!({"op":"identity","lane":lane.marker}))
@@ -4235,57 +4239,59 @@ mod approval_tests {
     async fn pre_conversation_http_413_cancel_requested_settles_and_admits_compacted_followup_turn()
     {
         for disposed in [false, true] {
-            let root = std::env::temp_dir().join(format!("p413-{}", random_id().unwrap()));
-            let journal = Arc::new(Journal::open(&root).unwrap());
-            let bridge = Arc::new(PreConversation413 {
-                calls: SyncMutex::new(Vec::new()),
-                disposed: AtomicBool::new(disposed),
-            });
-            let host = AppHost::new(bridge.clone(), journal.clone());
-            let mut lane = Lane::new("native-thread").unwrap();
-            lane.marker = "old-413-lane".into();
-            lane.phase = Phase::CancelRequested;
-            lane.round = "failed-413".into();
-            lane.turn = Some("failed-turn".into());
-            lane.last_error = Some("app_http_payload_too_large".into());
-            lane.identity = Some(
-                Identity::parse(&json!({
-                    "generation": "generation",
-                    "account": "account",
-                    "user": "user",
-                    "structure": "personal"
-                }))
-                .unwrap(),
-            );
-            let key = context::digest(&"native-thread");
-            journal.write(&key, &lane).unwrap();
-            let mut request = Request::parse(
-                json!({
-                    "stream": true,
-                    "model": "chatgpt-desktop/gpt-6",
-                    "input": [{"role": "user", "content": "Continue after official Native compaction"}]
-                }),
-                & crate::config::Config::default(),
-                Some("native-thread"),
-            )
-            .unwrap();
-            request.turn = Some("compacted-turn".into());
-            let (tx, mut rx) = mpsc::channel(16);
-            host.exchange(request, tx, CancellationToken::new())
-                .await
+            for error in ["app_http_payload_too_large", "app_bridge_owner_mismatch"] {
+                let root = std::env::temp_dir().join(format!("p413-{}", random_id().unwrap()));
+                let journal = Arc::new(Journal::open(&root).unwrap());
+                let bridge = Arc::new(PreConversation413 {
+                    calls: SyncMutex::new(Vec::new()),
+                    disposed: AtomicBool::new(disposed),
+                });
+                let host = AppHost::new(bridge.clone(), journal.clone());
+                let mut lane = Lane::new("native-thread").unwrap();
+                lane.marker = "old-413-lane".into();
+                lane.phase = Phase::CancelRequested;
+                lane.round = "failed-413".into();
+                lane.turn = Some("failed-turn".into());
+                lane.last_error = Some(error.into());
+                lane.identity = Some(
+                    Identity::parse(&json!({
+                        "generation": "generation",
+                        "account": "account",
+                        "user": "user",
+                        "structure": "personal"
+                    }))
+                    .unwrap(),
+                );
+                let key = context::digest(&"native-thread");
+                journal.write(&key, &lane).unwrap();
+                let mut request = Request::parse(
+                    json!({
+                        "stream": true,
+                        "model": "chatgpt-desktop/gpt-6",
+                        "input": [{"role": "user", "content": "Continue after official Native compaction"}]
+                    }),
+                    & crate::config::Config::default(),
+                    Some("native-thread"),
+                )
                 .unwrap();
-            let mut texts = Vec::new();
-            while let Ok(event) = rx.try_recv() {
-                if let Event::Text { delta, .. } = event {
-                    texts.push(delta);
+                request.turn = Some("compacted-turn".into());
+                let (tx, mut rx) = mpsc::channel(16);
+                host.exchange(request, tx, CancellationToken::new())
+                    .await
+                    .unwrap();
+                let mut texts = Vec::new();
+                while let Ok(event) = rx.try_recv() {
+                    if let Event::Text { delta, .. } = event {
+                        texts.push(delta);
+                    }
                 }
+                assert_eq!(texts, vec!["RECOVERED_AFTER_413"]);
+                let saved: Lane = journal.read(&key).unwrap().unwrap();
+                assert_eq!(saved.phase, Phase::Idle);
+                assert_ne!(saved.marker, "old-413-lane");
+                assert_eq!(saved.conversation_id.as_deref(), Some("new-server-chat"));
+                std::fs::remove_dir_all(root).unwrap();
             }
-            assert_eq!(texts, vec!["RECOVERED_AFTER_413"]);
-            let saved: Lane = journal.read(&key).unwrap().unwrap();
-            assert_eq!(saved.phase, Phase::Idle);
-            assert_ne!(saved.marker, "old-413-lane");
-            assert_eq!(saved.conversation_id.as_deref(), Some("new-server-chat"));
-            std::fs::remove_dir_all(root).unwrap();
         }
     }
 }
