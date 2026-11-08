@@ -40,6 +40,7 @@ jobs:
           version=$(python3 -c 'import tomllib; print(tomllib.load(open("source/providers/chatgpt/Cargo.toml", "rb"))["package"]["rust-version"])')
           rustup toolchain install "$version" --profile minimal --component rustfmt
           cd source
+          export TMPDIR="$RUNNER_TEMP"
           cargo "+$version" fmt --manifest-path providers/chatgpt/Cargo.toml --all -- --check
           set +e
           "$BUN" test providers/chatgpt/app_bridge.test.mjs
