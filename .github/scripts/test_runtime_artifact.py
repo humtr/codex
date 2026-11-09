@@ -5,6 +5,7 @@ import io
 import json
 import os
 from pathlib import Path
+import shlex
 import shutil
 import stat
 import subprocess
@@ -21,10 +22,22 @@ from test_local_fixture_generation import elf
 SOURCE = Path(__file__).resolve().parents[2]
 
 
-def workflow_step(name):
+def workflow_step(name, openssl):
     text = (SOURCE / '.github/workflows/termux-runtime-source.yml').read_text()
     block = text.split('      - name: ' + name + '\n', 1)[1].split('\n      - name:', 1)[0]
-    return textwrap.dedent(block.split('        run: |\n', 1)[1])
+    step = textwrap.dedent(block.split('        run: |\n', 1)[1])
+    # The production workflow runs on Ubuntu, where this is /usr/bin/openssl.
+    # On Termux, execute the identical verifier with the actual installed path.
+    # Requiring the exact production argument prevents a changed or omitted
+    # verifier from being silently accepted by this host adaptation.
+    marker = '--openssl /usr/bin/openssl'
+    expected_uses = {
+        'Package runtime and preparation evidence with original modes': 1,
+        'Verify reusable raw runtime before qualification': 2,
+    }
+    if step.count(marker) != expected_uses[name]:
+        raise AssertionError('runtime workflow changed its pinned OpenSSL verifier calls')
+    return step.replace(marker, '--openssl ' + shlex.quote(str(openssl)))
 
 
 def actions_download(source, destination):
@@ -98,7 +111,7 @@ class RuntimeTransferTests(unittest.TestCase):
             (source / 'release').mkdir()
             (source / '.github/scripts/runtime_artifact.py').symlink_to(SOURCE / '.github/scripts/runtime_artifact.py')
             shutil.copy2(self.recipe, source / 'release/upstream.json')
-            packed = subprocess.run(['bash', '-c', workflow_step('Package runtime and preparation evidence with original modes')],
+            packed = subprocess.run(['bash', '-c', workflow_step('Package runtime and preparation evidence with original modes', self.openssl)],
                 cwd=root, env={**os.environ, 'RUNNER_TEMP': str(root), 'GITHUB_WORKSPACE': str(root),
                                'CODEX_RELEASE_BUILDER': str(self.builder)}, capture_output=True, text=True)
             self.assertEqual(packed.returncode, 0, packed.stderr)
@@ -212,7 +225,7 @@ class RuntimeTransferTests(unittest.TestCase):
                        'CACHE_HIT': '' if qualified else 'true', 'RUNNER_TEMP': str(root),
                        'GITHUB_WORKSPACE': str(root), 'GITHUB_OUTPUT': str(root / 'outputs'),
                        'CODEX_RELEASE_BUILDER': str(self.builder)}
-                result = subprocess.run(['bash', '-c', workflow_step('Verify reusable raw runtime before qualification')],
+                result = subprocess.run(['bash', '-c', workflow_step('Verify reusable raw runtime before qualification', self.openssl)],
                     cwd=root, env=env, capture_output=True, text=True)
                 self.assertEqual(result.returncode == 0, not rejected, result.stderr)
                 self.assertEqual((root / 'outputs').read_text() if (root / 'outputs').exists() else '',
