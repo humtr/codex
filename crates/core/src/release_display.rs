@@ -616,7 +616,7 @@ mod tests {
     #[test]
     fn release_notes_accept_escaped_non_bmp_unicode() {
         let info = publication(
-            br#"{"tag_name":"test-tag","body":"## Core\n- Unicode \ud83e\udd80 works"}"#,
+            br###"{"tag_name":"test-tag","body":"## Core\n- Unicode \ud83e\udd80 works"}"###,
             "test-tag",
         )
         .unwrap();
