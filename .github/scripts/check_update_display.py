@@ -7,7 +7,7 @@ from pathlib import Path
 from release_publication import parse_manifest
 
 
-def variants(current, target, component, publication, base_publication, *, details=False, prior_notes=False):
+def variants(current, target, component, publication, base_publication, *, details=False, prior_notes=False, legacy_base=False):
     old, old_files = parse_manifest(current)
     new, files = parse_manifest(target)
     before = {name: (digest, mode) for name, digest, mode in old_files}
@@ -22,7 +22,10 @@ def variants(current, target, component, publication, base_publication, *, detai
         prefix += f' -> {edition} #{new["release_sequence"]}'
     display = json.loads(component.read_text())['display']
     if edition == 'Full':
-        prefix += f' · Base #{display["base_sequence"]}'
+        if legacy_base:
+            prefix += ' · Base: unavailable'
+        else:
+            prefix += f' · Base #{display["base_sequence"]}'
     legacy = prefix + f' · Release date: {display["release_date"]} (UTC)'
     def original(path, tag):
         if path is None:
@@ -95,11 +98,16 @@ if __name__ == '__main__':
                 variants(args.current, args.target, args.component, args.publication, args.base_publication, details=args.details)]
     if args.allow_legacy:
         # The first update is executed by the retained previously shipped Core.
-        # Only that invocation may still emit unchanged component notes.
+        # Only that invocation may still emit unchanged component notes or
+        # treat an unadapted new base convention as unavailable before activation.
         expected.append(plain)
-        for prior_notes in (False, True):
+        for legacy_base in (False, True):
+            for prior_notes in (False, True):
+                expected.extend([[plain[0], *detail, *plain[1:]] for detail in
+                                 variants(args.current, args.target, args.component, args.publication,
+                                          args.base_publication, details=True, prior_notes=prior_notes, legacy_base=legacy_base)])
             expected.extend([[plain[0], *detail, *plain[1:]] for detail in
                              variants(args.current, args.target, args.component, args.publication,
-                                      args.base_publication, details=True, prior_notes=prior_notes)])
+                                      args.base_publication, details=False, legacy_base=legacy_base)])
     actual = args.actual.read_text().splitlines()
     assert actual in expected, (actual, expected)
