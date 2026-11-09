@@ -652,13 +652,16 @@ jobs:
           try:
               core.write_bytes(annotated)
               daemon.write_bytes(daemon_annotated)
-              result = subprocess.run(['just', 'fix', '--locked', '--target',
-                                       'aarch64-unknown-linux-musl', '-p', 'codex-tui'])
-              if core.read_bytes() != annotated:
-                  raise RuntimeError('lint changed upstream Core source')
-              if daemon.read_bytes() != daemon_annotated:
-                  raise RuntimeError('lint changed upstream daemon startup source')
-              result.check_returncode()
+              # Fix mode caps denied lints to warnings. A separate non-fixing
+              # pass must enforce those lints even when no source fix is offered.
+              for command in ('fix', 'clippy'):
+                  result = subprocess.run(['just', command, '--locked', '--target',
+                                           'aarch64-unknown-linux-musl', '-p', 'codex-tui'])
+                  if core.read_bytes() != annotated:
+                      raise RuntimeError('lint changed upstream Core source')
+                  if daemon.read_bytes() != daemon_annotated:
+                      raise RuntimeError('lint changed upstream daemon startup source')
+                  result.check_returncode()
           finally:
               core.write_bytes(original)
               daemon.write_bytes(daemon_original)

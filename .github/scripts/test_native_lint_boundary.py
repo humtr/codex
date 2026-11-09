@@ -22,8 +22,8 @@ class NativeLintBoundaryTests(unittest.TestCase):
         script = textwrap.dedent(block.split('        run: |\n', 1)[1])
         self.assertEqual(subprocess.run(['bash', '-n'], input=script, text=True, capture_output=True).returncode, 0)
         git = shutil.which('git')
-        for fault in (None, 'failure', 'root-mutation', 'other-core-mutation', 'config-mutation', 'schema-mutation', 'outside-mutation', 'foreign-source',
-                      'daemon-mutation', 'foreign-daemon'):
+        for fault in (None, 'failure', 'strict-failure', 'root-mutation', 'other-core-mutation', 'config-mutation', 'schema-mutation', 'outside-mutation', 'foreign-source',
+                      'daemon-mutation', 'foreign-daemon', 'strict-root-mutation', 'strict-daemon-mutation'):
             with self.subTest(fault=fault), tempfile.TemporaryDirectory(prefix='native-lint-') as directory:
                 root = Path(directory)
                 upstream = root / 'upstream'
@@ -77,7 +77,7 @@ class NativeLintBoundaryTests(unittest.TestCase):
                 '''))
                 builder.chmod(0o755)
                 (tools / 'just').write_text(f'#!{sys.executable}\n' + textwrap.dedent('''\
-                    import os, sys
+                    import json, os, sys
                     from pathlib import Path
                     if sys.argv[1:] == ['fmt']:
                         sys.exit(0)
@@ -85,7 +85,11 @@ class NativeLintBoundaryTests(unittest.TestCase):
                     assert core.read_bytes().startswith(b'#![recursion_limit = "256"]\\n')
                     daemon = Path('codex-rs/tui/src/daemon_startup.rs')
                     assert daemon.read_bytes().startswith(b'#[allow(clippy::unnecessary_cast)]\\n')
-                    assert sys.argv[1:] == ['fix', '--locked', '--target', 'aarch64-unknown-linux-musl', '-p', 'codex-tui']
+                    mode = sys.argv[1]
+                    assert mode in ('fix', 'clippy')
+                    assert sys.argv[2:] == ['--locked', '--target', 'aarch64-unknown-linux-musl', '-p', 'codex-tui']
+                    with Path('../lint-invocations.jsonl').open('a') as log:
+                        log.write(json.dumps(sys.argv[1:]) + '\\n')
                     Path('../lint-invoked').write_text('yes')
                     fault = os.environ.get('LINT_FAULT')
                     if fault == 'root-mutation': core.write_bytes(b'changed')
@@ -94,6 +98,10 @@ class NativeLintBoundaryTests(unittest.TestCase):
                     if fault == 'config-mutation': Path('codex-rs/core/src/config/mod.rs').write_bytes(b'changed')
                     if fault == 'schema-mutation': Path('codex-rs/app-server-protocol/schema/generated.json').write_bytes(b'changed')
                     if fault == 'outside-mutation': Path('codex-rs/outside.rs').write_bytes(b'changed')
+                    if mode == 'clippy':
+                        if fault == 'strict-root-mutation': core.write_bytes(b'changed')
+                        if fault == 'strict-daemon-mutation': daemon.write_bytes(b'changed')
+                        if fault == 'strict-failure': sys.exit(11)
                     sys.exit(7 if fault == 'failure' else 0)
                 '''))
                 (tools / 'just').chmod(0o755)
@@ -124,6 +132,17 @@ class NativeLintBoundaryTests(unittest.TestCase):
                 self.assertEqual(core.read_bytes(), before)
                 self.assertEqual(daemon.read_bytes(), daemon_before)
                 self.assertEqual((root / 'lint-invoked').exists(), fault not in ('foreign-source', 'foreign-daemon'))
+                invocation_log = root / 'lint-invocations.jsonl'
+                modes = [json.loads(line)[0] for line in invocation_log.read_text().splitlines()] if invocation_log.exists() else []
+                if fault in ('foreign-source', 'foreign-daemon'):
+                    self.assertEqual(modes, [])
+                elif fault in ('failure', 'root-mutation', 'daemon-mutation'):
+                    self.assertEqual(modes, ['fix'])
+                else:
+                    self.assertEqual(modes, ['fix', 'clippy'])
+                if fault == 'strict-failure':
+                    self.assertIn('exit status 11', result.stderr)
+                    self.assertFalse((root / 'profile-tui-linted.patch').exists())
                 if fault != 'other-core-mutation':
                     self.assertEqual(other.read_bytes(), b'original\n')
                 if fault != 'config-mutation':
