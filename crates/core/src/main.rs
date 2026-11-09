@@ -98,7 +98,10 @@ fn upstream_root_command_index(args: &[OsString]) -> Option<usize> {
                 }
                 index += 1;
             }
-        } else if args[index].to_str().is_some_and(root_option_takes_separate_value) {
+        } else if args[index]
+            .to_str()
+            .is_some_and(root_option_takes_separate_value)
+        {
             index = index.saturating_add(2);
         } else {
             index += 1;
@@ -154,7 +157,10 @@ fn remote_control_daemon_subcommand_present(args: &[OsString]) -> bool {
         if !value.starts_with(b"-") || value == b"-" {
             return matches!(value, b"start" | b"stop" | b"pair");
         }
-        if args[index].to_str().is_some_and(upstream_global_option_takes_separate_value) {
+        if args[index]
+            .to_str()
+            .is_some_and(upstream_global_option_takes_separate_value)
+        {
             index = index.saturating_add(2);
         } else {
             index += 1;
@@ -1874,13 +1880,17 @@ fn run_doctor_child(
     use std::time::{Duration, Instant};
 
     let (mut reader, writer) = UnixStream::pair().map_err(QualifiedUpstreamDoctorProbeError::Io)?;
-    reader.set_nonblocking(true).map_err(QualifiedUpstreamDoctorProbeError::Io)?;
+    reader
+        .set_nonblocking(true)
+        .map_err(QualifiedUpstreamDoctorProbeError::Io)?;
     command
         .stdin(Stdio::null())
         .stdout(Stdio::from(OwnedFd::from(writer)))
         .stderr(Stdio::null())
         .process_group(0);
-    let mut child = command.spawn().map_err(QualifiedUpstreamDoctorProbeError::Io)?;
+    let mut child = command
+        .spawn()
+        .map_err(QualifiedUpstreamDoctorProbeError::Io)?;
     drop(command);
     let started = Instant::now();
     let result = (|| {
@@ -1900,7 +1910,10 @@ fn run_doctor_child(
                 Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
                 Err(error) => return Err(QualifiedUpstreamDoctorProbeError::Io(error)),
             };
-            if let Some(status) = child.try_wait().map_err(QualifiedUpstreamDoctorProbeError::Io)? {
+            if let Some(status) = child
+                .try_wait()
+                .map_err(QualifiedUpstreamDoctorProbeError::Io)?
+            {
                 if eof {
                     return Ok((status, bytes));
                 }
@@ -2105,14 +2118,23 @@ fn redact_doctor_line_with_ranges(line: &str) -> (String, Vec<(usize, usize)>) {
             {
                 delimiter += 1;
             }
-            while bytes.get(delimiter).is_some_and(|b| matches!(b, b' ' | b'\t')) {
+            while bytes
+                .get(delimiter)
+                .is_some_and(|b| matches!(b, b' ' | b'\t'))
+            {
                 delimiter += 1;
             }
-            if !bytes.get(delimiter).is_some_and(|b| matches!(b, b':' | b'=')) {
+            if !bytes
+                .get(delimiter)
+                .is_some_and(|b| matches!(b, b':' | b'='))
+            {
                 continue;
             }
             let mut value_start = delimiter + 1;
-            while bytes.get(value_start).is_some_and(|b| matches!(b, b' ' | b'\t')) {
+            while bytes
+                .get(value_start)
+                .is_some_and(|b| matches!(b, b' ' | b'\t'))
+            {
                 value_start += 1;
             }
             let quote = bytes
@@ -2149,7 +2171,15 @@ fn redact_doctor_line_with_ranges(line: &str) -> (String, Vec<(usize, usize)>) {
     }
 
     for marker in [
-        "bearer ", "sk-", "sess-", "ghp_", "github_pat_", "gho_", "ghu_", "ghs_", "ghr_",
+        "bearer ",
+        "sk-",
+        "sess-",
+        "ghp_",
+        "github_pat_",
+        "gho_",
+        "ghu_",
+        "ghs_",
+        "ghr_",
     ] {
         let mut search_from = 0;
         loop {
@@ -2432,7 +2462,13 @@ where
             .args(["-qefc"])
             .arg(doctor_script_command(selection.runtime.program_path, json))
             .arg("/dev/null")
-            .env("SHELL", script.parent().expect("qualified script has a parent").join("sh"));
+            .env(
+                "SHELL",
+                script
+                    .parent()
+                    .expect("qualified script has a parent")
+                    .join("sh"),
+            );
         command
     } else {
         use_color = false;
@@ -12816,8 +12852,18 @@ mod tests {
         let cwd = OsString::from_vec(b"--cd=/owned/\xff".to_vec());
         let server_path = OsString::from_vec(b"--ws-token-file=/owned/\xff".to_vec());
         for argv in [
-            vec![cwd.clone(), "app-server".into(), "daemon".into(), "start".into()],
-            vec!["app-server".into(), server_path, "daemon".into(), "start".into()],
+            vec![
+                cwd.clone(),
+                "app-server".into(),
+                "daemon".into(),
+                "start".into(),
+            ],
+            vec![
+                "app-server".into(),
+                server_path,
+                "daemon".into(),
+                "start".into(),
+            ],
         ] {
             assert_eq!(
                 plan_public_dispatch(argv).unwrap(),
@@ -13361,7 +13407,8 @@ mod tests {
         let plain = "token_count=2 token status: ok private_key_path=/tmp/key\n";
         assert_eq!(redact_doctor_output(plain.as_bytes(), false), plain);
         let input = "\u{1b}[31m{'password': '비밀 phrase', \"token\": \"secret\\\"tail\", authorization=Bearer api_key=longsecret}\u{1b}[0m\n";
-        let expected = "{'password': '[redacted]', \"token\": \"[redacted]\", authorization=[redacted]}\n";
+        let expected =
+            "{'password': '[redacted]', \"token\": \"[redacted]\", authorization=[redacted]}\n";
         assert_eq!(redact_doctor_output(input.as_bytes(), false), expected);
         assert_eq!(
             redact_doctor_output(input.as_bytes(), true),
@@ -13371,7 +13418,10 @@ mod tests {
         let (redacted, ranges) = redact_doctor_line_with_ranges(original);
         assert_eq!(redacted, "token=\"[redacted]\" status=ok");
         assert_eq!(ranges.len(), 1);
-        assert_eq!(&original[ranges[0].0..ranges[0].1], "api_key=비밀 secret=more");
+        assert_eq!(
+            &original[ranges[0].0..ranges[0].1],
+            "api_key=비밀 secret=more"
+        );
     }
 
     #[cfg(unix)]
@@ -13390,8 +13440,12 @@ mod tests {
     #[test]
     fn doctor_child_closes_stdin_and_preserves_output_and_exit_status() {
         let mut command = std::process::Command::new(resolve_test_shell());
-        command.args(["-c", "if read value; then exit 91; fi; printf 'doctor output'; exit 7"]);
-        let (status, output) = run_doctor_child(command, std::time::Duration::from_secs(2)).unwrap();
+        command.args([
+            "-c",
+            "if read value; then exit 91; fi; printf 'doctor output'; exit 7",
+        ]);
+        let (status, output) =
+            run_doctor_child(command, std::time::Duration::from_secs(2)).unwrap();
         assert_eq!(status.code(), Some(7));
         assert_eq!(output, b"doctor output");
     }
@@ -13401,15 +13455,23 @@ mod tests {
     fn doctor_child_enforces_deadline_and_reaps_its_process() {
         let root = temp_root("doctor-child-timeout");
         let pid_file = root.join("child-pid");
-        let sleep = resolve_test_tool("sleep").expect("sleep is required for diagnostic timeout proof");
+        let sleep =
+            resolve_test_tool("sleep").expect("sleep is required for diagnostic timeout proof");
         let mut command = std::process::Command::new(resolve_test_shell());
         command
-            .args(["-c", "printf '%s' \"$$\" > \"$1\"; exec \"$2\" 10", "doctor-test"])
+            .args([
+                "-c",
+                "printf '%s' \"$$\" > \"$1\"; exec \"$2\" 10",
+                "doctor-test",
+            ])
             .arg(&pid_file)
             .arg(sleep);
         let started = std::time::Instant::now();
         let result = run_doctor_child(command, std::time::Duration::from_millis(500));
-        assert!(matches!(result, Err(QualifiedUpstreamDoctorProbeError::TimedOut)));
+        assert!(matches!(
+            result,
+            Err(QualifiedUpstreamDoctorProbeError::TimedOut)
+        ));
         assert!(started.elapsed() < std::time::Duration::from_secs(5));
         let pid = std::fs::read_to_string(&pid_file).unwrap();
         assert!(pid.parse::<u32>().unwrap() > 1);
@@ -14246,7 +14308,10 @@ exit 73
             ("window-version", "--version\n"),
             ("window-exec", "exec\nowned\n"),
             ("legacy-frontend-profile", "-pchatgpt\n"),
-            ("legacy-frontend-config", "-c\nmodel_reasoning_effort=high\n"),
+            (
+                "legacy-frontend-config",
+                "-c\nmodel_reasoning_effort=high\n",
+            ),
         ] {
             let (root, runtime, resolver, config) = prepare_exec_fixture(scenario);
             let record = root.join("actual-args");
@@ -18832,7 +18897,10 @@ esac
             r#""\uD800x\uDC00""#,
             r#""\uD800\uDC""#,
         ] {
-            assert!(JsonCursor::new(encoded.as_bytes()).string().is_err(), "{encoded}");
+            assert!(
+                JsonCursor::new(encoded.as_bytes()).string().is_err(),
+                "{encoded}"
+            );
         }
     }
 
