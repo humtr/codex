@@ -10,7 +10,6 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsString;
 use std::fs;
 use std::io::Write;
-use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -226,13 +225,7 @@ pub fn prepare(source: &Path, version: &str, revision: &str, upstream_tui: bool)
     let changes = plan(source, upstream_tui)?;
     let merged = patch::rebase(source, include_bytes!("native_route.patch"), &changes)?;
     patch::apply(source, &merged)?;
-    let changed = git(source, &["diff", "--name-only", "-z", "HEAD"])?;
-    let files: Vec<_> = changed
-        .split(|byte| *byte == 0)
-        .filter(|path| !path.is_empty())
-        .map(|path| std::ffi::OsStr::from_bytes(path).to_string_lossy())
-        .collect();
-    Ok(json!({"version": version, "source": revision, "changed_files": files}))
+    Ok(json!({"version": version, "source": revision, "changed_files": merged.changed_files}))
 }
 
 fn manifests(root: &Path, directory: &Path, result: &mut Vec<PathBuf>) -> Result<()> {

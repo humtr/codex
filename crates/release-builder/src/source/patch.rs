@@ -10,6 +10,12 @@ use std::process::{Command, Output, Stdio};
 
 const HEADER: &str = "# codex-upstream-base ";
 
+#[derive(Debug)]
+pub(super) struct PreparedPatch {
+    bytes: Vec<u8>,
+    pub changed_files: Vec<String>,
+}
+
 pub(super) fn base(patch: &[u8]) -> Result<String> {
     let line = patch
         .split(|byte| *byte == b'\n')
@@ -209,7 +215,7 @@ pub(super) fn rebase(
     source: &Path,
     patch: &[u8],
     changes: &BTreeMap<PathBuf, String>,
-) -> Result<Vec<u8>> {
+) -> Result<PreparedPatch> {
     rebase_with_owned(source, patch, changes, &BTreeMap::new())
 }
 
@@ -218,7 +224,7 @@ pub(super) fn rebase_with_owned(
     patch: &[u8],
     changes: &BTreeMap<PathBuf, String>,
     owned: &BTreeMap<PathBuf, Vec<u8>>,
-) -> Result<Vec<u8>> {
+) -> Result<PreparedPatch> {
     let base = base(patch)?;
     run(
         source,
@@ -377,7 +383,35 @@ pub(super) fn rebase_with_owned(
                 Some(&rebased),
             )?;
         }
-        Ok(rebased)
+        // Inventory comes from the same prepared trees as the patch. A working
+        // tree diff omits newly added files until somebody changes the real
+        // index, while scanning untracked paths could admit unrelated files.
+        let changed = run(
+            source,
+            None,
+            &[
+                "diff",
+                "--name-only",
+                "--no-renames",
+                "-z",
+                &original,
+                &merged,
+            ],
+            None,
+        )?;
+        let changed_files = changed
+            .split(|byte| *byte == 0)
+            .filter(|path| !path.is_empty())
+            .map(|path| {
+                std::str::from_utf8(path)
+                    .map(str::to_owned)
+                    .map_err(|_| "non-UTF-8 adapted source path".to_string())
+            })
+            .collect::<Result<Vec<_>>>()?;
+        Ok(PreparedPatch {
+            bytes: rebased,
+            changed_files,
+        })
     })();
     if let Err(error) = fs::remove_dir_all(&temporary) {
         return Err(format!(
@@ -388,13 +422,13 @@ pub(super) fn rebase_with_owned(
     result
 }
 
-pub(super) fn apply(source: &Path, rebased: &[u8]) -> Result<()> {
-    if !rebased.is_empty() {
+pub(super) fn apply(source: &Path, rebased: &PreparedPatch) -> Result<()> {
+    if !rebased.bytes.is_empty() {
         run(
             source,
             None,
             &["apply", "--whitespace=error", "-"],
-            Some(rebased),
+            Some(&rebased.bytes),
         )?;
     }
     Ok(())
@@ -484,6 +518,11 @@ mod tests {
     fn patch_and_owned_files_apply_once_without_changing_the_real_index() {
         let fixture = Fixture::new();
         let index = run(&fixture.source, None, &["write-tree"], None).unwrap();
+        fs::write(
+            fixture.source.join("codex-rs/unrelated.rs"),
+            "unrelated input\n",
+        )
+        .unwrap();
         let merged = rebase_with_owned(
             &fixture.source,
             &fixture.patch,
@@ -491,6 +530,10 @@ mod tests {
             &fixture.owned().unwrap(),
         )
         .unwrap();
+        assert_eq!(
+            merged.changed_files,
+            ["codex-rs/tui/src/lib.rs", "codex-rs/tui/src/owned.rs"],
+        );
         assert_eq!(
             read(&fixture.source.join("codex-rs/tui/src/lib.rs")).unwrap(),
             "upstream\n"
@@ -510,6 +553,38 @@ mod tests {
             index
         );
         assert!(fixture.owned().is_err());
+    }
+
+    #[test]
+    fn native_patch_inventory_includes_added_files_without_changing_the_real_index() {
+        let mut fixture = Fixture::new();
+        fixture.patch.extend_from_slice(b"diff --git a/codex-rs/core/src/native.rs b/codex-rs/core/src/native.rs\nnew file mode 100644\n--- /dev/null\n+++ b/codex-rs/core/src/native.rs\n@@ -0,0 +1 @@\n+new Native source\n");
+        let index = run(&fixture.source, None, &["write-tree"], None).unwrap();
+        let merged = rebase(&fixture.source, &fixture.patch, &BTreeMap::new()).unwrap();
+        assert_eq!(
+            merged.changed_files,
+            ["codex-rs/core/src/native.rs", "codex-rs/tui/src/lib.rs"],
+        );
+        apply(&fixture.source, &merged).unwrap();
+        assert_eq!(
+            read(&fixture.source.join("codex-rs/core/src/native.rs")).unwrap(),
+            "new Native source\n",
+        );
+        assert_eq!(
+            run(&fixture.source, None, &["write-tree"], None).unwrap(),
+            index,
+        );
+        assert_eq!(
+            run(
+                &fixture.source,
+                None,
+                &["diff", "--name-only", "HEAD"],
+                None
+            )
+            .unwrap(),
+            b"codex-rs/tui/src/lib.rs\n",
+            "ordinary tracked diffs must not be mistaken for the prepared inventory",
+        );
     }
 
     #[test]
