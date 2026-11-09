@@ -505,6 +505,32 @@ impl SubmittedInput {
     }
 }
 
+// The same canonical input boundary decides both AppHost's stopped-round
+// continuation and Operator's permission to retire an active predecessor.
+pub(crate) fn appended_steer(previous: &Request, current: &Request) -> bool {
+    previous.thread == current.thread
+        && previous.turn.is_some()
+        && previous.turn == current.turn
+        && previous.compaction.is_none()
+        && current.compaction.is_none()
+        && SubmittedInput::capture(previous, 0).has_appended_steer(current)
+}
+
+// Host exceptions are private. Expose only the fixed, status-specific result
+// of an explicitly observed HTTP refusal to both Native and Operator callers.
+pub(crate) fn http_failure(code: Option<&str>) -> Option<Error> {
+    Some(Error(match code? {
+        "app_http_payload_too_large" => "app_http_payload_too_large",
+        "app_http_rate_limited" => "app_http_rate_limited",
+        "app_http_authentication_required" => "app_http_authentication_required",
+        "app_http_forbidden" => "app_http_forbidden",
+        "app_http_not_found" => "app_http_not_found",
+        "app_http_server_error" => "app_http_server_error",
+        "app_http_rejected" => "app_http_rejected",
+        _ => return None,
+    }))
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 struct Lane {
     native_thread: String,
@@ -2245,6 +2271,9 @@ async fn exchange(
         if state["error"].is_string() {
             lane.phase = Phase::Unknown;
             journal.write(key, lane)?;
+            if let Some(http) = http_failure(state["error"].as_str()) {
+                return Err(http);
+            }
             return Err(Error(match state["error"].as_str() {
                 Some("mcp_host_authentication_required") => "mcp_host_authentication_required",
                 Some("mcp_host_confirmation_required") => "mcp_host_confirmation_required",
@@ -2847,6 +2876,7 @@ mod approval_tests {
             Some("steer-boundary"),
         )
         .unwrap();
+        original.turn = Some("canonical-turn".into());
         original.input.push(json!({"type":"function_call_output","call_id":"prior-call","output":"original result"}));
         let boundary = SubmittedInput::capture(&original, 0);
         assert!(!boundary.has_appended_steer(&original));
@@ -2858,9 +2888,11 @@ mod approval_tests {
             .input
             .push(json!({"role":"user","content":"new steer"}));
         assert!(boundary.has_appended_steer(&continuation));
+        assert!(appended_steer(&original, &continuation));
         let mut changed = continuation.clone();
         changed.input[1]["content"] = json!("rewritten original");
         assert!(!boundary.has_appended_steer(&changed));
+        assert!(!appended_steer(&original, &changed));
         changed = continuation.clone();
         changed.input[2]["output"] = json!("changed result");
         assert!(!boundary.has_appended_steer(&changed));
@@ -2869,6 +2901,9 @@ mod approval_tests {
             .input
             .push(json!({"role":"developer","content":"policy only"}));
         assert!(!boundary.has_appended_steer(&context_only));
+        assert!(!appended_steer(&original, &context_only));
+        continuation.turn = Some("different-turn".into());
+        assert!(!appended_steer(&original, &continuation));
     }
 
     #[derive(Default)]

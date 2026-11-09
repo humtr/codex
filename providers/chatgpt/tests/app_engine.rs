@@ -700,6 +700,35 @@ async fn failed_app_snapshot_preserves_observed_submission_counts() {
 }
 
 #[tokio::test]
+async fn explicit_http_413_remains_distinct_from_unknown_app_round_and_never_replays() {
+    let root = Root::new();
+    let app = Arc::new(App::default());
+    app.state.lock().unwrap().host_block = Some("app_http_payload_too_large".into());
+    let host = AppHost::new(app.clone(), Arc::new(Journal::open(&root.0).unwrap()));
+    assert_eq!(
+        failure(&host, body(), CancellationToken::new()).await.0,
+        Error("app_http_payload_too_large")
+    );
+    let state = app.state.lock().unwrap();
+    assert_eq!(
+        state
+            .commands
+            .iter()
+            .filter(|v| v["op"] == "submit")
+            .count(),
+        1
+    );
+    assert_eq!(
+        state.commands.iter().filter(|v| v["op"] == "open").count(),
+        1
+    );
+    drop(state);
+    let observed = codex_chatgpt_provider::app::inspect_lane(&root.0, "native-fixture").unwrap();
+    assert_eq!(observed["phase"], "unknown");
+    assert_eq!(observed["app_dispatches"], 1);
+}
+
+#[tokio::test]
 async fn stopped_round_requires_a_new_native_turn_and_never_leaks_tools_or_replays_work() {
     let root = Root::new();
     let app = Arc::new(App::default());
