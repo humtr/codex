@@ -497,11 +497,17 @@ fn qualification_failure(
 
 // This input scope is dropped before continuing into the installed TUI.
 #[cfg(any(target_os = "android", target_os = "linux"))]
-struct WaitInput(Option<Termios>, Option<[usize; 5]>);
+struct WaitInput(Option<Termios>, Option<[libc::sigaction; 5]>);
 #[cfg(any(target_os = "android", target_os = "linux"))]
 static WAIT_SIGNAL: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(0);
 #[cfg(any(target_os = "android", target_os = "linux"))]
-const WAIT_SIGNALS: [i32; 5] = [1, 2, 3, 15, 20];
+const WAIT_SIGNALS: [i32; 5] = [
+    libc::SIGHUP,
+    libc::SIGINT,
+    libc::SIGQUIT,
+    libc::SIGTERM,
+    libc::SIGTSTP,
+];
 #[cfg(any(target_os = "android", target_os = "linux"))]
 extern "C" fn record_wait_signal(number: i32) {
     WAIT_SIGNAL.store(number, std::sync::atomic::Ordering::Relaxed);
@@ -521,10 +527,6 @@ struct Termios {
 unsafe extern "C" {
     fn ioctl(fd: i32, request: std::os::raw::c_ulong, ...) -> i32;
     fn read(fd: i32, buffer: *mut std::ffi::c_void, size: usize) -> isize;
-    fn signal(number: i32, handler: usize) -> usize;
-}
-unsafe extern "C" {
-    fn raise(signal: i32) -> i32;
 }
 #[cfg(not(any(target_os = "android", target_os = "linux")))]
 struct WaitInput;
@@ -543,6 +545,9 @@ impl WaitInput {
     fn pending_signal(&self) -> Option<i32> {
         None
     }
+    fn ignores(&self, _: i32) -> bool {
+        false
+    }
 }
 #[cfg(any(target_os = "android", target_os = "linux"))]
 impl WaitInput {
@@ -552,16 +557,23 @@ impl WaitInput {
             return Self(None, None);
         }
         WAIT_SIGNAL.store(0, std::sync::atomic::Ordering::Relaxed);
-        let mut handlers = [0; 5];
+        let mut handlers: [libc::sigaction; 5] = unsafe { std::mem::zeroed() };
+        let mut handler: libc::sigaction = unsafe { std::mem::zeroed() };
+        handler.sa_sigaction = record_wait_signal as *const () as libc::sighandler_t;
+        handler.sa_flags = libc::SA_RESTART;
+        unsafe { libc::sigemptyset(&mut handler.sa_mask) };
         for (index, number) in WAIT_SIGNALS.into_iter().enumerate() {
-            let previous = unsafe { signal(number, record_wait_signal as *const () as usize) };
-            if previous == usize::MAX {
-                for prior in 0..index {
-                    let _ = unsafe { signal(WAIT_SIGNALS[prior], handlers[prior]) };
-                }
+            // Query without changing SIG_IGN, even briefly: it is inherited
+            // from the caller and is also the control-key signal disposition.
+            let queried =
+                unsafe { libc::sigaction(number, std::ptr::null(), &mut handlers[index]) };
+            if queried != 0
+                || (handlers[index].sa_sigaction != libc::SIG_IGN
+                    && unsafe { libc::sigaction(number, &handler, std::ptr::null_mut()) } != 0)
+            {
+                Self::restore_handlers(&handlers[..index]);
                 return Self(None, None);
             }
-            handlers[index] = previous;
         }
         let mut input = Self(None, Some(handlers));
         let mut mode = saved;
@@ -584,13 +596,28 @@ impl WaitInput {
     }
     fn signal(&self, key: u8) -> Option<i32> {
         let saved = self.0.as_ref()?;
-        [(0, 2), (1, 3), (10, 20)]
+        [(0, libc::SIGINT), (1, libc::SIGQUIT), (10, libc::SIGTSTP)]
             .into_iter()
             .find_map(|(index, signal)| (key != 0 && key == saved.chars[index]).then_some(signal))
     }
     fn pending_signal(&self) -> Option<i32> {
         let number = WAIT_SIGNAL.swap(0, std::sync::atomic::Ordering::Relaxed);
         (number != 0).then_some(number)
+    }
+    fn ignores(&self, number: i32) -> bool {
+        self.1.as_ref().is_some_and(|handlers| {
+            WAIT_SIGNALS
+                .iter()
+                .zip(handlers)
+                .any(|(&signal, action)| signal == number && action.sa_sigaction == libc::SIG_IGN)
+        })
+    }
+    fn restore_handlers(handlers: &[libc::sigaction]) {
+        for (number, action) in WAIT_SIGNALS.into_iter().zip(handlers) {
+            if action.sa_sigaction != libc::SIG_IGN {
+                let _ = unsafe { libc::sigaction(number, action, std::ptr::null_mut()) };
+            }
+        }
     }
 }
 #[cfg(any(target_os = "android", target_os = "linux"))]
@@ -600,12 +627,10 @@ impl Drop for WaitInput {
             let _ = unsafe { ioctl(0, 0x5402, saved) };
         }
         if let Some(handlers) = self.1 {
-            for (number, handler) in WAIT_SIGNALS.into_iter().zip(handlers) {
-                let _ = unsafe { signal(number, handler) };
-            }
+            Self::restore_handlers(&handlers);
         }
         if let Some(number) = self.pending_signal() {
-            let _ = unsafe { raise(number) };
+            let _ = unsafe { libc::raise(number) };
         }
     }
 }
@@ -615,9 +640,12 @@ impl WaitInput {
     // control resumes this same updater, reacquire input and keep its original
     // choice, request receipt, polling schedule and overall wait budget.
     fn forward_signal(&mut self, number: i32, tty: bool) -> bool {
+        if self.ignores(number) {
+            return true;
+        }
         drop(std::mem::replace(self, Self::new(false)));
-        let _ = unsafe { raise(number) };
-        if number == 20 {
+        let _ = unsafe { libc::raise(number) };
+        if number == libc::SIGTSTP {
             *self = Self::new(tty);
             true
         } else {
@@ -1066,6 +1094,9 @@ esac"#,
         }
         impl Probe {
             fn start(wait_root: Option<&Path>) -> Self {
+                Self::start_with_ignored_signal(wait_root, None)
+            }
+            fn start_with_ignored_signal(wait_root: Option<&Path>, ignored: Option<i32>) -> Self {
                 let fd = unsafe { posix_openpt(2 | 0x100) };
                 assert!(fd >= 0);
                 let master = unsafe { std::fs::File::from_raw_fd(fd) };
@@ -1102,6 +1133,19 @@ esac"#,
                     command.env("CODEX_TEST_MANUAL_WAIT_ROOT", root);
                 } else {
                     command.env_remove("CODEX_TEST_MANUAL_WAIT_ROOT");
+                }
+                if let Some(number) = ignored {
+                    // Set the parent's disposition in the forked child before
+                    // exec; never change the test runner's process-wide signals.
+                    unsafe {
+                        command.pre_exec(move || {
+                            if libc::signal(number, libc::SIG_IGN) == libc::SIG_ERR {
+                                Err(std::io::Error::last_os_error())
+                            } else {
+                                Ok(())
+                            }
+                        });
+                    }
                 }
                 let child = command.spawn().unwrap();
                 Self {
@@ -1244,6 +1288,78 @@ esac"#,
             probe.master.write_all(&[probe.original.chars[0]]).unwrap();
             assert_eq!(probe.wait_exit().signal(), Some(2));
             assert_eq!(probe.mode(), probe.original);
+        }
+
+        #[test]
+        fn inherited_ignored_interrupt_key_does_not_exit() {
+            let mut probe = Probe::start_with_ignored_signal(None, Some(2));
+            probe.wait_for_input();
+            probe
+                .master
+                .write_all(&[probe.original.chars[0], b'2'])
+                .unwrap();
+            assert!(
+                probe.wait_exit().success(),
+                "ignored Ctrl-C ended the updater choice"
+            );
+            let mut output = String::new();
+            probe
+                .child
+                .stdout
+                .take()
+                .unwrap()
+                .read_to_string(&mut output)
+                .unwrap();
+            assert!(output.contains("selected=Local"), "{output}");
+            assert_eq!(probe.mode(), probe.original);
+        }
+
+        #[test]
+        fn inherited_ignored_signals_remain_ignored_while_waiting() {
+            for number in [1, 2, 3, 15, 20] {
+                let mut probe = Probe::start_with_ignored_signal(None, Some(number));
+                probe.wait_for_input();
+                let status =
+                    std::fs::read_to_string(format!("/proc/{}/status", probe.child.id())).unwrap();
+                let mask = status
+                    .lines()
+                    .find_map(|line| line.strip_prefix("SigIgn:"))
+                    .unwrap()
+                    .trim();
+                let mask = u64::from_str_radix(mask, 16).unwrap();
+                assert_ne!(
+                    mask & (1 << (number - 1)),
+                    0,
+                    "updater replaced inherited SIG_IGN for {number}"
+                );
+                assert_eq!(unsafe { kill(probe.child.id() as i32, number) }, 0);
+                if let Some(index) = match number {
+                    2 => Some(0),
+                    3 => Some(1),
+                    20 => Some(10),
+                    _ => None,
+                } {
+                    probe
+                        .master
+                        .write_all(&[probe.original.chars[index]])
+                        .unwrap();
+                }
+                probe.master.write_all(b"2").unwrap();
+                assert!(
+                    probe.wait_exit().success(),
+                    "ignored signal {number} ended the updater"
+                );
+                let mut output = String::new();
+                probe
+                    .child
+                    .stdout
+                    .take()
+                    .unwrap()
+                    .read_to_string(&mut output)
+                    .unwrap();
+                assert!(output.contains("selected=Local"), "{output}");
+                assert_eq!(probe.mode(), probe.original);
+            }
         }
 
         fn wait_roots(root: &Path) -> LocalCoreRoots {
