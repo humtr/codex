@@ -283,15 +283,19 @@ Provider/profile configuration composition does not acquire execution or server
 lifecycle authority. Existing permission/reviewer inheritance, local profile
 precedence, installed-route validation and model admission remain unchanged.
 
-- The sole added public slash name is `/switch`, for Manager execution-home
-  selection; `/profile` is not an alias. Upstream `--profile`/`-p` configuration
+- The added public slash names are `/switch`, for Manager execution-home
+  selection, and `/provider`, for the independent TUI's provider/model chooser.
+  `/profile` is not an alias. Upstream `--profile`/`-p` configuration
   layers, `/resume`, `/agents`, `/permissions` and every existing slash name/alias
-  retain upstream meaning. Provider/model selection is a separate capability.
+  retain upstream meaning. `/provider` first selects a provider, then its model
+  and reasoning level through the same Native admission as `/model`. Opening or
+  cancelling its picker cannot change the active route or submit inference.
   Before applying the native patch, the source build must inspect the pristine
   pinned upstream command inventory, including serialize/to_string aliases, and
-  refuse a `/switch` collision or an unrecognized naming representation. After
-  patching, every upstream variant/name/alias must remain identical and Switch
-  must be the sole added variant/name. This gate is mandatory in the real hosted
+  refuse a `/switch` or `/provider` collision or an unrecognized naming
+  representation. After patching, every upstream variant/name/alias must remain
+  identical; Switch and Provider must be the exact added variants/names.
+  This gate is mandatory in the real hosted
   frontend build. A future collision requires an explicit contract decision;
   silently replacing an upstream command or choosing another name is forbidden.
 - Upstream owns history, authentication, thread ancestry and kernel writer locks;

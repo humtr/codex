@@ -4,6 +4,8 @@ import json
 from pathlib import Path
 import re
 
+EXTENSIONS = {"Provider": ["provider"], "Switch": ["switch"]}
+
 
 def inventory(source):
     # Only the qualified Strum representation is understood. New syntax requires
@@ -48,11 +50,12 @@ def inventory(source):
 
 def qualify(pristine, patched=None):
     before = inventory(pristine)
-    if "Switch" in before or any("switch" in names for names in before.values()):
-        raise ValueError("upstream owns /switch; native extension refused")
-    if patched is not None and inventory(patched) != {**before, "Switch": ["switch"]}:
+    for variant, aliases in EXTENSIONS.items():
+        if variant in before or any(set(aliases).intersection(names) for names in before.values()):
+            raise ValueError("upstream owns /" + aliases[0] + "; native extension refused")
+    if patched is not None and inventory(patched) != {**before, **EXTENSIONS}:
         raise ValueError("native extension changed upstream command names or aliases")
-    return {"upstream_variants": len(before), "extension": "switch",
+    return {"upstream_variants": len(before), "extensions": [name for names in EXTENSIONS.values() for name in names],
             "patched_inventory_verified": patched is not None}
 
 

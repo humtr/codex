@@ -242,8 +242,9 @@ managed Chat work additionally needs the app/login and project configuration.
 ### Terminal with ChatGPT reasoning
 
 First complete [Provider setup](providers/chatgpt/README.md#first-time-setup).
-In Full, run `codex`, open `/model`, and choose the Provider's ChatGPT model and
-effort. A fresh idle session can switch before its first message; no initial
+In Full, run `codex`, open `/provider`, choose **ChatGPT AppHost**, then select
+its model and effort. The existing `/model` picker also remains available.
+A fresh idle session can switch before its first message; no initial
 prompt or thread name is required. This includes Manager accounts that share
 the sessions directory. The same thread is retained without an empty
 checkpoint. After updating Full, exit and reopen an existing Codex client to use

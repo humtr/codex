@@ -8,22 +8,26 @@ def source(variants, convention="kebab-case"):
 
 
 class CommandBoundaryTests(unittest.TestCase):
-    def test_existing_names_and_aliases_survive_the_only_new_command(self):
+    def test_existing_names_and_aliases_survive_the_declared_extensions(self):
         original = 'Resume, Agents, Permissions,\n#[strum(to_string = "pwd", serialize = "cwd")]\nPwd,'
-        self.assertEqual(qualify(source(original), source(original + '\nSwitch,')),
-                         {"upstream_variants": 4, "extension": "switch",
+        self.assertEqual(qualify(source(original), source(original + '\nProvider, Switch,')),
+                         {"upstream_variants": 4, "extensions": ["provider", "switch"],
                           "patched_inventory_verified": True})
 
     def test_collision_in_primary_alias_or_platform_hidden_name_refuses(self):
-        for variant in ['Switch,', '#[strum(serialize = "switch")]\nOther,',
-                        '#[strum(to_string = "switch", serialize = "other")]\nOther,',
-                        '#[cfg(windows)]\nSwitch,']:
-            with self.subTest(variant=variant), self.assertRaisesRegex(ValueError, 'upstream owns'):
-                qualify(source('Resume,\n' + variant))
+        for extension in ['Provider', 'Switch']:
+            alias = extension.lower()
+            for variant in [extension + ',', '#[strum(serialize = "' + alias + '")]\nOther,',
+                            '#[strum(to_string = "' + alias + '", serialize = "other")]\nOther,',
+                            '#[cfg(windows)]\n' + extension + ',']:
+                with self.subTest(variant=variant), self.assertRaisesRegex(ValueError, 'upstream owns'):
+                    qualify(source('Resume,\n' + variant))
 
     def test_renamed_removed_or_added_upstream_command_refuses(self):
-        for patched in ['Resume, Switch,', 'Resume, Agents, Profile, Switch,',
-                        'Resume, #[strum(serialize = "other")] Agents, Switch,']:
+        for patched in ['Resume, Provider, Switch,', 'Resume, Agents, Profile, Provider, Switch,',
+                        'Resume, #[strum(serialize = "other")] Agents, Provider, Switch,',
+                        'Resume, Agents, Switch,', 'Resume, Agents, Provider,',
+                        'Resume, Agents, #[strum(serialize = "other")] Provider, Switch,']:
             with self.subTest(patched=patched), self.assertRaisesRegex(ValueError, 'changed upstream'):
                 qualify(source('Resume, Agents,'), source(patched))
 

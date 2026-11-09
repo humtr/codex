@@ -1,7 +1,7 @@
 # Codex TUI
 
 SPEC.md owns the generation, command and update contracts. The native patch adds
-/switch to exact official source selected by release/upstream.json;
+/switch and /provider to exact official source selected by release/upstream.json;
 upstream retains every existing command and owns conversation UI/title composition.
 Manager owns execution profiles and foreground identity. TUI is a separate
 optional upstream-based frontend, not Manager's private screen. The retained
@@ -26,8 +26,9 @@ Each patch binds its exact official base in its first line. Fetch that commit
 before preparation; release-builder's `patch-base --patch PATCH` reads the binding.
 The shared Rust producer merges Native and TUI patches through Git's normal
 content/rename merge in a temporary index. Conflicts preserve the checkout and
-real index. The assembler owns collision checks and payload copying, not another
-patch engine. Build, scope, native/device and signed acceptance still apply.
+real index. The Python assembler preflights its owned inputs, then the same Rust
+producer stages their payloads together with the integration patch before any
+checkout mutation. Build, scope, native/device and signed acceptance still apply.
 Do not apply the patch alone. Qualification binds the complete owned source tree
 and assembler as well as the patch, and retains the assembled diff as evidence.
 `apply.py --check-scope --native-preparation PREPARATION` supplies the same read-only
