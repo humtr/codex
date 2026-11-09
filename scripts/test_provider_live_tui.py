@@ -92,6 +92,17 @@ class ObserverFault(unittest.TestCase):
             client.request('GET', '/v1/models')
             self.assertEqual(json.loads(client.getresponse().read()), {'data': []})
             self.assertEqual(requests, [body], 'metadata after observer loss must not replay input')
+            for attempted in (body, json.dumps(dict(json.loads(body), input='changed transient body')).encode()):
+                client.close()
+                client = http.client.HTTPConnection('127.0.0.1', proxy.server.server_port, timeout=5)
+                client.request('POST', '/v1/responses', attempted)
+                rejected = client.getresponse()
+                self.assertEqual(rejected.status, 409)
+                self.assertEqual(json.loads(rejected.read())['error']['code'], 'qualification_no_replay')
+                self.assertEqual(requests, [body], 'a replay attempt must never reach the real model')
+                self.assertEqual(proxy.records[-1]['rejected'], 'disconnected_turn_replay')
+                with self.assertRaisesRegex(AssertionError, 'resubmitted|retried'):
+                    completed_fault(proxy.records, 'owned-native-thread', 'fault-turn')
         finally:
             client.close()
             proxy.close()

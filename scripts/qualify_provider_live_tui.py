@@ -333,7 +333,26 @@ class ObservationProxy:
                     record.update(request_identity(value), model=value['model'])
                 with owner.lock:
                     record['ordinal'] = len(owner.records)
+                    replay = self.command == 'POST' and any(
+                        prior['injected'] and
+                        (prior.get('thread'), prior.get('turn')) ==
+                        (record.get('thread'), record.get('turn'))
+                        for prior in owner.records)
+                    if replay:
+                        record['rejected'] = 'disconnected_turn_replay'
                     owner.records.append(record)
+                if replay:
+                    # Retain the attempt as a failed acceptance assertion without
+                    # submitting another real model operation for the cut turn.
+                    data = b'{"error":{"code":"qualification_no_replay","message":"The disconnected Native turn cannot be resubmitted."}}'
+                    self.send_response(409)
+                    self.send_header('Content-Type', 'application/json')
+                    self.send_header('Content-Length', str(len(data)))
+                    self.send_header('Connection', 'close')
+                    self.end_headers()
+                    self.close_connection = True
+                    self.wfile.write(data)
+                    return
                 upstream = http.client.HTTPConnection('127.0.0.1', owner.port, timeout=650)
                 observed = True
                 try:
