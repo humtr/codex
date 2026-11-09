@@ -214,10 +214,34 @@ def probe(args):
             screen = ''
             # Whitespace closes slash-name completion before submitting the
             # command, so Enter cannot merely accept an autocomplete candidate.
-            submit('/model ')
-            wait(lambda: 'Select Model and Effort' in screen and
-                 'ChatGPT · GPT-6' in screen and 'GPT-6.1-Sol' in screen)
-            os.write(master, b'\x1b[F')
+            if args.selection_command == 'model':
+                submit('/model ')
+                wait(lambda: 'Select Model and Effort' in screen and
+                     'ChatGPT · GPT-6' in screen and 'GPT-6.1-Sol' in screen)
+                # The opposite provider is the appended final model row in
+                # this deliberately two-model fixture.
+                os.write(master, b'\x1b[F')
+            else:
+                before = rpc(home, 'thread/read',
+                             {'threadId': thread, 'includeTurns': False})['thread']
+                before_requests = len(requests)
+                target = 'openai' if before['modelProvider'] == 'chatgpt_desktop' else 'chatgpt_desktop'
+                submit('/provider ')
+                wait(lambda: 'Select Provider' in screen and
+                     'OpenAI / Codex' in screen and 'ChatGPT AppHost' in screen)
+                opened = rpc(home, 'thread/read',
+                             {'threadId': thread, 'includeTurns': False})['thread']
+                assert opened['id'] == thread and opened['modelProvider'] == before['modelProvider']
+                assert len(requests) == before_requests, 'opening the Provider picker must not infer'
+                # Provider rows have a stable declared order, independently
+                # of which provider supplied the currently active catalog.
+                os.write(master, b'\x1b[H' if target == 'openai' else b'\x1b[F')
+                drain(.3)
+                screen = ''
+                os.write(master, b'\r')
+                label = 'GPT-6.1-Sol' if target == 'openai' else 'ChatGPT · GPT-6'
+                wait(lambda: 'Select Model and Effort' in screen and label in screen)
+                os.write(master, b'\x1b[H')
             drain(.3)
             os.write(master, b'\r')
 
@@ -264,6 +288,7 @@ def probe(args):
             assert [row['payload']['thread_settings']['model_provider_id'] for row in settings] == ['chatgpt_desktop', 'openai'], 'native audit must retain the actual provider roundtrip'
             accepted = True
             report = {'accepted': True, 'actualAndroidTerminal': True, 'sameThread': True,
+                    'selectionCommand': '/' + args.selection_command,
                     'emptyRoundtrip': True, 'syntheticResponsesRequests': 0, 'chatSubmissions': 0,
                     'checkpointsInjected': 0, 'managerAbsent': args.without_manager,
                     'sharedSessionsDirectory': args.shared_sessions,
@@ -341,8 +366,6 @@ def probe(args):
             assert 'tools' not in requests[-1], 'saved Chat got non-Lite fallback model metadata'
             assert 'Continue the owned Chat fixture' in json.dumps(requests[-1]['input'])
             print('Cold saved-Chat resume and follow-up settled', flush=True)
-        # The provider's own model appears first; the opposite provider is the
-        # appended final row in this deliberately two-model fixture.
         before_return = public(thread)['turns']
         before_return_requests = len(requests)
         choose_other_provider()
@@ -474,6 +497,7 @@ def probe(args):
                            'unloadedReceivingTurn': resumed['turns'][-1]['id']}
         accepted = True
         report = {'accepted': True, 'actualAndroidTerminal': True, 'sameThread': True,
+                'selectionCommand': '/' + args.selection_command,
                 'nativeToChatNoInference': True, 'chatToNativeSummaries': 0,
                 'syntheticResponsesRequests': len(requests), 'chatSubmissions': 0,
                 'providerCheckpointReal': True, 'chatRepliesSynthetic': True,
@@ -539,6 +563,8 @@ if __name__ == '__main__':
         parser.add_argument('--' + name, type=Path, required=True)
     parser.add_argument('--queue', action='store_true', help='run the supplied exact Provider executable for warm and unloaded native queue proof')
     parser.add_argument('--without-manager', action='store_true')
+    parser.add_argument('--selection-command', choices=['provider', 'model'], default='provider',
+                        help='terminal picker to exercise; retain /model coverage with model')
     scenario = parser.add_mutually_exclusive_group()
     scenario.add_argument('--empty-roundtrip', action='store_true',
                         help='switch a genuinely fresh thread native to Chat and back without any model turn')
