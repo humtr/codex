@@ -98,27 +98,37 @@ fn observe(
 ) -> color_eyre::Result<AccountObservation> {
     match result {
         Ok(account) => Ok(AccountObservation::Available(account)),
-        Err(error)
-            if independent_provider
-                && error.chain().any(|cause| {
-                    matches!(
-                        cause.downcast_ref::<codex_app_server_client::TypedRequestError>(),
-                        Some(codex_app_server_client::TypedRequestError::Server { method, source })
-                            if method == "account/read" && source.code == -32603
-                                && source.data.as_ref().and_then(|data| data.get("reason"))
-                                    .and_then(serde_json::Value::as_str)
-                                    == Some("accountAuthenticationUnavailable")
-                    )
-                }) =>
-        {
-            Ok(AccountObservation::Unavailable {
-                requires_openai_auth,
-                error: format!(
-                    "OpenAI account information is unavailable: {error}. Use /login to repair sign-in or /provider to choose another installed provider."
-                ),
-            })
+        Err(error) => {
+            let message = error.chain().find_map(|cause| {
+                match cause.downcast_ref::<codex_app_server_client::TypedRequestError>() {
+                    Some(codex_app_server_client::TypedRequestError::Server { method, source })
+                        if independent_provider
+                            && method == "account/read"
+                            && source.code == -32603
+                            && source
+                                .data
+                                .as_ref()
+                                .and_then(|data| data.get("reason"))
+                                .and_then(serde_json::Value::as_str)
+                                == Some("accountAuthenticationUnavailable") =>
+                    {
+                        Some(source.message.as_str())
+                    }
+                    _ => None,
+                }
+            });
+            if let Some(message) = message {
+                tracing::warn!(%error, "OpenAI account observation unavailable");
+                Ok(AccountObservation::Unavailable {
+                    requires_openai_auth,
+                    error: format!(
+                        "OpenAI account information is unavailable: {message} Use /login to repair sign-in or /provider to choose another installed provider."
+                    ),
+                })
+            } else {
+                Err(error)
+            }
         }
-        Err(error) => Err(error),
     }
 }
 
@@ -158,8 +168,13 @@ mod tests {
     #[test]
     fn account_observation_preserves_unavailable_auth_without_fabricating_an_account() {
         for required in [false, true] {
-            let observation =
-                observe(Err(rejected_account("account/read")), true, required).unwrap();
+            let observation = observe(
+                Err(rejected_account("account/read")
+                    .wrap_err("account/read failed during TUI bootstrap")),
+                true,
+                required,
+            )
+            .unwrap();
             assert!(observation.account().is_none());
             assert_eq!(observation.requires_openai_auth(), required);
             let (account, routing, requires_auth, error) = observation.into_presentation();
@@ -170,6 +185,8 @@ mod tests {
             assert!(error.contains("refresh token was revoked"));
             assert!(error.contains("/provider"));
             assert!(error.contains("/login"));
+            assert!(!error.contains("accountAuthenticationUnavailable"));
+            assert!(!error.contains("-32603"));
         }
     }
 
