@@ -2099,10 +2099,7 @@ fn redact_doctor_line_with_ranges(line: &str) -> (String, Vec<(usize, usize)>) {
 
     for key in SENSITIVE_KEYS {
         let mut search_from = 0;
-        loop {
-            let Some(key_offset) = lowered[search_from..].find(key) else {
-                break;
-            };
+        while let Some(key_offset) = lowered[search_from..].find(key) {
             let key_start = search_from + key_offset;
             let after_key = key_start + key.len();
             search_from = after_key;
@@ -2182,10 +2179,7 @@ fn redact_doctor_line_with_ranges(line: &str) -> (String, Vec<(usize, usize)>) {
         "ghr_",
     ] {
         let mut search_from = 0;
-        loop {
-            let Some(marker_offset) = lowered[search_from..].find(marker) else {
-                break;
-            };
+        while let Some(marker_offset) = lowered[search_from..].find(marker) {
             let start = search_from + marker_offset;
             let value_start = start + marker.len();
             search_from = value_start;
