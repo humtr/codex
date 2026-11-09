@@ -8395,31 +8395,24 @@ fn activate_prepared_local_release(
         prepared.before.current_key,
         "active generation descriptor id does not match current",
     )?;
-    let active_core_binding =
-        active_core_entrypoint_binding_with_state(roots, &active_loaded, &prepared.before)?;
-
-    let rollback = if let Some(core_path) = prepared.staged_loaded.core_path.as_ref() {
-        let candidate_digest = &prepared.staged_loaded.manifest.core_artifact_digest;
-        if active_core_binding
-            .as_ref()
-            .is_some_and(|binding| binding.digest == *candidate_digest)
-        {
-            None
-        } else {
-            let snapshot_generation = active_core_binding
-                .as_ref()
-                .map(|binding| binding.generation_id.as_str())
-                .unwrap_or(prepared.before.current.as_str());
-            let record = snapshot_core_entrypoint_to_rollback(roots, snapshot_generation)?;
-            if let Err(error) = install_core_entrypoint(roots, core_path, candidate_digest) {
-                let _ = install_core_entrypoint(roots, &core_rollback_path(roots), &record.digest);
-                return Err(error);
-            }
-            Some(record)
+    let rollback = prepare_core_entrypoint_for_activation(
+        roots,
+        &active_loaded,
+        &prepared.before,
+        &prepared.staged_loaded,
+    )?;
+    #[cfg(test)]
+    if std::env::var_os("CODEX_TEST_KILL_AFTER_CORE_REPLACEMENT").as_deref()
+        == Some(OsStr::new("1"))
+    {
+        unsafe extern "C" {
+            fn raise(signal: i32) -> i32;
         }
-    } else {
-        None
-    };
+        // Exercise the actual process-loss boundary, without unwinding the
+        // activation lock or running the ordinary returned-error restoration.
+        unsafe { raise(9) };
+        unreachable!("SIGKILL must interrupt the updater");
+    }
     let mut io = m2_generation_state::FsActivationIo;
     let state_result = m2_generation_state::activate_pointer_state_locked(
         &state_paths,
@@ -11670,16 +11663,9 @@ struct ActiveCoreEntrypointBinding {
     digest: String,
 }
 
-fn active_core_entrypoint_binding_with_state(
-    roots: &LocalCoreRoots,
-    loaded: &LoadedLocalGeneration,
-    authoritative_state: &m2_generation_state::GenerationPointerState,
-) -> Result<Option<ActiveCoreEntrypointBinding>, LocalProductError> {
+fn active_core_entrypoint_digest(roots: &LocalCoreRoots) -> Result<String, LocalProductError> {
     use std::os::unix::fs::PermissionsExt as _;
 
-    if loaded.core_path.is_none() {
-        return Ok(None);
-    }
     let destination = stable_core_entrypoint_path(roots)?;
     let metadata = inspect_core_entrypoint_source(&destination, "inspect active Core entrypoint")?;
     if metadata.permissions().mode() & 0o7777 != 0o755 {
@@ -11687,27 +11673,114 @@ fn active_core_entrypoint_binding_with_state(
             "active Core entrypoint mode is invalid",
         ));
     }
-    let observed_digest = openssl_sha256(&roots.openssl, &destination)?;
-    if observed_digest == loaded.manifest.core_artifact_digest {
+    openssl_sha256(&roots.openssl, &destination)
+}
+
+fn core_entrypoint_binding_for_digest(
+    roots: &LocalCoreRoots,
+    loaded: &LoadedLocalGeneration,
+    authoritative_state: &m2_generation_state::GenerationPointerState,
+    observed_digest: &str,
+) -> Result<Option<ActiveCoreEntrypointBinding>, LocalProductError> {
+    if loaded.core_path.is_some() && observed_digest == loaded.manifest.core_artifact_digest {
         return Ok(Some(ActiveCoreEntrypointBinding {
             generation_id: loaded.generation_id.clone(),
-            digest: observed_digest,
+            digest: observed_digest.to_owned(),
         }));
     }
     if let Some((generation_id, digest)) = rollback_guard::guarded_core_binding_with_state(
         roots,
         authoritative_state,
         loaded,
-        &observed_digest,
+        observed_digest,
     )? {
         return Ok(Some(ActiveCoreEntrypointBinding {
             generation_id,
             digest,
         }));
     }
+    if loaded.core_path.is_none() {
+        return Ok(None);
+    }
     Err(LocalProductError::CoreEntrypoint(
         "active generation Core does not match the stable Core entrypoint",
     ))
+}
+
+fn active_core_entrypoint_binding_with_state(
+    roots: &LocalCoreRoots,
+    loaded: &LoadedLocalGeneration,
+    authoritative_state: &m2_generation_state::GenerationPointerState,
+) -> Result<Option<ActiveCoreEntrypointBinding>, LocalProductError> {
+    if loaded.core_path.is_none() {
+        return Ok(None);
+    }
+    let digest = active_core_entrypoint_digest(roots)?;
+    core_entrypoint_binding_for_digest(roots, loaded, authoritative_state, &digest)
+}
+
+fn prepare_core_entrypoint_for_activation(
+    roots: &LocalCoreRoots,
+    active: &LoadedLocalGeneration,
+    before: &m2_generation_state::GenerationPointerState,
+    candidate: &LoadedLocalGeneration,
+) -> Result<Option<CoreRollbackRecord>, LocalProductError> {
+    let Some(candidate_path) = candidate.core_path.as_ref() else {
+        verify_active_core_entrypoint_pair_with_state(roots, active, before)?;
+        return Ok(None);
+    };
+    let digest = active_core_entrypoint_digest(roots)?;
+    let active_binding = core_entrypoint_binding_for_digest(roots, active, before, &digest);
+    let candidate_digest = &candidate.manifest.core_artifact_digest;
+    if digest == *candidate_digest {
+        if matches!(active_binding, Ok(Some(ref binding)) if binding.digest == *candidate_digest) {
+            // The current generation or its authenticated rollback guard already
+            // owns this exact launcher. No Core replacement is necessary.
+            return Ok(None);
+        }
+        // A process can die after the launcher rename but before the pointer
+        // journal begins. The signed, probed candidate owns the new launcher;
+        // the existing cache must still own the original one. Reuse that pair
+        // instead of rejecting reentry or snapshotting the new launcher over it.
+        let record = match std::fs::symlink_metadata(core_rollback_meta_path(roots)) {
+            Ok(_) => read_core_entrypoint_rollback(roots)?,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                // A legacy generation has no signed Core binding. Its first
+                // coordinated update may already have the same launcher bytes.
+                // Only that unbound legacy case may create the initial cache.
+                active_binding?;
+                snapshot_core_entrypoint_to_rollback(roots, &before.current)?
+            }
+            Err(source) => {
+                return Err(LocalProductError::Io {
+                    operation: "inspect retained Core rollback binding",
+                    source,
+                })
+            }
+        };
+        let retained = core_entrypoint_binding_for_digest(roots, active, before, &record.digest)?;
+        let generation = retained
+            .as_ref()
+            .map(|binding| binding.generation_id.as_str())
+            .unwrap_or(before.current.as_str());
+        if record.generation_id != generation {
+            return Err(LocalProductError::CoreEntrypoint(
+                "retained Core rollback entrypoint is not bound to the active generation",
+            ));
+        }
+        return Ok(Some(record));
+    }
+    let binding = active_binding?;
+    let generation = binding
+        .as_ref()
+        .map(|binding| binding.generation_id.as_str())
+        .unwrap_or(before.current.as_str());
+    let record = snapshot_core_entrypoint_to_rollback(roots, generation)?;
+    if let Err(error) = install_core_entrypoint(roots, candidate_path, candidate_digest) {
+        let _ = install_core_entrypoint(roots, &core_rollback_path(roots), &record.digest);
+        return Err(error);
+    }
+    Ok(Some(record))
 }
 
 fn verify_active_core_entrypoint_pair_with_state(
@@ -25329,8 +25402,6 @@ exit 0
 
     #[cfg(unix)]
     fn b5_remote_fixture(label: &str, generation_id: &str) -> B5RemoteFixture {
-        use std::os::unix::fs::PermissionsExt;
-
         let root = temp_root(label);
         let openssl = b4_termux_openssl();
         let (home, prefix, tmp) = b4_prepare_public_environment(&root, &openssl, true);
@@ -25357,10 +25428,12 @@ exit 0
         b4_write_signed_release(&release, 2, &openssl, &private_key);
 
         let stable_entrypoint = prefix.join("bin/codex");
-        std::fs::copy(std::env::current_exe().unwrap(), &stable_entrypoint).unwrap();
-        let mut stable_mode = std::fs::metadata(&stable_entrypoint).unwrap().permissions();
-        stable_mode.set_mode(0o755);
-        std::fs::set_permissions(&stable_entrypoint, stable_mode).unwrap();
+        // Exercise real executable launcher bytes without making the fixture
+        // size depend on debug information in the whole Rust test harness.
+        b8_write_core_probe_wrapper(&stable_entrypoint);
+        let mut original = std::fs::read(&stable_entrypoint).unwrap();
+        original.extend_from_slice(b"# original stable launcher\n");
+        std::fs::write(&stable_entrypoint, original).unwrap();
 
         let base = format!("https://releases.example.invalid/codex/{generation_id}/");
         let curl_log = root.join("curl-log");
@@ -25899,6 +25972,197 @@ exit 0
         );
         std::fs::remove_file(&state_paths.activation_state_temp).unwrap();
         remove_temp_root(fixture.root);
+    }
+
+    #[cfg(unix)]
+    fn coordinated_update_killed_before_pointer(has_current_core: bool) {
+        use std::os::unix::process::ExitStatusExt as _;
+
+        let fixture = b5_remote_fixture(
+            if has_current_core {
+                "coordinated-kill-v4"
+            } else {
+                "coordinated-kill-v3"
+            },
+            "coordinated-after-kill",
+        );
+        let roots = b7_public_roots(&fixture.home, &fixture.prefix);
+        let paths = CoreStatePaths::new(&roots.state_root).unwrap();
+        let stable = fixture.prefix.join("bin/codex");
+        let original_core = std::fs::read(&stable).unwrap();
+        if has_current_core {
+            let current = roots.generation_root.join("fixture-current");
+            b2_attach_core(&current, &fixture.openssl, &stable);
+            b4_write_signed_release(&current, 1, &fixture.openssl, &fixture.private_key);
+        }
+        let before = read_pointer_state(&paths).unwrap().unwrap();
+        let interrupt = || {
+            std::process::Command::new(std::env::current_exe().unwrap())
+                .args(["tests::public_update_probe", "--exact", "--nocapture"])
+                .env(UPDATE_PROBE_ROLE, "1")
+                .env(UPDATE_PROBE_SOURCE, &fixture.release)
+                .env_remove(UPDATE_PROBE_CHANNEL)
+                .env_remove(UPDATE_PROBE_REMOTE)
+                .env("CODEX_TEST_KILL_AFTER_CORE_REPLACEMENT", "1")
+                .env("HOME", &fixture.home)
+                .env("PREFIX", &fixture.prefix)
+                .env("TMPDIR", &fixture.tmp)
+                .env_remove("SSL_CERT_FILE")
+                .env_remove("SSL_CERT_DIR")
+                .output()
+                .unwrap()
+        };
+        let killed = interrupt();
+        assert_eq!(killed.status.signal(), Some(9), "{killed:?}");
+        assert_eq!(read_pointer_state(&paths).unwrap(), Some(before.clone()));
+        assert_eq!(
+            std::fs::read(&stable).unwrap(),
+            std::fs::read(fixture.release.join("core")).unwrap()
+        );
+        assert!(std::fs::read(core_rollback_path(&roots)).unwrap() == original_core);
+        let original_record = std::fs::read(core_rollback_meta_path(&roots)).unwrap();
+        assert_eq!(
+            read_core_entrypoint_rollback(&roots).unwrap().generation_id,
+            before.current
+        );
+        assert_eq!(
+            load_activated_generation(&roots).unwrap().generation_id,
+            before.current
+        );
+        m2_b1_assert_no_transaction_files(&paths);
+
+        let killed_again = interrupt();
+        assert_eq!(killed_again.status.signal(), Some(9), "{killed_again:?}");
+        assert_eq!(read_pointer_state(&paths).unwrap(), Some(before.clone()));
+        assert!(std::fs::read(core_rollback_path(&roots)).unwrap() == original_core);
+        assert_eq!(
+            std::fs::read(core_rollback_meta_path(&roots)).unwrap(),
+            original_record
+        );
+
+        // A cache is not an authority. Reentry must reject a wrong generation
+        // binding and damaged bytes before changing the pointer or the cache.
+        let wrong_record = String::from_utf8(original_record.clone()).unwrap().replace(
+            "generation_id=fixture-current\n",
+            "generation_id=unrelated\n",
+        );
+        for damage_metadata in [true, false] {
+            if damage_metadata {
+                std::fs::write(core_rollback_meta_path(&roots), &wrong_record).unwrap();
+            } else {
+                std::fs::write(core_rollback_path(&roots), b"damaged").unwrap();
+            }
+            let rejected = b4_run_public_update(
+                &fixture.release,
+                &fixture.home,
+                &fixture.prefix,
+                &fixture.tmp,
+            );
+            assert!(
+                !rejected.status.success(),
+                "unbound rollback cache admitted: {rejected:?}"
+            );
+            assert_eq!(read_pointer_state(&paths).unwrap(), Some(before.clone()));
+            assert_eq!(
+                std::fs::read(&stable).unwrap(),
+                std::fs::read(fixture.release.join("core")).unwrap()
+            );
+            if damage_metadata {
+                assert_eq!(
+                    std::fs::read(core_rollback_meta_path(&roots)).unwrap(),
+                    wrong_record.as_bytes()
+                );
+                assert!(std::fs::read(core_rollback_path(&roots)).unwrap() == original_core);
+                std::fs::write(core_rollback_meta_path(&roots), &original_record).unwrap();
+            } else {
+                assert_eq!(
+                    std::fs::read(core_rollback_path(&roots)).unwrap(),
+                    b"damaged"
+                );
+                assert_eq!(
+                    std::fs::read(core_rollback_meta_path(&roots)).unwrap(),
+                    original_record
+                );
+                std::fs::write(core_rollback_path(&roots), &original_core).unwrap();
+            }
+        }
+
+        let retry = b4_run_public_update(
+            &fixture.release,
+            &fixture.home,
+            &fixture.prefix,
+            &fixture.tmp,
+        );
+        assert!(retry.status.success(), "retry failed: {retry:?}");
+        let after = read_pointer_state(&paths).unwrap().unwrap();
+        assert_eq!(after.current, "coordinated-after-kill");
+        assert_eq!(after.previous.as_deref(), Some(before.current.as_str()));
+        assert_eq!(after.previous_key, Some(before.current_key));
+        assert!(
+            std::fs::read(core_rollback_path(&roots)).unwrap() == original_core,
+            "retry must retain the original launcher snapshot"
+        );
+        assert_eq!(
+            std::fs::read(core_rollback_meta_path(&roots)).unwrap(),
+            original_record
+        );
+        m2_b1_assert_no_transaction_files(&paths);
+
+        let rolled_back = arh1_run_public_rollback_with_capability(
+            &fixture.home,
+            &fixture.prefix,
+            &fixture.tmp,
+            if has_current_core { "1" } else { "0" },
+        );
+        assert!(
+            rolled_back.status.success(),
+            "rollback failed: {rolled_back:?}"
+        );
+        assert_eq!(
+            read_pointer_state(&paths).unwrap().unwrap().current,
+            before.current
+        );
+        if has_current_core {
+            assert!(std::fs::read(&stable).unwrap() == original_core);
+        } else {
+            assert!(rollback_guard::read_guard(&roots).unwrap().is_some());
+            assert!(std::fs::read(core_rollback_path(&roots)).unwrap() == original_core);
+        }
+        // The normal force path must retain the same hold and clear its guard;
+        // a guard-owned launcher is not an interrupted forward replacement.
+        activate_signed_local_release_outcome_with_hold_policy(
+            &fixture.release,
+            &roots,
+            &b8_process_env(&fixture.prefix, &fixture.tmp),
+            UpdateHoldPolicy::ForceHeld,
+            None,
+        )
+        .unwrap();
+        assert_eq!(
+            read_pointer_state(&paths).unwrap().unwrap().current,
+            after.current
+        );
+        assert!(rollback_guard::read_guard(&roots).unwrap().is_none());
+        assert_eq!(
+            read_update_hold(&roots).unwrap(),
+            Some(UpdateHoldRecord {
+                generation_id: after.current,
+                release_sequence: 2,
+            })
+        );
+        remove_temp_root(fixture.root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn coordinated_v4_update_retries_after_kill_before_pointer() {
+        coordinated_update_killed_before_pointer(true);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn coordinated_v3_update_retry_preserves_original_core_snapshot() {
+        coordinated_update_killed_before_pointer(false);
     }
 
     #[cfg(unix)]
