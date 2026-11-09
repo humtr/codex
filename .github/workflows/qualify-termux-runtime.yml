@@ -430,14 +430,19 @@ jobs:
     steps:
       - name: Reject a candidate without successful execution proof
         env:
+          PRODUCER_RESULT: ${{ needs.producer.result }}
           CANDIDATE: ${{ needs.producer.outputs.candidate }}
           SMOKE_RESULT: ${{ needs.smoke.result }}
         run: |
           set -euo pipefail
-          if test "$CANDIDATE" = true && test "$SMOKE_RESULT" != success; then
-            echo "Required Android execution proof did not succeed: $SMOKE_RESULT" >&2
+          if test "$PRODUCER_RESULT" != success; then
+            echo "Required candidate production did not succeed: $PRODUCER_RESULT" >&2
             exit 1
           fi
+          case "$CANDIDATE:$SMOKE_RESULT" in
+            true:success|false:skipped) ;;
+            *) echo "Candidate decision or Android execution proof is incomplete: candidate=$CANDIDATE smoke=$SMOKE_RESULT" >&2; exit 1 ;;
+          esac
 
   smoke:
     name: Android/AArch64 executable smoke

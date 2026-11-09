@@ -1,5 +1,6 @@
 """Base-only inventory and real workflow guards, with no publication authority."""
 import hashlib
+import itertools
 import os
 from pathlib import Path
 import subprocess
@@ -15,12 +16,24 @@ ROOT = Path(__file__).resolve().parents[2]
 class BaseQualificationTests(unittest.TestCase):
     def test_candidate_cannot_pass_with_skipped_or_failed_execution_qualification(self):
         script = step('Reject a candidate without successful execution proof')
-        for candidate, status, expected in [('true','success',0),('false','skipped',0),
-                                             ('true','skipped',1),('true','failure',1),
-                                             ('true','cancelled',1)]:
-            result = subprocess.run(['bash','-c',script], capture_output=True, text=True,
-                env={**os.environ,'CANDIDATE':candidate,'SMOKE_RESULT':status})
-            self.assertEqual(result.returncode,expected,(candidate,status,result.stderr))
+        results = ('success','failure','cancelled','skipped','')
+        for producer, candidate, smoke in itertools.product(results, ('true','false','','TRUE','false '), results):
+            with self.subTest(producer=producer,candidate=candidate,smoke=smoke):
+                expected = producer=='success' and (
+                    candidate=='true' and smoke=='success' or candidate=='false' and smoke=='skipped')
+                result = subprocess.run(['bash','-c',script], capture_output=True, text=True,
+                    env={**os.environ,'PRODUCER_RESULT':producer,'CANDIDATE':candidate,'SMOKE_RESULT':smoke})
+                self.assertEqual(result.returncode==0,expected,result.stderr)
+
+    def test_failed_producer_without_a_candidate_cannot_report_qualification_success(self):
+        script = step('Reject a candidate without successful execution proof')
+        result = subprocess.run(['bash','-c',script], capture_output=True, text=True,
+            env={**os.environ,'PRODUCER_RESULT':'failure','CANDIDATE':'','SMOKE_RESULT':'skipped'})
+        self.assertNotEqual(result.returncode,0,'failed producer and absent candidate must fail this gate')
+        workflow = (ROOT/'.github/workflows/qualify-termux-runtime.yml').read_text()
+        gate = workflow.split('      - name: Reject a candidate without successful execution proof\n',1)[1]
+        gate = gate.split('\n  smoke:',1)[0]
+        self.assertIn('PRODUCER_RESULT: ${{ needs.producer.result }}',gate)
 
     def fixture(self, root):
         (root / 'helpers').mkdir()
