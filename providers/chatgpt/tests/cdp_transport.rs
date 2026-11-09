@@ -1,6 +1,25 @@
 use codex_chatgpt_provider::cdp::{Client, Descriptor, Process};
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{json, Value};
+
+// A synchronous app fixture still speaks the production preparation receipt.
+// The delayed/lost-reply tests below exercise pending and observer-only paths.
+fn bridge_reply(command: &Value, result: Value) -> Value {
+    let Some(operation) = command.get("operation") else {
+        return result;
+    };
+    let mut receipt = json!({"id":operation["id"],"generation":operation["generation"],
+        "fingerprint":operation["fingerprint"],"owner":command["owner"],"revision":command["bridgeRevision"],
+        "state":if operation["action"]=="acknowledge" {"acknowledged"} else {"settled"}});
+    if operation["action"] != "acknowledge" {
+        assert_eq!(operation["action"], "begin");
+        receipt
+            .as_object_mut()
+            .unwrap()
+            .extend(result.as_object().unwrap().clone());
+    }
+    json!({"value":receipt})
+}
 #[tokio::test]
 async fn home_context_supports_programmatic_inference_without_a_visible_composer() {
     use codex_chatgpt_provider::app::{Bridge, Remote};
@@ -41,7 +60,7 @@ async fn home_context_supports_programmatic_inference_without_a_visible_composer
                         {
                             let command: Value =
                                 serde_json::from_str(command.split_once(";\n").unwrap().0).unwrap();
-                            match command["op"].as_str().unwrap() {
+                            let result = match command["op"].as_str().unwrap() {
                                 "identity" => {
                                     json!({"value":{"account":"owned-account","user":"owned-user","structure":"personal"}})
                                 }
@@ -54,7 +73,8 @@ async fn home_context_supports_programmatic_inference_without_a_visible_composer
                                     json!({"value":{"localId":"owned-lane"}})
                                 }
                                 _ => panic!("opening may not submit inference or execute tools"),
-                            }
+                            };
+                            bridge_reply(&command, result)
                         } else {
                             assert!(expression.contains("contenteditable"));
                             json!(false)
@@ -275,6 +295,7 @@ async fn first_owned_admission_waits_for_readonly_startup_and_rejects_ambiguous_
                 reader.read_until(0, &mut bytes).await.unwrap();
                 assert_eq!(bytes.pop(), Some(0));
                 let request: Value = serde_json::from_slice(&bytes).unwrap();
+                let mut finished = false;
                 let response = match request["method"].as_str().unwrap() {
                     "Target.getTargets" => {
                         targets += 1;
@@ -311,7 +332,11 @@ async fn first_owned_admission_waits_for_readonly_startup_and_rejects_ambiguous_
                                 json!({"value":{"ready":inits>=2}})
                             }
                             "identity" => {
-                                identities += 1;
+                                if command["operation"]["action"] == "acknowledge" {
+                                    finished = identities == 2;
+                                } else {
+                                    identities += 1;
+                                }
                                 if identities == 1 {
                                     json!({"error":"app_auth_loading"})
                                 } else {
@@ -320,7 +345,7 @@ async fn first_owned_admission_waits_for_readonly_startup_and_rejects_ambiguous_
                             }
                             _ => panic!("readiness must never allocate a lane or submit inference"),
                         };
-                        json!({"result":{"value":value}})
+                        json!({"result":{"value":bridge_reply(&command, value)}})
                     }
                     _ => panic!("readiness must not create/select targets"),
                 };
@@ -330,7 +355,7 @@ async fn first_owned_admission_waits_for_readonly_startup_and_rejects_ambiguous_
                     )
                     .await
                     .unwrap();
-                if ambiguous || identities == 2 {
+                if ambiguous || finished {
                     break;
                 }
             }
@@ -487,7 +512,7 @@ async fn descriptor_maintenance_borrows_the_acquired_connection_and_fences_a_cha
     let server = tokio::spawn(async move {
         let (socket, _) = listener.accept().await.unwrap();
         let mut socket = tokio_tungstenite::accept_async(socket).await.unwrap();
-        for _ in 0..4 {
+        for _ in 0..5 {
             let Message::Text(text) = socket.next().await.unwrap().unwrap() else {
                 panic!("request expected")
             };
@@ -497,7 +522,20 @@ async fn descriptor_maintenance_borrows_the_acquired_connection_and_fences_a_cha
                     json!({"targetInfos":[{"targetId":"primary","type":"page","url":"app://-/index.html"}]})
                 }
                 "Target.attachToTarget" => json!({"sessionId":"owned-session"}),
-                "Runtime.evaluate" => json!({"result":{"value":{"value":{"account":"fixture"}}}}),
+                "Runtime.evaluate" => {
+                    let expression = request["params"]["expression"].as_str().unwrap();
+                    let command: Value = serde_json::from_str(
+                        expression
+                            .split_once("const command=")
+                            .unwrap()
+                            .1
+                            .split_once(";\n")
+                            .unwrap()
+                            .0,
+                    )
+                    .unwrap();
+                    json!({"result":{"value":bridge_reply(&command,json!({"value":{"account":"fixture"}}))}})
+                }
                 "Runtime.getIsolateId" => json!({"id":"same-connection"}),
                 _ => panic!("maintenance must not initialize or dispatch a model"),
             };
@@ -669,12 +707,12 @@ async fn remote_reattaches_verified_host_for_identity_without_submitting_work() 
                         let value = match command["op"].as_str().unwrap() {
                             "init" => panic!("identity observation must not install writer hooks"),
                             "identity" => {
-                                identity_replied = true;
+                                identity_replied = command["operation"]["action"] == "acknowledge";
                                 json!({"account":"fixture-account","user":"fixture-user","structure":"personal","present":false})
                             }
                             _ => panic!("identity reattachment must not submit work"),
                         };
-                        json!({"result":{"value":{"value":value}}})
+                        json!({"result":{"value":bridge_reply(&command, json!({"value":value}))}})
                     }
                     _ => panic!("unexpected CDP method"),
                 };
@@ -851,4 +889,407 @@ async fn new_lane_open_revalidates_bridge_initialization_on_the_same_renderer() 
             .unwrap();
     }
     peer.await.unwrap();
+}
+
+#[tokio::test(start_paused = true)]
+async fn preparation_observes_one_original_promise_across_delays_lost_acks_and_dropped_observers() {
+    use codex_chatgpt_provider::{
+        app::{Bridge, Remote},
+        protocol::Error,
+    };
+    use std::sync::{
+        atomic::{AtomicBool, AtomicUsize, Ordering},
+        Arc,
+    };
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+    for scenario in [
+        "slow_network",
+        "lost_begin_ack",
+        "lost_poll_ack",
+        "dropped_observer",
+        "unknown",
+        "fresh_read",
+    ] {
+        let (native, peer) = tokio::io::duplex(262144);
+        let (read, write) = tokio::io::split(native);
+        let remote = Arc::new(Remote::pipe(
+            Client::pipe(read, write, "original-host".into()),
+            "owner".into(),
+        ));
+        let ready = Arc::new(AtomicBool::new(false));
+        let begins = Arc::new(AtomicUsize::new(0));
+        let (observed, mut observations) = tokio::sync::mpsc::unbounded_channel();
+        let peer = {
+            let ready = ready.clone();
+            let begins = begins.clone();
+            tokio::spawn(async move {
+                let (read, mut write) = tokio::io::split(peer);
+                let mut read = BufReader::new(read);
+                let mut operation_id = None;
+                let mut polls = 0;
+                loop {
+                    let mut bytes = Vec::new();
+                    if read.read_until(0, &mut bytes).await.unwrap() == 0 {
+                        break;
+                    }
+                    assert_eq!(bytes.pop(), Some(0));
+                    let request: Value = serde_json::from_slice(&bytes).unwrap();
+                    let mut signal = None;
+                    let result = match request["method"].as_str().unwrap() {
+                        "Target.getTargets" => {
+                            json!({"targetInfos":[{"targetId":"original","type":"page","url":"app://-/index.html"}]})
+                        }
+                        "Target.attachToTarget" => json!({"sessionId":"original-session"}),
+                        "Runtime.evaluate" => {
+                            let expression = request["params"]["expression"].as_str().unwrap();
+                            let command: Value = serde_json::from_str(
+                                expression
+                                    .split_once("const command=")
+                                    .unwrap()
+                                    .1
+                                    .split_once(";\n")
+                                    .unwrap()
+                                    .0,
+                            )
+                            .unwrap();
+                            assert_eq!(request["params"]["awaitPromise"], true);
+                            let operation = &command["operation"];
+                            assert!(
+                                operation.is_object(),
+                                "read preparation must have an owned receipt"
+                            );
+                            if command["op"] == "identity" {
+                                bridge_reply(
+                                    &command,
+                                    json!({"value":{"account":"fixture-account","user":"fixture-user","structure":"personal"}}),
+                                )
+                            } else {
+                                assert_eq!(command["op"], "project_read");
+                                let id = operation["id"].as_str().unwrap().to_owned();
+                                if let Some(original) = &operation_id {
+                                    if scenario == "fresh_read" && operation["action"] == "begin" {
+                                        assert_ne!(
+                                            &id, original,
+                                            "a new read caller owns a new observation"
+                                        );
+                                        operation_id = Some(id);
+                                    } else {
+                                        assert_eq!(&id, original);
+                                    }
+                                } else {
+                                    operation_id = Some(id);
+                                }
+                                let mut receipt = json!({"id":operation["id"],"generation":operation["generation"],
+                                    "fingerprint":operation["fingerprint"],"owner":command["owner"],"revision":command["bridgeRevision"]});
+                                match operation["action"].as_str().unwrap() {
+                                    "begin" => {
+                                        assert_eq!(
+                                            begins.fetch_add(1, Ordering::SeqCst),
+                                            usize::from(
+                                                scenario == "fresh_read"
+                                                    && ready.load(Ordering::SeqCst)
+                                            ),
+                                            "never resend an app call"
+                                        );
+                                        signal = Some("begin");
+                                        receipt["state"] = json!("pending");
+                                        if scenario == "lost_begin_ack" {
+                                            observed.send("begin").unwrap();
+                                            continue;
+                                        }
+                                    }
+                                    "observe" => {
+                                        polls += 1;
+                                        signal = Some("observe");
+                                        if scenario == "lost_poll_ack" && polls == 1 {
+                                            observed.send("observe").unwrap();
+                                            continue;
+                                        }
+                                        receipt["state"] = json!(if scenario == "unknown"
+                                            || scenario == "fresh_read"
+                                                && begins.load(Ordering::SeqCst) == 1
+                                        {
+                                            "unknown"
+                                        } else if ready.load(Ordering::SeqCst) {
+                                            "settled"
+                                        } else {
+                                            "pending"
+                                        });
+                                        if receipt["state"] == "settled" {
+                                            receipt["value"] = json!({"id":"g-p-original","name":"Codex","compatible":true});
+                                        }
+                                    }
+                                    "acknowledge" => {
+                                        receipt["state"] = json!("acknowledged");
+                                    }
+                                    _ => panic!("unexpected receipt action"),
+                                }
+                                json!({"value":receipt})
+                            }
+                        }
+                        _ => panic!("read preparation may not initialize, submit or navigate"),
+                    };
+                    let result = if request["method"] == "Runtime.evaluate" {
+                        json!({"result":{"value":result}})
+                    } else {
+                        result
+                    };
+                    write
+                        .write_all(
+                            format!("{}\0", json!({"id":request["id"],"result":result})).as_bytes(),
+                        )
+                        .await
+                        .unwrap();
+                    if let Some(signal) = signal {
+                        observed.send(signal).unwrap();
+                    }
+                }
+            })
+        };
+        let mut command = json!({"op":"project_read","project":"g-p-original","lane":"original-lane","nativeThread":"original-thread","preparation":"original-native-request"});
+        if scenario == "fresh_read" {
+            command.as_object_mut().unwrap().remove("preparation");
+        }
+        let mut work = {
+            let remote = remote.clone();
+            let command = command.clone();
+            tokio::spawn(async move { remote.operation(command).await })
+        };
+        assert_eq!(observations.recv().await, Some("begin"));
+        if scenario == "lost_begin_ack" {
+            tokio::time::advance(std::time::Duration::from_secs(16)).await;
+        }
+        assert_eq!(observations.recv().await, Some("observe"));
+        // The shared CDP client continues serving a genuinely independent call
+        // while the original app's network Promise remains unsettled.
+        assert_eq!(
+            remote
+                .operation(json!({"op":"identity","lane":"independent"}))
+                .await
+                .unwrap()["account"],
+            "fixture-account"
+        );
+        match scenario {
+            "lost_poll_ack" => {
+                tokio::time::advance(std::time::Duration::from_secs(16)).await;
+                assert_eq!(work.await.unwrap(), Err(Error("cdp_operation_timeout")));
+                work = {
+                    let remote = remote.clone();
+                    let command = command.clone();
+                    tokio::spawn(async move { remote.operation(command).await })
+                };
+                assert_eq!(observations.recv().await, Some("observe"));
+            }
+            "dropped_observer" => {
+                work.abort();
+                assert!(work.await.unwrap_err().is_cancelled());
+                work = {
+                    let remote = remote.clone();
+                    let command = command.clone();
+                    tokio::spawn(async move { remote.operation(command).await })
+                };
+                assert_eq!(observations.recv().await, Some("observe"));
+            }
+            "fresh_read" => {
+                assert_eq!(work.await.unwrap(), Err(Error("app_operation_unavailable")));
+                ready.store(true, Ordering::SeqCst);
+                assert_eq!(
+                    remote.operation(command).await.unwrap()["id"],
+                    "g-p-original"
+                );
+                assert_eq!(begins.load(Ordering::SeqCst), 2);
+                peer.abort();
+                let _ = peer.await;
+                continue;
+            }
+            "unknown" => {
+                assert_eq!(work.await.unwrap(), Err(Error("app_operation_unavailable")));
+                assert_eq!(
+                    remote.operation(command).await,
+                    Err(Error("app_operation_unavailable"))
+                );
+                assert_eq!(begins.load(Ordering::SeqCst), 1);
+                peer.abort();
+                let _ = peer.await;
+                continue;
+            }
+            _ => {
+                tokio::time::advance(std::time::Duration::from_secs(16)).await;
+                tokio::task::yield_now().await;
+                assert!(
+                    !work.is_finished(),
+                    "network duration is not a CDP command timeout"
+                );
+            }
+        }
+        ready.store(true, Ordering::SeqCst);
+        let result = tokio::time::timeout(std::time::Duration::from_secs(2), work)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        assert_eq!(result["id"], "g-p-original");
+        assert_eq!(begins.load(Ordering::SeqCst), 1);
+        peer.abort();
+        let _ = peer.await;
+    }
+}
+
+#[tokio::test]
+async fn a_failed_old_observer_cannot_remove_a_new_host_connection_or_rebegin_its_operation() {
+    use codex_chatgpt_provider::{
+        app::{Bridge, Remote},
+        journal::random_id,
+        protocol::Error,
+    };
+    use std::{os::unix::fs::PermissionsExt, sync::Arc};
+    let root = std::env::temp_dir().join(format!("cdp-generation-race-{}", random_id().unwrap()));
+    std::fs::create_dir(&root).unwrap();
+    let path = root.join("host.json");
+    let old_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let new_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let process = Process::read(std::process::id()).unwrap();
+    let mut descriptor = Descriptor {
+        version: 1,
+        kind: "termux-electron-pipe".into(),
+        endpoint: format!(
+            "http://127.0.0.1:{}/",
+            old_listener.local_addr().unwrap().port()
+        ),
+        token: "a".repeat(43),
+        host: process.clone(),
+        browser: process,
+    };
+    std::fs::write(&path, serde_json::to_vec(&descriptor).unwrap()).unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+    let remote = Arc::new(Remote::new(path.clone(), "original-owner".into()));
+    let (arrived, waiting) = tokio::sync::oneshot::channel();
+    let (release, released) = tokio::sync::oneshot::channel();
+    let old_peer = tokio::spawn(async move {
+        let (socket, _) = old_listener.accept().await.unwrap();
+        let mut socket = tokio_tungstenite::accept_async(socket).await.unwrap();
+        let mut arrived = Some(arrived);
+        let mut released = Some(released);
+        loop {
+            let Message::Text(text) = socket.next().await.unwrap().unwrap() else {
+                panic!("CDP request expected")
+            };
+            let request: Value = serde_json::from_str(&text).unwrap();
+            let result = match request["method"].as_str().unwrap() {
+                "Target.getTargets" => {
+                    json!({"targetInfos":[{"targetId":"old-target","type":"page","url":"app://-/index.html"}]})
+                }
+                "Target.attachToTarget" => json!({"sessionId":"old-session"}),
+                "Runtime.evaluate" => {
+                    arrived.take().unwrap().send(()).unwrap();
+                    released.take().unwrap().await.unwrap();
+                    socket
+                        .send(Message::Text(
+                            json!({"id":request["id"],"error":{"code":-32000}})
+                                .to_string()
+                                .into(),
+                        ))
+                        .await
+                        .unwrap();
+                    break;
+                }
+                _ => panic!("old observer may not dispatch work"),
+            };
+            socket
+                .send(Message::Text(
+                    json!({"id":request["id"],"result":result})
+                        .to_string()
+                        .into(),
+                ))
+                .await
+                .unwrap();
+        }
+    });
+    let command =
+        json!({"op":"identity","lane":"old-lane","preparation":"original-native-request"});
+    let old = {
+        let remote = remote.clone();
+        let command = command.clone();
+        tokio::spawn(async move { remote.operation(command).await })
+    };
+    waiting.await.unwrap();
+    descriptor.endpoint = format!(
+        "http://127.0.0.1:{}/",
+        new_listener.local_addr().unwrap().port()
+    );
+    descriptor.token = "b".repeat(43);
+    std::fs::write(&path, serde_json::to_vec(&descriptor).unwrap()).unwrap();
+    let new_peer = tokio::spawn(async move {
+        let (socket, _) = new_listener.accept().await.unwrap();
+        let mut socket = tokio_tungstenite::accept_async(socket).await.unwrap();
+        loop {
+            let Message::Text(text) = socket.next().await.unwrap().unwrap() else {
+                panic!("CDP request expected")
+            };
+            let request: Value = serde_json::from_str(&text).unwrap();
+            let result = match request["method"].as_str().unwrap() {
+                "Target.getTargets" => {
+                    json!({"targetInfos":[{"targetId":"new-target","type":"page","url":"app://-/index.html"}]})
+                }
+                "Target.attachToTarget" => json!({"sessionId":"new-session"}),
+                "Runtime.evaluate" => {
+                    let expression = request["params"]["expression"].as_str().unwrap();
+                    let command: Value = serde_json::from_str(
+                        expression
+                            .split_once("const command=")
+                            .unwrap()
+                            .1
+                            .split_once(";\n")
+                            .unwrap()
+                            .0,
+                    )
+                    .unwrap();
+                    assert_eq!(
+                        command["lane"], "new-lane",
+                        "a lost operation cannot begin in the replacement host"
+                    );
+                    json!({"result":{"value":bridge_reply(&command,json!({"value":{"account":"new-account","user":"new-user","structure":"personal"}}))}})
+                }
+                "Runtime.getIsolateId" => json!({"id":"new-connection"}),
+                _ => panic!("replacement observation must remain read-only"),
+            };
+            socket
+                .send(Message::Text(
+                    json!({"id":request["id"],"result":result})
+                        .to_string()
+                        .into(),
+                ))
+                .await
+                .unwrap();
+            if request["method"] == "Runtime.getIsolateId" {
+                break;
+            }
+        }
+    });
+    assert_eq!(
+        remote
+            .operation(json!({"op":"identity","lane":"new-lane"}))
+            .await
+            .unwrap()["account"],
+        "new-account"
+    );
+    release.send(()).unwrap();
+    assert_eq!(old.await.unwrap(), Err(Error("cdp_operation_rejected")));
+    assert_eq!(
+        remote.operation(command).await,
+        Err(Error("app_operation_identity_changed"))
+    );
+    let current = remote.cdp_client().await.unwrap();
+    assert_eq!(current.generation.as_ref(), descriptor.generation());
+    assert_eq!(
+        current
+            .request("Runtime.getIsolateId", json!({}), None)
+            .await
+            .unwrap()["id"],
+        "new-connection"
+    );
+    old_peer.await.unwrap();
+    new_peer.await.unwrap();
+    drop(remote);
+    std::fs::remove_dir_all(root).unwrap();
 }

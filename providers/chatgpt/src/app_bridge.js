@@ -3,6 +3,48 @@
 async function termuxCodexBridge(command) {
   const slot = Symbol.for('termux.codex.app.bridge.v1');
   const fail = code => { throw Error(code); };
+  if(command.operation!=null) {
+    // This is a receipt for one existing app call, not a worker or a model
+    // lifecycle. A short CDP observation never owns the underlying Promise.
+    const operation=command.operation;
+    if(!operation||!['begin','observe','acknowledge'].includes(operation.action)||
+      typeof operation.id!=='string'||!/^[a-f0-9]{48}$/.test(operation.id)||
+      typeof operation.fingerprint!=='string'||!/^[a-f0-9]{64}$/.test(operation.fingerprint)||
+      typeof operation.generation!=='string'||!operation.generation||operation.generation.length>512||
+      typeof command.owner!=='string'||!command.owner||command.owner.length>512||
+      typeof command.bridgeRevision!=='string'||!/^[a-f0-9]{64}$/.test(command.bridgeRevision)||
+      !Array.isArray(operation.errors)||operation.errors.some(code=>typeof code!=='string'))fail('app_operation_invalid');
+    if(command.readOnlyContext!==true&&!['project_create','project_membership','chat_adopt','follow_settle'].includes(command.op))fail('app_operation_invalid');
+    const receiptSlot=Symbol.for('termux.codex.app.operations.v1');
+    const entries=globalThis[receiptSlot]??=new Map();
+    const {operation:ignored,...input}=command;
+    const declaration=JSON.stringify(input);
+    const identity={id:operation.id,owner:command.owner,generation:operation.generation,
+      revision:command.bridgeRevision,fingerprint:operation.fingerprint};
+    let receipt=entries.get(operation.id);
+    if(receipt&&(Object.keys(identity).some(key=>receipt.identity[key]!==identity[key])||receipt.declaration!==declaration))fail('app_operation_identity_changed');
+    if(operation.action==='acknowledge') {
+      if(receipt?.state==='pending')fail('app_operation_pending');
+      entries.delete(operation.id);
+      return {...identity,state:'acknowledged'};
+    }
+    if(!receipt&&operation.action==='begin') {
+      if(entries.size>=128)fail('app_operation_capacity');
+      receipt={identity,declaration,state:'pending'};
+      entries.set(operation.id,receipt);
+      // Reserve synchronously before any await. Repeated begin/observe calls
+      // can only inspect this receipt and cannot run the app operation again.
+      Promise.resolve().then(()=>termuxCodexBridge(input)).then(value=>{
+        receipt.value=value;receipt.state='settled';
+      },error=>{
+        receipt.error=operation.errors.includes(error?.message)?error.message:'app_bridge_operation_failed';
+        receipt.state='settled';
+      });
+    }
+    if(!receipt)return {...identity,state:'unknown'};
+    return {...identity,state:receipt.state,...(receipt.state==='settled'?
+      (receipt.error!=null?{error:receipt.error}:{value:receipt.value}):{})};
+  }
   // Both modes are emitted by this app's Native authentication producer.
   const chatAuth=auth=>auth && !auth.authLoading && !auth.accountLoading &&
     ['chatgpt','chatgptAuthTokens'].includes(auth.authMethod) &&
@@ -393,7 +435,8 @@ async function termuxCodexBridge(command) {
     return result;
   };
   if (['project_list','project_read','project_create'].includes(command.op)) {
-    const check = () => { const current=identity();if (['account','user','structure'].some(k=>current[k]!==command.identity?.[k])) fail('app_account_changed'); };
+    const check = () => { const selected=appScope();if(selected!==state.scope)fail('app_account_changed');const current=identity(selected);if (['account','user','structure'].some(k=>current[k]!==command.identity?.[k])) fail('app_account_changed'); };
+    const options={retry:'never',additionalHeaders:{'ChatGPT-Account-ID':command.identity?.account},assertRequestCurrent:check};
     const api=state.wire;
     if (typeof api.safeGet!=='function'||typeof api.safePost!=='function') fail('app_project_operations_unavailable');
     const project = value => {
@@ -406,12 +449,12 @@ async function termuxCodexBridge(command) {
     };
     check();
     if(command.op==='project_read') {
-      const value=await api.safeGet('/gizmos/{gizmo_id_or_short_url}',{parameters:{path:{gizmo_id_or_short_url:command.project},query:{include_file_limits:true}}});
+      const value=await api.safeGet('/gizmos/{gizmo_id_or_short_url}',{...options,parameters:{path:{gizmo_id_or_short_url:command.project},query:{include_file_limits:true}}});
       check();return project(value);
     }
     if(command.op==='project_create') {
       let value;
-      try { value=await api.safePost('/projects',{requestBody:{name:command.name,instructions:''},retry:'never',assertRequestCurrent:check}); }
+      try { value=await api.safePost('/projects',{...options,requestBody:{name:command.name,instructions:''}}); }
       catch(error) {
         if([400,401,403,404,422,429].includes(error.responseStatus))fail('project_creation_rejected');
         throw error;
@@ -421,7 +464,7 @@ async function termuxCodexBridge(command) {
     }
     const result=[],seen=new Set();let cursor=null;
     do {
-      const value=await api.safeGet('/gizmos/snorlax/sidebar',{parameters:{query:{conversations_per_gizmo:0,cursor,limit:20,owned_only:true}}});
+      const value=await api.safeGet('/gizmos/snorlax/sidebar',{...options,parameters:{query:{conversations_per_gizmo:0,cursor,limit:20,owned_only:true}}});
       check();if(!Array.isArray(value.items))fail('invalid_project_list');
       for(const item of value.items)result.push(project(item.gizmo));
       cursor=value.cursor??null;

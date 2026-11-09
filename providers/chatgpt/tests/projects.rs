@@ -456,3 +456,150 @@ async fn project_selection_preserves_configuration_on_remote_failure_and_concurr
         }
     }
 }
+
+#[tokio::test]
+async fn a_pending_project_read_blocks_only_its_existing_journal_destination_binding() {
+    use std::sync::{
+        atomic::{AtomicBool, AtomicUsize, Ordering},
+        Arc,
+    };
+    struct HeldRead {
+        app: Arc<App>,
+        held: Arc<AtomicBool>,
+        reads: Arc<AtomicUsize>,
+        entered: Arc<tokio::sync::Notify>,
+        release: Arc<tokio::sync::Notify>,
+    }
+    impl Bridge for HeldRead {
+        fn operation(&self, command: Value) -> BoxFuture<'static, Result<Value, Error>> {
+            let app = self.app.clone();
+            let held = self.held.clone();
+            let reads = self.reads.clone();
+            let entered = self.entered.clone();
+            let release = self.release.clone();
+            Box::pin(async move {
+                if command["op"] == "project_read" && command["project"] == "g-p-held" {
+                    reads.fetch_add(1, Ordering::SeqCst);
+                    if held.load(Ordering::SeqCst) {
+                        entered.notify_one();
+                        release.notified().await;
+                    }
+                }
+                app.operation(command).await
+            })
+        }
+    }
+    let (_root, journal, settings, identity) = setup();
+    let journal = Arc::new(journal);
+    let app = Arc::new(App::default());
+    app.0.lock().unwrap().projects = vec![
+        json!({"id":"g-p-held","name":"Codex","compatible":true}),
+        json!({"id":"g-p-other","name":"Independent","compatible":true}),
+    ];
+    resolve(app.as_ref(), &journal, &settings, &identity)
+        .await
+        .unwrap();
+    let bridge = Arc::new(HeldRead {
+        app: app.clone(),
+        held: Arc::new(AtomicBool::new(true)),
+        reads: Arc::new(AtomicUsize::new(0)),
+        entered: Arc::new(tokio::sync::Notify::new()),
+        release: Arc::new(tokio::sync::Notify::new()),
+    });
+    let first = {
+        let bridge = bridge.clone();
+        let journal = journal.clone();
+        let settings = settings.clone();
+        let identity = identity.clone();
+        tokio::spawn(async move { resolve(bridge.as_ref(), &journal, &settings, &identity).await })
+    };
+    bridge.entered.notified().await;
+    let same = {
+        let bridge = bridge.clone();
+        let journal = journal.clone();
+        let settings = settings.clone();
+        let identity = identity.clone();
+        tokio::spawn(async move { resolve(bridge.as_ref(), &journal, &settings, &identity).await })
+    };
+    let mut independent = settings.clone();
+    independent.project_name = Some("Independent".into());
+    assert_eq!(
+        tokio::time::timeout(
+            std::time::Duration::from_secs(1),
+            resolve(bridge.as_ref(), &journal, &independent, &identity)
+        )
+        .await
+        .expect("an unrelated destination must not acquire the held binding lock")
+        .unwrap()
+        .as_deref(),
+        Some("g-p-other")
+    );
+    assert!(!same.is_finished());
+    assert_eq!(bridge.reads.load(Ordering::SeqCst), 1);
+    bridge.held.store(false, Ordering::SeqCst);
+    bridge.release.notify_one();
+    assert_eq!(first.await.unwrap().unwrap().as_deref(), Some("g-p-held"));
+    assert_eq!(same.await.unwrap().unwrap().as_deref(), Some("g-p-held"));
+    assert_eq!(app.0.lock().unwrap().creates, 0);
+}
+
+#[tokio::test]
+async fn concurrent_same_destination_reconciles_one_uncertain_creation() {
+    use std::sync::Arc;
+    struct HeldCreate {
+        app: Arc<App>,
+        entered: Arc<tokio::sync::Notify>,
+        release: Arc<tokio::sync::Notify>,
+    }
+    impl Bridge for HeldCreate {
+        fn operation(&self, command: Value) -> BoxFuture<'static, Result<Value, Error>> {
+            let creating = command["op"] == "project_create";
+            let result = self.app.operation(command);
+            let entered = self.entered.clone();
+            let release = self.release.clone();
+            Box::pin(async move {
+                if creating {
+                    entered.notify_one();
+                    release.notified().await;
+                }
+                result.await
+            })
+        }
+    }
+    let (_root, journal, settings, identity) = setup();
+    let journal = Arc::new(journal);
+    let app = Arc::new(App::default());
+    app.0.lock().unwrap().lose_reply = true;
+    let bridge = Arc::new(HeldCreate {
+        app: app.clone(),
+        entered: Arc::new(tokio::sync::Notify::new()),
+        release: Arc::new(tokio::sync::Notify::new()),
+    });
+    let first = {
+        let bridge = bridge.clone();
+        let journal = journal.clone();
+        let settings = settings.clone();
+        let identity = identity.clone();
+        tokio::spawn(async move { resolve(bridge.as_ref(), &journal, &settings, &identity).await })
+    };
+    bridge.entered.notified().await;
+    let second = {
+        let bridge = bridge.clone();
+        let journal = journal.clone();
+        let settings = settings.clone();
+        let identity = identity.clone();
+        tokio::spawn(async move { resolve(bridge.as_ref(), &journal, &settings, &identity).await })
+    };
+    tokio::task::yield_now().await;
+    assert!(!second.is_finished());
+    bridge.release.notify_one();
+    assert_eq!(
+        first.await.unwrap(),
+        Err(Error("project_creation_unconfirmed"))
+    );
+    assert_eq!(
+        second.await.unwrap().unwrap().as_deref(),
+        Some("g-p-created")
+    );
+    assert_eq!(app.0.lock().unwrap().creates, 1);
+}

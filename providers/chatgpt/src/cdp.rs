@@ -389,6 +389,9 @@ pub struct App {
     session: String,
 }
 impl App {
+    pub(crate) fn same_session(&self, other: &Self) -> bool {
+        self.session == other.session && self.client.queue.same_channel(&other.client.queue)
+    }
     pub(crate) async fn detach(&self) -> Result<(), Error> {
         self.client
             .request(

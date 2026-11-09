@@ -2,10 +2,12 @@ import {test,expect} from 'bun:test';
 import {readFileSync,mkdtempSync,writeFileSync,rmSync} from 'node:fs';
 import {join} from 'node:path';
 import {pathToFileURL} from 'node:url';
+import {createHash} from 'node:crypto';
 
 const rawBridge=new Function('return ('+readFileSync(new URL('./src/app_bridge.js',import.meta.url),'utf8')+')')();
 const bridge=command=>rawBridge({bridgeRevision:'1'.repeat(64),...command});
 const slot=Symbol.for('termux.codex.app.bridge.v1');
+const operationSlot=Symbol.for('termux.codex.app.operations.v1');
 test('read-only model discovery uses actual offered picker options without acquiring a lane',async()=>fixture(async({f,bindings})=>{
  f.catalog.versionOptions=[{label:'An unseen family',defaultModelSlug:'new-auto',options:[{slug:'new-thinking',lane:'thinking',title:'High',actionPillShortName:'Thinking',isAvailable:true,thinkingEffort:'extended',internalOnly:'not exported'}]}];
  const result=await bridge({op:'model_catalog',owner:'reader',readOnlyContext:true,bindings});
@@ -284,7 +286,7 @@ async function fixture(run){
  const root=mkdtempSync(join(process.env.TMPDIR,'app-bridge-'));
  const oldDocument=globalThis.document;
  const readSlot=Symbol.for('termux.codex.app.read-backoff.v1');
- delete globalThis[readSlot];
+ delete globalThis[readSlot];delete globalThis[operationSlot];
  const wire={async safeGet(path,options){const f=globalThis.appBridgeFixture;if(f.chatGet)return f.chatGet(path,options);if(path==='/conversation/{conversation_id}')return {gizmo_id:f.membership};return path==='/gizmos/snorlax/sidebar'?{items:f.projects.map(gizmo=>({gizmo})),cursor:null}:f.projects.find(v=>v.gizmo.id===options.parameters.path.gizmo_id_or_short_url);},async safePost(path,options){const f=globalThis.appBridgeFixture;expect(path).toBe('/projects');expect(options.retry).toBe('never');expect(options.requestBody).toEqual({name:options.requestBody.name,instructions:''});options.assertRequestCurrent();const p={gizmo:{id:'g-p-fixture',display:{name:options.requestBody.name},author:{user_id:'user'},share_recipient:'private'}};f.projects.push(p);return {resource:p};},streamPost(_path,options){const body=JSON.parse(options.body);globalThis.appBridgeFixture.sent.push(body);options.chatgptSse?.onBeforeRequestStart?.({});return true;}};
  const client={prepareCompletionStream(request){return request;},startCompletionStream(options){
   if(globalThis.appBridgeFixture.rejectStart)return Promise.reject(Error('fixture async failure'));
@@ -324,7 +326,7 @@ async function fixture(run){
  f.scope=scope;
  globalThis.document={querySelector(){return {__reactFiberFixture:{memoizedState:{memoizedState:{current:f.scope}}}};}};
  const bindings={initial:pathToFileURL(join(root,'initial.mjs')).href,shared:pathToFileURL(join(root,'shared.mjs')).href};
- try{await run({f,bindings,original});}finally{delete globalThis[slot];delete globalThis[readSlot];delete globalThis.appBridgeFixture;globalThis.document=oldDocument;rmSync(root,{recursive:true});}
+ try{await run({f,bindings,original});}finally{delete globalThis[slot];delete globalThis[readSlot];delete globalThis[operationSlot];delete globalThis.appBridgeFixture;globalThis.document=oldDocument;rmSync(root,{recursive:true});}
 }
 
 for(const outcome of ['recovered','recovered-413','recovered-413-token-only','recovered-404','terminal-404','second-failure','terminal','unavailable','stop','account','superseded'])
@@ -1121,4 +1123,93 @@ test('old submission cannot settle a newer host-reply stream',async()=>fixture(a
  const current=await bridge({op:'snapshot',owner:'owned',lane:'late'});
  expect(current.streamActive).toBe(true);expect(current.terminals).toEqual([]);
  expect(current.messages.some(message=>message.id==='late-final')).toBe(false);
+}));
+
+
+function appOperation(command,id='a'.repeat(48)) {
+ const input={bridgeRevision:'1'.repeat(64),...command};
+ const fingerprint=createHash('sha256').update(JSON.stringify(input)).digest('hex');
+ return {...input,operation:{id,generation:'owned-generation',fingerprint,action:'begin',
+   errors:['app_account_changed','project_creation_rejected']}};
+}
+async function settledOperation(command) {
+ for(let i=0;i<100;i++) {
+  const value=await bridge({...command,operation:{...command.operation,action:'observe'}});
+  if(value.state!=='pending')return value;
+  await Bun.sleep(1);
+ }
+ throw Error('fixture operation did not settle');
+}
+test('preparation receipt outlives its CDP observer without restarting the app operation',async()=>fixture(async({f,bindings})=>{
+ let complete,calls=0;
+ f.chatGet=(_path,options)=>{
+  calls++;expect(options.retry).toBe('never');expect(options.additionalHeaders).toEqual({'ChatGPT-Account-ID':'account'});expect(typeof options.assertRequestCurrent).toBe('function');
+  options.assertRequestCurrent();return new Promise(resolve=>{complete=resolve;});
+ };
+ const command=appOperation({op:'project_list',owner:'reader',readOnlyContext:true,bindings,
+   identity:{account:'account',user:'user',structure:'personal'}});
+ expect((await bridge(command)).state).toBe('pending');
+ for(let i=0;!complete&&i<100;i++)await Bun.sleep(1);
+ expect(calls).toBe(1);
+ // Losing either the begin ACK or a pending poll never authorizes another GET.
+ expect((await bridge(command)).state).toBe('pending');
+ expect((await bridge({...command,operation:{...command.operation,action:'observe'}})).state).toBe('pending');
+ const independent=appOperation({op:'identity',owner:'reader',readOnlyContext:true,bindings},'b'.repeat(48));
+ await bridge(independent);
+ expect((await settledOperation(independent)).value.account).toBe('account');
+ expect(calls).toBe(1);expect(f.created).toBe(0);expect(f.sent).toHaveLength(0);
+ for(const patch of [{owner:'other'},{bridgeRevision:'2'.repeat(64)},
+   {operation:{...command.operation,generation:'replacement'}},
+   {operation:{...command.operation,fingerprint:'b'.repeat(64)}},
+   {identity:{account:'other',user:'user',structure:'personal'}}]) {
+  await expect(bridge({...command,...patch})).rejects.toThrow('app_operation_identity_changed');
+ }
+ await expect(bridge({...command,operation:{...command.operation,action:'acknowledge'}})).rejects.toThrow('app_operation_pending');
+ complete({items:[],cursor:null});
+ const result=await settledOperation(command);
+ expect(result).toMatchObject({state:'settled',id:command.operation.id,fingerprint:command.operation.fingerprint,
+   owner:'reader',generation:'owned-generation',revision:'1'.repeat(64),value:[]});
+ expect(await settledOperation(command)).toEqual(result);expect(calls).toBe(1);
+ expect((await bridge({...command,operation:{...command.operation,action:'acknowledge'}})).state).toBe('acknowledged');
+ expect((await bridge({...command,operation:{...command.operation,action:'observe'}})).state).toBe('unknown');
+ expect(calls).toBe(1);expect(globalThis[slot]).toBeUndefined();
+}));
+test('a lost project-create observer preserves one app-owned POST and static terminal errors',async()=>fixture(async({f,bindings})=>{
+ await bridge({op:'init',owner:'owned',bindings});
+ let complete,posts=0;
+ f.wire.safePost=(_path,options)=>{
+  posts++;expect(options.retry).toBe('never');expect(options.additionalHeaders).toEqual({'ChatGPT-Account-ID':'account'});options.assertRequestCurrent();
+  return new Promise(resolve=>{complete=resolve;});
+ };
+ const command=appOperation({op:'project_create',owner:'owned',name:'Codex',
+   identity:{account:'account',user:'user',structure:'personal'}});
+ expect((await bridge(command)).state).toBe('pending');
+ for(let i=0;!complete&&i<100;i++)await Bun.sleep(1);
+ expect(posts).toBe(1);
+ for(let i=0;i<5;i++)expect((await bridge({...command,operation:{...command.operation,action:'observe'}})).state).toBe('pending');
+ complete({resource:{gizmo:{id:'g-p-original',display:{name:'Codex'},author:{user_id:'user'},share_recipient:'private'}}});
+ expect((await settledOperation(command)).value.id).toBe('g-p-original');
+ expect(posts).toBe(1);expect(f.sent).toHaveLength(0);
+ f.chatGet=()=>{throw Error('private response and authentication material');};
+ const failed=appOperation({op:'project_read',owner:'reader',readOnlyContext:true,bindings,project:'g-p-original',
+   identity:{account:'account',user:'user',structure:'personal'}},'c'.repeat(48));
+ await bridge(failed);const failure=await settledOperation(failed);
+ expect(failure.error).toBe('app_bridge_operation_failed');
+ expect(JSON.stringify(failure)).not.toContain('private response');
+ await expect(bridge(appOperation({op:'submit',owner:'owned',lane:'unowned',round:'never'}))).rejects.toThrow('app_operation_invalid');
+ expect(f.sent).toHaveLength(0);
+}));
+for(const replaceScope of [false,true])test('preparation result checks the original account after an awaited project read, replaced scope='+replaceScope,async()=>fixture(async({f,bindings})=>{
+ let complete;
+ f.chatGet=(_path,options)=>{options.assertRequestCurrent();return new Promise(resolve=>{complete=resolve;});};
+ const command=appOperation({op:'project_list',owner:'reader',readOnlyContext:true,bindings,
+   identity:{account:'account',user:'user',structure:'personal'}});
+ await bridge(command);
+ for(let i=0;!complete&&i<100;i++)await Bun.sleep(1);
+ const get=f.scope.get;
+ const current=function(node){const value=get.call(this,node);return node.kind==='identity'?{...value,accountId:'other',authenticatedAccountId:'other'}:value;};
+ if(replaceScope)f.scope={...f.scope,get:current};else f.scope.get=current;
+ complete({items:[],cursor:null});
+ expect((await settledOperation(command)).error).toBe('app_account_changed');
+ expect(f.created).toBe(0);expect(f.sent).toHaveLength(0);
 }));

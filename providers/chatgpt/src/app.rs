@@ -61,6 +61,18 @@ impl Bridge for Transport {
     }
 }
 
+// References to app-owned preparation Promises, never a second work executor.
+// An uncertain observation keeps this reference; its next caller may only read
+// that original Promise. Settled results live here only until receipt delivery.
+struct Preparation {
+    id: String,
+    generation: String,
+    begun: bool,
+    started: tokio::time::Instant,
+    result: Option<Result<Value, Error>>,
+}
+type Preparations = Mutex<BTreeMap<String, Arc<Mutex<Preparation>>>>;
+
 struct Connection {
     generation: String,
     app: App,
@@ -75,6 +87,7 @@ pub struct Remote {
     source: Source,
     owner: String,
     connection: Arc<Mutex<Option<Connection>>>,
+    preparations: Arc<Preparations>,
     mcp: bool,
     viewer: Option<Arc<crate::viewer::Viewer>>,
 }
@@ -84,6 +97,7 @@ impl Remote {
             source: Source::Relay(descriptor),
             owner,
             connection: Arc::new(Mutex::new(None)),
+            preparations: Arc::new(Mutex::new(BTreeMap::new())),
             mcp: false,
             viewer: None,
         }
@@ -93,6 +107,7 @@ impl Remote {
             source: Source::Pipe(client),
             owner,
             connection: Arc::new(Mutex::new(None)),
+            preparations: Arc::new(Mutex::new(BTreeMap::new())),
             mcp: false,
             viewer: None,
         }
@@ -129,6 +144,7 @@ impl Bridge for Remote {
         let source = self.source.clone();
         let owner = self.owner.clone();
         let connection = self.connection.clone();
+        let preparations = self.preparations.clone();
         let mcp = self.mcp;
         let viewer = self.viewer.clone();
         Box::pin(async move {
@@ -213,7 +229,7 @@ impl Bridge for Remote {
                 let until = tokio::time::Instant::now() + Duration::from_secs(30);
                 loop {
                     let app = guard.as_ref().unwrap().app.clone();
-                    let value = evaluate_bridge(&app, &init).await?;
+                    let value = evaluate_bridge(&app, &init, &preparations).await?;
                     if value["ready"] == true {
                         break;
                     }
@@ -252,14 +268,14 @@ impl Bridge for Remote {
             if command["op"] == "approve_ui" {
                 let mut check = command.clone();
                 check["op"] = json!("approval_prepare");
-                evaluate_bridge(&app, &check).await?;
+                evaluate_bridge(&app, &check, &preparations).await?;
                 viewer
                     .as_ref()
                     .ok_or(Error("app_approval_viewer_unavailable"))?
                     .open()
                     .await?;
             }
-            let mut result = evaluate_bridge(&app, &command).await;
+            let mut result = evaluate_bridge(&app, &command, &preparations).await;
             if command["op"] == "approve_ui" {
                 let until = tokio::time::Instant::now() + Duration::from_secs(20);
                 while result.as_ref().is_ok_and(|value| value["pending"] == true) {
@@ -267,7 +283,7 @@ impl Bridge for Remote {
                         return Err(Error("app_approval_ui_unavailable"));
                     }
                     tokio::time::sleep(Duration::from_millis(250)).await;
-                    result = evaluate_bridge(&app, &command).await;
+                    result = evaluate_bridge(&app, &command, &preparations).await;
                 }
             }
             if command["op"] == "identity" {
@@ -276,7 +292,7 @@ impl Bridge for Remote {
                     && tokio::time::Instant::now() < until
                 {
                     tokio::time::sleep(Duration::from_millis(200)).await;
-                    result = evaluate_bridge(&app, &command).await;
+                    result = evaluate_bridge(&app, &command, &preparations).await;
                 }
                 if let Ok(value) = &mut result {
                     let object = value
@@ -297,7 +313,12 @@ impl Bridge for Remote {
             {
                 // Reconnection is read-only until Rust reconciles this round.
                 // Never replay an operation whose app-side delivery is unknown.
-                connection.lock().await.take();
+                let mut current = connection.lock().await;
+                if current.as_ref().is_some_and(|current| {
+                    current.generation == generation && current.app.same_session(&app)
+                }) {
+                    current.take();
+                }
             }
             result
         })
@@ -328,87 +349,277 @@ pub(crate) fn valid_dispatches(snapshot: &Value) -> bool {
     };
     matches!(replies.checked_add(starts), Some(expected) if snapshot["roundStarts"].as_u64() == Some(expected))
 }
-async fn evaluate_bridge(app: &App, command: &Value) -> Result<Value, Error> {
-    // Export only our own static bridge codes. Host exception text may include
-    // account details, request bodies or credentials and never crosses here.
-    let known = [
-        "app_account_changed",
-        "project_destination_incompatible",
-        "app_project_operations_unavailable",
-        "invalid_project_identity",
-        "project_creation_unconfirmed",
-        "project_creation_rejected",
-        "invalid_project_list",
-        "project_list_bound_exceeded",
-        "project_membership_unsettled",
-        "project_membership_unconfirmed",
-        "app_auth_context_unavailable",
-        "app_auth_loading",
-        "app_lane_busy",
-        "app_lane_missing",
-        "app_stop_unconfirmed",
-        "app_lane_declaration_changed",
-        "app_hooks_changed",
-        "app_messages_required",
-        "app_bridge_owned",
-        "app_bridge_owner_mismatch",
-        "app_bridge_revision_required",
-        "app_bridge_revision_conflict",
-        "app_reveal_unavailable",
-        "app_approval_unavailable",
-        "app_approval_ambiguous",
-        "app_approval_ui_required",
-        "app_approval_ui_unavailable",
-        "app_approval_manual_required",
-        "app_approval_unconfirmed",
-        "app_local_functions_unavailable",
-        "app_return_path_invalid",
-        "app_chat_operations_unavailable",
-        "app_chat_response_invalid",
-        "app_chat_unavailable",
-        "app_chat_auth_expired",
-        "app_chat_forbidden",
-        "app_chat_not_found",
-        "app_chat_temporarily_unavailable",
-        "app_chat_rate_limited",
-        "app_chat_read_pending",
-        "app_chat_request_failed",
-        "bound_chat_branch_changed",
-        "assignment_app_ledger_unavailable",
-        "app_scope_unavailable",
-        "app_operation_not_read_only",
-        "app_bindings_unavailable",
-        "app_chat_input_unavailable",
-        "app_model_selection_unavailable",
-        "app_model_selection_changed",
-        "app_model_catalog_unavailable",
-        "app_model_catalog_rate_limited",
-        "app_model_catalog_auth_expired",
-        "app_model_catalog_forbidden",
-        "app_model_catalog_request_failed",
-        "app_chat_source_changed",
-        "app_chat_owned_work",
-        "app_chat_active_unowned",
-        "app_chat_response_changed",
-        "assignment_budget_invalid",
-        "assignment_budget_changed",
-        "assignment_app_budget_exhausted",
-        "assignment_time_budget_exhausted",
-    ];
-    let expression = format!("(async()=>{{const command={command};\ntry{{return {{value:await ({})(command)}};}}catch(e){{return {{error:{}.includes(e.message)?e.message:'app_bridge_operation_failed'}};}}}})()", include_str!("app_bridge.js"), serde_json::to_string(&known[..]).unwrap());
+// Export only our own static bridge codes. Host exception text may include
+// account details, request bodies or credentials and never crosses here.
+const BRIDGE_ERRORS: &[&str] = &[
+    "app_account_changed",
+    "project_destination_incompatible",
+    "app_project_operations_unavailable",
+    "invalid_project_identity",
+    "project_creation_unconfirmed",
+    "project_creation_rejected",
+    "invalid_project_list",
+    "project_list_bound_exceeded",
+    "project_membership_unsettled",
+    "project_membership_unconfirmed",
+    "app_auth_context_unavailable",
+    "app_auth_loading",
+    "app_lane_busy",
+    "app_lane_missing",
+    "app_stop_unconfirmed",
+    "app_lane_declaration_changed",
+    "app_hooks_changed",
+    "app_messages_required",
+    "app_bridge_owned",
+    "app_bridge_owner_mismatch",
+    "app_bridge_revision_required",
+    "app_bridge_revision_conflict",
+    "app_reveal_unavailable",
+    "app_approval_unavailable",
+    "app_approval_ambiguous",
+    "app_approval_ui_required",
+    "app_approval_ui_unavailable",
+    "app_approval_manual_required",
+    "app_approval_unconfirmed",
+    "app_local_functions_unavailable",
+    "app_return_path_invalid",
+    "app_chat_operations_unavailable",
+    "app_chat_response_invalid",
+    "app_chat_unavailable",
+    "app_chat_auth_expired",
+    "app_chat_forbidden",
+    "app_chat_not_found",
+    "app_chat_temporarily_unavailable",
+    "app_chat_rate_limited",
+    "app_chat_read_pending",
+    "app_chat_request_failed",
+    "bound_chat_branch_changed",
+    "assignment_app_ledger_unavailable",
+    "app_scope_unavailable",
+    "app_operation_not_read_only",
+    "app_bindings_unavailable",
+    "app_chat_input_unavailable",
+    "app_model_selection_unavailable",
+    "app_model_selection_changed",
+    "app_model_catalog_unavailable",
+    "app_model_catalog_rate_limited",
+    "app_model_catalog_auth_expired",
+    "app_model_catalog_forbidden",
+    "app_model_catalog_request_failed",
+    "app_chat_source_changed",
+    "app_chat_owned_work",
+    "app_chat_active_unowned",
+    "app_chat_response_changed",
+    "assignment_budget_invalid",
+    "assignment_budget_changed",
+    "assignment_app_budget_exhausted",
+    "assignment_time_budget_exhausted",
+    "app_operation_invalid",
+    "app_operation_identity_changed",
+    "app_operation_capacity",
+    "app_operation_pending",
+    "app_operation_unavailable",
+];
+fn bridge_error(code: &str) -> Error {
+    Error(
+        BRIDGE_ERRORS
+            .iter()
+            .copied()
+            .find(|known| *known == code)
+            .unwrap_or("app_bridge_operation_failed"),
+    )
+}
+async fn evaluate_bridge_value(app: &App, command: &Value) -> Result<Value, Error> {
+    let expression = format!("(async()=>{{const command={command};\ntry{{return {{value:await ({})(command)}};}}catch(e){{return {{error:{}.includes(e.message)?e.message:'app_bridge_operation_failed'}};}}}})()", include_str!("app_bridge.js"), serde_json::to_string(BRIDGE_ERRORS).unwrap());
     let result = app.evaluate(&expression).await?;
     if let Some(code) = result["error"].as_str() {
-        return Err(Error(
-            known
-                .into_iter()
-                .find(|v| *v == code)
-                .unwrap_or("app_bridge_operation_failed"),
-        ));
+        return Err(bridge_error(code));
     }
     result
         .get("value")
         .cloned()
         .ok_or(Error("invalid_app_bridge_result"))
+}
+fn preparation_operation(command: &Value) -> bool {
+    matches!(
+        command["op"].as_str(),
+        Some(
+            "identity"
+                | "host_status"
+                | "model_catalog"
+                | "chat_list"
+                | "chat_read"
+                | "chat_page"
+                | "project_list"
+                | "project_read"
+                | "project_create"
+                | "project_membership"
+                | "chat_adopt"
+                | "follow_settle"
+        )
+    )
+}
+fn preparation_observation(
+    command: &Value,
+    preparation: &Preparation,
+    state: &str,
+    error: Option<Error>,
+) {
+    eprintln!(
+        "app_operation_observation: {}",
+        json!({"op":command["op"],"operation_id":preparation.id,
+            "lane":command["lane"],"native_thread":command["nativeThread"],
+            "round":command["round"],"state":state,
+            "elapsed_ms":preparation.started.elapsed().as_millis(),
+            "error":error.map(|error|error.0)})
+    );
+}
+async fn evaluate_bridge(
+    app: &App,
+    command: &Value,
+    preparations: &Preparations,
+) -> Result<Value, Error> {
+    // Submission, Stop and snapshots already have the app lane's authoritative
+    // lifecycle. Only preparation/read Promises need a separate CDP receipt.
+    if !preparation_operation(command) {
+        return evaluate_bridge_value(app, command).await;
+    }
+    let fingerprint = context::digest(command);
+    // Only an existing work/preparation owner may re-enter a lost operation.
+    // Independent identity/catalog/history queries are fresh observations, not
+    // permanent aliases of an earlier caller whose reply was unavailable.
+    let retained = command.get("preparation").is_some()
+        || matches!(
+            command["op"].as_str(),
+            Some("project_create" | "chat_adopt" | "follow_settle")
+        );
+    let new_reference = || -> Result<_, Error> {
+        Ok(Arc::new(Mutex::new(Preparation {
+            id: random_id()?,
+            generation: app.client.generation.to_string(),
+            begun: false,
+            started: tokio::time::Instant::now(),
+            result: None,
+        })))
+    };
+    let reference = if retained {
+        let mut pending = preparations.lock().await;
+        if let Some(reference) = pending.get(&fingerprint) {
+            reference.clone()
+        } else {
+            if pending.len() >= 128 {
+                return Err(Error("app_operation_capacity"));
+            }
+            let reference = new_reference()?;
+            pending.insert(fingerprint.clone(), reference.clone());
+            reference
+        }
+    } else {
+        new_reference()?
+    };
+    let mut preparation = reference.lock().await;
+    if preparation.generation != app.client.generation.as_ref() {
+        return Err(Error("app_operation_identity_changed"));
+    }
+    let mut envelope = command.clone();
+    envelope["operation"] = json!({
+        "id":preparation.id,"generation":preparation.generation,
+        "fingerprint":fingerprint,"errors":BRIDGE_ERRORS,
+        "action":if preparation.begun { "observe" } else { "begin" }
+    });
+    let beginning = !preparation.begun;
+    // Fence before sending: dropping this future or losing its ACK can only
+    // leave an observer of this exact operation, never authorize another begin.
+    preparation.begun = true;
+    if beginning {
+        preparation_observation(command, &preparation, "begin", None);
+    }
+    while preparation.result.is_none() {
+        let result = evaluate_bridge_value(app, &envelope).await;
+        match result {
+            Err(Error("cdp_operation_timeout")) if envelope["operation"]["action"] == "begin" => {
+                preparation_observation(
+                    command,
+                    &preparation,
+                    "begin_ack_unknown",
+                    Some(Error("cdp_operation_timeout")),
+                );
+                // The CDP command deadline observed neither failure nor
+                // cancellation of the app Promise. Read its existing receipt.
+                envelope["operation"]["action"] = json!("observe");
+                continue;
+            }
+            Err(Error("app_operation_capacity")) if envelope["operation"]["action"] == "begin" => {
+                // An explicit pre-execution rejection owns no app Promise.
+                preparation.result = Some(Err(Error("app_operation_capacity")));
+                break;
+            }
+            Err(error) => {
+                preparation_observation(
+                    command,
+                    &preparation,
+                    "observation_unavailable",
+                    Some(error),
+                );
+                return Err(error);
+            }
+            Ok(value) => {
+                for (name, expected) in [
+                    ("id", &envelope["operation"]["id"]),
+                    ("generation", &envelope["operation"]["generation"]),
+                    ("fingerprint", &envelope["operation"]["fingerprint"]),
+                    ("owner", &command["owner"]),
+                    ("revision", &command["bridgeRevision"]),
+                ] {
+                    if &value[name] != expected {
+                        return Err(Error("app_operation_identity_changed"));
+                    }
+                }
+                match value["state"].as_str() {
+                    Some("pending") => {
+                        envelope["operation"]["action"] = json!("observe");
+                        tokio::time::sleep(Duration::from_millis(200)).await;
+                    }
+                    Some("settled") => {
+                        preparation.result = Some(if let Some(code) = value["error"].as_str() {
+                            Err(bridge_error(code))
+                        } else {
+                            value
+                                .get("value")
+                                .cloned()
+                                .ok_or(Error("invalid_app_bridge_result"))
+                        });
+                    }
+                    Some("unknown") => {
+                        preparation_observation(command, &preparation, "unknown", None);
+                        return Err(Error("app_operation_unavailable"));
+                    }
+                    _ => return Err(Error("invalid_app_bridge_result")),
+                }
+            }
+        }
+    }
+    let result = preparation.result.as_ref().unwrap().clone();
+    preparation_observation(
+        command,
+        &preparation,
+        "settled",
+        result.as_ref().err().copied(),
+    );
+    envelope["operation"]["action"] = json!("acknowledge");
+    // Receipt cleanup has no app/model effect. Its uncertain reply cannot erase
+    // a known original result; a canceled caller retains the local receipt.
+    if let Err(error) = evaluate_bridge_value(app, &envelope).await {
+        preparation_observation(command, &preparation, "ack_unavailable", Some(error));
+    }
+    let mut pending = preparations.lock().await;
+    if pending
+        .get(&fingerprint)
+        .is_some_and(|current| Arc::ptr_eq(current, &reference))
+    {
+        pending.remove(&fingerprint);
+    }
+    result
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -1808,6 +2019,21 @@ fn accept_input(lane: &mut Lane, request: &Request) -> Result<(), Error> {
     lane.prefix.accept(request, &[]);
     Ok(())
 }
+async fn preparing<T>(
+    operation: impl std::future::Future<Output = Result<T, Error>>,
+    until: tokio::time::Instant,
+    cancel: &CancellationToken,
+) -> Result<T, Error> {
+    if tokio::time::Instant::now() >= until {
+        return Err(Error("app_preparation_timeout_unconfirmed"));
+    }
+    tokio::select! {
+        biased;
+        _ = cancel.cancelled() => Err(Error("cancelled_before_dispatch")),
+        _ = tokio::time::sleep_until(until) => Err(Error("app_preparation_timeout_unconfirmed")),
+        result = operation => result,
+    }
+}
 async fn exchange(
     services: LaneServices<'_>,
     key: &str,
@@ -1817,6 +2043,9 @@ async fn exchange(
     cancel: &CancellationToken,
 ) -> Result<(), Error> {
     let LaneServices { bridge, journal } = services;
+    // One existing turn budget covers destination preparation and inference.
+    // A short CDP observation deadline is never a network-work deadline.
+    let mut until = tokio::time::Instant::now() + Duration::from_secs(600);
     if cancel.is_cancelled() {
         return Err(Error("cancelled_before_dispatch"));
     }
@@ -1844,9 +2073,11 @@ async fn exchange(
             other => return other,
         }
     }
-    let observed = bridge
-        .operation(json!({"op":"identity","lane":lane.marker}))
-        .await?;
+    let observed = preparing(
+        bridge.operation(json!({"op":"identity","lane":lane.marker,"nativeThread":lane.native_thread,"round":lane.round,"preparation":request_digest})),
+        until,
+        cancel,
+    ).await?;
     let current = Identity::parse(&observed)?;
     if let Some(old) = lane.identity.clone() {
         if !old.account_matches(&current) {
@@ -1990,9 +2221,11 @@ async fn exchange(
     if lane.phase == Phase::Opening {
         // Opening allocates no inference. Reconcile the same marker and exact
         // declaration; never create a successor because its reply was lost.
-        bridge
-            .operation(json!({"op":"open","lane":lane.marker,"nativeThread":lane.native_thread,"nativeParent":request.parent,"signature":signature(&lane.gateway),"project":lane.project,"identity":lane.identity}))
-            .await?;
+        preparing(
+            bridge.operation(json!({"op":"open","lane":lane.marker,"nativeThread":lane.native_thread,"nativeParent":request.parent,"signature":signature(&lane.gateway),"project":lane.project,"identity":lane.identity})),
+            until,
+            cancel,
+        ).await?;
         lane.phase = Phase::Idle;
         journal.write(key, lane)?;
     }
@@ -2010,13 +2243,22 @@ async fn exchange(
         lane.project = if request.is_auxiliary() {
             None
         } else {
-            crate::project::resolve(bridge, journal, &request.history, &observed).await?
+            preparing(
+                crate::project::resolve_with_context(
+                    bridge, journal, &request.history, &observed,
+                    &json!({"lane":lane.marker,"nativeThread":lane.native_thread,"round":lane.round,"preparation":request_digest}),
+                ),
+                until,
+                cancel,
+            ).await?
         };
         lane.phase = Phase::Opening;
         journal.write(key, lane)?;
-        if bridge
-            .operation(json!({"op":"open","lane":lane.marker,"nativeThread":lane.native_thread,"nativeParent":request.parent,"signature":signature(&lane.gateway),"project":lane.project,"identity":lane.identity}))
-            .await
+        if preparing(
+            bridge.operation(json!({"op":"open","lane":lane.marker,"nativeThread":lane.native_thread,"nativeParent":request.parent,"signature":signature(&lane.gateway),"project":lane.project,"identity":lane.identity})),
+            until,
+            cancel,
+        ).await
             .is_err()
         {
             journal.write(key, lane)?;
@@ -2150,7 +2392,7 @@ async fn exchange(
             command["source_anchor"] = json!(lane.source_anchor);
             command["source_context_required"] = json!(lane.source_context_owed);
         }
-        bridge.admit_submission(command.clone()).await?;
+        preparing(bridge.admit_submission(command.clone()), until, cancel).await?;
         if cancel.is_cancelled() {
             return stop_lane(bridge, journal, key, lane).await;
         }
@@ -2183,7 +2425,6 @@ async fn exchange(
         }
         journal.write(key, lane)?;
     }
-    let mut until = tokio::time::Instant::now() + Duration::from_secs(600);
     let mut read_failures = 0;
     let mut transport_observation = Value::Null;
     loop {

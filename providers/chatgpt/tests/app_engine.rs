@@ -1536,3 +1536,115 @@ async fn account_change_during_model_work_refuses_before_publishing_any_native_c
         "restoring the owned account reconciles the same round, not a new inference"
     );
 }
+
+#[tokio::test(start_paused = true)]
+async fn one_turn_budget_includes_project_preparation_and_cancellation_fences_dispatch() {
+    struct PreparingApp {
+        app: App,
+        delay: std::time::Duration,
+        entered: Arc<tokio::sync::Notify>,
+    }
+    impl Bridge for PreparingApp {
+        fn operation(&self, command: Value) -> BoxFuture<'static, Result<Value, Error>> {
+            if command["op"] == "project_list" {
+                let delay = self.delay;
+                let entered = self.entered.clone();
+                return Box::pin(async move {
+                    entered.notify_one();
+                    tokio::time::sleep(delay).await;
+                    Ok(json!([{"id":"g-p-original","name":"Codex","compatible":true}]))
+                });
+            }
+            self.app.operation(command)
+        }
+    }
+    for scenario in ["preparation_deadline", "inference_remainder", "cancel"] {
+        let root = Root::new();
+        let journal = Arc::new(Journal::open(&root.0).unwrap());
+        let app = App::default();
+        app.state.lock().unwrap().hold = true;
+        let entered = Arc::new(tokio::sync::Notify::new());
+        let host = Arc::new(AppHost::new(
+            Arc::new(PreparingApp {
+                app: app.clone(),
+                delay: std::time::Duration::from_secs(if scenario == "inference_remainder" {
+                    590
+                } else {
+                    601
+                }),
+                entered: entered.clone(),
+            }),
+            journal.clone(),
+        ));
+        let mut config = Config::default();
+        config.history.mode = codex_chatgpt_provider::config::HistoryMode::Project;
+        config.history.project_name = Some("Codex".into());
+        let request = Request::parse(body(), &config, None).unwrap();
+        let key = codex_chatgpt_provider::context::digest(&request.thread);
+        let cancel = CancellationToken::new();
+        let (events, _receive) = mpsc::channel(64);
+        let work = {
+            let host = host.clone();
+            let cancel = cancel.clone();
+            tokio::spawn(async move { host.exchange(request, events, cancel).await })
+        };
+        entered.notified().await;
+        let before: Value = journal.read(&key).unwrap().unwrap();
+        assert_eq!(before["phase"], "new");
+        assert_eq!(before["request"], "");
+        assert_eq!(before["round"], "");
+        assert!(!before["identity"].is_null());
+        if scenario == "cancel" {
+            cancel.cancel();
+        } else if scenario == "inference_remainder" {
+            tokio::time::advance(std::time::Duration::from_secs(590)).await;
+            loop {
+                if app
+                    .state
+                    .lock()
+                    .unwrap()
+                    .commands
+                    .iter()
+                    .any(|command| command["op"] == "submit")
+                {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+            tokio::time::advance(std::time::Duration::from_secs(11)).await;
+        } else {
+            tokio::time::advance(std::time::Duration::from_secs(601)).await;
+        }
+        let error = tokio::time::timeout(std::time::Duration::from_secs(1), work)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap_err();
+        assert_eq!(
+            error,
+            Error(match scenario {
+                "cancel" => "cancelled_before_dispatch",
+                "inference_remainder" => "app_round_timeout_unconfirmed",
+                _ => "app_preparation_timeout_unconfirmed",
+            })
+        );
+        let after: Value = journal.read(&key).unwrap().unwrap();
+        assert_eq!(after["marker"], before["marker"]);
+        assert_eq!(after["native_thread"], before["native_thread"]);
+        assert_eq!(
+            app.state
+                .lock()
+                .unwrap()
+                .commands
+                .iter()
+                .filter(|command| command["op"] == "submit")
+                .count(),
+            usize::from(scenario == "inference_remainder")
+        );
+        if scenario != "inference_remainder" {
+            assert_eq!(after["phase"], "new");
+            assert_eq!(after["round"], "");
+            assert_eq!(after["dispatches"], 0);
+        }
+    }
+}

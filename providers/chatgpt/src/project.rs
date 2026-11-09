@@ -9,10 +9,17 @@ use crate::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use std::{
+    collections::BTreeMap,
+    sync::{Arc, Weak},
+};
 
-// Every resolver writes the same account-bound creation intent. Serializing
-// here also covers MCP, local-function and explicit project selection callers.
-static RESOLUTION: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+// One creation intent belongs to one account/name binding in its existing
+// journal. Other destinations and independent Provider journals must not wait
+// for that binding's app network I/O. Weak entries retain no idle lock history.
+type ResolutionLocks = BTreeMap<(String, String), Weak<tokio::sync::Mutex<()>>>;
+static RESOLUTIONS: tokio::sync::Mutex<ResolutionLocks> =
+    tokio::sync::Mutex::const_new(BTreeMap::new());
 
 #[derive(Clone, Serialize, Deserialize)]
 struct Binding {
@@ -40,10 +47,26 @@ pub async fn resolve(
     history: &HistoryConfig,
     identity: &Value,
 ) -> Result<Option<String>, Error> {
+    resolve_with_context(bridge, journal, history, identity, &Value::Null).await
+}
+pub(crate) async fn resolve_with_context(
+    bridge: &dyn Bridge,
+    journal: &Journal,
+    history: &HistoryConfig,
+    identity: &Value,
+    context: &Value,
+) -> Result<Option<String>, Error> {
     if history.mode == HistoryMode::Retain {
         return Ok(None);
     }
-    let _guard = RESOLUTION.lock().await;
+    let operation = |mut command: Value| {
+        if let Some(context) = context.as_object() {
+            for (key, value) in context {
+                command[key] = value.clone();
+            }
+        }
+        bridge.operation(command)
+    };
     let name = history
         .project_name
         .as_deref()
@@ -57,6 +80,20 @@ pub async fn resolve(
     let legacy_key = digest(
         &json!({"kind":"project-destination-v1","identity":identity,"name":name,"configured_id":history.project_id}),
     );
+    let lock = {
+        let mut locks = RESOLUTIONS.lock().await;
+        locks.retain(|_, lock| lock.strong_count() > 0);
+        let lock_key = (journal.owner.clone(), key.clone());
+        match locks.get(&lock_key).and_then(Weak::upgrade) {
+            Some(lock) => lock,
+            None => {
+                let lock = Arc::new(tokio::sync::Mutex::new(()));
+                locks.insert(lock_key, Arc::downgrade(&lock));
+                lock
+            }
+        }
+    };
+    let _guard = lock.lock().await;
     let previous = match journal.read::<Binding>(&key)? {
         Some(binding) => Some(binding),
         None => journal.read::<Binding>(&legacy_key)?,
@@ -70,9 +107,8 @@ pub async fn resolve(
             .as_deref()
             .is_none_or(|configured| configured == *id)
     }) {
-        let found = bridge
-            .operation(json!({"op":"project_read","project":id,"identity":identity}))
-            .await?;
+        let found =
+            operation(json!({"op":"project_read","project":id,"identity":identity})).await?;
         let verified = project(found, name)?;
         if verified != *id {
             return Err(Error("project_identity_changed"));
@@ -87,9 +123,7 @@ pub async fn resolve(
         )?;
         return Ok(Some(verified));
     }
-    let found = bridge
-        .operation(json!({"op":"project_list","identity":identity}))
-        .await?;
+    let found = operation(json!({"op":"project_list","identity":identity})).await?;
     let owned = found.as_array().ok_or(Error("invalid_project_list"))?;
     // Only an ID offered by this authenticated account can pin the current
     // destination. An ID left by another account falls back to name-based
@@ -97,9 +131,9 @@ pub async fn resolve(
     if let Some(configured) = history.project_id.as_deref() {
         if let Some(owned_project) = owned.iter().find(|v| v["id"] == configured) {
             project(owned_project.clone(), name)?;
-            let current = bridge
-                .operation(json!({"op":"project_read","project":configured,"identity":identity}))
-                .await?;
+            let current =
+                operation(json!({"op":"project_read","project":configured,"identity":identity}))
+                    .await?;
             if project(current, name)? != configured {
                 return Err(Error("project_identity_changed"));
             }
@@ -117,9 +151,8 @@ pub async fn resolve(
     // The global ID is absent from this account's owned list. Keep its own
     // verified journal binding rather than silently switching destinations.
     if let Some(id) = pinned {
-        let found = bridge
-            .operation(json!({"op":"project_read","project":id,"identity":identity}))
-            .await?;
+        let found =
+            operation(json!({"op":"project_read","project":id,"identity":identity})).await?;
         let verified = project(found, name)?;
         if verified != id {
             return Err(Error("project_identity_changed"));
@@ -156,24 +189,24 @@ pub async fn resolve(
                     creating: true,
                 },
             )?;
-            let created = match bridge
-                .operation(json!({"op":"project_create","name":name,"identity":identity}))
-                .await
-            {
-                Ok(value) => value,
-                Err(Error("project_creation_rejected")) => {
-                    journal.write(
-                        &key,
-                        &Binding {
-                            name: name.into(),
-                            id: None,
-                            creating: false,
-                        },
-                    )?;
-                    return Err(Error("project_creation_rejected"));
-                }
-                Err(_) => return Err(Error("project_creation_unconfirmed")),
-            };
+            let created =
+                match operation(json!({"op":"project_create","name":name,"identity":identity}))
+                    .await
+                {
+                    Ok(value) => value,
+                    Err(Error("project_creation_rejected")) => {
+                        journal.write(
+                            &key,
+                            &Binding {
+                                name: name.into(),
+                                id: None,
+                                creating: false,
+                            },
+                        )?;
+                        return Err(Error("project_creation_rejected"));
+                    }
+                    Err(_) => return Err(Error("project_creation_unconfirmed")),
+                };
             let id = project(created, name)?;
             // Keep the returned exact ID before readback, even if verification
             // later fails; never create another destination in its place.
@@ -185,9 +218,8 @@ pub async fn resolve(
                     creating: false,
                 },
             )?;
-            let verified = bridge
-                .operation(json!({"op":"project_read","project":id,"identity":identity}))
-                .await?;
+            let verified =
+                operation(json!({"op":"project_read","project":id,"identity":identity})).await?;
             if project(verified, name)? != id {
                 return Err(Error("project_identity_changed"));
             }
