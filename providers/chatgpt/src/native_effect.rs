@@ -21,6 +21,7 @@ pub(crate) use compiler::Execution;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) enum Effect {
+    /// In-process metadata/read tools with no shell or PATH dependency.
     Read,
     Opaque,
     Paths(Vec<FileEffect>),
@@ -218,8 +219,8 @@ fn parse_patch(input: &str, workspace: &Path) -> Option<Effect> {
     (terminated && !edits.is_empty()).then_some(Effect::Paths(edits))
 }
 
-/// Candidate command shapes only. Authoritative Read admission additionally
-/// requires the same Native execution proof used by bounded compiler writes.
+/// Candidate command shapes only. Authoritative admission additionally pins
+/// the same Native execution dependencies used by bounded compiler writes.
 fn is_simple_read_command(input: &str) -> bool {
     let Ok(value) = serde_json::from_str::<serde_json::Value>(input) else {
         return false;
@@ -227,12 +228,12 @@ fn is_simple_read_command(input: &str) -> bool {
     let Some(arguments) = value.as_object() else {
         return false;
     };
-    // An alternate shell, login startup, custom environment or any unknown
-    // executor parameter can run additional code even for an innocent cmd.
+    // Unknown executor parameters can run additional code even for an innocent
+    // cmd. A supplied shell must also match the selected Native shell below.
     if arguments.keys().any(|key| {
         !matches!(
             key.as_str(),
-            "cmd" | "workdir" | "yield_time_ms" | "max_output_tokens" | "login"
+            "cmd" | "workdir" | "yield_time_ms" | "max_output_tokens" | "login" | "shell"
         )
     }) {
         return false;
@@ -290,7 +291,7 @@ pub(crate) fn classify_with_execution(
         "tool_search" | "clock.curr_time" | "clock.sleep" | "functions.view_image" => Effect::Read,
         "functions.exec_command" if is_simple_read_command(input) => workspace
             .and_then(|root| compiler::qualified_read(input, root, execution?))
-            .map_or(Effect::Opaque, |()| Effect::Read),
+            .unwrap_or(Effect::Opaque),
         "functions.exec_command" => workspace
             .and_then(|root| compiler::classify(input, root, execution?))
             .unwrap_or(Effect::Opaque),
@@ -708,8 +709,15 @@ mod tests {
                 Some(&root),
                 Some(&execution),
             );
-            assert_eq!(read, Effect::Read, "{command}");
-            assert!(!conflicts(&read, &Effect::Opaque));
+            assert!(matches!(read, Effect::Paths(_)), "{command}");
+            assert!(
+                !conflicts(&read, &read),
+                "shared execution inputs stay concurrent"
+            );
+            assert!(
+                conflicts(&read, &Effect::Opaque),
+                "an opaque writer may replace an execution input"
+            );
         }
         for unsafe_command in [
             r#"{"cmd":"pwd"}"#,

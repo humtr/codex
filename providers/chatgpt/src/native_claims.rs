@@ -493,8 +493,9 @@ impl Guard {
         input: &str,
         effect: Effect,
     ) -> Result<(), String> {
-        // Proven reads have no resource claim. A failed/unavailable ledger must
-        // not turn an independent read into a blocked Native tool call.
+        // In-process discovery/metadata has no execution dependency. Shell
+        // reads instead retain their Path inputs through the same ledger as
+        // bounded writers, including when they only run the pwd builtin.
         if effect == Effect::Read {
             return Ok(());
         }
@@ -1124,8 +1125,8 @@ mod tests {
         let execution = native_effect::compiler_fixture(&cwd);
         fs::write(cwd.join("a"), "old\n").unwrap();
         let _writing = apply(&cwd, &home, "writer", "patch", "a").unwrap();
-        // An unusable shared journal must not prevent read-only calls,
-        // including while an unrelated write reservation is present.
+        // Live file contents are not a pinned snapshot. Reading a remains
+        // independent of its writer, while shell/PATH dependencies are held.
         let blocked_home = home.join("not-a-directory");
         fs::write(&blocked_home, "cannot create a journal beneath a file").unwrap();
         for (thread, call_id, input) in [
@@ -1138,10 +1139,10 @@ mod tests {
                 Some(&cwd),
                 Some(&execution),
             );
-            assert_eq!(effect, Effect::Read);
+            assert!(matches!(effect, Effect::Paths(_)));
             Guard::offer_external_with_effect(
                 &cwd,
-                Some(&blocked_home),
+                Some(&home),
                 thread,
                 call_id,
                 "functions.exec_command",
@@ -1150,6 +1151,16 @@ mod tests {
             )
             .unwrap();
         }
+        // A broken writer ledger cannot block metadata/status discovery.
+        Guard::offer_external(
+            &cwd,
+            Some(&blocked_home),
+            "reader",
+            "search",
+            "tool_search",
+            "{}",
+        )
+        .unwrap();
         Guard::settle_external_receipt(
             &cwd,
             Some(&blocked_home),

@@ -285,11 +285,22 @@ fn installed_shell(execution: &Execution, dependencies: &mut Vec<FileEffect>) ->
 /// Shell reads use the same Native environment authority as compiler writes.
 /// A command spelling alone cannot rule out BASH_ENV, exported functions,
 /// dynamic loader hooks, or a different executable earlier in PATH.
-pub(super) fn qualified_read(input: &str, workspace: &Path, execution: &Execution) -> Option<()> {
+/// Retain their execution dependencies through offer and settlement; the file
+/// contents being displayed remain a live view, not a consistency snapshot.
+pub(super) fn qualified_read(
+    input: &str,
+    workspace: &Path,
+    execution: &Execution,
+) -> Option<Effect> {
     if !execution.ordinary(workspace) {
         return None;
     }
     let value: serde_json::Value = serde_json::from_str(input).ok()?;
+    if let Some(shell) = value.get("shell") {
+        if Path::new(shell.as_str()?) != execution.shell {
+            return None;
+        }
+    }
     if let Some(directory) = value.get("workdir") {
         if fs::canonicalize(directory.as_str()?).ok()? != workspace {
             return None;
@@ -299,7 +310,7 @@ pub(super) fn qualified_read(input: &str, workspace: &Path, execution: &Executio
     let prefix = installed_shell(execution, &mut dependencies)?;
     let program = value["cmd"].as_str()?.split_ascii_whitespace().next()?;
     if program == "pwd" {
-        return Some(());
+        return Some(Effect::Paths(dependencies));
     }
     if !matches!(program, "git" | "cat" | "ls")
         || program == "git"
@@ -316,7 +327,8 @@ pub(super) fn qualified_read(input: &str, workspace: &Path, execution: &Executio
         &prefix,
         &mut dependencies,
     )?;
-    path_tool(execution, program, &installed, &mut dependencies)
+    path_tool(execution, program, &installed, &mut dependencies)?;
+    Some(Effect::Paths(dependencies))
 }
 
 fn toolchain(execution: &Execution, link: bool, bare: bool) -> Option<(PathBuf, Vec<FileEffect>)> {
@@ -682,15 +694,15 @@ mod tests {
         let execution = fixture(&root);
         for command in ["pwd", "cat a.c", "ls", "git rev-parse HEAD"] {
             let input = serde_json::json!({"cmd":command,"login":false,"workdir":root}).to_string();
-            assert_eq!(
+            assert!(matches!(
                 classify_with_execution(
                     "functions.exec_command",
                     &input,
                     Some(&root),
                     Some(&execution)
                 ),
-                Effect::Read
-            );
+                Effect::Paths(_)
+            ));
             assert_eq!(
                 classify_with_execution("functions.exec_command", &input, Some(&root), None),
                 Effect::Opaque
@@ -738,6 +750,123 @@ mod tests {
             ),
             Effect::Opaque
         );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn read_execution_dependencies_conflict_with_path_shadow_publication() {
+        let root = root();
+        let mut execution = fixture(&root);
+        let before = root.join("before");
+        fs::create_dir(&before).unwrap();
+        execution.path = format!("{}:{}", before.display(), execution.path);
+        fs::write(root.join("a.c"), "int main(void){return 0;}\n").unwrap();
+        let command = |cmd: &str| {
+            classify_with_execution(
+                "functions.exec_command",
+                &serde_json::json!({"cmd":cmd,"login":false,"workdir":root}).to_string(),
+                Some(&root),
+                Some(&execution),
+            )
+        };
+        let read = command("cat a.c");
+        let shadow = command("clang a.c -o before/cat");
+        assert!(matches!(shadow, Effect::Paths(_)));
+        assert!(
+            conflicts(&read, &shadow),
+            "a mediated compiler output cannot replace a read's PATH lookup"
+        );
+        assert!(matches!(read, Effect::Paths(_)));
+        assert!(!conflicts(&read, &command("cat a.c")));
+        assert!(!conflicts(&read, &command("clang a.c -o a.out")));
+        assert!(conflicts(&read, &Effect::Opaque));
+        assert!(!conflicts(&read, &Effect::Read));
+        assert_eq!(can_offer(&read, &root), Ok(()));
+        fs::write(before.join("cat"), b"new lookup entry").unwrap();
+        assert_eq!(
+            can_offer(&read, &root),
+            Err("native_resource_version_conflict")
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn builtin_and_external_reads_pin_their_executable_identity_until_offer() {
+        let root = root();
+        let execution = fixture(&root);
+        fs::write(root.join("a.c"), "int main(void){return 0;}\n").unwrap();
+        for (command, executable) in [("pwd", "bash"), ("cat a.c", "cat")] {
+            let input = serde_json::json!({"cmd":command,"login":false,"workdir":root}).to_string();
+            let read = classify_with_execution(
+                "functions.exec_command",
+                &input,
+                Some(&root),
+                Some(&execution),
+            );
+            let writer = classify_with_execution(
+                "functions.exec_command",
+                &serde_json::json!({"cmd":format!("clang a.c -o toolchain/bin/{executable}"),
+                    "login":false,"workdir":root})
+                .to_string(),
+                Some(&root),
+                Some(&execution),
+            );
+            assert!(matches!(writer, Effect::Paths(_)));
+            assert!(
+                conflicts(&read, &writer),
+                "{command} must retain its execution input"
+            );
+            assert_eq!(can_offer(&read, &root), Ok(()));
+            let target = execution.prefix.join("bin").join(executable);
+            let replacement = target.with_extension("replacement");
+            fs::write(&replacement, fs::read(&target).unwrap()).unwrap();
+            fs::set_permissions(&replacement, fs::Permissions::from_mode(0o755)).unwrap();
+            fs::rename(replacement, target).unwrap();
+            assert_eq!(
+                can_offer(&read, &root),
+                Err("native_resource_version_conflict")
+            );
+        }
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn explicit_read_shell_must_match_the_native_execution_proof() {
+        let root = root();
+        let execution = fixture(&root);
+        let input = serde_json::json!({"cmd":"pwd","login":false,"shell":execution.shell});
+        assert!(matches!(
+            classify_with_execution(
+                "functions.exec_command",
+                &input.to_string(),
+                Some(&root),
+                Some(&execution),
+            ),
+            Effect::Paths(_)
+        ));
+        for (key, value) in [
+            ("shell", serde_json::json!("/tmp/other-shell")),
+            ("shell", serde_json::Value::Null),
+            ("login", serde_json::json!(true)),
+            (
+                "environment",
+                serde_json::json!({"BASH_ENV":"/tmp/startup"}),
+            ),
+            ("unrecognized_executor_option", serde_json::json!(true)),
+        ] {
+            let mut changed = input.clone();
+            changed[key] = value;
+            assert_eq!(
+                classify_with_execution(
+                    "functions.exec_command",
+                    &changed.to_string(),
+                    Some(&root),
+                    Some(&execution),
+                ),
+                Effect::Opaque,
+                "{key}"
+            );
+        }
         fs::remove_dir_all(root).unwrap();
     }
 

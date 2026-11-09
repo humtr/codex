@@ -2919,6 +2919,110 @@ mod native_concurrency_tests {
     }
 
     #[tokio::test]
+    async fn shell_read_dependencies_survive_broker_and_shared_admission() {
+        let (root, journal, tools) = fixture();
+        let mut execution = native_effect::compiler_fixture(&root);
+        let before = root.join("before");
+        fs::create_dir(&before).unwrap();
+        execution.path = format!("{}:{}", before.display(), execution.path);
+        fs::write(root.join("a.c"), "int main(void){return 0;}\n").unwrap();
+        let broker = Broker::new(journal);
+        let token = broker
+            .register_scoped("reader", tools.clone(), false, Some(&root))
+            .await
+            .unwrap();
+        broker
+            .bind_execution(&token, Some(execution.clone()))
+            .await
+            .unwrap();
+        let read = Arguments {
+            call_id: "read".into(),
+            name: "functions.exec_command".into(),
+            input: json!({"cmd":"cat a.c","login":false}).to_string(),
+            report: String::new(),
+        };
+        let read_id = accepted(&broker, &token, &read).await;
+        assert_eq!(
+            broker.effect_status("reader").unwrap()["unconfirmed_effects"],
+            1
+        );
+        let other = broker
+            .register_scoped("other", tools, false, Some(&root))
+            .await
+            .unwrap();
+        assert!(
+            !broker.catalog(&other).await.unwrap().is_empty(),
+            "work creation and metadata remain available"
+        );
+        let input =
+            json!({"cmd":"clang a.c -o before/cat","workdir":root,"login":false}).to_string();
+        let shadow = native_effect::classify_with_execution(
+            "functions.exec_command",
+            &input,
+            Some(&root),
+            Some(&execution),
+        );
+        assert!(matches!(shadow, Effect::Paths(_)));
+        let offer = |id: &str| {
+            SharedNativeGuard::offer_external_with_effect(
+                &root,
+                broker.shared_guard_home().as_deref(),
+                "writer",
+                id,
+                "functions.exec_command",
+                &input,
+                shadow.clone(),
+            )
+        };
+        assert_eq!(
+            offer("shadow").err().as_deref(),
+            Some("native_resource_busy"),
+            "a separate mediated writer must see the read's shared claim"
+        );
+        broker
+            .settle(
+                &token,
+                &[(
+                    read_id,
+                    json!({"output":"Process exited with code 0\nOutput:\nsource"}),
+                )],
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            broker.effect_status("reader").unwrap()["unconfirmed_effects"],
+            0
+        );
+        offer("shadow").unwrap();
+        let mut while_writing = read.clone();
+        while_writing.call_id = "read-during-shadow-publication".into();
+        broker.enqueue(&token, &while_writing).await.unwrap();
+        assert!(broker.offer(&token).await.unwrap().is_empty());
+        let denied = broker.invoke(&token, while_writing).await.unwrap();
+        assert_eq!(denied["error"], "native_resource_busy");
+        assert_eq!(denied["executed"], false);
+        SharedNativeGuard::settle_external(
+            &root,
+            broker.shared_guard_home().as_deref(),
+            "writer",
+            "shadow",
+            "functions.exec_command",
+            &input,
+            &json!({"output":"Process exited with code 0"}),
+        )
+        .unwrap();
+        let mut stale = read;
+        stale.call_id = "read-prepared-before-lookup-changed".into();
+        broker.enqueue(&token, &stale).await.unwrap();
+        fs::write(before.join("cat"), "changed after read preparation").unwrap();
+        assert!(broker.offer(&token).await.unwrap().is_empty());
+        let denied = broker.invoke(&token, stale).await.unwrap();
+        assert_eq!(denied["error"], "native_resource_version_conflict");
+        assert_eq!(denied["executed"], false);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
     async fn native_execution_proof_is_persisted_and_shared_without_reactivating_turns() {
         let (root, journal, tools) = fixture();
         let execution = native_effect::compiler_fixture(&root);
@@ -3232,7 +3336,13 @@ mod native_concurrency_tests {
         };
         let read_id = accepted(&broker, &two, &read).await;
         broker
-            .settle(&two, &[(read_id, json!("read"))])
+            .settle(
+                &two,
+                &[(
+                    read_id,
+                    json!({"output":"Process exited with code 0\nOutput:\nread"}),
+                )],
+            )
             .await
             .unwrap();
         fs::write(root.join("file"), "ALPHA\nbeta\ngamma\n").unwrap();
