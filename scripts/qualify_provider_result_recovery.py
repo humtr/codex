@@ -355,22 +355,30 @@ def probe(args):
         save(root / 'proxy.json', proxy.records)
         # Stop is cleanup after the assertions, never the event that makes the
         # qualification pass or releases the tested claim before its check.
+        stopped = True
         if client is not None:
             for work in works.values():
                 try:
-                    client.call('codex_stop', {'work_id': work['work_id']})
+                    result = client.call('codex_stop', {'work_id': work['work_id']})
+                    assert result.get('native_stop_confirmed') is True and result.get('remaining_jobs') == [], 'fixture Native Stop is unconfirmed'
+                    assert not result.get('host_stop_requested') or result.get('host_stop_confirmed') is True, 'fixture host Stop is unconfirmed'
                 except Exception as error:
+                    stopped = False
                     report.setdefault('cleanup_errors', []).append(type(error).__name__)
-        if service is not None:
+        if service is not None and stopped:
             (root / 'stop-provider').touch()
             try:
                 service.wait(timeout=20)
             except subprocess.TimeoutExpired:
                 report.setdefault('cleanup_errors', []).append('provider_stop_timeout')
         for owner in owners.values():
+            if not stopped:
+                # Keep the same service/Native owners for public Stop/claim
+                # reconciliation. Their departure is not completion proof.
+                continue
             try:
-                if process(owner) == owner['process']:
-                    stop_owned_pid(owner['process']['pid'], Path(owner['process']['image']), owner['process']['start'])
+                assert process(owner) == owner['process'], 'fixture Native owner changed before cleanup'
+                stop_owned_pid(owner['process']['pid'], Path(owner['process']['image']), owner['process']['start'])
             except (OSError, AssertionError) as error:
                 if Path('/proc', str(owner['process']['pid'])).exists():
                     report.setdefault('cleanup_errors', []).append(type(error).__name__)
