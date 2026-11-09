@@ -85,7 +85,7 @@ index 87ccb44..5682de5 100644
                      skipped,
                      "app-server event consumer lagged; dropping ignored events"
 diff --git a/codex-rs/tui/src/app/backend_selection.rs b/codex-rs/tui/src/app/backend_selection.rs
-index 5e777ba..00a682f 100644
+index 5e777ba..6d15bc7 100644
 --- a/codex-rs/tui/src/app/backend_selection.rs
 +++ b/codex-rs/tui/src/app/backend_selection.rs
 @@ -61,7 +61,7 @@ impl App {
@@ -97,6 +97,16 @@ index 5e777ba..00a682f 100644
              {
                  Ok(prepared) => prepared,
                  Err(control) => return Ok(control),
+@@ -122,6 +122,9 @@ impl App {
+             let control = self
+                 .activate_prepared_session(tui, destination, prepared)
+                 .await?;
++            if let Some(error) = bootstrap.account_error {
++                self.chat_widget.add_error_message(error);
++            }
+             backends.displayed = destination_slot;
+             if let Some(mut input) = self.agents_overview.input_states.remove(&thread_id) {
+                 let blank = self.agents_overview.blank_sessions.contains_key(&thread_id);
 diff --git a/codex-rs/tui/src/app/config_persistence.rs b/codex-rs/tui/src/app/config_persistence.rs
 index 8a04d72..d7425a9 100644
 --- a/codex-rs/tui/src/app/config_persistence.rs
@@ -398,6 +408,20 @@ index 74f8b7e..292dc2b 100644
          self.transcript_view
              .history_loaded(&self.transcript_cells, inserted.clone());
          if !inserted.is_empty() {
+diff --git a/codex-rs/tui/src/app/reconnect.rs b/codex-rs/tui/src/app/reconnect.rs
+index a998f6c..163b478 100644
+--- a/codex-rs/tui/src/app/reconnect.rs
++++ b/codex-rs/tui/src/app/reconnect.rs
+@@ -586,6 +586,9 @@ impl App {
+             bootstrap.has_chatgpt_account,
+             matches!(bootstrap.auth_mode, Some(TelemetryAuthMode::Chatgpt)),
+         );
++        if let Some(error) = bootstrap.account_error {
++            self.chat_widget.add_error_message(error);
++        }
+         if self.chat_widget.has_chatgpt_account() {
+             crate::security_setup::prefetch(
+                 &self.config,
 diff --git a/codex-rs/tui/src/app/resume_preparation.rs b/codex-rs/tui/src/app/resume_preparation.rs
 index 55b8791..74e61de 100644
 --- a/codex-rs/tui/src/app/resume_preparation.rs
@@ -503,10 +527,20 @@ index 9203adf..672808a 100644
              Ok(prepared) => prepared,
              Err(control) => return Ok(control),
 diff --git a/codex-rs/tui/src/app/startup.rs b/codex-rs/tui/src/app/startup.rs
-index fca1ef2..740b058 100644
+index fca1ef2..0f69c52 100644
 --- a/codex-rs/tui/src/app/startup.rs
 +++ b/codex-rs/tui/src/app/startup.rs
-@@ -968,6 +968,10 @@ See the Codex keymap documentation for supported actions and examples."
+@@ -938,6 +938,9 @@ impl App {
+                     started.session.windows_sandbox_host
+                 })
+         };
++        if let Some(error) = bootstrap.account_error {
++            chat_widget.add_error_message(error);
++        }
+         // This launch warning belongs to the TUI, independent of picker/trust client replacement.
+         if let Some(warning) = daemon_startup_warning {
+             app_event_tx.send(AppEvent::InsertHistoryCell(Box::new(
+@@ -968,6 +971,10 @@ See the Codex keymap documentation for supported actions and examples."
          let agents_overview =
              agents_overview::AgentsOverviewState::new(local_settings.tui.agents_overview_grouping);
          let mut app = Self {
@@ -802,10 +836,18 @@ index 9c84885..a72c132 100644
      OpenFullAccessConfirmation {
          preset: ApprovalPreset,
 diff --git a/codex-rs/tui/src/app_server_session.rs b/codex-rs/tui/src/app_server_session.rs
-index ae79c9a..83c4a58 100644
+index ae79c9a..a4a6181 100644
 --- a/codex-rs/tui/src/app_server_session.rs
 +++ b/codex-rs/tui/src/app_server_session.rs
-@@ -379,6 +379,12 @@ pub(crate) enum ThreadSettingsOwner {
+@@ -309,6 +309,7 @@ fn is_thread_settings_update_unsupported(source: &JSONRPCErrorError) -> bool {
+ /// its first frame without waiting for the rate-limit round-trip.
+ pub(crate) struct AppServerBootstrap {
+     pub(crate) duration: Duration,
++    pub(crate) account_error: Option<String>,
+     pub(crate) account_email: Option<String>,
+     pub(crate) auth_mode: Option<TelemetryAuthMode>,
+     pub(crate) status_account_display: Option<StatusAccountDisplay>,
+@@ -379,6 +380,12 @@ pub(crate) enum ThreadSettingsOwner {
  pub(crate) enum ResumeModelSettings {
      /// Sends the current config's model, provider, and reasoning effort as explicit overrides.
      OverrideFromCurrentConfig,
@@ -818,7 +860,91 @@ index ae79c9a..83c4a58 100644
      /// Omits those overrides so app-server restores the settings saved with the thread.
      RestoreFromThread,
      /// Rejoins a loaded thread without changing any of its existing settings.
-@@ -1021,6 +1027,11 @@ impl AppServerSession {
+@@ -751,7 +758,7 @@ impl AppServerSession {
+ 
+     pub(crate) async fn bootstrap(&mut self, config: &Config) -> Result<AppServerBootstrap> {
+         let started_at = Instant::now();
+-        let account = self.read_account().await?;
++        let account = crate::account_observation::read(self, config).await?;
+         let mut bootstrap = self.bootstrap_with_account(config, account).await?;
+         bootstrap.duration = started_at.elapsed();
+         Ok(bootstrap)
+@@ -762,7 +769,7 @@ impl AppServerSession {
+         config: &Config,
+     ) -> Result<AppServerBootstrap> {
+         let started_at = Instant::now();
+-        let account = self.read_account().await?;
++        let account = crate::account_observation::read(self, config).await?;
+         let mut bootstrap = self
+             .bootstrap_with_account_inner(config, account, EmptyCatalogFallback::ManagedNewThread)
+             .await?;
+@@ -776,19 +783,21 @@ impl AppServerSession {
+     pub(crate) async fn bootstrap_with_account(
+         &mut self,
+         config: &Config,
+-        account: GetAccountResponse,
++        account: impl Into<crate::account_observation::AccountObservation>,
+     ) -> Result<AppServerBootstrap> {
+-        self.bootstrap_with_account_inner(config, account, EmptyCatalogFallback::Error)
++        self.bootstrap_with_account_inner(config, account.into(), EmptyCatalogFallback::Error)
+             .await
+     }
+ 
+     async fn bootstrap_with_account_inner(
+         &mut self,
+         config: &Config,
+-        account: GetAccountResponse,
++        account: crate::account_observation::AccountObservation,
+         fallback: EmptyCatalogFallback,
+     ) -> Result<AppServerBootstrap> {
+         let started_at = Instant::now();
++        let (account, workspace_routing, requires_openai_auth, account_error) =
++            account.into_presentation();
+         // `hooks/list` holds the global config queue during startup. Submit models and config
+         // requirements together so an uncached model fetch can overlap both config requests.
+         let model_request_id = self.next_request_id();
+@@ -849,7 +858,7 @@ impl AppServerSession {
+                 requirements,
+             );
+         }
+-        if matches!(account.account, Some(Account::ApiKey {})) {
++        if matches!(account, Some(Account::ApiKey {})) {
+             available_models = self
+                 .constrain_api_key_models(
+                     config,
+@@ -898,7 +907,7 @@ impl AppServerSession {
+             plan_type,
+             feedback_audience,
+             has_chatgpt_account,
+-        ) = match account.account {
++        ) = match account {
+             Some(Account::ApiKey {}) => (
+                 None,
+                 Some(TelemetryAuthMode::ApiKey),
+@@ -926,7 +935,7 @@ impl AppServerSession {
+                     Some(StatusAccountDisplay::ChatGpt {
+                         email,
+                         plan: Some(plan_type_display_name(plan_type)),
+-                        workspace: workspace_display(workspace_name, account.workspace_routing),
++                        workspace: workspace_display(workspace_name, workspace_routing),
+                     }),
+                     Some(plan_type),
+                     feedback_audience,
+@@ -940,11 +949,12 @@ impl AppServerSession {
+         };
+         Ok(AppServerBootstrap {
+             duration: started_at.elapsed(),
++            account_error,
+             account_email,
+             auth_mode,
+             status_account_display,
+             plan_type,
+-            requires_openai_auth: account.requires_openai_auth,
++            requires_openai_auth,
+             default_model,
+             feedback_audience,
+             has_chatgpt_account,
+@@ -1021,6 +1031,11 @@ impl AppServerSession {
                  "Cloud conversations currently use server-selected permissions."
              );
          }
@@ -830,7 +956,7 @@ index ae79c9a..83c4a58 100644
          let request_id = self.next_request_id();
          let session_config = self.session_config_with_effective_service_tier(config);
          let mut params = thread_start_params_from_config(
-@@ -1195,6 +1206,11 @@ impl AppServerSession {
+@@ -1195,6 +1210,11 @@ impl AppServerSession {
          if self.thread_params_mode == ThreadParamsMode::Cloud {
              color_eyre::eyre::bail!("Cloud conversations cannot be forked in the TUI yet.");
          }
@@ -842,7 +968,7 @@ index ae79c9a..83c4a58 100644
          self.thread_tool_transport().validate_config(&config)?;
          let fork_parent = match presentation {
              ForkPresentation::Regular => self
-@@ -1463,6 +1479,53 @@ impl AppServerSession {
+@@ -1463,6 +1483,53 @@ impl AppServerSession {
          Ok(response.thread)
      }
  
@@ -896,7 +1022,7 @@ index ae79c9a..83c4a58 100644
      pub(crate) async fn thread_archive(&mut self, thread_id: ThreadId) -> Result<()> {
          let request_id = self.next_request_id();
          let _: ThreadArchiveResponse = self
-@@ -2125,30 +2188,56 @@ fn approvals_reviewer_override_from_config(
+@@ -2125,30 +2192,56 @@ fn approvals_reviewer_override_from_config(
  fn config_request_overrides_from_config(
      config: &Config,
      thread_params_mode: ThreadParamsMode,
@@ -966,7 +1092,7 @@ index ae79c9a..83c4a58 100644
          })
          .filter_map(|(key, value)| {
              serde_json::to_value(value)
-@@ -2439,6 +2528,28 @@ fn thread_resume_params_from_config(
+@@ -2439,6 +2532,28 @@ fn thread_resume_params_from_config(
              config.model.clone(),
              provider_selection::explicit_provider(&config),
          ),
@@ -995,7 +1121,7 @@ index ae79c9a..83c4a58 100644
          ResumeModelSettings::RestoreFromThread | ResumeModelSettings::PreserveExistingThread => {
              (None, None)
          }
-@@ -2460,6 +2571,11 @@ fn thread_resume_params_from_config(
+@@ -2460,6 +2575,11 @@ fn thread_resume_params_from_config(
          ),
          ..ThreadResumeParams::default()
      };
@@ -1007,7 +1133,79 @@ index ae79c9a..83c4a58 100644
      if thread_params_mode == ThreadParamsMode::Remote || !permission_overrides.approval_policy {
          params.approval_policy = None;
      }
-@@ -4052,6 +4168,78 @@ mod tests {
+@@ -3117,6 +3237,71 @@ mod tests {
+         Ok(())
+     }
+ 
++    #[tokio::test]
++    async fn account_observation_bootstrap_keeps_native_models_policy_and_auth_requirement()
++    -> Result<()> {
++        let codex_home = tempfile::tempdir()?;
++        let config = build_config(&codex_home).await;
++        let (client, mut commands, _events) =
++            codex_app_server_client::CloudClient::channel(/*capacity*/ 3);
++        let mut app_server = AppServerSession::new(
++            crate::backend_id::BackendId::new(),
++            AppServerClient::Cloud(client),
++            ThreadParamsMode::Cloud,
++        );
++        let account = crate::account_observation::AccountObservation::Unavailable {
++            requires_openai_auth: true,
++            error: "Observed account/read refresh failure".into(),
++        };
++        let (bootstrap, ()) = tokio::join!(
++            app_server.bootstrap_with_account(&config, account),
++            async {
++                for _ in 0..3 {
++                    let command = commands.recv().await.expect("bootstrap request");
++                    let codex_app_server_client::CloudOperation::Request(request) =
++                        command.operation
++                    else {
++                        panic!("expected bootstrap request")
++                    };
++                    let result = match *request {
++                        ClientRequest::ModelList { .. } => {
++                            serde_json::to_value(ModelListResponse {
++                                data: vec![api_model_with_upgrade_retirement_at(None)],
++                                next_cursor: None,
++                            })
++                            .unwrap()
++                        }
++                        ClientRequest::ConfigRequirementsRead { .. } => {
++                            serde_json::json!({"requirements":{"allowedApprovalPolicies":["never"]}})
++                        }
++                        ClientRequest::CollaborationModeList { .. } => {
++                            serde_json::json!({"data": []})
++                        }
++                        request => panic!("account observation must not submit work: {request:?}"),
++                    };
++                    command.response.send(Ok(Ok(result))).unwrap();
++                }
++            }
++        );
++        let bootstrap = bootstrap?;
++        assert_eq!(bootstrap.default_model, "current-model");
++        assert_eq!(bootstrap.available_models.len(), 1);
++        assert_eq!(
++            bootstrap.allowed_approval_policies,
++            Some(vec![AskForApproval::Never])
++        );
++        assert!(bootstrap.requires_openai_auth);
++        assert!(!bootstrap.has_chatgpt_account);
++        assert!(bootstrap.auth_mode.is_none());
++        assert!(bootstrap.account_email.is_none());
++        assert_eq!(
++            bootstrap.account_error.as_deref(),
++            Some("Observed account/read refresh failure"),
++        );
++        assert!(commands.try_recv().is_err());
++        Ok(())
++    }
++
+     fn rate_limit_snapshot(limit_id: &str) -> RateLimitSnapshot {
+         RateLimitSnapshot {
+             limit_id: Some(limit_id.to_string()),
+@@ -4052,6 +4237,78 @@ mod tests {
          assert_eq!(fork.config, Some(expected_config));
      }
  
@@ -1086,7 +1284,7 @@ index ae79c9a..83c4a58 100644
      #[tokio::test]
      async fn config_overrides_forward_explicit_summary_verbosity_and_web_search() -> Result<()> {
          let home = tempfile::tempdir()?;
-@@ -4436,6 +4624,29 @@ mod tests {
+@@ -4436,6 +4693,29 @@ mod tests {
          assert!(loaded_items <= HISTORY_ITEM_PAGE_LIMIT as usize);
          assert!(app_server.has_older_history(source_thread_id));
  
@@ -2863,7 +3061,7 @@ index 03ce890..ec71124 100644
  pub(crate) fn is_ssh_session() -> bool {
      std::env::var_os("SSH_TTY").is_some() || std::env::var_os("SSH_CONNECTION").is_some()
 diff --git a/codex-rs/tui/src/history_cell/messages.rs b/codex-rs/tui/src/history_cell/messages.rs
-index 66f407a..38c169c 100644
+index 66f407a..0afac14 100644
 --- a/codex-rs/tui/src/history_cell/messages.rs
 +++ b/codex-rs/tui/src/history_cell/messages.rs
 @@ -576,9 +576,34 @@ pub(crate) struct AgentMarkdownCell {
@@ -2940,9 +3138,25 @@ index 66f407a..38c169c 100644
      }
  
 diff --git a/codex-rs/tui/src/lib.rs b/codex-rs/tui/src/lib.rs
-index e1bf622..f799d3a 100644
+index e1bf622..b85cade 100644
 --- a/codex-rs/tui/src/lib.rs
 +++ b/codex-rs/tui/src/lib.rs
+@@ -41,7 +41,6 @@ pub use codex_app_server_client::RemoteAppServerEndpoint;
+ use codex_app_server_protocol::Account as AppServerAccount;
+ use codex_app_server_protocol::AskForApproval;
+ use codex_app_server_protocol::ConfigWarningNotification;
+-use codex_app_server_protocol::GetAccountResponse;
+ use codex_app_server_protocol::Thread as AppServerThread;
+ use codex_app_server_protocol::ThreadListCwdFilter;
+ use codex_app_server_protocol::ThreadListParams;
+@@ -103,6 +102,7 @@ pub(crate) use codex_app_server_client::legacy_core;
+ 
+ pub(crate) use worktree_startup::ManagedTuiWorktree;
+ 
++mod account_observation;
+ mod activation_key_guard;
+ mod additional_dirs;
+ mod analytics;
 @@ -138,7 +138,13 @@ mod experimental_features;
  mod markdown_copy;
  mod permission_discovery;
@@ -3055,10 +3269,24 @@ index e1bf622..f799d3a 100644
          .await;
      tui.terminal_size_tags =
          launch_telemetry.record(&app_server_target, matches!(&startup_app_server, Ok(Ok(_))));
-@@ -1378,6 +1422,14 @@ async fn run_ratatui_app(
+@@ -1360,7 +1404,10 @@ async fn run_ratatui_app(
+             unreachable!("app server should exist when auth is required");
+         };
+         let login_status = startup_draft
+-            .run_until(&mut tui, get_login_status(active_app_server))
++            .run_until(
++                &mut tui,
++                get_login_status(active_app_server, &initial_config),
++            )
+             .await;
+         match login_status {
+             Ok(Ok((login_status, account))) => (login_status, Some(account)),
+@@ -1377,10 +1424,22 @@ async fn run_ratatui_app(
+     // Workload identity bypasses interactive login; every other provider uses account/read.
      let requires_openai_auth = startup_account
          .as_ref()
-         .is_some_and(|account| account.requires_openai_auth);
+-        .is_some_and(|account| account.requires_openai_auth);
++        .is_some_and(account_observation::AccountObservation::requires_openai_auth);
 +    #[cfg(unix)]
 +    let requires_openai_auth = profile_transport::startup_requires_openai_auth(
 +        &app_server_target,
@@ -3067,10 +3295,39 @@ index e1bf622..f799d3a 100644
 +        initial_config.model_provider.requires_openai_auth,
 +        requires_openai_auth,
 +    );
++    // Account status does not select a model. Keep an independently authenticated
++    // installed Provider reachable while Native still enforces the selected route.
++    let startup_login_required = requires_openai_auth
++        && !account_observation::can_defer_initial_login(&app_server_target, &initial_config);
      let should_show_onboarding = should_show_onboarding(
          login_status,
-         requires_openai_auth,
-@@ -1880,50 +1932,137 @@ async fn run_ratatui_app(
+-        requires_openai_auth,
++        startup_login_required,
+         should_show_trust_screen_flag,
+     );
+ 
+@@ -1391,17 +1450,17 @@ async fn run_ratatui_app(
+         }
+         // Authentication can change while any interactive onboarding screen is open.
+         startup_account = None;
+-        let show_login_screen = should_show_login_screen(login_status, requires_openai_auth);
++        let show_login_screen = should_show_login_screen(login_status, startup_login_required);
+         let bedrock_setup_enabled = should_show_provider_setup_wizard(
+             login_status,
+-            requires_openai_auth,
++            startup_login_required,
+             &initial_config,
+             &app_server_target,
+             Feature::BedrockSetupWizard,
+         );
+         let gcp_setup_enabled = should_show_provider_setup_wizard(
+             login_status,
+-            requires_openai_auth,
++            startup_login_required,
+             &initial_config,
+             &app_server_target,
+             Feature::GcpSetupWizard,
+@@ -1880,50 +1939,137 @@ async fn run_ratatui_app(
      let uses_embedded_network_policy = app_server_target.uses_embedded_network_policy();
      // A startup picker may consume its connection, but its selection keeps that backend.
      app_server_target.preserve_selected_backend(&session_selection);
@@ -3249,6 +3506,50 @@ index e1bf622..f799d3a 100644
      };
  
      if let resume_picker::SessionSelection::Resume(target)
+@@ -2322,9 +2468,10 @@ pub enum LoginStatus {
+ /// Reads the account once to determine login status and preserve the response for bootstrap.
+ async fn get_login_status(
+     app_server: &mut AppServerSession,
+-) -> color_eyre::Result<(LoginStatus, GetAccountResponse)> {
+-    let account = app_server.read_account().await?;
+-    let login_status = match &account.account {
++    config: &Config,
++) -> color_eyre::Result<(LoginStatus, account_observation::AccountObservation)> {
++    let account = account_observation::read(app_server, config).await?;
++    let login_status = match account.account() {
+         Some(AppServerAccount::ApiKey {}) => LoginStatus::AuthMode(AuthMode::ApiKey),
+         Some(AppServerAccount::Chatgpt { .. }) => LoginStatus::AuthMode(AuthMode::Chatgpt),
+         Some(AppServerAccount::AmazonBedrock { .. } | AppServerAccount::Gcp {}) | None => {
+diff --git a/codex-rs/tui/src/lib_tests.rs b/codex-rs/tui/src/lib_tests.rs
+index bb54411..2e131b0 100644
+--- a/codex-rs/tui/src/lib_tests.rs
++++ b/codex-rs/tui/src/lib_tests.rs
+@@ -57,18 +57,20 @@ requires_openai_auth = {requires_openai_auth}
+         let server_config = build_config(&home).await?;
+         let mut server = AppServerSession::new(
+             crate::backend_id::BackendId::new(),
+-            AppServerClient::InProcess(start_test_embedded_app_server(server_config).await?),
++            AppServerClient::InProcess(
++                start_test_embedded_app_server(server_config.clone()).await?,
++            ),
+             ThreadParamsMode::Embedded,
+         );
+-        let (login_status, account) = get_login_status(&mut server).await?;
+-        assert_eq!(account.requires_openai_auth, requires_openai_auth);
++        let (login_status, account) = get_login_status(&mut server, &server_config).await?;
++        assert_eq!(account.requires_openai_auth(), requires_openai_auth);
+         assert_eq!(
+-            should_show_login_screen(login_status, account.requires_openai_auth),
++            should_show_login_screen(login_status, account.requires_openai_auth()),
+             requires_openai_auth
+         );
+         assert!(!should_show_login_screen(
+             LoginStatus::AuthMode(AuthMode::Chatgpt),
+-            account.requires_openai_auth
++            account.requires_openai_auth()
+         ));
+         server.shutdown().await?;
+     }
 diff --git a/codex-rs/tui/src/permission_discovery.rs b/codex-rs/tui/src/permission_discovery.rs
 index 91153c6..c73e71d 100644
 --- a/codex-rs/tui/src/permission_discovery.rs

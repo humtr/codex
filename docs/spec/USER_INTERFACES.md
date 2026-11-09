@@ -434,8 +434,16 @@ precedence, installed-route validation and model admission remain unchanged.
   writer to force startup flags, or treat UI configuration as Native acceptance.
   Attachment to a verified live Native work has no new local OpenAI onboarding
   precondition. Native retains credential, model and policy enforcement for that
-  work; TUI login controls remain available. Configured new work keeps its selected
-  provider's onboarding policy. No credentials or account defaults are replaced.
+  work; TUI login controls remain available. When a validated independent Provider
+  is installed, the Core-owned local TUI can present `/provider` before OpenAI
+  sign-in is repaired. A Native account/read reply explicitly classified as an
+  authentication failure remains an unavailable account observation with a
+  visible error, never a fabricated authenticated account. An unclassified
+  legacy error is not guessed from its text.
+  Connection, model-catalog and managed-policy failures remain blocking. New
+  inference retains the selected provider's actual authentication requirement;
+  opening the picker changes no route. No credentials or account defaults are
+  replaced.
   Native still admits attachment/writes and detects races after this observation.
   This is an optional integrated-frontend contract; Core's ordinary independent
   runtime launch does not acquire a Manager dependency.

@@ -460,8 +460,18 @@ Configured new work follows the invocation's resolved provider requirement;
 account/read describes the backend default and may differ from that selection.
 A new ChatGPT work configured with requires_openai_auth=false needs no separate
 OpenAI login, while a newly selected OpenAI-auth provider retains its requirement.
-Remote, embedded and unqualified backends retain account-read policy. Existing
-login controls remain available. This changes the local startup UI decision,
+With a validated independently authenticated Provider installed, the Core-owned
+local TUI may defer OpenAI onboarding so the user can reach `/provider`. An
+account/read error with Native-owned `data.reason=accountAuthenticationUnavailable`
+is retained as unavailable account presentation and shown to the user at startup
+or reconnection; it does not become a successful account response. Native marks
+rejected refresh credentials or unauthorized account discovery this way;
+requirements, routing and unclassified legacy errors retain their failure
+semantics. Native model/permission admission and actual request
+authentication remain mandatory. Transport, model-catalog and managed-policy
+errors do not become account observations. Remote, embedded and unqualified
+backends retain account-read policy. Existing login controls remain available.
+This changes the local startup UI decision,
 without fabricated accounts, credential copies or weaker request authentication.
 
 Native qualification defaults to the complete build/test/compatibility/lint gate.

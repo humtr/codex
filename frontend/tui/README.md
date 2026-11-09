@@ -86,6 +86,12 @@ Otherwise, Core-owned local startup uses the resolved invocation provider's
 requires_openai_auth setting. The shared server's account/read reflects its
 default provider, which can differ from the resumed thread's selected route.
 Remote/embedded account authority and actual request authentication are retained.
+An OpenAI authentication failure explicitly classified by Native does not close
+the Core-owned local TUI when a valid independent ChatGPT Provider is installed.
+The account observation remains unavailable and its error stays visible;
+`/provider` can select that route. No authenticated account is
+invented, no credential is changed, and Native still authenticates every actual
+model request. Connection, catalog and managed-policy errors remain failures.
 A credential-free continuity trial (--fresh-auth-home) exercises this distinction
 without the usual owned inert native API key. The optional mutation_check also
 checks that restoring the default-account decision fails the login regression.
