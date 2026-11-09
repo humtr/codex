@@ -13,6 +13,12 @@ use std::{
 
 const SNAPSHOT_LIMIT: u64 = 4 * 1024 * 1024;
 
+#[path = "native_compiler.rs"]
+mod compiler;
+#[cfg(test)]
+pub(crate) use compiler::fixture as compiler_fixture;
+pub(crate) use compiler::Execution;
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) enum Effect {
     Read,
@@ -30,6 +36,8 @@ pub(crate) struct FileEffect {
     operation: FileOperation,
     #[serde(default)]
     linked: bool,
+    #[serde(default)]
+    external_input: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -38,6 +46,19 @@ enum FileOperation {
     Add,
     Delete,
     Input,
+    Output,
+    MetadataInput,
+    AbsentInput,
+    AbsentDirectory,
+}
+
+impl FileOperation {
+    fn is_input(self) -> bool {
+        matches!(
+            self,
+            Self::Input | Self::MetadataInput | Self::AbsentInput | Self::AbsentDirectory
+        )
+    }
 }
 
 fn version(bytes: &[u8]) -> String {
@@ -114,6 +135,7 @@ fn snapshot(
         anchors,
         operation: op,
         linked,
+        external_input: false,
     })
 }
 
@@ -196,8 +218,8 @@ fn parse_patch(input: &str, workspace: &Path) -> Option<Effect> {
     (terminated && !edits.is_empty()).then_some(Effect::Paths(edits))
 }
 
-/// Only syntactically proven, non-mutating commands are classified as reads.
-/// Shell chaining, redirects, expansions and unknown tools remain opaque.
+/// Candidate command shapes only. Authoritative Read admission additionally
+/// requires the same Native execution proof used by bounded compiler writes.
 fn is_simple_read_command(input: &str) -> bool {
     let Ok(value) = serde_json::from_str::<serde_json::Value>(input) else {
         return false;
@@ -215,8 +237,8 @@ fn is_simple_read_command(input: &str) -> bool {
     }) {
         return false;
     }
-    // The executor may start a login shell by default. Only an explicitly
-    // disabled login shell proves that startup files cannot mutate resources.
+    // The executor may start a login shell by default. Explicit non-login is
+    // necessary but not sufficient: BASH_ENV and PATH are checked separately.
     if value.get("login").and_then(serde_json::Value::as_bool) != Some(false) {
         return false;
     }
@@ -229,8 +251,7 @@ fn is_simple_read_command(input: &str) -> bool {
             | "git rev-parse HEAD"
             | "git rev-parse --show-toplevel"
             | "git branch --show-current"
-            | "git log -1 --oneline"
-            | "git -c core.fsmonitor=false --no-optional-locks status --porcelain=v1 --untracked-files=no"
+            | "git --no-pager -c log.showSignature=false log -1 --oneline"
             | "ls"
             | "ls -la"
             | "ls -l"
@@ -253,80 +274,25 @@ fn is_simple_read_command(input: &str) -> bool {
         && !path.split('/').any(|part| part == ".." || part.is_empty())
 }
 
-/// A direct installed compiler invocation with one declared source and object
-/// output has a bounded file effect. This is intentionally not a generic shell
-/// parser: a linker, build script, wrapper, environment assignment or extra
-/// argv returns to opaque admission.
-fn object_compile(input: &str, workspace: &Path, compiler: &Path) -> Option<Effect> {
-    let value: serde_json::Value = serde_json::from_str(input).ok()?;
-    let arguments = value.as_object()?;
-    if arguments.keys().any(|key| {
-        !matches!(
-            key.as_str(),
-            "cmd" | "workdir" | "login" | "yield_time_ms" | "max_output_tokens"
-        )
-    }) || value["login"] != false
-        || fs::canonicalize(value["workdir"].as_str()?).ok()? != workspace
-    {
-        return None;
-    }
-    let words = value["cmd"]
-        .as_str()?
-        .split_ascii_whitespace()
-        .collect::<Vec<_>>();
-    if words.first().copied()? != compiler.to_str()? {
-        return None;
-    }
-    let args = &words[1..];
-    let args = match args {
-        ["-O0" | "-O1" | "-O2" | "-O3", remaining @ ..] => remaining,
-        _ => args,
-    };
-    let ["-c", source, "-o", output] = args else {
-        return None;
-    };
-    let operand = |value: &str| {
-        !value.is_empty()
-            && value.split('/').all(|part| {
-                !part.is_empty()
-                    && part != "."
-                    && part != ".."
-                    && part.bytes().all(|byte| {
-                        byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-')
-                    })
-            })
-    };
-    if !operand(source) || !operand(output) {
-        return None;
-    }
-    let source = snapshot(workspace, source, FileOperation::Input, Vec::new())?;
-    let output_path = workspace.join(output);
-    let output = snapshot(
-        workspace,
-        output,
-        if output_path.exists() {
-            FileOperation::Update
-        } else {
-            FileOperation::Add
-        },
-        Vec::new(),
-    )?;
-    (!source.matches(&output)).then_some(Effect::Paths(vec![source, output]))
-}
-
-fn installed_compiler() -> Option<PathBuf> {
-    let prefix = fs::canonicalize(std::env::var_os("PREFIX")?).ok()?;
-    let command = prefix.join("bin/clang");
-    let executable = fs::canonicalize(&command).ok()?;
-    (executable.starts_with(prefix) && fs::metadata(executable).ok()?.is_file()).then_some(command)
-}
-
 pub(crate) fn classify(tool: &str, input: &str, workspace: Option<&Path>) -> Effect {
+    classify_with_execution(tool, input, workspace, None)
+}
+
+/// Authoritative shell claims require the actual Native step environment.
+/// The Provider's own process environment is never an execution attestation.
+pub(crate) fn classify_with_execution(
+    tool: &str,
+    input: &str,
+    workspace: Option<&Path>,
+    execution: Option<&Execution>,
+) -> Effect {
     match tool {
         "tool_search" | "clock.curr_time" | "clock.sleep" | "functions.view_image" => Effect::Read,
-        "functions.exec_command" if is_simple_read_command(input) => Effect::Read,
+        "functions.exec_command" if is_simple_read_command(input) => workspace
+            .and_then(|root| compiler::qualified_read(input, root, execution?))
+            .map_or(Effect::Opaque, |()| Effect::Read),
         "functions.exec_command" => workspace
-            .and_then(|root| object_compile(input, root, &installed_compiler()?))
+            .and_then(|root| compiler::classify(input, root, execution?))
             .unwrap_or(Effect::Opaque),
         "functions.apply_patch" | "apply_patch" => workspace
             .and_then(|root| parse_patch(input, root))
@@ -345,6 +311,14 @@ impl FileEffect {
     }
 
     fn check_version(&self, workspace: &Path) -> Result<(), &'static str> {
+        let workspace = if self.external_input {
+            if !self.operation.is_input() {
+                return Err("native_resource_path_changed");
+            }
+            Path::new("/")
+        } else {
+            workspace
+        };
         let name = self
             .path
             .file_name()
@@ -359,7 +333,10 @@ impl FileEffect {
             return Err("native_resource_path_changed");
         }
         let actual = fs::symlink_metadata(&self.path);
-        if self.operation == FileOperation::Add {
+        if matches!(
+            self.operation,
+            FileOperation::Add | FileOperation::AbsentInput | FileOperation::AbsentDirectory
+        ) {
             return if actual.is_err_and(|err| err.kind() == std::io::ErrorKind::NotFound) {
                 Ok(())
             } else {
@@ -371,6 +348,16 @@ impl FileEffect {
             return Err("native_resource_path_changed");
         }
         let stat = fs::metadata(&real).map_err(|_| "native_resource_version_conflict")?;
+        if self.operation == FileOperation::MetadataInput {
+            return if stat.is_file()
+                && self.inode.as_deref() == Some(&format!("{}:{}", stat.dev(), stat.ino()))
+                && self.base.as_deref() == Some(&compiler::metadata_version(&stat))
+            {
+                Ok(())
+            } else {
+                Err("native_resource_version_conflict")
+            };
+        }
         if !stat.is_file() || stat.len() > SNAPSHOT_LIMIT {
             return Err("native_resource_version_conflict");
         }
@@ -383,7 +370,9 @@ impl FileEffect {
         // Most patch tools publish through an atomic rename, which changes the
         // inode but retains the verified parent/name entry. Non-symlink text
         // edits can still rebase against the new contents; links remain strict.
-        if self.linked && self.inode.as_ref() != Some(&inode) {
+        if (self.linked || matches!(self.operation, FileOperation::Input | FileOperation::Output))
+            && self.inode.as_ref() != Some(&inode)
+        {
             return Err("native_resource_path_changed");
         }
         let bytes = fs::read(&real).map_err(|_| "native_resource_version_conflict")?;
@@ -438,8 +427,12 @@ pub(crate) fn conflicts(first: &Effect, second: &Effect) -> bool {
         (Effect::Opaque, _) | (_, Effect::Opaque) => true,
         (Effect::Paths(left), Effect::Paths(right)) => left.iter().any(|a| {
             right.iter().any(|b| {
-                !(a.operation == FileOperation::Input && b.operation == FileOperation::Input)
-                    && a.matches(b)
+                !(a.operation.is_input() && b.operation.is_input())
+                    && (a.matches(b)
+                        || a.operation == FileOperation::AbsentDirectory
+                            && b.path.starts_with(&a.path)
+                        || b.operation == FileOperation::AbsentDirectory
+                            && a.path.starts_with(&b.path))
             })
         }),
     }
@@ -475,15 +468,16 @@ mod tests {
         let root = temp();
         fs::write(root.join("a.c"), "int a(void){return 1;}\n").unwrap();
         fs::write(root.join("b.c"), "int b(void){return 2;}\n").unwrap();
-        let compiler = Path::new("/trusted/clang");
+        let execution = compiler_fixture(&root);
+        let compiler = execution.prefix.join("bin/clang");
         let build = |source: &str, output: &str, command: Option<&str>| {
-            object_compile(
+            compiler::classify(
                 &serde_json::json!({"cmd":command.map(str::to_owned).unwrap_or_else(||
-                    format!("/trusted/clang -c {source} -o {output}")),
+                    format!("{} -c {source} -o {output}", compiler.display())),
                     "login":false,"workdir":root})
                 .to_string(),
                 &root,
-                compiler,
+                &execution,
             )
         };
         let a = build("a.c", "a.o", None).unwrap();
@@ -516,9 +510,9 @@ mod tests {
             "/trusted/clang -c a.c -o ../../shared.o",
             "/trusted/clang -c a.c -o a.c",
             "/trusted/clang -c a.c -o /outside.o",
-            "clang -c a.c -o a.o",
         ] {
-            assert!(build("a.c", "a.o", Some(command)).is_none(), "{command}");
+            let command = command.replace("/trusted/clang", compiler.to_str().unwrap());
+            assert!(build("a.c", "a.o", Some(&command)).is_none(), "{command}");
         }
         fs::remove_dir_all(root).unwrap();
     }
@@ -688,32 +682,51 @@ mod tests {
         fs::remove_dir_all(root).unwrap();
     }
     #[test]
-    fn nc_git_live_status_and_explicit_nonlogin_read_can_coexist_with_writers() {
+    fn nc_qualified_shell_reads_coexist_without_guessing_git_config_effects() {
         let root = temp();
+        let execution = compiler_fixture(&root);
         assert_eq!(
             classify(
                 "functions.exec_command",
                 r#"{"cmd":"pwd","login":false}"#,
                 Some(&root)
             ),
-            Effect::Read
+            Effect::Opaque,
+            "non-login alone cannot attest PATH or startup environment"
         );
-        let git_read = classify(
-            "functions.exec_command",
-            r#"{"cmd":"git -c core.fsmonitor=false --no-optional-locks status --porcelain=v1 --untracked-files=no","login":false}"#,
-            Some(&root),
-        );
-        assert_eq!(git_read, Effect::Read);
-        assert!(!conflicts(&git_read, &Effect::Opaque));
+        for command in [
+            "pwd",
+            "ls -la",
+            "cat a.c",
+            "git rev-parse HEAD",
+            "git branch --show-current",
+            "git --no-pager -c log.showSignature=false log -1 --oneline",
+        ] {
+            let read = classify_with_execution(
+                "functions.exec_command",
+                &serde_json::json!({"cmd":command,"login":false}).to_string(),
+                Some(&root),
+                Some(&execution),
+            );
+            assert_eq!(read, Effect::Read, "{command}");
+            assert!(!conflicts(&read, &Effect::Opaque));
+        }
         for unsafe_command in [
             r#"{"cmd":"pwd"}"#,
             r#"{"cmd":"git -c core.fsmonitor=false --no-optional-locks status --porcelain=v1 --untracked-files=no"}"#,
             r#"{"cmd":"git status --porcelain=v1 --untracked-files=no","login":false}"#,
             r#"{"cmd":"git -c core.fsmonitor=false --no-optional-locks status --porcelain=v1 --untracked-files=no","login":true}"#,
             r#"{"cmd":"git -c core.fsmonitor=false --no-optional-locks status --porcelain=v1 --untracked-files=no; touch unexpected","login":false}"#,
+            r#"{"cmd":"git -c core.fsmonitor=false --no-optional-locks status --porcelain=v1 --untracked-files=no","login":false}"#,
+            r#"{"cmd":"git log -1 --oneline","login":false}"#,
         ] {
             assert_eq!(
-                classify("functions.exec_command", unsafe_command, Some(&root)),
+                classify_with_execution(
+                    "functions.exec_command",
+                    unsafe_command,
+                    Some(&root),
+                    Some(&execution)
+                ),
                 Effect::Opaque,
             );
         }
@@ -721,15 +734,65 @@ mod tests {
     }
 
     #[test]
+    fn git_status_can_execute_a_clean_filter_despite_no_optional_locks() {
+        let root = temp();
+        let execution = compiler_fixture(&root);
+        let git = |args: &[&str]| {
+            let output = std::process::Command::new("git")
+                .args(args)
+                .current_dir(&root)
+                .env("GIT_CONFIG_NOSYSTEM", "1")
+                .env("GIT_CONFIG_GLOBAL", "/dev/null")
+                .env_remove("GIT_DIR")
+                .env_remove("GIT_WORK_TREE")
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "git {:?}: {}",
+                args,
+                String::from_utf8_lossy(&output.stderr)
+            );
+        };
+        git(&["init", "-q"]);
+        git(&[
+            "config",
+            "filter.probe.clean",
+            "touch filter-side-effect; cat",
+        ]);
+        fs::write(root.join(".gitattributes"), "a.txt filter=probe\n").unwrap();
+        fs::write(root.join("a.txt"), "one\n").unwrap();
+        git(&["add", ".gitattributes", "a.txt"]);
+        fs::remove_file(root.join("filter-side-effect")).unwrap();
+        // Equal lengths force status to hash the worktree through its filter.
+        fs::write(root.join("a.txt"), "two\n").unwrap();
+        git(&[
+            "-c",
+            "core.fsmonitor=false",
+            "--no-optional-locks",
+            "status",
+            "--porcelain=v1",
+            "--untracked-files=no",
+        ]);
+        assert!(root.join("filter-side-effect").exists());
+        assert_eq!(classify_with_execution("functions.exec_command",
+            &serde_json::json!({"cmd":"git -c core.fsmonitor=false --no-optional-locks status --porcelain=v1 --untracked-files=no","login":false,"workdir":root}).to_string(),
+            Some(&root), Some(&execution)), Effect::Opaque);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn nc_bounded_compiler_builds_hold_inputs_and_outputs_without_a_repo_lock() {
         let root = temp();
+        let execution = compiler_fixture(&root);
         fs::write(root.join("a.c"), "int main(void) { return 0; }\n").unwrap();
         fs::write(root.join("b.c"), "int other(void) { return 1; }\n").unwrap();
         let build = |cmd: &str, login: bool| {
-            classify(
+            classify_with_execution(
                 "functions.exec_command",
                 &serde_json::json!({"cmd":cmd,"workdir":root,"login":login}).to_string(),
                 Some(&root),
+                Some(&execution),
             )
         };
         let a = build("clang -O0 a.c -o a.out", false);

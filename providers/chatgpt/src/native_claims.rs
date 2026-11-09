@@ -15,10 +15,8 @@ use std::{
         unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt},
     },
     path::{Path, PathBuf},
-    sync::atomic::{AtomicU64, Ordering},
 };
 
-static NEXT_TEMP: AtomicU64 = AtomicU64::new(0);
 const STATE_MAX: u64 = 4 * 1024 * 1024;
 
 #[derive(Default, Serialize, Deserialize)]
@@ -201,9 +199,8 @@ impl Ledger {
                 return Err(fail());
             }
             let temp = self.directory.join(format!(
-                ".claims-{}-{}",
-                std::process::id(),
-                NEXT_TEMP.fetch_add(1, Ordering::Relaxed)
+                ".claims-{}",
+                crate::journal::random_id().map_err(|_| fail())?
             ));
             let mut file = OpenOptions::new()
                 .write(true)
@@ -472,16 +469,40 @@ impl Guard {
         tool: &str,
         input: &str,
     ) -> Result<(), String> {
+        let effect = native_effect::classify(tool, input, Some(cwd));
+        Self::offer_external_with_effect(
+            cwd,
+            private_test_home,
+            thread,
+            call_id,
+            tool,
+            input,
+            effect,
+        )
+    }
+
+    /// The broker derives the effect once from its Native-bound environment.
+    /// Shared arbitration consumes that same proof instead of reclassifying
+    /// against the Provider process environment or a second policy.
+    pub(crate) fn offer_external_with_effect(
+        cwd: &Path,
+        private_test_home: Option<&Path>,
+        thread: &str,
+        call_id: &str,
+        tool: &str,
+        input: &str,
+        effect: Effect,
+    ) -> Result<(), String> {
         // Proven reads have no resource claim. A failed/unavailable ledger must
         // not turn an independent read into a blocked Native tool call.
-        if native_effect::classify(tool, input, Some(cwd)) == Effect::Read {
+        if effect == Effect::Read {
             return Ok(());
         }
         let ledger = match private_test_home {
             Some(home) => Ledger::at(cwd, home)?,
             None => Ledger::new(cwd)?,
         };
-        Self::begin_with(cwd, thread, call_id, tool, input, ledger)?;
+        Self::begin_effect(cwd, thread, call_id, tool, input, ledger, effect)?;
         // No Drop-based release: an offered call may run without this process
         // and is settled only against the original Provider result receipt.
         Ok(())
@@ -581,6 +602,7 @@ impl Guard {
         observed.observed(Some(result))
     }
 
+    #[cfg(test)]
     fn begin_with(
         cwd: &Path,
         thread: &str,
@@ -589,12 +611,31 @@ impl Guard {
         input: &str,
         ledger: Ledger,
     ) -> Result<Self, String> {
+        Self::begin_effect(
+            cwd,
+            thread,
+            call_id,
+            tool,
+            input,
+            ledger,
+            native_effect::classify(tool, input, Some(cwd)),
+        )
+    }
+
+    fn begin_effect(
+        cwd: &Path,
+        thread: &str,
+        call_id: &str,
+        tool: &str,
+        input: &str,
+        ledger: Ledger,
+        effect: Effect,
+    ) -> Result<Self, String> {
         if thread.is_empty() || call_id.is_empty() || thread.len() + call_id.len() > 512 {
             return Err("native_effect_identity_invalid".to_owned());
         }
         let workspace =
             fs::canonicalize(cwd).map_err(|_| "native_workspace_unavailable".to_owned())?;
-        let effect = native_effect::classify(tool, input, Some(&workspace));
         let identity = format!("{thread}:{call_id}");
         let existing_session = continuation(tool, input);
         let fingerprint = fingerprint(tool, input, &workspace);
@@ -876,9 +917,8 @@ mod tests {
     }
     fn root() -> PathBuf {
         let path = std::env::temp_dir().join(format!(
-            "native-ledger-test-{}-{}",
-            std::process::id(),
-            NEXT_TEMP.fetch_add(1, Ordering::Relaxed)
+            "native-ledger-test-{}",
+            crate::journal::random_id().unwrap()
         ));
         fs::DirBuilder::new().mode(0o700).create(&path).unwrap();
         path
@@ -1081,6 +1121,7 @@ mod tests {
     fn nc_read_remains_unblocked_during_write() {
         let cwd = root();
         let home = root();
+        let execution = native_effect::compiler_fixture(&cwd);
         fs::write(cwd.join("a"), "old\n").unwrap();
         let _writing = apply(&cwd, &home, "writer", "patch", "a").unwrap();
         // An unusable shared journal must not prevent read-only calls,
@@ -1091,13 +1132,21 @@ mod tests {
             ("reader", "cat", r#"{"cmd":"cat a","login":false}"#),
             ("reader-2", "pwd", r#"{"cmd":"pwd","login":false}"#),
         ] {
-            Guard::offer_external(
+            let effect = native_effect::classify_with_execution(
+                "functions.exec_command",
+                input,
+                Some(&cwd),
+                Some(&execution),
+            );
+            assert_eq!(effect, Effect::Read);
+            Guard::offer_external_with_effect(
                 &cwd,
                 Some(&blocked_home),
                 thread,
                 call_id,
                 "functions.exec_command",
                 input,
+                effect,
             )
             .unwrap();
         }

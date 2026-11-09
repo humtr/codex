@@ -6077,6 +6077,22 @@ impl Operator {
             self.broker
                 .settle_with_catalog(&record.token, &received, Some(request.tools.clone()))
                 .await?;
+            self.broker
+                .bind_execution(
+                    &record.token,
+                    request
+                        .execution
+                        .as_ref()
+                        .filter(|execution| {
+                            execution.belongs_to(
+                                &native.owner.process,
+                                &request.thread,
+                                request.turn.as_deref(),
+                            )
+                        })
+                        .cloned(),
+                )
+                .await?;
             work.record.pending.clear();
             if work.record.phase != "handoff" {
                 work.record.phase = if request.compaction.is_some() {
@@ -6563,6 +6579,17 @@ impl Host for Operator {
                 let (sender, mut receiver) = mpsc::channel(64);
                 let child_cancel = cancel.clone();
                 let effect_workspace = pool.workspace.clone();
+                let effect_execution = request
+                    .execution
+                    .as_ref()
+                    .filter(|execution| {
+                        execution.belongs_to(
+                            &native.owner.process,
+                            &request.thread,
+                            request.turn.as_deref(),
+                        )
+                    })
+                    .cloned();
                 let forward = async {
                     while let Some(event) = receiver.recv().await {
                         if let Event::Tool(call) = &event {
@@ -6573,12 +6600,13 @@ impl Host for Operator {
                             if let Some(work) = effect_work.as_deref() {
                                 if let Err(error) = this
                                     .broker
-                                    .admit_external_tool(
+                                    .admit_external_tool_with_execution(
                                         work,
                                         &call.id,
                                         &call.tool.key(),
                                         &call.input,
                                         &effect_workspace,
+                                        effect_execution.as_ref(),
                                     )
                                     .await
                                 {

@@ -48,6 +48,8 @@ pub struct Request {
     pub thread: String,
     pub parent: Option<String>,
     pub turn: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) execution: Option<crate::native_effect::Execution>,
     pub guardian: bool,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub thread_title: bool,
@@ -318,6 +320,12 @@ impl Request {
             .catalog
             .route(&model, &effort)
             .ok_or(Error("unsupported_desktop_route"))?;
+        let execution = match &value["client_metadata"]["termux_native_execution"] {
+            Value::String(text) if text.len() <= 24 * 1024 => serde_json::from_str(text).ok(),
+            // Missing or unqualified facts keep commands opaque. Metadata must
+            // never make an otherwise valid model request fail admission.
+            _ => None,
+        };
         crate::context::messages(&crate::handoff::readable(&input, handoff.as_ref())?)?;
         Ok(Self {
             model,
@@ -331,6 +339,7 @@ impl Request {
             thread,
             parent,
             turn: field("turn_id"),
+            execution,
             guardian,
             thread_title: field("thread_source").as_deref() == Some("thread_title"),
             compaction,
@@ -469,6 +478,39 @@ mod tests {
     use super::*;
     fn request() -> Value {
         json!({"model":"chatgpt-desktop/gpt-6","stream":true,"input":"test","client_metadata":{"x-codex-turn-metadata":{"thread_id":"native-thread"}},"tools":[{"type":"namespace","name":"functions","tools":[{"type":"function","name":"exec","parameters":{"type":"object"}},{"type":"custom","name":"patch","format":{"type":"text"}}]},{"type":"tool_search"}]})
+    }
+    #[test]
+    fn native_execution_metadata_is_private_optional_and_bounded() {
+        let root = std::env::temp_dir().join(format!(
+            "protocol-execution-{}",
+            crate::journal::random_id().unwrap()
+        ));
+        std::fs::create_dir(&root).unwrap();
+        let execution = crate::native_effect::compiler_fixture(&root);
+        let mut body = request();
+        body["client_metadata"]["termux_native_execution"] =
+            json!(serde_json::to_string(&execution).unwrap());
+        let parsed = Request::parse(body.clone(), &Config::default(), None).unwrap();
+        assert_eq!(parsed.execution, Some(execution));
+        assert!(!serde_json::to_string(&parsed.input)
+            .unwrap()
+            .contains("termux_native_execution"));
+        assert!(!serde_json::to_string(&parsed.instructions)
+            .unwrap()
+            .contains("termux_native_execution"));
+        for unsupported in [
+            json!("{"),
+            json!({"schema":1}),
+            json!("x".repeat(24 * 1024 + 1)),
+        ] {
+            body["client_metadata"]["termux_native_execution"] = unsupported;
+            let parsed = Request::parse(body.clone(), &Config::default(), None).unwrap();
+            assert!(
+                parsed.execution.is_none(),
+                "unqualified facts must leave tool effects opaque"
+            );
+        }
+        std::fs::remove_dir_all(root).unwrap();
     }
     #[test]
     fn host_web_search_is_not_invented_as_a_native_executable() {

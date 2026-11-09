@@ -2336,6 +2336,18 @@ index 239a965..0bdee1e 100644
      let mut config = (*turn.config).clone();
      config.model = Some("stale-parent-model".to_string());
      config.model_context_window = Some(128_000);
+diff --git a/codex-rs/core/src/lib.rs b/codex-rs/core/src/lib.rs
+index 5157340..18d932b 100644
+--- a/codex-rs/core/src/lib.rs
++++ b/codex-rs/core/src/lib.rs
+@@ -10,6 +10,7 @@ mod apps;
+ mod client;
+ mod client_common;
+ mod model_request;
++mod native_execution;
+ mod realtime_context;
+ mod realtime_conversation;
+ mod realtime_history;
 diff --git a/codex-rs/core/src/mcp_tool_call_tests.rs b/codex-rs/core/src/mcp_tool_call_tests.rs
 index c0ac2d4..a8ac1c0 100644
 --- a/codex-rs/core/src/mcp_tool_call_tests.rs
@@ -2394,6 +2406,179 @@ index c0ac2d4..a8ac1c0 100644
          turn_context.config = Arc::clone(&config);
          turn_context.provider = create_model_provider(
              config.model_provider.clone(),
+diff --git a/codex-rs/core/src/native_execution.rs b/codex-rs/core/src/native_execution.rs
+new file mode 100644
+index 0000000..e8b20f5
+--- /dev/null
++++ b/codex-rs/core/src/native_execution.rs
+@@ -0,0 +1,167 @@
++//! Private execution facts for the local ChatGPT Provider's resource admission.
++//! Native remains the only executor. No tool arguments or environment values
++//! are rewritten, and no compiler or shell is run to obtain these facts.
++use crate::exec_env::create_env;
++use crate::session::session::Session;
++use crate::session::step_context::StepContext;
++use serde_json::Value;
++use serde_json::json;
++use std::collections::HashMap;
++use std::path::Path;
++
++pub(crate) const METADATA_KEY: &str = "termux_native_execution";
++
++fn project(
++    env: &HashMap<String, String>,
++    cwd: &Path,
++    shell: &Path,
++    thread: &str,
++    turn: &str,
++) -> Option<Value> {
++    let pid = std::process::id();
++    let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
++    let start = stat.rsplit_once(')')?.1.split_whitespace().nth(19)?;
++    let prefix = env.get("PREFIX")?;
++    let home = env.get("HOME")?;
++    let path = env.get("PATH")?;
++    if !cwd.is_absolute()
++        || !shell.is_absolute()
++        || !Path::new(prefix).is_absolute()
++        || !Path::new(home).is_absolute()
++        || path.len() > 16 * 1024
++        || env.len() > 512
++    {
++        return None;
++    }
++    let mut variables = env.keys().collect::<Vec<_>>();
++    variables.sort();
++    Some(
++        json!({"schema":1,"pid":pid,"start":start,"thread":thread,"turn":turn,
++        "cwd":cwd,"shell":shell,"prefix":prefix,"home":home,"path":path,
++        "variables":variables,"no_default_config":env.get("CLANG_NO_DEFAULT_CONFIG").is_some_and(|s|!s.is_empty())}),
++    )
++}
++
++pub(crate) fn capture(session: &Session, step: &StepContext) -> Option<Value> {
++    // This is private, model-invisible metadata for the qualified local route.
++    if step.turn.config.model_provider_id != "chatgpt_desktop"
++        || step.environments.turn_environments().count() != 1
++        || !step.executor_hook_sources.is_empty()
++        || !session
++            .hooks()
++            .list_with_environment_hooks(Vec::new())
++            .hooks
++            .is_empty()
++    {
++        return None;
++    }
++    let environment = step.environments.primary()?;
++    if environment.environment.is_remote()
++        || !environment.config().environment_hooks.is_empty()
++        || step
++            .turn
++            .config
++            .permissions
++            .network
++            .as_ref()
++            .is_some_and(|network| network.enabled() && network.credential_broker_enabled())
++    {
++        return None;
++    }
++    let cwd = environment.cwd().to_abs_path().ok()?;
++    let session_shell = session.user_shell();
++    let shell = environment.shell.as_ref().unwrap_or(session_shell.as_ref());
++    // Reuse UnifiedExec's selected policy and package PATH projection. Its
++    // remaining overlays add runtime IDs, permission labels and terminal
++    // defaults. This qualification is for login:false only, so shell snapshots
++    // are not applied; credential-broker snapshots and remote executors are
++    // excluded above.
++    let mut env = create_env(environment.shell_environment_policy(), None);
++    #[cfg(unix)]
++    crate::tools::runtimes::apply_package_path_prepend(
++        &mut env,
++        &mut crate::tools::runtimes::RuntimePathPrepends::default(),
++    );
++    project(
++        &env,
++        cwd.as_path(),
++        &shell.shell_path,
++        &session.thread_id.to_string(),
++        &step.turn.sub_id,
++    )
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    #[test]
++    fn projection_uses_selected_policy_and_never_transports_secret_values() {
++        let env = HashMap::from([
++            ("PREFIX".into(), "/selected/prefix".into()),
++            ("HOME".into(), "/selected/home".into()),
++            ("PATH".into(), "/selected/prefix/bin".into()),
++            ("BASH_ENV".into(), "/private/startup".into()),
++            (
++                "OPENAI_API_KEY".into(),
++                "private-value-must-not-leave-native".into(),
++            ),
++        ]);
++        let value = project(
++            &env,
++            Path::new("/selected/work"),
++            Path::new("/selected/prefix/bin/bash"),
++            "thread",
++            "turn",
++        )
++        .unwrap();
++        assert_eq!(value["path"], "/selected/prefix/bin");
++        assert_eq!(value["prefix"], "/selected/prefix");
++        assert_eq!(value["no_default_config"], false);
++        assert!(
++            value["variables"]
++                .as_array()
++                .unwrap()
++                .iter()
++                .any(|name| name == "BASH_ENV")
++        );
++        let wire = value.to_string();
++        assert!(!wire.contains("/private/startup"));
++        assert!(!wire.contains("private-value-must-not-leave-native"));
++        assert!(
++            project(
++                &HashMap::new(),
++                Path::new("/work"),
++                Path::new("/bin/bash"),
++                "thread",
++                "turn"
++            )
++            .is_none()
++        );
++    }
++
++    #[test]
++    fn execution_facts_are_body_only_and_cannot_be_spoofed_by_extra_metadata() {
++        use crate::responses_metadata::CodexResponsesMetadata;
++        use crate::responses_metadata::filter_extra_metadata;
++        use crate::responses_metadata::validate_extra_metadata;
++        let mut metadata = CodexResponsesMetadata::new(
++            "installation".into(),
++            "session".into(),
++            "thread".into(),
++            "window".into(),
++        );
++        metadata.native_execution = Some(json!({"schema":1,"path":"/qualified/bin"}));
++        let forged = [(METADATA_KEY.to_owned(), "forged".to_owned())];
++        assert!(validate_extra_metadata(forged.iter().map(|(key, value)| (key, value))).is_err());
++        assert!(filter_extra_metadata(forged).is_empty());
++        assert!(metadata.client_metadata(false).contains_key(METADATA_KEY));
++        assert!(!metadata.compatibility_headers().contains_key(METADATA_KEY));
++        assert!(
++            !metadata
++                .turn_metadata_json()
++                .unwrap()
++                .contains(METADATA_KEY)
++        );
++    }
++}
 diff --git a/codex-rs/core/src/realtime_conversation.rs b/codex-rs/core/src/realtime_conversation.rs
 index ffa74f0..21193c6 100644
 --- a/codex-rs/core/src/realtime_conversation.rs
@@ -2418,6 +2603,47 @@ index ffa74f0..21193c6 100644
          sdp,
          existing_call_id,
      };
+diff --git a/codex-rs/core/src/responses_metadata.rs b/codex-rs/core/src/responses_metadata.rs
+index 27bd6e4..5444c20 100644
+--- a/codex-rs/core/src/responses_metadata.rs
++++ b/codex-rs/core/src/responses_metadata.rs
+@@ -66,6 +66,7 @@ pub(crate) const WORKSPACES_KEY: &str = "workspaces";
+ // App-server clients can specify additional metadata in the `responsesapi_client_metadata` param
+ // when submitting a turn, but they must not override fields owned by core.
+ const RESERVED_METADATA_KEYS: &[&str] = &[
++    crate::native_execution::METADATA_KEY,
+     "guardian_credits_requested",
+     "guardian_recorded_items",
+     MCP_ATTRIBUTION_CLIENT_METADATA_KEY,
+@@ -274,6 +275,8 @@ pub struct CodexResponsesMetadata {
+     pub(crate) analytics_enabled: Option<bool>,
+     /// Cumulative MCP attribution for this logical request; body-only and model-invisible.
+     pub(crate) mcp_attribution: Option<McpAttribution>,
++    /// Private local execution facts, body-only; never model instructions.
++    pub(crate) native_execution: Option<Value>,
+     pub(crate) extra: BTreeMap<String, String>,
+ }
+ 
+@@ -319,6 +322,7 @@ impl CodexResponsesMetadata {
+             history_ingest_requested: None,
+             analytics_enabled: None,
+             mcp_attribution: None,
++            native_execution: None,
+             extra: BTreeMap::new(),
+         }
+     }
+@@ -345,6 +349,11 @@ impl CodexResponsesMetadata {
+             (THREAD_ID_KEY.to_string(), self.thread_id.clone()),
+             (X_CODEX_WINDOW_ID_HEADER.to_string(), self.window_id.clone()),
+         ]);
++        if let Some(execution) = &self.native_execution
++            && let Ok(encoded) = to_json_string_bounded(execution, 24 * 1024)
++        {
++            client_metadata.insert(crate::native_execution::METADATA_KEY.to_string(), encoded);
++        }
+         if let Some(turn_id) = &self.turn_id {
+             client_metadata.insert(TURN_ID_KEY.to_string(), turn_id.clone());
+         }
 diff --git a/codex-rs/core/src/responses_retry.rs b/codex-rs/core/src/responses_retry.rs
 index 6a42146..fc5bfe3 100644
 --- a/codex-rs/core/src/responses_retry.rs
@@ -2809,7 +3035,7 @@ index f73f895..f4448b1 100644
          .get_model_info(&model, &config.to_models_manager_config())
          .await;
 diff --git a/codex-rs/core/src/session/session.rs b/codex-rs/core/src/session/session.rs
-index 52325c5..7116a99 100644
+index 52325c5..94c2de1 100644
 --- a/codex-rs/core/src/session/session.rs
 +++ b/codex-rs/core/src/session/session.rs
 @@ -415,6 +415,27 @@ impl SessionConfiguration {
@@ -2874,7 +3100,15 @@ index 52325c5..7116a99 100644
          .await;
          snapshot.service_tier = get_service_tier(
              snapshot.service_tier.take(),
-@@ -1812,7 +1837,6 @@ impl Session {
+@@ -725,6 +750,7 @@ impl Session {
+             request_kind,
+         );
+         ExecutionMetadata::from_settings(&step_context.settings).apply_to(&mut responses_metadata);
++        responses_metadata.native_execution = crate::native_execution::capture(self, step_context);
+         responses_metadata.guardian_recorded_items = self.parent_observer_event_tx.get().is_some();
+         if responses_metadata.subagent_header.as_deref()
+             == Some(crate::guardian::GUARDIAN_REVIEWER_NAME)
+@@ -1812,7 +1838,6 @@ impl Session {
                  )
                  .with_legacy_custom_ca_fallback(),
                  session_telemetry,
@@ -2882,7 +3116,7 @@ index 52325c5..7116a99 100644
                  git_root_discovery,
                  tool_approvals: Mutex::new(ApprovalStore::default()),
                  granted_permissions_by_environment_id: Arc::default(),
-@@ -1840,49 +1864,54 @@ impl Session {
+@@ -1840,49 +1865,54 @@ impl Session {
                  thread_store: Arc::clone(&thread_store),
                  attestation_provider: attestation_provider.clone(),
                  time_provider,
@@ -2979,7 +3213,7 @@ index 52325c5..7116a99 100644
                  executed_tool_calls: executed_tool_calls.clone(),
                  code_mode_service: crate::tools::code_mode::CodeModeService::new(
                      thread_id,
-@@ -1953,6 +1982,7 @@ impl Session {
+@@ -1953,6 +1983,7 @@ impl Session {
              let thread_config = sess
                  .effective_thread_config_snapshot(
                      &session_configuration,

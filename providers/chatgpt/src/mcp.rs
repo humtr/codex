@@ -469,6 +469,8 @@ struct Turn {
     lane: String,
     #[serde(default)]
     workspace: Option<PathBuf>,
+    #[serde(default)]
+    execution: Option<native_effect::Execution>,
     tools: BTreeMap<String, Tool>,
     calls: BTreeMap<String, Invocation>,
     retired: bool,
@@ -524,6 +526,9 @@ struct ExternalEffectReceipt {
     fingerprint: String,
     name: String,
     continuation: Option<u64>,
+    // Set only from this call's authoritative Native-bound classification.
+    #[serde(default)]
+    read_only: bool,
     #[serde(default)]
     settled: bool,
     #[serde(default)]
@@ -1093,6 +1098,7 @@ impl Broker {
     /// not use MCP tool turns. Reserve before forwarding their actual Tool
     /// event; release only on the *next* verified native result. No re-exec on
     /// repeated/uncertain delivery IDs.
+    #[cfg(test)]
     pub(crate) async fn admit_external_tool(
         &self,
         lane: &str,
@@ -1100,6 +1106,19 @@ impl Broker {
         name: &str,
         input: &str,
         workspace: &Path,
+    ) -> Result<(), Error> {
+        self.admit_external_tool_with_execution(lane, id, name, input, workspace, None)
+            .await
+    }
+
+    pub(crate) async fn admit_external_tool_with_execution(
+        &self,
+        lane: &str,
+        id: &str,
+        name: &str,
+        input: &str,
+        workspace: &Path,
+        execution: Option<&native_effect::Execution>,
     ) -> Result<(), Error> {
         let _registry = self.registry.lock().await;
         self.reconcile_persisted_integrated_receipts()?;
@@ -1122,7 +1141,8 @@ impl Broker {
         }
         let root =
             std::fs::canonicalize(workspace).map_err(|_| Error("native_workspace_unavailable"))?;
-        let effect = native_effect::classify(name, input, Some(&root));
+        let effect = native_effect::classify_with_execution(name, input, Some(&root), execution);
+        let read_only = effect == Effect::Read;
         let continuation = continued_process(name, input);
         if state.claims.values().any(|held| {
             native_effect::conflicts(&effect, &held.effect)
@@ -1134,24 +1154,27 @@ impl Broker {
         // There is no authoritative external receipt for this identity yet:
         // a previous reservation could have crashed before delivery. Do not
         // mistake that known unoffered claim for a live Native invocation.
-        SharedNativeGuard::reconcile_unoffered(
-            &root,
-            self.shared_guard_home().as_deref(),
-            lane,
-            &resource_id,
-            name,
-            input,
-        )
-        .map_err(Self::shared_guard_error)?;
-        SharedNativeGuard::offer_external(
-            &root,
-            self.shared_guard_home().as_deref(),
-            lane,
-            &resource_id,
-            name,
-            input,
-        )
-        .map_err(Self::shared_guard_error)?;
+        if !read_only {
+            SharedNativeGuard::reconcile_unoffered(
+                &root,
+                self.shared_guard_home().as_deref(),
+                lane,
+                &resource_id,
+                name,
+                input,
+            )
+            .map_err(Self::shared_guard_error)?;
+            SharedNativeGuard::offer_external_with_effect(
+                &root,
+                self.shared_guard_home().as_deref(),
+                lane,
+                &resource_id,
+                name,
+                input,
+                effect.clone(),
+            )
+            .map_err(Self::shared_guard_error)?;
+        }
         let continuing_owned = continuation.is_some_and(|session| {
             state
                 .claims
@@ -1176,6 +1199,7 @@ impl Broker {
                 fingerprint,
                 name: name.into(),
                 continuation,
+                read_only,
                 settled: false,
                 workspace: Some(root.clone()),
                 lane: Some(lane.into()),
@@ -1185,15 +1209,17 @@ impl Broker {
         if let Err(error) = self.journal.write(&key, &state) {
             // No upstream tool is forwarded until this durable receipt
             // commits; release the reservation when that commit fails.
-            SharedNativeGuard::abort_unoffered(
-                &root,
-                self.shared_guard_home().as_deref(),
-                lane,
-                &resource_id,
-                name,
-                input,
-            )
-            .map_err(Self::shared_guard_error)?;
+            if !read_only {
+                SharedNativeGuard::abort_unoffered(
+                    &root,
+                    self.shared_guard_home().as_deref(),
+                    lane,
+                    &resource_id,
+                    name,
+                    input,
+                )
+                .map_err(Self::shared_guard_error)?;
+            }
             return Err(error);
         }
         Ok(())
@@ -1285,7 +1311,11 @@ impl Broker {
             let Some(result) = call.result.as_ref() else {
                 continue;
             };
-            if let Some(workspace) = turn.workspace.as_deref() {
+            if let Some(workspace) = turn
+                .workspace
+                .as_deref()
+                .filter(|_| call.effect != Some(Effect::Read))
+            {
                 SharedNativeGuard::settle_external(
                     workspace,
                     self.shared_guard_home().as_deref(),
@@ -1351,7 +1381,11 @@ impl Broker {
             let Some(result) = call.result.as_ref() else {
                 continue;
             };
-            if let Some(workspace) = turn.workspace.as_deref() {
+            if let Some(workspace) = turn
+                .workspace
+                .as_deref()
+                .filter(|_| call.effect != Some(Effect::Read))
+            {
                 SharedNativeGuard::settle_external(
                     workspace,
                     self.shared_guard_home().as_deref(),
@@ -1388,7 +1422,7 @@ impl Broker {
                 // silently released after a restart.
                 continue;
             };
-            if let Some(root) = receipt.workspace.as_deref() {
+            if let Some(root) = receipt.workspace.as_deref().filter(|_| !receipt.read_only) {
                 SharedNativeGuard::settle_external_receipt(
                     root,
                     self.shared_guard_home().as_deref(),
@@ -1491,6 +1525,7 @@ impl Broker {
         let turn = Turn {
             lane: lane.into(),
             workspace,
+            execution: None,
             tools,
             calls: BTreeMap::new(),
             retired: false,
@@ -1741,6 +1776,32 @@ impl Broker {
         *turn = next;
         Ok(())
     }
+
+    /// Bind facts from the original Native sampling request after its previous
+    /// results have settled. A caller's tool args never supply these facts.
+    pub(crate) async fn bind_execution(
+        &self,
+        token: &str,
+        execution: Option<native_effect::Execution>,
+    ) -> Result<(), Error> {
+        let mut registry = self.registry.lock().await;
+        let turn = registry
+            .turns
+            .get_mut(token)
+            .filter(|turn| !turn.retired)
+            .ok_or(Error("mcp_turn_unavailable"))?;
+        if turn.execution == execution {
+            return Ok(());
+        }
+        if turn.calls.values().any(|call| call.result.is_none()) {
+            return Err(Error("mcp_pending_catalog_change"));
+        }
+        let mut next = turn.clone();
+        next.execution = execution;
+        self.persist(token, &next)?;
+        *turn = next;
+        Ok(())
+    }
     /// Register before waiting. Cancelling this future only drops the observer.
     pub async fn enqueue(&self, token: &str, args: &Arguments) -> Result<(), Error> {
         if args.call_id.is_empty()
@@ -1784,7 +1845,12 @@ impl Broker {
             &turn.tools,
         )?;
         let mut next = turn.clone();
-        let effect = native_effect::classify(&args.name, &args.input, turn.workspace.as_deref());
+        let effect = native_effect::classify_with_execution(
+            &args.name,
+            &args.input,
+            turn.workspace.as_deref(),
+            turn.execution.as_ref(),
+        );
         next.calls.insert(
             args.call_id.clone(),
             Invocation {
@@ -1943,7 +2009,9 @@ impl Broker {
                         continue;
                     }
                 }
-                if let Some(workspace) = next.workspace.as_deref() {
+                if let Some(workspace) =
+                    next.workspace.as_deref().filter(|_| effect != Effect::Read)
+                {
                     SharedNativeGuard::reconcile_unoffered(
                         workspace,
                         self.shared_guard_home().as_deref(),
@@ -1953,13 +2021,14 @@ impl Broker {
                         &call.input,
                     )
                     .map_err(Self::shared_guard_error)?;
-                    match SharedNativeGuard::offer_external(
+                    match SharedNativeGuard::offer_external_with_effect(
                         workspace,
                         self.shared_guard_home().as_deref(),
                         &next.lane,
                         &call.id,
                         &call.name,
                         &call.input,
+                        effect.clone(),
                     ) {
                         Ok(()) => reserved.push((
                             workspace.to_path_buf(),
@@ -2124,16 +2193,18 @@ impl Broker {
                     .values()
                     .find(|v| v.id == *id)
                     .ok_or(Error("mcp_result_invalid"))?;
-                SharedNativeGuard::settle_external(
-                    workspace,
-                    self.shared_guard_home().as_deref(),
-                    &turn.lane,
-                    id,
-                    &call.name,
-                    &call.input,
-                    result,
-                )
-                .map_err(Self::shared_guard_error)?;
+                if call.effect != Some(Effect::Read) {
+                    SharedNativeGuard::settle_external(
+                        workspace,
+                        self.shared_guard_home().as_deref(),
+                        &turn.lane,
+                        id,
+                        &call.name,
+                        &call.input,
+                        result,
+                    )
+                    .map_err(Self::shared_guard_error)?;
+                }
             }
         }
         if !results.is_empty() {
@@ -2848,6 +2919,111 @@ mod native_concurrency_tests {
     }
 
     #[tokio::test]
+    async fn native_execution_proof_is_persisted_and_shared_without_reactivating_turns() {
+        let (root, journal, tools) = fixture();
+        let execution = native_effect::compiler_fixture(&root);
+        fs::write(root.join("a.c"), "int main(void){return 0;}\n").unwrap();
+        fs::write(root.join("b.c"), "int main(void){return 1;}\n").unwrap();
+        let broker = Broker::new(journal.clone());
+        let token = broker
+            .register_scoped("compiler-owner", tools.clone(), false, Some(&root))
+            .await
+            .unwrap();
+        broker
+            .bind_execution(&token, Some(execution.clone()))
+            .await
+            .unwrap();
+        let stored: Turn = journal
+            .read(&digest(&("mcp-turn-v1", &token)))
+            .unwrap()
+            .unwrap();
+        assert_eq!(stored.execution, Some(execution.clone()));
+        let reopened = Broker::new(journal);
+        let command = |id: &str, source: &str, output: &str| Arguments {
+            call_id: id.into(),
+            name: "functions.exec_command".into(),
+            input: json!({"cmd":format!("clang -O0 {source} -o {output}"),
+                "workdir":root,"login":false})
+            .to_string(),
+            report: String::new(),
+        };
+        let first = command("compile-a", "a.c", "a.out");
+        assert_eq!(
+            reopened.enqueue(&token, &first).await,
+            Err(Error("mcp_turn_unavailable")),
+            "persisted execution facts cannot reactivate an old live capability"
+        );
+        let first_id = accepted(&broker, &token, &first).await;
+        assert_eq!(
+            broker.bind_execution(&token, None).await,
+            Err(Error("mcp_pending_catalog_change")),
+            "unsettled effects keep their original execution facts"
+        );
+        let second = command("compile-b", "b.c", "b.out");
+        reopened
+            .admit_external_tool_with_execution(
+                "other-owner",
+                &second.call_id,
+                &second.name,
+                &second.input,
+                &root,
+                Some(&execution),
+            )
+            .await
+            .unwrap();
+        let shared_output = command("compile-collision", "b.c", "a.out");
+        assert_eq!(
+            reopened
+                .admit_external_tool_with_execution(
+                    "third-owner",
+                    &shared_output.call_id,
+                    &shared_output.name,
+                    &shared_output.input,
+                    &root,
+                    Some(&execution),
+                )
+                .await,
+            Err(Error("native_resource_busy"))
+        );
+        let source_edit = patch(
+            "a.c",
+            "int main(void){return 0;}",
+            "int main(void){return 2;}",
+        );
+        assert_eq!(
+            reopened
+                .admit_external_tool(
+                    "third-owner",
+                    &source_edit.call_id,
+                    &source_edit.name,
+                    &source_edit.input,
+                    &root,
+                )
+                .await,
+            Err(Error("native_resource_busy"))
+        );
+        broker
+            .settle(
+                &token,
+                &[(first_id, json!({"output":"Process exited with code 0"}))],
+            )
+            .await
+            .unwrap();
+        broker.bind_execution(&token, None).await.unwrap();
+        reopened
+            .settle_external_tools(
+                "other-owner",
+                &[(
+                    second.call_id,
+                    json!({"output":"Process exited with code 0"}),
+                )],
+            )
+            .await
+            .unwrap();
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
     async fn normalized_startup_failure_settles_only_its_original_effect() {
         let (root, journal, tools) = fixture();
         let broker = Broker::new(journal.clone());
@@ -3018,6 +3194,7 @@ mod native_concurrency_tests {
     #[tokio::test]
     async fn nc_distinct_writers_and_reads_are_parallel_nonoverlap_rebases() {
         let (root, journal, tools) = fixture();
+        let execution = native_effect::compiler_fixture(&root);
         fs::write(root.join("file"), "alpha\nbeta\ngamma\n").unwrap();
         fs::write(root.join("other"), "separate\n").unwrap();
         let broker = Broker::new(journal);
@@ -3033,6 +3210,7 @@ mod native_concurrency_tests {
             .register_scoped("three", tools, false, Some(&root))
             .await
             .unwrap();
+        broker.bind_execution(&two, Some(execution)).await.unwrap();
         let first = patch("file", "alpha", "ALPHA");
         let second = patch("file", "beta", "BETA");
         let unrelated = patch("other", "separate", "SEPARATE");
