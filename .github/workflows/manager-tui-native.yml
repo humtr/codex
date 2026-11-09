@@ -182,7 +182,9 @@ jobs:
           set -euo pipefail
           cd upstream
           just fmt
-          git add -N codex-rs/tui
+          python3 ../experiment/frontend/tui/apply.py . --check-scope --native-preparation "$RUNNER_TEMP/profile-tui-native-preparation.json"
+          git add -N codex-rs
+          cp codex-rs/core/src/lib.rs "$RUNNER_TEMP/profile-tui-core-lib.rs"
       - name: Verify generated Native protocol contracts
         shell: bash
         run: |
@@ -626,16 +628,16 @@ jobs:
           set -euo pipefail
           cd upstream
           # Validation-only compiler capacity and ARM64 fstatfs type allowances.
-          # The CLI above contains pristine Core lib.rs/daemon_startup; neither temporary
+          # The CLI contains the qualified Core lib.rs and pristine daemon_startup; neither temporary
           # allowance enters an asset or suppresses a lint in maintained code.
           python3 - <<'PYTHON'
           from pathlib import Path
-          import subprocess
+          import os, subprocess
           core = Path('codex-rs/core/src/lib.rs')
           original = core.read_bytes()
-          pristine = subprocess.check_output(['git', 'show', 'HEAD:codex-rs/core/src/lib.rs'])
-          if original != pristine:
-              raise RuntimeError('upstream Core source must remain pristine')
+          prepared = Path(os.environ['RUNNER_TEMP']) / 'profile-tui-core-lib.rs'
+          if original != prepared.read_bytes():
+              raise RuntimeError('qualified Core source changed after preparation')
           annotated = b'#![recursion_limit = "256"]\n' + original
           daemon = Path('codex-rs/tui/src/daemon_startup.rs')
           daemon_original = daemon.read_bytes()

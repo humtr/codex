@@ -13,7 +13,9 @@ WORKFLOW = Path(__file__).resolve().parents[1] / 'workflows/manager-tui-native.y
 
 
 class NativeLintBoundaryTests(unittest.TestCase):
-    def test_actual_lint_step_restores_pristine_upstream_sources_on_every_outcome(self):
+    def test_actual_lint_step_restores_qualified_sources_on_every_outcome(self):
+        format_block = WORKFLOW.read_text().split('      - name: Format and inspect native profile scope', 1)[1].split('      - name:', 1)[0]
+        format_script = textwrap.dedent(format_block.split('        run: |\n', 1)[1])
         block = WORKFLOW.read_text().split('      - name: Inspect TUI lint fixes', 1)[1].split('      - name:', 1)[0]
         script = textwrap.dedent(block.split('        run: |\n', 1)[1])
         self.assertEqual(subprocess.run(['bash', '-n'], input=script, text=True, capture_output=True).returncode, 0)
@@ -42,20 +44,20 @@ class NativeLintBoundaryTests(unittest.TestCase):
                 daemon.write_bytes(b'pub fn uses_wsl_drvfs() {}\n')
                 for args in (['init', '-q'], ['add', '.'], ['-c', 'user.name=Owned', '-c', 'user.email=owned@example.invalid', 'commit', '-qm', 'owned']):
                     subprocess.run([git, *args], cwd=upstream, check=True, capture_output=True)
-                # The assembled frontend owns a bounded Config change. Lint
-                # must retain that exact input while rejecting new mutations.
+                # Native preparation may change Core's module root and add a
+                # source file. Both must enter the proof used for binary reuse;
+                # lint must retain the qualified bytes, not pristine HEAD.
+                prepared_core = original + b'\nmod native_execution;\n'
+                core.write_bytes(prepared_core)
+                native = core.parent / 'native_execution.rs'
+                native.write_bytes(b'pub fn native_execution() {}\n')
                 config_before = b'// Complete model catalog source retained\n'
                 config.write_bytes(config_before)
                 (root / 'profile-tui-native-preparation.json').write_text(json.dumps({
                     'source': subprocess.check_output([git, 'rev-parse', 'HEAD'], cwd=upstream, text=True).strip(),
-                    'changed_files': ['codex-rs/core/src/config/mod.rs'],
+                    'changed_files': ['codex-rs/core/src/config/mod.rs', 'codex-rs/core/src/lib.rs',
+                                      'codex-rs/core/src/native_execution.rs'],
                 }))
-                if fault == 'foreign-source':
-                    core.write_bytes(b'foreign\n')
-                if fault == 'foreign-daemon':
-                    daemon.write_bytes(b'foreign\n')
-                before = core.read_bytes()
-                daemon_before = daemon.read_bytes()
                 tools = root / 'bin'
                 tools.mkdir()
                 assembler = root / 'experiment/frontend/tui/apply.py'
@@ -64,6 +66,8 @@ class NativeLintBoundaryTests(unittest.TestCase):
                 (tools / 'just').write_text(f'#!{sys.executable}\n' + textwrap.dedent('''\
                     import os, sys
                     from pathlib import Path
+                    if sys.argv[1:] == ['fmt']:
+                        sys.exit(0)
                     core = Path('codex-rs/core/src/lib.rs')
                     assert core.read_bytes().startswith(b'#![recursion_limit = "256"]\\n')
                     daemon = Path('codex-rs/tui/src/daemon_startup.rs')
@@ -79,10 +83,22 @@ class NativeLintBoundaryTests(unittest.TestCase):
                     sys.exit(7 if fault == 'failure' else 0)
                 '''))
                 (tools / 'just').chmod(0o755)
-                (root / 'profile-tui-formatted.patch').write_bytes(subprocess.check_output(
-                    [git, 'diff', '--', 'codex-rs/tui', 'codex-rs/core'], cwd=upstream))
                 env = {**os.environ, 'PATH': str(tools)+os.pathsep+os.environ['PATH'],
                        'RUNNER_TEMP': str(root), 'LINT_FAULT': fault or '', 'PYTHONDONTWRITEBYTECODE': '1'}
+                formatted = subprocess.run(['bash', '-c', format_script], cwd=root, env=env,
+                                           text=True, capture_output=True, timeout=15)
+                self.assertEqual(formatted.returncode, 0, formatted.stderr)
+                self.assertEqual((root / 'profile-tui-core-lib.rs').read_bytes(), prepared_core)
+                proof = subprocess.check_output([git, 'diff', '--', 'codex-rs'], cwd=upstream)
+                self.assertIn(b'diff --git a/codex-rs/core/src/native_execution.rs b/codex-rs/core/src/native_execution.rs', proof)
+                self.assertIn(native.read_bytes(), proof.replace(b'+', b''))
+                (root / 'profile-tui-formatted.patch').write_bytes(proof)
+                if fault == 'foreign-source':
+                    core.write_bytes(b'foreign\n')
+                if fault == 'foreign-daemon':
+                    daemon.write_bytes(b'foreign\n')
+                before = core.read_bytes()
+                daemon_before = daemon.read_bytes()
                 result = subprocess.run(['bash', '-c', script], cwd=root, env=env,
                                         text=True, capture_output=True, timeout=15)
                 self.assertEqual(result.returncode == 0, fault is None, result.stderr[-1000:])
