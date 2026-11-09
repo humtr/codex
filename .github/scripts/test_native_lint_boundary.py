@@ -16,11 +16,13 @@ class NativeLintBoundaryTests(unittest.TestCase):
     def test_actual_lint_step_restores_qualified_sources_on_every_outcome(self):
         format_block = WORKFLOW.read_text().split('      - name: Format and inspect native profile scope', 1)[1].split('      - name:', 1)[0]
         format_script = textwrap.dedent(format_block.split('        run: |\n', 1)[1])
+        schema_block = WORKFLOW.read_text().split('      - name: Verify generated Native protocol contracts', 1)[1].split('      - name:', 1)[0]
+        schema_script = textwrap.dedent(schema_block.split('        run: |\n', 1)[1])
         block = WORKFLOW.read_text().split('      - name: Inspect TUI lint fixes', 1)[1].split('      - name:', 1)[0]
         script = textwrap.dedent(block.split('        run: |\n', 1)[1])
         self.assertEqual(subprocess.run(['bash', '-n'], input=script, text=True, capture_output=True).returncode, 0)
         git = shutil.which('git')
-        for fault in (None, 'failure', 'root-mutation', 'other-core-mutation', 'config-mutation', 'outside-mutation', 'foreign-source',
+        for fault in (None, 'failure', 'root-mutation', 'other-core-mutation', 'config-mutation', 'schema-mutation', 'outside-mutation', 'foreign-source',
                       'daemon-mutation', 'foreign-daemon'):
             with self.subTest(fault=fault), tempfile.TemporaryDirectory(prefix='native-lint-') as directory:
                 root = Path(directory)
@@ -63,6 +65,17 @@ class NativeLintBoundaryTests(unittest.TestCase):
                 assembler = root / 'experiment/frontend/tui/apply.py'
                 assembler.parent.mkdir(parents=True)
                 shutil.copy2(Path(__file__).resolve().parents[2] / 'frontend/tui/apply.py', assembler)
+                builder = root / 'source-tools/release/codex-release-builder'
+                builder.parent.mkdir(parents=True)
+                builder.write_text(f'#!{sys.executable}\n' + textwrap.dedent('''\
+                    from pathlib import Path
+                    import sys
+                    assert sys.argv[1] == 'generate-schema'
+                    schema = Path('codex-rs/app-server-protocol/schema/generated.json')
+                    schema.parent.mkdir(parents=True, exist_ok=True)
+                    schema.write_text('{"generated":"after format"}\\n')
+                '''))
+                builder.chmod(0o755)
                 (tools / 'just').write_text(f'#!{sys.executable}\n' + textwrap.dedent('''\
                     import os, sys
                     from pathlib import Path
@@ -79,20 +92,26 @@ class NativeLintBoundaryTests(unittest.TestCase):
                     if fault == 'daemon-mutation': daemon.write_bytes(b'changed')
                     if fault == 'other-core-mutation': Path('codex-rs/core/src/other.rs').write_bytes(b'changed')
                     if fault == 'config-mutation': Path('codex-rs/core/src/config/mod.rs').write_bytes(b'changed')
+                    if fault == 'schema-mutation': Path('codex-rs/app-server-protocol/schema/generated.json').write_bytes(b'changed')
                     if fault == 'outside-mutation': Path('codex-rs/outside.rs').write_bytes(b'changed')
                     sys.exit(7 if fault == 'failure' else 0)
                 '''))
                 (tools / 'just').chmod(0o755)
                 env = {**os.environ, 'PATH': str(tools)+os.pathsep+os.environ['PATH'],
-                       'RUNNER_TEMP': str(root), 'LINT_FAULT': fault or '', 'PYTHONDONTWRITEBYTECODE': '1'}
+                       'RUNNER_TEMP': str(root), 'LINT_FAULT': fault or '', 'PYTHONDONTWRITEBYTECODE': '1',
+                       'GITHUB_WORKSPACE': str(root), 'CARGO_TARGET_DIR': str(root / 'target')}
                 formatted = subprocess.run(['bash', '-c', format_script], cwd=root, env=env,
                                            text=True, capture_output=True, timeout=15)
                 self.assertEqual(formatted.returncode, 0, formatted.stderr)
                 self.assertEqual((root / 'profile-tui-core-lib.rs').read_bytes(), prepared_core)
-                proof = subprocess.check_output([git, 'diff', '--', 'codex-rs'], cwd=upstream)
+                generated = subprocess.run(['bash', '-c', schema_script], cwd=root, env=env,
+                                           text=True, capture_output=True, timeout=15)
+                self.assertEqual(generated.returncode, 0, generated.stderr)
+                proof = (root / 'profile-tui-formatted.patch').read_bytes()
                 self.assertIn(b'diff --git a/codex-rs/core/src/native_execution.rs b/codex-rs/core/src/native_execution.rs', proof)
                 self.assertIn(native.read_bytes(), proof.replace(b'+', b''))
-                (root / 'profile-tui-formatted.patch').write_bytes(proof)
+                self.assertIn(b'diff --git a/codex-rs/app-server-protocol/schema/generated.json b/codex-rs/app-server-protocol/schema/generated.json', proof)
+                self.assertIn(b'+{"generated":"after format"}\n', proof)
                 if fault == 'foreign-source':
                     core.write_bytes(b'foreign\n')
                 if fault == 'foreign-daemon':

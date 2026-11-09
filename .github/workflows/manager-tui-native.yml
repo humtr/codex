@@ -183,7 +183,6 @@ jobs:
           cd upstream
           just fmt
           python3 ../experiment/frontend/tui/apply.py . --check-scope --native-preparation "$RUNNER_TEMP/profile-tui-native-preparation.json"
-          git add -N codex-rs
           cp codex-rs/core/src/lib.rs "$RUNNER_TEMP/profile-tui-core-lib.rs"
       - name: Verify generated Native protocol contracts
         shell: bash
@@ -195,9 +194,10 @@ jobs:
             --target-dir "$CARGO_TARGET_DIR" --rustc "$(command -v rustc)" --cargo "$(command -v cargo)" \
             2>&1 | tee "$RUNNER_TEMP/native-provider-schema.log"
           tar -czf "$RUNNER_TEMP/native-protocol-generated.tar.gz" -C codex-rs/app-server-protocol/schema .
+          python3 ../experiment/frontend/tui/apply.py . --check-scope --native-preparation "$RUNNER_TEMP/profile-tui-native-preparation.json"
+          git add -N codex-rs
           git diff --check
           git diff -- codex-rs > "$RUNNER_TEMP/profile-tui-formatted.patch"
-          python3 ../experiment/frontend/tui/apply.py . --check-scope --native-preparation "$RUNNER_TEMP/profile-tui-native-preparation.json"
       - name: Reuse identified frontend for compatibility checks
         if: inputs.scope == 'frontend-compatibility'
         shell: bash
