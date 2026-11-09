@@ -8,11 +8,15 @@ delivery and device activation. None substitutes for the next boundary.
 
 ## Integration status and operating baseline
 
-**Checkpoint: 2026-11-10 KST.** Development is consolidated on
-`integration/codex-native-20261110`; this record includes the P0 follow-up at
-`12ee97825ca25f956d3edd23eb54083597ad0a60`. It records source and observed evidence,
-not a claim that the integrated binaries have been installed. Dated records below
-retain their original scope and do not override this device reobservation.
+**Checkpoint: 2026-11-09 19:02:44 UTC / 2026-11-10 KST.** Work remains on
+`integration/codex-native-20261110`. The highest confirmed remote source is
+`3140f7fc32394024ac79476a7a87f7a0aade5336`; later push completion is unknown.
+The local implementation tip is `f1f3c2db3500ae81f199907d62c96b0b7162735f`,
+which includes `e6f50f2977e1357e078917172ac9d59f7adad575`. Its transfer bundle
+has been verified locally; the new Provider fix has not reached Termux.
+Local source recovery does not prove remote publication or device activation.
+This is a blocked-work checkpoint, not a completion or installed-product claim.
+Dated historical sections below retain their original scope.
 
 ### Source integration and preservation
 
@@ -94,22 +98,50 @@ their actual installed-entrypoint acceptance.
 
 | Boundary | Observed result |
 | --- | --- |
-| Actual Termux workspace | 431 tests passed; one test explicitly ignored in the workspace run |
-| Actual Termux focused checks | Doctor 19, release-builder 60 and one explicit real-Termux preservation smoke passed; strict Clippy passed |
-| Local Python | 183 tests passed; private CI verifier rename checks passed 143 tests separately, not an additive unique count |
-| Exact official `086ccc8` source assembly | Combined Native/TUI assembly passed; actual TUI Rust test binary built, focused execution still in progress |
-| P0 source/transport regression | 60 focused Rust tests and 135 Bun tests passed; all-target Provider Clippy passed |
-| Remote Source acceptance, `81049ca` | Run `42659294949`: all verification gates passed, final notification job still pending at this checkpoint |
-| Remote TUI / Core-runtime, `81049ca` | Runs `42659288356` / `42659300837` still in progress; no successful final conclusion claimed |
-| Remote Provider gate, `495c521` | Run `42661010583` started after compiler/read-claim integration; no final success claimed |
+| Actual Termux workspace, `18b90a5` | 445 tests passed and one was explicitly ignored in the ordinary run; that real-Termux case then passed when invoked explicitly |
+| Actual Termux focused checks | Doctor 19, release-builder 60, preservation smoke and strict Clippy passed; overlapping scopes are not added as unique tests |
+| Python source checks | 189 passed in the retained source gate; 35 new qualification cases also passed on actual Termux at `3140f7f` |
+| Provider checks, `392b026f02a41f1364e575393dd78adc1774dd31` | 314 Rust tests and 135 Bun tests passed; this does not establish installed-model acceptance |
+| Native/TUI preparation | Combined assembly of official `086ccc8` passed; two Native fixture test targets compiled on actual Termux. Compilation alone is not execution proof |
+| Actual Termux package fixtures, `e6f50f2` | Isolated signed Base/Full cases returned exit 0 and accepted=true at 18:43:03.447 UTC (296.444 seconds), with zero actual Chat requests and no operating changes |
+| Local retained-result fix, `f1f3c2` | 34 focused tests, fmt and Clippy passed locally; not tested on actual Termux, not pushed or deployed |
+| Remote Source / Provider, `18b90a5` | Runs `42668943683` / `42668949977` completed successfully |
+| Remote Core/runtime, `18b90a5` | Run `42668936425`: original runtime-source job passed; producer became `abandoned`, and whole qualification failed in attempts 1 and 2 |
+| New Source / Provider, `3140f7f` | Runs `42674234712` / `42674239953` failed without new producer execution; Source's final gate observed `abandoned`, Provider had no started job |
+| Full remote TUI qualification | Last observed: run `42661856755` at `392b026` running, final run `42665847905` at `3c043bd` queued. No final successful conclusion is established |
 
-Release acceptance still requires the installed `/provider` picker → actual GPT-6
-completion → same Native thread follow-up, with original and follow-up history
-preserved. Injected SSE observer loss must retain the admitted operation, execute
-each Native effect once, allow reentry and leave another Native work independent.
-HTTP 413 and opaque-claim regressions remain part of the combined gate. Complete
-the final exact-source CI conclusions before claiming qualification; any binary
-activation, signing/publication or service restart needs its own recorded result.
+The official [GitHub Status API](https://www.githubstatus.com/api/v2/summary.json)
+reported an Actions/Checks incident beginning at 18:12:37 UTC, overlapping the
+new CI failures. Its 18:43:24 UTC update, observed at 18:57:52 UTC, reports
+mitigation and Actions operational, with the incident still `monitoring`.
+That announcement does not make failed CI pass or establish device recovery;
+an individual runner/billing cause was not established. No guard was waived.
+
+Since approximately 18:43 UTC, Native gateway reads fail with
+`native_socket_unavailable`; this still occurred at 19:02:44 UTC. Provider/AppHost
+status is healthy and the original work/thread record remains present, with the
+root journal at `waiting_native`. Those records prove neither live Native
+execution nor completion. The exact call
+`codex-integration-20261110-read-lifecycle26-push` has an unknown result, including
+its push outcome. Preserve that call and its original input; recover its original
+result with the same identity when observation is available. Do not redispatch
+the command or replace it under a new identity. Source transfer and package-fixture
+success do not settle this outstanding operation. Public progress recording also
+fails at this boundary; reconcile the original report IDs after recovery.
+
+The local `f1f3c2` fix reads an already committed exact Broker result without a
+live Native socket, retaining work/controller, fingerprint and App identity
+checks. It grants no new execution and manufactures no fresh history/cursors.
+Its local proof does not demonstrate recovery of the current installed gateway.
+
+The last observed operating selections are Full159 and previous Full153; no integrated
+installation, operational Provider replacement or installed TUI acceptance has
+completed. Required acceptance remains installed `/provider` selection -> actual
+GPT-6 completion -> same Native thread follow-up with both records preserved,
+plus injected SSE loss without duplicate effects or permanent blocking and an
+independent Native work. HTTP 413 and opaque/parallel ownership checks remain
+required. Recover observation of the original operation and complete source,
+CI and device acceptance before claiming completion or activation.
 
 ## Account draft integration boundary (2026-11-10 KST)
 
