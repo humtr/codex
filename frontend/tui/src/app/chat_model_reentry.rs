@@ -266,6 +266,12 @@ fn settled_for_provider_switch(snapshot: &Value) -> bool {
     }
 }
 
+fn unchanged_settled_history(before: &Value, confirmed: &Value) -> bool {
+    settled_for_provider_switch(before)
+        && settled_for_provider_switch(confirmed)
+        && confirmed["turns"] == before["turns"]
+}
+
 fn reentry_source(app: &App) -> Option<ThreadId> {
     app.chat_widget.thread_id().filter(|thread| {
         matches!(
@@ -445,7 +451,7 @@ pub(super) async fn prepare(
                 return None;
             }
         };
-        if confirmed["status"]["type"] != "idle" || confirmed["turns"] != snapshot["turns"] {
+        if !unchanged_settled_history(&snapshot, &confirmed) {
             app.chat_widget.add_error_message(
                 "Model provider unchanged: the conversation changed during context preparation."
                     .into(),
@@ -480,7 +486,7 @@ pub(super) async fn prepare(
             );
             return None;
         };
-        if confirmed["status"]["type"] != "idle" || confirmed["turns"] != snapshot["turns"] {
+        if !unchanged_settled_history(&snapshot, &confirmed) {
             app.chat_widget.add_error_message(
                 "Model provider unchanged: the conversation changed during context preparation."
                     .into(),
@@ -523,6 +529,37 @@ mod tests {
                 settled_for_provider_switch(&json!({"status":{"type":status},"turns":turns})),
                 expected,
                 "{status}"
+            );
+        }
+    }
+
+    #[test]
+    fn termux_chat_models_checkpoint_recheck_preserves_failed_history_and_rejects_new_work() {
+        let failed = json!({
+            "status": {"type": "systemError"},
+            "turns": [{"id": "accepted-turn", "status": "failed", "items": [{
+                "type": "userMessage", "content": [{"type": "text", "text": "original request"}]
+            }]}]
+        });
+        assert!(unchanged_settled_history(&failed, &failed));
+        let mut resumed_idle = failed.clone();
+        resumed_idle["status"]["type"] = json!("idle");
+        assert!(unchanged_settled_history(&failed, &resumed_idle));
+        for mutation in ["active", "inProgress", "new-turn", "changed-history"] {
+            let mut confirmed = failed.clone();
+            match mutation {
+                "active" => confirmed["status"]["type"] = json!("active"),
+                "inProgress" => confirmed["turns"][0]["status"] = json!("inProgress"),
+                "new-turn" => confirmed["turns"]
+                    .as_array_mut()
+                    .unwrap()
+                    .push(json!({"id":"follow-up", "status":"completed", "items":[]})),
+                "changed-history" => confirmed["turns"][0]["items"] = json!([]),
+                _ => unreachable!(),
+            }
+            assert!(
+                !unchanged_settled_history(&failed, &confirmed),
+                "{mutation}"
             );
         }
     }
@@ -842,7 +879,10 @@ args=["token","--state","/owned/state"]
         let thread = ThreadId::new();
         let cwd = app.config.cwd.to_path_buf();
         app.chat_widget
-            .handle_thread_session(super::super::tests::test_thread_session(thread, cwd.clone()));
+            .handle_thread_session(super::super::tests::test_thread_session(
+                thread,
+                cwd.clone(),
+            ));
         app.app_server_target = crate::AppServerTarget::LocalDaemon {
             allow_embedded_fallback: false,
             endpoint: crate::RemoteAppServerEndpoint::UnixSocket {
