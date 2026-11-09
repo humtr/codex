@@ -6,6 +6,27 @@ and must be reread after recovery. This file distinguishes source implementation
 automated proof, actual Android execution, connected-client proof, public signed
 delivery and device activation. None substitutes for the next boundary.
 
+## Linux app plugin replacement (2026-11-09)
+
+On 2026-11-09, the Linux app exposed an installed, ACTIVE `@TermuxBridge`
+replacement connector using the then-existing authenticated MCP tunnel.
+It was initially created as `Termux Bridge 새 연결`; readback during that
+documentation task already returned `@TermuxBridge`. No further plugin creation
+or rename was issued by that task. The previous connector returned HTTP 404 in
+the selected app account; its deletion or legacy rename was not established.
+Account-specific connector and tunnel identifiers stay in private evidence,
+not public source history.
+
+All17 registered/live/candidate input schemas agree, installation and ACTIVE
+connection were read back, and the actual connector's sessions-list read passed.
+Private current references and proof are in
+`~/.cache/codex/linux-plugin-update-b0hcdkmp/current-connection/`; creation and the
+earlier successful app-cache refresh remain in its parent directory. This task
+submitted no model request or new Native work and replaced no runtime/service.
+The naming contract and operating steps are in
+[BRIDGE](docs/spec/BRIDGE.md) and the
+[Linux app guide](providers/chatgpt/LINUX_APP.md#플러그인-생성과-교체).
+
 ## Local source-only naming cleanup (not deployed)
 
 The current development branch contains independently committed direct renames:

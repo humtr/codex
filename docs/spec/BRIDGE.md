@@ -1444,6 +1444,20 @@ an actual read through that connector. Matching tool names alone is insufficient
 a mismatch prevents readiness/model admission and reports the schema cause.
 Queue registration acknowledgment remains distinct from native consumption.
 
+Plugin replacement within an authorized task preserves the original display name
+for the replacement. Retain the prior registration as `<original name> (레거시)`
+and verify that rename before creating the replacement under the exact original
+name. Resolve an existing legacy-name collision without overwriting another
+plugin. An already created replacement keeps its identity and receives the
+original name; do not create another copy. Display-name transfer never changes
+either registration's identity, audience, credentials or outstanding calls.
+Creation uses the verified current MCP service/tunnel accessible to the intended
+app account, with installation, connection and schema/readiness verified
+separately. A refresh error alone does not establish that a replacement or another
+tunnel will resolve its cause.
+The [Linux app operating guide](../../providers/chatgpt/LINUX_APP.md#플러그인-생성과-교체)
+owns the operating steps and partial-failure recovery.
+
 **Management.** Extend the optional Provider binary's existing status/view/reveal/
 stop/serve mechanisms with one host lifecycle facade (ensure/status/open/stop),
 shared by management CLI and MCP. Configuration stays in Provider config with an

@@ -14,7 +14,8 @@ not part of that component name. Source qualification, package selection,
 service activation, actual inference and physical UI observation are distinct.
 
 For Linux app launch, saved profiles, mobile display, taskbar, Android-browser
-login and reconnection, follow the [Linux app operating guide](LINUX_APP.md).
+login, reconnection and plugin creation/replacement, follow the
+[Linux app operating guide](LINUX_APP.md).
 
 ## Bridge design and implementation status
 
