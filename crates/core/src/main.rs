@@ -80,28 +80,25 @@ fn root_option_takes_separate_value(value: &str) -> bool {
 fn upstream_root_command_index(args: &[OsString]) -> Option<usize> {
     let mut index = 0;
     while index < args.len() {
-        let value = args[index].to_str()?;
-        if value == "--" {
+        let value = args[index].as_encoded_bytes();
+        if value == b"--" {
             return None;
         }
-        if !value.starts_with('-') || value == "-" {
+        if !value.starts_with(b"-") || value == b"-" {
             return Some(index);
         }
-        if matches!(value, "-i" | "--image") {
+        if matches!(value, b"-i" | b"--image") {
             index += 1;
             while index < args.len() {
-                let Some(candidate) = args[index].to_str() else {
-                    index += 1;
-                    continue;
-                };
-                if candidate.starts_with('-')
-                    || matches!(candidate, "app-server" | "remote-control")
+                let candidate = args[index].as_encoded_bytes();
+                if candidate.starts_with(b"-")
+                    || matches!(candidate, b"app-server" | b"remote-control" | b"sandbox")
                 {
                     break;
                 }
                 index += 1;
             }
-        } else if root_option_takes_separate_value(value) {
+        } else if args[index].to_str().is_some_and(root_option_takes_separate_value) {
             index = index.saturating_add(2);
         } else {
             index += 1;
@@ -128,18 +125,17 @@ fn app_server_option_takes_separate_value(value: &str) -> bool {
 fn app_server_daemon_subcommand_present(args: &[OsString]) -> bool {
     let mut index = 0;
     while index < args.len() {
-        let Some(value) = args[index].to_str() else {
-            return false;
-        };
-        if value == "--" {
+        let value = args[index].as_encoded_bytes();
+        if value == b"--" {
             return false;
         }
-        if !value.starts_with('-') || value == "-" {
-            return value == "daemon";
+        if !value.starts_with(b"-") || value == b"-" {
+            return value == b"daemon";
         }
-        if upstream_global_option_takes_separate_value(value)
-            || app_server_option_takes_separate_value(value)
-        {
+        if args[index].to_str().is_some_and(|value| {
+            upstream_global_option_takes_separate_value(value)
+                || app_server_option_takes_separate_value(value)
+        }) {
             index = index.saturating_add(2);
         } else {
             index += 1;
@@ -151,16 +147,14 @@ fn app_server_daemon_subcommand_present(args: &[OsString]) -> bool {
 fn remote_control_daemon_subcommand_present(args: &[OsString]) -> bool {
     let mut index = 0;
     while index < args.len() {
-        let Some(value) = args[index].to_str() else {
-            return false;
-        };
-        if value == "--" {
+        let value = args[index].as_encoded_bytes();
+        if value == b"--" {
             return false;
         }
-        if !value.starts_with('-') || value == "-" {
-            return matches!(value, "start" | "stop" | "pair");
+        if !value.starts_with(b"-") || value == b"-" {
+            return matches!(value, b"start" | b"stop" | b"pair");
         }
-        if upstream_global_option_takes_separate_value(value) {
+        if args[index].to_str().is_some_and(upstream_global_option_takes_separate_value) {
             index = index.saturating_add(2);
         } else {
             index += 1;
@@ -286,12 +280,15 @@ where
 {
     let original: Vec<OsString> = args.into_iter().map(Into::into).collect();
 
-    // 1. Leading argv check: exactly "sandbox", "linux" as argv[0], argv[1].
-    if original.len() >= 2
-        && original[0].to_str() == Some("sandbox")
-        && original[1].to_str() == Some("linux")
-    {
-        return Err(PassthroughError::UnsupportedSandboxSubcommand);
+    // Global options may precede the command or its platform selector. Reuse
+    // the public command parser so they cannot conceal an explicit Linux fence.
+    if let Some(command) = upstream_root_command_index(&original) {
+        let tail = &original[command + 1..];
+        if original[command] == "sandbox"
+            && upstream_root_command_index(tail).is_some_and(|platform| tail[platform] == "linux")
+        {
+            return Err(PassthroughError::UnsupportedSandboxSubcommand);
+        }
     }
 
     // 2. Scan before the first exact "--" separator.
@@ -1510,9 +1507,10 @@ where
             Err(error) => return RuntimeLaunchError::Config(error),
         }
     }
+    let shareable = shared_server::eligible(options.planned_args);
     if std::io::stdin().is_terminal()
         && std::io::stdout().is_terminal()
-        && (shared_server::eligible(options.planned_args)
+        && (shareable
             || (options.manager_tui_available
                 && manager_tui::local_interactive(options.planned_args)))
     {
@@ -1537,38 +1535,44 @@ where
                     &env_plan,
                 )
             });
-            let socket = if resolved {
-                shared_server::native_socket(
-                    selection.runtime.program_path,
-                    &profile,
-                    &state,
-                    config_dir,
-                )
-            } else {
-                shared_server::ensure(
-                    selection.runtime.program_path,
-                    &profile,
-                    &state,
-                    resolver_path.as_ref(),
-                    config_dir,
-                    &env_plan,
-                )
-            };
-            match socket {
-                Ok(socket) => {
-                    if let Some(frontend) = frontend {
-                        return RuntimeLaunchError::Exec(manager_tui::launch(
-                            frontend.asset_path,
-                            &manager_tui::BackendStartup { socket, resolved },
-                            &profile,
-                            options.planned_args,
-                            resolver_path.as_ref(),
-                            config_dir,
-                            &env_plan,
-                        ));
+            // Only a resolved-startup frontend can bind arbitrary invocation
+            // settings to a configured server. A legacy frontend must not send
+            // an explicit profile/config override to the default shared server.
+            // That invocation continues through the unchanged native argv below.
+            if resolved || shareable {
+                let socket = if resolved {
+                    shared_server::native_socket(
+                        selection.runtime.program_path,
+                        &profile,
+                        &state,
+                        config_dir,
+                    )
+                } else {
+                    shared_server::ensure(
+                        selection.runtime.program_path,
+                        &profile,
+                        &state,
+                        resolver_path.as_ref(),
+                        config_dir,
+                        &env_plan,
+                    )
+                };
+                match socket {
+                    Ok(socket) => {
+                        if let Some(frontend) = frontend {
+                            return RuntimeLaunchError::Exec(manager_tui::launch(
+                                frontend.asset_path,
+                                &manager_tui::BackendStartup { socket, resolved },
+                                &profile,
+                                options.planned_args,
+                                resolver_path.as_ref(),
+                                config_dir,
+                                &env_plan,
+                            ));
+                        }
                     }
+                    Err(error) => return RuntimeLaunchError::Config(error),
                 }
-                Err(error) => return RuntimeLaunchError::Config(error),
             }
         }
     }
@@ -12730,6 +12734,9 @@ mod tests {
             vec!["--config", " sandbox_mode = 'workspace-write' "],
             vec!["-c=sandbox_mode=\"read-only\""],
             vec!["sandbox", "linux"],
+            vec!["--model", "owned", "sandbox", "linux"],
+            vec!["-C", "/owned", "sandbox", "-c", "foo=bar", "linux"],
+            vec!["--image", "a.png", "sandbox", "linux"],
         ] {
             assert!(plan_public_dispatch(argv.clone()).is_err(), "{argv:?}");
         }
@@ -12749,6 +12756,37 @@ mod tests {
         let raw = OsString::from_vec(vec![0xff, 0x80, b'z']);
         let planned = plan_passthrough_args(vec![raw.clone()]).unwrap();
         assert_eq!(planned[0].as_bytes(), raw.as_bytes());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn explicit_command_fences_preserve_non_utf8_option_values() {
+        use std::os::unix::ffi::OsStringExt;
+        let cwd = OsString::from_vec(b"--cd=/owned/\xff".to_vec());
+        let server_path = OsString::from_vec(b"--ws-token-file=/owned/\xff".to_vec());
+        for argv in [
+            vec![cwd.clone(), "app-server".into(), "daemon".into(), "start".into()],
+            vec!["app-server".into(), server_path, "daemon".into(), "start".into()],
+        ] {
+            assert_eq!(
+                plan_public_dispatch(argv).unwrap(),
+                PublicDispatchRoute::UnsupportedDaemon
+            );
+        }
+        assert_eq!(
+            plan_passthrough_args(vec![cwd.clone(), "sandbox".into(), "linux".into()]),
+            Err(PassthroughError::UnsupportedSandboxSubcommand)
+        );
+        let ordinary = vec![cwd, "exec".into(), "a prompt".into()];
+        assert_eq!(plan_passthrough_args(ordinary.clone()).unwrap(), ordinary);
+        for ordinary in [
+            vec!["--", "sandbox", "linux"],
+            vec!["--model", "sandbox", "a prompt"],
+            vec!["debug", "models"],
+        ] {
+            let original: Vec<OsString> = ordinary.into_iter().map(Into::into).collect();
+            assert_eq!(plan_passthrough_args(original.clone()).unwrap(), original);
+        }
     }
 
     #[cfg(unix)]
@@ -13678,10 +13716,17 @@ exit 73
             || scenario == "core-only-version"
             || scenario == "notify-projection"
             || (scenario.starts_with("window-") && scenario != "window-manager-absent");
-        let manifest = tc2_manifest(manager_enabled);
+        let legacy_frontend = scenario.starts_with("legacy-frontend-");
+        let mut manifest = tc2_manifest(manager_enabled);
+        if legacy_frontend {
+            manifest.helper_digests.push(GenerationHelperDigest {
+                identity: "termux-manager-tui-v1:9.9.9".into(),
+                digest: "frontend-digest".into(),
+            });
+        }
         let browser_open = root.join("browser/open/curl");
         let browser_manual = root.join("browser/manual/curl");
-        let helper_bindings = [
+        let mut helper_bindings = vec![
             HelperAssetBinding {
                 identity: TERMUX_BROWSER_OPEN_HELPER_IDENTITY,
                 asset_path: browser_open.as_os_str(),
@@ -13693,6 +13738,15 @@ exit 73
                 observed_digest: "browser-manual-digest",
             },
         ];
+        if legacy_frontend {
+            // This inert executable deliberately does not advertise resolved
+            // startup. It records argv if Core mistakenly launches it remotely.
+            helper_bindings.push(HelperAssetBinding {
+                identity: "termux-manager-tui-v1:9.9.9",
+                asset_path: runtime.as_os_str(),
+                observed_digest: "frontend-digest",
+            });
+        }
         let selection = RuntimeAssetSelection {
             runtime: RuntimeAssetBinding {
                 program_path: runtime.as_os_str(),
@@ -13733,6 +13787,11 @@ exit 73
                 OsString::from("-c"),
                 OsString::from("thread_unload_delay_secs=17"),
             ],
+            "legacy-frontend-profile" => vec![OsString::from("-pchatgpt")],
+            "legacy-frontend-config" => vec![
+                OsString::from("-c"),
+                OsString::from("model_reasoning_effort=high"),
+            ],
             "signal" => vec![OsString::from("signal")],
             "tty" => vec![OsString::from("tty"), OsString::from("--no-daemon")],
             "exec" => vec![
@@ -13771,7 +13830,7 @@ exit 73
             generation_id: "test-generation",
             generation_layout: GenerationLayout::RootCodeModeHost,
             manager_doctor_status: ManagerDoctorStatus::Unavailable,
-            manager_tui_available: scenario.starts_with("window-"),
+            manager_tui_available: scenario.starts_with("window-") || legacy_frontend,
         };
         match execute_public_dispatch(route, context) {
             // The bare PTY fallback reaches the normal shared-server setup. This
@@ -14090,6 +14149,8 @@ exit 73
             ("window-non-tty", "\n"),
             ("window-version", "--version\n"),
             ("window-exec", "exec\nowned\n"),
+            ("legacy-frontend-profile", "-pchatgpt\n"),
+            ("legacy-frontend-config", "-c\nmodel_reasoning_effort=high\n"),
         ] {
             let (root, runtime, resolver, config) = prepare_exec_fixture(scenario);
             let record = root.join("actual-args");

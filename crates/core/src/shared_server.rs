@@ -61,14 +61,16 @@ pub(super) fn eligible(args: &[OsString]) -> bool {
     interactive(args)
         && !args.iter().any(|arg| {
             let Some(arg) = arg.to_str() else {
-                return false;
+                // Keep opaque argv on the original native launch path rather
+                // than guessing that its settings permit default-server reuse.
+                return true;
             };
             arg == "--no-daemon"
                 || arg == "--oss"
                 || arg == "--strict-config"
                 || arg == "--dangerously-bypass-hook-trust"
                 || arg == "--search"
-                || arg == "-p"
+                || arg.starts_with("-p")
                 || arg.starts_with("--profile")
                 || arg == "--remote"
                 || arg.starts_with("--remote=")
@@ -633,6 +635,8 @@ mod tests {
 
     #[test]
     fn shared_server_selection_preserves_explicit_user_modes() {
+        use std::os::unix::ffi::OsStringExt;
+
         for args in [
             vec![],
             vec!["a plain prompt"],
@@ -658,6 +662,8 @@ mod tests {
             vec!["--no-daemon"],
             vec!["--remote=unix://x"],
             vec!["--profile", "x"],
+            vec!["-pwork"],
+            vec!["-p=work"],
             vec!["--strict-config"],
             vec!["--oss"],
             vec!["--help"],
@@ -665,6 +671,8 @@ mod tests {
             let argv: Vec<OsString> = args.into_iter().map(Into::into).collect();
             assert!(!eligible(&argv), "{argv:?}");
         }
+        let raw = OsString::from_vec(b"--cd=/owned/\xff".to_vec());
+        assert!(!eligible(&[raw]));
     }
 
     fn server_fixture(root: &Path) -> PathBuf {

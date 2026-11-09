@@ -341,6 +341,8 @@ mod tests {
     fn local_frontend_preserves_invocation_settings_without_shared_daemon_reuse() {
         for args in [
             vec!["--profile", "chatgpt"],
+            vec!["-pchatgpt"],
+            vec!["-p=chatgpt"],
             vec!["resume", "owned", "-c", "model_reasoning_effort=medium"],
             vec!["--enable=owned"],
         ] {
