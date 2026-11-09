@@ -14,6 +14,7 @@ struct State {
     creates: usize,
     lose_reply: bool,
     rejected: bool,
+    list_fails: bool,
     commands: Vec<Value>,
     identity_reads: usize,
     concurrent_config: Option<PathBuf>,
@@ -38,7 +39,13 @@ impl Bridge for App {
                 }
                 Ok(json!({"account":"account","user":"user","structure":"personal"}))
             }
-            "project_list" => Ok(json!(state.projects)),
+            "project_list" => {
+                if state.list_fails {
+                    Err(Error("project_list_unavailable"))
+                } else {
+                    Ok(json!(state.projects))
+                }
+            }
             "project_read" => state
                 .projects
                 .iter()
@@ -207,6 +214,156 @@ async fn ambiguous_names_explicit_id_incompatible_and_no_create_are_distinct() {
         Error("project_destination_incompatible")
     );
     assert_eq!(app.0.lock().unwrap().creates, 0);
+}
+
+#[tokio::test]
+async fn global_project_id_is_never_queried_in_a_different_account() {
+    let (_root, journal, mut settings, identity_a) = setup();
+    let app = App::default();
+    let original = "g-p-account-a";
+    settings.project_id = Some(original.into());
+    app.0.lock().unwrap().projects = vec![json!({"id":original,"name":"Codex","compatible":true})];
+    assert_eq!(
+        resolve(&app, &journal, &settings, &identity_a)
+            .await
+            .unwrap()
+            .as_deref(),
+        Some(original)
+    );
+
+    // The configured ID is global, while the project listing and journal
+    // binding belong to the authenticated account.
+    let identity_b = json!({"account":"account-b","user":"user-b","structure":"workspace"});
+    app.0.lock().unwrap().projects =
+        vec![json!({"id":"g-p-unrelated","name":"Another","compatible":true})];
+    let before = app.0.lock().unwrap().commands.len();
+    assert_eq!(
+        resolve(&app, &journal, &settings, &identity_b)
+            .await
+            .unwrap()
+            .as_deref(),
+        Some("g-p-created")
+    );
+    {
+        let state = app.0.lock().unwrap();
+        assert_eq!(state.creates, 1);
+        assert!(state.commands[before..]
+            .iter()
+            .all(|request| { request["op"] != "project_read" || request["project"] != original }));
+    }
+    // Reopening account A keeps its own exact project, even after account B
+    // has a separate project with the same name.
+    app.0.lock().unwrap().projects = vec![json!({"id":original,"name":"Codex","compatible":true})];
+    assert_eq!(
+        resolve(&app, &journal, &settings, &identity_a)
+            .await
+            .unwrap()
+            .as_deref(),
+        Some(original)
+    );
+    app.0.lock().unwrap().projects =
+        vec![json!({"id":"g-p-created","name":"Codex","compatible":true})];
+    assert_eq!(
+        resolve(&app, &journal, &settings, &identity_b)
+            .await
+            .unwrap()
+            .as_deref(),
+        Some("g-p-created")
+    );
+    assert_eq!(app.0.lock().unwrap().creates, 1);
+    assert_eq!(settings.project_id.as_deref(), Some(original));
+
+    // A later explicit project selection changes the shared configuration to
+    // account B. Neither account's previously verified destination is lost.
+    settings.project_id = Some("g-p-created".into());
+    app.0.lock().unwrap().projects = vec![json!({"id":original,"name":"Codex","compatible":true})];
+    assert_eq!(
+        resolve(&app, &journal, &settings, &identity_a)
+            .await
+            .unwrap()
+            .as_deref(),
+        Some(original)
+    );
+    app.0.lock().unwrap().projects =
+        vec![json!({"id":"g-p-created","name":"Codex","compatible":true})];
+    assert_eq!(
+        resolve(&app, &journal, &settings, &identity_b)
+            .await
+            .unwrap()
+            .as_deref(),
+        Some("g-p-created")
+    );
+    assert_eq!(app.0.lock().unwrap().creates, 1);
+}
+
+#[tokio::test]
+async fn saved_legacy_account_binding_is_migrated_without_reselecting_other_account() {
+    use codex_chatgpt_provider::context::digest;
+    let (_root, journal, mut settings, identity) = setup();
+    settings.project_id = Some("g-p-legacy".into());
+    let key = digest(&json!({
+        "kind":"project-destination-v1",
+        "identity":identity,
+        "name":"Codex",
+        "configured_id":settings.project_id,
+    }));
+    journal
+        .write(
+            &key,
+            &json!({"name":"Codex","id":"g-p-legacy","creating":false}),
+        )
+        .unwrap();
+    let app = App::default();
+    app.0.lock().unwrap().projects =
+        vec![json!({"id":"g-p-legacy","name":"Codex","compatible":true})];
+    assert_eq!(
+        resolve(&app, &journal, &settings, &identity)
+            .await
+            .unwrap()
+            .as_deref(),
+        Some("g-p-legacy")
+    );
+    settings.project_id = Some("g-p-other-account".into());
+    assert_eq!(
+        resolve(&app, &journal, &settings, &identity)
+            .await
+            .unwrap()
+            .as_deref(),
+        Some("g-p-legacy")
+    );
+    assert_eq!(app.0.lock().unwrap().creates, 0);
+}
+
+#[tokio::test]
+async fn cross_account_project_reuses_owned_name_and_fails_closed_on_list_error() {
+    let (_root, journal, mut settings, identity) = setup();
+    let app = App::default();
+    settings.project_id = Some("g-p-another-account".into());
+    settings.create_if_missing = false;
+    app.0.lock().unwrap().list_fails = true;
+    assert_eq!(
+        resolve(&app, &journal, &settings, &identity)
+            .await
+            .unwrap_err(),
+        Error("project_list_unavailable")
+    );
+    assert_eq!(app.0.lock().unwrap().creates, 0);
+    {
+        let mut state = app.0.lock().unwrap();
+        state.list_fails = false;
+        state.projects = vec![json!({"id":"g-p-current-account","name":"Codex","compatible":true})];
+    }
+    assert_eq!(
+        resolve(&app, &journal, &settings, &identity)
+            .await
+            .unwrap()
+            .as_deref(),
+        Some("g-p-current-account")
+    );
+    assert_eq!(app.0.lock().unwrap().creates, 0);
+    assert!(app.0.lock().unwrap().commands.iter().all(|request| {
+        request["op"] != "project_read" || request["project"] != "g-p-another-account"
+    }));
 }
 
 #[tokio::test]

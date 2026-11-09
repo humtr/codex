@@ -49,15 +49,27 @@ pub async fn resolve(
         .as_deref()
         .ok_or(Error("project_name_required"))?;
     let identity = json!({"account":identity["account"],"user":identity["user"],"structure":identity["structure"]});
-    let key = digest(
+    // The selected destination belongs to an authenticated account, not to
+    // whichever account last wrote the shared Provider config. Use a stable
+    // account/name binding across changes to the shared configured project ID.
+    let key =
+        digest(&json!({"kind":"project-destination-account-v2","identity":identity,"name":name}));
+    let legacy_key = digest(
         &json!({"kind":"project-destination-v1","identity":identity,"name":name,"configured_id":history.project_id}),
     );
-    let previous = journal.read::<Binding>(&key)?;
-    let selected = history
-        .project_id
-        .as_ref()
-        .or_else(|| previous.as_ref().and_then(|v| v.id.as_ref()));
-    if let Some(id) = selected {
+    let previous = match journal.read::<Binding>(&key)? {
+        Some(binding) => Some(binding),
+        None => journal.read::<Binding>(&legacy_key)?,
+    };
+    let pinned = previous.as_ref().and_then(|v| v.id.as_deref());
+    // A verified prior binding is stable across account switches. Check the
+    // shared explicit ID only when it differs from that account's binding.
+    if let Some(id) = pinned.filter(|id| {
+        history
+            .project_id
+            .as_deref()
+            .is_none_or(|configured| configured == *id)
+    }) {
         let found = bridge
             .operation(json!({"op":"project_read","project":id,"identity":identity}))
             .await?;
@@ -65,14 +77,64 @@ pub async fn resolve(
         if verified != *id {
             return Err(Error("project_identity_changed"));
         }
+        journal.write(
+            &key,
+            &Binding {
+                name: name.into(),
+                id: Some(verified.clone()),
+                creating: false,
+            },
+        )?;
         return Ok(Some(verified));
     }
     let found = bridge
         .operation(json!({"op":"project_list","identity":identity}))
         .await?;
-    let candidates = found
-        .as_array()
-        .ok_or(Error("invalid_project_list"))?
+    let owned = found.as_array().ok_or(Error("invalid_project_list"))?;
+    // Only an ID offered by this authenticated account can pin the current
+    // destination. An ID left by another account falls back to name-based
+    // resolution in this account without erasing the other account's binding.
+    if let Some(configured) = history.project_id.as_deref() {
+        if let Some(owned_project) = owned.iter().find(|v| v["id"] == configured) {
+            project(owned_project.clone(), name)?;
+            let current = bridge
+                .operation(json!({"op":"project_read","project":configured,"identity":identity}))
+                .await?;
+            if project(current, name)? != configured {
+                return Err(Error("project_identity_changed"));
+            }
+            journal.write(
+                &key,
+                &Binding {
+                    name: name.into(),
+                    id: Some(configured.into()),
+                    creating: false,
+                },
+            )?;
+            return Ok(Some(configured.into()));
+        }
+    }
+    // The global ID is absent from this account's owned list. Keep its own
+    // verified journal binding rather than silently switching destinations.
+    if let Some(id) = pinned {
+        let found = bridge
+            .operation(json!({"op":"project_read","project":id,"identity":identity}))
+            .await?;
+        let verified = project(found, name)?;
+        if verified != id {
+            return Err(Error("project_identity_changed"));
+        }
+        journal.write(
+            &key,
+            &Binding {
+                name: name.into(),
+                id: Some(verified.clone()),
+                creating: false,
+            },
+        )?;
+        return Ok(Some(verified));
+    }
+    let candidates = owned
         .iter()
         .filter(|v| v["name"] == name)
         .cloned()
