@@ -464,6 +464,17 @@ struct Invocation {
     #[serde(default)]
     effect: Option<Effect>,
 }
+impl Invocation {
+    fn original_result(&self) -> Option<Value> {
+        self.result.as_ref().map(|result| {
+            if self.native_input.is_empty() {
+                result.clone()
+            } else {
+                json!({"result":result,"native_input":self.native_input})
+            }
+        })
+    }
+}
 #[derive(Clone, Serialize, Deserialize)]
 struct Turn {
     lane: String,
@@ -694,6 +705,25 @@ pub struct Arguments {
     pub name: String,
     pub input: String,
     pub report: String,
+}
+impl Arguments {
+    fn validate(&self) -> Result<(), Error> {
+        if self.call_id.is_empty()
+            || self.call_id.len() > 160
+            || !self
+                .call_id
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b"_.:-".contains(&b))
+            || self.input.len() > LIMIT
+            || self.report.len() > 64 * 1024
+        {
+            return Err(Error("mcp_call_invalid"));
+        }
+        Ok(())
+    }
+    fn fingerprint(&self) -> String {
+        digest(&(&self.name, &self.input, &self.report))
+    }
 }
 impl Broker {
     fn shared_guard_home(&self) -> Option<PathBuf> {
@@ -1804,18 +1834,8 @@ impl Broker {
     }
     /// Register before waiting. Cancelling this future only drops the observer.
     pub async fn enqueue(&self, token: &str, args: &Arguments) -> Result<(), Error> {
-        if args.call_id.is_empty()
-            || args.call_id.len() > 160
-            || !args
-                .call_id
-                .bytes()
-                .all(|b| b.is_ascii_alphanumeric() || b"_.:-".contains(&b))
-            || args.input.len() > LIMIT
-            || args.report.len() > 64 * 1024
-        {
-            return Err(Error("mcp_call_invalid"));
-        }
-        let fingerprint = digest(&(&args.name, &args.input, &args.report));
+        args.validate()?;
+        let fingerprint = args.fingerprint();
         let mut registry = self.registry.lock().await;
         let turns = &mut registry.turns;
         let turn = turns.get_mut(token).ok_or(Error("mcp_turn_unavailable"))?;
@@ -1907,6 +1927,26 @@ impl Broker {
             .ok_or(Error("mcp_turn_unavailable"))?;
         Ok(turn.calls.contains_key(call_id))
     }
+    /// Read only an already committed original result. Missing or pending calls
+    /// cannot enqueue, acquire a claim or regain execution through this path.
+    pub(crate) fn retained_result(
+        &self,
+        token: &str,
+        args: &Arguments,
+    ) -> Result<Option<Value>, Error> {
+        args.validate()?;
+        let turn: Turn = self
+            .journal
+            .read(&digest(&("mcp-turn-v1", token)))?
+            .ok_or(Error("mcp_turn_unavailable"))?;
+        let Some(call) = turn.calls.get(&args.call_id) else {
+            return Ok(None);
+        };
+        if call.fingerprint != args.fingerprint() {
+            return Err(Error("mcp_call_changed"));
+        }
+        Ok(call.original_result())
+    }
     pub async fn unsettled(&self, token: &str) -> Result<Vec<String>, Error> {
         let registry = self.registry.lock().await;
         let turns = &registry.turns;
@@ -1932,12 +1972,8 @@ impl Broker {
                     .calls
                     .get(&args.call_id)
                     .ok_or(Error("mcp_turn_unavailable"))?;
-                if let Some(result) = &call.result {
-                    return Ok(if call.native_input.is_empty() {
-                        result.clone()
-                    } else {
-                        json!({"result":result,"native_input":call.native_input})
-                    });
+                if let Some(result) = call.original_result() {
+                    return Ok(result);
                 }
                 if turn.retired {
                     return Err(Error("mcp_turn_unavailable"));

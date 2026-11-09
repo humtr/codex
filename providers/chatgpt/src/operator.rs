@@ -2661,6 +2661,45 @@ impl Operator {
                 )
             }
             "codex_execute" => {
+                let call: Arguments = serde_json::from_value(json!({"call_id":args["call_id"],"name":args["name"],"input":args["input"],"report":args["report"]}))
+                    .map_err(|_| Error("mcp_call_invalid"))?;
+                let retained = {
+                    let works = self.works.lock().await;
+                    let record = &find_work(&self.journal, &works, args["work_id"].as_str())?
+                        .ok_or(Error("operator_work_unavailable"))?
+                        .record;
+                    if args["controller"].as_str() != Some(&record.capability) {
+                        return Err(Error("operator_controller_fenced"));
+                    }
+                    if record
+                        .selection
+                        .as_ref()
+                        .is_some_and(|s| s.inference == Inference::Submitted)
+                    {
+                        return Err(Error("app_response_owns_execution"));
+                    }
+                    self.broker
+                        .retained_result(&record.token, &call)?
+                        .map(|result| (record.clone(), result))
+                };
+                if let Some((record, result)) = retained {
+                    // The original result is independent of current Native
+                    // transport availability. Keep the existing App identity
+                    // gate and reject a concurrent controller/owner transition.
+                    self.verify_identity(&record).await?;
+                    let works = self.works.lock().await;
+                    let current = &find_work(&self.journal, &works, Some(&record.id))?
+                        .ok_or(Error("operator_work_unavailable"))?
+                        .record;
+                    if !same_controller(&record, current) || record.token != current.token {
+                        return Err(Error("operator_controller_fenced"));
+                    }
+                    // No fresh history/context was read, so do not manufacture
+                    // empty updates or advance their observation cursors.
+                    return Ok(json!({"result":result,"work_id":record.id,
+                        "native_context":record.phase,"delivery":"retrieved_by_original_call",
+                        "history_observation_available":false,"context_observation_available":false}));
+                }
                 let (record, native) = self.binding(&args, false).await?;
                 if record
                     .selection
@@ -2670,8 +2709,6 @@ impl Operator {
                     return Err(Error("app_response_owns_execution"));
                 }
                 self.verify_identity(&record).await?;
-                let call: Arguments = serde_json::from_value(json!({"call_id":args["call_id"],"name":args["name"],"input":args["input"],"report":args["report"]}))
-                    .map_err(|_| Error("mcp_call_invalid"))?;
                 if !self.broker.contains_call(&record.token, &call.call_id)? {
                     self.ensure_public_text(&call.report).await?;
                     self.admit_native_call(&record.thread, &call.call_id)
@@ -7098,6 +7135,10 @@ async fn http(State(operator): State<Arc<Operator>>, request: HttpRequest) -> Re
     };
     ([("cache-control", "no-store")], Json(body)).into_response()
 }
+
+#[cfg(test)]
+#[path = "operator_observation_tests.rs"]
+mod observation_tests;
 
 #[cfg(test)]
 mod local_tests {

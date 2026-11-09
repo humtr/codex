@@ -1573,6 +1573,15 @@ must preserve recovery/provenance needed by admitted work.
 | codex_handoff | Existing work/call_id and full cursor/context/summary fingerprint; coalesce intent/generation transition, recover original receipt; uncertainty never creates another successor |
 | codex_stop | Observe and converge current owned native/job/host state on every call. Do not cache an old stop confirmation or block Stop behind a waiting report |
 
+An exact `codex_execute` retry may retrieve its already committed Broker result
+without rediscovering a live Native socket. It still requires the same current
+work/controller and name/input/report fingerprint, and any existing App identity
+binding. This reads the retained result only: it grants no new execution,
+submission, claim or controller ownership. The response marks fresh history and
+context observation unavailable and supplies no new cursors; callers use the
+existing history/status interfaces when fresh Native observation is available.
+Missing or unsettled calls remain on the ordinary Native admission path.
+
 Work records are authoritative; their index is derived/recoverable, not an
 independent source of work existence. A virtual MCP round's durable settlement
 intent must remain aligned with memory across Broker failure, including uncertain
