@@ -121,6 +121,66 @@ class ObserverFault(unittest.TestCase):
                          'Select Provider')
 
 
+class TuiObservation(unittest.TestCase):
+    def test_launch_sets_only_the_observed_title_and_optional_fault_endpoint(self):
+        for endpoint in (None, 'http://127.0.0.1:123/v1'):
+            with self.subTest(endpoint=endpoint), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                codex_home = root / 'codex-home'
+                codex_home.mkdir()
+                settings = codex_home / 'config.toml'
+                original = b'model = "retained-model"\nprofile = "retained-profile"\n[tui]\nterminal_title = []\n'
+                settings.write_bytes(original)
+                args = SimpleNamespace(core=root / 'codex', workspace=root, codex_home=codex_home)
+                budget = TurnBudget(root)
+                with patch('qualify_provider_live_tui.subprocess.Popen') as launch:
+                    client = LiveTui(args, root, 'primary', budget, endpoint)
+                try:
+                    expected = [str(args.core), '--no-alt-screen', '-c', 'tui.terminal_title=["thread"]']
+                    if endpoint:
+                        expected += ['-c', 'model_providers.chatgpt_desktop.base_url=' + json.dumps(endpoint)]
+                    launch.assert_called_once()
+                    self.assertEqual(launch.call_args.args, (expected,))
+                    self.assertEqual(launch.call_args.kwargs['cwd'], args.workspace)
+                    self.assertEqual(launch.call_args.kwargs['env']['CODEX_HOME'], str(codex_home))
+                    self.assertEqual(settings.read_bytes(), original)
+                    self.assertEqual(budget.submissions, [])
+                    self.assertFalse(list(root.glob('submission-*.json')))
+                finally:
+                    os.close(client.master)
+                    client.log.close()
+
+    def test_split_osc_waits_for_the_full_title_and_retains_the_same_thread(self):
+        thread = '550e8400-e29b-41d4-a716-446655440000'
+        other = '550e8400-e29b-41d4-a716-446655440001'
+        client = object.__new__(LiveTui)
+        client.master, writer = os.pipe()
+        self.addCleanup(os.close, client.master)
+        self.addCleanup(os.close, writer)
+        client.log = io.BytesIO()
+        client.screen, client.thread = '', None
+
+        def feed(data):
+            os.write(writer, data)
+            with patch('qualify_provider_live_tui.time.monotonic', side_effect=[0, 0, 1]):
+                client.drain()
+
+        parts = [
+            f'{thread}\n\x1b]0;project\x07\x1b]0;{thread[:29]}...\x07'.encode(),
+            b'\x1b', b']0;', thread[:17].encode(), thread[17:].encode(),
+        ]
+        for part in parts:
+            feed(part)
+            self.assertIsNone(client.thread, 'visible text, default/truncated titles, and incomplete OSC are not readiness')
+        feed(b'\x07')
+        self.assertEqual(client.thread, thread)
+        self.assertEqual(client.log.getvalue(), b''.join(parts) + b'\x07')
+        feed(f'\x1b]0;{thread}\x07'.encode())
+        self.assertEqual(client.thread, thread)
+        with self.assertRaisesRegex(AssertionError, 'silently changed Native thread'):
+            feed(f'\x1b]0;{other}\x07'.encode())
+
+
 class NativeEvidence(unittest.TestCase):
     def setUp(self):
         self.workspace = Path('/data/data/com.termux/files/home/owned-fixture')

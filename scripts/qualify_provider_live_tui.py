@@ -452,7 +452,10 @@ class LiveTui:
         self.master, slave = pty.openpty()
         fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 40, 160, 0, 0))
         env = dict(os.environ, TERM='xterm-256color', CODEX_HOME=str(args.codex_home))
-        command = [str(args.core), '--no-alt-screen']
+        # The upstream default title omits unnamed thread IDs; "session-id"
+        # truncates them. "thread" exposes the configured widget's full UUID
+        # without changing its model, profile, or the user's saved settings.
+        command = [str(args.core), '--no-alt-screen', '-c', 'tui.terminal_title=["thread"]']
         if endpoint:
             command += ['-c', 'model_providers.chatgpt_desktop.base_url=' + json.dumps(endpoint)]
         self.process = subprocess.Popen(command, cwd=args.workspace, env=env,
