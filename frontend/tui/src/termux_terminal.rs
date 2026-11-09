@@ -9,6 +9,7 @@ use std::os::unix::fs::OpenOptionsExt;
 use std::path::Path;
 use std::process::Command;
 use std::process::Stdio;
+use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::OnceLock;
 use std::thread;
@@ -16,10 +17,11 @@ use std::time::Duration;
 use std::time::Instant;
 
 struct Slot {
-    file: File,
+    file: Arc<File>,
     current: Option<String>,
     attempted: Option<Option<String>>,
     registered: bool,
+    registration: Option<thread::JoinHandle<bool>>,
 }
 
 impl Slot {
@@ -40,10 +42,11 @@ impl Slot {
             .open(&path)?;
         std::fs::remove_file(path)?;
         Ok(Self {
-            file,
+            file: Arc::new(file),
             current: None,
             attempted: None,
             registered: false,
+            registration: None,
         })
     }
 
@@ -58,6 +61,38 @@ impl Slot {
             self.file.write_all_at(id.as_bytes(), 0)?;
         }
         self.current = id;
+        Ok(())
+    }
+
+    fn sync(&mut self, core: &Path, thread_id: Option<String>) -> io::Result<()> {
+        self.update(thread_id.clone())?;
+        if self
+            .registration
+            .as_ref()
+            .is_some_and(thread::JoinHandle::is_finished)
+        {
+            self.registered = self
+                .registration
+                .take()
+                .is_some_and(|task| task.join().unwrap_or(false));
+        }
+        if self.registered
+            || self.registration.is_some()
+            || self.attempted.as_ref() == Some(&thread_id)
+        {
+            return Ok(());
+        }
+        self.attempted = Some(thread_id);
+        // Registration owns no foreground state. Keep the same descriptor alive
+        // while the optional Manager command waits, without locking out rendering
+        // or updates to the currently displayed thread.
+        let file = Arc::clone(&self.file);
+        let core = core.to_owned();
+        self.registration = Some(
+            thread::Builder::new()
+                .name("terminal-registration".into())
+                .spawn(move || register(&core, &file))?,
+        );
         Ok(())
     }
 }
@@ -112,13 +147,7 @@ pub(crate) fn sync(thread_id: Option<String>) {
     let Ok(mut slot) = slot.lock() else {
         return;
     };
-    if slot.update(thread_id.clone()).is_err() {
-        return;
-    }
-    if !slot.registered && slot.attempted.as_ref() != Some(&thread_id) {
-        slot.attempted = Some(thread_id);
-        slot.registered = register(Path::new(&core), &slot.file);
-    }
+    let _ = slot.sync(Path::new(&core), thread_id);
 }
 
 #[cfg(test)]
@@ -130,10 +159,12 @@ mod tests {
     fn foreground_slot_updates_without_title_or_manager() {
         let mut slot = Slot::new().unwrap();
         let path = format!("/proc/self/fd/{}", slot.file.as_raw_fd());
-        assert!(std::fs::read_link(&path)
-            .unwrap()
-            .to_string_lossy()
-            .ends_with(" (deleted)"));
+        assert!(
+            std::fs::read_link(&path)
+                .unwrap()
+                .to_string_lossy()
+                .ends_with(" (deleted)")
+        );
         assert_eq!(slot.file.metadata().unwrap().mode() & 0o777, 0o600);
         assert_ne!(
             unsafe { libc::fcntl(slot.file.as_raw_fd(), libc::F_GETFD) } & libc::FD_CLOEXEC,
@@ -150,10 +181,69 @@ mod tests {
     }
 
     #[test]
+    fn pending_registration_keeps_foreground_updates_live_on_the_same_descriptor() {
+        let root = tempfile::tempdir().unwrap();
+        let core = root.path().join("core");
+        let started = root.path().join("started");
+        let release = root.path().join("release");
+        let shell = std::env::var("PREFIX")
+            .map(|p| format!("{p}/bin/sh"))
+            .unwrap_or_else(|_| "/bin/sh".into());
+        std::fs::write(
+            &core,
+            format!(
+                "#!{shell}\nprintf '%s\\n' \"$@\" >> '{}'\nwhile [ ! -f '{}' ]; do sleep 0.01; done\n",
+                started.display(),
+                release.display(),
+            ),
+        )
+        .unwrap();
+        std::fs::set_permissions(&core, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let mut slot = Slot::new().unwrap();
+        let descriptor = slot.file.as_raw_fd();
+        let path = format!("/proc/self/fd/{descriptor}");
+        slot.sync(&core, Some("01a0fc82-dc8f-7d13-bb78-7e120f1fa9b3".into()))
+            .unwrap();
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while !started.exists() && Instant::now() < deadline {
+            thread::sleep(Duration::from_millis(5));
+        }
+        assert!(
+            started.exists(),
+            "registration must actually enter the helper"
+        );
+        assert!(!slot.registration.as_ref().unwrap().is_finished());
+        for id in [Some("01a0fc82-dc8f-7d13-bb78-7e120f1fa9b4"), None] {
+            slot.sync(&core, id.map(str::to_owned)).unwrap();
+            assert_eq!(slot.file.as_raw_fd(), descriptor);
+            assert_eq!(std::fs::read_to_string(&path).unwrap(), id.unwrap_or(""));
+            assert!(!slot.registration.as_ref().unwrap().is_finished());
+        }
+        std::fs::write(&release, b"ready").unwrap();
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while !slot.registration.as_ref().unwrap().is_finished() && Instant::now() < deadline {
+            thread::sleep(Duration::from_millis(5));
+        }
+        slot.sync(&core, None).unwrap();
+        assert!(slot.registered);
+        assert!(slot.registration.is_none());
+        assert_eq!(
+            std::fs::read_to_string(&started).unwrap(),
+            format!("termux\n__terminal-bind-v1\n{descriptor}\n"),
+            "foreground changes must not spawn overlapping registration commands",
+        );
+        assert!(std::fs::read_to_string(&path).unwrap().is_empty());
+    }
+
+    #[test]
     fn native_manager_argv_and_bounded_failure() {
         if let Some(root) = std::env::var_os("CODEX_TERMINAL_TEST_ROOT") {
             let output = Path::new(&root).join("args");
             sync(Some("01a0fc82-dc8f-7d13-bb78-7e120f1fa9b3".into()));
+            let deadline = Instant::now() + Duration::from_secs(2);
+            while !output.exists() && Instant::now() < deadline {
+                thread::sleep(Duration::from_millis(5));
+            }
             let argv = std::fs::read_to_string(&output).unwrap();
             let parts: Vec<_> = argv.lines().collect();
             assert_eq!(&parts[..2], &["termux", "__terminal-bind-v1"]);

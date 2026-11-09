@@ -545,6 +545,9 @@ foreground thread, independently of title configuration. Native identity remains
 in the open unlinked file, automatically reclaimed on process exit; there is no
 new persistent session index. It calls the private
 exact command `codex termux __terminal-bind-v1 FD` once to register this descriptor.
+Its bounded registration wait runs outside the rendering thread, with at most one
+attempt in flight. Foreground slot updates and ordinary TUI input never wait for
+the optional Manager to reply.
 This registration applies to native frontends in directly bound terminal PTYs;
 there is no Manager tmux socket, pane or process-tree discovery.
 Core forwards only that exact three-argument shape to its same-generation Manager.
