@@ -437,8 +437,12 @@ mod tests {
     fn new_generation_naming_is_admitted_alongside_legacy() {
         assert!(valid_generation("core-v0.167.0-d3becae-s154"));
         assert!(valid_generation("full-v0.167.0-d3becae-s154"));
-        assert!(valid_generation("local-base-relay-hosted-0-167-0-d3becae26b07-s153"));
-        assert!(valid_generation("local-relay-hosted-0-167-0-d3becae26b07-s153"));
+        assert!(valid_generation(
+            "local-base-relay-hosted-0-167-0-d3becae26b07-s153"
+        ));
+        assert!(valid_generation(
+            "local-relay-hosted-0-167-0-d3becae26b07-s153"
+        ));
 
         assert!(!valid_generation(""));
         assert!(!valid_generation("invalid-prefix-v1"));
