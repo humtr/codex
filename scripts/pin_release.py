@@ -110,7 +110,7 @@ def source_workflow_registrations():
     # accidental main execution fails instead of becoming a second proof path.
     workflows={'source-acceptance.yml':'Source acceptance',
                'core-runtime-qualification.yml':'Independent Core/runtime qualification',
-               'manager-tui-native.yml':'Manager TUI native qualification'}
+               'manager-tui-native.yml':'Codex TUI native qualification'}
     result={}
     for name,label in workflows.items():
         inputs=('    inputs:\n      rebuild_current:\n        type: boolean\n        default: true\n' if name.startswith('core-') else '')

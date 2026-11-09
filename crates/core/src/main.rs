@@ -8696,7 +8696,7 @@ fn activate_local_built_update(
             generation_id: generation_id.clone(),
             core,
             manager: current_loaded.manager_path.clone(),
-            manager_tui: None,
+            tui: None,
             source_runtime,
             defer_manager_probe: false,
             legacy_activation_doctor_unsupported: false,

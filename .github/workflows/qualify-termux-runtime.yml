@@ -336,8 +336,8 @@ jobs:
           manager_args=()
           if test "${BASE_ONLY:-false}" != true; then
             test "$upstream_version" = "$MANAGER_TUI_VERSION"
-            frontend_args=(--manager-tui "$RUNNER_TEMP/manager-tui-input/artifact/codex"
-                           --manager-tui-version "$MANAGER_TUI_VERSION")
+            frontend_args=(--tui "$RUNNER_TEMP/manager-tui-input/artifact/codex"
+                           --tui-version "$MANAGER_TUI_VERSION")
             manager_args=(--manager "$manager" --defer-manager-probe)
           fi
           "$builder" build \

@@ -65,12 +65,12 @@ class NativeProducerTests(unittest.TestCase):
                 if fault == 'archive': self.assertFalse((root / 'manager-tui-input/artifact').exists())
                 if fault is None: self.assertIn(digest, result.stdout)
 
-    def test_base_builder_uses_verified_runtime_and_propagates_verification_failure(self):
+    def test_base_and_full_builder_use_verified_runtime_and_canonical_tui_arguments(self):
         # Payload/source/version rejection is exercised by the real Rust
         # verifier. This workflow boundary must propagate its failed status,
         # rather than using a double that silently accepts verification.
-        for rejected in (False, True):
-            with self.subTest(rejected=rejected), tempfile.TemporaryDirectory() as tmp:
+        for base_only, rejected in [('true',False),('true',True),('false',False),('false',True)]:
+            with self.subTest(base_only=base_only,rejected=rejected), tempfile.TemporaryDirectory() as tmp:
                 root = Path(tmp); binary = root / 'source/target/release/codex-release-builder'; binary.parent.mkdir(parents=True)
                 binary.write_text('#!' + sys.executable + '\n' + textwrap.dedent('''\
                     import json,os,sys
@@ -86,7 +86,8 @@ class NativeProducerTests(unittest.TestCase):
                     script = script.replace('${{ steps.decision.outputs.' + field + ' }}', value)
                 script = script.replace('${{ needs.runtime-source.outputs.base_generation }}', '')
                 env = {**os.environ, 'RUNNER_TEMP': str(root), 'GITHUB_WORKSPACE': str(root),
-                       'CAPTURE': str(root/'args.json'),'BASE_ONLY':'true','UPSTREAM_SHA':'b'*40,
+                       'CAPTURE': str(root/'args.json'),'BASE_ONLY':base_only,'UPSTREAM_SHA':'b'*40,
+                       'MANAGER_TUI_VERSION':'0.999.0',
                        'REJECT_RUNTIME':str(int(rejected))}
                 result = subprocess.run(['bash', '-c', script], env=env, text=True, capture_output=True)
                 self.assertEqual(result.returncode, 7 if rejected else 0, result.stderr)
@@ -95,6 +96,13 @@ class NativeProducerTests(unittest.TestCase):
                     self.assertEqual(args[args.index('--source-runtime')+1],str(runtime/'codex'))
                     self.assertEqual(args[args.index('--source-revision')+1],'b'*40)
                     self.assertNotIn('--manager-tui',args)
+                    self.assertNotIn('--manager-tui-version',args)
+                    if base_only == 'true':
+                        self.assertNotIn('--tui',args)
+                        self.assertNotIn('--tui-version',args)
+                    else:
+                        self.assertEqual(args[args.index('--tui')+1],str(root/'manager-tui-input/artifact/codex'))
+                        self.assertEqual(args[args.index('--tui-version')+1],'0.999.0')
                 else:self.assertFalse((root/'args.json').exists())
 
     def test_actual_native_smoke_requires_same_version_success_without_stderr(self):

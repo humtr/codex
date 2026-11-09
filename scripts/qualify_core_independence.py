@@ -90,7 +90,7 @@ def qualify(args, report):
             if manager:
                 command += ['--manager', manager]
             if frontend:
-                command += ['--manager-tui', frontend, '--manager-tui-version', args.version]
+                command += ['--tui', frontend, '--tui-version', args.version]
             if args.source_runtime is not None:
                 command += ['--source-runtime', args.source_runtime,
                             '--source-revision', args.source_revision]

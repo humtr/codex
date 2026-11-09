@@ -731,6 +731,12 @@ exact extended8-file inventory, preserving the legacy activation-doctor signal.
 The retained R10 client must directly consume the extended signed target through
 its real public update/rollback path before any stable promotion. An ordinary
 nested-browser frontend is valid local construction, not a stable floor replacement.
+A new producer names the independent component with `--tui` paired with
+`--tui-version`, or `adapt-tui` for standalone artifact adaptation. The previous
+`--manager-tui`, `--manager-tui-version` and `adapt-manager-tui` spellings remain
+equivalent input aliases. Aliases select the same artifact and validation path;
+they do not change Manager or TUI execution lifetimes. Signed helper records retain
+the exact `termux-manager-tui-v1` identity required by existing consumers.
 A newer canonical local generation may continue to use `browser/open/curl` and
 `browser/manual/curl`; canonical nested paths are not an R10-readable public
 stable target.

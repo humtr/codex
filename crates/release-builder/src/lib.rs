@@ -192,12 +192,14 @@ const USAGE: &str = concat!(
     "       codex-release-builder build --version <MAJOR.MINOR.PATCH> ",
     "--archive <ABSOLUTE_FILE> --archive-sha256 <LOWERCASE_SHA256> ",
     "--generation-id <ID> --core <ABSOLUTE_FILE> [--manager <ABSOLUTE_FILE>] ",
-    "[--manager-tui <ABSOLUTE_FILE> --manager-tui-version <MAJOR.MINOR.PATCH>] ",
+    "[--tui <ABSOLUTE_FILE> --tui-version <MAJOR.MINOR.PATCH>] ",
     "[--source-runtime <ABSOLUTE_FILE> --source-revision <GIT_COMMIT>] ",
     "[--defer-manager-probe] [--legacy-activation-doctor-unsupported] ",
     "--creation-metadata <VALUE> ",
     "--gzip <ABSOLUTE_EXECUTABLE> --openssl <ABSOLUTE_EXECUTABLE> ",
     "--output <ABSENT_ABSOLUTE_DIRECTORY>\n",
+    "       codex-release-builder adapt-tui --artifact <ABSOLUTE_FILE> ",
+    "--openssl <ABSOLUTE_EXECUTABLE> --output <ABSENT_ABSOLUTE_FILE>\n",
     "       codex-release-builder publish --generation <ABSOLUTE_DIRECTORY> ",
     "--release-sequence <POSITIVE_DECIMAL> --release-base <HTTPS_BASE_URL> ",
     "--private-key <ABSOLUTE_FILE> --openssl <ABSOLUTE_EXECUTABLE> ",
@@ -206,7 +208,9 @@ const USAGE: &str = concat!(
     "--assets <ABSOLUTE_DIRECTORY> --source-inputs <ABSOLUTE_FILE> ",
     "--source-sha <GIT_COMMIT> --generation-id <provider-chatgpt-vVERSION> ",
     "--release-sequence <POSITIVE_DECIMAL> --private-key <ABSOLUTE_FILE> ",
-    "--openssl <ABSOLUTE_EXECUTABLE> --output <ABSENT_ABSOLUTE_DIRECTORY>"
+    "--openssl <ABSOLUTE_EXECUTABLE> --output <ABSENT_ABSOLUTE_DIRECTORY>\n",
+    "Compatibility aliases: --manager-tui = --tui; --manager-tui-version = --tui-version; ",
+    "adapt-manager-tui = adapt-tui."
 );
 
 static STAGING_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -260,7 +264,7 @@ pub struct GenerationRequest {
     pub generation_id: String,
     pub core: PathBuf,
     pub manager: Option<PathBuf>,
-    pub manager_tui: Option<ManagerTuiArtifact>,
+    pub tui: Option<TuiArtifact>,
     pub source_runtime: Option<SourceRuntime>,
     pub defer_manager_probe: bool,
     pub legacy_activation_doctor_unsupported: bool,
@@ -271,10 +275,13 @@ pub struct GenerationRequest {
 }
 
 #[derive(Debug)]
-pub struct ManagerTuiArtifact {
+pub struct TuiArtifact {
     pub path: PathBuf,
     pub version: String,
 }
+
+/// Historical source name for the same independent Codex TUI artifact.
+pub type ManagerTuiArtifact = TuiArtifact;
 
 #[derive(Debug)]
 pub struct SourceRuntime {
@@ -308,8 +315,8 @@ struct RequestFields {
     generation_id: Option<String>,
     core: Option<PathBuf>,
     manager: Option<PathBuf>,
-    manager_tui: Option<PathBuf>,
-    manager_tui_version: Option<String>,
+    tui: Option<PathBuf>,
+    tui_version: Option<String>,
     source_runtime: Option<PathBuf>,
     source_revision: Option<String>,
     defer_manager_probe: bool,
@@ -383,9 +390,9 @@ where
             Some("--generation-id") => set_once(&mut fields.generation_id, text_value(value)?)?,
             Some("--core") => set_once(&mut fields.core, PathBuf::from(value))?,
             Some("--manager") => set_once(&mut fields.manager, PathBuf::from(value))?,
-            Some("--manager-tui") => set_once(&mut fields.manager_tui, PathBuf::from(value))?,
-            Some("--manager-tui-version") => {
-                set_once(&mut fields.manager_tui_version, text_value(value)?)?
+            Some("--tui" | "--manager-tui") => set_once(&mut fields.tui, PathBuf::from(value))?,
+            Some("--tui-version" | "--manager-tui-version") => {
+                set_once(&mut fields.tui_version, text_value(value)?)?
             }
             Some("--source-runtime") => set_once(&mut fields.source_runtime, PathBuf::from(value))?,
             Some("--source-revision") => set_once(&mut fields.source_revision, text_value(value)?)?,
@@ -405,8 +412,8 @@ where
         generation_id: fields.generation_id.ok_or(BuilderError::Usage)?,
         core: fields.core.ok_or(BuilderError::Usage)?,
         manager: fields.manager,
-        manager_tui: match (fields.manager_tui, fields.manager_tui_version) {
-            (Some(path), Some(version)) => Some(ManagerTuiArtifact { path, version }),
+        tui: match (fields.tui, fields.tui_version) {
+            (Some(path), Some(version)) => Some(TuiArtifact { path, version }),
             (None, None) => None,
             _ => return Err(BuilderError::Usage),
         },
@@ -792,7 +799,7 @@ fn validate_request(request: &GenerationRequest) -> Result<(), BuilderError> {
             ));
         }
     }
-    if let Some(frontend) = request.manager_tui.as_ref() {
+    if let Some(frontend) = request.tui.as_ref() {
         if frontend.version != request.version || !canonical_absolute_path(&frontend.path) {
             return Err(BuilderError::Invalid(
                 "frontend requires matching upstream version",
@@ -2169,31 +2176,31 @@ fn snapshot_manager_artifact(
     Ok(Some(sha256))
 }
 
-fn snapshot_manager_tui_artifact(
+fn snapshot_tui_artifact(
     request: &GenerationRequest,
     staging: &Path,
 ) -> Result<Option<String>, BuilderError> {
-    let Some(frontend) = request.manager_tui.as_ref() else {
+    let Some(frontend) = request.tui.as_ref() else {
         return Ok(None);
     };
-    snapshot_manager_tui_source(&frontend.path, &request.openssl, staging)
+    snapshot_tui_source(&frontend.path, &request.openssl, staging)
 }
 
-fn snapshot_manager_tui_source(
+fn snapshot_tui_source(
     artifact: &Path,
     openssl: &Path,
     staging: &Path,
 ) -> Result<Option<String>, BuilderError> {
     let source_metadata = ensure_regular_file(
         artifact,
-        "inspect Manager frontend",
-        "Manager frontend is not a regular file",
+        "inspect Codex TUI",
+        "Codex TUI is not a regular file",
     )?;
     if source_metadata.permissions().mode() & 0o100 == 0
         || source_metadata.len() > RELEASE_FILE_MAX_BYTES
     {
         return Err(BuilderError::Invalid(
-            "Manager frontend is outside its executable or byte bound",
+            "Codex TUI is outside its executable or byte bound",
         ));
     }
     let mut source = OpenOptions::new()
@@ -2210,39 +2217,39 @@ fn snapshot_manager_tui_source(
         ));
     }
     validate_publish_file_mode(&opened, true, "opened TUI artifact mode is unsafe")?;
-    let snapshot_path = staging.join(".manager-tui-artifact");
+    let snapshot_path = staging.join(".tui-artifact");
     let mut snapshot = create_private_file(&snapshot_path)?;
     let copied = io::copy(
         &mut Read::by_ref(&mut source).take(RELEASE_FILE_MAX_BYTES + 1),
         &mut snapshot,
     )
-    .map_err(|source| io_error("snapshot Manager frontend", source))?;
+    .map_err(|source| io_error("snapshot Codex TUI", source))?;
     if copied != source_metadata.len()
         || copied > RELEASE_FILE_MAX_BYTES
         || source
             .metadata()
-            .map_err(|source| io_error("inspect Manager frontend after snapshot", source))?
+            .map_err(|source| io_error("inspect Codex TUI after snapshot", source))?
             .len()
             != copied
     {
         return Err(BuilderError::Invalid(
-            "Manager frontend changed or exceeds its byte bound",
+            "Codex TUI changed or exceeds its byte bound",
         ));
     }
     snapshot
         .sync_all()
-        .map_err(|source| io_error("sync Manager frontend snapshot", source))?;
+        .map_err(|source| io_error("sync Codex TUI snapshot", source))?;
     drop(snapshot);
     validate_static_aarch64_elf(&snapshot_path)?;
     let mut bytes = std::fs::read(&snapshot_path)
-        .map_err(|source| io_error("read Manager frontend snapshot", source))?;
+        .map_err(|source| io_error("read Codex TUI snapshot", source))?;
     apply_fd_path_remaps(&mut bytes)?;
     std::fs::write(&snapshot_path, bytes)
-        .map_err(|source| io_error("adapt Manager frontend snapshot", source))?;
-    set_mode(&snapshot_path, 0o755, "set Manager frontend mode")?;
+        .map_err(|source| io_error("adapt Codex TUI snapshot", source))?;
+    set_mode(&snapshot_path, 0o755, "set Codex TUI mode")?;
     File::open(&snapshot_path)
         .and_then(|file| file.sync_all())
-        .map_err(|source| io_error("sync adapted Manager frontend", source))?;
+        .map_err(|source| io_error("sync adapted Codex TUI", source))?;
     Ok(Some(openssl_sha256(openssl, &snapshot_path)?))
 }
 
@@ -3820,8 +3827,8 @@ fn complete_and_publish(
         if request.creation_metadata != R10_BROWSER_HELPER_BRIDGE_METADATA {
             create_private_dir(&helpers)?;
         }
-        rename_noreplace(&staging.join(".manager-tui-artifact"), &helpers.join("2"))?;
-        sync_directory(&helpers, "sync Manager frontend helper directory")?;
+        rename_noreplace(&staging.join(".tui-artifact"), &helpers.join("2"))?;
+        sync_directory(&helpers, "sync Codex TUI helper directory")?;
     }
     write_generation_descriptor(
         request,
@@ -3872,7 +3879,7 @@ pub fn build_generation(request: &GenerationRequest) -> Result<(), BuilderError>
     let result = (|| {
         let core_sha256 = snapshot_core_artifact(request, &staging)?;
         let manager_sha256 = snapshot_manager_artifact(request, &staging)?;
-        let frontend_sha256 = snapshot_manager_tui_artifact(request, &staging)?;
+        let frontend_sha256 = snapshot_tui_artifact(request, &staging)?;
         if manager_sha256.is_some() {
             let manager_snapshot = staging.join(".manager-artifact");
             if request.defer_manager_probe {
@@ -3917,7 +3924,7 @@ pub fn publish_generation(
     })
 }
 
-fn adapt_frontend(args: &[OsString]) -> Result<(), BuilderError> {
+fn adapt_tui(args: &[OsString]) -> Result<(), BuilderError> {
     if args.len() != 7 {
         return Err(BuilderError::Usage);
     }
@@ -3941,8 +3948,8 @@ fn adapt_frontend(args: &[OsString]) -> Result<(), BuilderError> {
     ensure_executable(openssl, "OpenSSL is not an executable regular file")?;
     let staging = create_staging(output)?;
     let result = (|| {
-        snapshot_manager_tui_source(artifact, openssl, &staging)?;
-        rename_noreplace(&staging.join(".manager-tui-artifact"), output)?;
+        snapshot_tui_source(artifact, openssl, &staging)?;
+        rename_noreplace(&staging.join(".tui-artifact"), output)?;
         sync_directory(
             output.parent().ok_or(BuilderError::Usage)?,
             "sync adapted frontend parent",
@@ -3967,7 +3974,7 @@ where
             source::command(&args)
         }
         Some("provider-package") => provider::command(&args),
-        Some("adapt-manager-tui") => match adapt_frontend(&args) {
+        Some("adapt-tui" | "adapt-manager-tui") => match adapt_tui(&args) {
             Ok(()) => 0,
             Err(error) => {
                 eprintln!("codex-release-builder: {error}");
@@ -4552,7 +4559,7 @@ fi
                 generation_id: "test-generation".to_owned(),
                 core,
                 manager: None,
-                manager_tui: None,
+                tui: None,
                 source_runtime: None,
                 defer_manager_probe: false,
                 legacy_activation_doctor_unsupported: false,
@@ -4595,11 +4602,11 @@ fi
                 [OsString::from("--manager"), manager.as_os_str().to_owned()],
             );
         }
-        if let Some(frontend) = request.manager_tui.as_ref() {
+        if let Some(frontend) = request.tui.as_ref() {
             args.extend([
-                OsString::from("--manager-tui"),
+                OsString::from("--tui"),
                 frontend.path.as_os_str().to_owned(),
-                OsString::from("--manager-tui-version"),
+                OsString::from("--tui-version"),
                 frontend.version.clone().into(),
             ]);
         }
@@ -4719,8 +4726,7 @@ fi
 
     #[test]
     fn test_m2_b6_slice1_request_boundary_is_strict() {
-        assert!(USAGE
-            .contains("[--manager-tui <ABSOLUTE_FILE> --manager-tui-version <MAJOR.MINOR.PATCH>]"));
+        assert!(USAGE.contains("[--tui <ABSOLUTE_FILE> --tui-version <MAJOR.MINOR.PATCH>]"));
         let grammar_fixture = fixture("request-grammar", happy_entries("0.150.1"), false);
         for mutation in ["missing-value", "duplicate", "unknown"] {
             let mut args = request_args(&grammar_fixture.request);
@@ -4835,7 +4841,7 @@ fi
             generation_id: "official-fetch-generation".to_owned(),
             core: fixture.request.core.clone(),
             manager: None,
-            manager_tui: None,
+            tui: None,
             source_runtime: None,
             defer_manager_probe: false,
             legacy_activation_doctor_unsupported: false,
@@ -5266,14 +5272,14 @@ fi
     }
 
     #[test]
-    fn test_manager_tui_build_snapshots_adapts_and_binds_third_helper() {
-        let mut fixture = fixture("manager-tui-build", happy_entries("0.150.1"), false);
+    fn test_tui_build_snapshots_adapts_and_binds_third_helper() {
+        let mut fixture = fixture("tui-build", happy_entries("0.150.1"), false);
         assert!(fixture.request.manager.is_none());
         let frontend = fixture.root.join("frontend-source");
         let raw = fake_runtime();
         std::fs::write(&frontend, &raw).unwrap();
         set_mode(&frontend, 0o755, "set frontend fixture mode").unwrap();
-        fixture.request.manager_tui = Some(ManagerTuiArtifact {
+        fixture.request.tui = Some(TuiArtifact {
             path: frontend.clone(),
             version: fixture.request.version.clone(),
         });
@@ -5309,17 +5315,13 @@ fi
         )));
         assert!(fixture.request.output.join("browser/open/curl").is_file());
         assert!(fixture.request.output.join("browser/manual/curl").is_file());
-        assert!(!fixture
-            .request
-            .output
-            .join(".manager-tui-artifact")
-            .exists());
+        assert!(!fixture.request.output.join(".tui-artifact").exists());
         assert!(no_builder_staging(&fixture.root));
         fixture.remove();
     }
 
     #[test]
-    fn standalone_frontend_adaptation_matches_full_build_and_preserves_inputs() {
+    fn standalone_tui_adaptation_and_legacy_alias_match_full_build_and_preserve_inputs() {
         let mut fixture = fixture("frontend-component", happy_entries("0.150.1"), false);
         let manager = fixture.root.join("manager-source");
         write_valid_manager_probe(&manager);
@@ -5328,38 +5330,95 @@ fi
         let raw = fake_runtime();
         std::fs::write(&frontend, &raw).unwrap();
         set_mode(&frontend, 0o755, "set frontend fixture mode").unwrap();
-        fixture.request.manager_tui = Some(ManagerTuiArtifact {
+        fixture.request.tui = Some(TuiArtifact {
             path: frontend.clone(),
             version: fixture.request.version.clone(),
         });
         assert_eq!(run_from_args(request_args(&fixture.request)), 0);
-        let output = fixture.root.join("adapted-frontend");
-        let args = vec![
-            OsString::from("adapt-manager-tui"),
-            OsString::from("--artifact"),
-            frontend.clone().into_os_string(),
-            OsString::from("--openssl"),
-            fixture.request.openssl.clone().into_os_string(),
-            OsString::from("--output"),
-            output.clone().into_os_string(),
-        ];
-        assert_eq!(run_from_args(args.clone()), 0);
-        assert_eq!(
-            std::fs::read(&output).unwrap(),
-            std::fs::read(fixture.request.output.join("helpers/2")).unwrap()
-        );
-        assert_eq!(std::fs::read(&frontend).unwrap(), raw);
-        assert_ne!(run_from_args(args.clone()), 0); // Never replace an occupied destination.
-        std::fs::remove_file(&output).unwrap();
-        std::fs::write(&frontend, b"not a qualified ELF").unwrap();
-        assert_ne!(run_from_args(args), 0);
-        assert!(!output.exists());
+        for command in ["adapt-tui", "adapt-manager-tui"] {
+            let output = fixture.root.join(command);
+            let args = vec![
+                OsString::from(command),
+                OsString::from("--artifact"),
+                frontend.clone().into_os_string(),
+                OsString::from("--openssl"),
+                fixture.request.openssl.clone().into_os_string(),
+                OsString::from("--output"),
+                output.clone().into_os_string(),
+            ];
+            assert_eq!(run_from_args(args.clone()), 0);
+            assert_eq!(
+                std::fs::read(&output).unwrap(),
+                std::fs::read(fixture.request.output.join("helpers/2")).unwrap()
+            );
+            assert_eq!(std::fs::read(&frontend).unwrap(), raw);
+            assert_ne!(run_from_args(args.clone()), 0); // Never replace an occupied destination.
+            std::fs::remove_file(&output).unwrap();
+            std::fs::write(&frontend, b"not a qualified ELF").unwrap();
+            assert_ne!(run_from_args(args), 0);
+            assert!(!output.exists());
+            std::fs::write(&frontend, &raw).unwrap();
+        }
         assert!(no_builder_staging(&fixture.root));
         fixture.remove();
     }
 
     #[test]
-    fn test_manager_tui_request_and_artifact_faults_preserve_sources_and_output() {
+    fn canonical_tui_flags_and_legacy_aliases_share_one_input_and_signed_identity() {
+        let mut fixture = fixture("tui-cli-aliases", happy_entries("0.150.1"), false);
+        let frontend = fixture.root.join("tui-source");
+        std::fs::write(&frontend, fake_runtime()).unwrap();
+        set_mode(&frontend, 0o755, "set TUI fixture mode").unwrap();
+        fixture.request.tui = Some(ManagerTuiArtifact {
+            path: frontend,
+            version: fixture.request.version.clone(),
+        });
+        let canonical = request_args(&fixture.request);
+        let mut descriptor = None;
+        let mut helper = None;
+        for (path_flag, version_flag) in [
+            ("--tui", "--tui-version"),
+            ("--manager-tui", "--manager-tui-version"),
+            ("--tui", "--manager-tui-version"),
+            ("--manager-tui", "--tui-version"),
+        ] {
+            let args: Vec<_> = canonical
+                .iter()
+                .map(|arg| match arg.to_str() {
+                    Some("--tui") => OsString::from(path_flag),
+                    Some("--tui-version") => OsString::from(version_flag),
+                    _ => arg.clone(),
+                })
+                .collect();
+            assert_eq!(run_from_args(args.clone()), 0);
+            let bytes = std::fs::read(fixture.request.output.join("generation.meta")).unwrap();
+            assert!(
+                String::from_utf8_lossy(&bytes).contains("helper\ttermux-manager-tui-v1:0.150.1\t")
+            );
+            assert_eq!(descriptor.get_or_insert_with(|| bytes.clone()), &bytes);
+            let bytes = std::fs::read(fixture.request.output.join("helpers/2")).unwrap();
+            assert_eq!(helper.get_or_insert_with(|| bytes.clone()), &bytes);
+            std::fs::remove_dir_all(&fixture.request.output).unwrap();
+            for alias in [
+                "--tui",
+                "--manager-tui",
+                "--tui-version",
+                "--manager-tui-version",
+            ] {
+                let mut duplicate = args.clone();
+                duplicate.extend([OsString::from(alias), OsString::from("same-slot")]);
+                assert!(
+                    matches!(parse_request(duplicate), Err(BuilderError::Usage)),
+                    "{path_flag}/{version_flag}/{alias}"
+                );
+            }
+        }
+        assert!(no_builder_staging(&fixture.root));
+        fixture.remove();
+    }
+
+    #[test]
+    fn test_tui_request_and_artifact_faults_preserve_sources_and_output() {
         for defect in [
             "version",
             "relative",
@@ -5374,7 +5433,7 @@ fi
             "extra-remap",
             "prepatched",
         ] {
-            let mut fixture = fixture("manager-tui-fault", happy_entries("0.150.1"), false);
+            let mut fixture = fixture("tui-fault", happy_entries("0.150.1"), false);
             let manager = fixture.root.join("manager-source");
             write_valid_manager_probe(&manager);
             fixture.request.manager = Some(manager);
@@ -5382,12 +5441,12 @@ fi
             let raw = fake_runtime();
             std::fs::write(&frontend, &raw).unwrap();
             set_mode(&frontend, 0o755, "set frontend fixture mode").unwrap();
-            fixture.request.manager_tui = Some(ManagerTuiArtifact {
+            fixture.request.tui = Some(TuiArtifact {
                 path: frontend.clone(),
                 version: fixture.request.version.clone(),
             });
             // Paired grammar and duplicate flags fail before touching the source.
-            for flag in ["--manager-tui", "--manager-tui-version"] {
+            for flag in ["--tui", "--tui-version"] {
                 let mut args = request_args(&fixture.request);
                 let at = args.iter().position(|arg| arg == flag).unwrap();
                 let mut missing = args.clone();
@@ -5397,11 +5456,9 @@ fi
                 assert!(matches!(parse_request(args), Err(BuilderError::Usage)));
             }
             match defect {
-                "version" => {
-                    fixture.request.manager_tui.as_mut().unwrap().version = "0.161.0".into()
-                }
+                "version" => fixture.request.tui.as_mut().unwrap().version = "0.161.0".into(),
                 "relative" => {
-                    fixture.request.manager_tui.as_mut().unwrap().path = PathBuf::from("relative")
+                    fixture.request.tui.as_mut().unwrap().path = PathBuf::from("relative")
                 }
                 "missing" => std::fs::remove_file(&frontend).unwrap(),
                 "symlink" => {
@@ -5511,7 +5568,7 @@ fi
     }
 
     #[test]
-    fn test_manager_tui_publication_binds_exact_inventory_and_rejects_layout_drift() {
+    fn test_tui_publication_binds_exact_inventory_and_rejects_layout_drift() {
         for r10 in [false, true] {
             for defect in [
                 "healthy",
@@ -5528,7 +5585,7 @@ fi
                 "manager",
                 "layout-marker",
             ] {
-                let mut fixture = fixture("manager-tui-publish", happy_entries("0.150.1"), false);
+                let mut fixture = fixture("tui-publish", happy_entries("0.150.1"), false);
                 let manager = fixture.root.join("manager-source");
                 write_valid_manager_probe(&manager);
                 fixture.request.manager = Some(manager);
@@ -5539,7 +5596,7 @@ fi
                 let frontend = fixture.root.join("frontend-source");
                 std::fs::write(&frontend, fake_runtime()).unwrap();
                 set_mode(&frontend, 0o755, "set frontend fixture mode").unwrap();
-                fixture.request.manager_tui = Some(ManagerTuiArtifact {
+                fixture.request.tui = Some(TuiArtifact {
                     path: frontend,
                     version: fixture.request.version.clone(),
                 });

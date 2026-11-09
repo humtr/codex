@@ -400,7 +400,7 @@ def candidate_from_base(base, manager, frontend, builder, generation, version, o
             replacement={'generation_id':generation,'core_artifact_digest':sha256(output/'core')}
         else:
             shutil.copyfile(manager,output/'manager');(output/'manager').chmod(0o755)
-            subprocess.run([str(builder),'adapt-manager-tui','--artifact',str(frontend),'--openssl',shutil.which('openssl'),
+            subprocess.run([str(builder),'adapt-tui','--artifact',str(frontend),'--openssl',shutil.which('openssl'),
                             '--output',str(output/'helpers/2')],check=True)
             replacement={'generation_id':generation,'manager_artifact_digest':sha256(output/'manager'),'helper_count':'3'}
         lines=[descriptor[0]]+[key+'\t'+replacement.get(key,value) if line.count('\t') == 1
