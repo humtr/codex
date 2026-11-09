@@ -721,6 +721,67 @@ mod tests {
     }
 
     #[test]
+    fn nc_bounded_compiler_builds_hold_inputs_and_outputs_without_a_repo_lock() {
+        let root = temp();
+        fs::write(root.join("a.c"), "int main(void) { return 0; }\n").unwrap();
+        fs::write(root.join("b.c"), "int other(void) { return 1; }\n").unwrap();
+        let build = |cmd: &str, login: bool| {
+            classify(
+                "functions.exec_command",
+                &serde_json::json!({"cmd":cmd,"workdir":root,"login":login}).to_string(),
+                Some(&root),
+            )
+        };
+        let a = build("clang -O0 a.c -o a.out", false);
+        let b = build("clang -O0 b.c -o b.out", false);
+        assert!(
+            matches!(a, Effect::Paths(_)),
+            "bounded build must be a path claim"
+        );
+        assert!(matches!(b, Effect::Paths(_)));
+        assert!(
+            !conflicts(&a, &b),
+            "independent inputs and outputs may overlap"
+        );
+        assert!(
+            !conflicts(&a, &build("clang -O0 a.c -o a-second.out", false)),
+            "two source readers do not conflict"
+        );
+        assert!(
+            conflicts(&a, &build("clang -O0 b.c -o a.out", false)),
+            "a shared output stays exclusive"
+        );
+        assert!(
+            conflicts(
+                &a,
+                &classify(
+                    "functions.apply_patch",
+                    &update("a.c", "return 0", "return 3"),
+                    Some(&root)
+                )
+            ),
+            "a concurrent source edit conflicts with its compiler read"
+        );
+        assert_eq!(can_offer(&a, &root), Ok(()));
+        fs::write(root.join("a.c"), "int main(void) { return 9; }\n").unwrap();
+        assert_eq!(
+            can_offer(&a, &root),
+            Err("native_resource_version_conflict")
+        );
+        for unsafe_build in [
+            "clang -O0 a.c -o a.out; touch outside",
+            "clang -Xclang -load plugin.so a.c -o a.out",
+            "clang -O0 a.c -o ../outside",
+            "clang -O0 a.c -o a.out -save-temps",
+            "sh -c clang a.c -o a.out",
+        ] {
+            assert_eq!(build(unsafe_build, false), Effect::Opaque);
+        }
+        assert_eq!(build("clang -O0 a.c -o a.out", true), Effect::Opaque);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn nc_atomic_replace_and_verified_absolute_patch_target() {
         let root = temp();
         fs::write(root.join("a"), "alpha\nbeta\n").unwrap();

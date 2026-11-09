@@ -6148,9 +6148,10 @@ impl Operator {
                                     }
                                 }
                                 let failure=if snapshot["error"].is_string() {
-                                    let code=crate::app::http_failure(snapshot["error"].as_str())
-                                        .map(|error|error.0).unwrap_or("operator_app_round_failed");
-                                    Some((code,"ChatGPT app reported a failure. Work is preserved; reconcile before retrying."))
+                                    let http=crate::app::http_failure(snapshot["error"].as_str());
+                                    Some((http.map_or("operator_app_round_failed", |error| error.0),
+                                        if http.is_some() {"ChatGPT returned an explicit HTTP refusal. Original work and the uncertain delivery record are preserved; do not resend the model input."}
+                                        else {"ChatGPT app reported a failure. Work is preserved; reconcile before retrying."}))
                                 } else if waiting.is_none() && host_settled(&snapshot)
                                     && snapshot["messages"].as_array().is_some_and(|messages|messages.iter().any(|message|
                                         message["author"]["role"]=="assistant" && message["channel"]=="final"
