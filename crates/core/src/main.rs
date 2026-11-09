@@ -28266,16 +28266,22 @@ exit 0
 
         // A pre-admitted envelope is sufficient for the unchanged path. Its
         // non-executable fixture bytes must not be probed or reacquired.
-        let id = "chatgpt-manual-fixture";
+        let id = "provider-chatgpt-v0.0.0-manual-fixture";
         let package = fixture
             .home
             .join(".local/lib/codex/providers/chatgpt/generations")
             .join(id);
         let binary = fixture.root.join("provider-fixture-elf");
-        let mut header = [0u8; 64];
-        header[..6].copy_from_slice(b"\x7fELF\x02\x01");
-        header[18] = 0xb7;
+        let mut header = b6_static_aarch64_elf(false);
+        header[16..18].copy_from_slice(&3u16.to_le_bytes());
+        header[64..68].copy_from_slice(&3u32.to_le_bytes());
+        header[72..80].copy_from_slice(&120u64.to_le_bytes());
+        let interpreter = b"/system/bin/linker64\0";
+        header[96..104].copy_from_slice(&(interpreter.len() as u64).to_le_bytes());
+        header[104..112].copy_from_slice(&(interpreter.len() as u64).to_le_bytes());
+        header.extend_from_slice(interpreter);
         std::fs::write(&binary, header).unwrap();
+        std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o755)).unwrap();
         let source_inputs = fixture.root.join("provider-source-inputs.json");
         std::fs::write(&source_inputs, "{\"fixture\":true}\n").unwrap();
         let assets = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
