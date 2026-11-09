@@ -22,7 +22,7 @@ import tempfile
 import threading
 import time
 
-from qualify_provider_native_compiler import Client, payload, process, save, sha, stamp, termux_path
+from qualify_provider_native_compiler import Client, payload, process, save, sha, stamp, stop_fixture_works, termux_path
 from qualify_provider_live_tui import request_identity
 from qualify_provider_operator import fixture_auth
 from qualify_provider_native_trial import stop_owned_pid
@@ -382,16 +382,10 @@ def probe(args):
         save(root / 'proxy.json', proxy.records)
         # Stop is cleanup after the assertions, never the event that makes the
         # qualification pass or releases the tested claim before its check.
-        stopped = True
-        if client is not None:
-            for work in works.values():
-                try:
-                    result = client.call('codex_stop', {'work_id': work['work_id']})
-                    assert result.get('native_stop_confirmed') is True and result.get('remaining_jobs') == [], 'fixture Native Stop is unconfirmed'
-                    assert not result.get('host_stop_requested') or result.get('host_stop_confirmed') is True, 'fixture host Stop is unconfirmed'
-                except Exception as error:
-                    stopped = False
-                    report.setdefault('cleanup_errors', []).append(type(error).__name__)
+        cleanup_errors = stop_fixture_works(client, works, root)
+        stopped = not cleanup_errors
+        if cleanup_errors:
+            report.setdefault('cleanup_errors', []).extend(cleanup_errors)
         if service is not None and stopped:
             (root / 'stop-provider').touch()
             try:

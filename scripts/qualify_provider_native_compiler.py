@@ -198,6 +198,73 @@ class Client:
         return json.loads(result['content'][0]['text'])
 
 
+def confirmed_native_stop(value):
+    """A successful RPC is not confirmation that its original effects stopped."""
+    return (isinstance(value, dict) and value.get('native_stop_confirmed') is True
+            and value.get('remaining_jobs') == []
+            and (value.get('host_stop_requested') is False
+                 or (value.get('host_stop_requested') is True
+                     and value.get('host_stop_confirmed') is True)))
+
+
+def stop_fixture_works(client, works, root):
+    """Stop only these original fixture works once; retain uncertain owners."""
+    if client is None:
+        return ['fixture_client_unavailable'] if works else []
+    if not works:
+        # An unanswered allocation may have created a work. A missing local
+        # receipt is not authority to terminate its result-producing service.
+        return ['fixture_work_admission_unconfirmed']
+    errors = []
+    for label, work in works.items():
+        try:
+            stopped = client.call('codex_stop', {'work_id': work['work_id']})
+            save(root / f'cleanup-stop-{label}.json', stopped)
+            assert confirmed_native_stop(stopped), 'fixture Native/host Stop remains unconfirmed'
+        except Exception as error:
+            errors.append(type(error).__name__)
+            save(root / f'cleanup-stop-{label}-error.json',
+                 {'error_type': type(error).__name__, 'original_work_preserved': True})
+    if not errors:
+        try:
+            work = next(iter(works.values()))
+            status = client.call('codex_status', {'work_id': work['work_id']})
+            save(root / 'cleanup-status.json', status)
+            assert status.get('work_id') == work['work_id'] and status.get('thread_id') == work['thread_id']
+            assert status.get('phase') == 'stopped'
+            effects = status.get('native_effects', {})
+            assert effects.get('active') == [] and type(effects.get('unconfirmed_effects')) is int and effects['unconfirmed_effects'] == 0
+        except Exception as error:
+            errors.append(type(error).__name__)
+            save(root / 'cleanup-status-error.json',
+                 {'error_type': type(error).__name__, 'original_work_preserved': True})
+    return errors
+
+
+def cleanup_compiler_fixture(client, works, service, root, accepted, owners, native_home, runtime):
+    errors = [] if accepted else stop_fixture_works(client, works, root)
+    if errors:
+        # The same Provider and Native owners remain available for their
+        # existing public Stop/reconciliation path. No retry or replacement.
+        save(root / 'cleanup-unconfirmed.json', {'errors': errors, 'original_owners_preserved': True})
+        return errors
+    if service is not None and service.poll() is None:
+        (root / 'stop-provider').touch()
+        try:
+            service.wait(timeout=30)
+        except subprocess.TimeoutExpired:
+            service.terminate()
+            service.wait(timeout=10)
+    if accepted:
+        # Only our unique execution home, after all original calls/finals
+        # settled. Never stop an installed user's existing Native owner.
+        for owner in owners.values():
+            assert owner['home'] == str(native_home) and process(owner) == owner['process']
+            save(root / f'owned-owner-stop-{owner["process"]["pid"]}.json',
+                 stop_owned_pid(owner['process']['pid'], runtime, owner['process']['start']))
+    return errors
+
+
 def probe(args):
     os.umask(0o077)
     home, prefix = Path(os.environ['HOME']).resolve(strict=True), Path(os.environ['PREFIX']).resolve(strict=True)
@@ -436,27 +503,7 @@ def probe(args):
                           'error_type': type(error).__name__, 'error': str(error), **stamp()})
         raise
     finally:
-        if client is not None and not accepted:
-            for label, work in works.items():
-                try:
-                    stopped = client.call('codex_sessions', {key: work[key] for key in ('work_id', 'controller')} | {'action': 'stop'})
-                    save(root / f'cleanup-stop-{label}.json', stopped)
-                except Exception as error:
-                    save(root / f'cleanup-stop-{label}.json', {'error_type': type(error).__name__, 'original_work_preserved': True})
-        if service is not None and service.poll() is None:
-            (root / 'stop-provider').touch()
-            try:
-                service.wait(timeout=30)
-            except subprocess.TimeoutExpired:
-                service.terminate()
-                service.wait(timeout=10)
-        if accepted:
-            # Only our unique execution home, after all original calls/finals
-            # settled. Never stop an installed user's existing Native owner.
-            for owner in owners.values():
-                assert owner['home'] == str(native_home) and process(owner) == owner['process']
-                save(root / f'owned-owner-stop-{owner["process"]["pid"]}.json',
-                     stop_owned_pid(owner['process']['pid'], runtime, owner['process']['start']))
+        cleanup_compiler_fixture(client, works, service, root, accepted, owners, native_home, runtime)
         log.close()
         print('Owned Native compiler proof retained at ' + str(root), flush=True)
     save(args.report, proof_result)

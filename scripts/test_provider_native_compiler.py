@@ -187,6 +187,72 @@ class NativeCompilerEvidence(unittest.TestCase):
             libc.syscall.assert_not_called()
             closed.assert_called_once_with(55)
 
+    def test_cleanup_requires_native_jobs_and_requested_host_confirmation(self):
+        receipt = {'native_stop_confirmed': True, 'remaining_jobs': [], 'host_stop_requested': False}
+        self.assertTrue(q.confirmed_native_stop(receipt))
+        self.assertTrue(q.confirmed_native_stop(dict(receipt, host_stop_requested=True, host_stop_confirmed=True)))
+        for value in (None, {}, dict(receipt, native_stop_confirmed=False),
+                      dict(receipt, native_stop_confirmed=1), dict(receipt, remaining_jobs=None),
+                      dict(receipt, remaining_jobs=[{'id': 'original-job'}]),
+                      dict(receipt, host_stop_requested=None),
+                      dict(receipt, host_stop_requested=True, host_stop_confirmed=False)):
+            with self.subTest(value=value):
+                self.assertFalse(q.confirmed_native_stop(value))
+
+    def test_failed_cleanup_keeps_original_service_and_native_owners_until_confirmation(self):
+        work = {'work_id': 'original-work', 'thread_id': 'original-thread'}
+        receipt = {'native_stop_confirmed': True, 'remaining_jobs': [], 'host_stop_requested': False}
+        settled = {**work, 'phase': 'stopped', 'native_effects': {'active': [], 'unconfirmed_effects': 0}}
+        for replies in ([dict(receipt, native_stop_confirmed=False)],
+                        [dict(receipt, remaining_jobs=None)],
+                        [dict(receipt, remaining_jobs=[{'id': 'original-job'}])],
+                        [TimeoutError('original Stop delivery is unknown')],
+                        [receipt, dict(settled, native_effects={'active': [{}], 'unconfirmed_effects': 1})],
+                        [receipt, dict(settled, native_effects={})]):
+            with self.subTest(replies=replies), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                client, service = Mock(), Mock()
+                client.call.side_effect = replies
+                with patch.object(q, 'stop_owned_pid') as stop_owner:
+                    errors = q.cleanup_compiler_fixture(client, {'a': work}, service, root,
+                        False, {123: self.owner}, Path(self.owner['home']), self.runtime)
+                self.assertTrue(errors)
+                self.assertFalse((root / 'stop-provider').exists())
+                service.poll.assert_not_called()
+                service.wait.assert_not_called()
+                service.terminate.assert_not_called()
+                stop_owner.assert_not_called()
+                self.assertEqual(client.call.call_args_list[0].args, ('codex_stop', {'work_id': 'original-work'}))
+                self.assertEqual(sum(call.args[0] == 'codex_stop' for call in client.call.call_args_list), 1)
+                self.assertTrue((root / 'cleanup-unconfirmed.json').is_file())
+        with tempfile.TemporaryDirectory() as directory:
+            root, client, service = Path(directory), Mock(), Mock()
+            self.assertTrue(q.cleanup_compiler_fixture(client, {}, service, root, False, {}, self.home, self.runtime))
+            client.call.assert_not_called()
+            service.poll.assert_not_called()
+            self.assertFalse((root / 'stop-provider').exists())
+
+    def test_confirmed_cleanup_stops_only_the_owned_fixture_service(self):
+        work = {'work_id': 'original-work', 'thread_id': 'original-thread'}
+        receipt = {'native_stop_confirmed': True, 'remaining_jobs': [], 'host_stop_requested': False}
+        status = {**work, 'phase': 'stopped', 'native_effects': {'active': [], 'unconfirmed_effects': 0}}
+        for accepted in (False, True):
+            with self.subTest(accepted=accepted), tempfile.TemporaryDirectory() as directory:
+                root, client, service = Path(directory), Mock(), Mock()
+                client.call.side_effect = [receipt, status]
+                service.poll.return_value = None
+                with patch.object(q, 'stop_owned_pid') as stop_owner:
+                    self.assertEqual(q.cleanup_compiler_fixture(client, {'a': work}, service, root,
+                        accepted, {}, self.home, self.runtime), [])
+                self.assertTrue((root / 'stop-provider').is_file())
+                service.wait.assert_called_once_with(timeout=30)
+                service.terminate.assert_not_called()
+                stop_owner.assert_not_called()
+                if accepted:
+                    client.call.assert_not_called()
+                else:
+                    self.assertEqual([call.args[0] for call in client.call.call_args_list], ['codex_stop', 'codex_status'])
+
     def test_cleanup_keeps_legacy_callers_and_accepts_the_exact_start_identity(self):
         raw = '123 (same-runtime) ' + ' '.join(['S'] + ['0'] * 18 + ['456'])
         for expected in (None, '456'):
