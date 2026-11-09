@@ -105,6 +105,14 @@ class NativeArtifactTests(unittest.TestCase):
              "--proof", str(proof.parent)], capture_output=True, text=True,
             env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"}, timeout=15)
 
+    def payload(self, fixture, digest=None):
+        source, artifact, proof, sha, expected, _, _ = fixture
+        return qualifier.verify_payload(
+            artifact=artifact, proof=proof.parent, source_sha=sha,
+            sha256=digest or expected,
+            inputs=qualifier.load_release(source / 'release/upstream.json'),
+            workflow=source / qualifier.INPUTS[0])
+
     def test_actual_cli_accepts_only_successful_same_input_version_digest_and_native_proof(self):
         cases = [None, "backend", "pin", "source-input", "owned-source", "raw", "checksum",
                  "source", "version", "lock", "zero", "failed-tests", "old-tests", "lint", "patch", "upstream-proof"]
@@ -145,6 +153,37 @@ class NativeArtifactTests(unittest.TestCase):
                 self.assertEqual(result.returncode == 0, fault is None, result.stderr)
                 if fault is None:
                     self.assertEqual(result.stdout, "manager_tui_sha256\t" + digest + "\n")
+                payload_faults = {"pin", "raw", "checksum", "source", "version", "lock",
+                                  "zero", "failed-tests", "old-tests", "lint", "patch",
+                                  "upstream-proof"}
+                if fault in payload_faults:
+                    with self.assertRaises((ValueError, OSError)):
+                        self.payload(fixture, digest)
+                else:
+                    # Run/source admission failures are intentionally outside
+                    # the contents check, while the public CLI still rejects.
+                    self.assertEqual(self.payload(fixture, digest), digest)
+
+    def test_valid_payload_does_not_admit_integration_or_failed_public_runs(self):
+        for change in ({'head_branch': 'integration/codex-native-20261110'},
+                       {'conclusion': 'failure'}):
+            with self.subTest(change=change), tempfile.TemporaryDirectory() as temp:
+                fixture = self.fixture(Path(temp))
+                _, artifact, proof, _, digest, run, run_file = fixture
+                assets = sorted(path for root in (artifact, proof)
+                                for path in root.rglob('*') if path.is_file())
+                original = {path: path.read_bytes() for path in assets}
+                self.assertEqual(self.invoke(fixture).returncode, 0)
+                self.assertEqual(self.payload(fixture), digest)
+                run.update(change)
+                run_file.write_text(json.dumps(run))
+
+                self.assertEqual(self.payload(fixture), digest)
+                result = self.invoke(fixture)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(result.stdout, '')
+                self.assertIn('not the pinned successful authority', result.stderr)
+                self.assertEqual({path: path.read_bytes() for path in assets}, original)
 
     def test_reuse_scheduling_and_legacy_count_still_requires_current_scope_proof(self):
         for fault in [None, "legacy-count", "scope", "command", "timeout-expression"]:
@@ -212,6 +251,8 @@ class NativeArtifactTests(unittest.TestCase):
                     path.symlink_to(proof / "profile-tui-formatted.patch")
                 result = self.invoke(fixture)
                 self.assertNotEqual(result.returncode, 0, result.stdout)
+                with self.assertRaises((ValueError, OSError)):
+                    self.payload(fixture)
 
 
 if __name__ == "__main__":

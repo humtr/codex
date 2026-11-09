@@ -105,7 +105,6 @@ def verify_recipe(source, source_sha):
 def verify(args):
     inputs = load_release(args.source / 'release/upstream.json')
     version = inputs['upstream']['version']
-    upstream = inputs['upstream']['source']
     if args.version != version or not re.fullmatch(r"[0-9a-f]{40}", args.source_sha):
         raise ValueError("no qualified native pair for this backend/source")
     run = metadata(args.run_json)
@@ -117,44 +116,61 @@ def verify(args):
             or run.get("repository", {}).get("full_name") != "humtr/codex"):
         raise ValueError("native qualification run is not the pinned successful authority")
     verify_recipe(args.source, args.source_sha)
-    if args.artifact.is_symlink() or not args.artifact.is_dir():
+    return verify_payload(artifact=args.artifact, proof=args.proof,
+                          source_sha=args.source_sha, sha256=args.sha256,
+                          inputs=inputs, workflow=args.source / INPUTS[0])
+
+
+def verify_payload(*, artifact, proof, source_sha, sha256, inputs, workflow):
+    """Check artifact/proof contents against expectations, without admitting them.
+
+    This read-only check establishes neither run authority nor Git recipe
+    equivalence. Callers must independently validate the actual run, selected
+    source recipe and expected digest. The public verifier does so before
+    calling this function; its branch and successful-run requirements remain
+    mandatory for public admission.
+    """
+    version = inputs['upstream']['version']
+    upstream = inputs['upstream']['source']
+    if artifact.is_symlink() or not artifact.is_dir():
         raise ValueError("native artifact root is not an owned directory")
-    if {p.name for p in args.artifact.iterdir()} != FILES:
+    if {p.name for p in artifact.iterdir()} != FILES:
         raise ValueError("native artifact inventory is incomplete or extended")
     for name in FILES:
-        path = args.artifact / name
+        path = artifact / name
         if not stat.S_ISREG(path.lstat().st_mode):
             raise ValueError("native artifact contains a nonregular asset")
-    if (args.artifact / "codex").stat().st_size > 512 * 1024 * 1024:
+    if (artifact / "codex").stat().st_size > 512 * 1024 * 1024:
         raise ValueError("native executable exceeds the builder bound")
-    if bounded_read(args.artifact / "version.txt", 128, "native version") != f"codex-cli {version}\n".encode():
+    if bounded_read(artifact / "version.txt", 128, "native version") != f"codex-cli {version}\n".encode():
         raise ValueError("native/backend version mismatch")
-    source = (f"upstream_sha={upstream}\nsource_sha={args.source_sha}\n"
+    source = (f"upstream_sha={upstream}\nsource_sha={source_sha}\n"
               "target=aarch64-unknown-linux-musl\n"
               "profile=release opt-level=z codegen-units=1 strip=symbols\n")
-    if bounded_read(args.artifact / "source.txt", 1024, "native source") != source.encode():
+    if bounded_read(artifact / "source.txt", 1024, "native source") != source.encode():
         raise ValueError("native source/target/profile differs from qualification")
-    if metadata(args.artifact / "lock-audit.json") != inputs['qualification']['lock_audit']:
+    if metadata(artifact / "lock-audit.json") != inputs['qualification']['lock_audit']:
         raise ValueError("native dependency audit differs from qualification")
     digest = hashlib.sha256()
-    with (args.artifact / "codex").open("rb") as stream:
+    with (artifact / "codex").open("rb") as stream:
         for block in iter(lambda: stream.read(1024 * 1024), b""):
             digest.update(block)
     digest = digest.hexdigest()
-    if digest != args.sha256:
+    if digest != sha256:
         raise ValueError("native executable differs from the pinned qualified digest")
-    checksum = bounded_read(args.artifact / "sha256.txt", 4096, "native checksum").decode()
+    checksum = bounded_read(artifact / "sha256.txt", 4096, "native checksum").decode()
     if not re.fullmatch(re.escape(digest) + r"  [^\r\n\x00]+/codex\n", checksum):
         raise ValueError("native executable digest differs from qualified artifact")
-    proof = args.proof / "_temp"
-    if args.proof.is_symlink() or proof.is_symlink():
+    proof_root = proof
+    proof = proof_root / "_temp"
+    if proof_root.is_symlink() or proof.is_symlink():
         raise ValueError("native proof root is not an owned directory")
     log = bounded_read(proof / "profile-tui-focused.log", 16 * 1024 * 1024, "native tests").decode()
-    verify_focused(log, (args.source / INPUTS[0]).read_text())
+    verify_focused(log, workflow.read_text())
     verify_upstream_features(proof)
     formatted = bounded_read(proof / "profile-tui-formatted.patch", 1024 * 1024, "formatted native patch")
     linted = bounded_read(proof / "profile-tui-linted.patch", 1024 * 1024, "linted native patch")
-    if formatted != linted or formatted != bounded_read(args.artifact / "native.patch", 1024 * 1024, "native patch"):
+    if formatted != linted or formatted != bounded_read(artifact / "native.patch", 1024 * 1024, "native patch"):
         raise ValueError("native format/lint/artifact source differs")
     return digest
 
