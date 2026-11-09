@@ -299,6 +299,9 @@ class TerminalOwnerEvidence(unittest.TestCase):
 
     def test_receiver_must_be_the_selected_native_terminal_root(self):
         require_terminal_owner(self.process, self.origin, self.origin)
+        require_terminal_owner(self.process, self.origin, dict(self.origin, selected=None))
+        with self.assertRaisesRegex(AssertionError, 'no longer selected'):
+            require_terminal_owner(self.process, self.origin, dict(self.origin, selected=False))
         for change in ({'pid': 43}, {'start': 902}, {'session': 41}, {'process_group': 43},
                        {'foreground_process_group': 41}, {'ttys': {'0': None, '1': None, '2': None}},
                        {'ttys': {'0': '/dev/pts/4', '1': None, '2': '/dev/pts/4'}}):

@@ -102,6 +102,7 @@ def require_terminal_owner(process, origin, validated):
     assert origin['selected'] is True, 'receiver Android terminal is not selected'
     assert origin['origin']['pid'] == process['pid'] and origin['origin']['start'] == process['start'], 'Android terminal owns another process'
     assert validated['origin'] == origin['origin'], 'live terminal identity changed during validation'
+    assert validated.get('selected') is not False, 'receiver Android terminal is no longer selected'
 
 
 def terminal_owner_preflight(prefix, required):
