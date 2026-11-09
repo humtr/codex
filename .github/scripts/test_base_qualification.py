@@ -7,7 +7,7 @@ import tempfile
 import unittest
 
 import release_preflight as preflight
-from test_manager_tui_producer import step
+from test_tui_producer import step
 
 
 class BaseQualificationTests(unittest.TestCase):

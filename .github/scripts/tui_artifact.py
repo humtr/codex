@@ -171,6 +171,7 @@ def main():
     parser.add_argument("--proof", type=Path, required=True)
     args = parser.parse_args()
     try:
+        # Retained external CLI record key; signed consumers keep their identity.
         print("manager_tui_sha256\t" + verify(args))
     except (ValueError, OSError, subprocess.CalledProcessError) as error:
         parser.exit(1, "native qualification refused: " + str(error) + "\n")

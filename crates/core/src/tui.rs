@@ -10,6 +10,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
+// Immutable signed helper identity; internal component name is Codex TUI.
 pub(super) const PREFIX: &str = "termux-manager-tui-v1:";
 const STARTUP_CAPABILITY: &[u8] = b"codex-termux-resolved-startup-v1\n";
 const STARTUP_ENV: &str = "CODEX_TERMUX_BACKEND_STARTUP";
@@ -100,7 +101,7 @@ pub(super) fn index(manifest: &GenerationManifest) -> Result<Option<usize>, Loca
         || manifest.helper_digests[1].identity != super::TERMUX_BROWSER_MANUAL_HELPER_IDENTITY
     {
         return Err(LocalProductError::Descriptor(
-            "Manager frontend must match its generation version and helper layout",
+            "Codex TUI must match its generation version and helper layout",
         ));
     }
     Ok(Some(2))
@@ -263,7 +264,7 @@ mod tests {
     }
 
     #[test]
-    fn manager_tui_declaration_requires_one_matching_version_and_layout() {
+    fn tui_declaration_requires_one_matching_version_and_layout() {
         let valid = manifest();
         assert_eq!(index(&valid).unwrap(), Some(2));
         let mut absent = valid.clone();
@@ -319,7 +320,7 @@ mod tests {
     }
 
     #[test]
-    fn manager_tui_socket_route_preserves_non_utf8_and_upstream_workspace_options() {
+    fn tui_socket_route_preserves_non_utf8_and_upstream_workspace_options() {
         let args = vec!["resume".into(), OsString::from_vec(vec![0xff])];
         let planned = native_args(Path::new("/owned/s"), &args).unwrap();
         assert_eq!(&planned[2..], args);

@@ -8,10 +8,10 @@ import sys
 import tempfile
 import unittest
 
-import manager_tui_artifact as qualifier
+import tui_artifact as qualifier
 from check_upstream_features import SUITES
 
-TOOL = Path(__file__).with_name("manager_tui_artifact.py")
+TOOL = Path(__file__).with_name("tui_artifact.py")
 
 
 class NativeArtifactTests(unittest.TestCase):

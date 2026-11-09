@@ -238,7 +238,7 @@ jobs:
           tar -xzf "$work/input.tar.gz" --no-same-owner -C "$work"
           gh api "repos/humtr/codex/actions/runs/$MANAGER_TUI_RUN_ID" > "$work/run.json"
           git -C source fetch --no-tags --depth=1 origin "$MANAGER_TUI_SOURCE_SHA"
-          python3 source/.github/scripts/manager_tui_artifact.py \
+          python3 source/.github/scripts/tui_artifact.py \
             --source source --source-sha "$MANAGER_TUI_SOURCE_SHA" \
             --run-json "$work/run.json" --run-id "$MANAGER_TUI_RUN_ID" \
             --version "$MANAGER_TUI_VERSION" --sha256 "$MANAGER_TUI_SHA256" \

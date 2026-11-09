@@ -230,3 +230,8 @@ Provider/native/TUI acceptance batch. Ordinary development must not retrieve sav
 Chat on a timer; explicit source verification/recovery remains separately tested.
 See [the confirmed design and tests](../../AUDIT.md). Do not introduce another
 transcript store or model request to hide a missing native event.
+
+Core consumes this independent component through `crates/core/src/tui.rs`; the
+CI artifact verifier is `.github/scripts/tui_artifact.py`. Their internal source
+names carry no signed identity. The verifier retains its existing
+`manager_tui_sha256` output key for historical CLI consumers.

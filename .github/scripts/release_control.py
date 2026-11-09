@@ -16,7 +16,7 @@ import subprocess
 import tarfile
 import tempfile
 
-from manager_tui_artifact import verify as verify_frontend, verify_recipe
+from tui_artifact import verify as verify_frontend, verify_recipe
 from upstream_release import load, build_recipe, bind_frontend
 from release_components import base_fingerprint, verified_published_base
 from release_preflight import stable_version

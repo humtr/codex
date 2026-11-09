@@ -11,7 +11,7 @@ import tempfile
 import textwrap
 import unittest
 
-import test_manager_tui_artifact as fixtures
+import test_tui_artifact as fixtures
 
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / '.github/workflows/qualify-termux-runtime.yml'
@@ -33,7 +33,7 @@ class NativeProducerTests(unittest.TestCase):
             with self.subTest(fault=fault), tempfile.TemporaryDirectory() as tmp:
                 root = Path(tmp)
                 source, artifact, proof, sha, digest, run, run_file = fixtures.NativeArtifactTests().fixture(root)
-                for name in ['manager_tui_artifact.py', 'release_preflight.py', 'qualification_signal.py']:
+                for name in ['tui_artifact.py', 'release_preflight.py', 'qualification_signal.py']:
                     (source / '.github/scripts' / name).symlink_to(ROOT / '.github/scripts' / name)
                 archive = root / 'input.tar.gz'
                 with tarfile.open(archive, 'w:gz') as bundle:
