@@ -6,6 +6,22 @@ and must be reread after recovery. This file distinguishes source implementation
 automated proof, actual Android execution, connected-client proof, public signed
 delivery and device activation. None substitutes for the next boundary.
 
+## Account draft integration boundary (2026-11-10 KST)
+
+`integration/codex-native-20261110` retains the ancestry of
+`wip/chatgpt-accounts-source-20261110` at
+`2dd07d422ad063107f344ac88409271b6ad380ba`. That branch contains only an
+unwired `accounts.rs` prototype: neither production nor its embedded tests
+are part of the crate. Its original source remains in that commit and branch,
+not as an apparently implemented production module in this integration.
+
+The current single AppHost and account-bound lane contract remains in force.
+Completing multiple profiles requires one journal writer, immutable profile/home
+and app identity binding for admitted work, host-profile leases, and crash-safe
+credential purge semantics. The draft's selected registry entry alone establishes
+none of these. No credential, account home, pending lane or signed generation is
+migrated by this integration decision.
+
 ## Linux app plugin replacement (2026-11-09)
 
 On 2026-11-09, the Linux app exposed an installed, ACTIVE `@TermuxBridge`
