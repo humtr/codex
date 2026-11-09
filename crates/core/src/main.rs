@@ -11749,6 +11749,20 @@ fn prepare_core_entrypoint_for_activation(
                 // coordinated update may already have the same launcher bytes.
                 // Only that unbound legacy case may create the initial cache.
                 active_binding?;
+                match std::fs::symlink_metadata(core_rollback_path(roots)) {
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                    Ok(_) => {
+                        return Err(LocalProductError::CoreEntrypoint(
+                            "retained Core rollback snapshot has no metadata binding",
+                        ))
+                    }
+                    Err(source) => {
+                        return Err(LocalProductError::Io {
+                            operation: "inspect retained Core rollback snapshot",
+                            source,
+                        })
+                    }
+                }
                 snapshot_core_entrypoint_to_rollback(roots, &before.current)?
             }
             Err(source) => {
@@ -26087,6 +26101,22 @@ exit 0
             }
         }
 
+        std::fs::remove_file(core_rollback_meta_path(&roots)).unwrap();
+        let missing_binding = b4_run_public_update(
+            &fixture.release,
+            &fixture.home,
+            &fixture.prefix,
+            &fixture.tmp,
+        );
+        assert!(
+            !missing_binding.status.success(),
+            "orphan rollback bytes must not be overwritten: {missing_binding:?}"
+        );
+        assert_eq!(read_pointer_state(&paths).unwrap(), Some(before.clone()));
+        assert!(std::fs::read(core_rollback_path(&roots)).unwrap() == original_core);
+        assert!(!core_rollback_meta_path(&roots).exists());
+        std::fs::write(core_rollback_meta_path(&roots), &original_record).unwrap();
+
         let retry = b4_run_public_update(
             &fixture.release,
             &fixture.home,
@@ -26163,6 +26193,32 @@ exit 0
     #[test]
     fn coordinated_v3_update_retry_preserves_original_core_snapshot() {
         coordinated_update_killed_before_pointer(false);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn coordinated_v3_first_update_accepts_same_launcher_without_any_cache() {
+        let fixture = b5_remote_fixture("coordinated-v3-identical", "coordinated-identical");
+        let roots = b7_public_roots(&fixture.home, &fixture.prefix);
+        let stable = fixture.prefix.join("bin/codex");
+        std::fs::copy(fixture.release.join("core"), &stable).unwrap();
+        let original = std::fs::read(&stable).unwrap();
+        assert!(!core_rollback_path(&roots).exists());
+        assert!(!core_rollback_meta_path(&roots).exists());
+        let result = b4_run_public_update(
+            &fixture.release,
+            &fixture.home,
+            &fixture.prefix,
+            &fixture.tmp,
+        );
+        assert!(result.status.success(), "{result:?}");
+        assert_eq!(
+            read_core_entrypoint_rollback(&roots).unwrap().generation_id,
+            "fixture-current"
+        );
+        assert_eq!(std::fs::read(core_rollback_path(&roots)).unwrap(), original);
+        assert_eq!(std::fs::read(stable).unwrap(), original);
+        remove_temp_root(fixture.root);
     }
 
     #[cfg(unix)]
