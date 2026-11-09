@@ -8,7 +8,7 @@ import subprocess
 import sys
 import tempfile
 
-GENERATION_RE = re.compile(r"local-[a-z0-9][a-z0-9._-]{0,126}\Z")
+GENERATION_RE = re.compile(r"(?:core-v|full-v|local-)[a-z0-9][a-z0-9._-]{0,126}\Z")
 HEX64_RE = re.compile(r"[0-9a-f]{64}\Z")
 DOWNLOAD_SIZE_FORMAT = "codex-download-size-v1"
 DOWNLOAD_SIZE_RELATIVE = "compat/download-size-v1"
@@ -90,7 +90,7 @@ def safe_generation(value: str) -> str:
 
 def canonical_release_base(generation: str) -> str:
     safe_generation(generation)
-    if generation.startswith(("local-relay-hosted-", "local-base-relay-hosted-")):
+    if generation.startswith(("core-v", "full-v", "local-relay-hosted-", "local-base-relay-hosted-")):
         return f"https://codex-releases.humtr.workers.dev/{generation}/"
     return f"https://humtr.github.io/codex/{generation}/"
 
@@ -352,7 +352,7 @@ def prepare_assets(args: argparse.Namespace) -> None:
     generation = safe_generation(args.generation)
     if output.exists():
         fail("publication asset output already exists")
-    component_names = {"component-input-v1", "component-input-v1.sig"} if generation.startswith(("local-relay-hosted-", "local-base-relay-hosted-")) else set()
+    component_names = {"component-input-v1", "component-input-v1.sig"} if generation.startswith(("core-v", "full-v", "local-relay-hosted-", "local-base-relay-hosted-")) else set()
     exact_entries(
         signed_root,
         {

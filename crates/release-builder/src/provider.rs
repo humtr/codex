@@ -112,11 +112,11 @@ pub struct Manifest {
 }
 
 pub fn valid_id(value: &str) -> bool {
-    value.starts_with("chatgpt-")
+    (value.starts_with("provider-gpt-") || value.starts_with("chatgpt-"))
         && value.len() <= 120
         && value
             .bytes()
-            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-' || b == b'.')
         && !value.ends_with('-')
 }
 

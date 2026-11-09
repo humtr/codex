@@ -61,7 +61,7 @@ def parse(data):
         if len(parts) != 2 or parts[0] != key:
             raise ValueError('invalid ordered Provider field')
         fields[key] = parts[1]
-    if (fields['provider'] != 'chatgpt' or not re.fullmatch(r'chatgpt-[a-z0-9](?:[a-z0-9-]{0,111}[a-z0-9])?', fields['generation_id'])
+    if (fields['provider'] != 'chatgpt' or not re.fullmatch(r'(?:provider-gpt|chatgpt)-[a-z0-9](?:[a-z0-9.-]{0,111}[a-z0-9])?', fields['generation_id'])
             or len(fields['generation_id']) > 120 or not re.fullmatch('[0-9a-f]{40}', fields['source'])
             or not re.fullmatch('[0-9a-f]{64}', fields['source_inputs_sha256'])
             or fields['target'] != 'aarch64-linux-android' or fields['core_api'] != 'provider-payload-v1'
@@ -160,7 +160,7 @@ def parse_index(data):
         if len(parts)!=2 or parts[0]!=key:raise ValueError('invalid ordered Provider index field')
         fields[key]=parts[1]
     if (fields['provider']!='chatgpt' or fields['channel']!='stable'
-        or not re.fullmatch(r'chatgpt-[a-z0-9](?:[a-z0-9-]{0,111}[a-z0-9])?',fields['generation_id'])
+        or not re.fullmatch(r'(?:provider-gpt|chatgpt)-[a-z0-9](?:[a-z0-9.-]{0,111}[a-z0-9])?',fields['generation_id'])
         or fields['release_base']!='https://github.com/humtr/codex/releases/download/'+fields['generation_id']+'/'
         or not re.fullmatch('[0-9a-f]{64}',fields['manifest_sha256'])):
         raise ValueError('invalid Provider index identity/binding')
@@ -191,7 +191,7 @@ def verify_index(index, signature_path, package, public_key, openssl):
 
 def readback(url, output, public_key, openssl, curl):
     # Only a versioned immutable GitHub release is a publication destination.
-    if not re.fullmatch(r'https://github\.com/humtr/codex/releases/download/chatgpt-[a-z0-9](?:[a-z0-9-]{0,111}[a-z0-9])?/', url):
+    if not re.fullmatch(r'https://github\.com/humtr/codex/releases/download/(?:provider-gpt|chatgpt)-[a-z0-9](?:[a-z0-9.-]{0,111}[a-z0-9])?/', url):
         raise ValueError('immutable owned Provider release URL required')
     output.mkdir(mode=0o700)
     deadline = time.monotonic() + 240

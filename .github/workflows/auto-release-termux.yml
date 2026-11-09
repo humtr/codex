@@ -421,7 +421,7 @@ jobs:
             local map=""
             mkdir -p "$destination/helpers"
             case "$generation" in
-              local-relay-hosted-*|local-base-relay-hosted-*)
+              core-v*|full-v*|local-relay-hosted-*|local-base-relay-hosted-*)
                 map="$root/$generation.asset-map-v1.json"
                 curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
                   --connect-timeout 15 --max-time 60 --max-filesize 16384 --output "$map" \

@@ -34,7 +34,7 @@ class PublicTransportTests(unittest.TestCase):
         with patch.object(fixtures, 'GENERATION', CANDIDATE), patch.object(
                 fixtures, 'BASE', canonical_release_base(CANDIDATE)), patch.object(fixtures, 'SEQUENCE', '12'):
             fixture.build_signed(frontend=candidate_frontend)
-            if CANDIDATE.startswith(('local-relay-hosted-', 'local-base-relay-hosted-')):
+            if CANDIDATE.startswith(('core-v', 'full-v', 'local-relay-hosted-', 'local-base-relay-hosted-')):
                 component = fixture.signed/'component-input-v1'
                 metadata = {'schema': 'codex-component-input-v1', 'generation_id': CANDIDATE,
                             'source_sha': 'a'*40, 'base_inputs_sha256': 'b'*64,

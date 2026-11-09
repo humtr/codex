@@ -57,4 +57,14 @@ for (const fault of ['foreign','missing','extra','cycle','trailing-newline','inh
 for (const value of [new Response('x'.repeat(16385)),new Response('{}',{status:503})]) {
   assert.equal((await handle(new Request(`https://codex-releases.humtr.workers.dev/${generation}/core`),async()=>value)).status,502);
 }
+// Validate new naming standard: full-v* and core-v*
+const newFull='full-v0.167.0-d3becae-s154';
+const newBase='core-v0.167.0-d3becae-s154';
+const newMap={schema:'codex-asset-map-v1',generation_id:newFull,base_generation:newBase,manifest_sha256:'b'.repeat(64),files:{}};
+for (const path of common) newMap.files[path]={generation:newBase,asset:path.startsWith('helpers/')?`helper-${path.slice(8)}`:path};
+for (const [path,asset] of Object.entries(controls)) newMap.files[path]={generation:newFull,asset};
+validateMap(newMap,newFull);
+const newResp=await handle(new Request(`https://codex-releases.humtr.workers.dev/${newFull}/core`),async()=>new Response(JSON.stringify(newMap)));
+assert.equal(newResp.status,302);
+assert.equal(newResp.headers.get('Location'),`https://github.com/humtr/codex/releases/download/${newBase}/core`);
 console.log('redirect tests passed');

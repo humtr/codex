@@ -282,7 +282,7 @@ def sign(args: argparse.Namespace) -> str:
 
     accepted_raw = ed25519_raw_public(openssl, accepted_public_key, private=False)
     if (getattr(args,'component_source',None) is not None
-        and generation.startswith('local-relay-hosted-')
+        and generation.startswith(('full-v', 'local-relay-hosted-'))
         and getattr(args,'component_base',None) is None):
         fail('full release display requires its exact authenticated base')
     secret = os.environ.pop(SECRET_NAME, None)

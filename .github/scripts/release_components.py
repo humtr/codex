@@ -158,7 +158,7 @@ def base_controls(heads, authority, destination, fetch=download):
     """Authenticate the selected immutable Base once, before applying reuse policy."""
     state = json.loads((heads/'heads.json').read_text())
     base = state['heads'].get('base')
-    if base is None or not base['generation'].startswith('local-base-relay-hosted-'):
+    if base is None or not (base['generation'].startswith('core-v') or base['generation'].startswith('local-base-relay-hosted-')):
         return None
     generation = base['generation']
     destination.mkdir(parents=True,exist_ok=False)
@@ -244,7 +244,7 @@ def transport_origin(directory, authority, scratch, fetch, required):
     manifest, files = parse_manifest(directory/'release.manifest')
     verify_signature('openssl',authority,directory/'release.manifest',directory/'release.sig')
     generation = manifest['generation_id']
-    if not generation.startswith(('local-base-relay-hosted-', 'local-relay-hosted-')):
+    if not generation.startswith(('core-v', 'full-v', 'local-base-relay-hosted-', 'local-relay-hosted-')):
         if required:
             raise ValueError('composition requires a mapped public Base')
         print(f'Historical origin {generation} has no supported map; retaining publication payloads.',file=sys.stderr)
@@ -274,12 +274,12 @@ def compose(assets, base, authority, previous=None, fetch=download):
     base_generation = None
     with tempfile.TemporaryDirectory(prefix='.composition-',dir=assets) as temporary:
         scratch=Path(temporary)
-        if not generation.startswith('local-base-'):
+        if not (generation.startswith('core-v') or generation.startswith('local-base-')):
             if base is None:
                 raise ValueError('full composition requires an authenticated matching base')
             base_manifest, base_files, base_map = transport_origin(base,authority,scratch,fetch,True)
             base_generation = base_manifest['generation_id']
-            if not base_generation.startswith('local-base-relay-hosted-'):
+            if not (base_generation.startswith('core-v') or base_generation.startswith('local-base-relay-hosted-')):
                 raise ValueError('full composition requires qualified base provenance')
             base_component = component(base,base_generation,authority)
             if base_component['base_inputs_sha256'] != own_component['base_inputs_sha256']:
@@ -333,16 +333,16 @@ def compose(assets, base, authority, previous=None, fetch=download):
 def validate_map(value, generation):
     from release_publication import safe_generation
     safe_generation(generation)
-    if (not generation.startswith(('local-relay-hosted-','local-base-relay-hosted-'))
+    if (not generation.startswith(('core-v', 'full-v', 'local-relay-hosted-','local-base-relay-hosted-'))
         or set(value) != {'schema','generation_id','base_generation','manifest_sha256','files'}
         or value['schema'] != 'codex-asset-map-v1' or value['generation_id'] != generation
         or not re.fullmatch('[0-9a-f]{64}',value['manifest_sha256'])):
         raise ValueError('invalid transport map identity')
-    base = generation.startswith('local-base-')
+    base = generation.startswith('core-v') or generation.startswith('local-base-')
     inherited = value['base_generation']
     if base:
         if inherited is not None:raise ValueError('base cannot inherit')
-    elif not isinstance(inherited,str) or not inherited.startswith('local-base-relay-hosted-'):
+    elif not isinstance(inherited,str) or not (inherited.startswith('core-v') or inherited.startswith('local-base-relay-hosted-')):
         raise ValueError('invalid pinned base')
     if inherited is not None:safe_generation(inherited)
 
@@ -357,7 +357,7 @@ def validate_map(value, generation):
             safe_generation(target['generation'])
         except ValidationError as error:
             raise ValueError('invalid mapped origin') from error
-        if not target['generation'].startswith(('local-base-relay-hosted-', 'local-relay-hosted-')):
+        if not target['generation'].startswith(('core-v', 'full-v', 'local-base-relay-hosted-', 'local-relay-hosted-')):
             raise ValueError('invalid mapped origin')
         if name in CONTROL_ASSETS or name == 'generation.meta':
             if target['generation'] != generation:
@@ -368,13 +368,13 @@ def validate_map(value, generation):
 def candidate_from_base(base, manager, frontend, builder, generation, version, output, core=None):
     """Assemble Base/Core replacement or Full add-ons from an authenticated subset."""
     base_only = core is not None
-    prefix = ('local-base-relay-hosted-', 'base-qualification-') if base_only else 'local-relay-hosted-'
+    prefix = ('core-v', 'local-base-relay-hosted-', 'base-qualification-') if base_only else ('full-v', 'local-relay-hosted-')
     if output.exists() or output.is_symlink() or not generation.startswith(prefix):
         raise ValueError('invalid candidate output or identity')
     if base_only and any(value is not None for value in (manager,frontend,builder)):
         raise ValueError('Base assembly replaces Core only; add-ons require the complete Base')
     manifest, files = parse_manifest(base/'release.manifest')
-    if not manifest['generation_id'].startswith('local-base-relay-hosted-') or set(name for name,_,_ in files) != set(BASE_FILES):
+    if not manifest['generation_id'].startswith(('core-v', 'local-base-relay-hosted-')) or set(name for name,_,_ in files) != set(BASE_FILES):
         raise ValueError('candidate base inventory differs')
     descriptor = (base/'generation.meta').read_text().splitlines()
     fields = dict(line.split('\t') for line in descriptor[1:] if line.count('\t') == 1)

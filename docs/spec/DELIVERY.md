@@ -591,16 +591,18 @@ the index.
 
 New nested-path publication uses immutable GitHub Release assets and retains the
 fixed `https://codex-releases.humtr.workers.dev/<generation_id>/` logical identity
-in signed records for `local-relay-hosted-*` and `local-base-relay-hosted-*`
+in signed records for `core-v*` (Base), `full-v*` (Full), as well as legacy
+`local-relay-hosted-*` and `local-base-relay-hosted-*`
 generations. Core resolves that identity to the direct GitHub routes described
 below; the Worker remains available to supported older clients. Historical
 signed Pages URLs and existing assets remain unchanged. The publication validator
 chooses canonical identity by namespace. New publication never redeploys the legacy
 Pages site, raises its size guard, or evicts a retained public generation.
 
-Base owns Core, adapted upstream runtime/default UI, code-mode host and the two
-browser helpers. Full pins one exact authenticated base and adds Manager/enhanced
-TUI plus its own descriptor and signatures. Each full result retains one complete
+Base (`core-v*`) owns Core, adapted upstream runtime/default UI, code-mode host and the two
+browser helpers. Full (`full-v*`) pins one exact authenticated base and adds Manager/enhanced
+TUI plus its own descriptor and signatures. Optional Provider generations follow
+`provider-gpt-v*` (with legacy `chatgpt-*` dual acceptance). Each full result retains one complete
 signed v4 inventory and one atomic current/previous activation lifecycle. There
 is no device overlay, second updater, mutable latest-base dependency or component
 selection policy in Core. Manager/TUI-only changes must not advance the base head

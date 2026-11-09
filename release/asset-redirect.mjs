@@ -1,6 +1,8 @@
 // Stateless transport only. The native client still authenticates every byte.
 const origin = 'https://github.com/humtr/codex/releases/download/';
-const generationRE = /^local-[a-z0-9][a-z0-9._-]{0,126}$(?![\s\S])/;
+const generationRE = /^(?:core-v|full-v|local-(?:base-)?relay-hosted-)[a-z0-9][a-z0-9._-]{0,126}$(?![\s\S])/;
+const isBase = generation => generation.startsWith('core-v') || generation.startsWith('local-base-relay-hosted-');
+const isAdmittedGen = generation => /^(?:core-v|full-v|local-(?:base-)?relay-hosted-)/.test(generation);
 const common = ['codex-code-mode-host', 'core', 'helpers/0', 'helpers/1', 'runtime'];
 const control = {
   'release.manifest':'release.manifest', 'release.sig':'release.sig',
@@ -14,17 +16,17 @@ export function validateMap(value, generation) {
   if (!value || Object.keys(value).sort().join() !== 'base_generation,files,generation_id,manifest_sha256,schema'
       || value.schema !== 'codex-asset-map-v1' || value.generation_id !== generation
       || !/^[0-9a-f]{64}$(?![\s\S])/.test(value.manifest_sha256)) throw Error('invalid map identity');
-  const base = generation.startsWith('local-base-relay-hosted-');
+  const base = isBase(generation);
   if (base ? value.base_generation !== null
       : typeof value.base_generation !== 'string' || !generationRE.test(value.base_generation)
-        || !value.base_generation.startsWith('local-base-relay-hosted-')) throw Error('invalid base');
+        || !isBase(value.base_generation)) throw Error('invalid base');
   const paths = [...common, 'generation.meta', ...Object.keys(control), ...(base ? [] : ['manager', 'helpers/2'])];
   if (!value.files || Object.keys(value.files).sort().join() !== paths.sort().join()) throw Error('invalid inventory');
   for (const path of paths) {
     const target = value.files[path];
     if (!target || Object.keys(target).sort().join() !== 'asset,generation' || target.asset !== flat(path)
         || typeof target.generation !== 'string' || !generationRE.test(target.generation)
-        || !/^local-(base-)?relay-hosted-/.test(target.generation)
+        || !isAdmittedGen(target.generation)
         || ((path in control || path === 'generation.meta') && target.generation !== generation)) {
       throw Error('invalid target');
     }
@@ -36,7 +38,7 @@ export async function handle(request, fetcher = fetch) {
   const url = new URL(request.url);
   const match = /^\/([^/]+)\/(.+)$/.exec(url.pathname);
   if (url.protocol !== 'https:' || url.search || url.hash || url.username || url.password || !match
-      || !generationRE.test(match[1]) || !/^local-(base-)?relay-hosted-/.test(match[1])
+      || !generationRE.test(match[1]) || !isAdmittedGen(match[1])
       || /[%\\]/.test(url.pathname)) return new Response(null,{status:404});
   const [, generation, path] = match;
   if (path === 'asset-map-v1.json') return Response.redirect(origin+generation+'/'+path,302);

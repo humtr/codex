@@ -187,6 +187,18 @@ class ProviderPublicationTests(unittest.TestCase):
         with patch.object(promotion,'api',side_effect=AssertionError('invalid proof must not mutate')):
             with self.assertRaises(ValueError):promotion.promote(args)
 
+    def test_provider_gpt_generation_naming_accepted(self):
+        gen = 'provider-gpt-v0.1.0-54767f7-s27'
+        manifest = self.manifest.replace('chatgpt-test-1', gen)
+        pkg = self.root / 'pkg-gpt'
+        pkg.mkdir()
+        shutil.copytree(self.package, pkg, dirs_exist_ok=True)
+        (pkg / 'payload.manifest').write_text(manifest)
+        subprocess.run([self.openssl, 'pkeyutl', '-sign', '-rawin', '-inkey', self.private,
+                        '-in', pkg / 'payload.manifest', '-out', pkg / 'payload.sig'], check=True, capture_output=True)
+        verified = p.verify(pkg, self.public, self.openssl)
+        self.assertEqual(verified['generation_id'], gen)
+
 
 if __name__ == '__main__':
     unittest.main()

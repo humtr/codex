@@ -126,18 +126,36 @@ fn decode_map(bytes: &[u8]) -> Result<AssetMap, LocalProductError> {
     })
 }
 
-fn valid_generation(value: &str) -> bool {
-    let Some(suffix) = value.strip_prefix("local-") else {
-        return false;
-    };
+fn valid_generation_chars(suffix: &str) -> bool {
     !suffix.is_empty()
         && suffix.len() <= 127
         && (suffix.as_bytes()[0].is_ascii_lowercase() || suffix.as_bytes()[0].is_ascii_digit())
         && suffix.bytes().all(|c| {
             c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, b'.' | b'_' | b'-')
         })
-        && (value.starts_with("local-relay-hosted-")
+}
+
+fn is_base_generation(value: &str) -> bool {
+    value.starts_with("core-v") || value.starts_with("local-base-relay-hosted-")
+}
+
+fn is_full_generation(value: &str) -> bool {
+    value.starts_with("full-v") || value.starts_with("local-relay-hosted-")
+}
+
+fn valid_generation(value: &str) -> bool {
+    if let Some(suffix) = value.strip_prefix("core-v") {
+        return valid_generation_chars(suffix);
+    }
+    if let Some(suffix) = value.strip_prefix("full-v") {
+        return valid_generation_chars(suffix);
+    }
+    if let Some(suffix) = value.strip_prefix("local-") {
+        return (value.starts_with("local-relay-hosted-")
             || value.starts_with("local-base-relay-hosted-"))
+            && valid_generation_chars(suffix);
+    }
+    false
 }
 
 pub(super) fn mapped_generation(base: &str) -> Option<&str> {
@@ -185,14 +203,15 @@ fn parse_map(
     {
         return Err(invalid_map());
     }
-    if generation.starts_with("local-base-") {
+    if is_base_generation(generation) {
         if map.base_generation.is_some() {
             return Err(invalid_map());
         }
-    } else if !map
-        .base_generation
-        .as_deref()
-        .is_some_and(|base| base.starts_with("local-base-relay-hosted-") && valid_generation(base))
+    } else if !is_full_generation(generation)
+        || !map
+            .base_generation
+            .as_deref()
+            .is_some_and(|base| is_base_generation(base) && valid_generation(base))
     {
         return Err(invalid_map());
     }
@@ -412,5 +431,66 @@ mod tests {
         let duplicate = map.replacen("\"files\":{", "\"files\":{\"core\":{\"asset\":\"core\",\"generation\":\"local-relay-hosted-test-s20\"},", 1);
         assert!(parse_map(duplicate.as_bytes(), FULL, &manifest, &digest).is_err());
         assert!(parse_map(&vec![b' '; MAP_MAX_BYTES + 1], FULL, &manifest, &digest).is_err());
+    }
+
+    #[test]
+    fn new_generation_naming_is_admitted_alongside_legacy() {
+        assert!(valid_generation("core-v0.167.0-d3becae-s154"));
+        assert!(valid_generation("full-v0.167.0-d3becae-s154"));
+        assert!(valid_generation("local-base-relay-hosted-0-167-0-d3becae26b07-s153"));
+        assert!(valid_generation("local-relay-hosted-0-167-0-d3becae26b07-s153"));
+
+        assert!(!valid_generation(""));
+        assert!(!valid_generation("invalid-prefix-v1"));
+        assert!(!valid_generation("core-"));
+        assert!(!valid_generation("full-"));
+
+        let digest = "a".repeat(64);
+        let new_full = "full-v0.167.0-d3becae-s154";
+        let new_base = "core-v0.167.0-d3becae-s154";
+        let manifest = LocalReleaseManifest {
+            format: LocalReleaseFormat::CoordinatedV4,
+            generation_id: new_full.into(),
+            release_sequence: 154,
+            channel: "stable".into(),
+            expected_platform: "android".into(),
+            expected_architecture: "aarch64".into(),
+            core_api_identity: "core-api-v1".into(),
+            persistent_schema_identity: "schema-v1".into(),
+            release_public_key: ReleasePublicKey([0; 32]),
+            files: ["core", "generation.meta", "helpers/0", "runtime"]
+                .into_iter()
+                .map(|path| ReleaseFileEntry {
+                    relative_path: path.into(),
+                    sha256: "b".repeat(64),
+                    mode: 0o755,
+                })
+                .collect(),
+        };
+        let map_str = r#"{
+            "schema":"codex-asset-map-v1", "generation_id":"@FULL@",
+            "base_generation":"@BASE@", "manifest_sha256":"@DIGEST@",
+            "files":{
+                "core":{"generation":"@BASE@","asset":"core"},
+                "generation.meta":{"generation":"@FULL@","asset":"generation.meta"},
+                "helpers/0":{"generation":"@BASE@","asset":"helper-0"},
+                "runtime":{"generation":"@BASE@","asset":"runtime"},
+                "release.manifest":{"generation":"@FULL@","asset":"release.manifest"},
+                "release.sig":{"generation":"@FULL@","asset":"release.sig"},
+                "update-index-v1":{"generation":"@FULL@","asset":"candidate-update-index-v1"},
+                "update-index-v1.sig":{"generation":"@FULL@","asset":"candidate-update-index-v1.sig"},
+                "update-public-key.pem":{"generation":"@FULL@","asset":"update-public-key.pem"},
+                "compat/download-size-v1":{"generation":"@FULL@","asset":"download-size-v1"},
+                "compat/download-size-v1.sig":{"generation":"@FULL@","asset":"download-size-v1.sig"},
+                "component-input-v1":{"generation":"@FULL@","asset":"component-input-v1"},
+                "component-input-v1.sig":{"generation":"@FULL@","asset":"component-input-v1.sig"}
+            }
+        }"#.replace("@FULL@", new_full).replace("@BASE@", new_base).replace("@DIGEST@", &digest);
+
+        let parsed = parse_map(map_str.as_bytes(), new_full, &manifest, &digest).unwrap();
+        assert_eq!(
+            resource_url(new_full, Some(&parsed), "core").unwrap(),
+            format!("https://github.com/humtr/codex/releases/download/{new_base}/core")
+        );
     }
 }
