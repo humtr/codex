@@ -83,11 +83,14 @@ def startup_settled(value, work):
     effects = value.get('native_effects', {})
     assert isinstance(effects.get('active'), list) and type(effects.get('unconfirmed_effects')) is int
     assert isinstance(value.get('pending_calls'), list) and isinstance(value.get('human_requests'), list)
-    assert isinstance(value.get('call_observations'), list)
+    calls = value.get('call_observations')
+    assert isinstance(calls, list) and all(isinstance(call, dict)
+        and type(call.get('offered')) is bool and type(call.get('settled')) is bool for call in calls)
     return (not effects['active'] and effects['unconfirmed_effects'] == 0
             and not value['pending_calls'] and not value['human_requests']
-            and not any(call.get('offered') is True and call.get('settled') is not True
-                        for call in value['call_observations']))
+            # An enqueued call can still acquire its effect after this read.
+            # A pre-effect rejection already has settled=true and is safe.
+            and all(call['settled'] for call in calls))
 
 
 def startup_barrier(args, installation, prefix, root):

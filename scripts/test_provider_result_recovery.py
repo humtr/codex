@@ -75,9 +75,15 @@ class ResultFaultBoundary(unittest.TestCase):
         for changed in ({'native_effects': {'active': [{}], 'unconfirmed_effects': 0}},
                         {'native_effects': {'active': [], 'unconfirmed_effects': 1}},
                         {'pending_calls': ['constructor']}, {'human_requests': [{}]},
-                        {'call_observations': [{'offered': True, 'settled': False}]}):
+                        {'call_observations': [{'offered': True, 'settled': False}]},
+                        {'call_observations': [{'offered': False, 'settled': False}]}):
             self.assertFalse(startup_settled(dict(value, **changed), 'original'))
-        for changed in ({'work_id': 'different'}, {'native_effects': {}}, {'selection': {'inference': 'submitted'}}):
+        self.assertTrue(startup_settled(dict(value,
+            call_observations=[{'offered': False, 'settled': True}]), 'original'),
+            'a committed pre-effect rejection is already settled')
+        for changed in ({'work_id': 'different'}, {'native_effects': {}}, {'selection': {'inference': 'submitted'}},
+                        {'call_observations': [{'settled': True}]},
+                        {'call_observations': [{'offered': False, 'settled': 1}]}):
             with self.assertRaises(AssertionError):
                 startup_settled(dict(value, **changed), 'original')
 
