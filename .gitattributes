@@ -3,4 +3,4 @@
 transport/tunnel-client/termux.patch whitespace=-blank-at-eol,-space-before-tab
 # Unified Rust patch context includes a space for otherwise empty source lines.
 crates/release-builder/src/native_route.patch whitespace=-blank-at-eol
-frontend/manager-tui/native.patch whitespace=-blank-at-eol
+frontend/tui/native.patch whitespace=-blank-at-eol

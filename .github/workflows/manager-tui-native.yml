@@ -1,5 +1,5 @@
-name: Manager TUI native qualification
-run-name: ${{ inputs.scope == 'full' && 'Manager TUI native qualification' || format('Focused Native {0}', inputs.scope) }}
+name: Codex TUI native qualification
+run-name: ${{ inputs.scope == 'full' && 'Codex TUI native qualification' || format('Focused Native {0}', inputs.scope) }}
 on:
   workflow_dispatch:
     inputs:
@@ -130,7 +130,7 @@ jobs:
           CARGO_TARGET_DIR="$RUNNER_TEMP/source-tools" cargo "+$RUST_VERSION" build \
             --manifest-path experiment/Cargo.toml --release --locked -p codex-release-builder
           builder="$RUNNER_TEMP/source-tools/release/codex-release-builder"
-          for patch in experiment/crates/release-builder/src/native_route.patch experiment/frontend/manager-tui/native.patch; do
+          for patch in experiment/crates/release-builder/src/native_route.patch experiment/frontend/tui/native.patch; do
             patch_base="$("$builder" patch-base --patch "$GITHUB_WORKSPACE/$patch")"
             if ! git -C upstream cat-file -e "$patch_base^{commit}"; then
               git -C upstream fetch --no-tags --depth=1 origin "$patch_base"
@@ -145,14 +145,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python3 experiment/frontend/manager-tui/check_command_boundary.py upstream
+          python3 experiment/frontend/tui/check_command_boundary.py upstream
           pristine="$RUNNER_TEMP/profile-tui-pristine/codex-rs/tui/src"
           mkdir -p "$pristine"
           cp upstream/codex-rs/tui/src/slash_command.rs "$pristine/slash_command.rs"
-          python3 experiment/frontend/manager-tui/apply.py upstream --builder "$RUNNER_TEMP/source-tools/release/codex-release-builder" --native-preparation "$RUNNER_TEMP/profile-tui-native-preparation.json"
-          python3 experiment/frontend/manager-tui/check_command_boundary.py "$RUNNER_TEMP/profile-tui-pristine" --patched upstream
+          python3 experiment/frontend/tui/apply.py upstream --builder "$RUNNER_TEMP/source-tools/release/codex-release-builder" --native-preparation "$RUNNER_TEMP/profile-tui-native-preparation.json"
+          python3 experiment/frontend/tui/check_command_boundary.py "$RUNNER_TEMP/profile-tui-pristine" --patched upstream
           git -C upstream diff --check
-          python3 experiment/frontend/manager-tui/apply.py upstream --check-scope --native-preparation "$RUNNER_TEMP/profile-tui-native-preparation.json"
+          python3 experiment/frontend/tui/apply.py upstream --check-scope --native-preparation "$RUNNER_TEMP/profile-tui-native-preparation.json"
       - name: Provision pinned upstream test and formatting tools
         shell: bash
         run: |
@@ -195,7 +195,7 @@ jobs:
           tar -czf "$RUNNER_TEMP/native-protocol-generated.tar.gz" -C codex-rs/app-server-protocol/schema .
           git diff --check
           git diff -- codex-rs > "$RUNNER_TEMP/profile-tui-formatted.patch"
-          python3 ../experiment/frontend/manager-tui/apply.py . --check-scope --native-preparation "$RUNNER_TEMP/profile-tui-native-preparation.json"
+          python3 ../experiment/frontend/tui/apply.py . --check-scope --native-preparation "$RUNNER_TEMP/profile-tui-native-preparation.json"
       - name: Reuse identified frontend for compatibility checks
         if: inputs.scope == 'frontend-compatibility'
         shell: bash
@@ -210,7 +210,7 @@ jobs:
           python3 - <<'PYTHON'
           import json, os, sys
           from pathlib import Path
-          sys.path.insert(0, str(Path('experiment/frontend/manager-tui').resolve()))
+          sys.path.insert(0, str(Path('experiment/frontend/tui').resolve()))
           from check_upstream_features import reusable_frontend
           root = Path(os.environ['RUNNER_TEMP'])
           binary = reusable_frontend(root/'frontend-baseline', root/'profile-tui-formatted.patch',
@@ -287,7 +287,7 @@ jobs:
           set -euo pipefail
           cd upstream
           just test --retries 0 --locked --target aarch64-unknown-linux-musl -p codex-tui --lib -E 'test(termux_chat_models) | test(termux_backend_catalog) | test(chat_model_reentry) | test(profile_transport) | test(termux_permissions) | test(termux_terminal) | test(termux_clipboard) | test(clipboard_copy) | test(copy_export_picker) | test(copy_mode) | test(copy_picker) | test(profile_manager) | test(switch_command) | test(side_conversation_hides_commands_without_side_flag) | test(provider_presentation) | test(side_fork_uses_one_request_for_long_paginated_history) | test(absolute_time_uses_child_timezone) | test(bound_chat_synchronization) | test(active_chat_provider_steer) | test(image_preparation) | test(image_submission_is_portable)' 2>&1 | tee "$RUNNER_TEMP/profile-tui-focused.log"
-          python3 "$GITHUB_WORKSPACE/experiment/frontend/manager-tui/check_command_boundary.py" "$RUNNER_TEMP/profile-tui-pristine" --patched "$GITHUB_WORKSPACE/upstream" --test-log "$RUNNER_TEMP/profile-tui-focused.log"
+          python3 "$GITHUB_WORKSPACE/experiment/frontend/tui/check_command_boundary.py" "$RUNNER_TEMP/profile-tui-pristine" --patched "$GITHUB_WORKSPACE/upstream" --test-log "$RUNNER_TEMP/profile-tui-focused.log"
       - name: Verify owner and model admission regressions detect their independent faults
         if: inputs.scope == 'full'
         shell: bash
@@ -359,7 +359,7 @@ jobs:
           python3 - <<'PYTHON'
           import os, sys
           from pathlib import Path
-          sys.path.insert(0, str(Path(os.environ['GITHUB_WORKSPACE']) / 'experiment/frontend/manager-tui'))
+          sys.path.insert(0, str(Path(os.environ['GITHUB_WORKSPACE']) / 'experiment/frontend/tui'))
           from check_command_boundary import nonzero_tests
           root = Path(os.environ['RUNNER_TEMP'])
           for name in ['core-model_provider', 'core-compact', 'core-guardian', 'client', 'config']:
@@ -378,7 +378,7 @@ jobs:
           python3 - <<'PYTHON'
           import os, sys
           from pathlib import Path
-          sys.path.insert(0, str(Path(os.environ['GITHUB_WORKSPACE']) / 'experiment/frontend/manager-tui'))
+          sys.path.insert(0, str(Path(os.environ['GITHUB_WORKSPACE']) / 'experiment/frontend/tui'))
           from check_command_boundary import nonzero_tests
           root = Path(os.environ['RUNNER_TEMP'])
           for name in ['api', 'initialize']:
@@ -618,7 +618,7 @@ jobs:
           "$host/codex-code-mode-host" --help > "$host/help.txt"
           export CARGO_BIN_EXE_codex="${CODEX_QUALIFICATION_CLI:-$GITHUB_WORKSPACE/upstream/codex-rs/target/aarch64-unknown-linux-musl/release/codex}"
           export CARGO_BIN_EXE_codex_code_mode_host="$host/codex-code-mode-host"
-          PYTHONDONTWRITEBYTECODE=1 python3 "$GITHUB_WORKSPACE/experiment/frontend/manager-tui/check_upstream_features.py" --run "$GITHUB_WORKSPACE/upstream" --logs "$RUNNER_TEMP"
+          PYTHONDONTWRITEBYTECODE=1 python3 "$GITHUB_WORKSPACE/experiment/frontend/tui/check_upstream_features.py" --run "$GITHUB_WORKSPACE/upstream" --logs "$RUNNER_TEMP"
       - name: Inspect TUI lint fixes
         if: inputs.scope != 'native-api'
         shell: bash
@@ -664,7 +664,7 @@ jobs:
           git diff --exit-code -- codex-rs/tui/src/daemon_startup.rs
           git diff -- codex-rs > "$RUNNER_TEMP/profile-tui-linted.patch"
           cmp "$RUNNER_TEMP/profile-tui-formatted.patch" "$RUNNER_TEMP/profile-tui-linted.patch"
-          python3 ../experiment/frontend/manager-tui/apply.py . --check-scope --native-preparation "$RUNNER_TEMP/profile-tui-native-preparation.json"
+          python3 ../experiment/frontend/tui/apply.py . --check-scope --native-preparation "$RUNNER_TEMP/profile-tui-native-preparation.json"
       - name: Retain native focus and pending snapshots
         if: ${{ !cancelled() && steps.native-format.outcome != 'skipped' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02

@@ -753,9 +753,11 @@ notification/window conveniences; the TUI integrates `/switch` and provider mode
 selection. The provider owns its transport and host lifetime. The small shared
 runtime-binding crate is compiled source, not another installed dependency.
 See [the component boundary](SPEC.md#46-component-responsibilities-and-user-flow-contracts).
-TUI is the component name. Existing `frontend/manager-tui`, signed artifact
-identities and build flags retain their compatibility spelling. This terminology
-does not yet remove the deployed Full TUI's Manager pairing requirement.
+Codex TUI sources live in `frontend/tui`. The existing `manager-tui-native`
+workflow/artifact names, `termux-manager-tui-v1` signed helper identity and
+`--manager-tui` builder flags remain external compatibility contracts. The source
+move changes no signed generation or digest and does not itself remove the
+deployed Full TUI's Manager pairing requirement.
 
 `release/upstream.json` is the single exact version/source/archive/toolchain
 recipe. Core/runtime qualification runs it without acquiring or compiling Manager

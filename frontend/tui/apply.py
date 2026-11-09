@@ -1,4 +1,4 @@
-"""Assemble owned Manager TUI sources and the bounded upstream integration patch."""
+"""Assemble owned Codex TUI sources and the bounded upstream integration patch."""
 import argparse
 import json
 from pathlib import Path

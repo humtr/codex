@@ -44,7 +44,7 @@ class NativeProducerTests(unittest.TestCase):
                 if fault == 'failed-run':
                     run['conclusion'] = 'failure'; run_file.write_text(json.dumps(run))
                 if fault == 'source':
-                    p = source / 'frontend/manager-tui/native.patch'; p.write_text('changed\n')
+                    p = source / 'frontend/tui/native.patch'; p.write_text('changed\n')
                     subprocess.run(['git', '-C', str(source), 'add', '.'], check=True)
                     subprocess.run(['git', '-C', str(source), '-c', 'user.name=Owned', '-c', 'user.email=x@example.invalid', 'commit', '-m', 'changed'], check=True, stdout=subprocess.DEVNULL)
                 tools = root / 'tools'; tools.mkdir()

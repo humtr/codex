@@ -134,7 +134,7 @@ Independence has distinct observable levels:
 
 The retained TUI patch contains only upstream call sites/types, supported-permission
 integration, startup compatibility and actual test access; standalone policy lives
-under frontend/manager-tui/src. Upstream lacks a qualified general extension API
+under frontend/tui/src. Upstream lacks a qualified general extension API
 for these UI hooks. Moving them into Core or a separate launcher would not remove
 revision maintenance. The official-runtime binary adaptation remains exact-digest
 and version-bound for FD/socket/config paths and no-sandbox permission choices;

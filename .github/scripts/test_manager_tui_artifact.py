@@ -47,7 +47,7 @@ class NativeArtifactTests(unittest.TestCase):
         git("init")
         for relative in qualifier.INPUTS:
             path = source / relative
-            if relative == "frontend/manager-tui/src":
+            if relative == "frontend/tui/src":
                 path = path / "owned.rs"
             path.parent.mkdir(parents=True, exist_ok=True)
             if relative == qualifier.INPUTS[0]:
@@ -122,7 +122,7 @@ class NativeArtifactTests(unittest.TestCase):
                 elif fault == "backend": version = "0.162.0"
                 elif fault == "pin": digest = "a" * 64
                 elif fault in ("source-input", "owned-source"):
-                    path = source / ("frontend/manager-tui/src/owned.rs"
+                    path = source / ("frontend/tui/src/owned.rs"
                                      if fault == "owned-source" else qualifier.INPUTS[1])
                     path.write_text("different native source\n")
                     subprocess.run(["git", "-C", str(source), "add", "."], check=True)

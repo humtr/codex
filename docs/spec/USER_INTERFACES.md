@@ -262,7 +262,7 @@ hold the urgent restoration release after the supported text-copy path passes.
 
 The native frontend source has two owners: pristine upstream files receive only
 the maintained integration patch; standalone TUI implementations live as
-ordinary source under frontend/manager-tui/src. The single maintained source
+ordinary source under frontend/tui/src. The single maintained source
 assembler preflights the patch and refuses to overwrite any upstream file with
 an owned source file. Qualification binds both inputs, the assembler and tests
 to the exact successful source. Final build inputs and artifact proof still

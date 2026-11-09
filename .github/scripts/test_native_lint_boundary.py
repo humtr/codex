@@ -58,9 +58,9 @@ class NativeLintBoundaryTests(unittest.TestCase):
                 daemon_before = daemon.read_bytes()
                 tools = root / 'bin'
                 tools.mkdir()
-                assembler = root / 'experiment/frontend/manager-tui/apply.py'
+                assembler = root / 'experiment/frontend/tui/apply.py'
                 assembler.parent.mkdir(parents=True)
-                shutil.copy2(Path(__file__).resolve().parents[2] / 'frontend/manager-tui/apply.py', assembler)
+                shutil.copy2(Path(__file__).resolve().parents[2] / 'frontend/tui/apply.py', assembler)
                 (tools / 'just').write_text(f'#!{sys.executable}\n' + textwrap.dedent('''\
                     import os, sys
                     from pathlib import Path

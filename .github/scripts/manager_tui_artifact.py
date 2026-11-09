@@ -9,7 +9,7 @@ import subprocess
 import sys
 
 from release_preflight import bounded_read, no_duplicate_object
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "frontend/manager-tui"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "frontend/tui"))
 from check_command_boundary import nonzero_tests
 from check_upstream_features import verify as verify_upstream_features
 
@@ -22,7 +22,7 @@ UPSTREAM = _INPUT['upstream']['source']
 VERSION = _INPUT['upstream']['version']
 INPUTS = (
     ".github/workflows/manager-tui-native.yml",
-    "frontend/manager-tui/native.patch",
+    "frontend/tui/native.patch",
     "crates/release-builder/src/source.rs",
     "crates/release-builder/src/source/patch.rs",
     "crates/release-builder/src/source/syntax.rs",
@@ -33,13 +33,13 @@ INPUTS = (
     "crates/release-builder/Cargo.toml",
     "Cargo.lock",
     ".github/scripts/upstream_release.py",
-    "frontend/manager-tui/src",
-    "frontend/manager-tui/apply.py",
-    "frontend/manager-tui/test_apply.py",
-    "frontend/manager-tui/check_command_boundary.py",
-    "frontend/manager-tui/test_command_boundary.py",
-    "frontend/manager-tui/check_upstream_features.py",
-    "frontend/manager-tui/test_upstream_features.py",
+    "frontend/tui/src",
+    "frontend/tui/apply.py",
+    "frontend/tui/test_apply.py",
+    "frontend/tui/check_command_boundary.py",
+    "frontend/tui/test_command_boundary.py",
+    "frontend/tui/check_upstream_features.py",
+    "frontend/tui/test_upstream_features.py",
 )
 FILES = {"codex", "source.txt", "version.txt", "help.txt", "sha256.txt",
          "lock-audit.json", "native.patch"}

@@ -1,4 +1,4 @@
-# TUI
+# Codex TUI
 
 SPEC.md owns the generation, command and update contracts. The native patch adds
 /switch to exact official source selected by release/upstream.json;
@@ -20,7 +20,7 @@ The maintained TUI implementation is ordinary source under `src/`, including
 profile/task views, model routing, permission adaptation and Android window
 callbacks. On a disposable official checkout, first run release-builder's
 `prepare-source --frontend provided`, retaining its JSON output as PREPARATION.
-Run `python3 frontend/manager-tui/apply.py UPSTREAM --builder BUILDER --native-preparation PREPARATION`
+Run `python3 frontend/tui/apply.py UPSTREAM --builder BUILDER --native-preparation PREPARATION`
 once; it preflights collisions and patch applicability before writing.
 Each patch binds its exact official base in its first line. Fetch that commit
 before preparation; release-builder's `patch-base --patch PATCH` reads the binding.
@@ -123,8 +123,11 @@ components. TUI's Manager integration is optional; provider capabilities/setting
 must not require Manager. Source independence now has actual Android no-Manager
 composition proof; the current signed layout still requires a paired Manager
 declaration for its TUI helper. New signed optional-component composition needs its own admission.
-Keep the existing source path, helper identity, CLI flags and wire markers until
-a coordinated compatibility change.
+The maintained source directory is `frontend/tui`. The workflow/artifact IDs
+`manager-tui-native`, signed helper `termux-manager-tui-v1`, and builder flags
+`--manager-tui` / `--manager-tui-version` retain their historical compatibility
+spelling. They identify existing external contracts, not a Manager dependency.
+Existing signed generations and their digests remain unchanged.
 Current source consumes Provider-owned configuration/capability data instead of
 hardcoded Chat model/effort lists, retaining native session actions for same-Chat
 changes. Do not count that completed source change as a new implementation task.
