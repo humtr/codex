@@ -432,6 +432,18 @@ fn execute(args: &[OsString]) -> Result<()> {
     } else {
         true
     };
+    let owned = if action == "apply-source-patch" {
+        match (
+            fields.remove("--owned-source"),
+            fields.remove("--owned-target"),
+        ) {
+            (None, None) => None,
+            (Some(directory), Some(target)) => Some((Path::new(directory), Path::new(target))),
+            _ => return Err("owned sources require both --owned-source and --owned-target".into()),
+        }
+    } else {
+        None
+    };
     let expected: &[&str] = match action {
         "prepare-source" => &["--source", "--version", "--source-sha"],
         "normalize-lock" => &["--source", "--openssl", "--audit"],
@@ -468,10 +480,15 @@ fn execute(args: &[OsString]) -> Result<()> {
             )?
         ),
         "apply-source-patch" => {
-            let rebased = patch::rebase(
+            let owned = match owned {
+                Some((directory, target)) => patch::owned_sources(source, directory, target)?,
+                None => BTreeMap::new(),
+            };
+            let rebased = patch::rebase_with_owned(
                 source,
                 &patch::from_file(Path::new(fields["--patch"]))?,
                 &BTreeMap::new(),
+                &owned,
             )?;
             patch::apply(source, &rebased)?;
         }
