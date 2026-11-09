@@ -8,9 +8,9 @@ substitutes for the next boundary.
 
 ## Integration status and operating baseline
 
-**Checkpoint: 2026-11-09 22:12 UTC / 2026-11-10 07:12 KST.** Work remains on
+**Checkpoint: 2026-11-09 22:25 UTC / 2026-11-10 07:25 KST.** Work remains on
 `integration/codex-native-20261110`. The latest confirmed remote source is
-`db90e68dee7694e01aad830da8f91088bd8ce7bb`. The last confirmed actual Termux
+`bf167211bec2fafd303e0787f9396c60861142a9`. The last confirmed actual Termux
 checkout is `ef2d22928f0506dd4291451b64a6ceee0950f80f`. Its corrected Provider gate
 passed on Termux, and whole Provider CI
 `42707918577` succeeded at **22:07:31 UTC**. The failed-start production fix and
@@ -18,24 +18,32 @@ fixture owner preservation are included. The original 9b5 test failure remains
 recorded below; it was corrected to use the advertised status schema, without
 removing recovery assertions or changing production behavior.
 
-The local implementation tip is `4e6e67fc4c76246bfd610dae80a6f180de702693`:
+The local implementation tip is `62297dfba24ded0c270daf7b66c7035986601404`;
+its tree equals the confirmed remote bf167 tree. Earlier local
 `351b0d7` declares the live qualifier's observer provider, `07c6292` preserves the
 preceding checkpoint, and `4e6e67f` preserves explicit provider configuration
 through TUI reentry. After a cloud Git push returned exit128 for unavailable
 credentials, the existing GitHub Git-data API published equivalent commits
 `732e977`, `74faaff` and `db90e68`. Each complete tree matched its original local
 commit, and the integration ref advanced from ef2 with an expected-head check
-and force=false. The original local lineage remains preserved. Local focused
-TUI 22 and related Python 48 checks passed. New whole TUI and Source Acceptance
-runs have not been dispatched for this changed source, and the changed TUI has
-no matching qualified binary at this checkpoint.
+and force=false. The subsequent lint-gate commit `2ba940b` and owned TUI repair
+`62297df` are published as `6198d82` and `bf16721`, again with equal trees and a
+non-forced expected-head update. Original branches and the original local
+lineage remain preserved. Latest focused TUI tests passed 23+8 cases; the earlier
+related Python 48 result retains its original scope. Local strict Clippy still
+fails on one pristine upstream diagnostic. New whole TUI and Source Acceptance
+runs have not been dispatched for this changed source; no matching newly
+qualified TUI binary is available.
 
 Native Bridge `status`, `report` and history reads timed out at the MCP network
 boundary; at 22:11 UTC the error changed to `McpServerError: Session terminated`.
+The original-work status read at 22:25:24 UTC used the correct work_id-only schema
+and returned the same session error, wrapped as MCP INVALID_ARGUMENT.
+All source-check executions issued by this task have settled.
 No execution request issued by this task is awaiting an unknown result. This
-does not prove
-that the original Native owner exited or authorize a new work, replay, reset or
-service restart. Device observations below remain the last confirmed state.
+does not prove that the original Native owner exited or authorize a new work,
+replay, reset or service restart. Device observations below remain the last
+confirmed state.
 Installed `/provider` and actual model acceptance are still incomplete; this task
 has made no operating deployment change. Dated historical evidence retains its
 original source and execution scope.
@@ -147,11 +155,41 @@ That proves the explicit-profile diagnostic route, not the required installed
 | Latest Provider source, `ef2d229` | Actual Termux Provider gate passed after the fixture-only status request correction. Whole Provider CI `42707918577` succeeded at 22:07:31 UTC: 332 main-harness Rust cases passed, 34 opt-in/fixture entries ignored; Bun 135 and Python 6+60+18+48 passed. Ignored entries are not acceptance passes. This qualifies the tested source/candidate boundary, not deployment or actual model acceptance |
 | Cloud Provider acquisition, `ef2d229` | Original successful run/artifact metadata and ZIP digest were retained and checked through the source-owned `candidate.verify`; candidate artifact `13715061365`, proof artifact `13715191016`. Verified binary SHA256 `7d8930f8940362adb4cc94b6781c7e37e18e2397b338a57f1c42806e9191fc07`. No acquired binary was executed or copied to the device; normal installation remains pending |
 | Local production TUI override repair, `4e6e67f` | Exact prepared upstream focused `codex-tui` termux_chat_models tests had 22 passed/0 failed/0 ignored at 22:01:43 UTC; prepared module bytes match the integrated source. Related live-TUI/compiler/result Python 48 checks passed. Whole CI for this changed TUI has not been dispatched; old 3c binary proof does not cover the repair |
-| Current device connection | Native Bridge status/report/history had MCP network timeouts, then `Session terminated` at 22:11 UTC; codex_tools now returns the same error. No execution request issued by this task is awaiting an unknown result. No fresh device-state observation is available; this task has issued no operating deployment change |
+| Latest owned TUI repair, `62297df` / remote `bf16721` | Focused termux_chat_models 23 and termux_backend_catalog 8 tests passed, with 0 failed/ignored. The initial backend run aborted with stack overflow; rerunning with the exact upstream justfile's `RUST_MIN_STACK=8388608` passed. The original failure is retained. Host Rust 1.99.1 strict lib Clippy still exited 101 at 22:22:30 on one pristine upstream error, with no owned diagnostics remaining |
+| TUI lint workflow repair, `2ba940b` / remote `6198d82` | 17 local Python unittest methods passed; one method executes the real workflow shell across 13 fault/success boundaries. The previous workflow failed that regression and the revised workflow passed. This is workflow control/restoration proof, not actual Android or whole CI qualification |
+| Current device connection | Native Bridge status/report/history and codex_tools return `Session terminated`; the latest correct-schema status read at 22:25:24 UTC returned the same error. No execution request issued by this task is awaiting an unknown result. No fresh device-state observation is available; this task has issued no operating deployment change |
 | New canonical Full composition | Local real-builder producer/consumer and malformed-inventory regressions passed; actual combined-package Android lifecycle, live activation and installed TUI acceptance remain pending |
 
+#### Latest TUI lint findings
+
+The host Rust 1.99.1 lib-only Clippy check at 22:14:35 UTC exited 101 with four
+maintained-source errors (two expect calls, one unwrap and the intentional
+capability-protocol println) plus one pristine upstream needless_late_init.
+A real small crate then reproduced the gate gap: strict --lib and --tests each
+exited 101 on the same three configured deny lints, while --fix --tests exited 0
+without changing its source. Automatic fixing alone therefore did not enforce
+those configured lints. The revised existing CI step runs non-fixing just clippy
+after just fix with the same scopes, checks protected Core/daemon bytes after
+each stage, and retains unconditional restoration on failure.
+
+The owned two-file repair uses infallible JSON string values for the existing
+CLI representation, propagates missing child pipes through the existing Result,
+and marks the intentional pre-start capability stdout only on its protocol
+function. Its focused tests include actual CLI parsing and child-process errors.
+The first backend run omitted the upstream's canonical 8 MiB test-thread stack;
+the exact preset rerun passed all eight cases. This original abort was not
+discarded or counted as a pass.
+
+At 22:22:30 UTC, the non-fixing host lib check still exited 101 with only
+`bottom_pane/async_questions/layout.rs:55` needless_late_init and six warnings.
+The maintained errors are gone, but the overall check is not passed. The remaining
+upstream diagnostic was not waived, and its source is unchanged. These observations use host Rust 1.99.1;
+the unchanged pinned Rust 1.95 full TUI workflow and latest Source Acceptance have
+not run. Earlier successful CI remains valid at its original inputs, without
+claiming it exercised the newly added strict gate.
+
 Input equality permits exact component reuse without relabeling original proof.
-The ea04 build and local 4e6 have no changes in Cargo workspace/Core/Manager/
+The ea04 build and local 622 have no changes in Cargo workspace/Core/Manager/
 builder files. Their embedded producer input is identical (669,058 bytes,
 SHA256 `cfe1b428a4e8a674b4734835e82dc447142eaa4fc6e47632abe1eea45722ca10`).
 The e0/current raw runtime recipe is
