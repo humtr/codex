@@ -1825,6 +1825,7 @@ enum QualifiedUpstreamDoctorProbeError {
     Environment(TermuxProcessEnvError),
     Io(std::io::Error),
     OutputTooLarge,
+    TimedOut,
 }
 
 #[cfg(unix)]
@@ -1836,6 +1837,9 @@ impl std::fmt::Display for QualifiedUpstreamDoctorProbeError {
             QualifiedUpstreamDoctorProbeError::OutputTooLarge => {
                 f.write_str("upstream doctor output exceeds its byte bound")
             }
+            QualifiedUpstreamDoctorProbeError::TimedOut => {
+                f.write_str("upstream doctor exceeded its execution deadline")
+            }
         }
     }
 }
@@ -1846,9 +1850,83 @@ impl std::error::Error for QualifiedUpstreamDoctorProbeError {
         match self {
             QualifiedUpstreamDoctorProbeError::Environment(err) => Some(err),
             QualifiedUpstreamDoctorProbeError::Io(err) => Some(err),
-            QualifiedUpstreamDoctorProbeError::OutputTooLarge => None,
+            QualifiedUpstreamDoctorProbeError::OutputTooLarge
+            | QualifiedUpstreamDoctorProbeError::TimedOut => None,
         }
     }
+}
+
+#[cfg(unix)]
+const DOCTOR_COMMAND_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// One bounded owner for diagnostic child I/O, exit and cleanup. A child that
+/// never closes stdout cannot block Core's read-only diagnosis indefinitely.
+#[cfg(unix)]
+fn run_doctor_child(
+    mut command: std::process::Command,
+    timeout: std::time::Duration,
+) -> Result<(std::process::ExitStatus, Vec<u8>), QualifiedUpstreamDoctorProbeError> {
+    use std::io::Read;
+    use std::os::fd::OwnedFd;
+    use std::os::unix::net::UnixStream;
+    use std::os::unix::process::CommandExt;
+    use std::process::Stdio;
+    use std::time::{Duration, Instant};
+
+    let (mut reader, writer) = UnixStream::pair().map_err(QualifiedUpstreamDoctorProbeError::Io)?;
+    reader.set_nonblocking(true).map_err(QualifiedUpstreamDoctorProbeError::Io)?;
+    command
+        .stdin(Stdio::null())
+        .stdout(Stdio::from(OwnedFd::from(writer)))
+        .stderr(Stdio::null())
+        .process_group(0);
+    let mut child = command.spawn().map_err(QualifiedUpstreamDoctorProbeError::Io)?;
+    drop(command);
+    let started = Instant::now();
+    let result = (|| {
+        let mut bytes = Vec::new();
+        loop {
+            let mut buffer = [0u8; 4096];
+            let eof = match reader.read(&mut buffer) {
+                Ok(0) => true,
+                Ok(count) => {
+                    bytes.extend_from_slice(&buffer[..count]);
+                    if bytes.len() > DOCTOR_OUTPUT_MAX_BYTES {
+                        return Err(QualifiedUpstreamDoctorProbeError::OutputTooLarge);
+                    }
+                    false
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => false,
+                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+                Err(error) => return Err(QualifiedUpstreamDoctorProbeError::Io(error)),
+            };
+            if let Some(status) = child.try_wait().map_err(QualifiedUpstreamDoctorProbeError::Io)? {
+                if eof {
+                    return Ok((status, bytes));
+                }
+            }
+            if started.elapsed() >= timeout {
+                return Err(QualifiedUpstreamDoctorProbeError::TimedOut);
+            }
+            std::thread::sleep(Duration::from_millis(2));
+        }
+    })();
+    if result.is_err() {
+        // This is our newly created diagnostic process group, never an existing
+        // Native server. Terminate children that remain in this owned group;
+        // closing a PTY wrapper also closes its terminal for the diagnostic.
+        unsafe extern "C" {
+            fn kill(pid: i32, signal: i32) -> i32;
+        }
+        if let Ok(pid) = i32::try_from(child.id()) {
+            if pid > 1 {
+                let _ = unsafe { kill(-pid, 9) };
+            }
+        }
+        let _ = child.kill();
+    }
+    let _ = child.wait();
+    result
 }
 
 /// Runs one read-only qualified upstream command as a child of Core.
@@ -1880,15 +1958,10 @@ where
     let runtime_fds = RuntimeFdSources::open(resolver_path, config_dir)
         .map_err(QualifiedUpstreamDoctorProbeError::Io)?;
     let mut cmd = std::process::Command::new(selection.runtime.program_path);
-    cmd.args(args)
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null());
+    cmd.args(args);
     apply_child_env_plan_and_fence(&mut cmd, Some(&env_plan));
     runtime_fds.configure(&mut cmd);
-    Ok(cmd
-        .status()
-        .map_err(QualifiedUpstreamDoctorProbeError::Io)?
-        .success())
+    Ok(run_doctor_child(cmd, DOCTOR_COMMAND_TIMEOUT)?.0.success())
 }
 
 #[cfg(unix)]
@@ -2334,8 +2407,6 @@ where
     R: AsRef<std::path::Path>,
     C: AsRef<std::path::Path>,
 {
-    use std::io::Read as _;
-
     let json = options.json;
     let force_color = options.force_color;
     let mut use_color = options.use_color;
@@ -2360,7 +2431,8 @@ where
         command
             .args(["-qefc"])
             .arg(doctor_script_command(selection.runtime.program_path, json))
-            .arg("/dev/null");
+            .arg("/dev/null")
+            .env("SHELL", script.parent().expect("qualified script has a parent").join("sh"));
         command
     } else {
         use_color = false;
@@ -2372,31 +2444,10 @@ where
             cmd.arg("--json");
         }
     }
-    cmd.stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::null())
-        .stdin(std::process::Stdio::null());
     apply_child_env_plan_and_fence(&mut cmd, Some(&env_plan));
     apply_doctor_color_override(&mut cmd, use_color, force_color);
     runtime_fds.configure(&mut cmd);
-    let mut child = cmd.spawn().map_err(QualifiedUpstreamDoctorProbeError::Io)?;
-    let stdout = child.stdout.take().ok_or_else(|| {
-        QualifiedUpstreamDoctorProbeError::Io(std::io::Error::other(
-            "upstream doctor stdout is unavailable",
-        ))
-    })?;
-    let mut bytes = Vec::new();
-    stdout
-        .take((DOCTOR_OUTPUT_MAX_BYTES + 1) as u64)
-        .read_to_end(&mut bytes)
-        .map_err(QualifiedUpstreamDoctorProbeError::Io)?;
-    if bytes.len() > DOCTOR_OUTPUT_MAX_BYTES {
-        let _ = child.kill();
-        let _ = child.wait();
-        return Err(QualifiedUpstreamDoctorProbeError::OutputTooLarge);
-    }
-    let status = child
-        .wait()
-        .map_err(QualifiedUpstreamDoctorProbeError::Io)?;
+    let (status, bytes) = run_doctor_child(cmd, DOCTOR_COMMAND_TIMEOUT)?;
     Ok(QualifiedUpstreamDoctorResult {
         status: if status.success() {
             UpstreamDoctorStatus::Healthy
@@ -13337,6 +13388,50 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn doctor_child_closes_stdin_and_preserves_output_and_exit_status() {
+        let mut command = std::process::Command::new(resolve_test_shell());
+        command.args(["-c", "if read value; then exit 91; fi; printf 'doctor output'; exit 7"]);
+        let (status, output) = run_doctor_child(command, std::time::Duration::from_secs(2)).unwrap();
+        assert_eq!(status.code(), Some(7));
+        assert_eq!(output, b"doctor output");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn doctor_child_enforces_deadline_and_reaps_its_process() {
+        let root = temp_root("doctor-child-timeout");
+        let pid_file = root.join("child-pid");
+        let sleep = resolve_test_tool("sleep").expect("sleep is required for diagnostic timeout proof");
+        let mut command = std::process::Command::new(resolve_test_shell());
+        command
+            .args(["-c", "printf '%s' \"$$\" > \"$1\"; exec \"$2\" 10", "doctor-test"])
+            .arg(&pid_file)
+            .arg(sleep);
+        let started = std::time::Instant::now();
+        let result = run_doctor_child(command, std::time::Duration::from_millis(500));
+        assert!(matches!(result, Err(QualifiedUpstreamDoctorProbeError::TimedOut)));
+        assert!(started.elapsed() < std::time::Duration::from_secs(5));
+        let pid = std::fs::read_to_string(&pid_file).unwrap();
+        assert!(pid.parse::<u32>().unwrap() > 1);
+        assert!(!std::path::Path::new("/proc").join(pid).exists());
+        remove_temp_root(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn doctor_child_rejects_output_beyond_the_public_byte_bound() {
+        let mut command = std::process::Command::new(resolve_test_shell());
+        command
+            .args(["-c", "while :; do printf '%s' \"$1\"; done", "doctor-test"])
+            .arg("x".repeat(4096));
+        assert!(matches!(
+            run_doctor_child(command, std::time::Duration::from_secs(2)),
+            Err(QualifiedUpstreamDoctorProbeError::OutputTooLarge)
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn test_r4_doctor_pty_preserves_clean_upstream_sgr_and_layout() {
         use std::os::unix::fs::PermissionsExt;
 
@@ -13349,6 +13444,7 @@ mod tests {
             "Termux script is required for PTY proof"
         );
         std::fs::create_dir_all(prefix.join("bin")).unwrap();
+        std::os::unix::fs::symlink(resolve_test_shell(), prefix.join("bin/sh")).unwrap();
         let script = prefix.join("bin/script");
         std::fs::copy(&script_source, &script).unwrap();
         let mut script_mode = std::fs::metadata(&script).unwrap().permissions();
