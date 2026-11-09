@@ -8,19 +8,37 @@ substitutes for the next boundary.
 
 ## Integration status and operating baseline
 
-**Checkpoint: 2026-11-09 21:55 UTC / 2026-11-10 06:55 KST.** Work remains on
+**Checkpoint: 2026-11-09 22:12 UTC / 2026-11-10 07:12 KST.** Work remains on
 `integration/codex-native-20261110`. The latest confirmed remote source is
-`12129a5ed37efda26119b79e1e25350d91a39808`; its Source Acceptance and Provider
-qualification runs succeeded. Local and actual Termux source have advanced to
-`9b5ddc9302b58dade64bd67c84e4cbe591186e18`. That source includes the failed-start
-observation fix, fixture owner preservation and authoritative runtime-path
-observation. Its actual Provider gate failed on an invalid argument in a new
-observation test after the recovery assertions passed. A fixture-only correction
-awaits rerun; no new 9b5 CI run has been dispatched. It is not passed or pushed.
-The separate production TUI override repair is still being tested outside this
-checkpoint. Its binary and the newer Provider need matching qualification.
-Installed `/provider` and model acceptance remain incomplete. Dated historical
-records below retain their original source and execution scope.
+`db90e68dee7694e01aad830da8f91088bd8ce7bb`. The last confirmed actual Termux
+checkout is `ef2d22928f0506dd4291451b64a6ceee0950f80f`. Its corrected Provider gate
+passed on Termux, and whole Provider CI
+`42707918577` succeeded at **22:07:31 UTC**. The failed-start production fix and
+fixture owner preservation are included. The original 9b5 test failure remains
+recorded below; it was corrected to use the advertised status schema, without
+removing recovery assertions or changing production behavior.
+
+The local implementation tip is `4e6e67fc4c76246bfd610dae80a6f180de702693`:
+`351b0d7` declares the live qualifier's observer provider, `07c6292` preserves the
+preceding checkpoint, and `4e6e67f` preserves explicit provider configuration
+through TUI reentry. After a cloud Git push returned exit128 for unavailable
+credentials, the existing GitHub Git-data API published equivalent commits
+`732e977`, `74faaff` and `db90e68`. Each complete tree matched its original local
+commit, and the integration ref advanced from ef2 with an expected-head check
+and force=false. The original local lineage remains preserved. Local focused
+TUI 22 and related Python 48 checks passed. New whole TUI and Source Acceptance
+runs have not been dispatched for this changed source, and the changed TUI has
+no matching qualified binary at this checkpoint.
+
+Native Bridge `status`, `report` and history reads timed out at the MCP network
+boundary; at 22:11 UTC the error changed to `McpServerError: Session terminated`.
+No execution request issued by this task is awaiting an unknown result. This
+does not prove
+that the original Native owner exited or authorize a new work, replay, reset or
+service restart. Device observations below remain the last confirmed state.
+Installed `/provider` and actual model acceptance are still incomplete; this task
+has made no operating deployment change. Dated historical evidence retains its
+original source and execution scope.
 
 ### Source integration and preservation
 
@@ -53,6 +71,10 @@ Accepted older-review findings also cover publication ordering, artifact
 validation, owned-output cleanup and transactional source assembly. Neither all
 74 attached findings nor all proposed remedies are accepted or fixed. Unwired
 accounts and explicitly unclosed publication edges remain incomplete.
+The complete [non-normative review rejudgment at 9b5ddc9](docs/history/CODE_REVIEW_20261110.md)
+retains all 74 item IDs, accepted changes, rejected claims and unresolved scope.
+It is a source snapshot, not a replacement for the current product contract or
+installed acceptance evidence.
 
 <a id="active-operating-deployment"></a>
 
@@ -120,13 +142,16 @@ That proves the explicit-profile diagnostic route, not the required installed
 | Whole Core/runtime CI, `e0cca4c` | Run `42700037956` succeeded at 21:47:42 UTC, including runtime production, unsigned candidate and Android execution gates. The public-branch notification relay was expected to skip |
 | Actual runtime acquisition, `e0cca4c` | Original successful run/artifact metadata, ZIP/tar and raw payload verified at 21:49:09 UTC; artifact `13712562685`, acquisition source-head `12129a5`. Binary SHA256 `72305061c79c1fafbee44faa8dbaf490f18140fa4ed43a197c60ea47efb40b66` |
 | Whole TUI CI and actual acquisition, `3c043bd` | Run `42665847905` succeeded at 21:02:29 UTC; artifacts `13702318735` / `13710092309` acquired and verified at 21:06:04. Raw binary SHA256 `5bd4429a0f51b7cf7d4a6cc59cdbba0c52a3234d8470565eb55d6d76f6149924`. This is the original qualified input; the later production override repair needs matching new proof |
-| Provider candidate, `e0cca4c` | Actual acquisition/verification succeeded at 21:26:39.798 UTC using original run `42700049171` and candidate/proof artifacts `13711721758` / `13711696579`. The later failed-start production repair needs matching new qualification |
+| Provider candidate, `e0cca4c` | Actual acquisition/verification succeeded at 21:26:39.798 UTC using original run `42700049171` and candidate/proof artifacts `13711721758` / `13711696579`. It does not contain the later failed-start production repair; the newly qualified ef2 candidate below supersedes it for the next composition |
 | Actual Native callback-loss comparison 32 | Correct original source `48a73b25f3794967dc76924f7dc9a95e849b8e9a` failed and revised `94e09c8` passed against the same unchanged Full159 Native executable. Comparison accepted=true at 21:39:05.844970 UTC. Details below; no actual model request or operating replacement |
-| Latest Provider source, `9b5ddc9` | Actual gate failed at 21:55:24 UTC: Rust library 234 passed, 1 failed, 5 ignored. The new failed-start test passed its recovery assertions, then sent an unsupported controller field to `codex_status` and received `operator_arguments_invalid`. Python 48 and fmt passed; the small test request correction and full rerun are pending. The whole gate and new CI are not passed |
+| Latest Provider source, `ef2d229` | Actual Termux Provider gate passed after the fixture-only status request correction. Whole Provider CI `42707918577` succeeded at 22:07:31 UTC: 332 main-harness Rust cases passed, 34 opt-in/fixture entries ignored; Bun 135 and Python 6+60+18+48 passed. Ignored entries are not acceptance passes. This qualifies the tested source/candidate boundary, not deployment or actual model acceptance |
+| Cloud Provider acquisition, `ef2d229` | Original successful run/artifact metadata and ZIP digest were retained and checked through the source-owned `candidate.verify`; candidate artifact `13715061365`, proof artifact `13715191016`. Verified binary SHA256 `7d8930f8940362adb4cc94b6781c7e37e18e2397b338a57f1c42806e9191fc07`. No acquired binary was executed or copied to the device; normal installation remains pending |
+| Local production TUI override repair, `4e6e67f` | Exact prepared upstream focused `codex-tui` termux_chat_models tests had 22 passed/0 failed/0 ignored at 22:01:43 UTC; prepared module bytes match the integrated source. Related live-TUI/compiler/result Python 48 checks passed. Whole CI for this changed TUI has not been dispatched; old 3c binary proof does not cover the repair |
+| Current device connection | Native Bridge status/report/history had MCP network timeouts, then `Session terminated` at 22:11 UTC; codex_tools now returns the same error. No execution request issued by this task is awaiting an unknown result. No fresh device-state observation is available; this task has issued no operating deployment change |
 | New canonical Full composition | Local real-builder producer/consumer and malformed-inventory regressions passed; actual combined-package Android lifecycle, live activation and installed TUI acceptance remain pending |
 
 Input equality permits exact component reuse without relabeling original proof.
-The ea04 build and current 9b5 have no changes in Cargo workspace/Core/Manager/
+The ea04 build and local 4e6 have no changes in Cargo workspace/Core/Manager/
 builder files. Their embedded producer input is identical (669,058 bytes,
 SHA256 `cfe1b428a4e8a674b4734835e82dc447142eaa4fc6e47632abe1eea45722ca10`).
 The e0/current raw runtime recipe is
@@ -172,7 +197,8 @@ preservation must remain explicit.
 
 ### Earlier evidence and unsuccessful attempts (historical)
 
-These retained results describe earlier sources, not the latest incomplete gate:
+These retained results describe earlier sources; they do not replace current
+qualification or complete the unfinished installed-entrypoint acceptance:
 
 | Boundary | Retained observation |
 | --- | --- |
@@ -182,6 +208,7 @@ These retained results describe earlier sources, not the latest incomplete gate:
 | Retained-result source, `f1f3c2` / `5c9334b` | Actual Provider 318 passed, 33 opt-in entries ignored, fmt/strict Clippy passed. Ignored device/model entries are not acceptance passes |
 | Native discovery, `0c5a705` | Original code failed with `native_socket_unavailable`; the unchanged actual regression passed all 6 cases after the fix, with fmt/strict Clippy |
 | Original-result recovery, `94e09c8` | Actual Provider main harnesses passed 329 cases with 34 opt-in/fixture entries ignored; fmt/strict Clippy passed. Three separately printed child results are not added. Related 32 cases also passed locally |
+| Initial failed-start gate, `9b5ddc9` | Actual gate failed at 21:55:24 UTC: Rust library 234 passed, 1 failed, 5 ignored. The new failed-start test passed its recovery assertions, then sent an unsupported controller field to `codex_status` and received `operator_arguments_invalid`. Python 48 and fmt passed. This original failure remains failed; the fixture-only correction and successful full rerun are recorded above at ef2 |
 | Old CI | Source/Provider `18b90a5` runs `42668943683` / `42668949977` succeeded. Core `42668936425` failed in attempts 1/2 after raw production and abandoned producer; `3140f7f` runs `42674234712` / `42674239953` failed without fresh producers. No failed run was admitted |
 | Old runtime/TUI transfer failures | Core `42689269384` at 5c failed after successful raw production because loose Actions upload lost executable mode. The tar transport fix retains the original verifier; new whole e0 qualification above passed. TUI `42661856755` at 392 failed E0283, repaired in 3c; the original failed run remains failed |
 
