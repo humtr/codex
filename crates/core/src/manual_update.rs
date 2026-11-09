@@ -77,15 +77,16 @@ impl BuildPolicy {
             return Err(error("missing release needs a build policy; set CODEX_TERMUX_UPDATE_BUILD_POLICY=keep, local or remote (or use --wait/--no-wait)"));
         }
         eprintln!("Missing qualified artifacts: [1] Keep current  [2] Build locally (prepare required tools)  [3] Request remote build  [q] Keep current");
-        let input = WaitInput::new(true);
+        let mut input = WaitInput::new(true);
         loop {
             let key = input.key();
             if let Some(signal) = input
                 .pending_signal()
                 .or_else(|| key.and_then(|k| input.signal(k)))
             {
-                drop(input);
-                let _ = unsafe { raise(signal) };
+                if input.forward_signal(signal, true) {
+                    continue;
+                }
                 return Err(error(
                     "update choice interrupted; installed release preserved",
                 ));
@@ -507,7 +508,7 @@ extern "C" fn record_wait_signal(number: i32) {
 }
 #[cfg(any(target_os = "android", target_os = "linux"))]
 #[repr(C)]
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Termios {
     input: u32,
     output: u32,
@@ -609,6 +610,22 @@ impl Drop for WaitInput {
     }
 }
 
+impl WaitInput {
+    // Give the shell its terminal back before a signal takes effect. After job
+    // control resumes this same updater, reacquire input and keep its original
+    // choice, request receipt, polling schedule and overall wait budget.
+    fn forward_signal(&mut self, number: i32, tty: bool) -> bool {
+        drop(std::mem::replace(self, Self::new(false)));
+        let _ = unsafe { raise(number) };
+        if number == 20 {
+            *self = Self::new(tty);
+            true
+        } else {
+            false
+        }
+    }
+}
+
 pub(super) fn launch_current(roots: &LocalCoreRoots, env: &TermuxProcessEnvSnapshot) -> i32 {
     match execute_activated_route(PublicDispatchRoute::Upstream(Vec::new()), roots, env) {
         Ok(PublicDispatchCompletion::TermuxUnavailable(message)) => {
@@ -704,7 +721,7 @@ pub(super) fn finish(
     println!(
         "Waiting for signed publication. [c] Continue with current version  [q] Leave updater"
     );
-    let input = WaitInput::new(tty);
+    let mut input = WaitInput::new(tty);
     let begin = Instant::now();
     let mut next_poll = Instant::now();
     let mut next_qualification = Instant::now();
@@ -715,8 +732,9 @@ pub(super) fn finish(
             .pending_signal()
             .or_else(|| key.and_then(|key| input.signal(key)))
         {
-            drop(input);
-            let _ = unsafe { raise(signal) };
+            if input.forward_signal(signal, tty) {
+                continue;
+            }
             return Ok(Completion::Exit(128 + signal));
         }
         match key.map(|b| b.to_ascii_lowercase()) {
@@ -782,8 +800,9 @@ pub(super) fn finish(
                     Ok(None) => (),
                     Err(reason) => {
                         if let Some(signal) = input.pending_signal() {
-                            drop(input);
-                            let _ = unsafe { raise(signal) };
+                            if input.forward_signal(signal, tty) {
+                                continue;
+                            }
                             return Ok(Completion::Exit(128 + signal));
                         }
                         eprintln!(
@@ -1014,6 +1033,322 @@ esac"#,
         assert!(newer("0.1000.0", "0.999.9"));
         for a in ["0.163.0", "0.162.9", "0.164.0-alpha", "00.164.0", "unknown"] {
             assert!(!newer(a, "0.163.0"));
+        }
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    mod job_control {
+        use super::*;
+        use std::io::Write as _;
+        use std::os::fd::{AsRawFd as _, FromRawFd as _};
+        use std::os::unix::process::{CommandExt as _, ExitStatusExt as _};
+
+        unsafe extern "C" {
+            fn posix_openpt(flags: i32) -> i32;
+            fn grantpt(fd: i32) -> i32;
+            fn unlockpt(fd: i32) -> i32;
+            fn ptsname(fd: i32) -> *mut std::ffi::c_char;
+            fn waitpid(pid: i32, status: *mut i32, options: i32) -> i32;
+            fn kill(pid: i32, signal: i32) -> i32;
+        }
+
+        struct Probe {
+            child: std::process::Child,
+            master: std::fs::File,
+            terminal: std::fs::File,
+            original: Termios,
+        }
+        impl Drop for Probe {
+            fn drop(&mut self) {
+                let _ = self.child.kill();
+                let _ = self.child.wait();
+            }
+        }
+        impl Probe {
+            fn start(wait_root: Option<&Path>) -> Self {
+                let fd = unsafe { posix_openpt(2 | 0x100) };
+                assert!(fd >= 0);
+                let master = unsafe { std::fs::File::from_raw_fd(fd) };
+                assert_eq!(unsafe { grantpt(fd) }, 0);
+                assert_eq!(unsafe { unlockpt(fd) }, 0);
+                let name = unsafe { std::ffi::CStr::from_ptr(ptsname(fd)) };
+                let terminal = std::fs::OpenOptions::new()
+                    .read(true)
+                    .write(true)
+                    .open(std::str::from_utf8(name.to_bytes()).unwrap())
+                    .unwrap();
+                let mut original: Termios = unsafe { std::mem::zeroed() };
+                assert_eq!(
+                    unsafe { ioctl(terminal.as_raw_fd(), 0x5401, &mut original) },
+                    0
+                );
+                let mut command = Command::new(std::env::current_exe().unwrap());
+                command
+                    .args([
+                        "manual_update::tests::job_control::choice_probe",
+                        "--exact",
+                        "--nocapture",
+                    ])
+                    .env("CODEX_TEST_MANUAL_CHOICE", "1")
+                    .env_remove(UPDATE_VERSION_ENV)
+                    .env(UPDATE_INDEX_URL_ENV, "https://example.invalid/update-index")
+                    // Keep this test's job in a non-orphaned group, as a shell
+                    // does, so default SIGTSTP actually suspends it.
+                    .process_group(0)
+                    .stdin(Stdio::from(terminal.try_clone().unwrap()))
+                    .stderr(Stdio::from(terminal.try_clone().unwrap()))
+                    .stdout(Stdio::piped());
+                if let Some(root) = wait_root {
+                    command.env("CODEX_TEST_MANUAL_WAIT_ROOT", root);
+                } else {
+                    command.env_remove("CODEX_TEST_MANUAL_WAIT_ROOT");
+                }
+                let child = command.spawn().unwrap();
+                Self {
+                    child,
+                    master,
+                    terminal,
+                    original,
+                }
+            }
+            fn mode(&self) -> Termios {
+                let mut mode: Termios = unsafe { std::mem::zeroed() };
+                assert_eq!(
+                    unsafe { ioctl(self.terminal.as_raw_fd(), 0x5401, &mut mode) },
+                    0
+                );
+                mode
+            }
+            fn wait_for_input(&mut self) {
+                let deadline = Instant::now() + Duration::from_secs(5);
+                loop {
+                    assert!(
+                        self.child.try_wait().unwrap().is_none(),
+                        "resumed updater exited before reading the choice"
+                    );
+                    if self.mode().local & (1 | 2 | 8 | 64) == 0 {
+                        return;
+                    }
+                    assert!(
+                        Instant::now() < deadline,
+                        "updater did not reacquire its terminal input"
+                    );
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+            }
+            fn wait_stopped(&mut self) {
+                let deadline = Instant::now() + Duration::from_secs(5);
+                loop {
+                    let mut status = 0;
+                    let observed = unsafe { waitpid(self.child.id() as i32, &mut status, 1 | 2) };
+                    assert!(observed >= 0);
+                    if observed != 0 {
+                        assert_eq!(
+                            status & 0xff,
+                            0x7f,
+                            "updater exited instead of suspending: {status}"
+                        );
+                        assert_eq!(status >> 8, 20);
+                        return;
+                    }
+                    assert!(
+                        Instant::now() < deadline,
+                        "updater did not stop for job control"
+                    );
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+            }
+            fn wait_exit(&mut self) -> std::process::ExitStatus {
+                let deadline = Instant::now() + Duration::from_secs(5);
+                loop {
+                    if let Some(status) = self.child.try_wait().unwrap() {
+                        return status;
+                    }
+                    assert!(
+                        Instant::now() < deadline,
+                        "updater did not finish its selected action"
+                    );
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+            }
+        }
+
+        #[test]
+        fn choice_probe() {
+            if std::env::var_os("CODEX_TEST_MANUAL_CHOICE").as_deref() != Some(OsStr::new("1")) {
+                return;
+            }
+            if let Some(root) = std::env::var_os("CODEX_TEST_MANUAL_WAIT_ROOT") {
+                let roots = wait_roots(Path::new(&root));
+                let mut presentation = UpdatePresentation::new();
+                let completion = finish(
+                    &roots,
+                    &capture_termux_process_env(),
+                    SignedUpdateOutcome::AlreadyCurrent(UpdateTarget {
+                        generation_id: "installed".into(),
+                        version: "1.0.0".into(),
+                    }),
+                    BuildPolicy::Remote,
+                    false,
+                    &mut presentation,
+                )
+                .unwrap();
+                assert!(matches!(completion, Completion::ContinueCurrent));
+                println!("completion=continue");
+            } else {
+                let selected = BuildPolicy::Ask.choose(true).unwrap();
+                println!("selected={selected:?}");
+            }
+        }
+
+        #[test]
+        fn choice_resumes_after_control_z_and_external_suspend() {
+            for external in [false, true] {
+                let mut probe = Probe::start(None);
+                probe.wait_for_input();
+                for _ in 0..2 {
+                    if external {
+                        assert_eq!(unsafe { kill(probe.child.id() as i32, 20) }, 0);
+                    } else {
+                        probe.master.write_all(&[probe.original.chars[10]]).unwrap();
+                    }
+                    probe.wait_stopped();
+                    assert_eq!(
+                        probe.mode(),
+                        probe.original,
+                        "stopped updater left raw terminal mode"
+                    );
+                    assert_eq!(unsafe { kill(probe.child.id() as i32, 18) }, 0);
+                    probe.wait_for_input();
+                }
+                probe.master.write_all(b"2").unwrap();
+                let status = probe.wait_exit();
+                let mut output = String::new();
+                probe
+                    .child
+                    .stdout
+                    .take()
+                    .unwrap()
+                    .read_to_string(&mut output)
+                    .unwrap();
+                assert!(status.success(), "{status}: {output}");
+                assert!(output.contains("selected=Local"), "{output}");
+                assert_eq!(probe.mode(), probe.original);
+            }
+        }
+
+        #[test]
+        fn interrupt_still_terminates_and_restores_the_terminal() {
+            let mut probe = Probe::start(None);
+            probe.wait_for_input();
+            probe.master.write_all(&[probe.original.chars[0]]).unwrap();
+            assert_eq!(probe.wait_exit().signal(), Some(2));
+            assert_eq!(probe.mode(), probe.original);
+        }
+
+        fn wait_roots(root: &Path) -> LocalCoreRoots {
+            LocalCoreRoots {
+                generation_root: root.join("generations"),
+                state_root: root.to_owned(),
+                config_dir: root.join("config"),
+                resolver_path: root.join("resolv.conf"),
+                cert_file: root.join("cert.pem"),
+                cert_dir: root.join("certs"),
+                openssl: root.join("openssl"),
+                curl: root.join("curl"),
+            }
+        }
+
+        #[test]
+        fn publication_wait_resumes_without_reissuing_its_build_request() {
+            for during_status in [false, true] {
+                let sleep = crate::tests::resolve_test_tool("sleep").unwrap();
+                let status = if during_status {
+                    format!(
+                        "printf 'status\\n' >> \"$0.status\"; exec '{}' 5",
+                        sleep.to_string_lossy()
+                    )
+                } else {
+                    format!("printf '{}\\n'", "a".repeat(40))
+                };
+                let (root, roots) = fixture(&format!(
+                    r#"
+case "$2" in
+  --method) printf 'effect\n' >> "$0.effects"; printf '12345\n';;
+  */actions/runs/12345) printf '2026-10-29T00:00:00Z\n';;
+  *auto-release-termux.yml/runs*) printf '0\tpending\tpending\n';;
+  */git/ref/*) {status};;
+  */contents/release/*) printf '2.0.0\n';;
+  *source-acceptance*|*core-runtime-qualification*) printf '0\tpending\n';;
+  *) printf '0\n';;
+esac
+"#
+                ));
+                let sh = crate::tests::resolve_test_tool("sh").unwrap();
+                let metadata = format!(
+                    r#"{{"tag_name":"rust-v2.0.0","assets":[{{"name":"{UPSTREAM_PACKAGE_ASSET}","digest":"sha256:{}"}}]}}"#,
+                    "a".repeat(64)
+                );
+                std::fs::write(&roots.curl, format!("#!{}\ncase \"$*\" in *openai/codex/releases/latest*) printf '%s\\n' '{}';; *) exit 7;; esac\n", sh.to_string_lossy(), metadata)).unwrap();
+                std::fs::set_permissions(&roots.curl, std::fs::Permissions::from_mode(0o700))
+                    .unwrap();
+                std::os::unix::fs::symlink(
+                    crate::tests::resolve_test_tool("openssl").unwrap(),
+                    &roots.openssl,
+                )
+                .unwrap();
+                let paths = m2_generation_state::CoreStatePaths::new(&root).unwrap();
+                m2_generation_state::activate_pointer_state(
+                    &paths,
+                    None,
+                    &m2_generation_state::GenerationPointerState {
+                        update_key: ReleasePublicKey([1; 32]),
+                        current: "installed".into(),
+                        current_key: ReleasePublicKey([1; 32]),
+                        previous: None,
+                        previous_key: None,
+                    },
+                )
+                .unwrap();
+                let before = std::fs::read(&paths.activation_state).unwrap();
+                let mut probe = Probe::start(Some(&root));
+                probe.wait_for_input();
+                let receipt = root.join("manual-build-2.0.0");
+                let original_receipt = std::fs::read(&receipt).unwrap();
+                assert_eq!(original_receipt, [RECEIPT, b"run\t12345\n"].concat());
+                if during_status {
+                    let deadline = Instant::now() + Duration::from_secs(5);
+                    while !root.join("gh.status").exists() {
+                        assert!(probe.child.try_wait().unwrap().is_none());
+                        assert!(Instant::now() < deadline, "status query did not start");
+                        std::thread::sleep(Duration::from_millis(10));
+                    }
+                    assert_eq!(unsafe { kill(probe.child.id() as i32, 20) }, 0);
+                } else {
+                    probe.master.write_all(&[probe.original.chars[10]]).unwrap();
+                }
+                probe.wait_stopped();
+                assert_eq!(probe.mode(), probe.original);
+                assert_eq!(unsafe { kill(probe.child.id() as i32, 18) }, 0);
+                probe.wait_for_input();
+                probe.master.write_all(b"c").unwrap();
+                assert!(probe.wait_exit().success());
+                let mut output = String::new();
+                probe
+                    .child
+                    .stdout
+                    .take()
+                    .unwrap()
+                    .read_to_string(&mut output)
+                    .unwrap();
+                assert!(output.contains("completion=continue"), "{output}");
+                assert_eq!(probe.mode(), probe.original);
+                assert_eq!(std::fs::read(root.join("gh.effects")).unwrap(), b"effect\n");
+                assert_eq!(std::fs::read(receipt).unwrap(), original_receipt);
+                assert_eq!(std::fs::read(&paths.activation_state).unwrap(), before);
+                drop(probe);
+                crate::tests::remove_temp_root(root);
+            }
         }
     }
 }
