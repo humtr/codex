@@ -299,10 +299,14 @@ def probe(args):
         def binding(work):
             return {key: work[key] for key in ('work_id', 'controller')}
 
-        def native(work):
+        def execution_owner(work):
             owner = record(work)['execution']
             assert process(owner) == owner['process']
             assert owner['home'] == str(home) and owner['process']['image'] == str(runtime)
+            return owner
+
+        def native(work):
+            owner = execution_owner(work)
             connection = Ws(str(Path(owner['directory']) / 's'), uri_path='/rpc')
             try:
                 pid, uid, _ = struct.unpack('3i', connection.socket.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, 12))
@@ -316,6 +320,11 @@ def probe(args):
             work = client.call('codex_sessions', {'action': 'create', 'inference': 'attached', 'call_id': 'result-create-' + label})
             works[label] = work
             creation_pending = False
+            # Allocation has already selected this private fixture's Native
+            # owner. Retain it before start/attach can fail so confirmed Stop
+            # can clean up that same owner even without an attach receipt.
+            owner = execution_owner(work)
+            owners[owner['process']['pid']] = owner
             if label == 'original':
                 proxy.thread = work['thread_id']
             client.call('codex_sessions', {**binding(work), 'action': 'start', 'call_id': 'result-start-' + label,
@@ -329,8 +338,6 @@ def probe(args):
             assert client.call('codex_attach', {**binding(work), 'accept': receipt['receipt']})['accepted']
             tools = client.call('codex_tools', binding(work))['tools']
             work['exec'] = next(key for key in tools if key.rsplit('.', 1)[-1] == 'exec_command')
-            owner = record(work)['execution']
-            owners[owner['process']['pid']] = owner
         original = works['original']
         proxy.observe = lambda identity: wait(lambda: completed_command(native(original), identity), 'original command did not publish its terminal item')
         command = "printf 'once\\n' >> callback-effects; printf 'BEGIN\\n'; i=0; while [ \"$i\" -lt 128 ]; do printf 'original-native-output\\n'; i=$((i+1)); done; printf 'END\\n'"
