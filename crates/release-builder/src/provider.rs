@@ -332,11 +332,11 @@ fn package(args: &[OsString]) -> Result<(), BuilderError> {
     }
     let path = |key: &str| {
         let p = PathBuf::from(fields[key]);
-        if p.is_absolute() {
+        if canonical_absolute_path(&p) {
             Ok(p)
         } else {
             Err(BuilderError::Invalid(
-                "absolute Provider package path required",
+                "canonical absolute Provider package path required",
             ))
         }
     };
@@ -357,8 +357,18 @@ fn package(args: &[OsString]) -> Result<(), BuilderError> {
         source_inputs: String::new(),
         files: Vec::new(),
     };
-    if output.exists() {
+    if std::fs::symlink_metadata(&output).is_ok() {
         return Err(BuilderError::Invalid("Provider output already exists"));
+    }
+    let parent = output
+        .parent()
+        .ok_or(BuilderError::Invalid("Provider output has no parent"))?;
+    if std::fs::canonicalize(parent).map_err(|e| io_error("resolve Provider output parent", e))?
+        != parent
+    {
+        return Err(BuilderError::Invalid(
+            "Provider output parent contains a symlink",
+        ));
     }
     let staging = output.with_file_name(format!(
         ".provider-stage-{}-{}",
@@ -383,7 +393,22 @@ fn package(args: &[OsString]) -> Result<(), BuilderError> {
                 return Err(BuilderError::Invalid("Provider asset size invalid"));
             }
             let destination = staging.join(name);
-            let input = File::open(&source).map_err(|e| io_error("open Provider asset", e))?;
+            let input = OpenOptions::new()
+                .read(true)
+                .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+                .open(&source)
+                .map_err(|e| io_error("open Provider asset", e))?;
+            let opened = input
+                .metadata()
+                .map_err(|e| io_error("inspect opened Provider asset", e))?;
+            if !opened.is_file() || opened.len() != metadata.len() {
+                return Err(BuilderError::Invalid(
+                    "Provider asset changed before snapshot",
+                ));
+            }
+            if name == "codex-chatgpt-provider" {
+                validate_publish_file_mode(&opened, true, "Provider executable mode is unsafe")?;
+            }
             let mut file = create_private_file(&destination)?;
             io::copy(&mut input.take(file_limit(name) + 1), &mut file)
                 .map_err(|e| io_error("copy Provider asset", e))?;
@@ -396,15 +421,7 @@ fn package(args: &[OsString]) -> Result<(), BuilderError> {
                 return Err(BuilderError::Invalid("Provider asset changed"));
             }
             if name == "codex-chatgpt-provider" {
-                let mut header = [0u8; 64];
-                File::open(&destination)
-                    .and_then(|mut f| f.read_exact(&mut header))
-                    .map_err(|e| io_error("read Provider ELF", e))?;
-                if header[..6] != *b"\x7fELF\x02\x01" || header[18..20] != [0xb7, 0] {
-                    return Err(BuilderError::Invalid(
-                        "Android/AArch64 Provider ELF required",
-                    ));
-                }
+                validate_android_aarch64_elf(&destination)?;
             }
             let mode = if name == "codex-chatgpt-provider" {
                 0o755
@@ -464,6 +481,91 @@ pub(crate) fn command(args: &[OsString]) -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn producer_admits_android_pie_and_rejects_malformed_or_unsafe_inputs() {
+        let openssl = std::env::var_os("PREFIX")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from("/usr"))
+            .join("bin/openssl");
+        for fault in [
+            "none",
+            "type",
+            "program-bound",
+            "linker",
+            "missing-linker",
+            "legacy-magic",
+            "mode",
+        ] {
+            let root = std::env::temp_dir().join(format!(
+                "provider-producer-{}-{}",
+                std::process::id(),
+                STAGING_COUNTER.fetch_add(1, Ordering::Relaxed)
+            ));
+            std::fs::create_dir(&root).unwrap();
+            let assets = root.join("assets");
+            std::fs::create_dir_all(assets.join("licenses")).unwrap();
+            for name in FILES
+                .into_iter()
+                .filter(|name| !matches!(*name, "codex-chatgpt-provider" | "source-inputs.json"))
+            {
+                std::fs::write(assets.join(name), b"owned fixture input\n").unwrap();
+            }
+            let binary = root.join("provider");
+            let mut bytes = super::super::tests::fake_core_elf(ANDROID_AARCH64_INTERPRETER);
+            match fault {
+                "none" | "mode" => {}
+                "type" => bytes[16..18].copy_from_slice(&2u16.to_le_bytes()),
+                "program-bound" => bytes[32..40].copy_from_slice(&u64::MAX.to_le_bytes()),
+                "linker" => *bytes.last_mut().unwrap() = b'x',
+                "missing-linker" => bytes[64..68].copy_from_slice(&1u32.to_le_bytes()),
+                "legacy-magic" => bytes.truncate(64),
+                _ => unreachable!(),
+            }
+            std::fs::write(&binary, &bytes).unwrap();
+            set_mode(
+                &binary,
+                if fault == "mode" { 0o777 } else { 0o755 },
+                "set Provider fixture mode",
+            )
+            .unwrap();
+            let inputs = root.join("source-inputs.json");
+            std::fs::write(&inputs, b"{\"fixture\":true}\n").unwrap();
+            let private = root.join("private.pem");
+            assert!(Command::new(&openssl)
+                .args(["genpkey", "-algorithm", "Ed25519", "-out"])
+                .arg(&private)
+                .output()
+                .unwrap()
+                .status
+                .success());
+            let output = root.join("package");
+            let mut args = vec![OsString::from("provider-package")];
+            for (flag, value) in [
+                ("--binary", binary.as_os_str().to_owned()),
+                ("--assets", assets.into_os_string()),
+                ("--source-inputs", inputs.into_os_string()),
+                ("--source-sha", "a".repeat(40).into()),
+                ("--generation-id", "provider-chatgpt-v0.0.0-fixture".into()),
+                ("--release-sequence", "1".into()),
+                ("--private-key", private.into_os_string()),
+                ("--openssl", openssl.as_os_str().to_owned()),
+                ("--output", output.as_os_str().to_owned()),
+            ] {
+                args.extend([flag.into(), value]);
+            }
+            let result = package(&args);
+            assert_eq!(result.is_ok(), fault == "none", "{fault}: {result:?}");
+            assert_eq!(output.exists(), fault == "none");
+            assert_eq!(std::fs::read(&binary).unwrap(), bytes);
+            assert!(!std::fs::read_dir(&root).unwrap().any(|entry| entry
+                .unwrap()
+                .file_name()
+                .to_string_lossy()
+                .starts_with(".provider-stage-")));
+            std::fs::remove_dir_all(root).unwrap();
+        }
+    }
 
     #[test]
     fn new_generation_names_preserve_legacy_manifest_and_index_identity() {

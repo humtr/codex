@@ -165,6 +165,12 @@ fn report(path: &Path, value: &Value) -> Result<()> {
 }
 
 fn verify(directory: &Path, recipe: &Recipe, openssl: &Path) -> Result<String> {
+    if !fs::symlink_metadata(directory)
+        .map_err(|e| e.to_string())?
+        .is_dir()
+    {
+        return Err("runtime artifact root must be a real directory".into());
+    }
     let entries: BTreeSet<_> = fs::read_dir(directory)
         .map_err(|e| e.to_string())?
         .map(|entry| entry.map(|e| e.file_name()))
@@ -182,6 +188,18 @@ fn verify(directory: &Path, recipe: &Recipe, openssl: &Path) -> Result<String> {
             return Err(format!("runtime artifact is not a regular file: {name}"));
         }
     }
+    let binary = directory.join("codex");
+    let metadata = fs::symlink_metadata(&binary).map_err(|e| e.to_string())?;
+    super::validate_publish_file_mode(
+        &metadata,
+        true,
+        "runtime artifact executable mode is unsafe",
+    )
+    .map_err(|e| e.to_string())?;
+    if metadata.len() > super::RELEASE_FILE_MAX_BYTES {
+        return Err("runtime artifact executable exceeds its byte bound".into());
+    }
+    super::validate_static_aarch64_elf(&binary).map_err(|e| e.to_string())?;
     let digest =
         super::openssl_sha256(openssl, &directory.join("codex")).map_err(|e| e.to_string())?;
     let preparation: Value = serde_json::from_slice(&read(&directory.join("preparation.json"))?)
@@ -936,14 +954,26 @@ mod tests {
     #[test]
     fn raw_transfer_inventory_identity_and_alias_faults_are_rejected() {
         for fault in [
-            "none", "binary", "source", "version", "audit", "extra", "alias",
+            "none",
+            "binary",
+            "source",
+            "version",
+            "audit",
+            "extra",
+            "alias",
+            "root-alias",
+            "not-executable",
+            "writable",
+            "dynamic-elf",
+            "hashed-non-elf",
         ] {
             let root = root();
             let path = root.join("recipe.json");
             report(&path, &inputs()).unwrap();
             let output = root.join("artifact");
             fs::create_dir(&output).unwrap();
-            fs::write(output.join("codex"), b"owned raw transfer bytes").unwrap();
+            fs::write(output.join("codex"), super::super::tests::fake_elf(false)).unwrap();
+            fs::set_permissions(output.join("codex"), fs::Permissions::from_mode(0o700)).unwrap();
             let digest = super::super::openssl_sha256(&openssl(), &output.join("codex")).unwrap();
             fs::write(output.join("sha256.txt"), format!("{digest}  codex\n")).unwrap();
             fs::write(output.join("version.txt"), "codex-cli 0.165.0\n").unwrap();
@@ -972,6 +1002,29 @@ mod tests {
                 "alias" => {
                     fs::remove_file(output.join("source.patch")).unwrap();
                     std::os::unix::fs::symlink("version.txt", output.join("source.patch")).unwrap();
+                }
+                "root-alias" => {
+                    fs::rename(&output, root.join("real-artifact")).unwrap();
+                    std::os::unix::fs::symlink(root.join("real-artifact"), &output).unwrap();
+                }
+                "not-executable" => {
+                    fs::set_permissions(output.join("codex"), fs::Permissions::from_mode(0o600))
+                        .unwrap()
+                }
+                "writable" => {
+                    fs::set_permissions(output.join("codex"), fs::Permissions::from_mode(0o777))
+                        .unwrap()
+                }
+                "dynamic-elf" | "hashed-non-elf" => {
+                    let bytes = if fault == "dynamic-elf" {
+                        super::super::tests::fake_elf(true)
+                    } else {
+                        b"owned non-ELF bytes".to_vec()
+                    };
+                    fs::write(output.join("codex"), bytes).unwrap();
+                    let digest =
+                        super::super::openssl_sha256(&openssl(), &output.join("codex")).unwrap();
+                    fs::write(output.join("sha256.txt"), format!("{digest}  codex\n")).unwrap();
                 }
                 _ => unreachable!(),
             }

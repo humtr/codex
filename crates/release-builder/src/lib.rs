@@ -1089,7 +1089,7 @@ fn validate_publish_file_mode(
     message: &'static str,
 ) -> Result<u32, BuilderError> {
     let mode = metadata.permissions().mode() & 0o7777;
-    if mode & 0o7000 != 0 || mode & 0o400 == 0 || (executable && mode & 0o100 == 0) {
+    if mode & 0o7022 != 0 || mode & 0o400 == 0 || (executable && mode & 0o100 == 0) {
         return Err(BuilderError::Invalid(message));
     }
     Ok(mode)
@@ -2089,16 +2089,20 @@ fn snapshot_core_artifact(
     request: &GenerationRequest,
     staging: &Path,
 ) -> Result<String, BuilderError> {
-    let source =
-        File::open(&request.core).map_err(|source| io_error("open Core artifact", source))?;
+    let source = OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+        .open(&request.core)
+        .map_err(|source| io_error("open Core artifact", source))?;
     let metadata = source
         .metadata()
         .map_err(|source| io_error("inspect opened Core artifact", source))?;
-    if !metadata.file_type().is_file() || metadata.permissions().mode() & 0o111 == 0 {
+    if !metadata.file_type().is_file() {
         return Err(BuilderError::Invalid(
             "opened Core artifact is not an executable regular file",
         ));
     }
+    validate_publish_file_mode(&metadata, true, "opened Core artifact mode is unsafe")?;
     if metadata.len() > CORE_ARTIFACT_MAX_BYTES {
         return Err(BuilderError::Invalid(
             "opened Core artifact exceeds its byte bound",
@@ -2110,9 +2114,9 @@ fn snapshot_core_artifact(
     let mut bounded = source.take(CORE_ARTIFACT_MAX_BYTES.saturating_add(1));
     let copied = io::copy(&mut bounded, &mut snapshot)
         .map_err(|source| io_error("snapshot Core artifact", source))?;
-    if copied > CORE_ARTIFACT_MAX_BYTES {
+    if copied > CORE_ARTIFACT_MAX_BYTES || copied != metadata.len() {
         return Err(BuilderError::Invalid(
-            "Core artifact exceeds its byte bound",
+            "Core artifact changed or exceeds its byte bound",
         ));
     }
     snapshot
@@ -2120,7 +2124,7 @@ fn snapshot_core_artifact(
         .map_err(|source| io_error("sync Core artifact snapshot", source))?;
     drop(snapshot);
 
-    validate_android_aarch64_core_elf(&snapshot_path)?;
+    validate_android_aarch64_elf(&snapshot_path)?;
     let sha256 = openssl_sha256(&request.openssl, &snapshot_path)?;
     Ok(sha256)
 }
@@ -2132,19 +2136,20 @@ fn snapshot_manager_artifact(
     let Some(source_path) = request.manager.as_ref() else {
         return Ok(None);
     };
-    let source =
-        File::open(source_path).map_err(|source| io_error("open Manager artifact", source))?;
+    let source = OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+        .open(source_path)
+        .map_err(|source| io_error("open Manager artifact", source))?;
     let metadata = source
         .metadata()
         .map_err(|source| io_error("inspect opened Manager artifact", source))?;
-    if !metadata.file_type().is_file()
-        || metadata.permissions().mode() & 0o111 == 0
-        || metadata.len() > MANAGER_ARTIFACT_MAX_BYTES
-    {
+    if !metadata.file_type().is_file() || metadata.len() > MANAGER_ARTIFACT_MAX_BYTES {
         return Err(BuilderError::Invalid(
             "opened Manager artifact is outside its byte or type bound",
         ));
     }
+    validate_publish_file_mode(&metadata, true, "opened Manager artifact mode is unsafe")?;
 
     let snapshot_path = staging.join(".manager-artifact");
     let mut snapshot = create_private_file(&snapshot_path)?;
@@ -2195,8 +2200,20 @@ fn snapshot_manager_tui_source(
             "Manager frontend is outside its executable or byte bound",
         ));
     }
-    let mut source =
-        File::open(artifact).map_err(|source| io_error("open Manager frontend", source))?;
+    let mut source = OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+        .open(artifact)
+        .map_err(|source| io_error("open TUI artifact", source))?;
+    let opened = source
+        .metadata()
+        .map_err(|source| io_error("inspect opened TUI artifact", source))?;
+    if !opened.is_file() || opened.len() != source_metadata.len() {
+        return Err(BuilderError::Invalid(
+            "TUI artifact changed before snapshot",
+        ));
+    }
+    validate_publish_file_mode(&opened, true, "opened TUI artifact mode is unsafe")?;
     let snapshot_path = staging.join(".manager-tui-artifact");
     let mut snapshot = create_private_file(&snapshot_path)?;
     let copied = io::copy(
@@ -3099,14 +3116,13 @@ fn validate_static_aarch64_elf(path: &Path) -> Result<(), BuilderError> {
     if program_count == 0 {
         return Err(BuilderError::Archive("selected ELF has no program headers"));
     }
-    let program_bytes = program_count
+    program_count
         .checked_mul(56)
         .and_then(|length| program_offset.checked_add(length))
         .filter(|end| *end <= file_len)
         .ok_or(BuilderError::Archive(
             "selected ELF program headers are malformed",
         ))?;
-    let _ = program_bytes;
     let mut program_header = [0u8; 56];
     for index in 0..program_count {
         file.seek(SeekFrom::Start(program_offset + index * 56))
@@ -3122,15 +3138,15 @@ fn validate_static_aarch64_elf(path: &Path) -> Result<(), BuilderError> {
     Ok(())
 }
 
-fn validate_android_aarch64_core_elf(path: &Path) -> Result<(), BuilderError> {
-    let mut file = File::open(path).map_err(|source| io_error("open Core ELF", source))?;
+fn validate_android_aarch64_elf(path: &Path) -> Result<(), BuilderError> {
+    let mut file = File::open(path).map_err(|source| io_error("open Android ELF", source))?;
     let file_len = file
         .metadata()
-        .map_err(|source| io_error("inspect Core ELF", source))?
+        .map_err(|source| io_error("inspect Android ELF", source))?
         .len();
     let mut header = [0u8; 64];
     file.read_exact(&mut header)
-        .map_err(|source| io_error("read Core ELF header", source))?;
+        .map_err(|source| io_error("read Android ELF header", source))?;
     if &header[..4] != b"\x7fELF"
         || header[4] != 2
         || header[5] != 1
@@ -3142,133 +3158,55 @@ fn validate_android_aarch64_core_elf(path: &Path) -> Result<(), BuilderError> {
         || little_u16(&header[54..56]) != 56
     {
         return Err(BuilderError::Invalid(
-            "Core artifact is not a supported Android AArch64 PIE ELF",
+            "Android artifact is not a supported Android AArch64 PIE ELF",
         ));
     }
     let program_offset = little_u64(&header[32..40]);
     let program_count = u64::from(little_u16(&header[56..58]));
     if program_count == 0 {
-        return Err(BuilderError::Invalid("Core ELF has no program headers"));
+        return Err(BuilderError::Invalid("Android ELF has no program headers"));
     }
     program_count
         .checked_mul(56)
         .and_then(|length| program_offset.checked_add(length))
         .filter(|end| *end <= file_len)
         .ok_or(BuilderError::Invalid(
-            "Core ELF program headers are malformed",
+            "Android ELF program headers are malformed",
         ))?;
 
     let mut interpreter = None;
     let mut program_header = [0u8; 56];
     for index in 0..program_count {
         file.seek(SeekFrom::Start(program_offset + index * 56))
-            .map_err(|source| io_error("seek Core ELF program header", source))?;
+            .map_err(|source| io_error("seek Android ELF program header", source))?;
         file.read_exact(&mut program_header)
-            .map_err(|source| io_error("read Core ELF program header", source))?;
+            .map_err(|source| io_error("read Android ELF program header", source))?;
         if little_u32(&program_header[..4]) != 3 {
             continue;
         }
         if interpreter.is_some() {
             return Err(BuilderError::Invalid(
-                "Core ELF has multiple PT_INTERP program headers",
+                "Android ELF has multiple PT_INTERP program headers",
             ));
         }
         let offset = little_u64(&program_header[8..16]);
         let size = little_u64(&program_header[32..40]);
-        let end = offset
+        offset
             .checked_add(size)
-            .filter(|end| *end <= file_len)
-            .ok_or(BuilderError::Invalid("Core ELF interpreter is malformed"))?;
-        let size = usize::try_from(size)
-            .map_err(|_| BuilderError::Invalid("Core ELF interpreter is malformed"))?;
-        let mut value = vec![0u8; size];
-        file.seek(SeekFrom::Start(offset))
-            .map_err(|source| io_error("seek Core ELF interpreter", source))?;
-        file.read_exact(&mut value)
-            .map_err(|source| io_error("read Core ELF interpreter", source))?;
-        let _ = end;
-        interpreter = Some(value);
-    }
-    if interpreter.as_deref() != Some(ANDROID_AARCH64_INTERPRETER) {
-        return Err(BuilderError::Invalid(
-            "Core artifact does not use the Android AArch64 dynamic linker",
-        ));
-    }
-    Ok(())
-}
-
-fn validate_android_aarch64_manager_elf(path: &Path) -> Result<(), BuilderError> {
-    let mut file = File::open(path).map_err(|source| io_error("open Manager ELF", source))?;
-    let file_len = file
-        .metadata()
-        .map_err(|source| io_error("inspect Manager ELF", source))?
-        .len();
-    let mut header = [0u8; 64];
-    file.read_exact(&mut header)
-        .map_err(|source| io_error("read Manager ELF header", source))?;
-    if &header[..4] != b"\x7fELF"
-        || header[4] != 2
-        || header[5] != 1
-        || header[6] != 1
-        || little_u16(&header[16..18]) != 3
-        || little_u16(&header[18..20]) != 183
-        || little_u32(&header[20..24]) != 1
-        || little_u16(&header[52..54]) != 64
-        || little_u16(&header[54..56]) != 56
-    {
-        return Err(BuilderError::Invalid(
-            "Manager artifact is not a supported Android AArch64 PIE ELF",
-        ));
-    }
-    let program_offset = little_u64(&header[32..40]);
-    let program_count = u64::from(little_u16(&header[56..58]));
-    if program_count == 0 {
-        return Err(BuilderError::Invalid("Manager ELF has no program headers"));
-    }
-    program_count
-        .checked_mul(56)
-        .and_then(|length| program_offset.checked_add(length))
-        .filter(|end| *end <= file_len)
-        .ok_or(BuilderError::Invalid(
-            "Manager ELF program headers are malformed",
-        ))?;
-
-    let mut interpreter = None;
-    let mut program_header = [0u8; 56];
-    for index in 0..program_count {
-        file.seek(SeekFrom::Start(program_offset + index * 56))
-            .map_err(|source| io_error("seek Manager ELF program header", source))?;
-        file.read_exact(&mut program_header)
-            .map_err(|source| io_error("read Manager ELF program header", source))?;
-        if little_u32(&program_header[..4]) != 3 {
-            continue;
-        }
-        if interpreter.is_some() {
-            return Err(BuilderError::Invalid(
-                "Manager ELF has multiple PT_INTERP program headers",
-            ));
-        }
-        let offset = little_u64(&program_header[8..16]);
-        let size = little_u64(&program_header[32..40]);
-        let end = offset
-            .checked_add(size)
-            .filter(|end| *end <= file_len)
+            .filter(|end| *end <= file_len && size == ANDROID_AARCH64_INTERPRETER.len() as u64)
             .ok_or(BuilderError::Invalid(
-                "Manager ELF interpreter is malformed",
+                "Android ELF interpreter is malformed",
             ))?;
-        let size = usize::try_from(size)
-            .map_err(|_| BuilderError::Invalid("Manager ELF interpreter is malformed"))?;
-        let mut value = vec![0u8; size];
+        let mut value = [0u8; ANDROID_AARCH64_INTERPRETER.len()];
         file.seek(SeekFrom::Start(offset))
-            .map_err(|source| io_error("seek Manager ELF interpreter", source))?;
+            .map_err(|source| io_error("seek Android ELF interpreter", source))?;
         file.read_exact(&mut value)
-            .map_err(|source| io_error("read Manager ELF interpreter", source))?;
-        let _ = end;
+            .map_err(|source| io_error("read Android ELF interpreter", source))?;
         interpreter = Some(value);
     }
-    if interpreter.as_deref() != Some(ANDROID_AARCH64_INTERPRETER) {
+    if interpreter.as_ref().map(|value| value.as_slice()) != Some(ANDROID_AARCH64_INTERPRETER) {
         return Err(BuilderError::Invalid(
-            "Manager artifact does not use the Android AArch64 dynamic linker",
+            "Android artifact does not use the Android AArch64 dynamic linker",
         ));
     }
     Ok(())
@@ -3450,11 +3388,23 @@ struct AdaptedGeneration {
 }
 
 fn set_mode(path: &Path, mode: u32, operation: &'static str) -> Result<(), BuilderError> {
-    let mut permissions = std::fs::symlink_metadata(path)
-        .map_err(|source| io_error(operation, source))?
-        .permissions();
+    let file = OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+        .open(path)
+        .map_err(|source| io_error(operation, source))?;
+    let metadata = file
+        .metadata()
+        .map_err(|source| io_error(operation, source))?;
+    if !metadata.is_file() && !metadata.is_dir() {
+        return Err(BuilderError::Invalid(
+            "permission target must be a regular file or real directory",
+        ));
+    }
+    let mut permissions = metadata.permissions();
     permissions.set_mode(mode);
-    std::fs::set_permissions(path, permissions).map_err(|source| io_error(operation, source))
+    file.set_permissions(permissions)
+        .map_err(|source| io_error(operation, source))
 }
 
 fn sync_directory(path: &Path, operation: &'static str) -> Result<(), BuilderError> {
@@ -3917,7 +3867,7 @@ pub fn build_generation(request: &GenerationRequest) -> Result<(), BuilderError>
         if manager_sha256.is_some() {
             let manager_snapshot = staging.join(".manager-artifact");
             if request.defer_manager_probe {
-                validate_android_aarch64_manager_elf(&manager_snapshot)?;
+                validate_android_aarch64_elf(&manager_snapshot)?;
                 write_deferred_manager_probe_marker(&staging)?;
             } else {
                 qualify_manager_artifact(&manager_snapshot, &staging)?;
@@ -4391,7 +4341,7 @@ fi
         }
     }
 
-    fn fake_elf(interpreter: bool) -> Vec<u8> {
+    pub(super) fn fake_elf(interpreter: bool) -> Vec<u8> {
         let mut bytes = vec![0u8; 120];
         bytes[..4].copy_from_slice(b"\x7fELF");
         bytes[4] = 2;
@@ -4408,7 +4358,7 @@ fi
         bytes
     }
 
-    fn fake_core_elf(interpreter: &[u8]) -> Vec<u8> {
+    pub(super) fn fake_core_elf(interpreter: &[u8]) -> Vec<u8> {
         let interpreter_offset = 120usize;
         let mut bytes = vec![0u8; interpreter_offset + interpreter.len()];
         bytes[..4].copy_from_slice(b"\x7fELF");
@@ -5838,7 +5788,7 @@ fi
         assert!(
             error
                 .to_string()
-                .contains("Manager artifact is not a supported Android AArch64 PIE ELF"),
+                .contains("Android artifact is not a supported Android AArch64 PIE ELF"),
             "unexpected error: {error}"
         );
         assert!(!invalid.request.output.exists());
@@ -5938,6 +5888,8 @@ fi
     fn test_m2_b8_slice1_core_artifact_rejection_matrix_is_fail_closed() {
         for case in [
             "not-executable",
+            "group-writable",
+            "world-writable",
             "not-elf",
             "wrong-type",
             "wrong-machine",
@@ -5949,6 +5901,12 @@ fi
             match case {
                 "not-executable" => {
                     set_mode(&fixture.request.core, 0o600, "clear test Core execute mode").unwrap()
+                }
+                "group-writable" => {
+                    set_mode(&fixture.request.core, 0o770, "change test Core mode").unwrap()
+                }
+                "world-writable" => {
+                    set_mode(&fixture.request.core, 0o707, "change test Core mode").unwrap()
                 }
                 "not-elf" => std::fs::write(&fixture.request.core, b"not an ELF").unwrap(),
                 "wrong-type" => {
@@ -5980,7 +5938,7 @@ fi
                 }
                 _ => unreachable!(),
             }
-            if case != "not-executable" {
+            if !matches!(case, "not-executable" | "group-writable" | "world-writable") {
                 set_mode(&fixture.request.core, 0o700, "set mutated test Core mode").unwrap();
             }
             assert!(
@@ -5994,6 +5952,41 @@ fi
             assert!(no_builder_staging(&fixture.root));
             fixture.remove();
         }
+    }
+
+    #[test]
+    fn publication_permissions_reject_shared_writes_and_never_follow_aliases() {
+        let fixture = fixture("publication-modes", happy_entries("0.150.1"), false);
+        let file = fixture.root.join("permission-target");
+        std::fs::write(&file, "owned").unwrap();
+        for (mode, executable, accepted) in [
+            (0o644, false, true),
+            (0o600, false, true),
+            (0o755, true, true),
+            (0o700, true, true),
+            (0o664, false, false),
+            (0o666, false, false),
+            (0o775, true, false),
+            (0o777, true, false),
+            (0o4755, true, false),
+        ] {
+            set_mode(&file, mode, "set test publication mode").unwrap();
+            let metadata = std::fs::metadata(&file).unwrap();
+            assert_eq!(
+                validate_publish_file_mode(&metadata, executable, "unsafe mode").is_ok(),
+                accepted,
+                "mode={mode:o}"
+            );
+        }
+        set_mode(&file, 0o600, "restore test mode").unwrap();
+        let alias = fixture.root.join("permission-alias");
+        std::os::unix::fs::symlink(&file, &alias).unwrap();
+        assert!(set_mode(&alias, 0o777, "must not change alias target").is_err());
+        assert_eq!(
+            std::fs::metadata(&file).unwrap().permissions().mode() & 0o7777,
+            0o600
+        );
+        fixture.remove();
     }
 
     #[test]
