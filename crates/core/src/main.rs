@@ -276,7 +276,7 @@ fn check_unsupported_config_token(token: &str) -> Option<String> {
 /// Plans upstream passthrough arguments for Termux execution.
 ///
 /// Validates that explicit Linux sandbox requests that Termux cannot enforce
-/// (such as `read-only`, `workspace-write`, and `sandbox linux`) fail clearly.
+/// (including upstream aliases that select `workspace-write`) fail clearly.
 /// Returns all accepted original user arguments unchanged, including bare argv.
 /// The full-access default belongs to the FD-34 system configuration layer.
 fn plan_passthrough_args<I, S>(args: I) -> Result<Vec<OsString>, PassthroughError>
@@ -312,7 +312,14 @@ where
             break;
         }
 
-        if s == "--sandbox" || s == "-s" {
+        if matches!(s, "--approve-for-me" | "--not-so-yolo") {
+            // SharedCliOptions::take_auto_review_config_overrides selects
+            // workspace-write for these aliases after parsing upstream argv.
+            // Reject that same unsupported sandbox before any runtime I/O.
+            return Err(PassthroughError::UnsupportedSandboxMode(
+                "workspace-write".to_owned(),
+            ));
+        } else if s == "--sandbox" || s == "-s" {
             if i + 1 < original.len() {
                 i += 1;
                 if let Some(next_str) = original[i].to_str() {
@@ -12824,6 +12831,49 @@ mod tests {
         ];
         let planned = plan_passthrough_args(original.clone()).unwrap();
         assert_eq!(planned, original);
+    }
+
+    #[test]
+    fn upstream_automatic_approval_aliases_require_the_unsupported_workspace_sandbox() {
+        // Qualified upstream SharedCliOptions expands both aliases into an
+        // explicit sandbox_mode="workspace-write" override. The companion
+        // upstream-auto-review fixture exercises that actual upstream type.
+        for flag in ["--approve-for-me", "--not-so-yolo"] {
+            for argv in [
+                vec![flag],
+                vec!["exec", flag, "an owned prompt"],
+                vec!["--model", "owned-model", flag],
+                vec!["-c", "sandbox_mode=\"danger-full-access\"", flag],
+            ] {
+                assert_eq!(
+                    plan_public_dispatch(argv.clone()),
+                    Err(PassthroughError::UnsupportedSandboxMode(
+                        "workspace-write".to_owned()
+                    )),
+                    "{argv:?}"
+                );
+                assert_eq!(run_public_main(argv), 2);
+            }
+        }
+    }
+
+    #[test]
+    fn sandbox_alias_fence_preserves_literal_arguments_and_supported_approval_options() {
+        for argv in [
+            vec!["exec", "--", "--approve-for-me"],
+            vec!["exec", "--", "--not-so-yolo"],
+            vec!["-c", "label=\"--approve-for-me\""],
+            vec!["--config", "label=\"--not-so-yolo\""],
+            vec!["--ask-for-approval", "on-request"],
+            vec!["--sandbox", "danger-full-access", "-a", "never"],
+            vec!["--dangerously-bypass-approvals-and-sandbox"],
+        ] {
+            let original: Vec<OsString> = argv.into_iter().map(Into::into).collect();
+            assert_eq!(
+                plan_public_dispatch(original.clone()).unwrap(),
+                PublicDispatchRoute::Upstream(original)
+            );
+        }
     }
 
     #[cfg(unix)]
