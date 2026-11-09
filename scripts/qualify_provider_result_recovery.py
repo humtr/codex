@@ -52,6 +52,46 @@ def completed_command(thread, identity):
     return item
 
 
+def startup_settled(value, work):
+    assert value.get('work_id') == work and isinstance(value.get('thread_id'), str)
+    assert value.get('selection', {}).get('inference') == 'attached'
+    effects = value.get('native_effects', {})
+    assert isinstance(effects.get('active'), list) and type(effects.get('unconfirmed_effects')) is int
+    assert isinstance(value.get('pending_calls'), list) and isinstance(value.get('human_requests'), list)
+    assert isinstance(value.get('call_observations'), list)
+    return (not effects['active'] and effects['unconfirmed_effects'] == 0
+            and not value['pending_calls'] and not value['human_requests']
+            and not any(call.get('offered') is True and call.get('settled') is not True
+                        for call in value['call_observations']))
+
+
+def startup_barrier(args, installation, prefix, root):
+    selected = (args.startup_provider, args.startup_state, args.startup_work)
+    assert all(value is None for value in selected) or all(value is not None for value in selected)
+    if args.startup_work is None:
+        return None
+    binary = termux_path(args.startup_provider, installation, prefix)
+    state = termux_path(args.startup_state, installation, prefix)
+    deadline = time.monotonic() + 45
+    observed_thread = None
+    while time.monotonic() < deadline:
+        result = subprocess.run([str(binary), 'work', 'status', '--work-id', args.startup_work, '--state', str(state)],
+                                capture_output=True, timeout=min(8, deadline - time.monotonic()))
+        assert result.returncode == 0 and len(result.stdout) <= 4 * 1024 * 1024, 'original launch owner is not observable'
+        value = json.loads(result.stdout)
+        settled = startup_settled(value, args.startup_work)
+        if observed_thread is None:
+            observed_thread = value['thread_id']
+        assert observed_thread == value['thread_id'], 'original launch Native thread changed'
+        if settled:
+            proof = {'work_id': args.startup_work, 'thread_id': observed_thread,
+                     'native_effects_active': 0, 'unconfirmed_effects': 0, 'pending_calls': 0, **stamp()}
+            save(root / 'startup-owner-settled.json', proof)
+            return proof
+        time.sleep(.1)
+    raise AssertionError('foreground constructor still owns a Native effect; no fixture work was created')
+
+
 class CutProxy:
     """Cut once after a real tool end but before its response.completed frame."""
     def __init__(self):
@@ -203,6 +243,8 @@ def probe(args):
     calls = concurrent.futures.ThreadPoolExecutor(max_workers=2)
     log = (root / 'provider-test.log').open('wb')
     try:
+        report['startup_owner'] = startup_barrier(args, installation, prefix, root)
+        save(args.report, report)
         service = subprocess.Popen([str(executable), '--ignored', '--exact', 'synthetic_operator_service', '--nocapture'],
                                    env=env, cwd=workspace, stdout=log, stderr=subprocess.STDOUT)
 
@@ -329,13 +371,20 @@ def probe(args):
             try:
                 if process(owner) == owner['process']:
                     stop_owned_pid(owner['process']['pid'], Path(owner['process']['image']), owner['process']['start'])
-            except (OSError, AssertionError):
-                pass
+            except (OSError, AssertionError) as error:
+                if Path('/proc', str(owner['process']['pid'])).exists():
+                    report.setdefault('cleanup_errors', []).append(type(error).__name__)
         proxy.close()
+        # Client HTTP calls have a 45-second socket deadline and no streaming
+        # response body. Stop above wakes retained calls before this join.
         calls.shutdown(wait=True, cancel_futures=True)
         log.close()
+        report['behavior_accepted'] = report['accepted']
+        report['cleanup_confirmed'] = not report.get('cleanup_errors')
+        report['accepted'] = report['behavior_accepted'] and report['cleanup_confirmed']
         save(args.report, report)
         print(json.dumps({'accepted': report['accepted'], 'fixture': str(root), 'report': str(args.report)}), flush=True)
+    assert report['accepted'], 'fixture behavior or cleanup remains unconfirmed; inspect the original report'
 
 
 if __name__ == '__main__':
@@ -344,4 +393,7 @@ if __name__ == '__main__':
     parser.add_argument('--generation', type=Path, required=True)
     parser.add_argument('--service-test', type=Path, required=True)
     parser.add_argument('--report', type=Path, required=True)
+    parser.add_argument('--startup-provider', type=Path, help='existing Provider CLI for foreground-constructor settlement observation')
+    parser.add_argument('--startup-state', type=Path)
+    parser.add_argument('--startup-work', help='original attached work that launched this foreground terminal')
     probe(parser.parse_args())
