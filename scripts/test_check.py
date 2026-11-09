@@ -25,7 +25,7 @@ with open(os.environ['CALLS'],'a') as f: f.write(name+' '+' '.join(sys.argv[1:])
 if name=='cargo':
     target=Path(os.environ['CARGO_TARGET_DIR']); target.mkdir(parents=True,exist_ok=True)
     (target/'retained').write_text('compiler cache')
-if os.environ.get('FAIL_COMMAND')==name: sys.exit(19)
+if os.environ.get('FAIL_COMMAND')==name or os.environ.get('FAIL_ARGUMENT') in sys.argv[1:]: sys.exit(19)
 ''')
                 p.chmod(0o755)
             env = {**os.environ, 'PATH':str(tools)+os.pathsep+os.environ['PATH'],
@@ -41,7 +41,12 @@ if os.environ.get('FAIL_COMMAND')==name: sys.exit(19)
                 self.assertEqual(calls[-1],'git diff --check')
                 self.assertEqual(any(x.startswith('bun ') for x in calls),scope=='provider')
                 if scope == 'provider':
-                    self.assertTrue(any('scripts/test_provider_native_compiler.py' in call for call in calls))
+                    for test in ('scripts/test_provider_native_compiler.py',
+                                 'scripts/test_provider_live_tui.py', 'scripts/test_provider_result_recovery.py'):
+                        self.assertEqual(sum(call.startswith('python3 -B -m unittest ') and test in call.split()
+                                             for call in calls), 1)
+                    for qualifier in ('scripts/qualify_provider_live_tui.py', 'scripts/qualify_provider_result_recovery.py'):
+                        self.assertEqual(calls.count('python3 -B ' + qualifier + ' --help'), 1)
                 if cargo:
                     target='provider-target' if scope=='provider' else 'check-target'
                     self.assertTrue((root/f'cache/codex/{target}/retained').exists())
@@ -50,6 +55,13 @@ if os.environ.get('FAIL_COMMAND')==name: sys.exit(19)
                 r=subprocess.run(['sh',str(CHECK),scope],env={**env,'FAIL_COMMAND':command})
                 self.assertEqual(r.returncode,19)
                 self.assertEqual(len(log.read_text().splitlines()),expected_calls)
+            for failed in ('scripts/test_provider_result_recovery.py', 'scripts/qualify_provider_result_recovery.py'):
+                log.unlink()
+                r=subprocess.run(['sh',str(CHECK),'provider'],env={**env,'FAIL_ARGUMENT':failed})
+                self.assertEqual(r.returncode,19)
+                calls=log.read_text().splitlines()
+                self.assertIn(failed, calls[-1].split())
+                self.assertNotIn('git diff --check', calls, 'a new qualification failure must stop the public gate')
             log.unlink()
             self.assertEqual(subprocess.run(['sh',str(CHECK),'bogus'],env=env,capture_output=True).returncode,2)
             self.assertFalse(log.exists())

@@ -16,6 +16,8 @@ def scope(paths):
                                        'scripts/refresh_chatgpt_connector.mjs', 'scripts/provider_qualification.py',
                                        'scripts/test_provider_qualification.py',
                                        'scripts/test_provider_native_compiler.py',
+                                       'scripts/test_provider_live_tui.py',
+                                       'scripts/test_provider_result_recovery.py',
                                        'scripts/chat_entry_client.mjs', 'scripts/chat_entry_client.test.mjs', 'scripts/test_native_qualification_notice.py', 'scripts/test_provider_combined_routes.py', 'scripts/test_provider_agent_fixtures.py',
                                        'scripts/cdp_qualification_relay.mjs', 'scripts/cdp_qualification_relay.test.mjs',
                                        'scripts/release_native_qualification_observer.py',

@@ -1,9 +1,12 @@
 import concurrent.futures
 import json
+from pathlib import Path
+import sys
 import threading
 from types import SimpleNamespace
 import unittest
 
+sys.path.insert(0, str(Path(__file__).parent))
 from qualify_provider_result_recovery import completed_command, executable_item, fault_observed, native_request_identity, startup_settled
 
 

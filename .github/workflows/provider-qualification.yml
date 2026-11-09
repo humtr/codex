@@ -12,6 +12,8 @@ on:
       - scripts/clean_development.py
       - scripts/test_provider_qualification.py
       - scripts/test_provider_native_compiler.py
+      - scripts/test_provider_live_tui.py
+      - scripts/test_provider_result_recovery.py
       - scripts/chat_entry_client.mjs
       - scripts/setup_chatgpt_app_metadata.mjs
       - scripts/qualify_mcp_fault_proxy.py
