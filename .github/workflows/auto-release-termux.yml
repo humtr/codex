@@ -38,7 +38,7 @@ jobs:
           set -euo pipefail
           sha="$(gh api repos/humtr/codex/contents/release-source-v1?ref=${{ github.sha }} --jq '.content' | base64 -d)"
           [[ "$sha" =~ ^[0-9a-f]{40}$ ]]
-          for workflow in rald7-full-acceptance.yml core-runtime-qualification.yml; do
+          for workflow in source-acceptance.yml core-runtime-qualification.yml; do
             gh api "repos/humtr/codex/actions/workflows/$workflow/runs?head_sha=$sha&per_page=100" > "$RUNNER_TEMP/runs.json"
             jq -e --arg sha "$sha" --arg path ".github/workflows/$workflow"               '.workflow_runs | any(.head_sha==$sha and .path==$path and .head_branch=="rewrite/rust-core" and (.event=="push" or .event=="workflow_dispatch") and .repository.full_name=="humtr/codex" and .status=="completed" and .conclusion=="success")' "$RUNNER_TEMP/runs.json"
           done
@@ -58,7 +58,7 @@ jobs:
     permissions:
       contents: write
       actions: read
-    uses: humtr/codex/.github/workflows/auto-release-termux.yml@d3becae26b076a2e29697e24914f223493c7e084
+    uses: humtr/codex/.github/workflows/auto-release-termux.yml@df8a8c91bc013305b6b4f8bd0fb88ef4573d7421
     with:
       source_sha: ${{ needs.source.outputs.sha }}
       frontend_binding: ""
@@ -73,7 +73,7 @@ jobs:
     permissions:
       contents: write
       actions: read
-    uses: humtr/codex/.github/workflows/auto-release-termux.yml@d3becae26b076a2e29697e24914f223493c7e084
+    uses: humtr/codex/.github/workflows/auto-release-termux.yml@df8a8c91bc013305b6b4f8bd0fb88ef4573d7421
     with:
       source_sha: ${{ needs.source.outputs.sha }}
       frontend_binding: "${{ needs.source.outputs.frontend_binding }}"
