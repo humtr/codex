@@ -14,7 +14,7 @@ use std::sync::{
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream},
-    sync::mpsc,
+    sync::{mpsc, Notify},
 };
 use tokio_util::sync::CancellationToken;
 
@@ -26,6 +26,8 @@ struct Fixture {
     reveals: Arc<AtomicUsize>,
     approvals: Arc<AtomicUsize>,
     selections: Arc<std::sync::Mutex<Vec<Value>>>,
+    retained_finish: Arc<Notify>,
+    retained_settled: Arc<AtomicUsize>,
 }
 impl Host for Fixture {
     fn approve(&self, thread: String, ui: bool) -> BoxFuture<'static, Result<Value, Error>> {
@@ -60,6 +62,26 @@ impl Host for Fixture {
         Box::pin(async move {
             fixture.calls.fetch_add(1, Ordering::SeqCst);
             fixture.selections.lock().unwrap().push(json!({"model":request.model,"effort":request.effort,"host_model":request.host_model,"thinking_effort":request.thinking_effort}));
+            if request.thread == "observer-loss" {
+                events
+                    .send(Event::Text {
+                        id: "progress".into(),
+                        phase: "commentary".into(),
+                        delta: "Running".into(),
+                    })
+                    .await
+                    .unwrap();
+                fixture.retained_finish.notified().await;
+                events
+                    .send(Event::Completed {
+                        input_tokens: 10,
+                        output_tokens: 5,
+                    })
+                    .await
+                    .unwrap();
+                fixture.retained_settled.fetch_add(1, Ordering::SeqCst);
+                return Ok(());
+            }
             if request.thread == "cancellation" {
                 events
                     .send(Event::Text {
@@ -291,6 +313,8 @@ async fn silent_host_keeps_data_events_alive_without_another_exchange_or_transcr
         .all(|v| v.as_object().unwrap().len() == 1));
     assert!(!observed.iter().any(|v| v["type"] == "response.completed"));
     drop(stream);
+    assert_eq!(fixture.cancelled.load(Ordering::SeqCst), 0);
+    stop.cancel();
     tokio::time::timeout(std::time::Duration::from_secs(3), async {
         while fixture.cancelled.load(Ordering::SeqCst) != 1 {
             tokio::time::sleep(std::time::Duration::from_millis(10)).await;
@@ -298,11 +322,10 @@ async fn silent_host_keeps_data_events_alive_without_another_exchange_or_transcr
     })
     .await
     .unwrap();
-    stop.cancel();
 }
 
 #[tokio::test]
-async fn closing_the_native_observer_requests_owned_host_cancellation() {
+async fn closing_the_native_observer_does_not_stop_an_admitted_host_request() {
     let (address, fixture, stop) = start(Config::default()).await;
     let mut value = body();
     value["client_metadata"]["x-codex-turn-metadata"]["thread_id"] = json!("cancellation");
@@ -310,6 +333,10 @@ async fn closing_the_native_observer_requests_owned_host_cancellation() {
     let mut bytes = [0; 4096];
     assert!(stream.read(&mut bytes).await.unwrap() > 0);
     drop(stream);
+    assert_eq!(fixture.cancelled.load(Ordering::SeqCst), 0);
+    // Stopping the real service, unlike dropping its HTTP subscriber, has
+    // authority to cancel the request.
+    stop.cancel();
     tokio::time::timeout(std::time::Duration::from_secs(5), async {
         while fixture.cancelled.load(Ordering::SeqCst) == 0 {
             tokio::time::sleep(std::time::Duration::from_millis(10)).await;
@@ -318,6 +345,27 @@ async fn closing_the_native_observer_requests_owned_host_cancellation() {
     .await
     .unwrap();
     assert_eq!(fixture.calls.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn detached_native_observer_preserves_producer_completion_without_a_second_exchange() {
+    let (address, fixture, stop) = start(Config::default()).await;
+    let mut value = body();
+    value["client_metadata"]["x-codex-turn-metadata"]["thread_id"] = json!("observer-loss");
+    let mut stream = send(address, value.to_string().as_bytes(), "").await;
+    let mut bytes = [0; 4096];
+    assert!(stream.read(&mut bytes).await.unwrap() > 0);
+    drop(stream);
+    fixture.retained_finish.notify_one();
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        while fixture.retained_settled.load(Ordering::SeqCst) != 1 {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(fixture.calls.load(Ordering::SeqCst), 1);
+    assert_eq!(fixture.cancelled.load(Ordering::SeqCst), 0);
     stop.cancel();
 }
 

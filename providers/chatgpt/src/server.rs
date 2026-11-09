@@ -293,17 +293,11 @@ async fn read_body(
 
 struct Events {
     receiver: mpsc::Receiver<Result<SseEvent, Infallible>>,
-    cancel: CancellationToken,
 }
 impl futures_util::Stream for Events {
     type Item = Result<SseEvent, Infallible>;
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         self.receiver.poll_recv(cx)
-    }
-}
-impl Drop for Events {
-    fn drop(&mut self) {
-        self.cancel.cancel();
     }
 }
 fn sse(value: Value) -> Result<SseEvent, Infallible> {
@@ -526,10 +520,11 @@ async fn handler(State(service): State<Arc<Service>>, request: HttpRequest) -> R
     );
     let stopped = cancel.clone();
     tokio::spawn(async move {
+        let mut observed = true;
         for frame in projection.start() {
             if output.send(sse(frame)).await.is_err() {
-                stopped.cancel();
-                return;
+                observed = false;
+                break;
             }
         }
         loop {
@@ -540,15 +535,21 @@ async fn handler(State(service): State<Arc<Service>>, request: HttpRequest) -> R
             match event {
                 Some(event) => match projection.push(event) {
                     Ok(frames) => {
-                        for frame in frames {
-                            if output.send(sse(frame)).await.is_err() {
-                                stopped.cancel();
-                                break;
+                        if observed {
+                            for frame in frames {
+                                if output.send(sse(frame)).await.is_err() {
+                                    // A disconnected subscriber loses only
+                                    // this observation, not the admitted work.
+                                    observed = false;
+                                    break;
+                                }
                             }
                         }
                     }
                     Err(error) => {
-                        let _ = output.send(sse(projection.fail(error))).await;
+                        if observed {
+                            let _ = output.send(sse(projection.fail(error))).await;
+                        }
                         stopped.cancel();
                         break;
                     }
@@ -560,8 +561,8 @@ async fn handler(State(service): State<Arc<Service>>, request: HttpRequest) -> R
             }
         }
         if stopped.is_cancelled() {
-            // The host owns acknowledged cancellation. Do not abort its cleanup
-            // simply because the HTTP observer vanished.
+            // Service shutdown or an invalid response explicitly cancels work;
+            // passive disconnection never reaches this path.
             if tokio::time::timeout(Duration::from_secs(15), &mut worker)
                 .await
                 .is_err()
@@ -575,11 +576,13 @@ async fn handler(State(service): State<Arc<Service>>, request: HttpRequest) -> R
                     Ok(Err(error)) => error,
                     _ => Error("host_stream_incomplete"),
                 };
-                let _ = output.send(sse(projection.fail(error))).await;
+                if observed {
+                    let _ = output.send(sse(projection.fail(error))).await;
+                }
             }
         }
     });
-    Sse::new(Events { receiver, cancel })
+    Sse::new(Events { receiver })
         .keep_alive(
             axum::response::sse::KeepAlive::new()
                 .interval(Duration::from_secs(2))
