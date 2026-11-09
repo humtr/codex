@@ -1963,7 +1963,12 @@ fn sanitize_doctor_terminal_controls(value: &str, preserve_sgr: bool) -> String 
                         index += 1;
                     }
                 } else {
-                    index = (index + 2).min(bytes.len());
+                    index += 1;
+                    // An escape command byte is ASCII. A malformed ESC before
+                    // ordinary UTF-8 text must not leave us inside a character.
+                    if bytes.get(index).is_some_and(u8::is_ascii_graphic) {
+                        index += 1;
+                    }
                 }
             }
             byte if byte.is_ascii_control() => {
@@ -1983,31 +1988,7 @@ fn sanitize_doctor_terminal_controls(value: &str, preserve_sgr: bool) -> String 
 }
 
 #[cfg(unix)]
-fn replace_doctor_redaction(
-    line: &mut String,
-    boundaries: &mut Vec<usize>,
-    start: usize,
-    end: usize,
-) -> (usize, usize) {
-    const REDACTION: &str = "[redacted]";
-
-    let original_start = boundaries[start];
-    let original_end = boundaries[end];
-    line.replace_range(start..end, REDACTION);
-
-    let mut updated = Vec::with_capacity(boundaries.len() - (end - start) + REDACTION.len());
-    updated.extend_from_slice(&boundaries[..=start]);
-    for _ in 1..REDACTION.len() {
-        updated.push(original_start);
-    }
-    updated.push(original_end);
-    updated.extend_from_slice(&boundaries[end + 1..]);
-    *boundaries = updated;
-    (original_start, original_end)
-}
-
-#[cfg(unix)]
-fn redact_doctor_line_with_ranges(line: &mut String) -> (String, Vec<(usize, usize)>) {
+fn redact_doctor_line_with_ranges(line: &str) -> (String, Vec<(usize, usize)>) {
     const SENSITIVE_KEYS: [&str; 11] = [
         "access_token",
         "refresh_token",
@@ -2021,43 +2002,59 @@ fn redact_doctor_line_with_ranges(line: &mut String) -> (String, Vec<(usize, usi
         "private_key",
         "password",
     ];
-    let mut boundaries: Vec<usize> = (0..=line.len()).collect();
+    let lowered = line.to_ascii_lowercase();
+    let bytes = line.as_bytes();
     let mut ranges = Vec::new();
+    let identifier = |byte: u8| byte.is_ascii_alphanumeric() || byte == b'_';
 
     for key in SENSITIVE_KEYS {
         let mut search_from = 0;
         loop {
-            let lowered = line.to_ascii_lowercase();
             let Some(key_offset) = lowered[search_from..].find(key) else {
                 break;
             };
             let key_start = search_from + key_offset;
             let after_key = key_start + key.len();
-            let Some(delimiter_offset) = line[after_key..].find([':', '=']) else {
-                search_from = after_key;
+            search_from = after_key;
+            if key_start > 0 && identifier(bytes[key_start - 1])
+                || bytes.get(after_key).copied().is_some_and(identifier)
+            {
                 continue;
-            };
-            let delimiter = after_key + delimiter_offset;
-            let mut value_start = delimiter + 1;
-            while let Some(character) = line[value_start..].chars().next() {
-                if character == ' ' || character == '\t' {
-                    value_start += character.len_utf8();
-                } else {
-                    break;
-                }
             }
-            let quoted = line[value_start..].starts_with('"');
-            if quoted {
+            let mut delimiter = after_key;
+            if key_start > 0
+                && matches!(bytes[key_start - 1], b'\'' | b'"')
+                && bytes.get(delimiter) == Some(&bytes[key_start - 1])
+            {
+                delimiter += 1;
+            }
+            while bytes.get(delimiter).is_some_and(|b| matches!(b, b' ' | b'\t')) {
+                delimiter += 1;
+            }
+            if !bytes.get(delimiter).is_some_and(|b| matches!(b, b':' | b'=')) {
+                continue;
+            }
+            let mut value_start = delimiter + 1;
+            while bytes.get(value_start).is_some_and(|b| matches!(b, b' ' | b'\t')) {
+                value_start += 1;
+            }
+            let quote = bytes
+                .get(value_start)
+                .copied()
+                .filter(|b| matches!(b, b'\'' | b'"'));
+            if quote.is_some() {
                 value_start += 1;
             }
             let mut value_end = value_start;
+            let mut escaped = false;
             for (offset, character) in line[value_start..].char_indices() {
-                let is_end = if quoted {
-                    character == '"'
+                let is_end = if let Some(quote) = quote {
+                    character == char::from(quote) && !escaped
                 } else if matches!(key, "authorization" | "cookie") {
                     character == ',' || character == '}' || character == ']'
                 } else {
                     character == '"'
+                        || character == '\''
                         || character == ','
                         || character == '}'
                         || character.is_ascii_whitespace()
@@ -2066,65 +2063,67 @@ fn redact_doctor_line_with_ranges(line: &mut String) -> (String, Vec<(usize, usi
                     break;
                 }
                 value_end = value_start + offset + character.len_utf8();
+                escaped = character == '\\' && !escaped;
             }
-            if value_end == value_start {
-                search_from = after_key;
-                continue;
-            }
-            if line[value_start..].starts_with("[redacted]") {
-                search_from = value_start + "[redacted]".len();
-                continue;
-            }
-            ranges.push(replace_doctor_redaction(
-                line,
-                &mut boundaries,
-                value_start,
-                value_end,
-            ));
-            search_from = value_start + "[redacted]".len();
-            if search_from >= line.len() {
-                break;
+            if value_end > value_start {
+                ranges.push((value_start, value_end));
             }
         }
     }
 
-    for marker in ["bearer ", "sk-", "sess-", "ghp_"] {
+    for marker in [
+        "bearer ", "sk-", "sess-", "ghp_", "github_pat_", "gho_", "ghu_", "ghs_", "ghr_",
+    ] {
         let mut search_from = 0;
         loop {
-            let lowered = line.to_ascii_lowercase();
             let Some(marker_offset) = lowered[search_from..].find(marker) else {
                 break;
             };
             let start = search_from + marker_offset;
             let value_start = start + marker.len();
+            search_from = value_start;
+            if start > 0 && identifier(bytes[start - 1]) {
+                continue;
+            }
             let mut value_end = value_start;
             for (offset, character) in line[value_start..].char_indices() {
                 if character == '"'
                     || character == '\''
                     || character == ','
+                    || character == '}'
+                    || character == ']'
                     || character.is_ascii_whitespace()
                 {
                     break;
                 }
                 value_end = value_start + offset + character.len_utf8();
             }
-            if value_end == value_start {
-                search_from = value_start;
-                continue;
-            }
-            ranges.push(replace_doctor_redaction(
-                line,
-                &mut boundaries,
-                value_start,
-                value_end,
-            ));
-            search_from = value_start + "[redacted]".len();
-            if search_from >= line.len() {
-                break;
+            if value_end > value_start {
+                ranges.push((value_start, value_end));
             }
         }
     }
-    (line.to_owned(), ranges)
+    // Collect against one immutable input, then merge overlaps before touching
+    // either plain or styled text. A nested key/marker is not a second edit of
+    // offsets computed before its enclosing value was redacted.
+    ranges.sort_unstable();
+    let mut merged: Vec<(usize, usize)> = Vec::new();
+    for (start, end) in ranges {
+        if let Some(last) = merged.last_mut().filter(|last| start <= last.1) {
+            last.1 = last.1.max(end);
+        } else {
+            merged.push((start, end));
+        }
+    }
+    let mut redacted = String::new();
+    let mut offset = 0;
+    for &(start, end) in &merged {
+        redacted.push_str(&line[offset..start]);
+        redacted.push_str("[redacted]");
+        offset = end;
+    }
+    redacted.push_str(&line[offset..]);
+    (redacted, merged)
 }
 
 #[cfg(unix)]
@@ -2210,7 +2209,7 @@ fn doctor_styled_redactions(styled: &str, ranges: &[(usize, usize)]) -> Option<S
         if styled_start > styled_end || styled_end > output.len() {
             return None;
         }
-        let replacement = doctor_styled_redaction_segment(&output[styled_start..styled_end]);
+        let replacement = doctor_styled_redaction_segment(output.get(styled_start..styled_end)?);
         output.replace_range(styled_start..styled_end, &replacement);
     }
     Some(output)
@@ -2231,8 +2230,7 @@ fn redact_doctor_output(bytes: &[u8], preserve_sgr: bool) -> String {
         let (styled_line, _) = styled_chunk
             .strip_suffix('\n')
             .map_or((styled_chunk, ""), |line| (line, "\n"));
-        let mut plain_line = line.to_owned();
-        let (redacted_line, ranges) = redact_doctor_line_with_ranges(&mut plain_line);
+        let (redacted_line, ranges) = redact_doctor_line_with_ranges(line);
         if preserve_sgr {
             if let Some(styled_line) = doctor_styled_redactions(styled_line, &ranges) {
                 redacted.push_str(&styled_line);
@@ -13238,6 +13236,52 @@ mod tests {
         assert!(!pass_through.contains("[Upstream Codex doctor]"));
         assert!(!pass_through.contains("status: healthy\n"));
         assert!(pass_through.contains("\n[Termux doctor]\n"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn doctor_sanitizes_malformed_escapes_without_splitting_utf8() {
+        for text in ["한글", "é", "🦀"] {
+            let input = format!("before\u{1b}{text} after\n");
+            for color in [false, true] {
+                assert_eq!(
+                    redact_doctor_output(input.as_bytes(), color),
+                    format!("before{text} after\n")
+                );
+            }
+        }
+        assert_eq!(redact_doctor_output(b"a\x1b\nb\x1b", false), "a\nb");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn doctor_redacts_original_value_ranges_once_and_preserves_other_text() {
+        let plain = "token_count=2 token status: ok private_key_path=/tmp/key\n";
+        assert_eq!(redact_doctor_output(plain.as_bytes(), false), plain);
+        let input = "\u{1b}[31m{'password': '비밀 phrase', \"token\": \"secret\\\"tail\", authorization=Bearer api_key=longsecret}\u{1b}[0m\n";
+        let expected = "{'password': '[redacted]', \"token\": \"[redacted]\", authorization=[redacted]}\n";
+        assert_eq!(redact_doctor_output(input.as_bytes(), false), expected);
+        assert_eq!(
+            redact_doctor_output(input.as_bytes(), true),
+            format!("\u{1b}[31m{}\u{1b}[0m\n", expected.trim_end())
+        );
+        let original = "token=\"api_key=비밀 secret=more\" status=ok";
+        let (redacted, ranges) = redact_doctor_line_with_ranges(original);
+        assert_eq!(redacted, "token=\"[redacted]\" status=ok");
+        assert_eq!(ranges.len(), 1);
+        assert_eq!(&original[ranges[0].0..ranges[0].1], "api_key=비밀 secret=more");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn doctor_redacts_all_github_token_prefixes() {
+        for prefix in ["github_pat_", "ghp_", "gho_", "ghu_", "ghs_", "ghr_"] {
+            let input = format!("credential: '{prefix}privatevalue'\n");
+            assert_eq!(
+                redact_doctor_output(input.as_bytes(), false),
+                format!("credential: '{prefix}[redacted]'\n")
+            );
+        }
     }
 
     #[cfg(unix)]
