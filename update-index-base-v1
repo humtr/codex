@@ -1,4 +1,4 @@
 codex-update-index-v1
 channel	stable
-generation_id	local-base-relay-hosted-0-167-0-d3becae26b07-s152
-release_base	https://codex-releases.humtr.workers.dev/local-base-relay-hosted-0-167-0-d3becae26b07-s152/
+generation_id	core-v0.167.0-0b2bac2-s154
+release_base	https://codex-releases.humtr.workers.dev/core-v0.167.0-0b2bac2-s154/
