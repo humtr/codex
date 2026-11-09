@@ -7945,7 +7945,7 @@ impl UpdatePresentation {
             downloaded,
             total,
         );
-        self.transient("â ", &message);
+        self.transient("⠙", &message);
     }
 
     fn clear_transient(&mut self) {
