@@ -1903,6 +1903,40 @@ impl Broker {
             )
             .collect())
     }
+    /// Derive the original Native call from its admitted invocation and catalog.
+    /// This is the same producer used to offer it, not a second call journal.
+    pub(crate) fn unreturned_native_calls(
+        &self,
+        token: &str,
+    ) -> Result<BTreeMap<String, Value>, Error> {
+        let turn: Turn = self
+            .journal
+            .read(&digest(&("mcp-turn-v1", token)))?
+            .ok_or(Error("mcp_turn_unavailable"))?;
+        let mut calls = BTreeMap::new();
+        for call in turn
+            .calls
+            .values()
+            .filter(|call| call.offered && call.result.is_none())
+        {
+            let (native, _) = gateway_calls(
+                &call.id,
+                &json!({"name":call.name,"input":call.input,"report":call.report}).to_string(),
+                &turn.tools,
+            )?;
+            let [native] = native.as_slice() else {
+                return Err(Error("mcp_call_changed"));
+            };
+            if native.id != call.id
+                || calls
+                    .insert(call.id.clone(), native.output_item()?)
+                    .is_some()
+            {
+                return Err(Error("mcp_call_changed"));
+            }
+        }
+        Ok(calls)
+    }
     /// Correlate a public host request with an already admitted invocation.
     /// Rejected/unknown calls are not evidence of another native effect.
     pub(crate) async fn source_calls(
@@ -2325,6 +2359,63 @@ impl Broker {
         self.changed.notify_waiters();
         Ok(())
     }
+
+    /// A verified failed/interrupted Native turn cannot create another result
+    /// request. Its original attached work fences admission before calling
+    /// this method. Retire and recover in one commit so retained invocations
+    /// cannot wake between revocation and their durable original result.
+    /// Already committed model-input projections retain their exact bytes.
+    pub(crate) async fn retire_native_results(
+        &self,
+        token: &str,
+        lane: &str,
+        results: &[(String, Value)],
+    ) -> Result<(), Error> {
+        let mut registry = self.registry.lock().await;
+        let mut turn = registry
+            .turns
+            .get(token)
+            .cloned()
+            .or(self
+                .journal
+                .read::<Turn>(&digest(&("mcp-turn-v1", token)))?)
+            .ok_or(Error("mcp_turn_unavailable"))?;
+        if turn.lane != lane || turn.source_bound {
+            return Err(Error("mcp_owner_conflict"));
+        }
+        let mut seen = BTreeSet::new();
+        for (id, result) in results {
+            if !seen.insert(id) || result["call_id"].as_str() != Some(id.as_str()) {
+                return Err(Error("mcp_result_invalid"));
+            }
+            let call = turn
+                .calls
+                .values_mut()
+                .find(|call| call.id == *id && call.offered)
+                .ok_or(Error("mcp_result_invalid"))?;
+            if call.result.is_none() {
+                call.result = Some(result.clone());
+            }
+        }
+        if turn
+            .calls
+            .values()
+            .any(|call| call.offered && call.result.is_none())
+        {
+            return Err(Error("mcp_result_missing"));
+        }
+        turn.retire(false);
+        self.persist(token, &turn)?;
+        if let Some(cached) = registry.turns.get_mut(token) {
+            *cached = turn;
+        }
+        // Native's original receipt is durable before either the shared or
+        // Provider resource claim is released. No new effect is offered.
+        let settled = self.reconcile_persisted_integrated_receipts();
+        self.changed.notify_waiters();
+        settled
+    }
+
     pub(crate) async fn stop_lane(&self, lane: &str, recorded: Option<&str>) -> Result<(), Error> {
         let mut registry = self.registry.lock().await;
         let mut tails = BTreeSet::new();
@@ -4336,5 +4427,208 @@ mod native_concurrency_tests {
         let offered_other = broker.offer(&other_token).await.unwrap();
         assert_eq!(offered_other.len(), 1);
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn terminal_native_retirement_recovers_the_original_call_without_a_late_projection_overwrite(
+    ) {
+        for callback_first in [false, true] {
+            let (root, journal, tools) = fixture();
+            let broker = Broker::new(journal);
+            let token = broker
+                .register_scoped("owner", tools, false, Some(&root))
+                .await
+                .unwrap();
+            let call = Arguments {
+                call_id: "original".into(),
+                name: "functions.exec_command".into(),
+                input: json!({"cmd":"printf original"}).to_string(),
+                report: "one original effect".into(),
+            };
+            broker.enqueue(&token, &call).await.unwrap();
+            let id = broker.offer(&token).await.unwrap()[0]["id"]
+                .as_str()
+                .unwrap()
+                .to_owned();
+            let original = json!({"type":"function_call_output","call_id":id,
+                "output":format!("Chunk ID: original\nWall time: 0.03 seconds\nProcess exited with code 0\nOutput:\n{}", "complete output\n".repeat(10000))});
+            let projection = json!({"type":"function_call_output","call_id":id,
+                "output":"Process exited with code 0\nOutput:\nmodel-truncated output"});
+            assert_eq!(
+                broker
+                    .admit_external_tool("independent", "blocked", &call.name, &call.input, &root)
+                    .await,
+                Err(Error("native_resource_busy"))
+            );
+            if callback_first {
+                broker
+                    .settle(&token, &[(id.clone(), projection.clone())])
+                    .await
+                    .unwrap();
+            }
+            let waiting = {
+                let broker = broker.clone();
+                let token = token.clone();
+                let call = call.clone();
+                tokio::spawn(async move { broker.invoke(&token, call).await })
+            };
+            broker
+                .retire_native_results(&token, "owner", &[(id.clone(), original.clone())])
+                .await
+                .unwrap();
+            let expected = if callback_first {
+                &projection
+            } else {
+                &original
+            };
+            assert_eq!(&waiting.await.unwrap().unwrap(), expected);
+            assert_eq!(
+                broker.retained_result(&token, &call).unwrap().as_ref(),
+                Some(expected)
+            );
+            assert!(broker.active_claim_ids(&["owner"]).unwrap().is_empty());
+            assert_eq!(
+                broker
+                    .settle(&token, &[(id.clone(), projection.clone())])
+                    .await,
+                Err(Error("mcp_turn_unavailable"))
+            );
+            assert_eq!(
+                broker.retained_result(&token, &call).unwrap().as_ref(),
+                Some(expected)
+            );
+            broker
+                .admit_external_tool(
+                    "independent",
+                    "after-recovery",
+                    &call.name,
+                    &call.input,
+                    &root,
+                )
+                .await
+                .unwrap();
+            assert_eq!(
+                broker.recorded_calls(&token).unwrap(),
+                vec![json!({"id":id,"offered":true,"settled":true})]
+            );
+            fs::remove_dir_all(root).unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn terminal_native_retirement_rejects_missing_results_and_foreign_lanes_before_mutation()
+    {
+        let (root, journal, tools) = fixture();
+        let broker = Broker::new(journal.clone());
+        let token = broker
+            .register_scoped("owner", tools, false, Some(&root))
+            .await
+            .unwrap();
+        let call = Arguments {
+            call_id: "original".into(),
+            name: "functions.exec_command".into(),
+            input: json!({"cmd":"printf original"}).to_string(),
+            report: "original".into(),
+        };
+        broker.enqueue(&token, &call).await.unwrap();
+        let id = broker.offer(&token).await.unwrap()[0]["id"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let key = digest(&("mcp-turn-v1", &token));
+        let before = journal.read::<Value>(&key).unwrap();
+        assert_eq!(
+            broker.retire_native_results(&token, "owner", &[]).await,
+            Err(Error("mcp_result_missing"))
+        );
+        let result = json!({"type":"function_call_output","call_id":id,"output":"Process exited with code 0\nOutput:\noriginal"});
+        assert_eq!(
+            broker
+                .retire_native_results(&token, "other", &[(id.clone(), result.clone())])
+                .await,
+            Err(Error("mcp_owner_conflict"))
+        );
+        assert_eq!(journal.read::<Value>(&key).unwrap(), before);
+        assert!(broker.active_claim_ids(&["owner"]).unwrap().contains(&id));
+        broker.retire(&token, true).await.unwrap();
+        broker
+            .retire_native_results(&token, "owner", &[(id, result.clone())])
+            .await
+            .unwrap();
+        assert_eq!(broker.retained_result(&token, &call).unwrap(), Some(result));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn terminal_native_poll_receipt_survives_original_process_claim_settlement() {
+        for observed_command_first in [false, true] {
+            let (root, journal, tools) = fixture();
+            let broker = Broker::new(journal);
+            let token = broker
+                .register_scoped("owner", tools, false, Some(&root))
+                .await
+                .unwrap();
+            let exec = Arguments {
+                call_id: "original-exec".into(),
+                name: "functions.exec_command".into(),
+                input: json!({"cmd":"long-running-command"}).to_string(),
+                report: "original process".into(),
+            };
+            let exec_id = accepted(&broker, &token, &exec).await;
+            let running = json!({"type":"function_call_output","call_id":exec_id,"output":"Process running with session ID 42\nOutput:\noriginal prefix\n"});
+            broker
+                .settle(&token, &[(exec_id.clone(), running.clone())])
+                .await
+                .unwrap();
+            let poll = Arguments {
+                call_id: "original-poll".into(),
+                name: "functions.write_stdin".into(),
+                input: json!({"session_id":42,"chars":""}).to_string(),
+                report: "observe original process".into(),
+            };
+            let poll_id = accepted(&broker, &token, &poll).await;
+            let expected_calls = broker.unreturned_native_calls(&token).unwrap();
+            assert_eq!(expected_calls.len(), 1);
+            assert_eq!(expected_calls[&poll_id]["call_id"], poll_id);
+            assert_eq!(expected_calls[&poll_id]["arguments"], poll.input);
+            assert!(broker.retained_result(&token, &poll).unwrap().is_none());
+            if observed_command_first {
+                broker.settle_native_processes(&["owner"], &root, &[json!({"turn_id":"original-turn","item":{
+                    "id":exec_id,"type":"commandExecution","status":"completed","processId":"42","exitCode":0,"aggregatedOutput":"original prefix\noriginal tail\n"
+                }})]).await.unwrap();
+                assert!(broker.active_claim_ids(&["owner"]).unwrap().is_empty());
+                assert_eq!(
+                    broker.unreturned_native_calls(&token).unwrap(),
+                    expected_calls,
+                    "receipt identity does not depend on an already settled process claim"
+                );
+            }
+            let original = json!({"type":"function_call_output","call_id":poll_id,"output":"Chunk ID: original-poll\nWall time: 1.00 seconds\nProcess exited with code 0\nOutput:\noriginal tail\n"});
+            broker
+                .retire_native_results(&token, "owner", &[(poll_id.clone(), original.clone())])
+                .await
+                .unwrap();
+            assert_eq!(
+                broker.retained_result(&token, &exec).unwrap(),
+                Some(running)
+            );
+            assert_eq!(
+                broker.retained_result(&token, &poll).unwrap(),
+                Some(original)
+            );
+            assert!(broker.active_claim_ids(&["owner"]).unwrap().is_empty());
+            assert!(broker.unreturned_native_calls(&token).unwrap().is_empty());
+            broker
+                .admit_external_tool(
+                    "independent",
+                    "after-poll-recovery",
+                    &exec.name,
+                    &exec.input,
+                    &root,
+                )
+                .await
+                .unwrap();
+            fs::remove_dir_all(root).unwrap();
+        }
     }
 }

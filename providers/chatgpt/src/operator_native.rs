@@ -6,7 +6,7 @@ use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     fs::File,
     io::Read,
     os::{
@@ -30,6 +30,113 @@ use tokio::{
 const LIMIT: usize = 16 * 1024 * 1024;
 type PendingReply = oneshot::Sender<Result<Value, Error>>;
 type Replies = Arc<Mutex<BTreeMap<u64, PendingReply>>>;
+
+fn committed_rollout_rows(bytes: &[u8], thread: &str) -> Result<Vec<Value>, Error> {
+    let mut rows = Vec::new();
+    let mut identity = false;
+    for line in bytes.split_inclusive(|byte| *byte == b'\n') {
+        // A concurrently appended partial record is not committed input.
+        if !line.ends_with(b"\n") {
+            break;
+        }
+        let row: Value =
+            serde_json::from_slice(line).map_err(|_| Error("native_context_invalid"))?;
+        if row["type"] == "session_meta" {
+            if row["payload"]["id"] != thread {
+                return Err(Error("native_context_identity_changed"));
+            }
+            identity = true;
+        }
+        rows.push(row);
+    }
+    if !identity {
+        return Err(Error("native_context_identity_changed"));
+    }
+    Ok(rows)
+}
+
+fn original_tool_results(
+    rows: &[Value],
+    expected: &BTreeMap<String, Value>,
+) -> Result<Vec<(String, Value)>, Error> {
+    let mut found = BTreeMap::new();
+    let mut calls = BTreeSet::new();
+    for row in rows.iter().filter(|row| row["type"] == "response_item") {
+        let item = &row["payload"];
+        let Some((id, call)) = item["call_id"]
+            .as_str()
+            .and_then(|id| expected.get(id).map(|call| (id, call)))
+        else {
+            continue;
+        };
+        if item["type"] == call["type"] {
+            // Native persists the received call before dispatch. It may add
+            // IDs/status/internal metadata, but it preserves the public tool
+            // identity and its original arguments/freeform input.
+            if [
+                "type",
+                "call_id",
+                "name",
+                "namespace",
+                "arguments",
+                "input",
+                "execution",
+            ]
+            .iter()
+            .any(|key| item[key] != call[key])
+            {
+                return Err(Error("native_tool_call_changed"));
+            }
+            if !calls.insert(id.to_owned()) {
+                return Err(Error("native_tool_result_ambiguous"));
+            }
+            continue;
+        }
+        let (kind, keys): (&str, &[&str]) = match call["type"].as_str() {
+            Some("function_call") => (
+                "function_call_output",
+                &["type", "id", "call_id", "name", "namespace", "output"],
+            ),
+            Some("custom_tool_call") => (
+                "custom_tool_call_output",
+                &["type", "id", "call_id", "name", "output"],
+            ),
+            Some("tool_search_call") => (
+                "tool_search_output",
+                &["type", "id", "call_id", "status", "execution", "tools"],
+            ),
+            _ => return Err(Error("native_tool_call_changed")),
+        };
+        if item["type"] != kind || !calls.contains(id) {
+            return Err(Error("native_tool_result_invalid"));
+        }
+        if kind == "tool_search_output" {
+            if !item["status"].is_string()
+                || !item["execution"].is_string()
+                || !item["tools"].is_array()
+            {
+                return Err(Error("native_tool_result_invalid"));
+            }
+        } else if !item["output"].is_string() && !item["output"].is_array() {
+            return Err(Error("native_tool_result_invalid"));
+        }
+        // Preserve Native's complete public result. The rollout's internal
+        // attribution/authorization metadata is not part of that result.
+        let mut result = serde_json::Map::new();
+        for key in keys {
+            if let Some(value) = item.get(*key).filter(|value| !value.is_null()) {
+                result.insert((*key).into(), value.clone());
+            }
+        }
+        if found.insert(id.to_owned(), Value::Object(result)).is_some() {
+            return Err(Error("native_tool_result_ambiguous"));
+        }
+    }
+    if found.len() != expected.len() {
+        return Err(Error("native_tool_result_missing"));
+    }
+    Ok(found.into_iter().collect())
+}
 
 fn native_reply(method: &str, row: &Value) -> Result<Value, Error> {
     if let Some(error) = row.get("error") {
@@ -217,10 +324,39 @@ impl Native {
         Ok(())
     }
     pub async fn public_context(&self, thread: &str) -> Result<Vec<Value>, Error> {
+        let rows = self.rollout_rows(thread, false).await?;
+        rows.into_iter()
+            .filter(|row| {
+                let item = &row["payload"];
+                row["type"] == "response_item"
+                    && item["type"] == "message"
+                    && matches!(item["role"].as_str(), Some("user" | "developer" | "system"))
+            })
+            .map(|row| {
+                let item = &row["payload"];
+                Ok(json!({"role":item["role"],"text":crate::context::text(item)?}))
+            })
+            .collect()
+    }
+
+    /// Read Native's original results only after the caller has proved that
+    /// their failed/interrupted turn is terminal. They are not the truncated
+    /// model-input projection and must never replace a live callback result.
+    pub(crate) async fn terminal_tool_results(
+        &self,
+        thread: &str,
+        expected: &BTreeMap<String, Value>,
+    ) -> Result<Vec<(String, Value)>, Error> {
+        original_tool_results(&self.rollout_rows(thread, true).await?, expected)
+    }
+
+    async fn rollout_rows(&self, thread: &str, persist: bool) -> Result<Vec<Value>, Error> {
         let row = self
             .call(
                 "thread/read",
-                json!({"threadId":thread,"includeTurns":false}),
+                // The full public read is Native's existing persistence
+                // barrier; a raw notification alone is not durable proof.
+                json!({"threadId":thread,"includeTurns":persist}),
             )
             .await?;
         let path = PathBuf::from(
@@ -238,38 +374,14 @@ impl Native {
         }
         self.owner.validate(&self.installation)?;
         let expected = thread.to_owned();
-        tokio::task::spawn_blocking(move || {
+        let rows = tokio::task::spawn_blocking(move || {
             let bytes = crate::cdp::private_read(&path, 64 * 1024 * 1024)?;
-            let mut result = vec![];
-            let mut identity = false;
-            for line in bytes.split_inclusive(|byte| *byte == b'\n') {
-                // A concurrently appended partial record is not committed input.
-                if !line.ends_with(b"\n") {
-                    break;
-                }
-                let row: Value =
-                    serde_json::from_slice(line).map_err(|_| Error("native_context_invalid"))?;
-                if row["type"] == "session_meta" {
-                    if row["payload"]["id"] != expected {
-                        return Err(Error("native_context_identity_changed"));
-                    }
-                    identity = true;
-                }
-                let item = &row["payload"];
-                if row["type"] == "response_item"
-                    && item["type"] == "message"
-                    && matches!(item["role"].as_str(), Some("user" | "developer" | "system"))
-                {
-                    result.push(json!({"role":item["role"],"text":crate::context::text(item)?}));
-                }
-            }
-            if !identity {
-                return Err(Error("native_context_identity_changed"));
-            }
-            Ok(result)
+            committed_rollout_rows(&bytes, &expected)
         })
         .await
-        .map_err(|_| Error("native_context_unavailable"))?
+        .map_err(|_| Error("native_context_unavailable"))??;
+        self.owner.validate(&self.installation)?;
+        Ok(rows)
     }
     pub async fn answer_question(
         &self,
@@ -817,6 +929,168 @@ mod discovery_tests;
 #[cfg(test)]
 mod reply_tests {
     use super::*;
+
+    #[test]
+    fn terminal_native_receipt_preserves_complete_output_and_excludes_internal_metadata() {
+        let full = format!(
+            "Chunk ID: original\nWall time: 0.03 seconds\nProcess exited with code 0\nOutput:\n{}",
+            "untruncated Native output\n".repeat(10000)
+        );
+        let result = json!({"type":"function_call_output","call_id":"owned-call","id":"native-output","output":full});
+        let call = json!({"type":"function_call","call_id":"owned-call","name":"exec_command","namespace":"functions","arguments":"{\"cmd\":\"printf original\"}"});
+        let bytes = format!(
+            "{}\n{}\n{}\n{{\"unfinished\":",
+            json!({"type":"session_meta","payload":{"id":"owned-thread"}}),
+            json!({"type":"response_item","payload":call}),
+            json!({"type":"response_item","payload":{
+                "type":"function_call_output","call_id":"owned-call","id":"native-output","output":full,
+                "metadata":{"executed_tool_calls":"internal"}}})
+        );
+        let rows = committed_rollout_rows(bytes.as_bytes(), "owned-thread").unwrap();
+        let expected = BTreeMap::from([("owned-call".to_owned(), call)]);
+        assert_eq!(
+            original_tool_results(&rows, &expected).unwrap(),
+            vec![("owned-call".into(), result)]
+        );
+        let mut duplicate = rows.clone();
+        duplicate.push(rows[2].clone());
+        assert_eq!(
+            original_tool_results(&duplicate, &expected),
+            Err(Error("native_tool_result_ambiguous"))
+        );
+        assert_eq!(
+            original_tool_results(&rows[..1], &expected),
+            Err(Error("native_tool_result_missing"))
+        );
+        assert_eq!(
+            committed_rollout_rows(bytes.as_bytes(), "different-thread"),
+            Err(Error("native_context_identity_changed"))
+        );
+        let mut metadata_update = bytes.split("{\"unfinished\":").next().unwrap().to_owned();
+        metadata_update.push_str(&format!("{}\n", json!({"type":"session_meta","payload":{"id":"owned-thread","git":{"branch":"same-thread-metadata-update"}}})));
+        let updated = committed_rollout_rows(metadata_update.as_bytes(), "owned-thread").unwrap();
+        assert_eq!(
+            original_tool_results(&updated, &expected).unwrap(),
+            original_tool_results(&rows, &expected).unwrap()
+        );
+        metadata_update.push_str(&format!(
+            "{}\n",
+            json!({"type":"session_meta","payload":{"id":"other-thread"}})
+        ));
+        assert_eq!(
+            committed_rollout_rows(metadata_update.as_bytes(), "owned-thread"),
+            Err(Error("native_context_identity_changed"))
+        );
+    }
+
+    #[test]
+    fn partial_native_result_and_nonresult_items_do_not_prove_an_original_receipt() {
+        let call = json!({"type":"function_call","call_id":"call","name":"exec_command","namespace":"functions","arguments":"{}"});
+        let partial = format!(
+            "{}\n{}\n{{\"type\":\"response_item\",\"payload\":{{\"type\":\"function_call_output\"",
+            json!({"type":"session_meta","payload":{"id":"thread"}}),
+            json!({"type":"response_item","payload":call})
+        );
+        let expected = BTreeMap::from([("call".to_owned(), call.clone())]);
+        let rows = committed_rollout_rows(partial.as_bytes(), "thread").unwrap();
+        assert_eq!(
+            original_tool_results(&rows, &expected),
+            Err(Error("native_tool_result_missing"))
+        );
+        let malformed = vec![
+            json!({"type":"response_item","payload":call}),
+            json!({"type":"response_item","payload":{"type":"function_call_output","call_id":"call","output":null}}),
+        ];
+        assert_eq!(
+            original_tool_results(&malformed, &expected),
+            Err(Error("native_tool_result_invalid"))
+        );
+    }
+
+    #[test]
+    fn native_poll_receipt_is_bound_to_its_own_call_without_a_new_command_item() {
+        let call = json!({"type":"function_call","call_id":"poll","name":"write_stdin","namespace":"functions","arguments":"{\"session_id\":42,\"chars\":\"\"}"});
+        let result = json!({"type":"function_call_output","call_id":"poll","output":"Chunk ID: poll\nWall time: 1.00 seconds\nProcess exited with code 0\nOutput:\noriginal tail\n"});
+        let rows = vec![
+            json!({"type":"response_item","payload":{"type":"function_call","call_id":"exec","name":"exec_command","namespace":"functions","arguments":"{\"cmd\":\"long-running-command\"}"}}),
+            json!({"type":"response_item","payload":{"type":"function_call_output","call_id":"exec","output":"Process running with session ID 42\nOutput:\noriginal prefix\n"}}),
+            json!({"type":"response_item","payload":call}),
+            // Native publishes only the original exec's commandExecution.
+            json!({"type":"event_msg","payload":{"type":"exec_command_end","call_id":"exec","exit_code":0}}),
+            json!({"type":"response_item","payload":result}),
+        ];
+        let expected = BTreeMap::from([("poll".into(), call)]);
+        assert_eq!(
+            original_tool_results(&rows, &expected).unwrap(),
+            vec![("poll".into(), result.clone())]
+        );
+        for key in ["arguments", "name", "namespace"] {
+            let mut changed = rows.clone();
+            changed[2]["payload"][key] = json!("changed");
+            assert_eq!(
+                original_tool_results(&changed, &expected),
+                Err(Error("native_tool_call_changed"))
+            );
+        }
+        let missing_call = vec![rows[4].clone()];
+        assert_eq!(
+            original_tool_results(&missing_call, &expected),
+            Err(Error("native_tool_result_invalid"))
+        );
+        let mut reordered = rows.clone();
+        reordered.swap(2, 4);
+        assert_eq!(
+            original_tool_results(&reordered, &expected),
+            Err(Error("native_tool_result_invalid"))
+        );
+        let mut repeated_call = rows.clone();
+        repeated_call.push(rows[2].clone());
+        assert_eq!(
+            original_tool_results(&repeated_call, &expected),
+            Err(Error("native_tool_result_ambiguous"))
+        );
+    }
+
+    #[test]
+    fn native_receipts_preserve_function_custom_and_search_results_without_command_items() {
+        let calls = [
+            json!({"type":"function_call","call_id":"plan","name":"update_plan","namespace":"functions","arguments":"{\"plan\":[]}"}),
+            json!({"type":"custom_tool_call","call_id":"patch","name":"apply_patch","namespace":"functions","input":"*** Begin Patch\n*** End Patch"}),
+            json!({"type":"tool_search_call","call_id":"search","execution":"client","arguments":{"query":"available tools"}}),
+        ];
+        let results = [
+            json!({"type":"function_call_output","call_id":"plan","output":[{"type":"input_text","text":"Plan updated"}]}),
+            json!({"type":"custom_tool_call_output","call_id":"patch","name":"apply_patch","output":"No files were modified."}),
+            json!({"type":"tool_search_output","call_id":"search","status":"completed","execution":"client","tools":[{"type":"function","name":"found_tool","parameters":{"type":"object"}}]}),
+        ];
+        let expected: BTreeMap<_, _> = calls
+            .iter()
+            .map(|call| (call["call_id"].as_str().unwrap().to_owned(), call.clone()))
+            .collect();
+        let rows: Vec<_> = calls
+            .iter()
+            .zip(&results)
+            .flat_map(|(call, result)| {
+                [
+                    json!({"type":"response_item","payload":call}),
+                    json!({"type":"response_item","payload":result}),
+                ]
+            })
+            .collect();
+        let observed: BTreeMap<_, _> = original_tool_results(&rows, &expected)
+            .unwrap()
+            .into_iter()
+            .collect();
+        for result in results {
+            assert_eq!(observed[result["call_id"].as_str().unwrap()], result);
+        }
+        let mut wrong_kind = rows.clone();
+        wrong_kind[3]["payload"]["type"] = json!("function_call_output");
+        assert_eq!(
+            original_tool_results(&wrong_kind, &expected),
+            Err(Error("native_tool_result_invalid"))
+        );
+    }
 
     #[test]
     #[ignore = "subprocess peer for the owned transport regression"]

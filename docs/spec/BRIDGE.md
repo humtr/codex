@@ -1591,6 +1591,24 @@ context observation unavailable and supplies no new cursors; callers use the
 existing history/status interfaces when fresh Native observation is available.
 Missing or unsettled calls remain on the ordinary Native admission path.
 
+For direct attached inference, a confirmed failed or interrupted Native turn
+ends that turn's result-producing lifetime without ending its development work.
+The existing Native observer may fence that same work into reconciliation only
+after verifying its exact execution owner, controller generation and latest turn,
+no owned background jobs, and committed original call/output pairs for every
+offered result that is still missing. Match the admitted tool identity and exact
+arguments/input, including a continuation's own call ID; a public command item
+may retain the original exec ID. Hold the work's existing Native admission while verifying
+and retiring this generation. Recover only its original public Native tool
+results, after Native's persistence barrier, into the existing Broker receipts.
+Preserve a result already committed by the normal callback; Native's full stored
+output and its model-input truncation are different projections. A late callback
+from the retired turn cannot overwrite either result or acquire the next turn.
+The original work/thread/history remain intact; explicit same-work claim/start
+accepts the next intent without replaying the failed turn. Running and successfully
+completed turns do not authorize this retirement. A separately owned AppHost or
+source inference is not retired through this direct-attached recovery boundary.
+
 Work records are authoritative; their index is derived/recoverable, not an
 independent source of work existence. A virtual MCP round's durable settlement
 intent must remain aligned with memory across Broker failure, including uncertain

@@ -671,6 +671,40 @@ fn same_controller(snapshot: &Record, current: &Record) -> bool {
 fn same_native_round(snapshot: &Record, current: &Record) -> bool {
     same_controller(snapshot, current) && snapshot.native_turn == current.native_turn
 }
+fn failed_attached_turn(record: &Record, state: &Value) -> bool {
+    record
+        .selection
+        .as_ref()
+        .is_some_and(|selection| selection.inference == Inference::Attached)
+        && record.driver.is_none()
+        && matches!(
+            record.phase.as_str(),
+            "running" | "waiting_native" | "reconciliation_required"
+        )
+        && state["thread"]["id"] == record.thread
+        && matches!(
+            state["thread"]["status"]["type"].as_str(),
+            Some("idle" | "systemError")
+        )
+        && state["thread"]["turns"]
+            .as_array()
+            .and_then(|turns| turns.last())
+            .is_some_and(|turn| {
+                record.native_turn.is_some()
+                    && turn["id"].as_str() == record.native_turn.as_deref()
+                    && matches!(turn["status"].as_str(), Some("failed" | "interrupted"))
+            })
+}
+fn unreturned_attached_result(record: &Record, calls: &[Value]) -> bool {
+    record.driver.is_none()
+        && record
+            .selection
+            .as_ref()
+            .is_some_and(|selection| selection.inference == Inference::Attached)
+        && calls
+            .iter()
+            .any(|call| call["offered"] == true && call["settled"] == false)
+}
 fn driver_round_error(current: &Record) -> Option<Error> {
     // A deliberate Chat handoff rotates the controller within this native
     // response. Its new capability alone must not cancel that response.
@@ -4380,7 +4414,25 @@ impl Operator {
                     }
                     let pending_process = if work.record.phase == "reconciliation_required" {
                         match this.broker.has_pending_processes(&lanes) {
-                            Ok(pending) => pending,
+                            Ok(pending) => {
+                                // A lost result-producing stream can fence the
+                                // work before its Native terminal event arrives.
+                                // Live opaque calls have no session ID yet; keep
+                                // this same observer until their turn can settle.
+                                pending
+                                    || match this.broker.recorded_calls(&work.record.token) {
+                                        Ok(calls) => {
+                                            unreturned_attached_result(&work.record, &calls)
+                                        }
+                                        Err(error) => {
+                                            eprintln!(
+                                                "native_effect_observation_failed: {}",
+                                                error.0
+                                            );
+                                            return;
+                                        }
+                                    }
+                            }
                             Err(error) => {
                                 eprintln!("native_effect_observation_failed: {}", error.0);
                                 return;
@@ -4392,7 +4444,7 @@ impl Operator {
                     if !pending_process
                         && !matches!(
                             work.record.phase.as_str(),
-                            "running" | "completed" | "interrupted"
+                            "running" | "waiting_native" | "completed" | "interrupted"
                         )
                     {
                         return;
@@ -4916,6 +4968,107 @@ impl Operator {
         self.queue_input(json!({"thread_id":record.thread,"call_id":call_id,"text":source.text,"execution_home":record.execution.home})).await?;
         Ok(true)
     }
+    async fn reconcile_failed_attached_turn(
+        &self,
+        snapshot: &Record,
+        native: &Native,
+    ) -> Result<Option<Record>, Error> {
+        if snapshot.execution != native.owner
+            || !snapshot
+                .selection
+                .as_ref()
+                .is_some_and(|selection| selection.inference == Inference::Attached)
+            || snapshot.driver.is_some()
+            || !matches!(
+                snapshot.phase.as_str(),
+                "running" | "waiting_native" | "reconciliation_required"
+            )
+        {
+            return Ok(None);
+        }
+        let admission = {
+            let works = self.works.lock().await;
+            let work = works
+                .get(&snapshot.thread)
+                .ok_or(Error("operator_work_unavailable"))?;
+            if !same_native_round(snapshot, &work.record)
+                || snapshot.token != work.record.token
+                || work.stops_in_progress != 0
+                || work.app_round.is_some()
+            {
+                return Ok(None);
+            }
+            work.native_admission.clone()
+        };
+        let Ok(_admission) = admission.try_lock_owned() else {
+            // Start/claim/Stop owns the existing lifecycle admission. This
+            // observation cannot overtake it or acquire another controller.
+            return Ok(None);
+        };
+        let pool = self.work_pool(snapshot).await?;
+        native
+            .verify_scope(&snapshot.thread, &pool.workspace)
+            .await?;
+        let state = native
+            .call(
+                "thread/read",
+                json!({"threadId":snapshot.thread,"includeTurns":true}),
+            )
+            .await?;
+        if !failed_attached_turn(snapshot, &state)
+            || !self.owned_jobs(native, snapshot).await?.is_empty()
+        {
+            return Ok(None);
+        }
+        // The original persisted call/output pair is the common Native
+        // result authority. Public command items are not: write_stdin keeps
+        // its original exec item ID, and other tools have different items.
+        let expected = self.broker.unreturned_native_calls(&snapshot.token)?;
+        let results = if expected.is_empty() {
+            Vec::new()
+        } else {
+            native
+                .terminal_tool_results(&snapshot.thread, &expected)
+                .await?
+        };
+        let state = native
+            .call(
+                "thread/read",
+                json!({"threadId":snapshot.thread,"includeTurns":true}),
+            )
+            .await?;
+        if !failed_attached_turn(snapshot, &state)
+            || !self.owned_jobs(native, snapshot).await?.is_empty()
+        {
+            return Ok(None);
+        }
+        let mut works = self.works.lock().await;
+        let work = works
+            .get_mut(&snapshot.thread)
+            .ok_or(Error("operator_work_unavailable"))?;
+        if !same_native_round(snapshot, &work.record)
+            || work.record.token != snapshot.token
+            || work.record.phase != snapshot.phase
+            || work.stops_in_progress != 0
+            || work.app_round.is_some()
+        {
+            return Ok(None);
+        }
+        // Fence late callbacks before retiring their producer generation. A
+        // terminal Native turn is not a successful task or permission to start
+        // another one; the existing explicit same-work claim/start remains.
+        work.record.accepted = false;
+        work.record.phase = "reconciliation_required".into();
+        self.persist(&work.record)?;
+        work.active = None;
+        self.broker
+            .retire_native_results(&snapshot.token, &snapshot.id, &results)
+            .await?;
+        work.record.pending.clear();
+        self.persist(&work.record)?;
+        Ok(Some(work.record.clone()))
+    }
+
     async fn observe_native(
         &self,
         mut record: Record,
@@ -4924,6 +5077,30 @@ impl Operator {
         let app_routed = self
             .app_route(&record, record.native_turn.as_deref())?
             .is_some();
+        let attached_state = if app_routed {
+            None
+        } else {
+            Some(
+                native
+                    .call(
+                        "thread/read",
+                        json!({"threadId":record.thread,"includeTurns":false}),
+                    )
+                    .await?,
+            )
+        };
+        // Ordinary active observations remain metadata-only. Read/persist
+        // the complete Native history only at a possible terminal boundary.
+        if attached_state.as_ref().is_some_and(|state| {
+            matches!(
+                state["thread"]["status"]["type"].as_str(),
+                Some("idle" | "systemError")
+            )
+        }) {
+            if let Some(reconciled) = self.reconcile_failed_attached_turn(&record, native).await? {
+                record = reconciled;
+            }
+        }
         let marker = crate::app::lane_marker(&self.journal, &record.thread)?;
         let mut lanes = vec![record.id.as_str()];
         if let Some(marker) = marker.as_deref() {
@@ -4937,12 +5114,17 @@ impl Operator {
                 .settle_native_processes(&lanes, &pool.workspace, &history)
                 .await?;
         }
-        let state = native
-            .call(
-                "thread/read",
-                json!({"threadId":record.thread,"includeTurns":false}),
-            )
-            .await?;
+        let state = match attached_state {
+            Some(state) => state,
+            None => {
+                native
+                    .call(
+                        "thread/read",
+                        json!({"threadId":record.thread,"includeTurns":false}),
+                    )
+                    .await?
+            }
+        };
         if app_routed
             && record.phase == "interrupted"
             && source_native_settled(&record, &state)
@@ -6102,9 +6284,19 @@ impl Operator {
         }
         let (sender, mut commands) = mpsc::channel(64);
         let round = random_id()?;
-        {
+        let completion_cancel = CancellationToken::new();
+        let observed_record = {
             let mut works = self.works.lock().await;
             let work = works.get_mut(&request.thread).unwrap();
+            if !same_controller(&record, &work.record)
+                || record.token != work.record.token
+                || matches!(
+                    work.record.phase.as_str(),
+                    "reconciliation_required" | "stop_requested" | "stopped" | "completed"
+                )
+            {
+                return Err(Error("operator_controller_fenced"));
+            }
             if work.active.is_some() {
                 return Err(Error("native_lane_busy"));
             }
@@ -6146,7 +6338,12 @@ impl Operator {
                 work.record.native_turn = request.turn.clone();
             }
             self.persist(&work.record)?;
-        }
+            if let Some(previous) = work.completion_observer.replace(completion_cancel.clone()) {
+                previous.cancel();
+            }
+            work.record.clone()
+        };
+        self.watch_completion(observed_record, Some(native.clone()), completion_cancel);
         if record
             .selection
             .as_ref()
@@ -6272,7 +6469,7 @@ impl Operator {
                 return result;
             }
             work.active = None;
-            if result.is_err() {
+            if result.is_err() && same_controller(&record, &work.record) {
                 // A requested interruption is still awaiting explicit Stop
                 // confirmation; the native observer closing must not erase it.
                 if !matches!(work.record.phase.as_str(), "stop_requested" | "stopped") {
@@ -7363,6 +7560,73 @@ mod local_tests {
         assert!(!compact_phase_admissible(&record));
         record.phase = "completed".into();
         assert!(compact_phase_admissible(&record));
+    }
+
+    #[test]
+    fn attached_result_recovery_requires_the_same_failed_terminal_native_turn() {
+        let mut record = fixture_record(std::path::Path::new("/owned-test"));
+        record.native_turn = Some("original-turn".into());
+        record.selection = Some(Selection {
+            inference: Inference::Attached,
+            return_path: ReturnPath::Mcp,
+        });
+        let state = json!({"thread":{"id":record.thread,"status":{"type":"systemError"},
+            "turns":[{"id":"original-turn","status":"failed"}]}});
+        assert!(failed_attached_turn(&record, &state));
+        record.phase = "reconciliation_required".into();
+        let unreturned = vec![json!({"id":"original-call","offered":true,"settled":false})];
+        assert!(unreturned_attached_result(&record, &unreturned), "a producer failure before Native failure must keep observing the live-token opaque call");
+        for calls in [
+            vec![],
+            vec![json!({"offered":false,"settled":false})],
+            vec![json!({"offered":true,"settled":true})],
+        ] {
+            assert!(!unreturned_attached_result(&record, &calls));
+        }
+        for status in ["inProgress", "completed"] {
+            let mut other = state.clone();
+            other["thread"]["turns"][0]["status"] = json!(status);
+            assert!(!failed_attached_turn(&record, &other));
+        }
+        for (path, value) in [
+            (
+                "thread",
+                json!({"id":"different-thread","status":{"type":"systemError"},"turns":[{"id":"original-turn","status":"failed"}]}),
+            ),
+            (
+                "thread",
+                json!({"id":record.thread,"status":{"type":"active"},"turns":[{"id":"original-turn","status":"failed"}]}),
+            ),
+            (
+                "thread",
+                json!({"id":record.thread,"status":{"type":"idle"},"turns":[{"id":"original-turn","status":"failed"},{"id":"next","status":"completed"}]}),
+            ),
+        ] {
+            let mut other = state.clone();
+            other[path] = value;
+            assert!(!failed_attached_turn(&record, &other));
+        }
+        for phase in [
+            "starting_native",
+            "stopped",
+            "stop_requested",
+            "handoff",
+            "completed",
+        ] {
+            let mut other = record.clone();
+            other.phase = phase.into();
+            assert!(!failed_attached_turn(&other, &state));
+        }
+        let mut host_owned = record.clone();
+        host_owned.driver = Some("original-chat".into());
+        assert!(!failed_attached_turn(&host_owned, &state));
+        assert!(!unreturned_attached_result(&host_owned, &unreturned));
+        record.selection.as_mut().unwrap().inference = Inference::Submitted;
+        assert!(!unreturned_attached_result(&record, &unreturned));
+        assert!(
+            !failed_attached_turn(&record, &state),
+            "Native failure does not retire a separately owned Chat producer"
+        );
     }
 
     #[test]
