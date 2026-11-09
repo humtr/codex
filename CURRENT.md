@@ -1,28 +1,26 @@
 # Product state and completion roadmap
 
 SPEC.md and its linked normative annexes own behavior and component boundaries.
-AGENTS.md owns development principles
-and must be reread after recovery. This file distinguishes source implementation,
-automated proof, actual Android execution, connected-client proof, public signed
-delivery and device activation. None substitutes for the next boundary.
+AGENTS.md owns development principles and must be reread after recovery. This file
+distinguishes source implementation, automated proof, actual Android execution,
+connected-client proof, public signed delivery and device activation. None
+substitutes for the next boundary.
 
 ## Integration status and operating baseline
 
-**Checkpoint: 2026-11-09 21:08 UTC / 2026-11-10 06:08 KST.** Work remains on
-`integration/codex-native-20261110`. The confirmed remote tip is
-`0c5a70523f7a7aca42f1e5910fbd4bf57a7ca180`. Actual Termux has additionally
-fast-forwarded to `94e09c845b84a0050a0474ba7da34eb26bb3c253`; its full Provider
-gate passed before the next push. The corrected result-fault harness (`6e59dd1`),
-confirmed fixture cleanup (`b9871ab`) and CI runtime transport (`b1ea11e`) are
-additionally committed locally, awaiting their device transfer and next CI run.
-The original uncertain push was recovered from its original completed Native
-item; it had successfully published `e6f50f2`. It was not resubmitted. The
-retained-result fix `f1f3c2` and discovery fix `0c5a705` have since reached Termux,
-passed their stated gates and been pushed without changing the source branches.
-The same Native work/thread is executing again. Installed TUI/model acceptance
-and the remaining qualification gates are still incomplete; source recovery and
-successful pushes do not establish device activation or task completion.
-Dated historical sections below retain their original scope.
+**Checkpoint: 2026-11-09 21:55 UTC / 2026-11-10 06:55 KST.** Work remains on
+`integration/codex-native-20261110`. The latest confirmed remote source is
+`12129a5ed37efda26119b79e1e25350d91a39808`; its Source Acceptance and Provider
+qualification runs succeeded. Local and actual Termux source have advanced to
+`9b5ddc9302b58dade64bd67c84e4cbe591186e18`. That source includes the failed-start
+observation fix, fixture owner preservation and authoritative runtime-path
+observation. Its actual Provider gate failed on an invalid argument in a new
+observation test after the recovery assertions passed. A fixture-only correction
+awaits rerun; no new 9b5 CI run has been dispatched. It is not passed or pushed.
+The separate production TUI override repair is still being tested outside this
+checkpoint. Its binary and the newer Provider need matching qualification.
+Installed `/provider` and model acceptance remain incomplete. Dated historical
+records below retain their original source and execution scope.
 
 ### Source integration and preservation
 
@@ -32,208 +30,200 @@ The remote tips were re-read and match the user's original checkpoints:
 | --- | --- | --- |
 | `rewrite/rust-core` | `27103ec06b1c16c07b6a245d4b4542f8248cc5b4` | Ancestor of the integration branch |
 | `fix/chatgpt-resume-concurrency-20261108` | `f93256083902fd4f5b289e895f8a3633046a0b17` | Ancestor; stream, HTTP 413 and ownership changes retained |
-| `wip/chatgpt-accounts-source-20261110` | `2dd07d422ad063107f344ac88409271b6ad380ba` | Ancestry retained; unwired draft excluded from the production tree |
+| `wip/chatgpt-accounts-source-20261110` | `2dd07d422ad063107f344ac88409271b6ad380ba` | Ancestry retained; unwired draft excluded from production |
 
-The account draft is not a completed feature; see its integration boundary below.
-The original Termux checkout still preserves its untracked `ais.config.toml`,
+The account draft is not a completed feature; see its boundary below. The
+original Termux checkout preserves untracked `ais.config.toml`,
 `chatgpt.config.toml` and `providers/chatgpt/src/accounts.rs`. Existing branch
-history and unrelated working changes were not forced, deleted or overwritten.
-Cleanup removed only identified inactive generated builds/caches inside Termux,
-recovering **18,475,196,416 bytes**. Android sdcard was not accessed or cleaned.
+history and unrelated work were not forced, deleted or overwritten. Cleanup
+removed identified inactive generated builds/caches inside Termux, recovering
+**18,475,196,416 bytes**. Android sdcard was not accessed or cleaned.
 
 New Provider producers use `provider-chatgpt-v...`; readers retain published
 `provider-gpt-v...` identities and exact signed bytes for acquisition and rollback.
 Codex TUI source lives in `frontend/tui`; Core's consumer is `tui.rs` and CI's
 private verifier is `tui_artifact.py`. Builder producers use `--tui`,
-`--tui-version` and `adapt-tui`; the old Manager-named flags/command are aliases.
+`--tui-version` and `adapt-tui`; the Manager-named flags/command remain aliases.
 The signed `termux-manager-tui-v1` identity and historical workflow/artifact names
-remain compatible. Manager and TUI keep separate execution and lifetime ownership.
+remain compatible. Manager and TUI retain separate execution and lifetime owners.
 
-The bounded compiler claim failure was repaired through Native execution metadata
-and actual input/output dependencies, preserving conservative opaque ownership.
-Other accepted review fixes cover publication ordering, artifact validation,
-owned-output cleanup and transactional source assembly. The attached review used
-older sources: neither its 74 findings nor its suggested remedies are all accepted
-or all fixed. Unwired accounts, publication restart edge cases and other explicitly
-unclosed findings remain incomplete.
+The bounded compiler claim fix uses Native execution metadata and actual
+input/output dependencies while preserving conservative opaque ownership.
+Accepted older-review findings also cover publication ordering, artifact
+validation, owned-output cleanup and transactional source assembly. Neither all
+74 attached findings nor all proposed remedies are accepted or fixed. Unwired
+accounts and explicitly unclosed publication edges remain incomplete.
 
 <a id="active-operating-deployment"></a>
 
-### Operating device and reproduced failure
+### Operating device and original failure
 
-Actual activation-state reobservation selects **Full159**,
-`full-v0.167.0-681ecce-s159`, and retains
-`local-relay-hosted-0-167-0-d3becae26b07-s153` as previous. This integration work
-has not replaced the operating binaries, published a signed release or restarted
-the operating services. The Full153 activation record below is historical.
+Actual activation-state selects **Full159**, `full-v0.167.0-681ecce-s159`, with
+`local-relay-hosted-0-167-0-d3becae26b07-s153` as previous. This integration has
+not replaced operating binaries, published a signed release or restarted the
+operating services. The Full153 activation record below is historical. The
+original signed Full159/153 trees have a separately verified private backup
+outside the managed generation catalog; normal new activation may prune 153.
 
-Core's authoritative signed Provider selection remains
-`chatgpt-da5bf622bc49-s25`, high-water25, with no previous selection. The separate
-legacy `providers/chatgpt/current` symlink still names the unsigned candidate
-`provider-gpt-v0.1.0-df8a8c9-s27`; the default generated regular profile uses that
-path as its command-backed authentication reference. It is not Core's signed
-selection authority. The shared profile uses the retained immutable
-`account-scoped-project-v2-20261109` executable, also used by operating Provider
-PID30706/start3452446. Both profiles passed private-file, marker, command/state,
-41981 endpoint and GPT-6 catalog checks. Preserve both references and the default
-regular profile during any qualified service cutover. The actual host keeper has
-no stop trap: its loop only observes or ensures the existing owned AppHost.
+Core's authoritative signed Provider selection is `chatgpt-da5bf622bc49-s25`,
+high-water25, with no previous selection. The separate legacy `current` symlink
+names unsigned `provider-gpt-v0.1.0-df8a8c9-s27`, used by the regular default
+profile's command-backed authentication. It is not signed selection authority.
+The shared wrlab profile and live service use the retained immutable
+`account-scoped-project-v2-20261109` executable, observed as PID30706/start3452446.
+Both profiles passed private-file, command/state, 41981 endpoint and GPT-6 catalog
+checks. Preserve both executables, default regular profile and its own catalog,
+shared profile/catalog and journal during any cutover. The actual host keeper
+only loops over host status/ensure; it has no stop trap. At 21:53 UTC the three
+runit service directories and their `var/service` parents were real 0700
+owned directories, not aliases. The newly prepared preservation helper has not
+yet been run on the device.
 
-The failed Native thread is `01a1c0f5-10af-7531-8885-8dcd90d1d2e5`, turn
-`01a1c0f5-d6c3-79a1-85d1-5aed82d1865d`. Its actual request ran from
-**2026-11-09 15:38:19.976 to 15:38:35.385 UTC** and returned
-`stream disconnected before completion: cdp_operation_timeout`.
-The journal remains `New`, with an identity, no project/request/round and zero
-dispatches. Preserve that original work and history; do not replay its input.
-The old log does not identify the exact app command. That state is consistent
-with preparation failure but cannot establish that `project_read` was the command.
+The original failed Native thread is `01a1c0f5-10af-7531-8885-8dcd90d1d2e5`, turn
+`01a1c0f5-d6c3-79a1-85d1-5aed82d1865d`. It ran from **2026-11-09 15:38:19.976 to
+15:38:35.385 UTC** and returned
+`stream disconnected before completion: cdp_operation_timeout`. The journal is
+`New`, with identity but no project/request/round and zero dispatches. The old
+log does not identify the exact app command: preparation failure is supported,
+but `project_read` as the specific command is not established. Preserve the
+original work/history; do not replay its input.
 
-Source inspection establishes that `Runtime.evaluate(awaitPromise=true)` awaited
-the app's network preparation inside the 15-second CDP command deadline. The fix
-retains one original app Promise and observes its receipt after an uncertain ACK;
-unknown delivery cannot start a replacement operation. The CDP bound stays 15s.
-One existing 600s turn budget includes preparation; direct preparation observers
-also have a finite budget. Only ownerless pure-read receipts can be abandoned or
-expire. Native preparation and writes retain their original owner/result.
-Connection invalidation checks the same generation/session. Project resolution
-locks now cover one journal/account/name binding; same-binding work is serialized.
+Source inspection found app network preparation awaited inside the 15-second
+`Runtime.evaluate(awaitPromise=true)` CDP deadline. The fix retains one original
+app Promise and observes its receipt after an uncertain ACK; unknown delivery
+cannot begin a replacement operation. The CDP bound remains 15s. One existing
+600s turn budget includes preparation; direct observers also have a finite
+budget. Only ownerless pure-read receipts may be abandoned or expire. Owned
+preparation/writes retain their result. Connection invalidation checks the same
+generation/session; project resolution locks cover one journal/account/name
+binding instead of unrelated work.
 
-Installed Full159 still reproduced a fatal default `account/read` revoked-token
-failure and an unrecognized `/provider`. A diagnostic `--profile chatgpt` run did
-complete two actual GPT-6 turns on Native thread
-`01a1c11a-fd0b-7ab1-841a-9ba04c365ee3`:
+Installed Full159 reproduced fatal default `account/read` revoked-token failure
+and unrecognized `/provider`. A diagnostic `--profile chatgpt` did complete two
+actual GPT-6 turns on thread `01a1c11a-fd0b-7ab1-841a-9ba04c365ee3`:
 
 | Turn | Observed UTC interval on 2026-11-09 |
 | --- | --- |
 | `01a1c11d-ab72-7582-8991-822d2d5e274d` | 16:21:52–16:22:24 |
 | `01a1c11e-e253-7971-b8c6-01533cdac3a2` | 16:23:10–16:23:21 |
 
-This proves the explicit-profile diagnostic route, not the required installed
-`/provider` selection path. The integrated TUI/authentication changes still need
-their actual installed-entrypoint acceptance.
+That proves the explicit-profile diagnostic route, not the required installed
+`/provider` selection path. Actual installed-entrypoint acceptance remains open.
 
-### Verification checkpoint and remaining acceptance
+### Current qualification and remaining execution
 
 | Boundary | Observed result |
 | --- | --- |
-| Actual Termux workspace, `18b90a5` | 445 tests passed and one was explicitly ignored in the ordinary run; that real-Termux case then passed when invoked explicitly |
-| Actual Termux focused checks | Doctor 19, release-builder 60, preservation smoke and strict Clippy passed; overlapping scopes are not added as unique tests |
-| Python source checks | 189 passed in the retained source gate; 35 new qualification cases also passed on actual Termux at `3140f7f` |
-| Provider checks, `392b026f02a41f1364e575393dd78adc1774dd31` | 314 Rust tests and 135 Bun tests passed; this does not establish installed-model acceptance |
-| Native/TUI preparation | Combined assembly of official `086ccc8` passed; two Native fixture test targets compiled on actual Termux. Compilation alone is not execution proof |
-| Actual Termux package fixtures, `e6f50f2` | Isolated signed Base/Full cases returned exit 0 and accepted=true at 18:43:03.447 UTC (296.444 seconds), with zero actual Chat requests and no operating changes |
-| Retained-result fix, `f1f3c2` / checkpoint `5c9334b` | Actual Termux full Provider gate passed: 318 tests, 33 explicit live/fixture entrypoints ignored, fmt and all-target Clippy with warnings denied. Those ignored device/model cases are not acceptance passes |
-| Native discovery, `0c5a705` | Actual Termux transport fixture failed on original code with `native_socket_unavailable`; the unchanged fixture then passed all six cases after the fix. fmt and strict all-target Clippy passed. Its ignored subprocess entrypoint is invoked by those cases |
-| Original-result recovery, `94e09c8` | Actual Termux full Provider test, fmt and all-target Clippy passed. The main harnesses passed 329 cases; 34 opt-in/fixture entries are marked ignored, including peers invoked by parent cases. Three separately printed child results are not added as unique cases. Original and revised fixture binaries were retained with exact hashes |
-| Remote Source / Provider, `18b90a5` | Runs `42668943683` / `42668949977` completed successfully |
-| Remote Core/runtime, `18b90a5` | Run `42668936425`: original runtime-source job passed; producer became `abandoned`, and whole qualification failed in attempts 1 and 2 |
-| New Source / Provider, `3140f7f` | Runs `42674234712` / `42674239953` failed without new producer execution; Source's final gate observed `abandoned`, Provider had no started job |
-| New Core/runtime, `5c9334b` | Run `42689269384` completed the runtime-source job successfully, but whole qualification failed: producer job `129425103192` rejected the downloaded runtime's executable mode. Candidate inventory/execution was not admitted. The artifact transfer boundary is being repaired without weakening the runtime verifier |
-| Full remote TUI qualification | Old run `42661856755` at `392b026` failed with E0283 in `workspace_routing_tests.rs`; its log confirms the redundant `.into()` repaired by `3c043bd`. Final full run `42665847905` at `3c043bd` completed successfully at 21:02:29 UTC: actual CLI build, TUI regressions, Native libraries/API, retained upstream features, lint and final proof passed |
+| Actual Termux workspace release build, `ea04c19` | `cargo build --workspace --release --locked` succeeded at 21:27:30.129 UTC. Core SHA256 is `cfbc2cbf54bea4b4eb5f9db5d6bb58d24320942526c064777ff425bf6785b2a9`; Manager and builder bytes remained unchanged in that completed rebuild |
+| Source / Provider CI, `e0cca4c` | Runs `42700060784` / `42700049171` succeeded at 21:17:55 / 21:17:28 UTC |
+| Source / Provider CI, `12129a5` | Runs `42703090391` / `42703096848` succeeded at 21:36:27 / 21:36:04 UTC. The Provider check includes the live-TUI/compiler/result fixture units; its final 44 Python cases include 5 result tests. These units are not live model acceptance |
+| Whole Core/runtime CI, `e0cca4c` | Run `42700037956` succeeded at 21:47:42 UTC, including runtime production, unsigned candidate and Android execution gates. The public-branch notification relay was expected to skip |
+| Actual runtime acquisition, `e0cca4c` | Original successful run/artifact metadata, ZIP/tar and raw payload verified at 21:49:09 UTC; artifact `13712562685`, acquisition source-head `12129a5`. Binary SHA256 `72305061c79c1fafbee44faa8dbaf490f18140fa4ed43a197c60ea47efb40b66` |
+| Whole TUI CI and actual acquisition, `3c043bd` | Run `42665847905` succeeded at 21:02:29 UTC; artifacts `13702318735` / `13710092309` acquired and verified at 21:06:04. Raw binary SHA256 `5bd4429a0f51b7cf7d4a6cc59cdbba0c52a3234d8470565eb55d6d76f6149924`. This is the original qualified input; the later production override repair needs matching new proof |
+| Provider candidate, `e0cca4c` | Actual acquisition/verification succeeded at 21:26:39.798 UTC using original run `42700049171` and candidate/proof artifacts `13711721758` / `13711696579`. The later failed-start production repair needs matching new qualification |
+| Actual Native callback-loss comparison 32 | Correct original source `48a73b25f3794967dc76924f7dc9a95e849b8e9a` failed and revised `94e09c8` passed against the same unchanged Full159 Native executable. Comparison accepted=true at 21:39:05.844970 UTC. Details below; no actual model request or operating replacement |
+| Latest Provider source, `9b5ddc9` | Actual gate failed at 21:55:24 UTC: Rust library 234 passed, 1 failed, 5 ignored. The new failed-start test passed its recovery assertions, then sent an unsupported controller field to `codex_status` and received `operator_arguments_invalid`. Python 48 and fmt passed; the small test request correction and full rerun are pending. The whole gate and new CI are not passed |
+| New canonical Full composition | Local real-builder producer/consumer and malformed-inventory regressions passed; actual combined-package Android lifecycle, live activation and installed TUI acceptance remain pending |
 
-The successful TUI run's same-run artifacts `13702318735` and `13710092309`
-were acquired and validated on actual Termux at 21:06:04 UTC, retaining original
-run/artifact JSON, archive digests and proof. Source-recipe equality and the
-existing payload validator passed; the raw TUI binary digest is
-`5bd4429a0f51b7cf7d4a6cc59cdbba0c52a3234d8470565eb55d6d76f6149924`.
-This is a qualified input for local composition, not installation or actual
-model acceptance. Evidence is under `tui-qualified-3c29` in the owned integration
-evidence root.
+Input equality permits exact component reuse without relabeling original proof.
+The ea04 build and current 9b5 have no changes in Cargo workspace/Core/Manager/
+builder files. Their embedded producer input is identical (669,058 bytes,
+SHA256 `cfe1b428a4e8a674b4734835e82dc447142eaa4fc6e47632abe1eea45722ca10`).
+The e0/current raw runtime recipe is
+`6d21fa289800f510f5d7ba31bab69b2aa5f264f29bca5b5497830172852ca876`.
+The newer Provider and TUI changes do not become covered by older component
+proof. Existing recipe/source-input checks must pass for each final composition.
+Core, Manager and builder source equality does not require a rebuild for this
+checkpoint documentation change.
 
-The CI runtime transfer repair preserves the existing Rust artifact verifier.
-Actions loses executable modes when uploading loose files; the new producer
-wraps its already-verified raw runtime and evidence in `runtime.tar`, and both
-consumers unpack a bounded regular-file archive before running the same verifier.
-The actual Rust-verifier regression reproduces the loose ZIP failure and passes
-with identical bytes and modes preserved through tar. Unsafe original modes,
-links, duplicate/escaping paths and extra archive entries remain rejected.
-The raw cache retains its existing layout and verifier. The conservative recipe
-fingerprint changes with the transfer workflow; a new successful whole Core run
-is required, while the existing Cargo dependency cache remains reusable.
+Private evidence remains under
+`/data/data/com.termux/files/usr/tmp/codex-integration-20261110-0310f0-evidence`.
+Runtime receipt is `runtime-qualified-e0-32/verified.json`; TUI proof is under
+`tui-qualified-3c29`. Comparison32 retains its original driver and report hashes:
+
+| Report | SHA256 |
+| --- | --- |
+| `native-result32-comparison.json` | `4d15581ceea6c3b31b2aeb15e2c7453361c28c0d84dd5506056299f6d611c04e` |
+| `native-result32-red.json` | `c68b01b886ee4ef89ac4e9ecfff527e301ffb9714747dc3a88603a618d14508e` |
+| `native-result32-green.json` | `d44794d091952bf912c986624e44fb9346f6996684e4a109930d25e99221160d` |
+
+The red Native thread/turn are `01a1c240-0a3b-7240-9887-f106c3a317a5` /
+`01a1c240-0aa7-76a1-b2c7-10d83a99e8e7`; green are
+`01a1c240-18db-7a10-a07c-c8ac7fa9ba95` /
+`01a1c240-195c-70c3-9a47-8356448cc7c7`. The fix recovers original persisted
+call/output pairs only for a direct-attached failed/interrupted latest turn,
+under the same execution/controller/generation and Native admission lock, with
+no owned jobs. It settles retained reservations and retires that callback
+generation; explicit same-work claim/start preserves the original thread/history.
+Committed callback bytes remain authoritative. It does not synthesize output from
+display text or retire running, completed or separately AppHost-owned inference.
+The new 9b5 observation extends this same boundary to a known failed initial turn
+before Provider ingress. A new start reservation clears the previous turn ID;
+unknown start delivery cannot borrow an earlier failure or authorize replay.
+
+Remaining acceptance is installed `/provider` selection → actual GPT-6 completion
+→ same Native thread follow-up with both records preserved; injected SSE loss
+without duplicate effects/permanent blocking; and independent Native work.
+HTTP 413 and opaque/parallel ownership checks remain required. Qualified raw
+inputs, source tests, same-owner recovery and zero-model fixtures do not complete
+that user-facing acceptance. Local signing and normal update/cutover are separate
+future steps; original Provider25, legacy27, live immutable653 and Full159/153
+preservation must remain explicit.
+
+### Earlier evidence and unsuccessful attempts (historical)
+
+These retained results describe earlier sources, not the latest incomplete gate:
+
+| Boundary | Retained observation |
+| --- | --- |
+| Actual Termux workspace, `18b90a5` | 445 tests passed, one explicitly ignored in the ordinary run; that real-Termux case passed when explicitly invoked. Doctor 19, builder 60, preservation smoke and strict Clippy also passed; overlapping scopes are not unique additional tests |
+| Earlier Python and Provider checks | Python 189 and 35 newer cases on actual `3140f7f` passed. Provider `392b026f02a41f1364e575393dd78adc1774dd31` passed 314 Rust and 135 Bun tests. Official `086ccc8` combined Native/TUI preparation passed; two Native fixture targets compiled on Termux |
+| Actual Base/Full package fixtures, `e6f50f2` | accepted=true, exit0 at 18:43:03.447 UTC, 296.444 seconds, zero actual Chat requests. That fixture cloned installed Full159 and does not qualify the new canonical Full composition |
+| Retained-result source, `f1f3c2` / `5c9334b` | Actual Provider 318 passed, 33 opt-in entries ignored, fmt/strict Clippy passed. Ignored device/model entries are not acceptance passes |
+| Native discovery, `0c5a705` | Original code failed with `native_socket_unavailable`; the unchanged actual regression passed all 6 cases after the fix, with fmt/strict Clippy |
+| Original-result recovery, `94e09c8` | Actual Provider main harnesses passed 329 cases with 34 opt-in/fixture entries ignored; fmt/strict Clippy passed. Three separately printed child results are not added. Related 32 cases also passed locally |
+| Old CI | Source/Provider `18b90a5` runs `42668943683` / `42668949977` succeeded. Core `42668936425` failed in attempts 1/2 after raw production and abandoned producer; `3140f7f` runs `42674234712` / `42674239953` failed without fresh producers. No failed run was admitted |
+| Old runtime/TUI transfer failures | Core `42689269384` at 5c failed after successful raw production because loose Actions upload lost executable mode. The tar transport fix retains the original verifier; new whole e0 qualification above passed. TUI `42661856755` at 392 failed E0283, repaired in 3c; the original failed run remains failed |
 
 The official [GitHub Status API](https://www.githubstatus.com/api/v2/summary.json)
-reported an Actions/Checks incident beginning at 18:12:37 UTC, overlapping the
-new CI failures. Its 18:43:24 UTC update, observed at 18:57:52 UTC, reports
-mitigation and Actions operational, with the incident still `monitoring`.
-That announcement does not make failed CI pass or establish device recovery;
-an individual runner/billing cause was not established. No guard was waived.
+reported Actions/Checks incident start 18:12:37 UTC; its 18:43:24 mitigation update
+was observed 18:57:52 with the incident still monitoring. That historical status
+is not a current CI pass, and no individual runner/billing cause was established.
+No branch, publication or verifier guard was waived.
 
-The 18:43–19:02 UTC gateway outage returned `native_socket_unavailable` while the
-operating Provider/AppHost remained healthy. Subsequent observation recovered the
-original Native item for `codex-integration-20261110-read-lifecycle26-push`:
-it had completed with exit0 at 18:43:52.376 UTC, including the successful push.
-The original PID7008/start3478031 and runtime159 remained alive. A supported
-Stop confirmed no remaining owned jobs or effects; claim/start/attach continued
-the same work `0310f0a9f6afe2a75397c63c72fb69cb12e2a9c416f25e24` and thread
-`01a1c107-f60e-7293-87de-5941cd82d6eb`, with the original 152-item history prefix
-unchanged. No operating service/Native process was restarted and no original
-command or model request was replayed. The cause of that particular socket
-outage remains unconfirmed; the stale rendezvous files were not removed.
+During the 18:43–19:02 gateway outage, Provider/AppHost stayed healthy while Native
+reported `native_socket_unavailable`. The original
+`codex-integration-20261110-read-lifecycle26-push` item was recovered: exit0 at
+18:43:52.376 UTC included successful e6 push, without replay. Supported Stop,
+claim/start/attach continued work `0310f0a9f6afe2a75397c63c72fb69cb12e2a9c416f25e24`
+and thread `01a1c107-f60e-7293-87de-5941cd82d6eb`; PID7008/start3478031, runtime159
+and the 152-item history prefix were preserved. The exact outage cause remains
+unknown and stale rendezvous files were not removed. The later discovery fix
+requires unique loaded ownership plus exact kernel writer-lock/same-home proof;
+its regression does not establish causality for that earlier outage. The
+retained-result fix can read an already committed exact Broker result without
+a live socket, preserving its existing identity/fingerprint checks.
 
-The `f1f3c2` fix reads an already committed exact Broker result without a live
-Native socket, retaining work/controller, fingerprint and App identity checks.
-It grants no new execution and manufactures no fresh history/cursors. The
-`0c5a705` discovery fix continues observation after an unavailable socket, but
-admits a unique loaded thread only with the existing exact kernel writer-lock
-proof and same-home unavailable candidates. Other-home uncertainty, duplicate
-owners, changed peers and unsafe records still fail. Its actual regression does
-not establish causality for the earlier operating outage.
+Attempts 29/30/31 remain separate unsuccessful evidence; they are not folded into
+comparison 32. Attempt 29 launched at 20:21:25 using fa6 and failed to inject its
+intended cut because its proxy used historical headers and saw a null thread ID.
+The original command executed once (`callback-effects` was `once\n`), RPC 19
+retained 3058 bytes and both saved Stop receipts confirmed no jobs; the fixture
+mirror/shared ledger had no remaining fixture claims. After that attempt, a
+supported Stop/claim/start/attach restored root observation while preserving the
+178-item prefix and original Native owner. The conflicting earlier shared entry
+was not captured, so its exact cause is unconfirmed. A lost diagnostic return was
+recovered from its original completed item without repeating its command.
 
-A separate source loss window was repaired in `94e09c8`: Native can complete and
-record an executable tool, then fail the response before posting its result back
-to Provider. For a direct-attached failed/interrupted latest turn with its exact
-owner, controller generation and no owned jobs, the existing observer now recovers
-the original persisted call/output pairs under the same Native admission lock.
-It retires that callback generation and settles existing reservations; explicit
-same-work claim/start retains the thread and history. Already committed callback
-bytes remain authoritative. Native's full rollout and its model-facing projection
-can differ; no output is synthesized from display-only aggregated text. Running,
-completed or separately AppHost-owned inference is not retired by this boundary.
-Independent review and the related 32 Rust cases passed locally; full actual
-Termux tests also passed. The corrected actual fault proof remains a separate gate.
-
-The first foreground, zero-model fault fixture launched at 20:21:25 UTC using
-`fa6b467`, an isolated home and unchanged Full159, failed before injecting its
-intended disconnect. Its proxy read historical header names and recorded a null
-thread identity, although Native sent the tool and `response.completed`. The
-original command executed exactly once (`callback-effects` is exactly `once\n`)
-and RPC19 retained its 3058-byte original result. This is a fixture defect, not
-a successful reproduction of the missing-callback window. Reuse the existing
-Native request identity decoder and preserve the original evidence for the
-corrected test. The two saved Stop receipts both confirm no remaining jobs;
-the fixture's Provider mirror and shared ledger have no remaining fixture claims.
-Its process exits alone were not used to establish settlement.
-
-After the initial fixture, root report reads had been rejected before execution
-with `native_resource_busy` despite an empty own Provider mirror. One supported
-Stop/claim/start/attach on the original root work restored command observation,
-preserving the entire 178-item history prefix and the same Native thread. The
-original process PID7008/start3478031 was retained; no foreign work was stopped.
-The conflicting pre-recovery shared entry was not captured, so its exact cause
-is not established. A later lost delivery of the diagnostic return was recovered
-from its original completed Native item, without repeating the command.
-
-The compiler fixture's failure cleanup also used an unsupported
-`codex_sessions(action=stop)` operation and could terminate its Provider after
-an unconfirmed Stop. The shared fixture cleanup now uses the existing `codex_stop`
-once per original work, requires Native/owned-job/host confirmation and observed
-effect settlement, and retains the original owners when confirmation is missing.
-This is test safety, not a new production recovery executor.
-
-The canonical package fixture repair `b1a6476` now validates exact descriptor-led
-Base/TUI/Full and historical R10 inventories using the shared grammar. Public
-R10 publication admission is unchanged. Local Python producer/consumer tests
-passed, including the real builder's nested Full and malformed inventories; the
-actual new-composition Android lifecycle gate remains pending.
-
-The last observed operating selections are Full159 and previous Full153; no integrated
-installation, operational Provider replacement or installed TUI acceptance has
-completed. Required acceptance remains installed `/provider` selection -> actual
-GPT-6 completion -> same Native thread follow-up with both records preserved,
-plus injected SSE loss without duplicate effects or permanent blocking and an
-independent Native work. HTTP 413 and opaque/parallel ownership checks remain
-required. Complete the corrected fault fixture, source/CI qualification and
-device acceptance before claiming completion or activation.
+Cleanup now uses public `codex_stop` once per original work and confirms Native,
+owned jobs, host and effects before terminating fixture services. Unknown Stop or
+partial allocation preserves owners; start/attach failure retains known allocated
+owner identity. The earlier unsupported `codex_sessions(action=stop)` and
+premature fixture termination are not production recovery policy. Attempt 31's
+remaining already-unloaded fixture owner was subsequently observed with an empty
+loaded-thread list and stopped through its existing exact pidfd identity; no
+operating or foreign owner changed. The canonical nested package fixture repair
+reuses the common inventory decoder and leaves strict public R10 admission intact.
 
 ## Account draft integration boundary (2026-11-10 KST)
 
