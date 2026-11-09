@@ -267,6 +267,7 @@ def probe(args):
     save(args.report, report)
     service = client = None
     works, owners = {}, {}
+    creation_pending = False
     calls = concurrent.futures.ThreadPoolExecutor(max_workers=2)
     log = (root / 'provider-test.log').open('wb')
     try:
@@ -308,8 +309,10 @@ def probe(args):
                 connection.close()
 
         for label in ('original', 'independent'):
+            creation_pending = True
             work = client.call('codex_sessions', {'action': 'create', 'inference': 'attached', 'call_id': 'result-create-' + label})
             works[label] = work
+            creation_pending = False
             if label == 'original':
                 proxy.thread = work['thread_id']
             client.call('codex_sessions', {**binding(work), 'action': 'start', 'call_id': 'result-start-' + label,
@@ -382,7 +385,7 @@ def probe(args):
         save(root / 'proxy.json', proxy.records)
         # Stop is cleanup after the assertions, never the event that makes the
         # qualification pass or releases the tested claim before its check.
-        cleanup_errors = stop_fixture_works(client, works, root)
+        cleanup_errors = stop_fixture_works(client, works, root, creation_pending=creation_pending)
         stopped = not cleanup_errors
         if cleanup_errors:
             report.setdefault('cleanup_errors', []).extend(cleanup_errors)

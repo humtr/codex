@@ -253,6 +253,25 @@ class NativeCompilerEvidence(unittest.TestCase):
                 else:
                     self.assertEqual([call.args[0] for call in client.call.call_args_list], ['codex_stop', 'codex_status'])
 
+    def test_partial_allocation_receipt_loss_preserves_known_and_unknown_owners(self):
+        # The first work is known, but the second create may have reached its
+        # original Native owner even though its reply was lost.
+        known = {'a': {'work_id': 'known-work', 'thread_id': 'known-thread'}}
+        for accepted in (False, True):
+            with self.subTest(accepted=accepted), tempfile.TemporaryDirectory() as directory:
+                root, client, service = Path(directory), Mock(), Mock()
+                with patch.object(q, 'stop_owned_pid') as stop_owner:
+                    errors = q.cleanup_compiler_fixture(client, known, service, root,
+                        accepted, {123: self.owner}, Path(self.owner['home']), self.runtime,
+                        creation_pending=True)
+                self.assertEqual(errors, ['fixture_work_admission_unconfirmed'])
+                client.call.assert_not_called()
+                service.poll.assert_not_called()
+                service.wait.assert_not_called()
+                service.terminate.assert_not_called()
+                stop_owner.assert_not_called()
+                self.assertFalse((root / 'stop-provider').exists())
+
     def test_cleanup_keeps_legacy_callers_and_accepts_the_exact_start_identity(self):
         raw = '123 (same-runtime) ' + ' '.join(['S'] + ['0'] * 18 + ['456'])
         for expected in (None, '456'):

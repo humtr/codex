@@ -207,8 +207,11 @@ def confirmed_native_stop(value):
                      and value.get('host_stop_confirmed') is True)))
 
 
-def stop_fixture_works(client, works, root):
+def stop_fixture_works(client, works, root, *, creation_pending=False):
     """Stop only these original fixture works once; retain uncertain owners."""
+    if creation_pending:
+        # Earlier known works do not account for an unanswered later create.
+        return ['fixture_work_admission_unconfirmed']
     if client is None:
         return ['fixture_client_unavailable'] if works else []
     if not works:
@@ -241,8 +244,8 @@ def stop_fixture_works(client, works, root):
     return errors
 
 
-def cleanup_compiler_fixture(client, works, service, root, accepted, owners, native_home, runtime):
-    errors = [] if accepted else stop_fixture_works(client, works, root)
+def cleanup_compiler_fixture(client, works, service, root, accepted, owners, native_home, runtime, *, creation_pending=False):
+    errors = [] if accepted and not creation_pending else stop_fixture_works(client, works, root, creation_pending=creation_pending)
     if errors:
         # The same Provider and Native owners remain available for their
         # existing public Stop/reconciliation path. No retry or replacement.
@@ -324,6 +327,7 @@ def probe(args):
                       'fixture': str(root), 'model_requests': 0, 'live_tui_accepted': False, **stamp()})
     service = client = None
     works, owners = {}, {}
+    creation_pending = False
     accepted = False
     proof_result = None
     log = (root / 'provider-test.log').open('wb')
@@ -376,8 +380,10 @@ def probe(args):
             return wait(read, 'original Native command completion publication')
 
         for label in ('a', 'b', 'opaque'):
+            creation_pending = True
             work = client.call('codex_sessions', {'action': 'create', 'inference': 'attached', 'call_id': 'compiler-create-' + label})
             works[label] = work
+            creation_pending = False
             assert work['native_permissions']['approval_policy'] == 'never'
             assert work['native_permissions']['sandbox']['type'] == 'dangerFullAccess'
             client.call('codex_sessions', {**binding(work), 'action': 'start', 'call_id': 'compiler-start-' + label,
@@ -503,7 +509,7 @@ def probe(args):
                           'error_type': type(error).__name__, 'error': str(error), **stamp()})
         raise
     finally:
-        cleanup_compiler_fixture(client, works, service, root, accepted, owners, native_home, runtime)
+        cleanup_compiler_fixture(client, works, service, root, accepted, owners, native_home, runtime, creation_pending=creation_pending)
         log.close()
         print('Owned Native compiler proof retained at ' + str(root), flush=True)
     save(args.report, proof_result)
