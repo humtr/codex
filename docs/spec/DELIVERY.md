@@ -602,7 +602,9 @@ Pages site, raises its size guard, or evicts a retained public generation.
 Base (`core-v*`) owns Core, adapted upstream runtime/default UI, code-mode host and the two
 browser helpers. Full (`full-v*`) pins one exact authenticated base and adds Manager/enhanced
 TUI plus its own descriptor and signatures. Optional Provider generations follow
-`provider-gpt-v*` (with legacy `chatgpt-*` dual acceptance). Each full result retains one complete
+`provider-chatgpt-v*`. Readers retain the exact signed `provider-gpt-*` and
+`chatgpt-*` identities for acquisition and rollback; producers never rename or
+resign an existing package. Each full result retains one complete
 signed v4 inventory and one atomic current/previous activation lifecycle. There
 is no device overlay, second updater, mutable latest-base dependency or component
 selection policy in Core. Manager/TUI-only changes must not advance the base head

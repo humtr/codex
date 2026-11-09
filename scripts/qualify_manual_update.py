@@ -55,7 +55,7 @@ def provider_display_fixture(args, root, home, prefix, env):
         inputs.write_text('{"fixture":"owned update presentation"}\n')
         subprocess.run([str(args.builder), 'provider-package', '--binary', str(args.provider),
             '--assets', str(source / 'providers/chatgpt'), '--source-inputs', str(inputs),
-            '--source-sha', 'a' * 40, '--generation-id', 'chatgpt-display-owned-' + str(number),
+            '--source-sha', 'a' * 40, '--generation-id', 'provider-chatgpt-v0.0.0-display-owned-' + str(number),
             '--release-sequence', str(number), '--private-key', str(authority),
             '--openssl', str(Path(os.environ['PREFIX']) / 'bin/openssl'), '--output', str(package)],
             check=True, capture_output=True, timeout=120)
@@ -65,7 +65,7 @@ def provider_display_fixture(args, root, home, prefix, env):
     for path in packages[1].rglob('*'):
         if path.is_file():
             name = path.relative_to(packages[1]).as_posix().replace('/', '--')
-            urls['https://github.com/humtr/codex/releases/download/chatgpt-display-owned-8/' + name] = str(path.relative_to(root))
+            urls['https://github.com/humtr/codex/releases/download/provider-chatgpt-v0.0.0-display-owned-8/' + name] = str(path.relative_to(root))
     urls_path.write_text(json.dumps(urls))
     admitted = subprocess.run([str(prefix / 'bin/codex'), 'provider', 'install', 'chatgpt',
         '--local', str(packages[0])], env=env, cwd=root / 'w', capture_output=True, timeout=45)
@@ -75,14 +75,14 @@ def provider_display_fixture(args, root, home, prefix, env):
     index = root / 'provider-index'
     digest = hashlib.sha256((packages[1] / 'payload.manifest').read_bytes()).hexdigest()
     index.write_text('codex-provider-index-v1\nprovider\tchatgpt\nchannel\tstable\n'
-        'generation_id\tchatgpt-display-owned-8\nrelease_sequence\t8\n'
-        'release_base\thttps://github.com/humtr/codex/releases/download/chatgpt-display-owned-8/\n'
+        'generation_id\tprovider-chatgpt-v0.0.0-display-owned-8\nrelease_sequence\t8\n'
+        'release_base\thttps://github.com/humtr/codex/releases/download/provider-chatgpt-v0.0.0-display-owned-8/\n'
         'manifest_sha256\t' + digest + '\n')
     subprocess.run(['openssl', 'pkeyutl', '-sign', '-inkey', str(authority), '-rawin',
         '-in', str(index), '-out', str(root / 'provider-index.sig')], check=True, capture_output=True)
     for name, tag, timestamp, component in [
         ('core-publication', 'local-permission-fixture', '2026-10-27T12:30:00Z', 'full' if full else 'base'),
-        ('provider-publication', 'chatgpt-display-owned-8', '2026-10-28T17:04:05Z', 'provider'),
+        ('provider-publication', 'provider-chatgpt-v0.0.0-display-owned-8', '2026-10-28T17:04:05Z', 'provider'),
     ]:
         (root / (name + '.json')).write_text(json.dumps({'tag_name': tag, 'draft': False,
             'published_at': timestamp, 'body': render(source, component)}))
@@ -191,7 +191,7 @@ def probe(args):
              ' if reads>=2:(root/"publication-visible").touch()\n' if args.mode=='publication-arrives' else '') +
             'if url=="https://api.github.com/repos/openai/codex/releases/latest":name="official.json"\n' +
             'elif url=="https://api.github.com/repos/humtr/codex/releases/tags/local-permission-fixture":name="core-publication.json"\n' +
-            'elif url=="https://api.github.com/repos/humtr/codex/releases/tags/chatgpt-display-owned-8":name="provider-publication.json"\n' +
+            'elif url=="https://api.github.com/repos/humtr/codex/releases/tags/provider-chatgpt-v0.0.0-display-owned-8":name="provider-publication.json"\n' +
             'elif url=="https://api.github.com/repos/humtr/codex/releases/tags/local-base-display-owned":name="base-publication.json"\n' +
             'elif url.endswith("/component-input-v1"):name="component-input-v1"\n' +
             'elif url.endswith("/component-input-v1.sig"):name="component-input-v1.sig"\n' +
@@ -402,14 +402,14 @@ def probe(args):
             if fields['manager_artifact_digest'] != '-':
                 component = json.loads((root / 'component-input-v1').read_text())['display']
                 assert f"Core (Base #{component['base_sequence']}) · Published: 2026-10-26 11:00:00 KST (UTC+09:00)" in transcript
-            assert 'Provider package: #8 · installed' in transcript and 'Generation: chatgpt-display-owned-8' in transcript
+            assert 'Provider package: #8 · installed' in transcript and 'Generation: provider-chatgpt-v0.0.0-display-owned-8' in transcript
             assert '2026-10-29 02:04:05 KST (UTC+09:00)' in transcript
             assert 'Provider changes:' in transcript and 'Core changes:' in transcript
             assert 'Publish component-scoped update notes' in transcript
             assert selection.read_bytes() != selected_before
-            assert b'current\tchatgpt-display-owned-8\n' in selection.read_bytes()
+            assert b'current\tprovider-chatgpt-v0.0.0-display-owned-8\n' in selection.read_bytes()
             selected_after = selection.read_bytes()
-            installed_provider = home / '.local/lib/codex/providers/chatgpt/generations/chatgpt-display-owned-8'
+            installed_provider = home / '.local/lib/codex/providers/chatgpt/generations/provider-chatgpt-v0.0.0-display-owned-8'
             assert installed_provider.is_dir(), 'manual update did not install the selected Provider release'
             # A second real CLI invocation exercises the release pipeline's
             # Core-only oracle and proves an unselected Provider is not queried.

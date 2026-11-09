@@ -203,7 +203,7 @@ const USAGE: &str = concat!(
     "--output <ABSENT_ABSOLUTE_DIRECTORY>\n",
     "       codex-release-builder provider-package --binary <ABSOLUTE_FILE> ",
     "--assets <ABSOLUTE_DIRECTORY> --source-inputs <ABSOLUTE_FILE> ",
-    "--source-sha <GIT_COMMIT> --generation-id <chatgpt-ID> ",
+    "--source-sha <GIT_COMMIT> --generation-id <provider-chatgpt-vVERSION> ",
     "--release-sequence <POSITIVE_DECIMAL> --private-key <ABSOLUTE_FILE> ",
     "--openssl <ABSOLUTE_EXECUTABLE> --output <ABSENT_ABSOLUTE_DIRECTORY>"
 );

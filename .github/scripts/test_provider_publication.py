@@ -187,17 +187,39 @@ class ProviderPublicationTests(unittest.TestCase):
         with patch.object(promotion,'api',side_effect=AssertionError('invalid proof must not mutate')):
             with self.assertRaises(ValueError):promotion.promote(args)
 
-    def test_provider_gpt_generation_naming_accepted(self):
-        gen = 'provider-gpt-v0.1.0-54767f7-s27'
-        manifest = self.manifest.replace('chatgpt-test-1', gen)
-        pkg = self.root / 'pkg-gpt'
-        pkg.mkdir()
-        shutil.copytree(self.package, pkg, dirs_exist_ok=True)
-        (pkg / 'payload.manifest').write_text(manifest)
-        subprocess.run([self.openssl, 'pkeyutl', '-sign', '-rawin', '-inkey', self.private,
-                        '-in', pkg / 'payload.manifest', '-out', pkg / 'payload.sig'], check=True, capture_output=True)
-        verified = p.verify(pkg, self.public, self.openssl)
-        self.assertEqual(verified['generation_id'], gen)
+    def test_current_and_legacy_generation_names_retain_exact_signed_bytes(self):
+        for gen in ['provider-chatgpt-v0.1.0-54767f7-s27',
+                    'provider-gpt-v0.1.0-54767f7-s27', 'chatgpt-test-1']:
+            with self.subTest(generation=gen):
+                manifest = self.manifest.replace('chatgpt-test-1', gen)
+                pkg = self.root / gen
+                shutil.copytree(self.package, pkg)
+                (pkg / 'payload.manifest').write_text(manifest)
+                subprocess.run([self.openssl, 'pkeyutl', '-sign', '-rawin', '-inkey', self.private,
+                                '-in', pkg / 'payload.manifest', '-out', pkg / 'payload.sig'],
+                               check=True, capture_output=True)
+                signature = (pkg / 'payload.sig').read_bytes()
+                self.assertEqual(p.verify(pkg, self.public, self.openssl)['generation_id'], gen)
+                assets, restored = self.root / (gen+'-assets'), self.root / (gen+'-restored')
+                p.export(pkg, assets, self.public, self.openssl)
+                p.restore(assets, restored, self.public, self.openssl)
+                self.assertEqual((restored / 'payload.manifest').read_bytes(), manifest.encode())
+                self.assertEqual((restored / 'payload.sig').read_bytes(), signature)
+                index = ('codex-provider-index-v1\nprovider\tchatgpt\nchannel\tstable\ngeneration_id\t'+gen+
+                         '\nrelease_sequence\t1\nrelease_base\thttps://github.com/humtr/codex/releases/download/'+gen+
+                         '/\nmanifest_sha256\t'+hashlib.sha256(manifest.encode()).hexdigest()+'\n')
+                self.assertEqual(p.parse_index(index.encode())['generation_id'], gen)
+
+    def test_signing_rejects_historical_names_before_qualification_or_secret_access(self):
+        import types
+        import provider_signing
+        from unittest.mock import patch
+        for gen in ['provider-gpt-v0.1.0-54767f7-s27', 'chatgpt-test-1',
+                    'provider-chatgpt-v', 'provider-chatgpt-v1.', 'provider-chatgpt-v1/escape']:
+            with self.subTest(generation=gen), patch.object(provider_signing, 'qualified') as qualify:
+                with self.assertRaisesRegex(ValueError, 'new Provider generation'):
+                    provider_signing.sign(types.SimpleNamespace(generation=gen))
+                qualify.assert_not_called()
 
 
 if __name__ == '__main__':

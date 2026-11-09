@@ -86,10 +86,10 @@ def prepare(args):
                for p in (SOURCE/base).rglob('*') if p.is_file() and not {'target','__pycache__','.git'}.intersection(p.parts)}),indent=2)+'\n')
     binary=root/'candidate/provider';builder=root/'candidate/builder';launcher=prefix/'bin/codex'
     subprocess.run([builder,'provider-package','--binary',binary,'--assets',SOURCE/'providers/chatgpt','--source-inputs',root/'source-inputs.json',
-                    '--source-sha',subprocess.check_output(['git','rev-parse','HEAD'],cwd=SOURCE).decode().strip(),'--generation-id','chatgpt-g-live-1','--release-sequence','1',
+                    '--source-sha',subprocess.check_output(['git','rev-parse','HEAD'],cwd=SOURCE).decode().strip(),'--generation-id','provider-chatgpt-v0.0.0-live-1','--release-sequence','1',
                     '--private-key',native/'fixture-key.pem','--openssl',shutil.which('openssl'),'--output',root/'package'],check=True,capture_output=True)
     subprocess.run([launcher,'provider','install','chatgpt','--local',root/'package'],env=env,check=True,capture_output=True)
-    package_binary=home/'.local/lib/codex/providers/chatgpt/generations/chatgpt-g-live-1/codex-chatgpt-provider'
+    package_binary=home/'.local/lib/codex/providers/chatgpt/generations/provider-chatgpt-v0.0.0-live-1/codex-chatgpt-provider'
     old_env=json.loads((prior/'environment-private.json').read_text())
     old_config=Path(old_env.get('XDG_CONFIG_HOME',str(Path(old_env['HOME'])/'.config')))/'codex/providers/chatgpt.toml'
     settings=root/'config/codex/providers/chatgpt.toml';settings.parent.mkdir(parents=True)

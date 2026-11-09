@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -48,6 +49,9 @@ def qualified(args):
 
 
 def sign(args):
+    if (not re.fullmatch(r'provider-chatgpt-v[0-9](?:[a-z0-9.-]*[a-z0-9])?', args.generation)
+            or len(args.generation) > 120):
+        raise ValueError('new Provider generation must use provider-chatgpt-v...')
     qualified(args)
     accepted = require_regular_file(args.public_key, 16384, 'accepted authority')
     openssl = require_regular_file(args.openssl, 128 * 1024**2, 'OpenSSL', executable=True)

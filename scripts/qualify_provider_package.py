@@ -144,7 +144,8 @@ def qualify(args):
                     '--output', destination], expected)
                 return destination
 
-            one = package('signed package 1', 'chatgpt-g-test-1', 1)
+            one = package('signed package 1', 'provider-chatgpt-v0.0.0-test-1', 1,
+                          output_name='chatgpt-g-test-1')
             # Exercise an independently declared retained eight-file envelope
             # through the actual installer, update and rollback consumers.
             for name in ('bridge-LICENSE', 'upstream-codex-LICENSE'):
@@ -155,6 +156,8 @@ def qualify(args):
                             'licenses/proot-LICENSE', 'licenses/upstream-codex-LICENSE',
                             'source-inputs.json')
             header = (one / 'payload.manifest').read_text().split('file_count\t', 1)[0]
+            header = header.replace('generation_id\tprovider-chatgpt-v0.0.0-test-1\n',
+                                    'generation_id\tchatgpt-g-test-1\n')
             (one / 'payload.manifest').write_text(header + 'file_count\t8\n' + ''.join(
                 'file\t' + name + '\t' + sha(one / name) + '\t'
                 + str((one / name).stat().st_size) + '\t'
@@ -170,12 +173,15 @@ def qualify(args):
                 shutil.copy2(source / 'providers/chatgpt' / name, destination)
             notice = changed_assets / 'NOTICE.md'
             notice.write_bytes(notice.read_bytes() + b'\nOwned changed-release fixture notice.\n' * 8192)
-            two = package('signed package 2', 'chatgpt-g-test-2', 2, assets=changed_assets)
-            package('refuse package output replacement', 'chatgpt-g-test-1', 1, expected=1)
+            two = package('signed package 2', 'provider-chatgpt-v0.0.0-test-2', 2, assets=changed_assets)
+            package('refuse package output replacement', 'provider-chatgpt-v0.0.0-test-1', 1,
+                    expected=1, output_name='chatgpt-g-test-1')
             public('absent Provider inventory', 'status', 'chatgpt')
             public('absent Provider dispatch', 'chatgpt', 'models', expected=1)
             if args.remote:
                 remote_requests = []
+                payload_prefixes = ('/humtr/codex/releases/download/chatgpt-g-test-',
+                                    '/humtr/codex/releases/download/provider-chatgpt-v0.0.0-test-')
                 declared = [line.split('\t')[1] for line in (one / 'payload.manifest').read_text().splitlines()
                             if line.startswith('file\t')]
                 flat_assets = ['payload.manifest', 'payload.sig', *[name.replace('/', '--') for name in declared]]
@@ -263,7 +269,7 @@ def qualify(args):
                             return
                         if self.path.startswith('/humtr/codex/releases/download/chatgpt-g-test-1/'):
                             route, name = 'one', self.path.rsplit('/', 1)[1]
-                        elif self.path.startswith('/humtr/codex/releases/download/chatgpt-g-test-2/'):
+                        elif self.path.startswith('/humtr/codex/releases/download/provider-chatgpt-v0.0.0-test-2/'):
                             route, name = 'two', self.path.rsplit('/', 1)[1]
                         else:
                             route, name = self.path.strip('/').split('/', 1)
@@ -372,7 +378,7 @@ def qualify(args):
                     assert 'Provider package: #1 · up to date'.encode() in unchanged.stdout
                     assert b'Selected Provider fixture.' not in unchanged.stdout
                     assert all(remote_requests.count(path) == 1 for path in stable_paths)
-                    assert not any('/releases/download/chatgpt-g-test-' in path for path in remote_requests)
+                    assert not any(path.startswith(payload_prefixes) for path in remote_requests)
                     assert selection_path.read_bytes() == unchanged_selection
                     saved_signature = stable['signature']
                     stable['signature'] = b'x' * 64
@@ -387,13 +393,13 @@ def qualify(args):
                     rejected = run('default manual update rejects unauthenticated Provider index',
                                    [launcher, 'update'], expected=1)
                     assert all(remote_requests.count(path) == 1 for path in stable_paths)
-                    assert not any('/releases/download/chatgpt-g-test-' in path for path in remote_requests)
+                    assert not any(path.startswith(payload_prefixes) for path in remote_requests)
                     assert selection_path.read_bytes() == before and sha(core_state) == core_before
                     assert b'Keeping Codex' in rejected.stdout and b'9.999.0' in rejected.stdout
                     stable['official_version'] = installed_version
                     del env['CODEX_TERMUX_UPDATE_BUILD_POLICY']
                     stable['signature'] = saved_signature
-                    index.write_text(index.read_text().replace('chatgpt-g-test-1', 'chatgpt-g-test-2')
+                    index.write_text(index.read_text().replace('chatgpt-g-test-1', 'provider-chatgpt-v0.0.0-test-2')
                         .replace('release_sequence\t1\n', 'release_sequence\t2\n')
                         .replace(sha(one / 'payload.manifest'), sha(two / 'payload.manifest')))
                     run('sign next owned Provider index', ['openssl', 'pkeyutl', '-sign', '-rawin',
@@ -417,11 +423,11 @@ def qualify(args):
                                    [launcher, 'update'], terminal=True)
                     assert b'Keeping Codex' in advanced.stdout and b'9.999.0' in advanced.stdout
                     assert b'Downloading Provider NOTICE.md...' in advanced.stdout
-                    assert b'current\tchatgpt-g-test-2\n' in selection_path.read_bytes()
+                    assert b'current\tprovider-chatgpt-v0.0.0-test-2\n' in selection_path.read_bytes()
                     assert all(remote_requests.count(path) == 1 for path in stable_paths)
-                    expected_payload = ['/humtr/codex/releases/download/chatgpt-g-test-2/'
+                    expected_payload = ['/humtr/codex/releases/download/provider-chatgpt-v0.0.0-test-2/'
                         + name for name in ['payload.manifest', 'payload.sig', 'NOTICE.md']]
-                    assert [path for path in remote_requests if '/releases/download/chatgpt-g-test-' in path] == expected_payload
+                    assert [path for path in remote_requests if path.startswith(payload_prefixes)] == expected_payload
                     assert sha(core_state) == core_before
                     assert stable['notice_ranges'] == [None, 'bytes=4096-'], stable['notice_ranges']
                     assert cached_part.read_bytes() == (two / 'NOTICE.md').read_bytes()
@@ -430,26 +436,26 @@ def qualify(args):
                     public('restore previous Provider with actual rollback', 'rollback', 'chatgpt')
                     status = public('manual update rollback retains high water', 'status', 'chatgpt').stdout
                     assert b'release_sequence: 1' in status and b'high_water: 2' in status
-                    cached_notice = home / '.local/lib/codex/providers/chatgpt/generations/chatgpt-g-test-2/NOTICE.md'
+                    cached_notice = home / '.local/lib/codex/providers/chatgpt/generations/provider-chatgpt-v0.0.0-test-2/NOTICE.md'
                     saved_notice = cached_notice.read_bytes()
                     saved_selection = selection_path.read_bytes()
                     cached_notice.write_bytes(b'owned corrupt retained payload\n')
                     remote_requests.clear()
                     public('corrupt retained target rejects without reacquisition', 'update', 'chatgpt', expected=1)
-                    assert not any('/releases/download/chatgpt-g-test-' in path for path in remote_requests)
+                    assert not any(path.startswith(payload_prefixes) for path in remote_requests)
                     assert selection_path.read_bytes() == saved_selection and sha(core_state) == core_before
                     cached_notice.write_bytes(saved_notice)
                     remote_requests.clear()
                     public('verified retained target reselected without package requests', 'update', 'chatgpt')
-                    assert not any('/releases/download/chatgpt-g-test-' in path for path in remote_requests)
-                    assert b'current\tchatgpt-g-test-2\n' in selection_path.read_bytes()
+                    assert not any(path.startswith(payload_prefixes) for path in remote_requests)
+                    assert b'current\tprovider-chatgpt-v0.0.0-test-2\n' in selection_path.read_bytes()
                     public('restore Provider before independent Core failures', 'rollback', 'chatgpt')
                     core_signature = core_index_sig.read_bytes()
                     core_index_sig.write_bytes(b'x' * 64)
                     failed_core = run('failed Core candidate still permits independent Provider forward update',
                                       [launcher, 'update'], expected=1)
                     assert b'Provider package:' in failed_core.stdout
-                    assert b'current\tchatgpt-g-test-2\n' in selection_path.read_bytes()
+                    assert b'current\tprovider-chatgpt-v0.0.0-test-2\n' in selection_path.read_bytes()
                     assert sha(core_state) == core_before
                     core_index_sig.write_bytes(core_signature)
                     public('restore Provider after independently failed Core check', 'rollback', 'chatgpt')
@@ -500,7 +506,7 @@ def qualify(args):
                                  [launcher, 'update'], expected=1)
                     assert b'locally held after rollback' in policy.stderr
                     assert b'Provider package:' in policy.stdout
-                    assert b'current\tchatgpt-g-test-2\n' in selection_path.read_bytes()
+                    assert b'current\tprovider-chatgpt-v0.0.0-test-2\n' in selection_path.read_bytes()
                     assert core_state.read_bytes() == held_state and hold_path.exists()
                     assert all(remote_requests.count(path) == 1 for path in stable_paths)
                     public('restore Provider while preserving Core hold', 'rollback', 'chatgpt')
@@ -558,7 +564,7 @@ def qualify(args):
                 before_owner = running_owner(label + ' owner before')
                 public(label + ' install generation 2 while generation 1 runs',
                        'install', 'chatgpt', '--local', two)
-                assert b'current\tchatgpt-g-test-2\n' in selection.read_bytes()
+                assert b'current\tprovider-chatgpt-v0.0.0-test-2\n' in selection.read_bytes()
                 assert running_owner(label + ' owner after install') == before_owner
                 assert sha(profile) == profile_before, 'selection rewrote the pinned profile'
                 public(label + ' rollback selection while generation 1 runs', 'rollback', 'chatgpt')
@@ -660,7 +666,7 @@ def qualify(args):
                 shutil.copy2(source / 'providers/chatgpt' / name, alternate_assets / name)
             with (alternate_assets / 'NOTICE.md').open('a') as stream:
                 stream.write('\nOwned negative fixture: identity collision.\n')
-            collision = package('signed same-identity changed payload', 'chatgpt-g-test-2', 4,
+            collision = package('signed same-identity changed payload', 'provider-chatgpt-v0.0.0-test-2', 4,
                                 assets=alternate_assets, output_name='collision')
             before = selection.read_bytes()
             rejected = public('reject signed identity collision', 'install', 'chatgpt', '--local', collision, expected=1)
@@ -671,7 +677,7 @@ def qualify(args):
             other_key = case_root / 'other-key.pem'
             run('new private fixture authority', ['openssl', 'genpkey', '-algorithm', 'Ed25519', '-out', other_key])
             other_key.chmod(0o600)
-            three = package('package with future fixture authority', 'chatgpt-g-test-3', 3, signing=other_key)
+            three = package('package with future fixture authority', 'provider-chatgpt-v0.0.0-test-3', 3, signing=other_key)
             public('reject unadmitted signer', 'install', 'chatgpt', '--local', three, expected=1)
             assert selection.read_bytes() == before
             # Simulate an already-admitted Core authority rotation in this fixture.

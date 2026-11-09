@@ -402,8 +402,11 @@ direct binary remains usable for pinned profiles and owned services.
 
 Release producers use `codex-release-builder provider-package` with explicit
 binary/assets/source-input inventory, exact base commit, generation/sequence,
-private Ed25519 key, OpenSSL and absent output directory. The signed inventory
-contains the binary, Cargo.lock, NOTICE, two dependency licenses and source-inputs.json;
+private Ed25519 key, OpenSSL and absent output directory. New generation IDs
+use `provider-chatgpt-v...`. Existing signed
+`provider-gpt-*` and `chatgpt-*` packages keep their original IDs and signatures;
+the same installer, updater and rollback readers continue to accept them.
+The signed inventory contains the binary, Cargo.lock, NOTICE, two dependency licenses and source-inputs.json;
 it excludes desktop software, credentials, conversations and user configuration.
 Local fixture signing and lifecycle evidence do not establish public delivery or
 authorize device activation. See [the package contract](../../docs/spec/BRIDGE.md#optional-provider-packaging-and-selection)

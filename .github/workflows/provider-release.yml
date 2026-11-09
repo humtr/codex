@@ -11,7 +11,7 @@ on:
         required: true
         type: string
       generation:
-        description: Absent immutable chatgpt generation release tag
+        description: Absent immutable provider-chatgpt-v... generation release tag
         required: true
         type: string
       sequence:
@@ -43,7 +43,8 @@ jobs:
           set -euo pipefail
           [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
           [[ "$CANDIDATE_TAG" =~ ^chatgpt-input-[a-z0-9-]+$ ]]
-          [[ "$GENERATION" =~ ^(provider-gpt|chatgpt)-[a-z0-9][a-z0-9.-]{0,110}[a-z0-9]$ ]]
+          [[ "$GENERATION" =~ ^provider-chatgpt-v[0-9]([a-z0-9.-]*[a-z0-9])?$ ]]
+          test "${#GENERATION}" -le 120
           [[ "$SEQUENCE" =~ ^[1-9][0-9]*$ ]]
           for workflow in source-acceptance.yml provider-qualification.yml; do
             gh api "repos/$GITHUB_REPOSITORY/actions/workflows/$workflow/runs?head_sha=$SOURCE_SHA&per_page=100" > "$RUNNER_TEMP/qualification-runs.json"

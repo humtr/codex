@@ -112,12 +112,27 @@ pub struct Manifest {
 }
 
 pub fn valid_id(value: &str) -> bool {
-    (value.starts_with("provider-gpt-") || value.starts_with("chatgpt-"))
+    (value.starts_with("provider-chatgpt-")
+        || value.starts_with("provider-gpt-")
+        || value.starts_with("chatgpt-"))
         && value.len() <= 120
         && value
             .bytes()
             .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-' || b == b'.')
         && !value.ends_with('-')
+}
+
+/// New payloads use the component name. The codec above retains signed legacy IDs.
+fn valid_new_id(value: &str) -> bool {
+    valid_id(value)
+        && value
+            .bytes()
+            .last()
+            .is_some_and(|last| last.is_ascii_alphanumeric())
+        && value
+            .strip_prefix("provider-chatgpt-v")
+            .and_then(|suffix| suffix.bytes().next())
+            .is_some_and(|first| first.is_ascii_digit())
 }
 
 impl Manifest {
@@ -310,6 +325,11 @@ fn package(args: &[OsString]) -> Result<(), BuilderError> {
         return Err(BuilderError::Usage);
     }
     let text = |key: &str| fields[key].to_str().ok_or(BuilderError::Usage);
+    if !valid_new_id(text("--generation-id")?) {
+        return Err(BuilderError::Invalid(
+            "new Provider generation must use provider-chatgpt-v...",
+        ));
+    }
     let path = |key: &str| {
         let p = PathBuf::from(fields[key]);
         if p.is_absolute() {
@@ -444,6 +464,76 @@ pub(crate) fn command(args: &[OsString]) -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn new_generation_names_preserve_legacy_manifest_and_index_identity() {
+        for generation in [
+            "provider-chatgpt-v0.1.0-54767f7-s27",
+            "provider-gpt-v0.1.0-54767f7-s27",
+            "chatgpt-test-1",
+        ] {
+            let mut payload = manifest();
+            payload.generation = generation.into();
+            let bytes = payload.render().unwrap();
+            assert_eq!(Manifest::parse(&bytes).unwrap().generation, generation);
+            let index = Index {
+                generation: generation.into(),
+                sequence: 27,
+                manifest_digest: "a".repeat(64),
+            };
+            let bytes = index.render().unwrap();
+            assert_eq!(Index::parse(&bytes).unwrap().render().unwrap(), bytes);
+            assert_eq!(
+                valid_new_id(generation),
+                generation.starts_with("provider-chatgpt-")
+            );
+        }
+        for invalid in [
+            "provider-chatgpt-v",
+            "provider-chatgpt-version",
+            "provider-chatgpt-v1/escape",
+            "provider-chatgpt-v1.",
+        ] {
+            assert!(!valid_new_id(invalid));
+        }
+    }
+
+    #[test]
+    fn producer_rejects_historical_ids_before_accessing_inputs() {
+        for generation in ["provider-gpt-v0.1.0-54767f7-s27", "chatgpt-test-1"] {
+            let args: Vec<OsString> = [
+                "provider-package",
+                "--binary",
+                "/nonexistent/provider",
+                "--assets",
+                "/nonexistent/assets",
+                "--source-inputs",
+                "/nonexistent/source-inputs",
+                "--source-sha",
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "--generation-id",
+                generation,
+                "--release-sequence",
+                "1",
+                "--private-key",
+                "/nonexistent/private-key",
+                "--openssl",
+                "/nonexistent/openssl",
+                "--output",
+                "/nonexistent/output",
+            ]
+            .into_iter()
+            .map(OsString::from)
+            .collect();
+            assert!(matches!(
+                package(&args),
+                Err(BuilderError::Invalid(
+                    "new Provider generation must use provider-chatgpt-v..."
+                ))
+            ));
+        }
+    }
+
     fn manifest() -> Manifest {
         Manifest {
             generation: "chatgpt-test-1".into(),
