@@ -212,7 +212,7 @@ impl Rpc {
         );
         response["result"].clone()
     }
-    async fn turn(&mut self, id: u32, thread: &str, text: &str) {
+    async fn turn(&mut self, id: u32, thread: &str, text: &str) -> Value {
         let response = self
             .call(
                 id,
@@ -224,8 +224,45 @@ impl Rpc {
         let done = self
             .matching(|v| v["method"] == "turn/completed" && v["params"]["turn"]["id"] == *turn)
             .await;
+        assert_eq!(done["params"]["threadId"], thread);
         assert_eq!(done["params"]["turn"]["status"], "completed");
+        done["params"]["turn"].clone()
     }
+}
+
+fn native_history_turn<'a>(history: &'a Value, thread: &str, turn: &str) -> &'a Value {
+    assert_eq!(history["thread"]["id"], thread);
+    let matches = history["thread"]["turns"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|value| value["id"] == turn)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        matches.len(),
+        1,
+        "original Native turn must occur exactly once"
+    );
+    assert_eq!(matches[0]["itemsView"], "full");
+    matches[0]
+}
+
+fn assert_native_response_identity(request: &Value, thread: &str, turn: &str, kind: &str) {
+    // Exact 0.167 Core metadata: the body carries both the flat identity and
+    // the serialized turn metadata. Count canonical turn IDs, not input text
+    // that compaction and subsequent model context legitimately carry forward.
+    let metadata = &request["client_metadata"];
+    assert_eq!(metadata["thread_id"], thread);
+    assert_eq!(metadata["turn_id"], turn);
+    let metadata: Value = serde_json::from_str(
+        metadata["x-codex-turn-metadata"]
+            .as_str()
+            .expect("Native must supply its serialized turn metadata"),
+    )
+    .unwrap();
+    assert_eq!(metadata["thread_id"], thread);
+    assert_eq!(metadata["turn_id"], turn);
+    assert_eq!(metadata["request_kind"], kind);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
@@ -503,6 +540,7 @@ async fn native_context_fixture(scenario: Scenario) {
                     let (parts, body) = request.into_parts();
                     let bytes = axum::body::to_bytes(body, 32 * 1024 * 1024).await.unwrap();
                     if parts.uri.path() == "/v1/responses" {
+                        assert_eq!(parts.method, axum::http::Method::POST);
                         use std::io::Write;
                         use std::os::unix::fs::OpenOptionsExt;
                         let data = if parts
@@ -598,44 +636,222 @@ async fn native_context_fixture(scenario: Scenario) {
     let response=rpc.call(2,"thread/start",json!({"cwd":root.0.join("work"),"model":if cross_provider{"native-fixture"}else{"chatgpt-desktop/gpt-6"},"modelProvider":if cross_provider{"native_fixture"}else{"chatgpt_desktop"},"approvalPolicy":"never","sandbox":"danger-full-access"})).await;
     let thread = response["thread"]["id"].as_str().unwrap();
     if matches!(scenario, Scenario::FailedCompact) {
+        let original_input = "Original owned failed request: do not replay";
+        let followup_input = "Continue after native-owned recovery";
         rpc.expected_http_413 = true;
-        let started = rpc.call(3,"turn/start",json!({"threadId":thread,"input":[{"type":"text","text":"Original owned failed request: do not replay"}]})).await;
-        let failed = rpc
-            .matching(|v| {
-                v["method"] == "turn/completed"
-                    && v["params"]["turn"]["id"] == started["turn"]["id"]
-            })
+        let started = rpc
+            .call(
+                3,
+                "turn/start",
+                json!({"threadId":thread,"input":[{"type":"text","text":original_input}]}),
+            )
             .await;
+        let failed_id = started["turn"]["id"].as_str().unwrap();
+        let failed = rpc
+            .matching(|v| v["method"] == "turn/completed" && v["params"]["turn"]["id"] == failed_id)
+            .await;
+        assert_eq!(failed["params"]["threadId"], thread);
         assert_eq!(failed["params"]["turn"]["status"], "failed");
         let state = rpc
             .call(
                 4,
                 "thread/read",
-                json!({"threadId":thread,"includeTurns":false}),
+                json!({"threadId":thread,"includeTurns":true}),
             )
             .await;
         assert_eq!(state["thread"]["status"]["type"], "systemError");
+        assert_eq!(state["thread"]["turns"].as_array().unwrap().len(), 1);
+        let original = native_history_turn(&state, thread, failed_id);
+        assert_eq!(original["status"], "failed");
+        assert_eq!(
+            original["error"]["codexErrorInfo"]["httpConnectionFailed"]["httpStatusCode"],
+            413
+        );
+        let items = original["items"].as_array().unwrap();
+        assert_eq!(
+            items.len(),
+            1,
+            "413 must not create an assistant or tool result"
+        );
+        assert_eq!(items[0]["type"], "userMessage");
+        let content = items[0]["content"].as_array().unwrap();
+        assert_eq!(content.len(), 1);
+        assert_eq!(content[0]["type"], "text");
+        assert_eq!(content[0]["text"], original_input);
+        let read_requests = || {
+            fs::read_to_string(root.0.join("request-trace.jsonl"))
+                .unwrap()
+                .lines()
+                .map(|line| serde_json::from_str::<Value>(line).unwrap())
+                .collect::<Vec<_>>()
+        };
+        let first_requests = read_requests();
+        assert_eq!(
+            first_requests.len(),
+            1,
+            "HTTP 413 must not replay the input"
+        );
+        assert_native_response_identity(&first_requests[0], thread, failed_id, "turn");
+        assert!(
+            app.0.lock().unwrap().iter().all(|v| v["op"] != "submit"),
+            "the rejected request must never reach AppHost inference"
+        );
+        rpc.expected_http_413 = false;
         rpc.call(5, "thread/compact/start", json!({"threadId":thread}))
             .await;
-        rpc.matching(|v| {
-            v["method"] == "item/completed" && v["params"]["item"]["type"] == "contextCompaction"
-        })
-        .await;
-        rpc.matching(|v| v["method"] == "turn/completed" && v["params"]["threadId"] == thread)
+        let compact_item = rpc
+            .matching(|v| {
+                v["method"] == "item/completed"
+                    && v["params"]["threadId"] == thread
+                    && v["params"]["item"]["type"] == "contextCompaction"
+            })
             .await;
-        rpc.turn(6, thread, "Continue after native-owned recovery")
+        let compact_id = compact_item["params"]["turnId"].as_str().unwrap();
+        assert_ne!(compact_id, failed_id);
+        let compact_done = rpc
+            .matching(|v| {
+                v["method"] == "turn/completed"
+                    && v["params"]["threadId"] == thread
+                    && v["params"]["turn"]["id"] == compact_id
+            })
             .await;
+        assert_eq!(compact_done["params"]["turn"]["status"], "completed");
+        let compacted = rpc
+            .call(
+                6,
+                "thread/read",
+                json!({"threadId":thread,"includeTurns":true}),
+            )
+            .await;
+        assert_eq!(compacted["thread"]["turns"].as_array().unwrap().len(), 2);
+        let compact_turn = native_history_turn(&compacted, thread, compact_id);
+        assert_eq!(compact_turn["status"], "completed");
+        let compact_items = compact_turn["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|item| item["type"] == "contextCompaction")
+            .collect::<Vec<_>>();
+        assert_eq!(compact_items.len(), 1);
+        assert_eq!(compact_items[0]["id"], compact_item["params"]["item"]["id"]);
+        let followed = rpc.turn(7, thread, followup_input).await;
+        let followup_id = followed["id"].as_str().unwrap();
+        assert_ne!(followup_id, failed_id);
+        assert_ne!(followup_id, compact_id);
+        let continued = rpc
+            .call(
+                8,
+                "thread/read",
+                json!({"threadId":thread,"includeTurns":true}),
+            )
+            .await;
+        let turns = continued["thread"]["turns"].as_array().unwrap();
+        assert_eq!(
+            turns
+                .iter()
+                .map(|turn| turn["id"].as_str().unwrap())
+                .collect::<Vec<_>>(),
+            [failed_id, compact_id, followup_id]
+        );
+        let followup = native_history_turn(&continued, thread, followup_id);
+        assert_eq!(followup["status"], "completed");
+        assert!(followup["items"].as_array().unwrap().iter().any(|item| {
+            item["type"] == "agentMessage"
+                && item["phase"] == "final_answer"
+                && item["text"] == "COMPACTED_PUBLIC_WORK_STATE"
+        }));
+        for history in [&compacted, &continued] {
+            let retained = native_history_turn(history, thread, failed_id);
+            for field in ["id", "status", "error", "items"] {
+                assert_eq!(
+                    retained[field], original[field],
+                    "failed Native {field} changed"
+                );
+            }
+        }
+        let user_inputs = turns
+            .iter()
+            .flat_map(|turn| turn["items"].as_array().unwrap())
+            .filter(|item| item["type"] == "userMessage")
+            .collect::<Vec<_>>();
+        assert_eq!(
+            user_inputs.len(),
+            2,
+            "compaction must not submit another user turn"
+        );
+        assert_eq!(user_inputs[0], &items[0]);
+        assert_eq!(user_inputs[1]["content"].as_array().unwrap().len(), 1);
+        assert_eq!(user_inputs[1]["content"][0]["type"], "text");
+        assert_eq!(user_inputs[1]["content"][0]["text"], followup_input);
+        assert!(
+            turns
+                .iter()
+                .flat_map(|turn| turn["items"].as_array().unwrap())
+                .all(|item| {
+                    matches!(
+                        item["type"].as_str(),
+                        Some("userMessage" | "agentMessage" | "reasoning" | "contextCompaction")
+                    )
+                }),
+            "HTTP 413, compaction and the text-only followup must create no Native tool effects"
+        );
         drop(rpc);
         child.kill().await.unwrap();
         child.wait().await.unwrap();
         stop.cancel();
         server.await.unwrap();
         host.shutdown().await;
+        let requests = read_requests();
+        assert_eq!(
+            requests.len(),
+            3,
+            "one rejected request, one explicit compact, one new followup"
+        );
+        for (request, (turn, kind)) in requests.iter().zip([
+            (failed_id, "turn"),
+            (compact_id, "compaction"),
+            (followup_id, "turn"),
+        ]) {
+            assert_native_response_identity(request, thread, turn, kind);
+        }
+        assert_eq!(
+            requests[0], first_requests[0],
+            "original POST evidence changed"
+        );
+        {
+            let commands = app.0.lock().unwrap();
+            let submissions = commands
+                .iter()
+                .filter(|v| v["op"] == "submit")
+                .collect::<Vec<_>>();
+            assert_eq!(
+                submissions.len(),
+                2,
+                "the original failed input must not be resubmitted"
+            );
+            assert!(submissions[0]["instructions"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|v| { v == codex_chatgpt_provider::context::SUMMARY_INSTRUCTION }));
+        }
+        fs::write(
+            root.0.join("failed-compact-history.json"),
+            serde_json::to_vec(&json!({
+                "failed":state, "compacted":compacted, "continued":continued,
+            }))
+            .unwrap(),
+        )
+        .unwrap();
         root.preserve_native();
         println!(
             "{}",
             json!({"sameNativeThread":true,"failedTurnPreserved":true,
-            "failedNativeSystemError":true,"officialCompactSucceeded":true})
+            "failedNativeSystemError":true,"officialCompactSucceeded":true,
+            "threadId":thread,"failedTurnId":failed_id,"compactTurnId":compact_id,
+            "followupTurnId":followup_id,"originalResponsePosts":first_requests.len(),
+            "totalResponsePosts":requests.len(),"canonicalUserInputs":user_inputs.len(),
+            "nativeToolEffects":0})
         );
         return;
     }
