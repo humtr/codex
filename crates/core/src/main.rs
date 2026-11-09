@@ -5131,9 +5131,22 @@ impl<'a> JsonCursor<'a> {
                         b'r' => value.push(b'\r'),
                         b't' => value.push(b'\t'),
                         b'u' => {
-                            let Some(codepoint) = self.hex_codepoint() else {
+                            let Some(mut codepoint) = self.hex_codepoint() else {
                                 return self.error();
                             };
+                            if (0xd800..=0xdbff).contains(&codepoint) {
+                                if self.bytes.get(self.index..self.index + 2) != Some(b"\\u") {
+                                    return self.error();
+                                }
+                                self.index += 2;
+                                let Some(low) = self.hex_codepoint() else {
+                                    return self.error();
+                                };
+                                if !(0xdc00..=0xdfff).contains(&low) {
+                                    return self.error();
+                                }
+                                codepoint = 0x10000 + ((codepoint - 0xd800) << 10) + (low - 0xdc00);
+                            }
                             let Some(character) = char::from_u32(codepoint) else {
                                 return self.error();
                             };
@@ -18639,6 +18652,31 @@ esac
         assert!(!root.join("state").exists());
 
         remove_temp_root(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn json_strings_decode_surrogate_pairs_and_reject_incomplete_pairs() {
+        for (encoded, expected) in [
+            (r#""\ud83e\udd80""#, "🦀"),
+            (r#""before \uD83D\uDE00 after""#, "before 😀 after"),
+            (r#""\uD800\uDC00\uDBFF\uDFFF""#, "\u{10000}\u{10ffff}"),
+            (r#""\uD7FF\uE000""#, "\u{d7ff}\u{e000}"),
+        ] {
+            let mut cursor = JsonCursor::new(encoded.as_bytes());
+            assert_eq!(cursor.string().unwrap(), expected);
+            assert_eq!(cursor.index, encoded.len());
+        }
+        for encoded in [
+            r#""\uD800""#,
+            r#""\uDC00""#,
+            r#""\uD800\u0041""#,
+            r#""\uD800\uD800""#,
+            r#""\uD800x\uDC00""#,
+            r#""\uD800\uDC""#,
+        ] {
+            assert!(JsonCursor::new(encoded.as_bytes()).string().is_err(), "{encoded}");
+        }
     }
 
     #[cfg(unix)]

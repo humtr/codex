@@ -285,6 +285,11 @@ fn fields(
     mut read: impl FnMut(&str, &mut JsonCursor<'_>) -> Result<(), LocalProductError>,
 ) -> Result<(), LocalProductError> {
     cursor.expect(b'{')?;
+    cursor.skip_whitespace();
+    if cursor.bytes.get(cursor.index) == Some(&b'}') {
+        cursor.index += 1;
+        return Ok(());
+    }
     let mut seen = BTreeSet::new();
     loop {
         let key = cursor.string()?;
@@ -594,6 +599,29 @@ pub(super) fn line(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn empty_object_parses_without_inventing_required_release_fields() {
+        let bytes = b"{ \n\t }";
+        let mut cursor = JsonCursor::new(bytes);
+        fields(&mut cursor, |_, _| panic!("an empty object has no fields")).unwrap();
+        assert_eq!(cursor.index, bytes.len());
+        assert!(publication(bytes, "expected-tag").is_none());
+        for invalid in [b"{,}".as_slice(), b"{\"a\":1,}", b"{\"a\":1,\"a\":2}"] {
+            let mut cursor = JsonCursor::new(invalid);
+            assert!(fields(&mut cursor, |_, cursor| cursor.skip_value(0)).is_err());
+        }
+    }
+
+    #[test]
+    fn release_notes_accept_escaped_non_bmp_unicode() {
+        let info = publication(
+            br#"{"tag_name":"test-tag","body":"## Core\n- Unicode \ud83e\udd80 works"}"#,
+            "test-tag",
+        )
+        .unwrap();
+        assert_eq!(info.body, "## Core\n- Unicode 🦀 works");
+    }
 
     fn manifest(full: bool) -> LocalReleaseManifest {
         LocalReleaseManifest {
