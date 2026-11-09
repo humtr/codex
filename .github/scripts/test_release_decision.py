@@ -24,6 +24,7 @@ class ReleaseDecisionTests(unittest.TestCase):
     def run_decision(self,**changes):
         args={'current':'0.161.0','upstream':'0.161.0','qualified':'0.161.0','archive':'a'*64,
               'qualified-archive':'a'*64,'source':'b'*40,'sequence':'44','event':'workflow_dispatch',
+              'event-sha':'b'*40,
               'ref':'refs/heads/main','publish':'false','rebuild-current':'false',**changes}
         return subprocess.run([sys.executable,str(SCRIPT),*[v for k,x in args.items() if x is not None for v in ('--'+k,x)]],text=True,capture_output=True)
 
@@ -71,6 +72,38 @@ class ReleaseDecisionTests(unittest.TestCase):
             r=self.run_decision(**{**base,**bad})
             self.assertNotEqual(r.returncode,0,r.stdout)
             self.assertEqual(r.stdout,'')
+
+    def test_manual_branch_validation_keeps_the_unsigned_base_identity(self):
+        for ref in ('refs/heads/rewrite/rust-core', 'refs/heads/integration/owned-source',
+                    'refs/heads/feature/한글-source'):
+            with self.subTest(ref=ref):
+                result=self.run_decision(**{'base-only':'true','ref':ref,
+                    'qualified':None,'qualified-archive':None})
+                self.assertEqual(result.returncode,0,result.stderr)
+                output=dict(line.split('=',1) for line in result.stdout.splitlines())
+                self.assertEqual(output['candidate'],'true')
+                self.assertEqual(output['decision_reason'],'base-qualification')
+                for name,prefix in [('generation_id','base-qualification-'),
+                                    ('artifact_name','base-candidate-'),
+                                    ('qualified_artifact_name','base-qualified-'),
+                                    ('signed_artifact_name','base-not-publishable-')]:
+                    self.assertTrue(output[name].startswith(prefix),output)
+
+    def test_manual_validation_requires_event_source_and_cannot_gain_public_authority(self):
+        base={'base-only':'true','ref':'refs/heads/integration/owned-source'}
+        for change in ({'publish':'true'}, {'event':'push'}, {'event':'schedule'},
+                       {'event':'pull_request'}, {'event':'pull_request_target'},
+                       {'event':'workflow_call'}, {'event':'workflow_run'},
+                       {'ref':'refs/tags/v0.161.0'}, {'ref':'refs/pull/1/merge'},
+                       {'ref':'refs/heads/'}, {'ref':''}, {'ref':'integration/owned-source'},
+                       {'event-sha':None}, {'event-sha':'c'*40}, {'event-sha':'main'},
+                       {'source':'main'}, {'source':'B'*40,'event-sha':'B'*40},
+                       {'base-only':'false','variant':'base'},
+                       {'base-only':'false','publish':'true'}):
+            with self.subTest(change=change):
+                result=self.run_decision(**{**base,**change})
+                self.assertNotEqual(result.returncode,0,result.stdout)
+                self.assertEqual(result.stdout,'')
 
     def test_unqualified_newer_version_is_not_reported_as_up_to_date(self):
         for change,reason in (({'upstream':'0.162.0'},'frontend-unqualified'),

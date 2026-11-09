@@ -25,9 +25,19 @@ adds no update channel, installed pointer, runtime mode or public CLI command.
 The main publication path still requires the complete qualified backend/frontend
 pair and retains the current generation on an unsupported update.
 
-Base qualification may run from an exact rewrite/rust-core push or manual dispatch
-with read-only repository permissions. Source must equal the event's immutable
-commit. `rebuild_current` selects the version and source archive digest from the
+Base qualification may run from an exact rewrite/rust-core push or an explicit
+manual `workflow_dispatch` on a development branch with read-only repository
+permissions. This deliberate manual source-validation boundary uses the actual
+`refs/heads/` event ref and requires source to equal the event's immutable commit;
+it accepts no substituted source/ref input. Tags, pull requests, other events,
+pushes outside rewrite/rust-core and `publish=true` are rejected. Every admitted
+branch runs the same compilation, inventory and Android execution qualification
+and produces the existing unsigned base-qualification artifacts. This validates
+that source; it is not public release admission. The Core completion relay runs
+only for rewrite/rust-core. Public exact-run admission, main's accepted source
+and signing/promotion still require their existing rewrite proofs, so a successful
+manual development-branch run neither replaces them nor triggers publication.
+`rebuild_current` selects the version and source archive digest from the
 authenticated stable descriptor independently of TUI pins; otherwise the
 ordinary official upstream discovery is used. An unsupported upstream artifact
 still fails existing builder qualification, rather than weakening patch admission.

@@ -105,8 +105,12 @@ jobs:
           if test '${{ inputs.base_only }}' = true; then
             test '${{ inputs.publish }}' = false
             test "$CODEX_SOURCE_SHA" = "$GITHUB_SHA"
-            test "$GITHUB_REF" = refs/heads/rewrite/rust-core
-            case "$GITHUB_EVENT_NAME" in push|workflow_dispatch) ;; *) exit 1 ;; esac
+            # A manual branch dispatch validates this exact event source only.
+            # It does not grant rewrite's public release admission or relay.
+            case "$GITHUB_EVENT_NAME:$GITHUB_REF" in
+              push:refs/heads/rewrite/rust-core|workflow_dispatch:refs/heads/?*) ;;
+              *) echo 'Unsigned source qualification requires a rewrite push or explicit branch dispatch.' >&2; exit 1 ;;
+            esac
           fi
           rm -rf source
           git init source
@@ -193,7 +197,9 @@ jobs:
             archive_sha256="$(sed -n 's/^archive_sha256=//p' "$state/upstream")"
           fi
           qualification_args=()
-          if test "$BASE_ONLY" != true && test -n "${MANAGER_TUI_VERSION:-}"; then
+          if test '${{ inputs.base_only }}' = true; then
+            qualification_args=(--event-sha "$GITHUB_SHA")
+          elif test "$BASE_ONLY" != true && test -n "${MANAGER_TUI_VERSION:-}"; then
             qualification_args=(--qualified "$MANAGER_TUI_VERSION"
                                 --qualified-archive "$MANAGER_TUI_ARCHIVE_SHA256")
           fi

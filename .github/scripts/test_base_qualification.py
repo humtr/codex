@@ -9,6 +9,8 @@ import unittest
 import release_preflight as preflight
 from test_tui_producer import step
 
+ROOT = Path(__file__).resolve().parents[2]
+
 
 class BaseQualificationTests(unittest.TestCase):
     def test_candidate_cannot_pass_with_skipped_or_failed_execution_qualification(self):
@@ -96,16 +98,59 @@ class BaseQualificationTests(unittest.TestCase):
         for publish,ref,event,same,accepted in (
                 ('false','refs/heads/rewrite/rust-core','push',True,True),
                 ('false','refs/heads/rewrite/rust-core','workflow_dispatch',True,True),
+                ('false','refs/heads/integration/owned-source','workflow_dispatch',True,True),
+                ('false','refs/heads/feature/한글-source','workflow_dispatch',True,True),
                 ('true','refs/heads/rewrite/rust-core','push',True,False),
+                ('true','refs/heads/integration/owned-source','workflow_dispatch',True,False),
                 ('false','refs/heads/main','push',True,False),
+                ('false','refs/heads/integration/owned-source','push',True,False),
                 ('false','refs/heads/rewrite/rust-core','schedule',True,False),
-                ('false','refs/heads/rewrite/rust-core','push',False,False)):
+                ('false','refs/heads/integration/owned-source','pull_request',True,False),
+                ('false','refs/heads/integration/owned-source','pull_request_target',True,False),
+                ('false','refs/heads/integration/owned-source','workflow_call',True,False),
+                ('false','refs/heads/integration/owned-source','workflow_run',True,False),
+                ('false','refs/tags/v0.161.0','workflow_dispatch',True,False),
+                ('false','refs/pull/1/merge','workflow_dispatch',True,False),
+                ('false','refs/heads/','workflow_dispatch',True,False),
+                ('false','integration/owned-source','workflow_dispatch',True,False),
+                ('false','','workflow_dispatch',True,False),
+                ('false','refs/heads/rewrite/rust-core','push',False,False),
+                ('false','refs/heads/integration/owned-source','workflow_dispatch',False,False)):
             with self.subTest(publish=publish,ref=ref,event=event,same=same):
                 actual = script.replace('${{ inputs.publish }}', publish).replace('${{ inputs.base_only }}', 'true')
                 env = {**os.environ,'BASE_ONLY':'true','CODEX_SOURCE_SHA':'a'*40,
                        'GITHUB_SHA':('a' if same else 'b')*40,'GITHUB_REF':ref,'GITHUB_EVENT_NAME':event}
                 result = subprocess.run(['bash','-c',actual],env=env,capture_output=True,text=True)
                 self.assertEqual(result.returncode == 0,accepted,result.stderr)
+
+    def test_real_manual_decision_receives_the_immutable_event_source(self):
+        script = step('Resolve official upstream stable')
+        for expression, value in [('inputs.base_only','true'), ('inputs.release_variant','full'),
+                                  ('steps.stable.outputs.bootstrap_base','false')]:
+            script = script.replace('${{ '+expression+' }}',value)
+        for same, publish, event, ref, accepted in (
+                (True,'false','workflow_dispatch','refs/heads/integration/owned-source',True),
+                (False,'false','workflow_dispatch','refs/heads/integration/owned-source',False),
+                (True,'true','workflow_dispatch','refs/heads/integration/owned-source',False),
+                (True,'false','push','refs/heads/integration/owned-source',False),
+                (True,'false','workflow_dispatch','refs/tags/v0.161.0',False)):
+            with self.subTest(same=same,publish=publish,event=event,ref=ref), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                (root/'source').symlink_to(ROOT,target_is_directory=True)
+                output = root/'decision'
+                env = {**os.environ,'PYTHONDONTWRITEBYTECODE':'1','RUNNER_TEMP':tmp,'GITHUB_OUTPUT':str(output),
+                       'REBUILD_CURRENT':'true','PUBLISH':publish,'BASE_ONLY':'true',
+                       'UPSTREAM_VERSION':'0.161.0','UPSTREAM_ARCHIVE_SHA256':'a'*64,
+                       'CURRENT_VERSION':'0.161.0','RELEASE_SEQUENCE':'44','CODEX_SOURCE_SHA':'b'*40,
+                       'GITHUB_SHA':('b' if same else 'c')*40,'GITHUB_EVENT_NAME':event,'GITHUB_REF':ref}
+                result = subprocess.run(['bash','-c',script],cwd=root,env=env,capture_output=True,text=True)
+                self.assertEqual(result.returncode==0,accepted,result.stderr)
+                if accepted:
+                    values = dict(line.split('=',1) for line in output.read_text().splitlines())
+                    self.assertEqual(values['decision_reason'],'base-qualification')
+                    self.assertTrue(values['signed_artifact_name'].startswith('base-not-publishable-'))
+                else:
+                    self.assertEqual(output.read_text(),'')
 
     def test_real_base_smoke_never_requires_manager_or_frontend(self):
         script = step('Run exact Manager, Core, and runtime smoke natively')

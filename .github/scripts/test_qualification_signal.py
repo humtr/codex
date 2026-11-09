@@ -17,6 +17,7 @@ class QualificationSignalTests(unittest.TestCase):
         live={'name':'termux-runtime-source','expired':False}
         cases=[(good,[live],123),({**good,'head_sha':'b'*40},[live],None),
                ({**good,'head_branch':'main'},[live],None),({**good,'event':'pull_request'},[live],None),
+               ({**good,'head_branch':'integration/owned-source','event':'workflow_dispatch'},[live],None),
                ({**good,'conclusion':'failure'},[live],None),
                (good,[{**live,'expired':True}],None),(good,[],None)]
         for run,artifacts,expected in cases:

@@ -80,6 +80,8 @@ def signal_job(dependency, legacy=False):
     if dependency not in {'accepted', 'qualify', 'upstream-baseline'}:
         raise ValueError('unknown qualification dependency')
     condition=f"always() && needs.{dependency}.result == 'success'" if legacy else 'always()'
+    if dependency == 'qualify':
+        condition += " && github.ref == 'refs/heads/rewrite/rust-core'"
     return f'''
   notify_acceptance:
     needs: {dependency}

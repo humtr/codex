@@ -76,6 +76,29 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn('product/release/upstream.json --component core',text)
         self.assertIn('source/release/upstream.json --component core',text)
 
+    def test_manual_core_validation_binds_event_source_and_only_rewrite_relays_acceptance(self):
+        text=(ROOT/'.github/workflows/core-runtime-qualification.yml').read_text()
+        before, relay=text.split('\n  notify_acceptance:',1)
+        self.assertIn('branches: [rewrite/rust-core]',before)
+        self.assertIn('workflow_dispatch:',before)
+        self.assertIn('source_sha: ${{ github.sha }}',before)
+        self.assertNotIn('inputs.source',text)
+        self.assertIn('base_only: true',before)
+        self.assertIn('publish: false',before)
+        expression=re.search(r'(?m)^    if: (.+)$',relay)[1]
+        for ref in ('refs/heads/rewrite/rust-core', 'refs/heads/integration/owned-source',
+                    'refs/heads/main', 'refs/tags/v0.161.0', 'refs/pull/1/merge', ''):
+            with self.subTest(ref=ref):
+                evaluated=expression.replace('always()','True').replace('github.ref',repr(ref))
+                evaluated=evaluated.replace('&&',' and ')
+                self.assertEqual(eval(evaluated,{'__builtins__':{}},{}),
+                                 ref=='refs/heads/rewrite/rust-core')
+        qualification=(ROOT/'.github/workflows/qualify-termux-runtime.yml').read_text()
+        self.assertTrue('--event-sha "$GITHUB_SHA"' in qualification,
+                        'the decision must receive the actual immutable event SHA')
+        self.assertIn('needs: [producer, smoke]',qualification)
+        self.assertIn('steps.decision.outputs.candidate == \'true\'',qualification)
+
     def test_source_and_provider_gates_reject_mismatched_run_metadata(self):
         sha='a'*40
         checks=[

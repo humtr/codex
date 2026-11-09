@@ -19,8 +19,12 @@ def decide(a):
     if base_only:
         if a.publish!='false':
             raise PreflightError('base qualification cannot publish')
-        if a.ref!='refs/heads/rewrite/rust-core' or a.event not in ('push','workflow_dispatch'):
-            raise PreflightError('base qualification requires a rewrite source event')
+        if getattr(a,'event_sha',None)!=a.source:
+            raise PreflightError('base qualification source must equal the immutable event commit')
+        source_push=a.event=='push' and a.ref=='refs/heads/rewrite/rust-core'
+        manual_branch=a.event=='workflow_dispatch' and re.fullmatch(r'refs/heads/.+',a.ref)
+        if not (source_push or manual_branch):
+            raise PreflightError('base qualification requires a rewrite push or explicit branch dispatch')
         if a.rebuild_current=='true' and upstream!=current:
             raise PreflightError('base current qualification requires the authenticated current version')
         suffix=a.upstream.replace('.','-')+'-'+a.source[:12]+'-s'+a.sequence
@@ -71,6 +75,7 @@ def main():
     for key in ('current','upstream','archive','source','sequence','event','ref'):
         p.add_argument('--'+key,required=True)
     for key in ('qualified','qualified-archive'):p.add_argument('--'+key)
+    p.add_argument('--event-sha',help='immutable workflow event commit; required for unsigned source qualification')
     for key in ('publish','rebuild-current'):p.add_argument('--'+key,choices=('true','false'),required=True)
     p.add_argument('--base-only',choices=('true','false'),default='false')
     p.add_argument('--variant',choices=('base','full'),default='full')
