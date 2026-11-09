@@ -67,11 +67,10 @@ jobs:
           main="$(gh api repos/humtr/codex/git/ref/heads/main --jq '.object.sha')"
           accepted="$(gh api "repos/humtr/codex/contents/release-source-v1?ref=$main" --jq '.content' | base64 -d)"
           [[ "$accepted" =~ ^[0-9a-f]{40}$ ]]
-          # The already-pinned source predates the workflow rename. Its old
-          # exact-run proof is historical controller authority, never proof for
-          # the newly fetched candidate. Replace this check when the accepted
-          # source pointer first moves to a source-acceptance-qualified commit.
-          for workflow in rald7-full-acceptance.yml core-runtime-qualification.yml; do
+          # The accepted pointer now names a source with its own successful
+          # Source Acceptance and independent Core evidence. Historical
+          # rald7 runs grant no authority to this current source.
+          for workflow in source-acceptance.yml core-runtime-qualification.yml; do
             gh api "repos/humtr/codex/actions/workflows/$workflow/runs?head_sha=$accepted&per_page=100" > "$RUNNER_TEMP/accepted-runs.json"
             jq -e --arg sha "$accepted" --arg path ".github/workflows/$workflow" \
               '.workflow_runs | any(.head_sha==$sha and .path==$path and .conclusion=="success" and .status=="completed" and .repository.full_name=="humtr/codex" and .head_branch=="rewrite/rust-core" and (.event=="push" or .event=="workflow_dispatch"))' "$RUNNER_TEMP/accepted-runs.json" > /dev/null
