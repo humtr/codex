@@ -12,8 +12,9 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).parent))
 from qualify_provider_live_tui import (
-    MODEL, ObservationProxy, TurnBudget, admitted_prompt, assistant_marker,
-    completed_fault, history, native_settled, one_pwd, plain, request_identity,
+    MODEL, LiveTui, ObservationProxy, TurnBudget, admitted_prompt, assistant_marker,
+    blank_history_error, blank_rollout, completed_fault, history, native_settled,
+    one_pwd, plain, request_identity,
 )
 
 
@@ -211,6 +212,73 @@ class NativeEvidence(unittest.TestCase):
                        'x-codex-turn-metadata': {'thread_id': 'another', 'turn_id': 'turn'}}):
             with self.subTest(value=value), self.assertRaises(AssertionError):
                 request_identity({'client_metadata': value})
+
+    def test_unmaterialized_error_is_exactly_bound_to_the_first_thread_read(self):
+        message = 'thread owned is not materialized yet; includeTurns is unavailable before first user message'
+        self.assertTrue(blank_history_error(AssertionError(('thread/read', {'code': -32600, 'message': message})), 'owned'))
+        for method, code, text in [('thread/read', -32603, message), ('thread/list', -32600, message),
+                                   ('thread/read', -32600, message.replace('owned', 'other')),
+                                   ('thread/read', -32600, 'history temporarily unavailable')]:
+            with self.subTest(method=method, code=code, text=text):
+                self.assertFalse(blank_history_error(AssertionError((method, {'code': code, 'message': text})), 'owned'))
+        self.assertFalse(blank_history_error(AssertionError('the exact installed Native owner is unavailable'), 'owned'))
+
+    def test_submitted_first_input_waits_for_materialization_without_another_paste(self):
+        client = object.__new__(LiveTui)
+        client.thread = 'owned'
+
+        def not_materialized():
+            raise AssertionError(('thread/read', {'code': -32600, 'message':
+                'thread owned is not materialized yet; includeTurns is unavailable before first user message'}))
+
+        client.read = not_materialized
+        self.assertIsNone(client.settled(1, []))
+        with self.assertRaises(AssertionError):
+            client.settled(2, [self.turn])
+
+    def test_empty_metadata_needs_a_complete_owned_root_rollout(self):
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            sessions = home / 'sessions'
+            sessions.mkdir()
+            path = sessions / 'blank.jsonl'
+            row = {'type': 'session_meta', 'payload': {'id': 'owned', 'session_id': 'owned'}}
+            snapshot = {'id': 'owned', 'status': {'type': 'idle'}, 'ephemeral': False,
+                        'turns': [], 'path': str(path)}
+
+            def write(value):
+                path.write_text(json.dumps(value))
+                path.chmod(0o600)
+
+            write(row)
+            self.assertEqual(blank_rollout(snapshot, 'owned', home), snapshot)
+            for change in ({'id': 'other'}, {'ephemeral': True}, {'status': {'type': 'active'}},
+                           {'turns': [self.turn]}):
+                with self.subTest(change=change), self.assertRaises(AssertionError):
+                    blank_rollout(dict(snapshot, **change), 'owned', home)
+            for key in ('id', 'session_id', 'forked_from_id', 'parent_thread_id', 'history_base',
+                        'forked_from_ordinal_exclusive', 'subagent_history_start_ordinal', 'attached_thread'):
+                candidate = copy.deepcopy(row)
+                candidate['payload'][key] = 'another'
+                write(candidate)
+                with self.subTest(key=key), self.assertRaises(AssertionError):
+                    blank_rollout(snapshot, 'owned', home)
+            write(row)
+            with path.open('a') as output:
+                output.write('\n' + json.dumps({'type': 'response_item', 'payload': {'role': 'user'}}))
+            with self.assertRaises(ValueError):
+                blank_rollout(snapshot, 'owned', home)
+            write(row)
+            path.chmod(0o666)
+            with self.assertRaises(AssertionError):
+                blank_rollout(snapshot, 'owned', home)
+            path.unlink()
+            outside = home / 'outside.jsonl'
+            outside.write_text(json.dumps(row))
+            outside.chmod(0o600)
+            path.symlink_to(outside)
+            with self.assertRaises(OSError):
+                blank_rollout(snapshot, 'owned', home)
 
 
 class StreamEvidence(unittest.TestCase):

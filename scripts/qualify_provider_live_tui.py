@@ -21,6 +21,7 @@ import re
 import select
 import shlex
 import socket
+import stat
 import struct
 import subprocess
 import termios
@@ -69,6 +70,47 @@ def native_settled(thread, allow_failed=False):
     status = thread['status']['type']
     return status == 'idle' or (allow_failed and status == 'systemError'
                                 and bool(turns) and turns[-1]['status'] == 'failed')
+
+
+def blank_history_error(error, thread):
+    if len(error.args) != 1 or not isinstance(error.args[0], tuple) or len(error.args[0]) != 2:
+        return False
+    method, rpc = error.args[0]
+    return (method == 'thread/read' and isinstance(rpc, dict) and rpc.get('code') == -32600
+            and rpc.get('message') == f'thread {thread} is not materialized yet; includeTurns is unavailable before first user message')
+
+
+def blank_rollout(snapshot, thread, codex_home):
+    """Prove a newly created Native root; a metadata-only read omits all turns."""
+    assert snapshot['id'] == thread and snapshot['status']['type'] == 'idle'
+    assert snapshot['ephemeral'] is False and snapshot['turns'] == []
+    reported = Path(snapshot['path'])
+    assert reported.is_absolute()
+    sessions = (codex_home / 'sessions').resolve(strict=True)
+    parent = reported.parent.resolve(strict=True)
+    assert parent.is_relative_to(sessions)
+    path = parent / reported.name
+    descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    with os.fdopen(descriptor, 'rb') as source:
+        before = os.fstat(source.fileno())
+        assert stat.S_ISREG(before.st_mode) and before.st_uid == os.geteuid()
+        assert before.st_mode & 0o022 == 0 and before.st_size <= 32 * 1024 * 1024
+        data = source.read(32 * 1024 * 1024 + 1)
+    after = path.lstat()
+    version = lambda value: (value.st_dev, value.st_ino, value.st_mode, value.st_size,
+                             value.st_mtime_ns, value.st_ctime_ns)
+    assert len(data) == before.st_size and version(before) == version(after)
+    assert reported.parent.resolve(strict=True) == parent
+    # json.loads consumes the whole file, rejecting any second rollout record.
+    row = json.loads(data)
+    assert row['type'] == 'session_meta'
+    meta = row['payload']
+    assert meta['id'] == meta['session_id'] == thread
+    assert not meta.get('attached_thread', False)
+    assert all(meta.get(key) is None for key in (
+        'forked_from_id', 'forked_from_ordinal_exclusive', 'parent_thread_id',
+        'history_base', 'subagent_history_start_ordinal'))
+    return snapshot
 
 
 def admitted_prompt(turn, text):
@@ -416,7 +458,12 @@ class LiveTui:
               'provider': settings['modelProvider'], 'selected_model': settings.get('model')})
 
     def submit(self, text, count, marker, allow_failed=False):
-        before = self.read()
+        try:
+            before = self.read()
+        except AssertionError as error:
+            if count != 1 or not blank_history_error(error, self.thread):
+                raise
+            before = blank_rollout(self.read(False), self.thread, self.args.codex_home)
         assert before['id'] == self.thread and native_settled(before, allow_failed)
         history(before, count - 1)
         assert marker not in text, 'answer marker must not be present in the user prompt'
@@ -427,7 +474,14 @@ class LiveTui:
         return before
 
     def settled(self, count, prefix, allow_failed=False):
-        result = self.read()
+        try:
+            result = self.read()
+        except AssertionError as error:
+            if count == 1 and not prefix and blank_history_error(error, self.thread):
+                # Delivery is already attempted. Await materialization of that
+                # original input; this is not an empty-history or replay grant.
+                return None
+            raise
         assert result['id'] == self.thread
         assert len(result['turns']) <= count, 'unexpected extra Native turn'
         assert result['turns'][:len(prefix)] == list(prefix), 'original Native history changed'
