@@ -196,7 +196,16 @@ the official companion archive, optional source runtime/revision and selected
 Manager/TUI artifacts. Core preserves the builder's cause-specific error through
 its public error chain instead of replacing every failure with a generic local
 adaptation error. The same existing admission checks apply to every caller.
-local execution and remote runners call the same Rust producer. Recipe fingerprints
+Actions artifact transfer wraps the verified six-file raw directory in one
+`runtime.tar` so the transport cannot discard executable permissions. The CI
+transport helper admits only bounded, unique, flat regular members, restores
+their recorded modes into an absent private directory, then invokes the same
+Rust verifier. It does not infer executable modes or repair a rejected input.
+The selected successful run, exact source and artifact authority remain the
+workflow's responsibility. The local/raw compiler cache retains its original
+directory format and is verified directly; an advertised loose Actions artifact
+is a transfer failure, not a reason to rebuild or choose another run.
+Local execution and remote runners call the same Rust producer. Recipe fingerprints
 bind its source/preparation/normalization code, exact upstream tuple, lock audit,
 toolchain and build settings; a Core-only commit cannot invalidate that raw
 runtime recipe. Signed component metadata's `runtime_inputs_sha256` additionally

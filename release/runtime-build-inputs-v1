@@ -1,6 +1,7 @@
 codex-runtime-build-inputs-v1
 recipe	release/runtime-build-inputs-v1
 recipe	.github/scripts/runtime_inputs.py
+recipe	.github/scripts/runtime_artifact.py
 recipe	crates/release-builder/src/source.rs
 recipe	crates/release-builder/src/source/patch.rs
 recipe	crates/release-builder/src/source/syntax.rs

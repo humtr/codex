@@ -296,7 +296,7 @@ jobs:
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           name: termux-runtime-source
-          path: ${{ runner.temp }}/termux-runtime-source
+          path: ${{ runner.temp }}/runtime-transfer
 
       - name: Fetch, adapt, and qualify unsigned candidate
         if: steps.decision.outputs.candidate == 'true'
@@ -328,7 +328,8 @@ jobs:
               --generation "$generation_id" --version "$upstream_version" --output "$work/candidate"
           else
           runtime="$RUNNER_TEMP/termux-runtime-source"
-          "$builder" verify-runtime --artifact "$runtime" \
+          python3 source/.github/scripts/runtime_artifact.py unpack \
+            --transfer "$RUNNER_TEMP/runtime-transfer" --artifact "$runtime" --builder "$builder" \
             --recipe "$GITHUB_WORKSPACE/source/release/upstream.json" --openssl /usr/bin/openssl
           fetch_output="$($builder fetch \
             --version "$upstream_version" \

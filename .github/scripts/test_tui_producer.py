@@ -80,7 +80,13 @@ class NativeProducerTests(unittest.TestCase):
                     elif sys.argv[1] == 'fetch': print('archive_sha256\\t' + 'a'*64)
                     else: Path(os.environ['CAPTURE']).write_text(json.dumps(sys.argv[1:]))
                 ''')); binary.chmod(0o755)
-                runtime=root/'termux-runtime-source';runtime.mkdir()
+                runtime=root/'termux-runtime-source'
+                transfer=root/'runtime-transfer';transfer.mkdir()
+                with tarfile.open(transfer/'runtime.tar','w',format=tarfile.USTAR_FORMAT):
+                    pass
+                helper=root/'source/.github/scripts/runtime_artifact.py'
+                helper.parent.mkdir(parents=True)
+                helper.symlink_to(ROOT/'.github/scripts/runtime_artifact.py')
                 script = step('Fetch, adapt, and qualify unsigned candidate').split('\n# Candidate inventory qualification begins here.', 1)[0]
                 for field, value in [('upstream_version', '0.999.0'), ('archive_sha256', 'a'*64), ('generation_id', 'owned-candidate')]:
                     script = script.replace('${{ steps.decision.outputs.' + field + ' }}', value)
@@ -89,7 +95,7 @@ class NativeProducerTests(unittest.TestCase):
                        'CAPTURE': str(root/'args.json'),'BASE_ONLY':base_only,'UPSTREAM_SHA':'b'*40,
                        'MANAGER_TUI_VERSION':'0.999.0',
                        'REJECT_RUNTIME':str(int(rejected))}
-                result = subprocess.run(['bash', '-c', script], env=env, text=True, capture_output=True)
+                result = subprocess.run(['bash', '-c', script], cwd=root, env=env, text=True, capture_output=True)
                 self.assertEqual(result.returncode, 7 if rejected else 0, result.stderr)
                 if not rejected:
                     args=json.loads((root/'args.json').read_text())

@@ -73,7 +73,7 @@ jobs:
           github-token: ${{ github.token }}
           run-id: ${{ steps.qualified.outputs.run_id }}
           name: termux-runtime-source
-          path: ${{ runner.temp }}/runtime-artifact
+          path: ${{ runner.temp }}/runtime-transfer
       - name: Provision exact official build toolchain
         if: steps.base.outputs.reuse_runtime != 'true'
         run: |
@@ -106,7 +106,13 @@ jobs:
           CACHE_HIT: ${{ steps.raw-cache.outputs.cache-hit }}
         run: |
           set -euo pipefail
-          if test -n "$QUALIFIED_RUN" || test "$CACHE_HIT" = true; then
+          if test -n "$QUALIFIED_RUN"; then
+            python3 source/.github/scripts/runtime_artifact.py unpack \
+              --transfer "$RUNNER_TEMP/runtime-transfer" --artifact "$RUNNER_TEMP/runtime-artifact" \
+              --builder "$CODEX_RELEASE_BUILDER" \
+              --recipe "$GITHUB_WORKSPACE/source/release/upstream.json" --openssl /usr/bin/openssl
+            echo 'reuse=true' >> "$GITHUB_OUTPUT"
+          elif test "$CACHE_HIT" = true; then
             "$CODEX_RELEASE_BUILDER" verify-runtime --artifact "$RUNNER_TEMP/runtime-artifact" \
               --recipe "$GITHUB_WORKSPACE/source/release/upstream.json" --openssl /usr/bin/openssl
             echo 'reuse=true' >> "$GITHUB_OUTPUT"
@@ -172,12 +178,21 @@ jobs:
         with:
           path: ${{ runner.temp }}/runtime-artifact
           key: termux-raw-runtime-v1-${{ steps.recipe.outputs.fingerprint }}
+      - name: Package runtime and preparation evidence with original modes
+        if: ${{ !cancelled() && (steps.build.outcome == 'success' || steps.raw.outputs.reuse == 'true') }}
+        id: transfer
+        run: |
+          set -euo pipefail
+          python3 source/.github/scripts/runtime_artifact.py pack \
+            --artifact "$RUNNER_TEMP/runtime-artifact" --transfer "$RUNNER_TEMP/runtime-upload" \
+            --builder "$CODEX_RELEASE_BUILDER" \
+            --recipe "$GITHUB_WORKSPACE/source/release/upstream.json" --openssl /usr/bin/openssl
       - name: Retain runtime and preparation evidence
-        if: ${{ !cancelled() && steps.base.outputs.reuse_runtime != 'true' }}
+        if: ${{ !cancelled() && steps.transfer.outcome == 'success' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: termux-runtime-source
-          path: ${{ runner.temp }}/runtime-artifact
+          path: ${{ runner.temp }}/runtime-upload/runtime.tar
           if-no-files-found: error
           retention-days: 7
       - name: Retain reusable compile cache
