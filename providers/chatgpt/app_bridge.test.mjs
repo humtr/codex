@@ -1130,7 +1130,7 @@ function appOperation(command,id='a'.repeat(48)) {
  const input={bridgeRevision:'1'.repeat(64),...command};
  const fingerprint=createHash('sha256').update(JSON.stringify(input)).digest('hex');
  return {...input,operation:{id,generation:'owned-generation',fingerprint,action:'begin',
-   errors:['app_account_changed','project_creation_rejected']}};
+   errors:['app_account_changed','project_creation_rejected'],observationBudgetMs:600000}};
 }
 async function settledOperation(command) {
  for(let i=0;i<100;i++) {
@@ -1212,4 +1212,68 @@ for(const replaceScope of [false,true])test('preparation result checks the origi
  complete({items:[],cursor:null});
  expect((await settledOperation(command)).error).toBe('app_account_changed');
  expect(f.created).toBe(0);expect(f.sent).toHaveLength(0);
+}));
+
+
+test('a released pure-read observer cannot retain capacity or restart its original Promise',async()=>fixture(async({f,bindings})=>{
+ let complete,calls=0;
+ f.chatGet=()=>{calls++;return new Promise(resolve=>{complete=resolve;});};
+ const input={op:'project_list',owner:'reader',readOnlyContext:true,bindings,
+   identity:{account:'account',user:'user',structure:'personal'}};
+ const command=appOperation(input);
+ await bridge(command);
+ for(let i=0;!complete&&i<100;i++)await Bun.sleep(1);
+ expect(calls).toBe(1);
+ expect((await bridge({...command,operation:{...command.operation,action:'abandon'}})).state).toBe('abandoned');
+ expect((await bridge({...command,operation:{...command.operation,action:'observe'}})).state).toBe('unknown');
+ expect(globalThis[operationSlot].size).toBe(0);
+ complete({items:[],cursor:null});await Bun.sleep(1);
+ expect(calls).toBe(1);expect(globalThis[operationSlot].size).toBe(0);
+ // A Native preparation has a live work owner even after its observer closes.
+ const owned=appOperation({...input,preparation:'original-native-request'},'b'.repeat(48));
+ complete=null;await bridge(owned);
+ for(let i=0;!complete&&i<100;i++)await Bun.sleep(1);
+ await expect(bridge({...owned,operation:{...owned.operation,action:'abandon'}})).rejects.toThrow('app_operation_invalid');
+ expect((await bridge({...owned,operation:{...owned.operation,action:'observe'}})).state).toBe('pending');
+ complete({items:[],cursor:null});
+ expect((await settledOperation(owned)).value).toEqual([]);
+ expect(calls).toBe(2);expect(f.sent).toHaveLength(0);
+}));
+
+test('expired pure-read receipts cannot block other work after a lost cleanup, while writes keep their original owner',async()=>fixture(async({f,bindings})=>{
+ const original=Object.getOwnPropertyDescriptor(performance,'now');let now=0;
+ Object.defineProperty(performance,'now',{configurable:true,value:()=>now});
+ try {
+  await bridge({op:'init',owner:'owned',bindings});
+  let complete,posts=0;
+  f.wire.safePost=()=>{posts++;return new Promise(resolve=>{complete=resolve;});};
+  const writing=appOperation({op:'project_create',owner:'owned',name:'Codex',
+    identity:{account:'account',user:'user',structure:'personal'}});
+  await bridge(writing);
+  for(let i=0;!complete&&i<100;i++)await Bun.sleep(1);
+  const reads=[];
+  for(let i=1;i<128;i++) {
+   const read=appOperation({op:'identity',owner:'reader',readOnlyContext:true,bindings},i.toString(16).padStart(48,'0'));
+   reads.push(read);await bridge(read);expect((await settledOperation(read)).value.account).toBe('account');
+   // Neither acknowledgement nor observer release reached this renderer.
+  }
+  const next=appOperation({op:'identity',owner:'reader',readOnlyContext:true,bindings},'f'.repeat(48));
+  now=599999;
+  await expect(bridge(next)).rejects.toThrow('app_operation_capacity');
+  now=600000;
+  expect((await bridge(next)).state).toBe('pending');
+  expect((await settledOperation(next)).value.account).toBe('account');
+  expect(globalThis[operationSlot].size).toBe(2);
+  expect((await bridge({...reads[0],operation:{...reads[0].operation,action:'observe'}})).state).toBe('unknown');
+  await expect(bridge({...writing,operation:{...writing.operation,action:'abandon'}})).rejects.toThrow('app_operation_invalid');
+  expect((await bridge(writing)).state).toBe('pending');expect(posts).toBe(1);
+  complete({resource:{gizmo:{id:'g-p-original',display:{name:'Codex'},author:{user_id:'user'},share_recipient:'private'}}});
+  const result=await settledOperation(writing);
+  expect(result.value.id).toBe('g-p-original');expect(posts).toBe(1);
+  now+=600000;
+  expect(await settledOperation(writing)).toEqual(result);expect(globalThis[operationSlot].size).toBe(1);
+  expect(f.sent).toHaveLength(0);
+ } finally {
+  if(original)Object.defineProperty(performance,'now',original);else delete performance.now;
+ }
 }));

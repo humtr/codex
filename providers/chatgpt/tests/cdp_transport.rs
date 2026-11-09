@@ -902,6 +902,21 @@ async fn preparation_observes_one_original_promise_across_delays_lost_acks_and_d
         Arc,
     };
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+    async fn read_released(observations: &mut tokio::sync::mpsc::UnboundedReceiver<&str>) {
+        tokio::time::timeout(std::time::Duration::from_secs(2), async {
+            loop {
+                let observed = observations
+                    .recv()
+                    .await
+                    .expect("CDP fixture closed before cleanup");
+                if observed == "abandon" {
+                    break;
+                }
+            }
+        })
+        .await
+        .expect("closed pure-read observer must release only its original receipt");
+    }
     for scenario in [
         "slow_network",
         "lost_begin_ack",
@@ -909,6 +924,11 @@ async fn preparation_observes_one_original_promise_across_delays_lost_acks_and_d
         "dropped_observer",
         "unknown",
         "fresh_read",
+        "direct_budget",
+        "scoped_budget",
+        "dropped_read",
+        "lost_cleanup",
+        "lost_cleanup_scoped",
     ] {
         let (native, peer) = tokio::io::duplex(262144);
         let (read, write) = tokio::io::split(native);
@@ -927,6 +947,7 @@ async fn preparation_observes_one_original_promise_across_delays_lost_acks_and_d
                 let mut read = BufReader::new(read);
                 let mut operation_id = None;
                 let mut polls = 0;
+                let mut acknowledgements = 0;
                 loop {
                     let mut bytes = Vec::new();
                     if read.read_until(0, &mut bytes).await.unwrap() == 0 {
@@ -1020,7 +1041,27 @@ async fn preparation_observes_one_original_promise_across_delays_lost_acks_and_d
                                         }
                                     }
                                     "acknowledge" => {
+                                        acknowledgements += 1;
+                                        if matches!(
+                                            scenario,
+                                            "lost_cleanup" | "lost_cleanup_scoped"
+                                        ) && acknowledgements == 1
+                                        {
+                                            write.write_all(format!("{}\0", json!({"id":request["id"],"error":{"code":-32000,"message":"fixture cleanup not delivered"}})).as_bytes()).await.unwrap();
+                                            continue;
+                                        }
                                         receipt["state"] = json!("acknowledged");
+                                    }
+                                    "abandon" => {
+                                        assert!(matches!(
+                                            scenario,
+                                            "fresh_read"
+                                                | "direct_budget"
+                                                | "dropped_read"
+                                                | "lost_cleanup"
+                                        ));
+                                        receipt["state"] = json!("abandoned");
+                                        signal = Some("abandon");
                                     }
                                     _ => panic!("unexpected receipt action"),
                                 }
@@ -1047,7 +1088,10 @@ async fn preparation_observes_one_original_promise_across_delays_lost_acks_and_d
             })
         };
         let mut command = json!({"op":"project_read","project":"g-p-original","lane":"original-lane","nativeThread":"original-thread","preparation":"original-native-request"});
-        if scenario == "fresh_read" {
+        if matches!(
+            scenario,
+            "fresh_read" | "direct_budget" | "dropped_read" | "lost_cleanup"
+        ) {
             command.as_object_mut().unwrap().remove("preparation");
         }
         let mut work = {
@@ -1070,6 +1114,47 @@ async fn preparation_observes_one_original_promise_across_delays_lost_acks_and_d
             "fixture-account"
         );
         match scenario {
+            "direct_budget" | "scoped_budget" => {
+                tokio::time::advance(std::time::Duration::from_secs(600)).await;
+                tokio::task::yield_now().await;
+                assert!(
+                    work.is_finished(),
+                    "a direct preparation observer has the existing finite 600s budget"
+                );
+                assert_eq!(
+                    work.await.unwrap(),
+                    Err(Error("app_preparation_timeout_unconfirmed"))
+                );
+                if scenario == "direct_budget" {
+                    read_released(&mut observations).await;
+                    assert_eq!(begins.load(Ordering::SeqCst), 1);
+                    peer.abort();
+                    let _ = peer.await;
+                    continue;
+                }
+                ready.store(true, Ordering::SeqCst);
+                assert_eq!(
+                    remote.operation(command).await.unwrap()["id"],
+                    "g-p-original"
+                );
+                assert_eq!(
+                    begins.load(Ordering::SeqCst),
+                    1,
+                    "a new observer only reads the retained original receipt"
+                );
+                peer.abort();
+                let _ = peer.await;
+                continue;
+            }
+            "dropped_read" => {
+                work.abort();
+                assert!(work.await.unwrap_err().is_cancelled());
+                read_released(&mut observations).await;
+                assert_eq!(begins.load(Ordering::SeqCst), 1);
+                peer.abort();
+                let _ = peer.await;
+                continue;
+            }
             "lost_poll_ack" => {
                 tokio::time::advance(std::time::Duration::from_secs(16)).await;
                 assert_eq!(work.await.unwrap(), Err(Error("cdp_operation_timeout")));
@@ -1130,6 +1215,18 @@ async fn preparation_observes_one_original_promise_across_delays_lost_acks_and_d
             .unwrap();
         assert_eq!(result["id"], "g-p-original");
         assert_eq!(begins.load(Ordering::SeqCst), 1);
+        if scenario == "lost_cleanup" {
+            read_released(&mut observations).await;
+        }
+        if scenario == "lost_cleanup_scoped" {
+            ready.store(false, Ordering::SeqCst);
+            assert_eq!(
+                remote.operation(command).await.unwrap()["id"],
+                "g-p-original",
+                "a failed cleanup retains the known original result"
+            );
+            assert_eq!(begins.load(Ordering::SeqCst), 1);
+        }
         peer.abort();
         let _ = peer.await;
     }

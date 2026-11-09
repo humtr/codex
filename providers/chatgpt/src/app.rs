@@ -15,6 +15,10 @@ use std::{collections::BTreeMap, path::PathBuf, sync::Arc, time::Duration};
 use tokio::sync::{mpsc, Mutex};
 use tokio_util::sync::CancellationToken;
 
+// The existing turn/MCP observation budget also bounds direct app queries.
+// CDP commands retain their separate 15s transport bound.
+const APP_OBSERVATION_BUDGET: Duration = Duration::from_secs(600);
+
 pub trait Bridge: Send + Sync + 'static {
     /// Borrow an existing owned CDP connection for trusted local maintenance.
     /// This must not acquire a host or submit inference.
@@ -148,6 +152,7 @@ impl Bridge for Remote {
         let mcp = self.mcp;
         let viewer = self.viewer.clone();
         Box::pin(async move {
+            let observation_until = tokio::time::Instant::now() + APP_OBSERVATION_BUDGET;
             let selected = match &source {
                 Source::Relay(path) => Some(Descriptor::read(path)?),
                 Source::Pipe(_) => None,
@@ -229,7 +234,8 @@ impl Bridge for Remote {
                 let until = tokio::time::Instant::now() + Duration::from_secs(30);
                 loop {
                     let app = guard.as_ref().unwrap().app.clone();
-                    let value = evaluate_bridge(&app, &init, &preparations).await?;
+                    let value =
+                        evaluate_bridge(&app, &init, &preparations, observation_until).await?;
                     if value["ready"] == true {
                         break;
                     }
@@ -268,14 +274,15 @@ impl Bridge for Remote {
             if command["op"] == "approve_ui" {
                 let mut check = command.clone();
                 check["op"] = json!("approval_prepare");
-                evaluate_bridge(&app, &check, &preparations).await?;
+                evaluate_bridge(&app, &check, &preparations, observation_until).await?;
                 viewer
                     .as_ref()
                     .ok_or(Error("app_approval_viewer_unavailable"))?
                     .open()
                     .await?;
             }
-            let mut result = evaluate_bridge(&app, &command, &preparations).await;
+            let mut result =
+                evaluate_bridge(&app, &command, &preparations, observation_until).await;
             if command["op"] == "approve_ui" {
                 let until = tokio::time::Instant::now() + Duration::from_secs(20);
                 while result.as_ref().is_ok_and(|value| value["pending"] == true) {
@@ -283,7 +290,8 @@ impl Bridge for Remote {
                         return Err(Error("app_approval_ui_unavailable"));
                     }
                     tokio::time::sleep(Duration::from_millis(250)).await;
-                    result = evaluate_bridge(&app, &command, &preparations).await;
+                    result =
+                        evaluate_bridge(&app, &command, &preparations, observation_until).await;
                 }
             }
             if command["op"] == "identity" {
@@ -292,7 +300,8 @@ impl Bridge for Remote {
                     && tokio::time::Instant::now() < until
                 {
                     tokio::time::sleep(Duration::from_millis(200)).await;
-                    result = evaluate_bridge(&app, &command, &preparations).await;
+                    result =
+                        evaluate_bridge(&app, &command, &preparations, observation_until).await;
                 }
                 if let Ok(value) = &mut result {
                     let object = value
@@ -429,9 +438,11 @@ fn bridge_error(code: &str) -> Error {
             .unwrap_or("app_bridge_operation_failed"),
     )
 }
+fn bridge_expression(command: &Value) -> String {
+    format!("(async()=>{{const command={command};\ntry{{return {{value:await ({})(command)}};}}catch(e){{return {{error:{}.includes(e.message)?e.message:'app_bridge_operation_failed'}};}}}})()", include_str!("app_bridge.js"), serde_json::to_string(BRIDGE_ERRORS).unwrap())
+}
 async fn evaluate_bridge_value(app: &App, command: &Value) -> Result<Value, Error> {
-    let expression = format!("(async()=>{{const command={command};\ntry{{return {{value:await ({})(command)}};}}catch(e){{return {{error:{}.includes(e.message)?e.message:'app_bridge_operation_failed'}};}}}})()", include_str!("app_bridge.js"), serde_json::to_string(BRIDGE_ERRORS).unwrap());
-    let result = app.evaluate(&expression).await?;
+    let result = app.evaluate(&bridge_expression(command)).await?;
     if let Some(code) = result["error"].as_str() {
         return Err(bridge_error(code));
     }
@@ -439,6 +450,38 @@ async fn evaluate_bridge_value(app: &App, command: &Value) -> Result<Value, Erro
         .get("value")
         .cloned()
         .ok_or(Error("invalid_app_bridge_result"))
+}
+struct ReadObserver {
+    app: App,
+    envelope: Option<Value>,
+    started: tokio::time::Instant,
+}
+impl Drop for ReadObserver {
+    fn drop(&mut self) {
+        if let Some(mut command) = self.envelope.take() {
+            command["operation"]["action"] = json!("abandon");
+            if let Err(error) = self.app.release_observation(&bridge_expression(&command)) {
+                eprintln!(
+                    "app_operation_observation: {}",
+                    json!({"op":command["op"],"operation_id":command["operation"]["id"],
+                        "lane":command["lane"],"native_thread":command["nativeThread"],
+                        "round":command["round"],"elapsed_ms":self.started.elapsed().as_millis(),
+                        "state":"read_release_unavailable","error":error.0})
+                );
+            }
+        }
+    }
+}
+fn receipt_matches(value: &Value, command: &Value) -> bool {
+    [
+        ("id", &command["operation"]["id"]),
+        ("generation", &command["operation"]["generation"]),
+        ("fingerprint", &command["operation"]["fingerprint"]),
+        ("owner", &command["owner"]),
+        ("revision", &command["bridgeRevision"]),
+    ]
+    .into_iter()
+    .all(|(name, expected)| &value[name] == expected)
 }
 fn preparation_operation(command: &Value) -> bool {
     matches!(
@@ -478,21 +521,21 @@ async fn evaluate_bridge(
     app: &App,
     command: &Value,
     preparations: &Preparations,
+    until: tokio::time::Instant,
 ) -> Result<Value, Error> {
     // Submission, Stop and snapshots already have the app lane's authoritative
     // lifecycle. Only preparation/read Promises need a separate CDP receipt.
     if !preparation_operation(command) {
         return evaluate_bridge_value(app, command).await;
     }
+    if tokio::time::Instant::now() >= until {
+        return Err(Error("app_preparation_timeout_unconfirmed"));
+    }
     let fingerprint = context::digest(command);
     // Only an existing work/preparation owner may re-enter a lost operation.
     // Independent identity/catalog/history queries are fresh observations, not
     // permanent aliases of an earlier caller whose reply was unavailable.
-    let retained = command.get("preparation").is_some()
-        || matches!(
-            command["op"].as_str(),
-            Some("project_create" | "chat_adopt" | "follow_settle")
-        );
+    let retained = command.get("preparation").is_some() || command["readOnlyContext"] != true;
     let new_reference = || -> Result<_, Error> {
         Ok(Arc::new(Mutex::new(Preparation {
             id: random_id()?,
@@ -517,7 +560,11 @@ async fn evaluate_bridge(
     } else {
         new_reference()?
     };
-    let mut preparation = reference.lock().await;
+    let mut preparation = tokio::select! {
+        biased;
+        _ = tokio::time::sleep_until(until) => return Err(Error("app_preparation_timeout_unconfirmed")),
+        preparation = reference.lock() => preparation,
+    };
     if preparation.generation != app.client.generation.as_ref() {
         return Err(Error("app_operation_identity_changed"));
     }
@@ -525,8 +572,14 @@ async fn evaluate_bridge(
     envelope["operation"] = json!({
         "id":preparation.id,"generation":preparation.generation,
         "fingerprint":fingerprint,"errors":BRIDGE_ERRORS,
+        "observationBudgetMs":until.saturating_duration_since(tokio::time::Instant::now()).as_millis().max(1),
         "action":if preparation.begun { "observe" } else { "begin" }
     });
+    let mut observer = ReadObserver {
+        app: app.clone(),
+        envelope: (!retained).then(|| envelope.clone()),
+        started: preparation.started,
+    };
     let beginning = !preparation.begun;
     // Fence before sending: dropping this future or losing its ACK can only
     // leave an observer of this exact operation, never authorize another begin.
@@ -535,7 +588,15 @@ async fn evaluate_bridge(
         preparation_observation(command, &preparation, "begin", None);
     }
     while preparation.result.is_none() {
-        let result = evaluate_bridge_value(app, &envelope).await;
+        let result = tokio::select! {
+            biased;
+            _ = tokio::time::sleep_until(until) => {
+                let error = Error("app_preparation_timeout_unconfirmed");
+                preparation_observation(command, &preparation, "observation_timeout_unconfirmed", Some(error));
+                return Err(error);
+            },
+            result = evaluate_bridge_value(app, &envelope) => result,
+        };
         match result {
             Err(Error("cdp_operation_timeout")) if envelope["operation"]["action"] == "begin" => {
                 preparation_observation(
@@ -564,21 +625,16 @@ async fn evaluate_bridge(
                 return Err(error);
             }
             Ok(value) => {
-                for (name, expected) in [
-                    ("id", &envelope["operation"]["id"]),
-                    ("generation", &envelope["operation"]["generation"]),
-                    ("fingerprint", &envelope["operation"]["fingerprint"]),
-                    ("owner", &command["owner"]),
-                    ("revision", &command["bridgeRevision"]),
-                ] {
-                    if &value[name] != expected {
-                        return Err(Error("app_operation_identity_changed"));
-                    }
+                if !receipt_matches(&value, &envelope) {
+                    return Err(Error("app_operation_identity_changed"));
                 }
                 match value["state"].as_str() {
                     Some("pending") => {
                         envelope["operation"]["action"] = json!("observe");
-                        tokio::time::sleep(Duration::from_millis(200)).await;
+                        tokio::time::sleep_until(
+                            until.min(tokio::time::Instant::now() + Duration::from_millis(200)),
+                        )
+                        .await;
                     }
                     Some("settled") => {
                         preparation.result = Some(if let Some(code) = value["error"].as_str() {
@@ -609,9 +665,24 @@ async fn evaluate_bridge(
     envelope["operation"]["action"] = json!("acknowledge");
     // Receipt cleanup has no app/model effect. Its uncertain reply cannot erase
     // a known original result; a canceled caller retains the local receipt.
-    if let Err(error) = evaluate_bridge_value(app, &envelope).await {
+    let acknowledged = tokio::select! {
+        biased;
+        _ = tokio::time::sleep_until(until) => Err(Error("app_preparation_timeout_unconfirmed")),
+        result = evaluate_bridge_value(app, &envelope) => result.and_then(|value| {
+            if receipt_matches(&value, &envelope) && value["state"] == "acknowledged" {
+                Ok(())
+            } else {
+                Err(Error("app_operation_identity_changed"))
+            }
+        }),
+    };
+    if let Err(error) = acknowledged {
         preparation_observation(command, &preparation, "ack_unavailable", Some(error));
+        // A known write/preparation result remains owned here until cleanup
+        // succeeds. A pure query instead releases its own observer on Drop.
+        return result;
     }
+    observer.envelope = None;
     let mut pending = preparations.lock().await;
     if pending
         .get(&fingerprint)
@@ -2045,7 +2116,7 @@ async fn exchange(
     let LaneServices { bridge, journal } = services;
     // One existing turn budget covers destination preparation and inference.
     // A short CDP observation deadline is never a network-work deadline.
-    let mut until = tokio::time::Instant::now() + Duration::from_secs(600);
+    let mut until = tokio::time::Instant::now() + APP_OBSERVATION_BUDGET;
     if cancel.is_cancelled() {
         return Err(Error("cancelled_before_dispatch"));
     }

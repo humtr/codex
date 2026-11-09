@@ -402,6 +402,24 @@ impl App {
             .await?;
         Ok(())
     }
+    /// Best-effort receipt cleanup on this exact session, including when the
+    /// caller future is dropped. It cannot acquire or replay an app operation.
+    pub(crate) fn release_observation(&self, expression: &str) -> Result<(), Error> {
+        let (reply, receive) = oneshot::channel();
+        drop(receive);
+        self.client
+            .queue
+            .try_send(Command {
+                method: "Runtime.evaluate".into(),
+                params: json!({"expression":expression,"awaitPromise":true,"returnByValue":true}),
+                session: Some(self.session.clone()),
+                reply,
+            })
+            .map_err(|error| match error {
+                mpsc::error::TrySendError::Full(_) => Error("cdp_queue_full"),
+                mpsc::error::TrySendError::Closed(_) => Error("cdp_observer_disconnected"),
+            })
+    }
     pub async fn evaluate(&self, expression: &str) -> Result<Value, Error> {
         let value = self
             .client

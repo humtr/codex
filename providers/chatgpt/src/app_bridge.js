@@ -7,22 +7,38 @@ async function termuxCodexBridge(command) {
     // This is a receipt for one existing app call, not a worker or a model
     // lifecycle. A short CDP observation never owns the underlying Promise.
     const operation=command.operation;
-    if(!operation||!['begin','observe','acknowledge'].includes(operation.action)||
+    if(!operation||!['begin','observe','acknowledge','abandon'].includes(operation.action)||
       typeof operation.id!=='string'||!/^[a-f0-9]{48}$/.test(operation.id)||
       typeof operation.fingerprint!=='string'||!/^[a-f0-9]{64}$/.test(operation.fingerprint)||
       typeof operation.generation!=='string'||!operation.generation||operation.generation.length>512||
       typeof command.owner!=='string'||!command.owner||command.owner.length>512||
       typeof command.bridgeRevision!=='string'||!/^[a-f0-9]{64}$/.test(command.bridgeRevision)||
-      !Array.isArray(operation.errors)||operation.errors.some(code=>typeof code!=='string'))fail('app_operation_invalid');
+      !Array.isArray(operation.errors)||operation.errors.some(code=>typeof code!=='string')||
+      !Number.isSafeInteger(operation.observationBudgetMs)||operation.observationBudgetMs<=0||operation.observationBudgetMs>600000)fail('app_operation_invalid');
     if(command.readOnlyContext!==true&&!['project_create','project_membership','chat_adopt','follow_settle'].includes(command.op))fail('app_operation_invalid');
+    const pureRead=command.readOnlyContext===true&&!Object.hasOwn(command,'preparation');
+    if(operation.action==='abandon'&&!pureRead)fail('app_operation_invalid');
     const receiptSlot=Symbol.for('termux.codex.app.operations.v1');
     const entries=globalThis[receiptSlot]??=new Map();
+    // A pure query belongs only to its finite Rust observer. If that observer
+    // disappears before cleanup reaches this renderer, its original lease
+    // cannot be renewed by polls or consume capacity forever. Existing work
+    // preparation and writes have their own owner and never expire here.
+    const now=performance.now();
+    for(const [id,entry] of entries)if(entry.expiresAt!=null&&now>=entry.expiresAt){
+      entry.abandoned=true;entries.delete(id);
+    }
     const {operation:ignored,...input}=command;
     const declaration=JSON.stringify(input);
     const identity={id:operation.id,owner:command.owner,generation:operation.generation,
       revision:command.bridgeRevision,fingerprint:operation.fingerprint};
     let receipt=entries.get(operation.id);
     if(receipt&&(Object.keys(identity).some(key=>receipt.identity[key]!==identity[key])||receipt.declaration!==declaration))fail('app_operation_identity_changed');
+    if(operation.action==='abandon') {
+      if(receipt)receipt.abandoned=true;
+      entries.delete(operation.id);
+      return {...identity,state:'abandoned'};
+    }
     if(operation.action==='acknowledge') {
       if(receipt?.state==='pending')fail('app_operation_pending');
       entries.delete(operation.id);
@@ -30,13 +46,15 @@ async function termuxCodexBridge(command) {
     }
     if(!receipt&&operation.action==='begin') {
       if(entries.size>=128)fail('app_operation_capacity');
-      receipt={identity,declaration,state:'pending'};
+      receipt={identity,declaration,state:'pending',expiresAt:pureRead?now+operation.observationBudgetMs:null};
       entries.set(operation.id,receipt);
       // Reserve synchronously before any await. Repeated begin/observe calls
       // can only inspect this receipt and cannot run the app operation again.
       Promise.resolve().then(()=>termuxCodexBridge(input)).then(value=>{
+        if(receipt.abandoned)return;
         receipt.value=value;receipt.state='settled';
       },error=>{
+        if(receipt.abandoned)return;
         receipt.error=operation.errors.includes(error?.message)?error.message:'app_bridge_operation_failed';
         receipt.state='settled';
       });
