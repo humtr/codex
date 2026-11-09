@@ -26,6 +26,31 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 pub type Slot = Arc<std::sync::RwLock<Option<Arc<Viewer>>>>;
 
+// noVNC resolves the path query relative to this vnc.html page, not the server root.
+// The CLI and the app-owned viewer must use this same relative endpoint.
+pub(crate) fn viewer_url(port: u16, capability: &str) -> String {
+    format!(
+        "http://127.0.0.1:{port}/viewer/{capability}/vnc.html?autoconnect=1&resize=scale&view_clip=0&path=websock"
+    )
+}
+
+#[cfg(test)]
+mod url_tests {
+    use super::viewer_url;
+
+    #[test]
+    fn websocket_path_is_relative_to_the_capability_page() {
+        let url = viewer_url(41981, &"a".repeat(48));
+        assert_eq!(
+            url,
+            format!(
+                "http://127.0.0.1:41981/viewer/{}/vnc.html?autoconnect=1&resize=scale&view_clip=0&path=websock",
+                "a".repeat(48)
+            )
+        );
+    }
+}
+
 pub fn router_slot(slot: Slot) -> Router {
     Router::new()
         .route(
@@ -91,7 +116,7 @@ impl Viewer {
         router_slot(Arc::new(std::sync::RwLock::new(Some(self))))
     }
     pub(crate) async fn open(&self) -> Result<(), Error> {
-        let url=format!("http://127.0.0.1:{}/viewer/{}/vnc.html?autoconnect=1&resize=remote&path=viewer%2F{}%2Fwebsock", self.port, self.capability, self.capability);
+        let url = viewer_url(self.port, &self.capability);
         let prefix =
             PathBuf::from(std::env::var_os("PREFIX").ok_or(Error("termux_prefix_required"))?);
         crate::runtime::request_viewer_activity(&prefix.join("bin/termux-am-socket"), &url).await
