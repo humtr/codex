@@ -34,23 +34,6 @@ pub(crate) fn viewer_url(port: u16, capability: &str) -> String {
     )
 }
 
-#[cfg(test)]
-mod url_tests {
-    use super::viewer_url;
-
-    #[test]
-    fn websocket_path_is_relative_to_the_capability_page() {
-        let url = viewer_url(41981, &"a".repeat(48));
-        assert_eq!(
-            url,
-            format!(
-                "http://127.0.0.1:41981/viewer/{}/vnc.html?autoconnect=1&resize=scale&view_clip=0&path=websock",
-                "a".repeat(48)
-            )
-        );
-    }
-}
-
 pub fn router_slot(slot: Slot) -> Router {
     Router::new()
         .route(
@@ -312,5 +295,22 @@ async fn rfb(socket: WebSocket, viewer: Arc<Viewer>) {
                 if write.write_all(&bytes).await.is_err(){break;}
             }
         }=>(),
+    }
+}
+
+#[cfg(test)]
+mod url_tests {
+    use super::viewer_url;
+
+    #[test]
+    fn websocket_path_is_relative_to_the_capability_page() {
+        let url = viewer_url(41981, &"a".repeat(48));
+        assert_eq!(
+            url,
+            format!(
+                "http://127.0.0.1:41981/viewer/{}/vnc.html?autoconnect=1&resize=scale&view_clip=0&path=websock",
+                "a".repeat(48)
+            )
+        );
     }
 }
