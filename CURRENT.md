@@ -44,6 +44,18 @@ the fix; it submitted no GPT model request. Installed `/provider` selection,
 actual GPT-6 two-turn continuation, injected live stream loss, HTTP 413 and
 independent work on the final installed composition remain **unaccepted**.
 
+The current authenticated AppHost model catalog was queried without submitting
+inference. Its visible GPT-6 Instant entry is
+`chatgpt-desktop/app/gpt-6`; the retained `chatgpt-desktop/gpt-6` model alias
+is hidden. The live TUI qualifier previously expected that hidden alias after
+choosing the visible `/provider` entry, which would falsely reject a correct
+selection. The qualifier now asserts the visible GPT-6 Instant model across
+Native settings, model contexts and the original SSE/response identity;
+its negative regression rejects the old alias as a substitute. Actual Termux
+live-TUI fixture 26 and original-result fixture 5 tests passed, with zero
+model requests. This is acceptance-harness repair, not installed-TUI acceptance
+or a change to production TUI/model selection.
+
 Current free Termux-internal filesystem space is about 17 GiB. The authorized
 Core `config/build-signing-key` reference is not configured in this device;
 do not assume public signer access or replace signed operating generations.

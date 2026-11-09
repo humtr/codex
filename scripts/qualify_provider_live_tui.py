@@ -31,7 +31,10 @@ import urllib.parse
 
 from qualify_tasks import Ws
 
-MODEL = 'chatgpt-desktop/gpt-6'
+# /provider presents the current AppHost-visible Instant route. The historical
+# chatgpt-desktop/gpt-6 alias remains usable for saved work but is hidden in the
+# installed picker; it is not the model selected by this live UI acceptance.
+MODEL = 'chatgpt-desktop/app/gpt-6'
 
 
 def stamp():

@@ -564,6 +564,12 @@ class TerminalOwnerEvidence(unittest.TestCase):
 
 
 class StreamEvidence(unittest.TestCase):
+    def test_visible_gpt6_app_route_not_the_hidden_saved_model_alias(self):
+        self.assertEqual(MODEL, 'chatgpt-desktop/app/gpt-6')
+        old = dict(self.original, model='chatgpt-desktop/gpt-6')
+        with self.assertRaises(AssertionError):
+            completed_fault([old], 'thread', 'fault-turn')
+
     def setUp(self):
         self.original = {
             'injected': True, 'method': 'POST', 'path': '/v1/responses',
