@@ -339,7 +339,8 @@ def next_release_sequence(value: str) -> int:
     return current + 1
 
 
-def parse_release_manifest(path: Path, wanted_path: str) -> tuple[str, int, str, str]:
+def parse_release_manifest_inventory(path: Path) -> tuple[dict[str, str], list[tuple[str, str, str]]]:
+    """Decode the common manifest grammar; callers own their allowed inventory."""
     lines = text_lines(path, MAX_MANIFEST, "release manifest")
     if len(lines) < 10 or lines[0] not in {"codex-release-v3", "codex-release-v4"}:
         fail("release manifest format is unsupported")
@@ -354,15 +355,15 @@ def parse_release_manifest(path: Path, wanted_path: str) -> tuple[str, int, str,
         if len(parts) != 2 or parts[0] != name or not parts[1]:
             fail(f"release manifest field {name} is invalid")
         values[name] = parts[1]
-    generation = generation_id(values["generation_id"], "release manifest generation id")
-    sequence = positive_decimal(values["release_sequence"], "release sequence")
+    generation_id(values["generation_id"], "release manifest generation id")
+    positive_decimal(values["release_sequence"], "release sequence")
     if values["channel"] != "stable" or values["expected_platform"] != "android" or values["expected_architecture"] != "aarch64":
         fail("release manifest channel/platform binding is invalid")
     count = positive_decimal(values["file_count"], "release file count")
     if count > 4096 or len(lines) != 10 + count:
         fail("release manifest file inventory length is invalid")
     previous = ""
-    wanted: tuple[str, str] | None = None
+    inventory: list[tuple[str, str, str]] = []
     for line in lines[10:]:
         parts = line.split("\t")
         if len(parts) != 4 or parts[0] != "file":
@@ -374,13 +375,16 @@ def parse_release_manifest(path: Path, wanted_path: str) -> tuple[str, int, str,
         lower_sha256(digest, "release file digest")
         if mode not in {"0644", "0755"}:
             fail("release file mode is invalid")
-        if rel == wanted_path:
-            if wanted is not None:
-                fail("release file inventory contains duplicate wanted path")
-            wanted = (digest, mode)
-    if wanted is None:
-        fail("release file inventory does not contain requested path")
-    return generation, sequence, wanted[0], wanted[1]
+        inventory.append((rel, digest, mode))
+    return values, inventory
+
+
+def parse_release_manifest(path: Path, wanted_path: str) -> tuple[str, int, str, str]:
+    values, inventory = parse_release_manifest_inventory(path)
+    for relative, digest, mode in inventory:
+        if relative == wanted_path:
+            return values['generation_id'], int(values['release_sequence']), digest, mode
+    fail("release file inventory does not contain requested path")
 
 
 def print_kv(**values: object) -> None:

@@ -23,9 +23,7 @@ import time
 
 SOURCE = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SOURCE / '.github/scripts'))
-from release_preflight import parse_descriptor
-from release_publication import parse_manifest
-from qualify_tasks import Ws, fixture_activation_state
+from qualify_tasks import Ws, fixture_activation_state, local_generation_inventory
 
 
 
@@ -41,25 +39,8 @@ def fixture(root, core, frontend, manager=None, generation=None):
             (real_home / '.local/share/codex/core/activation-state').read_text().splitlines() if '=' in line)
         installed = real_home / '.local/lib/codex/core/generations' / activation['current']
     else:
-        installed = generation.resolve(strict=True)
-    fields = parse_descriptor(installed / 'generation.meta')
-    # Explicit base fixtures are private signer inputs, not public release admission.
-    # The actual Core verifies the resulting signature/inventory before execution.
-    if frontend is None and fields['helper_count'] == '2' and fields['manager_artifact_digest'] == '-':
-        assert generation is not None and fields['helper_count'] == '2'
-        records = [line.split('\t') for line in (installed / 'release.manifest').read_text().splitlines() if line.startswith('file\t')]
-        # The installed R10 transition layout is still a supported signed Base,
-        # with the same two identities stored at helpers/0 and helpers/1.
-        bridge = fields['creation_metadata'] == 'r10-browser-helper-bridge-v1'
-        browser_paths = {'helpers/0', 'helpers/1'} if bridge else {
-            'browser/open/curl', 'browser/manual/curl'}
-        expected = {'core', 'runtime', 'codex-code-mode-host', 'generation.meta'} | browser_paths
-        assert len(records) == len(expected) and {row[1] for row in records} == expected
-        inventory = [(row[1], row[2], row[3]) for row in records]
-    else:
-        _, inventory = parse_manifest(installed / 'release.manifest')
-    assert all((installed / name).is_file() and not (installed / name).is_symlink()
-               and sha(installed / name) == digest for name, digest, _ in inventory)
+        installed = Path(generation)
+    fields, inventory = local_generation_inventory(installed)
     generation = root / 'local-permission-fixture'
     for name in [row[0] for row in inventory] + ['release.manifest', 'release.sig']:
         target = generation / name

@@ -16,6 +16,7 @@ spec = importlib.util.spec_from_file_location(
 qualification = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(qualification)
 from release_publication import EXPECTED_FILES, ValidationError
+from release_preflight import PreflightError
 
 
 class ClosureTests(unittest.TestCase):
@@ -96,16 +97,36 @@ class MaterializationTests(unittest.TestCase):
             root = Path(temporary); source, native = root / "published", root / "installed"
             source.mkdir()
             headers = [("generation_id", "local-hosted-0-160-0-owned"), ("release_sequence", "38"), ("channel", "stable"), ("expected_platform", "android"), ("expected_architecture", "aarch64"), ("core_api_identity", "core-api-v1"), ("persistent_schema_identity", "schema-v1"), ("release_public_key", "11" * 32), ("file_count", str(len(EXPECTED_FILES)))]
-            records = []
             for relative, mode in EXPECTED_FILES.items():
                 path = source / relative; path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_bytes(relative.encode()); path.chmod(int(mode, 8))
+            digest = lambda name: hashlib.sha256((source / name).read_bytes()).hexdigest()
+            descriptor = [
+                'codex-local-generation-v2', 'generation_id\tlocal-hosted-0-160-0-owned',
+                'upstream_package_identity\topenai/codex:codex-package-aarch64-unknown-linux-musl.tar.gz',
+                'upstream_package_version\t0.160.0', 'source_artifact_digest\t' + 'a' * 64,
+                'expected_platform\tandroid', 'expected_architecture\taarch64',
+                'patch_policy_id\ttermux-fd-remap-v1', 'runtime_digest\t' + digest('runtime'),
+                'core_artifact_digest\t' + digest('core'),
+                'manager_artifact_digest\t' + digest('manager'),
+                'core_api_identity\tcore-api-v1', 'persistent_schema_identity\tschema-v1',
+                'qualification\tqualified', 'creation_metadata\tr10-browser-helper-bridge-v1',
+                'upstream_doctor\tsupported', 'helper_count\t2',
+                'helper\ttermux-browser-open-v1\t' + digest('helpers/0'),
+                'helper\ttermux-browser-manual-v1\t' + digest('helpers/1'),
+            ]
+            (source / 'generation.meta').write_text('\n'.join(descriptor) + '\n')
+            records = []
+            for relative, mode in EXPECTED_FILES.items():
+                path = source / relative
                 records.append("file\t" + relative + "\t" + hashlib.sha256(path.read_bytes()).hexdigest() + "\t" + mode + "\n")
             manifest = source / "release.manifest"
             manifest.write_text("codex-release-v4\n" + "".join(k + "\t" + v + "\n" for k, v in headers) + "".join(records))
-            (source / "release.sig").write_bytes(b"signed control")
+            (source / "release.sig").write_bytes(b's' * 64)
             (source / "compat").mkdir(); (source / "compat/download-size-v1").write_bytes(b"published sidecar")
             (source / "update-index-v1").write_bytes(b"published channel control")
+            for relative in ('release.manifest', 'release.sig', 'compat/download-size-v1', 'update-index-v1'):
+                (source / relative).chmod(0o644)
             qualification.materialize_signed_generation(source, native)
             expected = set(EXPECTED_FILES) | {"release.manifest", "release.sig"}
             self.assertEqual({str(p.relative_to(native)) for p in native.rglob("*") if p.is_file()}, expected)
@@ -114,7 +135,7 @@ class MaterializationTests(unittest.TestCase):
                 self.assertEqual((native / relative).stat().st_mode, (source / relative).stat().st_mode)
             self.assertFalse((native / "compat").exists())
             manifest.write_text(manifest.read_text().replace("file_count\t7", "file_count\t8") + "file\tcompat/download-size-v1\t" + "0" * 64 + "\t0644\n")
-            with self.assertRaises(ValidationError):
+            with self.assertRaises(PreflightError):
                 qualification.materialize_signed_generation(source, root / "rejected")
             self.assertFalse((root / "rejected").exists())
 

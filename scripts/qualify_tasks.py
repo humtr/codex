@@ -4,6 +4,7 @@ import argparse
 import base64
 import fcntl
 import http.server
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -12,6 +13,7 @@ import select
 import shutil
 import signal
 import socket
+import stat
 import struct
 import sys
 import subprocess
@@ -21,7 +23,9 @@ import threading
 import time
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / ".github/scripts"))
-from release_publication import parse_manifest, raw_public_key
+from release_publication import raw_public_key
+from release_preflight import (R10_METADATA, fail, parse_descriptor,
+                               parse_release_manifest_inventory)
 
 
 class Ws:
@@ -103,10 +107,101 @@ def fixture_activation_state(identity, public_key):
     return f"format=codex-activation-state-v3\nupdate_key={key}\ncurrent={identity}\ncurrent_key={key}\nprevious_present=0\nprevious=\nprevious_key=\n"
 
 
+def local_generation_inventory(root):
+    """Closed local fixture inventory, not public release/signature authority."""
+    root = Path(root)
+    metadata = root.lstat()
+    if (not root.is_absolute() or '..' in root.parts or not stat.S_ISDIR(metadata.st_mode)
+            or metadata.st_uid != os.getuid() or metadata.st_mode & 0o022):
+        fail('fixture generation must be an absolute real directory')
+    if any(not stat.S_ISDIR(parent.lstat().st_mode) for parent in root.parents):
+        fail('fixture generation parent contains an alias or non-directory')
+    # Inspect parents below the selected root before opening any payload. A
+    # directory symlink must not turn a declared helper into an outside read.
+    observed, directories, pending = {}, set(), [root]
+    while pending:
+        parent = pending.pop()
+        for path in parent.iterdir():
+            relative = path.relative_to(root).as_posix()
+            metadata = path.lstat()
+            if metadata.st_uid != os.getuid() or metadata.st_mode & 0o022:
+                fail('fixture generation entry is not owned or has unsafe permissions')
+            if stat.S_ISDIR(metadata.st_mode):
+                directories.add(relative)
+                pending.append(path)
+            elif stat.S_ISREG(metadata.st_mode):
+                observed[relative] = metadata
+            else:
+                fail('fixture generation entry is not a regular file or real directory')
+            if len(observed) + len(directories) > 32:
+                fail('fixture generation inventory exceeds its bound')
+    fields = parse_descriptor(root / 'generation.meta')
+    manifest, records = parse_release_manifest_inventory(root / 'release.manifest')
+    if (manifest['generation_id'] != fields['generation_id']
+            or any(manifest[key] != expected or fields[key] != expected for key, expected in
+                   (('core_api_identity', 'core-api-v1'), ('persistent_schema_identity', 'schema-v1')))):
+        fail('fixture manifest and descriptor identity differ')
+    expected = {'core': '0755', 'runtime': '0755', 'codex-code-mode-host': '0755',
+                'generation.meta': '0644'}
+    bound = {'core': fields['core_artifact_digest'], 'runtime': fields['runtime_digest']}
+    if fields['manager_artifact_digest'] != '-':
+        expected['manager'] = '0755'
+        bound['manager'] = fields['manager_artifact_digest']
+    bridge = fields['creation_metadata'] == R10_METADATA
+    helpers = {'termux-browser-open-v1': 'helpers/0' if bridge else 'browser/open/curl',
+               'termux-browser-manual-v1': 'helpers/1' if bridge else 'browser/manual/curl'}
+    if fields['helper_count'] == '3':
+        helpers['termux-manager-tui-v1:' + fields['upstream_package_version']] = 'helpers/2'
+    elif fields['helper_count'] != '2':
+        fail('fixture helper count is unsupported')
+    if {key for key in fields if key.startswith('helper:')} != {'helper:' + name for name in helpers}:
+        fail('fixture helper identities differ from their declared layout')
+    for identity, relative in helpers.items():
+        expected[relative] = '0755'
+        bound[relative] = fields['helper:' + identity]
+    if [(name, mode) for name, _, mode in records] != sorted(expected.items()):
+        fail('fixture manifest inventory differs from its declared local layout')
+    controls = {'release.manifest', 'release.sig'}
+    if 'release-authority.sig' in observed:
+        controls.add('release-authority.sig')
+    # Published acquisition controls are not installed payload. They may sit
+    # beside it, but can never add a path to the signed fixture inventory.
+    sidecars = {'update-index-v1', 'update-index-v1.sig',
+                'compat/download-size-v1', 'compat/download-size-v1.sig'} & observed.keys()
+    names = set(expected) | controls | sidecars
+    expected_directories = {str(parent) for name in names for parent in Path(name).parents
+                            if parent != Path('.')}
+    if set(observed) != names or directories != expected_directories:
+        fail('fixture generation has missing or additional entries')
+    for name in controls:
+        metadata = observed[name]
+        if stat.S_IMODE(metadata.st_mode) != 0o644 or (name.endswith('.sig') and metadata.st_size != 64):
+            fail('fixture generation control file mode or size is invalid')
+    if any(stat.S_IMODE(observed[name].st_mode) != 0o644
+           or observed[name].st_size > 128 * 1024 for name in sidecars):
+        fail('fixture publication sidecar mode or size is invalid')
+    for name, digest, mode in records:
+        metadata = observed[name]
+        if stat.S_IMODE(metadata.st_mode) != int(mode, 8) or metadata.st_size > 512 * 1024 * 1024:
+            fail('fixture payload mode or size is invalid')
+        fd = os.open(root / name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        with os.fdopen(fd, 'rb') as stream:
+            opened = os.fstat(stream.fileno())
+            if (not stat.S_ISREG(opened.st_mode)
+                    or (opened.st_dev, opened.st_ino, opened.st_size) !=
+                    (metadata.st_dev, metadata.st_ino, metadata.st_size)
+                    or hashlib.file_digest(stream, 'sha256').hexdigest() != digest):
+                fail('fixture payload digest or identity changed')
+        if name in bound and bound[name] != digest:
+            fail('fixture descriptor and manifest payload digests differ')
+    return fields, records
+
+
 def materialize_signed_generation(generation, native):
     # Download-size/index controls are published beside the generation, not
-    # installed payload. Reuse the strict signed inventory parser.
-    _, inventory = parse_manifest(generation / "release.manifest")
+    # installed payload. Local fixtures also admit the canonical nested layout;
+    # this does not change public publication's retained R10 inventory.
+    _, inventory = local_generation_inventory(generation)
     for relative in [rel for rel, _, _ in inventory] + ["release.manifest", "release.sig"]:
         target = native / relative
         target.parent.mkdir(parents=True, exist_ok=True)
