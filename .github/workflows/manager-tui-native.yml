@@ -351,7 +351,7 @@ jobs:
           # Reuse upstream test runner, profile and stack settings from its justfile.
           mkdir -p "$RUNNER_TEMP/native-interface-sockets"
           exec 35<"$RUNNER_TEMP/native-interface-sockets"
-          for scope in model_provider compact guardian; do
+          for scope in model_provider compact guardian native_execution; do
             just test --retries 0 --locked --target aarch64-unknown-linux-musl -p codex-core --lib -E "test($scope)" 2>&1 | tee "$RUNNER_TEMP/native-provider-core-$scope.log"
           done
           just test --retries 0 --locked --target aarch64-unknown-linux-musl -p codex-app-server-client --lib 2>&1 | tee "$RUNNER_TEMP/native-provider-client.log"
