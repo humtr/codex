@@ -221,7 +221,7 @@ jobs:
             exit 1
           fi
 
-      - name: Acquire successful qualified Manager TUI input
+      - name: Acquire successful qualified Codex TUI input
         if: steps.decision.outputs.candidate == 'true' && !inputs.base_only && inputs.release_variant == 'full'
         shell: bash
         env:

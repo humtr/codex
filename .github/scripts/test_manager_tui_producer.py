@@ -60,7 +60,7 @@ class NativeProducerTests(unittest.TestCase):
                        'MANAGER_TUI_INPUT_URL': 'https://example.invalid/qualified', 'MANAGER_TUI_INPUT_SHA256': archive_digest,
                        'MANAGER_TUI_RUN_ID': '123', 'MANAGER_TUI_SOURCE_SHA': sha, 'MANAGER_TUI_VERSION': fixtures.qualifier.VERSION,
                        'MANAGER_TUI_SHA256': digest, 'PYTHONDONTWRITEBYTECODE': '1'}
-                result = subprocess.run(['bash', '-c', step('Acquire successful qualified Manager TUI input')], cwd=root, env=env, text=True, capture_output=True, timeout=20)
+                result = subprocess.run(['bash', '-c', step('Acquire successful qualified Codex TUI input')], cwd=root, env=env, text=True, capture_output=True, timeout=20)
                 self.assertEqual(result.returncode == 0, fault is None, result.stderr)
                 if fault == 'archive': self.assertFalse((root / 'manager-tui-input/artifact').exists())
                 if fault is None: self.assertIn(digest, result.stdout)

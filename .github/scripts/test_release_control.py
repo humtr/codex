@@ -329,7 +329,8 @@ class ReleaseControlTests(unittest.TestCase):
                'head_branch': control.SOURCE_BRANCH, 'event': 'workflow_dispatch',
                'repository': {'full_name': control.REPO}, 'status': 'completed',
                'conclusion': 'success', 'display_title': 'Manager TUI native qualification'}
-        self.assertTrue(control.accepted_run(run, 'manager-tui-native.yml', sha))
+        for title in ['Codex TUI native qualification', 'Manager TUI native qualification']:
+            self.assertTrue(control.accepted_run({**run, 'display_title': title}, 'manager-tui-native.yml', sha))
         for title in [None, 'Focused Native native-api', 'Focused Native frontend-compatibility']:
             partial = {**run, 'display_title': title}
             self.assertFalse(control.accepted_run(partial, 'manager-tui-native.yml', sha))
