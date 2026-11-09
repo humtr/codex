@@ -1,9 +1,51 @@
+import concurrent.futures
+import json
+import threading
+from types import SimpleNamespace
 import unittest
 
-from qualify_provider_result_recovery import completed_command, executable_item, startup_settled
+from qualify_provider_result_recovery import completed_command, executable_item, fault_observed, native_request_identity, startup_settled
 
 
 class ResultFaultBoundary(unittest.TestCase):
+    def test_fault_matches_actual_native_body_identity_and_thread_header(self):
+        metadata = {'thread_id': 'original-thread', 'turn_id': 'original-turn'}
+        body = json.dumps({'client_metadata': {**metadata, 'x-codex-turn-metadata': json.dumps(metadata)}}).encode()
+        expected = {'thread': 'original-thread', 'turn': 'original-turn'}
+        self.assertEqual(native_request_identity(body, {'thread-id': 'original-thread', 'session-id': 'cache-affinity'}), expected)
+        self.assertEqual(native_request_identity(body, {}), expected)
+        for name in ('thread-id', 'x-codex-thread-id'):
+            with self.assertRaisesRegex(AssertionError, 'conflicting Native thread'):
+                native_request_identity(body, {name: 'other-thread'})
+        changed = json.loads(body)
+        changed['client_metadata']['thread_id'] = 'other-thread'
+        with self.assertRaisesRegex(AssertionError, 'conflicting Native request'):
+            native_request_identity(json.dumps(changed).encode(), {})
+        with self.assertRaises(AssertionError):
+            native_request_identity(b'{}', {'thread-id': 'original-thread'})
+
+    def test_early_original_reply_is_observed_without_reexecution_or_timeout(self):
+        proxy = SimpleNamespace(fired=threading.Event(), records=[])
+        pending = concurrent.futures.Future()
+        self.assertFalse(fault_observed(proxy, pending))
+        for result in ({'result': {'error': 'native_resource_busy', 'executed': False}},
+                       {'result': {'type': 'function_call_output', 'output': 'original output'}}):
+            returned = concurrent.futures.Future()
+            returned.set_result(result)
+            with self.assertRaisesRegex(AssertionError, 'returned before response fault'):
+                fault_observed(proxy, returned)
+            self.assertIs(returned.result(), result)
+        failed = concurrent.futures.Future()
+        original_error = RuntimeError('original request failure')
+        failed.set_exception(original_error)
+        with self.assertRaises(RuntimeError) as observed:
+            fault_observed(proxy, failed)
+        self.assertIs(observed.exception, original_error)
+        proxy.records.append({'cut': {'monotonic_ns': 1}})
+        self.assertFalse(fault_observed(proxy, returned), 'shutdown may precede Event publication')
+        proxy.fired.set()
+        self.assertTrue(fault_observed(proxy, returned))
+
     def test_only_complete_executable_item_arms_the_fault(self):
         tool = {'type': 'function_call', 'id': 'presentation', 'call_id': 'actual-call'}
         self.assertEqual(executable_item({'type': 'response.output_item.done', 'item': tool}), 'actual-call')

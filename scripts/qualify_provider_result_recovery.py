@@ -23,6 +23,7 @@ import threading
 import time
 
 from qualify_provider_native_compiler import Client, payload, process, save, sha, stamp, termux_path
+from qualify_provider_live_tui import request_identity
 from qualify_provider_operator import fixture_auth
 from qualify_provider_native_trial import stop_owned_pid
 from qualify_tasks import Ws
@@ -50,6 +51,30 @@ def completed_command(thread, identity):
         return None
     assert item['status'] == 'completed' and item['exitCode'] == 0, 'original command failed'
     return item
+
+
+def native_request_identity(body, headers):
+    # Use the same actual Native metadata contract as the live TUI proof.
+    # session-id is cache/session affinity, not the requested thread identity.
+    identity = request_identity(json.loads(body))
+    for name in ('thread-id', 'x-codex-thread-id'):
+        if headers.get(name) is not None:
+            assert headers[name] == identity['thread'], 'conflicting Native thread header'
+    return identity
+
+
+def fault_observed(proxy, original_reply):
+    if proxy.fired.is_set():
+        return True
+    # A terminal execute reply before the cut means this request did not enter
+    # the fault window. Keep its original RPC receipt; do not resubmit it or
+    # disguise a pre-effect rejection as a command-completion timeout.
+    # cut is recorded before shutdown, so a fast recovery cannot race the
+    # Python Event publication and become a false early-result failure.
+    if original_reply.done() and not any(row.get('cut') for row in proxy.records):
+        original_reply.result()
+        raise AssertionError('original execute returned before response fault; inspect its original RPC receipt')
+    return False
 
 
 def startup_settled(value, work):
@@ -120,12 +145,14 @@ class CutProxy:
                 body = self.rfile.read(length)
                 assert len(body) == length
                 row = {'method': self.command, 'path': self.path,
-                       'thread': self.headers.get('session_id') or self.headers.get('x-codex-thread-id'),
+                       'thread': None, 'turn': None,
                        'body_sha256': hashlib.sha256(body).hexdigest(), 'events': [], **stamp()}
                 owner.records.append(row)
                 upstream = http.client.HTTPConnection('127.0.0.1', owner.port, timeout=90)
                 observed = True
                 try:
+                    if self.command == 'POST':
+                        row.update(native_request_identity(body, self.headers))
                     headers = {key: value for key, value in self.headers.items()
                                if key.lower() not in ('host', 'connection', 'transfer-encoding')}
                     upstream.request(self.command, self.path, body=body, headers=headers)
@@ -309,7 +336,7 @@ def probe(args):
                 'report': 'Owned Native result delivery probe ' + identity})
 
         original_reply = calls.submit(execute, original, 'original-once', command)
-        wait(proxy.fired.is_set, 'response fault did not reach actual Native command completion')
+        wait(lambda: fault_observed(proxy, original_reply), 'response fault did not reach actual Native command completion')
         wait(proxy.settled.is_set, 'original response producer did not settle')
         failed = wait(lambda: (value if (value := native(original))['turns'][-1]['status'] in ('failed', 'interrupted') else None), 'Native did not settle its disconnected turn')
         save(root / 'native-after-cut.json', failed)
