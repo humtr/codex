@@ -6,9 +6,19 @@ use codex_chatgpt_provider::{
     protocol::Request,
 };
 use serde_json::{json, Value};
-use std::{path::PathBuf, sync::Arc};
+use std::{
+    future::Future,
+    path::PathBuf,
+    pin::Pin,
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    },
+    task::{Context, Poll},
+};
 use tokio::{
-    io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
+    io::{AsyncBufReadExt, AsyncWrite, AsyncWriteExt, BufReader, DuplexStream},
+    sync::{mpsc, oneshot},
     time::{timeout, Duration},
 };
 struct Root(PathBuf);
@@ -32,6 +42,175 @@ async fn send(input: &mut tokio::io::DuplexStream, row: Value) {
         .write_all(format!("{row}\n").as_bytes())
         .await
         .unwrap();
+}
+
+/// Bytes are visible to the peer before the transport's flush completes.
+/// This is permitted by AsyncWrite and occurs with buffered stdio adapters.
+struct HeldFlush {
+    inner: DuplexStream,
+    release: Option<oneshot::Receiver<()>>,
+}
+impl AsyncWrite for HeldFlush {
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        bytes: &[u8],
+    ) -> Poll<std::io::Result<usize>> {
+        Pin::new(&mut self.inner).poll_write(cx, bytes)
+    }
+    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        if let Some(release) = &mut self.release {
+            if Pin::new(release).poll(cx).is_pending() {
+                return Poll::Pending;
+            }
+            self.release = None;
+        }
+        Pin::new(&mut self.inner).poll_flush(cx)
+    }
+    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        Pin::new(&mut self.inner).poll_shutdown(cx)
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn visible_reply_releases_its_rpc_id_before_the_peer_can_reuse_it() {
+    let (mut input, reader) = tokio::io::duplex(65536);
+    let (writer, output) = tokio::io::duplex(65536);
+    let (release, held) = oneshot::channel();
+    let calls = Arc::new(AtomicUsize::new(0));
+    let dispatched = calls.clone();
+    let stdio = tokio::spawn(codex_chatgpt_provider::mcp_stdio::run(
+        reader,
+        HeldFlush {
+            inner: writer,
+            release: Some(held),
+        },
+        move |row| {
+            let sequence = dispatched.fetch_add(1, Ordering::SeqCst) + 1;
+            async move {
+                Ok(Some(
+                    json!({"jsonrpc":"2.0","id":row["id"],"result":{"sequence":sequence}}),
+                ))
+            }
+        },
+    ));
+    let mut output = BufReader::new(output).lines();
+    let request = json!({"jsonrpc":"2.0","id":7,"method":"ping"});
+    send(&mut input, request.clone()).await;
+    assert_eq!(receive(&mut output).await["result"]["sequence"], 1);
+    // The peer has received the complete first response, while the writer
+    // remains in flush. The second ID is a new request, not an in-flight dup.
+    send(&mut input, request).await;
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    release.send(()).unwrap();
+    let second = receive(&mut output).await;
+    assert_eq!(second["result"]["sequence"], 2, "{second}");
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
+    drop(input);
+    timeout(Duration::from_secs(3), stdio)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn stdio_preserves_inflight_guard_metadata_cancellation_and_unknown_no_replay() {
+    struct Detached(Option<oneshot::Sender<()>>);
+    impl Drop for Detached {
+        fn drop(&mut self) {
+            if let Some(sender) = self.0.take() {
+                let _ = sender.send(());
+            }
+        }
+    }
+    let (mut input, reader) = tokio::io::duplex(65536);
+    let (writer, output) = tokio::io::duplex(65536);
+    let (started, mut observed) = mpsc::unbounded_channel();
+    let calls = Arc::new(AtomicUsize::new(0));
+    let dispatched = calls.clone();
+    let stdio = tokio::spawn(codex_chatgpt_provider::mcp_stdio::run(
+        reader,
+        writer,
+        move |row| {
+            let started = started.clone();
+            let dispatched = dispatched.clone();
+            async move {
+                dispatched.fetch_add(1, Ordering::SeqCst);
+                match row["method"].as_str().unwrap() {
+                    "wait" => {
+                        let (detached, receiver) = oneshot::channel();
+                        let _observer = Detached(Some(detached));
+                        started.send((row["id"].clone(), receiver)).unwrap();
+                        std::future::pending().await
+                    }
+                    "unknown" => Err(codex_chatgpt_provider::protocol::Error(
+                        "mcp_delivery_unknown",
+                    )),
+                    _ => Ok(Some(json!({"jsonrpc":"2.0","id":row["id"],"result":{}}))),
+                }
+            }
+        },
+    ));
+    let mut output = BufReader::new(output).lines();
+    let wait = json!({"jsonrpc":"2.0","id":1,"method":"wait"});
+    send(&mut input, wait.clone()).await;
+    let (id, cancelled_observer) = timeout(Duration::from_secs(3), observed.recv())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(id, 1);
+    send(&mut input, wait).await;
+    assert_eq!(
+        receive(&mut output).await["error"]["message"],
+        "mcp_rpc_id_in_flight"
+    );
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    send(&mut input, json!({"jsonrpc":"2.0","id":2,"method":"ping"})).await;
+    assert_eq!(
+        receive(&mut output).await["id"],
+        2,
+        "metadata remains independent of a waiting request"
+    );
+    send(
+        &mut input,
+        json!({"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":1}}),
+    )
+    .await;
+    timeout(Duration::from_secs(3), cancelled_observer)
+        .await
+        .unwrap()
+        .unwrap();
+    send(
+        &mut input,
+        json!({"jsonrpc":"2.0","id":3,"method":"unknown"}),
+    )
+    .await;
+    assert_eq!(
+        receive(&mut output).await["error"]["message"],
+        "mcp_delivery_unknown"
+    );
+    send(&mut input, json!({"jsonrpc":"2.0","id":4,"method":"wait"})).await;
+    let (id, eof_observer) = timeout(Duration::from_secs(3), observed.recv())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(id, 4);
+    drop(input);
+    timeout(Duration::from_secs(3), stdio)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    timeout(Duration::from_secs(3), eof_observer)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        4,
+        "unknown delivery and observer loss never replay dispatch"
+    );
 }
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn stdio_multiplexes_metadata_while_a_native_call_waits_and_detaches_without_replay() {

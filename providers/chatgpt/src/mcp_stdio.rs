@@ -8,7 +8,6 @@ use tokio::{
         AsyncBufRead, AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt,
         BufReader,
     },
-    sync::Mutex,
     task::JoinSet,
 };
 use tokio_util::sync::CancellationToken;
@@ -97,8 +96,7 @@ pub async fn forward(port: u16, row: &Value, token: Option<&str>) -> Result<Opti
     }
     Ok(Some(reply))
 }
-async fn send(output: &Arc<Mutex<impl AsyncWrite + Unpin>>, row: Value) -> Result<(), Error> {
-    let mut output = output.lock().await;
+async fn send(output: &mut (impl AsyncWrite + Unpin), row: Value) -> Result<(), Error> {
     output
         .write_all(format!("{row}\n").as_bytes())
         .await
@@ -110,7 +108,7 @@ fn failure(id: Value, code: i32, message: &str) -> Value {
 }
 pub async fn run<F, Fut>(
     input: impl AsyncRead + Unpin,
-    output: impl AsyncWrite + Unpin + Send + 'static,
+    mut output: impl AsyncWrite + Unpin + Send + 'static,
     dispatch: F,
 ) -> Result<(), Error>
 where
@@ -119,13 +117,27 @@ where
 {
     let mut input = BufReader::new(input);
     let mut framing = Framing::default();
-    let output = Arc::new(Mutex::new(output));
     let dispatch = Arc::new(dispatch);
     let mut active = BTreeMap::<String, CancellationToken>::new();
     let mut tasks = JoinSet::new();
     loop {
         let next = tokio::select! {
-            done=tasks.join_next(),if !tasks.is_empty()=>{match done{Some(Ok((key,result)))=>{active.remove(&key);result?;},Some(Err(_))=>return Err(Error("mcp_forward_failed")),None=>()}continue;},
+            done = tasks.join_next(), if !tasks.is_empty() => {
+                match done {
+                    Some(Ok((key, reply))) => {
+                        // The same owner retires the ID and publishes its
+                        // response. A peer can see write bytes before flush
+                        // returns; no input is admitted in that interval.
+                        active.remove(&key);
+                        if let Some(reply) = reply {
+                            send(&mut output, reply).await?;
+                        }
+                    }
+                    Some(Err(_)) => return Err(Error("mcp_forward_failed")),
+                    None => (),
+                }
+                continue;
+            },
             row=line(&mut input,&mut framing)=>row,
         };
         let bytes = match next {
@@ -133,7 +145,7 @@ where
             Ok(None) => break,
             Err(Error("mcp_request_too_large")) => {
                 send(
-                    &output,
+                    &mut output,
                     failure(Value::Null, -32600, "mcp_request_too_large"),
                 )
                 .await?;
@@ -144,12 +156,20 @@ where
         let row: Value = match serde_json::from_slice(&bytes) {
             Ok(v) => v,
             Err(_) => {
-                send(&output, failure(Value::Null, -32700, "mcp_json_invalid")).await?;
+                send(
+                    &mut output,
+                    failure(Value::Null, -32700, "mcp_json_invalid"),
+                )
+                .await?;
                 continue;
             }
         };
         if row["jsonrpc"] != "2.0" || !row["method"].is_string() {
-            send(&output, failure(Value::Null, -32600, "mcp_request_invalid")).await?;
+            send(
+                &mut output,
+                failure(Value::Null, -32600, "mcp_request_invalid"),
+            )
+            .await?;
             continue;
         }
         if row["method"] == "notifications/cancelled" {
@@ -163,7 +183,11 @@ where
             .as_ref()
             .is_some_and(|v| !v.is_string() && !v.is_number())
         {
-            send(&output, failure(Value::Null, -32600, "mcp_request_invalid")).await?;
+            send(
+                &mut output,
+                failure(Value::Null, -32600, "mcp_request_invalid"),
+            )
+            .await?;
             continue;
         }
         if id.is_none() {
@@ -172,30 +196,39 @@ where
         let key = id.as_ref().unwrap().to_string();
         if active.contains_key(&key) {
             send(
-                &output,
+                &mut output,
                 failure(id.unwrap(), -32600, "mcp_rpc_id_in_flight"),
             )
             .await?;
             continue;
         }
         if active.len() >= 64 {
-            send(&output, failure(id.unwrap(), -32000, "mcp_observer_limit")).await?;
+            send(
+                &mut output,
+                failure(id.unwrap(), -32000, "mcp_observer_limit"),
+            )
+            .await?;
             continue;
         }
         let cancel = CancellationToken::new();
         active.insert(key.clone(), cancel.clone());
-        let output = output.clone();
         let dispatch = dispatch.clone();
         tasks.spawn(async move {
             let id = row["id"].clone();
-            let result=tokio::select!{
-                _=cancel.cancelled()=>Ok(()),
-                reply=tokio::time::timeout(Duration::from_secs(610),dispatch(row))=>match reply {
-                    Ok(Ok(Some(value)))=>send(&output,value).await,
-                    Ok(Ok(None))=>Ok(()),
-                    other=>{let error=match other{Ok(Err(error))=>error, _=>Error("mcp_observer_timeout")};send(&output,failure(id,-32000,error.0)).await},
+            let reply = tokio::select! {
+                _ = cancel.cancelled() => None,
+                reply = tokio::time::timeout(Duration::from_secs(610), dispatch(row)) => match reply {
+                    Ok(Ok(reply)) => reply,
+                    other => {
+                        let error = match other {
+                            Ok(Err(error)) => error,
+                            _ => Error("mcp_observer_timeout"),
+                        };
+                        Some(failure(id, -32000, error.0))
+                    }
                 },
-            };(key,result)
+            };
+            (key, reply)
         });
     }
     // EOF/cancellation detaches HTTP observers; it never stops or reissues a
