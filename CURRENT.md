@@ -6,6 +6,51 @@ distinguishes source implementation, automated proof, actual Android execution,
 connected-client proof, public signed delivery and device activation. None
 substitutes for the next boundary.
 
+## Continuation checkpoint (2026-11-10 KST)
+
+The existing integrated Native work was recovered through a confirmed, scoped
+Stop (Native confirmed, remaining jobs empty), then claim/start/attach on its
+**original thread** `01a1c107-f60e-7293-87de-5941cd82d6eb`. Previously executed
+tools and real model requests were not submitted again. The Termux integration
+worktree was clean at `ef2d229` and fast-forwarded to verified remote
+`6b673c0d5769e5c3f70407c46822b498a2ed82dc` without touching other worktrees.
+
+Actual Termux's complete Python gate initially reported three runtime transfer
+failures: hosted workflow snippets used Ubuntu's `/usr/bin/openssl` rather than
+the device's installed OpenSSL. The original failures are preserved; the
+test-only correction verifies all required pinned OpenSSL calls, substitutes
+the real executable only in test execution, and retains normal and malformed
+artifact rejection. The corrected complete Python groups **26, 157 and 15**
+all passed. The live-TUI acceptance harness's 25 focused tests and the actual
+strict-lint workflow regression also passed. Functional source files and the
+production runtime verifier were unchanged. The exact reviewed fix was pushed
+non-forced as `3a8f4f5bd46c258487bd42aaa6db86ba3c59d0be`.
+
+Source Acceptance run
+[42719773423](https://github.com/humtr/codex/actions/runs/42719773423)
+**passed** on the production-input commit `6b673c0d`. Exact-source Source
+Acceptance run
+[42721779537](https://github.com/humtr/codex/actions/runs/42721779537)
+also **passed** for `3a8f4f5` (2026-11-09 23:41:58 UTC); full TUI qualification
+[42719768842](https://github.com/humtr/codex/actions/runs/42719768842)
+was dispatched for the same maintained TUI production inputs at `6b673c0d`.
+At this checkpoint the TUI run has not produced a final success receipt;
+the earlier `3c043bd` TUI binary cannot qualify the newer implementation.
+
+Result-recovery fixture attempts 29, 30 and 31 **failed before the intended fault
+boundary** and are not acceptance passes. Independent actual Native comparison
+32 passed the same execution-completion/callback-loss boundary before and after
+the fix; it submitted no GPT model request. Installed `/provider` selection,
+actual GPT-6 two-turn continuation, injected live stream loss, HTTP 413 and
+independent work on the final installed composition remain **unaccepted**.
+
+Current free Termux-internal filesystem space is about 17 GiB. The authorized
+Core `config/build-signing-key` reference is not configured in this device;
+do not assume public signer access or replace signed operating generations.
+No operational Full159/rollback153, Provider selection, profile, service,
+unrelated Native work or Android sdcard was changed by this continuation.
+The original Native work's scoped Stop and same-thread reentry are recorded above.
+
 ## Integration status and operating baseline
 
 **Checkpoint: 2026-11-09 22:25 UTC / 2026-11-10 07:25 KST.** Work remains on
