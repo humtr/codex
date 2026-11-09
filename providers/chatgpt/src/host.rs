@@ -1,6 +1,7 @@
 //! Provider-owned official-app process and private pipe, with no Bun/Python host.
 //! PRoot is compatibility, not a filesystem sandbox or a native tool executor.
 use crate::{
+    auth_browser::AuthBrowser,
     cdp::Client,
     config::HostConfig,
     journal::{private_directory, random_id},
@@ -131,13 +132,56 @@ impl Display {
     }
 }
 
+// A one-shot adjustment, owned by the same AppHost, not a second desktop
+// lifecycle. The app can create its first window after its CDP pipe is ready.
+struct WindowAdjuster(tokio::task::JoinHandle<()>);
+impl Drop for WindowAdjuster {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
+}
+
 pub struct OwnedHost {
     pub client: Client,
     app: ChildGroup,
+    panel: ChildGroup,
+    window_manager: ChildGroup,
+    window_adjuster: Option<WindowAdjuster>,
+    browser: AuthBrowser,
     display: Display,
     _lease: File,
     _temporary: Temporary,
 }
+
+// Keep the same mobile work area and 42px bottom taskbar as the established
+// Linux viewer. No launcher points at another account's desktop or profile.
+const MOBILE_PANEL_CONFIG: &str = "\
+rounded = 0
+border_width = 0
+background_color = #20252c 100
+panel_items = TC
+panel_size = 100% 42
+panel_position = bottom center horizontal
+panel_padding = 6 4 6
+panel_background_id = 1
+panel_layer = top
+panel_dock = 0
+strut_policy = follow_size
+autohide = 0
+taskbar_mode = single_desktop
+taskbar_padding = 4 0 4
+task_text = 1
+task_icon = 0
+task_font = sans 11
+task_font_color = #ffffff 100
+task_active_font_color = #ffffff 100
+task_maximum_size = 250 34
+mouse_left = toggle_iconify
+time1_format = %H:%M
+time1_font = sans 11
+clock_font_color = #ffffff 100
+clock_padding = 8 0
+";
 fn plain_directory(path: &Path) -> Result<(), Error> {
     let meta = fs::symlink_metadata(path).map_err(|_| Error("host_directory_unavailable"))?;
     if !meta.is_dir() || meta.uid() != unsafe { libc::geteuid() } {
@@ -206,6 +250,8 @@ impl OwnedHost {
         for name in ["tmp", "shm", "links"] {
             private_directory(&path.join(name))?;
         }
+        // This account's app alone owns its Android OAuth browser relay.
+        let browser = AuthBrowser::start(&home, path, &prefix)?;
         let socket_root = prefix.join("tmp/.X11-unix");
         let display = (100..2000_u16)
             .find(|id| {
@@ -225,7 +271,8 @@ impl OwnedHost {
             .args([
                 format!(":{display}"),
                 "-geometry".into(),
-                "1024x768".into(),
+                // Match the existing mobile Linux viewer on a phone-sized display.
+                "480x785".into(),
                 "-depth".into(),
                 "24".into(),
                 "-nolisten".into(),
@@ -264,6 +311,34 @@ impl OwnedHost {
             child: display_child,
             _artifacts: artifacts,
         };
+        let display_name = format!(":{display}");
+        let desktop_command = |command: &mut Command| {
+            command
+                .env_clear()
+                .env("HOME", &home)
+                .env("PATH", prefix.join("bin"))
+                .env("PREFIX", &prefix)
+                .env("DISPLAY", &display_name)
+                .env("XAUTHORITY", &auth)
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null());
+        };
+        let mut manager = Command::new(prefix.join("bin/openbox"));
+        desktop_command(&mut manager);
+        let window_manager = ChildGroup::spawn(&mut manager)?;
+        let panel_path = path.join("tint2rc");
+        File::options()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&panel_path)
+            .and_then(|mut file| file.write_all(MOBILE_PANEL_CONFIG.as_bytes()))
+            .map_err(|_| Error("host_panel_unavailable"))?;
+        let mut taskbar = Command::new(prefix.join("bin/tint2"));
+        desktop_command(&mut taskbar);
+        taskbar.arg("-c").arg(panel_path);
+        let panel = ChildGroup::spawn(&mut taskbar)?;
         let (parent, child) = UnixStream::pair().map_err(|_| Error("host_pipe_unavailable"))?;
         parent
             .set_nonblocking(true)
@@ -302,11 +377,13 @@ impl OwnedHost {
             .arg(format!("--bind={}:/dev/shm", path.join("shm").display()))
             .arg(format!("--bind={}:/tmp/.X11-unix", socket_root.display()))
             .arg(format!("--bind={}:/root/.Xauthority", auth.display()))
+            .arg(format!("--bind={}:/ui", path.display()))
             .args([
                 "/usr/bin/env",
                 "-i",
                 "HOME=/root",
-                "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+                "PATH=/ui/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+                "BROWSER=/ui/bin/xdg-open",
                 "LANG=C.UTF-8",
                 "XAUTHORITY=/root/.Xauthority",
             ])
@@ -345,6 +422,10 @@ impl OwnedHost {
         let mut owned = Self {
             client,
             app,
+            panel,
+            window_manager,
+            window_adjuster: None,
+            browser,
             display: display_guard,
             _lease: lease,
             _temporary: temporary,
@@ -358,15 +439,43 @@ impl OwnedHost {
             owned.shutdown().await;
             return Err(Error("official_app_start_failed"));
         }
+        // Xvnc's geometry alone does not resize Electron's first window.
+        // Do not make the host startup depend on when that UI window appears.
+        owned.window_adjuster = Some(WindowAdjuster(tokio::spawn(async move {
+            let until = tokio::time::Instant::now() + Duration::from_secs(45);
+            loop {
+                let result = Command::new(prefix.join("bin/wmctrl"))
+                    .env_clear()
+                    .env("PATH", prefix.join("bin"))
+                    .env("DISPLAY", &display_name)
+                    .env("XAUTHORITY", &auth)
+                    .args(["-r", "ChatGPT", "-b", "add,maximized_vert,maximized_horz"])
+                    .stdin(Stdio::null())
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .status()
+                    .await;
+                if result.is_ok_and(|status| status.success())
+                    || tokio::time::Instant::now() >= until
+                {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(200)).await;
+            }
+        })));
         Ok(owned)
     }
     pub async fn shutdown(&mut self) {
+        self.window_adjuster.take();
         let _ = tokio::time::timeout(
             Duration::from_secs(3),
             self.client.request("Browser.close", json!({}), None),
         )
         .await;
         self.app.stop().await;
+        self.browser.stop();
+        self.panel.stop().await;
+        self.window_manager.stop().await;
         self.display.stop().await;
     }
     pub fn viewer_socket(&self) -> PathBuf {

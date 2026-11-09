@@ -4,6 +4,7 @@ pub mod presentation;
 
 pub const PROVIDER_NAME: &str = "chatgpt-desktop";
 pub mod app;
+mod auth_browser;
 mod bound_chat;
 pub mod cdp;
 mod chat_input;

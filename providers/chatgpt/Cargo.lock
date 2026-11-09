@@ -108,6 +108,7 @@ dependencies = [
  "futures-util",
  "hmac",
  "libc",
+ "percent-encoding",
  "serde",
  "serde_json",
  "sha2",
