@@ -918,6 +918,8 @@ args=["token","--state","/owned/state"]
         while events.try_recv().is_ok() {}
         while ops.try_recv().is_ok() {}
         requests.lock().unwrap().clear();
+        let original_provider = app.chat_widget.config_ref().model_provider_id.clone();
+        let original_app_provider = app.config.model_provider_id.clone();
         assert!(
             prepare(
                 &mut app,
@@ -929,7 +931,11 @@ args=["token","--state","/owned/state"]
             .is_none()
         );
         assert_eq!(app.chat_widget.thread_id(), Some(thread));
-        assert_eq!(app.chat_widget.config_ref().model_provider_id, "openai");
+        assert_eq!(
+            app.chat_widget.config_ref().model_provider_id,
+            original_provider
+        );
+        assert_eq!(app.config.model_provider_id, original_app_provider);
         assert!(requests.lock().unwrap().is_empty());
         assert!(ops.try_recv().is_err());
         let mut notices = String::new();
