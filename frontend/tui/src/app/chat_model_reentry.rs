@@ -387,7 +387,12 @@ pub(super) async fn prepare(
             .add_error_message("Selected model/provider is unavailable.".into());
         return None;
     }
-    let request = reentry_request(config, thread, &model, &effort, false)?;
+    let Some(request) = reentry_request(config, thread, &model, &effort, false) else {
+        app.chat_widget.add_error_message(
+            "Model provider unchanged: the installed Core and selected Provider route could not be prepared.".into(),
+        );
+        return None;
+    };
     if !matches!(
         tokio::time::timeout(
             Duration::from_secs(3),
@@ -426,12 +431,20 @@ pub(super) async fn prepare(
     if empty {
         // No history needs encoding, including when leaving a never-used Chat
         // route. Confirm the source did not acquire a turn while preparing.
-        let confirmed = tokio::time::timeout(
+        let confirmed = match tokio::time::timeout(
             Duration::from_secs(10),
             public_snapshot(server, app.chat_widget.config_ref(), thread),
         )
         .await
-        .ok()??;
+        {
+            Ok(Some(snapshot)) => snapshot,
+            _ => {
+                app.chat_widget.add_error_message(
+                    "Model provider unchanged: the conversation could not be rechecked after context preparation.".into(),
+                );
+                return None;
+            }
+        };
         if confirmed["status"]["type"] != "idle" || confirmed["turns"] != snapshot["turns"] {
             app.chat_widget.add_error_message(
                 "Model provider unchanged: the conversation changed during context preparation."
@@ -458,8 +471,14 @@ pub(super) async fn prepare(
         )
         .await
         {
-            Ok(Ok(snapshot)) => serde_json::to_value(snapshot).ok()?,
-            _ => return None,
+            Ok(Ok(snapshot)) => serde_json::to_value(snapshot).ok(),
+            _ => None,
+        };
+        let Some(confirmed) = confirmed else {
+            app.chat_widget.add_error_message(
+                "Model provider unchanged: the conversation could not be rechecked after context preparation.".into(),
+            );
+            return None;
         };
         if confirmed["status"]["type"] != "idle" || confirmed["turns"] != snapshot["turns"] {
             app.chat_widget.add_error_message(
@@ -805,6 +824,89 @@ args=["token","--state","/owned/state"]
             |(k, v)| k == "CODEX_CHAT_RETURN_PROFILE" && v == Some(std::ffi::OsStr::new("api"))
         ));
     }
+
+    #[tokio::test]
+    async fn termux_chat_models_unavailable_core_reports_failure_without_changing_thread() {
+        use std::os::unix::fs::PermissionsExt;
+        assert_eq!(std::env::var_os("CODEX_PROFILE_CORE"), Some("".into()));
+        let (mut app, mut events, mut ops) =
+            super::super::tests::make_test_app_with_channels().await;
+        let (mut server, requests, proxy) =
+            super::super::tests::session_lifecycle_requests::start_recording_app_server(
+                &app.config,
+                None,
+                None,
+            )
+            .await
+            .unwrap();
+        let thread = ThreadId::new();
+        let cwd = app.config.cwd.to_path_buf();
+        app.chat_widget
+            .handle_thread_session(super::super::tests::test_thread_session(thread, cwd.clone()));
+        app.app_server_target = crate::AppServerTarget::LocalDaemon {
+            allow_embedded_fallback: false,
+            endpoint: crate::RemoteAppServerEndpoint::UnixSocket {
+                socket_path: codex_utils_absolute_path::AbsolutePathBuf::try_from(
+                    cwd.join("owned-profile.sock"),
+                )
+                .unwrap(),
+            },
+        };
+        let catalog = app.config.codex_home.join("chat-models.json");
+        std::fs::write(
+            &catalog,
+            include_bytes!("../fixtures/chat-model-catalog.json"),
+        )
+        .unwrap();
+        std::fs::set_permissions(&catalog, std::fs::Permissions::from_mode(0o600)).unwrap();
+        let profile = app.config.codex_home.join("chatgpt.config.toml");
+        std::fs::write(
+            &profile,
+            format!(
+                "# codex-chatgpt-provider generated v1\nmodel_provider=\"chatgpt_desktop\"\nmodel_catalog_json={:?}\n[model_providers.chatgpt_desktop]\nbase_url=\"http://127.0.0.1:12345/v1\"\nwire_api=\"responses\"\nrequires_openai_auth=false\n[model_providers.chatgpt_desktop.auth]\ncommand=\"/owned/provider\"\nargs=[\"token\",\"--state\",\"/owned/state\"]\n",
+                catalog.to_str().unwrap()
+            ),
+        )
+        .unwrap();
+        std::fs::set_permissions(&profile, std::fs::Permissions::from_mode(0o600)).unwrap();
+        assert_eq!(reentry_source(&app), Some(thread));
+        assert!(termux_chat_models::admits(
+            app.chat_widget.config_ref(),
+            "chatgpt-desktop/gpt-6",
+            &ReasoningEffort::None,
+        ));
+        while events.try_recv().is_ok() {}
+        while ops.try_recv().is_ok() {}
+        requests.lock().unwrap().clear();
+        assert!(
+            prepare(
+                &mut app,
+                &mut server,
+                "chatgpt-desktop/gpt-6".into(),
+                Some(ReasoningEffort::None),
+            )
+            .await
+            .is_none()
+        );
+        assert_eq!(app.chat_widget.thread_id(), Some(thread));
+        assert_eq!(app.chat_widget.config_ref().model_provider_id, "openai");
+        assert!(requests.lock().unwrap().is_empty());
+        assert!(ops.try_recv().is_err());
+        let mut notices = String::new();
+        for event in std::iter::from_fn(|| events.try_recv().ok()) {
+            if let crate::app_event::AppEvent::InsertHistoryCell(cell) = event {
+                for line in cell.display_lines(200) {
+                    for span in line.spans {
+                        notices.push_str(&span.content);
+                    }
+                }
+            }
+        }
+        assert!(notices.contains("Model provider unchanged:"), "{notices}");
+        assert!(notices.contains("installed Core"), "{notices}");
+        proxy.abort();
+    }
+
     #[tokio::test]
     async fn termux_chat_models_provider_reentry_refuses_busy_queued_side_draft_and_pending_tools()
     {
