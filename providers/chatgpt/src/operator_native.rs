@@ -591,8 +591,33 @@ impl Pool {
     pub async fn discover_thread(&self, thread: &str) -> Result<Arc<Native>, Error> {
         self.find_thread(thread, None).await
     }
+    fn owns_thread_despite_unavailable_candidates(
+        &self,
+        thread: &str,
+        selected: &Owner,
+        unavailable: &[Owner],
+    ) -> bool {
+        if !codex_runtime_binding::native::canonical_session_id(thread)
+            || unavailable.iter().any(|owner| owner.home != selected.home)
+        {
+            return false;
+        }
+        // A failed socket is not proof that its process or writer disappeared.
+        // Reuse Native's existing shared writer authority to distinguish an
+        // independently loaded thread from unavailable peers in the same home.
+        let server = codex_runtime_binding::native::Server {
+            home: selected.home.clone(),
+            program: selected.process.image.clone(),
+            socket: selected.directory.join("s"),
+            pid: selected.process.pid,
+            start: selected.process.start.clone(),
+        };
+        codex_runtime_binding::native::owns_writer(&self.installation, thread, &server)
+            .unwrap_or(false)
+    }
     async fn find_thread(&self, thread: &str, home: Option<&Path>) -> Result<Arc<Native>, Error> {
         let mut found = None;
+        let mut unavailable = Vec::new();
         let state = self.installation.join(".local/share/codex/core");
         for family in codex_runtime_binding::FAMILIES {
             let root = state.join(family);
@@ -621,7 +646,14 @@ impl Pool {
                     Err(Error("stale_process_owner" | "native_runtime_owner_changed")) => continue,
                     Err(error) => return Err(error),
                 };
-                let client = self.client(owner).await?;
+                let client = match self.client(owner.clone()).await {
+                    Ok(client) => client,
+                    Err(Error("native_socket_unavailable")) => {
+                        unavailable.push(owner);
+                        continue;
+                    }
+                    Err(error) => return Err(error),
+                };
                 let mut cursor = Value::Null;
                 for page in 0..32 {
                     let response = client
@@ -645,6 +677,19 @@ impl Pool {
                     }
                 }
             }
+        }
+        if !unavailable.is_empty()
+            && found.as_ref().is_none_or(|native| {
+                !self.owns_thread_despite_unavailable_candidates(
+                    thread,
+                    &native.owner,
+                    &unavailable,
+                )
+            })
+        {
+            // Preserve uncertainty when no verified writer answers, instead
+            // of reporting absence and permitting Core preparation/loading.
+            return Err(Error("native_socket_unavailable"));
         }
         found.ok_or(Error("native_thread_owner_unavailable"))
     }
@@ -764,6 +809,10 @@ impl Pool {
         Owner::load(directory, &self.home, &self.installation)
     }
 }
+
+#[cfg(test)]
+#[path = "operator_native_discovery_tests.rs"]
+mod discovery_tests;
 
 #[cfg(test)]
 mod reply_tests {

@@ -928,6 +928,15 @@ A matching live owner, unreadable/unsafe owner or PID, unknown owner shape and a
 malformed current config-v1 record remain errors. A bounded explicit device repair
 may separately archive a verified inactive historical record, preserving its
 complete contents and restore path; ordinary discovery performs no such mutation.
+An unavailable rendezvous does not establish that its Native process or writer
+has ended. Discovery may continue observing other verified candidates, but a
+unique loaded-thread match survives that socket failure only when every unavailable
+candidate has the same execution home and the existing shared Native writer-lock
+proof identifies that exact matched process as the thread's writer. Keep scanning
+for duplicate live matches; they remain ambiguous. Unavailable other homes, absent
+writer proof, malformed records, unsafe sockets and changed peers remain failures.
+No match plus an unavailable candidate preserves the original socket error rather
+than declaring the thread absent or preparing another owner.
 
 The work owner may inspect, stop and supply genuine follow-up input. Its managed
 worker holds the current native execution controller; a coordinator cannot issue
