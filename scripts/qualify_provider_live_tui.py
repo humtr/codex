@@ -490,7 +490,11 @@ class LiveTui:
         # without changing its model, profile, or the user's saved settings.
         command = [str(args.core), '--no-alt-screen', '-c', 'tui.terminal_title=["thread"]']
         if endpoint:
-            command += ['-c', 'model_providers.chatgpt_desktop.base_url=' + json.dumps(endpoint)]
+            # An upstream partial provider definition requires a nonempty name.
+            # These fields declare the observer transport; /provider still owns
+            # selecting the model and the installed route supplies its auth.
+            command += ['-c', 'model_providers.chatgpt_desktop.name="ChatGPT AppHost"',
+                        '-c', 'model_providers.chatgpt_desktop.base_url=' + json.dumps(endpoint)]
         self.process = subprocess.Popen(command, cwd=args.workspace, env=env,
                                         stdin=slave, stdout=slave, stderr=slave,
                                         start_new_session=True)

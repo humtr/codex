@@ -209,7 +209,7 @@ class InstalledRuntime(unittest.TestCase):
 
 
 class TuiObservation(unittest.TestCase):
-    def test_launch_sets_only_the_observed_title_and_optional_fault_endpoint(self):
+    def test_launch_sets_only_the_observed_title_and_valid_fault_provider(self):
         for endpoint in (None, 'http://127.0.0.1:123/v1'):
             with self.subTest(endpoint=endpoint), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory)
@@ -225,7 +225,8 @@ class TuiObservation(unittest.TestCase):
                 try:
                     expected = [str(args.core), '--no-alt-screen', '-c', 'tui.terminal_title=["thread"]']
                     if endpoint:
-                        expected += ['-c', 'model_providers.chatgpt_desktop.base_url=' + json.dumps(endpoint)]
+                        expected += ['-c', 'model_providers.chatgpt_desktop.name="ChatGPT AppHost"',
+                                     '-c', 'model_providers.chatgpt_desktop.base_url=' + json.dumps(endpoint)]
                     launch.assert_called_once()
                     self.assertEqual(launch.call_args.args, (expected,))
                     self.assertEqual(launch.call_args.kwargs['cwd'], args.workspace)
