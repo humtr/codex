@@ -41,15 +41,16 @@ manual create/start/repair sequence for ordinary work. A model route is not a
 task identity, and renewing a remote Chat does not require another Native thread.
 MCP alone is not proof that every host message was observed or recorded.
 
-**Qualification remains specific to the tested boundary.** The signed and
-activated operating Core/Manager/TUI is Codex 0.167.0 Full153/Base152, with
-Full151 retained for rollback. Its registered Bridge Native development proof
-does not close the previously reported real-model TUI steering/follow-up failures,
-Guardian scope-denial failure, cross-provider transitions, compaction or broader
-lifecycle recovery. The operating Provider/MCP is a separate unsigned development
-candidate, not a signed Full153 component. Read [CURRENT](CURRENT.md) for the
-exact source, client and device proof limits before treating a release number
-as complete product acceptance.
+**Qualification remains specific to the tested boundary.** The operating
+generation reobserved on this device is Codex 0.167.0 Full159
+(`full-v0.167.0-681ecce-s159`), with Full153 retained for rollback. The current
+integration source has not replaced its operating binaries or services. Installed
+Full159 reproduced a default account-authentication failure and an unavailable
+`/provider` command. Two actual GPT-6 turns on one Native thread succeeded through
+the diagnostic `--profile chatgpt` route; that is not acceptance of `/provider`.
+Provider/MCP deployment is a separate boundary from the signed Full generation.
+Read [CURRENT](CURRENT.md#integration-status-and-operating-baseline) for exact
+request evidence, source/CI results and remaining installed-TUI acceptance.
 
 The source protocol uses `inference=attached|submitted`. Native integrated work
 and intentionally threadless standalone tools remain distinct execution scopes;
@@ -88,14 +89,14 @@ See [fresh install](#fresh-install), [daily use](#usage-by-entrypoint), and
 
 ## Current status
 
-The current priority is architecture and entrance continuity: one Native task,
-coherent model transitions, reusable context and configured service/app lifetime.
-[CURRENT](CURRENT.md#active-operating-deployment) separates
-the revised contract from actual implementation and operating acceptance, with
-the next implementation dependencies. Earlier A–H proofs retain their original
-scope; signed delivery and device activation remain distinct. Existing sessions
-keep their pinned executable until normal exit. Ordinary account configuration
-does not force a model.
+The current integration combines the Rust Core lineage, ChatGPT stream/concurrency
+fixes, independent TUI naming and preparation-observer recovery. The accounts
+prototype remains unwired. [CURRENT](CURRENT.md#integration-status-and-operating-baseline)
+separates these source changes and ongoing exact-source gates from actual
+installed `/provider` → GPT-6 → same-thread continuation acceptance. Earlier
+proofs retain their original scope; signed delivery and activation remain distinct.
+Existing sessions keep their pinned executable until normal exit. Ordinary
+account configuration does not force a model.
 
 Fresh Core installation exists. Provider app provisioning, first login and remote
 connection setup still require the [manual steps below](#fresh-install) and the
@@ -685,13 +686,16 @@ without this helper. See SPEC for authoritative scope and failure behavior.
 ## Branches
 
 - `main` — publication authority; not the implementation base
+- `integration/codex-native-20261110` — current consolidation of the three checked development tips
 - `rewrite/rust-core` — independent orphan Rust Core implementation lineage
+- `fix/chatgpt-resume-concurrency-20261108` — retained stream/concurrency source ancestry
+- `wip/chatgpt-accounts-source-20261110` — preserved, unwired account-profile draft ancestry
 - `legacy/monolith` — sealed predecessor at `bf30a7d`
 
 The implementation branch remains independent from the publication branch.
 Current stable-channel promotion changes only the signed public index authority
-on `main` through the accepted non-forced CAS release path; implementation
-development continues on `rewrite/rust-core`.
+on `main` through the accepted non-forced CAS release path. Consolidation proceeds
+on the integration branch while the original branches and their history remain.
 
 Repository separation/cleanup is
 [deferred](CURRENT.md#retained-capability-requirements-and-accurate-completion-limits): retain the old repository
@@ -756,9 +760,12 @@ runtime-binding crate is compiled source, not another installed dependency.
 See [the component boundary](SPEC.md#46-component-responsibilities-and-user-flow-contracts).
 Codex TUI sources live in `frontend/tui`. The existing `manager-tui-native`
 workflow/artifact names, `termux-manager-tui-v1` signed helper identity and
-`--manager-tui` builder flags remain external compatibility contracts. The source
-move changes no signed generation or digest and does not itself remove the
-deployed Full TUI's Manager pairing requirement.
+`--manager-tui` builder flags remain external compatibility contracts. New builder
+callers use `--tui`, `--tui-version` and `adapt-tui`; the old Manager-named forms
+remain equivalent aliases. New Provider packages use `provider-chatgpt-v...`,
+while published `provider-gpt-v...` packages retain their identifiers, signatures
+and rollback compatibility. These source changes do not activate a new generation
+or change Manager/TUI execution lifetimes.
 
 `release/upstream.json` is the single exact version/source/archive/toolchain
 recipe. Core/runtime qualification runs it without acquiring or compiling Manager
@@ -819,16 +826,18 @@ independent development tests and CI input metadata/wiring. Core connects native
 source preparation/build to ordinary signing/installation for its qualified tuple.
 The earlier Android 0.166 source compilation, signing, installation, execution
 and 0.164 rollback passed through a resumed owned compiler cache; that proof
-does not qualify local 0.167 compilation. The operating 0.167 Full153/Base152
-release instead passed its exact hosted/native-source and Android publication
-gates, signed public readback and device activation, retaining Full151 for
-rollback. Exact source, public delivery, device activation and remaining work
+does not qualify local 0.167 compilation. The historical 0.167 Full153/Base152
+release passed its exact hosted/native-source and Android publication gates,
+signed public readback and device activation, retaining Full151 at that time.
+The latest device readback selects Full159 and retains Full153. Exact source,
+public delivery, device activation and remaining work
 are recorded in
 [CURRENT](CURRENT.md#retained-backlog-areas-and-user-visible-completion).
 Compiler output lives in the XDG cache; test data is disposable.
 Runtime/security/installer changes and release candidates require full acceptance.
 
-Implementation and reusable release logic live on `rewrite/rust-core`. The small
+Implementation and reusable release logic originate on `rewrite/rust-core` and
+are being consolidated on `integration/codex-native-20261110`. The small
 `main` caller pins accepted workflow implementation and resolves the exact accepted
 product SHA from `release-source-v1`. Its controller advances that pointer only
 after the source and independent Android gates succeed; frontend registration

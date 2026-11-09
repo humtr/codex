@@ -6,6 +6,111 @@ and must be reread after recovery. This file distinguishes source implementation
 automated proof, actual Android execution, connected-client proof, public signed
 delivery and device activation. None substitutes for the next boundary.
 
+## Integration status and operating baseline
+
+**Checkpoint: 2026-11-10 KST.** Development is consolidated on
+`integration/codex-native-20261110`; this record includes the P0 follow-up at
+`12ee97825ca25f956d3edd23eb54083597ad0a60`. It records source and observed evidence,
+not a claim that the integrated binaries have been installed. Dated records below
+retain their original scope and do not override this device reobservation.
+
+### Source integration and preservation
+
+The remote tips were re-read and match the user's original checkpoints:
+
+| Original branch | Reobserved remote tip | Integration |
+| --- | --- | --- |
+| `rewrite/rust-core` | `27103ec06b1c16c07b6a245d4b4542f8248cc5b4` | Ancestor of the integration branch |
+| `fix/chatgpt-resume-concurrency-20261108` | `f93256083902fd4f5b289e895f8a3633046a0b17` | Ancestor; stream, HTTP 413 and ownership changes retained |
+| `wip/chatgpt-accounts-source-20261110` | `2dd07d422ad063107f344ac88409271b6ad380ba` | Ancestry retained; unwired draft excluded from the production tree |
+
+The account draft is not a completed feature; see its integration boundary below.
+The original Termux checkout still preserves its untracked `ais.config.toml`,
+`chatgpt.config.toml` and `providers/chatgpt/src/accounts.rs`. Existing branch
+history and unrelated working changes were not forced, deleted or overwritten.
+Cleanup removed only identified inactive generated builds/caches inside Termux,
+recovering **18,475,196,416 bytes**. Android sdcard was not accessed or cleaned.
+
+New Provider producers use `provider-chatgpt-v...`; readers retain published
+`provider-gpt-v...` identities and exact signed bytes for acquisition and rollback.
+Codex TUI source lives in `frontend/tui`; Core's consumer is `tui.rs` and CI's
+private verifier is `tui_artifact.py`. Builder producers use `--tui`,
+`--tui-version` and `adapt-tui`; the old Manager-named flags/command are aliases.
+The signed `termux-manager-tui-v1` identity and historical workflow/artifact names
+remain compatible. Manager and TUI keep separate execution and lifetime ownership.
+
+The bounded compiler claim failure was repaired through Native execution metadata
+and actual input/output dependencies, preserving conservative opaque ownership.
+Other accepted review fixes cover publication ordering, artifact validation,
+owned-output cleanup and transactional source assembly. The attached review used
+older sources: neither its 74 findings nor its suggested remedies are all accepted
+or all fixed. Unwired accounts, publication restart edge cases and other explicitly
+unclosed findings remain incomplete.
+
+<a id="active-operating-deployment"></a>
+
+### Operating device and reproduced failure
+
+Actual activation-state reobservation selects **Full159**,
+`full-v0.167.0-681ecce-s159`, and retains
+`local-relay-hosted-0-167-0-d3becae26b07-s153` as previous. This integration work
+has not replaced the operating binaries, published a signed release or restarted
+the operating services. The Full153 activation record below is historical.
+
+The failed Native thread is `01a1c0f5-10af-7531-8885-8dcd90d1d2e5`, turn
+`01a1c0f5-d6c3-79a1-85d1-5aed82d1865d`. Its actual request ran from
+**2026-11-09 15:38:19.976 to 15:38:35.385 UTC** and returned
+`stream disconnected before completion: cdp_operation_timeout`.
+The journal remains `New`, with an identity, no project/request/round and zero
+dispatches. Preserve that original work and history; do not replay its input.
+The old log does not identify the exact app command. That state is consistent
+with preparation failure but cannot establish that `project_read` was the command.
+
+Source inspection establishes that `Runtime.evaluate(awaitPromise=true)` awaited
+the app's network preparation inside the 15-second CDP command deadline. The fix
+retains one original app Promise and observes its receipt after an uncertain ACK;
+unknown delivery cannot start a replacement operation. The CDP bound stays 15s.
+One existing 600s turn budget includes preparation; direct preparation observers
+also have a finite budget. Only ownerless pure-read receipts can be abandoned or
+expire. Native preparation and writes retain their original owner/result.
+Connection invalidation checks the same generation/session. Project resolution
+locks now cover one journal/account/name binding; same-binding work is serialized.
+
+Installed Full159 still reproduced a fatal default `account/read` revoked-token
+failure and an unrecognized `/provider`. A diagnostic `--profile chatgpt` run did
+complete two actual GPT-6 turns on Native thread
+`01a1c11a-fd0b-7ab1-841a-9ba04c365ee3`:
+
+| Turn | Observed UTC interval on 2026-11-09 |
+| --- | --- |
+| `01a1c11d-ab72-7582-8991-822d2d5e274d` | 16:21:52–16:22:24 |
+| `01a1c11e-e253-7971-b8c6-01533cdac3a2` | 16:23:10–16:23:21 |
+
+This proves the explicit-profile diagnostic route, not the required installed
+`/provider` selection path. The integrated TUI/authentication changes still need
+their actual installed-entrypoint acceptance.
+
+### Verification checkpoint and remaining acceptance
+
+| Boundary | Observed result |
+| --- | --- |
+| Actual Termux workspace | 431 tests passed; one test explicitly ignored in the workspace run |
+| Actual Termux focused checks | Doctor 19, release-builder 60 and one explicit real-Termux preservation smoke passed; strict Clippy passed |
+| Local Python | 183 tests passed; private CI verifier rename checks passed 143 tests separately, not an additive unique count |
+| Exact official `086ccc8` source assembly | Combined Native/TUI assembly passed; actual TUI Rust test binary built, focused execution still in progress |
+| P0 source/transport regression | 60 focused Rust tests and 135 Bun tests passed; all-target Provider Clippy passed |
+| Remote Source acceptance, `81049ca` | Run `42659294949`: all verification gates passed, final notification job still pending at this checkpoint |
+| Remote TUI / Core-runtime, `81049ca` | Runs `42659288356` / `42659300837` still in progress; no successful final conclusion claimed |
+| Remote Provider gate, `495c521` | Run `42661010583` started after compiler/read-claim integration; no final success claimed |
+
+Release acceptance still requires the installed `/provider` picker → actual GPT-6
+completion → same Native thread follow-up, with original and follow-up history
+preserved. Injected SSE observer loss must retain the admitted operation, execute
+each Native effect once, allow reentry and leave another Native work independent.
+HTTP 413 and opaque-claim regressions remain part of the combined gate. Complete
+the final exact-source CI conclusions before claiming qualification; any binary
+activation, signing/publication or service restart needs its own recorded result.
+
 ## Account draft integration boundary (2026-11-10 KST)
 
 `integration/codex-native-20261110` retains the ancestry of
@@ -95,16 +200,21 @@ No Provider/MCP process replacement, live 283-object recovery, simultaneous
 Android Native builds or connected-client schema refresh is established by
 these source and CI results.
 
-## Active operating deployment
+## Historical Full153 activation (2026-11-08 KST)
 
-Operating Core/Manager/TUI is Codex0.167.0 Full153/Base152, accepted product source
+This section retains the Full153 activation and its subsequent 2026-11-08
+readback. Its operating/pending statements describe that historical observation,
+not the current device. The latest selection is Full159 with Full153 retained,
+as recorded in the integration checkpoint above; no evidence below is discarded.
+
+Operating Core/Manager/TUI at that activation was Codex0.167.0 Full153/Base152, accepted product source
 d3becae26b076a2e29697e24914f223493c7e084. Its enhanced frontend is the independently
 qualified45533d6a7e5bf50dad3aa9545717f36a6d52d9a9 output with identical production
 inputs. Full Native42380853506, exact Source42386665179 and Core/runtime42386783962
 pass. Base publication42387355145 and Full publication42390621632 pass Android
 execution, signing, complete public readback, disposable update and non-forced
 stable promotion. The ordinary signed updater exits0, reports verified activation
-and codex --version returns0.167.0. Activation-state selects153 and retains151 as
+and codex --version returns0.167.0. That activation-state selected153 and retained151 as
 previous. The activation log is upstream167-0md6mz3a/deploy-activation-167.log below.
 Original dirty0814be7 and its49 paths remain preserved.
 
