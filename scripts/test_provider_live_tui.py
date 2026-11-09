@@ -20,7 +20,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from qualify_provider_live_tui import (
     MODEL, LiveTui, ObservationProxy, TurnBudget, admitted_prompt, assistant_marker,
     blank_history_error, blank_rollout, completed_fault, history, native_settled,
-    main, one_pwd, plain, request_identity, require_terminal_owner,
+    installed_runtime, main, one_pwd, plain, request_identity, require_terminal_owner,
     terminal_owner_preflight, terminal_response,
 )
 
@@ -119,6 +119,93 @@ class ObserverFault(unittest.TestCase):
     def test_terminal_normalization_keeps_visible_content(self):
         self.assertEqual(plain('\x1b]0;private title\x07\x1b[1mSelect Provider\x1b[0m'),
                          'Select Provider')
+
+
+def selected_runtime_fixture(home, identity='full-selected-fixture'):
+    state = home / '.local/share/codex/core/activation-state'
+    state.parent.mkdir(parents=True, exist_ok=True)
+    state.write_text('format=codex-activation-state-v3\nupdate_key=' + '0' * 64
+                     + '\ncurrent=' + identity + '\ncurrent_key=' + '0' * 64
+                     + '\nprevious_present=0\nprevious=\nprevious_key=\n')
+    runtime = home / '.local/lib/codex/core/generations' / identity / 'runtime'
+    runtime.parent.mkdir(parents=True)
+    runtime.write_bytes(b'owned selected runtime fixture')
+    return state, runtime
+
+
+class InstalledRuntime(unittest.TestCase):
+    def test_authoritative_selection_needs_no_historical_current_alias(self):
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            state, runtime = selected_runtime_fixture(home, 'generation = alpha 한국어')
+            before = state.read_bytes()
+            self.assertEqual(installed_runtime(home), runtime)
+            alias = home / '.local/lib/codex/core/current'
+            self.assertFalse(alias.exists())
+            retained = alias.parent / 'generations/retained/runtime'
+            retained.parent.mkdir()
+            retained.write_bytes(b'owned retained runtime fixture')
+            alias.symlink_to(retained.parent)
+            self.assertEqual(installed_runtime(home), runtime, 'a historical alias cannot select the runtime')
+            self.assertEqual(state.read_bytes(), before)
+            self.assertEqual(retained.read_bytes(), b'owned retained runtime fixture')
+
+    def test_missing_ambiguous_and_unsafe_selection_never_falls_back(self):
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            state, runtime = selected_runtime_fixture(home)
+            before = state.read_bytes()
+            for change in (
+                    before.replace(b'current=full-selected-fixture', b'current=../elsewhere'),
+                    before.replace(b'current=full-selected-fixture', b'current=/elsewhere'),
+                    before.replace(b'current=full-selected-fixture', b'current='),
+                    before.replace(b'current=full-selected-fixture', b'current=missing'),
+                    before + b'current=other\n',
+                    before.replace(b'codex-activation-state-v3', b'unknown-state'),
+                    before.rstrip(b'\n')):
+                state.write_bytes(change)
+                with self.subTest(change=change[:40]), self.assertRaises((AssertionError, FileNotFoundError)):
+                    installed_runtime(home)
+            state.unlink()
+            alias = home / '.local/lib/codex/core/current'
+            alias.symlink_to(runtime.parent)
+            with self.assertRaises(FileNotFoundError):
+                installed_runtime(home)
+
+    def test_pointer_and_runtime_aliases_do_not_change_the_observed_owner(self):
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            state, runtime = selected_runtime_fixture(home)
+            original = state.read_bytes()
+            retained = state.with_name('retained-state')
+            retained.write_bytes(original)
+            state.unlink()
+            state.symlink_to(retained)
+            with self.assertRaises(OSError):
+                installed_runtime(home)
+            state.unlink()
+            state.write_bytes(original)
+            target = runtime.with_name('another-runtime')
+            target.write_bytes(runtime.read_bytes())
+            runtime.unlink()
+            runtime.symlink_to(target)
+            with self.assertRaisesRegex(AssertionError, 'owned regular file'):
+                installed_runtime(home)
+
+    def test_directory_aliases_are_rejected_before_following_their_targets(self):
+        for directory in ('.local/share', '.local/lib/codex/core/generations/full-selected-fixture'):
+            with self.subTest(directory=directory), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                home = root / 'home'
+                selected_runtime_fixture(home)
+                alias = home / directory
+                target = root / 'retained-directory'
+                alias.rename(target)
+                alias.symlink_to(target)
+                with patch.object(Path, 'resolve', side_effect=AssertionError('must not resolve an alias')) as resolve, \
+                        self.assertRaisesRegex(AssertionError, 'owned directory'):
+                    installed_runtime(home)
+                resolve.assert_not_called()
 
 
 class TuiObservation(unittest.TestCase):
@@ -450,9 +537,7 @@ class TerminalOwnerEvidence(unittest.TestCase):
             root = Path(directory)
             home = root / 'home'
             (home / '.codex').mkdir(parents=True)
-            runtime = home / '.local/lib/codex/core/current/runtime'
-            runtime.parent.mkdir(parents=True)
-            runtime.write_bytes(b'owned runtime fixture')
+            _, runtime = selected_runtime_fixture(home)
             core = root / 'core'
             core.write_bytes(b'owned core fixture')
             prefix = root / 'usr'

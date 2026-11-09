@@ -49,6 +49,39 @@ def sha(path):
         return hashlib.file_digest(source, 'sha256').hexdigest()
 
 
+def installed_runtime(home):
+    """Observe Core's selected generation; Core still owns signed admission."""
+    def directory(*parts):
+        path = home
+        for part in parts:
+            path /= part
+            metadata = path.lstat()
+            assert stat.S_ISDIR(metadata.st_mode) and metadata.st_uid == os.getuid(), 'Core installation path is not an owned directory'
+        return path
+
+    state = directory('.local', 'share', 'codex', 'core') / 'activation-state'
+    descriptor = os.open(state, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    with os.fdopen(descriptor, 'rb') as source:
+        metadata = os.fstat(source.fileno())
+        assert stat.S_ISREG(metadata.st_mode) and metadata.st_uid == os.getuid(), 'Core activation state is not an owned regular file'
+        raw = source.read(16 * 1024 + 1)
+    assert len(raw) <= 16 * 1024 and raw.endswith(b'\n'), 'Core activation state is incomplete or oversized'
+    fields = [line.split('=', 1) for line in raw.decode().split('\n')[:-1]]
+    assert all(len(field) == 2 for field in fields)
+    assert [field[0] for field in fields] == [
+        'format', 'update_key', 'current', 'current_key', 'previous_present', 'previous', 'previous_key'], 'Core activation state fields changed'
+    values = dict(fields)
+    assert values['format'] == 'codex-activation-state-v3', 'Core activation state format changed'
+    identity = values['current']
+    assert 0 < len(identity.encode()) <= 512 and identity not in ('.', '..')
+    assert '/' not in identity and not any(ord(char) < 32 or ord(char) == 127 for char in identity), 'Core generation identity is not a path component'
+    generation = directory('.local', 'lib', 'codex', 'core', 'generations', identity)
+    runtime = generation / 'runtime'
+    metadata = runtime.lstat()
+    assert stat.S_ISREG(metadata.st_mode) and metadata.st_uid == os.getuid(), 'selected runtime is not an owned regular file'
+    return runtime
+
+
 def process_identity():
     """Kernel facts only; never read command arguments, environment or titles."""
     pid = os.getpid()
@@ -645,7 +678,7 @@ def main():
     args.core = args.core.resolve(strict=True)
     args.workspace = args.workspace.resolve(strict=True)
     args.codex_home = (args.codex_home or args.home / '.codex').resolve(strict=True)
-    args.runtime = (args.home / '.local/lib/codex/core/current/runtime').resolve(strict=True)
+    args.runtime = installed_runtime(args.home)
     args.shell = Path(os.environ['PREFIX']) / 'bin/bash'
     assert args.shell.is_absolute() and args.shell.is_file()
     os.umask(0o077)
@@ -656,6 +689,7 @@ def main():
     build_marker = f'Concatenate the two strings "{parts[0]}" and "{parts[1]}" without a separator.'
     save(root / 'intent.json', {'at': stamp(), 'workspace': str(args.workspace),
          'core_sha256': sha(args.core), 'runtime_sha256': sha(args.runtime),
+         'generation': args.runtime.parent.name, 'runtime': str(args.runtime),
          'marker': marker, 'fault_requested': bool(args.fault_endpoint),
          'maximum_user_turns': 5, 'submission_evidence': 'submission-<number>.json',
          'terminal_owner_required': args.terminal_owner_proof})
