@@ -22,6 +22,7 @@ class ScopeTests(unittest.TestCase):
                            (['scripts/cdp_qualification_relay.test.mjs'],'provider'),
                            (['scripts/release_native_qualification_observer.py'],'provider'),
                            (['scripts/test_provider_installed_entrypoint.py'],'provider'),
+                           (['scripts/qualify_provider_native_compiler.py','scripts/test_provider_native_compiler.py'],'provider'),
                            (['scripts/qualify_provider_agent_fixtures.py','scripts/test_provider_agent_fixtures.py'],'provider'),
                            (['scripts/refresh_chatgpt_connector.mjs'],'provider'),
                            (['scripts/qualify_provider_native_trial.py','scripts/refresh_chatgpt_connector.mjs'],'provider'),

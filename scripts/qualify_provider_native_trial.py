@@ -630,13 +630,15 @@ def open_pidfd(pid):
     return fd
 
 
-def stop_owned_pid(pid, expected):
+def stop_owned_pid(pid, expected, expected_start=None):
     fd = open_pidfd(pid)
     libc = ctypes.CDLL(None, use_errno=True)
     try:
         proc = Path("/proc", str(pid))
         assert (proc / "exe").resolve() == expected.resolve(), "private process identity changed"
         start = (proc / "stat").read_text().rsplit(")", 1)[1].split()[19]
+        if expected_start is not None:
+            assert start == str(expected_start), "private process birth identity changed"
         sent = libc.syscall(ctypes.c_long(424), ctypes.c_int(fd), ctypes.c_int(signal.SIGTERM), ctypes.c_void_p(), ctypes.c_uint(0))
         if sent < 0:
             raise OSError(ctypes.get_errno(), "pidfd_send_signal")

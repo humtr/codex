@@ -40,6 +40,8 @@ if os.environ.get('FAIL_COMMAND')==name: sys.exit(19)
                 self.assertEqual(any(x.startswith('python3 ') for x in calls),python)
                 self.assertEqual(calls[-1],'git diff --check')
                 self.assertEqual(any(x.startswith('bun ') for x in calls),scope=='provider')
+                if scope == 'provider':
+                    self.assertTrue(any('scripts/test_provider_native_compiler.py' in call for call in calls))
                 if cargo:
                     target='provider-target' if scope=='provider' else 'check-target'
                     self.assertTrue((root/f'cache/codex/{target}/retained').exists())

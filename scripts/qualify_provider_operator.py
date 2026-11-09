@@ -1,4 +1,4 @@
-"""Actual Android MCP operator/CLI proof; only owned synthetic Chat and signed fixtures."""
+"""Actual Android MCP operator/CLI proof with owned synthetic app and Native inputs."""
 import argparse
 import concurrent.futures
 import fcntl
@@ -1032,14 +1032,23 @@ if __name__ == '__main__':
     parser.add_argument('--inputs', type=Path, help='explicit F source/native/fixture inputs; no historical defaults')
     parser.add_argument('--core', type=Path)
     parser.add_argument('--frontend', type=Path)
-    parser.add_argument('--generation', type=Path, help='explicit installed Native generation for the signed fixture')
+    parser.add_argument('--generation', type=Path, help='explicit installed Native generation for the signed fixture or scoped compiler proof')
     parser.add_argument('--service-test', type=Path)
     parser.add_argument('--provider-binary', type=Path, help='actual Provider CLI used by the native client synchronization gate')
     parser.add_argument('--report', type=Path)
     parser.add_argument('--cold-resume', action='store_true', help='also qualify cold native owner replacement and asynchronous start failure; zero real Chat')
     parser.add_argument('--selected-controls', action='store_true', help='also exercise explicit assignment/controller/budget controls with legacy explicit fixture inputs; zero real Chat')
     parser.add_argument('--permissions-only', action='store_true', help='qualify per-work approval policies, review failure, real compilation and reconnect; synthetic Chat replies')
+    parser.add_argument('--native-compiler-only', action='store_true', help='explicit installed Core/runtime and real clang concurrency proof; external foreground terminal, zero Chat, no TUI acceptance')
     args=parser.parse_args()
+    if args.native_compiler_only:
+        if not all((args.core, args.generation, args.service_test, args.report)) or any((
+                args.inputs, args.frontend, args.provider_binary, args.permissions_only,
+                args.cold_resume, args.selected_controls)):
+            parser.error('--native-compiler-only requires only --core/--generation/--service-test/--report; it is a scoped Native proof, not F7 or TUI acceptance')
+        from qualify_provider_native_compiler import probe as compiler_probe
+        compiler_probe(args)
+        raise SystemExit(0)
     if args.inputs:
         if args.permissions_only:
             parser.error('--permissions-only is a scoped development proof, not the declared F7 acceptance')
