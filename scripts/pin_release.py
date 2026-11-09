@@ -31,6 +31,9 @@ on:
 permissions:
   contents: read
   actions: read
+concurrency:
+  group: termux-hosted-release-callers
+  cancel-in-progress: false
 jobs:
   source:
     runs-on: ubuntu-24.04
@@ -65,9 +68,9 @@ jobs:
     jobs = []
     for variant, name in [('base', 'base'), ('full', 'release')]:
         dependency = "    needs: [source, base]\n" if variant == 'full' else "    needs: source\n"
-        condition = ("${{ !cancelled() && (github.event_name == 'schedule' || inputs.variant != 'full') && needs.source.result == 'success' }}"
+        condition = ("${{ !cancelled() && inputs.variant != 'full' && needs.source.result == 'success' }}"
                      if variant == 'base' else
-                     "${{ !cancelled() && (github.event_name == 'schedule' || inputs.variant != 'base') && needs.source.result == 'success' }}")
+                     "${{ !cancelled() && inputs.variant != 'base' && needs.source.result == 'success' && (needs.base.result == 'success' || (inputs.variant == 'full' && needs.base.result == 'skipped')) }}")
         jobs.append(f"""  {name}:
 {dependency}    if: {condition}
     permissions:
@@ -78,8 +81,8 @@ jobs:
       source_sha: ${{{{ needs.source.outputs.sha }}}}
       frontend_binding: "{'' if variant == 'base' else '${{ needs.source.outputs.frontend_binding }}'}"
       release_variant: {variant}
-      publish: ${{{{ github.event_name == 'schedule' || inputs.publish }}}}
-      rebuild_current: ${{{{ github.event_name == 'workflow_dispatch' && inputs.rebuild_current }}}}
+      publish: ${{{{ inputs.publish }}}}
+      rebuild_current: ${{{{ inputs.rebuild_current }}}}
     secrets:
       CODEX_RELEASE_SIGNING_KEY: ${{{{ secrets.CODEX_RELEASE_SIGNING_KEY }}}}
 """)

@@ -102,8 +102,9 @@ first=$(printf '%s' "$generation" | cut -c 1)
 case $first in [A-Za-z0-9]) ;; *) fail 'stable generation identity is invalid' ;; esac
 case $generation in *[!A-Za-z0-9._~-]*) fail 'stable generation identity is invalid' ;; esac
 case $variant:$generation in
-  base:local-base-*|full:local-base-*) [ "$variant" = base ] || fail 'signed generation belongs to base' ;;
+  base:core-v*|base:local-base-*) ;;
   base:*) fail 'signed generation does not belong to base' ;;
+  full:core-v*|full:local-base-*) fail 'signed generation belongs to base' ;;
 esac
 case $release_base in
   https://*/"$generation"/) ;;

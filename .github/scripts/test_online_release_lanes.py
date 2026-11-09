@@ -19,11 +19,11 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class OnlineReleaseLanes(unittest.TestCase):
-    def acquire(self, lane, frontend=False, fault=None):
+    def acquire(self, lane, frontend=False, fault=None, generation=None):
         fixture = fixtures.ReleaseHeadsTests();fixture.setUp()
         self.addCleanup(fixture.doCleanups)
         root = fixture.root
-        generation = 'local-base-proof-12' if lane == 'base' else 'local-full-proof-12'
+        generation = generation or ('local-base-proof-12' if lane == 'base' else 'local-full-proof-12')
         fixture.head(lane, generation, 12, frontend)
         objects = dict(fixture.objects)
         original = (ROOT/'install-online.sh').read_text()
@@ -35,7 +35,7 @@ class OnlineReleaseLanes(unittest.TestCase):
             if url in objects:
                 for suffix in ['', '.sig']:
                     objects[f'https://raw.githubusercontent.com/humtr/codex/main/{path}{suffix}'] = objects[url+suffix]
-        base = 'https://humtr.github.io/codex/'+generation+'/'
+        base = fixtures.channel.canonical_release_base(generation)
         if fault == 'content':objects[base+'runtime'] += b'tampered'
         if fault == 'signature':
             objects['https://raw.githubusercontent.com/humtr/codex/main/update-index-v1.sig'] = b'0'*64
@@ -76,6 +76,18 @@ class OnlineReleaseLanes(unittest.TestCase):
     def test_corrupt_signature_or_asset_cannot_reach_installation(self):
         for fault in ['signature','content']:
             with self.subTest(fault=fault):self.acquire('full',True,fault)
+
+    def test_current_generation_names_reach_the_same_signed_installer(self):
+        for lane, generation in [('base','core-v0.155.0-source-s12'),
+                                 ('full','full-v0.155.0-source-s12')]:
+            with self.subTest(lane=lane):self.acquire(lane, generation=generation)
+
+    def test_lane_mismatch_is_rejected_even_with_a_valid_signed_inventory(self):
+        for lane, generation in [('base','full-v0.155.0-source-s12'),
+                                 ('full','core-v0.155.0-source-s12'),
+                                 ('full','local-base-proof-12')]:
+            with self.subTest(lane=lane,generation=generation):
+                self.acquire(lane, fault='lane', generation=generation)
 
 
 if __name__ == '__main__':unittest.main()

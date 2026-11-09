@@ -1,3 +1,4 @@
+import base64
 import unittest
 from unittest.mock import patch
 
@@ -31,6 +32,30 @@ class AttentionTests(unittest.TestCase):
             self.fail('unexpected write or lookup: '+path)
         with patch.object(attention,'api',side_effect=api):
             self.assertEqual(attention.report(123),{'state':'already-notified','issue':5})
+
+    def test_failure_notice_retains_current_and_historical_generation_identity(self):
+        for base, full in [('core-v0.155.0-s12','full-v0.155.0-s13'),
+                           ('local-base-proof-12','local-full-proof-13')]:
+            writes=[]
+            def api(path,**kwargs):
+                if path=='actions/runs/123':return self.fixture()
+                if path.endswith('/jobs?per_page=100'):
+                    return {'jobs':[{'name':'full / Android proof','conclusion':'failure'}]}
+                if path.startswith('contents/'):
+                    value=base if 'update-index-base-v1' in path else full
+                    text=('codex-update-index-v1\nchannel\tstable\ngeneration_id\t'+value+
+                          '\nrelease_base\thttps://example.invalid/'+value+'/\n')
+                    return {'content':base64.b64encode(text.encode()).decode()}
+                if path.startswith('issues?'):return []
+                if path.startswith('labels?'):return [{'name':attention.LABEL}]
+                if path=='issues':
+                    writes.append(kwargs['payload']);return {'number':7}
+                self.fail('unexpected request: '+path)
+            with self.subTest(base=base), patch.object(attention,'api',side_effect=api):
+                self.assertEqual(attention.report(123),{'state':'attention-created','issue':7})
+                self.assertEqual(len(writes),1)
+                self.assertIn('repair target: `'+base+'`',writes[0]['body'])
+                self.assertIn('fallback: `'+full+'`',writes[0]['body'])
 
 
 if __name__=='__main__':unittest.main()

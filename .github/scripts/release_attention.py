@@ -41,7 +41,7 @@ def report(run_id):
             content=api('contents/'+path+'?ref=main')['content']
             text=base64.b64decode(content).decode()
             value=next(line.split('\t',1)[1] for line in text.splitlines() if line.startswith('generation_id\t'))
-            heads[lane]=value if re.fullmatch('local-[a-z0-9._-]+',value) else 'unavailable'
+            heads[lane]=value if re.fullmatch('(?:local-|core-v|full-v)[a-z0-9._-]+',value) else 'unavailable'
         except (ValueError,KeyError,StopIteration):heads[lane]='unavailable'
     url='https://github.com/humtr/codex/actions/runs/'+str(run_id)
     body='\n'.join([marker,signature,'Automation stopped; the prior qualified installation remains unchanged.',

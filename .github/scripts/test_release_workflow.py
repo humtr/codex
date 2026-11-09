@@ -127,8 +127,32 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn('release_variant: full',text)
         self.assertIn('needs: [source, base]',text)
         self.assertIn('!cancelled()',text)
+        self.assertIn('group: termux-hosted-release-callers',text)
+        self.assertIn('cancel-in-progress: false',text)
+        self.assertNotIn("github.event_name == 'schedule'",text)
         for bad in ('main','a'*39,'A'*40,'a'*40+'\ninjected'):
             with self.assertRaises(ValueError):caller(bad)
+
+    def test_full_lane_runs_only_after_success_or_an_explicit_full_only_selection(self):
+        text=caller('a'*40)
+        full=text.split('\n  release:',1)[1].split('\n  notify_acceptance:',1)[0]
+        expression=re.search(r'(?m)^    if: \$\{\{ (.+) \}\}$',full)[1]
+        for variant in ['both','base','full']:
+            for base in ['success','failure','cancelled','skipped']:
+                for source in ['success','failure','skipped']:
+                    for cancelled in [False,True]:
+                        terms={'inputs.variant':repr(variant),'needs.base.result':repr(base),
+                               'needs.source.result':repr(source),'github.event_name':repr('workflow_dispatch'),
+                               'cancelled()':repr(cancelled)}
+                        evaluated=expression
+                        for key,value in terms.items():evaluated=evaluated.replace(key,value)
+                        evaluated=evaluated.replace('&&',' and ').replace('||',' or ')
+                        evaluated=re.sub(r'!(?!=)',' not ',evaluated)
+                        allowed=not cancelled and source=='success' and (
+                            variant=='both' and base=='success' or
+                            variant=='full' and base in ['success','skipped'])
+                        with self.subTest(variant=variant,base=base,source=source,cancelled=cancelled):
+                            self.assertEqual(eval(evaluated,{'__builtins__':{}},{}),allowed)
 
 
 if __name__=='__main__':unittest.main()
