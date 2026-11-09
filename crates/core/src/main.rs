@@ -11731,6 +11731,7 @@ fn prepare_core_entrypoint_for_activation(
     };
     let digest = active_core_entrypoint_digest(roots)?;
     let active_binding = core_entrypoint_binding_for_digest(roots, active, before, &digest);
+    let unbound_legacy = matches!(&active_binding, Ok(None));
     let candidate_digest = &candidate.manifest.core_artifact_digest;
     if digest == *candidate_digest {
         if matches!(active_binding, Ok(Some(ref binding)) if binding.digest == *candidate_digest) {
@@ -11778,6 +11779,29 @@ fn prepare_core_entrypoint_for_activation(
             .map(|binding| binding.generation_id.as_str())
             .unwrap_or(before.current.as_str());
         if record.generation_id != generation {
+            // A completed rollback to a legacy generation swaps the cache to
+            // the departed generation, now the authoritative previous pair.
+            // This is a fresh update, not a retry of an interrupted replacement.
+            // Authenticate that previous Core before rotating its cached bytes;
+            // a current-bound original snapshot must remain intact on retry.
+            if unbound_legacy && before.previous.as_deref() == Some(record.generation_id.as_str()) {
+                let key = before
+                    .previous_key
+                    .ok_or(LocalProductError::CoreEntrypoint(
+                        "retained Core rollback entrypoint has no previous verifier key",
+                    ))?;
+                let (_, previous) = verify_installed_local_release(
+                    roots,
+                    &record.generation_id,
+                    key,
+                    "retained Core rollback descriptor id does not match previous",
+                )?;
+                if previous.core_path.is_some()
+                    && previous.manifest.core_artifact_digest == record.digest
+                {
+                    return snapshot_core_entrypoint_to_rollback(roots, &before.current).map(Some);
+                }
+            }
             return Err(LocalProductError::CoreEntrypoint(
                 "retained Core rollback entrypoint is not bound to the active generation",
             ));
@@ -26219,6 +26243,250 @@ exit 0
         assert_eq!(std::fs::read(core_rollback_path(&roots)).unwrap(), original);
         assert_eq!(std::fs::read(stable).unwrap(), original);
         remove_temp_root(fixture.root);
+    }
+
+    #[cfg(unix)]
+    fn coordinated_rebind_fixture_core(
+        generation: &std::path::Path,
+        openssl: &std::path::Path,
+        core: &std::path::Path,
+    ) {
+        let loaded = load_local_generation(generation).unwrap();
+        let path = generation.join("generation.meta");
+        let descriptor = std::fs::read_to_string(&path).unwrap();
+        let binding = format!(
+            "core_artifact_digest\t{}\n",
+            loaded.manifest.core_artifact_digest
+        );
+        assert_eq!(descriptor.matches(&binding).count(), 1);
+        std::fs::write(
+            path,
+            descriptor.replace(&binding, "core_artifact_digest\tcore-digest\n"),
+        )
+        .unwrap();
+        b2_attach_core(generation, openssl, core);
+    }
+
+    #[cfg(unix)]
+    fn coordinated_local_rollback_fixture(
+        same_core: bool,
+    ) -> (B5RemoteFixture, PreparedLocalActivation) {
+        let fixture = b5_remote_fixture("coordinated-local-rollback", "local-first");
+        let roots = b7_public_roots(&fixture.home, &fixture.prefix);
+        let stable = fixture.prefix.join("bin/codex");
+        let original = std::fs::read(&stable).unwrap();
+        let baseline = PublicReleaseBaseline {
+            generation_component: "fixture-current".to_owned(),
+            release_sequence: 1,
+        };
+        let metadata = OfficialReleaseMetadata {
+            version: "9.9.9".to_owned(),
+            package_sha256: "b".repeat(64),
+            publication: None,
+        };
+        let bind_local_provenance = |generation: &std::path::Path| {
+            let path = generation.join("generation.meta");
+            let descriptor = std::fs::read_to_string(&path)
+                .unwrap()
+                .replace(
+                    "source_artifact_digest\tsource-digest",
+                    &format!("source_artifact_digest\t{}", metadata.package_sha256),
+                )
+                .replace(
+                    "creation_metadata\ttest-fixture",
+                    &format!(
+                        "creation_metadata\t{}",
+                        render_local_derived_metadata(&metadata, &baseline),
+                    ),
+                );
+            std::fs::write(path, descriptor).unwrap();
+        };
+        if same_core {
+            coordinated_rebind_fixture_core(&fixture.release, &fixture.openssl, &stable);
+        }
+        bind_local_provenance(&fixture.release);
+        let private = fixture.root.join("local-keys/private.pem");
+        let public = fixture.root.join("local-keys/public.pem");
+        b4_generate_release_keypair(&fixture.openssl, &private, &public);
+        let local_key = b4_public_key_from_private(&fixture.openssl, &private);
+        b4_write_signed_release(&fixture.release, 1, &fixture.openssl, &private);
+        let first =
+            prepare_local_derived_release(&fixture.release, &roots, local_key, &baseline).unwrap();
+        let process_env = b8_process_env(&fixture.prefix, &fixture.tmp);
+        activate_prepared_local_release(first, &roots, &process_env, None).unwrap();
+        rollback_signed_local_release(&roots).unwrap();
+        let paths = CoreStatePaths::new(&roots.state_root).unwrap();
+        let restored = read_pointer_state(&paths).unwrap().unwrap();
+        assert_eq!(restored.current, "fixture-current");
+        assert_eq!(restored.previous.as_deref(), Some("local-first"));
+        assert_eq!(restored.previous_key, Some(local_key));
+        assert_ne!(restored.current_key, local_key);
+        assert_eq!(std::fs::read(&stable).unwrap(), original);
+        assert_eq!(
+            read_core_entrypoint_rollback(&roots).unwrap().generation_id,
+            "local-first"
+        );
+        assert_eq!(
+            std::fs::read(core_rollback_path(&roots)).unwrap(),
+            std::fs::read(fixture.release.join("core")).unwrap()
+        );
+        assert!(read_update_hold(&roots).unwrap().is_none());
+        assert!(rollback_guard::read_guard(&roots).unwrap().is_none());
+
+        let source = b4_source_roots(&fixture.root.join("second-source"), &fixture.openssl);
+        std::fs::create_dir_all(&source.generation_root).unwrap();
+        let second = b2_write_generation(&source, "local-second", false, "unsupported");
+        b2_attach_core(&second, &fixture.openssl, &stable);
+        bind_local_provenance(&second);
+        b4_write_signed_release(&second, 1, &fixture.openssl, &fixture.private_key);
+        let prepared =
+            prepare_local_derived_release(&second, &roots, restored.update_key, &baseline).unwrap();
+        (fixture, prepared)
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn coordinated_local_update_after_rollback_rotates_previous_owned_snapshot() {
+        for same_core in [false, true] {
+            let (fixture, prepared) = coordinated_local_rollback_fixture(same_core);
+            let roots = b7_public_roots(&fixture.home, &fixture.prefix);
+            let paths = CoreStatePaths::new(&roots.state_root).unwrap();
+            let before = read_pointer_state(&paths).unwrap().unwrap();
+            let original = std::fs::read(fixture.prefix.join("bin/codex")).unwrap();
+            let process_env = b8_process_env(&fixture.prefix, &fixture.tmp);
+            activate_prepared_local_release(prepared, &roots, &process_env, None).expect(
+                "a fresh local update after rollback must replace the previous-owned cache",
+            );
+            let after = read_pointer_state(&paths).unwrap().unwrap();
+            assert_eq!(after.current, "local-second");
+            assert_eq!(after.previous.as_deref(), Some(before.current.as_str()));
+            assert_eq!(after.previous_key, Some(before.current_key));
+            assert_eq!(after.update_key, before.update_key);
+            assert_eq!(
+                read_core_entrypoint_rollback(&roots).unwrap().generation_id,
+                before.current
+            );
+            assert_eq!(std::fs::read(core_rollback_path(&roots)).unwrap(), original);
+            assert_eq!(
+                std::fs::read(fixture.prefix.join("bin/codex")).unwrap(),
+                original
+            );
+            rollback_signed_local_release(&roots).unwrap();
+            assert_eq!(
+                read_pointer_state(&paths).unwrap().unwrap().current,
+                before.current
+            );
+            assert_eq!(
+                std::fs::read(fixture.prefix.join("bin/codex")).unwrap(),
+                original
+            );
+            m2_b1_assert_no_transaction_files(&paths);
+            remove_temp_root(fixture.root);
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn coordinated_local_update_rejects_unproven_previous_snapshot_without_mutation() {
+        for defect in [
+            "previous-key",
+            "previous-pointer",
+            "previous-bytes",
+            "previous-core-binding",
+            "previous-no-core",
+            "previous-signature",
+            "cache-bytes",
+            "cache-owner",
+        ] {
+            let (fixture, mut prepared) = coordinated_local_rollback_fixture(false);
+            let roots = b7_public_roots(&fixture.home, &fixture.prefix);
+            let paths = CoreStatePaths::new(&roots.state_root).unwrap();
+            let previous = roots.generation_root.join("local-first");
+            match defect {
+                "previous-key" | "previous-pointer" => {
+                    let before = prepared.before.clone();
+                    if defect == "previous-key" {
+                        prepared.before.previous_key = Some(before.current_key);
+                    } else {
+                        prepared.before.previous = None;
+                        prepared.before.previous_key = None;
+                    }
+                    activate_pointer_state(&paths, Some(&before), &prepared.before).unwrap();
+                }
+                "previous-bytes" => {
+                    std::fs::write(previous.join("core"), b"damaged previous Core").unwrap();
+                }
+                "previous-core-binding" | "previous-no-core" => {
+                    if defect == "previous-core-binding" {
+                        coordinated_rebind_fixture_core(
+                            &previous,
+                            &fixture.openssl,
+                            &fixture.prefix.join("bin/codex"),
+                        );
+                    } else {
+                        std::fs::remove_file(previous.join("core")).unwrap();
+                    }
+                    b4_write_signed_release(
+                        &previous,
+                        1,
+                        &fixture.openssl,
+                        &fixture.root.join("local-keys/private.pem"),
+                    );
+                }
+                "previous-signature" => {
+                    std::fs::write(previous.join("release.sig"), b"invalid signature").unwrap();
+                }
+                "cache-bytes" => {
+                    std::fs::write(core_rollback_path(&roots), b"damaged cached Core").unwrap();
+                }
+                "cache-owner" => {
+                    let path = core_rollback_meta_path(&roots);
+                    let record = std::fs::read_to_string(&path).unwrap();
+                    assert!(record.contains("generation_id=local-first\n"));
+                    std::fs::write(
+                        path,
+                        record.replace("generation_id=local-first\n", "generation_id=unrelated\n"),
+                    )
+                    .unwrap();
+                }
+                _ => unreachable!(),
+            }
+            let state = std::fs::read(&paths.activation_state).unwrap();
+            let stable = std::fs::read(fixture.prefix.join("bin/codex")).unwrap();
+            let cache = std::fs::read(core_rollback_path(&roots)).unwrap();
+            let record = std::fs::read(core_rollback_meta_path(&roots)).unwrap();
+            let result = activate_prepared_local_release(
+                prepared,
+                &roots,
+                &b8_process_env(&fixture.prefix, &fixture.tmp),
+                None,
+            );
+            assert!(result.is_err(), "unproven cache was replaced: {defect}");
+            assert_eq!(
+                std::fs::read(&paths.activation_state).unwrap(),
+                state,
+                "{defect}"
+            );
+            assert_eq!(
+                std::fs::read(fixture.prefix.join("bin/codex")).unwrap(),
+                stable,
+                "{defect}"
+            );
+            assert_eq!(
+                std::fs::read(core_rollback_path(&roots)).unwrap(),
+                cache,
+                "{defect}"
+            );
+            assert_eq!(
+                std::fs::read(core_rollback_meta_path(&roots)).unwrap(),
+                record,
+                "{defect}"
+            );
+            assert!(read_update_hold(&roots).unwrap().is_none());
+            assert!(rollback_guard::read_guard(&roots).unwrap().is_none());
+            m2_b1_assert_no_transaction_files(&paths);
+            remove_temp_root(fixture.root);
+        }
     }
 
     #[cfg(unix)]
