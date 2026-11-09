@@ -679,7 +679,7 @@ fn failed_attached_turn(record: &Record, state: &Value) -> bool {
         && record.driver.is_none()
         && matches!(
             record.phase.as_str(),
-            "running" | "waiting_native" | "reconciliation_required"
+            "starting_native" | "running" | "waiting_native" | "reconciliation_required"
         )
         && state["thread"]["id"] == record.thread
         && matches!(
@@ -2915,7 +2915,7 @@ impl Operator {
         }
     }
     async fn attach(&self, args: Value) -> Result<Value, Error> {
-        let (record, native) = self.binding(&args, false).await?;
+        let (mut record, native) = self.binding(&args, false).await?;
         if args["controller"].as_str() != Some(&record.capability) {
             return Err(Error("operator_controller_fenced"));
         }
@@ -2927,10 +2927,20 @@ impl Operator {
         }
         self.verify_identity(&record).await?;
         if record.phase == "starting_native" {
-            return Ok(json!({"work_id":record.id,"thread_id":record.thread,
-                "native_context":record.phase,"accepted":false,"receipt":null,
-                "context_observation_available":false,"delivery":"pending_native_context",
-                "next_action":"codex_attach","inference_submitted":false}));
+            // Native can accept and then fail a turn before its first model
+            // request enters this Provider. Pending context is not evidence
+            // that the admitted turn is still running. Reuse its ordinary
+            // owner/turn/job observation before returning another pending read.
+            record = self.observe_native(record, &native).await?.0;
+            if record.phase == "reconciliation_required" {
+                return Err(Error("operator_reconciliation_required"));
+            }
+            if record.phase == "starting_native" {
+                return Ok(json!({"work_id":record.id,"thread_id":record.thread,
+                    "native_context":record.phase,"accepted":false,"receipt":null,
+                    "context_observation_available":false,"delivery":"pending_native_context",
+                    "next_action":"codex_attach","inference_submitted":false}));
+            }
         }
         let history = match Self::history(&native, &record.thread).await {
             Ok(history) => history,
@@ -4002,6 +4012,11 @@ impl Operator {
                         work.record.execution = native.owner.clone();
                     }
                     work.record.phase = "starting_native".into();
+                    // This reservation has no Native receipt yet. A failed or
+                    // uncertain turn/start must not inherit the previous turn's
+                    // terminal evidence. Its actual response or ingress binds
+                    // the new turn without changing Native history.
+                    work.record.native_turn = None;
                     self.persist(&work.record)?;
                 }
                 let transfer = self
@@ -4981,7 +4996,7 @@ impl Operator {
             || snapshot.driver.is_some()
             || !matches!(
                 snapshot.phase.as_str(),
-                "running" | "waiting_native" | "reconciliation_required"
+                "starting_native" | "running" | "waiting_native" | "reconciliation_required"
             )
         {
             return Ok(None);
@@ -7563,6 +7578,26 @@ mod local_tests {
     }
 
     #[test]
+    fn initial_attached_failure_has_the_same_terminal_boundary_as_an_ingested_turn() {
+        let mut record = fixture_record(std::path::Path::new("/owned-test"));
+        record.phase = "starting_native".into();
+        record.native_turn = Some("original-turn".into());
+        record.selection = Some(Selection {
+            inference: Inference::Attached,
+            return_path: ReturnPath::Mcp,
+        });
+        let state = json!({"thread":{"id":record.thread,"status":{"type":"systemError"},
+            "turns":[{"id":"original-turn","status":"failed"}]}});
+        assert!(failed_attached_turn(&record, &state),
+            "Provider ingestion is not a prerequisite for observing the admitted Native turn's failure");
+        record.native_turn = None;
+        assert!(
+            !failed_attached_turn(&record, &state),
+            "an unknown start receipt cannot be inferred from an unrelated history item"
+        );
+    }
+
+    #[test]
     fn attached_result_recovery_requires_the_same_failed_terminal_native_turn() {
         let mut record = fixture_record(std::path::Path::new("/owned-test"));
         record.native_turn = Some("original-turn".into());
@@ -7606,13 +7641,7 @@ mod local_tests {
             other[path] = value;
             assert!(!failed_attached_turn(&record, &other));
         }
-        for phase in [
-            "starting_native",
-            "stopped",
-            "stop_requested",
-            "handoff",
-            "completed",
-        ] {
+        for phase in ["stopped", "stop_requested", "handoff", "completed"] {
             let mut other = record.clone();
             other.phase = phase.into();
             assert!(!failed_attached_turn(&other, &state));
@@ -8046,6 +8075,9 @@ mod local_tests {
         reserved.phase = "starting_native".into();
         work.record = reserved.clone();
         work.record.native_turn = Some("reserved-turn".into());
+        assert!(admit_app_round(&work, &reserved, Some("reserved-turn")).is_ok());
+        assert!(admit_app_round(&work, &reserved, Some("previous")).is_err());
+        reserved.native_turn = None;
         assert!(admit_app_round(&work, &reserved, Some("reserved-turn")).is_ok());
         assert!(admit_app_round(&work, &reserved, Some("previous")).is_err());
         work.record.capability = "other-controller".into();

@@ -1576,7 +1576,7 @@ must preserve recovery/provenance needed by admitted work.
 | codex_report/codex_finish | Work-scoped call_id and text/final fingerprint with current-controller admission; receipt intent precedes the one message emission. IDs remain reserved across generations; a new intended report needs a new ID. Retry observes that item and resumes applicable completion settlement; final-item presence alone is not completed work |
 | Session create/resume/fork | Existing caller call_id plus action/payload; durable creation intent/result; unknown native creation is reconciled, never dispatched again |
 | Session start/compact/claim/takeover | Add optional call_id for compatible exact retries, scoped to work/action/controller. New common clients supply it; old unkeyed clients retain conservative fenced behavior. Unknown mutation requires reconciliation |
-| codex_attach | Offered generation plus accepted source receipt; repeated acceptance observes current context, cannot acquire a different generation. A starting_native generation returns pending_native_context; exact Native history-not-ready observation returns pending_native_history. Both are pending reads with accepted=false and no receipt; observe/retry without restarting the task or executing before its real context is available |
+| codex_attach | Offered generation plus accepted source receipt; repeated acceptance observes current context, cannot acquire a different generation. A starting_native generation without a confirmed terminal failure returns pending_native_context; exact Native history-not-ready observation returns pending_native_history. Both are pending reads with accepted=false and no receipt; observe/retry without restarting the task or executing before its real context is available |
 | codex_answer | Work/controller plus native question request_id and answers fingerprint; one answer forwarding; unknown response is not permission to answer again |
 | codex_native_summary | Common clients supply a stable optional call_id, scoped to work/controller; record the admitted native inference round and summary fingerprint before one delivery. Legacy unkeyed input remains scoped to its admitted round. A duplicate keyed reply cannot answer a later round; Chat replacement remains separate |
 | codex_handoff | Existing work/call_id and full cursor/context/summary fingerprint; coalesce intent/generation transition, recover original receipt; uncertainty never creates another successor |
@@ -1608,6 +1608,11 @@ The original work/thread/history remain intact; explicit same-work claim/start
 accepts the next intent without replaying the failed turn. Running and successfully
 completed turns do not authorize this retirement. A separately owned AppHost or
 source inference is not retired through this direct-attached recovery boundary.
+This same observation applies when Native accepted the turn but failed before
+Provider request ingestion. A known starting_native turn's confirmed terminal
+failure enters the existing reconciliation boundary; attach cannot keep reporting
+pending context solely because no Provider stream began. A missing Native turn
+receipt, a different latest turn, or unsettled owned effects remain unconfirmed.
 
 Work records are authoritative; their index is derived/recoverable, not an
 independent source of work existence. A virtual MCP round's durable settlement
