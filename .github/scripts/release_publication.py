@@ -151,7 +151,7 @@ def parse_manifest(path: Path) -> tuple[dict[str, str], list[tuple[str, str, str
     records = lines[1 + len(keys) :]
     if len(records) != count or count not in (len(BASE_FILES), len(EXPECTED_FILES), len(EXTENDED_FILES)):
         fail("release file count is invalid")
-    base = values["generation_id"].startswith("local-base-")
+    base = values["generation_id"].startswith(("core-v", "local-base-"))
     if base != (count == len(BASE_FILES)):
         fail("release variant does not match signed inventory")
     inventory = BASE_FILES if base else EXTENDED_FILES if count == len(EXTENDED_FILES) else EXPECTED_FILES

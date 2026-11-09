@@ -104,7 +104,7 @@ def sign_component(source, output, generation, key, openssl, base=None, authorit
         pass  # Retained historical sources have no shared runtime recipe.
     else:
         payload['runtime_inputs_sha256'] = runtime_fingerprint(source,'HEAD',adapted=True)
-    if generation.startswith('local-base-') or base is not None:
+    if generation.startswith(('core-v', 'local-base-')) or base is not None:
         base_generation = base_sequence = None
         if base is not None:
             verify_signature(openssl,authority,base/'release.manifest',base/'release.sig')
@@ -143,11 +143,11 @@ def component(directory, generation, authority, openssl='openssl'):
             or not isinstance(display['release_date'],str) or len(display['release_date'])!=10
             or date.fromisoformat(display['release_date']).isoformat()!=display['release_date']):
             raise ValueError('invalid release display date')
-        if generation.startswith('local-base-'):
+        if generation.startswith(('core-v', 'local-base-')):
             if display['base_generation'] is not None or display['base_sequence'] is not None:
                 raise ValueError('base display cannot inherit')
         elif (not isinstance(display['base_generation'],str)
-              or not re.fullmatch(r'local-base-[a-z0-9._-]+',display['base_generation'])
+              or not re.fullmatch(r'(?:core-v|local-base-)[a-z0-9._-]+',display['base_generation'])
               or type(display['base_sequence']) is not int
               or not 0 < display['base_sequence'] < int(parse_manifest(directory/'release.manifest')[0]['release_sequence'])):
             raise ValueError('invalid release display base')

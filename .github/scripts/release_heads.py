@@ -23,7 +23,7 @@ def plan(heads, variant):
     if variant not in HEADS or 'full' not in heads or set(heads) - HEADS.keys():
         raise ValueError('invalid release lane state')
     for lane, head in heads.items():
-        if head['generation'].startswith('local-base-') != (lane == 'base'):
+        if head['generation'].startswith(('core-v', 'local-base-')) != (lane == 'base'):
             raise ValueError('signed head belongs to another lane')
         if type(head['sequence']) is not int or not 0 < head['sequence'] <= LIMIT:
             raise ValueError('invalid signed release sequence')
