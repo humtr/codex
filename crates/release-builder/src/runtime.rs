@@ -634,100 +634,113 @@ pub fn build(request: &BuildRequest<'_>) -> Result<String> {
         .mode(0o700)
         .create(request.output)
         .map_err(|e| format!("reserve runtime output: {e}"))?;
-    println!("[runtime] compile, link and execute prepared Rust/target standard-library probe");
-    compile_target_probe(
-        request.rustc,
-        request.output,
-        &recipe.toolchains.frontend_rust,
-        environment
-            .get(std::ffi::OsStr::new(
-                "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER",
-            ))
-            .map(OsString::as_os_str),
-    )?;
-    println!("[runtime] adapt exact official source");
-    let preparation = super::source::prepare(
-        request.source,
-        &recipe.upstream.version,
-        &recipe.upstream.source,
-        true,
-    )?;
-    report(&request.output.join("preparation.json"), &preparation)?;
-    println!("[runtime] audit unchanged external dependencies");
-    let audit = super::source::normalize_lock(&request.source.join("codex-rs"), request.openssl)?;
-    report(&request.output.join("lock-audit.json"), &audit)?;
-    if audit != recipe.qualification.lock_audit.value()? {
-        return Err("source runtime dependency audit differs from exact release input".into());
+    let result = (|| {
+        println!("[runtime] compile, link and execute prepared Rust/target standard-library probe");
+        compile_target_probe(
+            request.rustc,
+            request.output,
+            &recipe.toolchains.frontend_rust,
+            environment
+                .get(std::ffi::OsStr::new(
+                    "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER",
+                ))
+                .map(OsString::as_os_str),
+        )?;
+        println!("[runtime] adapt exact official source");
+        let preparation = super::source::prepare(
+            request.source,
+            &recipe.upstream.version,
+            &recipe.upstream.source,
+            true,
+        )?;
+        report(&request.output.join("preparation.json"), &preparation)?;
+        println!("[runtime] audit unchanged external dependencies");
+        let audit =
+            super::source::normalize_lock(&request.source.join("codex-rs"), request.openssl)?;
+        report(&request.output.join("lock-audit.json"), &audit)?;
+        if audit != recipe.qualification.lock_audit.value()? {
+            return Err("source runtime dependency audit differs from exact release input".into());
+        }
+        println!("[runtime] generate current Native protocol exports");
+        generate_schema(
+            request.source,
+            request.cargo,
+            request.rustc,
+            request.target_dir,
+            &recipe.toolchains.frontend_rust,
+            &environment,
+        )?;
+        git(request.source, &["diff", "--check"])?;
+        fs::write(
+            request.output.join("source.patch"),
+            git(request.source, &["diff", "--binary"])?,
+        )
+        .map_err(|e| e.to_string())?;
+        println!("[runtime] compile adapted upstream executable");
+        let mut cargo = Command::new(request.cargo);
+        cargo
+            .args([
+                "build",
+                "--release",
+                "--locked",
+                "--target",
+                TARGET,
+                "-p",
+                "codex-cli",
+                "--bin",
+                "codex",
+            ])
+            .current_dir(request.source.join("codex-rs"))
+            .env_clear()
+            .envs(&environment)
+            .env("RUSTC", request.rustc)
+            .env("RUSTUP_TOOLCHAIN", &recipe.toolchains.frontend_rust)
+            .env("CARGO_TARGET_DIR", request.target_dir);
+        if !environment.contains_key(std::ffi::OsStr::new("CARGO_BUILD_JOBS")) {
+            cargo.env("CARGO_BUILD_JOBS", "3");
+        }
+        let status = cargo
+            .status()
+            .map_err(|e| format!("runtime compilation: {e}"))?;
+        if !status.success() {
+            return Err(format!("runtime compilation failed: {status}"));
+        }
+        // Freeze output before any probe: Cargo's shared output may later be replaced.
+        let binary = request.output.join("codex");
+        fs::copy(
+            request.target_dir.join(TARGET).join("release/codex"),
+            &binary,
+        )
+        .map_err(|e| format!("snapshot compiled runtime: {e}"))?;
+        fs::set_permissions(&binary, fs::Permissions::from_mode(0o700))
+            .map_err(|e| e.to_string())?;
+        super::validate_static_aarch64_elf(&binary).map_err(|e| e.to_string())?;
+        println!("[runtime] execute produced version");
+        let version = probe(
+            &binary,
+            request.output,
+            format!("codex-cli {}\n", recipe.upstream.version).as_bytes(),
+        )?;
+        fs::write(request.output.join("version.txt"), version).map_err(|e| e.to_string())?;
+        let digest = super::openssl_sha256(request.openssl, &binary).map_err(|e| e.to_string())?;
+        fs::write(
+            request.output.join("sha256.txt"),
+            format!("{digest}  codex\n"),
+        )
+        .map_err(|e| e.to_string())?;
+        let digest = verify(request.output, &recipe, request.openssl)?;
+        println!("[runtime] raw artifact complete; Android admission is still required");
+        Ok(digest)
+    })();
+    match result {
+        Ok(digest) => Ok(digest),
+        Err(error) => match fs::remove_dir_all(request.output) {
+            Ok(()) => Err(error),
+            Err(cleanup) => Err(format!(
+                "{error}; remove incomplete runtime output: {cleanup}"
+            )),
+        },
     }
-    println!("[runtime] generate current Native protocol exports");
-    generate_schema(
-        request.source,
-        request.cargo,
-        request.rustc,
-        request.target_dir,
-        &recipe.toolchains.frontend_rust,
-        &environment,
-    )?;
-    git(request.source, &["diff", "--check"])?;
-    fs::write(
-        request.output.join("source.patch"),
-        git(request.source, &["diff", "--binary"])?,
-    )
-    .map_err(|e| e.to_string())?;
-    println!("[runtime] compile adapted upstream executable");
-    let mut cargo = Command::new(request.cargo);
-    cargo
-        .args([
-            "build",
-            "--release",
-            "--locked",
-            "--target",
-            TARGET,
-            "-p",
-            "codex-cli",
-            "--bin",
-            "codex",
-        ])
-        .current_dir(request.source.join("codex-rs"))
-        .env_clear()
-        .envs(&environment)
-        .env("RUSTC", request.rustc)
-        .env("RUSTUP_TOOLCHAIN", &recipe.toolchains.frontend_rust)
-        .env("CARGO_TARGET_DIR", request.target_dir);
-    if !environment.contains_key(std::ffi::OsStr::new("CARGO_BUILD_JOBS")) {
-        cargo.env("CARGO_BUILD_JOBS", "3");
-    }
-    let status = cargo
-        .status()
-        .map_err(|e| format!("runtime compilation: {e}"))?;
-    if !status.success() {
-        return Err(format!("runtime compilation failed: {status}"));
-    }
-    // Freeze output before any probe: Cargo's shared output may later be replaced.
-    let binary = request.output.join("codex");
-    fs::copy(
-        request.target_dir.join(TARGET).join("release/codex"),
-        &binary,
-    )
-    .map_err(|e| format!("snapshot compiled runtime: {e}"))?;
-    fs::set_permissions(&binary, fs::Permissions::from_mode(0o700)).map_err(|e| e.to_string())?;
-    super::validate_static_aarch64_elf(&binary).map_err(|e| e.to_string())?;
-    println!("[runtime] execute produced version");
-    let version = probe(
-        &binary,
-        request.output,
-        format!("codex-cli {}\n", recipe.upstream.version).as_bytes(),
-    )?;
-    fs::write(request.output.join("version.txt"), version).map_err(|e| e.to_string())?;
-    let digest = super::openssl_sha256(request.openssl, &binary).map_err(|e| e.to_string())?;
-    fs::write(
-        request.output.join("sha256.txt"),
-        format!("{digest}  codex\n"),
-    )
-    .map_err(|e| e.to_string())?;
-    let digest = verify(request.output, &recipe, request.openssl)?;
-    println!("[runtime] raw artifact complete; Android admission is still required");
-    Ok(digest)
 }
 
 pub(super) fn command(args: &[OsString]) -> i32 {
@@ -1127,7 +1140,7 @@ mod tests {
             "original rustc cause lost: {error}"
         );
         assert!(git(&source, &["status", "--porcelain"]).unwrap().is_empty());
-        assert_eq!(fs::read_dir(output).unwrap().count(), 0);
+        assert!(!output.exists());
         assert!(!root.join("cache").exists());
         fs::remove_dir_all(root).unwrap();
     }
@@ -1171,7 +1184,7 @@ mod tests {
             "linker cause lost: {error}"
         );
         assert!(git(&source, &["status", "--porcelain"]).unwrap().is_empty());
-        assert_eq!(fs::read_dir(output).unwrap().count(), 0);
+        assert!(!output.exists());
         assert!(!cache.exists());
         fs::remove_dir_all(root).unwrap();
     }

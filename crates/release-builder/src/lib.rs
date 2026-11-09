@@ -2078,11 +2078,7 @@ fn publish(request: &PublishRequest) -> Result<String, BuilderError> {
         )?;
         Ok(generation.generation_id)
     })();
-    match (result, cleanup_staging(&staging)) {
-        (_, Err(error)) => Err(error),
-        (Err(error), Ok(())) => Err(error),
-        (Ok(generation_id), Ok(())) => Ok(generation_id),
-    }
+    finish_staging(&staging, result)
 }
 
 fn snapshot_core_artifact(
@@ -3856,6 +3852,19 @@ fn cleanup_staging(staging: &Path) -> Result<(), BuilderError> {
     }
 }
 
+fn finish_staging<T>(staging: &Path, result: Result<T, BuilderError>) -> Result<T, BuilderError> {
+    match (result, cleanup_staging(staging)) {
+        (Err(error), cleanup) => {
+            if let Err(cleanup) = cleanup {
+                eprintln!("codex-release-builder cleanup also failed: {cleanup}");
+            }
+            Err(error)
+        }
+        (Ok(value), Ok(())) => Ok(value),
+        (Ok(_), Err(error)) => Err(error),
+    }
+}
+
 /// Assemble one unsigned generation using the same admission path as the CLI.
 pub fn build_generation(request: &GenerationRequest) -> Result<(), BuilderError> {
     validate_request(request)?;
@@ -3886,11 +3895,7 @@ pub fn build_generation(request: &GenerationRequest) -> Result<(), BuilderError>
             frontend_sha256.as_deref(),
         )
     })();
-    match (result, cleanup_staging(&staging)) {
-        (_, Err(error)) => Err(error),
-        (Err(error), Ok(())) => Err(error),
-        (Ok(()), Ok(())) => Ok(()),
-    }
+    finish_staging(&staging, result)
 }
 
 /// Signs one qualified generation into a complete local publication tree.
@@ -3943,8 +3948,7 @@ fn adapt_frontend(args: &[OsString]) -> Result<(), BuilderError> {
             "sync adapted frontend parent",
         )
     })();
-    cleanup_staging(&staging)?;
-    result
+    finish_staging(&staging, result)
 }
 
 pub fn run_from_args<I, S>(args: I) -> i32

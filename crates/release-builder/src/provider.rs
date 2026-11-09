@@ -462,10 +462,7 @@ fn package(args: &[OsString]) -> Result<(), BuilderError> {
             .map_err(|e| io_error("sync Provider parent", e))?;
         Ok(())
     })();
-    if result.is_err() {
-        let _ = std::fs::remove_dir_all(&staging);
-    }
-    result
+    finish_staging(&staging, result)
 }
 
 pub(crate) fn command(args: &[OsString]) -> i32 {

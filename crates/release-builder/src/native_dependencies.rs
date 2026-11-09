@@ -29,7 +29,7 @@ fn literal(script: &str, name: &str) -> Result<String> {
     let prefix = format!("{name}=");
     let values: Vec<_> = script
         .lines()
-        .filter_map(|line| line.strip_prefix(&prefix))
+        .filter_map(|line| line.trim_start().strip_prefix(&prefix))
         .collect();
     if values.len() != 1 {
         return Err(format!("upstream musl recipe: missing/ambiguous {name}"));
@@ -186,11 +186,13 @@ pub fn prepare(request: &Request<'_>) -> Result<Libraries> {
         .mode(0o700)
         .create(request.output)
         .map_err(|e| format!("reserve private native library prefix: {e}"))?;
-    let result = (|| {
+    let mut owns_build_dir = false;
+    let result: Result<Libraries> = (|| {
         fs::DirBuilder::new()
             .mode(0o700)
             .create(request.build_dir)
             .map_err(|e| format!("reserve private native dependency build directory: {e}"))?;
+        owns_build_dir = true;
         let snapshots = request.build_dir.join(".inputs");
         fs::create_dir(&snapshots).map_err(|e| e.to_string())?;
         let ssl_archive = selected.openssl.archive.snapshot(
@@ -320,12 +322,23 @@ int main(void) {{
     })();
     match result {
         Ok(libraries) => Ok(libraries),
-        Err(error) => match fs::remove_dir_all(request.output) {
-            Ok(()) => Err(error),
-            Err(cleanup) => Err(format!(
-                "{error}; remove incomplete private libraries: {cleanup}"
-            )),
-        },
+        Err(mut error) => {
+            for path in [
+                Some(request.output),
+                owns_build_dir.then_some(request.build_dir),
+            ]
+            .into_iter()
+            .flatten()
+            {
+                if let Err(cleanup) = fs::remove_dir_all(path) {
+                    error.push_str(&format!(
+                        "; remove incomplete private directory {}: {cleanup}",
+                        path.display()
+                    ));
+                }
+            }
+            Err(error)
+        }
     }
 }
 
@@ -403,6 +416,14 @@ mod tests {
         assert_eq!(inputs.libcap.archive.name, "libcap-4.7.tar.xz");
         assert_eq!(inputs.openssl.archive.sha256, "a".repeat(64));
         assert!(inputs.openssl_options.contains(&"-DOWNED=1".into()));
+        let indented = ssl
+            .lines()
+            .map(|line| format!("  {line}\n"))
+            .collect::<String>();
+        assert_eq!(
+            parse(&indented, &cap).unwrap().openssl.archive.sha256,
+            "a".repeat(64)
+        );
         for bad in [
             ssl.replace("9.2.1", "$(hostname)"),
             ssl.clone() + "openssl_version=\"9.2.1\"\n",
@@ -413,5 +434,77 @@ mod tests {
         ] {
             assert!(parse(&bad, &cap).is_err(), "{bad}");
         }
+    }
+
+    #[test]
+    fn failed_dependency_preparation_cleans_only_its_owned_roots() {
+        let root = std::env::temp_dir().join(format!(
+            "native-dependency-cleanup-{}-{}",
+            std::process::id(),
+            super::super::STAGING_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        ));
+        let source = root.join("source");
+        fs::create_dir_all(source.join(".github/scripts")).unwrap();
+        let ssl = format!("openssl_version=\"9.2.1\"\nopenssl_sha256=\"{}\"\nCC=\"${{OPENSSL_CC}}\" perl ./Configure \"${{openssl_target}}\" \\\n  \"--prefix=${{openssl_prefix}}\" --openssldir=/usr/local/ssl --libdir=lib \\\n  no-shared no-module no-tests no-async\n", "a".repeat(64));
+        fs::write(source.join(".github/scripts/install-musl-openssl.sh"), ssl).unwrap();
+        fs::write(
+            source.join(".github/scripts/install-musl-build-tools.sh"),
+            format!(
+                "libcap_version=\"4.7\"\nlibcap_sha256=\"{}\"\n",
+                "b".repeat(64)
+            ),
+        )
+        .unwrap();
+        let git = |args: &[&str]| {
+            output(
+                Command::new("git").arg("-C").arg(&source).args(args),
+                "fixture git",
+            )
+            .unwrap()
+        };
+        git(&["init", "-q"]);
+        git(&["add", "."]);
+        git(&[
+            "-c",
+            "user.name=Owned fixture",
+            "-c",
+            "user.email=owned@localhost",
+            "commit",
+            "-qm",
+            "official",
+        ]);
+        let revision = String::from_utf8(git(&["rev-parse", "HEAD"])).unwrap();
+        let archives = root.join("absent-archives");
+        let prefix = root.join("libraries");
+        let build_dir = root.join("build");
+        let sdk = Tools::at(&root.join("unused-sdk"));
+        let tools = root.join("unused-tools");
+        let request = Request {
+            source: &source,
+            revision: revision.trim(),
+            archives: &archives,
+            output: &prefix,
+            build_dir: &build_dir,
+            sdk: &sdk,
+            tools: &tools,
+        };
+        for _ in 0..2 {
+            let error = prepare(&request).err().unwrap();
+            assert!(error.contains("absent-archives"), "{error}");
+            assert!(!prefix.exists());
+            assert!(!build_dir.exists());
+        }
+        fs::create_dir(&build_dir).unwrap();
+        fs::write(build_dir.join("retained"), "unrelated build data").unwrap();
+        assert!(prepare(&request)
+            .err()
+            .unwrap()
+            .contains("reserve private native dependency build directory"));
+        assert!(!prefix.exists());
+        assert_eq!(
+            fs::read_to_string(build_dir.join("retained")).unwrap(),
+            "unrelated build data"
+        );
+        fs::remove_dir_all(root).unwrap();
     }
 }
