@@ -417,6 +417,92 @@ index 1f2129d..28e5e4e 100644
 +    assert_eq!(current.model_provider_id, "openai");
      Ok(())
  }
+diff --git a/codex-rs/app-server/src/request_processors/account_processor/workspace_routing.rs b/codex-rs/app-server/src/request_processors/account_processor/workspace_routing.rs
+index aef1593..71ca534 100644
+--- a/codex-rs/app-server/src/request_processors/account_processor/workspace_routing.rs
++++ b/codex-rs/app-server/src/request_processors/account_processor/workspace_routing.rs
+@@ -184,6 +184,28 @@ fn workspace_config_load_reason(error: &io::Error) -> String {
+     }
+ }
+ 
++fn account_read_rpc_error(error: AccountReadError) -> JSONRPCErrorError {
++    match error {
++        AccountReadError::InvalidAccount(error) => invalid_request(error.to_string()),
++        AccountReadError::Routing(error) => {
++            let authentication_unavailable = matches!(
++                error,
++                WorkspaceRoutingError::RefreshTokenRejected(_)
++                    | WorkspaceRoutingError::DiscoveryUnauthorized
++            );
++            let mut response = internal_error(error.to_string());
++            if authentication_unavailable {
++                // Account presentation can remain unavailable while an independent
++                // provider is selected. Policy/routing failures carry no such grant.
++                response.data = Some(serde_json::json!({
++                    "reason": "accountAuthenticationUnavailable"
++                }));
++            }
++            response
++        }
++    }
++}
++
+ impl WorkspaceRoutingResolver for AccountRequestProcessor {
+     fn resolve(
+         &self,
+@@ -263,10 +285,7 @@ impl AccountRequestProcessor {
+         let read = self
+             .read_account(/*request*/ None)
+             .await
+-            .map_err(|error| match error {
+-                AccountReadError::InvalidAccount(error) => invalid_request(error.to_string()),
+-                AccountReadError::Routing(error) => internal_error(error.to_string()),
+-            })?;
++            .map_err(account_read_rpc_error)?;
+         let mut account = read.account_state.account.map(Account::from);
+         if let Some(Account::Chatgpt { workspace_name, .. }) = &mut account {
+             *workspace_name = read.workspace_name;
+diff --git a/codex-rs/app-server/src/request_processors/account_processor/workspace_routing_tests.rs b/codex-rs/app-server/src/request_processors/account_processor/workspace_routing_tests.rs
+index dafe4e8..e2178b7 100644
+--- a/codex-rs/app-server/src/request_processors/account_processor/workspace_routing_tests.rs
++++ b/codex-rs/app-server/src/request_processors/account_processor/workspace_routing_tests.rs
+@@ -5,6 +5,36 @@ use pretty_assertions::assert_eq;
+ use serde_json::Value;
+ use test_case::test_case;
+ 
++#[test]
++fn account_observation_authentication_errors_are_distinct_from_policy_and_routing_errors() {
++    for failure in [
++        WorkspaceRoutingError::DiscoveryUnauthorized,
++        WorkspaceRoutingError::RefreshTokenRejected(RefreshTokenFailedError::new(
++            codex_protocol::auth::RefreshTokenFailedReason::Revoked,
++            "refresh token was revoked".into(),
++        )),
++    ] {
++        let response = account_read_rpc_error(failure.into());
++        assert_eq!(response.code, -32603);
++        assert_eq!(
++            response.data,
++            Some(serde_json::json!({"reason":"accountAuthenticationUnavailable"})),
++        );
++    }
++    for failure in [
++        WorkspaceRoutingError::RequirementsLoad("cloud config: authentication failed".into()),
++        WorkspaceRoutingError::RequirementsReload("cloud config: authentication failed".into()),
++        WorkspaceRoutingError::BackendConflict,
++        WorkspaceRoutingError::AccountChanged,
++        WorkspaceRoutingError::DiscoveryFailed,
++        WorkspaceRoutingError::Shutdown,
++    ] {
++        let response = account_read_rpc_error(failure.into());
++        assert_eq!(response.code, -32603);
++        assert!(response.data.is_none());
++    }
++}
++
+ #[test_case(CloudConfigBundleLoadErrorCode::RequestFailed, "cloud config: request failed"; "request")]
+ #[test_case(CloudConfigBundleLoadErrorCode::Auth, "cloud config: authentication failed"; "refresh")]
+ fn cloud_failures_preserve_policy_denials_but_redact_other_messages(
 diff --git a/codex-rs/app-server/src/request_processors/initialize_processor.rs b/codex-rs/app-server/src/request_processors/initialize_processor.rs
 index f6b282e..ce097d8 100644
 --- a/codex-rs/app-server/src/request_processors/initialize_processor.rs
