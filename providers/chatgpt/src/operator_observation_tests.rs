@@ -403,7 +403,10 @@ async fn failed_initial_native_turn_is_observed_before_attach_returns_pending() 
         operator.call("codex_attach", stale).await,
         Err(Error("operator_controller_fenced"))
     );
-    let status = operator.call("codex_status", args).await.unwrap();
+    let status = operator
+        .call("codex_status", json!({"work_id":record.id}))
+        .await
+        .unwrap();
     assert_eq!(status["phase"], "reconciliation_required");
     assert_eq!(status["native_status"]["type"], "systemError");
     assert_eq!(
