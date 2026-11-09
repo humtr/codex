@@ -502,9 +502,15 @@ struct Cursor {
     count: usize,
     digest: String,
 }
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum RoundRetirement {
+    Steer,
+    NativeInterrupt,
+}
 struct AppRound {
     cancel: CancellationToken,
     retired: CancellationToken,
+    retirement: Option<RoundRetirement>,
 }
 struct Work {
     record: Record,
@@ -714,6 +720,38 @@ fn retiring_app_round(
         && round.cancel.is_cancelled()
         && admit_app_round(work, snapshot, turn) == Err(Error("native_lane_busy")))
     .then(|| round.retired.clone())
+}
+
+// An identical Native request is another observer of the same result, not an
+// additional model dispatch. Wait for the owner and let AppHost replay its
+// committed events once, after the old writer has retired.
+fn observing_app_round(
+    work: &Work,
+    snapshot: &Record,
+    request: &Request,
+) -> Option<CancellationToken> {
+    let round = work.app_round.as_ref()?;
+    (same_native_round(snapshot, &work.record)
+        && work.record.phase == "running"
+        && work.stops_in_progress == 0
+        && work.request.as_ref().is_some_and(|original| {
+            crate::context::digest(original) == crate::context::digest(request)
+        }))
+    .then(|| round.retired.clone())
+}
+
+fn steerable_app_round(work: &Work, snapshot: &Record, request: &Request) -> bool {
+    work.record.phase == "running"
+        && work.stops_in_progress == 0
+        && same_native_round(snapshot, &work.record)
+        && work
+            .app_round
+            .as_ref()
+            .is_some_and(|round| !round.cancel.is_cancelled())
+        && work
+            .request
+            .as_ref()
+            .is_some_and(|previous| crate::app::appended_steer(previous, request))
 }
 
 fn app_lane_requires_host_stop(lane: &Value) -> bool {
@@ -4123,6 +4161,8 @@ impl Operator {
                     event = async { events.as_mut().unwrap().recv().await }, if events.is_some() => Some(event),
                     _ = polling.tick() => None,
                 };
+                let native_turn_completed = matches!(&event, Some(Ok(value))
+                    if value["method"] == "turn/completed" && value["params"]["threadId"] == record.thread);
                 match event {
                     Some(Ok(event)) if event["method"] == "operator/nativeDisconnected" => {
                         native = None;
@@ -4235,7 +4275,22 @@ impl Operator {
                         }
                         return;
                     }
-                    Ok(_) => (),
+                    Ok((observed, state, _)) => {
+                        if observed.phase == "running"
+                            && (native_turn_completed
+                                || matches!(
+                                    state["thread"]["status"]["type"].as_str(),
+                                    Some("idle" | "systemError")
+                                ))
+                        {
+                            if let Err(error) = this
+                                .retire_interrupted_app_round(&observed, current_native)
+                                .await
+                            {
+                                eprintln!("native_interruption_observation_failed: {}", error.0);
+                            }
+                        }
+                    }
                     Err(Error(
                         "native_delivery_unknown"
                         | "stale_process_owner"
@@ -4251,6 +4306,61 @@ impl Operator {
                 }
             }
         });
+    }
+
+    async fn retire_interrupted_app_round(
+        &self,
+        record: &Record,
+        native: &Native,
+    ) -> Result<(), Error> {
+        let active = {
+            let works = self.works.lock().await;
+            works.get(&record.thread).is_some_and(|work| {
+                same_native_round(record, &work.record)
+                    && work.record.phase == "running"
+                    && work.stops_in_progress == 0
+                    && work
+                        .app_round
+                        .as_ref()
+                        .is_some_and(|round| !round.cancel.is_cancelled())
+            })
+        };
+        if !active {
+            return Ok(());
+        }
+        let history = native
+            .call(
+                "thread/read",
+                json!({"threadId":record.thread,"includeTurns":true}),
+            )
+            .await?;
+        let interrupted = history["thread"]["turns"].as_array().is_some_and(|turns| {
+            turns.iter().any(|turn| {
+                turn["id"].as_str() == record.native_turn.as_deref()
+                    && turn["status"] == "interrupted"
+            })
+        });
+        if !interrupted {
+            return Ok(());
+        }
+        let mut works = self.works.lock().await;
+        let Some(work) = works.get_mut(&record.thread) else {
+            return Ok(());
+        };
+        if same_native_round(record, &work.record)
+            && work.record.phase == "running"
+            && work.stops_in_progress == 0
+        {
+            if let Some(round) = work
+                .app_round
+                .as_mut()
+                .filter(|round| !round.cancel.is_cancelled())
+            {
+                round.retirement = Some(RoundRetirement::NativeInterrupt);
+                round.cancel.cancel();
+            }
+        }
+        Ok(())
     }
     async fn synchronize_native(&self, args: Value) -> Result<Value, Error> {
         let thread = text(&args, "thread_id", 64)?;
@@ -5563,7 +5673,8 @@ impl Operator {
                     .operation(json!({"op":"snapshot","lane":marker}))
                     .await?;
                 if snapshot["error"].is_string() {
-                    return Err(Error("operator_app_round_failed"));
+                    return Err(crate::app::http_failure(snapshot["error"].as_str())
+                        .unwrap_or(Error("operator_app_round_failed")));
                 }
                 if snapshot["stopped"] == true {
                     return Ok(());
@@ -5894,7 +6005,10 @@ impl Operator {
                                     }
                                 }
                                 let failure=if snapshot["error"].is_string() {
-                                    Some(("operator_app_round_failed","ChatGPT app reported a failure. Work is preserved; reconcile before retrying."))
+                                    let http=crate::app::http_failure(snapshot["error"].as_str());
+                                    Some((http.map_or("operator_app_round_failed", |error| error.0),
+                                        if http.is_some() {"ChatGPT returned an explicit HTTP refusal. Original work and the uncertain delivery record are preserved; do not resend the model input."}
+                                        else {"ChatGPT app reported a failure. Work is preserved; reconcile before retrying."}))
                                 } else if waiting.is_none() && host_settled(&snapshot)
                                     && snapshot["messages"].as_array().is_some_and(|messages|messages.iter().any(|message|
                                         message["author"]["role"]=="assistant" && message["channel"]=="final"
@@ -6147,11 +6261,48 @@ impl Host for Operator {
                 );
             }
             if let Some(prior) = &record {
-                let retirement = {
+                let steer_candidate = {
                     let works = this.works.lock().await;
                     works
                         .get(&request.thread)
-                        .and_then(|work| retiring_app_round(work, prior, request.turn.as_deref()))
+                        .is_some_and(|work| steerable_app_round(work, prior, &request))
+                };
+                if steer_candidate {
+                    // Verify the real Native turn before acting on any HTTP
+                    // metadata or appended text. A plain disconnect is never
+                    // a Steer; only Native's in-progress canonical turn is.
+                    native
+                        .verify_scope(&request.thread, &pool.workspace)
+                        .await?;
+                    let history = native
+                        .call(
+                            "thread/read",
+                            json!({"threadId":request.thread,"includeTurns":true}),
+                        )
+                        .await?;
+                    let turn = history["thread"]["turns"]
+                        .as_array()
+                        .and_then(|turns| turns.last())
+                        .ok_or(Error("native_round_not_ready"))?;
+                    if turn["id"].as_str() != request.turn.as_deref()
+                        || turn["status"] != "inProgress"
+                    {
+                        return Err(Error("native_round_not_ready"));
+                    }
+                }
+                let retirement = {
+                    let mut works = this.works.lock().await;
+                    works.get_mut(&request.thread).and_then(|work| {
+                        if steer_candidate && steerable_app_round(work, prior, &request) {
+                            let round = work.app_round.as_mut().unwrap();
+                            round.retirement = Some(RoundRetirement::Steer);
+                            round.cancel.cancel();
+                            Some(round.retired.clone())
+                        } else {
+                            retiring_app_round(work, prior, request.turn.as_deref())
+                                .or_else(|| observing_app_round(work, prior, &request))
+                        }
+                    })
                 };
                 if let Some(retirement) = retirement {
                     tokio::select! {
@@ -6216,6 +6367,7 @@ impl Host for Operator {
                     work.app_round = Some(AppRound {
                         cancel: cancel.clone(),
                         retired,
+                        retirement: None,
                     });
                     work.record.accepted = false;
                     work.request = Some(request.clone());
@@ -6298,13 +6450,19 @@ impl Host for Operator {
                     let mut works = this.works.lock().await;
                     let work = works.get_mut(&thread).unwrap();
                     if same_native_round(record, &work.record) {
+                        let retirement = work.app_round.as_ref().and_then(|round| round.retirement);
                         work.app_round = None;
                         if work.stops_in_progress == 0 && work.record.phase == "running" {
                             work.record.phase = if result.is_ok()
                                 || result == Err(Error("cancelled_before_dispatch"))
+                                || retirement == Some(RoundRetirement::Steer)
+                                    && result == Err(Error("app_stop_acknowledged"))
                             {
                                 "running"
-                            } else if result == Err(Error("bound_chat_turn_interrupted")) {
+                            } else if result == Err(Error("bound_chat_turn_interrupted"))
+                                || retirement == Some(RoundRetirement::NativeInterrupt)
+                                    && result == Err(Error("app_stop_acknowledged"))
+                            {
                                 "interrupted"
                             } else {
                                 "reconciliation_required"
@@ -7321,7 +7479,31 @@ mod local_tests {
         work.app_round = Some(AppRound {
             cancel: round_cancel.clone(),
             retired,
+            retirement: None,
         });
+        let mut original = Request::parse(
+            json!({"stream":true,"model":"chatgpt-desktop/gpt-6","input":[{"role":"user","content":"first"}]}),
+            &Config::default(),
+            Some("test-thread"),
+        )
+        .unwrap();
+        original.turn = Some("previous".into());
+        work.request = Some(original.clone());
+        assert!(observing_app_round(&work, &record, &original).is_some());
+        assert!(!steerable_app_round(&work, &record, &original));
+        let mut changed = original.clone();
+        changed
+            .input
+            .push(json!({"role":"user","content":"new steer"}));
+        assert!(steerable_app_round(&work, &record, &changed));
+        assert!(observing_app_round(&work, &record, &changed).is_none());
+        let mut changed_result = changed.clone();
+        changed_result.input[0]["content"] = json!("tampered prior input");
+        assert!(!steerable_app_round(&work, &record, &changed_result));
+        work.stops_in_progress = 1;
+        assert!(!steerable_app_round(&work, &record, &changed));
+        assert!(observing_app_round(&work, &record, &original).is_none());
+        work.stops_in_progress = 0;
         assert_eq!(
             admit_app_round(&work, &record, Some("next")),
             Err(Error("native_lane_busy"))

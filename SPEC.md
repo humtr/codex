@@ -1704,6 +1704,17 @@ original request; delayed events cannot complete or overwrite its successor.
 Retain distinct identifiers where their lifetimes differ, without independently
 persisting the same decision at several layers.
 
+The Responses/SSE subscriber is an observer, not the authority to terminate an
+already admitted app request. Its disconnection does not itself request remote
+Stop, revoke a Native call or permit retransmission. Keep consuming and settling
+the original bounded operation and its tool receipts after observer loss; a
+subsequent observation recovers only evidence the original owner actually
+retained. Explicit Stop, service shutdown, and a Native-admitted replacement
+have distinct authority: only a confirmed active-turn Steer with appended
+canonical user input may retire its preceding inference request, and a
+successor cannot dispatch until the previous owned Stop is settled. A failed
+observation is neither remote completion nor permission to cancel or replay.
+
 When Native accepts additional input before an outstanding MCP tool return,
 the retained return may carry that input as separate `native_input` context
 alongside the unchanged `result`. It is Native-admitted user/context data, not
@@ -1732,7 +1743,14 @@ and its existing cancellation/quiescence contract across revisions; it must not
 initialize replacement hooks or admit execution as part of retirement.
 
 Use the existing operation owner to recover partial/lost observations within
-the admitted deadline and budget. A committed Native tool result remains a
+the admitted deadline and budget. The app SDK first owns transport resume and
+its saved-completion recovery. If these exhaust with a transport failure but
+the exact account/response is still streaming, the Provider may reobserve that
+response through the SDK resume operation at a verified offset. This never
+resends user input. A server streaming indicator permits reobservation but does
+not prove model progress; a terminal status must be reconciled with the actual
+saved result, not described as a recovered stream. Old callbacks and uncertain
+identity/offset never advance a newer request. A committed Native tool result remains a
 known result even if its app receipt is uncertain: settle its original return
 without re-executing the tool. Reconciliation fences genuinely unresolved
 operations, authority or effects and exposes the evidence/action needed to
