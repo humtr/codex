@@ -41,7 +41,9 @@ def qualify(args):
                   operating_runtime_changed=False, public_delivery_qualified=False,
                   same_binary_test_generations=True, cases=[])
     start = time.monotonic()
-    inputs = {name: sha(getattr(args, name)) for name in ('core', 'frontend', 'provider', 'builder')}
+    inputs = {name: sha(getattr(args, name)) if getattr(args, name) is not None else None
+              for name in ('core', 'frontend', 'provider', 'builder')}
+    inputs['frontend_source'] = 'raw_override' if args.frontend is not None else 'retained_generation'
     inputs['generation_manifest'] = sha(args.generation / 'release.manifest')
     helpers = ('scripts/qualify_provider_package.py', 'scripts/qualify_permission_lifecycle.py',
                'scripts/qualify_tasks.py', 'scripts/fixtures/permission-model.json',
@@ -703,7 +705,10 @@ def qualify(args):
             case.update(accepted=True, profile_preserved=True, native_defaults_preserved=True,
                         core_authority_restored=True, actual_Chat_requests=0,
                         selection_sha256=sha(selection), profile_sha256=sha(profile))
-        assert {name: sha(getattr(args, name)) for name in ('core', 'frontend', 'provider', 'builder')} == {name: inputs[name] for name in ('core', 'frontend', 'provider', 'builder')}
+        assert {name: sha(getattr(args, name)) if getattr(args, name) is not None else None
+                for name in ('core', 'frontend', 'provider', 'builder')} == {
+                    name: inputs[name] for name in ('core', 'frontend', 'provider', 'builder')}
+        assert sha(args.generation / 'release.manifest') == inputs['generation_manifest']
         assert {name: sha(source / name) for name in inventory} == inventory
         assert {name: sha(source / name) for name in helpers} == inputs['helpers']
         report['accepted'] = True
@@ -724,13 +729,16 @@ def qualify(args):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
-    for name in ('core', 'frontend', 'provider', 'builder', 'generation', 'report'):
+    for name in ('core', 'provider', 'builder', 'generation', 'report'):
         parser.add_argument('--' + name, type=Path, required=True)
+    parser.add_argument('--frontend', type=Path,
+                        help='Optional raw TUI override; omission preserves the installed qualified TUI in the disposable fixture')
     parser.add_argument('--keep-payloads', action='store_true')
     parser.add_argument('--remote', action='store_true', help='exercise real owned localhost TLS and remote rejection paths')
     args = parser.parse_args()
     for name in ('core', 'frontend', 'provider', 'builder', 'generation'):
-        setattr(args, name, getattr(args, name).resolve(strict=True))
+        if getattr(args, name) is not None:
+            setattr(args, name, getattr(args, name).resolve(strict=True))
     if args.report.exists():
         parser.error('report already exists; inspect completed state instead of replaying it')
     raise SystemExit(qualify(args))
