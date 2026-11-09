@@ -87,7 +87,7 @@ impl ChatModelReentry {
         if let Some(tier) = tier {
             self.args.extend([
                 "-c".into(),
-                format!("service_tier={}", serde_json::to_string(&tier).unwrap()),
+                format!("service_tier={}", serde_json::Value::String(tier)),
             ]);
         }
     }
@@ -817,6 +817,38 @@ args=["token","--state","/owned/state"]
             assert_eq!(parsed.get("_x_"), Some(&value));
         }
     }
+    #[test]
+    fn termux_chat_models_service_tier_is_one_escaped_session_override() {
+        for tier in ["priority", "", "quoted\"tier\\path\nΩ"] {
+            let mut request = ChatModelReentry {
+                core: PathBuf::from("/owned/codex"),
+                args: vec!["resume".into(), "owned-thread".into()],
+                cwd: PathBuf::from("/owned/work"),
+                home: PathBuf::from("/owned/account"),
+                return_profile: None,
+                restore_saved: false,
+            };
+            let original = request.args.clone();
+            request.set_service_tier(None);
+            assert_eq!(request.args, original);
+            request.set_service_tier(Some(tier.into()));
+            assert_eq!(&request.args[..original.len()], &original);
+            assert_eq!(request.args.len(), original.len() + 2);
+            assert_eq!(request.args[original.len()], "-c");
+            let encoded = request.args.last().unwrap();
+            assert_eq!(
+                encoded,
+                &format!("service_tier={}", serde_json::to_string(tier).unwrap())
+            );
+            let parsed = codex_utils_cli::CliConfigOverrides {
+                raw_overrides: vec![encoded.clone()],
+            }
+            .parse_overrides()
+            .unwrap();
+            assert_eq!(parsed, vec![("service_tier".into(), tier.into())]);
+        }
+    }
+
     #[test]
     fn termux_chat_models_reentry_keeps_same_home_cwd_thread_and_configuration_identity() {
         let request = ChatModelReentry {

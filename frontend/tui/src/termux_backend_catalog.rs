@@ -13,6 +13,10 @@ use tokio::process::Command;
 const LIMIT: usize = 4 * 1024 * 1024;
 
 /// Called before configuration or terminal setup; safe without a terminal/auth.
+#[expect(
+    clippy::print_stdout,
+    reason = "This static pre-start capability query is an explicit CLI stdout contract."
+)]
 pub(crate) fn capabilities(requested: bool) -> Option<crate::AppExitInfo> {
     if !requested {
         return None;
@@ -258,7 +262,9 @@ pub(crate) async fn prepare(
             .stderr(Stdio::null())
             .kill_on_drop(true)
             .spawn()?;
-        let mut input = child.stdin.take().expect("piped catalog stdin");
+        let mut input = child.stdin.take().ok_or_else(|| {
+            color_eyre::eyre::eyre!("qualified backend catalog stdin unavailable")
+        })?;
         if let Some(catalog) = catalog {
             input.write_all(catalog).await?;
         }
@@ -268,7 +274,7 @@ pub(crate) async fn prepare(
         child
             .stdout
             .take()
-            .expect("piped catalog stdout")
+            .ok_or_else(|| color_eyre::eyre::eyre!("qualified backend catalog stdout unavailable"))?
             .take(109)
             .read_to_end(&mut output)
             .await?;
@@ -440,6 +446,34 @@ mod tests {
             );
         }
         assert!(decode_socket(format!("/{}\n", "s".repeat(107)).as_bytes()).is_err());
+    }
+
+    #[tokio::test]
+    async fn termux_backend_catalog_propagates_failed_startup_and_invalid_reply()
+    -> color_eyre::Result<()> {
+        let root = tempfile::tempdir()?;
+        let core = root.path().join("core");
+        let home = root.path().join("home");
+        std::fs::create_dir(&home)?;
+        for (output, status, expected) in [
+            ("/owned/s\\n", 7, "qualified backend catalog startup failed"),
+            ("/owned/s", 0, "invalid qualified backend socket"),
+        ] {
+            std::fs::write(
+                &core,
+                format!(
+                    "#!/bin/sh\ncat > \"$CODEX_HOME/catalog\"\nprintf '{output}'\nexit {status}\n"
+                ),
+            )?;
+            std::fs::set_permissions(&core, std::fs::Permissions::from_mode(0o700))?;
+            let bytes = br#"{"models":[]}"#;
+            let error = prepare(&core, &home, Some(bytes), &[], root.path())
+                .await
+                .unwrap_err();
+            assert_eq!(error.to_string(), expected);
+            assert_eq!(std::fs::read(home.join("catalog"))?, bytes);
+        }
+        Ok(())
     }
 
     #[tokio::test]
