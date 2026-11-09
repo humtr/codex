@@ -191,6 +191,34 @@ mod tests {
                 .with_source_item_id(Some(id.into())),
         )
     }
+
+    #[test]
+    fn progress_disclosure_preserves_question_titles_and_copy_source() {
+        let question = codex_protocol::items::AsyncUserInputQuestion {
+            title: "Which entrypoint?".into(),
+            options: Some(vec!["Codex".into(), "ChatGPT".into()]),
+        };
+        let original = AgentMarkdownCell::new(
+            "Which entrypoint?\n- Codex\n- ChatGPT".into(),
+            std::path::Path::new("/"),
+        )
+        .with_questions(&[question])
+        .with_copy_source(Some("Complete original question".into()))
+        .with_source_item_id(Some("question-progress".into()));
+        let expected = original.transcript_hyperlink_lines(80);
+        assert_eq!(expected[0].line.spans[0].content, "? ");
+        let folded = original.with_progress_folded(true);
+        let unfolded = folded.with_progress_folded(false);
+        for cell in [&folded, &unfolded] {
+            assert_eq!(cell.copy_source(), original.copy_source());
+            assert_eq!(cell.source_item_id(), original.source_item_id());
+            assert!(crate::terminal_hyperlinks::lines_with_sources_eq(
+                &cell.transcript_hyperlink_lines(80),
+                &expected,
+            ));
+        }
+    }
+
     #[test]
     fn exact_source_progress_folds_in_place_after_final_without_losing_content() {
         let first = message("p1", "First report.\n```rust\nfn example() {}\n```");

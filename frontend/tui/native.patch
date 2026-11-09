@@ -2866,7 +2866,7 @@ diff --git a/codex-rs/tui/src/history_cell/messages.rs b/codex-rs/tui/src/histor
 index 66f407a..38c169c 100644
 --- a/codex-rs/tui/src/history_cell/messages.rs
 +++ b/codex-rs/tui/src/history_cell/messages.rs
-@@ -576,9 +576,33 @@ pub(crate) struct AgentMarkdownCell {
+@@ -576,9 +576,34 @@ pub(crate) struct AgentMarkdownCell {
      rendered_lines: Option<MarkdownRenderCache>,
      spoken_artifacts: bool,
      question_titles: Vec<std::ops::Range<usize>>,
@@ -2895,12 +2895,13 @@ index 66f407a..38c169c 100644
 +        next.source_item_id = self.source_item_id.clone();
 +        next.folded_progress = folded;
 +        next.spoken_artifacts = self.spoken_artifacts;
++        next.question_titles = self.question_titles.clone();
 +        next
 +    }
      pub(crate) fn with_copy_source(mut self, source: Option<String>) -> Self {
          self.copy_source = source;
          self
-@@ -616,6 +640,8 @@ impl AgentMarkdownCell {
+@@ -616,6 +641,8 @@ impl AgentMarkdownCell {
              rendered_lines,
              spoken_artifacts: false,
              question_titles: Vec::new(),
@@ -2909,7 +2910,7 @@ index 66f407a..38c169c 100644
          }
      }
  
-@@ -723,7 +749,27 @@ impl HistoryCell for AgentMarkdownCell {
+@@ -723,7 +750,27 @@ impl HistoryCell for AgentMarkdownCell {
          self.render_lines(width, crate::markdown_render::ListSpacing::AfterMultiline)
      }
  
