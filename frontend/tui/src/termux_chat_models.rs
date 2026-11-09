@@ -236,40 +236,39 @@ pub(crate) fn reentry_route(
     } else if let Some(profile) = &saved {
         args.extend(["--profile".into(), profile.clone()]);
     }
-    // Preserve explicit non-routing session settings rather than silently dropping them.
+    // Preserve explicit session settings. Compose provider defaults before
+    // serializing root tables: a later CLI table replaces an earlier one.
+    let mut session = toml::Value::Table(toml::Table::new());
     for layer in config.config_layer_stack.layers_low_to_high() {
-        if matches!(layer.name, ConfigLayerSource::SessionFlags)
-            && let Some(table) = layer.config.as_table()
-        {
-            for (key, value) in table {
-                if !matches!(
-                    key.as_str(),
-                    "model"
-                        | "model_provider"
-                        | "model_catalog_json"
-                        | "model_reasoning_effort"
-                        | "profile"
-                        | "sandbox_mode"
-                        | "default_permissions"
-                ) {
-                    args.extend(["-c".into(), format!("{key}={value}")]);
-                }
-            }
+        if matches!(layer.name, ConfigLayerSource::SessionFlags) {
+            codex_config::merge_toml_values(&mut session, &layer.config);
         }
     }
     if entering {
         // Keep the selected user configuration and add only the installed route.
         // Named permission definitions, MCP settings and secrets stay in files.
         let routing = installed_routing(config)?;
-        let provider = routing.get("model_providers")?.get(PROVIDER)?;
+        add_provider_defaults(config, &routing, &mut session);
         args.extend([
             "-c".into(),
             format!("model_provider={PROVIDER:?}"),
             "-c".into(),
             format!("model_catalog_json={}", routing.get("model_catalog_json")?),
-            "-c".into(),
-            format!("model_providers.{PROVIDER}={provider}"),
         ]);
+    }
+    for (key, value) in session.as_table()? {
+        if !matches!(
+            key.as_str(),
+            "model"
+                | "model_provider"
+                | "model_catalog_json"
+                | "model_reasoning_effort"
+                | "profile"
+                | "sandbox_mode"
+                | "default_permissions"
+        ) {
+            args.extend(["-c".into(), format!("{key}={value}")]);
+        }
     }
     if !entering {
         // Resume otherwise restores the saved Chat provider when the base
@@ -330,28 +329,40 @@ pub(crate) fn installed_routing(config: &Config) -> Option<toml::Value> {
 
 /// Make a saved provider resolvable without changing the current selection.
 pub(crate) fn add_installed_provider(config: &Config, session: &mut toml::Value) {
-    if config.config_layer_stack.layers_low_to_high().any(|layer| {
-        layer
-            .config
-            .get("model_providers")
-            .and_then(|providers| providers.get(PROVIDER))
-            .is_some()
-    }) {
-        return;
-    }
     let Some(routing) = installed_routing(config) else {
         return;
     };
-    let Some(table) = session.as_table_mut() else {
-        return;
-    };
-    let providers = table
-        .entry("model_providers")
-        .or_insert_with(|| toml::Value::Table(toml::Table::new()));
-    if let Some(providers) = providers.as_table_mut() {
-        providers
-            .entry(PROVIDER)
-            .or_insert_with(|| routing["model_providers"][PROVIDER].clone());
+    add_provider_defaults(config, &routing, session);
+}
+
+fn add_provider_defaults(config: &Config, routing: &toml::Value, session: &mut toml::Value) {
+    let mut defaults = toml::Value::Table(toml::Table::from_iter([(
+        "model_providers".into(),
+        toml::Value::Table(toml::Table::from_iter([(
+            PROVIDER.into(),
+            routing["model_providers"][PROVIDER].clone(),
+        )])),
+    )]));
+    // Upstream's raw, enabled layers preserve explicit values without expanding
+    // typed defaults. Only missing installed fields enter the session overlay;
+    // file-owned auth/headers stay in their files, never newly copied to argv.
+    retain_missing_defaults(&mut defaults, &config.config_layer_stack.effective_config());
+    codex_config::merge_toml_values(&mut defaults, session);
+    *session = defaults;
+}
+
+fn retain_missing_defaults(defaults: &mut toml::Value, configured: &toml::Value) -> bool {
+    if let (toml::Value::Table(defaults), toml::Value::Table(configured)) = (defaults, configured) {
+        defaults.retain(|key, value| {
+            configured
+                .get(key)
+                .is_none_or(|configured| retain_missing_defaults(value, configured))
+        });
+        !defaults.is_empty()
+    } else {
+        // Scalars and arrays are atomic upstream overrides, including invalid
+        // values. Do not repair them by silently restoring installed defaults.
+        false
     }
 }
 
@@ -552,20 +563,39 @@ pub(crate) fn admits(config: &Config, model: &str, effort: &ReasoningEffort) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[tokio::test]
-    async fn termux_chat_models_installed_catalog_decodes_in_real_config() {
+
+    fn installed_profile(home: &Path) -> std::path::PathBuf {
         use std::os::unix::fs::PermissionsExt;
-        let home = tempfile::tempdir().unwrap();
-        let catalog = home.path().join("chat-models.json");
+        let catalog = home.join("chat-models.json");
         std::fs::write(&catalog, include_bytes!("fixtures/chat-model-catalog.json")).unwrap();
         std::fs::set_permissions(&catalog, std::fs::Permissions::from_mode(0o600)).unwrap();
         let profile = format!(
             "{BEGIN}model_provider = \"{PROVIDER}\"\nmodel_catalog_json = {:?}\n[model_providers.{PROVIDER}]\nname = \"Chat Provider\"\nbase_url = \"http://127.0.0.1:12345/v1\"\nwire_api = \"responses\"\nrequires_openai_auth = false\n[model_providers.{PROVIDER}.auth]\ncommand = \"/owned/codex-chatgpt-provider\"\nargs = [\"token\", \"--state\", \"/owned/provider-state\"]\n",
             catalog.to_str().unwrap()
         );
-        let path = home.path().join("chatgpt.config.toml");
+        let path = home.join("chatgpt.config.toml");
         std::fs::write(&path, profile).unwrap();
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+        catalog
+    }
+
+    fn route_overrides(route: ReentryRoute) -> Vec<(String, toml::Value)> {
+        codex_utils_cli::CliConfigOverrides {
+            raw_overrides: route
+                .args
+                .windows(2)
+                .filter(|pair| pair[0] == "-c")
+                .map(|pair| pair[1].clone())
+                .collect(),
+        }
+        .parse_overrides()
+        .unwrap()
+    }
+
+    #[tokio::test]
+    async fn termux_chat_models_installed_catalog_decodes_in_real_config() {
+        let home = tempfile::tempdir().unwrap();
+        let catalog = installed_profile(home.path());
         let config = crate::legacy_core::config::ConfigBuilder::default()
             .codex_home(home.path().to_path_buf())
             .cli_overrides(vec![
@@ -636,8 +666,11 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(resumed.model_provider_id, PROVIDER);
-        let mut explicit: toml::Value =
-            toml::from_str("[model_providers.chatgpt_desktop]\nname='User route'\n").unwrap();
+        let mut explicit = toml::Value::Table(toml::Table::from_iter([(
+            "model_providers".into(),
+            installed_routing(&config).unwrap()["model_providers"].clone(),
+        )]));
+        explicit["model_providers"][PROVIDER]["name"] = "User route".into();
         let original = explicit.clone();
         add_installed_provider(&config, &mut explicit);
         assert_eq!(explicit, original);
@@ -723,6 +756,188 @@ mod tests {
         assert!(native.return_profile.is_none());
         assert!(safe_profile("work-2"));
         assert!(!safe_profile("../other"));
+    }
+
+    #[tokio::test]
+    async fn termux_chat_models_partial_cli_provider_keeps_defaults_through_reentry() {
+        let home = tempfile::tempdir().unwrap();
+        installed_profile(home.path());
+        let overrides = vec![
+            (
+                "model_providers.chatgpt_desktop.name".into(),
+                "Explicit Chat route".into(),
+            ),
+            (
+                "model_providers.chatgpt_desktop.base_url".into(),
+                "http://127.0.0.1:23456/v1".into(),
+            ),
+            (
+                "model_providers.chatgpt_desktop.request_max_retries".into(),
+                2.into(),
+            ),
+            ("model_providers.other.name".into(), "Other provider".into()),
+        ];
+        let config = crate::legacy_core::config::ConfigBuilder::default()
+            .codex_home(home.path().to_path_buf())
+            .cli_overrides(overrides.clone())
+            .build()
+            .await
+            .unwrap();
+        assert_eq!(config.model_provider_id, "openai");
+        assert!(config.model_providers[PROVIDER].auth.is_none());
+
+        let route = reentry_route(
+            &config,
+            "chatgpt-desktop/gpt-6",
+            &ReasoningEffort::None,
+            None,
+        )
+        .unwrap();
+        let resumed = crate::legacy_core::config::ConfigBuilder::default()
+            .codex_home(home.path().to_path_buf())
+            .cli_overrides(route_overrides(route))
+            .build()
+            .await
+            .unwrap();
+        assert_eq!(resumed.model_provider_id, PROVIDER);
+        assert_eq!(
+            resumed.model_provider.base_url.as_deref(),
+            Some("http://127.0.0.1:23456/v1")
+        );
+        assert_eq!(resumed.model_provider.request_max_retries, Some(2));
+        assert_eq!(resumed.model_provider.name, "Explicit Chat route");
+        assert_eq!(
+            resumed.model_provider.auth.as_ref().unwrap().command,
+            "/owned/codex-chatgpt-provider"
+        );
+        assert_eq!(resumed.model_providers["other"].name, "Other provider");
+
+        let mut session = codex_config::build_cli_overrides_layer(&overrides);
+        add_installed_provider(&config, &mut session);
+        let mut session_overrides: Vec<_> =
+            session.as_table().unwrap().clone().into_iter().collect();
+        session_overrides.push(("model_provider".into(), PROVIDER.into()));
+        let attached = crate::legacy_core::config::ConfigBuilder::default()
+            .codex_home(home.path().to_path_buf())
+            .cli_overrides(session_overrides)
+            .build()
+            .await
+            .unwrap();
+        assert_eq!(attached.model_provider, resumed.model_provider);
+        assert_eq!(
+            attached.model_providers["other"],
+            resumed.model_providers["other"]
+        );
+    }
+
+    #[tokio::test]
+    async fn termux_chat_models_file_provider_values_remain_in_files() {
+        let home = tempfile::tempdir().unwrap();
+        installed_profile(home.path());
+        let user_config = r#"
+[model_providers.chatgpt_desktop]
+name="File-owned provider"
+base_url="http://127.0.0.1:34567/v1"
+[model_providers.chatgpt_desktop.http_headers]
+X-Private="file-only-header-secret"
+[model_providers.chatgpt_desktop.auth]
+command="/file-owned/auth-command"
+args=["file-only-auth-secret"]
+"#;
+        std::fs::write(home.path().join("config.toml"), user_config).unwrap();
+        let profile_path = home.path().join("chatgpt.config.toml");
+        let profile_before = std::fs::read(&profile_path).unwrap();
+        let config = crate::legacy_core::config::ConfigBuilder::default()
+            .codex_home(home.path().to_path_buf())
+            .build()
+            .await
+            .unwrap();
+        let route = reentry_route(
+            &config,
+            "chatgpt-desktop/gpt-6",
+            &ReasoningEffort::None,
+            None,
+        )
+        .unwrap();
+        for private in [
+            "file-only-header-secret",
+            "file-only-auth-secret",
+            "/file-owned/auth-command",
+        ] {
+            assert!(route.args.iter().all(|arg| !arg.contains(private)));
+        }
+        let resumed = crate::legacy_core::config::ConfigBuilder::default()
+            .codex_home(home.path().to_path_buf())
+            .cli_overrides(route_overrides(route))
+            .build()
+            .await
+            .unwrap();
+        assert_eq!(resumed.model_provider.name, "File-owned provider");
+        assert_eq!(
+            resumed.model_provider.base_url.as_deref(),
+            Some("http://127.0.0.1:34567/v1")
+        );
+        assert_eq!(
+            resumed.model_provider.auth.as_ref().unwrap().command,
+            "/file-owned/auth-command"
+        );
+        let effective = resumed.config_layer_stack.effective_config();
+        assert_eq!(
+            effective["model_providers"][PROVIDER]["http_headers"]["X-Private"].as_str(),
+            Some("file-only-header-secret")
+        );
+        assert_eq!(
+            effective["model_providers"][PROVIDER]["auth"]["args"]
+                .as_array()
+                .unwrap()
+                .as_slice(),
+            [toml::Value::from("file-only-auth-secret")]
+        );
+        assert_eq!(
+            std::fs::read_to_string(home.path().join("config.toml")).unwrap(),
+            user_config
+        );
+        assert_eq!(std::fs::read(&profile_path).unwrap(), profile_before);
+    }
+
+    #[tokio::test]
+    async fn termux_chat_models_defaults_do_not_repair_invalid_provider_values() {
+        let home = tempfile::tempdir().unwrap();
+        installed_profile(home.path());
+        let config = crate::legacy_core::config::ConfigBuilder::default()
+            .codex_home(home.path().to_path_buf())
+            .build()
+            .await
+            .unwrap();
+        for (path, value) in [
+            (
+                "model_providers.chatgpt_desktop.name",
+                toml::Value::from(""),
+            ),
+            (
+                "model_providers.chatgpt_desktop",
+                toml::Value::from("invalid-provider"),
+            ),
+            (
+                "model_providers.chatgpt_desktop.auth",
+                toml::Value::Array(vec![]),
+            ),
+        ] {
+            let overrides = vec![(path.into(), value)];
+            let mut session = codex_config::build_cli_overrides_layer(&overrides);
+            add_installed_provider(&config, &mut session);
+            let mut session_overrides: Vec<_> =
+                session.as_table().unwrap().clone().into_iter().collect();
+            session_overrides.push(("model_provider".into(), PROVIDER.into()));
+            assert!(
+                crate::legacy_core::config::ConfigBuilder::default()
+                    .codex_home(home.path().to_path_buf())
+                    .cli_overrides(session_overrides)
+                    .build()
+                    .await
+                    .is_err()
+            );
+        }
     }
 
     #[test]

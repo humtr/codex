@@ -51,6 +51,12 @@ ownerless work uses the existing exact-catalog startup coordinator.
 `termux_chat_models::reentry_route` plans provider/profile arguments;
 the App hook retains only work-state admission, persistence and re-entry. These
 remain optional frontend code; Core has no dependency on these sources. The
+installed route contributes only missing configuration fields. Provider selection
+preserves explicit file/CLI fields, including a valid partial endpoint override,
+through the same upstream merge used for local thread configuration. File-only auth and
+headers stay in files; only missing installed defaults and original session flags
+enter re-entry arguments. Provider control still uses the validated installed
+command/state, independently of an inference endpoint override. The
 source Chat picker consumes Provider-generated `chatgpt_desktop` routing, the
 `codex-chatgpt-provider generated v1` marker and command-backed Rust authentication.
 Models and efforts come from the generated native catalog without fixed family

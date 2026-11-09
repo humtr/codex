@@ -282,6 +282,14 @@ observer continuity; App sends user intent and renders the resulting settings.
 Provider/profile configuration composition does not acquire execution or server
 lifecycle authority. Existing permission/reviewer inheritance, local profile
 precedence, installed-route validation and model admission remain unchanged.
+Installed Provider definitions supply only fields absent from the enabled
+upstream configuration layers. Explicit file and invocation values retain their
+normal precedence during provider selection; a valid partial provider table must
+not discard its missing installed defaults. Invalid upstream configuration remains
+an error. Re-entry preserves file-owned credentials in their files and combines
+only missing defaults with original session flags
+before emitting CLI tables. The installed command used for Provider control
+remains distinct from an explicitly overridden inference endpoint.
 
 - The added public slash names are `/switch`, for Manager execution-home
   selection, and `/provider`, for the independent TUI's provider/model chooser.
