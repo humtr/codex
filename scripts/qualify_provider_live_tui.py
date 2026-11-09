@@ -49,6 +49,88 @@ def sha(path):
         return hashlib.file_digest(source, 'sha256').hexdigest()
 
 
+def process_identity():
+    """Kernel facts only; never read command arguments, environment or titles."""
+    pid = os.getpid()
+    fields = Path(f'/proc/{pid}/stat').read_text().rsplit(')', 1)[1].split()
+    ttys = {}
+    for fd in (0, 1, 2):
+        try:
+            ttys[str(fd)] = os.ttyname(fd)
+        except OSError:
+            ttys[str(fd)] = None
+    try:
+        foreground = os.tcgetpgrp(0)
+    except OSError:
+        foreground = None
+    return {'pid': pid, 'start': int(fields[19]), 'parent_pid': int(fields[1]),
+            'process_group': int(fields[2]), 'session': int(fields[3]),
+            'tty_device': int(fields[4]), 'foreground_process_group': foreground,
+            'ttys': ttys, 'uid': os.getuid()}
+
+
+def terminal_response(prefix, operation):
+    """Use the same AM endpoint and origin contract as Manager's native route."""
+    endpoint = prefix.parent / 'apps/com.termux/termux-am/am.sock'
+    metadata = endpoint.lstat()
+    assert stat.S_ISSOCK(metadata.st_mode) and metadata.st_uid == os.getuid(), 'AM endpoint is not the owned socket'
+    result = subprocess.run([str(prefix / 'bin/termux-am-socket'), 'termux-terminal-v1 ' + operation],
+                            stdin=subprocess.DEVNULL, capture_output=True, timeout=3)
+    assert result.returncode == 0 and not result.stderr, 'terminal owner observation failed'
+    assert len(result.stdout) <= 4096, 'terminal owner response exceeds its contract'
+    value = json.loads(result.stdout)
+    assert value.get('schema') == 'termux-terminal-origin-v1' and value.get('result') == 'ok', 'terminal owner response is not confirmed'
+    origin = value.get('origin')
+    assert isinstance(origin, dict) and set(origin) == {'handle', 'pid', 'start'}, 'terminal owner identity is incomplete'
+    assert isinstance(origin['handle'], str) and re.fullmatch(r'[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}', origin['handle']), 'terminal handle is not canonical'
+    assert type(origin['pid']) is int and 0 < origin['pid'] <= 0xffffffff, 'terminal owner PID is invalid'
+    assert type(origin['start']) is int and origin['start'] > 0, 'terminal owner kernel start is invalid'
+    # Only these public identity fields enter evidence. Unknown response fields,
+    # stdout, stderr, process arguments and inherited secrets are never recorded.
+    selected = value.get('selected')
+    assert selected is None or type(selected) is bool, 'terminal selection evidence is invalid'
+    return {'schema': value['schema'], 'result': 'ok', 'origin': origin, 'selected': selected}
+
+
+def require_terminal_owner(process, origin, validated):
+    assert process['pid'] > 0 and process['start'] > 0, 'receiver kernel identity is unavailable'
+    assert process['session'] == process['process_group'] == process['pid'], 'receiver does not own its terminal session'
+    assert process['foreground_process_group'] == process['process_group'], 'receiver is not the foreground process group'
+    tty = process['ttys']['0']
+    assert isinstance(tty, str) and re.fullmatch(r'/dev/pts/[0-9]+', tty), 'receiver has no native PTY'
+    assert all(value == tty for value in process['ttys'].values()), 'receiver standard streams do not share the terminal'
+    assert origin['selected'] is True, 'receiver Android terminal is not selected'
+    assert origin['origin']['pid'] == process['pid'] and origin['origin']['start'] == process['start'], 'Android terminal owns another process'
+    assert validated['origin'] == origin['origin'], 'live terminal identity changed during validation'
+
+
+def terminal_owner_preflight(prefix, required):
+    receipt = {'schema': 'codex-live-tui-terminal-owner-v1', 'started_at': stamp(),
+               'required': required, 'verified': False}
+    try:
+        before = process_identity()
+        receipt['receiver'] = before
+        if required:
+            assert prefix.is_absolute(), 'Termux prefix must be absolute'
+            receipt['client_sha256'] = sha(prefix / 'bin/termux-am-socket')
+            origin = terminal_response(prefix, 'origin')
+            receipt['origin_observation'] = origin
+            identity = origin['origin']
+            validated = terminal_response(prefix, f"validate {identity['handle']} {identity['pid']} {identity['start']}")
+            receipt['validation_observation'] = validated
+            require_terminal_owner(before, origin, validated)
+            assert process_identity() == before, 'receiver kernel or terminal identity changed during preflight'
+            receipt['verified'] = True
+    except Exception as error:
+        # Keep failure diagnostics useful without printing untrusted helper
+        # output (including JSON decode excerpts or arbitrary error messages).
+        receipt['failure'] = {'type': type(error).__name__,
+                              'reason': str(error) if isinstance(error, AssertionError)
+                              else 'terminal owner observation unavailable'}
+    receipt['completed_at'] = stamp()
+    return receipt
+
+
 def plain(value):
     value = re.sub(r'\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)', '', value)
     return re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]|\x1b[^[]', '', value)
@@ -531,6 +613,8 @@ def main():
     parser.add_argument('--codex-home', type=Path)
     parser.add_argument('--report-root', type=Path, required=True)
     parser.add_argument('--fault-endpoint', help='actual loopback Provider /v1 endpoint; enables one SSE cut')
+    parser.add_argument('--terminal-owner-proof', action='store_true',
+                        help='require this receiver to own the selected foreground Android terminal before starting TUI work')
     parser.add_argument('--timeout', type=int, default=650)
     args = parser.parse_args()
     assert 60 <= args.timeout <= 900
@@ -550,13 +634,20 @@ def main():
     save(root / 'intent.json', {'at': stamp(), 'workspace': str(args.workspace),
          'core_sha256': sha(args.core), 'runtime_sha256': sha(args.runtime),
          'marker': marker, 'fault_requested': bool(args.fault_endpoint),
-         'maximum_user_turns': 5, 'submission_evidence': 'submission-<number>.json'})
-    proxy = ObservationProxy(args.fault_endpoint) if args.fault_endpoint else None
+         'maximum_user_turns': 5, 'submission_evidence': 'submission-<number>.json',
+         'terminal_owner_required': args.terminal_owner_proof})
+    proxy = None
     budget = TurnBudget(root)
     clients = []
-    report = {'started_at': stamp(), 'accepted': False, 'fault_requested': bool(proxy)}
+    report = {'started_at': stamp(), 'accepted': False, 'fault_requested': bool(args.fault_endpoint)}
     failure = None
     try:
+        terminal_receipt = terminal_owner_preflight(args.shell.parent.parent, args.terminal_owner_proof)
+        save(root / 'terminal-owner.json', terminal_receipt)
+        report['terminal_owner'] = {'required': args.terminal_owner_proof,
+                                   'verified': terminal_receipt['verified'], 'receipt': 'terminal-owner.json'}
+        assert not args.terminal_owner_proof or terminal_receipt['verified'], 'foreground terminal owner was not verified; inspect terminal-owner.json'
+        proxy = ObservationProxy(args.fault_endpoint) if args.fault_endpoint else None
         client = LiveTui(args, root, 'primary', budget, proxy.endpoint if proxy else None)
         clients.append(client)
         client.start()

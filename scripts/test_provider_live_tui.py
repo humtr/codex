@@ -3,18 +3,25 @@ import hashlib
 import copy
 import http.client
 import http.server
+import io
 import json
+import os
 from pathlib import Path
+import stat
+import subprocess
 import sys
 import threading
 import tempfile
 import unittest
+from types import SimpleNamespace
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).parent))
 from qualify_provider_live_tui import (
     MODEL, LiveTui, ObservationProxy, TurnBudget, admitted_prompt, assistant_marker,
     blank_history_error, blank_rollout, completed_fault, history, native_settled,
-    one_pwd, plain, request_identity,
+    main, one_pwd, plain, request_identity, require_terminal_owner,
+    terminal_owner_preflight, terminal_response,
 )
 
 
@@ -279,6 +286,121 @@ class NativeEvidence(unittest.TestCase):
             path.symlink_to(outside)
             with self.assertRaises(OSError):
                 blank_rollout(snapshot, 'owned', home)
+
+
+class TerminalOwnerEvidence(unittest.TestCase):
+    def setUp(self):
+        self.prefix = Path('/data/data/com.termux/files/usr')
+        self.process = {'pid': 42, 'start': 901, 'parent_pid': 2, 'process_group': 42,
+                        'session': 42, 'tty_device': 34820, 'foreground_process_group': 42,
+                        'ttys': {'0': '/dev/pts/4', '1': '/dev/pts/4', '2': '/dev/pts/4'}, 'uid': os.getuid()}
+        self.origin = {'schema': 'termux-terminal-origin-v1', 'result': 'ok', 'selected': True,
+                       'origin': {'handle': '01a0fe94-2d11-79f3-8f5b-9c1958465dc2', 'pid': 42, 'start': 901}}
+
+    def test_receiver_must_be_the_selected_native_terminal_root(self):
+        require_terminal_owner(self.process, self.origin, self.origin)
+        for change in ({'pid': 43}, {'start': 902}, {'session': 41}, {'process_group': 43},
+                       {'foreground_process_group': 41}, {'ttys': {'0': None, '1': None, '2': None}},
+                       {'ttys': {'0': '/dev/pts/4', '1': None, '2': '/dev/pts/4'}}):
+            with self.subTest(change=change), self.assertRaises(AssertionError):
+                require_terminal_owner(dict(self.process, **change), self.origin, self.origin)
+        for change in ({'selected': False}, {'selected': None},
+                       {'origin': dict(self.origin['origin'], pid=41)},
+                       {'origin': dict(self.origin['origin'], start=902)}):
+            with self.subTest(change=change), self.assertRaises(AssertionError):
+                require_terminal_owner(self.process, dict(self.origin, **change), self.origin)
+        changed = dict(self.origin, origin=dict(self.origin['origin'], handle='02a0fe94-2d11-79f3-8f5b-9c1958465dc2'))
+        with self.assertRaisesRegex(AssertionError, 'identity changed'):
+            require_terminal_owner(self.process, self.origin, changed)
+
+    def test_ack_is_insufficient_and_only_public_identity_enters_evidence(self):
+        metadata = SimpleNamespace(st_mode=stat.S_IFSOCK | 0o600, st_uid=os.getuid())
+        secret = 'PRIVATE_AUTH_MUST_NOT_ENTER_RECEIPTS'
+        value = dict(self.origin, access_token=secret, arbitrary_private_field=secret)
+        result = subprocess.CompletedProcess([], 0, json.dumps(value).encode(), b'')
+        with patch.object(Path, 'lstat', return_value=metadata), \
+                patch('qualify_provider_live_tui.subprocess.run', return_value=result) as run:
+            observed = terminal_response(self.prefix, 'origin')
+        self.assertEqual(observed, self.origin)
+        self.assertNotIn(secret, json.dumps(observed))
+        self.assertEqual(run.call_args.args[0], [str(self.prefix / 'bin/termux-am-socket'), 'termux-terminal-v1 origin'])
+        candidates = [
+            b'Starting service: Intent {}\n', b'{"schema":"termux-terminal-origin-v1","result":"ok"}',
+            json.dumps(dict(self.origin, schema='another-schema')).encode(),
+            json.dumps(dict(self.origin, result='pending')).encode(),
+            json.dumps(dict(self.origin, origin=dict(self.origin['origin'], pid=True))).encode(),
+            json.dumps(dict(self.origin, origin=dict(self.origin['origin'], start=0))).encode(),
+            json.dumps(dict(self.origin, origin=dict(self.origin['origin'], handle='visible title'))).encode(),
+            json.dumps(dict(self.origin, origin=dict(self.origin['origin'], private=secret))).encode(),
+            b'x' * 4097,
+        ]
+        for data in candidates:
+            with self.subTest(data=data[:100]), patch.object(Path, 'lstat', return_value=metadata), \
+                    patch('qualify_provider_live_tui.subprocess.run', return_value=subprocess.CompletedProcess([], 0, data, b'')), \
+                    self.assertRaises((AssertionError, ValueError)):
+                terminal_response(self.prefix, 'origin')
+        with patch.object(Path, 'lstat', return_value=metadata), \
+                patch('qualify_provider_live_tui.subprocess.run', return_value=subprocess.CompletedProcess([], 0, result.stdout, secret.encode())), \
+                self.assertRaisesRegex(AssertionError, '^terminal owner observation failed$'):
+            terminal_response(self.prefix, 'origin')
+
+    def test_preflight_validates_once_and_records_timing_without_inherited_secrets(self):
+        with patch('qualify_provider_live_tui.process_identity', return_value=self.process), \
+                patch('qualify_provider_live_tui.sha', return_value='a' * 64), \
+                patch('qualify_provider_live_tui.terminal_response', return_value=self.origin) as request:
+            receipt = terminal_owner_preflight(self.prefix, True)
+        self.assertTrue(receipt['verified'])
+        self.assertEqual(receipt['receiver'], self.process)
+        self.assertLessEqual(receipt['started_at'], receipt['completed_at'])
+        self.assertEqual([call.args for call in request.call_args_list], [
+            (self.prefix, 'origin'),
+            (self.prefix, 'validate 01a0fe94-2d11-79f3-8f5b-9c1958465dc2 42 901'),
+        ])
+        with patch.dict(os.environ, {'OWNED_AUTH': 'SECRET_MUST_NOT_BE_RECORDED'}), \
+                patch('qualify_provider_live_tui.terminal_response') as request:
+            optional = terminal_owner_preflight(Path('/unused'), False)
+        self.assertFalse(optional['verified'])
+        self.assertEqual(optional['receiver']['pid'], os.getpid())
+        self.assertGreater(optional['receiver']['start'], 0)
+        self.assertNotIn('SECRET_MUST_NOT_BE_RECORDED', json.dumps(optional))
+        request.assert_not_called()
+        with patch('qualify_provider_live_tui.process_identity', return_value=self.process), \
+                patch('qualify_provider_live_tui.sha', return_value='a' * 64), \
+                patch('qualify_provider_live_tui.terminal_response', side_effect=ValueError('PRIVATE_RAW_RESPONSE')):
+            failed = terminal_owner_preflight(self.prefix, True)
+        self.assertFalse(failed['verified'])
+        self.assertNotIn('PRIVATE_RAW_RESPONSE', json.dumps(failed))
+
+    def test_required_preflight_failure_precedes_all_tui_or_provider_work(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            home = root / 'home'
+            (home / '.codex').mkdir(parents=True)
+            runtime = home / '.local/lib/codex/core/current/runtime'
+            runtime.parent.mkdir(parents=True)
+            runtime.write_bytes(b'owned runtime fixture')
+            core = root / 'core'
+            core.write_bytes(b'owned core fixture')
+            prefix = root / 'usr'
+            (prefix / 'bin').mkdir(parents=True)
+            (prefix / 'bin/bash').write_bytes(b'owned shell fixture')
+            report = root / 'report'
+            arguments = ['qualifier', '--core', str(core), '--workspace', str(root), '--home', str(home),
+                         '--report-root', str(report), '--terminal-owner-proof', '--fault-endpoint', 'http://127.0.0.1:123/v1']
+            output = io.StringIO()
+            with patch.object(sys, 'argv', arguments), patch.dict(os.environ, {'PREFIX': str(prefix)}), \
+                    patch('qualify_provider_live_tui.terminal_owner_preflight', return_value={'verified': False}), \
+                    patch('qualify_provider_live_tui.LiveTui') as tui, \
+                    patch('qualify_provider_live_tui.ObservationProxy') as proxy, patch('sys.stdout', output), \
+                    self.assertRaisesRegex(AssertionError, 'foreground terminal owner was not verified'):
+                main()
+            tui.assert_not_called()
+            proxy.assert_not_called()
+            result = json.loads((report / 'result.json').read_text())
+            self.assertFalse(result['accepted'])
+            self.assertEqual(result['models_submitted'], 0)
+            self.assertEqual(json.loads((report / 'terminal-owner.json').read_text()), {'verified': False})
+            self.assertFalse(list(report.glob('submission-*.json')))
 
 
 class StreamEvidence(unittest.TestCase):
