@@ -2,7 +2,6 @@
 import argparse
 import json
 from pathlib import Path
-import shutil
 import stat
 import subprocess
 
@@ -65,11 +64,9 @@ def apply(upstream, package, builder):
         raise ValueError('owned frontend source set is empty')
     # The common Rust producer owns patch reconciliation for both Native and TUI.
     subprocess.run([str(builder), 'apply-source-patch', '--source', str(upstream),
-                    '--patch', str((package/'native.patch').resolve())], check=True)
-    for source, destination in payloads:
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        with destination.open('xb') as output, source.open('rb') as input_file:
-            shutil.copyfileobj(input_file, output)
+                    '--patch', str((package/'native.patch').resolve()),
+                    '--owned-source', str(source.resolve()),
+                    '--owned-target', 'codex-rs/tui/src'], check=True)
     return len(payloads)
 
 

@@ -4,6 +4,7 @@ import subprocess
 import os
 import tempfile
 import unittest
+from unittest import mock
 
 from apply import apply, check_scope
 
@@ -147,6 +148,53 @@ class AssemblyTests(unittest.TestCase):
                              (package / 'src/app/owned.rs').read_bytes())
             with self.assertRaises(ValueError):
                 apply(upstream, package, self.builder)
+
+    def test_patch_owned_collision_leaves_sources_and_real_index_unchanged(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            upstream, package, target = self.fixture(Path(temporary))
+            patch = package / 'native.patch'
+            patch.write_text(patch.read_text() +
+                'diff --git a/codex-rs/tui/src/app/owned.rs b/codex-rs/tui/src/app/owned.rs\n'
+                'new file mode 100644\n--- /dev/null\n'
+                '+++ b/codex-rs/tui/src/app/owned.rs\n'
+                '@@ -0,0 +1 @@\n+conflicting patch implementation\n')
+            before_index = subprocess.check_output(['git', '-C', str(upstream), 'write-tree'])
+            with self.assertRaises(subprocess.CalledProcessError):
+                apply(upstream, package, self.builder)
+            self.assertEqual((target / 'lib.rs').read_text(), 'upstream\n')
+            self.assertFalse((target / 'app/owned.rs').exists())
+            self.assertEqual(
+                subprocess.check_output(['git', '-C', str(upstream), 'write-tree']),
+                before_index)
+
+    def test_owned_input_disappearing_after_preflight_leaves_checkout_unchanged(self):
+        for fault in ['missing-root', 'symlink-payload']:
+            with self.subTest(fault=fault), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                upstream, package, target = self.fixture(root)
+                sentinel = root / 'outside.rs'
+                sentinel.write_text('unrelated source\n')
+                before_index = subprocess.check_output(['git', '-C', str(upstream), 'write-tree'])
+                run = subprocess.run
+
+                def remove_preflight_input(*args, **kwargs):
+                    if fault == 'missing-root':
+                        (package / 'src').rename(package / 'saved-src')
+                    else:
+                        payload = package / 'src/app/owned.rs'
+                        payload.unlink()
+                        payload.symlink_to(sentinel)
+                    return run(*args, **kwargs)
+
+                with mock.patch('apply.subprocess.run', side_effect=remove_preflight_input):
+                    with self.assertRaises(subprocess.CalledProcessError):
+                        apply(upstream, package, self.builder)
+                self.assertEqual((target / 'lib.rs').read_text(), 'upstream\n')
+                self.assertFalse((target / 'app/owned.rs').exists())
+                self.assertEqual(sentinel.read_text(), 'unrelated source\n')
+                self.assertEqual(
+                    subprocess.check_output(['git', '-C', str(upstream), 'write-tree']),
+                    before_index)
 
     def test_collisions_substitutions_and_bad_patch_fail_before_mutation(self):
         for fault in ('collision', 'source-link', 'parent-link', 'bad-patch'):
