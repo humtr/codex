@@ -171,3 +171,44 @@ async fn termux_chat_models_same_provider_uses_only_changed_session_actions_with
         }
     }
 }
+
+#[cfg(unix)]
+#[test]
+fn termux_provider_slash_uses_owned_model_catalog_and_does_not_guess_names() {
+    use std::str::FromStr;
+    assert_eq!(
+        crate::slash_command::SlashCommand::from_str("provider"),
+        Ok(crate::slash_command::SlashCommand::Provider),
+    );
+    for (model, provider, expected) in [
+        ("chatgpt-desktop/app/gpt-6", "chatgpt_desktop", true),
+        (
+            "chatgpt-desktop/app/gpt-6-thinking",
+            "chatgpt_desktop",
+            true,
+        ),
+        ("chatgpt-desktop/app/gpt-6-pro", "chatgpt_desktop", true),
+        (
+            "chatgpt-desktop/app/gpt-5-6-instant",
+            "chatgpt_desktop",
+            true,
+        ),
+        (
+            "chatgpt-desktop/app/gpt-5-6-thinking",
+            "chatgpt_desktop",
+            true,
+        ),
+        ("chatgpt-desktop/app/gpt-5-6-pro", "chatgpt_desktop", true),
+        ("chatgpt-desktop/gpt-6", "chatgpt_desktop", true),
+        ("gpt-6.1-sol", "chatgpt_desktop", false),
+        ("gpt-6.1-sol", "openai", true),
+        ("chatgpt-desktop/app/gpt-6", "openai", false),
+        ("gpt-6.1-sol", "unknown-provider", false),
+    ] {
+        assert_eq!(
+            ChatWidget::model_belongs_to_provider(model, provider),
+            expected,
+            "{model} {provider}",
+        );
+    }
+}

@@ -232,7 +232,7 @@ index ada9e88..a5a1e67 100644
                  || self.daemon_restart.is_some(),
              disabled_reason: self
 diff --git a/codex-rs/tui/src/app/event_dispatch.rs b/codex-rs/tui/src/app/event_dispatch.rs
-index ba6e3f8..6dea605 100644
+index ba6e3f8..dba93ef 100644
 --- a/codex-rs/tui/src/app/event_dispatch.rs
 +++ b/codex-rs/tui/src/app/event_dispatch.rs
 @@ -150,6 +150,19 @@ impl App {
@@ -354,7 +354,18 @@ index ba6e3f8..6dea605 100644
              AppEvent::UpdateModel(model) => {
                  if self
                      .active_thread_model_setting_update_params(model.clone())
-@@ -2677,6 +2739,19 @@ impl App {
+@@ -2473,6 +2535,10 @@ impl App {
+             AppEvent::OpenAllModelsPopup => {
+                 self.chat_widget.open_all_models_popup();
+             }
++            #[cfg(unix)]
++            AppEvent::OpenProviderModelsPopup { provider } => {
++                self.chat_widget.open_provider_models_popup(&provider);
++            }
+             AppEvent::OpenFullAccessConfirmation {
+                 preset,
+                 return_to_permissions,
+@@ -2677,6 +2743,19 @@ impl App {
                  self.persist_daybreak_selection(app_server, thread_id, enabled).await;
              }
              AppEvent::SelectSessionModel { model, effort, service_tier } => {
@@ -688,7 +699,7 @@ index 229d21e..1caed85 100644
          .turn_start(
              thread_id,
 diff --git a/codex-rs/tui/src/app_event.rs b/codex-rs/tui/src/app_event.rs
-index 9c84885..dbcfef7 100644
+index 9c84885..a72c132 100644
 --- a/codex-rs/tui/src/app_event.rs
 +++ b/codex-rs/tui/src/app_event.rs
 @@ -296,6 +296,12 @@ pub(crate) struct AgentPickerThreadRefresh {
@@ -777,6 +788,19 @@ index 9c84885..dbcfef7 100644
  
      /// Apply a model-picker selection to the active conversation and saved local defaults.
      ApplyModelSelection {
+@@ -1407,6 +1456,12 @@ pub(crate) enum AppEvent {
+     /// Open the full model picker (non-auto models).
+     OpenAllModelsPopup,
+ 
++    /// Open a model picker filtered to the selected configured provider.
++    #[cfg(unix)]
++    OpenProviderModelsPopup {
++        provider: String,
++    },
++
+     /// Open the confirmation prompt before enabling full access mode.
+     OpenFullAccessConfirmation {
+         preset: ApprovalPreset,
 diff --git a/codex-rs/tui/src/app_server_session.rs b/codex-rs/tui/src/app_server_session.rs
 index ae79c9a..83c4a58 100644
 --- a/codex-rs/tui/src/app_server_session.rs
@@ -1616,7 +1640,7 @@ index 832104c..0000000
 -        .collect()
 -}
 diff --git a/codex-rs/tui/src/chatwidget/input_flow.rs b/codex-rs/tui/src/chatwidget/input_flow.rs
-index fd7fb8f..702693d 100644
+index fd7fb8f..aa873aa 100644
 --- a/codex-rs/tui/src/chatwidget/input_flow.rs
 +++ b/codex-rs/tui/src/chatwidget/input_flow.rs
 @@ -13,7 +13,7 @@ use crate::bottom_pane::slash_commands::find_slash_command;
@@ -1628,7 +1652,16 @@ index fd7fb8f..702693d 100644
          self.blocks_direct_input = true;
          self.bottom_pane.set_parent_owned_thread();
      }
-@@ -213,7 +213,7 @@ impl ChatWidget {
+@@ -26,6 +26,8 @@ impl ChatWidget {
+         let follow_transcript = match &input_result {
+             // Opening settings is not a request to leave the current reading anchor.
+             // Inline commands still follow so their output (including usage errors) is visible.
++            #[cfg(unix)]
++            InputResult::Command(SlashCommand::Provider) => false,
+             InputResult::Command(
+                 SlashCommand::Model
+                 | SlashCommand::Presets
+@@ -213,7 +215,7 @@ impl ChatWidget {
                  .queued_user_messages
                  .push_back(QueuedUserMessage {
                      user_message,
@@ -1637,7 +1670,7 @@ index fd7fb8f..702693d 100644
                      action,
                      delivery: MessageDelivery::Unsent,
                      pending_pastes,
-@@ -280,7 +280,7 @@ impl ChatWidget {
+@@ -280,7 +282,7 @@ impl ChatWidget {
                  QueuedInputAction::Literal => {
                      let QueuedUserMessage {
                          user_message,
@@ -1646,7 +1679,7 @@ index fd7fb8f..702693d 100644
                          pending_pastes,
                          source,
                          ..
-@@ -309,12 +309,12 @@ impl ChatWidget {
+@@ -309,12 +311,12 @@ impl ChatWidget {
                              );
                      }
                      submitted_follow_up = self
@@ -1661,7 +1694,7 @@ index fd7fb8f..702693d 100644
                          )
                          .0;
                      if !submitted_follow_up {
-@@ -346,7 +346,7 @@ impl ChatWidget {
+@@ -346,7 +348,7 @@ impl ChatWidget {
      }
  
      pub(crate) fn is_user_turn_pending_or_running(&self) -> bool {
@@ -1670,7 +1703,7 @@ index fd7fb8f..702693d 100644
              || self.input_queue.user_turn_pending_start
              || self.turn_lifecycle.agent_turn_running
              || self.review.is_review_mode
-@@ -369,10 +369,10 @@ impl ChatWidget {
+@@ -369,10 +371,10 @@ impl ChatWidget {
              questions.has_queued_messages = has_queued;
          }
          let mut preview = self.input_queue.preview();
@@ -1865,10 +1898,21 @@ index bde9ce7..c34cf76 100644
          return Err(format!(
              "Model '{model_name}' is unavailable. Use /model to see available models."
 diff --git a/codex-rs/tui/src/chatwidget/model_popups.rs b/codex-rs/tui/src/chatwidget/model_popups.rs
-index 62af5d1..5c14afa 100644
+index 62af5d1..54c0958 100644
 --- a/codex-rs/tui/src/chatwidget/model_popups.rs
 +++ b/codex-rs/tui/src/chatwidget/model_popups.rs
-@@ -80,6 +80,8 @@ impl ChatWidget {
+@@ -9,6 +9,10 @@ use crate::model_catalog::LUNA_RESERVE_MODEL;
+ const ULTRA_REASONING_CONCURRENCY_WARNING_THRESHOLD: usize = 8;
+ pub(super) const MODEL_SELECTION_VIEW_ID: &str = "model-selection";
+ pub(super) const ALL_MODELS_SELECTION_VIEW_ID: &str = "all-models-selection";
++#[cfg(unix)]
++pub(super) const PROVIDER_SELECTION_VIEW_ID: &str = "provider-selection";
++#[cfg(unix)]
++pub(super) const PROVIDER_MODELS_SELECTION_VIEW_ID: &str = "provider-models-selection";
+ 
+ impl ChatWidget {
+     /// Open a popup to choose a quick auto model. Selecting "All models"
+@@ -80,6 +84,8 @@ impl ChatWidget {
      }
  
      pub(crate) fn open_model_popup_with_presets(&mut self, presets: Vec<ModelPreset>) {
@@ -1877,17 +1921,144 @@ index 62af5d1..5c14afa 100644
          if self.restrict_model_picker_to_luna_reserve() {
              self.open_luna_reserve_model_popup(presets, MODEL_SELECTION_VIEW_ID);
              return;
-@@ -233,6 +235,9 @@ impl ChatWidget {
+@@ -197,6 +203,120 @@ impl ChatWidget {
+         );
+     }
+ 
++    /// A two-step provider/model chooser. Opening it changes no active route.
++    #[cfg(unix)]
++    pub(crate) fn open_provider_popup(&mut self) {
++        if !self.is_session_configured() {
++            self.add_info_message(
++                "Provider selection is disabled until startup completes.".to_string(),
++                None,
++            );
++            return;
++        }
++        if self.restrict_model_picker_to_luna_reserve()
++            || self
++                .config
++                .config_layer_stack
++                .required_model_provider()
++                .is_some()
++        {
++            self.add_info_message(
++                "The current model provider is restricted by the active policy.".to_string(),
++                None,
++            );
++            return;
++        }
++        let presets = crate::termux_chat_models::augment(
++            &self.config,
++            self.model_catalog.try_list_models().unwrap_or_default(),
++        );
++        let current = self.config.model_provider_id.as_str();
++        let mut ids = Vec::new();
++        let mut items = Vec::new();
++        for (provider, title, description) in [
++            ("openai", "OpenAI / Codex", "Select a native Codex model"),
++            (
++                crate::termux_chat_models::PROVIDER,
++                "ChatGPT AppHost",
++                "Select a model offered by the current ChatGPT account",
++            ),
++        ] {
++            let count = presets
++                .iter()
++                .filter(|model| {
++                    model.show_in_picker && Self::model_belongs_to_provider(&model.model, provider)
++                })
++                .count();
++            if count == 0 {
++                continue;
++            }
++            let id = provider.to_owned();
++            ids.push(id.clone());
++            items.push(SelectionItem {
++                name: title.to_owned(),
++                description: Some(format!("{description} ({count} models)")),
++                is_current: current == provider,
++                actions: vec![Box::new(move |tx| {
++                    tx.send(AppEvent::OpenProviderModelsPopup {
++                        provider: id.clone(),
++                    });
++                })],
++                dismiss_on_select: true,
++                ..Default::default()
++            });
++        }
++        if items.is_empty() {
++            self.add_info_message(
++                "No selectable model providers are available.".to_string(),
++                None,
++            );
++            return;
++        }
++        let header = self.model_menu_header(
++            "Select Provider",
++            "Choose a provider, then its model and reasoning level.",
++        );
++        self.show_model_selection_view(
++            ids,
++            SelectionViewParams {
++                view_id: Some(PROVIDER_SELECTION_VIEW_ID),
++                items,
++                header,
++                ..SelectionViewParams::picker()
++            },
++        );
++    }
++
++    #[cfg(unix)]
++    fn model_belongs_to_provider(model: &str, provider: &str) -> bool {
++        match provider {
++            crate::termux_chat_models::PROVIDER => model.starts_with("chatgpt-desktop/"),
++            "openai" => !model.starts_with("chatgpt-desktop/"),
++            _ => false,
++        }
++    }
++
++    #[cfg(unix)]
++    pub(crate) fn open_provider_models_popup(&mut self, provider: &str) {
++        if !matches!(provider, "openai" | crate::termux_chat_models::PROVIDER) {
++            return;
++        }
++        if !self.is_session_configured() {
++            return;
++        }
++        let presets = crate::termux_chat_models::augment(
++            &self.config,
++            self.model_catalog.try_list_models().unwrap_or_default(),
++        );
++        let filtered: Vec<_> = presets
++            .into_iter()
++            .filter(|model| {
++                model.show_in_picker && Self::model_belongs_to_provider(&model.model, provider)
++            })
++            .collect();
++        self.open_filtered_models_popup(filtered, PROVIDER_MODELS_SELECTION_VIEW_ID);
++    }
++
+     pub(super) fn is_auto_model(model: &str) -> bool {
+         model.starts_with("codex-auto-")
+     }
+@@ -233,6 +353,15 @@ impl ChatWidget {
          presets: Vec<ModelPreset>,
          view_id: &'static str,
      ) {
 +        #[cfg(unix)]
 +        let presets = crate::termux_chat_models::augment(&self.config, presets);
++        self.open_filtered_models_popup(presets, view_id);
++    }
++
++    // The same reasoning/selection actions are used by /model and /provider.
++    // Only a final model choice may commit a provider route change.
++    fn open_filtered_models_popup(&mut self, presets: Vec<ModelPreset>, view_id: &'static str) {
 +        let presets: Vec<_> = presets.into_iter().filter(|m| m.show_in_picker).collect();
          if presets.is_empty() {
              self.bottom_pane.dismiss_view_by_id(view_id);
              self.add_info_message(
-@@ -294,6 +299,48 @@ impl ChatWidget {
+@@ -294,6 +423,48 @@ impl ChatWidget {
          effort_for_action: Option<ReasoningEffortConfig>,
          should_prompt_plan_mode_scope: bool,
      ) -> Vec<SelectionAction> {
@@ -1936,7 +2107,7 @@ index 62af5d1..5c14afa 100644
          let warning = effort_for_action
              .as_ref()
              .and_then(|effort| self.ultra_reasoning_concurrency_warning(effort));
-@@ -771,3 +818,7 @@ impl ChatWidget {
+@@ -771,3 +942,7 @@ impl ChatWidget {
          }
      }
  }
@@ -2134,7 +2305,7 @@ index 0e896a8..f8cdf09 100644
          if model == LUNA_RESERVE_MODEL {
              return None;
 diff --git a/codex-rs/tui/src/chatwidget/slash_dispatch.rs b/codex-rs/tui/src/chatwidget/slash_dispatch.rs
-index 44f3c87..df48886 100644
+index 44f3c87..9c7604a 100644
 --- a/codex-rs/tui/src/chatwidget/slash_dispatch.rs
 +++ b/codex-rs/tui/src/chatwidget/slash_dispatch.rs
 @@ -304,6 +304,10 @@ impl ChatWidget {
@@ -2148,12 +2319,26 @@ index 44f3c87..df48886 100644
              SlashCommand::Fork => {
                  self.show_session_checkout_picker(ManagedWorktreeMode::Fork, /*name*/ None);
              }
-@@ -1358,6 +1362,8 @@ impl ChatWidget {
+@@ -373,6 +377,11 @@ impl ChatWidget {
+                 self.open_model_popup();
+                 self.defer_input_until_settings_applied();
+             }
++            #[cfg(unix)]
++            SlashCommand::Provider => {
++                self.open_provider_popup();
++                self.defer_input_until_settings_applied();
++            }
+             SlashCommand::Presets => {
+                 self.open_quick_dial_menu();
+             }
+@@ -1358,6 +1367,10 @@ impl ChatWidget {
              | SlashCommand::Theme
              | SlashCommand::Tui
              | SlashCommand::Pets => QueueDrain::Stop,
 +            #[cfg(unix)]
 +            SlashCommand::Switch => QueueDrain::Stop,
++            #[cfg(unix)]
++            SlashCommand::Provider => QueueDrain::Stop,
          }
      }
  
@@ -3216,10 +3401,19 @@ index 8b8401c..6443e51 100644
          assert!(rendered.contains("Branch:      codex/raw-scrollback-mode"));
          assert!(rendered.contains("Conversation:"));
 diff --git a/codex-rs/tui/src/slash_command.rs b/codex-rs/tui/src/slash_command.rs
-index dfd0538..7557d9c 100644
+index dfd0538..90d3dd1 100644
 --- a/codex-rs/tui/src/slash_command.rs
 +++ b/codex-rs/tui/src/slash_command.rs
-@@ -34,6 +34,8 @@ pub enum SlashCommand {
+@@ -13,6 +13,8 @@ pub enum SlashCommand {
+     // DO NOT ALPHA-SORT! Enum order is presentation order in the popup, so
+     // more frequently used commands should be listed first.
+     Model,
++    #[cfg(unix)]
++    Provider,
+     Presets,
+     Daybreak,
+     Ide,
+@@ -34,6 +36,8 @@ pub enum SlashCommand {
      Archive,
      Delete,
      Resume,
@@ -3228,7 +3422,7 @@ index dfd0538..7557d9c 100644
      Fork,
      Worktree,
      App,
-@@ -101,6 +103,8 @@ impl SlashCommand {
+@@ -101,6 +105,8 @@ impl SlashCommand {
              SlashCommand::Review => "review my current changes and find issues",
              SlashCommand::Rename => "rename the current thread",
              SlashCommand::Resume => "resume a saved chat",
@@ -3237,7 +3431,16 @@ index dfd0538..7557d9c 100644
              SlashCommand::Archive => "archive this session",
              SlashCommand::Delete => "permanently delete this session",
              SlashCommand::Clear => "clear the terminal and start a new chat",
-@@ -201,6 +205,10 @@ impl SlashCommand {
+@@ -133,6 +139,8 @@ impl SlashCommand {
+             SlashCommand::MemoryDrop => "DO NOT USE",
+             SlashCommand::MemoryUpdate => "DO NOT USE",
+             SlashCommand::Model => "choose what model and reasoning effort to use",
++            #[cfg(unix)]
++            SlashCommand::Provider => "choose an available model provider and model",
+             SlashCommand::Presets => "run or save reusable prompts and slash commands",
+             SlashCommand::Daybreak => "turn Daybreak on or off",
+             SlashCommand::Ide => {
+@@ -201,6 +209,10 @@ impl SlashCommand {
  
      /// Whether this command remains available inside an active side conversation.
      pub fn available_in_side_conversation(self) -> bool {
@@ -3248,7 +3451,7 @@ index dfd0538..7557d9c 100644
          matches!(
              self,
              SlashCommand::Copy
-@@ -226,6 +234,10 @@ impl SlashCommand {
+@@ -226,6 +238,10 @@ impl SlashCommand {
  
      /// Commands that do not require a writable current thread. The server must still be connected.
      pub(crate) fn available_when_thread_unavailable(self) -> bool {
@@ -3259,12 +3462,14 @@ index dfd0538..7557d9c 100644
          matches!(
              self,
              SlashCommand::New
-@@ -248,6 +260,8 @@ impl SlashCommand {
+@@ -248,6 +264,10 @@ impl SlashCommand {
      /// Whether this command can be run while a task is in progress.
      pub fn available_during_task(self) -> bool {
          match self {
 +            #[cfg(unix)]
 +            SlashCommand::Switch => true,
++            #[cfg(unix)]
++            SlashCommand::Provider => true,
              SlashCommand::New
              | SlashCommand::Delete
              | SlashCommand::Fork
