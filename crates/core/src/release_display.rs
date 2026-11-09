@@ -366,7 +366,7 @@ fn decode(bytes: &[u8], manifest: &LocalReleaseManifest, digest: &str) -> Option
                     (Some(id), Some(sequence), true)
                         if sequence > 0
                             && sequence < manifest.release_sequence
-                            && id.starts_with("local-base-")
+                            && (id.starts_with("core-v") || id.starts_with("local-base-"))
                             && m2_generation_state::validate_generation_identity(
                                 id,
                                 "display base",
@@ -766,6 +766,16 @@ mod tests {
                 date: "2026-10-17".into(),
                 base: Some(58),
                 base_generation: Some("local-base-owned".into())
+            }
+        );
+        let core_base = r#"{"release_date":"2026-10-17","base_generation":"core-v0.167.0-proof","base_sequence":58}"#;
+        let core_info = decode(&payload(core_base), &full, &digest).unwrap();
+        assert_eq!(
+            core_info,
+            Display {
+                date: "2026-10-17".into(),
+                base: Some(58),
+                base_generation: Some("core-v0.167.0-proof".into())
             }
         );
         for bad in [

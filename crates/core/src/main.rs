@@ -4711,7 +4711,7 @@ fn parse_update_index_url(value: &OsStr) -> Result<String, LocalProductError> {
 
 #[cfg(unix)]
 fn default_update_index_url(generation: Option<&str>) -> &'static str {
-    if generation.is_some_and(|id| id.starts_with("local-base-")) {
+    if generation.is_some_and(|id| id.starts_with("core-v") || id.starts_with("local-base-")) {
         BASE_UPDATE_INDEX_URL
     } else {
         DEFAULT_UPDATE_INDEX_URL
