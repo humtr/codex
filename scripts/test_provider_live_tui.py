@@ -269,7 +269,7 @@ class TuiObservation(unittest.TestCase):
     def test_new_tui_thread_uses_ui_readiness_before_native_materialization(self):
         client = object.__new__(LiveTui)
         client.thread = '550e8400-e29b-41d4-a716-446655440000'
-        client.screen = 'To get started, describe a task\n/model - choose model'
+        client.screen = '>_ OpenAI Codex (v0.167.0)\n› Ask Codex to do anything'
         observations = []
 
         def wait(predicate, seconds=None):
@@ -281,7 +281,7 @@ class TuiObservation(unittest.TestCase):
         client.read = lambda *_: self.fail('Native read before first input is a deadlock')
         client.start()
         self.assertEqual(observations, [(True, 90), (True, 60)])
-        client.screen = '› Ask Codex to do anything'
+        client.screen = 'To get started, describe a task\n/model - choose model'
         with self.assertRaises(AssertionError):
             client.start()
 

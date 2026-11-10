@@ -529,8 +529,10 @@ class LiveTui:
         # A new TUI thread can be UI-ready before Native has materialized it.
         # Requiring thread/read here deadlocks before the first input can
         # create its backend owner. The first submitted turn is verified below.
-        self.wait(lambda: 'To get started' in plain(self.screen)
-                  and '/model' in plain(self.screen), 60)
+        # The installed upstream greeting varies (the current TUI can show a
+        # suggestion instead of the older "To get started" /model hint).
+        # Readiness is the real composer, not the incidental greeting.
+        self.wait(lambda: 'Ask Codex to do anything' in plain(self.screen), 60)
 
     def drain(self, seconds=.2):
         until = time.monotonic() + seconds
