@@ -23,7 +23,7 @@ class ScopeTests(unittest.TestCase):
 
     def test_changed_paths(self):
         for paths,want in [(['README.md','CURRENT.md'],'docs'),([], 'docs'),
-                           (['docs/spec/BRIDGE.md','docs/history/GENERATION_ADMISSION.md'],'docs'),
+                           (['docs/spec/INDEX.md','docs/TEST_DEPENDENCIES.toml'],'docs'),
                            (['providers/chatgpt/NOTICE.md'],'provider'),
                            (['release/notes.md'],'full'),
                            (['scripts/check.sh','SPEC.md'],'python'),

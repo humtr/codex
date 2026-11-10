@@ -1,0 +1,62 @@
+# One source of per-test document inputs. Edit a path here, not in each test.
+# Required inputs fail closed; conditional inputs are explicitly optional.
+version = 1
+
+[documents]
+spec = "SPEC.md"
+agents = "AGENTS.md"
+policy = "docs/DOCUMENTATION.md"
+index = "docs/spec/INDEX.md"
+current = "CURRENT.md"
+handoff = "HANDOFF.md"
+termux = "docs/TERMUX_CONSTRAINTS.md"
+readme = "README.md"
+provider_guide = "providers/chatgpt/README.md"
+tui_guide = "frontend/tui/README.md"
+
+[discovery]
+annex_roots = ["docs/spec/product", "docs/spec/bridge", "docs/spec/delivery", "docs/spec/interfaces"]
+# A historical directory, when present, is not active documentation or a required input.
+excluded_roots = ["docs/legacy"]
+
+[tests.product_contract]
+purpose = "Top-level product obligations remain independent of document layout"
+required = ["spec"]
+conditional = []
+missing = "fail"
+validation = "product_contract"
+
+[tests.agent_workflow]
+purpose = "Agent instructions navigate by task and preflight actual effects"
+required = ["agents", "policy", "index", "termux"]
+conditional = []
+missing = "fail"
+validation = "agent_workflow"
+
+[tests.index_routing]
+purpose = "Every active functional annex has exactly one direct index entry"
+required = ["index", "spec"]
+conditional = []
+missing = "fail"
+validation = "index_routing"
+
+[tests.current_status]
+purpose = "Current evidence and unfinished acceptance remain distinct"
+required = ["current", "handoff"]
+conditional = []
+missing = "fail"
+validation = "current_status"
+
+[tests.termux_preflight]
+purpose = "Execution checklist retains socket and real writer preconditions"
+required = ["termux"]
+conditional = []
+missing = "fail"
+validation = "termux_preflight"
+
+[tests.relative_links]
+purpose = "All active Markdown references and fragments resolve to real targets"
+required = ["index", "spec"]
+conditional = ["readme", "provider_guide", "tui_guide"]
+missing = "fail"
+validation = "relative_links"

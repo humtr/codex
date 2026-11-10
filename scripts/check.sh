@@ -9,6 +9,7 @@ export PYTHONDONTWRITEBYTECODE=1
 # Documentation checks also apply to the explicit docs scope, not to rust/provider build ownership.
 if [ "$scope" = docs ] || [ "$scope" = python ] || [ "$scope" = full ]; then
   python3 scripts/check_documentation.py
+  if [ "$scope" = docs ]; then python3 -B -m unittest -v scripts/test_documentation.py; fi
 fi
 if [ "$scope" = rust ] || [ "$scope" = full ]; then
   : "${CARGO_TARGET_DIR:=${XDG_CACHE_HOME:-$HOME/.cache}/codex/check-target}"

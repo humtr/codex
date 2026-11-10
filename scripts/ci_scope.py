@@ -8,6 +8,8 @@ def scope(paths):
     for path in paths:
         # Some Markdown files are signed assets, release inputs or live test fixtures.
         if path == 'release/notes.md':return 'full'
+        # Only the declared documentation test-input manifest is a docs-only TOML.
+        if path == 'docs/TEST_DEPENDENCIES.toml':continue
         if (path.endswith('.md') and path != 'providers/chatgpt/NOTICE.md'
                 and not path.startswith('scripts/fixtures/native_trial/')) or path=='.gitignore':continue
         provider_helper = (path.startswith(('scripts/qualify_provider_', 'scripts/fixtures/native_trial/'))
