@@ -40,6 +40,8 @@ if os.environ.get('FAIL_COMMAND')==name or os.environ.get('FAIL_ARGUMENT') in sy
                 self.assertEqual(any(x.startswith('python3 ') for x in calls),python)
                 self.assertEqual(calls[-1],'git diff --check')
                 self.assertEqual(any(x.startswith('bun ') for x in calls),scope=='provider')
+                if scope == 'docs':
+                    self.assertEqual(sum('scripts/test_documentation.py' in call for call in calls), 1)
                 if scope == 'provider':
                     for test in ('scripts/test_provider_native_compiler.py',
                                  'scripts/test_provider_live_tui.py', 'scripts/test_provider_result_recovery.py'):
@@ -50,7 +52,7 @@ if os.environ.get('FAIL_COMMAND')==name or os.environ.get('FAIL_ARGUMENT') in sy
                 if cargo:
                     target='provider-target' if scope=='provider' else 'check-target'
                     self.assertTrue((root/f'cache/codex/{target}/retained').exists())
-            for scope, command, expected_calls in [('rust','cargo',1),('python','python3',1),('docs','git',2),('provider','cargo',1),('provider','bun',5)]:
+            for scope, command, expected_calls in [('rust','cargo',1),('python','python3',1),('docs','git',3),('provider','cargo',1),('provider','bun',5)]:
                 log.unlink()
                 r=subprocess.run(['sh',str(CHECK),scope],env={**env,'FAIL_COMMAND':command})
                 self.assertEqual(r.returncode,19)
