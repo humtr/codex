@@ -1,5 +1,19 @@
 # Codex TUI
 
+The last code-qualified integration revision on
+`integration/codex-native-20261110` is `5384d938`; later documentation-only
+commits are distinct exact source revisions. The previous whole
+[TUI Native qualification](https://github.com/humtr/codex/actions/runs/42742653586)
+passed for `f1ba6719`. The later live qualifier accepts the actual upstream
+composer (`Ask Codex to do anything`) and current `work synchronize` contract;
+40 Python and 10 assembly checks passed. This is not a new exact-HEAD
+whole-TUI CI or real-model admission. An isolated Core/TUI `/provider`
+selection reached GPT-6, but its first request failed
+`native_thread_owner_unavailable` with mismatched installed Provider vs
+isolated Native owner bindings. See
+[CURRENT](../../CURRENT.md#latest-integration-source-and-tui-acceptance-2026-11-10-kst).
+No installed or signed runtime change is implied.
+
 SPEC.md owns the generation, command and update contracts. The native patch adds
 /switch and /provider to exact official source selected by release/upstream.json;
 upstream retains every existing command and owns conversation UI/title composition.

@@ -6,6 +6,46 @@ distinguishes source implementation, automated proof, actual Android execution,
 connected-client proof, public signed delivery and device activation. None
 substitutes for the next boundary.
 
+## Latest integration source and TUI acceptance (2026-11-10 KST)
+
+The maintained integration branch `integration/codex-native-20261110` was
+verified at commit `5384d9386c2acf0e0fd66b10b1be8bc34099b931`.
+Both official Actions runs for **that exact commit** have completed successfully:
+[Source Acceptance #42758325312](https://github.com/humtr/codex/actions/runs/42758325312)
+(5/5 jobs succeeded) and
+[Optional Provider Source Qualification #42758329834](https://github.com/humtr/codex/actions/runs/42758329834)
+(2/2 jobs succeeded). The whole
+[TUI Native qualification #42742653586](https://github.com/humtr/codex/actions/runs/42742653586)
+also completed successfully, but its tested commit is the **earlier**
+`f1ba6719c737225d865f36d623a65367a4e5cc29`, not `5384d938`.
+No later whole-TUI run at `5384d938` is claimed. The subsequent source
+changes repair the live-TUI qualifier's current upstream composer/readiness
+expectation and current Native `work synchronize` contract rather than
+fabricating a positive response. The related 40 Python regressions and
+10 TUI assembly tests passed locally.
+
+An isolated **synthetic** Core -> TUI -> Chat -> Native check reported
+`accepted=true`, `sameThread=true`, three synthetic requests and one
+synchronization; it submitted no real GPT-6 request. In the actual candidate
+Core/TUI experiment, matching startup conditions and a short supported Unix
+socket path allowed `/provider` to select GPT-6. Its **first real input
+failed** with `native_thread_owner_unavailable`, with no completed Native
+model answer. The operating Provider was bound to the installed Core and its
+wrlab execution home/workspace, while this test used an isolated Core/home/
+workspace. That mismatch is an observed test binding difference, not proof
+of a Core or Manager defect or of an accepted TUI inference path.
+
+Required release gates **remain open**: complete real GPT-6 first and follow-up
+answers on the same Native thread through `/provider`; original-history
+retention, injected SSE loss and HTTP 413 recovery without duplicate
+submission or lost effects; and independent Native concurrent-work proof.
+The earlier explicit-profile GPT-6 two-turn diagnostic does not satisfy the
+`/provider` gate. Do not resend the uncertain first turn merely to make a test
+pass. Operating **Full159**, retained **Full153** rollback, Provider/profile
+bindings, signed artifacts and installed services remain unchanged. This
+current summary supersedes only the completion status of older dated
+checkpoints below; their original failed tests and historical scope remain.
+
 ## Continuation checkpoint (2026-11-10 KST)
 
 The existing integrated Native work was recovered through a confirmed, scoped

@@ -1,6 +1,17 @@
 # ChatGPT Provider / Codex bridge
 
-This optional Rust component lives on `rewrite/rust-core`. Core launches the
+The last code-qualified integration revision `5384d938` passed
+[exact-SHA Provider qualification](https://github.com/humtr/codex/actions/runs/42758329834),
+alongside [Source Acceptance](https://github.com/humtr/codex/actions/runs/42758325312).
+This source acceptance does **not** establish actual `/provider` GPT-6
+same-thread two-turn behavior: the isolated TUI candidate's first real input
+failed `native_thread_owner_unavailable` with operating Provider/native-owner
+binding differences. SSE/HTTP 413 recovery and independent concurrency remain
+open. See [CURRENT](../../CURRENT.md#latest-integration-source-and-tui-acceptance-2026-11-10-kst);
+no Provider service or account profile was modified.
+
+This optional Rust component retains its `rewrite/rust-core` lineage and is
+also maintained on `integration/codex-native-20261110`. Core launches the
 verified upstream runtime; Provider owns Chat connection, model configuration,
 Responses/tool-return mapping and host lifetime. Upstream Codex executes tools,
 applies its approval/reviewer policy and owns canonical history. Neither Core nor

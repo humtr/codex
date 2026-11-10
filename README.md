@@ -89,6 +89,19 @@ See [fresh install](#fresh-install), [daily use](#usage-by-entrypoint), and
 
 ## Current status
 
+On `integration/codex-native-20261110`, exact source
+`5384d9386c2acf0e0fd66b10b1be8bc34099b931` passed
+[Source Acceptance](https://github.com/humtr/codex/actions/runs/42758325312)
+and [Provider source qualification](https://github.com/humtr/codex/actions/runs/42758329834).
+The preceding full [TUI Native CI](https://github.com/humtr/codex/actions/runs/42742653586)
+passed at `f1ba6719`; it does not by itself qualify later TUI harness changes
+or actual installed GPT-6 behavior. A candidate `/provider` selection reached
+GPT-6, but the first real turn failed with `native_thread_owner_unavailable`
+in an isolated Core/Provider-owner mismatch. Same-thread real two-turn TUI,
+SSE/HTTP 413 recovery and independent concurrent work remain unaccepted.
+There has been no operating deployment or rollback change; see the
+[latest evidence and remaining gates](CURRENT.md#latest-integration-source-and-tui-acceptance-2026-11-10-kst).
+
 The current integration combines the Rust Core lineage, ChatGPT stream/concurrency
 fixes, independent TUI naming and preparation-observer recovery. The accounts
 prototype remains unwired. [CURRENT](CURRENT.md#integration-status-and-operating-baseline)

@@ -1,5 +1,30 @@
 # Pro 인계: 기존 기능을 보존하는 구조 평탄화
 
+## 최신 통합 인계 (2026-11-10 KST)
+
+현재 마지막으로 코드 자격을 검증한 기준은 `integration/codex-native-20261110`의
+`5384d9386c2acf0e0fd66b10b1be8bc34099b931`이다. 문서 후속 커밋의 HEAD와는 구분한다.
+[Source Acceptance #42758325312](https://github.com/humtr/codex/actions/runs/42758325312)와
+[Provider Qualification #42758329834](https://github.com/humtr/codex/actions/runs/42758329834)는
+이 정확한 SHA에서 모두 성공했다. 이전 커밋 `f1ba6719`의
+[TUI Native CI #42742653586](https://github.com/humtr/codex/actions/runs/42742653586)도
+성공했다. 최신 TUI 검증기의 입력창 및 `work synchronize` 정비는 별도로
+Python 40개와 TUI 조립 10개를 통과했다. CI 통과는 실모델 수락이 아니다.
+
+격리 후보 TUI의 `/provider`에서 GPT-6 선택은 확인됐으나 첫 실모델 입력은
+`native_thread_owner_unavailable`로 끝났다. 운영 Provider의 Core/HOME/
+workspace와 격리 시험 Core의 Native 소유권 불일치가 확인됐으므로,
+이를 곧바로 Core/Manager 제품 결함으로 판정하지 않는다. 다음은
+**동일 소유권으로 바인딩된 정식 Core 진입점**에서 첫 GPT-6 응답과 같은
+Native 스레드의 후속 턴을 검증하고, SSE 단절·HTTP 413·재진입·독립
+병렬 실행의 원본 수락 증거를 확보하는 것이다. 중복 제출이나 가짜
+성공 응답으로 시험을 통과시키지 않는다. Full159 운영 세대, Full153
+롤백, 프로필, 서비스, 서명 산출물과 Android sdcard는 변경하지 않는다.
+
+아래 **2026-11-08 기준점 및 '미푸시' 서술은 그 시점의 역사적 인계**다.
+현행 브랜치·검증·운영 상태는 [CURRENT.md](CURRENT.md#latest-integration-source-and-tui-acceptance-2026-11-10-kst)가
+우선하며, `SPEC.md`의 규범 요구사항은 별도로 유지한다.
+
 ## 0. 현행 기준점과 첫 Pro 검토 단계 (2026-11-08 KST)
 
 이 문서는 현재 작업의 인계와 기존 결정·실패 증거를 함께 보존한다. **실행
