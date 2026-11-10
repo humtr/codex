@@ -691,15 +691,6 @@ index 36d9f43..cc75fcd 100644
                  .await
                  .map_err(|err| config_load_error(&err))?;
              let redact_resume_payloads =
-@@ -6584,7 +6645,7 @@ pub(super) fn core_thread_write_error(operation: &str, err: CodexErr) -> JSONRPC
- fn thread_store_mutation_error(operation: &str, err: ThreadStoreError) -> JSONRPCErrorError {
-     match err {
-         ThreadStoreError::InvalidRequest { message } | ThreadStoreError::Conflict { message } => {
--            invalid_request(message)
-+            invalid_request(message.clone())
-         }
-         ThreadStoreError::Unsupported {
-             operation: unsupported_operation,
 diff --git a/codex-rs/app-server/src/request_processors/thread_queue_processor.rs b/codex-rs/app-server/src/request_processors/thread_queue_processor.rs
 index be77be3..a2f5b5a 100644
 --- a/codex-rs/app-server/src/request_processors/thread_queue_processor.rs
