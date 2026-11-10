@@ -31,6 +31,31 @@ from qualify_provider_native_trial import stop_owned_pid
 from clean_development import fixture_cleanup
 
 
+def fixture_auth_command(root, provider):
+    """Serve a synthetic *ready* input barrier for the owned TUI fixture.
+
+    This checks the TUI CLI/request/response contract, not the real Provider
+    service's synchronization decision. Checkpoint runs the actual Provider.
+    """
+    lines = [
+        '#!' + os.environ['PREFIX'] + '/bin/sh',
+        'case "$1" in',
+        'token) printf "owned-inert-fixture\\n";;',
+        'checkpoint) exec ' + shlex.quote(str(provider)) + ' "$@";;',
+        'work)',
+        '  [ "$#" -eq 6 ] || exit 2',
+        '  [ "$2" = synchronize ] && [ "$3" = --thread-id ] && [ "$5" = --state ] || exit 2',
+        '  [ "$6" = ' + shlex.quote(str(root / 'state')) + ' ] || exit 2',
+        '  [ "${#4}" -eq 36 ] || exit 2',
+        '  case "$4" in *[!0-9a-f-]*|"") exit 2;; esac',
+        '  printf \'%s\\n\' "$4" >> ' + shlex.quote(str(root / 'synthetic-work-synchronizations.txt')),
+        '  printf \'{"thread_id":"%s","status":"ready","inference_submitted":false}\\n\' "$4";;',
+        '*) exit 1;;',
+        'esac',
+    ]
+    return '\n'.join(lines) + '\n'
+
+
 def probe(args):
     root = Path(tempfile.mkdtemp(prefix='ct.', dir=os.environ['TMPDIR']))
     process = master = server = queue_service = None
@@ -102,13 +127,9 @@ def probe(args):
         threading.Thread(target=server.serve_forever, daemon=True).start()
         address = f'http://127.0.0.1:{server.server_port}/v1'
         env['OPENAI_BASE_URL'] = address
-        # A fixture-only auth command, not an alternate production Provider.
+        # Only the input barrier is synthetic; checkpoints use real Provider.
         auth = root / 'fixture-auth'
-        auth.write_text('#!' + os.environ['PREFIX'] + '/bin/sh\n'
-                        'case "$1" in\n'
-                        'token) printf "owned-inert-fixture\\n";;\n'
-                        'checkpoint) exec ' + shlex.quote(str(args.provider)) + ' "$@";;\n'
-                        '*) exit 1;;\nesac\n')
+        auth.write_text(fixture_auth_command(root, args.provider))
         auth.chmod(0o700)
         catalog = json.loads(subprocess.check_output([str(args.provider), 'catalog'], env=env))
         model = catalog['models'][0]
@@ -199,6 +220,10 @@ def probe(args):
         def settings(thread):
             return rpc(home, 'thread/resume', {'threadId': thread})
 
+        def synthetic_synchronizations():
+            path = root / 'synthetic-work-synchronizations.txt'
+            return path.read_text().splitlines() if path.exists() else []
+
         def submit(text):
             # Backend idle can precede the TUI's turn-completed notification.
             drain(1)
@@ -228,7 +253,9 @@ def probe(args):
                 target = 'openai' if before['modelProvider'] == 'chatgpt_desktop' else 'chatgpt_desktop'
                 submit('/provider ')
                 wait(lambda: 'Select Provider' in screen and
-                     'OpenAI / Codex' in screen and 'ChatGPT AppHost' in screen)
+                     re.search(r'OpenAI\s*/\s*Codex',
+                               re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]', '', screen))
+                     and 'ChatGPT AppHost' in screen)
                 opened = rpc(home, 'thread/read',
                              {'threadId': thread, 'includeTurns': False})['thread']
                 assert opened['id'] == thread and opened['modelProvider'] == before['modelProvider']
@@ -308,8 +335,10 @@ def probe(args):
         print('Terminal entered Chat route', flush=True)
         assert public(thread)['turns'] == before, 'handoff must not create a public user turn'
         assert len(requests) == 1, 'native to Chat preparation must not infer'
+        assert not synthetic_synchronizations(), 'model selection must not synchronize user input'
         submit('Continue the owned Chat fixture')
-        wait(lambda: len(requests) == 2 and public(thread)['status']['type'] == 'idle')
+        wait(lambda: len(requests) == 2 and public(thread)['status']['type'] == 'idle'
+             and synthetic_synchronizations() == [thread])
         print('Chat terminal turn settled', flush=True)
         cold_stops = []
         if args.warm_chat_resume:
@@ -500,6 +529,8 @@ def probe(args):
                 'selectionCommand': '/' + args.selection_command,
                 'nativeToChatNoInference': True, 'chatToNativeSummaries': 0,
                 'syntheticResponsesRequests': len(requests), 'chatSubmissions': 0,
+                'syntheticInputSynchronizations': len(synthetic_synchronizations()),
+                'realProviderSynchronizationQualified': False,
                 'providerCheckpointReal': True, 'chatRepliesSynthetic': True,
                 'signedDisposableComposition': True, 'operatingRuntimeChanged': False,
                 'managerAbsent': args.without_manager,
