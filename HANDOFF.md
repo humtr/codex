@@ -51,6 +51,20 @@ overlapping Native writers, merges and real device changes.
    qualifying P2/conditional findings. **Reject** U6a-1's CI-bypass
    interpretation; do not restore old README pins.
 
+**Nonconflicting execution and effort:** The review action queue now contains
+a self-contained U1–U7 finding dictionary, per-packet implementation/test
+LOC ranges (R01–R09 2,410–5,480; with R10 2,630–5,990), source-owner and
+physical Native writer/claim/socket isolation matrix, stages S0–S6, and
+release/branch gates. Until R05 establishes safe independent capacity, use
+one active Termux Native-effect lane or positively demonstrate completely
+isolated Core+Provider+Native environments; worktrees alone are not isolation.
+Keep main as publication authority. After R01's notifier/branch fix,
+propose a separately authorized fast-forward to the existing sole developer
+branch `rewrite/rust-core` (its remote HEAD is an ancestor of integration);
+**do not touch** its three untracked files or advance that checkout during
+this documentation work. See the queue for the read-only baseline and
+required non-force/owner checks.
+
 Product tests and source commits do not permit signed rollout, active
 services/account changes, Android sdcard access or unapproved fixture cleanup.
 
