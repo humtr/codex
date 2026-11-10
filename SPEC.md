@@ -1,49 +1,149 @@
-# Codex for Termux — normative product specification
+# Codex for Termux — product contract
 
-This file states required behaviour, not release status or implementation history.
-The full original requirement text is preserved under the topic modules below.
-Detailed normative contracts: [Bridge](docs/spec/BRIDGE.md), [Delivery](docs/spec/DELIVERY.md), [User interfaces](docs/spec/USER_INTERFACES.md).
-For actual qualification see [CURRENT](CURRENT.md); for current work [HANDOFF](HANDOFF.md). Historical snapshots live in [docs/legacy](docs/legacy/README.md).
+This is the normative, implementation-independent top-level product contract.
+It defines required outcomes and ownership, not the current build, deployment
+generation, work order, test report or location of other documents. Functional
+annexes refine these requirements without weakening or superseding them.
+Changing a source file, version, test result or document location alone does not
+change this contract.
 
-## Chapters
+## 1. Product and public promise
 
-- [Continuous upstream upgrades](docs/spec/product/UPSTREAM.md) — 89 retained normative lines
-- [1. Product definition](docs/spec/product/PRODUCT.md) — 67 retained normative lines
-- [4. Architecture and ownership](docs/spec/product/OWNERSHIP.md) — 178 retained normative lines
-- [4.6 Component responsibilities and user-flow contracts](docs/spec/product/USER_FLOWS.md) — 362 retained normative lines
-- [5. Termux runtime contract](docs/spec/product/TERMUX_RUNTIME.md) — 174 retained normative lines
-- [Detailed feature and release acceptance](docs/spec/product/ACCEPTANCE.md) — 14 retained normative lines
+<a id="1-product-definition"></a>
+**P01 — Supported upstream Codex.** The product provides one public `codex`
+entrypoint running the official upstream Codex CLI correctly in supported
+Android Termux environments, with only necessary adaptations. Upstream tools,
+approvals, native history, compaction and execution remain available,
+recoverable and authoritative.
 
-## Original heading anchors (compatibility)
+<a id="2-product-priorities"></a>
+**P02 — Priorities.** Preserve upstream execution and user data; then security,
+isolation, signed-runtime integrity and recovery; then compatible upstream
+behavior and crash-safe lifecycle; then optional conveniences. Simpler internals
+never justify weaker user, safety or admission guarantees.
 
-Old deep links continue to resolve here and point at the new authoritative chapter; these aliases carry **no separate normative content**.
+**P03 — Independent composition.** Core and the qualified upstream runtime
+form the minimum product. Manager, enhanced terminal UI and model/Chat Provider
+are optional capabilities with separate execution, qualification and
+availability. Their failure must not prevent independently valid Core launch,
+diagnosis, update or rollback. Selected optional artifacts still require full
+admission.
 
-<a id="continuous-upstream-upgrades"></a> [Continuous upstream upgrades](docs/spec/product/UPSTREAM.md#continuous-upstream-upgrades)
+## 2. Commands and observable behavior
 
-<a id="1-product-definition"></a> [1. Product definition](docs/spec/product/PRODUCT.md#1-product-definition)
+<a id="3-public-command-contract"></a>
+**P04 — Public routing.** Core recognizes only exact first arguments `update`,
+`doctor`, `termux` as its owned command routes. Other nonempty argument
+vectors reach upstream without reinterpretation. `codex --version` and
+`codex -V` print upstream's exact version; no `codex version` is added.
+Only a bare, all-terminal invocation may perform a bounded signed-stable
+update advisory before launching upstream; other launches do not.
 
-<a id="2-product-priorities"></a> [2. Product priorities](docs/spec/product/PRODUCT.md#2-product-priorities)
+**P05 — Core commands.** `codex update` uses authenticated, qualified
+Termux-adapted releases, never the unadapted upstream installer. Its
+`--help`, `--force`, `--build-local`, `--local`, `--remote`, and
+`--rollback` modes preserve distinct validation, provenance and mutation
+contracts. Unknown/conflicting selectors fail without state mutation.
+`codex doctor` combines upstream and Termux diagnosis without modifying the
+runtime. `codex termux` invokes optional Manager or reports it unavailable.
 
-<a id="3-public-command-contract"></a> [3. Public command contract](docs/spec/product/PRODUCT.md#3-public-command-contract)
+**P06 — Optional user capabilities.** Manager profile, task, window and
+notification operations alter only their authorized experience. TUI integrates
+upstream interaction; it is never a second executor. Provider supplies a
+selected model/Chat transport, not a Native work identity. Invalid or
+unavailable choices report specific failures without silently changing
+account, model, mode or capability.
 
-<a id="4-architecture-and-ownership"></a> [4. Architecture and ownership](docs/spec/product/OWNERSHIP.md#4-architecture-and-ownership)
+## 3. Responsibility and authority
 
-<a id="41-core"></a> [4.1 Core](docs/spec/product/OWNERSHIP.md#41-core)
+<a id="4-architecture-and-ownership"></a>
+<a id="41-core"></a>
+**P07 — Core authority.** Core alone owns public dispatch, qualified upstream
+launch, Termux environment/capability binding, signed-generation integrity,
+activation, update, rollback and Core diagnosis. Basic launch cannot depend on
+Manager, Provider app, optional UI or network availability.
 
-<a id="42-manager"></a> [4.2 Manager](docs/spec/product/OWNERSHIP.md#42-manager)
+<a id="42-manager"></a>
+**P08 — Manager and UI authority.** Manager owns its declared preferences,
+profile preparation and optional conveniences, invoking Core through an
+authenticated versioned boundary. It must not write Core generations, locks,
+activation or upstream authentication/transcripts. UI presents interaction
+without asserting Native writer or release authority.
 
-<a id="43-shared-contracts"></a> [4.3 Shared contracts](docs/spec/product/OWNERSHIP.md#43-shared-contracts)
+<a id="43-shared-contracts"></a>
+**P09 — Native and Provider.** Native owns thread/turn/work identity,
+execution, approvals, history, compaction and writer authority. Provider owns
+optional transport, authenticated app/account/host binding and unfinished
+external I/O. Only Native receipts establish Native effects. Chat, transport,
+process, host and Native work have distinct lifetimes.
 
-<a id="44-product-completeness-against-upstream"></a> [4.4 Product completeness against upstream](docs/spec/product/OWNERSHIP.md#44-product-completeness-against-upstream)
+<a id="44-product-completeness-against-upstream"></a>
+**P10 — Explicit boundaries.** Cross-component state uses versioned, runtime-
+validated contracts with a single owner for every decision and mutation.
+Unsupported identity, ownership, schema or route refuses safely. Source
+presence, selected UI and readiness signals do not prove execution. Reuse
+qualified upstream interfaces; do not duplicate controllers, executors,
+transcript stores, approval gates or release authorities.
 
-<a id="45-responsibility-and-compatibility-admission-criteria"></a> [4.5 Responsibility and compatibility admission criteria](docs/spec/product/OWNERSHIP.md#45-responsibility-and-compatibility-admission-criteria)
+## 4. Input, continuity and concurrency
 
-<a id="46-component-responsibilities-and-user-flow-contracts"></a> [4.6 Component responsibilities and user-flow contracts](docs/spec/product/USER_FLOWS.md#46-component-responsibilities-and-user-flow-contracts)
+<a id="45-responsibility-and-compatibility-admission-criteria"></a>
+<a id="46-component-responsibilities-and-user-flow-contracts"></a>
+**P11 — Exact intent.** CLI and ChatGPT entrances preserve original user
+input, effective model/effort, Native work/thread identity, tool returns and
+history across admission. Attaching an already-running Chat response does
+not submit it a second time. Explicit new inference retains its own identity,
+policy, account and cost boundary.
 
-<a id="5-termux-runtime-contract"></a> [5. Termux runtime contract](docs/spec/product/TERMUX_RUNTIME.md#5-termux-runtime-contract)
+**P12 — Continuity and idempotence.** Accepted inputs, approvals, effects and
+results must survive observer disconnection, interrupted app response, transport
+limits, ambiguous acknowledgment and recovery without loss or duplicate effects.
+Unknown outcomes require original-request reconciliation, not silent replay,
+identity reset or a fallback model. Stop/handoff must explicitly fence or
+transfer ownership and preserve authorized pending work and history.
 
-<a id="optional-manager-configuration-preparation"></a> [Optional Manager configuration preparation](docs/spec/product/TERMUX_RUNTIME.md#optional-manager-configuration-preparation)
+**P13 — Independent work.** Eligible independent tasks must remain possible
+without unsafe concurrent writes, approval bypass or multiple Native writers.
+A resource conflict produces a bounded actionable state, never silent
+corruption or indefinite denial of unrelated work. Observation does not
+substitute for completed execution proof.
 
-<a id="termux-permission-selection"></a> [Termux permission selection](docs/spec/product/TERMUX_RUNTIME.md#termux-permission-selection)
+## 5. Installation, upstream evolution and safety
 
-<a id="detailed-feature-and-release-acceptance"></a> [Detailed feature and release acceptance](docs/spec/product/ACCEPTANCE.md#detailed-feature-and-release-acceptance)
+<a id="continuous-upstream-upgrades"></a>
+**P14 — Continuous official upgrades.** Qualified new upstream stable
+releases must remain adoptable; retain upstream additions and remove obsolete
+adaptations. Source preparation, candidate qualification, authenticated
+artifact reuse, signing, public promotion and activation remain separate,
+exact-input-bound decisions. Failures require repair, not weakened gates.
+
+<a id="5-termux-runtime-contract"></a>
+**P15 — Termux boundaries.** Real device execution respects Android/Termux
+capabilities, Unix-socket path budgets, private temporary resources and actual
+Core/Provider/Native writer identity. Unsupported sandbox/host actions fail
+transparently. Fixtures or optional components may not alter resolver,
+credentials, unrelated jobs or signed state as a workaround.
+
+<a id="optional-manager-configuration-preparation"></a>
+<a id="termux-permission-selection"></a>
+**P16 — Authorized generation lifecycle.** Only qualified, complete,
+authenticated signed generations enter public activation; updates and rollback
+preserve a usable previous generation and user state through interruption.
+Explicit local-derived generation modes do not silently publish or rewrite
+trust keys. Required old signed formats remain readable for rollback.
+Services and accounts change only under their owners and authorization.
+
+## 6. Acceptance and contract preservation
+
+<a id="detailed-feature-and-release-acceptance"></a>
+**P17 — Whole-flow acceptance.** A required user flow is qualified at each
+real owner boundary it crosses. Source/unit, synthetic integration, Native,
+live-model/app, visible UI, signed publication and device activation are
+distinct proofs. Verify material failure and recovery paths; mock results,
+skipped gates and historical receipts never imply full acceptance.
+
+**P18 — Stable contract.** Preserve all approved observable requirements in
+functional normative annexes when refactoring implementation or documents.
+Changing public behavior or authority requires a deliberate normative
+decision and affected-boundary proof. Undelivered optional behavior belongs in
+the current-state record, not as an implicit relaxation of product contracts.
