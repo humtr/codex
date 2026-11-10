@@ -1,26 +1,9 @@
 # Termux local execution preflight
 
-**Applies to every agent, test fixture and local workflow on this Android
-Termux device.** This is a practical checklist, not a new product contract:
-[Core socket and generation authority](spec/delivery/TERMUX_COMPAT.md) and
-[Native effect/temp ownership](spec/bridge/INPUT.md) are normative.
-For latest device observations see [CURRENT](../CURRENT.md).
-
-## Why previous live-TUI setup failed
-
-The earlier isolated TUI fixture put the private Core/shared-server socket
-under a **deep temporary tree**. Even with valid binaries, its pathname
-exceeded the Unix-domain socket address limit; a short socket root allowed
-startup. Separately, the subsequent `native_thread_owner_unavailable`
-was caused by **different Native writer bindings** between the operating
-Provider and isolated Core. Fixing one condition does not fix the other.
-
-These are *preflight omissions and conflated test environments*. Core already
-rejects overlong native socket paths; the old live qualifier did not catch
-the invalid root before launching. Tests, scripts and docs had relied on a
-generic `TMPDIR`/fixture path without separating socket root and evidence
-root. Do not respond by extending an arbitrary timeout or changing the
-installed Provider to match an unrelated fixture.
+This checklist applies before real Core, Provider or Native device execution.
+It is not a separate product contract or a historical incident record.
+[Normative socket/runtime contract](spec/delivery/TERMUX_COMPAT.md) and
+[Native input ownership](spec/bridge/INPUT.md) govern required behavior.
 
 ## Mandatory Unix socket path budget
 
@@ -90,6 +73,7 @@ not replace, Core's own ownership/namespace checks.
 3. Run the expected-success fixture and an intentionally overlong-root
    **negative** test. Capture real process exit and preserved original result,
    not only a ready screen or test helper's success flag.
-4. Record exact run SHA and evidence boundary in CURRENT; historical failures
-   go to docs/legacy. No operating profile/service/release mutation without
-   separate explicit authorization.
+4. Record exact run SHA and evidence boundary in CURRENT. Retain historical
+   evidence only when uniquely needed by an open acceptance; otherwise use Git
+   history. No operating profile/service/release mutation without separate
+   explicit authorization.
