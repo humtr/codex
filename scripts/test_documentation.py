@@ -31,9 +31,11 @@ class DocumentationRules(unittest.TestCase):
             root = Path(tmp)
             (root / MANIFEST).parent.mkdir(parents=True)
             shutil.copyfile(ROOT / MANIFEST, root / MANIFEST)
-            shutil.copyfile(ROOT / "SPEC.md", root / "SPEC.md")
+            spec = Path(dependencies()["documents"]["spec"])
+            (root / spec).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(ROOT / spec, root / spec)
             self.assertIn("spec", test_inputs("product_contract", root))
-            (root / "SPEC.md").unlink()
+            (root / spec).unlink()
             with self.assertRaisesRegex(DependencyError, "required document missing"):
                 test_inputs("product_contract", root)
 
@@ -42,9 +44,26 @@ class DocumentationRules(unittest.TestCase):
             root = Path(tmp)
             (root / MANIFEST).parent.mkdir(parents=True)
             shutil.copyfile(ROOT / MANIFEST, root / MANIFEST)
-            shutil.copyfile(ROOT / "SPEC.md", root / "SPEC.md")
+            spec = Path(dependencies()["documents"]["spec"])
+            (root / spec).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(ROOT / spec, root / spec)
             self.assertFalse((root / "docs/legacy").exists())
             self.assertEqual(set(test_inputs("product_contract", root)), {"spec"})
+
+    def test_manifest_alias_relocation_needs_no_test_code_change(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = root / MANIFEST
+            path.parent.mkdir(parents=True)
+            data = dependencies()
+            data["documents"]["spec"] = "contract/relocated.md"
+            # The same contract test resolves a relocated input without any
+            # file name in validator or test code.
+            (root / "contract").mkdir()
+            shutil.copyfile(ROOT / dependencies()["documents"]["spec"],
+                            root / data["documents"]["spec"])
+            self.assertEqual(test_inputs("product_contract", root, data)["spec"],
+                             (root / "contract/relocated.md").resolve())
 
     def test_invalid_validator_mapping_fails_closed(self):
         data = dependencies()
@@ -61,12 +80,12 @@ class DocumentationRules(unittest.TestCase):
             self.assertIn(item, anchors)
 
     def test_bad_relative_target_fails(self):
-        check_link(ROOT / "README.md", "docs/spec/NOT_A_REAL_CONTRACT.md")
+        check_link(test_inputs("relative_links")["index"], "NOT_A_REAL_CONTRACT.md")
         self.assertEqual(len(errors), 1)
         self.assertIn("missing link", errors[0])
 
     def test_wrong_anchor_fails(self):
-        check_link(ROOT / "README.md", "CURRENT.md#this-never-existed")
+        check_link(test_inputs("current_status")["current"], "#this-never-existed")
         self.assertEqual(len(errors), 1)
         self.assertIn("unresolved anchor", errors[0])
 
