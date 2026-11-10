@@ -16,8 +16,6 @@ tui_guide = "frontend/tui/README.md"
 
 [discovery]
 annex_roots = ["docs/spec/product", "docs/spec/bridge", "docs/spec/delivery", "docs/spec/interfaces"]
-# A historical directory, when present, is not active documentation or a required input.
-excluded_roots = ["docs/legacy"]
 
 [tests.product_contract]
 purpose = "Top-level product obligations remain independent of document layout"

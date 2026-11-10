@@ -6,10 +6,8 @@ account/terminal features; TUI's Manager integration is not a dependency
 for ordinary Native execution.
 
 [Current state](../../CURRENT.md) ·
-[User interface contract](../../docs/spec/USER_INTERFACES.md) ·
-[Native/Provider contract](../../docs/spec/BRIDGE.md) ·
-[Termux path and ownership constraints](../../docs/TERMUX_CONSTRAINTS.md) ·
-[Historical full assembly guide](../../docs/legacy/2026-11-10/frontend/tui/README.md)
+[UI and Bridge contract index](../../docs/spec/INDEX.md) ·
+[Termux path and ownership constraints](../../docs/TERMUX_CONSTRAINTS.md)
 
 ## Source authority
 

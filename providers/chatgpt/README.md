@@ -9,7 +9,7 @@ thread route**; Provider never becomes a second Native executor.
 [Bridge product contract](../../docs/spec/BRIDGE.md) ·
 [Component documentation policy](../../docs/DOCUMENTATION.md) ·
 [Linux app operations](LINUX_APP.md) ·
-[Historical full guide](../../docs/legacy/2026-11-10/providers/chatgpt/README.md)
+[Functional contract index](../../docs/spec/INDEX.md)
 
 ## Verified scope and remaining acceptance
 
@@ -92,5 +92,5 @@ inference are separately verified boundaries.
 screen and session setup. [Bridge protocol details](../../docs/spec/BRIDGE.md)
 cover Native inputs, transport and approvals; [current acceptance plan](../../HANDOFF.md)
 defines remaining work. Historical commands and long, dated incident
-reports are isolated under [legacy](../../docs/legacy/README.md), not
+completed reports are recoverable through Git history, not
 current service instructions.

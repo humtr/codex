@@ -14,9 +14,9 @@ actual authority. Optional components do not become prerequisites for Core.
 
 See the [product requirements](SPEC.md), [current verified state](CURRENT.md),
 [active acceptance work](HANDOFF.md) and
-[documentation reading policy](docs/DOCUMENTATION.md). Historical release,
-audit and handoff material is in [legacy](docs/legacy/README.md), **not**
-intermixed with this guide.
+[documentation reading policy](docs/DOCUMENTATION.md). Superseded release,
+audit and handoff records remain accessible in Git history, not in current
+user instructions.
 
 ## Actual status — source is not deployment
 

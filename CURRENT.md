@@ -3,8 +3,8 @@
 Updated: 2026-11-10 KST. This is **current evidence only**, not product
 requirements, task instructions, historical chronology or deployment approval.
 Source behaviour is governed by [SPEC](SPEC.md); the work order is
-[HANDOFF](HANDOFF.md). Previous rolling status (2,168 lines) is
-[archived, not authoritative](docs/legacy/2026-11-10/CURRENT.md).
+[HANDOFF](HANDOFF.md). Completed historical status is retained by Git,
+not as a competing current source.
 
 ## Selected operating generation (last observed)
 
@@ -75,7 +75,6 @@ No claimed deployment acceptance follows merely from CI success.
 
 ## Where to find older evidence
 
-Original audits, old generations, prior failures and long-form work logs live
-in [the legacy index](docs/legacy/README.md), including the exact former
-CURRENT.md. Their occurrence in Git history is not evidence of current
-activation or accepted model behavior.
+Use exact historical Git commits and paths only when additional original
+evidence is needed. Historical material does not prove current activation
+or accepted model behavior.

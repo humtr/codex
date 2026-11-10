@@ -16,9 +16,8 @@ or planning model is introduced. CURRENT distinguishes this design from shipped
 behavior and names incomplete interfaces. Historical audits do not freeze the
 earlier boundary allocation.
 
-Historical architecture reviews inform, but do not determine, the current
-contract; [AUDIT.md](../../../AUDIT.md) records past alternatives. Earlier
-initiative labels are traceability references, not product completion levels.
+Historical architecture reviews do not determine the current contract.
+Earlier initiative labels are not product completion levels.
 [CURRENT.md](../../../CURRENT.md) owns implemented, qualified, published and
 activated status. The following
 contracts include the delivered bind/unbind/join foundation and the broader

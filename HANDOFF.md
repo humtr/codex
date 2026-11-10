@@ -3,8 +3,8 @@
 Updated 2026-11-10 KST. **Only unfinished work and acceptance boundaries
 belong here.** Product contracts: [SPEC](SPEC.md), verified status:
 [CURRENT](CURRENT.md), operational preflight:
-[Termux constraints](docs/TERMUX_CONSTRAINTS.md), historical instruction
-archive: [legacy handoff](docs/legacy/2026-11-10/PRO_HANDOFF.md).
+[Termux constraints](docs/TERMUX_CONSTRAINTS.md). Completed prior
+work is available in Git history, not as new instructions.
 
 ## Selected branch and permitted effects
 
@@ -47,5 +47,5 @@ The candidate TUI selected GPT-6 but its first real input returned
 Core/home/workspace against an operating Provider bound elsewhere. The
 shortened Unix socket root fixed startup, **not** inference ownership.
 See [CURRENT.md](CURRENT.md) for the exact CI scope; the historic 2026-11-08
-Pro plans and work IDs are preserved in [legacy](docs/legacy/README.md), not
+Prior Pro plans and work IDs are historical evidence in Git, not
 current instructions.
