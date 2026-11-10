@@ -42,7 +42,7 @@ jobs:
 
   notify_acceptance:
     needs: qualify
-    if: always() && github.ref == 'refs/heads/rewrite/rust-core'
+    if: always() && needs.qualify.result == 'success' && github.ref == 'refs/heads/rewrite/rust-core'
     permissions:
       contents: read
       actions: write

@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 import unittest
 from unittest.mock import patch
 
@@ -9,6 +10,23 @@ ROOT=Path(__file__).resolve().parents[2]
 
 
 class QualificationSignalTests(unittest.TestCase):
+    def test_notifiers_admit_only_successful_owned_release_qualifications(self):
+        for dependency in ('accepted', 'qualify', 'upstream-baseline'):
+            expression=re.search(r'(?m)^    if: (.+)$', signal_job(dependency))[1]
+            for ref in ('refs/heads/rewrite/rust-core', 'refs/heads/integration/codex-native-20261110',
+                        'refs/heads/main', 'refs/tags/v0.167.0', ''):
+                for result in ('success', 'failure', 'cancelled', 'skipped'):
+                    for scope in ('full', 'focused'):
+                        with self.subTest(dependency=dependency, ref=ref, result=result, scope=scope):
+                            evaluated=(expression.replace('always()', 'True')
+                                       .replace('needs.'+dependency+'.result', repr(result))
+                                       .replace('github.ref', repr(ref))
+                                       .replace('inputs.scope', repr(scope))
+                                       .replace('&&', ' and '))
+                            expected=(ref=='refs/heads/rewrite/rust-core' and result=='success'
+                                      and (dependency!='upstream-baseline' or scope=='full'))
+                            self.assertEqual(eval(evaluated, {'__builtins__': {}}, {}), expected)
+
     def test_runtime_transfer_selects_only_an_owned_successful_exact_source_and_live_artifact(self):
         source='a'*40
         good={'id':123,'path':'.github/workflows/core-runtime-qualification.yml','head_sha':source,
@@ -61,6 +79,11 @@ class QualificationSignalTests(unittest.TestCase):
             text=(ROOT/'.github/workflows'/name).read_text()
             self.assertTrue(text.endswith(signal_job(dependency)),name)
             self.assertIn("if: always()",signal_job(dependency))
+            self.assertIn("needs."+dependency+".result == 'success'", signal_job(dependency))
+            self.assertIn("github.ref == 'refs/heads/rewrite/rust-core'", signal_job(dependency))
+        self.assertIn("inputs.scope == 'full'", signal_job('upstream-baseline'))
+        self.assertNotIn('inputs.scope', signal_job('accepted'))
+        self.assertNotIn('inputs.scope', signal_job('qualify'))
         native=(ROOT/'.github/workflows/manager-tui-native.yml').read_text()
         self.assertNotIn('  push:',native)
         receiver=(ROOT/'.github/workflows/accepted-release-inputs.yml').read_text()

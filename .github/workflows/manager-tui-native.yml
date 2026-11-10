@@ -716,7 +716,7 @@ jobs:
 
   notify_acceptance:
     needs: upstream-baseline
-    if: always()
+    if: always() && needs.upstream-baseline.result == 'success' && github.ref == 'refs/heads/rewrite/rust-core' && inputs.scope == 'full'
     permissions:
       contents: read
       actions: write

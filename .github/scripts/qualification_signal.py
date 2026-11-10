@@ -79,9 +79,14 @@ def qualified_runtime_run(source):
 def signal_job(dependency, legacy=False):
     if dependency not in {'accepted', 'qualify', 'upstream-baseline'}:
         raise ValueError('unknown qualification dependency')
-    condition=f"always() && needs.{dependency}.result == 'success'" if legacy else 'always()'
-    if dependency == 'qualify':
+    # Only the source owner may notify the publication controller, and only
+    # after the gate it depends on has actually succeeded. Keep historical
+    # notifier spellings recognizable for byte-equivalent recipe reuse.
+    condition=f"always() && needs.{dependency}.result == 'success'" if not legacy or dependency == 'qualify' else 'always()'
+    if not legacy or dependency == 'qualify':
         condition += " && github.ref == 'refs/heads/rewrite/rust-core'"
+    if not legacy and dependency == 'upstream-baseline':
+        condition += " && inputs.scope == 'full'"
     return f'''
   notify_acceptance:
     needs: {dependency}

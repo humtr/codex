@@ -88,11 +88,14 @@ class WorkflowTests(unittest.TestCase):
         expression=re.search(r'(?m)^    if: (.+)$',relay)[1]
         for ref in ('refs/heads/rewrite/rust-core', 'refs/heads/integration/owned-source',
                     'refs/heads/main', 'refs/tags/v0.161.0', 'refs/pull/1/merge', ''):
-            with self.subTest(ref=ref):
-                evaluated=expression.replace('always()','True').replace('github.ref',repr(ref))
-                evaluated=evaluated.replace('&&',' and ')
-                self.assertEqual(eval(evaluated,{'__builtins__':{}},{}),
-                                 ref=='refs/heads/rewrite/rust-core')
+            for result in ('success', 'failure', 'cancelled', 'skipped'):
+                with self.subTest(ref=ref, result=result):
+                    evaluated=(expression.replace('always()','True')
+                               .replace('github.ref',repr(ref))
+                               .replace('needs.qualify.result',repr(result))
+                               .replace('&&',' and '))
+                    self.assertEqual(eval(evaluated,{'__builtins__':{}},{}),
+                                     ref=='refs/heads/rewrite/rust-core' and result=='success')
         qualification=(ROOT/'.github/workflows/qualify-termux-runtime.yml').read_text()
         self.assertTrue('--event-sha "$GITHUB_SHA"' in qualification,
                         'the decision must receive the actual immutable event SHA')

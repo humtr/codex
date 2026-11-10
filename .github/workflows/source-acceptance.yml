@@ -346,7 +346,7 @@ jobs:
 
   notify_acceptance:
     needs: accepted
-    if: always()
+    if: always() && needs.accepted.result == 'success' && github.ref == 'refs/heads/rewrite/rust-core'
     permissions:
       contents: read
       actions: write
