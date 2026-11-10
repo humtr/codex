@@ -7,12 +7,11 @@ Moving or renaming an annex changes this index, not SPEC.
 
 ## Product — observable promises
 
-- [Public commands and composition](product/PRODUCT.md)
+- [Commands, composition and acceptance](product/PRODUCT.md)
 - [Core/Manager/Native ownership](product/OWNERSHIP.md)
 - [Cross-component user flows](product/USER_FLOWS.md)
 - [Termux runtime](product/TERMUX_RUNTIME.md)
 - [Continuous upstream upgrades](product/UPSTREAM.md)
-- [Acceptance and evidence](product/ACCEPTANCE.md)
 
 ## Bridge — ChatGPT and Native work
 
@@ -30,12 +29,11 @@ Moving or renaming an annex changes this index, not SPEC.
 
 - [Base qualification](delivery/BASE.md)
 - [6. Artifact and patch qualification](delivery/ARTIFACTS.md)
-- [GitHub-native transport and legacy compatibility](delivery/SIGNING.md)
+- [Signed transport and release execution](delivery/SIGNING.md)
 - [7. State and generation model](delivery/STATE.md)
 - [8. Installation and update](delivery/INSTALL.md)
 - [9. Doctor contract](delivery/DOCTOR.md)
 - [9A. Post-Core Termux compatibility extension](delivery/TERMUX_COMPAT.md)
-- [Release execution](delivery/EXECUTION.md)
 
 ## Interfaces — optional user experience
 

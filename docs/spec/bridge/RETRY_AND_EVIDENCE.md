@@ -1,6 +1,6 @@
 # Fixed annotations and idempotency work
 
-> Normative module of [docs/spec/BRIDGE.md](../BRIDGE.md). Check [CURRENT](../../../CURRENT.md) for implementation/evidence.
+> Normative annex of [SPEC](../../../SPEC.md); [INDEX](../INDEX.md) is navigation only and [CURRENT](../../../CURRENT.md) is observed status.
 
 #### Fixed annotations and idempotency work
 

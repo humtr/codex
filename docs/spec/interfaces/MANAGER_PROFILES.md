@@ -1,6 +1,6 @@
 # Manager contracts
 
-> Normative module of [docs/spec/USER_INTERFACES.md](../USER_INTERFACES.md). Check [CURRENT](../../../CURRENT.md) for implementation/evidence.
+> Normative annex of [SPEC](../../../SPEC.md); [INDEX](../INDEX.md) is navigation only and [CURRENT](../../../CURRENT.md) is observed status.
 
 ## Manager contracts
 

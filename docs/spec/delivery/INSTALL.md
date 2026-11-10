@@ -1,6 +1,6 @@
 # 8. Installation and update
 
-> Normative module of [docs/spec/DELIVERY.md](../DELIVERY.md). Check [CURRENT](../../../CURRENT.md) for implementation/evidence.
+> Normative annex of [SPEC](../../../SPEC.md); [INDEX](../INDEX.md) is navigation only and [CURRENT](../../../CURRENT.md) is observed status.
 
 ## 8. Installation and update
 

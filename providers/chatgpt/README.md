@@ -6,7 +6,7 @@ work/turn identity, tools, approvals, original committed history and effective
 thread route**; Provider never becomes a second Native executor.
 
 [Current evidence](../../CURRENT.md) ·
-[Bridge product contract](../../docs/spec/BRIDGE.md) ·
+[Bridge product contract](../../docs/spec/INDEX.md) ·
 [Component documentation policy](../../docs/DOCUMENTATION.md) ·
 [Linux app operations](LINUX_APP.md) ·
 [Functional contract index](../../docs/spec/INDEX.md)
@@ -89,7 +89,7 @@ inference are separately verified boundaries.
 ## Support references
 
 [Linux app launch, login and plugin replacement](LINUX_APP.md) contains
-screen and session setup. [Bridge protocol details](../../docs/spec/BRIDGE.md)
+screen and session setup. [Bridge protocol details](../../docs/spec/INDEX.md)
 cover Native inputs, transport and approvals; [current acceptance plan](../../HANDOFF.md)
 defines remaining work. Historical commands and long, dated incident
 completed reports are recoverable through Git history, not

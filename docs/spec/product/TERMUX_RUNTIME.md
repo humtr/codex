@@ -1,6 +1,6 @@
 # 5. Termux runtime contract
 
-> Normative module of [SPEC.md](../../../SPEC.md). Check [CURRENT](../../../CURRENT.md) for implementation/evidence.
+> Normative annex of [SPEC](../../../SPEC.md); [INDEX](../INDEX.md) is navigation only and [CURRENT](../../../CURRENT.md) is observed status.
 
 ## 5. Termux runtime contract
 

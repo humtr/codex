@@ -63,7 +63,7 @@ login, app account or approval policy should be silently changed.
 
 For a **fresh** installation, use the repository's reviewed, signed
 [online installer](install-online.sh) and the current
-[release contract](docs/spec/DELIVERY.md). Do not reuse an old pinned installer
+[installation contract](docs/spec/delivery/INSTALL.md). Do not reuse an old pinned installer
 URL from a historical snapshot; check the exact accepted release and its
 signature/manifest before use. The Full variant includes Core, Manager and TUI;
 Base includes Core. Provider and Linux ChatGPT app/login are **separate**
