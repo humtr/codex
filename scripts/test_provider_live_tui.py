@@ -209,6 +209,77 @@ class InstalledRuntime(unittest.TestCase):
 
 
 class TuiObservation(unittest.TestCase):
+    def test_provider_picker_commits_reasoning_before_accepting_model_input(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            client = object.__new__(LiveTui)
+            client.root, client.label = root, 'primary'
+            client.thread = '550e8400-e29b-41d4-a716-446655440000'
+            reader, client.master = os.pipe()
+            self.addCleanup(os.close, reader)
+            self.addCleanup(os.close, client.master)
+            client.drain = lambda *_: None
+            submitted = []
+            client.paste = submitted.append
+            screens = iter((
+                'Select Provider\n ChatGPT AppHost',
+                'Select Model and Effort\n GPT-6',
+                'Select Reasoning Level for ChatGPT · GPT-6',
+                'Ask Codex to do anything\n ChatGPT · GPT-6',
+            ))
+
+            def wait(predicate, seconds=None):
+                client.screen = next(screens)
+                self.assertTrue(predicate(), 'TUI modal was not actually completed')
+
+            client.wait = wait
+            client.select_chatgpt()
+            self.assertEqual(submitted, ['/provider '])
+            self.assertEqual(os.read(reader, 100), b'\x1b[F\r\x1b[H\r\x1b[H\r')
+            selected = json.loads((root / 'primary-selection.json').read_text())
+            self.assertFalse(selected['native_settings_verified'])
+            self.assertEqual(selected['picker_model'], 'GPT-6')
+
+    def test_new_tui_thread_uses_ui_readiness_before_native_materialization(self):
+        client = object.__new__(LiveTui)
+        client.thread = '550e8400-e29b-41d4-a716-446655440000'
+        client.screen = 'To get started, describe a task\n/model - choose model'
+        observations = []
+
+        def wait(predicate, seconds=None):
+            observed = predicate()
+            observations.append((observed, seconds))
+            self.assertTrue(observed, 'a title alone is not TUI readiness')
+
+        client.wait = wait
+        client.read = lambda *_: self.fail('Native read before first input is a deadlock')
+        client.start()
+        self.assertEqual(observations, [(True, 90), (True, 60)])
+        client.screen = '› Ask Codex to do anything'
+        with self.assertRaises(AssertionError):
+            client.start()
+
+    def test_missing_first_native_owner_sends_exactly_one_unverified_input(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            client = object.__new__(LiveTui)
+            client.thread = '550e8400-e29b-41d4-a716-446655440000'
+            client.label = 'primary'
+            client.args = SimpleNamespace(codex_home=root)
+            client.budget = TurnBudget(root)
+            client.read = lambda *_: (_ for _ in ()).throw(
+                AssertionError('the exact installed Native owner is unavailable'))
+            pasted = []
+            client.paste = pasted.append
+            self.assertIsNone(client.submit('original new-thread input', 1, 'EXPECTED_ANSWER'))
+            self.assertEqual(pasted, ['original new-thread input'])
+            self.assertEqual(len(client.budget.submissions), 1)
+            self.assertTrue((root / 'submission-1.json').is_file())
+            with self.assertRaisesRegex(AssertionError, 'exact installed Native owner'):
+                client.submit('follow-up input', 2, 'FOLLOWUP_ANSWER')
+            self.assertEqual(pasted, ['original new-thread input'])
+            self.assertFalse((root / 'submission-2.json').exists())
+
     def test_launch_sets_only_the_observed_title_and_valid_fault_provider(self):
         for endpoint in (None, 'http://127.0.0.1:123/v1'):
             with self.subTest(endpoint=endpoint), tempfile.TemporaryDirectory() as directory:

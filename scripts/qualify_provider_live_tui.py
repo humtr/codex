@@ -505,7 +505,11 @@ class LiveTui:
 
     def start(self):
         self.wait(lambda: self.thread is not None, 90)
-        self.wait(lambda: self.read(False)['status']['type'] == 'idle', 60)
+        # A new TUI thread can be UI-ready before Native has materialized it.
+        # Requiring thread/read here deadlocks before the first input can
+        # create its backend owner. The first submitted turn is verified below.
+        self.wait(lambda: 'To get started' in plain(self.screen)
+                  and '/model' in plain(self.screen), 60)
 
     def drain(self, seconds=.2):
         until = time.monotonic() + seconds
@@ -593,26 +597,42 @@ class LiveTui:
         self.screen = ''
         os.write(self.master, b'\r')
         self.drain(1)
-        if 'Select Reasoning Effort' in plain(self.screen):
-            os.write(self.master, b'\x1b[H\r')
-        self.wait(lambda: self.read(False)['modelProvider'] == 'chatgpt_desktop')
-        settings = self.read(False)
-        assert settings.get('model') == MODEL, settings.get('model')
+        # The installed upstream picker calls this "Select Reasoning Level".
+        # Requiring the final selection keeps a new input from being pasted
+        # into a still-open popup instead of being submitted as a Native turn.
+        self.wait(lambda: 'Select Reasoning Level for ChatGPT' in plain(self.screen))
+        os.write(self.master, b'\x1b[H')
+        self.drain(.3)
+        self.screen = ''
+        os.write(self.master, b'\r')
+        self.wait(lambda: 'Ask Codex to do anything' in plain(self.screen)
+                  and 'ChatGPT' in plain(self.screen) and 'GPT-6' in plain(self.screen))
+        # Only the UI choice is known before the first turn. Native's actual
+        # provider/model admission is verified from that turn's readback.
         save(self.root / (self.label + '-selection.json'),
              {'at': stamp(), 'thread': self.thread, 'command': '/provider',
-              'provider': settings['modelProvider'], 'selected_model': settings.get('model')})
+              'picker_provider': 'ChatGPT AppHost', 'picker_model': 'GPT-6',
+              'native_settings_verified': False})
 
     def submit(self, text, count, marker, allow_failed=False):
         try:
             before = self.read()
         except AssertionError as error:
-            if count != 1 or not blank_history_error(error, self.thread):
+            if count == 1 and str(error) == 'the exact installed Native owner is unavailable':
+                # A brand-new TUI thread may have no backend owner until its
+                # first prompt. Never treat this as a Native admission; verify
+                # the original input and owner after sending it exactly once.
+                before = None
+            elif count == 1 and blank_history_error(error, self.thread):
+                before = blank_rollout(self.read(False), self.thread, self.args.codex_home)
+            else:
                 raise
-            before = blank_rollout(self.read(False), self.thread, self.args.codex_home)
-        assert before['id'] == self.thread and native_settled(before, allow_failed)
-        history(before, count - 1)
+        if before is not None:
+            assert before['id'] == self.thread and native_settled(before, allow_failed)
+            history(before, count - 1)
         assert marker not in text, 'answer marker must not be present in the user prompt'
-        assert marker not in json.dumps(before['turns']), 'answer marker was already present in Native history'
+        if before is not None:
+            assert marker not in json.dumps(before['turns']), 'answer marker was already present in Native history'
         self.budget.reserve(self.label, self.thread, count, text)
         self.screen = ''
         self.paste(text)
@@ -637,7 +657,7 @@ class LiveTui:
 
     def turn(self, text, count, marker, allow_failed=False):
         before = self.submit(text, count, marker, allow_failed)
-        result = self.wait(lambda: self.settled(count, before['turns']))
+        result = self.wait(lambda: self.settled(count, before['turns'] if before else []))
         turn = result['turns'][-1]
         admitted_prompt(turn, text)
         self.wait(lambda: assistant_marker(turn, text, marker, self.screen))
@@ -717,6 +737,8 @@ def main():
         client.start()
         client.select_chatgpt()
         first = client.turn(build_marker + ' Reply only with that combined string. Do not use tools.', 1, marker)
+        assert first.get('modelProvider') == 'chatgpt_desktop'
+        assert first.get('model') == MODEL, 'Native first-turn model differs from /provider'
         save(root / 'first-native-private.json', first)
         second = client.turn('Append the literal suffix _FOLLOWUP to the exact marker from your first answer. '
                              'Reply only with that combined string. Do not use tools.', 2, marker + '_FOLLOWUP')
