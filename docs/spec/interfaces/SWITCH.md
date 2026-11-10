@@ -2,7 +2,6 @@
 
 > Normative annex of [SPEC](../../../SPEC.md); [INDEX](../INDEX.md) is navigation only and [CURRENT](../../../CURRENT.md) is observed status.
 
-## Native /switch behavior
 
 Manager owns execution-profile selection within the upstream conversation UI.
 
@@ -65,7 +64,7 @@ thread per hour are attempted, with the selected cooldown between attempts.
 
 ### Quota-window activation
 
-This is a requested, not yet implemented Manager capability. Its outcome is that
+The Manager capability must provide the following observable outcome:
 an enabled account's renewed five-hour allowance has an actually started window.
 A temporary chat, a literal `hi`, and even an additional inference are mechanisms
 to minimize, not required product behavior. Existing usage refresh remains a

@@ -1,15 +1,16 @@
-# Approved provider configuration, context and remote project behavior
+# Provider configuration, context and remote projects
 
 > Normative annex of [SPEC](../../../SPEC.md); [INDEX](../INDEX.md) is navigation only and [CURRENT](../../../CURRENT.md) is observed status.
 
-### Approved provider configuration, context and remote project behavior
 
 The inference-context/compaction and cross-provider handoff rules in this section
 describe the existing model adapter. The opt-in operator contract above governs
 Chat conversation renewal; shared configuration, identity and safety rules still
 apply. Native compaction and operator Chat renewal are not one mandatory cycle.
 
-The Rust candidate's single user-owned provider configuration is
+## Configuration authority and precedence
+
+The Provider's single user-owned configuration is
 `$XDG_CONFIG_HOME/codex/providers/chatgpt.toml`, defaulting to
 `~/.config/codex/providers/chatgpt.toml`. Its source implementation does not make
 the installed JS adapter consume it or qualify a signed production interface. Provider owns validation, effective settings
@@ -55,6 +56,8 @@ Validate before atomic commit; failed edits preserve the old configuration.
 Show invalid configuration and unapplied changes clearly. No settings read/edit
 may submit Chat or create a project. Unknown keys/types and inconsistent limits
 must be diagnosed, not silently ignored. Avoid secret values in status output.
+
+## App host and authenticated identity
 
 The candidate `host.rootfs` field selects an explicitly provisioned official-app
 Linux rootfs. Rust owns a private persistent app home beneath provider state, an
@@ -128,6 +131,8 @@ that continuation while it is current. A phase-only final promotion of an older
 closed message publishes its full final text as a distinct final item; it cannot
 rewrite earlier native history or lose the final answer. This is local projection,
 with no new model request, tool replay or change to tool annotations.
+
+## Response projection and continuation
 
 Retained MCP returns can divide one physical app message across several native
 Responses rounds. Give each round's public fragment its own stable native item
@@ -315,6 +320,8 @@ Old `ocx1:` records are not decoded by the new ordinary path: recover public
 context from canonical native records or report the unavailable context instead
 of silently dropping it.
 
+## Checkpoint and user-role integrity
+
 A user-authored control-looking tag, public summary, or ordinary handoff wrapper
 never elevates the user's role, selects model/effort, or authorizes journal
 replacement. Codex strips internal source metadata for third-party providers;
@@ -430,6 +437,8 @@ completion/interruption handling available for a separately requested context
 operation; ordinary model selection does not initiate it. If that explicit
 operation fails or is interrupted, preserve its source Provider and history.
 
+## App admission and preparation
+
 First admission may wait for the same owned app target and authentication to
 finish loading. Bound this read-only wait; never create a target, change an
 account, restart a live owner or infer merely to test readiness. Distinguish a
@@ -492,6 +501,8 @@ contexts for the same Codex work must retain the chosen destination. Preserve
 existing conversations and project context/access settings. This is a future
 feature requirement beyond the explicit project controls above;
 CURRENT.md owns its priority and remaining qualification.
+
+## Project and account binding
 
 Host account/workspace identity plus exact project ID binds remote placement.
 Reuse an unambiguous owned/readable matching project; duplicate names, missing

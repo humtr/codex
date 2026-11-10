@@ -2,7 +2,6 @@
 
 > Normative annex of [SPEC](../../../SPEC.md); [INDEX](../INDEX.md) is navigation only and [CURRENT](../../../CURRENT.md) is observed status.
 
-### Clipboard and image-input behavior
 
 Preserve upstream /copy, its available copy-picker targets, Ctrl+O, selection
 copy and /config copy/paste preferences. Upstream owns the logical content and

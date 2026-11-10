@@ -2,7 +2,6 @@
 
 > Normative annex of [SPEC](../../../SPEC.md); [INDEX](../INDEX.md) is navigation only and [CURRENT](../../../CURRENT.md) is observed status.
 
-## 4. Architecture and ownership
 
 ### 4.1 Core
 

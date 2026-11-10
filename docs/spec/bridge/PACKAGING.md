@@ -2,7 +2,6 @@
 
 > Normative annex of [SPEC](../../../SPEC.md); [INDEX](../INDEX.md) is navigation only and [CURRENT](../../../CURRENT.md) is observed status.
 
-### Optional Provider packaging and selection
 
 In the deployed format Base excludes all optional components and Full composes
 qualified Manager/frontend; Provider is a separately selected package. The future

@@ -2,7 +2,6 @@
 
 > Normative annex of [SPEC](../../../SPEC.md); [INDEX](../INDEX.md) is navigation only and [CURRENT](../../../CURRENT.md) is observed status.
 
-## 6. Artifact and patch qualification
 
 Upstream freshness, request acceptance, build/port qualification, signed public
 publication and device activation are separate states. A controller run's success
@@ -11,6 +10,8 @@ requested version is installable. An unsupported adaptation is a blocked port,
 not an indefinitely pending build; preserve the installed release and report the
 failed version/source/stage and original job URL. A failed pipeline is not repaired
 by retrying identical inputs or compiling the same unsupported tuple on a device.
+
+## Component composition and update
 
 Core owns the complete update lifecycle: discover installed-component updates,
 resolve compatible dependency groups, reuse unchanged artifacts, acquire or build
@@ -188,6 +189,8 @@ owner exited and released its lease. Preserve their source and outputs.
 Only fully admitted source output enters the ordinary generation builder/signing
 and rollback path. The selected official source, archive and build inputs come from the
 single maintained release recipe. Selection is not evidence of qualification.
+## Source and executor qualification
+
 Local and hosted source builds require separate input-bound verification;
 a qualified hosted artifact may be reused only through exact raw-runtime,
 Android and signed-publication admission. Evidence for one version or executor
@@ -370,6 +373,8 @@ to developers and remote executors. Neither build selection nor signing grants
 network publication authority. Any public promotion requires the complete
 source/execution/readback gate, independent of the executor.
 
+## Accepted-source publication
+
 The maintained release workflow runs from one exact accepted source selected by
 the main publication caller. Candidate construction and Android/AArch64 smoke
 are read-only and have no signing secret or public mutation authority. Signing,
@@ -489,6 +494,8 @@ Final unexpected automation failures produce one deduplicated user attention
 notification identifying failed stage/logs, retained base/full and latest repair
 target; expected negative qualification cases are not failures. The notification
 path cannot execute repair, weaken proof or modify installed state.
+
+## Exact-input component reuse
 
 An exact-input component sidecar is signed with the existing production key and
 binds generation, manifest digest, full source SHA and the base build-input

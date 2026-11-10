@@ -2,7 +2,6 @@
 
 > Normative annex of [SPEC](../../../SPEC.md); [INDEX](../INDEX.md) is navigation only and [CURRENT](../../../CURRENT.md) is observed status.
 
-#### GitHub-native transport and legacy compatibility
 
 This is the contract for the new Core, not a claim that the installed Core already
 implements it. The Worker-backed logical origin remains the existing-consumer

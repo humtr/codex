@@ -2,7 +2,6 @@
 
 > Normative annex of [SPEC](../../../SPEC.md); [INDEX](../INDEX.md) is navigation only and [CURRENT](../../../CURRENT.md) is observed status.
 
-### Installation-wide upstream resume visibility
 
 Core extends the upstream-owned shared
 conversation architecture to known external execution homes directly beneath

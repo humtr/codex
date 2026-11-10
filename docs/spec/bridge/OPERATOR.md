@@ -2,7 +2,6 @@
 
 > Normative annex of [SPEC](../../../SPEC.md); [INDEX](../INDEX.md) is navigation only and [CURRENT](../../../CURRENT.md) is observed status.
 
-### Optional managed Chat operator controls
 
 The optional managed Chat operator controls require an explicit selected
 execution home, Native work identity, owning user and transport capability.

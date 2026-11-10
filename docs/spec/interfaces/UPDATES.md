@@ -2,7 +2,6 @@
 
 > Normative annex of [SPEC](../../../SPEC.md); [INDEX](../INDEX.md) is navigation only and [CURRENT](../../../CURRENT.md) is observed status.
 
-### Bare interactive launch update discovery
 
 The exact zero-argument bare `codex` launch may perform update discovery only
 when stdin, stdout, and stderr are all terminals. Any non-empty argument vector,

@@ -2,7 +2,6 @@
 
 > Normative annex of [SPEC](../../../SPEC.md); [INDEX](../INDEX.md) is navigation only and [CURRENT](../../../CURRENT.md) is observed status.
 
-#### Fixed annotations and idempotency work
 
 The existing readOnlyHint=true, destructiveHint=false and openWorldHint=false
 annotations are intentional immutable user requirements across all tool definitions,

@@ -1,11 +1,10 @@
-# Approved next architecture: independent execution and optional integrations
+# Execution authority and optional integrations
 
 > Normative annex of [SPEC](../../../SPEC.md); [INDEX](../INDEX.md) is navigation only and [CURRENT](../../../CURRENT.md) is observed status.
 
-### Approved next architecture: independent execution and optional integrations
 
-This heading names the accepted independence design, not a claim that every item
-is still unimplemented. CURRENT records source, execution and delivery gates.
+These are ongoing functional ownership requirements. CURRENT records
+implementation, qualification and activation separately.
 The Provider sections describe the existing model-adapter path and its Rust
 migration. They do not prescribe Provider-owned planning/context strategy for the
 new ChatGPT-operated MCP proposal. Reusable execution/identity/history/stop rules
@@ -81,7 +80,7 @@ pending lanes. No Chat is submitted by startup/authentication/preparation. `stat
 remains read-only. Bound startup time and retain content-free errors in a private
 startup log; no alternate launcher, Manager dependency or new supervisor is added.
 
-#### Explicit device service integration
+## Explicit device service integration
 
 An owner may explicitly opt an already configured Provider and its existing
 OpenAI Secure Tunnel runtime into Termux's runit services. This is device service
@@ -145,7 +144,7 @@ changes do not restart the tunnel or replay a request. Rebinding the immutable
 stdio executable is a separate bounded maintenance action. MCP stdio stdout
 remains reserved for protocol messages, separate from diagnostics.
 
-**Optional component and tunnel distribution target (not yet implemented).**
+## Optional component and tunnel distribution
 Core is mandatory. Manager, enhanced TUI, Provider and the patched Termux tunnel
 client are independently selectable optional capabilities. Full selects all of
 these optional capabilities, including the prebuilt Android tunnel client;
@@ -161,7 +160,7 @@ checkout on the user's device. Full may carry exact signed component packages
 under the same installation authority; it must not become a second implementation
 of their installers or couple independent tunnel updates to Core/Provider rebuilds.
 Existing Base/Full releases retain their original inventories and interpretation;
-CURRENT distinguishes that installed format from this future composition.
+The new contract does not reinterpret existing signed inventories.
 
 The wrapper repository owns one authoritative tunnel compatibility recipe: the
 official source/version resolution, bounded Termux/mobile patches, Android build

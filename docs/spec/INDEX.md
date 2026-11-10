@@ -21,9 +21,9 @@ Moving or renaming an annex changes this index, not SPEC.
 - [Input preparation and execution settings](bridge/INPUT.md)
 - [Fixed annotations and idempotency work](bridge/RETRY_AND_EVIDENCE.md)
 - [Optional managed Chat operator controls](bridge/OPERATOR.md)
-- [independent execution and optional integrations](bridge/OWNERSHIP.md)
+- [Execution authority and optional integrations](bridge/OWNERSHIP.md)
 - [Optional Provider packaging and selection](bridge/PACKAGING.md)
-- [configuration, context and remote project behavior](bridge/PROVIDER_SETTINGS.md)
+- [Provider configuration, context and projects](bridge/PROVIDER_SETTINGS.md)
 
 ## Delivery — qualified generations
 

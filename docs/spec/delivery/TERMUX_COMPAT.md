@@ -2,7 +2,6 @@
 
 > Normative annex of [SPEC](../../../SPEC.md); [INDEX](../INDEX.md) is navigation only and [CURRENT](../../../CURRENT.md) is observed status.
 
-## 9A. Post-Core Termux compatibility extension
 
 The upstream runtime remains the official `aarch64-unknown-linux-musl` Codex
 artifact adapted by this product. Running that Linux-target executable inside

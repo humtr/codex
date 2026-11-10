@@ -2,7 +2,6 @@
 
 > Normative annex of [SPEC](../../../SPEC.md); [INDEX](../INDEX.md) is navigation only and [CURRENT](../../../CURRENT.md) is observed status.
 
-### Core recovery authority
 
 `codex termux repair`, including the former `plan` and `apply` forms, is a
 non-mutating Manager usage failure (status 2). It does not launch Core, inspect

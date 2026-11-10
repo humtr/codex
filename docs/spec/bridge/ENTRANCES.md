@@ -2,9 +2,10 @@
 
 > Normative annex of [SPEC](../../../SPEC.md); [INDEX](../INDEX.md) is navigation only and [CURRENT](../../../CURRENT.md) is observed status.
 
-#### Entrance equivalence and continuous development binding
 
-**Primary admission correction.** Bridge-native participation is the primary
+## Primary admission correction
+
+Bridge-native participation is the primary
 execution path. The source-follow admission/queue contracts below describe the
 explicit source verification/recovery consumer; they must
 not force ordinary Bridge requests to wait for saved-Chat crawling. That
@@ -23,7 +24,9 @@ A supported project instruction/connection can guide the model; neither proves
 that tools, developer instructions or a work controller are continuously applied.
 No unsupported host hook may be assumed to make this guarantee.
 
-**Execution meaning and terminology.** Standalone means ChatGPT standalone development
+## Execution meaning and terminology
+
+Standalone means ChatGPT standalone development
 without joining Codex work, invoking its Native tool workflow or orchestrating
 through it. Integrated means the common Codex work/tool/orchestration workflow,
 whether the request enters in CLI or ChatGPT and whether reasoning uses an
@@ -82,8 +85,7 @@ CLI request, and a current Chat's explicit request to Provider. In the latter,
 the current Chat keeps its original control/result return while the Provider
 model's public response and actual native tools are recorded on the selected
 native work. Preserve related managed work and its complete original result;
-this is part of first-batch cross-entrance qualification, not deferred solely
-because independent-agent extensions come later. A source continuation is not
+this remains required cross-entrance qualification, distinct from independent delegation. A source continuation is not
 permission to submit the same question again; an explicit Provider execution or
 delegation request does intentionally start model inference.
 
@@ -103,7 +105,9 @@ Existing execution.mode=model_adapter|operator remains unchanged. Work schema v3
 requires the explicit matched-code/state migration described above; transport
 selection does not justify retaining duplicate responsibility.
 
-**Identity and connection lifetime.** A work_id selects one existing native
+## Identity and connection lifetime
+
+A work_id selects one existing native
 thread and execution scope. Development responsibility, native thread/turn,
 Chat conversation/branch, host request and tool invocation have distinct identity.
 A Chat can address several selected works; a work can retain successive or
@@ -238,7 +242,9 @@ exact receipts remain recoverable without re-emission; retained private original
 history is not rewritten. Each accepting boundary validates the capabilities it
 owns; this does not promise detection of unknown third-party credentials.
 
-**Native execution rendezvous.** Native execution and its TUI must use the same
+## Native execution rendezvous
+
+Native execution and its TUI must use the same
 selected execution home/runtime/system configuration and complete resolved model
 catalog. The original catalog is configuration input, not a projection of UI-known
 model fields. Preserve it through configuration loading and pass that snapshot to
@@ -290,7 +296,9 @@ and policy with Native. A formerly narrow patch inventory is not proof that an
 outer workaround has the right responsibility. Lint must not introduce changes
 beyond the assembled input.
 
-**Bridge admission API.** `codex_sessions join` selects an explicitly named
+## Bridge admission API
+
+`codex_sessions join` selects an explicitly named
 existing, completed Native work and receives `task` plus a required stable
 `call_id`. The common Native start transition reserves one attached-response generation;
 it does not retrieve saved Chat or submit Provider inference. The authenticated
@@ -376,7 +384,9 @@ result does not acquire developer authority or replace ChatGPT host policy.
 Shared public execution does not imply identical hidden/system prompts across
 hosts; native execution/approval policy remains enforced by the runtime.
 
-**Single source admission and current-response participation.** Extend existing
+## Single source admission and current-response participation
+
+Extend existing
 codex_sessions with bind, unbind and source_join, shared by the existing CLI/control
 facades. bind validates the selected source/work; unbind releases that future
 connection at a reconciled boundary. The existing owned source is registered
@@ -491,7 +501,9 @@ Native/TUI commit. An ordinary queue can start inference; only positively admitt
 source-follow rounds have no-reinference semantics. chat_input deliberately starts
 new saved-Chat input, not synchronization of an existing response.
 
-**Observation, partial responses and recovery.** A Native completion observer
+## Observation, partial responses and recovery
+
+A Native completion observer
 belongs to an admitted execution and retires when that Native round settles.
 It uses Native events/recovery reads, never a periodic saved-Chat request. Status
 reports native_observer_running separately from execution and the last explicitly
@@ -533,7 +545,9 @@ perform no GET. Account changes do not inherit another account's cache. Successf
 retrieval resets the consecutive counter. Native event/approval handling continues
 while source reads wait. Do not restart a live host merely because a probe failed.
 
-**Event and screen consistency.** Preserve the original public user, commentary,
+## Event and screen consistency
+
+Preserve the original public user, commentary,
 tool call/result and full final with source/type/visibility references. Native
 tools are produced/approved/recorded by upstream; host tools outside Codex are
 labelled source observations with available original references. Hidden reasoning
@@ -560,7 +574,9 @@ unsettled receipts. Derive model/effort from the settings timeline and correlate
 requests; no silent lowering or retrospective attribution. Preserve ordered-prefix
 validation instead of resetting it to admit mismatched history.
 
-**Language and component boundary.** Rust owns development binding/source
+## Language and component boundary
+
+Rust owns development binding/source
 admission, native work/control/approval routing, policy, durable budgets/receipts,
 source validation and recovery. JS remains for renderer-only React/module/API
 access, stream callbacks, local-function delivery and synchronous checks/reservation
@@ -572,13 +588,15 @@ proven alternative host interface; JSON encoding alone is not that interface.
 Core stays independent of optional Provider/Manager/TUI. Upstream runtime remains
 the canonical executor/history authority; Manager owns optional convenience only.
 
-**Agent extension.** The first implementation/acceptance batch must cover same
+## Agent extension
+
+Entrance-equivalence acceptance must cover same
 source, actual execution and both screens across entrances. Independent delegation
 follows that foundation. Existing Provider assignment.parent is a logical work
 relation, not proof of upstream parent_thread_id or /subagents membership.
 Prefer actual native spawn/agent lifecycle for native children. External model
 workers require separately verified reasoning/source identity and result return;
-current thread/start/fork APIs inspected in AUDIT do not register an external
+existing Native thread/start/fork APIs do not register an external
 child merely by writing a parent ID. Never edit rollout/DB ancestry directly.
 Parent records carry delegation/status/result/source references; each child retains
 its own complete public execution record and accessible original context. One Chat
@@ -595,8 +613,10 @@ result APIs plus individual history access; sequential same-Chat requests are no
 that proof. A native/UI protocol extension requires its own explicit contract,
 source compatibility and full acceptance before presenting external native ancestry.
 
-**Acceptance and migration.** AUDIT scenarios1–10 are mandatory, with1–9 the first
-entrance batch and10 explicit delegation. Distinguish source/doubles, real native,
+## Acceptance and migration
+
+Acceptance must cover both initiating entrances and explicit delegation
+with independently observed execution and result ownership. Distinguish source/doubles, real native,
 actual Android/web model execution, saved readback, current PTY/reopened TUI and
 physical UI observation. Include joining omitted/late, interrupted/overlapping
 inputs, lost effect replies, account/model changes, approval/Stop and compaction.

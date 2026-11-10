@@ -2,7 +2,6 @@
 
 > Normative annex of [SPEC](../../../SPEC.md); [INDEX](../INDEX.md) is navigation only and [CURRENT](../../../CURRENT.md) is observed status.
 
-## 9. Doctor contract
 
 `codex doctor` is read-only. It runs the raw upstream doctor when supported and
 adds a Termux Core/Manager diagnosis without recursively invoking the public

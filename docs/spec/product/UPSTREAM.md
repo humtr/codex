@@ -2,7 +2,6 @@
 
 > Normative annex of [SPEC](../../../SPEC.md); [INDEX](../INDEX.md) is navigation only and [CURRENT](../../../CURRENT.md) is observed status.
 
-## Continuous upstream upgrades
 
 This product is a Termux wrapper for upstream Codex. Continuously following new
 official stable releases is a permanent requirement, including every release

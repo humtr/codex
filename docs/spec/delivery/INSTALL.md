@@ -2,7 +2,6 @@
 
 > Normative annex of [SPEC](../../../SPEC.md); [INDEX](../INDEX.md) is navigation only and [CURRENT](../../../CURRENT.md) is observed status.
 
-## 8. Installation and update
 
 The release bundle keeps one audited local `install.sh` delivery frontend and
 adds one separate network-acquisition frontend, `install-online.sh`.
@@ -67,6 +66,8 @@ workspace, and invokes local `install.sh <CORE_ARTIFACT>
 or recovery state directly. All persistent writes remain owned by the existing
 bootstrap/Core boundary. Failure removes only the private acquisition
 workspace.
+
+## Initial bootstrap and legacy handoff
 
 Fresh installation uses a small audited bootstrap because Core cannot install
 itself before it exists. The bootstrap may only detect the environment,
@@ -189,6 +190,8 @@ selected keep/local-build/remote-request policy. All channel and explicit transp
 selectors preserve acquisition failures without starting a different operation. No path may install an
 unpatched runtime or turn transport failure into official publication.
 
+## Signed stable channel
+
 The automatic stable channel is represented by a bounded signed index. Its
 default control URL is
 `https://raw.githubusercontent.com/humtr/codex/main/update-index-v1`; a
@@ -308,6 +311,8 @@ package-manager action, PATH widening, raw-runtime patch, or second activation
 mechanism. Its purpose is retained R10-readable consumption and rollback until
 an explicitly qualified compatibility-floor change, not a timed two-promotion
 sequence that clients may miss.
+
+## Key authority and release compatibility
 
 The shared key/rotation contract below applies to retained codex-release-v3 and
 current Core-bearing codex-release-v4. New coordinated Core bundles require v4;
@@ -430,6 +435,8 @@ probe, activation, and recovery path. This file-addressed release transport is
 not an archive and does not weaken the archive-safety requirements for later
 upstream-artifact work.
 
+## Remote acquisition and modes
+
 Remote acquisition creates directories with owner-only access, creates response
 files owner-readable, and after each content digest succeeds applies the exact
 signed permission mode before whole-bundle verification. Local admission checks
@@ -547,6 +554,8 @@ owner-only temporary rules. It fetches only the bounded index and its sibling
 signature, verifies the exact index bytes with the recovered `update_key`, and
 then delegates to the explicit signed remote-generation path. The index is not
 an alternate trust source and never authorizes a raw upstream package.
+
+## Candidate activation acceptance
 
 Candidate activation integrity is narrower than public diagnostic health. After
 signed descriptor/manifest/index admission, exact signature/digest/mode checks,

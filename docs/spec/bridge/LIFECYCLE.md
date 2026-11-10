@@ -2,7 +2,6 @@
 
 > Normative annex of [SPEC](../../../SPEC.md); [INDEX](../INDEX.md) is navigation only and [CURRENT](../../../CURRENT.md) is observed status.
 
-#### Common interfaces and lifecycle
 
 The retained interfaces below coexist with the entrance-equivalence target above;
 CURRENT distinguishes their implemented/qualified scope from unfinished connection

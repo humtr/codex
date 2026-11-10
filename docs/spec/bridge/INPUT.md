@@ -2,7 +2,6 @@
 
 > Normative annex of [SPEC](../../../SPEC.md); [INDEX](../INDEX.md) is navigation only and [CURRENT](../../../CURRENT.md) is observed status.
 
-#### Input preparation and execution settings
 
 These are the approved execution contracts. Source qualification and installed
 product state are recorded separately in CURRENT.md. Keep one execution
@@ -47,7 +46,7 @@ it does not choose Native ownership or assemble another development policy.
    Registering them in Native history does not start a replacement inference or
    change their model. Tool/approval returns retain their original request binding.
 
-Public request draft, simplified after review: keep the existing actions and
+Required public request behavior: keep the existing actions and
 add optional `model`/`effort` choices only where an inference is actually started.
 Example additional arguments:
 
@@ -160,7 +159,9 @@ that cannot accept background delivery shows pending delivery and a source-bound
 retrieval handle. This retains long-running delegated work without per-turn
 supervisor inference or an invented MCP/Work quota route.
 
-**Saved context and project selection.** New managed workflows use saved Chats in
+## Saved context and project selection
+
+New managed workflows use saved Chats in
 an explicitly selected compatible private project; Qualification fixtures select their own
 project/configuration rather than changing installed history defaults. Resolve a
 configured project ID first, otherwise show exact owned name matches and require
@@ -178,7 +179,9 @@ Title readback compares the complete conversation graph and message values,
 excluding only each message's volatile `update_time`. Preserve raw before/after
 evidence separately; changes to text, metadata, IDs or branches remain failures.
 
-**Reading and input.** Provide one account-bound conversation service with CLI
+## Reading and input
+
+Provide one account-bound conversation service with CLI
 chats list/read and MCP codex_chats list/read facades, independent of native work.
 List supports project/title/time filters, opaque pagination and stable IDs; title
 matches may return several candidates. Read selects conversation ID and branch
@@ -214,7 +217,9 @@ Releasing an absent owned host/bridge is an idempotent no-op and must not acquir
 an app after a service restart. This proves release of ownership only; missing
 host observations still cannot establish stream or native-process termination.
 
-**Agents and coordination.** The initiating Codex or current Chat reasoning context
+## Agents and coordination
+
+The initiating Codex or current Chat reasoning context
 coordinates by default; an extra managed coordinator is an explicit choice with
 separate model cost. Provider assignment parents are not native child ancestry.
 The approved agent extension above defines that boundary. Reuse actual native child/reviewer threads and record assignments,
@@ -261,7 +266,9 @@ optional coordination code injected into upstream ToolRegistry. Retain
 workspace and permission checks and authorized write capabilities; mere
 workspace overlap cannot deny work creation.
 
-**Conflict classes and required outcomes.** Apply every relevant row to a
+## Conflict classes and required outcomes
+
+Apply every relevant row to a
 compound operation. The strongest actual conflicting resource rule wins; absence
 of a known conflict is not proof that an opaque command is harmless.
 
@@ -301,7 +308,9 @@ Each NC-01 through NC-29 row is an independent, testable acceptance case.
 Compound commands satisfy every applicable row; acceptance must demonstrate
 admission of safe parallel effects and rejection or reconciliation of unsafe ones.
 
-**Minimal resource-aware execution contract.** Resolve a proposed Native effect
+## Minimal resource-aware execution contract
+
+Resolve a proposed Native effect
 to an access mode (read, bounded write or opaque), its verified physical resource
 set, a work/operation identity and any required base versions. Read and write
 authorization are distinct from scheduling. Reads with no requested consistency
@@ -371,7 +380,9 @@ edits may be prepared in parallel and integrated sequentially. A second
 scheduler, compulsory extra model call or mandatory disposable Git worktree is
 not introduced by this requirement.
 
-**Compatibility, recovery and acceptance.** Replace Provider's
+## Compatibility, recovery and acceptance
+
+Replace Provider's
 `native_workspace_writer_busy` ancestor/descendant work-record rejection with
 effect/resource-aware admission, settlement and recovery for mediated Native
 tool calls. Unmediated upstream execution is not thereby protected. Both
@@ -441,7 +452,9 @@ tunnel will resolve its cause.
 The [Linux app operating guide](../../../providers/chatgpt/LINUX_APP.md#플러그인-생성과-교체)
 owns the operating steps and partial-failure recovery.
 
-**Management.** Extend the optional Provider binary's existing status/view/reveal/
+## Management
+
+Extend the optional Provider binary's existing status/view/reveal/
 stop/serve mechanisms with one host lifecycle facade (ensure/status/open/stop),
 shared by management CLI and MCP. Configuration stays in Provider config with an
 explicit owner-bound state root. Reuse Rust OwnedHost/CDP/Remote/AppHost and native
@@ -463,7 +476,9 @@ and Native ownership validation still apply to both return paths. Missing/expire
 specific unavailable capability. Viewer/login interactions remain optional and
 distinct from backend work; cosmetic noVNC changes are not a prerequisite.
 
-**State, observation and proof.** Expose native and host status separately. Running,
+## State, observation and proof
+
+Expose native and host status separately. Running,
 waiting for tool/user/previous completion, reconciling, completed, stopped and
 unknown carry an observed time/cause; silence or missing output is not completion.
 Completion requires native final commitment, owned-call/job settlement and durable

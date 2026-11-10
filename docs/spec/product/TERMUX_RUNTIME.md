@@ -2,7 +2,6 @@
 
 > Normative annex of [SPEC](../../../SPEC.md); [INDEX](../INDEX.md) is navigation only and [CURRENT](../../../CURRENT.md) is observed status.
 
-## 5. Termux runtime contract
 
 The first supported release target is `aarch64-linux-android` on a supported
 Termux installation. Release users must receive a prebuilt Core and must not be

@@ -2,7 +2,6 @@
 
 > Normative annex of [SPEC](../../../SPEC.md); [INDEX](../INDEX.md) is navigation only and [CURRENT](../../../CURRENT.md) is observed status.
 
-### 4.6 Component responsibilities and user-flow contracts
 
 This table allocates responsibilities, not mandatory new processes, modules or
 forwarding layers. Existing implementations are retained only where they satisfy

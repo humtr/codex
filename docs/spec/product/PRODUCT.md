@@ -2,7 +2,6 @@
 
 > Normative annex of [SPEC](../../../SPEC.md); [INDEX](../INDEX.md) is navigation only and [CURRENT](../../../CURRENT.md) is observed status.
 
-## 1. Product definition
 
 The product provides one public `codex` entrypoint that runs the official
 upstream Codex CLI correctly on supported Termux environments.

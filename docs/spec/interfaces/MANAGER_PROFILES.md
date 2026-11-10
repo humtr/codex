@@ -2,7 +2,6 @@
 
 > Normative annex of [SPEC](../../../SPEC.md); [INDEX](../INDEX.md) is navigation only and [CURRENT](../../../CURRENT.md) is observed status.
 
-## Manager contracts
 
 This section defines the optional Manager. It does not weaken or
 extend the Core completion threshold, and it does not make Manager a
