@@ -29,7 +29,7 @@ selected model and entrypoint.
   reading order, bounded writing and legacy archival; read
   [docs/TERMUX_CONSTRAINTS.md](docs/TERMUX_CONSTRAINTS.md) before using any
   Termux socket, temporary root, Core/Provider binding or live TUI.
-  Use [PRO_HANDOFF.md](PRO_HANDOFF.md) only for the current handoff/work order.
+  Use [HANDOFF.md](HANDOFF.md) only for the current handoff/work order.
   A release record, prior implementation or passing test does not override the
   product contract. [README.md](README.md) is the user-facing guide.
 - After compaction, recovery or handoff, reread this file, then the relevant
@@ -97,7 +97,7 @@ selected model and entrypoint.
   unsupported claims, skipped mandatory gates and conclusions drawn only from
   counters, request acknowledgments or historical receipts.
 - Write each new fact at one authority: SPEC for stable requirements,
-  CURRENT for latest checked status, PRO_HANDOFF for unfinished tasks,
+  CURRENT for latest checked status, HANDOFF for unfinished tasks,
   user/component guides for supported usage, docs/legacy for old evidence.
   Archive displaced content before shortening; never append a historical
   timeline to an active document. Follow the document-map validation rules.

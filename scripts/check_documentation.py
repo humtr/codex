@@ -15,7 +15,7 @@ AUTHORITY = {
     "AGENTS.md": 170,
     "SPEC.md": 150,
     "CURRENT.md": 160,
-    "PRO_HANDOFF.md": 110,
+    "HANDOFF.md": 110,
     "README.md": 160,
     "providers/chatgpt/README.md": 180,
     "frontend/tui/README.md": 160,
@@ -90,6 +90,8 @@ def check_link(src, destination):
 
 
 def main():
+    if (ROOT / "PRO_HANDOFF.md").exists():
+        issue("PRO_HANDOFF.md", "obsolete active handoff path must not coexist with HANDOFF.md")
     for relative, max_lines in AUTHORITY.items():
         p = ROOT / relative
         if not p.is_file():

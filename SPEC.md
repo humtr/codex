@@ -3,7 +3,7 @@
 This file states required behaviour, not release status or implementation history.
 The full original requirement text is preserved under the topic modules below.
 Detailed normative contracts: [Bridge](docs/spec/BRIDGE.md), [Delivery](docs/spec/DELIVERY.md), [User interfaces](docs/spec/USER_INTERFACES.md).
-For actual qualification see [CURRENT](CURRENT.md); for current work [PRO_HANDOFF](PRO_HANDOFF.md). Historical snapshots live in [docs/legacy](docs/legacy/README.md).
+For actual qualification see [CURRENT](CURRENT.md); for current work [HANDOFF](HANDOFF.md). Historical snapshots live in [docs/legacy](docs/legacy/README.md).
 
 ## Chapters
 

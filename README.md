@@ -13,7 +13,7 @@ actual authority. Optional components do not become prerequisites for Core.
 | **ChatGPT Provider** | Optional model transport, account/app and ChatGPT Bridge | Separate package, app and MCP bindings |
 
 See the [product requirements](SPEC.md), [current verified state](CURRENT.md),
-[active acceptance work](PRO_HANDOFF.md) and
+[active acceptance work](HANDOFF.md) and
 [documentation reading policy](docs/DOCUMENTATION.md). Historical release,
 audit and handoff material is in [legacy](docs/legacy/README.md), **not**
 intermixed with this guide.

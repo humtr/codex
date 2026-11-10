@@ -90,7 +90,7 @@ inference are separately verified boundaries.
 
 [Linux app launch, login and plugin replacement](LINUX_APP.md) contains
 screen and session setup. [Bridge protocol details](../../docs/spec/BRIDGE.md)
-cover Native inputs, transport and approvals; [current acceptance plan](../../PRO_HANDOFF.md)
+cover Native inputs, transport and approvals; [current acceptance plan](../../HANDOFF.md)
 defines remaining work. Historical commands and long, dated incident
 reports are isolated under [legacy](../../docs/legacy/README.md), not
 current service instructions.

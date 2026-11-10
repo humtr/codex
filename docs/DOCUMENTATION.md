@@ -17,7 +17,7 @@
 4. **CURRENT.md** — short, dated, last-observed state and evidence by exact
    SHA/run/real boundary. This is the only current status ledger. No running
    chronology, unbounded command transcript or old generation catalog.
-5. **PRO_HANDOFF.md** — next work only, explicit blocker, acceptance steps
+5. **HANDOFF.md** — next work only, explicit blocker, acceptance steps
    and effect boundaries. Remove a completed step instead of appending a new
    historical correction. Never become a second CURRENT.
 6. **README.md**, **frontend/tui/README.md**, **providers/chatgpt/README.md**,
@@ -53,7 +53,7 @@ documents neither launch processes nor override authenticated owner receipts.
 | Agent behavior, safety and doc reading/writing rules | AGENTS + this policy | SPEC requirements or dated CURRENT |
 | User-visible required behavior or ownership rule | Exact SPEC module with impacted tests | CURRENT, old reviews or release notes |
 | New verified runtime/source status | Replace bounded CURRENT row with exact SHA, time, provenance and limits | AGENTS, SPEC, new chronological appendix |
-| Unfinished work and next acceptance | PRO_HANDOFF, concise and measurable | README, archived handoff history |
+| Unfinished work and next acceptance | HANDOFF, concise and measurable | README, archived handoff history |
 | User-reproducible supported setup | README / component guide | Unverified transcript or mixed release instructions |
 | Old failure, completed run, obsolete choice or replaced status | Date-labelled docs/legacy record or immutable Git commit link | Any active top-level document |
 
@@ -77,7 +77,7 @@ The four former monolithic normative files now act as **small indexes**;
 the complete contract text is grouped into topic modules, not copied as
 competing rules. Keep each new chapter focused (prefer at most about 600
 lines; split before it becomes a running incident log). Keep CURRENT and
-PRO_HANDOFF readable in one sitting (aim below 150/100 lines respectively).
+HANDOFF readable in one sitting (aim below 150/100 lines respectively).
 Store historical detail in one immutable date/revision namespace under
 docs/legacy, with links to its precise original Git source. Legacy files
 must start with a warning that they are no longer authoritative. Redirect

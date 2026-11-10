@@ -3,7 +3,7 @@
 Updated: 2026-11-10 KST. This is **current evidence only**, not product
 requirements, task instructions, historical chronology or deployment approval.
 Source behaviour is governed by [SPEC](SPEC.md); the work order is
-[PRO_HANDOFF](PRO_HANDOFF.md). Previous rolling status (2,168 lines) is
+[HANDOFF](HANDOFF.md). Previous rolling status (2,168 lines) is
 [archived, not authoritative](docs/legacy/2026-11-10/CURRENT.md).
 
 ## Selected operating generation (last observed)

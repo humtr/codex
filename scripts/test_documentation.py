@@ -13,6 +13,11 @@ class DocumentationRules(unittest.TestCase):
     def tearDown(self):
         errors.clear()
 
+    def test_handoff_uses_one_current_name_and_preserves_historical_copy(self):
+        self.assertTrue((ROOT / "HANDOFF.md").is_file())
+        self.assertFalse((ROOT / "PRO_HANDOFF.md").exists())
+        self.assertTrue((ROOT / "docs/legacy/2026-11-10/PRO_HANDOFF.md").is_file())
+
     def test_original_heading_links_appear_in_split_indexes(self):
         for relative, anchor in (
             ("SPEC.md", "46-component-responsibilities-and-user-flow-contracts"),

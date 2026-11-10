@@ -1,4 +1,4 @@
-# Current integration work order
+# Handoff — current integration work
 
 Updated 2026-11-10 KST. **Only unfinished work and acceptance boundaries
 belong here.** Product contracts: [SPEC](SPEC.md), verified status:
