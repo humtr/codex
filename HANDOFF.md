@@ -9,12 +9,50 @@ work is available in Git history, not as new instructions.
 ## Selected branch and permitted effects
 
 - Work exclusively from `integration/codex-native-20261110` at the actual
-  verified HEAD. Last code-qualified revision: `5384d938`. Inspect the
-  current branch, other worktree ownership and actual diff first.
+  verified HEAD. Last product-runtime change baseline: `5384d938`.
+  Last exact-source CI baseline before review-doc updates: `0aebdd7f`,
+  with [Source Acceptance #42787269906](https://github.com/humtr/codex/actions/runs/42787269906)
+  successful on that SHA; **not** device or live-model acceptance.
+  Never infer CI success on a later review-doc commit from this receipt.
+  Inspect HEAD, remote, other worktree ownership and diff first.
 - Preserve operating Full159, Full153 rollback, signed generations, installed
   Core, active Provider/service/host, account homes and unrelated Native work.
   Never touch Android sdcard. Source edits, tests, commits and non-force push
   do not authorize operational replacement.
+
+## Review-driven implementation packets
+
+Use the [temporary review work queue](docs/development/REVIEW_ACTIONS_20261110.md)
+to correlate the new 109 findings with the prior 74-item internal review.
+P0/P1 are **priority hypotheses**, not observed operating failures.
+Re-read actual code/owner and add reproducible negative/recovery tests before
+each cohesive commit. Keep separate packets on isolated worktrees; serialize
+overlapping Native writers, merges and real device changes.
+
+1. **R01 CI ownership (U7-4, U6b-4):** exact branch/ref/SHA admission,
+   correct gate matrix and no unsolicited acceptance dispatch on `main`.
+   **Do not manually dispatch source-acceptance or manager-tui-native on
+   the integration branch before this is fixed:** their existing
+   `if: always()` notifier can launch `accepted-release-inputs` on main.
+2. **R02 MCP control authentication (U3-1):** unauthenticated loopback
+   control calls rejected; authorized Native and service callers still work.
+3. **R03 Core safety (U1-2/4/6):** crash-safe guard, secret redaction,
+   upstream option and unsupported Termux sandbox parsing. No blind purge.
+4. **R04/R05 Native continuity/concurrency (U4-3/6, U3-4 et al.):**
+   reconcile original dispatch/result/effect claims, keep independent work
+   available without a second writer or unsafe claim release.
+5. **R06 TUI input/reentry (U5-1/4 et al.):** one-shot markers, validated
+   bounded/cancelable waiting and preserved draft/native input identity.
+6. **R07 destructive migration (U6b-2):** isolated copies, durable intent
+   and confirmed app-server processing before irreversible effects. **Do
+   not** run migration against live user homes as a documentation task.
+7. **R08-R10** then isolate release retries, Base online installer,
+   Provider fixture cleanup/credential gates, remaining P1 cases and
+   qualifying P2/conditional findings. **Reject** U6a-1's CI-bypass
+   interpretation; do not restore old README pins.
+
+Product tests and source commits do not permit signed rollout, active
+services/account changes, Android sdcard access or unapproved fixture cleanup.
 
 ## Finish in this order
 

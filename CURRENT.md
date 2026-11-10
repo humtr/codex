@@ -21,13 +21,17 @@ not as a competing current source.
 
 Integration branch:
 [`integration/codex-native-20261110`](https://github.com/humtr/codex/tree/integration/codex-native-20261110).
-Last code-qualified commit: `5384d9386c2acf0e0fd66b10b1be8bc34099b931`.
-A subsequent documentation-only commit `49cfab806cb99d47a6de0d918ed13777db8e11a5`
-does not inherit new exact-HEAD CI by assertion.
+Last product-runtime change baseline:
+`5384d9386c2acf0e0fd66b10b1be8bc34099b931`.
+Most recent completed Source Acceptance baseline *before this review-doc
+update*: `0aebdd7f2614a38c08f96e1c266f0a7c2d88609a`.
+That exact commit passed CI after documentation/check changes, but those
+changes did not repair operating runtime or requalify live-model behavior.
+A later review-document commit does not inherit this CI receipt.
 
 | Boundary | Observed evidence | Limit |
 | --- | --- | --- |
-| [Source Acceptance #42758325312](https://github.com/humtr/codex/actions/runs/42758325312) | Success, 5/5 jobs at `5384d938` | Source, not device activation |
+| [Source Acceptance #42787269906](https://github.com/humtr/codex/actions/runs/42787269906) | Success, 5/5 jobs at tested `0aebdd7f` | Source/CI only, not live model/device acceptance |
 | [Optional Provider qualification #42758329834](https://github.com/humtr/codex/actions/runs/42758329834) | Success, 2/2 jobs at `5384d938` | No live-model admission |
 | [TUI Native CI #42742653586](https://github.com/humtr/codex/actions/runs/42742653586) | Success at earlier `f1ba6719` | Not exact `5384d938` whole-TUI qualification |
 | Focused TUI source tests | 40 Python plus 10 assembly checks passed | Synthetic/local only |
@@ -43,6 +47,28 @@ nor successful installed-route continuity follows from it. Earlier initial
 there is no proof that the final product route has recovered both. The short
 socket-root correction allowed the candidate TUI to start; it did not resolve
 its subsequent owner mismatch.
+
+## External and internal review evidence (source-only)
+
+The user-supplied 2026-11-10 review of `49cfab80` contains 109 findings,
+re-assessed as **80 true / 28 partial / 1 false positive** as source analysis,
+not independently reproduced defects. A separate historical internal review
+had **26 reflected / 3 partial / 7 already satisfied / 14 unsupported /
+24 unresolved** among 74 differently indexed items. Neither count is
+additive. Model transcripts contain no complete native tool-call traces.
+
+Read-only spot-checks at `0aebdd7f` support all ten **P0 candidate
+mechanisms** in source: Core rollback guard/redaction/entry parser (U1-2/4/6),
+local unauthenticated MCP controls (U3-1), pre-dispatch journal and opaque
+claim recovery (U4-3/6), one-shot TUI marker and unbounded outer input wait
+(U5-1/4), destructive handoff before accepted RPC (U6b-2) and branch/CI
+notification ownership (U7-4). U3-4's parallel-slot reservation gap is
+also source-visible. **No patch, device-level failure reproduction,
+penetration test, live-model or signed-release test was performed here.**
+
+See [temporary review actions](docs/development/REVIEW_ACTIONS_20261110.md)
+for work owners, exclusions, ordering and exact positive/negative
+qualification criteria. A finding or CI pass is not proof of deployment.
 
 ## Current acceptance and deployment decision
 
