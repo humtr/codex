@@ -37,6 +37,30 @@ from qualify_tasks import Ws
 MODEL = 'chatgpt-desktop/app/gpt-6'
 
 
+def require_short_native_socket_tmpdir(tmpdir=None):
+    """Preflight Core FD-35 physical socket bytes before any live model request.
+
+    The upstream native socket uses canonical TMPDIR / UID / 64-hex name.
+    Kernel sockaddr_un.sun_path fits 108 bytes, including the final NUL.
+    A long scratch/report root is valid only if it is NOT the server TMPDIR.
+    """
+    configured = os.environ.get('TMPDIR') if tmpdir is None else os.fspath(tmpdir)
+    assert configured, 'runtime TMPDIR is required for Native socket preflight'
+    requested = Path(configured)
+    assert requested.is_absolute(), 'runtime TMPDIR must be absolute'
+    canonical = requested.resolve(strict=True)
+    assert requested == canonical and canonical.is_dir(), (
+        'runtime TMPDIR must be an existing canonical directory, not an alias'
+    )
+    physical = canonical / str(os.getuid()) / ('0' * 64)
+    length = len(os.fsencode(physical))
+    assert length <= 107, (
+        f'Native Unix socket path would need {length} encoded bytes (>107); '
+        'use a short private runtime TMPDIR, not a nested fixture/evidence root'
+    )
+    return length
+
+
 def stamp():
     return datetime.datetime.now(datetime.timezone.utc).isoformat()
 
@@ -733,6 +757,8 @@ def main():
     args.codex_home = (args.codex_home or args.home / '.codex').resolve(strict=True)
     args.shell = Path(os.environ['PREFIX']) / 'bin/bash'
     assert args.shell.is_absolute() and args.shell.is_file()
+    # Fail before creating a report, launching a TUI or submitting a real turn.
+    require_short_native_socket_tmpdir()
     os.umask(0o077)
     args.report_root.mkdir(mode=0o700)
     root = args.report_root

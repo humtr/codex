@@ -25,12 +25,18 @@ selected model and entrypoint.
   and the relevant existing implementation before changing files.
 - Read [SPEC.md](SPEC.md) and its linked normative contracts for product behavior;
   read [CURRENT.md](CURRENT.md) for what is actually running, proven and unfinished.
+- Read [docs/DOCUMENTATION.md](docs/DOCUMENTATION.md) for authority, mandatory
+  reading order, bounded writing and legacy archival; read
+  [docs/TERMUX_CONSTRAINTS.md](docs/TERMUX_CONSTRAINTS.md) before using any
+  Termux socket, temporary root, Core/Provider binding or live TUI.
   Use [PRO_HANDOFF.md](PRO_HANDOFF.md) only for the current handoff/work order.
   A release record, prior implementation or passing test does not override the
   product contract. [README.md](README.md) is the user-facing guide.
 - After compaction, recovery or handoff, reread this file, then the relevant
   contract, actual diff and unresolved findings. Do not treat a summary or a
   previous agent's judgment as source authority.
+- Never treat a dated archived report or old handoff as current instruction,
+  source acceptance, installed process fact or permission to replay effects.
 - Use [goal.md](goal.md) only when the user has explicitly established an
   active long-term goal. An empty file means no such goal is currently set;
   never invent one as housekeeping.
@@ -59,6 +65,10 @@ selected model and entrypoint.
 - Respect real execution and approval controls. A request to test a reviewer
   is not blanket authorization to execute a prohibited effect. If a reviewer
   denies an action, do not evade it or claim it ran.
+- Before local execution, preflight the **actual canonical Unix socket path**
+  against the 107 encoded-byte limit; keep runtime socket TMPDIR separate from
+  work scratch and evidence subtrees. Match Core/Provider/HOME/workspace/native
+  writer identity; do not substitute a mixed isolated/operating experiment.
 - Preserve user files, credentials, account profiles, sessions, running jobs,
   signed active/rollback generations and unrelated source changes. Use owned
   disposable roots for experiments; never overwrite another worker's edits.
@@ -86,6 +96,11 @@ selected model and entrypoint.
 - Inspect the final diff, affected callers and failure propagation. Reject
   unsupported claims, skipped mandatory gates and conclusions drawn only from
   counters, request acknowledgments or historical receipts.
+- Write each new fact at one authority: SPEC for stable requirements,
+  CURRENT for latest checked status, PRO_HANDOFF for unfinished tasks,
+  user/component guides for supported usage, docs/legacy for old evidence.
+  Archive displaced content before shortening; never append a historical
+  timeline to an active document. Follow the document-map validation rules.
 - Keep contract and documentation changes precise: stable requirements in
   SPEC.md and its normative annexes, present fact/evidence in CURRENT.md,
   completed history in Git or explicitly non-normative records.

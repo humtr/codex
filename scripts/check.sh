@@ -6,13 +6,17 @@ case "$scope" in docs|python|rust|provider|full) ;; *) echo 'usage: scripts/chec
 test "$#" -le 1 || { echo 'unexpected arguments' >&2; exit 2; }
 cd "$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 export PYTHONDONTWRITEBYTECODE=1
+# Documentation checks also apply to the explicit docs scope, not to rust/provider build ownership.
+if [ "$scope" = docs ] || [ "$scope" = python ] || [ "$scope" = full ]; then
+  python3 scripts/check_documentation.py
+fi
 if [ "$scope" = rust ] || [ "$scope" = full ]; then
   : "${CARGO_TARGET_DIR:=${XDG_CACHE_HOME:-$HOME/.cache}/codex/check-target}"
   export CARGO_TARGET_DIR
   cargo fmt --all -- --check
 fi
 if [ "$scope" = python ] || [ "$scope" = full ]; then
-  python3 -m unittest -v scripts/test_shared_state_migrate.py scripts/test_shared_visibility_transition.py scripts/test_check.py scripts/test_ci_scope.py scripts/test_build_tunnel_client.py scripts/test_verify_chat_native_text.py
+  python3 -m unittest -v scripts/test_shared_state_migrate.py scripts/test_shared_visibility_transition.py scripts/test_check.py scripts/test_ci_scope.py scripts/test_documentation.py scripts/test_build_tunnel_client.py scripts/test_verify_chat_native_text.py
   python3 -m unittest discover -s .github/scripts -p 'test_*.py'
   python3 -m unittest discover -s frontend/tui -p 'test_*.py'
 fi

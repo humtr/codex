@@ -20,7 +20,8 @@ sys.path.insert(0, str(Path(__file__).parent))
 from qualify_provider_live_tui import (
     MODEL, LiveTui, ObservationProxy, TurnBudget, admitted_prompt, assistant_marker,
     blank_history_error, blank_rollout, completed_fault, history, native_settled,
-    installed_runtime, main, one_pwd, plain, request_identity, require_core_dispatcher, require_terminal_owner,
+    installed_runtime, main, one_pwd, plain, request_identity, require_core_dispatcher,
+    require_short_native_socket_tmpdir, require_terminal_owner,
     terminal_owner_preflight, terminal_response,
 )
 
@@ -131,6 +132,35 @@ def selected_runtime_fixture(home, identity='full-selected-fixture'):
     runtime.parent.mkdir(parents=True)
     runtime.write_bytes(b'owned selected runtime fixture')
     return state, runtime
+
+
+class NativeSocketRoot(unittest.TestCase):
+    def test_current_runtime_tmpdir_fits_encoded_107_byte_budget(self):
+        root = Path(os.environ['TMPDIR']) if 'TMPDIR' in os.environ else Path(tempfile.gettempdir())
+        with patch.dict(os.environ, {'TMPDIR': str(root)}):
+            length = require_short_native_socket_tmpdir()
+        self.assertEqual(length, len(os.fsencode(
+            root.resolve(strict=True) / str(os.getuid()) / ('0' * 64))))
+        self.assertLessEqual(length, 107)
+
+    def test_long_fixture_socket_root_fails_before_execution(self):
+        with tempfile.TemporaryDirectory() as directory:
+            nested = Path(directory) / ('nested-' + 'n' * 90)
+            nested.mkdir()
+            with patch.dict(os.environ, {'TMPDIR': str(nested)}), \
+                    patch('qualify_provider_live_tui.subprocess.Popen') as run:
+                with self.assertRaisesRegex(AssertionError, r'encoded bytes \(>107\)'):
+                    require_short_native_socket_tmpdir()
+                run.assert_not_called()
+
+    def test_alias_and_non_absolute_socket_roots_are_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            link = Path(directory) / 'short-name'
+            link.symlink_to(Path(directory), target_is_directory=True)
+            with self.assertRaisesRegex(AssertionError, 'canonical directory'):
+                require_short_native_socket_tmpdir(link)
+        with self.assertRaisesRegex(AssertionError, 'must be absolute'):
+            require_short_native_socket_tmpdir('relative-tmp')
 
 
 class InstalledRuntime(unittest.TestCase):

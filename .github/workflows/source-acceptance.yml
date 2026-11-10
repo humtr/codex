@@ -68,6 +68,8 @@ jobs:
           for workflow in .github/workflows/*.yml; do
             ruby -e 'require "psych"; Psych.parse_file(ARGV.fetch(0))' "$workflow"
           done
+          # Active contract/current/legacy boundaries are mandatory in docs-only commits.
+          python3 scripts/check_documentation.py
           python3 .github/scripts/test_release_workflow.py
           scope='${{ steps.scope.outputs.scope }}'
           # Optional-provider inputs have their own qualification workflow;

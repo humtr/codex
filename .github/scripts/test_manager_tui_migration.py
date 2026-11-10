@@ -15,8 +15,14 @@ BRIDGE='local-hosted-0-161-0-ab644771ac89-manager-tui-bridge'
 
 
 class MigrationProcedureTests(unittest.TestCase):
-    def test_actual_readme_materializes_exact_signed_bridge_modes_and_always_cleans(self):
-        text=(ROOT/'README.md').read_text().split('Published browser-bridge releases before the Manager TUI',1)[1]
+    def test_legacy_readme_materializes_exact_signed_bridge_modes_and_always_cleans(self):
+        # Historical signed-bridge recovery is retained as an executable
+        # regression, not as a current installation recommendation.
+        self.assertNotIn('Published browser-bridge releases before the Manager TUI',
+                         (ROOT/'README.md').read_text())
+        legacy=ROOT/'docs/legacy/2026-11-10/README.md'
+        self.assertTrue(legacy.is_file(), 'the historical migration procedure must be archived')
+        text=legacy.read_text().split('Published browser-bridge releases before the Manager TUI',1)[1]
         script=text.split('```sh\n',1)[1].split('```',1)[0]
         for fault in (None,'download','signature','runtime','local','channel'):
             with self.subTest(fault=fault):
