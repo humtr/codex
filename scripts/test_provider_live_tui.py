@@ -20,7 +20,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from qualify_provider_live_tui import (
     MODEL, LiveTui, ObservationProxy, TurnBudget, admitted_prompt, assistant_marker,
     blank_history_error, blank_rollout, completed_fault, history, native_settled,
-    installed_runtime, main, one_pwd, plain, request_identity, require_terminal_owner,
+    installed_runtime, main, one_pwd, plain, request_identity, require_core_dispatcher, require_terminal_owner,
     terminal_owner_preflight, terminal_response,
 )
 
@@ -134,6 +134,32 @@ def selected_runtime_fixture(home, identity='full-selected-fixture'):
 
 
 class InstalledRuntime(unittest.TestCase):
+    def test_live_qualifier_requires_core_dispatcher_before_any_model_input(self):
+        with tempfile.TemporaryDirectory() as directory:
+            prefix = Path(directory) / 'prefix'
+            core = prefix / 'bin/codex'
+            core.parent.mkdir(parents=True)
+            core.write_bytes(b'owned Core fixture')
+            core.chmod(0o700)
+            selected = Path(directory) / 'signed/core'
+            selected.parent.mkdir()
+            selected.write_bytes(core.read_bytes())
+            selected.chmod(0o700)
+            helper = prefix / 'helpers/tui'
+            helper.parent.mkdir()
+            helper.write_bytes(b'raw frontend')
+            helper.chmod(0o700)
+            self.assertEqual(require_core_dispatcher(core, prefix, selected), core.resolve())
+            with self.assertRaisesRegex(AssertionError, 'Core dispatcher required'):
+                require_core_dispatcher(helper, prefix, selected)
+            selected.write_bytes(b'different signed Core')
+            with self.assertRaisesRegex(AssertionError, 'activated signed Core image'):
+                require_core_dispatcher(core, prefix, selected)
+            selected.write_bytes(core.read_bytes())
+            core.chmod(0o722)
+            with self.assertRaisesRegex(AssertionError, 'owned executable'):
+                require_core_dispatcher(core, prefix, selected)
+
     def test_authoritative_selection_needs_no_historical_current_alias(self):
         with tempfile.TemporaryDirectory() as directory:
             home = Path(directory)
@@ -610,10 +636,13 @@ class TerminalOwnerEvidence(unittest.TestCase):
             home = root / 'home'
             (home / '.codex').mkdir(parents=True)
             _, runtime = selected_runtime_fixture(home)
-            core = root / 'core'
-            core.write_bytes(b'owned core fixture')
             prefix = root / 'usr'
             (prefix / 'bin').mkdir(parents=True)
+            core = prefix / 'bin/codex'
+            core.write_bytes(b'owned core dispatcher fixture')
+            core.chmod(0o700)
+            (runtime.parent / 'core').write_bytes(core.read_bytes())
+            (runtime.parent / 'core').chmod(0o700)
             (prefix / 'bin/bash').write_bytes(b'owned shell fixture')
             report = root / 'report'
             arguments = ['qualifier', '--core', str(core), '--workspace', str(root), '--home', str(home),

@@ -8,7 +8,10 @@ optional upstream-based frontend, not Manager's private screen. The retained
 Full60/native1c413cf pairing passed its published gates; it is not the current
 source or installed baseline. CURRENT records those independently. Every new pair
 must pass exact native/device gates before publication. Official runtime remains
-the sole execution backend.
+the sole execution backend. Live `/provider` model acceptance must launch
+Core's dispatcher at `$PREFIX/bin/codex`, not a raw frontend helper. A raw
+helper can create an embedded TUI backend without the Core-owned Native writer;
+its `native_thread_owner_unavailable` is not installed-route evidence.
 
 `native.patch` contains TUI integration changes to existing upstream files.
 Release-builder's common source preparation owns the Native route interface and

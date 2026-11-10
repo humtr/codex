@@ -85,6 +85,27 @@ def installed_runtime(home):
     return runtime
 
 
+def require_core_dispatcher(core, prefix, selected_core):
+    """Bind the real Core launcher to the activated generation before model input."""
+    launcher = (prefix / 'bin/codex').resolve(strict=True)
+    metadata = launcher.lstat()
+    assert (stat.S_ISREG(metadata.st_mode) and metadata.st_uid == os.getuid()
+            and metadata.st_mode & 0o111
+            and not metadata.st_mode & 0o022), 'Core dispatcher must be an owned executable'
+    assert core.resolve(strict=True) == launcher, (
+        'Core dispatcher required: launch $PREFIX/bin/codex, not a raw TUI helper'
+    )
+    selected = selected_core.resolve(strict=True)
+    signed = selected.lstat()
+    assert (stat.S_ISREG(signed.st_mode) and signed.st_uid == os.getuid()
+            and signed.st_mode & 0o111
+            and not signed.st_mode & 0o022), 'Activated Core image must be an owned executable'
+    assert sha(launcher) == sha(selected), (
+        'Core dispatcher differs from the activated signed Core image'
+    )
+    return launcher
+
+
 def process_identity():
     """Kernel facts only; never read command arguments, environment or titles."""
     pid = os.getpid()
@@ -690,7 +711,8 @@ class LiveTui:
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--core', type=Path, required=True)
+    parser.add_argument('--core', type=Path, required=True,
+                        help='installed Core dispatcher at $PREFIX/bin/codex, never a raw TUI helper')
     parser.add_argument('--workspace', type=Path, required=True)
     parser.add_argument('--home', type=Path, default=Path.home())
     parser.add_argument('--codex-home', type=Path)
@@ -702,10 +724,11 @@ def main():
     args = parser.parse_args()
     assert 60 <= args.timeout <= 900
     args.home = args.home.resolve(strict=True)
-    args.core = args.core.resolve(strict=True)
+    args.runtime = installed_runtime(args.home)
+    args.core = require_core_dispatcher(args.core.resolve(strict=True),
+                                        Path(os.environ['PREFIX']), args.runtime.parent / 'core')
     args.workspace = args.workspace.resolve(strict=True)
     args.codex_home = (args.codex_home or args.home / '.codex').resolve(strict=True)
-    args.runtime = installed_runtime(args.home)
     args.shell = Path(os.environ['PREFIX']) / 'bin/bash'
     assert args.shell.is_absolute() and args.shell.is_file()
     os.umask(0o077)
