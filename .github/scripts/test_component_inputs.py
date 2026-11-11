@@ -41,6 +41,21 @@ class ComponentInputsTests(unittest.TestCase):
             self.assertIn('uses: ./.github/workflows/android-component.yml',caller)
             self.assertNotIn('--target aarch64-linux-android -p codex',caller)
         self.assertIn('group: android-${{ inputs.component }}-${{ needs.identity.outputs.fingerprint }}',producer)
+        body=producer.split('  produce:',1)[1]
+        gate=body.split('    concurrency:',1)[1].split('    outputs:',1)[0]
+        self.assertIn('cancel-in-progress: false',gate)
+        self.assertIn('queue: max',gate)
+        self.assertNotIn('github.workflow',gate)
+        # The shared job gate must enclose restore/build/verify/save, so a queued
+        # first-miss caller observes the completed producer before deciding to build.
+        positions=[body.index(name) for name in (
+            '      - name: Restore identical production output',
+            '      - name: Cross-build selected Android component once',
+            '      - name: Reverify every reused or new artifact',
+            '      - name: Retain verified exact-input production output',
+            '      - name: Transfer unsigned component')]
+        self.assertEqual(positions,sorted(positions))
+        self.assertEqual(body.count("if: steps.component-cache.outputs.cache-hit != 'true'"),2)
         self.assertNotIn('restore-keys:',producer)
         self.assertIn('component_artifact.py verify',producer)
         self.assertIn('cargo "+$RUST_VERSION" test --locked -p codex-manager',manager)
