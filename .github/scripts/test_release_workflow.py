@@ -27,6 +27,22 @@ class WorkflowTests(unittest.TestCase):
                 result=subprocess.run(['bash','-n'],input=script,text=True,capture_output=True)
                 self.assertEqual(result.returncode,0,str(p)+': '+result.stderr)
 
+    def test_runner_paths_are_resolved_after_job_allocation(self):
+        # Actions rejects runner context in workflow/job env while validating a
+        # reusable workflow, before any runner or shell can exist.
+        for path in (ROOT/'.github/workflows').glob('*.yml'):
+            text=path.read_text()
+            for match in re.finditer(r'(?m)^( {0,4})env: *\n',text):
+                indent=len(match[1]);lines=[]
+                for line in text[match.end():].splitlines():
+                    if line.strip() and len(line)-len(line.lstrip())<=indent:break
+                    lines.append(line)
+                self.assertNotRegex('\n'.join(lines),r'\$\{\{\s*runner\.',str(path))
+        producer=(ROOT/'.github/workflows/android-component.yml').read_text()
+        build=producer.split('      - name: Cross-build selected Android component once',1)[1].split('      - name:',1)[0]
+        self.assertIn('export CARGO_TARGET_DIR="$RUNNER_TEMP/component-target"',build)
+        self.assertLess(build.index('export CARGO_TARGET_DIR='),build.index('cargo "+$RUST_VERSION" build'))
+
     def test_every_final_development_head_has_readonly_component_receipts(self):
         for name in ('core-runtime-qualification.yml','manager-qualification.yml','full-qualification.yml','provider-qualification.yml'):
             text=(ROOT/'.github/workflows'/name).read_text()

@@ -57,7 +57,6 @@ jobs:
     env:
       COMPONENT: ${{ inputs.component }}
       SOURCE_SHA: ${{ inputs.source_sha }}
-      CARGO_TARGET_DIR: ${{ runner.temp }}/component-target
       RUSTFLAGS: ''
       CARGO_ENCODED_RUSTFLAGS: ''
       CARGO_INCREMENTAL: '0'
@@ -83,6 +82,7 @@ jobs:
         run: |
           set -euo pipefail
           test "$INPUTS_SHA256" = '${{ needs.identity.outputs.fingerprint }}'
+          export CARGO_TARGET_DIR="$RUNNER_TEMP/component-target"
           rustup toolchain install "$RUST_VERSION" --profile minimal --target "$ANDROID_TARGET"
           toolchain="$ANDROID_SDK_ROOT/ndk/$ANDROID_NDK_VERSION/toolchains/llvm/prebuilt/linux-x86_64/bin"
           linker="$toolchain/aarch64-linux-android$ANDROID_API-clang"
