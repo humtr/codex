@@ -41,6 +41,11 @@ pub(crate) struct FileEffect {
     linked: bool,
     #[serde(default)]
     external_input: bool,
+    // Extensible file records remain readable by previous Providers. Only the
+    // validated classifier below sets this proof; absent/unknown proof stays
+    // readable for original-result settlement but is not a bounded claim.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    scope_schema: Option<u32>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -139,6 +144,7 @@ fn snapshot(
         operation: op,
         linked,
         external_input: false,
+        scope_schema: None,
     })
 }
 
@@ -309,7 +315,7 @@ pub(crate) fn classify_with_execution(
     {
         return Effect::Opaque;
     }
-    match tool {
+    let mut effect = match tool {
         "clock.curr_time" | "clock.sleep" | "functions.view_image" => Effect::Read,
         "functions.exec_command" if is_simple_read_command(input) => workspace
             .and_then(|root| compiler::qualified_read(input, root, execution?))
@@ -321,6 +327,36 @@ pub(crate) fn classify_with_execution(
             .and_then(|root| parse_patch(input, root))
             .unwrap_or(Effect::Opaque),
         _ => Effect::Opaque,
+    };
+    if let Effect::Paths(files) = &mut effect {
+        for file in files {
+            file.scope_schema = Some(2);
+        }
+    }
+    effect
+}
+
+impl Effect {
+    /// Keep original persisted records intact; interpret older/unknown scope
+    /// conservatively at admission rather than migrating a possibly live effect.
+    pub(crate) fn admission_scope(&self) -> &Self {
+        match self {
+            Self::Paths(files)
+                if files.is_empty() || files.iter().any(|file| file.scope_schema != Some(2)) =>
+            {
+                &Self::Opaque
+            }
+            _ => self,
+        }
+    }
+
+    pub(crate) fn claim_scope(&self) -> &Self {
+        // Pure reads never reserve in either claim ledger. A historical Read
+        // in a claim cannot establish which tool/hook boundary produced it.
+        match self {
+            Self::Read => &Self::Opaque,
+            _ => self.admission_scope(),
+        }
     }
 }
 
@@ -546,6 +582,68 @@ mod tests {
             classify_with_execution("functions.apply_patch", &patch, Some(&root), Some(&facts)),
             Effect::Opaque
         );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn persisted_scope_proof_survives_new_readers_and_degrades_after_legacy_round_trip() {
+        #[derive(Serialize, Deserialize)]
+        struct LegacyFileEffect {
+            path: PathBuf,
+            entry: String,
+            inode: Option<String>,
+            base: Option<String>,
+            anchors: Vec<String>,
+            operation: FileOperation,
+            #[serde(default)]
+            linked: bool,
+            #[serde(default)]
+            external_input: bool,
+        }
+        #[derive(Serialize, Deserialize)]
+        enum LegacyEffect {
+            Read,
+            Opaque,
+            Paths(Vec<LegacyFileEffect>),
+        }
+        let root = temp();
+        fs::write(root.join("a"), "old\n").unwrap();
+        let effect = classify_with_fixture(
+            "functions.apply_patch",
+            &update("a", "old", "new"),
+            Some(&root),
+        );
+        let current = serde_json::to_value(&effect).unwrap();
+        assert_eq!(current["Paths"][0]["scope_schema"], 2);
+        let restored: Effect = serde_json::from_value(current.clone()).unwrap();
+        assert_eq!(restored.claim_scope(), &effect);
+        // The actual prior file-record shape ignores the additive field. Its
+        // write-back remains readable, but cannot preserve current hook proof.
+        let old: LegacyEffect = serde_json::from_value(current.clone()).unwrap();
+        let old = serde_json::to_value(old).unwrap();
+        let unproved: Effect = serde_json::from_value(old.clone()).unwrap();
+        assert_eq!(unproved.claim_scope(), &Effect::Opaque);
+        assert_eq!(serde_json::to_value(&unproved).unwrap(), old);
+        for marker in [
+            serde_json::json!(1),
+            serde_json::json!(3),
+            serde_json::Value::Null,
+        ] {
+            let mut unknown = current.clone();
+            unknown["Paths"][0]["scope_schema"] = marker;
+            let unknown: Effect = serde_json::from_value(unknown).unwrap();
+            assert_eq!(unknown.claim_scope(), &Effect::Opaque);
+        }
+        let mut mixed = current.clone();
+        mixed["Paths"]
+            .as_array_mut()
+            .unwrap()
+            .push(old["Paths"][0].clone());
+        let mixed: Effect = serde_json::from_value(mixed).unwrap();
+        assert_eq!(mixed.claim_scope(), &Effect::Opaque);
+        assert_eq!(Effect::Paths(Vec::new()).claim_scope(), &Effect::Opaque);
+        assert_eq!(Effect::Read.claim_scope(), &Effect::Opaque);
+        assert_eq!(Effect::Read.admission_scope(), &Effect::Read);
         fs::remove_dir_all(root).unwrap();
     }
 

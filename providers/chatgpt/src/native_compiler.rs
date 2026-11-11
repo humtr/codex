@@ -166,6 +166,7 @@ fn metadata_input(path: &Path) -> Option<FileEffect> {
         operation: FileOperation::MetadataInput,
         linked: fs::symlink_metadata(path).ok()?.file_type().is_symlink(),
         external_input: true,
+        scope_schema: None,
     })
 }
 
@@ -200,6 +201,7 @@ fn absent_input(path: &Path) -> Option<FileEffect> {
                     operation,
                     linked: false,
                     external_input: true,
+                    scope_schema: None,
                 });
             }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
