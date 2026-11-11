@@ -3112,6 +3112,90 @@ index 58bc2153d1..f0efcdd457 100644
                      "image prompt".into(),
                      UserMessageHistoryRecord::UserMessageText,
                      UserMessageSource::Prompt,
+diff --git a/codex-rs/tui/src/chatwidget/tests/rate_limit_recovery_tests.rs b/codex-rs/tui/src/chatwidget/tests/rate_limit_recovery_tests.rs
+index 53d61827d5..bce69b130d 100644
+--- a/codex-rs/tui/src/chatwidget/tests/rate_limit_recovery_tests.rs
++++ b/codex-rs/tui/src/chatwidget/tests/rate_limit_recovery_tests.rs
+@@ -63,3 +63,79 @@ async fn rate_limit_recovery_preserves_settings_hold_and_clears_on_account_chang
+     assert_eq!(chat.queued_user_message_texts(), vec!["queued follow-up"]);
+     assert_no_submit_op(&mut ops);
+ }
++
++#[tokio::test]
++async fn replayed_rate_limit_error_preserves_current_account_and_initial_prompt() {
++    for error in [
++        CodexErrorInfo::UsageLimitExceeded,
++        CodexErrorInfo::ResponseTooManyFailedAttempts {
++            http_status_code: Some(429),
++        },
++    ] {
++        for recovery_pending in [false, true] {
++            let (mut chat, mut events, mut ops) =
++                make_chatwidget_manual(Some("test-model-a")).await;
++            set_chatgpt_auth(&mut chat);
++            chat.thread_id = Some(ThreadId::new());
++            chat.input_queue.rate_limit_recovery_pending = recovery_pending;
++            chat.initial_user_message = Some("saved continuation checkpoint".into());
++            chat.set_initial_user_message_submit_suppressed(true);
++
++            chat.replay_thread_turns(
++                vec![app_server_turn(
++                    "previous-account-turn",
++                    AppServerTurnStatus::Failed,
++                    None,
++                    Some(AppServerTurnError {
++                        misalignment: None,
++                        message: "Previous account reached its usage limit".into(),
++                        codex_error_info: Some(error.clone()),
++                        additional_details: None,
++                    }),
++                )],
++                ReplayKind::ResumeInitialMessages,
++            );
++
++            assert_eq!(
++                chat.input_queue.rate_limit_recovery_pending, recovery_pending,
++                "historical error must neither create nor release current recovery"
++            );
++            assert!(chat.initial_user_message.is_some());
++            let replay_events = std::iter::from_fn(|| events.try_recv().ok()).collect::<Vec<_>>();
++            assert!(!replay_events.iter().any(|event| matches!(
++                event,
++                AppEvent::RefreshRateLimits {
++                    origin: crate::app_event::RateLimitRefreshOrigin::Recovery
++                }
++            )));
++            let history = replay_events
++                .iter()
++                .filter_map(|event| match event {
++                    AppEvent::InsertHistoryCell(cell) => Some(cell.display_lines(80)),
++                    _ => None,
++                })
++                .flatten()
++                .map(|line| line.to_string())
++                .collect::<Vec<_>>()
++                .join("\n");
++            assert!(history.contains("Previous account reached its usage limit"));
++            assert_no_submit_op(&mut ops);
++
++            chat.set_initial_user_message_submit_suppressed(false);
++            chat.submit_initial_user_message_if_pending();
++            if recovery_pending {
++                assert_no_submit_op(&mut ops);
++                assert!(chat.initial_user_message.is_some());
++                chat.finish_rate_limit_recovery();
++            }
++            let Op::UserTurn { model, items, .. } = next_submit_op(&mut ops) else {
++                panic!("expected the existing checkpoint on the retained model");
++            };
++            assert_eq!(model, "test-model-a");
++            assert!(matches!(items.as_slice(), [UserInput::Text { text, .. }]
++                if text == "saved continuation checkpoint"));
++            chat.submit_initial_user_message_if_pending();
++            assert_no_submit_op(&mut ops);
++        }
++    }
++}
 diff --git a/codex-rs/tui/src/chatwidget/tests/sparkle_submission_tests.rs b/codex-rs/tui/src/chatwidget/tests/sparkle_submission_tests.rs
 index e56ea9b893..18b6d7f7ca 100644
 --- a/codex-rs/tui/src/chatwidget/tests/sparkle_submission_tests.rs
@@ -3173,6 +3257,23 @@ index b9082189b4..87f6696085 100644
                      break;
                  }
              }
+diff --git a/codex-rs/tui/src/chatwidget/turn_runtime.rs b/codex-rs/tui/src/chatwidget/turn_runtime.rs
+index ef5954a853..8a573ea08d 100644
+--- a/codex-rs/tui/src/chatwidget/turn_runtime.rs
++++ b/codex-rs/tui/src/chatwidget/turn_runtime.rs
+@@ -478,6 +478,12 @@ impl ChatWidget {
+     }
+ 
+     pub(super) fn on_rate_limit_error(&mut self, error_kind: RateLimitErrorKind, message: String) {
++        if self.thread_usage.replaying_turn_completion {
++            // History may belong to another account. Preserve the error text without
++            // invalidating the current account's recovery proof or gating a new prompt.
++            self.on_error(message);
++            return;
++        }
+         self.invalidate_ordinary_usage_recovery();
+         // on_error can drain queued input, before the asynchronous recovery read completes.
+         self.input_queue.rate_limit_recovery_pending = self.has_chatgpt_account;
 diff --git a/codex-rs/tui/src/chatwidget/user_messages.rs b/codex-rs/tui/src/chatwidget/user_messages.rs
 index 9fa654fb1f..c68d4ee021 100644
 --- a/codex-rs/tui/src/chatwidget/user_messages.rs
