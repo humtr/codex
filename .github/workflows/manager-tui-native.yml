@@ -157,6 +157,7 @@ jobs:
           python3 experiment/frontend/tui/check_command_boundary.py "$RUNNER_TEMP/profile-tui-pristine" --patched upstream
           git -C upstream diff --check
           python3 experiment/frontend/tui/apply.py upstream --check-scope --native-preparation "$RUNNER_TEMP/profile-tui-native-preparation.json"
+          RUSTUP_TOOLCHAIN="$RUST_VERSION" PYTHONDONTWRITEBYTECODE=1 python3 experiment/frontend/tui/test_apply.py ReentryEnvironmentTests 2>&1 | tee "$RUNNER_TEMP/profile-tui-reentry-environment.log"
       - name: Provision pinned upstream test and formatting tools
         shell: bash
         run: |
@@ -712,6 +713,7 @@ jobs:
             ${{ runner.temp }}/native-provider-*.log
             ${{ runner.temp }}/native-protocol-generated.tar.gz
             ${{ runner.temp }}/profile-tui-focused.log
+            ${{ runner.temp }}/profile-tui-reentry-environment.log
             ${{ runner.temp }}/profile-tui-failure-summary.json
             ${{ runner.temp }}/profile-tui-mutation.log
             ${{ runner.temp }}/profile-tui-login-mutation.log
@@ -744,6 +746,7 @@ jobs:
           name: manager-tui-native-diagnosis
           path: |
             ${{ runner.temp }}/profile-tui-lock-audit.json
+            ${{ runner.temp }}/profile-tui-reentry-environment.log
             ${{ github.workspace }}/upstream/codex-rs/target/**/config.log
           if-no-files-found: warn
           retention-days: 3
