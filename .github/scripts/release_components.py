@@ -97,7 +97,7 @@ def base_fingerprint(source, revision='HEAD'):
     return hashlib.sha256(canonical(value)).hexdigest()
 
 
-def sign_component(source, output, generation, key, openssl, base=None, authority=None):
+def sign_component(source, output, generation, key, openssl, base=None, authority=None, revision=None):
     source_sha = git(source,'rev-parse','HEAD').decode().strip()
     if not re.fullmatch('[0-9a-f]{40}', source_sha):
         raise ValueError('invalid component source')
@@ -110,6 +110,18 @@ def sign_component(source, output, generation, key, openssl, base=None, authorit
         pass  # Retained historical sources have no shared runtime recipe.
     else:
         payload['runtime_inputs_sha256'] = runtime_fingerprint(source,'HEAD',adapted=True)
+    if revision is not None:
+        from component_revisions import selected,validate_components
+        from release_reservations import validate
+        validate(revision)
+        version,actual=selected(source,output/'releases'/generation)
+        if (revision['source_sha']!=source_sha or revision['generation_id']!=generation
+                or revision['upstream_version']!=version or set(actual)!=set(revision['components'])
+                or any({k:v for k,v in revision['components'][name].items() if k!='revision'}!=entry
+                       for name,entry in actual.items())):
+            raise ValueError('signed component revision differs from reserved inputs')
+        payload['components']=validate_components(revision['components'])
+        payload['composition_revision']=revision['composition_revision']
     if generation.startswith(('core-v', 'local-base-')) or base is not None:
         base_generation = base_sequence = None
         if base is not None:
@@ -119,7 +131,7 @@ def sign_component(source, output, generation, key, openssl, base=None, authorit
             if provenance['base_inputs_sha256'] != payload['base_inputs_sha256']:
                 raise ValueError('display base input identity differs')
             base_generation=manifest['generation_id'];base_sequence=int(manifest['release_sequence'])
-        payload['display']={'release_date':datetime.now(timezone.utc).date().isoformat(),
+        payload['display']={'release_date':revision['release_date'] if revision is not None else datetime.now(timezone.utc).date().isoformat(),
                             'base_generation':base_generation,'base_sequence':base_sequence}
     target = output/COMPONENT
     target.write_bytes(canonical(payload))
@@ -129,13 +141,13 @@ def sign_component(source, output, generation, key, openssl, base=None, authorit
 
 def component(directory, generation, authority, openssl='openssl'):
     path = directory/COMPONENT
-    if path.is_symlink() or path.stat().st_size > 4096:
+    if path.is_symlink() or path.stat().st_size > 16384:
         raise ValueError('invalid component metadata')
     verify_signature(openssl, authority, path, directory/(COMPONENT+'.sig'))
     data = path.read_bytes()
     value = json.loads(data,object_pairs_hook=unique)
     required={'schema','generation_id','source_sha','base_inputs_sha256','manifest_sha256'}
-    if (not required.issubset(value) or set(value)-required-{'display','runtime_inputs_sha256'}
+    if (not required.issubset(value) or set(value)-required-{'display','runtime_inputs_sha256','components','composition_revision'}
         or value['schema'] != 'codex-component-input-v1' or value['generation_id'] != generation
         or data != canonical(value) or not re.fullmatch('[0-9a-f]{40}',value['source_sha'])
         or any(not re.fullmatch('[0-9a-f]{64}',value[key]) for key in ['base_inputs_sha256','manifest_sha256'])
@@ -143,6 +155,19 @@ def component(directory, generation, authority, openssl='openssl'):
         raise ValueError('component metadata identity differs')
     if 'runtime_inputs_sha256' in value and not re.fullmatch('[0-9a-f]{64}',value['runtime_inputs_sha256']):
         raise ValueError('invalid runtime input identity')
+    if ('components' in value)!=('composition_revision' in value):
+        raise ValueError('component revisions and composition must be bound together')
+    if 'components' in value:
+        from component_revisions import validate_components,MAX_REVISION
+        validate_components(value['components'])
+        if type(value['composition_revision']) is not int or not 0<value['composition_revision']<=MAX_REVISION:
+            raise ValueError('invalid composition revision')
+        manifest,files=parse_manifest(directory/'release.manifest')
+        digests={name:digest for name,digest,_ in files}
+        selected={'core':'core','runtime':'runtime'}
+        if 'manager' in digests:selected.update(manager='manager',tui='helpers/2')
+        if set(selected)!=set(value['components']) or any(value['components'][name]['artifact_sha256']!=digests[path] for name,path in selected.items()):
+            raise ValueError('component revision artifact differs from signed inventory')
     if 'display' in value:
         display=value['display']
         if (not isinstance(display,dict) or set(display)!={'release_date','base_generation','base_sequence'}

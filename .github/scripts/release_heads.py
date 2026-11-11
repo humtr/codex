@@ -19,7 +19,7 @@ HEADS = {'full': 'update-index-v1', 'base': 'update-index-base-v1'}
 LIMIT = (1 << 64) - 1
 
 
-def plan(heads, variant):
+def plan(heads, variant, occupied=()):
     if variant not in HEADS or 'full' not in heads or set(heads) - HEADS.keys():
         raise ValueError('invalid release lane state')
     for lane, head in heads.items():
@@ -27,7 +27,9 @@ def plan(heads, variant):
             raise ValueError('signed head belongs to another lane')
         if type(head['sequence']) is not int or not 0 < head['sequence'] <= LIMIT:
             raise ValueError('invalid signed release sequence')
-    sequence = max(head['sequence'] for head in heads.values())
+    if any(type(number) is not int or not 0<number<=LIMIT for number in occupied):
+        raise ValueError('invalid occupied release sequence')
+    sequence = max([head['sequence'] for head in heads.values()]+list(occupied))
     if sequence == LIMIT:
         raise ValueError('release sequence exhausted')
     selected = heads.get(variant, heads['full'])
@@ -59,7 +61,7 @@ def download(url, target, limit, *, optional=False):
     return True
 
 
-def authenticate(main_sha, variant, authority, root, openssl='openssl', fetch=download):
+def authenticate(main_sha, variant, authority, root, openssl='openssl', fetch=download, occupied=()):
     if re.fullmatch('[0-9a-f]{40}', main_sha) is None:
         raise ValueError('expected exact main commit')
     root.mkdir(parents=True, exist_ok=False)
@@ -94,7 +96,7 @@ def authenticate(main_sha, variant, authority, root, openssl='openssl', fetch=do
             raise ValueError('head descriptor identity differs')
         heads[lane] = {'generation': generation, 'sequence': int(manifest['release_sequence']),
                        'version': descriptor['upstream_package_version'], 'archive': descriptor['source_artifact_digest']}
-    result = plan(heads, variant)
+    result = plan(heads, variant, occupied)
     result['expected_main_sha'] = main_sha
     (root / 'heads.json').write_text(json.dumps({'heads': heads, 'plan': result}, indent=2) + '\n')
     return heads, result
@@ -138,8 +140,10 @@ if __name__ == '__main__':
     parser.add_argument('--public-key', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--site', type=Path)
+    parser.add_argument('--reservations', type=Path)
     args = parser.parse_args()
-    heads, result = authenticate(args.main_sha, args.variant, args.public_key, args.output)
+    occupied=json.loads(args.reservations.read_text())['occupied_sequences'] if args.reservations else ()
+    heads, result = authenticate(args.main_sha, args.variant, args.public_key, args.output, occupied=occupied)
     if args.site:
         restore(args.output, heads, args.public_key, args.site)
     for key, value in result.items():

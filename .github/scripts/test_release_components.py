@@ -131,6 +131,37 @@ class ComponentsTests(unittest.TestCase):
             else:changed['generation_id']=BASE
             with self.assertRaises(ValueError):component.validate_map(changed,FULL)
 
+    def test_optional_revisions_bind_exact_signed_inventory_without_changing_legacy(self):
+        fixture=fixtures.ReleasePublicationTests();fixture.setUp();self.addCleanup(fixture.tearDown)
+        repo=self.repository(fixture.root/'source')
+        _,controls=self.signed_assets(fixture,repo,BASE,True)
+        legacy=(controls/component.COMPONENT).read_bytes()
+        admitted=component.component(controls,BASE,fixture.public_key)
+        self.assertNotIn('components',admitted)
+        _,files=publication.parse_manifest(controls/'release.manifest')
+        hashes={name:digest for name,digest,_ in files}
+        admitted['components']={name:{'revision':2,'inputs_sha256':'a'*64,
+            'artifact_sha256':hashes[name],'interface':'codex-fixture-v1'} for name in ('core','runtime')}
+        admitted['composition_revision']=3
+        def write(value):
+            (controls/component.COMPONENT).write_bytes(component.canonical(value))
+            fixtures.openssl('pkeyutl','-sign','-rawin','-inkey',str(fixture.private_key),
+                '-in',str(controls/component.COMPONENT),'-out',str(controls/(component.COMPONENT+'.sig')))
+        write(admitted)
+        self.assertEqual(component.component(controls,BASE,fixture.public_key)['components'],admitted['components'])
+        for fault in ('digest','missing','zero','bool','extra'):
+            broken=copy.deepcopy(admitted)
+            if fault=='digest':broken['components']['core']['artifact_sha256']='b'*64
+            elif fault=='missing':del broken['composition_revision']
+            elif fault=='zero':broken['components']['runtime']['revision']=0
+            elif fault=='bool':broken['composition_revision']=True
+            else:broken['components']['manager']=broken['components']['core']
+            write(broken)
+            with self.assertRaises(ValueError):component.component(controls,BASE,fixture.public_key)
+        write(json.loads(legacy))
+        self.assertEqual((controls/component.COMPONENT).read_bytes(),legacy)
+        self.assertNotIn('components',component.component(controls,BASE,fixture.public_key))
+
     def test_relay_origin_does_not_rewrite_historical_urls(self):
         self.assertEqual(publication.canonical_release_base(BASE),'https://codex-releases.humtr.workers.dev/'+BASE+'/')
         self.assertEqual(publication.canonical_release_base('local-hosted-old'),'https://humtr.github.io/codex/local-hosted-old/')

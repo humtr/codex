@@ -252,3 +252,28 @@ historical producer modes. Preserve normal signature/inventory verification,
 LKG continuity, candidate site size, complete public readback, disposable consumer
 proof and non-forced exact-parent CAS. No public release or installed activation
 is implied by a development-plane change.
+
+
+### Global issue reservation
+
+Read-only qualification computes a prospective sequence from authenticated Core
+and Full heads and all existing release/candidate/reservation tags. Signed but
+unpublished candidates therefore cannot have their issue number reused. Only a
+separately authorized publication job reserves that sequence by atomically
+creating an annotated `codex-release-reservation-sN` tag in the existing repository;
+it never force-updates an existing ref. The bounded canonical record binds the
+exact source, immutable authorization main commit, complete candidate digest,
+generation, upstream version, component revisions, composition revision and date.
+The source must still have exact release intent and main must remain unchanged
+before reservation. A concurrent conflicting claim refuses; an exact repeated
+claim returns its original record and requires reconciliation of the original
+signing/publication result, without issuing a second signature. Failed or uncertain
+signing does not free a sequence for other inputs.
+
+The signer revalidates the reserved candidate and selected component identities
+before reading the signing secret. Its optional signed revision metadata must
+match the reservation and every applicable manifest digest. Sequence allocation,
+component revision allocation and signing are separate operations; development
+pushes, Source Acceptance and component/Full qualifications neither reserve tags
+nor sign or publish. These source rules apply to future authorized issues and do
+not rewrite any already signed Core or Full generation.
