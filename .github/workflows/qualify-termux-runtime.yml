@@ -80,12 +80,14 @@ jobs:
     with:
       source_sha: ${{ inputs.source_sha }}
       component: core
+      reuse_qualified: ${{ !inputs.base_only }}
   android-manager:
     if: ${{ !inputs.base_only && inputs.release_variant == 'full' }}
     uses: ./.github/workflows/android-component.yml
     with:
       source_sha: ${{ inputs.source_sha }}
       component: manager
+      reuse_qualified: ${{ !inputs.base_only }}
   producer:
     needs: [runtime-source, android-core, android-manager]
     if: ${{ !cancelled() && (needs.runtime-source.result == 'success' || needs.runtime-source.result == 'skipped') && (needs.android-core.result == 'success' || needs.android-core.result == 'skipped') && (needs.android-manager.result == 'success' || needs.android-manager.result == 'skipped') }}

@@ -238,7 +238,8 @@ def caller_compatible(source, main):
         if len(pins)!=2 or len(set(pins))!=1:return False
         subprocess.run(['git','-C',str(source),'fetch','--no-tags','--depth=1','origin',pins[0]],check=True,capture_output=True)
         for name in ['.github/workflows/auto-release-termux.yml','.github/workflows/qualify-termux-runtime.yml',
-                     '.github/workflows/termux-runtime-source.yml','scripts/pin_release.py']:
+                     '.github/workflows/termux-runtime-source.yml','.github/workflows/android-component.yml',
+                     'scripts/pin_release.py']:
             identities=[subprocess.check_output(['git','-C',str(source),'rev-parse',revision+':'+name],stderr=subprocess.DEVNULL) for revision in ['HEAD',pins[0]]]
             if identities[0]!=identities[1]:return False
         return True
