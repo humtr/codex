@@ -394,7 +394,12 @@ pub(super) fn display_command(
     match tasks.as_slice() {
         [task] if task.server.home == home => {
             verify_owner(context, task)?;
-            resume_command(context, home, id, Some(&task.server.socket))
+            // Keep Core's qualified local frontend dispatch. An explicit remote
+            // CLI route selects raw Runtime TUI, which cannot publish the exact
+            // foreground binding needed for repeated notification clicks.
+            // The managed frontend revalidates this Owner/home at startup and
+            // subscribes to the existing server without embedded fallback.
+            resume_command(context, home, id, None)
         }
         [] if native::writer_free(&context.home, id).map_err(|_| ERR_TASK)? => {
             resume_command(context, home, id, None)

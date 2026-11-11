@@ -230,6 +230,12 @@ validation. Live work attaches to its verified server; confirmed writer-free wor
 uses upstream exact-UUID resume, which fails for a missing thread and cannot
 silently create a fresh conversation. Unknown ownership refuses construction.
 Neither path sends a user prompt, starts inference or transfers a live Writer.
+Managed display enters Core's qualified local `resume <UUID>` frontend route in
+that exact execution home. The frontend revalidates the current Native Owner and
+subscribes without embedded fallback when one exists. An explicit arbitrary
+remote CLI route is not a substitute: it bypasses the qualified foreground-FD
+producer needed for exact repeated-click selection. Owner uncertainty still
+fails before attachment; only verified Writer absence permits saved-thread resume.
 
 The private launch directory lock and deterministic per-thread display token
 serialize notification/automatic races. Existing live routes are revalidated;

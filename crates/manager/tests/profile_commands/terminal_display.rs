@@ -58,6 +58,8 @@ fn foreground_fixture() {
         .output()
         .unwrap();
     assert!(bound.status.success(), "{bound:?}");
+    let mut current = TASK_ID.to_owned();
+    fs::write(root.join("display-current"), &current).unwrap();
     fs::write(root.join("display-ready"), pid.to_string()).unwrap();
     loop {
         let requested = fs::read_to_string(root.join("display-thread")).unwrap();
@@ -67,10 +69,15 @@ fn foreground_fixture() {
         assert!(codex_runtime_binding::native::canonical_session_id(
             &requested
         ));
-        slot.seek(SeekFrom::Start(0)).unwrap();
-        slot.set_len(0).unwrap();
-        slot.write_all(requested.as_bytes()).unwrap();
-        fs::write(root.join("display-current"), &requested).unwrap();
+        // Match the real frontend Slot::update: an unchanged conversation is a
+        // stable publication, not a stream of artificial unbound transitions.
+        if requested != current {
+            slot.seek(SeekFrom::Start(0)).unwrap();
+            slot.set_len(0).unwrap();
+            slot.write_all(requested.as_bytes()).unwrap();
+            current = requested;
+            fs::write(root.join("display-current"), &current).unwrap();
+        }
         std::thread::sleep(Duration::from_millis(5));
     }
 }
@@ -188,7 +195,9 @@ impl Foreground {
             .count()
     }
     fn switch_foreground(&mut self, id: &str) {
-        fs::write(self.root.join("display-thread"), id).unwrap();
+        let pending = self.root.join("display-thread-next");
+        fs::write(&pending, id).unwrap();
+        fs::rename(pending, self.root.join("display-thread")).unwrap();
         let deadline = Instant::now() + Duration::from_secs(5);
         while fs::read_to_string(self.root.join("display-current"))
             .ok()
@@ -313,6 +322,12 @@ fn old_route_cannot_focus_a_different_foreground_thread_or_unbound_surface() {
 #[test]
 fn display_resume_preserves_exact_live_owner_and_refuses_foreign_home() {
     let f = TaskFixture::new();
+    let owner_before = fs::read(f.binding.join("owner")).unwrap();
+    let writer = f
+        .root
+        .0
+        .join(format!(".codex/thread-writer-locks/{TASK_ID}.lock"));
+    let writer_before = fs::read(&writer).unwrap();
     let m = fs::metadata(&f.account).unwrap();
     let output = base_manager_command(&f.root.0, &f.core)
         .arg("__terminal-display-v1")
@@ -324,9 +339,12 @@ fn display_resume_preserves_exact_live_owner_and_refuses_foreign_home() {
         .unwrap();
     assert_eq!(output.status.code(), Some(37));
     let output = String::from_utf8(output.stdout).unwrap();
-    assert!(output.contains("ARG=<--remote>"));
-    assert!(output.contains(&format!("ARG=<unix://{}>", f.root.0.join("s").display())));
-    assert!(output.contains(&format!("ARG=<{TASK_ID}>")));
+    let args: Vec<_> = output
+        .lines()
+        .filter(|line| line.starts_with("ARG=<"))
+        .collect();
+    assert_eq!(args, ["ARG=<resume>", &format!("ARG=<{TASK_ID}>")]);
+    assert!(!output.contains("ARG=<--remote>"));
     assert!(output.contains(&format!("HOME_VALUE={}", f.account.display())));
     assert!(!output.contains("ARG=<exec>") && !output.contains("ARG=<--model>"));
     let foreign = f.root.0.join("foreign");
@@ -342,4 +360,7 @@ fn display_resume_preserves_exact_live_owner_and_refuses_foreign_home() {
         .unwrap();
     assert_eq!(refused.status.code(), Some(1));
     assert!(refused.stdout.is_empty());
+    assert_eq!(fs::read(f.binding.join("owner")).unwrap(), owner_before);
+    assert_eq!(fs::read(&writer).unwrap(), writer_before);
+    assert!(fs::File::open(&writer).unwrap().try_lock().is_err());
 }
