@@ -1,0 +1,67 @@
+name: Publish verified 0.167.0 Full (frozen signed S161 Base)
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_source:
+        description: Exact accepted source SHA; release is explicitly requested by owner
+        required: true
+        type: string
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: termux-hosted-release-callers
+  cancel-in-progress: false
+jobs:
+  verify:
+    name: Verify historical accepted Full and unchanged 0.167.1 channels
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require exact immutable c19 proof and current signed-head identities
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CONFIRM_SOURCE: ${{ inputs.confirm_source }}
+        run: |
+          set -euo pipefail
+          source='c19b61bb3d1d3bdb7e3c4f2ad9763d71397e5ca0'
+          test "$CONFIRM_SOURCE" = "$source"
+          test "$GITHUB_REPOSITORY" = humtr/codex
+          test "$GITHUB_EVENT_NAME" = workflow_dispatch
+          test "$GITHUB_REF" = refs/heads/main
+          test "$(gh api repos/humtr/codex/git/ref/heads/main --jq '.object.sha')" = "$GITHUB_SHA"
+          test "$(gh api "repos/humtr/codex/contents/release-source-v1?ref=$GITHUB_SHA" --jq .content | base64 -d)" = 'f9dfc3fde751bc35b80f0c546ceac181edcc944e'
+          gh api "repos/humtr/codex/contents/update-index-v1?ref=$GITHUB_SHA" --jq .content | base64 -d | grep -Fqx $'generation_id\tfull-v0.167.0-681ecce-s159'
+          gh api "repos/humtr/codex/contents/update-index-base-v1?ref=$GITHUB_SHA" --jq .content | base64 -d | grep -Fqx $'generation_id\tcore-v0.167.1-f9dfc3f-s162'
+          for pair in \
+            '42924206115:source-acceptance.yml' \
+            '42924206204:core-runtime-qualification.yml' \
+            '42929259774:manager-tui-native.yml'; do
+            run="${pair%%:*}"
+            workflow="${pair#*:}"
+            gh api "repos/humtr/codex/actions/runs/$run" \
+              | jq -e --arg sha "$source" --arg path ".github/workflows/$workflow" \
+                '.head_sha==$sha and .path==$path and .head_branch=="rewrite/rust-core" and .repository.full_name=="humtr/codex" and (.event=="push" or .event=="workflow_dispatch") and .status=="completed" and .conclusion=="success"' >/dev/null
+          done
+          gh api 'repos/humtr/codex/releases/tags/core-v0.167.0-c19b61b-s161' \
+            --jq '.assets | any(.name=="release.sig")' | grep -Fqx true
+          gh api 'repos/humtr/codex/releases/tags/manager-tui-native-v0.167.0-c19b61bb3d1d' \
+            --jq '.assets | any(.name=="manager-tui-inputs-0.167.0-c19b61bb3d1d.tar.gz" and .digest=="sha256:bffe30e7cba2f00f0ea5589c48598615a9ae6046eaa544eaa1649e8de50686aa")' \
+            | grep -Fqx true
+  release:
+    needs: verify
+    if: needs.verify.result == 'success'
+    permissions:
+      contents: write
+      actions: read
+    uses: humtr/codex/.github/workflows/auto-release-termux.yml@d6f090e835a74b86677f2f672ef55669ec459fe1
+    with:
+      source_sha: c19b61bb3d1d3bdb7e3c4f2ad9763d71397e5ca0
+      frontend_binding: '{"source":"c19b61bb3d1d3bdb7e3c4f2ad9763d71397e5ca0","frontend":{"source":"c19b61bb3d1d3bdb7e3c4f2ad9763d71397e5ca0","run_id":"42929259774","sha256":"175fd8a00f5302cced57e6dfebedaeba93c8019137ae77108d43638a4069a59d","input_url":"https://github.com/humtr/codex/releases/download/manager-tui-native-v0.167.0-c19b61bb3d1d/manager-tui-inputs-0.167.0-c19b61bb3d1d.tar.gz","input_sha256":"bffe30e7cba2f00f0ea5589c48598615a9ae6046eaa544eaa1649e8de50686aa"}}'
+      release_variant: full
+      historical_base_generation: core-v0.167.0-c19b61b-s161
+      publish: true
+      rebuild_current: true
+    secrets:
+      CODEX_RELEASE_SIGNING_KEY: ${{ secrets.CODEX_RELEASE_SIGNING_KEY }}
