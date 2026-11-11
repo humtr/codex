@@ -13,6 +13,9 @@ termux = "docs/TERMUX_CONSTRAINTS.md"
 readme = "README.md"
 provider_guide = "providers/chatgpt/README.md"
 tui_guide = "frontend/tui/README.md"
+update_display = "docs/spec/interfaces/UPDATE_DISPLAY.md"
+terminal = "docs/spec/interfaces/TERMINAL.md"
+mcp_shell = "docs/spec/interfaces/MCP_SHELL.md"
 
 [discovery]
 annex_roots = ["docs/spec/product", "docs/spec/bridge", "docs/spec/delivery", "docs/spec/interfaces"]
@@ -55,6 +58,6 @@ validation = "termux_preflight"
 [tests.relative_links]
 purpose = "All active Markdown references and fragments resolve to real targets"
 required = ["index", "spec"]
-conditional = ["readme", "provider_guide", "tui_guide"]
+conditional = ["readme", "provider_guide", "tui_guide", "update_display", "terminal", "mcp_shell"]
 missing = "fail"
 validation = "relative_links"

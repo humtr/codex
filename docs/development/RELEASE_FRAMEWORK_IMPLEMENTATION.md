@@ -1,0 +1,265 @@
+# Release framework integration — finite implementation record
+
+This is the bounded W0–W20 integration record, not a second product
+specification or a new authorization gate. It is retained while final source,
+CI and live acceptance are being closed. Stable requirements belong to SPEC
+and the scoped annexes; observed proof belongs to CURRENT. After acceptance,
+Git history preserves the completed plan and its source provenance.
+
+## Baseline, authority and ownership
+
+Official input: `7b98296a411a2c435bb9f34ee51f286f33f3491b`, upstream
+0.167.1 / `0a94398fa60c4fac0e7659e4213a0a36e613dd46`.
+One integration worktree and three isolated feature worktrees share this
+baseline. No primary-checkout reset, cleanup or branch switch is allowed.
+One Writer owns each overlapping file; transfers are explicit.
+
+**Decision A:** rewrite/rust-core is the one continuing development source.
+Main remains separate publication/approval authority: signed indexes and
+promotion consume that line. Its unrelated ancestry and existing approval
+chain make an unconditional merge into development inappropriate. There is
+currently no GitHub branch-protection rule to substitute for the implemented
+exact-main authorization gate. Signing and activation stay separate.
+
+The original assumption that e4f9ab5d and plan3ef675ad had no common ancestor
+was caused by a shallow repository. The complete history establishes common
+ancestors 27103ec0 and 0aebdd7f respectively. Selective patch review is still
+necessary because the old checkout pins 0.167.0. It must not replace the
+official 0.167.1 recipe.
+
+## Implementation order
+
+```mermaid
+flowchart TD
+    W0["W0 source, install and ownership"] --> W1["W1 inputs and metadata"]
+    W0 --> N["W15 and W20 Native ownership"]
+    W0 --> P["W17 authenticated catalog"]
+    W1 --> R["W2 and W3 component production"]
+    W1 --> V["W5a component revisions"]
+    R --> C["W4 Full compatibility"]
+    V --> C
+    C --> S["W5b publication reservation"]
+    P --> T["W19 Provider-scoped model selection"]
+    N --> D["W16 terminal display"]
+    N --> T
+    U["W11–W14 Core interfaces"] --> A["W9 integrated contracts"]
+    T --> A
+    D --> A
+    M["W18 independent MCP shell"] --> A
+    S --> A
+    A --> Q["W10 exact-source unsigned CI"]
+```
+
+W6 Retain and already-accepted W7/W8 baseline evidence constrain every affected
+TUI change. W15's completed operating P0 is not a prerequisite blocking other
+work. Publication reservation metadata does not authorize signing/publication.
+W20 reuses Core Owner discovery and upstream Native resume; it introduces no
+Owner database or alternate Writer controller.
+
+## Work packages and evidence gates
+
+| Work | Defect / scope and implemented decision | Writer and principal source | Acceptance still required after focused local proof |
+| --- | --- | --- | --- |
+| W0 | Correct shallow ancestry, current S165 installation and mixed live generations; preserve dirty source | Integration; Git/process/installed inventory | Final remote HEAD and protected-asset comparison |
+| W1 | Input identity follows actual producers, recipe, ABI, flags and lockfiles; qualification is separate | Release; component_inputs.py, component_artifact.py | Exact-source artifact/proof receipts |
+| W2 | One canonical Android Core producer reused by source and runtime consumers | Release; reusable Core workflow and consumers | Hosted producer/cache plus consumer gates |
+| W3 | Manager independent build and interface qualification | Release; manager workflow; Manager source | Hosted exact-source Manager qualification |
+| W4 | Unsigned Full assembly binds successful same-source Core/Manager/full-TUI evidence | Release; full_qualification.py and workflow | Exact-source Full run after prerequisites |
+| W5 | rN input revisions and composition revision separate from global sequence; immutable signed history | Release; component_revisions.py, release_reservations.py | Pure tests passed; no formal reservation/signing authorized |
+| W6 | Preserve upstream TUI behavior; new model/switch paths have explicit Retain oracles | Models/Native; TUI patch and tests | Full hosted TUI tests |
+| W7 | Existing current alias is already integrated; retain authority/symlink guards | Integration; current_alias.rs, existing tests | Reuse source tests; no redundant implementation |
+| W8 | Baseline 7b98296 TUI success accepted; new changed paths need new exact-source proof | Integration | New full TUI qualification |
+| W9 | Stable SPEC, single scoped norms, current evidence and finite handoff | Integration; SPEC and docs | Final links, dependency checks, exact evidence |
+| W10 | Read-only qualification separated from exact-main approved signing/publication | Release/Integration; workflows, release_control.py | Safe push and final successful run IDs |
+| W11 | Explicit --core/--full, no repeated cancellation, authenticated edition, Core-only build independent of TUI | Integration; main.rs, manual_update.rs, update_edition.rs | Complete Core suite and hosted CLI acceptance |
+| W12 | Offline Core-owned version JSON/details, optional components and legacy unknown revisions | Integration; termux_version.rs, component_metadata.rs, provider.rs | Complete Core suite; installed read-only candidate already passed |
+| W13 | No-bwrap is normal platform information; explicit unsupported requests and real failures remain failures | Integration; Core Doctor path and DOCTOR norm | Complete Core/Doctor regression |
+| W14 | Signed Core/Full fixtures, rollback, mismatched edition, noninteractive/version coverage | Integration; Core tests | Complete local/hosted results |
+| W15 | Integrate original claim P0; precise shared diagnostics and conservative hook-aware effect scope | Native; native_claims/effect, native_route.patch, lifecycle tests | New-runtime real independent compiler effects and settlement |
+| W16 | Verified existing terminal or one headless display; default-off auto path; no new inference | Integration/Release after file-lease transfer; Manager terminal/window/task, Provider callback | Hosted stock Activity proof and available real Native continuity |
+| W17 | Fresh authenticated ChatGPT catalog, independent inference auth, stable stored Provider/model IDs | Models; models/control/projection and Provider docs | Candidate hosted tests; reuse operating live model loop only within stated boundary |
+| W18 | One independent shell, original-call replay, conflicts, bounded output/process cleanup; common annotations unchanged | Integration; termux_shell, worker and integration test | Hosted Provider suite; standalone owned worker already passed |
+| W19 | OpenAI upstream-only; ChatGPT account catalog-only through picker/completion/direct input/reentry/effort | Models; termux_chat_models, input preparation, TUI patch | Candidate full TUI, provider transitions and unsupported-model errors |
+| W20 | Decode known legacy owner records safely, reject uncertainty, preserve same thread and original quota checkpoint | Native/Models; runtime-binding/native, profile_transport, quota replay | Candidate full switch destination response, failure preservation, exact CI |
+
+## Source provenance and independent review
+
+- e4f9ab5dc3045cbde8317774da95eb98db7646dd: original Native continuation
+  claim repair; compared against the current producer and integrated with
+  origin attribution. No operating recovery was repeated.
+- c0a8189815c70f0c6678bc9374bcd352423dca57: independent MCP worker; direct
+  descendant patch integrated, then actual independent-process replay and
+  lifecycle tests added.
+- 3ef675ad721c0a08a50891394cf03df3abb66b2d: planning evidence revalidated
+  against real producers; its approval gate and 0.167.0 assumptions are not
+  carried forward.
+- 9a236db89a3778a1d28a488d093ddee9943759d3 and parent089ec7f6: prior P0
+  recovery and janmori101 connector-refresh evidence folded into CURRENT
+  and scoped Provider guidance; no duplicate dated handoff is created.
+- a55d5bb8 Native integration, 0aebdd7f documentation baseline, PR #29 and
+  2dd07d42 account-draft ancestry are already integrated. Preserve actual
+  current consumers instead of replaying obsolete files.
+
+Worker commits retain cherry-pick origin attribution. The integration branch
+is the reviewable source; individual work branches are temporary and cannot
+substitute for final official-source integration.
+
+## Tests and proof reuse
+
+The three baseline 7b98296 CI receipts, earlier P0 repair receipts, original
+15 claim tests and successful connector refresh are reusable only for their
+original source/account/device boundaries. New effects, owner parsing,
+catalog selection, terminal display, metadata consumers and CI producers are
+retested. No assertion is weakened and no required gate is deleted or skipped.
+
+Full TUI compilation locally is blocked by an unavailable pinned rusty_v8
+dependency before source compilation. Hosted source qualification must supply
+the real compiler/test result; a clean patch assembly is not a passing Rust
+test. The old-runtime Native compiler trial and incomplete installed-S165
+quota-switch trials remain failure evidence, not accepted new behavior.
+
+Live model evidence used the operating Provider and one original Chat/Native
+thread, preserving approval and sandbox configuration. Synthetic account
+fixtures are separate. Android stock tests prove Activity/session behavior on
+the pinned emulator APK with a synthetic frontend; they do not prove a
+physical device or real model inference.
+
+## Change accounting and rollback
+
+The original 1,370–3,020 product and 500–800 documentation LoC range was a
+pre-investigation estimate for W0–W14, not a commitment or completed count.
+Original W16 estimates and the 559-line shell patch are not added again to
+actual totals. Final accounting is computed once from baseline to integrated
+HEAD, with product, test, CI/support and documentation categories. Embedded
+upstream patches additionally report semantic Rust lines so patch wrappers
+are not mislabeled as product code. Pure moves and overlapping W assignments
+are counted once. The final file inventory and actual counts are updated
+after source acceptance.
+
+Rollback for development is a reviewed revert of a coherent feature commit,
+followed by affected exact-source qualification. No rollback here mutates a
+signed generation, active pointer, account, original result or Writer.
+A failed publication proof prevents signing rather than changing already
+issued S164/S165. Full-to-Core tests preserve previous Full and enforce
+anti-rollback sequence rules; S164 cannot silently replace newer S165.
+
+## Branch disposition
+
+The following inventory comes from all observed local/remote refs after full
+ancestry recovery. Worktree presence is an ownership constraint, not proof
+that its process is idle. No branch or worktree is deleted. Integrated refs
+can be retired only after their active owner/worktree and CI/release/PR
+consumers are released; publication/rollback/evidence refs remain preserved.
+Unique operating snapshots and experiments are not wholesale merge inputs.
+
+| Ref | Observed SHA | Disposition | Worktree present |
+| --- | --- | --- | --- |
+| `local:archive/linux-app-operating-source-20261106` | `97118e775bc6` | other owner/operating snapshot: preserve | yes |
+| `local:archive/mobile-desktop-attempt-20261106` | `8de07907b110` | other owner/operating snapshot: preserve | no |
+| `local:backup/user-dirty-20261109` | `0401e4af6207` | other owner/operating snapshot: preserve | no |
+| `local:backup/user-dirty-20261109-base` | `0814be7b51dd` | integrated legacy; check consumers before deletion | no |
+| `local:design/entry-architecture-20261105` | `604df76bb30f` | integrated; retire after owner/worktree release | yes |
+| `local:docs/release-framework-handoff-20261111` | `9a236db89a37` | evidence selected; retain owner worktree | yes |
+| `local:docs/review-actions-20261110` | `e16bb12defc9` | integrated; retire after owner/worktree release | yes |
+| `local:draft/thread-model-catalog-20261106` | `8d095cd754fa` | unique historical experiment: preserve, no automatic merge | no |
+| `local:experiment/profile-tui` | `c4d9a41d3827` | integrated legacy; check consumers before deletion | no |
+| `local:experiment/web-provider` | `6aab6cd9c8e3` | unique historical experiment: preserve, no automatic merge | no |
+| `local:experiment/web-termux` | `08e985693f0a` | unique historical experiment: preserve, no automatic merge | no |
+| `local:feat/termux-mcp-shell-20261111` | `c0a8189815c7` | patch integrated; retain owner worktree | yes |
+| `local:fix/accepted-caller-repin-20261111` | `c642dd208735` | publication authority/history: preserve | yes |
+| `local:fix/active-steer-20261104` | `f8d1a7f47c62` | integrated; retire after owner/worktree release | yes |
+| `local:fix/attached-native-development-loop-20261106` | `cc535d18a897` | integrated; retire after owner/worktree release | yes |
+| `local:fix/chatgpt-resume-concurrency-20261108` | `f93256083902` | integrated; retire after owner/worktree release | yes |
+| `local:fix/current-generation-compat-link-20261111` | `a8cb66c6f2b0` | integrated; retire after owner/worktree release | yes |
+| `local:fix/hosted-preflight-0161` | `ce371e090f86` | unique historical experiment: preserve, no automatic merge | no |
+| `local:fix/mobile-desktop-20261106` | `8de07907b110` | other owner/operating snapshot: preserve | yes |
+| `local:fix/native-route-transition-20261105` | `987dee84a5c3` | other owner/operating snapshot: preserve | yes |
+| `local:fix/native-startup-settlement-20261108` | `317c7fe41d15` | integrated; retire after owner/worktree release | yes |
+| `local:fix/p0-413-native-repair` | `0902eb69b319` | integrated legacy; check consumers before deletion | no |
+| `local:fix/p0-stream-resume-identity` | `49e292b011e0` | integrated; retire after owner/worktree release | yes |
+| `local:fix/release-notify-admission-20261111` | `c19b61bb3d1d` | integrated; retire after owner/worktree release | yes |
+| `local:handoff/pro-local-baseline-20261106` | `b8c14252ee33` | other owner/operating snapshot: preserve | yes |
+| `local:integration/codex-native-20261110` | `a55d5bb8fffa` | integrated; retire after owner/worktree release | yes |
+| `local:integration/release-framework-20261112` | `ed6679221fc6` | current isolated integration writer | yes |
+| `local:legacy/monolith` | `bf30a7dc94d4` | release/compatibility: preserve | no |
+| `local:main` | `53176ed79097` | publication authority/history: preserve | yes |
+| `local:plan/release-framework-20261111` | `3ef675ad721c` | evidence selected; retain owner worktree | yes |
+| `local:prep/0.164-native-review` | `27a918678644` | integrated; retire after owner/worktree release | yes |
+| `local:prep/pro-baseline-20261106` | `6018ad990f14` | unique historical experiment: preserve, no automatic merge | no |
+| `local:prod/download-size-v1-base-9300` | `9300a68852c8` | release/compatibility: preserve | no |
+| `local:refactor/docs-contract-20261110` | `0aebdd7f2614` | integrated; retire after owner/worktree release | yes |
+| `local:refactor/naming-and-delivery-rules` | `306d842f86aa` | integrated legacy; check consumers before deletion | no |
+| `local:release/frozen-full-1670-caller` | `6624418979e1` | publication authority/history: preserve | yes |
+| `local:release/frozen-full-1670-s163` | `d6f090e835a7` | release/compatibility: preserve | yes |
+| `local:rewrite/rust-core` | `e4f9ab5dc304` | patch integrated; retain owner worktree | yes |
+| `local:tdev-work/AUTHORITY-COMPACTION-V1-88d33545bf5e4bc6b24ebaeb6962ee5b` | `838c8ba7e773` | other owner/operating snapshot: preserve | no |
+| `local:tdev-work/RUNTIME-ALIGNMENT-0-159-2-AUTHORITY-560ff9af76714c9baee22584368935f3` | `019f2066cfcb` | other owner/operating snapshot: preserve | no |
+| `local:tdev-work/release-download-size-v1-a0dce69bd40e43f7b22f4d303b70efa5` | `ba0eacc4a077` | other owner/operating snapshot: preserve | no |
+| `local:tdev-work/update-download-size-v1-9fcae140207f4608b7268cd77f0146f5` | `4fd14ed8aafc` | integrated legacy; check consumers before deletion | no |
+| `local:wip/chatgpt-accounts-source-20261110` | `2dd07d422ad0` | integrated; retire after owner/worktree release | yes |
+| `local:work/native-owner-20261112` | `0c943d9b302e` | current isolated integration writer | yes |
+| `local:work/provider-models-20261112` | `d9de0e4a72c0` | current isolated integration writer | yes |
+| `local:work/release-framework-20261112` | `ecc8be2c3b64` | current isolated integration writer | yes |
+| `remote:origin/HEAD` | `b2567063d2a7` | publication authority/history: preserve | no |
+| `remote:origin/archive/linux-app-operating-source-20261106` | `97118e775bc6` | other owner/operating snapshot: preserve | no |
+| `remote:origin/archive/mobile-desktop-attempt-20261106` | `8de07907b110` | other owner/operating snapshot: preserve | no |
+| `remote:origin/design/entry-architecture-20261105` | `604df76bb30f` | integrated legacy; check consumers before deletion | no |
+| `remote:origin/docs/release-framework-handoff-20261111` | `9a236db89a37` | evidence selected; retain owner worktree | no |
+| `remote:origin/draft/thread-model-catalog-20261106` | `8d095cd754fa` | unique historical experiment: preserve, no automatic merge | no |
+| `remote:origin/experiment/profile-tui` | `2c9ec49685aa` | integrated legacy; check consumers before deletion | no |
+| `remote:origin/experiment/stock-window-proof` | `ee28c904cb55` | unique historical experiment: preserve, no automatic merge | no |
+| `remote:origin/experiment/web-provider` | `6aab6cd9c8e3` | unique historical experiment: preserve, no automatic merge | no |
+| `remote:origin/experiment/web-termux` | `08e985693f0a` | unique historical experiment: preserve, no automatic merge | no |
+| `remote:origin/fix/active-steer-20261104` | `f8d1a7f47c62` | integrated legacy; check consumers before deletion | no |
+| `remote:origin/fix/attached-native-development-loop-20261106` | `cc535d18a897` | integrated legacy; check consumers before deletion | no |
+| `remote:origin/fix/chatgpt-resume-concurrency-20261108` | `f93256083902` | integrated legacy; check consumers before deletion | no |
+| `remote:origin/fix/current-generation-compat-link-20261111` | `a8cb66c6f2b0` | integrated legacy; check consumers before deletion | no |
+| `remote:origin/fix/hosted-preflight-0161` | `ce371e090f86` | unique historical experiment: preserve, no automatic merge | no |
+| `remote:origin/fix/native-route-transition-20261105` | `987dee84a5c3` | unique historical experiment: preserve, no automatic merge | no |
+| `remote:origin/fix/p0-413-native-repair` | `0902eb69b319` | integrated legacy; check consumers before deletion | no |
+| `remote:origin/fix/release-notify-admission-20261111` | `c19b61bb3d1d` | integrated legacy; check consumers before deletion | no |
+| `remote:origin/fix/stopped-native-shared-claim-reconciliation` | `fec19d8e2c9a` | integrated legacy; check consumers before deletion | no |
+| `remote:origin/handoff/pro-local-baseline-20261106` | `b8c14252ee33` | unique historical experiment: preserve, no automatic merge | no |
+| `remote:origin/integration/codex-native-20261110` | `a55d5bb8fffa` | integrated legacy; check consumers before deletion | no |
+| `remote:origin/legacy/monolith` | `bf30a7dc94d4` | release/compatibility: preserve | no |
+| `remote:origin/lupi/review-20261109` | `53176ed79097` | publication authority/history: preserve | no |
+| `remote:origin/main` | `b2567063d2a7` | publication authority/history: preserve | no |
+| `remote:origin/prep/0.164-native-review` | `27a918678644` | integrated legacy; check consumers before deletion | no |
+| `remote:origin/prep/pro-baseline-20261106` | `6018ad990f14` | unique historical experiment: preserve, no automatic merge | no |
+| `remote:origin/prod/download-size-v1-seq23-source` | `b164e5b61cb4` | release/compatibility: preserve | no |
+| `remote:origin/release/frozen-full-1670-s163` | `d6f090e835a7` | release/compatibility: preserve | no |
+| `remote:origin/release/seq18-no-emoji-product` | `9300a68852c8` | unique historical experiment: preserve, no automatic merge | no |
+| `remote:origin/rewrite/rust-core` | `7b98296a411a` | official development | no |
+| `remote:origin/wip/chatgpt-accounts-source-20261110` | `2dd07d422ad0` | integrated legacy; check consumers before deletion | no |
+| `remote:origin/work/capability-restoration-166` | `3c1e47e46cef` | current isolated integration writer | no |
+
+### Retirement prerequisites
+
+An additional consumer scan covered current workflows, scripts, release inputs
+and user/agent entry guides. No open PR was present at this read. Ref aliases
+sharing an owned worktree SHA/name remain subject to that owner's release,
+even when the remote-tracking ref itself has no worktree. The old integration
+name in the TUI artifact test is an intentional negative branch-admission
+fixture; README now points only to rewrite/rust-core.
+
+| Integrated inactive ref | Remaining retirement condition |
+| --- | --- |
+| `local:backup/user-dirty-20261109-base` | preserve other owner |
+| `local:experiment/profile-tui` | eligible after final source acceptance no open pr |
+| `local:fix/p0-413-native-repair` | eligible after final source acceptance no open pr |
+| `local:refactor/naming-and-delivery-rules` | eligible after final source acceptance no open pr |
+| `local:tdev-work/update-download-size-v1-9fcae140207f4608b7268cd77f0146f5` | eligible after final source acceptance no open pr |
+| `remote:origin/design/entry-architecture-20261105` | after related worktree owner release |
+| `remote:origin/experiment/profile-tui` | eligible after final source acceptance no open pr |
+| `remote:origin/fix/active-steer-20261104` | after related worktree owner release |
+| `remote:origin/fix/attached-native-development-loop-20261106` | after related worktree owner release |
+| `remote:origin/fix/chatgpt-resume-concurrency-20261108` | after related worktree owner release |
+| `remote:origin/fix/current-generation-compat-link-20261111` | after related worktree owner release |
+| `remote:origin/fix/p0-413-native-repair` | eligible after final source acceptance no open pr |
+| `remote:origin/fix/release-notify-admission-20261111` | after related worktree owner release |
+| `remote:origin/fix/stopped-native-shared-claim-reconciliation` | eligible after final source acceptance no open pr |
+| `remote:origin/integration/codex-native-20261110` | after related worktree owner release |
+| `remote:origin/prep/0.164-native-review` | after related worktree owner release |
+| `remote:origin/wip/chatgpt-accounts-source-20261110` | preserve other owner |
+
+No deletion is performed during source acceptance. Release/rollback and other-owner snapshots remain preserved.

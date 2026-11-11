@@ -1,97 +1,46 @@
-# Handoff — current integration and acceptance
+# Handoff — unfinished integration acceptance
 
-Updated: 2026-11-11 KST. This is the **single current unfinished-work
-handoff**, not a specification, product-status history or authorization to
-deploy. Follow [AGENTS](AGENTS.md) and the [documentation policy](docs/DOCUMENTATION.md).
-Read [CURRENT](CURRENT.md) for verified source, CI and device claims;
-read [SPEC](SPEC.md) and its annexes for required behavior.
-`PRO_HANDOFF.md` and previous handoff snapshots are **not current authorities**.
+Updated: 2026-11-12 KST. One current unfinished-work record.
+Read [CURRENT](CURRENT.md), [AGENTS](AGENTS.md) and the
+[finite integration plan](docs/development/RELEASE_FRAMEWORK_IMPLEMENTATION.md).
+The user's continuous authorization covers development, safe branch integration
+and unsigned CI; there is no intermediate plan-approval gate.
 
-## Source of truth and existing integration
+## Remaining work
 
-- The sole ongoing product-development source branch is
-  [`rewrite/rust-core`](https://github.com/humtr/codex/tree/rewrite/rust-core).
-  Resolve its **actual** current HEAD, worktrees, dirty files and owners
-  before editing; a SHA in this handoff is evidence, not a writable lease.
-- `integration/codex-native-20261110` at `a55d5bb8` is already an ancestor
-  of `rewrite/rust-core`. Do not merge it again. [PR #29](https://github.com/humtr/codex/pull/29)
-  for the Core `current` compatibility alias was merged in `afdfb8bd7e57`.
-  Preserve the exact code and safety checks; the fix is not part of the
-  previously signed Full163 image.
-- `main` is the **separate publication/approval authority**, not another
-  developer branch to merge by Git ancestry. Frozen release snapshots,
-  experiments, retired fixes and historic WIP are not automatic merge inputs.
-  Before retaining any divergent branch changes, compare actual behavior,
-  patch provenance, tests and consumers. Local-only worktrees/plans remain
-  unverified until local Git access works again.
+1. Finish the remaining candidate model transition and Native hook scope
+   changes. The Core, independent-shell and terminal-display feature commits,
+   complete Core/Manager tests and strict workspace/Provider lint have passed.
+2. Finish the narrow Native hook/effect scope review. Preserve opaque
+   uncertainty and existing Writer authority; test actual matching hooks.
+3. Push the integrated source by fast-forward to the actual current
+   rewrite/rust-core after rechecking main intent and concurrent upstream
+   discovery. Run and observe Source, Core/Runtime, Manager, Provider,
+   full TUI Native, unsigned Full composition and stock Android acceptance
+   against the exact source. Fix real failures and rerun.
+4. With the candidate frontend/runtime, finish the same-thread /switch
+   destination checkpoint and original-result continuity fixture. Historical
+   quota replay was repaired; current installed S165 evidence proves only
+   Owner lookup and reentry, not the destination inference.
+5. Use owned isolated candidate artifacts for actual Native compiler
+   concurrency/settlement and terminal continuity where possible. Distinguish
+   real Native, live app, synthetic account and Android emulator/physical
+   Activity proof. Reuse the independently accepted existing-app C development
+   loop only within its operating-binary boundary.
+6. Record actual commits, file/LoC ownership, final exact-SHA CI receipts,
+   protected-asset readback and branch dispositions. Remove completed items
+   from this handoff; do not retain this list as future instructions once
+   acceptance is recorded.
 
-## Next unfinished boundaries, in order
+## Protected operating boundaries
 
-1. **P0 Native availability and safe recovery.** After the user completely
-   restarted Termux, a new attached Native work accepted creation and
-   attachment but rejected a read-only `functions.exec_command` with
-   `native_resource_busy` and `executed=false`. Its per-work
-   `native_effects.active=[]`, `unconfirmed_effects=0` and `pending_calls=[]`.
-   Some old works still reported `reconciliation_required` or
-   `stop_requested`. These facts do **not** establish the global owner.
-   Inspect the wrapper's actual shared-effect owner, leases, reconciliation,
-   stop and re-entry logic through an **independent local Termux shell**;
-   do not route emergency repair through the blocked Bridge command lane.
-   Repair only proven stale ownership, preserve unresolved effects, then
-   demonstrate fresh/same-work/repeated work execution and safe conflict
-   rejection. No blind lock deletion, all-process kill or fake success.
-2. **Release framework consolidation (W0–W14):** Independently revalidate
-   the user's existing plan against current code before implementation.
-   Preserve the whole release framework, ChatGPT Provider naming and
-   independent authentication boundary, upstream/Native model identity,
-   existing session continuity, SPEC contract and full implementation/tests.
-   Explicitly include Native Busy/Stop self-recovery and TermuxBridge/
-   AppHost-started notification tap → correct session/terminal focus
-   continuity. Distinguish proposal, verified behavior, signed release
-   and device activation. The requested **plan → user approval → implement**
-   boundary still applies to the full W0–W14 rewrite; this documentation
-   integration is not approval for that implementation.
-3. **Review work selection:** Use the dated
-   [2026-11-10 review matrix](docs/development/REVIEW_ACTIONS_20261110.md)
-   as hypothesis/evidence only. Reassess each R01–R10 item against the
-   actual current source; `c19b61bb` already changed release notification
-   admission, so do not reimplement a prior fix because its original review
-   entry remains. Confirm any remaining source/CI ownership, MCP auth,
-   Native result/effect admission, TUI re-entry or migration concerns with
-   exact producer/consumer tests. Keep unrelated local work protected.
-4. **Whole-route acceptance:** At `f9dfc3f` Source Acceptance
-   [#42942784769](https://github.com/humtr/codex/actions/runs/42942784769)
-   and Core Qualification
-   [#42942787296](https://github.com/humtr/codex/actions/runs/42942787296)
-   passed, but TUI Native
-   [#42945712023](https://github.com/humtr/codex/actions/runs/42945712023)
-   **failed**. PR #29 head `a8cb66c` separately passed
-   [Source Acceptance](https://github.com/humtr/codex/actions/runs/42962985877)
-   and [Core Qualification](https://github.com/humtr/codex/actions/runs/42962989662);
-   neither proves exact post-merge/documentation HEAD acceptance.
-   Requalify each affected boundary at its real commit. Installed TUI
-   `/provider` → GPT-6 two responses on the same Native thread, SSE/HTTP
-   413 recovery, no duplicate effects and independent safe concurrency
-   remain separate live checks.
+Existing S164/S165 and previous signed generations, stable indexes, formal
+signing/publication, operating installation replacement, service restart,
+account/token changes, real SQLite/JSONL repairs and active Writer transfer
+remain separate operations. None is needed merely to complete source/unsigned
+qualification. Do not perform them as a development side effect.
 
-## Operational and approval fence
-
-- The signed [Full163 publication](https://github.com/humtr/codex/releases/tag/full-v0.167.0-c19b61b-s163)
-  is Codex **0.167.0**; current source's
-  [upstream recipe](release/upstream.json) is **0.167.1**. Do not collapse
-  these generations or claim the merged alias fix was shipped in Full163.
-  PR #29 reports Full163 device activation and retained Full159/Full153;
-  obtain a fresh readback before another device-side operation.
-- Do not change installed/rollback generations, keys, accounts, profiles,
-  services, approval policy, active workers or Android sdcard as a
-  documentation/source-integration side effect. Signing, rollout, device
-  replacement, live-service restart and broad migrations require distinct
-  explicit authorization.
-- Before committing: inspect exact HEAD/owner and relevant contracts, isolate
-  writers, check focused positive/negative tests and diffs. Before accepting:
-  verify exact-current-SHA source/Provider/Core/TUI gates **and** original
-  Native/model/tool receipts when relevant. Stop only the task proven owned;
-  do not reset other sessions or hide unresolved delivery.
-
-Remove a completed item from this handoff once its commit and scoped proof
-are recorded in CURRENT or Git; do not append a chronology.
+The primary checkout's local e4f9ab5d lineage and other workers' untracked files
+remain untouched. Do not delete retained worktrees or branches from an ancestry
+classification alone. Unknown receipts require original-call reconciliation;
+uncertain Owner/effects remain preserved and fail closed.

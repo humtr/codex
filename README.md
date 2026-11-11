@@ -18,31 +18,16 @@ See the [product requirements](SPEC.md), [current verified state](CURRENT.md),
 audit and handoff records remain accessible in Git history, not in current
 user instructions.
 
-## Actual status — source is not deployment
+## Source and installed releases
 
-The development source currently selects official upstream **0.167.1**
-([recipe](release/upstream.json)). The most recently verified public signed
-Full publication is Codex **0.167.0 Full163**
-([release](https://github.com/humtr/codex/releases/tag/full-v0.167.0-c19b61b-s163)).
-[PR #29](https://github.com/humtr/codex/pull/29) reports Full163 installed
-and Full159/Full153 retained; no new device readback was performed by this
-documentation update. The PR's Core compatibility-link repair has now been
-merged into the development source, but **was not included in signed Full163**.
-
-At `f9dfc3f`, [Source Acceptance](https://github.com/humtr/codex/actions/runs/42942784769)
-and [Core qualification](https://github.com/humtr/codex/actions/runs/42942787296)
-passed; [TUI Native qualification](https://github.com/humtr/codex/actions/runs/42945712023)
-**failed**. The PR #29 head separately passed source and Core qualification,
-not exact post-merge acceptance. No CI receipt here proves installed GPT-6
-same-thread TUI continuity.
-
-After a user-performed complete Termux restart, TermuxBridge remained
-reachable but a newly admitted Native `functions.exec_command` still returned
-`native_resource_busy` with `executed=false` despite an empty per-work
-active-effect list. This **P0 wrapper execution availability** issue is
-unresolved; neither a successful Bridge handshake nor a Termux reboot proves
-execution recovery. See [CURRENT](CURRENT.md) for dated evidence and
-[HANDOFF](HANDOFF.md) for the next authorized acceptance work.
+The development recipe selects upstream **0.167.1**. The independently checked
+installation is **0.167.1 Full S165**, with 0.167.0 Full S163 retained as previous
+generation. Core S164 is a separate signed release, not evidence of installation.
+[CURRENT](CURRENT.md) owns exact source, signed inventory and CI evidence;
+[HANDOFF](HANDOFF.md) lists only unfinished acceptance. Source changes and
+commands described here become installed behavior only through separately
+qualified, signed and activated generations. Existing signed releases stay
+immutable.
 
 ## Everyday usage
 
@@ -57,6 +42,9 @@ codex
 - `codex resume` continues an upstream Native conversation and
   `codex exec "TASK"` uses its noninteractive entrypoint.
 - `codex termux` opens Manager features when installed.
+- This source adds Core-owned `codex termux version`, `--details` and `--json`
+  for offline verified inventory, even without Manager. Older installed
+  generations may not provide this command.
 - `CODEX_TERMUX_CORE_ONLY=1 codex` invokes the standalone Core route for
   that run, skipping optional Manager/TUI hooks. It does not bypass Core.
 - `codex doctor` is the diagnostic entrypoint. Existing Native sessions and
@@ -74,10 +62,15 @@ For a **fresh** installation, use the repository's reviewed, signed
 [online installer](install-online.sh) and the current
 [installation contract](docs/spec/delivery/INSTALL.md). Do not reuse an old pinned installer
 URL from a historical snapshot; check the exact accepted release and its
-signature/manifest before use. The Full variant includes Core, Manager and TUI;
-Base includes Core. Provider and Linux ChatGPT app/login are **separate**
+signature/manifest before use. The Full variant combines qualified Core/Runtime, Manager and TUI.
+Core uses a qualified Runtime Bundle without requiring Manager or Enhanced TUI.
+Historical Base names and index fields remain compatible. Provider and Linux
+ChatGPT app/login are **separate**
 setup. Existing installations use Core-owned `codex update`, not a fresh
-bootstrap overwrite. `codex update --rollback` is an explicit rollback
+bootstrap overwrite. This source supports `codex update --core` and
+`codex update --full`; plain update preserves the authenticated installed edition.
+A Core selection preserves the previous Full generation and still enforces
+anti-rollback. `codex update --rollback` is an explicit rollback
 operation; verify the current and retained generation and settle active work
 before performing an update or rollback. An app/service restart is not implied
 by source compilation or package selection.
@@ -99,7 +92,9 @@ The maximum filesystem socket path is **107 encoded bytes**; see the
 canonical [socket contract](docs/spec/delivery/TERMUX_COMPAT.md).
 Keep per-work scratch/evidence outputs independent and never touch Android
 sdcard. This repository's current development branch is
-`integration/codex-native-20261110`; check its actual HEAD before acting.
+`rewrite/rust-core`; check its actual HEAD before acting. `main` retains the
+separate publication/approval role. Temporary integration branches do not
+become parallel long-lived development sources.
 
 New Provider producer packages use `provider-chatgpt-v...`; published
 `provider-gpt-v...` remains readable for historical rollback. Native TUI

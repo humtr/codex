@@ -27,7 +27,8 @@ Moving or renaming an annex changes this index, not SPEC.
 
 ## Delivery — qualified generations
 
-- [Base qualification](delivery/BASE.md)
+- [Core qualification (legacy Base format)](delivery/BASE.md)
+- [Component inputs and independent qualification](delivery/QUALIFICATION.md)
 - [6. Artifact and patch qualification](delivery/ARTIFACTS.md)
 - [Signed transport and release execution](delivery/SIGNING.md)
 - [7. State and generation model](delivery/STATE.md)
@@ -41,6 +42,8 @@ Moving or renaming an annex changes this index, not SPEC.
 - [Clipboard and image-input behavior](interfaces/CLIPBOARD.md)
 - [Independent terminal return (Manager)](interfaces/TERMINAL.md)
 - [Bare interactive launch update discovery](interfaces/UPDATES.md)
+- [Core update and offline version display](interfaces/UPDATE_DISPLAY.md)
+- [Independent Termux MCP shell](interfaces/MCP_SHELL.md)
 - [Manager contracts](interfaces/MANAGER_PROFILES.md)
 - [Installation-wide upstream resume visibility](interfaces/MANAGER_TASKS.md)
 - [Notification configuration and delivery](interfaces/MANAGER_NOTIFICATIONS.md)
