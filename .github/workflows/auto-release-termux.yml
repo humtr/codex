@@ -10,6 +10,10 @@ on:
       source_sha:
         required: true
         type: string
+      historical_base_generation:
+        description: Signed frozen Base for the exact c19 0.167.0 Full backport
+        type: string
+        default: ''
       publish:
         type: boolean
         default: false
@@ -54,6 +58,7 @@ jobs:
       rebuild_current: ${{ inputs.rebuild_current }}
       base_only: false
       release_variant: ${{ inputs.release_variant }}
+      historical_base_generation: ${{ inputs.historical_base_generation }}
 
   sign:
     name: Sign qualified candidate
@@ -146,8 +151,19 @@ jobs:
           python3 source/.github/scripts/release_heads.py \
             --main-sha '${{ needs.producer.outputs.expected_main_sha }}' --variant full \
             --public-key "$work/update-public-key.pem" --output "$work/display-heads"
+          display_heads="$work/display-heads"
+          if test -n '${{ inputs.historical_base_generation }}'; then
+            test '${{ inputs.historical_base_generation }}' = 'core-v0.167.0-c19b61b-s161'
+            test "$CODEX_SOURCE_SHA" = 'c19b61bb3d1d3bdb7e3c4f2ad9763d71397e5ca0'
+            jq -e '.heads.base.generation == "core-v0.167.1-f9dfc3f-s162" and .heads.full.generation == "full-v0.167.0-681ecce-s159"' "$display_heads/heads.json"
+            python3 source/.github/scripts/release_heads.py \
+              --main-sha '8bb6c6e6a0eab37ef12958f83eb918c14e2c2d33' --variant base \
+              --public-key "$work/update-public-key.pem" --output "$work/historical-display-heads" > "$work/historical-display-heads.env"
+            grep -Fqx 'current_generation=core-v0.167.0-c19b61b-s161' "$work/historical-display-heads.env"
+            display_heads="$work/historical-display-heads"
+          fi
           python3 source/.github/scripts/release_components.py match-base \
-            --source source --heads "$work/display-heads" --authority "$work/update-public-key.pem" \
+            --source source --heads "$display_heads" --authority "$work/update-public-key.pem" \
             --output "$work/display-base" > "$work/display-base.env"
           grep -Fqx reuse_base=true "$work/display-base.env"
 
@@ -290,8 +306,19 @@ jobs:
           if ! test -f "$work/heads/$previous_lane/release.manifest"; then previous_lane=full; fi
           composition_args+=(--previous "$work/heads/$previous_lane")
           if test '${{ inputs.release_variant }}' = full; then
+            composition_heads="$work/heads"
+            if test -n '${{ inputs.historical_base_generation }}'; then
+              test '${{ inputs.historical_base_generation }}' = 'core-v0.167.0-c19b61b-s161'
+              test "$CODEX_SOURCE_SHA" = 'c19b61bb3d1d3bdb7e3c4f2ad9763d71397e5ca0'
+              jq -e '.heads.base.generation == "core-v0.167.1-f9dfc3f-s162" and .heads.full.generation == "full-v0.167.0-681ecce-s159"' "$composition_heads/heads.json"
+              python3 publication-source/.github/scripts/release_heads.py \
+                --main-sha '8bb6c6e6a0eab37ef12958f83eb918c14e2c2d33' --variant base \
+                --public-key "$authority" --output "$work/historical-heads" > "$work/historical-heads.env"
+              grep -Fqx 'current_generation=core-v0.167.0-c19b61b-s161' "$work/historical-heads.env"
+              composition_heads="$work/historical-heads"
+            fi
             python3 publication-source/.github/scripts/release_components.py match-base \
-              --source publication-source --heads "$work/heads" --authority "$authority" \
+              --source publication-source --heads "$composition_heads" --authority "$authority" \
               --output "$work/base" > "$work/base.env"
             test "$(sed -n 's/^reuse_base=//p' "$work/base.env")" = true
             composition_args+=(--base "$work/base")

@@ -20,6 +20,10 @@ on:
         description: Explicit public base or full lane; qualification-only stays separate
         type: string
         default: full
+      historical_base_generation:
+        description: Exact published historical Base for owned 0.167.0 Full backport
+        type: string
+        default: ''
       base_only:
         description: Unsigned Core/runtime qualification; publication is forbidden
         type: boolean
@@ -218,8 +222,24 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # Resolve the historical Base from an authenticated immutable main
+          # snapshot. Only its matching inputs are used; the live signed main
+          # heads still control release sequence, previous Full, and promotion.
+          base_heads="$RUNNER_TEMP/authenticated-stable/heads"
+          if test -n '${{ inputs.historical_base_generation }}'; then
+            test '${{ inputs.historical_base_generation }}' = 'core-v0.167.0-c19b61b-s161'
+            test "$CODEX_SOURCE_SHA" = 'c19b61bb3d1d3bdb7e3c4f2ad9763d71397e5ca0'
+            test "$UPSTREAM_VERSION" = '0.167.0'
+            jq -e '.heads.base.generation == "core-v0.167.1-f9dfc3f-s162" and .heads.full.generation == "full-v0.167.0-681ecce-s159"' "$base_heads/heads.json"
+            python3 source/.github/scripts/release_heads.py \
+              --main-sha '8bb6c6e6a0eab37ef12958f83eb918c14e2c2d33' --variant base \
+              --public-key "$RUNNER_TEMP/authenticated-stable/update-public-key.pem" \
+              --output "$RUNNER_TEMP/historical-base-heads" > "$RUNNER_TEMP/historical-base.env"
+            grep -Fqx 'current_generation=core-v0.167.0-c19b61b-s161' "$RUNNER_TEMP/historical-base.env"
+            base_heads="$RUNNER_TEMP/historical-base-heads"
+          fi
           python3 source/.github/scripts/release_components.py acquire-base \
-            --source source --heads "$RUNNER_TEMP/authenticated-stable/heads" \
+            --source source --heads "$base_heads" \
             --authority "$RUNNER_TEMP/authenticated-stable/update-public-key.pem" \
             --output "$RUNNER_TEMP/base-input" | tee "$RUNNER_TEMP/base-input.env" >> "$GITHUB_OUTPUT"
           if ! grep -Fqx reuse_base=true "$RUNNER_TEMP/base-input.env"; then
