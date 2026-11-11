@@ -1,6 +1,6 @@
 import {test, expect} from 'bun:test';
-import {readFileSync,mkdtempSync,writeFileSync,rmSync,chmodSync} from 'node:fs';
-import {join} from 'node:path';
+import {readFileSync,mkdtempSync,writeFileSync,rmSync,chmodSync,lstatSync,accessSync,constants,symlinkSync,existsSync} from 'node:fs';
+import {join,isAbsolute} from 'node:path';
 import {spawn,spawnSync} from 'node:child_process';
 import {randomUUID} from 'node:crypto';
 
@@ -174,4 +174,67 @@ test('connector initialization never retries rate limits or unknown failures',as
   await expect(readConnectorWhenReady(async()=>{attempts++;throw error;})).rejects.toBe(error);
   expect(attempts).toBe(1);
  }
+});
+
+
+test('explicit MCP wrapper is independent of Desktop provider argv and caller shell flag',()=>{
+ const root=mkdtempSync(join(process.env.TMPDIR,'candidate-producers-'));
+ try{
+  const binary=join(root,'provider'),wrapper=join(root,'independent MCP wrapper'),state=join(root,'state');
+  const legacy=Array.from({length:17},(_,index)=>({name:'codex_fixture_'+index,inputSchema:{type:'object',properties:{action:{type:'string'}},additionalProperties:false}}));
+  const tools=[...legacy,{name:'termux_shell',inputSchema:{type:'object',properties:{call_id:{type:'string'},command:{type:'string'}},required:['call_id','command'],additionalProperties:false}}];
+  const program=(args,catalog,record)=>`#!${process.execPath}\nimport {writeFileSync} from 'node:fs';import {createInterface} from 'node:readline';writeFileSync(${JSON.stringify(record)},JSON.stringify({args:process.argv.slice(2),flag:process.env.TERMUX_MCP_SHELL_ENABLED}));if(JSON.stringify(process.argv.slice(2))!==${JSON.stringify(JSON.stringify(args))})process.exit(3);const lines=createInterface({input:process.stdin});lines.once('line',line=>{const q=JSON.parse(line);console.log(JSON.stringify({jsonrpc:'2.0',id:q.id,result:{tools:${catalog}}}));});\n`;
+  writeFileSync(binary,program(['mcp-stdio','--state',state],`process.env.TERMUX_MCP_SHELL_ENABLED==='1'?${JSON.stringify(tools)}:${JSON.stringify(legacy)}`,join(root,'provider.json')));chmodSync(binary,0o700);
+  writeFileSync(wrapper,program([],JSON.stringify(tools),join(root,'wrapper.json')));chmodSync(wrapper,0o700);
+  const runner=join(root,'read-catalog.mjs');
+  writeFileSync(runner,`import {lstatSync,accessSync,constants} from 'node:fs';import {isAbsolute} from 'node:path';import {spawn} from 'node:child_process';import {randomUUID} from 'node:crypto';const candidateTools=${candidateTools.toString()};console.log(JSON.stringify(await candidateTools(process.argv[2],process.argv[3],process.argv[4])));\n`);
+  const read=(explicit,flag)=>{
+   const result=spawnSync(process.execPath,[runner,binary,state,...(explicit?[explicit]:[])],{encoding:'utf8',env:{...process.env,TERMUX_MCP_SHELL_ENABLED:flag}});
+   expect(result.status).toBe(0);
+   return JSON.parse(result.stdout);
+  };
+  expect(read(undefined,'0')).toEqual(legacy);
+  expect(JSON.parse(readFileSync(join(root,'provider.json'),'utf8'))).toEqual({args:['mcp-stdio','--state',state],flag:'0'});
+  rmSync(join(root,'provider.json'));
+  expect(read(wrapper,'0')).toEqual(tools);
+  expect(JSON.parse(readFileSync(join(root,'wrapper.json'),'utf8'))).toEqual({args:[],flag:'0'});
+  expect(existsSync(join(root,'provider.json'))).toBe(false);
+  expect(read(wrapper,'1')).toEqual(tools);
+  expect(read(undefined,'1')).toEqual(tools);
+  expect(catalogAgreement(tools.map(tool=>({name:tool.name,params:tool.inputSchema})),tools)).toBe(true);
+  expect(catalogAgreement(legacy.map(tool=>({name:tool.name,params:tool.inputSchema})),tools)).toBe(false);
+ }finally{rmSync(root,{recursive:true});}
+});
+
+test('explicit MCP producer rejects unsafe supplied paths without legacy fallback',async()=>{
+ const root=mkdtempSync(join(process.env.TMPDIR,'candidate-command-guard-'));
+ try{
+  const binary=join(root,'provider'),marker=join(root,'provider-ran'),plain=join(root,'not-executable'),linked=join(root,'linked'),unsafe=join(root,'writable');
+  writeFileSync(binary,`#!${process.execPath}\nimport {writeFileSync} from 'node:fs';writeFileSync(${JSON.stringify(marker)},'ran');process.exit(9);\n`);chmodSync(binary,0o700);
+  writeFileSync(plain,'not executable');chmodSync(plain,0o600);
+  writeFileSync(unsafe,'not safe');chmodSync(unsafe,0o722);
+  symlinkSync(binary,linked);
+  for(const supplied of [null,17,{},'', 'relative-command',root+'/missing',root,plain,linked,unsafe,binary+'\0']){
+   await expect(candidateTools(binary,join(root,'state'),supplied)).rejects.toThrow('explicit_mcp_command_');
+   expect(existsSync(marker)).toBe(false);
+  }
+ }finally{rmSync(root,{recursive:true});}
+});
+
+test('explicit MCP command failures precede Desktop access and preserve catalog schema checks',()=>{
+ const root=mkdtempSync(join(process.env.TMPDIR,'refresh-explicit-command-'));
+ try{
+  const binary=join(root,'provider'),marker=join(root,'legacy-ran'),wrong=join(root,'wrong-catalog');
+  writeFileSync(binary,`#!${process.execPath}\nimport {writeFileSync} from 'node:fs';writeFileSync(${JSON.stringify(marker)},'ran');process.exit(9);\n`);chmodSync(binary,0o700);
+  writeFileSync(wrong,`#!${process.execPath}\nimport {createInterface} from 'node:readline';const lines=createInterface({input:process.stdin});lines.once('line',line=>{const q=JSON.parse(line);console.log(JSON.stringify({jsonrpc:'2.0',id:q.id,result:{tools:[{name:'termux_shell'}]}}));});\n`);chmodSync(wrong,0o700);
+  const reference=join(root,'connector.json');
+  writeFileSync(reference,JSON.stringify({matches:[{name:'Owned fixture',connector_id:'owned',tunnel_id:'owned-tunnel'}]}));
+  for(const [mcp_command,error] of [[null,'explicit_mcp_command_invalid'],[root+'/missing','explicit_mcp_command_unavailable_or_unsafe'],[wrong,'candidate_catalog_response_invalid']]){
+   writeFileSync(join(root,'info.json'),JSON.stringify({binary,state:join(root,'state'),mcp_command,connector_reference:reference,desktop_session:join(root,'must-not-open-desktop.json')}));
+   const result=spawnSync(process.execPath,[new URL('./refresh_chatgpt_connector.mjs',import.meta.url).pathname,root],{encoding:'utf8',env:{...process.env,TERMUX_MCP_SHELL_ENABLED:'0'}});
+   expect(result.status).not.toBe(0);
+   expect(result.stderr).toContain(error);
+   expect(existsSync(marker)).toBe(false);
+  }
+ }finally{rmSync(root,{recursive:true});}
 });

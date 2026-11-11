@@ -108,6 +108,17 @@ Core/Provider/MCP를 교체한 뒤에는 저장된 연결 설정과 현재 소�
 새 Native 작업의 create/start/attach/execute/finish까지 이어 간다.
 이 절차와 단순히 앱 화면을 여는 요청을 혼동하지 않는다.
 
+새로고침 입력 `info.json`의 `binary`는 Provider 실행 파일이며 `provider-owned`
+Desktop 연결에도 그대로 사용한다. 터널이 독립 MCP 워커를 사용하는 경우 선택 항목
+`mcp_command`에 그 터널의 기존 소유 래퍼 절대 경로를 지정한다. 이 파일은 현재 UID가
+소유한 실행 가능한 일반 파일이어야 하며 symlink나 group/world 쓰기 권한은 거부한다.
+래퍼는 인자 없이 실행한다. 워커의 `--state` 등 실제 인자는 기존 래퍼가 소유한다.
+명시한 명령이 잘못됐거나 카탈로그를 읽지 못하면 앱 새로고침 전에 실패하며 Provider로
+대체하지 않는다. 항목이 없으면 기존 `binary mcp-stdio --state state` 경로를 유지한다.
+스크립트는 `TERMUX_MCP_SHELL_ENABLED`를 주입하거나 바꾸지 않는다. 이 호출자 환경
+플래그에 의존하는 Provider 카탈로그와 독립 워커 카탈로그를 혼동하지 않고, 선택한 실제
+MCP 생산자의 전체 도구 이름·입력 스키마를 커넥터와 대조한다.
+
 운영 소스 정합성은 서비스만 확인하지 않는다. 현재 서비스 이미지, 해당 터널의
 MCP 명령, 커넥터가 가리키는 터널과 Native가 확인한 실행 설정을 대조한다.
 설치된 signed 패키지, 별도 개발 후보, 실제 활성 서비스는 서로 다른 사실이다.

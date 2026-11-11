@@ -1,6 +1,6 @@
 // Owned connector refresh plus actual backend MCP readiness. No model or screen input.
-import {readFileSync,writeFileSync,mkdirSync,existsSync} from 'node:fs';
-import {dirname} from 'node:path';
+import {readFileSync,writeFileSync,mkdirSync,existsSync,lstatSync,accessSync,constants} from 'node:fs';
+import {dirname,isAbsolute} from 'node:path';
 import {spawn} from 'node:child_process';
 import {randomUUID} from 'node:crypto';
 import {connectDesktop} from '../providers/chatgpt/desktop_cdp.mjs';
@@ -21,11 +21,22 @@ function catalogAgreement(actions,tools){
  });
 }
 
-async function candidateTools(binary,state){
- if(typeof binary!=='string'||typeof state!=='string')throw Error('candidate_provider_required');
+async function candidateTools(binary,state,mcpCommand){
+ let command=binary,args=['mcp-stdio','--state',state];
+ if(mcpCommand!==undefined){
+  if(typeof mcpCommand!=='string'||!isAbsolute(mcpCommand)||mcpCommand.includes('\0'))throw Error('explicit_mcp_command_invalid');
+  try{
+   const file=lstatSync(mcpCommand);
+   if(!file.isFile()||file.isSymbolicLink()||file.uid!==process.getuid()||(file.mode&0o022)!==0||(file.mode&0o100)===0)throw Error('unsafe');
+   accessSync(mcpCommand,constants.X_OK);
+  }catch{throw Error('explicit_mcp_command_unavailable_or_unsafe');}
+  // The owned tunnel wrapper already supplies its worker arguments and state.
+  // Keep its exact argv and caller environment; it is not the Desktop Provider.
+  command=mcpCommand;args=[];
+ }else if(typeof binary!=='string'||typeof state!=='string')throw Error('candidate_provider_required');
  const id=randomUUID(),request={jsonrpc:'2.0',id,method:'tools/list',params:{}};
  return await new Promise((resolve,reject)=>{
-  const child=spawn(binary,['mcp-stdio','--state',state],{stdio:['pipe','pipe','ignore']});
+  const child=spawn(command,args,{stdio:['pipe','pipe','ignore']});
   let text='',tools,settled=false;
   const fail=code=>{if(settled)return;settled=true;clearTimeout(timer);child.kill();reject(Error(code));};
   const timer=setTimeout(()=>fail('candidate_catalog_read_timeout'),30000);
@@ -78,7 +89,7 @@ const prior=JSON.parse(readFileSync(info.connector_reference,'utf8')).matches;
 const connectorName=info.connector_name??prior[0]?.name;
 if(prior.length!==1||typeof connectorName!=='string'||!connectorName.trim()||connectorName.length>160||prior[0].name!==connectorName)throw Error('exact_owned_connector_required');
 if(typeof info.desktop_session!=='string'||!info.desktop_session.trim())throw Error('explicit_desktop_session_required');
-const candidate=await candidateTools(info.binary,info.state);
+const candidate=await candidateTools(info.binary,info.state,info.mcp_command);
 const expectedNames=candidate.map(tool=>tool.name);
 const expectedActions=candidate.map(tool=>({name:tool.name,params:tool.inputSchema}));
 const expected=expectedNames.length;
