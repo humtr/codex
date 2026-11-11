@@ -1,45 +1,56 @@
-# Handoff — unfinished integration acceptance
+# Handoff — remaining acceptance and operating boundaries
 
 Updated: 2026-11-12 KST. One current unfinished-work record.
 Read [CURRENT](CURRENT.md), [AGENTS](AGENTS.md) and the
-[finite integration plan](docs/development/RELEASE_FRAMEWORK_IMPLEMENTATION.md).
-The user's continuous authorization covers development, safe branch integration
-and unsigned CI; there is no intermediate plan-approval gate.
+[finite integration record](docs/development/RELEASE_FRAMEWORK_IMPLEMENTATION.md).
+Continuous authorization covers development, safe branch integration and
+unsigned CI; these are not intermediate approval gates.
 
-## Remaining work
+## Remaining source acceptance
 
-1. Run the exact adapted-upstream hook and TUI regressions in hosted CI; local
-   patch assembly is accepted, but local TUI Rust compilation is still blocked
-   by the unavailable pinned rusty_v8 dependency.
-2. Push the integrated source by fast-forward to the actual current
-   rewrite/rust-core after rechecking main intent and concurrent upstream
-   discovery. Run and observe Source, Core/Runtime, Manager, Provider,
-   full TUI Native, unsigned Full composition and stock Android acceptance
-   against the exact source. Fix real failures and rerun.
-3. With the candidate frontend/runtime, finish the same-thread /switch
-   destination checkpoint and original-result continuity fixture. Historical
-   quota replay was repaired; candidate Core/Manager with isolated copies of
-   the installed S165 frontend/runtime prove Owner lookup and reentry only,
-   not the destination inference. Operating S165 Core was not replaced.
-4. Use owned isolated candidate artifacts for actual Native compiler
-   concurrency/settlement and terminal continuity where possible. Distinguish
-   real Native, live app, synthetic account and Android emulator/physical
-   Activity proof. Reuse the independently accepted existing-app C development
-   loop only within its operating-binary boundary.
-5. Record actual commits, file/LoC ownership, final exact-SHA CI receipts,
-   protected-asset readback and branch dispositions. Remove completed items
-   from this handoff; do not retain this list as future instructions once
-   acceptance is recorded.
+1. Diagnose and fix the actual failed d2 full-TUI Retain gate without weakening
+   its assertions; preserve the earlier positive gates and compile cache.
+   Complete final exact-source full TUI and unsigned Full composition acceptance.
+2. Complete final-composition Native observer/terminal acceptance and its
+   exact-source Provider gate. Integrated cold-receipt tests, actual connected
+   MCP during Native Busy, Core-only Stop/StopTree controls, warm parallel
+   compilers and candidate switch/model routes have passed within the separate
+   evidence boundaries in CURRENT.
+3. Finalize exact-head CI receipts, file accounting and protected-asset/branch
+   readback. At 66edd08d, Source, Core/Runtime, Manager, Provider and actual
+   stock Android gates passed; later affected source still needs its exact gates.
 
-## Protected operating boundaries
+## Protected operating acceptance
+
+The new candidate is not the operating S165 installation. Actual live app
+inference has passed on the existing Provider/Core, including independent
+ordinary OpenAI authentication and same-Chat Native compilation. Actual
+candidate TUI routing and same-thread switch passed with synthetic models.
+Those are separate proof levels.
+
+A private candidate installation cannot borrow the authenticated operating
+AppHost owner or its Provider's installation-scoped registry/Runtime. Read-only
+preflight established this boundary without a candidate model request. A
+future candidate live-app trial needs separately authorized activation in that
+installation or a separately authenticated private AppHost. Registry links,
+owner copying and service replacement are not development workarounds.
+
+The stock Android emulator proves actual Activity/session behavior with
+synthetic Core transport/frontend. Physical-device foreground visibility,
+screen-lock/background restrictions and a real authenticated candidate
+account switch remain separate device/account acceptance. An earlier failed,
+pre-isolation unit fixture may have created one inert test terminal: count
+increased one to two, but exact session mapping/close is unavailable. Preserve
+its evidence and do not close an unidentified operating surface. Do not turn an AM
+acknowledgment or selected-session value into a claim of visible screen proof.
 
 Existing S164/S165 and previous signed generations, stable indexes, formal
 signing/publication, operating installation replacement, service restart,
 account/token changes, real SQLite/JSONL repairs and active Writer transfer
-remain separate operations. None is needed merely to complete source/unsigned
-qualification. Do not perform them as a development side effect.
+remain separate operations. Read-only data diagnostics found real historical
+DB/rollout discrepancies; they were not repaired or attributed to Native Busy.
 
-The primary checkout's local e4f9ab5d lineage and other workers' untracked files
-remain untouched. Do not delete retained worktrees or branches from an ancestry
-classification alone. Unknown receipts require original-call reconciliation;
-uncertain Owner/effects remain preserved and fail closed.
+The primary checkout's e4f9ab5d lineage and other workers' files remain
+untouched. Integrated branch classification is not deletion permission for
+owned worktrees or release/rollback evidence. Unknown receipts retain their
+original identities; uncertain Owner/effects remain preserved and fail closed.

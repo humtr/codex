@@ -71,16 +71,16 @@ Owner database or alternate Writer controller.
 | W8 | Baseline 7b98296 TUI success accepted; new changed paths need new exact-source proof | Integration | New full TUI qualification |
 | W9 | Stable SPEC, single scoped norms, current evidence and finite handoff | Integration; SPEC and docs | Final links, dependency checks, exact evidence |
 | W10 | Read-only qualification separated from exact-main approved signing/publication | Release/Integration; workflows, release_control.py | Safe push and final successful run IDs |
-| W11 | Explicit --core/--full, no repeated cancellation, authenticated edition, Core-only build independent of TUI | Integration; main.rs, manual_update.rs, update_edition.rs | Local Core 270/0 passed; hosted CLI acceptance |
-| W12 | Offline Core-owned version JSON/details, optional components and legacy unknown revisions | Integration; termux_version.rs, component_metadata.rs, provider.rs | Local Core 270/0 and installed read-only candidate passed |
+| W11 | Explicit --core/--full, no repeated cancellation, authenticated edition, Core-only build independent of TUI | Integration; main.rs, manual_update.rs, update_edition.rs | Local Core 271/0 passed; hosted CLI acceptance |
+| W12 | Offline Core-owned version JSON/details, optional components and legacy unknown revisions | Integration; termux_version.rs, component_metadata.rs, provider.rs | Local Core 271/0 and installed read-only candidate passed |
 | W13 | No-bwrap is normal platform information; explicit unsupported requests and real failures remain failures | Integration; Core Doctor path and DOCTOR norm | Local Core/Doctor passed; exact hosted qualification |
 | W14 | Signed Core/Full fixtures, rollback, mismatched edition, noninteractive/version coverage | Integration; Core tests | Local signed fixtures/menu passed; exact hosted results |
-| W15 | Integrate original claim P0; precise shared diagnostics and conservative hook-aware effect scope | Native; native_claims/effect, native_route.patch, lifecycle tests | New-runtime real independent compiler effects and settlement |
-| W16 | Verified existing terminal or one headless display; default-off auto path; no new inference | Integration/Release after file-lease transfer; Manager terminal/window/task, Provider callback | Hosted stock Activity proof and available real Native continuity |
+| W15 | Original P0, hook-aware scopes, running/final-poll continuity and immutable cold receipt-chain readback | Native; native_claims/effect, mcp, native_route.patch, lifecycle tests | Actual Core-only compilers overlap 5.760s; 364 Provider tests and actual Controller/Stop/StopTree/queue controls passed; final-source CI remains |
+| W16 | Exact Owner/home display, default-off auto, short descriptor-transition locks and unsafe-route rejection | Integration/Release after file-lease transfer; Manager terminal/window/task, Provider callback | Actual stock Android 66edd08d success; final source/device boundary retained |
 | W17 | Fresh authenticated ChatGPT catalog, independent inference auth, stable stored Provider/model IDs | Models; models/control/projection and Provider docs | Candidate hosted tests; reuse operating live model loop only within stated boundary |
-| W18 | One independent shell, original-call replay, conflicts, bounded output/process cleanup; common annotations unchanged | Integration; termux_shell, worker and integration test | Hosted Provider suite; standalone owned worker already passed |
+| W18 | One independent shell, original-call replay, conflicts, bounded output/process cleanup; common annotations unchanged | Integration; termux_shell, worker and integration test | Standalone candidate worker and actual connected replay during bounded Native Busy passed; final-source Provider CI remains |
 | W19 | OpenAI upstream-only; ChatGPT account catalog-only through picker/completion/direct input/reentry/effort | Models; termux_chat_models, input preparation, TUI patch | Candidate full TUI, provider transitions and unsupported-model errors |
-| W20 | Decode known legacy owner records safely, reject uncertainty, preserve same thread and original quota checkpoint | Native/Models; runtime-binding/native, profile_transport, quota replay | Candidate full switch destination response, failure preservation, exact CI |
+| W20 | Decode known legacy owner records safely, reject uncertainty, preserve same thread and original quota checkpoint | Native/Models; runtime-binding/native, profile_transport, quota replay | Actual candidate same-thread switch with synthetic response passed; final Full/account boundary retained |
 
 ## Source provenance and independent review
 
@@ -112,11 +112,12 @@ original source/account/device boundaries. New effects, owner parsing,
 catalog selection, terminal display, metadata consumers and CI producers are
 retested. No assertion is weakened and no required gate is deleted or skipped.
 
-Full TUI compilation locally is blocked by an unavailable pinned rusty_v8
-dependency before source compilation. Hosted source qualification must supply
-the real compiler/test result; a clean patch assembly is not a passing Rust
-test. The old-runtime Native compiler trial and incomplete installed-S165
-quota-switch trials remain failure evidence, not accepted new behavior.
+Local TUI compilation lacks the pinned rusty_v8 dependency. Hosted d2 source
+did build and execute the real patched frontend and passed focused/Native/API
+gates, then failed Retain; that failure must be resolved before qualification.
+Actual candidate PTY switch and provider-model continuity with synthetic
+responses passed separately. Old-runtime compiler and incomplete earlier switch
+trials remain original failure evidence, not accepted new behavior.
 
 Live model evidence used the operating Provider and one original Chat/Native
 thread, preserving approval and sandbox configuration. Synthetic account
@@ -191,7 +192,7 @@ Unique operating snapshots and experiments are not wholesale merge inputs.
 | `local:fix/release-notify-admission-20261111` | `c19b61bb3d1d` | integrated; retire after owner/worktree release | yes |
 | `local:handoff/pro-local-baseline-20261106` | `b8c14252ee33` | other owner/operating snapshot: preserve | yes |
 | `local:integration/codex-native-20261110` | `a55d5bb8fffa` | integrated; retire after owner/worktree release | yes |
-| `local:integration/release-framework-20261112` | `ed6679221fc6` | current isolated integration writer | yes |
+| `local:integration/release-framework-20261112` | `66edd08d3487` | current isolated integration writer | yes |
 | `local:legacy/monolith` | `bf30a7dc94d4` | release/compatibility: preserve | no |
 | `local:main` | `53176ed79097` | publication authority/history: preserve | yes |
 | `local:plan/release-framework-20261111` | `3ef675ad721c` | evidence selected; retain owner worktree | yes |
@@ -208,9 +209,9 @@ Unique operating snapshots and experiments are not wholesale merge inputs.
 | `local:tdev-work/release-download-size-v1-a0dce69bd40e43f7b22f4d303b70efa5` | `ba0eacc4a077` | other owner/operating snapshot: preserve | no |
 | `local:tdev-work/update-download-size-v1-9fcae140207f4608b7268cd77f0146f5` | `4fd14ed8aafc` | integrated legacy; check consumers before deletion | no |
 | `local:wip/chatgpt-accounts-source-20261110` | `2dd07d422ad0` | integrated; retire after owner/worktree release | yes |
-| `local:work/native-owner-20261112` | `0c943d9b302e` | current isolated integration writer | yes |
-| `local:work/provider-models-20261112` | `d9de0e4a72c0` | current isolated integration writer | yes |
-| `local:work/release-framework-20261112` | `ecc8be2c3b64` | current isolated integration writer | yes |
+| `local:work/native-owner-20261112` | `90faa66a7a9a` | current isolated integration writer | yes |
+| `local:work/provider-models-20261112` | `342dca6490b7` | current isolated integration writer | yes |
+| `local:work/release-framework-20261112` | `68abe9a0486a` | current isolated integration writer | yes |
 | `remote:origin/HEAD` | `b2567063d2a7` | publication authority/history: preserve | no |
 | `remote:origin/archive/linux-app-operating-source-20261106` | `97118e775bc6` | other owner/operating snapshot: preserve | no |
 | `remote:origin/archive/mobile-desktop-attempt-20261106` | `8de07907b110` | other owner/operating snapshot: preserve | no |
@@ -240,9 +241,39 @@ Unique operating snapshots and experiments are not wholesale merge inputs.
 | `remote:origin/prod/download-size-v1-seq23-source` | `b164e5b61cb4` | release/compatibility: preserve | no |
 | `remote:origin/release/frozen-full-1670-s163` | `d6f090e835a7` | release/compatibility: preserve | no |
 | `remote:origin/release/seq18-no-emoji-product` | `9300a68852c8` | unique historical experiment: preserve, no automatic merge | no |
-| `remote:origin/rewrite/rust-core` | `7b98296a411a` | official development | no |
+| `remote:origin/rewrite/rust-core` | `66edd08d3487` | official development | no |
 | `remote:origin/wip/chatgpt-accounts-source-20261110` | `2dd07d422ad0` | integrated legacy; check consumers before deletion | no |
-| `remote:origin/work/capability-restoration-166` | `3c1e47e46cef` | current isolated integration writer | no |
+| `remote:origin/work/capability-restoration-166` | `3c1e47e46cef` | integrated legacy; eligible after acceptance/consumer review | no |
+
+The final inventory at 66edd08d contains 94 local/remote refs and 83 registered
+worktrees. The 16 orphaned transfer refs below were also reviewed: 15 are direct
+ancestors; native-result29's two commits have exact stable-patch equivalents
+141c0e71/5056cc30 already in development. Their names/SHAs have no current
+main/development CI, release or entry-guide consumer and no open PR. The three
+evidence worktrees remain protected, including recovery28's other-owner dirty
+files (already integrated blobs, not missing product changes).
+Local tag names remain 166 with no additions/deletions in this task; remote
+names are 257 (258 raw lines include one peeled entry), with zero common-name
+SHA mismatches. These are different inventories, not evidence of tag removal.
+
+| Transfer ref | Observed SHA | Disposition | Evidence worktree |
+| --- | --- | --- | --- |
+| `remote:integration-transfer/acceptance-final` | `3140f7fc3239` | integrated transfer; retire after evidence-owner review | no |
+| `remote:integration-transfer/barrier31` | `ea04c19208b0` | integrated transfer; retire after evidence-owner review | no |
+| `remote:integration-transfer/codegate-v2` | `81049caeb05b` | integrated transfer; retire after evidence-owner review | no |
+| `remote:integration-transfer/discovery29` | `0c5a70523f7a` | integrated transfer; retire after evidence-owner review | no |
+| `remote:integration-transfer/fixture30` | `7ef80be546c6` | integrated transfer; retire after evidence-owner review | no |
+| `remote:integration-transfer/gates31` | `12129a5ed37e` | integrated transfer; retire after evidence-owner review | no |
+| `remote:integration-transfer/native-result29` | `fa6b46789fed` | patch-equivalent changes integrated; preserve evidence worktree | yes |
+| `remote:integration-transfer/package-fixture26` | `e6f50f2977e1` | integrated transfer; retire after evidence-owner review | no |
+| `remote:integration-transfer/preflight-20261110` | `f6dff75b72d0` | integrated transfer; retire after evidence-owner review | no |
+| `remote:integration-transfer/provider-final` | `495c5213160e` | integrated transfer; retire after evidence-owner review | no |
+| `remote:integration-transfer/qualification30` | `e0cca4c2d695` | other owner/evidence worktree: preserve | yes |
+| `remote:integration-transfer/recovery28` | `5c9334b6aa53` | other owner/evidence worktree: preserve | yes |
+| `remote:integration-transfer/result29` | `94e09c845b84` | integrated transfer; retire after evidence-owner review | no |
+| `remote:integration-transfer/runtime-final` | `3c043bdd7e80` | integrated transfer; retire after evidence-owner review | no |
+| `remote:integration-transfer/tui-proof-final` | `392b026f02a4` | integrated transfer; retire after evidence-owner review | no |
+| `remote:integration-transfer/validation-final` | `18b90a5b34c8` | integrated transfer; retire after evidence-owner review | no |
 
 ### Retirement prerequisites
 
