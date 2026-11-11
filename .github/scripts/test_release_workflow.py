@@ -28,7 +28,7 @@ class WorkflowTests(unittest.TestCase):
                 self.assertEqual(result.returncode,0,str(p)+': '+result.stderr)
 
     def test_every_final_development_head_has_readonly_component_receipts(self):
-        for name in ('core-runtime-qualification.yml','manager-qualification.yml','full-qualification.yml'):
+        for name in ('core-runtime-qualification.yml','manager-qualification.yml','full-qualification.yml','provider-qualification.yml'):
             text=(ROOT/'.github/workflows'/name).read_text()
             header=text.split('permissions:',1)[0]
             self.assertIn('branches: [rewrite/rust-core]',header)
