@@ -88,6 +88,12 @@ def base_fingerprint(source, revision='HEAD'):
              'lock':locked_packages(selected),
              'upstream':recipe['upstream'],'toolchains':recipe['toolchains'],
              'lock_audit':recipe['qualification']['lock_audit']}
+    try:
+        read('crates/release-builder/build.rs')
+    except subprocess.CalledProcessError:
+        pass  # Old producers did not embed a local runtime recipe.
+    else:
+        value['embedded_cargo_lock_sha256'] = hashlib.sha256(read('Cargo.lock')).hexdigest()
     return hashlib.sha256(canonical(value)).hexdigest()
 
 

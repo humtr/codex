@@ -74,9 +74,21 @@ jobs:
     uses: ./.github/workflows/termux-runtime-source.yml
     with:
       source_sha: ${{ inputs.source_sha }}
+  android-core:
+    if: ${{ inputs.base_only || inputs.release_variant == 'base' }}
+    uses: ./.github/workflows/android-component.yml
+    with:
+      source_sha: ${{ inputs.source_sha }}
+      component: core
+  android-manager:
+    if: ${{ !inputs.base_only && inputs.release_variant == 'full' }}
+    uses: ./.github/workflows/android-component.yml
+    with:
+      source_sha: ${{ inputs.source_sha }}
+      component: manager
   producer:
-    needs: runtime-source
-    if: ${{ !cancelled() && (needs.runtime-source.result == 'success' || needs.runtime-source.result == 'skipped') }}
+    needs: [runtime-source, android-core, android-manager]
+    if: ${{ !cancelled() && (needs.runtime-source.result == 'success' || needs.runtime-source.result == 'skipped') && (needs.android-core.result == 'success' || needs.android-core.result == 'skipped') && (needs.android-manager.result == 'success' || needs.android-manager.result == 'skipped') }}
     name: Build unsigned Android/AArch64 candidate
     runs-on: ubuntu-24.04
     timeout-minutes: 60
@@ -262,28 +274,29 @@ jobs:
           restore-keys: |
             producer-${{ runner.os }}-${{ runner.arch }}-${{ env.RUST_VERSION }}-${{ hashFiles('source/Cargo.lock') }}-
 
-      - name: Cross-build Core and Manager
+      - name: Acquire canonical Core output
+        if: steps.decision.outputs.candidate == 'true' && env.BASE_ONLY == 'true'
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: android-core
+          path: ${{ runner.temp }}/android-core-transfer
+      - name: Acquire independent Manager output
+        if: steps.decision.outputs.candidate == 'true' && env.BASE_ONLY != 'true'
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: android-manager
+          path: ${{ runner.temp }}/android-manager-transfer
+      - name: Verify component inputs and build exact release builder
         if: steps.decision.outputs.candidate == 'true'
         shell: bash
         run: |
           set -euo pipefail
-          rustup toolchain install "$RUST_VERSION" --profile minimal --target aarch64-linux-android
-          ndk="$ANDROID_SDK_ROOT/ndk/$ANDROID_NDK_VERSION"
-          toolchain="$ndk/toolchains/llvm/prebuilt/linux-x86_64/bin"
-          linker="$toolchain/aarch64-linux-android${ANDROID_API}-clang"
-          test -x "$linker"
-          test -x "$toolchain/llvm-ar"
-          cd source
-          export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$linker"
-          export CC_aarch64_linux_android="$linker"
-          export AR_aarch64_linux_android="$toolchain/llvm-ar"
-          products=()
-          if test '${{ steps.shared_base.outputs.reuse_base }}' != true; then products+=(-p codex); fi
-          if test "$BASE_ONLY" != true; then products+=(-p codex-manager); fi
-          if test "${#products[@]}" -gt 0; then
-            cargo "+$RUST_VERSION" build --release --locked --target aarch64-linux-android "${products[@]}"
-          fi
-          cargo "+$RUST_VERSION" build --release --locked -p codex-release-builder
+          component=manager
+          if test "$BASE_ONLY" = true; then component=core; fi
+          python3 source/.github/scripts/component_artifact.py unpack --source source --component "$component" \
+            --transfer "$RUNNER_TEMP/android-$component-transfer" --artifact "$RUNNER_TEMP/android-$component"
+          rustup toolchain install "$RUST_VERSION" --profile minimal
+          cargo "+$RUST_VERSION" build --release --locked --manifest-path source/Cargo.toml -p codex-release-builder
 
       - name: Acquire runtime-equivalent signed Base
         if: steps.decision.outputs.candidate == 'true' && env.BASE_ONLY == 'true' && needs.runtime-source.outputs.base_generation != ''
@@ -307,8 +320,8 @@ jobs:
           rm -rf "$work"
           mkdir -p "$work"
           builder="$GITHUB_WORKSPACE/source/target/release/codex-release-builder"
-          core="$GITHUB_WORKSPACE/source/target/aarch64-linux-android/release/codex"
-          manager="$GITHUB_WORKSPACE/source/target/aarch64-linux-android/release/codex-manager"
+          core="$RUNNER_TEMP/android-core/codex"
+          manager="$RUNNER_TEMP/android-manager/codex-manager"
           upstream_version='${{ steps.decision.outputs.upstream_version }}'
           archive_sha256='${{ steps.decision.outputs.archive_sha256 }}'
           generation_id='${{ steps.decision.outputs.generation_id }}'

@@ -73,7 +73,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn('.conclusion=="success"',scope)
         self.assertIn("scope=full",scope)
         self.assertNotIn("RUST_VERSION: '1.",text)
-        self.assertIn('product/release/upstream.json --component core',text)
+        self.assertIn('uses: ./.github/workflows/android-component.yml',text)
         self.assertIn('source/release/upstream.json --component core',text)
 
     def test_manual_core_validation_binds_event_source_and_only_rewrite_relays_acceptance(self):

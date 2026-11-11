@@ -6,6 +6,10 @@ on:
     paths:
       - '.github/workflows/core-runtime-qualification.yml'
       - '.github/workflows/qualify-termux-runtime.yml'
+      - '.github/workflows/android-component.yml'
+      - '.github/scripts/component_inputs.py'
+      - '.github/scripts/component_artifact.py'
+      - 'release/android-build-inputs-v1.json'
       - '.github/workflows/termux-runtime-source.yml'
       - '.github/scripts/runtime_inputs.py'
       - '.github/scripts/runtime_artifact.py'
