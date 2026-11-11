@@ -5,7 +5,7 @@ import hashlib
 import io
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import re
 import shutil
 import stat
@@ -25,6 +25,10 @@ from release_publication import BASE_FILES,EXTENDED_FILES,sha256
 from runtime_inputs import canonical
 
 WORKFLOWS={'core':'core-runtime-qualification.yml','manager':'manager-qualification.yml','tui':'manager-tui-native.yml'}
+INPUT_OWNERS={'android-core':'core','core-candidate':'core','android-manager':'manager',
+              'manager-proof':'manager','tui':'tui','tui-proof':'tui'}
+INPUT_NAMES={'android-core':'android-core','android-manager':'android-manager',
+             'manager-proof':'manager-qualification','tui':'manager-tui-native','tui-proof':'manager-tui-native-proof'}
 LIMIT=1024*1024*1024
 PROOF_ARCHIVE_LIMIT=1024*1024
 PROOF_FILES={'full-qualification.json':32768,'full-inputs/inputs.json':262144,
@@ -59,21 +63,124 @@ def resolve(source,request=api,lookup=successful_run):
 
 
 def admit_plan(source,plan):
+    return validate_plan(plan,git(source,'rev-parse','HEAD').decode().strip(),
+                         json.loads(git(source,'show','HEAD:release/upstream.json'))['upstream']['version'])
+
+
+def validate_plan(plan,sha,version):
     if (not isinstance(plan,dict) or set(plan)!={'schema','source_sha','upstream_version','runs','artifacts'}
             or plan['schema']!='codex-full-inputs-v1'
-            or plan['source_sha']!=git(source,'rev-parse','HEAD').decode().strip()
-            or plan['upstream_version']!=json.loads(git(source,'show','HEAD:release/upstream.json'))['upstream']['version']
+            or plan['source_sha']!=sha or plan['upstream_version']!=version
             or set(plan['runs'])!=set(WORKFLOWS)
             or set(plan['artifacts'])!={'android-core','core-candidate','android-manager','manager-proof','tui','tui-proof'}):
         raise ValueError('Full input authority differs')
     for name,workflow in WORKFLOWS.items():
-        if not accepted_run(plan['runs'][name],workflow,plan['source_sha']):raise ValueError('Full input run is unqualified: '+name)
-    owners={'android-core':'core','core-candidate':'core','android-manager':'manager','manager-proof':'manager','tui':'tui','tui-proof':'tui'}
+        run=plan['runs'][name]
+        if (type(run.get('id')) is not int or run['id']<=0
+                or not accepted_run(run,workflow,plan['source_sha'])):
+            raise ValueError('Full input run is unqualified: '+name)
     for key,entry in plan['artifacts'].items():
+        expected=(re.escape('base-qualified-'+plan['upstream_version'].replace('.','-')+'-'+plan['source_sha'][:12]+'-s')+'[1-9][0-9]*'
+                  if key=='core-candidate' else re.escape(INPUT_NAMES[key]))
         if (set(entry)!={'run_id','name','id'} or type(entry['id']) is not int or entry['id']<=0
-                or entry['run_id']!=plan['runs'][owners[key]]['id']):
-            raise ValueError('Full artifact belongs to another run')
+                or type(entry['run_id']) is not int or entry['run_id']!=plan['runs'][INPUT_OWNERS[key]]['id']
+                or not isinstance(entry['name'],str) or re.fullmatch(expected,entry['name']) is None):
+            raise ValueError('Full artifact belongs to another run or role')
     return plan
+
+
+def input_artifact(entry,sha,request):
+    row=request('actions/artifacts/'+str(entry['id']))
+    if (not isinstance(row,dict) or type(row.get('id')) is not int or row['id']!=entry['id']
+            or row.get('name')!=entry['name'] or row.get('expired') is not False
+            or type(row.get('size_in_bytes')) is not int or not 0<row['size_in_bytes']<=LIMIT
+            or not isinstance(row.get('digest'),str) or re.fullmatch('sha256:[0-9a-f]{64}',row['digest']) is None
+            or not isinstance(row.get('workflow_run'),dict)
+            or row['workflow_run'].get('id')!=entry['run_id'] or row['workflow_run'].get('head_sha')!=sha):
+        raise ValueError('Full input artifact differs from the original selected ID, run or source')
+    return row
+
+
+def acquire_input(key,entry,sha,target,request=api,fetch=download_artifact):
+    row=input_artifact(entry,sha,request)
+    target.mkdir(mode=0o700)
+    try:
+        archive=target/'.download.zip';fetch(row,archive)
+        with os.fdopen(os.open(archive,os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK),'rb') as stream:
+            before=os.fstat(stream.fileno())
+            if (not stat.S_ISREG(before.st_mode) or before.st_size!=row['size_in_bytes']
+                    or 'sha256:'+hashlib.file_digest(stream,'sha256').hexdigest()!=row['digest']):
+                raise ValueError('Full input archive digest or byte count differs')
+            stream.seek(0)
+            with zipfile.ZipFile(stream) as zipped:
+                entries=zipped.infolist();names=set();files=set();total=0
+                if not 1<=len(entries)<=512:raise ValueError('Full input ZIP member count differs')
+                for item in entries:
+                    name=item.filename;path=PurePosixPath(name.rstrip('/') if item.is_dir() else name)
+                    kind=stat.S_IFMT(item.external_attr>>16)
+                    if (not name or path.is_absolute() or str(path)!=name.rstrip('/') or '..' in path.parts
+                            or '\\' in name or str(path) in names or len(name.encode())>1024
+                            or item.flag_bits&1 or item.compress_type not in (zipfile.ZIP_STORED,zipfile.ZIP_DEFLATED)):
+                        raise ValueError('unsafe or duplicate Full input ZIP member')
+                    names.add(str(path));total+=item.file_size
+                    if not 0<=item.file_size<=LIMIT or total>LIMIT:raise ValueError('Full input ZIP payload exceeds bound')
+                    if item.is_dir():
+                        if item.file_size or kind not in (0,stat.S_IFDIR):raise ValueError('invalid Full input ZIP directory')
+                    else:
+                        if kind not in (0,stat.S_IFREG):raise ValueError('nonregular Full input ZIP file')
+                        files.add(str(path))
+                fixed={'android-core':{'component.tar'},'android-manager':{'component.tar'},
+                       'core-candidate':{'qualified-candidate.tar'},'manager-proof':{'manager-qualification.json'}}
+                if key=='tui':
+                    from tui_artifact import FILES
+                    fixed['tui']=FILES
+                if key in fixed and files!=fixed[key]:raise ValueError('Full input ZIP role inventory differs')
+                for name in names:
+                    path=PurePosixPath(name.rstrip('/'))
+                    if any(str(parent) in files for parent in path.parents):
+                        raise ValueError('Full input ZIP file aliases a directory')
+                for item in entries:
+                    if item.is_dir():continue
+                    relative=PurePosixPath(item.filename);parent=target
+                    for part in relative.parts[:-1]:
+                        parent/=part;parent.mkdir(mode=0o700,exist_ok=True)
+                    with zipped.open(item) as incoming,(target/item.filename).open('xb') as output:
+                        shutil.copyfileobj(incoming,output,1024*1024)
+                        if output.tell()!=item.file_size:raise ValueError('Full input ZIP payload is truncated')
+                after=os.fstat(stream.fileno())
+                if (before.st_size,before.st_mtime_ns,before.st_mode)!=(after.st_size,after.st_mtime_ns,after.st_mode):
+                    raise ValueError('Full input archive changed during verification')
+        archive.unlink()
+        return {'id':row['id'],'name':row['name'],'run_id':entry['run_id'],'source_sha':sha,
+                'archive_digest':row['digest'],'archive_bytes':row['size_in_bytes']}
+    except BaseException:
+        shutil.rmtree(target)
+        raise
+
+
+def acquire(source,inputs,plan=None,request=api,lookup=successful_run,fetch=download_artifact):
+    # A saved Full receipt plan selects immutable IDs; never replace it with
+    # newer successful runs or reinterpret the artifact names during transfer.
+    plan=admit_plan(source,resolve(source,request,lookup) if plan is None else plan)
+    def current_runs():
+        for name,run in plan['runs'].items():
+            current=request('actions/runs/'+str(run['id']))
+            if current.get('id')!=run['id'] or not accepted_run(current,WORKFLOWS[name],plan['source_sha']):
+                raise ValueError('selected Full input run no longer qualifies: '+name)
+    current_runs()
+    inputs.mkdir(mode=0o700)
+    try:
+        origins={}
+        for key,entry in plan['artifacts'].items():
+            origins[key]=acquire_input(key,entry,plan['source_sha'],inputs/key,request,fetch)
+        current_runs()
+        (inputs/'inputs.json').write_bytes(canonical(plan))
+        (inputs/'artifact-origins.json').write_bytes(canonical(
+            {'schema':'codex-full-input-artifacts-v1','source_sha':plan['source_sha'],'artifacts':origins}))
+        return plan
+    except BaseException:
+        shutil.rmtree(inputs)
+        raise
 
 
 def unpack_candidate(archive_path,output):
@@ -396,10 +503,17 @@ def read_proof_archive(row,directory,fetch):
         if files!=set(PROOF_FILES):raise ValueError('Full proof ZIP inventory is incomplete')
         with zipped.open('full-qualification.json') as incoming:
             payload=incoming.read(PROOF_FILES['full-qualification.json']+1)
-        if len(payload)!=zipped.getinfo('full-qualification.json').file_size:
-            raise ValueError('Full proof receipt length differs')
+        with zipped.open('full-inputs/inputs.json') as incoming:
+            original_inputs=incoming.read(PROOF_FILES['full-inputs/inputs.json']+1)
+        if (len(payload)!=zipped.getinfo('full-qualification.json').file_size
+                or len(original_inputs)!=zipped.getinfo('full-inputs/inputs.json').file_size):
+            raise ValueError('Full proof receipt or input plan length differs')
     value=json.loads(payload,object_pairs_hook=unique)
+    plan=validate_plan(json.loads(original_inputs,object_pairs_hook=unique),value['source_sha'],value['upstream_version'])
+    if {name:run['id'] for name,run in plan['runs'].items()}!=value['component_runs']:
+        raise ValueError('Full proof contains a different component input plan')
     (directory/'full-qualification.json').write_bytes(payload)
+    (directory/'inputs.json').write_bytes(original_inputs)
     archive.unlink()
     return value
 
@@ -458,13 +572,11 @@ def main():
     parser.add_argument('--builder',type=Path);parser.add_argument('--candidate',type=Path)
     parser.add_argument('--logs',type=Path);parser.add_argument('--run-id');parser.add_argument('--output',type=Path)
     parser.add_argument('--home-parent',type=Path)
+    parser.add_argument('--plan',type=Path,help='Reuse the original admitted Full input IDs; do not select newer runs')
     args=parser.parse_args()
     if args.action=='acquire':
-        plan=resolve(args.source);args.inputs.mkdir(mode=0o700)
-        (args.inputs/'inputs.json').write_bytes(canonical(plan))
-        for name,entry in plan['artifacts'].items():
-            target=args.inputs/name;target.mkdir()
-            gh('run','download',str(entry['run_id']),'--repo',REPO,'--name',entry['name'],'--dir',str(target))
+        plan=(json.loads(regular(args.plan,262144),object_pairs_hook=unique) if args.plan else None)
+        acquire(args.source,args.inputs,plan)
     elif args.action=='assemble':
         if args.builder is None or args.candidate is None:parser.error('assemble requires builder and candidate')
         assemble(args.source,args.inputs,args.builder,args.candidate)
