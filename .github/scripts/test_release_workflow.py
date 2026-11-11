@@ -72,7 +72,8 @@ class WorkflowTests(unittest.TestCase):
         for evidence in ('getCurrentSession().getPid()', 'exact native foreground UUID',
                          'hasWindowFocus()', 'concurrent-single-surface','foreign-home-refusal'):
             self.assertIn(evidence,fixture)
-        self.assertIn('"native_owner_inference"',workflow.replace("'",'"'))
+        self.assertIn("'native_owner_inference':False",workflow)
+        self.assertIn("'synthetic_core_transport':True",workflow)
         self.assertIn('owner-free-synthetic-thread',fixture)
 
     def test_single_source_and_no_unsigned_public_authority(self):

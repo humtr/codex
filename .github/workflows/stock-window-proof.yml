@@ -124,6 +124,7 @@ jobs:
           proof={'schema':'codex-android-window-qualification-v1','source_sha':os.environ['GITHUB_SHA'],
                  'run_id':os.environ['GITHUB_RUN_ID'],'stock_source':os.environ['STOCK_SOURCE'],
                  'android_api':30,'physical_device':False,'synthetic_frontend':True,
+                 'synthetic_core_transport':True,
                  'native_owner_inference':False,'activity_session_pid_observed':True,
                  'foreground_uuid_observed':True,'auto_on_off':True,'repeated_and_concurrent_display':True}
           (root/'stock-proof.json').write_text(json.dumps(proof,sort_keys=True)+'\n')

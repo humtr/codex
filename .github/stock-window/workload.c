@@ -7,8 +7,9 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
-// Only the model frontend is synthetic. Manager, the AM client, Termux service
-// and Android PTYs are real, inside an empty disposable emulator installation.
+// Core dispatch, saved-session lookup and the model frontend are test fixtures.
+// Manager, the AM client, Termux service and Android PTYs are real, inside an
+// empty disposable emulator installation; no real Native inference is claimed.
 #define BASE "/data/data/com.termux/files/home/.stock-proof"
 #define MANAGER BASE "/manager"
 #define CORE BASE "/core"
