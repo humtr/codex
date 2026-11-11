@@ -1,5 +1,3 @@
-import fnmatch
-import re
 import unittest
 import subprocess
 import sys
@@ -12,14 +10,15 @@ class ScopeTests(unittest.TestCase):
         root = Path(__file__).resolve().parents[1]
         workflow = (root / '.github/workflows/provider-qualification.yml').read_text()
         push = workflow.split('\n  push:\n', 1)[1].split('\npermissions:', 1)[0]
-        patterns = re.findall(r'^      - (\S+)$', push, re.MULTILINE)
+        # Every final development SHA needs an exact Provider receipt, including
+        # docs-only commits. Scope classification still avoids rebuilding Core.
+        self.assertIn('branches: [rewrite/rust-core]', push)
+        self.assertNotRegex(push, r'(?m)^\s+paths(?:-ignore)?:')
         for path in ('scripts/qualify_provider_result_recovery.py', 'scripts/test_provider_result_recovery.py',
                      'scripts/qualify_provider_live_tui.py', 'scripts/test_provider_live_tui.py'):
             with self.subTest(path=path):
                 self.assertEqual(scope([path]), 'provider')
-                self.assertTrue(any(fnmatch.fnmatchcase(path, pattern) for pattern in patterns),
-                                'a Provider-scoped change must trigger its actual qualification workflow')
-        self.assertFalse(any(fnmatch.fnmatchcase('README.md', pattern) for pattern in patterns))
+        self.assertEqual(scope(['README.md']), 'docs')
 
     def test_changed_paths(self):
         for paths,want in [(['README.md','CURRENT.md'],'docs'),([], 'docs'),
