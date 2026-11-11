@@ -1,5 +1,5 @@
 //! Independent Termux app-UID MCP worker. No Native/Core or running Provider
-//! service is required for its own termux_shell and termux_shell_receipt calls.
+//! service is required for its single termux_shell tool, including receipt replay.
 use std::path::PathBuf;
 
 #[tokio::main]

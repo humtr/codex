@@ -13,7 +13,10 @@ use std::{
     },
     path::{Path, PathBuf},
     process::Stdio,
-    sync::atomic::{AtomicU64, Ordering},
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc, Mutex,
+    },
     time::{Duration, Instant},
 };
 use tokio::{
@@ -144,6 +147,19 @@ fn read_record(path: &Path) -> Result<Option<Value>, &'static str> {
         .map(Some)
         .map_err(|_| "termux_receipt_incomplete")
 }
+fn sync_parent(path: &Path) -> Result<(), &'static str> {
+    let directory = OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW)
+        .open(
+            path.parent()
+                .ok_or("termux_receipt_directory_unavailable")?,
+        )
+        .map_err(|_| "termux_receipt_directory_unavailable")?;
+    directory
+        .sync_all()
+        .map_err(|_| "termux_receipt_directory_sync_failed")
+}
 fn write_intent(path: &Path, fingerprint: &str) -> Result<bool, &'static str> {
     let mut file = match OpenOptions::new()
         .write(true)
@@ -162,6 +178,7 @@ fn write_intent(path: &Path, fingerprint: &str) -> Result<bool, &'static str> {
     file.write_all(bytes.as_bytes())
         .and_then(|_| file.sync_all())
         .map_err(|_| "termux_receipt_intent_write_failed")?;
+    sync_parent(path)?;
     Ok(true)
 }
 fn write_complete(path: &Path, fingerprint: &str, outcome: &Value) -> Result<(), &'static str> {
@@ -181,13 +198,22 @@ fn write_complete(path: &Path, fingerprint: &str, outcome: &Value) -> Result<(),
         .map_err(|_| "termux_receipt_complete_write_failed")?;
     drop(file);
     fs::rename(&tmp, path).map_err(|_| "termux_receipt_complete_rename_failed")?;
-    Ok(())
+    sync_parent(path)
 }
 
 fn prior(root: &Path, call_id: &str, fingerprint: Option<&str>) -> Value {
     let path = root.join(format!("{}.json", digest(call_id.as_bytes())));
     match read_record(&path) {
         Ok(Some(record)) => {
+            if record["schema"] != "termux-mcp-shell-receipt-v1"
+                || !matches!(record["state"].as_str(), Some("started" | "settled"))
+                || !record["fingerprint"]
+                    .as_str()
+                    .is_some_and(|v| !v.is_empty())
+                || (record["state"] == "settled" && !record["outcome"].is_object())
+            {
+                return json!({"state":"delivery_unknown","executed":"unknown","error":"termux_receipt_invalid"});
+            }
             if let Some(fp) = fingerprint {
                 if record["fingerprint"] != fp {
                     return fail("termux_call_id_payload_conflict");
@@ -220,31 +246,43 @@ impl Drop for ProcessGroup {
         }
     }
 }
-async fn capture<R: AsyncRead + Unpin>(mut stream: R) -> std::io::Result<(Vec<u8>, bool)> {
-    let mut data = Vec::new();
-    let mut truncated = false;
-    let mut buffer = [0; 8192];
-    loop {
-        let n = stream.read(&mut buffer).await?;
-        if n == 0 {
-            break;
-        }
-        let room = MAX_OUTPUT.saturating_sub(data.len());
-        data.extend_from_slice(&buffer[..room.min(n)]);
-        truncated |= n > room;
-    }
-    Ok((data, truncated))
+struct Capture {
+    task: tokio::task::JoinHandle<std::io::Result<()>>,
+    data: Arc<Mutex<(Vec<u8>, bool)>>,
 }
-async fn captured(
-    mut task: tokio::task::JoinHandle<std::io::Result<(Vec<u8>, bool)>>,
-) -> (Vec<u8>, bool) {
-    match tokio::time::timeout(Duration::from_secs(2), &mut task).await {
-        Ok(Ok(Ok(value))) => value,
-        _ => {
-            task.abort();
-            (Vec::new(), true)
-        }
+impl Drop for Capture {
+    fn drop(&mut self) {
+        self.task.abort();
     }
+}
+fn capture<R: AsyncRead + Unpin + Send + 'static>(mut stream: R) -> Capture {
+    let data = Arc::new(Mutex::new((Vec::new(), false)));
+    let result = data.clone();
+    let task = tokio::spawn(async move {
+        let mut buffer = [0; 8192];
+        loop {
+            let n = stream.read(&mut buffer).await?;
+            if n == 0 {
+                return Ok(());
+            }
+            let mut value = result.lock().expect("capture buffer");
+            let room = MAX_OUTPUT.saturating_sub(value.0.len());
+            value.0.extend_from_slice(&buffer[..room.min(n)]);
+            value.1 |= n > room;
+        }
+    });
+    Capture { task, data }
+}
+async fn captured(mut capture: Capture) -> (Vec<u8>, bool) {
+    let incomplete = !matches!(
+        tokio::time::timeout(Duration::from_secs(2), &mut capture.task).await,
+        Ok(Ok(Ok(())))
+    );
+    if incomplete {
+        capture.task.abort();
+    }
+    let mut value = capture.data.lock().expect("capture buffer");
+    (std::mem::take(&mut value.0), value.1 || incomplete)
 }
 
 async fn shell_command(script: &str, cwd: &Path, timeout_ms: u64, shell: &Path) -> Value {
@@ -268,9 +306,9 @@ async fn shell_command(script: &str, cwd: &Path, timeout_ms: u64, shell: &Path) 
         }
     };
     let pid = child.id().unwrap_or(0) as i32;
-    let mut group = ProcessGroup((pid > 0).then_some(pid));
-    let stdout = tokio::spawn(capture(child.stdout.take().expect("piped stdout")));
-    let stderr = tokio::spawn(capture(child.stderr.take().expect("piped stderr")));
+    let group = ProcessGroup((pid > 0).then_some(pid));
+    let stdout = capture(child.stdout.take().expect("piped stdout"));
+    let stderr = capture(child.stderr.take().expect("piped stderr"));
     let since = Instant::now();
     let waited = tokio::time::timeout(Duration::from_millis(timeout_ms), child.wait()).await;
     let (exit_code, signal, timed_out) = match waited {
@@ -290,7 +328,9 @@ async fn shell_command(script: &str, cwd: &Path, timeout_ms: u64, shell: &Path) 
             (None, Some(libc::SIGKILL), true)
         }
     };
-    group.0 = None;
+    // Reap ordinary background descendants too; explicit detached sessions are
+    // separate host processes, never Native work or implicit continuations.
+    drop(group);
     let (out, out_truncated) = captured(stdout).await;
     let (err, err_truncated) = captured(stderr).await;
     json!({"state":if timed_out {"timed_out"} else {"exited"},
@@ -303,6 +343,12 @@ async fn shell_command(script: &str, cwd: &Path, timeout_ms: u64, shell: &Path) 
 }
 
 async fn execute_with(root: &Path, shell: &Path, args: &Value) -> Value {
+    if !args.as_object().is_some_and(|v| {
+        v.keys()
+            .all(|k| matches!(k.as_str(), "call_id" | "command" | "cwd" | "timeout_ms"))
+    }) {
+        return fail("termux_arguments_invalid");
+    }
     let call_id = match check_call_id(args) {
         Ok(x) => x,
         Err(e) => return fail(e),
@@ -328,21 +374,40 @@ async fn execute_with(root: &Path, shell: &Path, args: &Value) -> Value {
             _ => return fail("termux_timeout_invalid"),
         },
     };
-    let fingerprint = digest(
+    let legacy_fingerprint = digest(
         json!(["termux-shell-v1", script, cwd, timeout_ms])
             .to_string()
             .as_bytes(),
     );
+    let fingerprint = digest(
+        json!([
+            "termux-shell-v2",
+            script,
+            args.get("cwd"),
+            args.get("timeout_ms")
+        ])
+        .to_string()
+        .as_bytes(),
+    );
+    let replay = || {
+        let result = prior(root, call_id, Some(&fingerprint));
+        if result["error"] == "termux_call_id_payload_conflict" {
+            prior(root, call_id, Some(&legacy_fingerprint))
+        } else {
+            result
+        }
+    };
     let path = root.join(format!("{}.json", digest(call_id.as_bytes())));
     if path.exists() {
-        return prior(root, call_id, Some(&fingerprint));
+        return replay();
     }
     match write_intent(&path, &fingerprint) {
         Ok(true) => {}
-        Ok(false) => return prior(root, call_id, Some(&fingerprint)),
+        Ok(false) => return replay(),
         Err(e) => return fail(e),
     }
     let mut outcome = shell_command(script, &cwd, timeout_ms, shell).await;
+    outcome["replay_safe"] = json!(true);
     if let Err(error) = write_complete(&path, &fingerprint, &outcome) {
         outcome["receipt_error"] = json!(error);
         outcome["replay_safe"] = json!(false);
@@ -460,6 +525,129 @@ mod tests {
         assert_eq!(result["state"], "timed_out");
         assert_eq!(result["timed_out"], true);
         assert_eq!(result["replay_safe"], true);
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[tokio::test]
+    async fn concurrent_duplicate_keeps_original_effect_and_conflicting_arguments_fail() {
+        let root = fixture();
+        let args = json!({"call_id":"concurrent","command":"printf x >> effect; sleep 0.1; printf DONE","cwd":root});
+        let shell = shell();
+        let (a, b) = tokio::join!(
+            execute_with(&root, &shell, &args),
+            execute_with(&root, &shell, &args)
+        );
+        assert!(a["state"] == "exited" || b["state"] == "exited");
+        assert_eq!(fs::read(root.join("effect")).unwrap(), b"x");
+        let replay = execute_with(&root, &shell, &args).await;
+        assert_eq!(replay["stdout"], "DONE");
+        assert_eq!(replay["replay_safe"], true);
+        assert_eq!(replay["replayed_from_receipt"], true);
+        let mut invalid = args.clone();
+        invalid["unknown"] = json!(true);
+        assert_eq!(
+            execute_with(&root, &shell, &invalid).await["error"],
+            "termux_arguments_invalid"
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[tokio::test]
+    async fn completed_shell_reaps_background_group_and_preserves_output() {
+        let root = fixture();
+        let result=execute_with(&root,&shell(),&json!({"call_id":"background","command":"sleep 30 & echo $! > child; printf COMPLETED","cwd":root})).await;
+        assert_eq!(result["exit_code"], 0);
+        assert_eq!(result["stdout"], "COMPLETED");
+        assert_eq!(result["stdout_truncated"], false);
+        let pid = fs::read_to_string(root.join("child")).unwrap();
+        let stat = fs::read_to_string(format!("/proc/{}/stat", pid.trim()));
+        assert!(
+            stat.is_err()
+                || stat
+                    .unwrap()
+                    .rsplit_once(')')
+                    .unwrap()
+                    .1
+                    .trim_start()
+                    .starts_with('Z')
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[tokio::test]
+    async fn corrupt_receipt_and_output_limits_preserve_uncertainty_and_original_bytes() {
+        let root = fixture();
+        let result = execute_with(
+            &root,
+            &shell(),
+            &json!({"call_id":"bounded","command":"head -c 70000 /dev/zero","cwd":root}),
+        )
+        .await;
+        assert_eq!(result["exit_code"], 0);
+        assert_eq!(result["stdout"].as_str().unwrap().len(), MAX_OUTPUT);
+        assert_eq!(result["stdout_truncated"], true);
+        let path = root.join(format!("{}.json", digest(b"corrupt")));
+        fs::write(
+            &path,
+            b"{\"schema\":\"wrong\",\"state\":\"settled\",\"fingerprint\":\"x\",\"outcome\":{}}",
+        )
+        .unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+        assert_eq!(prior(&root, "corrupt", None)["state"], "delivery_unknown");
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[tokio::test]
+    async fn cancelled_call_keeps_uncertain_receipt_and_never_resubmits() {
+        let root = fixture();
+        let args =
+            json!({"call_id":"cancelled","command":"printf x >> effect; sleep 30","cwd":root});
+        let (owned_root, owned_args) = (root.clone(), args.clone());
+        let task =
+            tokio::spawn(async move { execute_with(&owned_root, &shell(), &owned_args).await });
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !root.join("effect").exists() && Instant::now() < deadline {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        assert_eq!(fs::read(root.join("effect")).unwrap(), b"x");
+        task.abort();
+        assert!(task.await.unwrap_err().is_cancelled());
+        assert_eq!(
+            execute_with(&root, &shell(), &args).await["state"],
+            "delivery_unknown"
+        );
+        assert_eq!(fs::read(root.join("effect")).unwrap(), b"x");
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[tokio::test]
+    async fn exact_raw_arguments_and_legacy_receipts_are_both_preserved() {
+        let root = fixture();
+        let args = json!({"call_id":"exact","command":"printf exact","cwd":root});
+        assert_eq!(
+            execute_with(&root, &shell(), &args).await["stdout"],
+            "exact"
+        );
+        let mut changed = args.clone();
+        changed["timeout_ms"] = json!(DEFAULT_TIMEOUT_MS);
+        assert_eq!(
+            execute_with(&root, &shell(), &changed).await["error"],
+            "termux_call_id_payload_conflict"
+        );
+        let legacy = digest(
+            json!(["termux-shell-v1", "printf exact", root, DEFAULT_TIMEOUT_MS])
+                .to_string()
+                .as_bytes(),
+        );
+        let path = root.join(format!("{}.json", digest(b"legacy")));
+        write_intent(&path, &legacy).unwrap();
+        write_complete(
+            &path,
+            &legacy,
+            &json!({"state":"exited","executed":true,"stdout":"ORIGINAL"}),
+        )
+        .unwrap();
+        let mut old = args;
+        old["call_id"] = json!("legacy");
+        assert_eq!(
+            execute_with(&root, &shell(), &old).await["stdout"],
+            "ORIGINAL"
+        );
         fs::remove_dir_all(root).unwrap();
     }
     #[test]
