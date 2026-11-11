@@ -641,7 +641,7 @@ impl Guard {
         let existing_session = continuation(tool, input);
         let fingerprint = fingerprint(tool, input, &workspace);
         let owner = ProcessOwner::current()?;
-        let resumed = ledger.transact(|state| {
+        ledger.transact(|state| {
             if let Some(existing) = state.claims.get(&identity) {
                 return Err(if existing.fingerprint == fingerprint {
                     "native_effect_duplicate_unconfirmed"
@@ -674,7 +674,7 @@ impl Guard {
                         thread: thread.into(),
                         fingerprint,
                         effect,
-                        session: None,
+                        session: existing_session,
                         owner: Some(owner),
                     },
                 );
@@ -686,7 +686,7 @@ impl Guard {
             identity,
             thread: thread.into(),
             tool: tool.into(),
-            continuation: if resumed { existing_session } else { None },
+            continuation: existing_session,
         })
     }
 
@@ -706,6 +706,7 @@ impl Guard {
                     state.claims.retain(|_, held| {
                         !(held.thread == self.thread && held.session == Some(session))
                     });
+                    state.claims.remove(&self.identity);
                     return Ok(((), true));
                 }
                 return Ok(((), false));
@@ -1362,6 +1363,30 @@ mod tests {
             .as_deref(),
             Some("native_effect_duplicate_unconfirmed")
         );
+        fs::remove_dir_all(cwd).unwrap();
+        fs::remove_dir_all(home).unwrap();
+    }
+
+    #[test]
+    fn continuation_without_prior_claim_cleans_up_on_exit() {
+        let cwd = root();
+        let home = root();
+        let ledger = Ledger::at(&cwd, &home).unwrap();
+        let mut stopped = Guard::begin_with(
+            &cwd,
+            "one",
+            "poll",
+            "functions.write_stdin",
+            r#"{"session_id":81,"chars":""}"#,
+            ledger.clone(),
+        )
+        .unwrap();
+        stopped
+            .observed(Some(
+                &serde_json::json!({"output":"Process exited with code 0\nOutput:\n"}),
+            ))
+            .unwrap();
+        assert!(apply(&cwd, &home, "two", "after", "a").is_ok());
         fs::remove_dir_all(cwd).unwrap();
         fs::remove_dir_all(home).unwrap();
     }
