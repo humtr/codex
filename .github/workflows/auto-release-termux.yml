@@ -23,6 +23,9 @@ on:
 permissions:
   contents: read
   actions: read
+concurrency:
+  group: termux-hosted-release-callers
+  cancel-in-progress: false
 jobs:
   source:
     runs-on: ubuntu-24.04
@@ -54,32 +57,32 @@ jobs:
           PYTHON
   base:
     needs: source
-    if: ${{ !cancelled() && (github.event_name == 'schedule' || inputs.variant != 'full') && needs.source.result == 'success' }}
+    if: ${{ !cancelled() && inputs.variant != 'full' && needs.source.result == 'success' }}
     permissions:
       contents: write
       actions: read
-    uses: humtr/codex/.github/workflows/auto-release-termux.yml@681ecce8ecdfc7de5cd0d0a4aa3242b17e6b29ad
+    uses: humtr/codex/.github/workflows/auto-release-termux.yml@c19b61bb3d1d3bdb7e3c4f2ad9763d71397e5ca0
     with:
       source_sha: ${{ needs.source.outputs.sha }}
       frontend_binding: ""
       release_variant: base
-      publish: ${{ github.event_name == 'schedule' || inputs.publish }}
-      rebuild_current: ${{ github.event_name == 'workflow_dispatch' && inputs.rebuild_current }}
+      publish: ${{ inputs.publish }}
+      rebuild_current: ${{ inputs.rebuild_current }}
     secrets:
       CODEX_RELEASE_SIGNING_KEY: ${{ secrets.CODEX_RELEASE_SIGNING_KEY }}
   release:
     needs: [source, base]
-    if: ${{ !cancelled() && (github.event_name == 'schedule' || inputs.variant != 'base') && needs.source.result == 'success' }}
+    if: ${{ !cancelled() && inputs.variant != 'base' && needs.source.result == 'success' && (needs.base.result == 'success' || (inputs.variant == 'full' && needs.base.result == 'skipped')) }}
     permissions:
       contents: write
       actions: read
-    uses: humtr/codex/.github/workflows/auto-release-termux.yml@681ecce8ecdfc7de5cd0d0a4aa3242b17e6b29ad
+    uses: humtr/codex/.github/workflows/auto-release-termux.yml@c19b61bb3d1d3bdb7e3c4f2ad9763d71397e5ca0
     with:
       source_sha: ${{ needs.source.outputs.sha }}
       frontend_binding: "${{ needs.source.outputs.frontend_binding }}"
       release_variant: full
-      publish: ${{ github.event_name == 'schedule' || inputs.publish }}
-      rebuild_current: ${{ github.event_name == 'workflow_dispatch' && inputs.rebuild_current }}
+      publish: ${{ inputs.publish }}
+      rebuild_current: ${{ inputs.rebuild_current }}
     secrets:
       CODEX_RELEASE_SIGNING_KEY: ${{ secrets.CODEX_RELEASE_SIGNING_KEY }}
   notify_acceptance:
