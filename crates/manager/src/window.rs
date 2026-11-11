@@ -217,7 +217,7 @@ fn launch_named(
             context.core_entrypoint.to_str().ok_or(ERROR)?,
             "termux",
             "__terminal-start-v1",
-            &token,
+            token,
         ],
         &cwd,
     ) {
