@@ -595,10 +595,8 @@ fn public_profile_use_keeps_explicit_cli_flags_with_an_unbound_legacy_marker() {
         .output()
         .unwrap();
     assert_eq!(output.status.code(), Some(37), "{output:?}");
-    assert!(
-        String::from_utf8(output.stdout)
-            .unwrap()
-            .contains("ARG=<--model>\nARG=<explicit-model>\n")
-    );
+    assert!(String::from_utf8(output.stdout)
+        .unwrap()
+        .contains("ARG=<--model>\nARG=<explicit-model>\n"));
     assert_eq!(inventory(&home), before);
 }
