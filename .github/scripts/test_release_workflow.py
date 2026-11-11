@@ -45,6 +45,21 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn('0 failed; 0 ignored;',step)
         self.assertNotIn('continue-on-error',step)
 
+    def test_required_provider_and_switch_regressions_are_executed_and_positive(self):
+        from tui_regression_results import REQUIRED
+        text=(ROOT/'.github/workflows/manager-tui-native.yml').read_text()
+        step=text.split('      - name: Focused actual native TUI regressions',1)[1].split('      - name:',1)[0]
+        self.assertIn("if: inputs.scope == 'full'",step)
+        self.assertIn('--retries 0',step)
+        selectors=re.findall(r'test\(([^)]+)\)',step)
+        for name in REQUIRED:
+            # The widget replay test lives under this selected module.
+            selected=any(selector in name for selector in selectors)
+            self.assertTrue(selected or (name.startswith('replayed_rate_limit_error_') and
+                                        'rate_limit_recovery_tests' in selectors),name)
+        self.assertIn('tui_regression_results.py" "$RUNNER_TEMP/profile-tui-focused.log"',step)
+        self.assertNotIn('continue-on-error',step)
+
     def test_android_window_proof_uses_event_source_and_observes_the_real_activity(self):
         workflow=(ROOT/'.github/workflows/stock-window-proof.yml').read_text()
         self.assertIn('PRODUCT_SOURCE: ${{ github.sha }}',workflow)
