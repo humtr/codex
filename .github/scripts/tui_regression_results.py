@@ -15,6 +15,10 @@ REQUIRED = (
     'replayed_rate_limit_error_preserves_current_account_and_initial_prompt',
     'enqueue_primary_thread_session_submits_checkpoint_after_replayed_quota_error',
     'termux_chat_models_compaction_preserves_provider_selection_and_scoped_choices',
+    'profile_manager_preserves_current_selection_instead_of_launch_defaults',
+    'profile_manager_replaces_stale_session_flags_and_keeps_permission_authority',
+    'profile_manager_requires_native_ack_before_preserving_current_selection',
+    'termux_chat_models_profile_resume_preserves_saved_none_and_explicit_tier_contract',
 )
 
 
