@@ -8,7 +8,7 @@
 | Component | Production identity | Consumers and additional proof |
 | --- | --- | --- |
 | Core | Locked Core dependency closure, shared source, embedded runtime recipe and full embedded lock, Core compiler and Android ABI/NDK/flags | Source acceptance, Core/runtime and Full composition |
-| Runtime | Official source/archive, runtime recipe, selected compiler, lock audit and adaptation input | Core/runtime and Full composition |
+| Runtime | Official source/archive, normalized compiler input, selected compiler, lock audit and adaptation input | Core/runtime and Full composition |
 | Manager | Its locked dependency closure and shared interface source, Core compiler and Android ABI/NDK/flags | Independent Manager qualification and selected Full |
 | TUI | Official source, maintained frontend recipe, dependency audit, compiler/profile | Native TUI tests, upstream Retain and Full composition |
 | Provider | Its source/locked dependencies, selected runtime binding and app bridge | Independent Provider qualification; not a Core prerequisite |
@@ -22,6 +22,13 @@ Unchanged Manager source does not depend on Core source or TUI compilation. The
 current Core build embeds the complete workspace Cargo.lock, so its identity must
 include those actual bytes even when the changed lock entry is not a linked
 Core dependency. A narrower identity requires changing that producer first.
+
+Raw Runtime reuse selects the original immutable GitHub artifact only after both
+source trees have equal complete normalized production inputs. It verifies that
+source's actual completed compiler/upload job, archive ID/digest and current
+Rust raw-artifact checks; a source/run label or old cache key alone cannot qualify
+bytes. Original producer provenance is retained. Raw production success does not
+inherit the parent run's Core qualification or grant current Full acceptance.
 
 Production receipts record original producer source/run, component input digest,
 artifact digest/size, target, compiler and interface. They do not assert that
@@ -63,6 +70,15 @@ signed manifest. Existing sidecars remain valid without these optional fields;
 readers report their revision as unknown instead of deriving it from the issue
 sequence. Runtime's artifact digest is the runtime executable; the full signed
 inventory separately binds its companion, helpers and descriptor.
+
+Runtime `rN` uses the normalized compiler inputs plus actual Runtime adaptation
+sources, toolchain and locked dependencies. A change only to transport validation
+remains in the current qualification provenance and does not by itself allocate a
+new Runtime revision. The historical top-level `runtime_inputs_sha256` field keeps
+its conservative full-recipe meaning for existing signed metadata compatibility.
+Core actually embeds that complete local recipe, so changing those packaged bytes
+can change the Core production input, binary and revision while reusing the raw
+Runtime. Neither case is a retroactive rewrite of a signed component or sequence.
 
 Within an upstream version, an unchanged component tuple reuses its revision;
 a changed input, output or interface allocates its next revision. Core and Full

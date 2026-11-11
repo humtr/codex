@@ -5,7 +5,7 @@ from pathlib import Path
 import re
 import stat
 from component_inputs import fingerprint as component_fingerprint, git
-from runtime_inputs import fingerprint as runtime_fingerprint, canonical
+from runtime_inputs import adapted_production_fingerprint, canonical
 from release_preflight import parse_descriptor, sha256_file
 
 MAX_REVISION=(1<<31)-1
@@ -46,7 +46,7 @@ def selected(source,candidate):
     result={
         'core':{'inputs_sha256':component_fingerprint(source,'core'),
                 'artifact_sha256':sha256_file(candidate/'core'),'interface':descriptor['core_api_identity']},
-        'runtime':{'inputs_sha256':runtime_fingerprint(source,'HEAD',adapted=True),
+        'runtime':{'inputs_sha256':adapted_production_fingerprint(source),
                    'artifact_sha256':sha256_file(candidate/'runtime'),'interface':'codex-runtime-bundle-v1'}}
     if descriptor['manager_artifact_digest']!='-':
         result['manager']={'inputs_sha256':component_fingerprint(source,'manager'),

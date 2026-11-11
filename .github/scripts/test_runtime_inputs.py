@@ -46,7 +46,7 @@ source="git+https://example.invalid/other#012345"
             runtime.cargo_dependencies(inputs.__getitem__, 'tool.toml')
 
     def source(self, root):
-        for name in (*PRODUCER_FILES, 'release/upstream.json', 'Cargo.lock', 'crates/runtime-binding/Cargo.toml'):
+        for name in (*PRODUCER_FILES, 'release/upstream.json', 'Cargo.toml', 'Cargo.lock', 'crates/runtime-binding/Cargo.toml'):
             target = root / name
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(ROOT / name, target)
