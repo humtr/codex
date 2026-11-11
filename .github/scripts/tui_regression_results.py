@@ -19,6 +19,9 @@ REQUIRED = (
     'profile_manager_replaces_stale_session_flags_and_keeps_permission_authority',
     'profile_manager_requires_native_ack_before_preserving_current_selection',
     'termux_chat_models_profile_resume_preserves_saved_none_and_explicit_tier_contract',
+    'termux_chat_models_reentry_intent_accepts_only_known_modes',
+    'termux_chat_models_reentry_is_initial_only_and_select_keeps_explicit_settings',
+    'termux_chat_models_reentry_tier_is_cleared_only_for_initial_restore',
 )
 
 
