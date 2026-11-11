@@ -213,7 +213,7 @@ fn launch_named(
         prune_pending(&directory);
         terminal::prune(&directory);
         let route_path = directory.join(format!("route-{token}"));
-        if route_path.exists() {
+        if inspect_path(&route_path)? == PathPresence::Present {
             let route = read(&route_path)?;
             if route["thread"] != id || !valid_route(&route) {
                 return Err(ERROR);
@@ -516,6 +516,24 @@ pub(super) fn focus(value: &serde_json::Value) -> bool {
 mod tests {
     use super::*;
 
+    // All direct display probes run without an Android transport, including
+    // their regression/failure paths. Integration tests supply an owned AM stub.
+    fn isolated_display_probe(name: &str) -> bool {
+        const CHILD: &str = "CODEX_TEST_ISOLATED_WINDOW_DISPLAY";
+        if std::env::var(CHILD).as_deref() == Ok(name) {
+            assert!(std::env::var_os("PREFIX").is_none());
+            return false;
+        }
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", name])
+            .env(CHILD, name)
+            .env_remove("PREFIX")
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{output:?}");
+        true
+    }
+
     #[test]
     fn one_shot_records_preserve_collisions_bound_bytes_and_reject_replay() {
         let directory =
@@ -595,6 +613,11 @@ mod tests {
     }
     #[test]
     fn repeated_thread_display_preserves_pending_launch_without_dispatch() {
+        if isolated_display_probe(
+            "window::tests::repeated_thread_display_preserves_pending_launch_without_dispatch",
+        ) {
+            return;
+        }
         let root = std::env::temp_dir().join(format!(
             "codex-window-display-{}-{}",
             std::process::id(),
@@ -645,7 +668,46 @@ mod tests {
     }
 
     #[test]
+    fn dangling_route_refuses_construction_before_any_android_dispatch() {
+        if isolated_display_probe(
+            "window::tests::dangling_route_refuses_construction_before_any_android_dispatch",
+        ) {
+            return;
+        }
+        let root = std::env::temp_dir().join(format!("codex-window-route-{}", random().unwrap()));
+        fs::create_dir(&root).unwrap();
+        set_mode(&root, PRIVATE_DIR_MODE).unwrap();
+        let context = Context {
+            home: root.clone(),
+            inherited_codex_home: None,
+            core_entrypoint: PathBuf::from("/not-executed"),
+        };
+        let directory = directory(&context).unwrap();
+        let id = "01a0fc82-dc8f-7d13-bb78-7e120f1fa9b3";
+        let token = id.replace('-', "");
+        let route = directory.join(format!("route-{token}"));
+        std::os::unix::fs::symlink(root.join("absent"), &route).unwrap();
+        let result = display(&context, id, &root, &[]);
+        let unchanged = fs::symlink_metadata(&route)
+            .unwrap()
+            .file_type()
+            .is_symlink()
+            && !directory.join(format!("launch-{token}")).exists();
+        remove_private_tree(&root).unwrap();
+        assert_eq!(result, Err(ERR_PATH));
+        assert!(
+            unchanged,
+            "an unsafe route is not permission for a new launch"
+        );
+    }
+
+    #[test]
     fn unrelated_lock_contention_never_claims_an_original_display() {
+        if isolated_display_probe(
+            "window::tests::unrelated_lock_contention_never_claims_an_original_display",
+        ) {
+            return;
+        }
         let root = std::env::temp_dir().join(format!("codex-window-busy-{}", random().unwrap()));
         fs::create_dir(&root).unwrap();
         set_mode(&root, PRIVATE_DIR_MODE).unwrap();
