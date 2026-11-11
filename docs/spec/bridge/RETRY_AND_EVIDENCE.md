@@ -46,7 +46,14 @@ match canonical names and permission aliases through the existing hook engine.
 Unknown hook sources, dynamic executor/environment overlays, other hook events
 and asynchronous work retained across configuration changes remain unbounded.
 This admission observation never disables a hook, changes approval policy or
-changes the original tool invocation. Missing proof remains opaque.
+changes the original tool invocation. Missing proof remains opaque. This rule also
+covers bounded file patches and ordinary image/clock reads: their hooks can add
+unbounded effects. Private execution schema 2 records hook-free tool identities,
+including actual matcher aliases, separately; a patch hook does not disable an
+unrelated proven command. Legacy schema 1 remains readable for request and receipt
+continuity, but cannot grant new bounded admission without current hook proof.
+Native's special ToolSearch payload has no tool hooks and remains read-only
+metadata discovery, including while an unrelated effect is unconfirmed.
 
 The implementation contract is scoped logical identity plus a payload
 fingerprint and durable intent/result. Use existing call_id, work/controller

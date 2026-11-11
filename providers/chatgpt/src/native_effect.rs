@@ -17,6 +17,8 @@ const SNAPSHOT_LIMIT: u64 = 4 * 1024 * 1024;
 mod compiler;
 #[cfg(test)]
 pub(crate) use compiler::fixture as compiler_fixture;
+#[cfg(test)]
+pub(crate) use compiler::hook_fixture;
 pub(crate) use compiler::Execution;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -279,7 +281,7 @@ pub(crate) fn classify(tool: &str, input: &str, workspace: Option<&Path>) -> Eff
     classify_with_execution(tool, input, workspace, None)
 }
 
-/// Authoritative shell claims require the actual Native step environment.
+/// Authoritative bounded claims require the actual Native step and hook proof.
 /// The Provider's own process environment is never an execution attestation.
 pub(crate) fn classify_with_execution(
     tool: &str,
@@ -287,8 +289,28 @@ pub(crate) fn classify_with_execution(
     workspace: Option<&Path>,
     execution: Option<&Execution>,
 ) -> Effect {
+    // Native tool_search has a dedicated payload with no tool hooks. Ordinary
+    // Function/Custom/MCP calls do run hooks, even when their main operation is
+    // a read or a bounded patch. Missing proof must retain the opaque claim.
+    if tool == "tool_search" {
+        return Effect::Read;
+    }
+    let bounded_tool = match tool {
+        "functions.exec_command" => "exec_command",
+        "functions.apply_patch" | "apply_patch" => "apply_patch",
+        "functions.view_image" => "view_image",
+        "clock.curr_time" => "clock.curr_time",
+        "clock.sleep" => "clock.sleep",
+        _ => return Effect::Opaque,
+    };
+    if !workspace
+        .zip(execution)
+        .is_some_and(|(root, facts)| facts.permits_bounded_tool(bounded_tool, root))
+    {
+        return Effect::Opaque;
+    }
     match tool {
-        "tool_search" | "clock.curr_time" | "clock.sleep" | "functions.view_image" => Effect::Read,
+        "clock.curr_time" | "clock.sleep" | "functions.view_image" => Effect::Read,
         "functions.exec_command" if is_simple_read_command(input) => workspace
             .and_then(|root| compiler::qualified_read(input, root, execution?))
             .unwrap_or(Effect::Opaque),
@@ -300,6 +322,16 @@ pub(crate) fn classify_with_execution(
             .unwrap_or(Effect::Opaque),
         _ => Effect::Opaque,
     }
+}
+
+#[cfg(test)]
+pub(crate) fn classify_with_fixture(tool: &str, input: &str, workspace: Option<&Path>) -> Effect {
+    // Resource-shape unit tests supply an explicit hook-free Native fixture;
+    // production admission never constructs execution facts on the Provider.
+    let facts = workspace
+        .filter(|_| matches!(tool, "apply_patch" | "functions.apply_patch"))
+        .map(compiler::hook_fixture);
+    classify_with_execution(tool, input, workspace, facts.as_ref())
 }
 
 impl FileEffect {
@@ -445,8 +477,82 @@ mod tests {
     use std::os::unix::fs::symlink;
 
     #[test]
+    fn hook_capable_tools_require_exact_native_proof_without_changing_patch_scope() {
+        let root = temp();
+        fs::write(root.join("a"), "old\n").unwrap();
+        let patch = update("a", "old", "new");
+        let mut facts = compiler::hook_fixture(&root);
+        for tool in [
+            "functions.apply_patch",
+            "apply_patch",
+            "functions.view_image",
+            "clock.curr_time",
+            "clock.sleep",
+        ] {
+            assert_eq!(
+                classify_with_execution(tool, &patch, Some(&root), None),
+                Effect::Opaque,
+                "{tool}"
+            );
+            facts.hook_free_tools.clear();
+            assert_eq!(
+                classify_with_execution(tool, &patch, Some(&root), Some(&facts)),
+                Effect::Opaque,
+                "{tool}"
+            );
+        }
+        facts.hook_free_tools = vec!["apply_patch".into()];
+        assert!(matches!(
+            classify_with_execution("functions.apply_patch", &patch, Some(&root), Some(&facts)),
+            Effect::Paths(_)
+        ));
+        assert_eq!(
+            classify_with_execution("functions.view_image", "{}", Some(&root), Some(&facts)),
+            Effect::Opaque
+        );
+        facts.hook_free_tools = vec!["view_image".into()];
+        assert_eq!(
+            classify_with_execution("functions.view_image", "{}", Some(&root), Some(&facts)),
+            Effect::Read
+        );
+        assert_eq!(
+            classify_with_execution("functions.apply_patch", &patch, Some(&root), Some(&facts)),
+            Effect::Opaque
+        );
+        assert_eq!(
+            classify_with_execution(
+                "functions.view_image",
+                "{}",
+                Some(&root.join("other")),
+                Some(&facts)
+            ),
+            Effect::Opaque
+        );
+        // Old metadata remains decodable for stored requests/receipts, but it
+        // cannot establish current hook scope or retained asynchronous work.
+        facts.schema = 1;
+        facts.hook_free_tools.clear();
+        assert_eq!(
+            classify_with_execution("functions.apply_patch", &patch, Some(&root), Some(&facts)),
+            Effect::Opaque
+        );
+        facts.schema = 2;
+        assert_eq!(
+            classify_with_execution("functions.apply_patch", &patch, Some(&root), Some(&facts)),
+            Effect::Opaque
+        );
+        facts.hook_free_tools = vec!["unrecognized".into()];
+        assert_eq!(
+            classify_with_execution("functions.apply_patch", &patch, Some(&root), Some(&facts)),
+            Effect::Opaque
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn metadata_discovery_is_read_only_during_an_unconfirmed_native_effect() {
-        let lookup = classify("tool_search", r#"{"query":"codex_sessions list"}"#, None);
+        let lookup =
+            classify_with_fixture("tool_search", r#"{"query":"codex_sessions list"}"#, None);
         assert_eq!(lookup, Effect::Read);
         assert!(!conflicts(&lookup, &Effect::Opaque));
         assert!(!conflicts(&Effect::Opaque, &lookup));
@@ -493,7 +599,7 @@ mod tests {
         assert!(conflicts(&a, &same_output));
         assert!(conflicts(
             &a,
-            &classify(
+            &classify_with_fixture(
                 "functions.apply_patch",
                 &update("a.c", "int a(void){return 1;}", "int a(void){return 3;}"),
                 Some(&root)
@@ -536,18 +642,18 @@ mod tests {
             Err(error) => panic!("unexpected hardlink fixture failure: {error}"),
         };
         symlink("a", root.join("symbolic")).unwrap();
-        let a = classify(
+        let a = classify_with_fixture(
             "functions.apply_patch",
             &update("a", "one", "ONE"),
             Some(&root),
         );
-        let b = classify(
+        let b = classify_with_fixture(
             "functions.apply_patch",
             &update("b", "three", "THREE"),
             Some(&root),
         );
         let alias = if hardlink_available {
-            classify(
+            classify_with_fixture(
                 "functions.apply_patch",
                 &update("alias", "one", "ONE"),
                 Some(&root),
@@ -560,7 +666,7 @@ mod tests {
             entries[0].path = root.join("alias");
             Effect::Paths(entries)
         };
-        let link = classify(
+        let link = classify_with_fixture(
             "functions.apply_patch",
             &update("symbolic", "one", "ONE"),
             Some(&root),
@@ -577,12 +683,12 @@ mod tests {
     fn nc_nonoverlap_rebases_but_overlap_and_delete_conflict() {
         let root = temp();
         fs::write(root.join("a"), "alpha\nbeta\ngamma\n").unwrap();
-        let change = classify(
+        let change = classify_with_fixture(
             "functions.apply_patch",
             &update("a", "beta", "BETA"),
             Some(&root),
         );
-        let deletion = classify(
+        let deletion = classify_with_fixture(
             "functions.apply_patch",
             "*** Begin Patch\n*** Delete File: a\n*** End Patch\n",
             Some(&root),
@@ -605,7 +711,7 @@ mod tests {
     fn nc_new_patch_after_a_conflicting_writer_requires_live_old_hunk() {
         let root = temp();
         fs::write(root.join("file"), "ALPHA\nbeta\n").unwrap();
-        let stale = classify(
+        let stale = classify_with_fixture(
             "functions.apply_patch",
             &update("file", "alpha", "changed"),
             Some(&root),
@@ -614,7 +720,7 @@ mod tests {
             can_offer(&stale, &root),
             Err("native_resource_version_conflict")
         );
-        let valid = classify(
+        let valid = classify_with_fixture(
             "functions.apply_patch",
             &update("file", "beta", "BETA"),
             Some(&root),
@@ -625,12 +731,12 @@ mod tests {
     #[test]
     fn nc_names_moves_opaque_and_path_swap() {
         let root = temp();
-        let one = classify(
+        let one = classify_with_fixture(
             "functions.apply_patch",
             "*** Begin Patch\n*** Add File: one\n+hello\n*** End Patch\n",
             Some(&root),
         );
-        let two = classify(
+        let two = classify_with_fixture(
             "functions.apply_patch",
             "*** Begin Patch\n*** Add File: two\n+hello\n*** End Patch\n",
             Some(&root),
@@ -643,7 +749,7 @@ mod tests {
             Err("native_resource_version_conflict")
         );
         assert_eq!(
-            classify(
+            classify_with_fixture(
                 "functions.apply_patch",
                 "*** Begin Patch\n*** Add File: ../escape\n+bad\n*** End Patch\n",
                 Some(&root)
@@ -651,11 +757,11 @@ mod tests {
             Effect::Opaque
         );
         assert_eq!(
-            classify("functions.exec_command", r#"{"cmd":"pwd"}"#, Some(&root)),
+            classify_with_fixture("functions.exec_command", r#"{"cmd":"pwd"}"#, Some(&root)),
             Effect::Opaque
         );
         assert_eq!(
-            classify(
+            classify_with_fixture(
                 "functions.exec_command",
                 r#"{"cmd":"pwd; touch unwanted"}"#,
                 Some(&root)
@@ -663,7 +769,7 @@ mod tests {
             Effect::Opaque
         );
         assert_eq!(
-            classify(
+            classify_with_fixture(
                 "functions.exec_command",
                 r#"{"cmd":"pwd","shell":"/tmp/untrusted-shell"}"#,
                 Some(&root)
@@ -672,7 +778,7 @@ mod tests {
             "unrecognized executor options invalidate the read-only proof"
         );
         assert_eq!(
-            classify(
+            classify_with_fixture(
                 "functions.exec_command",
                 r#"{"cmd":"git status --porcelain=v1 --untracked-files=no"}"#,
                 Some(&root)
@@ -687,7 +793,7 @@ mod tests {
         let root = temp();
         let execution = compiler_fixture(&root);
         assert_eq!(
-            classify(
+            classify_with_fixture(
                 "functions.exec_command",
                 r#"{"cmd":"pwd","login":false}"#,
                 Some(&root)
@@ -825,7 +931,7 @@ mod tests {
         assert!(
             conflicts(
                 &a,
-                &classify(
+                &classify_with_fixture(
                     "functions.apply_patch",
                     &update("a.c", "return 0", "return 3"),
                     Some(&root)
@@ -857,7 +963,7 @@ mod tests {
         let root = temp();
         fs::write(root.join("a"), "alpha\nbeta\n").unwrap();
         let target = root.join("a").to_str().unwrap().to_owned();
-        let effect = classify(
+        let effect = classify_with_fixture(
             "functions.apply_patch",
             &update(&target, "beta", "BETA"),
             Some(&root),
