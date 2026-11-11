@@ -119,9 +119,13 @@ pub(super) fn supported(args: &[OsString]) -> bool {
 }
 
 pub(super) fn local_interactive(args: &[OsString]) -> bool {
+    local_interactive_with_environment(args, std::env::var_os("CODEX_EXEC_SERVER_URL").is_some())
+}
+
+fn local_interactive_with_environment(args: &[OsString], execution_server: bool) -> bool {
     super::shared_server::interactive(args)
         && supported(args)
-        && std::env::var_os("CODEX_EXEC_SERVER_URL").is_none()
+        && !execution_server
         && !args.iter().any(|arg| {
             arg.to_str().is_some_and(|arg| {
                 matches!(
@@ -141,12 +145,31 @@ pub(super) fn local_interactive(args: &[OsString]) -> bool {
         })
 }
 
-pub(super) fn capability_args(mut args: Vec<OsString>, available: bool) -> Vec<OsString> {
+pub(super) fn capability_args(args: Vec<OsString>, available: bool) -> Vec<OsString> {
+    capability_args_with_environment(
+        args,
+        available,
+        std::env::var_os("CODEX_TERMUX_CORE_ONLY").as_deref() == Some(OsStr::new("1")),
+        std::env::var_os("CODEX_EXEC_SERVER_URL").is_some(),
+    )
+}
+
+fn capability_args_with_environment(
+    mut args: Vec<OsString>,
+    available: bool,
+    core_only: bool,
+    execution_server: bool,
+) -> Vec<OsString> {
     if args
         .first()
         .is_some_and(|a| a == "__terminal-capabilities-v1")
     {
-        let native = available && supported(&args[1..]);
+        // This is a query about the eventual foreground invocation, not the
+        // query process's own TTY. Match the actual optional-frontend dispatch.
+        let native = available
+            && !core_only
+            && args.get(1).is_some_and(|arg| arg == "--")
+            && local_interactive_with_environment(&args[2..], execution_server);
         args.insert(1, if native { "native" } else { "title" }.into());
     }
     args
@@ -293,6 +316,48 @@ mod tests {
     }
 
     #[test]
+    fn terminal_capability_matches_core_only_and_remote_dispatch_boundaries() {
+        let resume = ["resume", "12345678-1234-1234-1234-123456789abc"];
+        let query = |argv: &[&str]| {
+            ["__terminal-capabilities-v1", "--"]
+                .into_iter()
+                .chain(argv.iter().copied())
+                .map(OsString::from)
+                .collect::<Vec<_>>()
+        };
+        for (available, core_only, execution_server, expected) in [
+            (true, false, false, "native"),
+            (false, false, false, "title"),
+            (true, true, false, "title"),
+            (true, false, true, "title"),
+            (true, true, true, "title"),
+        ] {
+            let result = capability_args_with_environment(
+                query(&resume),
+                available,
+                core_only,
+                execution_server,
+            );
+            assert_eq!(result[1], expected);
+            assert_eq!(result[2..], query(&resume)[1..]);
+        }
+        for argv in [
+            vec!["--remote", "unix:///owned/socket", "resume", resume[1]],
+            vec!["--remote=unix:///owned/socket", "resume", resume[1]],
+            vec!["--no-daemon", "resume", resume[1]],
+            vec!["--help"],
+            vec!["--version"],
+            vec!["exec", "owned"],
+            vec!["app-server"],
+        ] {
+            let original = query(&argv);
+            let result = capability_args_with_environment(original.clone(), true, false, false);
+            assert_eq!(result[1], "title", "{argv:?}");
+            assert_eq!(result[2..], original[1..]);
+        }
+    }
+
+    #[test]
     fn terminal_capability_uses_qualified_frontend_and_actual_supported_argv() {
         let query: Vec<OsString> = vec![
             "__terminal-capabilities-v1".into(),
@@ -301,7 +366,7 @@ mod tests {
             "owned".into(),
         ];
         for available in [true, false] {
-            let result = capability_args(query.clone(), available);
+            let result = capability_args_with_environment(query.clone(), available, false, false);
             assert_eq!(result[1], if available { "native" } else { "title" });
             assert_eq!(result[2..], query[1..]);
         }
@@ -313,7 +378,10 @@ mod tests {
         ] {
             let mut args = query.clone();
             args.push(flag.into());
-            assert_eq!(capability_args(args, true)[1], "title");
+            assert_eq!(
+                capability_args_with_environment(args, true, false, false)[1],
+                "title"
+            );
         }
         let ordinary = vec!["notify".into(), "show".into()];
         assert_eq!(capability_args(ordinary.clone(), true), ordinary);
