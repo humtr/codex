@@ -464,6 +464,36 @@ struct Invocation {
     native_input: Vec<Value>,
     #[serde(default)]
     effect: Option<Effect>,
+    #[serde(default)]
+    process_origin: Option<NativeProcessOrigin>,
+    #[serde(default)]
+    completed_session: Option<u64>,
+}
+// A terminal command item may arrive before its final write_stdin result.
+// Keep this evidence on the original receipt, never in a second session registry.
+#[derive(Clone, Serialize, Deserialize)]
+struct NativeProcessOrigin {
+    pid: u32,
+    start: String,
+    thread: String,
+    turn: String,
+}
+impl NativeProcessOrigin {
+    fn from_execution(execution: &native_effect::Execution) -> Self {
+        Self {
+            pid: execution.pid,
+            start: execution.start.clone(),
+            thread: execution.thread.clone(),
+            turn: execution.turn.clone(),
+        }
+    }
+    fn same_owner(&self, execution: &native_effect::Execution) -> bool {
+        self.pid == execution.pid
+            && self.start == execution.start
+            && self.thread == execution.thread
+            && !self.turn.is_empty()
+            && !execution.turn.is_empty()
+    }
 }
 impl Invocation {
     fn admission_effect(
@@ -570,6 +600,10 @@ struct ExternalEffectReceipt {
     // Minimal durable exit/session proof, not upstream output or secrets.
     #[serde(default)]
     completion: Option<ExternalCompletion>,
+    #[serde(default)]
+    process_origin: Option<NativeProcessOrigin>,
+    #[serde(default)]
+    completed_session: Option<u64>,
 }
 #[derive(Clone, Serialize, Deserialize)]
 struct ExternalCompletion {
@@ -622,6 +656,70 @@ impl ActiveEffects {
         Some(original.effect.clone())
     }
 }
+/// A completed session is observable only while its original receipt proves
+/// that output has not been collected. Native reuses numeric session IDs after
+/// removal: any later launch, terminal poll, unknown result or pending poll for
+/// that same owner/session invalidates this narrow observation path.
+fn completed_session_poll(
+    registry: &Registry,
+    state: &ActiveEffects,
+    lane: &str,
+    session: u64,
+    execution: &native_effect::Execution,
+) -> bool {
+    if state
+        .claims
+        .values()
+        .any(|claim| claim.lane == lane && claim.session_id == Some(session))
+    {
+        return false;
+    }
+    let mut originals = 0;
+    let mut completed = 0;
+    for call in registry
+        .turns
+        .values()
+        .filter(|turn| turn.lane == lane)
+        .flat_map(|turn| turn.calls.values())
+        .filter(|call| {
+            call.offered
+                && call
+                    .process_origin
+                    .as_ref()
+                    .is_some_and(|origin| origin.same_owner(execution))
+        })
+    {
+        let status = call.result.as_ref().map(native_process_result);
+        if call.name == "functions.exec_command" && status == Some((Some(session), false)) {
+            originals += 1;
+            completed += usize::from(call.completed_session == Some(session));
+        } else if continued_process(&call.name, &call.input) == Some(session)
+            && status != Some((Some(session), false))
+        {
+            return false;
+        }
+    }
+    for receipt in state.external.values().filter(|receipt| {
+        receipt.lane.as_deref() == Some(lane)
+            && receipt
+                .process_origin
+                .as_ref()
+                .is_some_and(|origin| origin.same_owner(execution))
+    }) {
+        let status = receipt
+            .completion
+            .as_ref()
+            .map(|result| (result.running, result.exited));
+        if receipt.name == "functions.exec_command" && status == Some((Some(session), false)) {
+            originals += 1;
+            completed += usize::from(receipt.completed_session == Some(session));
+        } else if receipt.continuation == Some(session) && status != Some((Some(session), false)) {
+            return false;
+        }
+    }
+    originals == 1 && completed == 1
+}
+
 fn external_effect_id(lane: &str, tool_id: &str) -> String {
     digest(&("upstream-native-effect-v1", lane, tool_id))
 }
@@ -1070,13 +1168,14 @@ impl Broker {
         let key = digest(&"native-effect-claims-v1");
         let mut state: ActiveEffects = self.journal.read(&key)?.unwrap_or_default();
         let mut ended = BTreeMap::<String, BTreeMap<String, u64>>::new();
+        let mut ended_turns = BTreeMap::<String, String>::new();
         let mut retired_settled = false;
         for (id, claim) in &state.claims {
             if !lanes.contains(&claim.lane.as_str()) {
                 continue;
             }
             if let Some(session) = claim.session_id {
-                if history.iter().any(|row| {
+                if let Some(row) = history.iter().find(|row| {
                     let item = &row["item"];
                     item["type"] == "commandExecution"
                         && item["id"].as_str().is_some_and(|native_id| {
@@ -1098,6 +1197,9 @@ impl Broker {
                         .entry(claim.lane.clone())
                         .or_default()
                         .insert(id.clone(), session);
+                    if let Some(turn) = row["turn_id"].as_str() {
+                        ended_turns.insert(id.clone(), turn.to_owned());
+                    }
                 }
                 continue;
             }
@@ -1138,6 +1240,70 @@ impl Broker {
                 }
                 retired_settled = true;
             }
+        }
+        for (lane, sessions) in &ended {
+            for (id, session) in sessions {
+                let claim = &state.claims[id];
+                if !matches!(claim.effect.claim_scope(), Effect::Paths(_)) {
+                    continue;
+                }
+                if let Some(token) = claim.turn_token.as_deref() {
+                    let mut turn = match registry.turns.get(token).cloned() {
+                        Some(turn) => turn,
+                        None => match self
+                            .journal
+                            .read::<Turn>(&digest(&("mcp-turn-v1", token)))?
+                        {
+                            Some(turn) => turn,
+                            None => continue,
+                        },
+                    };
+                    if turn.lane != *lane {
+                        continue;
+                    }
+                    let mut updated = false;
+                    for call in turn
+                        .calls
+                        .values_mut()
+                        .filter(|call| call.id == *id && call.offered)
+                    {
+                        if call.name == "functions.exec_command"
+                            && call
+                                .process_origin
+                                .as_ref()
+                                .is_some_and(|origin| ended_turns.get(id) == Some(&origin.turn))
+                            && call.result.as_ref().map(native_process_result)
+                                == Some((Some(*session), false))
+                        {
+                            call.completed_session = Some(*session);
+                            updated = true;
+                        }
+                    }
+                    if updated {
+                        self.persist(token, &turn)?;
+                        if registry.turns.contains_key(token) {
+                            registry.turns.insert(token.to_owned(), turn);
+                        }
+                    }
+                } else if let Some(receipt) = state.external.get_mut(id) {
+                    if receipt.name == "functions.exec_command"
+                        && receipt
+                            .process_origin
+                            .as_ref()
+                            .is_some_and(|origin| ended_turns.get(id) == Some(&origin.turn))
+                        && receipt.completion.as_ref().is_some_and(|result| {
+                            result.running == Some(*session) && !result.exited
+                        })
+                    {
+                        receipt.completed_session = Some(*session);
+                    }
+                }
+            }
+        }
+        // External receipts and the local mirror share one existing journal.
+        // Commit completion evidence before any process-shared claim release.
+        if !ended.is_empty() {
+            self.journal.write(&key, &state)?;
         }
         for (lane, sessions) in &ended {
             SharedNativeGuard::release_observed_processes(
@@ -1194,7 +1360,7 @@ impl Broker {
         workspace: &Path,
         execution: Option<&native_effect::Execution>,
     ) -> Result<(), Error> {
-        let _registry = self.registry.lock().await;
+        let registry = self.registry.lock().await;
         self.reconcile_persisted_integrated_receipts()?;
         if self.closed.load(Ordering::Acquire) {
             return Err(Error("mcp_turn_unavailable"));
@@ -1216,8 +1382,14 @@ impl Broker {
         let root =
             std::fs::canonicalize(workspace).map_err(|_| Error("native_workspace_unavailable"))?;
         let inherited_poll =
-            native_effect::qualified_session_poll(name, input, Some(&root), execution)
-                .and_then(|session| state.session_poll_scope(lane, session));
+            native_effect::qualified_session_poll(name, input, Some(&root), execution).and_then(
+                |session| {
+                    state.session_poll_scope(lane, session).or_else(|| {
+                        completed_session_poll(&registry, &state, lane, session, execution?)
+                            .then_some(Effect::Read)
+                    })
+                },
+            );
         let effect = inherited_poll.clone().unwrap_or_else(|| {
             native_effect::classify_with_execution(name, input, Some(&root), execution)
         });
@@ -1285,6 +1457,8 @@ impl Broker {
                 workspace: Some(root.clone()),
                 lane: Some(lane.into()),
                 completion: None,
+                process_origin: execution.map(NativeProcessOrigin::from_execution),
+                completed_session: None,
             },
         );
         if let Err(error) = self.journal.write(&key, &state) {
@@ -1932,6 +2106,11 @@ impl Broker {
                 result: None,
                 native_input: Vec::new(),
                 effect: Some(effect),
+                process_origin: turn
+                    .execution
+                    .as_ref()
+                    .map(NativeProcessOrigin::from_execution),
+                completed_session: None,
             },
         );
         self.persist(token, &next)?;
@@ -2068,9 +2247,9 @@ impl Broker {
     pub async fn offer(&self, token: &str) -> Result<Vec<Value>, Error> {
         let mut registry = self.registry.lock().await;
         self.reconcile_persisted_integrated_receipts()?;
-        let turns = &mut registry.turns;
-        let turn = turns
-            .get_mut(token)
+        let turn = registry
+            .turns
+            .get(token)
             .filter(|v| !v.retired)
             .ok_or(Error("mcp_turn_unavailable"))?;
         let mut next = turn.clone();
@@ -2099,7 +2278,23 @@ impl Broker {
                     next.workspace.as_deref(),
                     next.execution.as_ref(),
                 )
-                .and_then(|session| claims.session_poll_scope(&next.lane, session));
+                .and_then(|session| {
+                    claims.session_poll_scope(&next.lane, session).or_else(|| {
+                        (completed_session_poll(
+                            &registry,
+                            &claims,
+                            &next.lane,
+                            session,
+                            next.execution.as_ref()?,
+                        ) && !calls.iter().any(|offered: &Value| {
+                            continued_process(
+                                offered["name"].as_str().unwrap_or_default(),
+                                offered["input"].as_str().unwrap_or_default(),
+                            ) == Some(session)
+                        }))
+                        .then_some(Effect::Read)
+                    })
+                });
                 let effect = inherited_poll.clone().unwrap_or_else(|| {
                     call.admission_effect(next.workspace.as_deref(), next.execution.as_ref())
                 });
@@ -2243,7 +2438,7 @@ impl Broker {
             return Err(error);
         }
         if changed {
-            *turn = next;
+            registry.turns.insert(token.to_owned(), next);
             self.changed.notify_waiters();
         }
         Ok(calls)
@@ -5038,5 +5233,305 @@ mod native_concurrency_tests {
                 .unwrap();
             fs::remove_dir_all(root).unwrap();
         }
+    }
+    #[tokio::test]
+    async fn terminal_session_poll_after_observed_completion_does_not_block_on_a_sibling() {
+        let (root, journal, tools) = fixture();
+        let execution = native_effect::compiler_fixture(&root);
+        let broker = Broker::new(journal.clone());
+        let mut tokens = Vec::new();
+        let mut ids = Vec::new();
+        for (lane, session) in [("a", 51), ("b", 52)] {
+            fs::write(
+                root.join(format!("{lane}.c")),
+                "int main(void){return 0;}\n",
+            )
+            .unwrap();
+            let token = broker
+                .register_scoped(lane, tools.clone(), false, Some(&root))
+                .await
+                .unwrap();
+            broker
+                .bind_execution(&token, Some(execution.clone()))
+                .await
+                .unwrap();
+            let command = Arguments {
+                call_id: format!("compile-{lane}"), name: "functions.exec_command".into(),
+                input: json!({"cmd":format!("clang -O0 {lane}.c -o {lane}.out"),"workdir":root,"login":false}).to_string(),
+                report: String::new(),
+            };
+            let id = accepted(&broker, &token, &command).await;
+            broker.settle(&token, &[(id.clone(), json!({"output":format!("Process running with session ID {session}\nOutput:\n")}))]).await.unwrap();
+            tokens.push(token);
+            ids.push(id);
+        }
+        // Native can publish terminal command history between a running poll
+        // receipt and the next poll. This must retire the effect, while the
+        // original session's remaining output is still available to its owner.
+        broker.settle_native_processes(&["b"], &root, &[json!({"turn_id":execution.turn,"item":{
+            "id":ids[1],"type":"commandExecution","status":"completed","processId":"52","exitCode":0,"aggregatedOutput":null
+        }})]).await.unwrap();
+        let before = broker.effect_status("b").unwrap();
+        assert_eq!(before["unconfirmed_effects"], 1);
+        assert_eq!(before["shared"]["unconfirmed_effects"], 1);
+        let poll = Arguments {
+            call_id: "remaining-output".into(),
+            name: "functions.write_stdin".into(),
+            input: json!({"session_id":52,"chars":"","yield_time_ms":1000}).to_string(),
+            report: String::new(),
+        };
+        for (id, session, chars, target) in [
+            ("foreign-completed", 52, "", &tokens[0]),
+            ("unknown-completed", 53, "", &tokens[1]),
+            ("write-completed", 52, "x", &tokens[1]),
+        ] {
+            let rejected = Arguments {
+                call_id: id.into(),
+                input: json!({"session_id":session,"chars":chars}).to_string(),
+                ..poll.clone()
+            };
+            broker.enqueue(target, &rejected).await.unwrap();
+            assert!(broker.offer(target).await.unwrap().is_empty());
+            assert_eq!(
+                broker.invoke(target, rejected).await.unwrap()["error"],
+                "native_resource_busy"
+            );
+        }
+        let mut owner_changed = execution.clone();
+        owner_changed.start.push('0');
+        let mut thread_changed = execution.clone();
+        thread_changed.thread.push('x');
+        let mut hooks_changed = execution.clone();
+        hooks_changed.hook_free_tools.clear();
+        for (id, facts) in [
+            ("changed-owner", Some(owner_changed)),
+            ("changed-thread", Some(thread_changed)),
+            ("changed-hooks", Some(hooks_changed)),
+            ("missing-facts", None),
+        ] {
+            broker.bind_execution(&tokens[1], facts).await.unwrap();
+            let rejected = Arguments {
+                call_id: id.into(),
+                ..poll.clone()
+            };
+            broker.enqueue(&tokens[1], &rejected).await.unwrap();
+            assert!(broker.offer(&tokens[1]).await.unwrap().is_empty());
+            assert_eq!(
+                broker.invoke(&tokens[1], rejected).await.unwrap()["error"],
+                "native_resource_busy"
+            );
+        }
+        // A valid follow-up turn of the same Native owner retains the original
+        // receipt's turn identity. It does not transfer ownership to a new PID.
+        let mut following = execution.clone();
+        following.turn.push_str("-followup");
+        broker
+            .bind_execution(&tokens[1], Some(following.clone()))
+            .await
+            .unwrap();
+        {
+            let mut registry = broker.registry.lock().await;
+            let state: ActiveEffects = journal
+                .read(&digest(&"native-effect-claims-v1"))
+                .unwrap()
+                .unwrap();
+            assert!(completed_session_poll(
+                &registry, &state, "b", 52, &following
+            ));
+            let original = registry.turns[&tokens[1]].calls["compile-b"].clone();
+            assert_eq!(
+                original.process_origin.as_ref().unwrap().turn,
+                execution.turn
+            );
+            let mut duplicated = original.clone();
+            duplicated.id = "reused-session-owner".into();
+            duplicated.completed_session = None;
+            registry
+                .turns
+                .get_mut(&tokens[1])
+                .unwrap()
+                .calls
+                .insert("later-launch".into(), duplicated);
+            assert!(
+                !completed_session_poll(&registry, &state, "b", 52, &following),
+                "numeric session reuse cannot borrow the old completion proof"
+            );
+            registry
+                .turns
+                .get_mut(&tokens[1])
+                .unwrap()
+                .calls
+                .remove("later-launch");
+            registry
+                .turns
+                .get_mut(&tokens[1])
+                .unwrap()
+                .calls
+                .get_mut("compile-b")
+                .unwrap()
+                .process_origin = None;
+            assert!(
+                !completed_session_poll(&registry, &state, "b", 52, &following),
+                "legacy receipts without exact owner facts cannot acquire observation authority"
+            );
+            registry
+                .turns
+                .get_mut(&tokens[1])
+                .unwrap()
+                .calls
+                .insert("compile-b".into(), original);
+        }
+        broker.enqueue(&tokens[1], &poll).await.unwrap();
+        let queued = Arguments {
+            call_id: "zz-queued-duplicate".into(),
+            ..poll.clone()
+        };
+        broker.enqueue(&tokens[1], &queued).await.unwrap();
+        let offered = broker.offer(&tokens[1]).await.unwrap();
+        assert_eq!(offered.len(), 1, "verified completed own session must remain observable while an independent compiler runs");
+        assert_eq!(
+            broker.invoke(&tokens[1], queued).await.unwrap()["error"],
+            "native_resource_busy"
+        );
+        let competing = Arguments {
+            call_id: "pending-duplicate-poll".into(),
+            ..poll.clone()
+        };
+        broker.enqueue(&tokens[1], &competing).await.unwrap();
+        assert!(broker.offer(&tokens[1]).await.unwrap().is_empty());
+        assert_eq!(
+            broker.invoke(&tokens[1], competing).await.unwrap()["error"],
+            "native_resource_busy"
+        );
+        let id = offered[0]["id"].as_str().unwrap().to_owned();
+        let output = json!({"type":"function_call_output","call_id":id,"output":"Process exited with code 0\nOutput:\nremaining original output\n"});
+        broker
+            .settle(&tokens[1], &[(id, output.clone())])
+            .await
+            .unwrap();
+        assert_eq!(
+            broker.invoke(&tokens[1], poll.clone()).await.unwrap(),
+            output
+        );
+        let collected = Arguments {
+            call_id: "already-collected".into(),
+            ..poll
+        };
+        broker.enqueue(&tokens[1], &collected).await.unwrap();
+        assert!(broker.offer(&tokens[1]).await.unwrap().is_empty());
+        assert_eq!(
+            broker.invoke(&tokens[1], collected).await.unwrap()["error"],
+            "native_resource_busy"
+        );
+        assert_eq!(
+            broker.effect_status("b").unwrap()["shared"],
+            before["shared"]
+        );
+        assert!(broker.active_claim_ids(&["a"]).unwrap().contains(&ids[0]));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn terminal_session_poll_external_receipt_is_bound_and_expires_after_collection() {
+        let (root, journal, _) = fixture();
+        let execution = native_effect::compiler_fixture(&root);
+        let broker = Broker::new(journal.clone());
+        for (lane, session) in [("a", 51), ("b", 52)] {
+            fs::write(
+                root.join(format!("{lane}.c")),
+                "int main(void){return 0;}\n",
+            )
+            .unwrap();
+            let input = json!({"cmd":format!("clang -O0 {lane}.c -o {lane}.out"),"workdir":root,"login":false}).to_string();
+            broker
+                .admit_external_tool_with_execution(
+                    lane,
+                    "exec",
+                    "functions.exec_command",
+                    &input,
+                    &root,
+                    Some(&execution),
+                )
+                .await
+                .unwrap();
+            broker.settle_external_tools(lane, &[("exec".into(), json!({"output":format!("Process running with session ID {session}\nOutput:\n")}))]).await.unwrap();
+        }
+        broker.settle_native_processes(&["b"], &root, &[json!({"turn_id":execution.turn,"item":{
+            "id":"exec","type":"commandExecution","status":"completed","processId":"52","exitCode":0,"aggregatedOutput":null
+        }})]).await.unwrap();
+        let input = json!({"session_id":52,"chars":""}).to_string();
+        let mut unsafe_hooks = execution.clone();
+        unsafe_hooks.hook_free_tools.clear();
+        assert_eq!(
+            broker
+                .admit_external_tool_with_execution(
+                    "b",
+                    "unsafe",
+                    "functions.write_stdin",
+                    &input,
+                    &root,
+                    Some(&unsafe_hooks)
+                )
+                .await,
+            Err(Error("native_resource_busy"))
+        );
+        // External receipt proof survives a Provider instance restart without
+        // recreating a claim, command, owner or result.
+        let restored = Broker::new(journal);
+        restored
+            .admit_external_tool_with_execution(
+                "b",
+                "poll",
+                "functions.write_stdin",
+                &input,
+                &root,
+                Some(&execution),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            restored
+                .admit_external_tool_with_execution(
+                    "b",
+                    "pending",
+                    "functions.write_stdin",
+                    &input,
+                    &root,
+                    Some(&execution)
+                )
+                .await,
+            Err(Error("native_resource_busy"))
+        );
+        restored
+            .settle_external_tools(
+                "b",
+                &[(
+                    "poll".into(),
+                    json!({"output":"Process exited with code 0\nOutput:\noriginal remainder\n"}),
+                )],
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            restored
+                .admit_external_tool_with_execution(
+                    "b",
+                    "collected",
+                    "functions.write_stdin",
+                    &input,
+                    &root,
+                    Some(&execution)
+                )
+                .await,
+            Err(Error("native_resource_busy"))
+        );
+        let status = restored.effect_status("a").unwrap();
+        assert_eq!(status["unconfirmed_effects"], 1);
+        assert_eq!(status["shared"]["unconfirmed_effects"], 1);
+        assert!(restored
+            .active_claim_ids(&["a"])
+            .unwrap()
+            .contains(&external_effect_id("a", "exec")));
+        fs::remove_dir_all(root).unwrap();
     }
 }

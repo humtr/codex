@@ -77,6 +77,15 @@ or replace the original call identity. Nonempty stdin, unknown or foreign sessio
 ambiguous ownership and missing/legacy hook or scope proof retain conservative
 admission. A running poll preserves the claim; only the original terminal result
 releases it. Parallel execution must remain observable through these continuations.
+Native may commit a terminal command item before its last output is collected.
+Before releasing that original claim, retain its exact call/session, Native
+PID/start/thread and original turn evidence on the existing receipt. An empty
+hook-free observation may then retrieve that same uncollected Runtime output,
+including in a later turn of the same owner. It does not synthesize a result or
+recreate a process claim. Ambiguous/reused session identity, a changed owner,
+pending or unknown observations, a collected terminal result and missing legacy
+proof cannot grant this observation exception. Repeated original call IDs still
+return their immutable original receipts; a new call cannot reuse an expired proof.
 
 The implementation contract is scoped logical identity plus a payload
 fingerprint and durable intent/result. Use existing call_id, work/controller
