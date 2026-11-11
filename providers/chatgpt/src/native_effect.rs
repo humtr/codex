@@ -283,6 +283,51 @@ fn is_simple_read_command(input: &str) -> bool {
         && !path.split('/').any(|part| part == ".." || part.is_empty())
 }
 
+/// Empty stdin only observes an existing process. Unknown input fields, input
+/// bytes and missing session identity cannot inherit an earlier resource proof.
+pub(crate) fn empty_session_poll(tool: &str, input: &str) -> Option<u64> {
+    if tool != "functions.write_stdin" {
+        return None;
+    }
+    let value: serde_json::Value = serde_json::from_str(input).ok()?;
+    let fields = value.as_object()?;
+    if fields.keys().any(|key| {
+        !matches!(
+            key.as_str(),
+            "session_id" | "chars" | "yield_time_ms" | "max_output_tokens"
+        )
+    }) || fields
+        .get("chars")
+        .is_some_and(|chars| chars.as_str() != Some(""))
+        || ["yield_time_ms", "max_output_tokens"].iter().any(|key| {
+            fields
+                .get(*key)
+                .is_some_and(|value| value.as_u64().is_none())
+        })
+    {
+        return None;
+    }
+    fields
+        .get("session_id")?
+        .as_u64()
+        .filter(|session| *session > 0)
+}
+
+pub(crate) fn qualified_session_poll(
+    tool: &str,
+    input: &str,
+    workspace: Option<&Path>,
+    execution: Option<&Execution>,
+) -> Option<u64> {
+    let (root, facts) = workspace.zip(execution)?;
+    // Native schema 2's exec proof includes write_stdin's tool and permission
+    // hook aliases. A later turn must supply its own current proof as well.
+    facts
+        .permits_bounded_tool("exec_command", root)
+        .then(|| empty_session_poll(tool, input))
+        .flatten()
+}
+
 pub(crate) fn classify(tool: &str, input: &str, workspace: Option<&Path>) -> Effect {
     classify_with_execution(tool, input, workspace, None)
 }
@@ -511,6 +556,37 @@ pub(crate) fn conflicts(first: &Effect, second: &Effect) -> bool {
 mod tests {
     use super::*;
     use std::os::unix::fs::symlink;
+
+    #[test]
+    fn session_poll_requires_empty_known_input_and_current_exec_hook_proof() {
+        let root = temp();
+        let mut facts = compiler::hook_fixture(&root);
+        let input = serde_json::json!({"session_id":91,"chars":"","yield_time_ms":1000,"max_output_tokens":100}).to_string();
+        let check = |value: &str, execution: Option<&Execution>| {
+            qualified_session_poll("functions.write_stdin", value, Some(&root), execution)
+        };
+        assert_eq!(check(&input, Some(&facts)), Some(91));
+        assert_eq!(check(r#"{"session_id":91}"#, Some(&facts)), Some(91));
+        assert_eq!(check(&input, None), None);
+        for value in [
+            r#"{"session_id":91,"chars":"x"}"#,
+            r#"{"session_id":91,"chars":null}"#,
+            r#"{"session_id":0,"chars":""}"#,
+            r#"{"session_id":91,"signal":15}"#,
+            r#"{"session_id":91,"yield_time_ms":-1}"#,
+            r#"{"session_id":91,"max_output_tokens":"100"}"#,
+        ] {
+            assert_eq!(check(value, Some(&facts)), None, "{value}");
+        }
+        assert_eq!(empty_session_poll("functions.exec_command", &input), None);
+        facts.hook_free_tools.clear();
+        assert_eq!(check(&input, Some(&facts)), None);
+        facts.schema = 1;
+        assert_eq!(check(&input, Some(&facts)), None);
+        facts = compiler::hook_fixture(&root.join("other"));
+        assert_eq!(check(&input, Some(&facts)), None);
+        fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn hook_capable_tools_require_exact_native_proof_without_changing_patch_scope() {

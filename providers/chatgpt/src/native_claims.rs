@@ -725,7 +725,7 @@ impl Guard {
         tool: &str,
         input: &str,
         ledger: Ledger,
-        effect: Effect,
+        mut effect: Effect,
     ) -> Result<Self, String> {
         if thread.is_empty() || call_id.is_empty() || thread.len() + call_id.len() > 512 {
             return Err("native_effect_identity_invalid".to_owned());
@@ -745,12 +745,25 @@ impl Guard {
                 }
                 .to_owned());
             }
-            let continuing_owned = existing_session.is_some_and(|session| {
-                state
-                    .claims
-                    .values()
-                    .any(|held| held.thread == thread && held.session == Some(session))
+            let mut owners = state.claims.values().filter(|held| {
+                existing_session.is_some()
+                    && held.thread == thread
+                    && held.session == existing_session
             });
+            let original = owners.next();
+            let continuing_owned = original.is_some();
+            let inherited_poll = original.is_some_and(|held| {
+                native_effect::empty_session_poll(tool, input) == existing_session
+                    && owners.next().is_none()
+                    && matches!(held.effect.claim_scope(), Effect::Paths(_))
+                    && held.effect == effect
+            });
+            // The Broker supplied current hook proof; recheck the exact
+            // original scope/session under the shared lock. Never invent a
+            // fresh path scope for an unknown or ambiguous continuation.
+            if existing_session.is_some() && matches!(effect, Effect::Paths(_)) && !inherited_poll {
+                effect = Effect::Opaque;
+            }
             if state.claims.values().any(|held| {
                 native_effect::conflicts(effect.admission_scope(), held.effect.claim_scope())
                     && !(continuing_owned
@@ -759,7 +772,11 @@ impl Guard {
             }) {
                 return Err("native_resource_busy".to_owned());
             }
-            native_effect::can_offer(&effect, &workspace).map_err(str::to_owned)?;
+            if !inherited_poll {
+                // Outputs may already have changed since the original launch.
+                // A pure poll does not start that command a second time.
+                native_effect::can_offer(&effect, &workspace).map_err(str::to_owned)?;
+            }
             if continuing_owned {
                 Ok((true, false))
             } else {
@@ -1531,6 +1548,103 @@ mod tests {
             .as_deref(),
             Some("native_effect_duplicate_unconfirmed")
         );
+        fs::remove_dir_all(cwd).unwrap();
+        fs::remove_dir_all(home).unwrap();
+    }
+
+    #[test]
+    fn session_poll_rechecks_exact_shared_owner_and_original_scope_under_lock() {
+        let cwd = root();
+        let home = root();
+        let facts = native_effect::compiler_fixture(&cwd);
+        let ledger = Ledger::at(&cwd, &home).unwrap();
+        let mut scopes = Vec::new();
+        for (lane, session) in [("a", 51), ("b", 52)] {
+            fs::write(cwd.join(format!("{lane}.c")), "int main(void){return 0;}\n").unwrap();
+            let input = serde_json::json!({"cmd":format!("clang -O0 {lane}.c -o {lane}.out"),"workdir":cwd,"login":false}).to_string();
+            let effect = native_effect::classify_with_execution(
+                "functions.exec_command",
+                &input,
+                Some(&cwd),
+                Some(&facts),
+            );
+            assert!(matches!(effect, Effect::Paths(_)));
+            let mut guard = Guard::begin_effect(
+                &cwd,
+                lane,
+                "build",
+                "functions.exec_command",
+                &input,
+                ledger.clone(),
+                effect.clone(),
+            )
+            .unwrap();
+            guard.observed(Some(&serde_json::json!({"output":format!("Process running with session ID {session}")}))).unwrap();
+            scopes.push(effect);
+        }
+        let before = fs::read(ledger.directory.join("claims.json")).unwrap();
+        for (owner, session, chars, scope) in [
+            ("foreign", 51, "", &scopes[0]),
+            ("a", 52, "", &scopes[0]),
+            ("a", 51, "x", &scopes[0]),
+            ("a", 51, "", &scopes[1]),
+            ("a", 99, "", &scopes[0]),
+        ] {
+            let input = serde_json::json!({"session_id":session,"chars":chars}).to_string();
+            assert_eq!(
+                Guard::begin_effect(
+                    &cwd,
+                    owner,
+                    "invalid-poll",
+                    "functions.write_stdin",
+                    &input,
+                    ledger.clone(),
+                    scope.clone()
+                )
+                .err()
+                .as_deref(),
+                Some("native_resource_busy")
+            );
+            assert_eq!(
+                fs::read(ledger.directory.join("claims.json")).unwrap(),
+                before
+            );
+        }
+        fs::write(cwd.join("a.out"), "original process output").unwrap();
+        let input = r#"{"session_id":51,"chars":""}"#;
+        let mut poll = Guard::begin_effect(
+            &cwd,
+            "a",
+            "poll",
+            "functions.write_stdin",
+            input,
+            ledger.clone(),
+            scopes[0].clone(),
+        )
+        .unwrap();
+        assert_eq!(
+            fs::read(ledger.directory.join("claims.json")).unwrap(),
+            before,
+            "poll must preserve original claim identity and scope"
+        );
+        poll.observed(Some(
+            &serde_json::json!({"output":"Process running with session ID 51"}),
+        ))
+        .unwrap();
+        assert_eq!(
+            fs::read(ledger.directory.join("claims.json")).unwrap(),
+            before
+        );
+        poll.observed(Some(
+            &serde_json::json!({"output":"Process exited with code 0"}),
+        ))
+        .unwrap();
+        let state = ledger.read_state().unwrap();
+        assert_eq!(state.claims.len(), 1);
+        assert!(state
+            .claims
+            .values()
+            .all(|entry| entry.thread == "b" && entry.session == Some(52)));
         fs::remove_dir_all(cwd).unwrap();
         fs::remove_dir_all(home).unwrap();
     }
