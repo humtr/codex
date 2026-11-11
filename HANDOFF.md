@@ -19,7 +19,7 @@ handoff does **not** silently drop them.
   checked `7b98296a411a2c435bb9f34ee51f286f33f3491b`. Query live HEAD,
   source changes, actual local checkout, competing worktrees and release
   authority before implementing. `main` is a separate publication/approval
-  line, last read at `dc6930465ce309ea13b69ab4057a07a446cc84e1`.
+  line, last read at `b2567063d2a7a333a718d2495e2c9f8c928d822c`.
 - `integration/codex-native-20261110` at `a55d5bb8` was already integrated.
   [PR #29](https://github.com/humtr/codex/pull/29) was merged as
   `afdfb8bd7e57`; W7 is **done as source merge**, not pending. Its alias
@@ -38,13 +38,15 @@ handoff does **not** silently drop them.
   before phase-1 review/approval. Preserve its detailed W0–W14 DAG,
   source owners and input/proof contracts as review inputs.
 - The primary Termux checkout `/data/data/com.termux/files/home/prj/codex`
-  was **not at remote HEAD** during the read-only preflight: local
-  `rewrite/rust-core` was at `27103ec06b1c` and had modifications to
-  `providers/chatgpt/src/native_claims.rs` plus untracked
-  `ais.config.toml`, `chatgpt.config.toml` and
-  `providers/chatgpt/src/accounts.rs`. Do not reset, clean, checkout,
-  overwrite, stage or commit those assets. Local worktree branches are not
-  evidence of integrated remote changes.
+  is **not at remote HEAD**: local `rewrite/rust-core` now has the
+  **committed** Native claim fix `e4f9ab5dc3045cbde8317774da95eb98db7646dd`.
+  A separate local feature branch `feat/termux-mcp-shell-20261111` at
+  `c0a8189815c70f0c6678bc9374bcd352423dca57` owns the independently
+  installed single-tool Termux MCP worker. Neither patch is integrated into
+  remote `rewrite/rust-core`. Untracked `ais.config.toml`,
+  `chatgpt.config.toml` and `providers/chatgpt/src/accounts.rs` remain
+  protected; never reset, clean or stage them without their owner's grant.
+  Local operating service deployment is not a Git source merge.
 
 ## Two distinct authorization stages
 
@@ -86,9 +88,10 @@ before such a push.
   signing sequence. Break the metadata-shape → composition → final-sign
   admission dependency cycle. Never retrospectively rename signed 0.167.0.
 - **W6/W8:** Retain functional-ID mapping and the real 0.167.1 TUI
-  `pin_action_updates_shared_section_state` positive assertion. Its past
-  failure is not an intentional mutation-negative success; refresh status
-  of exact-source TUI qualification and repair without skipping tests.
+  `pin_action_updates_shared_section_state` positive assertion. The older
+  `f9dfc3f` run failed, while [the exact `7b98296a` TUI Native run](https://github.com/humtr/codex/actions/runs/43013363622)
+  **subsequently completed successfully**; use the newer receipt and do
+  not reclassify CI as real device/model acceptance.
 - **W7:** **Already source-merged** Core derived `current` alias (#29);
   only verify current-source and install/rollback compatibility. Never
   backport into immutable Full163 or assume Core S164 was activated.
@@ -99,18 +102,30 @@ before such a push.
 - **W10:** Independent final CI, signed/public release and device gate.
   No grant to run those actions during phase-1 or automatically in phase-2.
 - **W11/W12/W13/W14:** Compact truthful `codex update` default/details,
-  Base-capable offline `codex termux version` while preserving byte-exact
+  Core-capable offline `codex termux version` while preserving byte-exact
   upstream `--version`, accurate expected no-bwrap Doctor classification,
-  and retained CLI/Doctor/update/rollback regression oracles.
+  and retained CLI/Doctor/update/rollback regression oracles. **Known
+  source/UX defect:** `[1] Keep current` and `[q] Keep current` duplicate
+  the same choice. When installed edition is Full, local 0.167.1 Core
+  construction is currently rejected by a *same-version enhanced TUI*
+  guard. Design the user-facing **Core / Full** distinction: executable
+  Core needs its qualified upstream Runtime Bundle, but a Core-only
+  upgrade/selection must not require Manager or enhanced TUI. Preserve
+  previous Full generation, and qualify optional TUI cross-version
+  combinations rather than forcing unsafe pairing or blocking Core.
 
 **New independent owners proposed for phase-1 evaluation:**
 
 - **W15 — Native effect settlement, recovery and availability.** The
-  2026-11-11 local incident is root-caused and operationally reclaimed,
-  but its `native_claims.rs` regression fix is **uncommitted / absent from
-  remote HEAD**; preserve it, verify against current source, then address
-  broader Stop/Owner-loss/ACK unknown, unrelated work availability and
-  bounded Busy diagnostics with real receipts.
+  `write_stdin` continuation leak was root-caused, specifically reconciled
+  and fixed in **local committed** `native_claims.rs` `e4f9ab5d`. A
+  pre-fix operating Provider caused one recurrence; the repaired operating
+  service is now running, actual Native fresh/same-work/new-work execution
+  was verified, and the local 15-case claim suite passed. **Do not reopen
+  the solved P0 as an unknown cause or demand another blanket Stop.**
+  Still open: safe integration into the remote source, exact deployed
+  binary provenance, and separate Owner-loss/ACK-unknown/concurrency
+  and actionable diagnostic acceptance.
 - **W16 — Termux notification / terminal binding.** Reuse existing
   Manager terminal focus/create paths and TUI's actual resume/observe
   contract. Verify exact existing terminal selection, headless thread
@@ -121,16 +136,23 @@ before such a push.
   Linux-app inference auth, upstream CLI auth, original Chat account/branch
   ownership and Native writer authority. Do not rewrite existing model IDs,
   `model_provider`, stored thread choices or credentials without proof.
-- **W18 — Independent Termux host diagnostic/recovery entrance.** The
-  source already implements standalone `local_context`, `local_execute`,
-  `local_process`, but currently exposed `@TermuxBridge` has no such
-  tools, and `local_execute` itself calls
-  `SharedNativeGuard::offer_external` using the same ledger as Native
-  calls. Merely listing it first **cannot** recover a stuck shared claim.
-  Investigate a first-class, authenticated **out-of-band host diagnostic**
-  plus narrowly authorized recovery path that works when Native admission
-  is stuck, without creating an unrestricted second Native executor.
-  See the revised brief for threat model, proposal and acceptance.
+  The newly refreshed connector's available tools are **proven**, but
+  the live Linux app principal being **`janmori101`** is **not yet proven**.
+  A historical `janmori101` desktop descriptor referred to a dead PID;
+  do not treat matching profile directory/connector name as authentication.
+  Verify the account/workspace against the actual app instance without
+  changing the user's login or reusing `wrlab` credentials.
+- **W18 — Independent Termux MCP shell worker.** The user's accepted
+  design is **one** first-listed `termux_shell` with broad Termux app-UID
+  capability, existing common annotations and recovery as the priority
+  but not the only authorized use. It is independent of Native/Core
+  claims and does not take over the Codex reasoning/history/approval
+  ledger. Its operating tool-list and actual shell call are **already
+  accepted** (see CURRENT); do not duplicate the installation or add a
+  `termux_shell_receipt` action. Still open: integrate local `c0a81898`
+  and its actual refresh-script delta into the approved development
+  source, prove the `janmori101` account boundary, and test stuck-Native
+  command/receipt continuity without introducing another Native writer.
 
 Cross-cutting branch decision belongs to W0/W9 (one regular development
 source, `main` vs development/approval responsibility), not a permanently
@@ -207,7 +229,13 @@ source reading is not proof of safe parallel Native effects.
    CI/unsigned vs signed/public vs device gates **separately**.
 
 Use the user's original 45-section instruction and revised review brief
-for the full phase-1 report topics and phase-2 success criteria.
-Report real commit/receipt/failed boundary and request phase-2 approval.
+for the full phase-1 report topics and phase-2 success criteria. **Do not
+repeat achieved operating P0 or MCP tool refresh as pending acceptance**;
+W15 and W18 remain open for **remote source integration**, independent
+full-path qualifications and the still-unverified account/owner boundaries.
+Do not interpret this documentation approval as phase-2 release-framework
+implementation permission, an automatic CI-dispatch grant, or a license to
+alter user accounts. Report real commit/receipt/failed boundary and request
+phase-2 approval.
 Retire items from HANDOFF on accepted proof; preserve history in Git,
 not another permanent chronicle.

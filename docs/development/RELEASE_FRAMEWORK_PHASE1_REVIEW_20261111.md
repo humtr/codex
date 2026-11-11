@@ -44,14 +44,14 @@ migration, service restarts and historical DB repair.
 
 | Old plan statement | Current correction |
 | --- | --- |
-| Integration begins at `refactor/docs-contract-20261110` / `0aebdd7f` | Remote developer source is `rewrite/rust-core` `7b98296a`; local root was at older dirty `27103ec`. Do not overwrite either owner. |
+| Integration begins at `refactor/docs-contract-20261110` / `0aebdd7f` | Remote developer source is `rewrite/rust-core` `7b98296a`; local root is now `e4f9ab5d` with a committed Native patch plus protected unrelated untracked files. Do not overwrite either owner. |
 | PR #29 pending integration (W7) | PR #29 is already merged as `afdfb8bd7e57`. W7 is source-integration complete; verify affected 0.167.1+ proofs and never rewrite signed Full163. |
 | Signed LKG Full163 only | Signed 0.167.0 **Full163** and newer separately published **Core 0.167.1 S164** both exist. Neither proves the currently selected handset generation or a new Full release. |
-| Positive 0.167.1 TUI pin test failure | Older `f9dfc3f` run failed; new `7b98296a` TUI run was in progress when read. Do not predeclare pass or fail. |
+| Positive 0.167.1 TUI pin test failure | Older `f9dfc3f` run failed; [the newer `7b98296a` TUI Native qualification](https://github.com/humtr/codex/actions/runs/43013363622) completed **successfully**. This is CI, not installed device/model proof. |
 | W0–W14 documents already integrated | Local `3ef675ad` 13-document (+499/-6) plan remains in a separate worktree and is not integrated; review its actual `RELEASE_FRAMEWORK_IMPLEMENTATION`, `QUALIFICATION` and `UPDATE_DISPLAY` contents. |
-| Native Busy root cause unknown | The user provided a concrete `write_stdin` continuation/`Opaque` settlement cause and successful ledger cleanup/Native execution; local fix and regression are verified as **uncommitted**, absent from remote integration. |
-| "No Termux shell capability" | `local_context`, `local_execute` and `local_process` exist in Provider source, but are absent from the connected Bridge catalog; `local_execute` reserves the same shared claim and cannot serve as the emergency bypass. |
-| `main` may be ordinary developer mainline | `main` currently has separate Git ancestry and owns accepted release/publication refs, last `dc693046`. Preserve its role pending the evidence-based A/B branch decision. |
+| Native Busy root cause unknown | The `write_stdin` continuation/`Opaque` settlement defect is fixed in **committed local `e4f9ab5d`**. A pre-fix operating Provider caused a repeat, then was replaced/restarted; Native B/C/D and the 15-case claim regression passed. Remote integration and other effect lifecycles remain open. |
+| "No Termux shell capability" | The independently implemented **one-tool `termux_shell`** is committed locally as `c0a81898`, installed in a separate Termux MCP worker process and exposed as the **first of 18 tools** in this very Chat. A real direct shell call succeeded with exit 0; its source is not yet integrated remotely. |
+| `main` may be ordinary developer mainline | `main` has separate Git ancestry/publication authority, last `b2567063`. Preserve this real owner pending the evidence-based A/B branch decision. |
 
 ## Preserve W0–W14: exact questions and corrected DAG
 
@@ -85,9 +85,10 @@ migration, service restarts and historical DB repair.
 - **W7:** Source-merged #29: read/compatibility/rollback negative
   verification only. The compatibility `current` alias is derived,
   never a trust/activation authority.
-- **W8:** Isolate real `pin_action_updates_shared_section_state`
-  positive failure and exact TUI current-source qualification.
-  Do not skip/rename the assertion merely to pass.
+- **W8:** The older `pin_action_updates_shared_section_state` positive
+  failure must be distinguished from the **success** of the exact
+  `7b98296a` TUI Native CI run. Do not skip/rename the assertion;
+  installed same-thread two-model-turn acceptance remains separate.
 - **W9a:** Study the actual local 3ef draft normative contracts,
   including QUALIFICATION and UPDATE_DISPLAY, then propose minimal
   SPEC/annex/INDEX/TEST_DEPENDENCIES adjustments. Do NOT merge
@@ -99,12 +100,17 @@ migration, service restarts and historical DB repair.
   public readback, Base/Full index promotion and controlled handset
   activation/rollback. Historical full 0.167.0 remains immutable.
 - **W11:** Compact truthful `codex update` default progress, no-op,
-  changed-component and failure output. Preserve actual `--details`,
+  changed-component and failure output. Remove duplicated keep-current
+  choices (`1`/`q`) and avoid applying the Full enhanced-TUI version
+  requirement to Core-only build/selection. Preserve actual `--details`,
   signing, rollback and no-publish-before-gate behavior.
-- **W12:** Core-owned offline `codex termux version` for Base without
-  Manager; same typed authenticated local component view as W11,
-  default/`--details`/`--json`, no duplicated registry.
-  `codex --version` and `-V` remain upstream-byte-identical.
+- **W12:** Core-owned offline `codex termux version` and explicit
+  **Core / Full** user-facing edition distinction; Core execution
+  requires a qualified upstream Runtime Bundle but not Manager or the
+  enhanced TUI. Full's optional incompatible TUI must not block a
+  qualified Core-only 0.167.1 path. Reuse W11's authenticated local
+  component view, no duplicate registry; retain upstream-byte-identical
+  `codex --version` / `-V`.
 - **W13:** Expected default Termux no-bwrap is information, whereas
   explicit unsupported sandbox requests and real SQLite/JSONL
   discrepancies remain distinct errors.
@@ -128,10 +134,10 @@ W10 is the separate hard-stop release/device gate. No circular
 
 | ID | Owning change/relationship | Precedence and required test |
 | --- | --- | --- |
-| **W15** Native shared-effect safe settlement | Provider `native_claims.rs` and original broker/host/tool receipts. Incorporates known local uncommitted 4-line behavior correction plus regression test after rebase, then review Controller/Owner loss, real process exit, ACK unknown and unrelated work. **Before** W15 end-to-end Native effects, W17 live model and W16 headless execution. Tests: 15 claim cases, actual B/C/D receipts, Stop/Stop Tree, uncertain-result no replay, safe conflicts and independent jobs. |
+| **W15** Native shared-effect safe settlement | Local `native_claims.rs` `e4f9ab5d` is **committed**, the specific leak was operationally settled and the Provider restarted on repaired code; B/C/D Native receipts and 15/15 claim tests are accepted. **Remaining**: integrate exact source into remote development and verify deployed artifact provenance, Controller/Owner loss, ACK unknown, unrelated/parallel work, Stop Tree and safe conflict isolation. Native availability is restored for ordinary acceptance, not globally proved for all fault states. |
 | **W16** Notification-to-terminal continuity | Manager notification/focus, terminal/RunCommandService, TUI resume/observe, Provider work identity. Existing exact terminal selection first; create once for headless; tap and auto-open race/idempotency; Android foreground/background restrictions; correct original thread without new inference or authority transfer. Can develop UI/Manager synthetic path in parallel with W15; real headless Native acceptance follows restored availability. |
-| **W17** Provider account/model/auth and compatibility | Actual `registration`, `accounts`, TUI routing and saved Native model/provider metadata. Contrast `chatgpt_desktop` vs `chatgpt_linux` plus retaining ID/display-only. No unsupported model-prefix rewrite; validate Linux AppHost auth independent from ordinary Codex `auth.json`, original Chat/account/workspace rights, attached vs submitted inference. Static tests can precede W15; real model roundtrip follows it. |
-| **W18** Termux host control/recovery entrance | Bridge + Provider `local.rs`, host execution/permission owner, shared-claim admission and separate service health. Existing standalone `local_*` is not sufficient while sharing the claim ledger. Design read-only diagnostic outside Native execution claims and a narrowly authorized evidence-backed recovery operation that functions during stuck Native admission. Requires W0 security/architecture proof; must not create silent unrestricted second writer. |
+| **W17** Provider account/model/auth and compatibility | Actual `registration`, `accounts`, TUI routing and saved Native model/provider metadata. Contrast `chatgpt_desktop` vs `chatgpt_linux` plus retaining ID/display-only. No unsupported model-prefix rewrite. New MCP connector refresh and shell execution **do not prove** the Linux app is authenticated as `janmori101`; establish real app account/workspace ownership separately from `wrlab`, ordinary Codex `auth.json`, attached/submitted inference and Native execution-home. |
+| **W18** Independent Termux MCP shell | **Operating implementation already complete** in local `feat/termux-mcp-shell-20261111` / `c0a81898`: a single first-listed `termux_shell` is served by its own Termux app-UID MCP worker, independent of Native/Core/effect claims. Broad shell capability follows the user's actual task instructions; recovery is its initial focus but not the exclusive use. Reused `call_id`/same arguments resolve original shell results; there is no second receipt tool or separate model/history ledger. Existing shared annotations remain unchanged. The Linux app refreshed 17→18 actions and this Chat executed the actual shell. **Remaining**: approved source integration, actual `janmori101` principal validation and fault/owner tests without recreating the connector. |
 
 **New planning LoC must be broken out** by actual source owner,
 test/fixture, changes and shared overlap. The original **W0–W14
@@ -139,63 +145,59 @@ test/fixture, changes and shared overlap. The original **W0–W14
 are reference estimates, not a new total. The earlier Android
 terminal proposal was **260–520 product + 230–420 test LoC**,
 not an automatically additive unique budget. For W15, the
-locally verified first fix is a small focused diff plus one
-24-line regression but wider guarantee is not yet scoped;
+locally committed first fix is a focused behavior change plus its
+regression; it is operating-recovered but remotely unmerged and
+wider effect guarantees are not yet scoped;
 W17 may be **0** implementation lines if preserving the
 existing Provider ID is correct. Re-estimate W18 only after
 the authenticated host-boundary design and avoid double counting
 W15 with R05 or W16 with W3/TUI.
 
-## Termux host shell: primary discovery is justified; bypass is conditional
+## Termux host MCP shell — proven operating entrance and remaining source boundary
 
-**Current fact:** Source `providers/chatgpt/src/local.rs` implements
-`local_context/local_execute/local_process` only with a configured
-`execution.standalone_permission_profile`. It launches process I/O
-via prepared Native/Core services and **reserves the identical
-`SharedNativeGuard::offer_external` ledger** before execution.
-The connected `@TermuxBridge` catalog did not expose those tools.
-This is an alternate local development workflow, **not** a
-guaranteed break-glass shell when the Provider/Native ledger wedges.
+The user selected **one first-class, broadly capable Termux app-UID
+shell tool**, `termux_shell`, with **recovery as the initial objective,
+not a permanent purpose limitation**. It must be usable while Native
+claims or Core/Provider model execution are blocked. It does not take
+ownership of the Codex reasoning, approval, transcript or Native effect
+ledger, nor does it override an actual user instruction. The tool is
+listed first, retains existing common MCP tool annotations exactly and
+needs no separate `termux_shell_receipt` action. Matching stable
+`call_id` and argument identity returns its stored original shell
+receipt without executing the command again.
 
-**Preferred phase-1 recommendation:**
+This is **implemented and operating**, not a hypothetical "read-only
+`termux_status` first, `termux_recover` second" design. Source:
+local `c0a81898`, `providers/chatgpt/src/termux_shell.rs`,
+`termux_mcp_worker.rs`, and the stdio routing in `runtime.rs`.
+Running binary lives in the Termux-only
+`~/.local/lib/codex/termux-mcp-worker/generations/` tree and the
+active `mcp-stdio` entrypoint is separately backed up. The
+Provider's older `local_execute` still uses
+`SharedNativeGuard::offer_external` and is **not** this independent
+MCP shell.
 
-1. Put a **host environment and resource diagnostic entrypoint**
-   first in Bridge discoverability for Termux users: identity,
-   connection, process/owner/lease observation, Core/Provider
-   status, claims/receipts and terminal availability, with strict
-   redaction and no inference or Native work allocation.
-2. Reuse `local_*` for normal Core-profile process execution when
-   its permission and shared-effect model applies. Do not silently
-   bypass arbitrary Native conflict protection for normal writes.
-3. Add the smallest **independently authenticated host recovery
-   path** that does not require successfully acquiring a Native
-   turn/Controller/effect. A repair can only target a proven
-   stale claim after process-PID/start-time and original
-   result/ACK/owner checks. Gate any mutation through an explicit
-   user-allowed capability; hold the same file lock, preserve a
-   private backup and use atomic revision. Preserve uncertain
-   effects; no global `rm`/kill/force-stop.
-4. If truly general-purpose direct Termux shell is necessary for
-   authorized host maintenance, use a separately permissioned
-   trusted local service / user-selected execution grant; never
-   make that authority available merely from a ChatGPT model
-   connection. Bound scope by Termux UID and actual caller,
-   command/argv authorization, execution time, output size and
-   audit receipts; block credential exfiltration/cross-account
-   access. The shell must remain operable when Native claims
-   are stuck but may not become another Native writer.
-5. Prove with a **deliberately orphaned claim**: diagnostic still
-   works; ordinary competing Native tool still safely denies;
-   unauthenticated caller and unapproved repair deny; valid
-   proof-backed recovery settles only the stale identity;
-   subsequent original Native tool executes; concurrent real
-   effect never loses its ownership. Also test Provider/AppHost
-   offline and Android/Termux restart behavior.
+Operating evidence: the local Termux AI reported a controlled
+`codex-chatgpt-tunnel` restart, verified Linux ChatGPT app
+`refresh_actions` `ok: true`, query cache refresh and **17 → 18
+actions**. Independently, the active stdio wrapper returned one
+`termux_shell` first and all original Codex tools, and **this Chat**
+directly called `@TermuxBridge.termux_shell`:
+`DIRECT_TERMUX_MCP_OK`, exit **0**. All these are stronger
+proof than a local build alone; they are not proof of a live
+`janmori101` account without checking the current authenticated
+Linux app. The 6ad4… connector line and historical
+`janmori101` 6ae9… line must be distinguished by actual identity.
 
-Whether this is exposed as a first-listed `termux_status` plus
-`termux_recover` (recommended) or a broader audited `termux_exec`
-is a phase-1 architecture decision, not an automatically approved
-permission escalation.
+**Still required:** integrate the existing local implementation into
+the single formally approved development baseline; preserve original
+Provider/Native ownership and existing MCP metadata; validate
+fail-closed caller/account boundaries and independent command access
+during an intentionally stuck Native admission, including original
+receipt and no duplicate effects. Do not repeat finished tool
+installation as an unresolved prerequisite. No new permanent shell
+manager, duplicate Native execution journal or duplicate connector
+is called for by this accepted design.
 
 ## Provider, Native, Manager and Android boundaries
 

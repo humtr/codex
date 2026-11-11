@@ -121,6 +121,44 @@ MCP 명령, 커넥터가 가리키는 터널과 Native가 확인한 실행 설�
 재시도하는 복구기를 넣지 않는다. 승인된 작업 범위에서 플러그인 생성·교체가
 필요하면 아래 절차를 따른다.
 
+## 독립 Termux MCP 셸 도구
+
+`@TermuxBridge`에는 `termux_shell` **하나만** 등록한다. 이 도구는 Termux
+앱 UID 권한으로 실행되는 별도의 MCP stdio 워커이며, Codex Native
+스레드·Core/Provider 실행·공유 Native 효과 원장의 점유를 선행 조건으로
+요구하지 않는다. 최초 사용 목적은 장애 복구이지만, 사용자 지시에 따른
+일반 Termux 로컬 작업도 지원한다. 모델의 지시·판단·Native 세션·승인·대화
+및 도구 실행 이력의 정식 권한은 Codex Native 계층에 그대로 둔다. MCP
+어노테이션은 기존 다른 도구와 같은 공통 정책을 유지한다.
+
+소스 소유권은 `providers/chatgpt/src/termux_shell.rs`,
+`termux_mcp_worker.rs`와 `runtime.rs`의 stdio 분기다. 실제 운영 경로는
+`~/.local/lib/codex/termux-mcp-worker/generations/` 아래의 특정 세대
+바이너리와 `~/.local/state/codex/providers/chatgpt/mcp-stdio` 실행 래퍼다.
+`termux_shell_receipt`라는 별도 MCP 도구는 만들지 않는다. 결과 전달이
+불확실한 경우 **같은 `call_id` 및 같은 인자**로 원래 실행 영수증을
+확인하고, 새 ID로 실행을 재제출하기 전에 기존 OS 효과를 정산한다.
+
+설치한 바이너리가 새 버전이어도 이미 실행 중인 터널의 stdio 자식
+프로세스가 구형 바이너리일 수 있다. 현재 서비스·프로세스 소유권과
+미정산 요청을 먼저 검사한 뒤 필요한 경우 **해당** runit 터널만
+정식으로 재기동한다. 기존 Provider/Native 서비스, 인증 계정·프로필,
+서명된 Codex 설치판을 도구 목록 새로고침 때문에 교체하지 않는다.
+
+앱에 등록된 MCP 액션은 로컬 래퍼 교체만으로 갱신되지 않는다. 현재
+Linux ChatGPT 앱에서 실제 인증된 계정·워크스페이스와 연결된 커넥터,
+터널 ID를 대조하고 기존 `refresh_actions` / 앱 캐시 갱신 경로를 사용한다.
+도구 목록에 `termux_shell`이 **첫 번째로 한 번만** 나타나고 기존
+`codex_sessions` 등의 작업 도구가 남아 있는지 검사한 뒤, **같은
+ChatGPT 대화에서 실제 `termux_shell`을 호출하여 stdout·종료 코드**
+까지 확인한다. 테스트를 위해 새 커넥터를 중복 생성하거나 타 계정
+앱의 PID·세션 경로를 재사용하지 않는다.
+
+개발에서 검증된 로컬 바이너리, 실행 중인 stdio 워커, 앱의 등록된
+도구 스키마, 실제 ChatGPT 호출 성공과 해당 구현의 Git 원격
+소스 통합은 각각 별도의 상태다. 완료·미완료의 실제 증거는
+[CURRENT](../../CURRENT.md) 한 곳에 기록한다.
+
 ## 플러그인 생성과 교체
 
 여기서 플러그인 생성은 MCP 서버 연결을 등록하는 작업이고, 갱신은 기존 연결의 도구 정보를

@@ -1,173 +1,180 @@
 # Current product state
 
-Updated: 2026-11-11 KST. **Read-only evidence, status and limits only.**
-Product contracts: [SPEC](SPEC.md) and owning annexes; pending
-work: [HANDOFF](HANDOFF.md). Statements from another AI's device
-report are explicitly distinguished from direct source/CI checks.
-This document authorizes no CI, deploy, cleanup or user-data mutation.
+Updated: 2026-11-11 KST. This is the **single verified-state record**,
+not an implementation plan, authorization, or incident chronology.
+[Product contracts](SPEC.md) and [functional annexes](docs/spec/INDEX.md)
+define required behavior; [HANDOFF](HANDOFF.md) lists only remaining work.
+Distinguish this conversation's actual readbacks, original Native receipts,
+the local Termux AI's reported operations, signed publication, and physical
+device activation. Do not print or copy credentials into this public file.
 
-## Exact source, branches and documentation
+## Source and documentation boundaries
 
-- Remote product development branch `rewrite/rust-core`:
-  `7b98296a411a2c435bb9f34ee51f286f33f3491b` at the last source
-  readback. `integration/codex-native-20261110` at `a55d5bb8` is already
-  in its ancestry; [PR #29](https://github.com/humtr/codex/pull/29)
-  merged as `afdfb8bd7e574c749132254c55cd3f66204d3289`. This
-  is a source merge, not a newly installed Full image.
-- `main`, the separate release/publication authority, last read at
-  `dc6930465ce309ea13b69ab4057a07a446cc84e1`.
-  Do not merge the separate Git histories by assumption.
-- The actual primary **Termux local checkout**, read-only inspected
-  through a real Native tool response on 2026-11-11, was at local
-  `rewrite/rust-core` `27103ec06b1c16c07b6a245d4b4542f8248cc5b4`,
-  not current remote HEAD. It held a modified
-  `providers/chatgpt/src/native_claims.rs` and untracked
-  `ais.config.toml`, `chatgpt.config.toml`,
-  `providers/chatgpt/src/accounts.rs`. These assets were not touched
-  by the read-only inspection; their contents/owners are not thereby
-  authorized for integration.
-- The independent clean local plan worktree
-  `/data/data/com.termux/files/home/prj/codex-release-framework-plan-20261111`
-  is at `plan/release-framework-20261111` /
-  `3ef675ad721c0a08a50891394cf03df3abb66b2d`.
-  Its actual last commit modifies 13 documents (+499/-6):
-  `docs/development/RELEASE_FRAMEWORK_IMPLEMENTATION.md`,
-  `docs/spec/delivery/QUALIFICATION.md`,
-  `docs/spec/interfaces/UPDATE_DISPLAY.md` and ten related contracts.
-  The code/CI was not changed by that commit. These three main plan
-  documents are **not yet in current remote development HEAD**.
-  Preserve and independently review their detailed content before
-  phase-2 normative integration.
-- Current documentation system still separates top-level `SPEC`,
-  29 scoped functional annexes, `AGENTS` behavior, `DOCUMENTATION`
-  policy, `INDEX`, `TEST_DEPENDENCIES.toml`, `CURRENT` facts and
-  `HANDOFF` unfinished acceptance. This review does not replace
-  that architecture with an old `PRO_HANDOFF.md` document.
+- Remote development source `rewrite/rust-core` remains
+  `7b98296a411a2c435bb9f34ee51f286f33f3491b` (read back on
+  2026-11-11). PR [#29](https://github.com/humtr/codex/pull/29)
+  was merged as `afdfb8bd7e57`; the Core-derived `current`
+  compatibility alias is part of source 0.167.1+, not old signed Full163.
+- Separate release/publication `main` last read at
+  `b2567063d2a7a333a718d2495e2c9f8c928d822c`. Do not treat
+  independent Git histories as one automatically mergeable lineage.
+- Primary **local Termux checkout** is at `rewrite/rust-core`
+  `e4f9ab5dc3045cbde8317774da95eb98db7646dd`, the committed
+  Native continuation cleanup. It is **not** the remote development HEAD.
+  Untracked `ais.config.toml`, `chatgpt.config.toml`, and
+  `providers/chatgpt/src/accounts.rs` were observed intact; no ownership
+  or permission to incorporate those files is implied.
+- Independently developed single-tool MCP shell code was committed
+  locally on `feat/termux-mcp-shell-20261111` as
+  `c0a8189815c70f0c6678bc9374bcd352423dca57`. The running
+  worker is installed from that local development generation, but
+  this source change is **not** in remote `rewrite/rust-core`.
+- The separately prepared `plan/release-framework-20261111`
+  at `3ef675ad721c0a08a50891394cf03df3abb66b2d`
+  has 13 documentary changes (+499/-6) in a clean local worktree,
+  including the detailed W0–W14 implementation plan and candidate
+  `QUALIFICATION.md`/`UPDATE_DISPLAY.md` annexes. It has **not**
+  been integrated into the remote development source.
+- The previously consolidated product documentation remains in place:
+  stable `SPEC.md`, 29 normative annexes, `INDEX`, agent-specific
+  `AGENTS.md`, `docs/DOCUMENTATION.md`, declared
+  `docs/TEST_DEPENDENCIES.toml` and executable document regression
+  checks. A separate documentation-review branch does not become
+  product source merely because its commit was pushed.
 
-## Signed and published states — not device activation
+## Signed releases, update surface and qualification
 
-- `release/upstream.json` in development source selects upstream
-  **Codex 0.167.1**, source `0a94398fa60c4fac0e7659e4213a0a36e613dd46`.
+- `release/upstream.json` at the development source selects Codex
+  upstream **0.167.1**, source
+  `0a94398fa60c4fac0e7659e4213a0a36e613dd46`.
 - Signed [Full163 0.167.0](https://github.com/humtr/codex/releases/tag/full-v0.167.0-c19b61b-s163)
-  was published with immutable `full-v0.167.0-c19b61b-s163`.
-  PR #29 reports the device's derived `core/current` compatibility
-  alias was corrected to signed Full163 and Full159/Full153 were
-  retained. **No independent current handset activation readback**
-  is established by this document review.
-- Signed [Core S164 0.167.1](https://github.com/humtr/codex/releases/tag/core-v0.167.1-7b98296-s164)
-  was published at 2026-11-11 11:40 UTC from `7b98296a`.
-  Core S164 is **not** a new Full163 or proof of a physical upgrade.
-  It postdates the 2026-11-10 provisional W0–W14 planning baseline.
-- The derived `core/current` link is not an activation, signing or
-  rollback authority. The PR #29 source fix is **not in Full163**;
-  older signed bytes and rolling rollback entries remain immutable.
+  and signed [Core S164 0.167.1](https://github.com/humtr/codex/releases/tag/core-v0.167.1-7b98296-s164)
+  are distinct published artifacts. Core S164 is not a new Full image
+  and its publication does not prove activation on this handset.
+  Previously preserved Full159/Full153 and rollback references must not
+  be silently replaced. The derived `core/current` alias is not an
+  activation or signing authority.
+- The user's observed `codex update` printed installed Codex
+  **0.167.0**, Full #163 / Base #161 and a Core/Full qualification
+  mismatch for 0.167.1. Source review showed redundant
+  `[1] Keep current` / `[q] Keep current` and a local build guard
+  that requires a same-version enhanced Codex TUI when the current
+  edition is Full. This has **not** been fixed; see HANDOFF for
+  Core/Runtime/Full separation and Core-only selection work.
 
-## Exact-source qualification observations
-
-| Source / boundary | Observed result | Not demonstrated |
+| Exact source / gate | Verified result | Does not establish |
 | --- | --- | --- |
-| `7b98296a` [Source Acceptance](https://github.com/humtr/codex/actions/runs/43012469220) | **success** | Device/model |
-| `7b98296a` [Core qualification](https://github.com/humtr/codex/actions/runs/43013017085) | **success** | Full/TUI/installed |
-| `7b98296a` [TUI Native qualification](https://github.com/humtr/codex/actions/runs/43013363622) | **in_progress** at last check | Completed outcome |
-| `f9dfc3f` [TUI Native qualification](https://github.com/humtr/codex/actions/runs/42945712023) | **failure**, positive `pin_action_updates_shared_section_state` case | A successful replacement result |
+| `7b98296a` [Source Acceptance](https://github.com/humtr/codex/actions/runs/43012469220) | **success** | Installed model or device |
+| `7b98296a` [Core qualification](https://github.com/humtr/codex/actions/runs/43013017085) | **success** | Full/Android acceptance |
+| `7b98296a` [TUI Native qualification](https://github.com/humtr/codex/actions/runs/43013363622) | **completed / success** | Actual two GPT-6 turns on the same handset thread |
+| Older `f9dfc3f` [TUI Native qualification](https://github.com/humtr/codex/actions/runs/42945712023) | **failure** on positive `pin_action_updates_shared_section_state` | Not the result of the newer `7b98296a` run |
 
-Remote docs review may update CI status after completed readback.
-A new documentation-review commit or PR does not inherit a parent's
-CI result. Exact-source publication is not installed-flow acceptance.
+Source, signed publication, selected runtime, original TUI conversation,
+and physical Android screen proof remain independent acceptance levels.
 
-## Native Busy: proved local incident, resolution and integration gap
+## Native shared resource recovery — operationally accepted, not remotely merged
 
-**User-provided independent Termux AI operating report (2026-11-11):**
+The confirmed local root cause is in
+`providers/chatgpt/src/native_claims.rs`: a
+`functions.write_stdin` continuation without its preceding reservation
+was persisted as `Opaque` with `session: None`; after the actual PTY
+process exited with code 0, `observed()` returned without removing
+the guard's own reservation. The shared ledger
+`$PREFIX/var/tmp/codex-native-effects/shared-native-v1/claims.json`
+then denied unrelated `functions.exec_command` with
+`native_resource_busy` despite work-level `active=[]`.
 
-- Direct Termux shell `printf 'DIRECT_TERMUX_EXEC_OK\n'` returned
-  `DIRECT_TERMUX_EXEC_OK`, exit **0** as Termux uid 10593.
-- The **actual shared-effect source** is
-  `providers/chatgpt/src/native_claims.rs`, backed by
-  `$PREFIX/var/tmp/codex-native-effects/shared-native-v1/claims.json`.
-  An orphaned `Opaque` entry arose from
-  `functions.write_stdin` continuation with session 59940 after its
-  process had exited. The new claim inserted `session: None` despite
-  a known continuation; after `Process exited with code 0`,
-  `observed()` filtered `held.session == Some(session)` and returned
-  early, skipping the record's own-identity removal. It then rejected
-  unrelated `functions.exec_command` offers as `native_resource_busy`.
-- The Termux repair agent reports a private ledger backup at
-  `/data/data/com.termux/files/usr/var/tmp/codex-native-effects/shared-native-v1/claims.json.bak-20261111-2005`.
-  With an exclusive file lock and atomic replacement, the agent
-  reconciled the **settled specific** claim; the post-repair ledger
-  was `{"claims":{}}`. The original OS process had already exited
-  normally; **no SIGKILL was necessary**.
-- The repair agent's **local uncommitted** code patch retains
-  `existing_session` when offering and storing a new claim,
-  always retains it as the guard's continuation, and removes the
-  original identity upon verified session exit. Added test:
+- The first isolated occurrence was reconciled with owner/result
+  evidence, a private backup, an exclusive `flock` and atomic rename.
+  Its local patch was **committed** as `e4f9ab5d`, preserving the
+  existing continuation session and clearing its original identity
+  upon observed exit. The focused test is
   `continuation_without_prior_claim_cleans_up_on_exit`.
-  Reported tests: `cargo test native_claims` **15/15**,
-  `cargo test --lib` **205/205**, provider binary build success.
-- Reported actual post-repair acceptance:
-  A direct shell output/exit 0;
-  B fresh Native exec `NATIVE_RESOURCE_RECOVERED` and `pwd` exit 0;
-  C same work second exec `SEQUENTIAL_EXEC_OK_2` exit 0;
-  D finished work followed by new work exec `TEST_D_REUSE_OK`
-  exit 0 and finish; E preserved conflict denials under 15
-  Native-claims tests. These are user-supplied operating receipts,
-  **not** independent inspection of each raw work/test receipt.
-- This documentation review **independently read the actual local Git
-  diff** and confirmed the reported guard/settlement changes plus
-  the regression test exist **uncommitted**. A subsequent read-only
-  Native `functions.exec_command` containing `git` commands actually
-  exited **0**; this independently demonstrates that at least that
-  invocation was admitted after recovery.
-- Remote `rewrite/rust-core` at `7b98296a` still contains
-  `session: None` and `continuation: if resumed {...} else {None}`,
-  and `observed()` still returns before removing the own identity
-  in the continuation-exit case. **The source repair is NOT yet
-  integrated, committed, signed or proven active in the installed
-  Provider binary.** The concrete recurring defect must not be marked
-  product-fixed until that acceptance is complete.
+- The later recurrence on 2026-11-11 was caused by the **operating
+  runit Provider still executing its pre-fix 2026-11-09 binary**.
+  The terminating PTY session (58308) left one confirmed completed,
+  stale `Opaque` claim; the local Termux repair AI reports backup at
+  `$PREFIX/var/tmp/codex-native-effects/shared-native-v1/claims.json.bak-20261111-2305`,
+  a specific locked/atomic ledger settlement and service-only
+  `sv restart codex-chatgpt-provider`. No unrelated process kill,
+  history reset or SD-card access was reported.
+- Later independent readbacks confirm the Provider runit service
+  running as **PID 4193**, and `/proc/4193/exe` matching the installed
+  Provider inode and SHA256. The current development debug binary
+  and installed Provider are **not byte/ELF LOAD-segment identical**;
+  a further exact production-build provenance proof is still needed.
+  Do not infer the patch is absent from that difference alone.
+- Original Native work history was independently read: a first
+  new work executed `NATIVE_RESOURCE_RECOVERED` and then
+  `SEQUENTIAL_EXEC_OK_2`, both exit **0**; after finishing,
+  a second independent work executed `NATIVE_REUSE_OK`, exit **0**,
+  and finished normally. Both have completed status without
+  recorded active/unconfirmed effects. The original AI's direct
+  shell and locked repair trace were supplied as an operating report,
+  not each independently re-executed here.
+- `cargo test --manifest-path providers/chatgpt/Cargo.toml --offline --lib native_claims`
+  was subsequently run against local `e4f9ab5d`: **15 passed, 0
+  failed, exit 0** (including continuation cleanup and conflicting
+  effects). In this conversation, the independent `termux_shell`
+  probe `DIRECT_TERMUX_MCP_OK` also returned **exit 0**, and
+  an idle-time ledger read returned **0 claims**.
+- This establishes actual recovered Native tool admission, same-work
+  continuity and independent-work reuse. It does **not** establish
+  every future Owner-loss/ACK-unknown/concurrent-writer state, nor
+  remote-source integration of `e4f9ab5d`.
 
-Earlier work-specific `native_effects.active=[]` and a successful
-`codex_stop` did **not** prove the global ledger was empty. The source
-and operating report together identify the specific mistake; do not
-resurrect the old "unknown root cause" diagnosis. Do not generalize
-this one repaired claim to all possible Busy/Owner-loss cases.
+## Independent Termux MCP worker and app connector — live in this Chat
 
-## TermuxBridge standalone shell / emergency access findings
+- Single MCP tool **`termux_shell`**, not separate shell/receipt
+  tools. It executes through the Termux app UID independently of
+  Codex Core, running Provider service and shared Native claims.
+  Recovery is its current priority, not an exclusive permitted use.
+  It does **not** replace the Native ledger's ownership of model
+  instructions, sessions, approvals, effects and results.
+  Repeated identical `call_id` arguments return the original shell
+  receipt rather than blindly re-running the effect. The MCP tool
+  uses the existing shared annotation policy without a new exception.
+- Local source: `feat/termux-mcp-shell-20261111` / `c0a81898`.
+  Installed binary:
+  `~/.local/lib/codex/termux-mcp-worker/generations/c0a8189815c7/codex-termux-mcp-worker`.
+  Active stdio entrance:
+  `~/.local/state/codex/providers/chatgpt/mcp-stdio`, with the
+  previous wrapper kept as a private backup.
+- The Termux repair AI reports an authorized scoped restart of
+  `codex-chatgpt-tunnel` and a successful Linux ChatGPT app
+  `refresh_actions` reply (`ok: true`) with app query-cache
+  invalidation: **17 → 18 actions**. Its reported connector/tunnel
+  belongs to the `6ad4...` line; this is not automatically the
+  separate `janmori101` historical `6ae9...` line.
+- Independently verified live processes: tunnel supervisor **PID
+  2076**, independent MCP worker **PID 2117**, Provider **PID 4193**.
+  The *running stdio wrapper* returned exactly **18 tools**:
+  `termux_shell` first, no `termux_shell_receipt`, original
+  `codex_sessions` retained. **This same ChatGPT conversation**
+  advertises `@TermuxBridge.termux_shell` and directly executed
+  `DIRECT_TERMUX_MCP_OK` with exit **0**. Remote app tool
+  registration and actual end-to-end shell execution are therefore
+  independently observed, not merely a local tool-list claim.
+- No account login/logout or profile migration was performed in
+  this verification. **Which Linux app account currently owns the
+  successful connector refresh is not independently established
+  as `janmori101`**. A previous `janmori101` desktop session
+  descriptor referenced a departed PID. Separate profile directories
+  and connector names do not prove the live authenticated account.
 
-- The **currently connected** `@TermuxBridge` tool schema exposes
-  `codex_*` plus `native_catalog`/`native_tool`; no independent
-  `termux_exec` or `local_execute` was advertised.
-- The source *does* contain `providers/chatgpt/src/local.rs` tools
-  `local_context`, `local_execute`, `local_process`, conditional on
-  `execution.standalone_permission_profile`. They allow standalone
-  process I/O without a Native conversation, but ordinary
-  `local_execute` explicitly calls
-  `SharedNativeGuard::offer_external` on **the same process-shared
-  native claims ledger** before Core command execution. It can
-  therefore also be blocked by a stale `Opaque` claim.
-- Source includes configured Core permissions and claim-scoped
-  idempotent process/output state, **not** an out-of-band rescue
-  shell independent of a broken Provider ledger/Core. Merely ordering
-  standalone tools first would not have resolved this incident.
-  Any new host recovery power must be independently authenticated,
-  explicitly authorized for destructive actions, and safety-scoped
-  to verified owner/lease/receipt state; no broad admin bypass
-  or second Native executor is approved yet.
+## Outstanding independent proofs
 
-## Separate remaining real-flow acceptance
+Real installed `/provider` GPT-6 two-turn same-thread response and
+original Chat return; SSE/HTTP 413 uncertain result recovery without
+duplicate execution; independent safe parallel Native work;
+authenticated Linux AppHost account/workspace mapping; notification
+tap to exact Android terminal/activity and opt-in headless display;
+Core-only 0.167.1 update/Runtime compatibility; signed release
+admission/device activation; and remote integration of local
+`e4f9ab5d` and `c0a81898` remain separately open.
 
-Installed TUI `/provider` real GPT-6 two model turns on one Native
-thread, exact Provider/Core writer/home alignment, original SSE/HTTP
-413 recovery without replay, independent safe parallelism, live
-notification click → correct Activity/terminal/session and opt-in
-headless auto-display remain **unaccepted** in the evidence reviewed.
-Earlier local auth observations (e.g. general CLI `token_revoked`)
-must not be reclassified as Provider inference failure without
-demonstrated routing. Native-model IDs and stored Provider settings
-are distinct, and no account/profile or historical JSONL/SQLite
-repair was authorized or performed here.
-
-The dated [U1–U7 review queue](docs/development/REVIEW_ACTIONS_20261110.md)
-remains a hypothesis/triage snapshot with R01–R10 work and prior
-2,410–5,990 changed-LoC planning range. Verify its remaining
-producers against current source rather than replaying all findings.
+The dated [R01–R10/U1–U7 review queue](docs/development/REVIEW_ACTIONS_20261110.md)
+is historical source triage with a continuing decision matrix, not
+proof that every earlier issue still reproduces. No changes to user
+sessions, SQLite/JSONL records, profile credentials or signed
+generations were made during this documentation verification.
