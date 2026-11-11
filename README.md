@@ -20,20 +20,29 @@ user instructions.
 
 ## Actual status — source is not deployment
 
-At last recorded device readback, Codex 0.167.0 **Full159** was selected with
-**Full153** rollback retained; this documentation change has not activated
-another generation. The integration source at `5384d938` passed
-[Source Acceptance](https://github.com/humtr/codex/actions/runs/42758325312)
-and [Provider qualification](https://github.com/humtr/codex/actions/runs/42758329834).
-The prior [TUI Native qualification](https://github.com/humtr/codex/actions/runs/42742653586)
-passed on **`f1ba6719`**, not the later HEAD. Neither source CI nor a
-synthetic integration test proves actual GPT-6 TUI continuity.
+The development source currently selects official upstream **0.167.1**
+([recipe](release/upstream.json)). The most recently verified public signed
+Full publication is Codex **0.167.0 Full163**
+([release](https://github.com/humtr/codex/releases/tag/full-v0.167.0-c19b61b-s163)).
+[PR #29](https://github.com/humtr/codex/pull/29) reports Full163 installed
+and Full159/Full153 retained; no new device readback was performed by this
+documentation update. The PR's Core compatibility-link repair has now been
+merged into the development source, but **was not included in signed Full163**.
 
-The candidate `/provider` picker selected GPT-6, but its first real model
-input failed `native_thread_owner_unavailable` when an isolated Core was
-combined with the operating Provider's different Native writer binding.
-Same-thread two-turn model, stream-loss/HTTP 413 recovery and independent
-concurrency remain [unaccepted](CURRENT.md). Do not deploy as a workaround.
+At `f9dfc3f`, [Source Acceptance](https://github.com/humtr/codex/actions/runs/42942784769)
+and [Core qualification](https://github.com/humtr/codex/actions/runs/42942787296)
+passed; [TUI Native qualification](https://github.com/humtr/codex/actions/runs/42945712023)
+**failed**. The PR #29 head separately passed source and Core qualification,
+not exact post-merge acceptance. No CI receipt here proves installed GPT-6
+same-thread TUI continuity.
+
+After a user-performed complete Termux restart, TermuxBridge remained
+reachable but a newly admitted Native `functions.exec_command` still returned
+`native_resource_busy` with `executed=false` despite an empty per-work
+active-effect list. This **P0 wrapper execution availability** issue is
+unresolved; neither a successful Bridge handshake nor a Termux reboot proves
+execution recovery. See [CURRENT](CURRENT.md) for dated evidence and
+[HANDOFF](HANDOFF.md) for the next authorized acceptance work.
 
 ## Everyday usage
 

@@ -1,106 +1,98 @@
 # Current product state
 
-Updated: 2026-11-10 KST. This is **current evidence only**, not product
-requirements, task instructions, historical chronology or deployment approval.
-Source behaviour is governed by [SPEC](SPEC.md); the work order is
-[HANDOFF](HANDOFF.md). Completed historical status is retained by Git,
-not as a competing current source.
+Updated: 2026-11-11 KST. **Observed evidence and proof limits only**.
+This file grants no implementation, CI, deployment or account authorization.
+Requirements: [SPEC](SPEC.md) and annexes. Unfinished work:
+[HANDOFF](HANDOFF.md). Document authority:
+[docs/DOCUMENTATION](docs/DOCUMENTATION.md).
 
-## Selected operating generation (last observed)
+## Current source and release boundaries
 
-- Signed device selection: Codex 0.167.0 **Full159**, generation
-  `full-v0.167.0-681ecce-s159`. **Full153** is retained as rollback.
-- Installed Core/Manager/TUI, signed Provider, separately configured Provider
-  service, profile/home and workspace are *different authorities*. No new
-  operating image, signing, activation, profile, service or rollback change
-  was made by the current integration source work or documentation refactor.
-- These are the latest retained device observations, not a claim of a fresh
-  readback after every source commit. Re-observe before operational action.
+- The developer integration line is
+  [`rewrite/rust-core`](https://github.com/humtr/codex/tree/rewrite/rust-core).
+  `integration/codex-native-20261110` HEAD `a55d5bb8ff` is already an
+  ancestor. Core compatibility-link [PR #29](https://github.com/humtr/codex/pull/29)
+  merged on 2026-11-11 as `afdfb8bd7e574c749132254c55cd3f66204d3289`.
+  This record predates the documentation commit; **query the actual current
+  HEAD**, and do not inherit tests from an ancestor automatically.
+- `main` at `333b3c19e5af` was checked as the publication/approval line.
+  It has separate ancestry from `rewrite/rust-core`; this is not an
+  instruction to merge the two histories.
+- [`release/upstream.json`](release/upstream.json) selects official upstream
+  **Codex 0.167.1**, source `0a94398fa60c4fac0e7659e4213a0a36e613dd46`.
+  The repository's signed
+  [Full163 0.167.0 publication](https://github.com/humtr/codex/releases/tag/full-v0.167.0-c19b61b-s163)
+  was published 2026-11-11 UTC as
+  `full-v0.167.0-c19b61b-s163`. A signed published generation does not
+  prove a new source commit was shipped or activated.
+- [PR #29's device report](https://github.com/humtr/codex/pull/29)
+  states the installed device's derived `core/current` alias was
+  corrected to signed **Full163** and **Full159/Full153** were retained.
+  This is the PR's reported operational result, **not a new independent
+  local device readback from this documentation integration**. The source
+  alias repair merged via PR #29 is **not in signed Full163**; installing
+  it would require separate qualification, signing and activation.
+- The `core/current` alias is derived compatibility state, never Core
+  activation, key, rollback or runtime-selection authority. See
+  [delivery state contract](docs/spec/delivery/STATE.md).
 
-## Source and exact qualification
+## Exact source and CI evidence
 
-Integration branch:
-[`integration/codex-native-20261110`](https://github.com/humtr/codex/tree/integration/codex-native-20261110).
-Last product-runtime change baseline:
-`5384d9386c2acf0e0fd66b10b1be8bc34099b931`.
-Most recent completed Source Acceptance baseline *before this review-doc
-update*: `0aebdd7f2614a38c08f96e1c266f0a7c2d88609a`.
-That exact commit passed CI after documentation/check changes, but those
-changes did not repair operating runtime or requalify live-model behavior.
-A later review-document commit does not inherit this CI receipt.
-
-| Boundary | Observed evidence | Limit |
+| Boundary | Latest specifically observed receipt | Proof limit |
 | --- | --- | --- |
-| [Source Acceptance #42787269906](https://github.com/humtr/codex/actions/runs/42787269906) | Success, 5/5 jobs at tested `0aebdd7f` | Source/CI only, not live model/device acceptance |
-| [Optional Provider qualification #42758329834](https://github.com/humtr/codex/actions/runs/42758329834) | Success, 2/2 jobs at `5384d938` | No live-model admission |
-| [TUI Native CI #42742653586](https://github.com/humtr/codex/actions/runs/42742653586) | Success at earlier `f1ba6719` | Not exact `5384d938` whole-TUI qualification |
-| Focused TUI source tests | 40 Python plus 10 assembly checks passed | Synthetic/local only |
-| Synthetic Core → TUI → Chat → Native | Accepted; same thread; three synthetic requests and one synchronization | No real GPT-6 invocation |
-| Isolated candidate `/provider` → GPT-6 | Picker selection succeeded; first real input failed `native_thread_owner_unavailable` | No completed model turn |
-| Explicit `--profile chatgpt` diagnostic | Previously succeeded in two real GPT-6 turns on one Native thread | Not the required `/provider` entrypoint |
+| Source at `f9dfc3f` | [#42942784769](https://github.com/humtr/codex/actions/runs/42942784769): success | Source/CI only |
+| Core at `f9dfc3f` | [#42942787296](https://github.com/humtr/codex/actions/runs/42942787296): success | Core source/build, not installed route |
+| TUI Native at `f9dfc3f` | [#42945712023](https://github.com/humtr/codex/actions/runs/42945712023): **failure** | `pin_action_updates_shared_section_state` assertion failed; do not claim full TUI qualification |
+| Earlier TUI at `c19b61b` | [#42929259774](https://github.com/humtr/codex/actions/runs/42929259774): success | Not proof for `f9dfc3f` or new HEAD |
+| Source at PR #29 head `a8cb66c` | [#42962985877](https://github.com/humtr/codex/actions/runs/42962985877): success | Before merge/documentation commit |
+| Core at PR #29 head `a8cb66c` | [#42962989662](https://github.com/humtr/codex/actions/runs/42962989662): success | Before merge/documentation commit |
 
-The failed isolated test mixed the operating Provider's installed Core/HOME/
-workspace owner binding with a separate candidate Core/home/workspace. This
-**environment/ownership mismatch was observed**; neither a Core/Manager defect
-nor successful installed-route continuity follows from it. Earlier initial
-`cdp_operation_timeout` and HTTP 413 failures retain their original evidence;
-there is no proof that the final product route has recovered both. The short
-socket-root correction allowed the candidate TUI to start; it did not resolve
-its subsequent owner mismatch.
+Do not infer qualification for the new merged or future document-edit SHA
+until the exact commit's checks actually complete. CI, provider mock and
+synthetic rounds are not live-model or installed-device acceptance.
 
-## External and internal review evidence (source-only)
+## Open P0: Native execution availability
 
-The user-supplied 2026-11-10 review of `49cfab80` contains 109 findings,
-re-assessed as **80 true / 28 partial / 1 false positive** as source analysis,
-not independently reproduced defects. A separate historical internal review
-had **26 reflected / 3 partial / 7 already satisfied / 14 unsupported /
-24 unresolved** among 74 differently indexed items. Neither count is
-additive. Model transcripts contain no complete native tool-call traces.
+Live TermuxBridge observations on **2026-11-11 KST**:
 
-Read-only spot-checks at `0aebdd7f` support all ten **P0 candidate
-mechanisms** in source: Core rollback guard/redaction/entry parser (U1-2/4/6),
-local unauthenticated MCP controls (U3-1), pre-dispatch journal and opaque
-claim recovery (U4-3/6), one-shot TUI marker and unbounded outer input wait
-(U5-1/4), destructive handoff before accepted RPC (U6b-2) and branch/CI
-notification ownership (U7-4). U3-4's parallel-slot reservation gap is
-also source-visible. **No patch, device-level failure reproduction,
-penetration test, live-model or signed-release test was performed here.**
+- Before reboot, multiple stale-looking work phases remained despite
+  individually confirmed Native Stop responses; some Host acknowledgments
+  failed with `mcp_owner_unavailable` or `app_lane_missing`. Owner status
+  and Native-effect settlement were not always equivalent.
+- The user fully terminated and restarted Termux. The Bridge/AppHost then
+  responded, and a fresh attached Native work created, started and attached.
+  But an actual read-only `functions.exec_command` for
+  `printf 'TERMUX_RESTART_NATIVE_OK\n'; pwd` returned
+  `native_resource_busy`, `executed=false`, `retryable=true`.
+- On the affected new work, `native_effects.active=[]`,
+  `unconfirmed_effects=0` and `pending_calls=[]`; at least some older work
+  records still showed `reconciliation_required`/`stop_requested`.
+  This **does not prove** there is no global owner or active external job.
+- No command ran in the Termux shell through that Native call and no
+  unconditional OS-level kill/lock purge was performed. The Bridge wrapper's
+  effective shared-effect admission or recovery must be inspected using a
+  distinct real local shell before identifying the root cause or declaring
+  recovery. Termux restart alone was not sufficient in this observed trial.
 
-See [temporary review actions](docs/development/REVIEW_ACTIONS_20261110.md)
-for work owners, exclusions, ordering and exact positive/negative
-qualification criteria. A finding or CI pass is not proof of deployment.
+## Remaining acceptance distinctions
 
-## Current acceptance and deployment decision
+- The installed matched Core → TUI `/provider` → ChatGPT GPT-6
+  first and follow-up responses on **one original Native thread** are not
+  currently independently accepted. A picker choice, prior isolated
+  `--profile chatgpt` success or an attached-work ACK cannot replace it.
+- HTTP 413, SSE/stream loss, uncertain tool-result settlement,
+  Stop/re-entry continuity, real allow/deny reviewer evidence and safe
+  independent concurrency require original identity, receipt, execution
+  and recovery proof. `native_resource_busy` must not indefinitely block
+  unrelated eligible work.
+- Source uses `provider-chatgpt-v...` producer naming while required
+  `provider-gpt-v...` published/rollback identifiers remain readable.
+  `frontend/tui` is the native TUI source; historical externally consumed
+  TUI/manager identifiers remain compatible. Draft ChatGPT account work
+  is not an accepted installed feature.
+- The dated [review matrix](docs/development/REVIEW_ACTIONS_20261110.md)
+  is a snapshot of 2026-11-10 source findings, **not newly reproduced device
+  failures** or the authority for the current signed generation.
 
-**Not accepted for release** until *all* are independently evidenced:
-
-1. Selected installed/qualified Core dispatches the TUI `/provider` route,
-   with configured Provider and the **same actual Native writer**.
-2. Real GPT-6 first response and a follow-up response complete on the **same
-   Native thread**, and the original history is preserved.
-3. Fault-injected SSE cut, HTTP 413, re-entry and result recovery preserve the
-   original accepted request/effects, with **zero duplicate submission**.
-4. A separate Native work can start and finish while unrelated work holds a
-   bounded effect; unsafe conflicting operations are still rejected.
-5. Correct exact-source artifact chain, source/Provider/TUI gates, release
-   admission and explicit operational authorization before signing/activation.
-
-**Do not** replay an uncertain turn, substitute a synthetic response, install
-a candidate, adjust an account/profile or restart services to hide a gap.
-No claimed deployment acceptance follows merely from CI success.
-
-## Source organization and limits
-
-- `provider-chatgpt-v...` is the new producer naming; published
-  `provider-gpt-v...` identifiers remain readable for historical rollback.
-- Native TUI source is `frontend/tui`; historical external identifiers
-  `manager-tui-native`, `termux-manager-tui-v1`, and builder aliases remain.
-- The historical WIP account draft is not a shipped feature.
-- Native and Provider own separate transport vs execution effects; pending or
-  lost delivery must be reconciled against **original** receipts.
-
-## Where to find older evidence
-
-Use exact historical Git commits and paths only when additional original
-evidence is needed. Historical material does not prove current activation
-or accepted model behavior.
+Every later proof belongs under its exact SHA, work/thread, model, device,
+source and qualification boundary; preserve failed original receipts.

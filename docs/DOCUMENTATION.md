@@ -22,6 +22,12 @@ The index has no normative content. An annex is binding in its subject area,
 but cannot contradict the top-level product requirements. Actual code and
 owner receipts establish implementation facts, not new normative authority.
 
+The single current transfer record is `HANDOFF.md`. `PRO_HANDOFF.md` and
+dated/retired handoff variants must not be used as fallback instructions or
+silently reconciled into current status. Recover their evidence from Git
+history only when necessary for an unfinished acceptance; current deployment
+facts belong to `CURRENT.md`.
+
 ## Reading route
 
 1. AGENTS; actual HEAD, branch, dirty diff, ownership; this policy and CURRENT.

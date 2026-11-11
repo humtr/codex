@@ -1,103 +1,97 @@
-# Handoff — current integration work
+# Handoff — current integration and acceptance
 
-Updated 2026-11-10 KST. **Only unfinished work and acceptance boundaries
-belong here.** Product contracts: [SPEC](SPEC.md), verified status:
-[CURRENT](CURRENT.md), operational preflight:
-[Termux constraints](docs/TERMUX_CONSTRAINTS.md). Completed prior
-work is available in Git history, not as new instructions.
+Updated: 2026-11-11 KST. This is the **single current unfinished-work
+handoff**, not a specification, product-status history or authorization to
+deploy. Follow [AGENTS](AGENTS.md) and the [documentation policy](docs/DOCUMENTATION.md).
+Read [CURRENT](CURRENT.md) for verified source, CI and device claims;
+read [SPEC](SPEC.md) and its annexes for required behavior.
+`PRO_HANDOFF.md` and previous handoff snapshots are **not current authorities**.
 
-## Selected branch and permitted effects
+## Source of truth and existing integration
 
-- Work exclusively from `integration/codex-native-20261110` at the actual
-  verified HEAD. Last product-runtime change baseline: `5384d938`.
-  Last exact-source CI baseline before review-doc updates: `0aebdd7f`,
-  with [Source Acceptance #42787269906](https://github.com/humtr/codex/actions/runs/42787269906)
-  successful on that SHA; **not** device or live-model acceptance.
-  Never infer CI success on a later review-doc commit from this receipt.
-  Inspect HEAD, remote, other worktree ownership and diff first.
-- Preserve operating Full159, Full153 rollback, signed generations, installed
-  Core, active Provider/service/host, account homes and unrelated Native work.
-  Never touch Android sdcard. Source edits, tests, commits and non-force push
-  do not authorize operational replacement.
+- The sole ongoing product-development source branch is
+  [`rewrite/rust-core`](https://github.com/humtr/codex/tree/rewrite/rust-core).
+  Resolve its **actual** current HEAD, worktrees, dirty files and owners
+  before editing; a SHA in this handoff is evidence, not a writable lease.
+- `integration/codex-native-20261110` at `a55d5bb8` is already an ancestor
+  of `rewrite/rust-core`. Do not merge it again. [PR #29](https://github.com/humtr/codex/pull/29)
+  for the Core `current` compatibility alias was merged in `afdfb8bd7e57`.
+  Preserve the exact code and safety checks; the fix is not part of the
+  previously signed Full163 image.
+- `main` is the **separate publication/approval authority**, not another
+  developer branch to merge by Git ancestry. Frozen release snapshots,
+  experiments, retired fixes and historic WIP are not automatic merge inputs.
+  Before retaining any divergent branch changes, compare actual behavior,
+  patch provenance, tests and consumers. Local-only worktrees/plans remain
+  unverified until local Git access works again.
 
-## Review-driven implementation packets
+## Next unfinished boundaries, in order
 
-Use the [temporary review work queue](docs/development/REVIEW_ACTIONS_20261110.md)
-to correlate the new 109 findings with the prior 74-item internal review.
-P0/P1 are **priority hypotheses**, not observed operating failures.
-Re-read actual code/owner and add reproducible negative/recovery tests before
-each cohesive commit. Keep separate packets on isolated worktrees; serialize
-overlapping Native writers, merges and real device changes.
+1. **P0 Native availability and safe recovery.** After the user completely
+   restarted Termux, a new attached Native work accepted creation and
+   attachment but rejected a read-only `functions.exec_command` with
+   `native_resource_busy` and `executed=false`. Its per-work
+   `native_effects.active=[]`, `unconfirmed_effects=0` and `pending_calls=[]`.
+   Some old works still reported `reconciliation_required` or
+   `stop_requested`. These facts do **not** establish the global owner.
+   Inspect the wrapper's actual shared-effect owner, leases, reconciliation,
+   stop and re-entry logic through an **independent local Termux shell**;
+   do not route emergency repair through the blocked Bridge command lane.
+   Repair only proven stale ownership, preserve unresolved effects, then
+   demonstrate fresh/same-work/repeated work execution and safe conflict
+   rejection. No blind lock deletion, all-process kill or fake success.
+2. **Release framework consolidation (W0–W14):** Independently revalidate
+   the user's existing plan against current code before implementation.
+   Preserve the whole release framework, ChatGPT Provider naming and
+   independent authentication boundary, upstream/Native model identity,
+   existing session continuity, SPEC contract and full implementation/tests.
+   Explicitly include Native Busy/Stop self-recovery and TermuxBridge/
+   AppHost-started notification tap → correct session/terminal focus
+   continuity. Distinguish proposal, verified behavior, signed release
+   and device activation. The requested **plan → user approval → implement**
+   boundary still applies to the full W0–W14 rewrite; this documentation
+   integration is not approval for that implementation.
+3. **Review work selection:** Use the dated
+   [2026-11-10 review matrix](docs/development/REVIEW_ACTIONS_20261110.md)
+   as hypothesis/evidence only. Reassess each R01–R10 item against the
+   actual current source; `c19b61bb` already changed release notification
+   admission, so do not reimplement a prior fix because its original review
+   entry remains. Confirm any remaining source/CI ownership, MCP auth,
+   Native result/effect admission, TUI re-entry or migration concerns with
+   exact producer/consumer tests. Keep unrelated local work protected.
+4. **Whole-route acceptance:** At `f9dfc3f` Source Acceptance
+   [#42942784769](https://github.com/humtr/codex/actions/runs/42942784769)
+   and Core Qualification
+   [#42942787296](https://github.com/humtr/codex/actions/runs/42942787296)
+   passed, but TUI Native
+   [#42945712023](https://github.com/humtr/codex/actions/runs/42945712023)
+   **failed**. PR #29 head `a8cb66c` separately passed
+   [Source Acceptance](https://github.com/humtr/codex/actions/runs/42962985877)
+   and [Core Qualification](https://github.com/humtr/codex/actions/runs/42962989662);
+   neither proves exact post-merge/documentation HEAD acceptance.
+   Requalify each affected boundary at its real commit. Installed TUI
+   `/provider` → GPT-6 two responses on the same Native thread, SSE/HTTP
+   413 recovery, no duplicate effects and independent safe concurrency
+   remain separate live checks.
 
-1. **R01 CI ownership (U7-4, U6b-4):** exact branch/ref/SHA admission,
-   correct gate matrix and no unsolicited acceptance dispatch on `main`.
-   **Do not manually dispatch source-acceptance or manager-tui-native on
-   the integration branch before this is fixed:** their existing
-   `if: always()` notifier can launch `accepted-release-inputs` on main.
-2. **R02 MCP control authentication (U3-1):** unauthenticated loopback
-   control calls rejected; authorized Native and service callers still work.
-3. **R03 Core safety (U1-2/4/6):** crash-safe guard, secret redaction,
-   upstream option and unsupported Termux sandbox parsing. No blind purge.
-4. **R04/R05 Native continuity/concurrency (U4-3/6, U3-4 et al.):**
-   reconcile original dispatch/result/effect claims, keep independent work
-   available without a second writer or unsafe claim release.
-5. **R06 TUI input/reentry (U5-1/4 et al.):** one-shot markers, validated
-   bounded/cancelable waiting and preserved draft/native input identity.
-6. **R07 destructive migration (U6b-2):** isolated copies, durable intent
-   and confirmed app-server processing before irreversible effects. **Do
-   not** run migration against live user homes as a documentation task.
-7. **R08-R10** then isolate release retries, Base online installer,
-   Provider fixture cleanup/credential gates, remaining P1 cases and
-   qualifying P2/conditional findings. **Reject** U6a-1's CI-bypass
-   interpretation; do not restore old README pins.
+## Operational and approval fence
 
-**Nonconflicting execution and effort:** The review action queue now contains
-a self-contained U1–U7 finding dictionary, per-packet implementation/test
-LOC ranges (R01–R09 2,410–5,480; with R10 2,630–5,990), source-owner and
-physical Native writer/claim/socket isolation matrix, stages S0–S6, and
-release/branch gates. Until R05 establishes safe independent capacity, use
-one active Termux Native-effect lane or positively demonstrate completely
-isolated Core+Provider+Native environments; worktrees alone are not isolation.
-Keep main as publication authority. After R01's notifier/branch fix,
-propose a separately authorized fast-forward to the existing sole developer
-branch `rewrite/rust-core` (its remote HEAD is an ancestor of integration);
-**do not touch** its three untracked files or advance that checkout during
-this documentation work. See the queue for the read-only baseline and
-required non-force/owner checks.
+- The signed [Full163 publication](https://github.com/humtr/codex/releases/tag/full-v0.167.0-c19b61b-s163)
+  is Codex **0.167.0**; current source's
+  [upstream recipe](release/upstream.json) is **0.167.1**. Do not collapse
+  these generations or claim the merged alias fix was shipped in Full163.
+  PR #29 reports Full163 device activation and retained Full159/Full153;
+  obtain a fresh readback before another device-side operation.
+- Do not change installed/rollback generations, keys, accounts, profiles,
+  services, approval policy, active workers or Android sdcard as a
+  documentation/source-integration side effect. Signing, rollout, device
+  replacement, live-service restart and broad migrations require distinct
+  explicit authorization.
+- Before committing: inspect exact HEAD/owner and relevant contracts, isolate
+  writers, check focused positive/negative tests and diffs. Before accepting:
+  verify exact-current-SHA source/Provider/Core/TUI gates **and** original
+  Native/model/tool receipts when relevant. Stop only the task proven owned;
+  do not reset other sessions or hide unresolved delivery.
 
-Product tests and source commits do not permit signed rollout, active
-services/account changes, Android sdcard access or unapproved fixture cleanup.
-
-## Finish in this order
-
-1. Align the real TUI candidate Core, configured Provider and Native writer
-   ownership **before** submitting any model request. Verify `$PREFIX/bin/codex`
-   dispatcher, HOME/CODEX_HOME, workspace, socket root and active service
-   bindings. A bare helper or mixed isolated/operating owner is not a valid
-   live-TUI acceptance.
-2. Through `/provider`, select real GPT-6 and obtain **two completed model
-   responses on one Native thread**. Re-read its original turn IDs, settings
-   and full history; do not count prior `--profile chatgpt` diagnostic turns.
-3. Inject SSE disconnect and HTTP 413 at their real boundaries. Re-enter the
-   same Native work/thread, reconcile the original result and prove no second
-   dispatch, no lost tool effect and no permanent denial of follow-up input.
-4. Prove another independent Native work can execute while a bounded opaque
-   effect is held, and that real overlapping unsafe writes remain protected.
-5. Re-run necessary **exact-current-SHA** source, Provider, TUI and runtime
-   checks, then separately decide whether signing and device activation are
-   authorized. Do not promote on CI-only evidence.
-
-Record each original receipt, run URL, tested SHA, expected and observed
-outcomes, failed case and remaining gap. Preserve earlier failures in a dated
-legacy evidence record; keep [CURRENT.md](CURRENT.md) bounded to the most
-recently verified state. No unsupported success claim or retry-as-workaround.
-
-## Known latest blocker
-
-The candidate TUI selected GPT-6 but its first real input returned
-`native_thread_owner_unavailable` because the experiment used isolated
-Core/home/workspace against an operating Provider bound elsewhere. The
-shortened Unix socket root fixed startup, **not** inference ownership.
-See [CURRENT.md](CURRENT.md) for the exact CI scope; the historic 2026-11-08
-Prior Pro plans and work IDs are historical evidence in Git, not
-current instructions.
+Remove a completed item from this handoff once its commit and scoped proof
+are recorded in CURRENT or Git; do not append a chronology.

@@ -2,7 +2,7 @@
 
 **As of:** 2026-11-10 KST. **Review source SHA:** `49cfab806cb99d47a6de0d918ed13777db8e11a5`.
 **Inspected integration HEAD:** `0aebdd7f2614a38c08f96e1c266f0a7c2d88609a`.
-This is a **temporary work selector**, not a product specification, a permanent issue ledger,
+This is a **2026-11-10 review snapshot / temporary selector**, not a product specification, a permanent issue ledger,
 an approval to execute risky operations, or evidence of completed device acceptance.
 For the current running generation and independently observed gates see
 [CURRENT](../../CURRENT.md); for the next authorized steps see [HANDOFF](../../HANDOFF.md).
@@ -79,7 +79,7 @@ Each packet is a separate owned source change with testable positive and
 negative outcomes, a coherent commit per distinct fix, and exact-HEAD
 source/provider/TUI gate checks. **No signing, activation, service restart,
 account migration, live-home cleanup, force push, or Android sdcard access.**
-Preserve active Full159 and Full153 rollback. Investigate the source and owner
+Preserve the selected signed and rollback generations established by a fresh device readback (see CURRENT); Full159/Full153 here is historical to this 2026-11-10 review. Investigate the source and owner
 again at actual task HEAD: a finding ID is a hypothesis, not an instruction to
 patch mechanically.
 
@@ -278,7 +278,7 @@ No fixed per-task code quota: these ranges bound *planning*, not what tests may 
 | Journals, operation IDs and external `claims.json` | Check **canonical** path, UID, inode/owner, claim namespace and original call receipts before admitting concurrent effects | Treating a different `work_id` or cloned HOME as proof that shared global opaque claims are independent; clearing unknown claims |
 | Unix sockets / TMPDIR | Canonical owner-private **short** Termux socket root, verify both full Core/shared and Native FD35 paths at <= **107 encoded bytes** including actual UID/hash; separate long evidence/scratch dirs | Deep TMPDIR, fabricated symlink alias, same socket/port/UID identity used as different owner |
 | Build/test artifacts | Per-packet `CARGO_TARGET_DIR`, isolated fixtures, owner-only temp output and unique test sockets; shared downloaded crates only when safely immutable/read-only | Deleting live build caches, reusing writable targets/fixtures, mutating system or Android sdcard |
-| Operating generations, account, services | **Observation only** for all source packets; Full159/Full153 are last observed, refresh before operational work | Restart, activation, sign/publish, profile/auth edits, migration against real home |
+| Operating generations, account, services | **Observation only** for all source packets; Historical 2026-11-10 state; re-read CURRENT and device before operational work | Restart, activation, sign/publish, profile/auth edits, migration against real home |
 | GitHub workflows and release authority | G0 exclusively owns workflow changes; separate **read-only** evidence review; CI after verified notifier fix and exact ref/SHA | Concurrent workflow writes, unguarded manual source-acceptance / manager-tui-native dispatch, integration SHA treated as production main authorization |
 
 **Pre-effect admission check for each packet:** `pwd`, `git status --short --branch`, HEAD + remote, other worktrees, original Native work/owner/status and pending effects, canonical HOME/CODEX_HOME/provider endpoint, actual lease/claim paths, socket byte budgets, isolated target/tmp paths. If any may overlap, do **not** start a second Native execution or automatically stop the owner; continue nonconflicting source inspection, or wait for original receipt settlement. Do not use unsupported Termux `workspace-write` Linux namespace sandbox as an isolation substitute. Different model-agent sessions are **not** different Native writers by themselves.
