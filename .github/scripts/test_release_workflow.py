@@ -93,6 +93,8 @@ class WorkflowTests(unittest.TestCase):
                     evaluated=(expression.replace('always()','True')
                                .replace('github.ref',repr(ref))
                                .replace('needs.qualify.result',repr(result))
+                               .replace('github.event_name',repr('workflow_dispatch'))
+                               .replace('inputs.advance_release','True')
                                .replace('&&',' and '))
                     self.assertEqual(eval(evaluated,{'__builtins__':{}},{}),
                                      ref=='refs/heads/rewrite/rust-core' and result=='success')

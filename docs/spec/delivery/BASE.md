@@ -29,7 +29,7 @@ pushes outside rewrite/rust-core and `publish=true` are rejected. Every admitted
 branch runs the same compilation, inventory and Android execution qualification
 and produces the existing unsigned base-qualification artifacts. This validates
 that source; it is not public release admission. The Core completion relay runs
-only for rewrite/rust-core. Public exact-run admission, main's accepted source
+only for an explicitly requested release-intent dispatch on rewrite/rust-core. Public exact-run admission, main's accepted source
 and signing/promotion still require their existing rewrite proofs, so a successful
 manual development-branch run neither replaces them nor triggers publication.
 `rebuild_current` selects the version and source archive digest from the
@@ -67,7 +67,8 @@ transformations; any generated artifact policy remains bound to exact inputs and
 Android proof. Historic policies needed by retained generations remain supported.
 
 Qualification build/test jobs remain read-only. An isolated completion relay may
-only enqueue the accepted-input workflow with its run ID; it has no content-write
+only enqueue the accepted-input workflow with its run ID after an explicit
+`advance_release=true` dispatch; it has no content-write
 permission or signing key. The receiver waits for that run to finish, then checks
 owned exact-source qualification independently. Completion delivery is not proof.
 Native trigger metadata and the exact isolated relay are excluded from recipe

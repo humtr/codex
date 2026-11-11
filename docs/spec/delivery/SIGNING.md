@@ -229,8 +229,19 @@ small immutable-source caller, with no second implementation or manually mirrore
 producer. The caller selects an accepted exact implementation commit; nested
 publication logic comes from that same source. Job-specific permissions separate
 read-only construction/smoke from signing/public mutation. Signing secrets appear
-only at the signing boundary. A manual publication needs explicit authorization;
-scheduling authorizes only a qualified strictly newer upstream pair. An explicitly
+only at the signing boundary. Development pushes and qualification dispatches are
+source-only by default. A green CI run or scheduled reconciliation is not release
+authorization. Before creating even an unsigned public input release, changing
+main refs or dispatching publication, the controller requires `release-intent-v1`
+from the exact immutable main commit it is evaluating. That bounded JSON record
+has schema `codex-release-intent-v1`, the exact `source_sha`, selected
+`upstream_version` and boolean `publication: true`. A missing or nonmatching
+intent leaves development accepted and publication pending; malformed or
+unavailable authority fails closed. The candidate branch cannot supply intent.
+All existing exact-run, caller-pin, signing and promotion checks still apply.
+A qualification completion relay additionally requires an explicit manual
+`advance_release=true` input on the official development branch; default false
+prevents a source push from requesting publication. An explicitly
 authorized current-version rebuild uses its exact qualified upstream/archive and
 normal next sequence, with all ordinary integrity/publication gates intact.
 
