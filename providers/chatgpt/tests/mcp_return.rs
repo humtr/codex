@@ -998,6 +998,53 @@ async fn two_http_tool_round_trips_share_one_app_submission_and_the_native_trans
     server.abort();
 }
 
+#[tokio::test]
+async fn unproved_clock_calls_retain_opaque_scope_and_original_receipts() {
+    let root = Root::new();
+    let broker = Broker::new(Arc::new(Journal::open(&root.0).unwrap()));
+    let mut body = request();
+    body["tools"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({"type":"function","name":"clock.curr_time","parameters":{"type":"object"}}));
+    let tools = Request::parse(body, &Config::default(), Some("clock-fixture"))
+        .unwrap()
+        .tools;
+    let one = broker.register("one", tools.clone(), false).await.unwrap();
+    let two = broker.register("two", tools, false).await.unwrap();
+    let mut args = Arguments {
+        call_id: "original".into(),
+        name: "clock.curr_time".into(),
+        input: "{}".into(),
+        report: "Observe clock".into(),
+    };
+    broker.enqueue(&one, &args).await.unwrap();
+    let offered = broker.offer(&one).await.unwrap();
+    assert_eq!(offered.len(), 1);
+    broker.enqueue(&two, &args).await.unwrap();
+    assert!(broker.offer(&two).await.unwrap().is_empty());
+    assert_eq!(
+        broker.invoke(&two, args.clone()).await.unwrap(),
+        json!({"error":"native_resource_busy","executed":false,"retryable":true,"message":"Conflicting Native effect remains active. Inspect codex_status.native_effects, wait for its settlement, and submit a new call ID; this rejected logical call will not be dispatched later."})
+    );
+    let original = json!({"output":"original clock observation"});
+    broker
+        .settle(
+            &one,
+            &[(offered[0]["id"].as_str().unwrap().into(), original.clone())],
+        )
+        .await
+        .unwrap();
+    assert_eq!(broker.invoke(&one, args.clone()).await.unwrap(), original);
+    assert!(
+        broker.offer(&two).await.unwrap().is_empty(),
+        "rejected call never dispatches after settlement"
+    );
+    args.call_id = "new-observation".into();
+    broker.enqueue(&two, &args).await.unwrap();
+    assert_eq!(broker.offer(&two).await.unwrap().len(), 1);
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn pending_mcp_calls_refuse_new_input_policy_and_route_changes_and_stop_only_their_owner() {
     let root = Root::new();
@@ -1011,14 +1058,15 @@ async fn pending_mcp_calls_refuse_new_input_policy_and_route_changes_and_stop_on
         hold: true,
     });
     let bridge = McpBridge::new(app, broker.clone(), journal, "My Owned Connector".into()).unwrap();
-    // Two pending independent reads may coexist. Unknown exec effects are
-    // serialized by Native resource arbitration and cannot exercise the
-    // per-owner cancellation behavior this test is intended to prove.
+    // Native ToolSearch's dedicated payload has no hooks. This raw-HTTP fixture
+    // has no verified Native execution metadata, so an ordinary clock Function
+    // call correctly remains opaque. Use actual hook-free metadata discovery
+    // to prove independent pending calls and per-owner cancellation.
     let mut read_request = request();
     read_request["tools"]
         .as_array_mut()
         .unwrap()
-        .push(json!({"type":"function","name":"clock.curr_time","parameters":{"type":"object"}}));
+        .push(json!({"type":"tool_search"}));
     let tools = Request::parse(
         read_request,
         &Config::default(),
@@ -1064,7 +1112,7 @@ async fn pending_mcp_calls_refuse_new_input_policy_and_route_changes_and_stop_on
                 &t,
                 Arguments {
                     call_id: "action".into(),
-                    name: "clock.curr_time".into(),
+                    name: "tool_search".into(),
                     input: "{}".into(),
                     report: "Run once".into(),
                 },
