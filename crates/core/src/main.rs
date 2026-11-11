@@ -9427,16 +9427,25 @@ fn reuse_remote_release_file(
 }
 
 #[cfg(unix)]
+struct RemoteAdmission {
+    hold_policy: UpdateHoldPolicy,
+    edition: update_edition::Edition,
+}
+
+#[cfg(unix)]
 fn acquire_remote_release_source(
     roots: &LocalCoreRoots,
     base: &RemoteReleaseBase,
     acquisition_root: &std::path::Path,
     update_key: ReleasePublicKey,
     current: (&LocalReleaseManifest, &str),
-    hold_policy: UpdateHoldPolicy,
-    edition: update_edition::Edition,
+    admission: RemoteAdmission,
     mut presentation: Option<&mut UpdatePresentation>,
 ) -> Result<(), LocalProductError> {
+    let RemoteAdmission {
+        hold_policy,
+        edition,
+    } = admission;
     let (current_release, current_version) = current;
     let mut acquired_bytes = 0;
     fetch_remote_control_resource(
@@ -10429,8 +10438,10 @@ fn activate_signed_remote_release_outcome_with_hold_policy(
                 &current_release,
                 &current_loaded.manifest.upstream_package_version,
             ),
-            hold_policy,
-            edition,
+            RemoteAdmission {
+                hold_policy,
+                edition,
+            },
             presentation.as_deref_mut(),
         )?;
         prepare_signed_local_release_with_hold_policy(&acquisition_root, roots, hold_policy)
@@ -25026,8 +25037,10 @@ exit 2
                     &acquisition,
                     key,
                     (&verified_current, "9.9.9"),
-                    UpdateHoldPolicy::Enforce,
-                    update_edition::Edition::Preserve,
+                    RemoteAdmission {
+                        hold_policy: UpdateHoldPolicy::Enforce,
+                        edition: update_edition::Edition::Preserve,
+                    },
                     None,
                 )
                 .unwrap();
