@@ -468,7 +468,7 @@ fn terminal_display_uses_exact_native_identity_without_inference_or_reentry() {
     let command = pool.terminal_display_command(THREAD).unwrap();
     let command = command.as_std();
     let metadata = fs::symlink_metadata(&fixture.home).unwrap();
-    let expected = vec![
+    let expected = [
         "termux".into(),
         "__terminal-auto-show-v1".into(),
         THREAD.into(),

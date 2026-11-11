@@ -159,10 +159,7 @@ impl Ledger {
                 Ok(meta)
                     if meta.is_dir()
                         && meta.uid() == unsafe { libc::geteuid() }
-                        && meta.mode() & 0o077 == 0 =>
-                {
-                    ()
-                }
+                        && meta.mode() & 0o077 == 0 => {}
                 _ => return Err(fail()),
             }
         }
@@ -215,7 +212,7 @@ impl Ledger {
                 }
                 serde_json::from_slice(&bytes).map_err(|_| fail())
             }
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(State::default()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(State::default()),
             Err(_) => Err(fail()),
         }
     }
