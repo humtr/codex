@@ -1232,7 +1232,7 @@ mod reply_tests {
         let home = root.join("h");
         let program = installation.join(".local/lib/codex/core/generations/f/runtime");
         crate::journal::private_directory(program.parent().unwrap()).unwrap();
-        std::fs::copy(std::env::current_exe().unwrap(), &program).unwrap();
+        super::discovery_tests::copy_program(&program);
         let invocation = codex_runtime_binding::encode_invocation(&[
             "--config".into(),
             "model_provider=\"fixture\"".into(),

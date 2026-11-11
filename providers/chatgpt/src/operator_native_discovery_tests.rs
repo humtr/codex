@@ -11,6 +11,30 @@ use std::{
 const THREAD: &str = "11111111-2222-7333-8444-555555555555";
 const OTHER: &str = "aaaaaaaa-bbbb-7ccc-8ddd-eeeeeeeeeeee";
 
+const COPY_PROGRAM: &str = "CODEX_NATIVE_FIXTURE_COPY_PROGRAM";
+
+pub(super) fn copy_program(program: &Path) {
+    // fs::copy in the parallel parent can leave its writable executable FD in
+    // another test's fork until exec, even with CLOEXEC. Publish in an already
+    // exec'd, single-purpose child and wait for its exit: the parent never owns
+    // the writer, so a sibling fork cannot make the eventual exec fail ETXTBSY.
+    let status = Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--ignored",
+            "--exact",
+            "operator_native::discovery_tests::discovery_peer",
+        ])
+        .env(COPY_PROGRAM, program)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .status()
+        .unwrap();
+    assert!(
+        status.success(),
+        "owned fixture executable publication failed"
+    );
+}
+
 fn private_file(path: &Path, bytes: &[u8]) {
     File::options()
         .write(true)
@@ -25,6 +49,19 @@ fn private_file(path: &Path, bytes: &[u8]) {
 #[test]
 #[ignore = "bounded owned subprocess for Native discovery regressions"]
 fn discovery_peer() {
+    if let Some(program) = std::env::var_os(COPY_PROGRAM) {
+        let mut input = File::open(std::env::current_exe().unwrap()).unwrap();
+        let mut output = File::options()
+            .write(true)
+            .create_new(true)
+            .mode(0o700)
+            .custom_flags(libc::O_NOFOLLOW)
+            .open(program)
+            .unwrap();
+        std::io::copy(&mut input, &mut output).unwrap();
+        output.sync_all().unwrap();
+        return;
+    }
     let root = PathBuf::from(std::env::var_os("CODEX_NATIVE_DISCOVERY_FIXTURE").unwrap());
     let settings: Value =
         serde_json::from_slice(&fs::read(root.join("owned.json")).unwrap()).unwrap();
@@ -136,7 +173,7 @@ impl Fixture {
         }
         let executable = std::env::current_exe().unwrap();
         if fs::hard_link(&executable, &program).is_err() {
-            fs::copy(&executable, &program).unwrap();
+            copy_program(&program);
         }
         Self {
             root,
