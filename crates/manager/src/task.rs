@@ -342,7 +342,7 @@ fn format_tasks(context: &Context, tasks: &[Task]) -> Result<String, ManagerErro
     Ok(output)
 }
 
-fn execution_command(context: &Context, home: &Path) -> Result<Command, ManagerError> {
+pub(super) fn execution_command(context: &Context, home: &Path) -> Result<Command, ManagerError> {
     native::private(home, true).map_err(|_| ERR_TASK)?;
     let mut command = Command::new(&context.core_entrypoint);
     command

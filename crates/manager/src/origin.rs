@@ -47,8 +47,15 @@ pub(super) fn command(request: &str, seconds: u64) -> Option<std::process::Outpu
     if !metadata.file_type().is_socket() || metadata.uid() != unsafe { libc::getuid() } {
         return None;
     }
-    let mut child = Command::new(prefix.join("bin/termux-am-socket"))
-        .arg(request)
+    let mut command = Command::new(prefix.join("bin/termux-am-socket"));
+    command.arg(request);
+    capture(command, seconds)
+}
+
+// Bounded subprocess output shared by AM and the existing read-only Core
+// capability query. Callers retain responsibility for executable admission.
+pub(super) fn capture(mut command: Command, seconds: u64) -> Option<std::process::Output> {
+    let mut child = command
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())

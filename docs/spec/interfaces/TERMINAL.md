@@ -236,6 +236,10 @@ subscribes without embedded fallback when one exists. An explicit arbitrary
 remote CLI route is not a substitute: it bypasses the qualified foreground-FD
 producer needed for exact repeated-click selection. Owner uncertainty still
 fails before attachment; only verified Writer absence permits saved-thread resume.
+Before construction and again before reentry, Manager requires Core's exact
+`__terminal-capabilities-v1 -- resume <UUID>` native-identity response. A missing
+qualified foreground frontend fails without a launch descriptor or a new terminal.
+An already valid binding remains focusable without constructing another frontend.
 
 The private launch directory lock and deterministic per-thread display token
 serialize notification/automatic races. Existing live routes are revalidated;

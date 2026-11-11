@@ -18,6 +18,14 @@ fn private_dir(path: &Path) {
     fs::set_permissions(path, fs::Permissions::from_mode(0o700)).unwrap();
 }
 
+fn core_capability(f: &TaskFixture, reply: &str, status: i32) {
+    let source = fs::read_to_string(&f.core).unwrap();
+    let (shell, body) = source.split_once('\n').unwrap();
+    fs::write(&f.core, format!(
+        "{shell}\nif [ \"$#\" -eq 5 ] && [ \"$1\" = termux ] && [ \"$2\" = __terminal-capabilities-v1 ] && [ \"$3\" = -- ] && [ \"$4\" = resume ] && [ \"$5\" = '{TASK_ID}' ]; then printf '%s' '{reply}'; exit {status}; fi\n{body}"
+    )).unwrap();
+}
+
 #[test]
 fn foreground_fixture() {
     let Some(root) = std::env::var_os("DISPLAY_FIXTURE_ROOT").map(PathBuf::from) else {
@@ -98,6 +106,7 @@ impl Drop for Foreground {
 }
 impl Foreground {
     fn new(f: &TaskFixture, execution_home: &Path) -> Self {
+        core_capability(f, "codex-terminal-capabilities-v1\nidentity=native\n", 0);
         let prefix = f.root.0.join("usr");
         private_dir(&prefix.join("bin"));
         let socket = f.root.0.join("apps/com.termux/termux-am/am.sock");
@@ -233,6 +242,9 @@ fn repeated_click_and_auto_on_focus_exact_owner_without_launch_or_writer_transfe
         .success());
     assert_eq!(foreground.calls(), 0);
     fs::write(&pid, &pid_before).unwrap();
+    // A verified running foreground remains focusable even if a new qualified
+    // frontend can no longer be constructed from the active Core generation.
+    core_capability(&f, "codex-terminal-capabilities-v1\nidentity=title\n", 0);
     for _ in 0..2 {
         let output = foreground.command(&f, &f.account, false).output().unwrap();
         assert!(output.status.success(), "{output:?}");
@@ -322,6 +334,7 @@ fn old_route_cannot_focus_a_different_foreground_thread_or_unbound_surface() {
 #[test]
 fn display_resume_preserves_exact_live_owner_and_refuses_foreign_home() {
     let f = TaskFixture::new();
+    core_capability(&f, "codex-terminal-capabilities-v1\nidentity=native\n", 0);
     let owner_before = fs::read(f.binding.join("owner")).unwrap();
     let writer = f
         .root
@@ -363,4 +376,49 @@ fn display_resume_preserves_exact_live_owner_and_refuses_foreign_home() {
     assert_eq!(fs::read(f.binding.join("owner")).unwrap(), owner_before);
     assert_eq!(fs::read(&writer).unwrap(), writer_before);
     assert!(fs::File::open(&writer).unwrap().try_lock().is_err());
+}
+
+#[test]
+fn missing_or_unqualified_foreground_capability_never_constructs_or_reenters() {
+    for (reply, status) in [
+        ("codex-terminal-capabilities-v1\nidentity=title\n", 0),
+        (
+            "codex-terminal-capabilities-v1\nidentity=native\nextra\n",
+            0,
+        ),
+        ("codex-terminal-capabilities-v1\nidentity=native\n", 1),
+        ("", 0),
+    ] {
+        let f = TaskFixture::new();
+        core_capability(&f, reply, status);
+        let owner_before = fs::read(f.binding.join("owner")).unwrap();
+        let writer = f
+            .root
+            .0
+            .join(format!(".codex/thread-writer-locks/{TASK_ID}.lock"));
+        let writer_before = fs::read(&writer).unwrap();
+        let m = fs::metadata(&f.account).unwrap();
+        for action in ["__terminal-show-v1", "__terminal-display-v1"] {
+            let rejected = base_manager_command(&f.root.0, &f.core)
+                .args([action, TASK_ID])
+                .arg(&f.account)
+                .arg(m.dev().to_string())
+                .arg(m.ino().to_string())
+                .output()
+                .unwrap();
+            assert_eq!(rejected.status.code(), Some(1));
+            assert!(String::from_utf8(rejected.stderr)
+                .unwrap()
+                .contains("requires a qualified foreground frontend"));
+            assert!(rejected.stdout.is_empty());
+        }
+        assert!(!f
+            .root
+            .0
+            .join(".local/share/codex/manager/terminals")
+            .exists());
+        assert_eq!(fs::read(f.binding.join("owner")).unwrap(), owner_before);
+        assert_eq!(fs::read(&writer).unwrap(), writer_before);
+        assert!(fs::File::open(&writer).unwrap().try_lock().is_err());
+    }
 }

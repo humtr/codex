@@ -462,6 +462,23 @@ fn display_identity(
     Ok((id.to_owned(), home))
 }
 
+const ERR_FRONTEND: ManagerError = ManagerError::operation(
+    "codex termux: exact Native display requires a qualified foreground frontend",
+);
+
+fn require_frontend(context: &Context, home: &Path, id: &str) -> Result<(), ManagerError> {
+    let mut command = super::task::execution_command(context, home)?;
+    command.args(["termux", "__terminal-capabilities-v1", "--", "resume", id]);
+    let output = super::origin::capture(command, 5).ok_or(ERR_FRONTEND)?;
+    if !output.status.success()
+        || !output.stderr.is_empty()
+        || output.stdout != b"codex-terminal-capabilities-v1\nidentity=native\n"
+    {
+        return Err(ERR_FRONTEND);
+    }
+    Ok(())
+}
+
 pub(super) fn show(
     context: &Context,
     args: &[OsString],
@@ -481,6 +498,9 @@ pub(super) fn show(
         }
         return focus_display(context, &id, &home, None);
     }
+    // Existing valid bindings remain focusable after an optional frontend is
+    // removed. New construction requires Core to admit the actual resume route.
+    require_frontend(context, &home, &id)?;
     // The one-shot terminal revalidates the same authority before resume.
     let metadata = fs::symlink_metadata(&home).map_err(|_| ERROR)?;
     let args = vec![
@@ -500,7 +520,9 @@ pub(super) fn reenter(
 ) -> Result<Option<String>, ManagerError> {
     use std::os::unix::process::CommandExt;
     let (id, home) = display_identity(context, args)?;
-    let _ = super::task::display_command(context, &home, &id)?.exec();
+    let mut command = super::task::display_command(context, &home, &id)?;
+    require_frontend(context, &home, &id)?;
+    let _ = command.exec();
     Err(super::ERR_LAUNCH)
 }
 
