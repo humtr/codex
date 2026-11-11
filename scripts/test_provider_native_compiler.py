@@ -219,19 +219,42 @@ class NativeCompilerEvidence(unittest.TestCase):
         shell, command = self.prefix / 'bin/bash', 'clang -O0 a.c -o a.out'
         item = {'type': 'commandExecution', 'id': 'native-call', 'status': 'completed', 'exitCode': 0,
                 'cwd': str(self.workspace), 'command': str(shell) + " -c 'clang -O0 a.c -o a.out'",
-                'aggregatedOutput': '', 'startedAtMs': 1000, 'completedAtMs': 2000}
+                'aggregatedOutput': None, 'startedAtMs': 1000, 'completedAtMs': 2000}
         thread = {'turns': [{'items': [item]}]}
-        self.assertEqual(q.command_item(thread, command, shell, self.workspace, 'native-call'), item)
+        self.assertEqual(q.command_item(thread, command, shell, self.workspace, 'native-call', ''), item)
         for changed in [dict(item, exitCode=True), dict(item, status='inProgress'),
                         dict(item, id='other-call'), dict(item, command=str(shell) + " -lc 'clang -O0 a.c -o a.out'"),
                         dict(item, completedAtMs=None), dict(item, startedAtMs=2001)]:
             with self.subTest(item=changed), self.assertRaises(AssertionError):
-                q.command_item({'turns': [{'items': [changed]}]}, command, shell, self.workspace, 'native-call')
+                q.command_item({'turns': [{'items': [changed]}]}, command, shell, self.workspace, 'native-call', '')
         with self.assertRaises(AssertionError):
-            q.command_item({'turns': [{'items': [item, item]}]}, command, shell, self.workspace, 'native-call')
+            q.command_item({'turns': [{'items': [item, item]}]}, command, shell, self.workspace, 'native-call', '')
         immediate = dict(item, startedAtMs=2000)
         self.assertEqual(q.command_item({'turns': [{'items': [immediate]}]}, command, shell, self.workspace,
-                                       'native-call'), immediate)
+                                       'native-call', ''), immediate)
+
+    def test_history_nullable_output_must_match_original_framed_receipt(self):
+        shell, command = self.prefix / 'bin/bash', 'clang -O0 a.c -o a.out'
+        item = {'type': 'commandExecution', 'id': 'native-call', 'status': 'completed', 'exitCode': 0,
+                'cwd': str(self.workspace), 'command': str(shell) + " -c 'clang -O0 a.c -o a.out'",
+                'aggregatedOutput': None, 'startedAtMs': 1000, 'completedAtMs': 2000}
+        silent = dict(self.result, output='Chunk ID: original\nProcess exited with code 0\nOutput:\n')
+        self.assertTrue(q.completed(silent))
+        self.assertEqual(q.command_output(silent), '')
+        def verify(row, output):
+            return q.command_item({'turns': [{'items': [row]}]}, command, shell, self.workspace, 'native-call', output)
+        self.assertEqual(verify(item, q.command_output(silent)), item)
+        explicit = dict(item, aggregatedOutput='actual output\n')
+        loud = dict(silent, output=silent['output'] + 'actual output\n')
+        self.assertEqual(verify(explicit, q.command_output(loud)), explicit)
+        for changed, output in [(item, 'actual output\n'), (explicit, ''), (item, None),
+                                (dict(item, aggregatedOutput=''), ''),
+                                ({key: value for key, value in item.items() if key != 'aggregatedOutput'}, '')]:
+            with self.subTest(item=changed, output=output), self.assertRaises(AssertionError):
+                verify(changed, output)
+        for invalid in [None, '', 'Process exited with code 0\n', 'missing framing']:
+            with self.subTest(output=invalid), self.assertRaises(AssertionError):
+                q.command_output(dict(silent, output=invalid))
 
     def test_actual_intervals_must_overlap_not_only_http_admission(self):
         self.assertEqual(q.overlapping_commands([{'startedAtMs': 100, 'completedAtMs': 200},
@@ -244,9 +267,9 @@ class NativeCompilerEvidence(unittest.TestCase):
         shell, command = self.prefix / 'bin/bash', 'clang -O0 a.c -o a.out'
         item = {'type': 'commandExecution', 'id': 'native-call', 'status': 'completed', 'exitCode': 0,
                 'cwd': str(self.workspace), 'command': str(shell) + " -c 'clang -O0 a.c -o a.out'",
-                'aggregatedOutput': '', 'startedAtMs': 1000, 'completedAtMs': 2000}
+                'aggregatedOutput': None, 'startedAtMs': 1000, 'completedAtMs': 2000}
         def observe(items):
-            return q.published_command({'turns': [{'items': items}]}, command, shell, self.workspace, 'native-call')
+            return q.published_command({'turns': [{'items': items}]}, command, shell, self.workspace, 'native-call', '')
         self.assertIsNone(observe([]))
         self.assertIsNone(observe([dict(item, status='inProgress', exitCode=None, completedAtMs=None)]))
         self.assertIsNone(observe([dict(item, completedAtMs=None)]))

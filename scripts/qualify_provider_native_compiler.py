@@ -119,6 +119,14 @@ def completed(result):
     return True
 
 
+def command_output(result):
+    text = result['output']
+    assert isinstance(text, str), 'original Native output envelope is missing'
+    _, delimiter, output = text.partition('\nOutput:\n')
+    assert delimiter, 'original Native execution output framing is missing'
+    return output
+
+
 def compiler_claim(invocation, workspace, label, digest):
     effect = invocation.get('effect')
     paths = effect.get('Paths') if isinstance(effect, dict) else None
@@ -142,7 +150,7 @@ def simultaneous_claims(status, expected):
     return rows
 
 
-def command_item(thread, command, shell, workspace, call_id):
+def command_item(thread, command, shell, workspace, call_id, output):
     items = [item for turn in thread['turns'] for item in turn['items']
              if item.get('type') == 'commandExecution']
     assert len(items) == 1, 'Native command must execute exactly once in its own thread'
@@ -151,13 +159,18 @@ def command_item(thread, command, shell, workspace, call_id):
     assert type(item['exitCode']) is int and item['exitCode'] == 0
     assert item['cwd'] == str(workspace)
     assert shlex.split(item['command']) == [str(shell), '-c', command]
-    assert isinstance(item['aggregatedOutput'], str)
+    # Native v2 item_builders and CoreTurnItem conversion publish null for a
+    # proven empty aggregate. Bind this to the original handler receipt, never
+    # default a missing/invalid history result to empty output.
+    assert isinstance(output, str)
+    assert 'aggregatedOutput' in item
+    assert item['aggregatedOutput'] == (output if output else None)
     assert all(type(item.get(key)) is int for key in ('startedAtMs', 'completedAtMs'))
     assert item['startedAtMs'] <= item['completedAtMs']
     return item
 
 
-def published_command(thread, command, shell, workspace, call_id):
+def published_command(thread, command, shell, workspace, call_id, output):
     items = [item for turn in thread['turns'] for item in turn['items']
              if item.get('type') == 'commandExecution']
     assert len(items) <= 1, 'Native command executed more than once'
@@ -168,7 +181,7 @@ def published_command(thread, command, shell, workspace, call_id):
         return None
     if items[0]['status'] == 'completed' and any(items[0].get(key) is None for key in ('startedAtMs', 'completedAtMs')):
         return None
-    return command_item(thread, command, shell, workspace, call_id)
+    return command_item(thread, command, shell, workspace, call_id, output)
 
 
 def overlapping_commands(items):
@@ -409,13 +422,13 @@ def probe(args):
             finally:
                 connection.close()
 
-        def command_published(work, command, call_id):
+        def command_published(work, command, call_id, output):
             # write_stdin's original terminal result precedes the exit watcher's
             # ItemCompleted publication. Read that same item until published;
             # never submit another exec or poll after terminal output arrived.
             def read():
                 value = native(work, 'thread/read', {'threadId': work['thread_id'], 'includeTurns': True})['thread']
-                item = published_command(value, command, prefix / 'bin/bash', workspace, call_id)
+                item = published_command(value, command, prefix / 'bin/bash', workspace, call_id, output)
                 return (value, item) if item is not None else None
             return wait(read, 'original Native command completion publication')
 
@@ -461,6 +474,7 @@ def probe(args):
             invocation = turn(works[label])['calls']['build-' + label]
             compiler_claim(invocation, workspace, label, sources[label])
             result = original_result(original[label], invocation)
+            assert command_output(result) == '', 'plain compiler unexpectedly produced output'
             invocations[label] = invocation
             claims[works[label]['work_id']] = {'id': invocation['id'], 'session': running_session(result)}
         status = client.call('codex_status', {'work_id': works['a']['work_id']})
@@ -484,6 +498,7 @@ def probe(args):
                 reply = execute(work, identity, work['poll'], {'session_id': session, 'chars': '',
                     'yield_time_ms': 1000, 'max_output_tokens': 1000})
                 result = original_result(reply, turn(work)['calls'][identity])
+                assert command_output(result) == '', 'plain compiler unexpectedly produced output'
                 if completed(result):
                     return result
                 assert running_session(result) == session, 'continuation changed the original Native process'
@@ -496,7 +511,7 @@ def probe(args):
         history, commands, outputs = {}, [], {}
         for label in ('a', 'b'):
             work = works[label]
-            history[label], item = command_published(work, arguments[label]['cmd'], invocations[label]['id'])
+            history[label], item = command_published(work, arguments[label]['cmd'], invocations[label]['id'], command_output(settled[label]))
             commands.append(item)
             assert (workspace / f'{label}.out').read_bytes().startswith(b'\x7fELF')
             assert stat.S_IMODE((workspace / f'{label}.out').stat().st_mode) & 0o111
@@ -509,9 +524,11 @@ def probe(args):
         assert execute(opaque, 'opaque-before-settlement', opaque['exec'], opaque_args)['result'] == refused['result']
         assert not (workspace / 'opaque-effect').exists(), 'rejected call silently ran after settlement'
         after = execute(opaque, 'opaque-after-settlement', opaque['exec'], opaque_args)
-        assert completed(original_result(after, turn(opaque)['calls']['opaque-after-settlement']))
+        opaque_result = original_result(after, turn(opaque)['calls']['opaque-after-settlement'])
+        assert completed(opaque_result)
+        assert command_output(opaque_result) == '', 'redirected command unexpectedly produced output'
         assert (workspace / 'opaque-effect').read_text() == 'compiler-settled'
-        _, opaque_item = command_published(opaque, opaque_args['cmd'], turn(opaque)['calls']['opaque-after-settlement']['id'])
+        _, opaque_item = command_published(opaque, opaque_args['cmd'], turn(opaque)['calls']['opaque-after-settlement']['id'], command_output(opaque_result))
         for label, work in works.items():
             client.call('codex_finish', {**binding(work), 'call_id': 'compiler-finish-' + label,
                 'text': 'Owned Native compiler qualification completed with original Native results preserved.'})
@@ -519,7 +536,7 @@ def probe(args):
             final = native(work, 'thread/read', {'threadId': work['thread_id'], 'includeTurns': True})['thread']
             assert all(row['status'] == 'completed' for row in final['turns'])
             if label in history:
-                assert command_item(final, arguments[label]['cmd'], prefix / 'bin/bash', workspace, invocations[label]['id']) == commands[('a', 'b').index(label)]
+                assert command_item(final, arguments[label]['cmd'], prefix / 'bin/bash', workspace, invocations[label]['id'], command_output(settled[label])) == commands[('a', 'b').index(label)]
             else:
                 assert command_item(final, opaque_args['cmd'], prefix / 'bin/bash', workspace,
                                     turn(work)['calls']['opaque-after-settlement']['id']) == opaque_item
