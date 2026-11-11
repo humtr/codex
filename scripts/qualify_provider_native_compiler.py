@@ -1,4 +1,4 @@
-"""Scoped installed Native compiler proof using the existing synthetic Operator.
+"""Scoped installed or isolated candidate Native proof using the synthetic Operator.
 
 The service's Bridge is synthetic; Core, Native ownership, execution metadata,
 resource admission and clang are real. This is neither a live ChatGPT nor a TUI
@@ -24,7 +24,7 @@ import urllib.request
 
 from qualify_provider_operator import TOKEN, fixture_auth
 from qualify_provider_native_trial import stop_owned_pid
-from qualify_tasks import Ws
+from qualify_tasks import Ws, fixture_activation_state, local_generation_inventory
 
 FUNCTIONS = 32768
 MAX_POLLS = 30
@@ -272,15 +272,50 @@ def cleanup_compiler_fixture(client, works, service, root, accepted, owners, nat
     return errors
 
 
+def selected_installation(core, generation, home, prefix, candidate_root=None):
+    """Keep operating acceptance strict; candidates use an explicit private fixture."""
+    scope = 'installed-native-compiler'
+    if candidate_root is None:
+        assert core == (prefix / 'bin/codex').resolve(strict=True), 'use the actual installed Core entrypoint'
+    else:
+        candidate = Path(candidate_root).absolute()
+        assert candidate == termux_path(candidate, home, prefix), 'candidate root contains an alias'
+        assert home == candidate / 'h', 'candidate HOME must be the owned fixture home'
+        assert core == candidate / 'p/bin/codex', 'candidate Core must be the owned fixture entrypoint'
+        metadata = core.lstat()
+        assert stat.S_ISREG(metadata.st_mode) and metadata.st_uid == os.geteuid() and metadata.st_mode & 0o111 and not metadata.st_mode & 0o022, 'candidate Core executable is unsafe'
+        for directory in (candidate, home):
+            metadata = directory.lstat()
+            assert stat.S_ISDIR(metadata.st_mode) and metadata.st_uid == os.geteuid() and not metadata.st_mode & 0o077, 'candidate directory is not private and owned'
+        marker = (candidate / 'owned-fixture').lstat()
+        assert stat.S_ISREG(marker.st_mode) and marker.st_uid == os.geteuid() and not marker.st_mode & 0o077, 'owned candidate marker is unavailable'
+        public = candidate / 'fixture-public.pem'
+        metadata = public.lstat()
+        assert stat.S_ISREG(metadata.st_mode) and metadata.st_uid == os.geteuid() and not metadata.st_mode & 0o022, 'fixture public key is unsafe'
+        assert generation.parent == home / '.local/lib/codex/core/generations'
+        fields, _ = local_generation_inventory(generation)
+        assert sha(core) == fields['core_artifact_digest'] == sha(generation / 'core'), 'candidate Core digest changed'
+        assert sha(generation / 'runtime') == fields['runtime_digest'], 'candidate Runtime digest changed'
+        activation = home / '.local/share/codex/core/activation-state'
+        metadata = activation.lstat()
+        assert stat.S_ISREG(metadata.st_mode) and metadata.st_uid == os.geteuid() and not metadata.st_mode & 0o077, 'candidate activation is not private and owned'
+        assert activation.read_text() == fixture_activation_state(generation.name, public), 'candidate activation must use only its ephemeral fixture key'
+        subprocess.run(['openssl', 'pkeyutl', '-verify', '-pubin', '-inkey', str(public), '-rawin',
+            '-in', str(generation / 'release.manifest'), '-sigfile', str(generation / 'release.sig')],
+            check=True, capture_output=True, timeout=15)
+        scope = 'candidate-native-compiler'
+    assert generation.parent == home / '.local/lib/codex/core/generations'
+    activation = dict(line.split('=', 1) for line in (home / '.local/share/codex/core/activation-state').read_text().splitlines() if '=' in line)
+    assert activation['current'] == generation.name, 'explicit generation is not currently selected'
+    return scope
+
+
 def probe(args):
     os.umask(0o077)
     home, prefix = Path(os.environ['HOME']).resolve(strict=True), Path(os.environ['PREFIX']).resolve(strict=True)
     core, generation = termux_path(args.core, home, prefix), termux_path(args.generation, home, prefix)
     runtime, executable = generation / 'runtime', termux_path(args.service_test, home, prefix)
-    assert core == (prefix / 'bin/codex').resolve(strict=True), 'use the actual installed Core entrypoint'
-    assert generation.parent == home / '.local/lib/codex/core/generations'
-    activation = dict(line.split('=', 1) for line in (home / '.local/share/codex/core/activation-state').read_text().splitlines() if '=' in line)
-    assert activation['current'] == generation.name, 'explicit generation is not currently selected'
+    scope = selected_installation(core, generation, home, prefix, getattr(args, 'candidate_root', None))
     assert runtime.is_file() and not runtime.is_symlink()
     assert os.environ.get('SHELL') == str(prefix / 'bin/bash'), 'this case requires the installed selected Bash'
     assert not os.environ.get('CLANG_NO_DEFAULT_CONFIG'), 'retain the actual default compiler configuration'
@@ -293,7 +328,7 @@ def probe(args):
     # Exclusive launch before any service or Native allocation. A failed run is
     # inspected/reconciled, never silently rerun under the same report name.
     with args.report.with_suffix('.launch.json').open('x') as stream:
-        json.dump({'scope': 'installed-native-compiler', 'model_requests': 0, **stamp()}, stream)
+        json.dump({'scope': scope, 'model_requests': 0, **stamp()}, stream)
     root = Path(tempfile.mkdtemp(prefix='nc-', dir=temporary)).resolve(strict=True)
     workspace, native_home = root / 'w', root / 'h/.codex'
     for path in (workspace, native_home):
@@ -323,11 +358,12 @@ def probe(args):
     save(root / 'inputs.json', {'core': {'path': str(core), 'sha256': sha(core)},
         'runtime': {'path': str(runtime), 'sha256': sha(runtime)},
         'service_test': {'path': str(executable), 'sha256': sha(executable)},
+        'scope': scope, 'generation_manifest_sha256': sha(generation / 'release.manifest'),
         'configuration_sha256': sha(configuration), 'native_configuration_sha256': sha(native_home / 'config.toml'),
         'driver_sha256': sha(Path(__file__)),
         'sources': sources, 'functions_per_source': FUNCTIONS, 'home': str(home), 'prefix': str(prefix),
         'execution_home': str(native_home), 'workspace': str(workspace), 'model_requests': 0, **stamp()})
-    save(args.report, {'accepted': False, 'phase': 'prepared', 'scope': 'installed-native-compiler',
+    save(args.report, {'accepted': False, 'phase': 'prepared', 'scope': scope,
                       'fixture': str(root), 'model_requests': 0, 'live_tui_accepted': False, **stamp()})
     service = client = None
     works, owners = {}, {}
@@ -500,7 +536,7 @@ def probe(args):
         bridge_log = root / 'bridge-commands.json'
         assert not bridge_log.exists() or not any(row['op'] == 'submit' for row in json.loads(bridge_log.read_text()))
         save(root / 'original-results.json', {'initial': original, 'terminal': settled, 'opaque_rejected': refused, 'opaque_completed': after})
-        proof_result = {'accepted': True, 'scope': 'installed-native-compiler', 'fixture': str(root),
+        proof_result = {'accepted': True, 'scope': scope, 'fixture': str(root),
             'model_requests': 0, 'live_tui_accepted': False, 'actual_compilers': 2,
             'outputs': outputs,
             'native_command_overlap_ms': overlap, 'simultaneous_bounded_claims': 2,
@@ -508,7 +544,7 @@ def probe(args):
             'original_results_preserved': True, 'unconfirmed_effects': 0, **stamp()}
         accepted = True
     except BaseException as error:
-        save(args.report, {'accepted': False, 'scope': 'installed-native-compiler', 'fixture': str(root),
+        save(args.report, {'accepted': False, 'scope': scope, 'fixture': str(root),
                           'model_requests': 0, 'live_tui_accepted': False,
                           'error_type': type(error).__name__, 'error': str(error), **stamp()})
         raise

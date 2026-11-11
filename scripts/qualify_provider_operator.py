@@ -1040,7 +1040,10 @@ if __name__ == '__main__':
     parser.add_argument('--selected-controls', action='store_true', help='also exercise explicit assignment/controller/budget controls with legacy explicit fixture inputs; zero real Chat')
     parser.add_argument('--permissions-only', action='store_true', help='qualify per-work approval policies, review failure, real compilation and reconnect; synthetic Chat replies')
     parser.add_argument('--native-compiler-only', action='store_true', help='explicit installed Core/runtime and real clang concurrency proof; external foreground terminal, zero Chat, no TUI acceptance')
+    parser.add_argument('--candidate-root', type=Path, help='explicit private fixture installation for native-compiler-only; operating installation is untouched')
     args=parser.parse_args()
+    if args.candidate_root and not args.native_compiler_only:
+        parser.error('--candidate-root is only valid with --native-compiler-only')
     if args.native_compiler_only:
         if not all((args.core, args.generation, args.service_test, args.report)) or any((
                 args.inputs, args.frontend, args.provider_binary, args.permissions_only,
