@@ -23,7 +23,7 @@ pub(crate) use compiler::Execution;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) enum Effect {
-    /// In-process metadata/read tools with no shell or PATH dependency.
+    /// Verified observations without a running process or file-effect dependency.
     Read,
     Opaque,
     Paths(Vec<FileEffect>),
