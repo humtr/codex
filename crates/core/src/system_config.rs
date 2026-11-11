@@ -126,7 +126,7 @@ pub(super) fn validate(
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null());
-        super::apply_child_env_plan_and_fence(&mut command, Some(env));
+        super::apply_runtime_child_env_plan_and_fence(&mut command, Some(env));
         fds.configure(&mut command);
         let mut child = command.spawn()?;
         let until = Instant::now() + Duration::from_secs(5);

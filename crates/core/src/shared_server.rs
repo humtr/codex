@@ -472,7 +472,7 @@ pub(super) fn ensure_configured(
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null());
-        super::apply_child_env_plan_and_fence(&mut command, Some(env));
+        super::apply_runtime_child_env_plan_and_fence(&mut command, Some(env));
         fds.configure(&mut command);
         unsafe extern "C" {
             fn setsid() -> i32;
@@ -699,6 +699,8 @@ fn main() {
  assert!(!fs::read("/proc/self/fd/33").unwrap().is_empty());
  assert!(fs::metadata("/proc/self/fd/35").unwrap().is_dir());
  assert!(env::var_os("LD_PRELOAD").is_none());
+ assert!(env::var_os("CODEX_CHAT_MODEL_REENTRY").is_none());
+ assert!(env::var_os("CODEX_CHAT_MODEL_REENTRY_PID").is_none());
  if fs::exists(env::var_os("CODEX_HOME").unwrap().into_string().unwrap()+"/exit").unwrap() { std::process::exit(77); }
  let _writer=fs::File::open(std::path::PathBuf::from(env::var_os("CODEX_HOME").unwrap()).join("sessions/held.jsonl")).ok();
  let l=UnixListener::bind(path).unwrap();
@@ -736,7 +738,11 @@ fn main() {
         let base = crate::render_core_config(&[]);
         fs::write(config.join("config.toml"), &base).unwrap();
         let env = crate::TermuxBaseEnvPlan {
-            assignments: vec![("TMPDIR".into(), root.as_os_str().into())],
+            assignments: vec![
+                ("TMPDIR".into(), root.as_os_str().into()),
+                ("CODEX_CHAT_MODEL_REENTRY".into(), "resume".into()),
+                ("CODEX_CHAT_MODEL_REENTRY_PID".into(), "42".into()),
+            ],
             removals: vec![],
         };
         let profile = root.join("profile");
