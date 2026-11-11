@@ -4274,3 +4274,66 @@ index 807d7ac4f0..8aaa34eb5f 100644
                  ));
              }
          }
+diff --git a/codex-rs/tui/src/app/agents_overview_actions_tests.rs b/codex-rs/tui/src/app/agents_overview_actions_tests.rs
+index dd48bb15cbb3d73aca91b38a9efa56e22181ceba..c11a1c3da3604662156b88d0f5a381ec392dd013 100644
+--- a/codex-rs/tui/src/app/agents_overview_actions_tests.rs
++++ b/codex-rs/tui/src/app/agents_overview_actions_tests.rs
+@@ -21,6 +21,8 @@
+     let started = app_server.start_thread(&app.config).await?;
+     let thread_id = started.session.thread_id;
+     let mut tui = crate::tui::test_support::make_test_tui()?;
++    let view = app.agents_overview_view(Vec::new(), /*selected_thread_id*/ None);
++    app.chat_widget.show_bottom_pane_view(Box::new(view));
+ 
+     for pinned in [true, false] {
+         Box::pin(app.handle_event(
+@@ -31,16 +33,45 @@
+         .await?;
+         assert!(app.agents_overview.pending_pin_change.is_some());
+         let completed = rx.recv().await.expect("pin request completes");
+-        assert!(matches!(
+-            &completed,
+-            AppEvent::AgentsOverviewPinToggled { .. }
+-        ));
++        assert!(
++            matches!(&completed, AppEvent::AgentsOverviewPinToggled { .. }),
++            "unexpected pin completion: {completed:?}"
++        );
+         app.agents_overview
+             .refresh_notifications
+             .insert(thread_id, Vec::new());
+         Box::pin(app.handle_event(&mut tui, &mut app_server, completed)).await?;
+         assert_eq!(app.agents_overview.pending_pin_change, None);
+         assert!(app.agents_overview.refresh_notifications.is_empty());
++        // Completing a pin action queues a distinct overview refresh. Process its
++        // exact completion before the next action uses the same event channel.
++        let refresh_id = app
++            .agents_overview
++            .request_id
++            .expect("visible overview refreshes after a pin change");
++        let refresh = tokio::time::timeout(Duration::from_secs(10), rx.recv())
++            .await
++            .expect("pin state refresh completes")
++            .expect("overview refresh event");
++        assert!(
++            matches!(
++                &refresh,
++                AppEvent::AgentsOverviewThreadsLoaded { request_id, result }
++                    if *request_id == refresh_id && result.is_ok()
++            ),
++            "unexpected pin state refresh: {refresh:?}"
++        );
++        Box::pin(app.handle_event(&mut tui, &mut app_server, refresh)).await?;
++        assert_eq!(app.agents_overview.request_id, None);
++        assert!(!app.agents_overview.view_state.lock().unwrap().loading);
++        assert_eq!(
++            app.agents_overview
++                .pinned_thread_ids
++                .as_ref()
++                .expect("shared pinned section loaded")
++                .contains(&thread_id),
++            pinned
++        );
+         let threads = list_pinned_threads(&app_server.request_handle())
+             .await
+             .map_err(color_eyre::eyre::Report::msg)?
