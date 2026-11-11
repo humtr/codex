@@ -52,9 +52,25 @@ def receipt():
             'execution_outputs':outputs}
 
 
+def input_plan(value):
+    runs={name:run_record(full.WORKFLOWS[name],number) for name,number in value['component_runs'].items()}
+    artifacts={}
+    for number,(key,owner) in enumerate(full.INPUT_OWNERS.items(),201):
+        name=('base-qualified-'+value['upstream_version'].replace('.','-')+'-'+value['source_sha'][:12]+'-s166'
+              if key=='core-candidate' else full.INPUT_NAMES[key])
+        artifacts[key]={'id':number,'name':name,'run_id':runs[owner]['id']}
+    return {'schema':'codex-full-inputs-v1','source_sha':value['source_sha'],'upstream_version':value['upstream_version'],
+            'runs':runs,'artifacts':artifacts}
+
+
 class FullReceiptTests(unittest.TestCase):
     def archive(self,value,fault=None):
         files={name:canonical(value) if name=='full-qualification.json' else b'{}' for name in full.PROOF_FILES}
+        plan=input_plan(value)
+        if fault=='wrong-plan':
+            plan['runs']['core']['id']=999
+            for key in ('android-core','core-candidate'):plan['artifacts'][key]['run_id']=999
+        files['full-inputs/inputs.json']=canonical(plan)
         if fault=='missing':files.pop('full-probes/runtime.err')
         if fault=='extra':files['extra']=b'unselected'
         if fault=='traversal':files['../outside']=b'unsafe'
@@ -121,6 +137,7 @@ class FullReceiptTests(unittest.TestCase):
                 'artifact_id':101,'archive_bytes':len(self.archive(receipt())),
                 'archive_digest':'sha256:'+hashlib.sha256(self.archive(receipt())).hexdigest()})
             self.assertFalse((Path(temporary)/'proof/download.zip').exists())
+            self.assertEqual(json.loads((Path(temporary)/'proof/inputs.json').read_bytes()),input_plan(receipt()))
             missing,calls=self.read(Path(temporary)/'missing',missing=True)
             self.assertIsNone(missing);self.assertEqual(calls,[])
             self.assertFalse((Path(temporary)/'missing').exists())
@@ -190,7 +207,7 @@ class FullReceiptTests(unittest.TestCase):
                 directory=Path(temporary)/'proof'
                 with self.assertRaisesRegex(ValueError,'digest or byte count'):self.read(directory,download_fault=change)
                 self.assertFalse(directory.exists())
-        for fault in ('missing','extra','traversal','absolute','oversize','symlink','duplicate','wrong-directory'):
+        for fault in ('missing','extra','traversal','absolute','oversize','symlink','duplicate','wrong-directory','wrong-plan'):
             with self.subTest(fault=fault),tempfile.TemporaryDirectory() as temporary:
                 directory=Path(temporary)/'proof'
                 with self.assertRaises(ValueError):self.read(directory,zip_fault=fault)
