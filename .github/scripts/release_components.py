@@ -396,17 +396,27 @@ def validate_map(value, generation):
     return value
 
 
-def candidate_from_base(base, manager, frontend, builder, generation, version, output, core=None):
+def candidate_from_base(base, manager, frontend, builder, generation, version, output, core=None, *, qualified=False):
     """Assemble Base/Core replacement or Full add-ons from an authenticated subset."""
     base_only = core is not None
     prefix = ('core-v', 'local-base-relay-hosted-', 'base-qualification-') if base_only else ('full-v', 'local-relay-hosted-')
+    if qualified:
+        if base_only:raise ValueError('unsigned Full qualification cannot replace Core')
+        prefix=('full-qualification-',)
     if output.exists() or output.is_symlink() or not generation.startswith(prefix):
         raise ValueError('invalid candidate output or identity')
     if base_only and any(value is not None for value in (manager,frontend,builder)):
         raise ValueError('Base assembly replaces Core only; add-ons require the complete Base')
-    manifest, files = parse_manifest(base/'release.manifest')
-    if not manifest['generation_id'].startswith(('core-v', 'local-base-relay-hosted-')) or set(name for name,_,_ in files) != set(BASE_FILES):
-        raise ValueError('candidate base inventory differs')
+    if qualified:
+        from release_preflight import verify_base_candidate
+        admitted=verify_base_candidate(base,version)
+        if not admitted['generation_id'].startswith('base-qualification-'):
+            raise ValueError('unsigned Full qualification requires qualified Core inputs')
+        files=[(name,sha256(base/name),mode) for name,mode in sorted(BASE_FILES.items())]
+    else:
+        manifest, files = parse_manifest(base/'release.manifest')
+        if not manifest['generation_id'].startswith(('core-v', 'local-base-relay-hosted-')) or set(name for name,_,_ in files) != set(BASE_FILES):
+            raise ValueError('candidate base inventory differs')
     descriptor = (base/'generation.meta').read_text().splitlines()
     fields = dict(line.split('\t') for line in descriptor[1:] if line.count('\t') == 1)
     if fields.get('upstream_package_version') != version or fields.get('manager_artifact_digest') != '-':

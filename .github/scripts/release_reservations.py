@@ -107,6 +107,9 @@ def reserve(source,candidate,sequence,main_sha,authority,directory,request=api,h
         return existing,False  # Original reservation/receipt, never a second signing request.
     if sequence<=max(state['occupied_sequences'],default=0):
         raise ValueError('release sequence is already occupied; re-evaluate candidate')
+    if 'manager' in current:
+        from full_qualification import require_qualified_full
+        require_qualified_full(source,candidate,directory.parent/'full-proof')
     history=history_reader(main_sha,authority,directory)+state['reservations']
     revisions=assign(version,current,history)
     value=validate({'schema':'codex-release-reservation-v1','source_sha':source_sha,'main_sha':main_sha,
@@ -132,7 +135,9 @@ def reserve(source,candidate,sequence,main_sha,authority,directory,request=api,h
 
 def verify_candidate(value,source,candidate,sequence):
     validate(value)
+    from release_preflight import parse_descriptor
     if (value['sequence']!=int(sequence) or value['source_sha']!=git(source,'rev-parse','HEAD').decode().strip()
+            or value['generation_id']!=parse_descriptor(candidate/'generation.meta')['generation_id']
             or value['candidate_sha256']!=candidate_digest(candidate)):
         raise ValueError('reserved signing inputs differ')
     version,current=selected(source,candidate)

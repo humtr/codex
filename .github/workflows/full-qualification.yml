@@ -1,0 +1,60 @@
+name: Unsigned Full composition qualification
+on:
+  workflow_dispatch:
+  push:
+    branches: [rewrite/rust-core]
+    paths:
+      - .github/workflows/full-qualification.yml
+      - .github/scripts/full_qualification.py
+      - .github/scripts/test_full_qualification.py
+permissions:
+  contents: read
+  actions: read
+jobs:
+  qualify:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
+    steps:
+      - name: Fetch exact development source
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/rewrite/rust-core
+          git init source
+          git -C source remote add origin https://github.com/humtr/codex.git
+          git -C source fetch --no-tags --depth=1 origin "$GITHUB_SHA"
+          git -C source checkout --detach FETCH_HEAD
+          test "$(git -C source rev-parse HEAD)" = "$GITHUB_SHA"
+          python3 source/.github/scripts/component_inputs.py --source source --component core --env >> "$GITHUB_ENV"
+      - name: Admit completed component qualifications from this source
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python3 source/.github/scripts/full_qualification.py acquire --source source --inputs "$RUNNER_TEMP/full-inputs"
+      - name: Assemble existing qualified bytes without signing
+        run: |
+          set -euo pipefail
+          rustup toolchain install "$RUST_VERSION" --profile minimal
+          cargo "+$RUST_VERSION" build --locked --release --manifest-path source/Cargo.toml -p codex-release-builder
+          python3 source/.github/scripts/full_qualification.py assemble --source source --inputs "$RUNNER_TEMP/full-inputs" \
+            --builder "$GITHUB_WORKSPACE/source/target/release/codex-release-builder" --candidate "$RUNNER_TEMP/full-candidate"
+      - name: Probe this complete Full composition on Android ABI
+        run: |
+          set -euo pipefail
+          bash source/.github/scripts/provision_android_bionic.sh
+          candidate="$RUNNER_TEMP/full-candidate"
+          logs="$RUNNER_TEMP/full-probes"
+          python3 source/.github/scripts/full_qualification.py probe --source source --inputs "$RUNNER_TEMP/full-inputs" \
+            --candidate "$candidate" --logs "$logs" --run-id "$GITHUB_RUN_ID"
+          python3 source/.github/scripts/full_qualification.py prove --source source --inputs "$RUNNER_TEMP/full-inputs" \
+            --candidate "$candidate" --logs "$logs" --run-id "$GITHUB_RUN_ID" --output "$RUNNER_TEMP/full-qualification.json"
+      - name: Retain unsigned exact composition proof
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: full-composition-qualification
+          path: |
+            ${{ runner.temp }}/full-qualification.json
+            ${{ runner.temp }}/full-inputs/inputs.json
+            ${{ runner.temp }}/full-probes
+          if-no-files-found: error
+          retention-days: 14

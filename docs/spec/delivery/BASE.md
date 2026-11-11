@@ -1,4 +1,4 @@
-# Base qualification
+# Core qualification and legacy Base contracts
 
 > Normative annex of [SPEC](../../../SPEC.md); [INDEX](../INDEX.md) is navigation only and [CURRENT](../../../CURRENT.md) is observed status.
 
@@ -17,8 +17,9 @@ before artifact acquisition; signing, Release/Pages staging, stable promotion an
 device activation are never reachable. Its unsigned CI artifacts have distinct
 base-qualification identities and cannot replace an integrated candidate. It
 adds no update channel, installed pointer, runtime mode or public CLI command.
-The main publication path still requires the complete qualified backend/frontend
-pair and retains the current generation on an unsupported update.
+Each publication lane requires its complete qualified selection. Full also
+requires its Manager/TUI composition proof; Core publication does not wait for
+optional components. An unsupported candidate preserves the installed generation.
 
 Base qualification may run from an exact rewrite/rust-core push or an explicit
 manual `workflow_dispatch` on a development branch with read-only repository
@@ -32,9 +33,10 @@ that source; it is not public release admission. The Core completion relay runs
 only for an explicitly requested release-intent dispatch on rewrite/rust-core. Public exact-run admission, main's accepted source
 and signing/promotion still require their existing rewrite proofs, so a successful
 manual development-branch run neither replaces them nor triggers publication.
-`rebuild_current` selects the version and source archive digest from the
-authenticated stable descriptor independently of TUI pins; otherwise the
-ordinary official upstream discovery is used. An unsupported upstream artifact
+Independent Core qualification selects the proposed source recipe version and
+archive, including a version newer than public stable. Authorized current-source
+publication also uses that accepted recipe; ordinary release discovery separately
+resolves official upstream stable. TUI output references do not select Core input. An unsupported upstream artifact
 still fails existing builder qualification, rather than weakening patch admission.
 Skipped integrated construction distinguishes a non-newer release from missing
 frontend qualification or an archive mismatch; it must not report all three as
@@ -76,12 +78,13 @@ comparison only while build/test code consumes no event/dispatch input. The lite
 wall-clock budget of the native build job is scheduling metadata, not a compiler
 input. Its change alone may reuse a completed successful run; it cannot admit a
 failed, canceled or incomplete run. Other global build settings and every build/
-test command remain bound. The required focused-test count is an acceptance
-criterion: reuse checks the retained log against the current required count,
-without treating an earlier misdeclared count as a source change. Source blobs,
+test command remain bound. Focused acceptance requires actual unique PASS records matching the executed
+summary and every declared scope. Upstream Retain additionally requires actual
+PASS coverage for each retained feature topic; an aggregate count is not proof. Source blobs,
 upstream/toolchains, dependency audit, executed tests, lint and artifact identity
-must still agree. Native builds start through
-the accepted-input controller, reusing a matching build already in progress.
+must still agree. Development Native builds may be explicitly dispatched without publication
+intent. A separately authorized release controller reuses a matching completed
+or in-progress build rather than manufacturing new artifact authority.
 
 Provider-only source changes under providers/chatgpt use the independent optional
 provider gate and do not rebuild unchanged Core/Manager or make Bun a Core
