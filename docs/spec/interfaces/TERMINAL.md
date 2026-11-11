@@ -220,6 +220,15 @@ Core update selection and presentation, including the offline Core-owned
 
 ## Exact headless Native display
 
+The existing terminal-directory lock serializes only durable descriptor admission
+and the launch-to-consumed-to-route transitions. Android dispatch, route waiting,
+focus and workload execution occur after releasing it. Concurrent click/automatic
+requests may report an original launch as pending only after checking its exact
+thread, program and display arguments, including execution-home device/inode.
+Unresolved lock contention cannot claim that an original launch exists. Duplicate
+starters cannot remove another starter's route; cleanup remains bound to the
+descriptor actually consumed and the route's publishing PID/start identity.
+
 Notification click and optional automatic display use the same Manager admission.
 They validate the full thread UUID, original execution home and its device/inode,
 qualified Native owner/socket/Writer, and any live terminal binding. Caller labels

@@ -422,3 +422,98 @@ fn missing_or_unqualified_foreground_capability_never_constructs_or_reenters() {
         assert!(fs::File::open(&writer).unwrap().try_lock().is_err());
     }
 }
+
+#[test]
+fn concurrent_headless_display_observes_original_intent_before_android_reply() {
+    let f = TaskFixture::new();
+    let mut foreground = Foreground::new(&f, &f.account);
+    foreground.child.kill().unwrap();
+    foreground.child.wait().unwrap();
+    assert!(run_manager(
+        &f.root.0,
+        &f.core,
+        &["notify", "set", "--auto-display", "on"],
+        None
+    )
+    .status
+    .success());
+    let release = f.root.0.join("display-am-release");
+    let client = foreground.prefix.join("bin/termux-am-socket");
+    fs::write(&client, format!(
+        "#!{}\nprintf '%s\\n' \"$1\" >> \"$DISPLAY_AM_LOG\"\nwhile [ ! -f \"$DISPLAY_AM_RELEASE\" ]; do sleep 0.01; done\nprintf 'Starting service: owned delayed fixture\\n'\n",
+        test_shell().display()
+    )).unwrap();
+    let owner_before = fs::read(f.binding.join("owner")).unwrap();
+    let writer = f
+        .root
+        .0
+        .join(format!(".codex/thread-writer-locks/{TASK_ID}.lock"));
+    let writer_before = fs::read(&writer).unwrap();
+    struct Pending {
+        child: Option<std::process::Child>,
+        release: PathBuf,
+    }
+    impl Drop for Pending {
+        fn drop(&mut self) {
+            let _ = fs::write(&self.release, b"release");
+            if let Some(child) = self.child.as_mut() {
+                let _ = child.kill();
+                let _ = child.wait();
+            }
+        }
+    }
+    let mut first = Pending {
+        child: Some(
+            foreground
+                .command(&f, &f.account, false)
+                .env("DISPLAY_AM_RELEASE", &release)
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+                .unwrap(),
+        ),
+        release: release.clone(),
+    };
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while foreground.calls() == 0 {
+        assert!(first.child.as_mut().unwrap().try_wait().unwrap().is_none());
+        assert!(Instant::now() < deadline);
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    let directory = f.root.0.join(".local/share/codex/manager/terminals");
+    let launch = directory.join(format!("launch-{}", TASK_ID.replace('-', "")));
+    let launch_before = fs::read(&launch).unwrap();
+    // Android is deliberately still waiting. The launch's filesystem lock
+    // cannot exclude an independent display admission during that wait.
+    let lock = fs::File::open(&directory).unwrap();
+    let short_critical_section = lock.try_lock().is_ok();
+    drop(lock);
+    let second = foreground
+        .command(&f, &f.account, true)
+        .env("DISPLAY_AM_RELEASE", &release)
+        .output()
+        .unwrap();
+    let calls_before_release = foreground.calls();
+    let preserved = fs::read(&launch).unwrap() == launch_before;
+    fs::write(&release, b"release").unwrap();
+    let first = first.child.take().unwrap().wait_with_output().unwrap();
+    assert!(
+        short_critical_section,
+        "Android dispatch must not hold the launch directory"
+    );
+    for result in [first, second] {
+        assert_eq!(result.status.code(), Some(1), "{result:?}");
+        assert!(String::from_utf8(result.stderr)
+            .unwrap()
+            .contains("display is pending"));
+    }
+    assert_eq!(
+        calls_before_release, 1,
+        "click and auto display must share the original intent"
+    );
+    assert_eq!(foreground.calls(), 1);
+    assert!(preserved);
+    assert_eq!(fs::read(f.binding.join("owner")).unwrap(), owner_before);
+    assert_eq!(fs::read(&writer).unwrap(), writer_before);
+    assert!(fs::File::open(&writer).unwrap().try_lock().is_err());
+}

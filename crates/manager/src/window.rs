@@ -40,6 +40,43 @@ pub(super) fn read(path: &Path) -> Result<serde_json::Value, ManagerError> {
 pub(super) const DISPLAY_PENDING: ManagerError =
     ManagerError::operation("codex termux: terminal display is pending; original launch preserved");
 const LAUNCH_MAX_BYTES: usize = 64 * 1024;
+const ADMISSION_BUSY: ManagerError =
+    ManagerError::operation("codex termux: terminal admission is busy; no new launch requested");
+// Window descriptors have short filesystem-only critical sections. Never hold
+// this lock across Android dispatch, route waiting, focus or workload execution.
+// Other profile lifecycle operations keep their existing nonblocking policy.
+fn launch_lock(directory: &Path) -> Result<File, ManagerError> {
+    let deadline = Instant::now() + Duration::from_secs(3);
+    loop {
+        match profile::directory_lock(directory, libc::LOCK_EX) {
+            Ok(lock) => return Ok(lock),
+            Err(error) if error == profile::ERR_BUSY => {
+                if Instant::now() >= deadline {
+                    return Err(ADMISSION_BUSY);
+                }
+                thread::sleep(Duration::from_millis(10));
+            }
+            Err(error) => return Err(error),
+        }
+    }
+}
+fn same_display(
+    record: &serde_json::Value,
+    id: &str,
+    token: &str,
+    program: Option<&Path>,
+    args: &[OsString],
+) -> bool {
+    record["schema"] == "codex-window-launch-v1"
+        && record["thread"] == id
+        && record["name"] == format!("codex-{token}")
+        && record["pid"].as_u64().is_some_and(|pid| pid > 0 && u32::try_from(pid).is_ok())
+        && record["start"].as_u64().is_some()
+        && record["profile"].is_null()
+        && record["program"] == program.map(|path| bytes(path.as_os_str())).unwrap_or_default()
+        // These exact arguments include the execution home's device/inode.
+        && record["args"] == serde_json::json!(args.iter().map(|arg| bytes(arg)).collect::<Vec<_>>())
+}
 fn write_launch(path: &Path, value: &serde_json::Value) -> Result<(), ManagerError> {
     let bytes = value.to_string();
     if bytes.len() > LAUNCH_MAX_BYTES {
@@ -169,9 +206,9 @@ fn launch_named(
     display: Option<(&str, &Path)>,
 ) -> Result<Option<String>, ManagerError> {
     let directory = directory(context)?;
-    // Serialize the existing one-shot launch directory. A competing click gets
-    // a pending result, never permission to construct a second Native session.
-    let _launch_lock = profile::directory_lock(&directory, libc::LOCK_EX)?;
+    // Publish the one-shot intent before Android dispatch. A competing click
+    // observes that exact intent without waiting for Android or creating work.
+    let launch_guard = launch_lock(&directory)?;
     if let Some((id, home)) = display {
         prune_pending(&directory);
         terminal::prune(&directory);
@@ -183,6 +220,7 @@ fn launch_named(
             }
             // A live service root or old route.thread alone cannot establish
             // the conversation currently shown by this foreground frontend.
+            drop(launch_guard);
             return terminal::focus_display(context, id, home, Some(&route));
         }
         for (count, entry) in fs::read_dir(&directory).map_err(|_| ERROR)?.enumerate() {
@@ -194,6 +232,9 @@ fn launch_named(
             let name = name.to_string_lossy();
             if name == format!("launch-{token}") || name.starts_with(&format!("consumed-{token}-"))
             {
+                if !same_display(&read_launch(&entry.path())?, id, token, program, args) {
+                    return Err(ERROR);
+                }
                 return Err(DISPLAY_PENDING);
             }
         }
@@ -209,6 +250,7 @@ fn launch_named(
         display.map(|(id, _)| id),
     )?;
     sync_directory(&directory).map_err(|_| ERROR)?;
+    drop(launch_guard);
     if !service(
         &name,
         &PathBuf::from(std::env::var_os("PREFIX").ok_or(ERROR)?).join("bin/env"),
@@ -324,10 +366,17 @@ pub(super) fn start(context: &Context, args: &[OsString]) -> Result<Option<Strin
     let pid = std::process::id();
     let start = terminal::process(pid)?.1;
     let consumed = directory.join(format!("consumed-{id}-{pid}-{start}"));
+    let mut claimed = false;
+    let mut published = false;
     let result = (|| {
-        // Exactly one starter can claim the launch; no hard link is used.
-        rename_noreplace(&request, &consumed).map_err(|_| ERROR)?;
-        let record = read_launch(&consumed)?;
+        let record = {
+            let _guard = launch_lock(&directory)?;
+            // Serialize this rename with admission's directory snapshot.
+            // Exactly one starter can claim the launch; no hard link is used.
+            rename_noreplace(&request, &consumed).map_err(|_| ERROR)?;
+            claimed = true;
+            read_launch(&consumed)?
+        };
         if record["schema"] != "codex-window-launch-v1" || record["name"] != format!("codex-{id}") {
             return Err(ERROR);
         }
@@ -371,13 +420,6 @@ pub(super) fn start(context: &Context, args: &[OsString]) -> Result<Option<Strin
             return Err(ERROR);
         }
         let route = serde_json::json!({"kind":"stock","thread":record.get("thread").cloned().unwrap_or(serde_json::Value::Null),"name":format!("codex-{id}"),"pid":pid,"start":start,"tty":tty});
-        write_new_record(
-            &directory.join(format!("route-{id}")),
-            route.to_string().as_bytes(),
-        )?;
-        terminal::prune(&directory);
-        std::env::set_var(TOKEN_ENV, id);
-        std::env::set_var(READY_ENV, "1");
         let args = record["args"]
             .as_array()
             .ok_or(ERROR)?
@@ -388,18 +430,43 @@ pub(super) fn start(context: &Context, args: &[OsString]) -> Result<Option<Strin
             .as_str()
             .map(|p| parse_target(&OsString::from(p)))
             .transpose()?;
-        // Clean before exec; only the small live route remains.
-        fs::remove_file(&consumed).map_err(|_| ERROR)?;
-        if record["program"].is_null() {
-            launch::execute(context, profile.as_ref(), &args)
+        let program = if record["program"].is_null() {
+            None
         } else {
-            let program = PathBuf::from(os(&record["program"])?);
+            Some(PathBuf::from(os(&record["program"])?))
+        };
+        {
+            let _guard = launch_lock(&directory)?;
+            write_new_record(
+                &directory.join(format!("route-{id}")),
+                route.to_string().as_bytes(),
+            )?;
+            published = true;
+            terminal::prune(&directory);
+            // Admission cannot miss both consumed intent and published route.
+            fs::remove_file(&consumed).map_err(|_| ERROR)?;
+            sync_directory(&directory).map_err(|_| ERROR)?;
+        }
+        std::env::set_var(TOKEN_ENV, id);
+        std::env::set_var(READY_ENV, "1");
+        if let Some(program) = program {
             launch::execute_command(&program, &args)
+        } else {
+            launch::execute(context, profile.as_ref(), &args)
         }
     })();
-    let _ = fs::remove_file(consumed);
-    if result.is_err() {
-        let _ = fs::remove_file(directory.join(format!("route-{id}")));
+    // A duplicate starter that never claimed the descriptor cannot delete the
+    // original starter's route. Unavailable cleanup preserves uncertain state.
+    if (claimed || published) && result.is_err() {
+        if let Ok(_guard) = launch_lock(&directory) {
+            let _ = fs::remove_file(consumed);
+            let route = directory.join(format!("route-{id}"));
+            if published
+                && read(&route).is_ok_and(|value| value["pid"] == pid && value["start"] == start)
+            {
+                let _ = fs::remove_file(route);
+            }
+        }
     }
     result
 }
@@ -545,12 +612,77 @@ mod tests {
         let directory = directory(&context).unwrap();
         let pid = std::process::id();
         let path = directory.join(format!("launch-{token}"));
-        write_launch(&path,&serde_json::json!({"schema":"codex-window-launch-v1","thread":id,"pid":pid,"start":terminal::process(pid).unwrap().1})).unwrap();
+        let args = vec![
+            OsString::from("termux"),
+            OsString::from("__terminal-display-v1"),
+            id.into(),
+            root.as_os_str().to_owned(),
+            OsString::from("1"),
+            OsString::from("2"),
+        ];
+        let record = serde_json::json!({"schema":"codex-window-launch-v1","thread":id,
+            "name":format!("codex-{token}"),"pid":pid,"start":terminal::process(pid).unwrap().1,
+            "profile":null,"program":bytes(context.core_entrypoint.as_os_str()),
+            "args":args.iter().map(|v|bytes(v)).collect::<Vec<_>>()});
+        write_launch(&path, &record).unwrap();
         let before = fs::read(&path).unwrap();
         for _ in 0..2 {
-            assert!(display(&context, id, &root, &[]).is_err());
+            assert_eq!(display(&context, id, &root, &args), Err(DISPLAY_PENDING));
             assert_eq!(fs::read(&path).unwrap(), before);
         }
+        let mut foreign = args.clone();
+        foreign[3] = OsString::from("/foreign-home");
+        assert_eq!(display(&context, id, &root, &foreign), Err(ERROR));
+        let consumed = directory.join(format!(
+            "consumed-{token}-{pid}-{}",
+            terminal::process(pid).unwrap().1
+        ));
+        rename_noreplace(&path, &consumed).unwrap();
+        assert_eq!(display(&context, id, &root, &args), Err(DISPLAY_PENDING));
+        assert_eq!(display(&context, id, &root, &foreign), Err(ERROR));
+        assert_eq!(fs::read(&consumed).unwrap(), before);
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn unrelated_lock_contention_never_claims_an_original_display() {
+        let root = std::env::temp_dir().join(format!("codex-window-busy-{}", random().unwrap()));
+        fs::create_dir(&root).unwrap();
+        set_mode(&root, PRIVATE_DIR_MODE).unwrap();
+        let context = Context {
+            home: root.clone(),
+            inherited_codex_home: None,
+            core_entrypoint: PathBuf::from("/not-executed"),
+        };
+        let directory = directory(&context).unwrap();
+        let lock = profile::directory_lock(&directory, libc::LOCK_EX).unwrap();
+        assert_eq!(
+            display(&context, "01a0fc82-dc8f-7d13-bb78-7e120f1fa9b3", &root, &[]),
+            Err(ADMISSION_BUSY)
+        );
+        assert_eq!(fs::read_dir(&directory).unwrap().count(), 0);
+        drop(lock);
+        remove_private_tree(&root).unwrap();
+    }
+
+    #[test]
+    fn duplicate_starter_cannot_delete_an_original_route() {
+        let root = std::env::temp_dir().join(format!("codex-window-replay-{}", random().unwrap()));
+        fs::create_dir(&root).unwrap();
+        set_mode(&root, PRIVATE_DIR_MODE).unwrap();
+        let context = Context {
+            home: root.clone(),
+            inherited_codex_home: None,
+            core_entrypoint: PathBuf::from("/not-executed"),
+        };
+        let token = random().unwrap();
+        let route = directory(&context).unwrap().join(format!("route-{token}"));
+        let record = serde_json::json!({"owned":"original","pid":std::process::id(),
+            "start":terminal::process(std::process::id()).unwrap().1});
+        write_new_record(&route, record.to_string().as_bytes()).unwrap();
+        let before = fs::read(&route).unwrap();
+        assert_eq!(start(&context, &[token.into()]), Err(ERROR));
+        assert_eq!(fs::read(&route).unwrap(), before);
+        remove_private_tree(&root).unwrap();
     }
 }
