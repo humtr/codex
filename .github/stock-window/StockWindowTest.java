@@ -103,7 +103,9 @@ public class StockWindowTest {
         intent.putExtra("com.termux.RUN_COMMAND_ARGUMENTS",new String[]{"launcher",id});
         intent.putExtra("com.termux.RUN_COMMAND_WORKDIR","/data/data/com.termux/files/home");
         intent.putExtra("com.termux.RUN_COMMAND_RUNNER","terminal-session");
-        intent.putExtra("com.termux.RUN_COMMAND_SESSION_ACTION","3");
+        // Stock initializes the PTY only after the new session has a terminal view.
+        // Keeping the current session leaves this caller at PID 0 and executes nothing.
+        intent.putExtra("com.termux.RUN_COMMAND_SESSION_ACTION","0");
         instrumentation.getTargetContext().startService(intent);
     }
     static class Result {
