@@ -557,6 +557,9 @@ impl Turn {
 }
 struct DiscoveryAdmission {
     lane: String,
+    // The already-adopted chain authorizes readback, never execution of an old
+    // token. It survives payload eviction and is restored only by source adoption.
+    root: String,
     revoked: bool,
 }
 #[derive(Default)]
@@ -666,57 +669,97 @@ fn completed_session_poll(
     session: u64,
     execution: &native_effect::Execution,
 ) -> bool {
-    if state
-        .claims
-        .values()
-        .any(|claim| claim.lane == lane && claim.session_id == Some(session))
-    {
-        return false;
+    let mut evidence = SessionPollEvidence::new(state, lane, session, execution);
+    for turn in registry.turns.values() {
+        evidence.observe_turn(turn, lane, session, execution);
     }
-    let mut originals = 0;
-    let mut completed = 0;
-    for call in registry
-        .turns
-        .values()
-        .filter(|turn| turn.lane == lane)
-        .flat_map(|turn| turn.calls.values())
-        .filter(|call| {
+    evidence.qualifies()
+}
+
+#[derive(Default)]
+struct SessionPollEvidence {
+    originals: usize,
+    completed: usize,
+    blocked: bool,
+}
+impl SessionPollEvidence {
+    fn new(
+        state: &ActiveEffects,
+        lane: &str,
+        session: u64,
+        execution: &native_effect::Execution,
+    ) -> Self {
+        let mut evidence = Self {
+            blocked: state
+                .claims
+                .values()
+                .any(|claim| claim.lane == lane && claim.session_id == Some(session)),
+            ..Self::default()
+        };
+        for receipt in state.external.values().filter(|receipt| {
+            receipt.lane.as_deref() == Some(lane)
+                && receipt
+                    .process_origin
+                    .as_ref()
+                    .is_some_and(|origin| origin.same_owner(execution))
+        }) {
+            evidence.observe(
+                &receipt.name,
+                receipt.continuation,
+                receipt
+                    .completion
+                    .as_ref()
+                    .map(|result| (result.running, result.exited)),
+                receipt.completed_session,
+                session,
+            );
+        }
+        evidence
+    }
+    fn observe_turn(
+        &mut self,
+        turn: &Turn,
+        lane: &str,
+        session: u64,
+        execution: &native_effect::Execution,
+    ) {
+        if turn.lane != lane {
+            return;
+        }
+        for call in turn.calls.values().filter(|call| {
             call.offered
                 && call
                     .process_origin
                     .as_ref()
                     .is_some_and(|origin| origin.same_owner(execution))
-        })
-    {
-        let status = call.result.as_ref().map(native_process_result);
-        if call.name == "functions.exec_command" && status == Some((Some(session), false)) {
-            originals += 1;
-            completed += usize::from(call.completed_session == Some(session));
-        } else if continued_process(&call.name, &call.input) == Some(session)
-            && status != Some((Some(session), false))
-        {
-            return false;
+        }) {
+            self.observe(
+                &call.name,
+                continued_process(&call.name, &call.input),
+                call.result.as_ref().map(native_process_result),
+                call.completed_session,
+                session,
+            );
         }
     }
-    for receipt in state.external.values().filter(|receipt| {
-        receipt.lane.as_deref() == Some(lane)
-            && receipt
-                .process_origin
-                .as_ref()
-                .is_some_and(|origin| origin.same_owner(execution))
-    }) {
-        let status = receipt
-            .completion
-            .as_ref()
-            .map(|result| (result.running, result.exited));
-        if receipt.name == "functions.exec_command" && status == Some((Some(session), false)) {
-            originals += 1;
-            completed += usize::from(receipt.completed_session == Some(session));
-        } else if receipt.continuation == Some(session) && status != Some((Some(session), false)) {
-            return false;
+    fn observe(
+        &mut self,
+        name: &str,
+        continuation: Option<u64>,
+        status: Option<(Option<u64>, bool)>,
+        completed_session: Option<u64>,
+        session: u64,
+    ) {
+        if name == "functions.exec_command" && status == Some((Some(session), false)) {
+            self.originals += 1;
+            self.completed += usize::from(completed_session == Some(session));
+        } else if continuation == Some(session) && status != Some((Some(session), false)) {
+            self.blocked = true;
         }
     }
-    originals == 1 && completed == 1
+    fn qualifies(&self) -> bool {
+        !self.blocked && self.originals == 1 && self.completed == 1
+    }
 }
 
 fn external_effect_id(lane: &str, tool_id: &str) -> String {
@@ -1794,6 +1837,7 @@ impl Broker {
                 token.clone(),
                 DiscoveryAdmission {
                     lane: lane.into(),
+                    root: token.clone(),
                     revoked: false,
                 },
             );
@@ -1817,6 +1861,63 @@ impl Broker {
         }
         Ok(Cow::Owned(turn))
     }
+    fn completed_source_session_poll(
+        &self,
+        registry: &Registry,
+        state: &ActiveEffects,
+        token: &str,
+        lane: &str,
+        session: u64,
+        execution: &native_effect::Execution,
+    ) -> Result<bool, Error> {
+        let Some(admission) = registry
+            .discovery
+            .get(token)
+            .filter(|source| !source.revoked && source.lane == lane)
+        else {
+            return Ok(completed_session_poll(
+                registry, state, lane, session, execution,
+            ));
+        };
+        let mut evidence = SessionPollEvidence::new(state, lane, session, execution);
+        // Bound temporary memory to the existing payload cache. Stream the
+        // admitted chain one immutable Turn at a time; never cache or reactivate
+        // a retired token, nor search unrelated journal files for authority.
+        let mut cached: BTreeSet<String> = registry.turns.keys().cloned().collect();
+        let mut current = admission.root.clone();
+        let mut order = None;
+        loop {
+            let turn = self.source_turn(registry, &current)?;
+            if !turn.source_bound
+                || turn.lane != lane
+                || order.is_some_and(|previous| previous >= turn.order)
+                || (current != token
+                    && (!turn.retired || turn.calls.values().any(|call| call.result.is_none())))
+                || (current == token && (turn.retired || turn.discovery.is_some()))
+            {
+                return Err(Error("mcp_source_discovery_invalid"));
+            }
+            evidence.observe_turn(&turn, lane, session, execution);
+            cached.remove(&current);
+            if current == token {
+                break;
+            }
+            order = Some(turn.order);
+            current = turn
+                .discovery
+                .clone()
+                .ok_or(Error("mcp_source_discovery_invalid"))?;
+        }
+        // Preserve existing hot same-lane/Native-owner evidence, including an
+        // original, pending collector or numeric reuse outside this source chain.
+        // Only cold disk readback requires the adopted root; never count a
+        // cached chain receipt twice.
+        for key in cached {
+            evidence.observe_turn(&registry.turns[&key], lane, session, execution);
+        }
+        Ok(evidence.qualifies())
+    }
+
     // Records are not silently reactivated after process/host loss. A live turn
     // capability belongs to this owner generation, not merely to a journal file.
     pub async fn catalog(&self, token: &str) -> Result<BTreeMap<String, Tool>, Error> {
@@ -1878,6 +1979,7 @@ impl Broker {
             last.into(),
             DiscoveryAdmission {
                 lane: lane.into(),
+                root: root.into(),
                 revoked: false,
             },
         );
@@ -1912,9 +2014,18 @@ impl Broker {
                 Err(Error("mcp_source_discovery_invalid"))
             };
         }
+        if !registry.source_admitted(next, &old.lane) {
+            return Err(Error("mcp_source_discovery_invalid"));
+        }
+        let root = registry.discovery[previous].root.clone();
         let mut old = old.into_owned();
         old.discovery = Some(next.into());
         self.persist(previous, &old)?;
+        registry
+            .discovery
+            .get_mut(next)
+            .expect("admitted successor")
+            .root = root;
         registry.discovery.remove(previous);
         if let Some(cached) = registry.turns.get_mut(previous) {
             *cached = old;
@@ -2271,29 +2382,33 @@ impl Broker {
                 if calls.len() == 32 {
                     break;
                 }
-                let inherited_poll = native_effect::qualified_session_poll(
-                    &call.name,
-                    &call.input,
-                    next.workspace.as_deref(),
+                let inherited_poll = match (
+                    native_effect::qualified_session_poll(
+                        &call.name,
+                        &call.input,
+                        next.workspace.as_deref(),
+                        next.execution.as_ref(),
+                    ),
                     next.execution.as_ref(),
-                )
-                .and_then(|session| {
-                    claims.session_poll_scope(&next.lane, session).or_else(|| {
-                        (completed_session_poll(
-                            &registry,
-                            &claims,
-                            &next.lane,
-                            session,
-                            next.execution.as_ref()?,
-                        ) && !calls.iter().any(|offered: &Value| {
+                ) {
+                    (Some(session), Some(execution)) => {
+                        if let Some(scope) = claims.session_poll_scope(&next.lane, session) {
+                            Some(scope)
+                        } else if self.completed_source_session_poll(
+                            &registry, &claims, token, &next.lane, session, execution,
+                        )? && !calls.iter().any(|offered: &Value| {
                             continued_process(
                                 offered["name"].as_str().unwrap_or_default(),
                                 offered["input"].as_str().unwrap_or_default(),
                             ) == Some(session)
-                        }))
-                        .then_some(Effect::Read)
-                    })
-                });
+                        }) {
+                            Some(Effect::Read)
+                        } else {
+                            None
+                        }
+                    }
+                    _ => None,
+                };
                 let effect = inherited_poll.clone().unwrap_or_else(|| {
                     call.admission_effect(next.workspace.as_deref(), next.execution.as_ref())
                 });
@@ -2721,9 +2836,10 @@ impl Broker {
                 }
                 Err(error) => {
                     registry.discovery.insert(
-                        token,
+                        token.clone(),
                         DiscoveryAdmission {
                             lane: lane.into(),
+                            root: token,
                             revoked: true,
                         },
                     );
@@ -5428,6 +5544,386 @@ mod native_concurrency_tests {
         );
         assert!(broker.active_claim_ids(&["a"]).unwrap().contains(&ids[0]));
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn terminal_session_poll_reads_only_the_adopted_retired_chain_after_restart() {
+        for completion_before_restart in [false, true] {
+            let (root, journal, tools) = fixture();
+            let execution = native_effect::compiler_fixture(&root);
+            let broker = Broker::new(journal.clone());
+            let mut tokens = Vec::new();
+            let mut ids = Vec::new();
+            let mut commands = Vec::new();
+            let mut outputs = Vec::new();
+            for (lane, session) in [("a", 51), ("b", 52)] {
+                fs::write(
+                    root.join(format!("{lane}.c")),
+                    "int main(void){return 0;}\n",
+                )
+                .unwrap();
+                let token = broker
+                    .register_scoped(lane, tools.clone(), lane == "b", Some(&root))
+                    .await
+                    .unwrap();
+                broker
+                    .bind_execution(&token, Some(execution.clone()))
+                    .await
+                    .unwrap();
+                let command = Arguments {
+                    call_id: format!("compile-{lane}"), name: "functions.exec_command".into(),
+                    input: json!({"cmd":format!("clang -O0 {lane}.c -o {lane}.out"),"workdir":root,"login":false}).to_string(),
+                    report: String::new(),
+                };
+                let id = accepted(&broker, &token, &command).await;
+                let output = json!({"output":format!("Process running with session ID {session}\nOutput:\n")});
+                broker
+                    .settle(&token, &[(id.clone(), output.clone())])
+                    .await
+                    .unwrap();
+                tokens.push(token);
+                ids.push(id);
+                commands.push(command);
+                outputs.push(output);
+            }
+            broker.retire(&tokens[1], false).await.unwrap();
+            let last = broker
+                .register_scoped("b", tools.clone(), true, Some(&root))
+                .await
+                .unwrap();
+            broker.source_discovery(&tokens[1], &last).await.unwrap();
+            broker.retire(&last, false).await.unwrap();
+            // Exercise actual cache eviction, not a hand-built registry. Neither
+            // the original receipt nor its retired successor remains cached.
+            for _ in 0..=TURN_CACHE_CAPACITY {
+                let other = broker
+                    .register("other", BTreeMap::new(), false)
+                    .await
+                    .unwrap();
+                broker.retire(&other, false).await.unwrap();
+            }
+            assert!(!broker.registry.lock().await.turns.contains_key(&tokens[1]));
+            assert!(!broker.registry.lock().await.turns.contains_key(&last));
+            let completion = json!({"turn_id":execution.turn,"item":{
+                "id":ids[1],"type":"commandExecution","status":"completed","processId":"52","exitCode":0,"aggregatedOutput":null
+            }});
+            if completion_before_restart {
+                broker
+                    .settle_native_processes(&["b"], &root, &[completion.clone()])
+                    .await
+                    .unwrap();
+            }
+            broker.close().await;
+            let restored = Broker::new(journal.clone());
+            if !completion_before_restart {
+                restored
+                    .settle_native_processes(&["b"], &root, &[completion])
+                    .await
+                    .unwrap();
+            }
+            assert_eq!(
+                restored.retained_result(&tokens[1], &commands[1]).unwrap(),
+                Some(outputs[1].clone())
+            );
+            let mut following = execution.clone();
+            following.turn.push_str("-following");
+            let poll = Arguments {
+                call_id: "remaining-output".into(),
+                name: "functions.write_stdin".into(),
+                input: json!({"session_id":52,"chars":"","yield_time_ms":1000}).to_string(),
+                report: String::new(),
+            };
+            // The same lane and Native identity alone cannot resurrect an old
+            // source capability or inspect an unrelated chain on disk.
+            let unrelated = restored
+                .register_scoped("b", tools.clone(), true, Some(&root))
+                .await
+                .unwrap();
+            restored
+                .bind_execution(&unrelated, Some(following.clone()))
+                .await
+                .unwrap();
+            restored.enqueue(&unrelated, &poll).await.unwrap();
+            assert!(restored.offer(&unrelated).await.unwrap().is_empty());
+            assert_eq!(
+                restored.invoke(&unrelated, poll.clone()).await.unwrap()["error"],
+                "native_resource_busy"
+            );
+            restored.retire(&unrelated, false).await.unwrap();
+            assert_eq!(
+                restored
+                    .restore_source_discovery(&tokens[1], &last, "foreign")
+                    .await,
+                Err(Error("mcp_source_discovery_invalid"))
+            );
+            restored
+                .restore_source_discovery(&tokens[1], &last, "b")
+                .await
+                .unwrap();
+            let current = restored
+                .register_scoped("b", tools.clone(), true, Some(&root))
+                .await
+                .unwrap();
+            restored.source_discovery(&last, &current).await.unwrap();
+            restored
+                .bind_execution(&current, Some(following.clone()))
+                .await
+                .unwrap();
+            for retired in [&tokens[1], &last] {
+                assert_eq!(
+                    restored.catalog(retired).await,
+                    Err(Error("mcp_turn_unavailable"))
+                );
+                assert_eq!(
+                    restored.offer(retired).await,
+                    Err(Error("mcp_turn_unavailable"))
+                );
+                assert_eq!(
+                    restored.enqueue(retired, &poll).await,
+                    Err(Error("mcp_turn_unavailable"))
+                );
+            }
+            let mut changed_owner = following.clone();
+            changed_owner.start.push('0');
+            let mut changed_thread = following.clone();
+            changed_thread.thread.push('x');
+            let mut unsafe_hooks = following.clone();
+            unsafe_hooks.hook_free_tools.clear();
+            for (id, facts) in [
+                ("cold-changed-owner", Some(changed_owner)),
+                ("cold-changed-thread", Some(changed_thread)),
+                ("cold-unsafe-hooks", Some(unsafe_hooks)),
+                ("cold-missing-facts", None),
+            ] {
+                restored.bind_execution(&current, facts).await.unwrap();
+                let rejected = Arguments {
+                    call_id: id.into(),
+                    ..poll.clone()
+                };
+                restored.enqueue(&current, &rejected).await.unwrap();
+                assert!(restored.offer(&current).await.unwrap().is_empty());
+                assert_eq!(
+                    restored.invoke(&current, rejected).await.unwrap()["error"],
+                    "native_resource_busy"
+                );
+            }
+            restored
+                .bind_execution(&current, Some(following.clone()))
+                .await
+                .unwrap();
+            let before = restored.effect_status("b").unwrap();
+            assert_eq!(before["shared"]["unconfirmed_effects"], 1);
+            restored.enqueue(&current, &poll).await.unwrap();
+            let offered = restored.offer(&current).await.unwrap();
+            assert_eq!(offered.len(), 1, "an adopted retired original must preserve uncollected output after cache eviction/restart");
+            let duplicate = Arguments {
+                call_id: "pending-duplicate".into(),
+                ..poll.clone()
+            };
+            restored.enqueue(&current, &duplicate).await.unwrap();
+            assert!(restored.offer(&current).await.unwrap().is_empty());
+            assert_eq!(
+                restored.invoke(&current, duplicate).await.unwrap()["error"],
+                "native_resource_busy"
+            );
+            let id = offered[0]["id"].as_str().unwrap().to_owned();
+            let terminal = json!({"type":"function_call_output","call_id":id,"output":"Process exited with code 0\nOutput:\noriginal uncollected output\n"});
+            restored
+                .settle(&current, &[(id, terminal.clone())])
+                .await
+                .unwrap();
+            assert_eq!(
+                restored.invoke(&current, poll.clone()).await.unwrap(),
+                terminal
+            );
+            assert_eq!(
+                restored.retained_result(&tokens[1], &commands[1]).unwrap(),
+                Some(outputs[1].clone())
+            );
+            assert_eq!(
+                restored.effect_status("b").unwrap()["shared"],
+                before["shared"]
+            );
+            assert!(
+                !restored
+                    .registry
+                    .lock()
+                    .await
+                    .turns
+                    .contains_key(&tokens[1]),
+                "readback must not reactivate or cache an old execution lease"
+            );
+            restored.retire(&current, false).await.unwrap();
+            restored.close().await;
+            // A second restart must read the collector too, rather than restoring
+            // just the original and accidentally extending its expired proof.
+            let collected = Broker::new(journal);
+            collected
+                .restore_source_discovery(&tokens[1], &current, "b")
+                .await
+                .unwrap();
+            let next = collected
+                .register_scoped("b", tools, true, Some(&root))
+                .await
+                .unwrap();
+            collected.source_discovery(&current, &next).await.unwrap();
+            collected
+                .bind_execution(&next, Some(following))
+                .await
+                .unwrap();
+            collected.enqueue(&next, &poll).await.unwrap();
+            assert!(collected.offer(&next).await.unwrap().is_empty());
+            assert_eq!(
+                collected.invoke(&next, poll).await.unwrap()["error"],
+                "native_resource_busy"
+            );
+            assert_eq!(
+                collected
+                    .retained_result(
+                        &current,
+                        &Arguments {
+                            call_id: "remaining-output".into(),
+                            name: "functions.write_stdin".into(),
+                            input: json!({"session_id":52,"chars":"","yield_time_ms":1000})
+                                .to_string(),
+                            report: String::new()
+                        }
+                    )
+                    .unwrap(),
+                Some(terminal)
+            );
+            assert!(collected
+                .active_claim_ids(&["a"])
+                .unwrap()
+                .contains(&ids[0]));
+            fs::remove_dir_all(root).unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn terminal_session_poll_cold_chain_rejects_reuse_and_unsettled_collector() {
+        for reused_session in [false, true] {
+            let (root, journal, tools) = fixture();
+            let execution = native_effect::compiler_fixture(&root);
+            let broker = Broker::new(journal.clone());
+            let mut tokens = Vec::new();
+            let mut ids = Vec::new();
+            for (lane, session) in [("a", 51), ("b", 52)] {
+                fs::write(
+                    root.join(format!("{lane}.c")),
+                    "int main(void){return 0;}\n",
+                )
+                .unwrap();
+                let token = broker
+                    .register_scoped(lane, tools.clone(), lane == "b", Some(&root))
+                    .await
+                    .unwrap();
+                broker
+                    .bind_execution(&token, Some(execution.clone()))
+                    .await
+                    .unwrap();
+                let command = Arguments {
+                    call_id: format!("compile-{lane}"), name: "functions.exec_command".into(),
+                    input: json!({"cmd":format!("clang -O0 {lane}.c -o {lane}.out"),"workdir":root,"login":false}).to_string(), report: String::new(),
+                };
+                let id = accepted(&broker, &token, &command).await;
+                broker.settle(&token, &[(id.clone(), json!({"output":format!("Process running with session ID {session}\nOutput:\n")}))]).await.unwrap();
+                tokens.push(token);
+                ids.push(id);
+            }
+            broker.settle_native_processes(&["b"], &root, &[json!({"turn_id":execution.turn,"item":{
+                "id":ids[1],"type":"commandExecution","status":"completed","processId":"52","exitCode":0,"aggregatedOutput":null
+            }})]).await.unwrap();
+            broker.retire(&tokens[1], false).await.unwrap();
+            let last = broker
+                .register_scoped("b", tools.clone(), true, Some(&root))
+                .await
+                .unwrap();
+            broker.source_discovery(&tokens[1], &last).await.unwrap();
+            let mut following = execution.clone();
+            following.turn.push_str("-following");
+            broker
+                .bind_execution(&last, Some(following.clone()))
+                .await
+                .unwrap();
+            let poll = Arguments {
+                call_id: "remaining-output".into(),
+                name: "functions.write_stdin".into(),
+                input: json!({"session_id":52,"chars":""}).to_string(),
+                report: String::new(),
+            };
+            if reused_session {
+                let command = Arguments {
+                    call_id: "later-launch".into(),
+                    name: "functions.exec_command".into(),
+                    input:
+                        json!({"cmd":"clang -O0 b.c -o b-again.out","workdir":root,"login":false})
+                            .to_string(),
+                    report: String::new(),
+                };
+                let id = accepted(&broker, &last, &command).await;
+                broker
+                    .settle(
+                        &last,
+                        &[(
+                            id.clone(),
+                            json!({"output":"Process running with session ID 52\nOutput:\n"}),
+                        )],
+                    )
+                    .await
+                    .unwrap();
+                broker.settle_native_processes(&["b"], &root, &[json!({"turn_id":following.turn,"item":{
+                    "id":id,"type":"commandExecution","status":"completed","processId":"52","exitCode":0,"aggregatedOutput":null
+                }})]).await.unwrap();
+            } else {
+                accepted(&broker, &last, &poll).await;
+            }
+            broker.close().await;
+            let restored = Broker::new(journal);
+            if reused_session {
+                restored
+                    .restore_source_discovery(&tokens[1], &last, "b")
+                    .await
+                    .unwrap();
+                let current = restored
+                    .register_scoped("b", tools, true, Some(&root))
+                    .await
+                    .unwrap();
+                restored.source_discovery(&last, &current).await.unwrap();
+                restored
+                    .bind_execution(&current, Some(following))
+                    .await
+                    .unwrap();
+                restored.enqueue(&current, &poll).await.unwrap();
+                assert!(
+                    restored.offer(&current).await.unwrap().is_empty(),
+                    "numeric reuse in the retired chain cannot borrow the first session's proof"
+                );
+                assert_eq!(
+                    restored.invoke(&current, poll).await.unwrap()["error"],
+                    "native_resource_busy"
+                );
+            } else {
+                assert_eq!(
+                    restored
+                        .restore_source_discovery(&tokens[1], &last, "b")
+                        .await,
+                    Err(Error("mcp_source_discovery_invalid")),
+                    "a retired pending collector is still unresolved, never safe absence"
+                );
+                assert_eq!(
+                    restored.catalog(&last).await,
+                    Err(Error("mcp_turn_unavailable"))
+                );
+                assert!(restored
+                    .recorded_calls(&last)
+                    .unwrap()
+                    .iter()
+                    .any(|call| call["offered"] == true && call["settled"] == false));
+            }
+            assert!(restored.active_claim_ids(&["a"]).unwrap().contains(&ids[0]));
+            fs::remove_dir_all(root).unwrap();
+        }
     }
 
     #[tokio::test]
