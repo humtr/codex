@@ -2,6 +2,7 @@
 import argparse
 from contextlib import contextmanager, ExitStack
 import hashlib
+import io
 import json
 import os
 from pathlib import Path
@@ -11,11 +12,13 @@ import stat
 import subprocess
 import tarfile
 import tempfile
+import zipfile
 from types import SimpleNamespace
 from component_artifact import regular,unpack as unpack_component,verify as verify_component
 from component_inputs import git
 from component_revisions import selected,candidate_digest
 from qualification_signal import api,gh,successful_run,accepted_run,REPO
+from qualified_component import download as download_artifact
 from release_components import candidate_from_base,unique
 from release_preflight import verify_base_candidate,verify_candidate,verify_qualified_candidate,parse_descriptor
 from release_publication import BASE_FILES,EXTENDED_FILES,sha256
@@ -23,6 +26,12 @@ from runtime_inputs import canonical
 
 WORKFLOWS={'core':'core-runtime-qualification.yml','manager':'manager-qualification.yml','tui':'manager-tui-native.yml'}
 LIMIT=1024*1024*1024
+PROOF_ARCHIVE_LIMIT=1024*1024
+PROOF_FILES={'full-qualification.json':32768,'full-inputs/inputs.json':262144,
+             'full-probes/execution.json':16384,
+             **{'full-probes/'+name+suffix:4096 for name in ('core','manager','runtime','tui')
+                for suffix in ('.out','.err')}}
+PROOF_DIRECTORIES={'full-inputs/','full-probes/'}
 
 
 def resolve(source,request=api,lookup=successful_run):
@@ -353,7 +362,49 @@ def validate_receipt(value,run,sha):
     return value
 
 
-def read_qualified_full(sha,directory,request=api,lookup=successful_run,fetch=gh):
+def proof_artifact(row,run):
+    if (not isinstance(row,dict) or type(row.get('id')) is not int or row['id']<=0
+            or row.get('name')!='full-composition-qualification' or row.get('expired') is not False
+            or type(row.get('size_in_bytes')) is not int or not 0<row['size_in_bytes']<=PROOF_ARCHIVE_LIMIT
+            or not isinstance(row.get('digest'),str) or re.fullmatch('sha256:[0-9a-f]{64}',row['digest']) is None
+            or not isinstance(row.get('workflow_run'),dict) or row['workflow_run'].get('id')!=run['id']
+            or row['workflow_run'].get('head_sha')!=run['head_sha']):
+        raise ValueError('Full proof artifact authority differs')
+    return row
+
+
+def read_proof_archive(row,directory,fetch):
+    archive=directory/'download.zip';fetch(row,archive)
+    data=regular(archive,PROOF_ARCHIVE_LIMIT)
+    if len(data)!=row['size_in_bytes'] or 'sha256:'+hashlib.sha256(data).hexdigest()!=row['digest']:
+        raise ValueError('Full proof archive digest or byte count differs')
+    with zipfile.ZipFile(io.BytesIO(data)) as zipped:
+        entries=zipped.infolist();seen=set();files=set()
+        if len(entries)>len(PROOF_FILES)+len(PROOF_DIRECTORIES):raise ValueError('Full proof archive inventory exceeds bound')
+        for entry in entries:
+            name=entry.filename;kind=stat.S_IFMT(entry.external_attr>>16)
+            if name in seen or entry.flag_bits&1 or entry.compress_type not in (zipfile.ZIP_STORED,zipfile.ZIP_DEFLATED):
+                raise ValueError('duplicate or unsupported Full proof ZIP entry')
+            seen.add(name)
+            if entry.is_dir():
+                if name not in PROOF_DIRECTORIES or entry.file_size!=0 or kind not in (0,stat.S_IFDIR):
+                    raise ValueError('invalid Full proof ZIP directory')
+            else:
+                if name not in PROOF_FILES or not 0<=entry.file_size<=PROOF_FILES[name] or kind not in (0,stat.S_IFREG):
+                    raise ValueError('Full proof ZIP inventory, kind or size differs')
+                files.add(name)
+        if files!=set(PROOF_FILES):raise ValueError('Full proof ZIP inventory is incomplete')
+        with zipped.open('full-qualification.json') as incoming:
+            payload=incoming.read(PROOF_FILES['full-qualification.json']+1)
+        if len(payload)!=zipped.getinfo('full-qualification.json').file_size:
+            raise ValueError('Full proof receipt length differs')
+    value=json.loads(payload,object_pairs_hook=unique)
+    (directory/'full-qualification.json').write_bytes(payload)
+    archive.unlink()
+    return value
+
+
+def read_qualified_full(sha,directory,request=api,lookup=successful_run,fetch=download_artifact):
     """Read-only admission; absence grants no Full publication authority."""
     if not isinstance(sha,str) or re.fullmatch('[0-9a-f]{40}',sha) is None:
         raise ValueError('Full proof requires exact source')
@@ -365,21 +416,31 @@ def read_qualified_full(sha,directory,request=api,lookup=successful_run,fetch=gh
         raise ValueError('incomplete Full proof artifact listing')
     matches=[entry for entry in page['artifacts'] if entry['name']=='full-composition-qualification' and entry['expired'] is False]
     if len(matches)!=1:raise ValueError('Full composition proof is missing, expired or ambiguous')
-    directory.mkdir(mode=0o700)
-    fetch('run','download',str(run['id']),'--repo',REPO,'--name','full-composition-qualification','--dir',str(directory))
-    value=json.loads(regular(directory/'full-qualification.json',32768),object_pairs_hook=unique)
-    validate_receipt(value,run,sha)
-    current=request('actions/runs/'+str(run['id']))
-    if current.get('id')!=run['id'] or not accepted_run(current,'full-qualification.yml',sha):
-        raise ValueError('Full run no longer qualifies')
-    for name,number in value['component_runs'].items():
-        actual=request('actions/runs/'+str(number))
-        if actual.get('id')!=number or not accepted_run(actual,WORKFLOWS[name],sha):
-            raise ValueError('Full component run no longer qualifies: '+name)
-    return run,value
+    selected=proof_artifact(matches[0],run)
+    actual=proof_artifact(request('actions/artifacts/'+str(selected['id'])),run)
+    if any(actual[key]!=selected[key] for key in ('id','digest','size_in_bytes')):
+        raise ValueError('Full proof archive identity changed')
+    directory=Path(directory);directory.mkdir(mode=0o700)
+    try:
+        value=read_proof_archive(actual,directory,fetch)
+        validate_receipt(value,run,sha)
+        current=request('actions/runs/'+str(run['id']))
+        if current.get('id')!=run['id'] or not accepted_run(current,'full-qualification.yml',sha):
+            raise ValueError('Full run no longer qualifies')
+        for name,number in value['component_runs'].items():
+            current=request('actions/runs/'+str(number))
+            if current.get('id')!=number or not accepted_run(current,WORKFLOWS[name],sha):
+                raise ValueError('Full component run no longer qualifies: '+name)
+        origin={'schema':'codex-full-proof-origin-v1','source_sha':sha,'run_id':run['id'],
+                'artifact_id':actual['id'],'archive_digest':actual['digest'],'archive_bytes':actual['size_in_bytes']}
+        (directory/'artifact-origin.json').write_bytes(canonical(origin))
+        return run,value
+    except BaseException:
+        shutil.rmtree(directory)
+        raise
 
 
-def require_qualified_full(source,candidate,directory,request=api,lookup=successful_run,fetch=gh):
+def require_qualified_full(source,candidate,directory,request=api,lookup=successful_run,fetch=download_artifact):
     sha=git(source,'rev-parse','HEAD').decode().strip()
     admitted=read_qualified_full(sha,directory,request,lookup,fetch)
     if admitted is None:raise ValueError('selected Full needs a successful exact-source composition qualification')
