@@ -50,7 +50,7 @@ def selected(source,candidate):
                    'artifact_sha256':sha256_file(candidate/'runtime'),'interface':'codex-runtime-bundle-v1'}}
     if descriptor['manager_artifact_digest']!='-':
         result['manager']={'inputs_sha256':component_fingerprint(source,'manager'),
-                           'artifact_sha256':sha256_file(candidate/'manager'),'interface':descriptor['core_api_identity']}
+                           'artifact_sha256':sha256_file(candidate/'manager'),'interface':'codex-manager-core-v1'}
         result['tui']={'inputs_sha256':tui_fingerprint(source),
                        'artifact_sha256':sha256_file(candidate/'helpers/2'),'interface':'termux-manager-tui-v1'}
     return descriptor['upstream_package_version'],result
@@ -87,7 +87,7 @@ def assign(version,current,history):
     return {'upstream_version':version,'components':result,'composition_revision':composition}
 
 
-def candidate_digest(candidate):
+def candidate_digest(candidate, *, deferred=False):
     if not stat.S_ISDIR(candidate.lstat().st_mode):raise ValueError('invalid candidate root')
     descriptor=parse_descriptor(candidate/'generation.meta')
     expected={'core','runtime','codex-code-mode-host','helpers/0','helpers/1','generation.meta'}
@@ -102,6 +102,11 @@ def candidate_digest(candidate):
         if info.st_size>536870912:raise ValueError('candidate payload exceeds bound')
         if stat.S_ISREG(info.st_mode):
             name=path.relative_to(candidate).as_posix()
+            if deferred and name=='.manager-probe-deferred':
+                if (info.st_mode&0o7777!=0o644 or info.st_size!=len(b'codex-manager-probe-deferred-v1\n')
+                        or path.read_bytes()!=b'codex-manager-probe-deferred-v1\n'):
+                    raise ValueError('invalid deferred probe marker')
+                continue
             if name not in expected:raise ValueError('candidate inventory differs')
             mode=path.stat().st_mode&0o7777
             if mode!=(0o644 if name=='generation.meta' else 0o755):raise ValueError('candidate mode differs')

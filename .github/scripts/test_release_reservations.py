@@ -69,6 +69,37 @@ class ReservationTests(unittest.TestCase):
                         reservations.reserve(source,source,167,'d'*40,source,source,request,lambda *args:[])
                 self.assertEqual(len(created),1)
 
+    def test_full_reservation_checks_composition_before_tag_creation(self):
+        value=self.value();value['generation_id']='full-v0.167.1-aaaaaaa-s166'
+        current={name:{'inputs_sha256':'b'*64,'artifact_sha256':'c'*64,'interface':'qualified-api-v1'}
+                 for name in ('core','runtime','manager','tui')}
+        from tempfile import TemporaryDirectory
+        calls=[]
+        def request(path,**kwargs):
+            calls.append(path)
+            if path=='git/ref/heads/main':return {'object':{'sha':'d'*40}}
+            if path=='git/matching-refs/tags/':return []
+            self.fail('Full proof refusal must precede mutation: '+path)
+        with TemporaryDirectory() as temp:
+            source=Path(temp);(source/'release').mkdir();(source/'release/upstream.json').write_text(json.dumps({'upstream':{'version':'0.167.1'}}))
+            with patch.object(reservations,'git',return_value=('a'*40+'\n').encode()), \
+                 patch.object(reservations,'selected',return_value=('0.167.1',current)), \
+                 patch.object(reservations,'candidate_digest',return_value='e'*64), \
+                 patch('release_control.release_authorized',return_value=True), \
+                 patch('release_preflight.parse_descriptor',return_value={'generation_id':value['generation_id']}), \
+                 patch('full_qualification.require_qualified_full',side_effect=ValueError('Full proof missing')):
+                with self.assertRaisesRegex(ValueError,'Full proof missing'):
+                    reservations.reserve(source,source,166,'d'*40,source,source,request,lambda *args:[])
+        self.assertEqual(calls,['git/ref/heads/main','git/matching-refs/tags/'])
+
+    def test_signing_subject_must_match_the_reserved_generation_before_secret_access(self):
+        value=self.value()
+        with patch.object(reservations,'git',return_value=('a'*40+'\n').encode()), \
+             patch.object(reservations,'candidate_digest',return_value='e'*64), \
+             patch('release_preflight.parse_descriptor',return_value={'generation_id':'core-v0.167.1-other-s166'}):
+            with self.assertRaisesRegex(ValueError,'reserved signing inputs differ'):
+                reservations.verify_candidate(value,Path('.'),Path('.'),166)
+
     def test_reservation_record_rejects_owner_metadata_and_revision_tampering(self):
         value=self.value();self.assertEqual(reservations.validate(value),value)
         for change in [{'sequence':165},{'main_sha':'main'},{'candidate_sha256':'x'*64},

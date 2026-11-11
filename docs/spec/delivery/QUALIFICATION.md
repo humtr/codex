@@ -32,7 +32,10 @@ production inputs. Required changed source, compiler, ABI, flags, dependencies
 or adaptation invalidates affected reuse. Missing or unsafe inventory refuses.
 
 Manager qualification runs independently of Core production and TUI. It requires
-the Android Manager interface probe and Manager behavior tests. A successful
+the Android Manager interface probe and Manager behavior tests. Linux CI runs
+ownership-sensitive Manager tests under the real non-root runner UID in a private
+proc view with a short private temporary root; this does not assert namespace
+or bwrap support on Android/Termux. A successful
 Manager proof never substitutes for the selected Core/Manager/TUI combination.
 An optional-component failure blocks that Full combination, not eligible Core.
 Actions transfer preserves modes in a bounded regular-file-only archive; a loose
@@ -68,3 +71,32 @@ composition revision. Previously reserved unpublished inputs also consume their
 revisions. Conflicting historical use of a revision fails closed. New upstream
 versions have separate module revision namespaces. Existing signed generations
 and legacy names are never retroactively renamed, rebuilt or assigned revisions.
+
+## Unsigned Full composition
+
+Full source acceptance consumes the completed owned Core/runtime, independent
+Manager and full TUI qualification runs for the exact development source SHA.
+It admits each run's unexpired named artifacts, Core/Manager production receipts,
+Manager behavior/probe evidence and the existing TUI executed-scope/Retain proof.
+It reuses those bytes through the existing composition/adaptation path. A pending,
+failed, focused-only, foreign-source or ambiguous run cannot supply a component.
+The complete selected inventory, descriptor interfaces and helper/companion hashes
+are checked; a TUI artifact's upstream version alone is insufficient.
+
+The result uses an unpublishable `full-qualification-*` generation identity.
+The job executes the actual selected Android Core/Manager, runtime and adapted TUI
+probes and binds their exits, bounded stdout/stderr and before/after payload digest.
+Unexpected diagnostics, a failed process or changed byte leaves the candidate
+unqualified. Its final proof binds exact source, component runs, component input
+and artifact digests, normalized descriptor, full inventory and composition digest.
+This is unsigned composition evidence, not device Activity or live Provider proof.
+A future authorized Full reservation must admit this successful exact-source proof
+and match every selected payload and descriptor contract; only the new generation
+identity may differ. Independent Core reservation does not require optional Full.
+
+The development push registers the read-only Full workflow. If component runs are
+not yet successful, that run refuses with their missing acceptance boundary; rerun
+that same source run after they complete. No Full qualification step creates refs,
+reserves issues, signs, stages public artifacts, changes indices or activates a
+user device. Publication still admits its separately authenticated Core base and
+retains the existing complete signed-composition and public-consumer gates.
