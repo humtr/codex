@@ -360,10 +360,7 @@ def run(source, requested_upstream=None):
                     return {'state':'awaiting-exact-proof','workflow':'full-qualification.yml','source':product}
                 # Both lanes explicitly permit the independent Core first.
                 # Do not publish an unqualified optional frontend along with it.
-                variant='base';pending.clear()
-                selected={**selected,'frontend':None}
-                binding={'source':product,'frontend':None}
-                changed_binding=registered is not None
+                variant='base'
             else:
                 _,proof=admitted
                 if proof['upstream_version']!=before['upstream']['version']:
@@ -378,6 +375,11 @@ def run(source, requested_upstream=None):
                         raise ValueError('Full-qualified frontend bytes are unavailable; publication not started')
                     binding={'source':product,'frontend':selected['frontend']}
                     changed_binding=selected['frontend']!=registered
+        if variant=='base':
+            pending.clear()
+            selected={**selected,'frontend':None}
+            binding={'source':product,'frontend':None}
+            changed_binding=registered is not None
         if api('git/ref/heads/main')['object']['sha']!=main:
             raise ValueError('publication main moved before qualified selection')
         for publication in pending:publish_frontend_input(publication)

@@ -3,9 +3,13 @@ import base64
 import copy
 from contextlib import contextmanager, ExitStack
 import hashlib
+import io
 import json
 from pathlib import Path
 import tempfile
+import stat
+import warnings
+import zipfile
 import unittest
 from unittest.mock import patch
 
@@ -49,26 +53,59 @@ def receipt():
 
 
 class FullReceiptTests(unittest.TestCase):
-    def read(self,directory,*,change=None,missing=False):
+    def archive(self,value,fault=None):
+        files={name:canonical(value) if name=='full-qualification.json' else b'{}' for name in full.PROOF_FILES}
+        if fault=='missing':files.pop('full-probes/runtime.err')
+        if fault=='extra':files['extra']=b'unselected'
+        if fault=='traversal':files['../outside']=b'unsafe'
+        if fault=='absolute':files['/outside']=b'unsafe'
+        if fault=='oversize':files['full-probes/runtime.out']=b'x'*4097
+        output=io.BytesIO()
+        with zipfile.ZipFile(output,'w',compression=zipfile.ZIP_DEFLATED) as archive:
+            for name,data in files.items():
+                entry=zipfile.ZipInfo(name);entry.compress_type=zipfile.ZIP_DEFLATED
+                entry.external_attr=(stat.S_IFREG|0o644)<<16
+                if fault=='symlink' and name=='full-qualification.json':entry.external_attr=(stat.S_IFLNK|0o777)<<16
+                archive.writestr(entry,data)
+            if fault=='duplicate':
+                with warnings.catch_warnings():
+                    warnings.simplefilter('ignore',UserWarning)
+                    archive.writestr('full-qualification.json',canonical(value))
+            if fault in ('directories','wrong-directory'):
+                name='full-probes/' if fault=='directories' else 'unexpected/'
+                entry=zipfile.ZipInfo(name);entry.external_attr=(stat.S_IFDIR|0o755)<<16
+                archive.writestr(entry,b'')
+        return output.getvalue()
+
+    def read(self,directory,*,change=None,missing=False,artifact_change=None,
+             detail_change=None,zip_fault=None,download_fault=None):
         value=receipt();run=run_record('full-qualification.yml')
         page={'total_count':1,'artifacts':[{'id':101,'name':'full-composition-qualification','expired':False}]}
         components={str(number):run_record(full.WORKFLOWS[name],number)
                     for name,number in value['component_runs'].items()}
         current=copy.deepcopy(run);calls=[]
         if change:change(value,run,page,components,current)
+        archive=self.archive(value,zip_fault)
+        for row in page['artifacts']:
+            row.update(size_in_bytes=len(archive),digest='sha256:'+hashlib.sha256(archive).hexdigest(),
+                       workflow_run={'id':99,'head_sha':SHA})
+        if artifact_change:artifact_change(page['artifacts'][0])
+        detail=copy.deepcopy(page['artifacts'][0]) if page['artifacts'] else None
+        if detail_change:detail_change(detail)
         def lookup(workflow,sha):
             self.assertEqual((workflow,sha),('full-qualification.yml',SHA))
             return (None,[]) if missing else (run,[run])
         def request(path):
             calls.append(('read',path))
             if path=='actions/runs/99/artifacts?per_page=100':return page
+            if path=='actions/artifacts/101':return detail
             if path=='actions/runs/99':return current
             if path.startswith('actions/runs/'):return components[path.rsplit('/',1)[1]]
             self.fail('unexpected read '+path)
-        def fetch(*args):
-            calls.append(('download',args))
-            self.assertEqual(args[:6],('run','download','99','--repo',control.REPO,'--name'))
-            (Path(args[-1])/'full-qualification.json').write_bytes(canonical(value))
+        def fetch(row,path):
+            calls.append(('download',row['id']))
+            self.assertEqual(row['id'],101)
+            path.write_bytes(download_fault(archive) if download_fault else archive)
         result=full.read_qualified_full(SHA,directory,request=request,lookup=lookup,fetch=fetch)
         return result,calls
 
@@ -77,8 +114,13 @@ class FullReceiptTests(unittest.TestCase):
             result,calls=self.read(Path(temporary)/'proof')
             self.assertEqual(result[1],receipt())
             self.assertEqual([path for kind,path in calls if kind=='read'],
-                ['actions/runs/99/artifacts?per_page=100','actions/runs/99','actions/runs/11',
-                 'actions/runs/12','actions/runs/13'])
+                ['actions/runs/99/artifacts?per_page=100','actions/artifacts/101','actions/runs/99',
+                 'actions/runs/11','actions/runs/12','actions/runs/13'])
+            origin=json.loads((Path(temporary)/'proof/artifact-origin.json').read_bytes())
+            self.assertEqual(origin,{'schema':'codex-full-proof-origin-v1','source_sha':SHA,'run_id':99,
+                'artifact_id':101,'archive_bytes':len(self.archive(receipt())),
+                'archive_digest':'sha256:'+hashlib.sha256(self.archive(receipt())).hexdigest()})
+            self.assertFalse((Path(temporary)/'proof/download.zip').exists())
             missing,calls=self.read(Path(temporary)/'missing',missing=True)
             self.assertIsNone(missing);self.assertEqual(calls,[])
             self.assertFalse((Path(temporary)/'missing').exists())
@@ -117,6 +159,53 @@ class FullReceiptTests(unittest.TestCase):
         for index,change in enumerate(mutations):
             with self.subTest(index=index),tempfile.TemporaryDirectory() as temporary,self.assertRaises(ValueError):
                 self.read(Path(temporary)/'proof',change=change)
+
+
+    def test_artifact_id_run_source_digest_and_size_are_bound_before_download(self):
+        changes=[
+            lambda row:row.update(id=True),
+            lambda row:row.update(id=0),
+            lambda row:row.update(size_in_bytes=0),
+            lambda row:row.update(size_in_bytes=full.PROOF_ARCHIVE_LIMIT+1),
+            lambda row:row.update(digest='invalid'),
+            lambda row:row['workflow_run'].update(id=11),
+            lambda row:row['workflow_run'].update(head_sha=OLD),
+        ]
+        for index,change in enumerate(changes):
+            with self.subTest(index=index),tempfile.TemporaryDirectory() as temporary:
+                directory=Path(temporary)/'proof'
+                with self.assertRaises(ValueError):self.read(directory,artifact_change=change)
+                self.assertFalse(directory.exists())
+        for change in (lambda row:row.update(id=102),lambda row:row.update(digest='sha256:'+'0'*64),
+                       lambda row:row.update(size_in_bytes=row['size_in_bytes']+1)):
+            with tempfile.TemporaryDirectory() as temporary:
+                directory=Path(temporary)/'proof'
+                with self.assertRaisesRegex(ValueError,'identity changed'):self.read(directory,detail_change=change)
+                self.assertFalse(directory.exists())
+
+    def test_actual_archive_hash_and_closed_safe_inventory_are_required(self):
+        for change in (lambda data:data+b'x',lambda data:data[:-1],
+                       lambda data:data[:10]+bytes([data[10]^1])+data[11:]):
+            with tempfile.TemporaryDirectory() as temporary:
+                directory=Path(temporary)/'proof'
+                with self.assertRaisesRegex(ValueError,'digest or byte count'):self.read(directory,download_fault=change)
+                self.assertFalse(directory.exists())
+        for fault in ('missing','extra','traversal','absolute','oversize','symlink','duplicate','wrong-directory'):
+            with self.subTest(fault=fault),tempfile.TemporaryDirectory() as temporary:
+                directory=Path(temporary)/'proof'
+                with self.assertRaises(ValueError):self.read(directory,zip_fault=fault)
+                self.assertFalse(directory.exists())
+                self.assertFalse((Path(temporary)/'outside').exists())
+        with tempfile.TemporaryDirectory() as temporary:
+            result,_=self.read(Path(temporary)/'proof',zip_fault='directories')
+            self.assertEqual(result[1],receipt())
+
+    def test_existing_destination_is_never_overwritten_or_removed(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            directory=Path(temporary)/'proof';directory.mkdir()
+            (directory/'owned').write_bytes(b'preserve')
+            with self.assertRaises(FileExistsError):self.read(directory)
+            self.assertEqual((directory/'owned').read_bytes(),b'preserve')
 
 
 class FullPublicationTests(unittest.TestCase):
@@ -186,6 +275,14 @@ class FullPublicationTests(unittest.TestCase):
             state['publish'].assert_not_called()
             files=state['commit'].call_args.args[2]
             self.assertEqual(files['release-source-v1'],(SHA+'\n').encode())
+            self.assertEqual(json.loads(files['release-frontend-v1']),{'source':SHA,'frontend':None})
+            self.assertEqual(state['dispatch'].call_args.args[2]['variant'],'base')
+
+    def test_explicit_base_never_publishes_pending_optional_frontend_or_binding(self):
+        with self.controller(lane='base',proof=False) as state:
+            control.run(ROOT)
+            state['gate'].assert_not_called();state['publish'].assert_not_called()
+            files=state['commit'].call_args.args[2]
             self.assertEqual(json.loads(files['release-frontend-v1']),{'source':SHA,'frontend':None})
             self.assertEqual(state['dispatch'].call_args.args[2]['variant'],'base')
 
