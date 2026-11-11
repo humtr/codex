@@ -148,6 +148,78 @@ impl Ledger {
         Ok(Self { directory })
     }
 
+    // Diagnostic reads share the existing lock and never create or rewrite state.
+    fn snapshot(home: &Path) -> Result<State, String> {
+        let directory = home.join("shared-native-v1");
+        for path in [home, directory.as_path()] {
+            match fs::symlink_metadata(path) {
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                    return Ok(State::default())
+                }
+                Ok(meta)
+                    if meta.is_dir()
+                        && meta.uid() == unsafe { libc::geteuid() }
+                        && meta.mode() & 0o077 == 0 =>
+                {
+                    ()
+                }
+                _ => return Err(fail()),
+            }
+        }
+        let lock = match OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
+            .open(directory.join("lock"))
+        {
+            Ok(lock) => lock,
+            Err(error)
+                if error.kind() == std::io::ErrorKind::NotFound
+                    && fs::symlink_metadata(directory.join("claims.json"))
+                        .is_err_and(|error| error.kind() == std::io::ErrorKind::NotFound) =>
+            {
+                return Ok(State::default())
+            }
+            Err(_) => return Err(fail()),
+        };
+        let meta = lock.metadata().map_err(|_| fail())?;
+        if !meta.is_file() || meta.uid() != unsafe { libc::geteuid() } || meta.mode() & 0o077 != 0 {
+            return Err(fail());
+        }
+        if unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_SH | libc::LOCK_NB) } != 0 {
+            return Err("native_resource_journal_snapshot_busy".into());
+        }
+        Self { directory }.read_state()
+    }
+
+    fn read_state(&self) -> Result<State, String> {
+        match OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
+            .open(self.directory.join("claims.json"))
+        {
+            Ok(file) => {
+                let metadata = file.metadata().map_err(|_| fail())?;
+                if !metadata.is_file()
+                    || metadata.len() > STATE_MAX
+                    || metadata.uid() != unsafe { libc::geteuid() }
+                    || metadata.mode() & 0o077 != 0
+                {
+                    return Err(fail());
+                }
+                let mut bytes = Vec::new();
+                file.take(STATE_MAX + 1)
+                    .read_to_end(&mut bytes)
+                    .map_err(|_| fail())?;
+                if bytes.len() as u64 > STATE_MAX {
+                    return Err(fail());
+                }
+                serde_json::from_slice(&bytes).map_err(|_| fail())
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(State::default()),
+            Err(_) => Err(fail()),
+        }
+    }
+
     fn transact<T>(
         &self,
         f: impl FnOnce(&mut State) -> Result<(T, bool), String>,
@@ -170,28 +242,7 @@ impl Ledger {
         // Each operation reopens the state under the inter-process lock. The
         // lock inode is stable: atomic rename replaces only the state file.
         let path = self.directory.join("claims.json");
-        let mut state = match File::open(&path) {
-            Ok(file) => {
-                let metadata = file.metadata().map_err(|_| fail())?;
-                if !metadata.is_file()
-                    || metadata.len() > STATE_MAX
-                    || metadata.uid() != unsafe { libc::geteuid() }
-                    || metadata.mode() & 0o077 != 0
-                {
-                    return Err(fail());
-                }
-                let mut bytes = Vec::new();
-                file.take(STATE_MAX + 1)
-                    .read_to_end(&mut bytes)
-                    .map_err(|_| fail())?;
-                if bytes.len() as u64 > STATE_MAX {
-                    return Err(fail());
-                }
-                serde_json::from_slice(&bytes).map_err(|_| fail())?
-            }
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => State::default(),
-            Err(_) => return Err(fail()),
-        };
+        let mut state = self.read_state()?;
         let (result, changed) = f(&mut state)?;
         if changed {
             let bytes = serde_json::to_vec(&state).map_err(|_| fail())?;
@@ -295,6 +346,51 @@ pub(crate) fn verified_exec_not_spawned(value: &serde_json::Value) -> bool {
 }
 
 impl Guard {
+    /// Observe the actual process-shared reservations without asserting that a
+    /// missing Provider mirror or a departed process proves effect completion.
+    pub(crate) fn shared_status(
+        private_test_home: Option<&Path>,
+        owned_lanes: &[&str],
+        lane_owners: &BTreeMap<String, String>,
+    ) -> Result<serde_json::Value, String> {
+        let home = match private_test_home {
+            Some(home) => home.to_path_buf(),
+            None => PathBuf::from(
+                std::env::var_os("PREFIX")
+                    .ok_or_else(|| "native_resource_prefix_unavailable".to_owned())?,
+            )
+            .join("var/tmp/codex-native-effects"),
+        };
+        let state = Ledger::snapshot(&home)?;
+        let rows = state.claims.iter().take(128).map(|(id, entry)| {
+            let owner_work = lane_owners.get(&entry.thread).map(String::as_str)
+                .or_else(|| owned_lanes.contains(&entry.thread.as_str()).then_some(entry.thread.as_str()));
+            let owned = owned_lanes.contains(&entry.thread.as_str()) || owner_work.is_some_and(|id| owned_lanes.contains(&id));
+            let owner_state = match entry.owner.as_ref() {
+                Some(owner) => match process_identity(owner.pid) {
+                    Ok((start, exited)) if start != owner.start || exited => "departed",
+                    Ok(_) => "live",
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => "departed",
+                    Err(_) => "unverified",
+                },
+                None => "unrecorded",
+            };
+            serde_json::json!({
+                "claim":format!("{:x}", Sha256::digest(id.as_bytes())),
+                "owner_work":owner_work, "owned":owned,
+                "resource_kind":match entry.effect { Effect::Read=>"read", Effect::Paths(_)=>"bounded", Effect::Opaque=>"opaque" },
+                "scope":match entry.effect { Effect::Opaque=>"unknown_global", _=>"verified_resources" },
+                "process_session":if owned { entry.session } else { None },
+                "owner_process_state":owner_state,
+                "pending_result":true,
+                "settlement":"requires_original_native_result_or_confirmed_non_dispatch"
+            })
+        }).collect::<Vec<_>>();
+        Ok(
+            serde_json::json!({"available":true,"active":rows,"unconfirmed_effects":state.claims.len(),"truncated":state.claims.len()>128}),
+        )
+    }
+
     /// Read-only trigger for a confirmed stopped work whose shared reservation
     /// outlived its Provider mirror. Never treat a live process session as orphaned.
     pub(crate) fn has_stopped_unexecuted(
@@ -1387,6 +1483,117 @@ mod tests {
             ))
             .unwrap();
         assert!(apply(&cwd, &home, "two", "after", "a").is_ok());
+        fs::remove_dir_all(cwd).unwrap();
+        fs::remove_dir_all(home).unwrap();
+    }
+    #[test]
+    fn shared_status_reads_original_ledger_without_retiring_or_disclosing_commands() {
+        let cwd = root();
+        let home = root();
+        let missing = home.join("absent");
+        let empty = Guard::shared_status(Some(&missing), &[], &BTreeMap::new()).unwrap();
+        assert_eq!(empty["unconfirmed_effects"], 0);
+        assert!(!missing.exists(), "status must not create a ledger");
+        let ledger = Ledger::at(&cwd, &home).unwrap();
+        let mut held = Guard::begin_with(
+            &cwd,
+            "owner",
+            "secret-call",
+            "functions.exec_command",
+            r#"{"cmd":"private-token=secret"}"#,
+            ledger.clone(),
+        )
+        .unwrap();
+        let path = ledger.directory.join("claims.json");
+        let before = fs::read(&path).unwrap();
+        let status = Guard::shared_status(Some(&home), &["owner"], &BTreeMap::new()).unwrap();
+        assert_eq!(status["unconfirmed_effects"], 1);
+        assert_eq!(status["active"][0]["resource_kind"], "opaque");
+        assert_eq!(status["active"][0]["scope"], "unknown_global");
+        assert_eq!(status["active"][0]["owner_process_state"], "live");
+        assert_eq!(status["active"][0]["owned"], true);
+        assert!(!status.to_string().contains("secret"));
+        assert!(!status.to_string().contains(cwd.to_str().unwrap()));
+        assert_eq!(fs::read(&path).unwrap(), before);
+        let other = Guard::shared_status(Some(&home), &["other"], &BTreeMap::new()).unwrap();
+        assert_eq!(other["active"][0]["owner_work"], serde_json::Value::Null);
+        held.observed(Some(
+            &serde_json::json!({"output":"Process exited with code 0\nOutput:\n"}),
+        ))
+        .unwrap();
+        assert_eq!(
+            Guard::shared_status(Some(&home), &[], &BTreeMap::new()).unwrap()
+                ["unconfirmed_effects"],
+            0
+        );
+        fs::remove_dir_all(cwd).unwrap();
+        fs::remove_dir_all(home).unwrap();
+    }
+
+    #[test]
+    fn diagnostic_snapshot_refuses_locked_or_symlinked_state_without_changes() {
+        let cwd = root();
+        let home = root();
+        let ledger = Ledger::at(&cwd, &home).unwrap();
+        let held = apply(&cwd, &home, "one", "call", "a").unwrap();
+        let lock = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
+            .open(ledger.directory.join("lock"))
+            .unwrap();
+        // Establish the fixture's exclusive owner with the same acquisition as
+        // production; another parallel test may briefly inherit a closing fd.
+        assert_eq!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX) }, 0);
+        assert_eq!(
+            Guard::shared_status(Some(&home), &[], &BTreeMap::new()).unwrap_err(),
+            "native_resource_journal_snapshot_busy"
+        );
+        drop(lock);
+        drop(held);
+        let state = ledger.directory.join("claims.json");
+        let saved = ledger.directory.join("original.json");
+        fs::rename(&state, &saved).unwrap();
+        std::os::unix::fs::symlink(&saved, &state).unwrap();
+        assert!(Guard::shared_status(Some(&home), &[], &BTreeMap::new()).is_err());
+        assert!(ledger.transact(|_| Ok(((), false))).is_err());
+        assert!(saved.is_file());
+        fs::remove_dir_all(cwd).unwrap();
+        fs::remove_dir_all(home).unwrap();
+    }
+
+    #[test]
+    fn orphan_continuation_retains_uncertain_session_until_original_terminal_receipt() {
+        let cwd = root();
+        let home = root();
+        let ledger = Ledger::at(&cwd, &home).unwrap();
+        let mut held = Guard::begin_with(
+            &cwd,
+            "one",
+            "poll",
+            "functions.write_stdin",
+            r#"{"session_id":81,"chars":""}"#,
+            ledger.clone(),
+        )
+        .unwrap();
+        held.observed(Some(&serde_json::json!({"output":"Process running with session ID 81\nOutput:\nProcess exited with code 0"}))).unwrap();
+        assert_eq!(
+            apply(&cwd, &home, "other", "writer", "a").err().as_deref(),
+            Some("native_resource_busy")
+        );
+        let status = Guard::shared_status(Some(&home), &["one"], &BTreeMap::new()).unwrap();
+        assert_eq!(status["active"][0]["process_session"], 81);
+        held.observed(None).unwrap();
+        assert_eq!(
+            Guard::shared_status(Some(&home), &[], &BTreeMap::new()).unwrap()
+                ["unconfirmed_effects"],
+            1
+        );
+        held.observed(Some(
+            &serde_json::json!({"output":"Process exited with code 3\nOutput:\n"}),
+        ))
+        .unwrap();
+        assert!(apply(&cwd, &home, "other", "next", "a").is_ok());
         fs::remove_dir_all(cwd).unwrap();
         fs::remove_dir_all(home).unwrap();
     }

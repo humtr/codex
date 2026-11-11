@@ -28,6 +28,16 @@ capabilities and requested read/write behavior. An idempotentHint declaration al
 does not implement these guarantees or establish client-side retry/parallel policy.
 CURRENT records exact candidate sources, limits, decisions and observed acceptance.
 
+Native effect diagnosis distinguishes the Provider's work mirror from the actual
+process-shared claim ledger. A missing mirror entry never proves shared settlement.
+The existing status response exposes bounded, content-free resource scope and
+owner-process observations from that locked ledger; failed snapshots remain
+unavailable rather than an empty success. Status creates no ledger, removes no
+claim and does not infer completion from a departed process. Only original Native
+terminal evidence or the existing verified non-dispatch reconciliation can settle
+an uncertain effect. Known disjoint resources may progress concurrently; an opaque
+shell's unknown effects are not confined merely by its current working directory.
+
 The implementation contract is scoped logical identity plus a payload
 fingerprint and durable intent/result. Use existing call_id, work/controller
 generation, native request/turn and Broker token identities. One operation's
