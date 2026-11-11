@@ -129,6 +129,26 @@ jobs:
                  'foreground_uuid_observed':True,'auto_on_off':True,'repeated_and_concurrent_display':True}
           (root/'stock-proof.json').write_text(json.dumps(proof,sort_keys=True)+'\n')
           PYTHON
+      - name: Collect failed disposable-emulator diagnostics
+        if: failure()
+        shell: bash
+        run: |
+          set -u
+          export PATH="$ANDROID_SDK_ROOT/platform-tools:$PATH"
+          # Fixed fixture files only. No production account or environment dump.
+          timeout 15 adb shell run-as com.termux cat /data/data/com.termux/files/home/.stock-proof/failure.txt > "$RUNNER_TEMP/stock-failure.txt" 2>&1 || true
+          timeout 15 adb shell run-as com.termux cat /data/data/com.termux/files/home/.stock-proof/stages.log > "$RUNNER_TEMP/stock-stages.txt" 2>&1 || true
+          timeout 15 adb logcat -d -t 1000 -s StockWindowProof:V TermuxService:V RunCommandService:V ActivityManager:I AndroidRuntime:E > "$RUNNER_TEMP/stock-logcat.txt" 2>&1 || true
+          timeout 15 adb shell dumpsys activity activities > "$RUNNER_TEMP/stock-activity.txt" 2>&1 || true
+          python3 - <<'PYTHON'
+          import os
+          from pathlib import Path
+          root=Path(os.environ['RUNNER_TEMP'])
+          for name in ('stock-failure.txt','stock-stages.txt','stock-logcat.txt','stock-activity.txt'):
+              path=root/name
+              if path.exists():
+                  with path.open('r+b') as stream: stream.truncate(min(path.stat().st_size,262144))
+          PYTHON
       - name: Preserve bounded proof and diagnostics
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -139,5 +159,9 @@ jobs:
             ${{ runner.temp }}/stock-proof-marker.txt
             ${{ runner.temp }}/stock-proof.json
             ${{ runner.temp }}/stock-capability.txt
+            ${{ runner.temp }}/stock-failure.txt
+            ${{ runner.temp }}/stock-stages.txt
+            ${{ runner.temp }}/stock-logcat.txt
+            ${{ runner.temp }}/stock-activity.txt
             ${{ runner.temp }}/emulator.log
           retention-days: 7
