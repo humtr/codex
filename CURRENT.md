@@ -99,18 +99,16 @@ not authorization to stop them or proof that all version combinations work.
   execution, exact replay, one-effect counter, argument conflict and unchanged
   Native-claim sentinel. Connecting only for discovery retained the original
   17 MCP tools plus `termux_shell`, 18 total.
-- At d4df350207b50b9350c514b1e1d8cb7095c9d9f1, the complete Provider
-  all-target suite passed **354 tests**, zero failed, with 34 existing
-  explicit asset/live/helper entries reported ignored by the top-level harness.
-  Strict all-target clippy passed. The actual standalone worker integration
-  test was included. The subsequent persisted-scope repair requires a new run;
-  these counts are not inherited by that later source. The next run retained
-  two ETXTBSY subprocess-launch failures. An isolated kernel reproduction
-  confirmed that a sibling fork can retain an executable write descriptor
-  after the parent closes it. The fixture now copies in an already-executed
-  private child and waits for its exit; no retry, deadline or assertion was
-  relaxed. Its focused Native suite passed 19 tests; final all-target
-  integration acceptance remains pending.
+- At `6450e0f7d062d6f82eac01c0bae04b0f828f747c`, the complete Provider
+  all-target suite passed **357 tests**, zero failed, with 34 existing explicit
+  asset/live/helper entries reported ignored by the top-level harness. Nested
+  subprocess helper results were not double-counted. Strict all-target clippy
+  and both Cargo projects' formatting gates passed. The standalone worker
+  integration test was included. Source/Provider/Binding identities remained
+  identical from start to completion. Original failed receipts are retained:
+  a sibling fork could hold an executable's copied write descriptor and cause
+  ETXTBSY; the fixture now publishes in a private child, without retries,
+  deadline changes or weaker ownership assertions.
 - Provider/TUI source now keeps OpenAI's upstream catalog separate from the
   authenticated ChatGPT app catalog, including availability and actual effort.
   Internal Provider ID `chatgpt_desktop` and persisted model namespaces remain

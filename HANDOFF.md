@@ -8,31 +8,25 @@ and unsigned CI; there is no intermediate plan-approval gate.
 
 ## Remaining work
 
-1. Finish the final integrated Provider suite after persisted-scope repair
-   and the repaired executable-publication fixture race. Preserve the original
-   executable-busy failure and kernel reproduction receipts.
-   The complete Source Python/static gate passed. The Core, independent shell,
-   terminal display, model transition and Native compatibility source changes
-   are integrated. Preserve the original failed fixture receipts.
-2. Run the exact adapted-upstream hook and TUI regressions in hosted CI; local
+1. Run the exact adapted-upstream hook and TUI regressions in hosted CI; local
    patch assembly is accepted, but local TUI Rust compilation is still blocked
    by the unavailable pinned rusty_v8 dependency.
-3. Push the integrated source by fast-forward to the actual current
+2. Push the integrated source by fast-forward to the actual current
    rewrite/rust-core after rechecking main intent and concurrent upstream
    discovery. Run and observe Source, Core/Runtime, Manager, Provider,
    full TUI Native, unsigned Full composition and stock Android acceptance
    against the exact source. Fix real failures and rerun.
-4. With the candidate frontend/runtime, finish the same-thread /switch
+3. With the candidate frontend/runtime, finish the same-thread /switch
    destination checkpoint and original-result continuity fixture. Historical
    quota replay was repaired; candidate Core/Manager with isolated copies of
    the installed S165 frontend/runtime prove Owner lookup and reentry only,
    not the destination inference. Operating S165 Core was not replaced.
-5. Use owned isolated candidate artifacts for actual Native compiler
+4. Use owned isolated candidate artifacts for actual Native compiler
    concurrency/settlement and terminal continuity where possible. Distinguish
    real Native, live app, synthetic account and Android emulator/physical
    Activity proof. Reuse the independently accepted existing-app C development
    loop only within its operating-binary boundary.
-6. Record actual commits, file/LoC ownership, final exact-SHA CI receipts,
+5. Record actual commits, file/LoC ownership, final exact-SHA CI receipts,
    protected-asset readback and branch dispositions. Remove completed items
    from this handoff; do not retain this list as future instructions once
    acceptance is recorded.

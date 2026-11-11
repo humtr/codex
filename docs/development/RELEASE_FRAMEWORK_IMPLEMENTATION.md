@@ -136,6 +136,17 @@ are not mislabeled as product code. Pure moves and overlapping W assignments
 are counted once. The final file inventory and actual counts are updated
 after source acceptance.
 
+### W20 measured subset
+
+At integration source `6450e0f7`, non-overlapping W20 semantic changes cover
+12 logical files: product **+165 / -35**, tests **+465 / -0**, and scoped
+norms **+22 / -1**. The Owner/IPC portion is product +159/-35, tests +321/-0;
+upstream historical-quota replay and checkpoint acceptance add product +6/-0
+and tests +144/-0. Those expanded upstream hunks are already in the TUI patch
+total. W15 hook/claim machinery, W16 terminal display, W19 catalogs, shared
+fixture publication and global W9/W10 bookkeeping are not counted again here.
+Replacement lines are included in additions/deletions, not extra LoC.
+
 Rollback for development is a reviewed revert of a coherent feature commit,
 followed by affected exact-source qualification. No rollback here mutates a
 signed generation, active pointer, account, original result or Writer.
