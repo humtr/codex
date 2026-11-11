@@ -38,6 +38,16 @@ terminal evidence or the existing verified non-dispatch reconciliation can settl
 an uncertain effect. Known disjoint resources may progress concurrently; an opaque
 shell's unknown effects are not confined merely by its current working directory.
 
+Native bounded execution facts must reflect the selected executor environment and
+actual hook dispatch. An unrelated synchronous input-notification hook does not
+invalidate a shell proof, and remains enabled for its own matcher. Applicable
+PreToolUse, PostToolUse or PermissionRequest handlers invalidate that proof;
+match canonical names and permission aliases through the existing hook engine.
+Unknown hook sources, dynamic executor/environment overlays, other hook events
+and asynchronous work retained across configuration changes remain unbounded.
+This admission observation never disables a hook, changes approval policy or
+changes the original tool invocation. Missing proof remains opaque.
+
 The implementation contract is scoped logical identity plus a payload
 fingerprint and durable intent/result. Use existing call_id, work/controller
 generation, native request/turn and Broker token identities. One operation's

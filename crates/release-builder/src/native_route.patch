@@ -2487,8 +2487,7 @@ diff --git a/codex-rs/core/src/native_execution.rs b/codex-rs/core/src/native_ex
 new file mode 100644
 index 0000000..e8b20f5
 --- /dev/null
-+++ b/codex-rs/core/src/native_execution.rs
-@@ -0,0 +1,167 @@
+@@ -0,0 +1,174 @@
 +//! Private execution facts for the local ChatGPT Provider's resource admission.
 +//! Native remains the only executor. No tool arguments or environment values
 +//! are rewritten, and no compiler or shell is run to obtain these facts.
@@ -2535,14 +2534,21 @@ index 0000000..e8b20f5
 +
 +pub(crate) fn capture(session: &Session, step: &StepContext) -> Option<Value> {
 +    // This is private, model-invisible metadata for the qualified local route.
++    // The Provider consumes it only for bounded exec_command effects. Since
++    // capture precedes tool selection, cover both UnifiedExec calls and their
++    // actual permission-hook identities; unrelated input hooks still dispatch.
 +    if step.turn.config.model_provider_id != "chatgpt_desktop"
 +        || step.environments.turn_environments().count() != 1
 +        || !step.executor_hook_sources.is_empty()
-+        || !session
-+            .hooks()
-+            .list_with_environment_hooks(Vec::new())
-+            .hooks
-+            .is_empty()
++        || !session.hooks().tool_has_no_hook_effects(
++            &[
++                "exec_command",
++                "functions.exec_command",
++                "write_stdin",
++                "functions.write_stdin",
++            ],
++            &["Bash", "write_stdin"],
++        )
 +    {
 +        return None;
 +    }
@@ -4535,3 +4541,219 @@ index 0a6a5cb..0683089 100644
          service_tier: None,
          codex_self_exe: arg0_paths.codex_self_exe.clone(),
          codex_linux_sandbox_exe: arg0_paths.codex_linux_sandbox_exe.clone(),
+diff --git a/codex-rs/hooks/src/engine/command_runner.rs b/codex-rs/hooks/src/engine/command_runner.rs
+--- a/codex-rs/hooks/src/engine/command_runner.rs
++++ b/codex-rs/hooks/src/engine/command_runner.rs
+@@ -169,6 +169,13 @@
+             hook_result.run.entries = entries;
+             let _ = result_sender.try_send(hook_result);
+         });
++    }
++
++    /// Include tasks retained across reconfiguration in resource-proof admission.
++    pub(crate) fn has_pending_async_hooks(&self) -> bool {
++        let mut state = self.lock_state();
++        while state.tasks.try_join_next().is_some() {}
++        !state.tasks.is_empty()
+     }
+ 
+     pub(crate) fn schedule_async_task(&self, task: impl Future<Output = ()> + Send + 'static) {
+diff --git a/codex-rs/hooks/src/engine/mod.rs b/codex-rs/hooks/src/engine/mod.rs
+--- a/codex-rs/hooks/src/engine/mod.rs
++++ b/codex-rs/hooks/src/engine/mod.rs
+@@ -334,6 +334,42 @@
+         }
+     }
+ 
++    /// A resource proof is valid only when these actual hook matcher inputs
++    /// cannot execute additional effects. Reuse dispatch selection so regexes,
++    /// canonical names and compatibility aliases have exactly the same meaning.
++    pub(crate) fn tool_has_no_hook_effects(
++        &self,
++        tool_names: &[&str],
++        permission_names: &[&str],
++    ) -> bool {
++        if tool_names.is_empty()
++            || permission_names.is_empty()
++            || !self.warnings.is_empty()
++            || !self.required_load_errors.is_empty()
++            || self.command_runtime.has_pending_async_hooks()
++            || self.handlers.iter().any(|handler| {
++                handler.execution_mode() == HookExecutionMode::Async
++                    || !matches!(
++                        handler.event_name,
++                        HookEventName::PreToolUse
++                            | HookEventName::PostToolUse
++                            | HookEventName::PermissionRequest
++                    )
++            })
++        {
++            return false;
++        }
++        [
++            (HookEventName::PreToolUse, tool_names),
++            (HookEventName::PostToolUse, tool_names),
++            (HookEventName::PermissionRequest, permission_names),
++        ]
++        .into_iter()
++        .all(|(event, names)| {
++            dispatcher::select_handlers_for_matcher_inputs(&self.handlers, event, names).is_empty()
++        })
++    }
++
+     pub(crate) fn warnings(&self) -> &[String] {
+         &self.warnings
+     }
+diff --git a/codex-rs/hooks/src/registry.rs b/codex-rs/hooks/src/registry.rs
+--- a/codex-rs/hooks/src/registry.rs
++++ b/codex-rs/hooks/src/registry.rs
+@@ -129,6 +129,14 @@
+         hooks
+     }
+ 
++    /// Check resource-proof admission against this session's admitted hooks.
++    /// This does not disable, bypass, or execute a hook. The caller must also
++    /// exclude dynamic environment/executor overlays before using the proof.
++    pub fn tool_has_no_hook_effects(&self, tool_names: &[&str], permission_names: &[&str]) -> bool {
++        self.engine
++            .tool_has_no_hook_effects(tool_names, permission_names)
++    }
++
+     /// List this session's declarations, including hooks that are disabled or not yet trusted.
+     pub fn list_with_environment_hooks(
+         &self,
+diff --git a/codex-rs/hooks/src/engine/mod_tests.rs b/codex-rs/hooks/src/engine/mod_tests.rs
+--- a/codex-rs/hooks/src/engine/mod_tests.rs
++++ b/codex-rs/hooks/src/engine/mod_tests.rs
+@@ -3029,3 +3029,131 @@
+         }]
+     );
+ }
++
++fn native_proof_engine(matcher: Option<&str>, event: HookEventName) -> ClaudeHooksEngine {
++    let mut engine = ClaudeHooksEngine::new(
++        true,
++        false,
++        None,
++        Vec::new(),
++        Vec::new(),
++        command_runtime(CommandShell {
++            program: String::new(),
++            args: Vec::new(),
++        }),
++        mcp_executor(),
++    );
++    engine.handlers = Arc::new(vec![ConfiguredHandler {
++        builtin: false,
++        plugin_trust: None,
++        event_name: event,
++        matcher: matcher.map(|pattern| super::HookMatcher::new(pattern).unwrap()),
++        timeout_sec: 5,
++        status_message: None,
++        additional_context_limit: Default::default(),
++        source_path: cwd().join("hooks.json").into(),
++        source: HookSource::User,
++        display_order: 0,
++        kind: ConfiguredHandlerKind::Command {
++            command: "a-real-hook-keeps-its-original-effects".to_string(),
++            r#async: false,
++            env: HashMap::new(),
++        },
++    }]);
++    engine
++}
++
++const NATIVE_EXEC_HOOK_NAMES: &[&str] = &[
++    "exec_command",
++    "functions.exec_command",
++    "write_stdin",
++    "functions.write_stdin",
++];
++const NATIVE_EXEC_PERMISSION_NAMES: &[&str] = &["Bash", "write_stdin"];
++
++#[test]
++fn native_resource_proof_retains_unrelated_input_hook_and_its_dispatch() {
++    let engine = native_proof_engine(
++        Some(r"^(functions\.)?request_user_input(_async)?$"),
++        HookEventName::PreToolUse,
++    );
++    assert!(engine.tool_has_no_hook_effects(NATIVE_EXEC_HOOK_NAMES, NATIVE_EXEC_PERMISSION_NAMES));
++    for name in ["request_user_input", "functions.request_user_input_async"] {
++        assert_eq!(
++            super::dispatcher::select_handlers_for_matcher_inputs(
++                &engine.handlers,
++                HookEventName::PreToolUse,
++                &[name],
++            )
++            .len(),
++            1,
++            "resource proof must not remove the unrelated notification",
++        );
++    }
++}
++
++#[test]
++fn native_resource_proof_rejects_each_matching_tool_event_and_permission_alias() {
++    for event in [HookEventName::PreToolUse, HookEventName::PostToolUse] {
++        for matcher in [
++            None,
++            Some("*"),
++            Some("exec_command"),
++            Some(r"^functions\.exec_command$"),
++            Some("write_stdin"),
++        ] {
++            let engine = native_proof_engine(matcher, event);
++            assert!(
++                !engine
++                    .tool_has_no_hook_effects(NATIVE_EXEC_HOOK_NAMES, NATIVE_EXEC_PERMISSION_NAMES)
++            );
++        }
++    }
++    for matcher in [None, Some("Bash"), Some("write_stdin")] {
++        let engine = native_proof_engine(matcher, HookEventName::PermissionRequest);
++        assert!(
++            !engine.tool_has_no_hook_effects(NATIVE_EXEC_HOOK_NAMES, NATIVE_EXEC_PERMISSION_NAMES)
++        );
++    }
++}
++
++#[test]
++fn native_resource_proof_rejects_unknown_async_and_non_tool_hook_effects() {
++    let mut engine = native_proof_engine(Some("request_user_input"), HookEventName::PreToolUse);
++    assert!(engine.tool_has_no_hook_effects(NATIVE_EXEC_HOOK_NAMES, NATIVE_EXEC_PERMISSION_NAMES));
++    engine.warnings = vec!["invalid or unavailable hook source".to_string()].into();
++    assert!(!engine.tool_has_no_hook_effects(NATIVE_EXEC_HOOK_NAMES, NATIVE_EXEC_PERMISSION_NAMES));
++    engine.warnings = Arc::default();
++    engine.required_load_errors = vec!["required hook source unknown".to_string()].into();
++    assert!(!engine.tool_has_no_hook_effects(NATIVE_EXEC_HOOK_NAMES, NATIVE_EXEC_PERMISSION_NAMES));
++    engine.required_load_errors = Arc::default();
++    if let ConfiguredHandlerKind::Command { r#async, .. } =
++        &mut Arc::make_mut(&mut engine.handlers)[0].kind
++    {
++        *r#async = true;
++    }
++    assert!(!engine.tool_has_no_hook_effects(NATIVE_EXEC_HOOK_NAMES, NATIVE_EXEC_PERMISSION_NAMES));
++    for event in [
++        HookEventName::PreModelRequest,
++        HookEventName::PostModelRequest,
++        HookEventName::Stop,
++        HookEventName::SessionStart,
++    ] {
++        let engine = native_proof_engine(None, event);
++        assert!(
++            !engine.tool_has_no_hook_effects(NATIVE_EXEC_HOOK_NAMES, NATIVE_EXEC_PERMISSION_NAMES)
++        );
++    }
++}
++
++#[tokio::test]
++async fn native_resource_proof_rejects_async_work_retained_after_reconfiguration() {
++    let mut engine = native_proof_engine(Some("request_user_input"), HookEventName::PreToolUse);
++    engine.handlers = Arc::default();
++    engine
++        .command_runtime
++        .schedule_async_task(std::future::pending());
++    assert!(!engine.tool_has_no_hook_effects(NATIVE_EXEC_HOOK_NAMES, NATIVE_EXEC_PERMISSION_NAMES));
++    engine.command_runtime.shutdown().await;
++    assert!(engine.tool_has_no_hook_effects(NATIVE_EXEC_HOOK_NAMES, NATIVE_EXEC_PERMISSION_NAMES));
++}
