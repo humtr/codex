@@ -8,17 +8,21 @@ unsigned CI; these are not intermediate approval gates.
 
 ## Remaining source acceptance
 
-1. Diagnose and fix the actual failed d2 full-TUI Retain gate without weakening
-   its assertions; preserve the earlier positive gates and compile cache.
-   Complete final exact-source full TUI and unsigned Full composition acceptance.
-2. Complete final-composition Native observer/terminal acceptance and its
-   exact-source Provider gate. Integrated cold-receipt tests, actual connected
+1. Execute the integrated d2 pin-refresh fixture correction and new compaction
+   regression in full TUI CI; preserve the earlier positive gates and compile
+   cache. Complete final exact-source full TUI and unsigned Full composition.
+2. Integrate the audited formal-path early Full admission and cross-branch
+   qualified component reuse; keep Core-only publication independent.
+3. Complete final-composition Native observer/terminal acceptance, manual
+   `/switch` destination selection and the exact-source Provider/worker gate. Integrated cold-receipt tests, actual connected
    MCP during Native Busy, Core-only Stop/StopTree controls, warm parallel
    compilers and candidate switch/model routes have passed within the separate
    evidence boundaries in CURRENT.
-3. Finalize exact-head CI receipts, file accounting and protected-asset/branch
+4. Finalize exact-head CI receipts, file accounting and protected-asset/branch
    readback. At 66edd08d, Source, Core/Runtime, Manager, Provider and actual
-   stock Android gates passed; later affected source still needs its exact gates.
+   stock Android gates passed. Source Acceptance also passed at exact dfd53e61.
+   The later Full probe environment fix and explicit compaction regression need
+   their exact-source gates; GitHub startup failures did not execute TUI tests.
 
 ## Protected operating acceptance
 

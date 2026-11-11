@@ -15,7 +15,9 @@ branch; the primary checkout remains on its protected older lineage. The
 remote checkpoint `66edd08d34879224b6c0b05d4ffa68a6d97c800a` passed Source,
 Core/Runtime, Manager, Provider and stock Android qualification. Full TUI,
 Full composition and later affected receipt-restoration changes retain their
-separate exact-source gates. Query the actual HEAD and its Checks
+separate exact-source gates. Source Acceptance also passed at exact
+`dfd53e61f462ce0f458ac3d96d913038aa567c56`, including its Native/Manager changes;
+that is not a substitute for the other component gates. Query the actual HEAD and its Checks
 before relying on a preceding checkpoint's acceptance.
 
 The independently read remote `main` is
@@ -113,7 +115,13 @@ not authorization to stop them or proof that all version combinations work.
   A separate candidate-worker process without Provider state passed shell
   execution, exact replay, one-effect counter, argument conflict and unchanged
   Native-claim sentinel. Connecting only for discovery retained the original
-  17 MCP tools plus `termux_shell`, 18 total.
+  17 MCP tools plus `termux_shell`, 18 total. The Android workflow now preserves
+  and verifies a separate unsigned worker candidate instead of discarding the
+  executable built alongside the Provider. Eleven packaging tests passed.
+  Connector refresh now selects an explicit owned `mcp_command` independently
+  from the Provider/Desktop binary, preserves legacy omission behavior and
+  fails closed for an invalid explicit wrapper. The actual client suite passed
+  18 tests with 109 assertions; no operating refresh was performed.
 - At exact remote source `66edd08d`, the Provider all-target suite passed
   **362 top-level tests**, zero failed, with 34 existing explicit asset/live/helper
   entries ignored. Nested subprocess results are not double-counted. Strict
@@ -136,8 +144,8 @@ not authorization to stop them or proof that all version combinations work.
   dependency. Hosted run 43078797588 at d2ab3e0e built and executed the actual
   patched frontend and passed focused TUI, independent Owner/model fault
   oracles, Native inference/configuration, hook matching and Provider API gates.
-  The subsequent Retain step failed and is being diagnosed; this run has not
-  qualified the frontend. Candidate artifacts and earlier successful steps do
+  The subsequent Retain step failed; its recovered cause and test-only correction
+  are recorded below. This run has not qualified the frontend. Candidate artifacts and earlier successful steps do
   not establish Full qualification.
 - At b87d7e95 the complete Source Python/static gate passed **241 tests**
   (36 repository scripts, 190 release helpers, 15 frontend Python tests),
@@ -170,6 +178,17 @@ original prompt and checkpoint once, original Native tool effect once. Provider,
 model, effort, approval, reviewer and sandbox settings remained intact. This
 uses synthetic model responses and an explicitly mixed private candidate
 composition, not a real OpenAI account transition or qualified final Full.
+The later cf Core/Runtime + 66 Manager + d2 TUI fixture passed the existing
+40-assertion task qualifier with the actual Enhanced executable observed and
+the same UUID resolved across account-a, default and account-b. It preserved
+active/disconnected Writers, refused cross-home conflict, confirmed Stop and
+used only owned transfer fixtures. Receipt SHA256:
+`7549caa51bd4afa74a0a3b2954e41437dfbe46e9ed3440882d065482f6d26341`.
+Ordinary and named-permission automatic quota handoffs also passed; an
+incompatible permission profile stopped before any destination inference.
+Those three trials exercised the `/switch` menu but automatic handoff, not
+manual destination-row selection. They used zero live model requests and no
+physical Android transport; protected and input bytes were unchanged.
 Historical quota replay now restores display history without starting new
 account recovery. The receipt digest is
 `217048f8b2e750c6bfda0d21c7368fdd745cec820591c4afd8d8cf409caf1ff3`.
@@ -241,6 +260,16 @@ response, zero live Provider requests and zero Android dispatches were used.
 Receipt SHA256: `a135b830efc406cfe0e9cb71496287569118ca6ef046da0f838bcb776ae43da8`.
 This verifies Native observation, not public Manager/Enhanced screen display.
 
+A separate Core-only basic-UI trial passed through the ordinary Core dispatcher,
+without a Core-only override, Manager or Enhanced TUI. The actual process image
+was the selected qualified Runtime. Typed input caused exactly one real command,
+whose original Native result contained `OWNED_PERMISSION_PROOF:PL_MAIN`, exit 0.
+The same thread displayed `PL_MAIN_OK`; UI exit was 0 after 8.55 seconds.
+Two responses came from the loopback fixture, with zero real Provider inference
+and zero physical Android dispatch. Cleanup succeeded and operating Core,
+activation and current-generation pointer stayed unchanged. Receipt SHA256:
+`0e0506ca81fbe03bc19e91f7126956fe52470c9ad90acbb3cd3684bd29344446`.
+
 ## Physical terminal test boundary
 
 One pre-isolation failed unit fixture recreated its owned display descriptor
@@ -267,6 +296,18 @@ settings audit entries. Receipt digests are respectively
 These prove actual TUI/Native routing with synthetic inference, not a live
 authenticated candidate Full. The qualifier observes actual terminal cells
 and authoritative Native metadata rather than matching stale ANSI output.
+
+A later actual d2 PTY trial exercised Native `/compact`, then the scoped model
+picker, foreign direct-model rejection and a follow-up on the same thread.
+Provider/model/effort and prior canonical turns were preserved; it exited 0 with
+exactly three synthetic Responses and zero real Provider inference. Protected
+operating Core/activation and all input binaries were unchanged. The earlier
+trial's automatic-title request caused a strict request-budget failure; the
+existing qualifier's explicit thread-name setup was restored before the new
+isolated trial, rather than relaxing the budget. Successful receipt SHA256:
+`3256d30da5e50ec754c26c8c5575cb0be4287a94ef603051c81c2a1e3b01178f`.
+This is actual PTY/Native compaction on the recorded unqualified composition,
+not final Full or live App acceptance.
 
 The currently connected independent MCP `termux_shell` returned
 `DIRECT_TERMUX_MCP_INTEGRATION_OK`, exit 0. Repeating the exact call ID/arguments
@@ -378,6 +419,60 @@ Activity steps were not treated as whole-run success.
 Full run 43090735816 refused missing exact-source prerequisites at dispatch,
 which preserves the admission gate. Later exact-source runs must satisfy all
 required gates before the new source is reported accepted.
+
+At `dfd53e61f462ce0f458ac3d96d913038aa567c56`, manual Source Acceptance
+[43098958949](https://github.com/humtr/codex/actions/runs/43098958949) completed
+successfully: full workspace/Android focused proofs, warnings-as-errors clippy
+and formatting all passed. Its Android Core producer restored identical input
+bytes, reverified them and transferred the artifact without rebuilding.
+The full-TUI request 43097766900 and its one accepted rerun failed at GitHub
+startup before any runner/test job was created. The reported internal-error
+request IDs are retained; this is distinct from d2's actual Retain failure.
+The original d2 run eventually reached completed/cancelled after the failed gate.
+Its recovered log identifies `pin_action_updates_shared_section_state`: 53 selected
+Retain tests, 52 passed and one failed at the expected PinToggled event. This is
+a new d2 failure, not the earlier f9 failure. Source analysis found that the
+fixture leaves a distinct asynchronous overview-refresh completion unsettled
+before its next pin action. The corrected fixture keeps the original pin/unpin
+and persistence assertions, additionally processes the exact matching successful
+refresh and checks refreshed UI state. Hosted execution remains required.
+The proof ZIP's 1,045,338 bytes uploaded successfully; GitHub then returned HTML
+instead of a FinalizeArtifact API response. That separate external failure does
+not justify changing upload limits or weakening tests. A bounded failure reporter
+now preserves the next actual command's original
+status and allowlisted test summaries before artifact upload; all original
+Retain commands and assertions remain required.
+
+An actual provisional Full payload probe exposed a different concrete defect:
+Runtime/TUI with an empty environment exited 0 but emitted a missing-HOME alias
+warning, which the strict stderr oracle correctly rejected. The corrected
+producer gives only those two probes a fresh private HOME and a validated short
+TMPDIR. Actual retry exposed the upstream refusal to create helpers beneath
+TMPDIR, so the home now uses an explicit owned protected parent outside that
+canonical temporary root. Both failures and the deferred qualification marker
+were retained. Thirteen Full tests, thirteen workflow tests and ten documentation
+tests passed after integration, without inherited user settings or weakened
+stderr checks. Exact-source Full CI remains a separate gate. The corrected helper also passed
+all four actual primitive probes on the explicitly provisional cf Core/Runtime,
+66 Manager and d2 TUI payload: exit 0, exact stdout, empty stderr, unchanged
+candidate digest and cleaned private HOME. This uses a disposable test signing
+key and does not establish formal Full qualification. Execution receipt SHA256:
+`275ef701761bceeb3b2f0d1c4d0d823b87b848cae0a9ccd6b64c07b9ceb2aee6`.
+
+A new TUI regression sends live and restored ContextCompaction notifications
+for both Providers, then checks same-thread model/effort/catalog/history and
+scoped picker/direct selection without inference. CI now requires its named
+PASS receipt. Rust formatting/source-signature review passed; this newly added
+case still requires actual hosted compilation and execution. The pinned upstream
+autocomplete is command-name completion (`/mo` to `/model`); direct model argument
+resolution is separately tested and is not called a model-name completion engine.
+
+A formal-path audit confirms that the new reservation gate revalidates exact
+Full proof, component runs and assembled payload digests before any reservation
+or signing. Two earlier consumers still require integration: defer frontend
+container publication until Full admission, and import the qualified Android
+component artifact across branches instead of relying on branch-scoped caches.
+The existing exact-main guard remains closed; no formal publication was attempted.
 
 The read-only pre-push audit found no exact-main release-intent-v1, no
 automatic Provider publisher and no workflow_run publisher. The existing main

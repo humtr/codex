@@ -79,7 +79,7 @@ Owner database or alternate Writer controller.
 | W16 | Exact Owner/home display, default-off auto, short descriptor-transition locks and unsafe-route rejection | Integration/Release after file-lease transfer; Manager terminal/window/task, Provider callback | Actual stock Android 66edd08d success; final source/device boundary retained |
 | W17 | Fresh authenticated ChatGPT catalog, independent inference auth, stable stored Provider/model IDs | Models; models/control/projection and Provider docs | Candidate hosted tests; reuse operating live model loop only within stated boundary |
 | W18 | One independent shell, original-call replay, conflicts, bounded output/process cleanup; common annotations unchanged | Integration; termux_shell, worker and integration test | Standalone candidate worker and actual connected replay during bounded Native Busy passed; final-source Provider CI remains |
-| W19 | OpenAI upstream-only; ChatGPT account catalog-only through picker/completion/direct input/reentry/effort | Models; termux_chat_models, input preparation, TUI patch | Candidate full TUI, provider transitions and unsupported-model errors |
+| W19 | OpenAI upstream-only; ChatGPT account catalog-only through picker/direct input/reentry/effort; preserve upstream command-name completion | Models; termux_chat_models, input preparation, TUI patch | Candidate full TUI, provider transitions and unsupported-model errors |
 | W20 | Decode known legacy owner records safely, reject uncertainty, preserve same thread and original quota checkpoint | Native/Models; runtime-binding/native, profile_transport, quota replay | Actual candidate same-thread switch with synthetic response passed; final Full/account boundary retained |
 
 ## Source provenance and independent review
