@@ -375,11 +375,13 @@ impl Guard {
                 },
                 None => "unrecorded",
             };
+            let effect = entry.effect.claim_scope();
             serde_json::json!({
                 "claim":format!("{:x}", Sha256::digest(id.as_bytes())),
                 "owner_work":owner_work, "owned":owned,
-                "resource_kind":match entry.effect { Effect::Read=>"read", Effect::Paths(_)=>"bounded", Effect::Opaque=>"opaque" },
-                "scope":match entry.effect { Effect::Opaque=>"unknown_global", _=>"verified_resources" },
+                "resource_kind":match effect { Effect::Read=>"read", Effect::Paths(_)=>"bounded", Effect::Opaque=>"opaque" },
+                "scope":match effect { Effect::Opaque=>"unknown_global", _=>"verified_resources" },
+                "scope_proof":if &entry.effect != effect { "unverified_legacy_or_unknown" } else { "current" },
                 "process_session":if owned { entry.session } else { None },
                 "owner_process_state":owner_state,
                 "pending_result":true,
@@ -753,7 +755,7 @@ impl Guard {
                     .any(|held| held.thread == thread && held.session == Some(session))
             });
             if state.claims.values().any(|held| {
-                native_effect::conflicts(&effect, &held.effect)
+                native_effect::conflicts(effect.admission_scope(), held.effect.claim_scope())
                     && !(continuing_owned
                         && held.thread == thread
                         && held.session == existing_session)
@@ -1087,6 +1089,79 @@ mod tests {
                 Ok(((), false))
             })
             .unwrap();
+    }
+
+    #[test]
+    fn legacy_claim_scope_is_opaque_without_rewriting_identity_or_original_receipt() {
+        for mode in ["missing", "unknown", "read"] {
+            let cwd = root();
+            let home = root();
+            fs::write(cwd.join("a"), "old\n").unwrap();
+            fs::write(cwd.join("b"), "old\n").unwrap();
+            let input = "*** Begin Patch\n*** Update File: a\n@@\n-old\n+new\n*** End Patch\n";
+            let _held = apply(&cwd, &home, "original", "call", "a").unwrap();
+            let path = Ledger::at(&cwd, &home)
+                .unwrap()
+                .directory
+                .join("claims.json");
+            let mut old: serde_json::Value =
+                serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+            let record = &mut old["claims"]["original:call"];
+            if mode == "read" {
+                record["effect"] = serde_json::json!("Read");
+            } else {
+                let files = record["effect"]["Paths"].as_array_mut().unwrap();
+                for file in files {
+                    if mode == "missing" {
+                        file.as_object_mut().unwrap().remove("scope_schema");
+                    } else {
+                        file["scope_schema"] = serde_json::json!(99);
+                    }
+                }
+            }
+            let original = serde_json::to_vec(&old).unwrap();
+            fs::write(&path, &original).unwrap();
+            assert_eq!(
+                apply(&cwd, &home, "independent", "b", "b").err().as_deref(),
+                Some("native_resource_busy"),
+                "{mode}"
+            );
+            assert_eq!(
+                apply(&cwd, &home, "original", "call", "a").err().as_deref(),
+                Some("native_effect_duplicate_unconfirmed")
+            );
+            assert_eq!(
+                apply(&cwd, &home, "original", "call", "b").err().as_deref(),
+                Some("native_effect_identity_changed")
+            );
+            let status =
+                Guard::shared_status(Some(&home), &["original"], &BTreeMap::new()).unwrap();
+            assert_eq!(status["active"][0]["resource_kind"], "opaque");
+            assert_eq!(
+                status["active"][0]["scope_proof"],
+                "unverified_legacy_or_unknown"
+            );
+            assert_eq!(fs::read(&path).unwrap(), original);
+            Guard::settle_external(
+                &cwd,
+                Some(&home),
+                "original",
+                "call",
+                "functions.apply_patch",
+                input,
+                &serde_json::json!({"output":"original patch result"}),
+            )
+            .unwrap();
+            assert_eq!(
+                Guard::shared_status(Some(&home), &[], &BTreeMap::new()).unwrap()
+                    ["unconfirmed_effects"],
+                0
+            );
+            assert!(apply(&cwd, &home, "independent", "after", "b").is_ok());
+            assert_eq!(fs::read_to_string(cwd.join("a")).unwrap(), "old\n");
+            fs::remove_dir_all(cwd).unwrap();
+            fs::remove_dir_all(home).unwrap();
+        }
     }
 
     #[test]

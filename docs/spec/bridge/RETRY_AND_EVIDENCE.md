@@ -55,6 +55,20 @@ continuity, but cannot grant new bounded admission without current hook proof.
 Native's special ToolSearch payload has no tool hooks and remains read-only
 metadata discovery, including while an unrelated effect is unconfirmed.
 
+Persisted bounded file claims carry the classifier's scope-proof version. An
+older, unknown or partially marked claim remains readable and retains its original
+fingerprint, call identity and receipt, but new admission treats its scope as
+opaque. Original completion may still settle it. A previous reader may ignore
+and drop an additive file-proof field; that round trip must degrade conservatively,
+not promote an unproved claim. Queued historical ordinary reads require the same
+turn's current-format hook proof before dispatch; Native ToolSearch remains the
+known hook-free metadata payload. This does not retroactively arbitrate effects
+that an already-running older Provider never recorded. Parallel qualification
+therefore applies to the exact participating Provider/Runtime generations; a
+mixed-binary activation must account for that older unrecorded-effect boundary.
+No source compatibility check authorizes stopping an operating Writer or rewriting
+its claim ledger.
+
 The implementation contract is scoped logical identity plus a payload
 fingerprint and durable intent/result. Use existing call_id, work/controller
 generation, native request/turn and Broker token identities. One operation's

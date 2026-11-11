@@ -465,6 +465,26 @@ struct Invocation {
     effect: Option<Effect>,
 }
 impl Invocation {
+    fn admission_effect(
+        &self,
+        workspace: Option<&Path>,
+        execution: Option<&native_effect::Execution>,
+    ) -> Effect {
+        match self.effect.as_ref() {
+            // Recheck queued legacy reads against their original turn facts.
+            // Admission and settlement must agree without rewriting identity,
+            // receipts, arguments or stored resource snapshots.
+            Some(Effect::Read) => native_effect::classify_with_execution(
+                &self.name,
+                &self.input,
+                workspace,
+                execution,
+            ),
+            Some(effect) => effect.admission_scope().clone(),
+            None => Effect::Opaque,
+        }
+    }
+
     fn original_result(&self) -> Option<Value> {
         self.result.as_ref().map(|result| {
             if self.native_input.is_empty() {
@@ -774,7 +794,7 @@ impl Broker {
                     .map(String::as_str)
                     .unwrap_or(held.lane.as_str());
                 json!({"call":id,"owner_work":owner_work,
-                "resource_kind":match held.effect {
+                "resource_kind":match held.effect.claim_scope() {
                     Effect::Read => "read",
                     Effect::Paths(_) => "bounded",
                     Effect::Opaque => "opaque",
@@ -1185,7 +1205,7 @@ impl Broker {
         let read_only = effect == Effect::Read;
         let continuation = continued_process(name, input);
         if state.claims.values().any(|held| {
-            native_effect::conflicts(&effect, &held.effect)
+            native_effect::conflicts(&effect, held.effect.claim_scope())
                 && !(continuation.is_some() && held.lane == lane && held.session_id == continuation)
         }) {
             return Err(Error("native_resource_busy"));
@@ -1351,11 +1371,10 @@ impl Broker {
             let Some(result) = call.result.as_ref() else {
                 continue;
             };
-            if let Some(workspace) = turn
-                .workspace
-                .as_deref()
-                .filter(|_| call.effect != Some(Effect::Read))
-            {
+            if let Some(workspace) = turn.workspace.as_deref().filter(|_| {
+                call.admission_effect(turn.workspace.as_deref(), turn.execution.as_ref())
+                    != Effect::Read
+            }) {
                 SharedNativeGuard::settle_external(
                     workspace,
                     self.shared_guard_home().as_deref(),
@@ -1421,11 +1440,10 @@ impl Broker {
             let Some(result) = call.result.as_ref() else {
                 continue;
             };
-            if let Some(workspace) = turn
-                .workspace
-                .as_deref()
-                .filter(|_| call.effect != Some(Effect::Read))
-            {
+            if let Some(workspace) = turn.workspace.as_deref().filter(|_| {
+                call.admission_effect(turn.workspace.as_deref(), turn.execution.as_ref())
+                    != Effect::Read
+            }) {
                 SharedNativeGuard::settle_external(
                     workspace,
                     self.shared_guard_home().as_deref(),
@@ -2054,7 +2072,8 @@ impl Broker {
                 if calls.len() == 32 {
                     break;
                 }
-                let effect = call.effect.clone().unwrap_or(Effect::Opaque);
+                let effect =
+                    call.admission_effect(next.workspace.as_deref(), next.execution.as_ref());
                 let continuation = continued_process(&call.name, &call.input);
                 // The call's authoritative turn still says it was not offered.
                 // Repair a crash between a previous shared reservation and turn
@@ -2063,7 +2082,7 @@ impl Broker {
                     claims_changed = true;
                 }
                 if claims.claims.values().any(|held| {
-                    native_effect::conflicts(&effect, &held.effect)
+                    native_effect::conflicts(&effect, held.effect.claim_scope())
                         && !(continuation.is_some()
                             && held.lane == next.lane
                             && held.session_id == continuation)
@@ -2273,7 +2292,9 @@ impl Broker {
                     .values()
                     .find(|v| v.id == *id)
                     .ok_or(Error("mcp_result_invalid"))?;
-                if call.effect != Some(Effect::Read) {
+                if call.admission_effect(turn.workspace.as_deref(), turn.execution.as_ref())
+                    != Effect::Read
+                {
                     SharedNativeGuard::settle_external(
                         workspace,
                         self.shared_guard_home().as_deref(),
@@ -3069,6 +3090,111 @@ mod native_concurrency_tests {
         let offered = broker.offer(token).await.unwrap();
         assert_eq!(offered.len(), 1);
         offered[0]["id"].as_str().unwrap().to_owned()
+    }
+
+    #[tokio::test]
+    async fn queued_legacy_read_requires_current_hook_proof_without_changing_retry_identity() {
+        let (root, journal, _) = fixture();
+        let tools = crate::protocol::Request::parse(
+            json!({"stream":true,"model":"chatgpt-desktop/gpt-6",
+                "input":[{"role":"user","content":"fixture"}],
+                "tools":[{"type":"function","name":"clock.curr_time","parameters":{"type":"object"}}]}),
+            &crate::config::Config::default(), Some("legacy-read-fixture"),
+        ).unwrap().tools;
+        let broker = Broker::new(journal.clone());
+        broker
+            .admit_external_tool(
+                "writer",
+                "held",
+                "functions.exec_command",
+                r#"{"cmd":"unknown shell effect"}"#,
+                &root,
+            )
+            .await
+            .unwrap();
+        let token = broker
+            .register_scoped("legacy", tools, false, Some(&root))
+            .await
+            .unwrap();
+        let call = Arguments {
+            call_id: "original-clock".into(),
+            name: "clock.curr_time".into(),
+            input: "{}".into(),
+            report: String::new(),
+        };
+        broker.enqueue(&token, &call).await.unwrap();
+        // The old Provider stored ordinary clock calls as Read without hook
+        // facts. Recreate that pending journal record, not a substitute tool.
+        {
+            let mut registry = broker.registry.lock().await;
+            let turn = registry.turns.get_mut(&token).unwrap();
+            turn.calls.get_mut(&call.call_id).unwrap().effect = Some(Effect::Read);
+            broker.persist(&token, turn).unwrap();
+        }
+        broker.enqueue(&token, &call).await.unwrap();
+        assert!(broker.offer(&token).await.unwrap().is_empty());
+        let result = broker.invoke(&token, call.clone()).await.unwrap();
+        assert_eq!(result, busy_effect_reply());
+        assert_eq!(broker.invoke(&token, call.clone()).await.unwrap(), result);
+        assert!(broker.offer(&token).await.unwrap().is_empty());
+        let stored: Turn = journal
+            .read(&digest(&("mcp-turn-v1", &token)))
+            .unwrap()
+            .unwrap();
+        let stored = &stored.calls[&call.call_id];
+        assert_eq!(stored.fingerprint, call.fingerprint());
+        assert_eq!(stored.effect, Some(Effect::Read));
+        assert!(!stored.offered);
+        assert_eq!(stored.result, Some(result));
+
+        broker
+            .settle_external_tools(
+                "writer",
+                &[(
+                    "held".into(),
+                    json!({"output":"Process exited with code 0"}),
+                )],
+            )
+            .await
+            .unwrap();
+        let call = Arguments {
+            call_id: "another-intended-clock".into(),
+            ..call
+        };
+        broker.enqueue(&token, &call).await.unwrap();
+        {
+            let mut registry = broker.registry.lock().await;
+            let turn = registry.turns.get_mut(&token).unwrap();
+            turn.calls.get_mut(&call.call_id).unwrap().effect = Some(Effect::Read);
+            broker.persist(&token, turn).unwrap();
+        }
+        let offered = broker.offer(&token).await.unwrap();
+        assert_eq!(offered.len(), 1);
+        let status = broker.effect_status("legacy").unwrap();
+        assert_eq!(status["shared"]["unconfirmed_effects"], 1);
+        assert_eq!(status["shared"]["active"][0]["resource_kind"], "opaque");
+        let original_result = json!({"output":"original clock response"});
+        broker
+            .settle(
+                &token,
+                &[(
+                    offered[0]["id"].as_str().unwrap().into(),
+                    original_result.clone(),
+                )],
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            broker.invoke(&token, call.clone()).await.unwrap(),
+            original_result
+        );
+        assert_eq!(broker.invoke(&token, call).await.unwrap(), original_result);
+        assert_eq!(
+            broker.effect_status("legacy").unwrap()["shared"]["unconfirmed_effects"],
+            0
+        );
+        assert!(broker.offer(&token).await.unwrap().is_empty());
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[tokio::test]
