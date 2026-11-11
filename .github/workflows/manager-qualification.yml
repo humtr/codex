@@ -3,18 +3,6 @@ on:
   workflow_dispatch:
   push:
     branches: [rewrite/rust-core]
-    paths:
-      - crates/manager/**
-      - crates/runtime-binding/**
-      - Cargo.toml
-      - Cargo.lock
-      - release/android-build-inputs-v1.json
-      - release/upstream.json
-      - .github/workflows/manager-qualification.yml
-      - .github/workflows/android-component.yml
-      - .github/scripts/component_inputs.py
-      - .github/scripts/component_artifact.py
-      - .github/scripts/provision_android_bionic.sh
 permissions:
   contents: read
   actions: read

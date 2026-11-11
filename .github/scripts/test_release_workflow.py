@@ -27,6 +27,24 @@ class WorkflowTests(unittest.TestCase):
                 result=subprocess.run(['bash','-n'],input=script,text=True,capture_output=True)
                 self.assertEqual(result.returncode,0,str(p)+': '+result.stderr)
 
+    def test_every_final_development_head_has_readonly_component_receipts(self):
+        for name in ('core-runtime-qualification.yml','manager-qualification.yml','full-qualification.yml'):
+            text=(ROOT/'.github/workflows'/name).read_text()
+            header=text.split('permissions:',1)[0]
+            self.assertIn('branches: [rewrite/rust-core]',header)
+            self.assertNotIn('paths:',header)
+        text=(ROOT/'.github/workflows/manager-tui-native.yml').read_text()
+        step=text.split('      - name: Verify actual hook matching used by Native resource proof',1)[1].split('      - name:',1)[0]
+        self.assertIn("if: inputs.scope == 'full'",step)
+        self.assertIn('-p codex-hooks --lib native_resource_proof_',step)
+        for name in ('retains_unrelated_input_hook_and_its_dispatch',
+                     'rejects_each_matching_tool_event_and_permission_alias',
+                     'rejects_unknown_async_and_non_tool_hook_effects',
+                     'rejects_async_work_retained_after_reconfiguration'):
+            self.assertIn('native_resource_proof_'+name,step)
+        self.assertIn('0 failed; 0 ignored;',step)
+        self.assertNotIn('continue-on-error',step)
+
     def test_single_source_and_no_unsigned_public_authority(self):
         text=(ROOT/'.github/workflows/auto-release-termux.yml').read_text()
         header,body=text.split('\njobs:\n',1)
