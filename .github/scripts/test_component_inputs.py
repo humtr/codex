@@ -4,6 +4,7 @@ import shutil
 import struct
 import subprocess
 import tempfile
+import tarfile
 import unittest
 import component_inputs as inputs
 import component_artifact as artifact
@@ -127,6 +128,35 @@ class ComponentInputsTests(unittest.TestCase):
         archive=transfer/'component.tar';archive.write_bytes(archive.read_bytes()+b'unbound trailing bytes')
         with self.assertRaises(ValueError):artifact.unpack(self.root,'manager',Path(self.temp.name)/'bad',transfer)
         self.assertFalse((Path(self.temp.name)/'bad').exists())
+
+    def test_transfer_roundtrips_every_record_alignment_and_refuses_invalid_endings(self):
+        ends=set()
+        for index in range(20):
+            with self.subTest(alignment=index):
+                folder=Path(self.temp.name)/('alignment-'+str(index));folder.mkdir()
+                payload=self.binary()+b'x'*(index*512+17)
+                (folder/'codex-manager').write_bytes(payload)
+                receipt=artifact.record(self.root,'manager',folder,'123')
+                transfer=Path(self.temp.name)/('transfer-'+str(index))
+                artifact.pack(self.root,'manager',folder,transfer)
+                restored=Path(self.temp.name)/('restored-'+str(index))
+                self.assertEqual(artifact.unpack(self.root,'manager',restored,transfer),receipt)
+                self.assertEqual((restored/'codex-manager').read_bytes(),payload)
+                path=transfer/'component.tar';raw=path.read_bytes()
+                with tarfile.open(path,'r:') as archive:
+                    last=list(archive)[-1]
+                    end=last.offset_data+(last.size+511)//512*512
+                ends.add(len(raw)-end)
+        self.assertEqual(ends,set(range(1024,10753,512)))
+        invalid={'truncated-tail':raw[:-512], 'missing-end-block':raw[:end+512],
+                 'extra-zero-record':raw+b'\0'*10240, 'second-archive':raw+raw,
+                 'nonzero-ending':raw[:-1]+b'x', 'unaligned-ending':raw+b'\0'}
+        for fault,data in invalid.items():
+            with self.subTest(fault=fault):
+                path.write_bytes(data);destination=Path(self.temp.name)/('bad-'+fault)
+                with self.assertRaises((ValueError,tarfile.TarError)):
+                    artifact.unpack(self.root,'manager',destination,transfer)
+                self.assertFalse(destination.exists())
 
     def test_base_fingerprint_tracks_the_actual_embedded_full_lock(self):
         from release_components import base_fingerprint

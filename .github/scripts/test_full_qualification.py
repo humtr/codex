@@ -96,6 +96,30 @@ class FullQualificationTests(unittest.TestCase):
                 self.assertFalse((root/('out-'+fault)).exists())
             self.assertFalse((root/'outside').exists())
 
+    def test_core_transfer_roundtrips_every_record_alignment_and_rejects_bad_tails(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp);base=self.base(root/'base');ends=set()
+            for index in range(20):
+                with self.subTest(alignment=index):
+                    payload=b'owned Core bytes'+b'x'*(index*512)
+                    (base/'core').write_bytes(payload)
+                    target=root/('alignment-'+str(index)+'.tar');self.pack(base,target)
+                    destination=root/('out-'+str(index));full.unpack_candidate(target,destination)
+                    self.assertEqual((destination/'core').read_bytes(),payload)
+                    raw=target.read_bytes()
+                    with tarfile.open(target,'r:') as archive:
+                        last=list(archive)[-1];end=last.offset_data+(last.size+511)//512*512
+                    ends.add(len(raw)-end)
+            self.assertEqual(ends,set(range(1024,10753,512)))
+            for fault,data in {'truncated':raw[:-512], 'second-archive':raw+raw,
+                               'extra-zero-record':raw+b'\0'*10240,
+                               'nonzero-ending':raw[:-1]+b'x'}.items():
+                with self.subTest(fault=fault):
+                    target.write_bytes(data);destination=root/('bad-tail-'+fault)
+                    with self.assertRaises((ValueError,tarfile.TarError)):
+                        full.unpack_candidate(target,destination)
+                    self.assertFalse(destination.exists())
+
     def composition(self,root):
         base=self.base(root/'base')
         shell=shutil.which('sh')

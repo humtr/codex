@@ -107,8 +107,10 @@ def unpack(transfer, artifact, builder, recipe, openssl):
                 if offset > MAX_ARCHIVE:
                     raise ValueError('runtime archive exceeds its byte bound')
             source.seek(offset)
-            ending = source.read(10241)
-            if len(ending) < 1024 or len(ending) > 10240 or any(ending):
+            # Two EOF blocks can cross a record boundary: valid padding reaches10752 bytes.
+            expected_ending = 1024 + (-(offset + 1024) % tarfile.RECORDSIZE)
+            ending = source.read(expected_ending + 1)
+            if len(ending) != expected_ending or any(ending):
                 raise ValueError('runtime archive end marker is invalid')
             artifact.mkdir(mode=0o700)
             try:
