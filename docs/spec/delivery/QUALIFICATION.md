@@ -48,6 +48,16 @@ origin. Other approved reusable-workflow parents and explicit branch proofs keep
 their existing verified candidate provenance; this new label is neither required
 for their production nor permission to claim official Core source acceptance.
 
+Core and Manager input identities conservatively include complete selected
+package trees and their Cargo.lock graph closure. They are exact identities of
+that declared inventory, not the minimal activated compilation graph. A dedicated
+crate-test edit or inactive dependency can therefore miss production reuse and
+allocate a new component revision even when output bytes coincide. Unrelated
+packages and non-embedded repository documentation do not thereby become inputs
+to every component. Narrowing an inventory requires proof of the actual Cargo,
+build-script and embedded-file consumers; a filename-based exclusion is not proof.
+Qualification still records and executes its independent current-source tests.
+
 Production receipts record original producer source/run, component input digest,
 artifact digest/size, target, compiler and interface. They do not assert that
 consumer tests or Android behavior passed. Qualification runs execute their own

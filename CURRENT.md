@@ -12,9 +12,9 @@ This integration starts from `7b98296a411a2c435bb9f34ee51f286f33f3491b`
 in an independent `integration/release-framework-20261112` worktree.
 Feature commits are fast-forward integrated into that official development
 branch; the primary checkout remains on its protected older lineage. The
-remote checkpoint `62d10cf16d9edd3de0a678e61b049275159e50a7` passed Source,
+remote checkpoint `26952f732a673ed2dd78187121d6374ddcfe9c88` passed Source,
 Core/Runtime, Manager, Provider and stock Android qualification. Full TUI and
-Full composition retain their separate exact-source gates. Later reentry-lifetime, private-handoff and source-bound Native changes require
+Full composition retain their separate exact-source gates. The new independent-home Owner and unloaded completion corrections require
 their affected exact-source gates; query
 the actual HEAD and its Checks before relying on an earlier checkpoint.
 
@@ -150,6 +150,15 @@ not authorization to stop them or proof that all version combinations work.
   exit 0. Documentation checks and ten regression tests passed; all 14
   workflow YAML files parsed locally. Ruby/Psych is unavailable in Termux;
   its unmodified hosted gate remains required.
+
+A disposable exact-26952f73 production-source mutation verified the existing
+prepared-selection oracle: the original test passed, changing only the real
+resolve_selection handoff to configured defaults compiled but failed the unchanged
+semantic assertion (exit 101), and byte-exact restoration rebuilt and passed.
+Original/restored executable digests matched. This is the INPUT preparation-fault
+proof, with zero real App requests; it does not establish candidate live App/UI
+acceptance or optional TUI-mutation results. Receipt SHA256:
+`6159de393b4997a1b3d894e6fed708351c3a4e0eb259cef8da2690d7c419970e`.
 
 ## Native ownership and availability evidence
 
@@ -291,8 +300,25 @@ focused cases then passed. The full Provider all-target suite passed **374 tests
 zero failed, 34 unchanged explicit opt-in ignores**, exit 0 in 337.83 seconds;
 strict clippy and final formatting/diff gates passed. An initial formatting-only
 failure remains recorded; Cargo-normalized before/after text proved unchanged
-semantics. The corrected actual cold-compiler trial and exact-source hosted
-qualification remain distinct pending gates.
+semantics. The next actual cold trial admitted the original compiler with a
+bounded Paths reservation, obtained Native exit 0, restarted only its owned
+Provider and recovered the original result. A sibling compiler also completed.
+Its first oracle incorrectly expected the persisted original effect to become
+Read; that failed receipt is preserved. The legitimate final collector leaves the
+original effect/fingerprint intact while its verified admission is unreserved.
+The subsequent completion observation exposed a separate production failure:
+all original Native turns were terminal and the thread was notLoaded, but the
+loaded-only background-jobs query rejected it. Work completion was not certified.
+
+A read-only check of the sibling's actual process then found a further Owner
+consumer defect: a normal independent CODEX_HOME held its real Writer FLOCK,
+while Core checked only the installation's default lock namespace and returned
+null. Declared profiles using Core's canonical shared-layout alias are a separate
+supported case. The independent-home false absence and unloaded completion
+observer require source corrections and fresh actual acceptance; notLoaded or
+that earlier null response is insufficient proof of free ownership. Original
+results, histories and owned Runtime processes remain preserved without a new-ID
+command retry, forced Writer release or operating service change.
 
 The existing selected-controls qualifier also passed on a Core-only fixture:
 21.18 seconds, exit 0, no Manager/Enhanced and zero model requests. Its checked
@@ -467,15 +493,15 @@ Accepted baseline and integration checkpoint receipts:
 | same | TUI Native Qualification | [43013363622](https://github.com/humtr/codex/actions/runs/43013363622) | success |
 
 The 7b98296 receipts supersede the earlier f9dfc3f failure only as baseline
-proof. Integration checkpoint `62d10cf16d9edd3de0a678e61b049275159e50a7`:
+proof. Integration checkpoint `26952f732a673ed2dd78187121d6374ddcfe9c88`:
 
 | Workflow | Run | Conclusion |
 | --- | --- | --- |
-| Source Acceptance | [43109845874](https://github.com/humtr/codex/actions/runs/43109845874) | success |
-| Core/Runtime Qualification | [43109846716](https://github.com/humtr/codex/actions/runs/43109846716) | success |
-| Manager Qualification | [43109845674](https://github.com/humtr/codex/actions/runs/43109845674) | success |
-| Provider Qualification | [43109845502](https://github.com/humtr/codex/actions/runs/43109845502) | success |
-| Stock Android window | [43109845521](https://github.com/humtr/codex/actions/runs/43109845521) | success |
+| Source Acceptance | [43118366133](https://github.com/humtr/codex/actions/runs/43118366133) | success |
+| Core/Runtime Qualification | [43118366004](https://github.com/humtr/codex/actions/runs/43118366004) | success |
+| Manager Qualification | [43118366040](https://github.com/humtr/codex/actions/runs/43118366040) | success |
+| Provider Qualification | [43118366092](https://github.com/humtr/codex/actions/runs/43118366092) | success |
+| Stock Android window | [43118366005](https://github.com/humtr/codex/actions/runs/43118366005) | success |
 
 At cf849ac3, the actual Core producer built SHA256 `48c041e4…f4596f` once. Source Acceptance
 restored and reverified the same bytes/input/original production run and skipped

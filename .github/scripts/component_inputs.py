@@ -1,7 +1,8 @@
-"""Exact build inputs of the existing Android Core and Manager producers.
+"""Identity of declared Android Core and Manager production inputs.
 
-Runtime and TUI retain their own qualified producers. These fingerprints describe
-bytes consumed by Cargo/build.rs, not an assertion that a qualification passed.
+The selected locked package trees are conservative inventories, not the minimal
+activated Cargo compilation graph. Runtime and TUI keep their own producers;
+matching an input inventory does not assert that qualification passed.
 """
 import argparse
 import hashlib

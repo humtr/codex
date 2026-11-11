@@ -75,12 +75,12 @@ Owner database or alternate Writer controller.
 | W12 | Offline Core-owned version JSON/details, optional components and legacy unknown revisions | Integration; termux_version.rs, component_metadata.rs, provider.rs | Local Core 271/0 and installed read-only candidate passed |
 | W13 | No-bwrap is normal platform information; explicit unsupported requests and real failures remain failures | Integration; Core Doctor path and DOCTOR norm | Local Core/Doctor passed; exact hosted qualification |
 | W14 | Signed Core/Full fixtures, rollback, mismatched edition, noninteractive/version coverage | Integration; Core tests | Local signed fixtures/menu passed; exact hosted results |
-| W15 | Original P0, verified submitted/attached scopes, durable original reservations, running/final-poll continuity and immutable cold receipt-chain readback | Native; native_claims/effect, mcp, native_route.patch, lifecycle tests | Warm compilers overlap 5.760s; new scope/commit/restart regression10 and Provider374 pass; corrected cold-source trial and final-source CI remain |
+| W15 | Original P0, verified submitted/attached scopes, durable original reservations, running/final-poll continuity and immutable cold receipt-chain readback | Native; native_claims/effect, mcp, native_route.patch, lifecycle tests | Warm compilers overlap 5.760s; scope/commit/restart regression10 and Provider374 pass; actual cold result recovered, independent-home Writer and unloaded completion corrections/acceptance remain |
 | W16 | Exact Owner/home display, default-off auto, short descriptor-transition locks and unsafe-route rejection | Integration/Release after file-lease transfer; Manager terminal/window/task, Provider callback | Actual stock Android 66edd08d success; final source/device boundary retained |
 | W17 | Fresh authenticated ChatGPT catalog, independent inference auth, stable stored Provider/model IDs | Models; models/control/projection and Provider docs | Candidate hosted tests; reuse operating live model loop only within stated boundary |
 | W18 | One independent shell, original-call replay, conflicts, bounded output/process cleanup; common annotations unchanged | Integration; termux_shell, worker, candidate.py, connector refresh and qualification | Standalone candidate worker and actual connected replay during bounded Native Busy passed; final-source Provider CI remains |
 | W19 | OpenAI upstream-only; ChatGPT account catalog-only through picker/direct input/reentry/effort; preserve upstream command-name completion | Models; termux_chat_models, input preparation, TUI patch | Candidate full TUI, provider transitions and unsupported-model errors |
-| W20 | Decode legacy owners safely; preserve current Native selection/thread; consume initial intent once, fence Native children and reject unsupported private handoffs | Native/Models; runtime-binding/native, profile_transport, profile_manager, app_server_session and quota replay | Ordinary manual switch passed; old d2 regression reproduced; Manager138 and process-bound intent checks pass; final-current/legacy trials and hosted19 named gates remain |
+| W20 | Decode legacy owners safely; verify actual execution-home Writer locks; preserve current Native selection/thread; consume initial intent once, fence Native children and reject unsupported private handoffs | Native/Models; runtime-binding/native, profile_transport, profile_manager, app_server_session and quota replay | Ordinary manual switch passed; old d2 regression reproduced; Manager138 and process-bound intent checks pass; final-current/legacy trials and hosted19 named gates remain |
 
 ## Source provenance and independent review
 
@@ -124,6 +124,15 @@ thread, preserving approval and sandbox configuration. Synthetic account
 fixtures are separate. Android stock tests prove Activity/session behavior on
 the pinned emulator APK with synthetic Core transport and frontend; they do not prove a
 physical device or real model inference.
+
+The W1 recheck at 26952f73 found no missing current input but measured one
+conservative cache miss: e961f25c-to-26952f73 changed only Manager's dedicated
+profile test formatting, which changed Manager's declared input identity while
+Core's remained identical. The audited package-tree inventory is retained; it is
+not described as the minimal activated Cargo graph. This may consume a new rN for
+identical output bytes. No incomplete test exclusion or alternate dependency
+resolver is introduced. Audit SHA256:
+`32b8a5971c0e0e44409b1d70e995f010721b272999db281c4b17f4eb20e2d207`.
 
 ## Change accounting and rollback
 

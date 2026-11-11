@@ -33,7 +33,7 @@ def canonical(value):
 
 
 def cargo_dependencies(read, manifest):
-    """The exact locked dependency closure of one local build tool/component."""
+    """The Cargo.lock graph closure, including inactive/dev/target edges."""
     lock = tomllib.loads(read('Cargo.lock').decode())['package']
     packages = {(p['name'], p['version'], p.get('source')): p for p in lock}
     if len(packages) != len(lock):

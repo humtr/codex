@@ -95,6 +95,13 @@ Core's Native connection query and TUI profile re-entry: recognized retired
 records cannot poison a different thread's owner lookup. A null connection means
 that the native writer-lock coordination has positively established a free writer;
 a registry, peer, protocol or process-query failure must never become null.
+Writer proof uses the verified execution home's actual lock namespace. Recognize
+only Core's prescribed canonical shared-layout alias; independent CODEX_HOME
+namespaces must not be mistaken for that alias or ignored. Confirmed absence
+checks all known private namespaces, including safely decoded retired registrations.
+A held Writer with no qualified owner remains unresolved, even when another
+namespace has a valid owner. This observation is not a lease for later acquisition
+and neither rewrites a registration nor transfers a Writer.
 TUI reports bounded Core failure categories and exit state without copying private
 stderr, credentials or conversation data. The existing connection schema remains
 compatible for supported older frontends; diagnostics do not transfer a writer.
