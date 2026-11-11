@@ -11,17 +11,13 @@ thread route**; Provider never becomes a second Native executor.
 [Linux app operations](LINUX_APP.md) ·
 [Functional contract index](../../docs/spec/INDEX.md)
 
-## Verified scope and remaining acceptance
+## Qualification boundaries
 
-The source revision `5384d938` passed
-[Provider qualification #42758329834](https://github.com/humtr/codex/actions/runs/42758329834),
-but this does not qualify the installed `/provider` → GPT-6 two-turn flow.
-The isolated candidate TUI selected GPT-6 and then failed on the first
-real input with `native_thread_owner_unavailable` because that Core and
-the installed Provider used **different Native owner bindings**.
-SSE cut, HTTP 413, original-result recovery and independent concurrent
-work remain unfinished. Operating Full159, rollback Full153 and Provider
-account/service bindings were not modified.
+[CURRENT](../../CURRENT.md) owns the exact verified source, installed generation
+and CI results. Unit and synthetic transport tests do not establish live ChatGPT
+inference, a same-thread TUI round trip or Android display acceptance. Source
+updates also do not replace an operating Provider binary, account binding or
+signed generation; those remain separate activation boundaries.
 
 ## Choose the requested entrance
 

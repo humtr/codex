@@ -66,10 +66,9 @@ impl AccountObservation {
 pub(crate) fn independent_provider_available(config: &Config) -> bool {
     #[cfg(unix)]
     {
+        // Registration permits choosing the independent route. Entitlement is
+        // discovered only after that explicit choice, never through /model on OpenAI.
         crate::termux_chat_models::installed_command(config).is_some()
-            && crate::termux_chat_models::augment(config, Vec::new())
-                .iter()
-                .any(|model| model.model.starts_with("chatgpt-desktop/"))
     }
     #[cfg(not(unix))]
     {

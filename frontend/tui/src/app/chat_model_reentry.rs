@@ -288,6 +288,7 @@ fn reentry_request(
     model: &str,
     effort: &ReasoningEffort,
     restore_saved: bool,
+    catalog_path: Option<&std::path::Path>,
 ) -> Option<ChatModelReentry> {
     let core = PathBuf::from(std::env::var_os("CODEX_PROFILE_CORE").unwrap_or_default());
     if !std::fs::symlink_metadata(&core).is_ok_and(|m| {
@@ -306,6 +307,17 @@ fn reentry_request(
         std::env::var("CODEX_CHAT_RETURN_PROFILE").ok(),
     )?;
     let mut args = route.args;
+    if let Some(path) = catalog_path {
+        // The Provider owns this immutable, freshly verified snapshot. Preserve
+        // the stored model/effort and carry metadata through Core's normal bind.
+        args.extend([
+            "-c".into(),
+            format!(
+                "model_catalog_json={}",
+                serde_json::to_string(path.to_str()?).ok()?
+            ),
+        ]);
+    }
     args.extend([
         "resume".into(),
         thread.to_string(),
@@ -357,12 +369,27 @@ pub(super) async fn resume_saved(
     if !settled_for_provider_switch(&snapshot) {
         color_eyre::eyre::bail!("Finish current work before resuming another provider.");
     }
+    let effort = saved.reasoning_effort.unwrap_or(ReasoningEffort::None);
+    let catalog = if saved.model_provider == termux_chat_models::PROVIDER {
+        let catalog = termux_chat_models::live_catalog(config)
+            .await
+            .map_err(|error| color_eyre::eyre::eyre!(error))?;
+        if !catalog.admits(model, &effort, true) {
+            color_eyre::eyre::bail!(
+                "The saved ChatGPT model or reasoning level is unavailable for this account; thread settings preserved."
+            );
+        }
+        Some(catalog)
+    } else {
+        None
+    };
     reentry_request(
         config,
         target,
         model,
-        &saved.reasoning_effort.unwrap_or(ReasoningEffort::None),
+        &effort,
         true,
+        catalog.as_ref().map(|catalog| catalog.path.as_path()),
     )
     .map(Some)
     .ok_or_else(|| color_eyre::eyre::eyre!("Saved model routing is unavailable."))
@@ -374,6 +401,18 @@ pub(super) async fn prepare(
     model: String,
     effort: Option<ReasoningEffort>,
 ) -> Option<ChatModelReentry> {
+    prepare_catalog_change(app, server, model, effort, None).await
+}
+
+/// Reuse settled same-thread reentry when new metadata changes Core's immutable
+/// execution binding. Same-provider catalog refresh never injects a handoff.
+pub(super) async fn prepare_catalog_change(
+    app: &mut App,
+    server: &mut AppServerSession,
+    model: String,
+    effort: Option<ReasoningEffort>,
+    observed: Option<termux_chat_models::LiveCatalog>,
+) -> Option<ChatModelReentry> {
     let thread = reentry_source(app);
     let Some(thread) = thread else {
         app.chat_widget.add_error_message("Provider switching requires an idle primary conversation without pending input or tool calls.".into());
@@ -382,23 +421,55 @@ pub(super) async fn prepare(
     let config = app.chat_widget.config_ref();
     let entering = model.starts_with("chatgpt-desktop/");
     let effort = effort.unwrap_or(ReasoningEffort::None);
-    if !termux_chat_models::needs_reentry(&config.model_provider_id, &model)
-        || config
-            .config_layer_stack
-            .required_model_provider()
-            .is_some()
-        || !termux_chat_models::admits(config, &model, &effort)
+    let same_provider = config.model_provider_id == termux_chat_models::PROVIDER && entering;
+    if (!termux_chat_models::needs_reentry(&config.model_provider_id, &model) && observed.is_none())
+        || (!same_provider
+            && config
+                .config_layer_stack
+                .required_model_provider()
+                .is_some())
     {
         app.chat_widget
             .add_error_message("Selected model/provider is unavailable.".into());
         return None;
     }
-    let Some(request) = reentry_request(config, thread, &model, &effort, false) else {
+    let Some(mut request) = reentry_request(config, thread, &model, &effort, false, None) else {
         app.chat_widget.add_error_message(
             "Model provider unchanged: the installed Core and selected Provider route could not be prepared.".into(),
         );
         return None;
     };
+    if entering {
+        let result = match observed {
+            Some(catalog) => Ok(catalog),
+            None => termux_chat_models::live_catalog(config).await,
+        };
+        let catalog = match result {
+            Ok(catalog)
+                if catalog.admits(
+                    &model,
+                    &effort,
+                    same_provider && app.chat_widget.current_model() == model,
+                ) =>
+            {
+                catalog
+            }
+            Ok(_) => {
+                app.chat_widget.add_error_message("Selected ChatGPT model or reasoning level is unavailable for this account; provider unchanged.".into());
+                return None;
+            }
+            Err(error) => {
+                app.chat_widget.add_error_message(error);
+                return None;
+            }
+        };
+        request = reentry_request(config, thread, &model, &effort, false, Some(&catalog.path))?;
+    } else if !termux_chat_models::admits(config, &model, &effort) {
+        app.chat_widget.add_error_message(
+            "Selected OpenAI model or reasoning level is unavailable; provider unchanged.".into(),
+        );
+        return None;
+    }
     if !matches!(
         tokio::time::timeout(
             Duration::from_secs(3),
@@ -434,7 +505,8 @@ pub(super) async fn prepare(
         return None;
     }
     let empty = snapshot["turns"].as_array().is_some_and(Vec::is_empty);
-    if empty {
+    if empty || same_provider {
+        // Metadata-only reentry preserves history without a cross-provider checkpoint.
         // No history needs encoding, including when leaving a never-used Chat
         // route. Confirm the source did not acquire a turn while preparing.
         let confirmed = match tokio::time::timeout(

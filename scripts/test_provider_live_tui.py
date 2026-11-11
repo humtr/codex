@@ -278,7 +278,7 @@ class TuiObservation(unittest.TestCase):
             submitted = []
             client.paste = submitted.append
             screens = iter((
-                'Select Provider\n ChatGPT AppHost',
+                'Select Provider\n ChatGPT Linux app',
                 'Select Model and Effort\n GPT-6',
                 'Select Reasoning Level for ChatGPT · GPT-6',
                 'Ask Codex to do anything\n ChatGPT · GPT-6',
@@ -352,7 +352,7 @@ class TuiObservation(unittest.TestCase):
                 try:
                     expected = [str(args.core), '--no-alt-screen', '-c', 'tui.terminal_title=["thread"]']
                     if endpoint:
-                        expected += ['-c', 'model_providers.chatgpt_desktop.name="ChatGPT AppHost"',
+                        expected += ['-c', 'model_providers.chatgpt_desktop.name="ChatGPT Linux app"',
                                      '-c', 'model_providers.chatgpt_desktop.base_url=' + json.dumps(endpoint)]
                     launch.assert_called_once()
                     self.assertEqual(launch.call_args.args, (expected,))

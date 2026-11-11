@@ -1,4 +1,4 @@
-"""Qualify the 0.162 feature surfaces retained by the 0.163 upgrade."""
+"""Qualify retained upstream feature surfaces using executed test results."""
 import argparse
 import hashlib
 import json

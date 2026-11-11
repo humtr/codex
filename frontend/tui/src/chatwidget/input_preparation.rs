@@ -18,6 +18,10 @@ pub(super) struct PendingInputSubmission {
     source: UserMessageSource,
     thread: Option<ThreadId>,
     pub(super) chat_provider: bool,
+    #[cfg(unix)]
+    model: String,
+    #[cfg(unix)]
+    effort: Option<ReasoningEffortConfig>,
     steering_turn: Option<String>,
     pub(super) label: &'static str,
     result: oneshot::Receiver<Result<Vec<UserInput>, String>>,
@@ -51,6 +55,12 @@ impl ChatWidget {
         #[cfg(unix)]
         let provider = (steering_turn.is_none() && chat_provider)
             .then(|| crate::termux_chat_models::installed_command(&self.config));
+        #[cfg(unix)]
+        let selected_model = self.current_model().to_owned();
+        #[cfg(unix)]
+        let selected_effort = self.effective_reasoning_effort();
+        #[cfg(unix)]
+        let model_config = chat_provider.then(|| self.config.clone());
         let snapshot_images = self.snapshot_local_images;
         let images = message.local_images.clone();
         let remote_bytes = message.remote_image_urls.iter().map(String::len).sum();
@@ -83,7 +93,18 @@ impl ChatWidget {
                 if let Some(provider) = provider {
                     match (provider, thread) {
                         (Some(provider), Some(thread)) => {
-                            crate::termux_chat_models::synchronize_input(provider, thread).await?
+                            crate::termux_chat_models::synchronize_input(provider, thread).await?;
+                            let config = model_config.as_ref().ok_or(
+                                "ChatGPT model configuration is unavailable; draft retained",
+                            )?;
+                            let catalog = crate::termux_chat_models::live_catalog(config).await?;
+                            let effort = selected_effort.clone().or_else(|| {
+                                catalog.models.iter().find(|entry| entry.model == selected_model)
+                                    .map(|entry| entry.default_reasoning_effort.clone())
+                            }).ok_or("Saved ChatGPT model is unavailable for this account; draft retained")?;
+                            if !catalog.admits(&selected_model, &effort, true) {
+                                return Err("Saved ChatGPT model or reasoning level is unavailable for this account; draft retained".into());
+                            }
                         }
                         _ => {
                             return Err(
@@ -111,6 +132,10 @@ impl ChatWidget {
             source,
             thread,
             chat_provider,
+            #[cfg(unix)]
+            model: self.current_model().to_owned(),
+            #[cfg(unix)]
+            effort: self.effective_reasoning_effort(),
             label: if chat_provider && steering_turn.is_none() {
                 "Synchronizing ChatGPT"
             } else {
@@ -134,7 +159,14 @@ impl ChatWidget {
             .result
             .try_recv()
             .unwrap_or_else(|error| Err(format!("Failed to prepare input: {error}")));
-        let prepared = if pending.thread != self.thread_id()
+        #[cfg(unix)]
+        let selection_changed = pending.chat_provider
+            && (pending.model != self.current_model()
+                || pending.effort != self.effective_reasoning_effort());
+        #[cfg(not(unix))]
+        let selection_changed = false;
+        let prepared = if selection_changed
+            || pending.thread != self.thread_id()
             || pending.chat_provider != self.needs_chat_synchronization()
             || pending.steering_turn.is_some()
                 && (!self.turn_lifecycle.agent_turn_running

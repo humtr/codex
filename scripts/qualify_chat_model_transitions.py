@@ -32,16 +32,20 @@ from clean_development import fixture_cleanup
 
 
 def fixture_auth_command(root, provider):
-    """Serve a synthetic *ready* input barrier for the owned TUI fixture.
+    """Serve synthetic offered models and a ready barrier for the owned fixture.
 
     This checks the TUI CLI/request/response contract, not the real Provider
-    service's synchronization decision. Checkpoint runs the actual Provider.
+    service's synchronization or account decision. Checkpoint runs the actual Provider.
     """
     lines = [
         '#!' + os.environ['PREFIX'] + '/bin/sh',
         'case "$1" in',
         'token) printf "owned-inert-fixture\\n";;',
         'checkpoint) exec ' + shlex.quote(str(provider)) + ' "$@";;',
+        'host)',
+        '  [ "$#" -eq 4 ] && [ "$2" = models ] && [ "$3" = --state ] || exit 2',
+        '  [ "$4" = ' + shlex.quote(str(root / 'state')) + ' ] || exit 2',
+        '  cat ' + shlex.quote(str(root / 'synthetic-live-models.json')) + ';;',
         'work)',
         '  [ "$#" -eq 6 ] || exit 2',
         '  [ "$2" = synchronize ] && [ "$3" = --thread-id ] && [ "$5" = --state ] || exit 2',
@@ -127,7 +131,7 @@ def probe(args):
         threading.Thread(target=server.serve_forever, daemon=True).start()
         address = f'http://127.0.0.1:{server.server_port}/v1'
         env['OPENAI_BASE_URL'] = address
-        # Only the input barrier is synthetic; checkpoints use real Provider.
+        # App catalog and input barrier are synthetic; checkpoints use real Provider.
         auth = root / 'fixture-auth'
         auth.write_text(fixture_auth_command(root, args.provider))
         auth.chmod(0o700)
@@ -135,9 +139,21 @@ def probe(args):
         model = catalog['models'][0]
         model.update(default_reasoning_level='none',
                      supported_reasoning_levels=[{'effort': 'none', 'description': 'Fixture'}])
-        chat_catalog = root / 'chat-models.json'
-        chat_catalog.write_text(json.dumps({'models': [model]}))
+        (root / 'state').mkdir(mode=0o700)
+        (root / 'state/catalogs').mkdir(mode=0o700)
+        chat_catalog = root / 'state/catalogs/fixture.json'
+        projected = {'models': [model]}
+        chat_catalog.write_text(json.dumps(projected))
         chat_catalog.chmod(0o600)
+        live_catalog = root / 'synthetic-live-models.json'
+        live_catalog.write_text(json.dumps({
+            'schema': 'codex-chatgpt-app-models-v1', 'source': 'app_and_config',
+            'native_catalog': projected, 'native_catalog_path': str(chat_catalog),
+            'identity': {'account': 'owned-fixture', 'user': 'owned-fixture', 'structure': 'owned-fixture'},
+            'observed_at_unix_ms': int(time.time() * 1000),
+            'account_verified_now': True, 'inference_submitted': False,
+        }))
+        live_catalog.chmod(0o600)
         profile = home / '.codex/chatgpt.config.toml'
         profile.write_text('# codex-chatgpt-provider generated v1\n'
             'model="chatgpt-desktop/gpt-6"\nmodel_provider="chatgpt_desktop"\n'
@@ -239,36 +255,43 @@ def probe(args):
             screen = ''
             # Whitespace closes slash-name completion before submitting the
             # command, so Enter cannot merely accept an autocomplete candidate.
+            before = rpc(home, 'thread/read',
+                         {'threadId': thread, 'includeTurns': False})['thread']
+            before_requests = len(requests)
+            target = 'openai' if before['modelProvider'] == 'chatgpt_desktop' else 'chatgpt_desktop'
             if args.selection_command == 'model':
                 submit('/model ')
-                wait(lambda: 'Select Model and Effort' in screen and
-                     'ChatGPT · GPT-6' in screen and 'GPT-6.1-Sol' in screen)
-                # The opposite provider is the appended final model row in
-                # this deliberately two-model fixture.
-                os.write(master, b'\x1b[F')
-            else:
-                before = rpc(home, 'thread/read',
-                             {'threadId': thread, 'includeTurns': False})['thread']
-                before_requests = len(requests)
-                target = 'openai' if before['modelProvider'] == 'chatgpt_desktop' else 'chatgpt_desktop'
-                submit('/provider ')
-                wait(lambda: 'Select Provider' in screen and
-                     re.search(r'OpenAI\s*/\s*Codex',
-                               re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]', '', screen))
-                     and 'ChatGPT AppHost' in screen)
-                opened = rpc(home, 'thread/read',
-                             {'threadId': thread, 'includeTurns': False})['thread']
-                assert opened['id'] == thread and opened['modelProvider'] == before['modelProvider']
-                assert len(requests) == before_requests, 'opening the Provider picker must not infer'
-                # Provider rows have a stable declared order, independently
-                # of which provider supplied the currently active catalog.
-                os.write(master, b'\x1b[H' if target == 'openai' else b'\x1b[F')
+                current_label = 'ChatGPT · GPT-6' if target == 'openai' else 'GPT-6.1-Sol'
+                foreign_label = 'GPT-6.1-Sol' if target == 'openai' else 'ChatGPT · GPT-6'
+                wait(lambda: 'Select Model and Effort' in screen and current_label in screen)
+                assert foreign_label not in screen, 'the active provider must own the entire /model list'
+                os.write(master, b'\x1b')
                 drain(.3)
                 screen = ''
-                os.write(master, b'\r')
-                label = 'GPT-6.1-Sol' if target == 'openai' else 'ChatGPT · GPT-6'
-                wait(lambda: 'Select Model and Effort' in screen and label in screen)
-                os.write(master, b'\x1b[H')
+                foreign_model = 'gpt-6.1-sol' if target == 'openai' else model['slug']
+                submit('/model ' + foreign_model)
+                wait(lambda: 'another provider' in screen)
+                same = rpc(home, 'thread/read', {'threadId': thread, 'includeTurns': False})['thread']
+                assert same['id'] == thread and same['modelProvider'] == before['modelProvider']
+                assert len(requests) == before_requests, 'foreign /model must not switch or infer'
+                screen = ''
+            # Provider changes are explicit even when testing the scoped /model picker.
+            submit('/provider ')
+            wait(lambda: 'Select Provider' in screen and
+                 re.search(r'OpenAI\s*/\s*Codex',
+                           re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]', '', screen))
+                 and 'ChatGPT Linux app' in screen)
+            opened = rpc(home, 'thread/read',
+                         {'threadId': thread, 'includeTurns': False})['thread']
+            assert opened['id'] == thread and opened['modelProvider'] == before['modelProvider']
+            assert len(requests) == before_requests, 'opening the Provider picker must not infer'
+            os.write(master, b'\x1b[H' if target == 'openai' else b'\x1b[F')
+            drain(.3)
+            screen = ''
+            os.write(master, b'\r')
+            label = 'GPT-6.1-Sol' if target == 'openai' else 'ChatGPT · GPT-6'
+            wait(lambda: 'Select Model and Effort' in screen and label in screen)
+            os.write(master, b'\x1b[H')
             drain(.3)
             os.write(master, b'\r')
 
@@ -595,7 +618,7 @@ if __name__ == '__main__':
     parser.add_argument('--queue', action='store_true', help='run the supplied exact Provider executable for warm and unloaded native queue proof')
     parser.add_argument('--without-manager', action='store_true')
     parser.add_argument('--selection-command', choices=['provider', 'model'], default='provider',
-                        help='terminal picker to exercise; retain /model coverage with model')
+                        help='model also checks provider-scoped /model and rejects foreign direct input before explicit /provider')
     scenario = parser.add_mutually_exclusive_group()
     scenario.add_argument('--empty-roundtrip', action='store_true',
                         help='switch a genuinely fresh thread native to Chat and back without any model turn')

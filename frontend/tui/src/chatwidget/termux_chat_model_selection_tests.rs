@@ -42,20 +42,56 @@ async fn termux_chat_models_inline_choices_use_the_same_installed_catalog_as_the
     chat.config.codex_home =
         codex_utils_absolute_path::AbsolutePathBuf::try_from(home.path()).unwrap();
     chat.thread_id = Some(codex_protocol::ThreadId::new());
-    chat.model_catalog = std::sync::Arc::new(crate::model_catalog::ModelCatalog::new(vec![]));
-    for (provider, model) in [
-        ("openai", "chatgpt-desktop/gpt-6"),
-        ("chatgpt_desktop", "native-fixture"),
+    let installed: codex_protocol::openai_models::ModelsResponse =
+        serde_json::from_slice(chat_catalog).unwrap();
+    let chat_models: Vec<ModelPreset> = installed.models.into_iter().map(Into::into).collect();
+    let native_catalog: codex_protocol::openai_models::ModelsResponse =
+        serde_json::from_value(native).unwrap();
+    let native_models: Vec<ModelPreset> =
+        native_catalog.models.into_iter().map(Into::into).collect();
+    for (provider, valid, foreign, models) in [
+        (
+            "openai",
+            "native-fixture",
+            "chatgpt-desktop/gpt-6",
+            native_models,
+        ),
+        (
+            "chatgpt_desktop",
+            "chatgpt-desktop/gpt-6",
+            "native-fixture",
+            chat_models,
+        ),
     ] {
         chat.config.model_provider_id = provider.into();
+        chat.model_catalog =
+            std::sync::Arc::new(crate::model_catalog::ModelCatalog::new(models.clone()));
+        assert_eq!(
+            crate::termux_chat_models::augment(&chat.config, models.clone()),
+            models
+        );
         while events.try_recv().is_ok() {}
-        chat.handle_model_command_args(&format!("{model} --reasoning=none --speed=standard"));
+        chat.handle_resolved_model_command_args(&format!(
+            "{foreign} --reasoning=none --speed=standard"
+        ));
+        assert!(
+            !std::iter::from_fn(|| events.try_recv().ok()).any(|event| matches!(
+                event,
+                AppEvent::SelectSessionModel { .. } | AppEvent::SelectChatModelProvider { .. }
+            ))
+        );
+        chat.handle_resolved_model_command_args(&format!(
+            "{valid} --reasoning=none --speed=standard"
+        ));
         assert!(std::iter::from_fn(|| events.try_recv().ok()).any(|event| matches!(
             event, AppEvent::SelectSessionModel { model: selected, effort: Some(ReasoningEffortConfig::None), service_tier: Some(tier) }
-                if selected == model && tier == "default"
+                if selected == valid && tier == "default"
         )));
         assert!(ops.try_recv().is_err());
     }
+    chat.handle_model_command_args("chatgpt-desktop/gpt-6 --reasoning=medium");
+    assert!(std::iter::from_fn(|| events.try_recv().ok()).any(|event| matches!(event,
+        AppEvent::RefreshChatModelCommand { args } if args == "chatgpt-desktop/gpt-6 --reasoning=medium")));
 }
 
 #[tokio::test]
@@ -133,41 +169,24 @@ async fn termux_chat_models_same_provider_uses_only_changed_session_actions_with
             for action in chat.model_selection_actions(model.into(), Some(effort.clone()), false) {
                 action(&tx);
             }
-            let mut models = 0;
-            let mut efforts = 0;
-            while let Ok(event) = events.try_recv() {
-                match event {
-                    AppEvent::UpdateModel(value) => {
-                        assert_eq!(value, model);
-                        chat.set_model(&value);
-                        models += 1;
-                    }
-                    AppEvent::UpdateReasoningEffort(value) => {
-                        assert!(!plan_mode);
-                        assert_eq!(value, Some(effort.clone()));
-                        chat.set_reasoning_effort(value);
-                        efforts += 1;
-                    }
-                    AppEvent::UpdatePlanModeReasoningEffort(value) => {
-                        assert!(plan_mode);
-                        assert_eq!(value, Some(effort.clone()));
-                        chat.set_plan_mode_reasoning_effort(value);
-                        efforts += 1;
-                    }
-                    _ => panic!("same-provider selection emitted a non-session action"),
-                }
+            let pending: Vec<_> = std::iter::from_fn(|| events.try_recv().ok()).collect();
+            assert_eq!(
+                pending.len(),
+                usize::from(expected_model || expected_effort)
+            );
+            for event in pending {
+                assert!(matches!(event, AppEvent::SelectSessionModel {
+                    model: selected, effort: Some(selected_effort), service_tier: None
+                } if selected == model && selected_effort == effort));
             }
-            assert_eq!(models, usize::from(expected_model));
-            assert_eq!(efforts, usize::from(expected_effort));
             assert!(ops.try_recv().is_err());
-            assert_eq!(chat.current_model(), model);
-            assert_eq!(chat.effective_reasoning_effort(), Some(effort.clone()));
-            if plan_mode {
-                assert_eq!(
-                    chat.current_collaboration_mode().reasoning_effort(),
-                    Some(ReasoningEffortConfig::Medium)
-                );
-            }
+            // The async account check happens before Native's existing session
+            // action. Constructing picker actions must not mutate saved defaults.
+            assert_eq!(chat.current_model(), "chatgpt-desktop/gpt-6");
+            assert_eq!(
+                chat.effective_reasoning_effort(),
+                Some(ReasoningEffortConfig::Medium)
+            );
         }
     }
 }
