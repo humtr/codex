@@ -29,6 +29,10 @@ source's actual completed compiler/upload job, archive ID/digest and current
 Rust raw-artifact checks; a source/run label or old cache key alone cannot qualify
 bytes. Original producer provenance is retained. Raw production success does not
 inherit the parent run's Core qualification or grant current Full acceptance.
+The official development Core source run alone can register a newly reusable raw
+origin. Other approved reusable-workflow parents and explicit branch proofs keep
+their existing verified candidate provenance; this new label is neither required
+for their production nor permission to claim official Core source acceptance.
 
 Production receipts record original producer source/run, component input digest,
 artifact digest/size, target, compiler and interface. They do not assert that
