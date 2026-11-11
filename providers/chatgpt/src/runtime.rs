@@ -577,6 +577,11 @@ pub async fn view(root: &Path) -> Result<serde_json::Value, Error> {
     )
 }
 pub async fn mcp_stdio(root: &Path) -> Result<(), Error> {
+    mcp_stdio_worker(root, crate::termux_shell::enabled()).await
+}
+/// Native/Core/Provider-independent Termux MCP execution lives in this
+/// stdio process. Normal existing tools remain delegated to the Provider.
+pub async fn mcp_stdio_worker(root: &Path, shell_enabled: bool) -> Result<(), Error> {
     if !root.is_absolute() {
         return Err(Error("absolute_state_directory_required"));
     }
@@ -584,6 +589,39 @@ pub async fn mcp_stdio(root: &Path) -> Result<(), Error> {
     crate::mcp_stdio::run(tokio::io::stdin(), tokio::io::stdout(), move |row| {
         let root = root.clone();
         async move {
+            if shell_enabled {
+                if crate::termux_shell::is_shell_tool(&row) {
+                    return Ok(Some(crate::termux_shell::call(&row).await));
+                }
+                if row["method"] == "tools/list" {
+                    let upstream = match verified_binding(&root).await {
+                        Ok(binding) => {
+                            crate::mcp_stdio::forward(binding.port, &row, Some(&binding.token))
+                                .await
+                                .ok()
+                                .flatten()
+                        }
+                        Err(_) => None,
+                    };
+                    return Ok(Some(crate::termux_shell::tool_list(&row, upstream)));
+                }
+                if row["method"] == "initialize" {
+                    if let Ok(binding) = verified_binding(&root).await {
+                        if let Ok(Some(reply)) =
+                            crate::mcp_stdio::forward(binding.port, &row, Some(&binding.token))
+                                .await
+                        {
+                            return Ok(Some(reply));
+                        }
+                    }
+                    return Ok(Some(crate::termux_shell::initialize(&row)));
+                }
+                if row["method"] == "ping" {
+                    return Ok(Some(serde_json::json!({
+                        "jsonrpc":"2.0","id":row["id"],"result":{}
+                    })));
+                }
+            }
             let selected = verified_binding(&root).await?;
             crate::mcp_stdio::forward(selected.port, &row, Some(&selected.token)).await
         }

@@ -431,7 +431,8 @@ mod source_tests {
 pub(crate) fn tool_annotations(name: &str) -> Value {
     let idempotent = matches!(
         name,
-        "local_context"
+        "termux_shell"
+            | "local_context"
             | "local_execute"
             | "local_process"
             | "native_catalog"

@@ -31,4 +31,5 @@ pub mod responses;
 pub mod runtime;
 pub mod server;
 pub mod store;
+mod termux_shell;
 pub mod viewer;

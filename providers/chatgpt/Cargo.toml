@@ -5,6 +5,10 @@ edition = "2021"
 rust-version = "1.98.0"
 publish = false
 
+[[bin]]
+name = "codex-termux-mcp-worker"
+path = "src/termux_mcp_worker.rs"
+
 [workspace]
 
 [dependencies]
