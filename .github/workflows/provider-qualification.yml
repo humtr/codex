@@ -67,7 +67,7 @@ jobs:
           retention-days: 3
 
   android:
-    name: Build independent Android Provider candidate
+    name: Build independent Android Provider and MCP worker candidates
     needs: provider
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -84,7 +84,7 @@ jobs:
           git -C source fetch --no-tags --depth=1 origin "$GITHUB_SHA"
           git -C source checkout --detach FETCH_HEAD
           test "$(git -C source rev-parse HEAD)" = "$GITHUB_SHA"
-      - name: Build only the optional Rust executable
+      - name: Build and bind both optional Android executables
         shell: bash
         run: |
           set -euo pipefail
@@ -106,11 +106,25 @@ jobs:
             --run-id "$GITHUB_RUN_ID" --ndk "$ANDROID_NDK_VERSION" --rust "$version"
           python3 -B providers/chatgpt/candidate.py verify \
             --source . --source-sha "$GITHUB_SHA" --artifact "$artifact"
+          worker_artifact="$RUNNER_TEMP/termux-mcp-worker-android"
+          python3 -B providers/chatgpt/candidate.py package --component termux-mcp-worker \
+            --source . --source-sha "$GITHUB_SHA" --artifact "$worker_artifact" \
+            --binary "$CARGO_TARGET_DIR/aarch64-linux-android/release/codex-termux-mcp-worker" \
+            --run-id "$GITHUB_RUN_ID" --ndk "$ANDROID_NDK_VERSION" --rust "$version"
+          python3 -B providers/chatgpt/candidate.py verify --component termux-mcp-worker \
+            --source . --source-sha "$GITHUB_SHA" --artifact "$worker_artifact"
           git diff --exit-code
       - name: Retain unsigned optional candidate for Android qualification
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: provider-android-candidate
           path: ${{ runner.temp }}/provider-android
+          if-no-files-found: error
+          retention-days: 30
+      - name: Retain independent unsigned MCP worker for Android qualification
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: termux-mcp-worker-android-candidate
+          path: ${{ runner.temp }}/termux-mcp-worker-android
           if-no-files-found: error
           retention-days: 30

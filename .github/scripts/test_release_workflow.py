@@ -61,6 +61,22 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn('0 failed; 0 ignored;',step)
         self.assertNotIn('continue-on-error',step)
 
+    def test_independent_worker_has_its_own_verified_unsigned_artifact(self):
+        text=(ROOT/'.github/workflows/provider-qualification.yml').read_text()
+        build=text.split('      - name: Build and bind both optional Android executables',1)[1].split('      - name:',1)[0]
+        self.assertIn('candidate.py package --component termux-mcp-worker',build)
+        self.assertIn('candidate.py verify --component termux-mcp-worker',build)
+        self.assertIn('release/codex-termux-mcp-worker',build)
+        self.assertIn('candidate.py package '+chr(92),build)
+        self.assertIn('release/codex-chatgpt-provider',build)
+        for name,directory in [('provider-android-candidate','provider-android'),
+                               ('termux-mcp-worker-android-candidate','termux-mcp-worker-android')]:
+            retained=text.split('          name: '+name+'\n',1)[1].split('      - name:',1)[0]
+            self.assertIn('path: ${{ runner.temp }}/'+directory,retained)
+            self.assertIn('if-no-files-found: error',retained)
+        for forbidden in ('contents: write','secrets.','gh release','continue-on-error'):
+            self.assertNotIn(forbidden,text)
+
     def test_required_provider_and_switch_regressions_are_executed_and_positive(self):
         from tui_regression_results import REQUIRED
         text=(ROOT/'.github/workflows/manager-tui-native.yml').read_text()

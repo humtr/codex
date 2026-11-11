@@ -19,6 +19,21 @@ inference, a same-thread TUI round trip or Android display acceptance. Source
 updates also do not replace an operating Provider binary, account binding or
 signed generation; those remain separate activation boundaries.
 
+## Independent Termux MCP worker
+
+The optional Android qualification retains two separately verified unsigned
+candidates: `provider-android-candidate` and
+`termux-mcp-worker-android-candidate`. The worker runs
+`codex-termux-mcp-worker --state ABSOLUTE_PROVIDER_STATE`; its shell path needs
+neither a running Provider nor Core. Existing Native tools still use their
+original Provider service. These candidates do not authorize installation and
+do not alter existing signed Provider inventories or the operating MCP wrapper.
+For an independently installed worker, connector refresh reads its exact existing
+wrapper through the separate `mcp_command` input described in
+[Linux app operations](LINUX_APP.md). The Provider/Desktop binary remains a
+different input. The [MCP shell contract](../../docs/spec/interfaces/MCP_SHELL.md)
+owns receipt, lifecycle and publication boundaries.
+
 ## Choose the requested entrance
 
 | Entrance | Source of primary reasoning | Prerequisite |

@@ -34,6 +34,25 @@ thread/approval/controller database or conversation store. Native operations kee
 their existing ownership, approval and result authority. Host access preserves
 user-authorized scope, unrelated work and Termux platform/storage constraints.
 
+## Production and connector selection
+
+The standalone worker has a separate unsigned Android candidate inventory and
+schema from the Provider candidate. Production binds the exact source, build
+run, toolchain, ABI, executable digest and retained source/license assets;
+verification rejects another component, changed or extended inventory and unsafe
+file aliases. An unsigned candidate authorizes neither device installation nor
+connector activation. Existing signed Provider payloads remain unchanged.
+
+Connector refresh must compare the registered catalog with the actual selected
+MCP process. An explicit `mcp_command` selects the existing owned executable
+wrapper with no added arguments, independently from the Provider/Desktop binary.
+An invalid explicit command is rejected before app access; it must not silently
+fall back to the Provider. When omitted, the existing Provider stdio invocation
+remains compatible. Exact tool names and complete input schemas must agree;
+neither a hardcoded tool count nor an inherited shell-enablement flag establishes
+that the correct producer was queried. Reuse the existing tunnel and connector;
+this selection adds no model request, Native task or shell-specific annotation.
+
 Source/unit and isolated worker tests are distinct from actual connected ChatGPT
 MCP round trips. Connector refresh and operating worker installation are separate
 operational actions; a source update does not imply either occurred.

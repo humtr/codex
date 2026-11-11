@@ -12,6 +12,7 @@
 | Manager | Its locked dependency closure and shared interface source, Core compiler and Android ABI/NDK/flags | Independent Manager qualification and selected Full |
 | TUI | Official source, maintained frontend recipe, dependency audit, compiler/profile | Native TUI tests, upstream Retain and Full composition |
 | Provider | Its source/locked dependencies, selected runtime binding and app bridge | Independent Provider qualification; not a Core prerequisite |
+| Independent MCP worker | Its source/locked dependencies, shared runtime binding, Android ABI/toolchain and exact executable digest | Separate unsigned candidate and isolated worker execution; [MCP contract](../interfaces/MCP_SHELL.md) |
 
 The canonical Android component producer serves Core and Manager. It serializes
 only identical component inputs, retains successful production bytes under their
