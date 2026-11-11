@@ -17,8 +17,38 @@ pub fn catalog(config: &Config) -> Result<Value, ConfigError> {
             "selected app model requires discovery before Native preparation",
         ));
     }
+    project_catalog(config, false)
+}
+
+/// Read-only picker metadata does not select or replace the user's saved model.
+/// An unavailable saved default must not hide the account's other offered models.
+pub fn selection_catalog(config: &Config) -> Result<Value, ConfigError> {
+    project_catalog(config, true)
+}
+
+fn project_catalog(config: &Config, offered_only: bool) -> Result<Value, ConfigError> {
+    config.validate()?;
     let mut models = Vec::new();
-    for model in &config.catalog.models {
+    for configured in &config.catalog.models {
+        let mut model = configured.clone();
+        if offered_only {
+            model.routes.retain(|route| {
+                config
+                    .catalog
+                    .models
+                    .iter()
+                    .filter(|m| crate::models::is_app_model(&m.id))
+                    .any(|m| {
+                        m.routes.iter().any(|offered| {
+                            offered.host_model == route.host_model
+                                && offered.thinking_effort == route.thinking_effort
+                        })
+                    })
+            });
+            if model.routes.is_empty() {
+                continue;
+            }
+        }
         let context = config.effective_context(&model.id, &ContextOverride::default())?;
         if model
             .routes
@@ -79,6 +109,33 @@ mod tests {
         assert_eq!(model["supported_reasoning_levels"][0]["effort"], "high");
         assert_eq!(model["default_reasoning_level"], "high");
     }
+    #[test]
+    fn selection_metadata_preserves_an_unavailable_saved_default_without_selecting_a_replacement() {
+        let mut config = Config::parse(
+            b"[model]\ndefault='chatgpt-desktop/app/retired'\nreasoning_effort='high'\n",
+        )
+        .unwrap();
+        let options = json!([{"label":"Current server","options":[
+            {"slug":"new-model","lane":"instant","modelLabel":"New","isAvailable":true}
+        ]}]);
+        config.catalog = config.catalog.with_app_options(&options, &[]).unwrap();
+        let saved = config.model.default.clone();
+        assert!(catalog(&config).is_err());
+        let projected = selection_catalog(&config).unwrap();
+        assert!(projected["models"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|m| m["slug"] == "chatgpt-desktop/app/new-model" && m["visibility"] == "list"));
+        assert!(!projected["models"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|m| m["slug"] == saved));
+        assert_eq!(config.model.default, saved);
+        assert_eq!(config.model.reasoning_effort, "high");
+    }
+
     #[test]
     fn model_context_precedence_and_data_catalog_are_projected_without_family_code() {
         let mut config = Config::default();

@@ -170,8 +170,13 @@ pub(crate) async fn host(
             observed_at_unix_ms,
         };
         journal.write(&crate::models::snapshot_key(), &snapshot)?;
-        return Ok(
-            json!({"catalog":catalog,"identity":offered["identity"],"observed_at_unix_ms":observed_at_unix_ms,"source":"app_and_config","inference_submitted":false}),
+        let mut projected = config;
+        projected.catalog = catalog.clone();
+        return crate::registration::selection_reply(
+            &projected,
+            &journal.root,
+            &offered["identity"],
+            observed_at_unix_ms,
         );
     }
     let op = match action {

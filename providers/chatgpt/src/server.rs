@@ -427,7 +427,7 @@ async fn handler(State(service): State<Arc<Service>>, request: HttpRequest) -> R
                 }
             };
         }
-        return axum::Json(json!({"object":"list","data":config.catalog.models.iter().map(|m| json!({"id":m.id,"object":"model","owned_by":"termux-codex"})).collect::<Vec<_>>()})).into_response();
+        return axum::Json(json!({"object":"list","data":config.catalog.models.iter().filter(|m| !m.hidden).map(|m| json!({"id":m.id,"object":"model","owned_by":"termux-codex"})).collect::<Vec<_>>()})).into_response();
     }
     if parts.uri.path() != "/v1/responses" || parts.method != "POST" {
         return failure(StatusCode::NOT_FOUND, "not_found");

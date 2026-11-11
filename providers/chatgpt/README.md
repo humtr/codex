@@ -94,3 +94,22 @@ cover Native inputs, transport and approvals; [current acceptance plan](../../HA
 defines remaining work. Historical commands and long, dated incident
 completed reports are recoverable through Git history, not
 current service instructions.
+
+## Provider-specific model selection
+
+The TUI displays this transport as **ChatGPT Linux app** while preserving the
+existing `chatgpt_desktop` Provider ID and saved `chatgpt-desktop/` model IDs.
+Select it with `/provider`; `/model` then reads the current authenticated app
+catalog, including newly offered server models and their available reasoning
+levels. OpenAI's `/model` keeps the upstream catalog and does not contact the app.
+A model belonging to another Provider is rejected by `/model`; use `/provider`
+for an intentional route change.
+
+The read-only `host models` response includes account-verified native metadata
+and its immutable private snapshot. A new CLI can consume an older running
+service's fresh response by checking its exact account-bound observation and
+using the same catalog projector. This compatibility does not require a service
+restart or a shared version number. An old CLI without the response capability
+reports live discovery unavailable; configured defaults and other accounts are
+never fallbacks. Updating source alone does not replace an operating Provider
+binary or signed TUI installation.
