@@ -78,31 +78,55 @@ not authorization to stop them or proof that all version combinations work.
   Whole-workspace all-target clippy with warnings denied and the Provider
   all-target lint gate both passed. The subsequent admission-argument grouping
   passed the real remote acquisition/reuse regression and fresh Core/Manager build.
+  At exact build source 891c6595, actual isolated Termux PTY keep/remote menu
+  cases both exited 0: one cancellation, zero/one local request respectively,
+  lease release while waiting and unchanged activation. Real external requests
+  were zero. Installed and candidate Core-only version executions both returned
+  exactly codex-cli 0.167.1 with empty stderr; 20 signed-generation files, the
+  public Core and current pointer remained unchanged.
 - Manager display uses existing terminal/window machinery with verified
   Owner/home/foreground identity, one-shot construction, duplicate suppression
   and default-off automatic display. Correct stock SESSION_ACTION is a string.
   **130 Manager tests passed**: 57 library, 72 profile integration, one
   window-launch test; no failures/ignored tests. The new fixtures include
   actual isolated PTY and qualified Native Owner responses.
-  Android Activity acceptance remains a separate CI/device boundary.
+  Android Activity acceptance remains a separate CI/device boundary. The
+  stock emulator fixture uses real Manager/Service/PTY/Activity but synthetic
+  Core transport and frontend; it does not prove Native inference.
 - Independent shell source `c0a81898` is integrated. The hardened candidate
   preserves original receipts, bounded output and owned process-group cleanup.
   A separate candidate-worker process without Provider state passed shell
   execution, exact replay, one-effect counter, argument conflict and unchanged
   Native-claim sentinel. Connecting only for discovery retained the original
   17 MCP tools plus `termux_shell`, 18 total.
-- The integrated Provider library suite passed **253 tests**, zero failed,
-  with five existing explicitly gated tests ignored. The new independent
-  worker integration test passed. This is not an assertion that the ignored
-  live boundaries were tested by that invocation.
+- At d4df350207b50b9350c514b1e1d8cb7095c9d9f1, the complete Provider
+  all-target suite passed **354 tests**, zero failed, with 34 existing
+  explicit asset/live/helper entries reported ignored by the top-level harness.
+  Strict all-target clippy passed. The actual standalone worker integration
+  test was included. The subsequent persisted-scope repair requires a new run;
+  these counts are not inherited by that later source. The next run retained
+  two ETXTBSY subprocess-launch failures. An isolated kernel reproduction
+  confirmed that a sibling fork can retain an executable write descriptor
+  after the parent closes it. The fixture now copies in an already-executed
+  private child and waits for its exit; no retry, deadline or assertion was
+  relaxed. Its focused Native suite passed 19 tests; final all-target
+  integration acceptance remains pending.
 - Provider/TUI source now keeps OpenAI's upstream catalog separate from the
   authenticated ChatGPT app catalog, including availability and actual effort.
   Internal Provider ID `chatgpt_desktop` and persisted model namespaces remain
   compatible. New artifact naming uses `provider-chatgpt-v...`; old
   `provider-gpt-v...` references remain readable.
-  Local pristine-upstream assembly and focused Python checks passed.
+  Cold OpenAI return also uses the upstream offline model manager, including
+  account-scoped cache validation and bundled fallback, instead of manually
+  parsing models_cache.json. Local pristine-upstream assembly and focused
+  Python checks passed; combined Native/TUI source assembly at 891c6595 passed.
   Local TUI Rust compilation was blocked before compilation by the unavailable
   pinned rusty_v8 dependency; exact-source hosted TUI qualification is pending.
+- At b87d7e95 the complete Source Python/static gate passed **241 tests**
+  (36 repository scripts, 190 release helpers, 15 frontend Python tests),
+  exit 0. Documentation checks and ten regression tests passed; all 14
+  workflow YAML files parsed locally. Ruby/Psych is unavailable in Termux;
+  its unmodified hosted gate remains required.
 
 ## Native ownership and availability evidence
 
@@ -131,9 +155,16 @@ prevents replayed historical quota errors from mutating current recovery state;
 the new frontend must still pass the whole route.
 
 Native execution metadata previously rejected even an unrelated synchronous
-request-user-input notification hook. The new hook gate distinguishes actual
-matching execution hooks from irrelevant hooks and retains opaque treatment
-for uncertain hook effects. The patch applies to pristine upstream; four
+request-user-input notification hook. The new per-tool schema-2 hook gate distinguishes actual
+matching hooks from irrelevant hooks and retains opaque treatment for uncertain
+hook effects. Stored unmarked/mixed/unknown bounded claims are conservatively
+widened for new conflict decisions without rewriting their original snapshots.
+Queued legacy Read calls are checked against their original turn facts for both
+offer and settlement; original call IDs/fingerprints/results remain intact.
+Old schema-1 execution receipts remain readable but do not grant new parallel
+capability. An already-running old Provider may have unrecorded read effects;
+new source cannot retroactively arbitrate those. Coordinated future activation
+is a separate operating boundary. The patch applies to pristine upstream; four
 hook-engine regressions are wired into CI. A failed old-runtime compiler
 trial had no compiler effect; its owned work was settled without stopping
 other work. Safe parallel compiler acceptance requires the new runtime.

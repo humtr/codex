@@ -8,11 +8,15 @@ and unsigned CI; there is no intermediate plan-approval gate.
 
 ## Remaining work
 
-1. Finish the remaining candidate model transition and Native hook scope
-   changes. The Core, independent-shell and terminal-display feature commits,
-   complete Core/Manager tests and strict workspace/Provider lint have passed.
-2. Finish the narrow Native hook/effect scope review. Preserve opaque
-   uncertainty and existing Writer authority; test actual matching hooks.
+1. Finish the final integrated Provider suite after persisted-scope repair
+   and the repaired executable-publication fixture race. Preserve the original
+   executable-busy failure and kernel reproduction receipts.
+   The complete Source Python/static gate passed. The Core, independent shell,
+   terminal display, model transition and Native compatibility source changes
+   are integrated. Preserve the original failed fixture receipts.
+2. Run the exact adapted-upstream hook and TUI regressions in hosted CI; local
+   patch assembly is accepted, but local TUI Rust compilation is still blocked
+   by the unavailable pinned rusty_v8 dependency.
 3. Push the integrated source by fast-forward to the actual current
    rewrite/rust-core after rechecking main intent and concurrent upstream
    discovery. Run and observe Source, Core/Runtime, Manager, Provider,
@@ -20,8 +24,9 @@ and unsigned CI; there is no intermediate plan-approval gate.
    against the exact source. Fix real failures and rerun.
 4. With the candidate frontend/runtime, finish the same-thread /switch
    destination checkpoint and original-result continuity fixture. Historical
-   quota replay was repaired; current installed S165 evidence proves only
-   Owner lookup and reentry, not the destination inference.
+   quota replay was repaired; candidate Core/Manager with isolated copies of
+   the installed S165 frontend/runtime prove Owner lookup and reentry only,
+   not the destination inference. Operating S165 Core was not replaced.
 5. Use owned isolated candidate artifacts for actual Native compiler
    concurrency/settlement and terminal continuity where possible. Distinguish
    real Native, live app, synthetic account and Android emulator/physical

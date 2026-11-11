@@ -13,6 +13,7 @@ It does not create product requirements or authorize runtime effects.
 | [Termux preflight](TERMUX_CONSTRAINTS.md) | Practical device execution checks | A separate product contract |
 | [CURRENT](../CURRENT.md) | Last verified source/device facts by SHA and proof boundary | Future acceptance and history |
 | [HANDOFF](../HANDOFF.md) | Actual unfinished work, next acceptance and blockers | Past work or duplicate CURRENT |
+| [Finite integration plan](development/RELEASE_FRAMEWORK_IMPLEMENTATION.md) | Bounded W-task DAG, file Writer, provenance and change accounting | A second product specification, current-proof ledger or approval gate |
 | [README](../README.md), component guides | Supported user setup and operations | New norms or unqualified releases |
 | Test dependency declaration | Per-test input documents and absence behavior | Product behavior |
 | Fixture-specific instructions | That fixture only | Repository-wide instructions |

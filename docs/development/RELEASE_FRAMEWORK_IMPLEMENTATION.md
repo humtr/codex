@@ -71,10 +71,10 @@ Owner database or alternate Writer controller.
 | W8 | Baseline 7b98296 TUI success accepted; new changed paths need new exact-source proof | Integration | New full TUI qualification |
 | W9 | Stable SPEC, single scoped norms, current evidence and finite handoff | Integration; SPEC and docs | Final links, dependency checks, exact evidence |
 | W10 | Read-only qualification separated from exact-main approved signing/publication | Release/Integration; workflows, release_control.py | Safe push and final successful run IDs |
-| W11 | Explicit --core/--full, no repeated cancellation, authenticated edition, Core-only build independent of TUI | Integration; main.rs, manual_update.rs, update_edition.rs | Complete Core suite and hosted CLI acceptance |
-| W12 | Offline Core-owned version JSON/details, optional components and legacy unknown revisions | Integration; termux_version.rs, component_metadata.rs, provider.rs | Complete Core suite; installed read-only candidate already passed |
-| W13 | No-bwrap is normal platform information; explicit unsupported requests and real failures remain failures | Integration; Core Doctor path and DOCTOR norm | Complete Core/Doctor regression |
-| W14 | Signed Core/Full fixtures, rollback, mismatched edition, noninteractive/version coverage | Integration; Core tests | Complete local/hosted results |
+| W11 | Explicit --core/--full, no repeated cancellation, authenticated edition, Core-only build independent of TUI | Integration; main.rs, manual_update.rs, update_edition.rs | Local Core 270/0 passed; hosted CLI acceptance |
+| W12 | Offline Core-owned version JSON/details, optional components and legacy unknown revisions | Integration; termux_version.rs, component_metadata.rs, provider.rs | Local Core 270/0 and installed read-only candidate passed |
+| W13 | No-bwrap is normal platform information; explicit unsupported requests and real failures remain failures | Integration; Core Doctor path and DOCTOR norm | Local Core/Doctor passed; exact hosted qualification |
+| W14 | Signed Core/Full fixtures, rollback, mismatched edition, noninteractive/version coverage | Integration; Core tests | Local signed fixtures/menu passed; exact hosted results |
 | W15 | Integrate original claim P0; precise shared diagnostics and conservative hook-aware effect scope | Native; native_claims/effect, native_route.patch, lifecycle tests | New-runtime real independent compiler effects and settlement |
 | W16 | Verified existing terminal or one headless display; default-off auto path; no new inference | Integration/Release after file-lease transfer; Manager terminal/window/task, Provider callback | Hosted stock Activity proof and available real Native continuity |
 | W17 | Fresh authenticated ChatGPT catalog, independent inference auth, stable stored Provider/model IDs | Models; models/control/projection and Provider docs | Candidate hosted tests; reuse operating live model loop only within stated boundary |
@@ -121,7 +121,7 @@ quota-switch trials remain failure evidence, not accepted new behavior.
 Live model evidence used the operating Provider and one original Chat/Native
 thread, preserving approval and sandbox configuration. Synthetic account
 fixtures are separate. Android stock tests prove Activity/session behavior on
-the pinned emulator APK with a synthetic frontend; they do not prove a
+the pinned emulator APK with synthetic Core transport and frontend; they do not prove a
 physical device or real model inference.
 
 ## Change accounting and rollback
