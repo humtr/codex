@@ -3,12 +3,18 @@
 use super::*;
 use std::io::{Seek, SeekFrom};
 use std::os::fd::FromRawFd;
-use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
+use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt};
 use std::os::unix::net::UnixListener;
 use std::time::{Duration, Instant};
 
 fn private_dir(path: &Path) {
-    fs::create_dir_all(path).unwrap();
+    // Every newly created ancestor must meet the same private-directory contract.
+    // chmod on only the leaf concealed an invalid manager root under umask 077.
+    fs::DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(path)
+        .unwrap();
     fs::set_permissions(path, fs::Permissions::from_mode(0o700)).unwrap();
 }
 
@@ -17,6 +23,9 @@ fn foreground_fixture() {
     let Some(root) = std::env::var_os("DISPLAY_FIXTURE_ROOT").map(PathBuf::from) else {
         return;
     };
+    // This helper runs alone in its own process. Exercise the host-CI umask even
+    // when its parent is Termux, without changing the parent or operating session.
+    unsafe { libc::umask(0o022) };
     let token = TASK_ID.replace('-', "");
     let pid = std::process::id();
     let start: u64 = codex_runtime_binding::native::process_start(pid)
