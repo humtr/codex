@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 from pathlib import Path
 import re
@@ -285,6 +286,19 @@ def sign(args: argparse.Namespace) -> str:
         and generation.startswith(('full-v', 'local-relay-hosted-'))
         and getattr(args,'component_base',None) is None):
         fail('full release display requires its exact authenticated base')
+    reservation = None
+    component_source = getattr(args,'component_source',None)
+    reservation_path = getattr(args,'reservation',None)
+    if component_source is not None and (component_source/'.github/scripts/release_reservations.py').exists():
+        if reservation_path is None:
+            fail('new component signing requires an immutable sequence reservation')
+        from release_reservations import verify_candidate
+        from release_components import unique
+        try:
+            reservation = json.loads(require_regular_file(reservation_path,16384,'release reservation').read_bytes(),object_pairs_hook=unique)
+            verify_candidate(reservation,component_source,candidate,release_sequence)
+        except (ValueError,KeyError,TypeError) as error:
+            fail('release reservation does not bind this signing request: '+str(error))
     secret = os.environ.pop(SECRET_NAME, None)
     if not secret:
         fail("release signing secret is absent")
@@ -335,7 +349,7 @@ def sign(args: argparse.Namespace) -> str:
         if getattr(args, "component_source", None) is not None:
             from release_components import sign_component
             sign_component(args.component_source, output, generation, key_path, openssl,
-                           getattr(args,'component_base',None),accepted_public_key)
+                           getattr(args,'component_base',None),accepted_public_key,reservation)
     finally:
         if key_dir is not None:
             shutil.rmtree(key_dir, ignore_errors=False)
@@ -354,6 +368,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--component-source", type=Path)
     parser.add_argument("--component-base", type=Path)
+    parser.add_argument("--reservation", type=Path)
     args = parser.parse_args(argv)
     try:
         generation = sign(args)

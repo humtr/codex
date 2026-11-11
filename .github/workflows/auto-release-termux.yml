@@ -55,10 +55,67 @@ jobs:
       base_only: false
       release_variant: ${{ inputs.release_variant }}
 
-  sign:
-    name: Sign qualified candidate
+  reserve:
+    name: Reserve globally unique signed issue identity
     needs: producer
     if: needs.producer.outputs.candidate == 'true' && needs.producer.result == 'success' && inputs.publish
+    permissions:
+      contents: write
+      actions: read
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      created: ${{ steps.reserve.outputs.created }}
+    steps:
+      - name: Fetch exact accepted reservation source
+        run: |
+          set -euo pipefail
+          [[ "$CODEX_SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          git init source
+          git -C source remote add origin https://github.com/humtr/codex.git
+          git -C source fetch --no-tags --depth=1 origin "$CODEX_SOURCE_SHA"
+          git -C source checkout --detach FETCH_HEAD
+          test "$(git -C source rev-parse HEAD)" = "$CODEX_SOURCE_SHA"
+      - name: Download exact qualified signing subject
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ needs.producer.outputs.qualified_artifact_name }}
+          path: ${{ runner.temp }}/reservation-input
+      - name: Reserve only separately authorized publication inputs
+        id: reserve
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/release-reservation"
+          mkdir -m 0700 "$work"
+          tar -xf "$RUNNER_TEMP/reservation-input/qualified-candidate.tar" -C "$work"
+          mode=qualified-candidate
+          if test '${{ inputs.release_variant }}' = base; then mode=base-candidate; fi
+          python3 source/.github/scripts/release_preflight.py "$mode" "$work/candidate" '${{ needs.producer.outputs.upstream_version }}'
+          curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+            --connect-timeout 15 --max-time 60 --max-filesize 16384 \
+            --output "$work/public.pem" 'https://github.com/humtr/codex/releases/download/local-20260914-update-channel-bridge-1/update-public-key.pem'
+          test "$(sha256sum "$work/public.pem" | awk '{print $1}')" = "$WRAPPER_PUBLIC_KEY_SHA256"
+          python3 source/.github/scripts/release_reservations.py reserve --source source --candidate "$work/candidate" \
+            --sequence '${{ needs.producer.outputs.release_sequence }}' --main-sha '${{ needs.producer.outputs.expected_main_sha }}' \
+            --authority "$work/public.pem" --history-root "$work/history" --output "$work/reservation.json" >> "$GITHUB_OUTPUT"
+      - name: Transfer original immutable reservation
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: reservation-${{ needs.producer.outputs.generation_id }}
+          path: ${{ runner.temp }}/release-reservation/reservation.json
+          if-no-files-found: error
+          retention-days: 7
+      - name: Preserve original reservation without duplicate signing
+        if: steps.reserve.outputs.created != 'true'
+        run: |
+          echo 'This issue is already reserved; inspect the original signing/publication receipt before any continuation.' >&2
+          exit 1
+  sign:
+    name: Sign qualified candidate
+    needs: [producer, reserve]
+    if: needs.producer.outputs.candidate == 'true' && needs.producer.result == 'success' && needs.reserve.result == 'success' && needs.reserve.outputs.created == 'true' && inputs.publish
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -86,6 +143,12 @@ jobs:
         with:
           name: ${{ needs.producer.outputs.qualified_artifact_name }}
           path: ${{ runner.temp }}/qualified-candidate-download
+
+      - name: Download immutable signing reservation
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: reservation-${{ needs.producer.outputs.generation_id }}
+          path: ${{ runner.temp }}/signing-reservation
 
       - name: Reverify qualified candidate and accepted authority
         shell: bash
@@ -171,7 +234,8 @@ jobs:
             --openssl /usr/bin/openssl \
             --runner-temp "$RUNNER_TEMP" \
             --output "$RUNNER_TEMP/release-signing/signed-output" \
-            --component-source "$GITHUB_WORKSPACE/source" "${component_args[@]}"
+            --component-source "$GITHUB_WORKSPACE/source" "${component_args[@]}" \
+            --reservation "$RUNNER_TEMP/signing-reservation/reservation.json"
 
       - name: Independently verify signed candidate
         shell: bash

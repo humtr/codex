@@ -45,3 +45,26 @@ Full composition, signing, publication and device activation are separate proofs
 Each downstream gate must verify the source, component input identities, selected
 bytes and successful owned run. It cannot infer success from a pending run,
 request acknowledgement, stale logs or a component revision number.
+
+## Component revisions and immutable issues
+
+An upstream version, exact source commit, component revision `rN`, byte digest,
+interface contract, qualification run, composition revision, signed release
+sequence and installed generation identify different facts. A revision never
+substitutes for qualification or implies byte equality by itself. New signed
+`component-input-v1` sidecars may carry `components` and `composition_revision`
+together. Each selected Core, Runtime, Manager and TUI entry binds its own positive
+revision, exact production input digest, selected artifact digest and interface.
+The metadata remains `codex-component-input-v1`, bounded to 16 KiB and bound to the
+signed manifest. Existing sidecars remain valid without these optional fields;
+readers report their revision as unknown instead of deriving it from the issue
+sequence. Runtime's artifact digest is the runtime executable; the full signed
+inventory separately binds its companion, helpers and descriptor.
+
+Within an upstream version, an unchanged component tuple reuses its revision;
+a changed input, output or interface allocates its next revision. Core and Full
+share these module revisions. The exact Core or Full selection has a separate
+composition revision. Previously reserved unpublished inputs also consume their
+revisions. Conflicting historical use of a revision fails closed. New upstream
+versions have separate module revision namespaces. Existing signed generations
+and legacy names are never retroactively renamed, rebuilt or assigned revisions.

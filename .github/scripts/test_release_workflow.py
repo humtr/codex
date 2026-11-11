@@ -30,7 +30,7 @@ class WorkflowTests(unittest.TestCase):
     def test_single_source_and_no_unsigned_public_authority(self):
         text=(ROOT/'.github/workflows/auto-release-termux.yml').read_text()
         header,body=text.split('\njobs:\n',1)
-        producer=body.split('\n  sign:',1)[0]
+        producer=body.split('\n  reserve:',1)[0]
         qualification=(ROOT/'.github/workflows/qualify-termux-runtime.yml').read_text()
         sign=body.split('\n  sign:',1)[1].split('\n  stage_release:',1)[0]
         self.assertIn('workflow_call:',header)
@@ -44,7 +44,12 @@ class WorkflowTests(unittest.TestCase):
                 self.assertNotIn(forbidden,job)
         self.assertNotIn('secrets.',producer+qualification)
         self.assertEqual(text.count('${{ secrets.CODEX_RELEASE_SIGNING_KEY }}'),1)
-        self.assertIn("needs.producer.result == 'success' && inputs.publish",sign)
+        self.assertIn("needs.producer.result == 'success'",sign)
+        self.assertIn("needs.reserve.outputs.created == 'true' && inputs.publish",sign)
+        reservation=body.split('\n  reserve:',1)[1].split('\n  sign:',1)[0]
+        self.assertIn("needs.producer.result == 'success' && inputs.publish",reservation)
+        self.assertNotIn('secrets.',reservation)
+        self.assertIn('release_reservations.py reserve',reservation)
         self.assertIn('uses: ./.github/workflows/qualify-termux-runtime.yml',producer)
         self.assertIn('base_only: false',producer)
         self.assertNotIn('base_only:',header)

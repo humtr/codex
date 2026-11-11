@@ -150,6 +150,8 @@ jobs:
       - name: Authenticate current public stable
         id: stable
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           state="$RUNNER_TEMP/authenticated-stable"
@@ -164,8 +166,10 @@ jobs:
             --output "$state/update-public-key.pem" \
             'https://github.com/humtr/codex/releases/download/local-20260914-update-channel-bridge-1/update-public-key.pem'
           test "$(sha256sum "$state/update-public-key.pem" | awk '{print $1}')" = "$WRAPPER_PUBLIC_KEY_SHA256"
+          python3 source/.github/scripts/release_reservations.py snapshot --output "$state/reservations.json"
           python3 source/.github/scripts/release_heads.py \
             --main-sha "$expected_main_sha" --variant '${{ inputs.release_variant }}' \
+            --reservations "$state/reservations.json" \
             --public-key "$state/update-public-key.pem" --output "$state/heads" \
             > "$state/outputs"
           cat "$state/outputs" >> "$GITHUB_OUTPUT"
