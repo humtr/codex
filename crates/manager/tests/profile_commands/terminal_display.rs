@@ -226,9 +226,8 @@ fn repeated_click_and_auto_on_focus_exact_owner_without_launch_or_writer_transfe
     let foreground = Foreground::new(&f, &f.account);
     let owner_before = fs::read(f.binding.join("owner")).unwrap();
     let writer = f
-        .root
-        .0
-        .join(format!(".codex/thread-writer-locks/{TASK_ID}.lock"));
+        .account
+        .join(format!("thread-writer-locks/{TASK_ID}.lock"));
     let writer_before = fs::read(&writer).unwrap();
     // OFF returns before even trying the deliberately broken Owner query.
     let pid = f.binding.join("pid");
@@ -337,9 +336,8 @@ fn display_resume_preserves_exact_live_owner_and_refuses_foreign_home() {
     core_capability(&f, "codex-terminal-capabilities-v1\nidentity=native\n", 0);
     let owner_before = fs::read(f.binding.join("owner")).unwrap();
     let writer = f
-        .root
-        .0
-        .join(format!(".codex/thread-writer-locks/{TASK_ID}.lock"));
+        .account
+        .join(format!("thread-writer-locks/{TASK_ID}.lock"));
     let writer_before = fs::read(&writer).unwrap();
     let m = fs::metadata(&f.account).unwrap();
     let output = base_manager_command(&f.root.0, &f.core)
@@ -393,9 +391,8 @@ fn missing_or_unqualified_foreground_capability_never_constructs_or_reenters() {
         core_capability(&f, reply, status);
         let owner_before = fs::read(f.binding.join("owner")).unwrap();
         let writer = f
-            .root
-            .0
-            .join(format!(".codex/thread-writer-locks/{TASK_ID}.lock"));
+            .account
+            .join(format!("thread-writer-locks/{TASK_ID}.lock"));
         let writer_before = fs::read(&writer).unwrap();
         let m = fs::metadata(&f.account).unwrap();
         for action in ["__terminal-show-v1", "__terminal-display-v1"] {
@@ -445,9 +442,8 @@ fn concurrent_headless_display_observes_original_intent_before_android_reply() {
     )).unwrap();
     let owner_before = fs::read(f.binding.join("owner")).unwrap();
     let writer = f
-        .root
-        .0
-        .join(format!(".codex/thread-writer-locks/{TASK_ID}.lock"));
+        .account
+        .join(format!("thread-writer-locks/{TASK_ID}.lock"));
     let writer_before = fs::read(&writer).unwrap();
     struct Pending {
         child: Option<std::process::Child>,

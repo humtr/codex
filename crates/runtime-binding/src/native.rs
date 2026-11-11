@@ -1,6 +1,7 @@
 //! Observe Core-published Native processes and kernel writer ownership.
 //! No account selection, Native execution, approval or history mutation.
 use crate::{Binding, FAMILIES};
+use std::collections::BTreeSet;
 use std::ffi::{OsStr, OsString};
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read};
@@ -176,20 +177,34 @@ fn bounded_record(path: &Path, limit: u64) -> Result<Vec<u8>, io::Error> {
     Ok(bytes)
 }
 pub fn servers(home_root: &Path, deadline: Instant) -> Result<Vec<Server>, io::Error> {
+    Ok(registry(home_root, deadline, false)?.0)
+}
+fn registry(
+    home_root: &Path,
+    deadline: Instant,
+    retain_writer_homes: bool,
+) -> Result<(Vec<Server>, BTreeSet<PathBuf>), io::Error> {
     let mut servers = Vec::new();
+    let mut homes = BTreeSet::from([home_root.join(".codex")]);
     for family in FAMILIES {
-        servers.extend(server_family(home_root, family, deadline)?);
-        if servers.len() > MAX_SERVERS {
+        servers.extend(server_family(
+            home_root,
+            family,
+            deadline,
+            retain_writer_homes.then_some(&mut homes),
+        )?);
+        if servers.len() > MAX_SERVERS || homes.len() > MAX_SERVERS {
             return Err(invalid());
         }
     }
-    Ok(servers)
+    Ok((servers, homes))
 }
 
 fn server_family(
     home_root: &Path,
     family: &str,
     deadline: Instant,
+    mut writer_homes: Option<&mut BTreeSet<PathBuf>>,
 ) -> Result<Vec<Server>, io::Error> {
     let root = home_root.join(".local/share/codex/core").join(family);
     if inspect_path(&root)? == PathPresence::Missing {
@@ -220,22 +235,13 @@ fn server_family(
             .ok()
             .filter(|p| *p > 1)
             .ok_or_else(invalid)?;
-        let start = match process_start(pid) {
-            Ok(start) => start,
-            Err(_) if process_exited(pid)? => continue,
-            Err(_) => return Err(invalid()),
-        };
-        // Recognized old codecs retain an owned home/runtime identity prefix.
-        // Exclude only a positively reused PID before decoding that old codec;
-        // current/unknown codecs still require their complete validated binding.
+        // Parse the owned record before excluding an exited or reused PID.
+        // Only the two known legacy codecs may bypass namespace decoding;
+        // unknown codecs and malformed current records never prove absence.
         let owner_record = record(&dir.join("owner"))?;
         let fields = owner_record.split(|byte| *byte == 0).collect::<Vec<_>>();
         let legacy = matches!(fields.as_slice(), [_, _] | [_, _, b"catalog-v1"]);
         let binding = if legacy {
-            let home = PathBuf::from(OsString::from_vec(fields[0].to_vec()));
-            if !is_safe_absolute_path(&home) {
-                return Err(invalid());
-            }
             None
         } else {
             Some(
@@ -257,6 +263,11 @@ fn server_family(
                 })?,
             )
         };
+        let home = fields
+            .first()
+            .filter(|bytes| !bytes.is_empty())
+            .map(|bytes| PathBuf::from(OsString::from_vec(bytes.to_vec())))
+            .ok_or_else(invalid)?;
         let program = fields
             .get(1)
             .filter(|bytes| !bytes.is_empty())
@@ -268,12 +279,29 @@ fn server_family(
                 )
             })?;
         let generations = home_root.join(".local/lib/codex/core/generations");
-        if !is_safe_absolute_path(&program)
+        if !is_safe_absolute_path(&home)
+            || !is_safe_absolute_path(&program)
             || program.file_name() != Some(OsStr::new("runtime"))
             || program.parent().and_then(Path::parent) != Some(generations.as_path())
         {
             return Err(invalid());
         }
+        // A retired process has no execution authority. Its verified record
+        // still identifies a writer namespace that may have another holder.
+        if let Some(homes) = writer_homes.as_mut() {
+            if inspect_path(&home)? == PathPresence::Present {
+                private(&home, true)?;
+            }
+            homes.insert(home);
+            if homes.len() > MAX_SERVERS {
+                return Err(invalid());
+            }
+        }
+        let start = match process_start(pid) {
+            Ok(start) => start,
+            Err(_) if process_exited(pid)? => continue,
+            Err(_) => return Err(invalid()),
+        };
         match fs::read_link(format!("/proc/{pid}/exe")) {
             Ok(actual)
                 if actual.as_os_str().as_bytes().strip_suffix(b" (deleted)")
@@ -348,8 +376,70 @@ fn native_file(path: &Path) -> Result<Option<File>, io::Error> {
     Ok(Some(file))
 }
 pub fn writer_free(home_root: &Path, id: &str) -> Result<bool, io::Error> {
-    let directory = home_root.join(".codex/thread-writer-locks");
-    if inspect_path(&directory)? == PathPresence::Missing {
+    writer_free_until(home_root, id, Instant::now() + Duration::from_secs(2))
+}
+/// Observe all known writer namespaces without opening a server or a writer.
+/// The result is an observation, not a lease for a later Native acquisition.
+pub fn writer_free_until(home_root: &Path, id: &str, deadline: Instant) -> Result<bool, io::Error> {
+    if !canonical_session_id(id) {
+        return Err(invalid());
+    }
+    let (_, homes) = registry(home_root, deadline, true)?;
+    for directory in writer_directories(home_root, homes)? {
+        if Instant::now() >= deadline {
+            return Err(invalid());
+        }
+        if !writer_free_directory(&directory, id)? {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+fn writer_directory(home_root: &Path, execution_home: &Path) -> Result<PathBuf, io::Error> {
+    if inspect_path(execution_home)? == PathPresence::Present {
+        private(execution_home, true)?;
+    }
+    let directory = execution_home.join("thread-writer-locks");
+    let shared = home_root.join(".codex/thread-writer-locks");
+    let directory = match fs::symlink_metadata(&directory) {
+        Ok(metadata) if metadata.file_type().is_symlink() => {
+            // This is the single topology alias produced by Core shared_layout.
+            // An arbitrary canonicalized alias is never a writer authority.
+            if directory == shared || fs::read_link(&directory)? != shared {
+                return Err(invalid());
+            }
+            if inspect_path(&shared)? != PathPresence::Present {
+                return Err(invalid());
+            }
+            shared
+        }
+        Ok(_) => directory,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(directory),
+        Err(_) => return Err(invalid()),
+    };
+    if inspect_path(&directory)? != PathPresence::Present {
+        return Err(invalid());
+    }
+    let metadata = fs::symlink_metadata(&directory).map_err(|_| invalid())?;
+    if !metadata.is_dir()
+        || metadata.uid() != unsafe { libc::geteuid() }
+        || metadata.mode() & 0o022 != 0
+    {
+        return Err(invalid());
+    }
+    Ok(directory)
+}
+fn writer_directories(
+    home_root: &Path,
+    homes: BTreeSet<PathBuf>,
+) -> Result<BTreeSet<PathBuf>, io::Error> {
+    homes
+        .into_iter()
+        .map(|home| writer_directory(home_root, &home))
+        .collect()
+}
+fn writer_free_directory(directory: &Path, id: &str) -> Result<bool, io::Error> {
+    if inspect_path(directory)? == PathPresence::Missing {
         return Ok(true);
     }
     let Some(coordination) = native_file(&directory.join(".coordination.lock"))? else {
@@ -375,7 +465,10 @@ pub fn writer_free(home_root: &Path, id: &str) -> Result<bool, io::Error> {
 }
 pub fn owns_writer(home_root: &Path, id: &str, server: &Server) -> Result<bool, io::Error> {
     server.identity()?;
-    let path = home_root.join(format!(".codex/thread-writer-locks/{id}.lock"));
+    if !canonical_session_id(id) {
+        return Err(invalid());
+    }
+    let path = writer_directory(home_root, &server.home)?.join(format!("{id}.lock"));
     let Some(file) = native_file(&path)? else {
         return Ok(false);
     };
@@ -478,8 +571,11 @@ pub fn owner(home_root: &Path, id: &str, deadline: Instant) -> io::Result<Option
     if !canonical_session_id(id) {
         return Err(invalid());
     }
+    let (servers, homes) = registry(home_root, deadline, true)?;
+    let directories = writer_directories(home_root, homes)?;
     let mut owner = None;
-    for server in servers(home_root, deadline)? {
+    let mut owned_directory = None;
+    for server in servers {
         if owns_writer(home_root, id, &server)? {
             if owner.is_some() {
                 return Err(failure(
@@ -492,14 +588,249 @@ pub fn owner(home_root: &Path, id: &str, deadline: Instant) -> io::Result<Option
             if !owns_writer(home_root, id, &server)? {
                 return Err(invalid());
             }
+            owned_directory = Some(writer_directory(home_root, &server.home)?);
             owner = Some(server);
         }
     }
-    if owner.is_none() && !writer_free(home_root, id)? {
-        return Err(failure(
-            "native_owner_writer_unresolved",
-            "writer is held but its qualified owner is unavailable",
-        ));
+    for directory in directories {
+        if Instant::now() >= deadline {
+            return Err(invalid());
+        }
+        if owned_directory.as_ref() != Some(&directory) && !writer_free_directory(&directory, id)? {
+            return Err(failure(
+                "native_owner_writer_unresolved",
+                "writer is held but its qualified owner is unavailable",
+            ));
+        }
+    }
+    if let Some(server) = owner.as_ref() {
+        if !owns_writer(home_root, id, server)? {
+            return Err(invalid());
+        }
     }
     Ok(owner)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const THREAD: &str = "12345678-1234-1234-1234-123456789abc";
+    struct Fixture(PathBuf);
+    impl Fixture {
+        fn new() -> Self {
+            let root = std::env::temp_dir().join(format!(
+                "nw-{}-{}",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            ));
+            fs::create_dir(&root).unwrap();
+            fs::set_permissions(&root, fs::Permissions::from_mode(0o700)).unwrap();
+            Self(root)
+        }
+        fn directory(&self, relative: &str) -> PathBuf {
+            let path = self.0.join(relative);
+            fs::create_dir_all(&path).unwrap();
+            fs::set_permissions(&path, fs::Permissions::from_mode(0o700)).unwrap();
+            path
+        }
+        fn file(&self, path: &Path, bytes: &[u8]) -> File {
+            fs::write(path, bytes).unwrap();
+            fs::set_permissions(path, fs::Permissions::from_mode(0o600)).unwrap();
+            File::open(path).unwrap()
+        }
+        fn server(&self, home: PathBuf) -> Server {
+            Server {
+                home,
+                program: std::env::current_exe().unwrap(),
+                socket: self.0.join("s"),
+                pid: std::process::id(),
+                start: process_start(std::process::id()).unwrap(),
+            }
+        }
+    }
+    impl Drop for Fixture {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn writer_identity_follows_independent_execution_home() {
+        let f = Fixture::new();
+        let home = f.directory("independent");
+        let locks = f.directory("independent/thread-writer-locks");
+        let coordination = f.file(&locks.join(".coordination.lock"), b"");
+        drop(coordination);
+        let writer = f.file(&locks.join(format!("{THREAD}.lock")), b"original writer");
+        writer.try_lock().unwrap();
+        let server = f.server(home);
+        assert!(
+            owns_writer(&f.0, THREAD, &server).unwrap(),
+            "the registered CODEX_HOME owns its real kernel writer"
+        );
+        assert!(
+            !f.0.join(".codex").exists(),
+            "lookup must not create shared state"
+        );
+        assert_eq!(
+            fs::read(locks.join(format!("{THREAD}.lock"))).unwrap(),
+            b"original writer"
+        );
+    }
+    #[test]
+    fn canonical_writer_alias_is_exact_and_never_general_path_resolution() {
+        let f = Fixture::new();
+        let shared = f.directory(".codex/thread-writer-locks");
+        let home = f.directory(".codex-profiles/account");
+        let alias = home.join("thread-writer-locks");
+        std::os::unix::fs::symlink(&shared, &alias).unwrap();
+        let writer = f.file(&shared.join(format!("{THREAD}.lock")), b"shared writer");
+        writer.try_lock().unwrap();
+        let server = f.server(home);
+        assert!(owns_writer(&f.0, THREAD, &server).unwrap());
+        fs::remove_file(&alias).unwrap();
+        let other = f.directory("other/thread-writer-locks");
+        std::os::unix::fs::symlink(&other, &alias).unwrap();
+        assert!(owns_writer(&f.0, THREAD, &server).is_err());
+        fs::remove_file(&alias).unwrap();
+        std::os::unix::fs::symlink(&shared, &alias).unwrap();
+        fs::set_permissions(&shared, fs::Permissions::from_mode(0o777)).unwrap();
+        assert!(owns_writer(&f.0, THREAD, &server).is_err());
+        fs::set_permissions(&shared, fs::Permissions::from_mode(0o700)).unwrap();
+        assert!(owns_writer(&f.0, THREAD, &server).unwrap());
+        assert_eq!(
+            fs::read(shared.join(format!("{THREAD}.lock"))).unwrap(),
+            b"shared writer"
+        );
+    }
+
+    #[test]
+    fn retired_registration_retains_unknown_writer_and_publication_uncertainty() {
+        let f = Fixture::new();
+        let home = f.directory("independent");
+        let locks = f.directory("independent/thread-writer-locks");
+        let coordination = f.file(&locks.join(".coordination.lock"), b"");
+        let writer = f.file(&locks.join(format!("{THREAD}.lock")), b"unresolved writer");
+        let family = f.directory(".local/share/codex/core/servers");
+        let entry = family.join("retained");
+        fs::create_dir(&entry).unwrap();
+        fs::set_permissions(&entry, fs::Permissions::from_mode(0o700)).unwrap();
+        let mut bytes = home.as_os_str().as_bytes().to_vec();
+        bytes.push(0);
+        bytes.extend_from_slice(
+            f.0.join(".local/lib/codex/core/generations/retired/runtime")
+                .as_os_str()
+                .as_bytes(),
+        );
+        f.file(&entry.join("owner"), &bytes);
+        f.file(&entry.join("pid"), b"4294967294\n");
+        writer.try_lock().unwrap();
+        assert!(!writer_free(&f.0, THREAD).unwrap());
+        assert!(owner(&f.0, THREAD, Instant::now() + Duration::from_secs(2)).is_err());
+        drop(writer);
+        coordination.try_lock().unwrap();
+        assert!(!writer_free(&f.0, THREAD).unwrap());
+        drop(coordination);
+        assert!(writer_free(&f.0, THREAD).unwrap());
+        assert!(owner(&f.0, THREAD, Instant::now() + Duration::from_secs(2))
+            .unwrap()
+            .is_none());
+        assert_eq!(fs::read(entry.join("owner")).unwrap(), bytes);
+        let lock = OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_DIRECTORY)
+            .open(&entry)
+            .unwrap();
+        lock.try_lock().unwrap();
+        assert!(
+            writer_free(&f.0, THREAD).is_err(),
+            "a publishing registry is not safe absence"
+        );
+        drop(lock);
+        fs::remove_file(entry.join("owner")).unwrap();
+        let substituted = f.directory("alias-home");
+        std::os::unix::fs::symlink(&home, substituted.join("home")).unwrap();
+        let mut changed = substituted.join("home").as_os_str().as_bytes().to_vec();
+        changed.push(0);
+        changed.extend_from_slice(
+            f.0.join(".local/lib/codex/core/generations/retired/runtime")
+                .as_os_str()
+                .as_bytes(),
+        );
+        f.file(&entry.join("owner"), &changed);
+        assert!(
+            writer_free(&f.0, THREAD).is_err(),
+            "an unsafe retained home cannot become null"
+        );
+    }
+    #[test]
+    fn retired_and_reused_records_validate_current_codec_and_known_legacy_shapes() {
+        let f = Fixture::new();
+        let home = f.directory("independent");
+        let program =
+            f.0.join(".local/lib/codex/core/generations/retired/runtime");
+        let config = b"owned settings";
+        let family = f.directory(".local/share/codex/core/servers");
+        let entry = family.join(crate::configuration_namespace(
+            &home,
+            program.as_os_str(),
+            None,
+            None,
+            config,
+            None,
+        ));
+        fs::create_dir(&entry).unwrap();
+        fs::set_permissions(&entry, fs::Permissions::from_mode(0o700)).unwrap();
+        fs::create_dir(entry.join("config")).unwrap();
+        fs::set_permissions(entry.join("config"), fs::Permissions::from_mode(0o700)).unwrap();
+        f.file(&entry.join("config/config.toml"), config);
+        let current = crate::configuration_owner_bytes(&home, program.as_os_str(), false, false);
+        let mut legacy = home.as_os_str().as_bytes().to_vec();
+        legacy.push(0);
+        legacy.extend_from_slice(program.as_os_str().as_bytes());
+        let mut exited = std::process::Command::new("sh")
+            .args(["-c", "exit 0"])
+            .spawn()
+            .unwrap();
+        let dead_pid = exited.id();
+        assert!(exited.wait().unwrap().success());
+        for pid in [dead_pid, std::process::id()] {
+            f.file(&entry.join("pid"), format!("{pid}\n").as_bytes());
+            for valid in [
+                &current,
+                &legacy,
+                &[legacy.as_slice(), b"\0catalog-v1"].concat(),
+            ] {
+                f.file(&entry.join("owner"), valid);
+                assert!(servers(&f.0, Instant::now() + Duration::from_secs(2))
+                    .unwrap()
+                    .is_empty());
+                assert!(writer_free(&f.0, THREAD).unwrap());
+                assert!(owner(&f.0, THREAD, Instant::now() + Duration::from_secs(2))
+                    .unwrap()
+                    .is_none());
+                assert_eq!(fs::read(entry.join("owner")).unwrap(), *valid);
+            }
+            for malformed in [
+                [legacy.as_slice(), b"\0unknown-v9"].concat(),
+                [current.as_slice(), b"\0unexpected"].concat(),
+                [home.as_os_str().as_bytes(), b"\0"].concat(),
+            ] {
+                f.file(&entry.join("owner"), &malformed);
+                assert!(servers(&f.0, Instant::now() + Duration::from_secs(2)).is_err());
+                assert!(writer_free(&f.0, THREAD).is_err());
+                assert!(owner(&f.0, THREAD, Instant::now() + Duration::from_secs(2)).is_err());
+                assert_eq!(fs::read(entry.join("owner")).unwrap(), malformed);
+            }
+            f.file(&entry.join("owner"), &current);
+            f.file(&entry.join("config/config.toml"), b"substituted settings");
+            assert!(servers(&f.0, Instant::now() + Duration::from_secs(2)).is_err());
+            assert!(owner(&f.0, THREAD, Instant::now() + Duration::from_secs(2)).is_err());
+            f.file(&entry.join("config/config.toml"), config);
+        }
+    }
 }

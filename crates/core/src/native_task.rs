@@ -92,6 +92,7 @@ mod tests {
         assert_eq!(fs::read_dir(&root).unwrap().count(), 0);
         let locks = root.join(".codex/thread-writer-locks");
         fs::create_dir_all(&locks).unwrap();
+        fs::set_permissions(root.join(".codex"), fs::Permissions::from_mode(0o700)).unwrap();
         let path = locks.join(format!("{id}.lock"));
         fs::write(&path, b"unknown writer").unwrap();
         fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();

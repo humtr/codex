@@ -218,8 +218,9 @@ impl Fixture {
             .join(if listening { "catalogs" } else { "servers" })
             .join(name);
         crate::journal::private_directory(&directory.join("config")).unwrap();
-        let lock = writer.then(|| self.lock_path(thread));
+        let lock = writer.then(|| home.join("thread-writer-locks").join(format!("{thread}.lock")));
         if let Some(path) = &lock {
+            crate::journal::private_directory(path.parent().unwrap()).unwrap();
             private_file(path, b"");
         }
         private_file(&root.join("requests"), b"");

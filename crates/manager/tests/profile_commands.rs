@@ -2151,6 +2151,9 @@ impl TaskFixture {
     ) -> Self {
         let root = TestRoot::new();
         let core = write_core_probe(&root.0);
+        let default = root.0.join(".codex");
+        fs::create_dir(&default).unwrap();
+        fs::set_permissions(&default, fs::Permissions::from_mode(0o700)).unwrap();
         let account = root.0.join("external-a");
         fs::create_dir(&account).unwrap();
         fs::set_permissions(&account, fs::Permissions::from_mode(0o700)).unwrap();
@@ -2162,7 +2165,7 @@ impl TaskFixture {
         fs::set_permissions(&runtime, fs::Permissions::from_mode(0o755)).unwrap();
         let binding = task_binding(&root.0, &account, &runtime);
         let socket = root.0.join("s");
-        let locks = root.0.join(".codex/thread-writer-locks");
+        let locks = account.join("thread-writer-locks");
         fs::create_dir_all(&locks).unwrap();
         for p in [locks.parent().unwrap(), locks.as_path()] {
             fs::set_permissions(p, fs::Permissions::from_mode(0o700)).unwrap();
@@ -2309,7 +2312,7 @@ fn configured_server_discovery_and_reconnect_preserve_native_owner_and_reject_ch
 }
 
 #[test]
-fn active_task_exited_records_allow_retired_homes_runtime_and_socket_without_mutation() {
+fn active_task_exited_records_preserve_safe_homes_and_reject_unsafe_writer_namespaces() {
     let f = TaskFixture::new();
     // Obtain an actually exited owned PID rather than guessing an unused PID.
     let mut exited = Command::new("sh").args(["-c", "exit 0"]).spawn().unwrap();
@@ -2326,8 +2329,12 @@ fn active_task_exited_records_allow_retired_homes_runtime_and_socket_without_mut
     std::os::unix::fs::symlink(&target, &alias).unwrap();
     let broken = f.root.0.join("broken-alias");
     std::os::unix::fs::symlink(f.root.0.join("removed-target"), &broken).unwrap();
-    let mut snapshots = Vec::new();
-    for home in [f.root.0.join("removed-home"), alias, broken] {
+    for (home, safe) in [
+        (f.root.0.join("removed-home"), true),
+        (target, true),
+        (alias, false),
+        (broken, false),
+    ] {
         let binding = task_binding(&f.root.0, &home, &runtime);
         let owner = codex_runtime_binding::configuration_owner_bytes(
             &home,
@@ -2335,36 +2342,44 @@ fn active_task_exited_records_allow_retired_homes_runtime_and_socket_without_mut
             false,
             false,
         );
+        let mut snapshots = Vec::new();
         for (name, bytes) in [("owner", owner), ("pid", format!("{pid}\n").into_bytes())] {
             let p = binding.join(name);
             fs::write(&p, &bytes).unwrap();
             fs::set_permissions(&p, fs::Permissions::from_mode(0o600)).unwrap();
             snapshots.push((p, bytes));
         }
-    }
-    let status = run_manager(&f.root.0, &f.core, &["task", "status", TASK_ID], None);
-    assert_eq!(status.status.code(), Some(0));
-    let text = String::from_utf8(status.stdout).unwrap();
-    assert!(text.contains(TASK_ID));
-    assert!(text.contains(&format!("server={}:", f.child.id())));
-    let reconnect = run_manager(&f.root.0, &f.core, &["task", "reconnect", TASK_ID], None);
-    assert_eq!(reconnect.status.code(), Some(37)); // Exact existing Core probe.
-    for (p, expected) in snapshots {
-        assert_eq!(fs::read(&p).unwrap(), expected);
-        assert_eq!(
-            fs::metadata(p).unwrap().permissions().mode() & 0o7777,
-            0o600
-        );
+        let status = run_manager(&f.root.0, &f.core, &["task", "status", TASK_ID], None);
+        assert_eq!(status.status.code(), Some(if safe { 0 } else { 1 }));
+        if safe {
+            let text = String::from_utf8(status.stdout).unwrap();
+            assert!(text.contains(TASK_ID));
+            assert!(text.contains(&format!("server={}:", f.child.id())));
+        } else {
+            assert!(status.stdout.is_empty());
+        }
+        let reconnect = run_manager(&f.root.0, &f.core, &["task", "reconnect", TASK_ID], None);
+        assert_eq!(reconnect.status.code(), Some(if safe { 37 } else { 1 }));
+        for (p, expected) in snapshots {
+            assert_eq!(fs::read(&p).unwrap(), expected);
+            assert_eq!(
+                fs::metadata(p).unwrap().permissions().mode() & 0o7777,
+                0o600
+            );
+        }
+        // Fixture cleanup is separate from the read-only product observation.
+        fs::remove_dir_all(binding).unwrap();
     }
     assert!(!runtime.exists());
 }
 
 #[test]
-fn active_task_live_unsafe_or_substituted_binding_is_rejected_and_retired_record_is_inert() {
+fn active_task_live_unsafe_or_substituted_binding_stays_invalid_after_process_exit() {
     let mut f = TaskFixture::new();
     let status = run_manager(&f.root.0, &f.core, &["task", "status", TASK_ID], None);
     assert_eq!(status.status.code(), Some(0));
-    fs::remove_dir(&f.account).unwrap();
+    let original_home = f.root.0.join("original-locked-home");
+    fs::rename(&f.account, &original_home).unwrap();
     let rejected = run_manager(&f.root.0, &f.core, &["task", "status", TASK_ID], None);
     assert_eq!(rejected.status.code(), Some(1));
     assert!(rejected.stdout.is_empty());
@@ -2373,8 +2388,7 @@ fn active_task_live_unsafe_or_substituted_binding_is_rejected_and_retired_record
     assert_eq!(rejected.status.code(), Some(1));
     assert!(rejected.stdout.is_empty());
     fs::remove_file(&f.account).unwrap();
-    fs::create_dir(&f.account).unwrap();
-    fs::set_permissions(&f.account, fs::Permissions::from_mode(0o700)).unwrap();
+    fs::rename(&original_home, &f.account).unwrap();
     let owner = codex_runtime_binding::configuration_owner_bytes(
         &f.account,
         std::ffi::OsStr::new("/substituted/runtime"),
@@ -2385,13 +2399,105 @@ fn active_task_live_unsafe_or_substituted_binding_is_rejected_and_retired_record
     let rejected = run_manager(&f.root.0, &f.core, &["task", "status", TASK_ID], None);
     assert_eq!(rejected.status.code(), Some(1));
     assert!(rejected.stdout.is_empty());
-    // Once the actual server exits, this binding authorizes no execution.
+    // A malformed current record stays invalid after its process exits.
     f.child.kill().unwrap();
     f.child.wait().unwrap();
-    let ignored = run_manager(&f.root.0, &f.core, &["task", "status", TASK_ID], None);
-    assert_eq!(ignored.status.code(), Some(0));
-    assert_eq!(ignored.stdout, b"No current task writers found.\n");
+    let rejected = run_manager(&f.root.0, &f.core, &["task", "status", TASK_ID], None);
+    assert_eq!(rejected.status.code(), Some(1));
+    assert!(rejected.stdout.is_empty());
     assert_eq!(fs::read(f.binding.join("owner")).unwrap(), owner);
+}
+
+#[test]
+fn active_task_independent_homes_refuse_duplicate_and_unresolved_writers() {
+    use codex_runtime_binding::native;
+    struct OwnedProcess(std::process::Child);
+    impl Drop for OwnedProcess {
+        fn drop(&mut self) {
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
+    }
+    let f = TaskFixture::new();
+    let account = f.root.0.join("external-b");
+    let locks = account.join("thread-writer-locks");
+    fs::create_dir(&account).unwrap();
+    fs::create_dir(&locks).unwrap();
+    for path in [&account, &locks] {
+        fs::set_permissions(path, fs::Permissions::from_mode(0o700)).unwrap();
+    }
+    let writer = locks.join(format!("{TASK_ID}.lock"));
+    for (path, bytes) in [
+        (&writer, b"second original writer".as_slice()),
+        (&locks.join(".coordination.lock"), b"".as_slice()),
+    ] {
+        fs::write(path, bytes).unwrap();
+        fs::set_permissions(path, fs::Permissions::from_mode(0o600)).unwrap();
+    }
+    let runtime = f
+        .root
+        .0
+        .join(".local/lib/codex/core/generations/fixture-old/runtime");
+    let binding = task_binding(&f.root.0, &account, &runtime);
+    let socket = f.root.0.join("second");
+    let mut child = OwnedProcess(
+        Command::new(&runtime)
+            .args(["--exact", "active_task_native_fixture", "--nocapture"])
+            .env("TASK_FIXTURE_SOCKET", &socket)
+            .env("TASK_FIXTURE_WRITER", &writer)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap(),
+    );
+    let owner = codex_runtime_binding::configuration_owner_bytes(
+        &account,
+        runtime.as_os_str(),
+        false,
+        false,
+    );
+    for (name, bytes) in [
+        ("owner", owner.clone()),
+        ("pid", format!("{}\n", child.0.id()).into_bytes()),
+    ] {
+        let path = binding.join(name);
+        fs::write(&path, bytes).unwrap();
+        fs::set_permissions(path, fs::Permissions::from_mode(0o600)).unwrap();
+    }
+    std::os::unix::fs::symlink(&socket, binding.join("s")).unwrap();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while !socket.exists() {
+        assert!(std::time::Instant::now() < deadline);
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    let query = || {
+        native::owner(
+            &f.root.0,
+            TASK_ID,
+            std::time::Instant::now() + std::time::Duration::from_secs(2),
+        )
+    };
+    assert!(query()
+        .unwrap_err()
+        .to_string()
+        .starts_with("native_owner_ambiguous:"));
+    assert!(!native::writer_free(&f.root.0, TASK_ID).unwrap());
+    assert!(std::fs::File::open(&writer).unwrap().try_lock().is_err());
+    child.0.kill().unwrap();
+    child.0.wait().unwrap();
+    let unknown = std::fs::File::open(&writer).unwrap();
+    unknown.try_lock().unwrap();
+    assert!(query()
+        .unwrap_err()
+        .to_string()
+        .starts_with("native_owner_writer_unresolved:"));
+    assert!(!native::writer_free(&f.root.0, TASK_ID).unwrap());
+    drop(unknown);
+    let found = query().unwrap().unwrap();
+    assert_eq!(found.pid, f.child.id());
+    assert_eq!(found.home, f.account);
+    assert_eq!(fs::read(&writer).unwrap(), b"second original writer");
+    assert_eq!(fs::read(binding.join("owner")).unwrap(), owner);
 }
 
 #[test]
@@ -2433,16 +2539,18 @@ fn active_task_owner_follows_current_kernel_writer_not_original_loaded_server() 
         false,
     );
     let socket = f.root.0.join("s2");
+    let locks = account.join("thread-writer-locks");
+    fs::create_dir(&locks).unwrap();
+    fs::set_permissions(&locks, fs::Permissions::from_mode(0o700)).unwrap();
+    let writer = locks.join(format!("{TASK_ID}.lock"));
+    fs::write(&writer, b"second native writer").unwrap();
+    fs::set_permissions(&writer, fs::Permissions::from_mode(0o600)).unwrap();
+    fs::write(locks.join(".coordination.lock"), b"").unwrap();
     let mut child = OwnedProcess(
         Command::new(&runtime)
             .args(["--exact", "active_task_native_fixture", "--nocapture"])
             .env("TASK_FIXTURE_SOCKET", &socket)
-            .env(
-                "TASK_FIXTURE_WRITER",
-                f.root
-                    .0
-                    .join(format!(".codex/thread-writer-locks/{TASK_ID}.lock")),
-            )
+            .env("TASK_FIXTURE_WRITER", &writer)
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn()
@@ -2554,9 +2662,8 @@ fn active_task_released_owner_resumes_current_account_without_contacting_origina
     assert_eq!(denied.status.code(), Some(1));
     // A holder absent from the trusted server records remains unknown, never free.
     let lock = std::fs::File::open(
-        f.root
-            .0
-            .join(format!(".codex/thread-writer-locks/{TASK_ID}.lock")),
+        f.account
+            .join(format!("thread-writer-locks/{TASK_ID}.lock")),
     )
     .unwrap();
     lock.try_lock().unwrap();
@@ -2579,7 +2686,7 @@ fn active_task_changed_owner_during_metadata_never_authorizes_old_goal_change_or
         let status = run_manager(&f.root.0, &f.core, &["task", "status", TASK_ID], None);
         let text = String::from_utf8(status.stdout).unwrap();
         let token = text.split("server=").nth(1).unwrap().trim();
-        let locks = f.root.0.join(".codex/thread-writer-locks");
+        let locks = f.account.join("thread-writer-locks");
         let output = if force {
             fs::write(locks.join(".release-during-scope"), b"3").unwrap();
             run_manager(
@@ -2690,9 +2797,8 @@ fn active_task_reconnect_execs_owner_and_stop_waits_but_reports_retained_writer(
         );
         assert_eq!(
             fs::read(
-                f.root
-                    .0
-                    .join(format!(".codex/thread-writer-locks/{TASK_ID}.lock"))
+                f.account
+                    .join(format!("thread-writer-locks/{TASK_ID}.lock"))
             )
             .unwrap(),
             b"native-writer"
@@ -2836,9 +2942,8 @@ fn active_task_force_is_pid_stable_server_scoped_and_rejects_stale_confirmation(
     assert!(unrelated.child.try_wait().unwrap().is_none());
     assert_eq!(
         fs::read(
-            f.root
-                .0
-                .join(format!(".codex/thread-writer-locks/{TASK_ID}.lock"))
+            f.account
+                .join(format!("thread-writer-locks/{TASK_ID}.lock"))
         )
         .unwrap(),
         b"native-writer"

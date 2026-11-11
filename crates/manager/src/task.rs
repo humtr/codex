@@ -819,7 +819,15 @@ mod tests {
             fs::create_dir(&dir).unwrap();
             set_mode(&dir, 0o700).unwrap();
             write_new_record(&dir.join("pid"), dead_record.as_bytes()).unwrap();
-            write_new_record(&dir.join("owner"), b"/removed/home\0/removed/runtime").unwrap();
+            let retired = [
+                root.join("removed-home").as_os_str().as_bytes(),
+                b"\0",
+                root.join(".local/lib/codex/core/generations/removed/runtime")
+                    .as_os_str()
+                    .as_bytes(),
+            ]
+            .concat();
+            write_new_record(&dir.join("owner"), &retired).unwrap();
         }
         let home = root.join("account");
         fs::create_dir(&home).unwrap();
@@ -968,8 +976,11 @@ mod tests {
 
         let retired = family.join("0000000000000000");
         let pid_file = retired.join("pid");
+        let retired_owner = fs::read(retired.join("owner")).unwrap();
+        fs::write(retired.join("owner"), b"/removed/home\0/removed/runtime").unwrap();
         fs::write(&pid_file, format!("{}\n", std::process::id())).unwrap();
         assert!(native::servers(&context.home, Instant::now() + SCAN_TIME).is_err());
+        fs::write(retired.join("owner"), &retired_owner).unwrap();
         fs::write(&pid_file, &dead_record).unwrap();
         let publishing = File::open(&retired).unwrap();
         publishing.try_lock().unwrap();
@@ -987,10 +998,7 @@ mod tests {
                 .len(),
             1
         );
-        assert_eq!(
-            fs::read(retired.join("owner")).unwrap(),
-            b"/removed/home\0/removed/runtime"
-        );
+        assert_eq!(fs::read(retired.join("owner")).unwrap(), retired_owner);
         // Unlinking a still-running image does not turn its writer into PID reuse.
         fs::remove_file(&program).unwrap();
         assert!(native::servers(&context.home, Instant::now() + SCAN_TIME).is_err());
@@ -1002,7 +1010,10 @@ mod tests {
         else {
             return;
         };
-        let lock = File::open(root.join(format!(".codex/thread-writer-locks/{ID}.lock"))).unwrap();
+        let home = std::env::var_os("CODEX_TEST_NATIVE_WRITER_HOME")
+            .map(PathBuf::from)
+            .unwrap();
+        let lock = File::open(home.join(format!("thread-writer-locks/{ID}.lock"))).unwrap();
         lock.try_lock().unwrap();
         let socket = root.join("s");
         let _listener = std::os::unix::net::UnixListener::bind(&socket).unwrap();
@@ -1029,15 +1040,15 @@ mod tests {
             }
         }
         let _cleanup = Cleanup(root.clone());
-        let locks = root.join(".codex/thread-writer-locks");
+        let home = root.join("account");
+        fs::create_dir(&home).unwrap();
+        set_mode(&home, 0o700).unwrap();
+        let locks = home.join("thread-writer-locks");
         fs::create_dir_all(&locks).unwrap();
         set_mode(&locks, 0o700).unwrap();
         write_new_record(&locks.join(".coordination.lock"), b"").unwrap();
         let writer = locks.join(format!("{ID}.lock"));
         write_new_record(&writer, b"original native writer").unwrap();
-        let home = root.join("account");
-        fs::create_dir(&home).unwrap();
-        set_mode(&home, 0o700).unwrap();
         let program = root.join(".local/lib/codex/core/generations/owner-test/runtime");
         fs::create_dir_all(program.parent().unwrap()).unwrap();
         fs::copy(std::env::current_exe().unwrap(), &program).unwrap();
@@ -1057,6 +1068,7 @@ mod tests {
                     "--nocapture",
                 ])
                 .env("CODEX_TEST_NATIVE_OWNER_FIXTURE", &root)
+                .env("CODEX_TEST_NATIVE_WRITER_HOME", &home)
                 .stdin(Stdio::piped())
                 .stdout(Stdio::piped())
                 .stderr(Stdio::null())
@@ -1378,6 +1390,7 @@ mod tests {
         assert!(!root.join(".codex").exists());
         let dir = root.join(".codex/thread-writer-locks");
         fs::create_dir_all(&dir).unwrap();
+        set_mode(&root.join(".codex"), 0o700).unwrap();
         set_mode(&dir, 0o700).unwrap();
         let lock = dir.join(format!("{ID}.lock"));
         fs::write(&lock, b"native-bytes").unwrap();
