@@ -1,11 +1,24 @@
 #!/usr/bin/env python3
 """Classify changed paths conservatively; unknown changes require full proof."""
 import sys
+from pathlib import Path
+import runpy
+
+ROOT=Path(__file__).resolve().parents[1]
+RUNTIME_INPUTS=ROOT/'release/runtime-build-inputs-v1'
 
 
-def scope(paths):
+def scope(paths, *, runtime_inputs=RUNTIME_INPUTS):
+    # build.rs embeds every declared recipe byte in Core. Use its inventory's
+    # existing parser; a Python suffix is not evidence of CI-only ownership.
+    try:
+        parse=runpy.run_path(str(ROOT/'.github/scripts/runtime_inputs.py'))['assets']
+        embedded={name for name,role in parse(runtime_inputs.read_text()).items() if role=='recipe'}
+    except (OSError,ValueError,SyntaxError):
+        return 'full'  # Unknown/deleted inventory cannot narrow production proof.
     result='docs'
     for path in paths:
+        if path in embedded:return 'full'
         # Some Markdown files are signed assets, release inputs or live test fixtures.
         if path == 'release/notes.md':return 'full'
         # Only the declared documentation test-input manifest is a docs-only TOML.
