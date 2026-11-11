@@ -1,5 +1,6 @@
 use std::ffi::{OsStr, OsString};
 
+mod component_metadata;
 #[cfg(unix)]
 mod current_alias;
 #[cfg(unix)]
@@ -33,9 +34,13 @@ mod shared_server;
 #[cfg(unix)]
 mod system_config;
 #[cfg(unix)]
+mod termux_version;
+#[cfg(unix)]
 mod timezone;
 #[cfg(unix)]
 mod tui;
+#[cfg(unix)]
+mod update_edition;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum PublicDispatchRoute {
@@ -2706,7 +2711,7 @@ fn render_doctor_human(report: &DoctorReport, color: bool) -> String {
     let manager_healthy = report.manager == ManagerDoctorStatus::Healthy;
     let summary_healthy = report.summary == DoctorSummaryStatus::Healthy;
     let mut ok_count = 0;
-    let mut warning_count = 1;
+    let mut warning_count = 0;
     let mut failure_count = 0;
 
     output.push_str("\n[Termux doctor]\n");
@@ -2758,12 +2763,10 @@ fn render_doctor_human(report: &DoctorReport, color: bool) -> String {
     output.push('\n');
     output.push_str(&doctor_bold("Support", color));
     output.push('\n');
-    doctor_warning(
-        &mut output,
-        "sandbox",
-        "Linux namespace/mount sandboxing is unsupported on Termux; bwrap is not used",
-        color,
-    );
+    output.push_str(&format!("  {} {:<14} {}\n",
+        doctor_dim("·", color), "sandbox",
+        doctor_dim("platform limitation: Linux namespace/mount sandboxing is unsupported on Termux; bwrap is not used", color)));
+
     doctor_detail(
         &mut output,
         "sandbox",
@@ -2891,7 +2894,7 @@ fn json_escape(value: &str) -> String {
 
 fn render_doctor_json(report: &DoctorReport) -> String {
     format!(
-        "{{\"schema_version\":2,\"upstream\":{{\"status\":\"{}\",\"output\":\"{}\"}},\"termux_core\":{{\"status\":\"{}\",\"generation_id\":\"{}\",\"layout\":\"{}\",\"runtime\":{{\"status\":\"healthy\"}},\"code_mode_host\":{{\"status\":\"{}\"}},\"sandbox\":{{\"status\":\"unsupported\",\"reason\":\"bwrap is not used\"}}}},\"manager\":{{\"status\":\"{}\"}},\"summary\":{{\"status\":\"{}\"}}}}\n",
+        "{{\"schema_version\":2,\"upstream\":{{\"status\":\"{}\",\"output\":\"{}\"}},\"termux_core\":{{\"status\":\"{}\",\"generation_id\":\"{}\",\"layout\":\"{}\",\"runtime\":{{\"status\":\"healthy\"}},\"code_mode_host\":{{\"status\":\"{}\"}},\"sandbox\":{{\"status\":\"unsupported\",\"reason\":\"bwrap is not used\",\"classification\":\"platform_limitation\",\"severity\":\"info\"}}}},\"manager\":{{\"status\":\"{}\"}},\"summary\":{{\"status\":\"{}\"}}}}\n",
         report.upstream.status.as_str(),
         json_escape(&report.upstream.output),
         report.termux_core.status.as_str(),
@@ -4799,6 +4802,7 @@ fn parse_update_index_url(value: &OsStr) -> Result<String, LocalProductError> {
 }
 
 #[cfg(unix)]
+#[cfg(test)]
 fn default_update_index_url(generation: Option<&str>) -> &'static str {
     if generation.is_some_and(|id| id.starts_with("core-v") || id.starts_with("local-base-")) {
         BASE_UPDATE_INDEX_URL
@@ -4821,14 +4825,17 @@ fn installed_update_index_url(roots: &LocalCoreRoots) -> Result<&'static str, Lo
         .map_err(LocalProductError::StateFormat)?;
     let state =
         m2_generation_state::read_pointer_state(&paths).map_err(LocalProductError::State)?;
-    let generation = state
-        .as_ref()
-        .map(|state| {
-            authenticated_public_baseline(roots, state)
-                .map(|(baseline, _, _)| baseline.generation_component)
-        })
-        .transpose()?;
-    Ok(default_update_index_url(generation.as_deref()))
+    let Some(state) = state else {
+        return Ok(DEFAULT_UPDATE_INDEX_URL);
+    };
+    let (_, _, loaded) = authenticated_public_baseline(roots, &state)?;
+    let full = loaded.manifest.manager_artifact_digest.is_some()
+        || tui::index(&loaded.manifest)?.is_some();
+    Ok(if full {
+        DEFAULT_UPDATE_INDEX_URL
+    } else {
+        BASE_UPDATE_INDEX_URL
+    })
 }
 
 #[cfg(unix)]
@@ -7489,6 +7496,21 @@ fn stage_local_generation_with_io<I: GenerationPublishIo>(
             })?;
             copy_local_regular_file(helper, &destination, "helper must be a regular file")?;
         }
+        // Optional detached metadata is bounded and reauthenticated by readers.
+        // Existing generations are never rewritten to add a revision record.
+        for (name, limit) in [
+            ("component-input-v1", component_metadata::LIMIT),
+            ("component-input-v1.sig", 64),
+        ] {
+            let path = source_dir.join(name);
+            if std::fs::symlink_metadata(&path).is_ok_and(|m| m.is_file() && m.len() <= limit) {
+                copy_local_regular_file(
+                    &path,
+                    &candidate.join(name),
+                    "component metadata must be regular",
+                )?;
+            }
+        }
         let copied = load_local_generation(&candidate)?;
         if copied.generation_id != source.generation_id {
             return Err(LocalProductError::Descriptor(
@@ -8461,10 +8483,21 @@ fn activate_signed_local_release_outcome_with_hold_policy(
     roots: &LocalCoreRoots,
     process_env: &TermuxProcessEnvSnapshot,
     hold_policy: UpdateHoldPolicy,
+    edition: update_edition::Edition,
     mut presentation: Option<&mut UpdatePresentation>,
 ) -> Result<SignedUpdateOutcome, LocalProductError> {
     if let Some(presentation) = presentation.as_deref_mut() {
         presentation.transient("⠹", "Verifying release signature and contents...");
+    }
+    if edition != update_edition::Edition::Preserve {
+        let paths = m2_generation_state::CoreStatePaths::new(&roots.state_root)
+            .map_err(LocalProductError::StateFormat)?;
+        let state = m2_generation_state::read_pointer_state(&paths)
+            .map_err(LocalProductError::State)?
+            .ok_or(LocalProductError::NoCurrentGeneration)?;
+        let manifest =
+            verify_local_release_control_with_key(source_dir, &roots.openssl, state.update_key)?;
+        edition.validate(&manifest)?;
     }
     match prepare_signed_local_release_with_hold_policy(source_dir, roots, hold_policy)? {
         PreparedSignedLocalRelease::AlreadyCurrent(target) => {
@@ -8478,6 +8511,7 @@ fn activate_signed_local_release_outcome_with_hold_policy(
 }
 
 #[cfg(unix)]
+#[cfg(test)]
 fn activate_signed_local_release_outcome(
     source_dir: &std::path::Path,
     roots: &LocalCoreRoots,
@@ -8489,6 +8523,7 @@ fn activate_signed_local_release_outcome(
         roots,
         process_env,
         UpdateHoldPolicy::Enforce,
+        update_edition::Edition::Preserve,
         presentation,
     )
 }
@@ -8566,11 +8601,12 @@ fn running_core_artifact_for_local_build() -> Result<std::path::PathBuf, LocalPr
 }
 
 #[cfg(unix)]
-fn activate_local_built_update(
+fn activate_local_built_update_for_edition(
     roots: &LocalCoreRoots,
     process_env: &TermuxProcessEnvSnapshot,
     mut presentation: Option<&mut UpdatePresentation>,
     selected: Option<OfficialReleaseMetadata>,
+    edition: update_edition::Edition,
 ) -> Result<ActivatedUpdate, LocalProductError> {
     if let Some(presentation) = presentation.as_deref_mut() {
         presentation.transient("⠋", "Checking official Codex release...");
@@ -8603,7 +8639,16 @@ fn activate_local_built_update(
         ));
     }
     let (baseline, _, current_loaded) = authenticated_public_baseline(roots, &before)?;
-    let frontend_index = tui::index(&current_loaded.manifest)?;
+    let frontend_index = if edition == update_edition::Edition::Core {
+        None
+    } else {
+        tui::index(&current_loaded.manifest)?
+    };
+    if edition == update_edition::Edition::Full
+        && (frontend_index.is_none() || current_loaded.manager_path.is_none())
+    {
+        return Err(LocalProductError::LocalUpdate("Full local construction requires qualified Manager and Enhanced TUI; select --core for the independent runtime"));
+    }
     if frontend_index.is_some()
         && (metadata.version != current_loaded.manifest.upstream_package_version
             || !current_loaded.tui_available)
@@ -8696,7 +8741,11 @@ fn activate_local_built_update(
             archive_sha256: archive_digest,
             generation_id: generation_id.clone(),
             core,
-            manager: current_loaded.manager_path.clone(),
+            manager: if edition == update_edition::Edition::Core {
+                None
+            } else {
+                current_loaded.manager_path.clone()
+            },
             tui: None,
             source_runtime,
             defer_manager_probe: false,
@@ -9385,6 +9434,7 @@ fn acquire_remote_release_source(
     update_key: ReleasePublicKey,
     current: (&LocalReleaseManifest, &str),
     hold_policy: UpdateHoldPolicy,
+    edition: update_edition::Edition,
     mut presentation: Option<&mut UpdatePresentation>,
 ) -> Result<(), LocalProductError> {
     let (current_release, current_version) = current;
@@ -9418,6 +9468,7 @@ fn acquire_remote_release_source(
     }
     let manifest =
         verify_local_release_control_with_key(acquisition_root, &roots.openssl, update_key)?;
+    edition.validate(&manifest)?;
     if !base.matches_generation_identity(&manifest.generation_id)? {
         return Err(LocalProductError::Remote(
             "remote release base does not match signed generation identity",
@@ -9434,6 +9485,7 @@ fn acquire_remote_release_source(
         &mut acquired_bytes,
     )?;
     let base = &resolved_base;
+    component_metadata::fetch(roots, base, acquisition_root, &manifest);
     let download_sizes = fetch_remote_download_sizes(
         roots,
         base,
@@ -9488,6 +9540,7 @@ fn acquire_remote_release_source(
             current_release,
             &manifest,
             presentation.details,
+            Some(acquisition_root),
         ));
         if updating {
             presentation.begin_update(current_version, &candidate_version);
@@ -9919,6 +9972,21 @@ fn fetch_signed_update_index_with_timeout(
     update_key: ReleasePublicKey,
     transfer_timeout_seconds: &str,
 ) -> Result<SignedUpdateIndex, LocalProductError> {
+    fetch_signed_update_index_for_edition(
+        roots,
+        update_key,
+        transfer_timeout_seconds,
+        update_edition::Edition::Preserve,
+    )
+}
+
+#[cfg(unix)]
+fn fetch_signed_update_index_for_edition(
+    roots: &LocalCoreRoots,
+    update_key: ReleasePublicKey,
+    transfer_timeout_seconds: &str,
+    edition: update_edition::Edition,
+) -> Result<SignedUpdateIndex, LocalProductError> {
     ensure_real_directory(
         &roots.state_root,
         "inspect Core update state root",
@@ -9927,7 +9995,7 @@ fn fetch_signed_update_index_with_timeout(
     ensure_openssl_available(&roots.openssl)?;
     ensure_curl_available(&roots.curl)?;
 
-    let index_url = configured_update_index_url(roots)?;
+    let index_url = edition.index_url(roots)?;
     let signature_url = format!("{index_url}.sig");
     parse_update_index_url(OsStr::new(&signature_url))?;
     let sequence = REMOTE_ACQUISITION_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -10212,6 +10280,7 @@ fn activate_signed_update_channel_with_hold_policy(
     roots: &LocalCoreRoots,
     process_env: &TermuxProcessEnvSnapshot,
     hold_policy: UpdateHoldPolicy,
+    edition: update_edition::Edition,
     mut presentation: Option<&mut UpdatePresentation>,
 ) -> Result<SignedUpdateOutcome, LocalProductError> {
     if let Some(presentation) = presentation.as_deref_mut() {
@@ -10235,10 +10304,11 @@ fn activate_signed_update_channel_with_hold_policy(
     ensure_openssl_available(&roots.openssl)?;
     ensure_curl_available(&roots.curl)?;
 
-    let index = fetch_signed_update_index_with_timeout(
+    let index = fetch_signed_update_index_for_edition(
         roots,
         before.update_key,
         REMOTE_CONTROL_TRANSFER_TIMEOUT_SECONDS,
+        edition,
     )?;
 
     let local_baseline_current = if hold_policy == UpdateHoldPolicy::Enforce
@@ -10278,6 +10348,7 @@ fn activate_signed_update_channel_with_hold_policy(
                 "active generation descriptor id does not match current",
             )?,
         };
+        edition.validate(&current_release)?;
         if let Some(presentation) = presentation.as_deref_mut() {
             presentation.release_details = Some(release_display::line(
                 roots,
@@ -10289,6 +10360,7 @@ fn activate_signed_update_channel_with_hold_policy(
                 &current_release,
                 &current_release,
                 presentation.details,
+                None,
             ));
         }
         return Ok(SignedUpdateOutcome::AlreadyCurrent(UpdateTarget {
@@ -10302,6 +10374,7 @@ fn activate_signed_update_channel_with_hold_policy(
         roots,
         process_env,
         hold_policy,
+        edition,
         presentation,
     )?;
     if outcome.generation_id() != index.generation_id {
@@ -10318,6 +10391,7 @@ fn activate_signed_remote_release_outcome_with_hold_policy(
     roots: &LocalCoreRoots,
     process_env: &TermuxProcessEnvSnapshot,
     hold_policy: UpdateHoldPolicy,
+    edition: update_edition::Edition,
     mut presentation: Option<&mut UpdatePresentation>,
 ) -> Result<SignedUpdateOutcome, LocalProductError> {
     let base = RemoteReleaseBase::parse(base)?;
@@ -10356,6 +10430,7 @@ fn activate_signed_remote_release_outcome_with_hold_policy(
                 &current_loaded.manifest.upstream_package_version,
             ),
             hold_policy,
+            edition,
             presentation.as_deref_mut(),
         )?;
         prepare_signed_local_release_with_hold_policy(&acquisition_root, roots, hold_policy)
@@ -10379,22 +10454,6 @@ fn activate_signed_remote_release_outcome_with_hold_policy(
                 .map(SignedUpdateOutcome::Activated)
         }
     }
-}
-
-#[cfg(unix)]
-fn activate_signed_remote_release_outcome(
-    base: &OsStr,
-    roots: &LocalCoreRoots,
-    process_env: &TermuxProcessEnvSnapshot,
-    presentation: Option<&mut UpdatePresentation>,
-) -> Result<SignedUpdateOutcome, LocalProductError> {
-    activate_signed_remote_release_outcome_with_hold_policy(
-        base,
-        roots,
-        process_env,
-        UpdateHoldPolicy::Enforce,
-        presentation,
-    )
 }
 
 #[cfg(unix)]
@@ -12343,7 +12402,7 @@ fn rollback_signed_local_release(
 
 #[cfg(unix)]
 const UPDATE_USAGE: &str =
-    "usage: codex update [--details] [--wait | --no-wait] | --help | --force | --build-local | --local <DIRECTORY> | --remote <HTTPS_BASE_URL> | --rollback";
+    "usage: codex update [--core | --full] [--details] [--wait | --no-wait] | --help | --force | --build-local | --local <DIRECTORY> | --remote <HTTPS_BASE_URL> | --rollback";
 #[cfg(unix)]
 fn print_update_usage() {
     println!("{UPDATE_USAGE}");
@@ -12355,6 +12414,7 @@ fn print_update_usage() {
     println!(
         "--details includes publication dates, component rows and package generation identifiers"
     );
+    println!("--core selects the independent Core/Runtime release; --full selects qualified Manager/TUI composition. Omitting both preserves the installed edition.");
     println!("{}", rollback_guard::UPDATE_HOLD_CAPABILITY_LINE);
 }
 
@@ -12365,6 +12425,13 @@ fn run_core_update(args: Vec<OsString>) -> i32 {
 
 #[cfg(unix)]
 fn run_core_update_mode(args: Vec<OsString>, manual: bool) -> i32 {
+    let (edition, args) = match update_edition::Edition::parse(args) {
+        Ok(value) => value,
+        Err(message) => {
+            eprintln!("codex update: {message}");
+            return 2;
+        }
+    };
     let details = args.iter().any(|arg| arg == "--details");
     let ordinary = args
         .iter()
@@ -12420,6 +12487,7 @@ fn run_core_update_mode(args: Vec<OsString>, manual: bool) -> i32 {
             &roots,
             &process_env,
             hold_policy,
+            edition,
             Some(&mut presentation),
         );
         drop(lease);
@@ -12428,9 +12496,11 @@ fn run_core_update_mode(args: Vec<OsString>, manual: bool) -> i32 {
                 presentation.finish_signed_activation(&active.current_version);
             }
             presentation.clear_transient();
-            let provider_failed = if let Err(error) =
+            let provider_failed = if let Err(error) = if edition == update_edition::Edition::Core {
+                Ok(())
+            } else {
                 provider::execute(&roots, provider::Request::UpdateSelected { details })
-            {
+            } {
                 presentation.fail(&LocalProductError::Provider(error));
                 true
             } else {
@@ -12443,6 +12513,7 @@ fn run_core_update_mode(args: Vec<OsString>, manual: bool) -> i32 {
                     outcome,
                     build_policy,
                     no_wait,
+                    edition,
                     &mut presentation,
                 )
             }) {
@@ -12478,11 +12549,11 @@ fn run_core_update_mode(args: Vec<OsString>, manual: bool) -> i32 {
             }
         };
     }
-    run_explicit_core_update(args)
+    run_explicit_core_update(args, edition)
 }
 
 #[cfg(unix)]
-fn run_explicit_core_update(args: Vec<OsString>) -> i32 {
+fn run_explicit_core_update(args: Vec<OsString>, edition: update_edition::Edition) -> i32 {
     if args.len() == 1 && args[0] == OsStr::new("--help") {
         print_update_usage();
         return 0;
@@ -12522,11 +12593,12 @@ fn run_explicit_core_update(args: Vec<OsString>) -> i32 {
     };
     let process_env = capture_termux_process_env();
     if build_local {
-        return match activate_local_built_update(
+        return match activate_local_built_update_for_edition(
             &roots,
             &process_env,
             Some(&mut presentation),
             None,
+            edition,
         ) {
             Ok(outcome) => {
                 presentation.finish_local_activation(&outcome.current_version);
@@ -12540,17 +12612,21 @@ fn run_explicit_core_update(args: Vec<OsString>) -> i32 {
     }
     let result = if local {
         let source = std::path::PathBuf::from(&args[1]);
-        activate_signed_local_release_outcome(
+        activate_signed_local_release_outcome_with_hold_policy(
             &source,
             &roots,
             &process_env,
+            UpdateHoldPolicy::Enforce,
+            edition,
             Some(&mut presentation),
         )
     } else {
-        activate_signed_remote_release_outcome(
+        activate_signed_remote_release_outcome_with_hold_policy(
             &args[1],
             &roots,
             &process_env,
+            UpdateHoldPolicy::Enforce,
+            edition,
             Some(&mut presentation),
         )
     };
@@ -12619,6 +12695,11 @@ where
     };
     if let PublicDispatchRoute::Provider(args) = route {
         return provider::run(&roots, provider::Request::Command(&args));
+    }
+    if let PublicDispatchRoute::Termux(args) = &route {
+        if args.first().is_some_and(|arg| arg == "version") {
+            return termux_version::run(&roots, &args[1..]);
+        }
     }
     let process_env = capture_termux_process_env();
     if bare && std::env::var_os("CODEX_TERMUX_WINDOW_READY").is_none() {
@@ -14222,6 +14303,10 @@ exit 73
         command
             .env_remove(CODEX_SQLITE_HOME_ENV)
             .env("HOME", root)
+            // This fixture checks command/configuration bytes, not Android's
+            // external property service. Keep its stderr deterministic while
+            // production timezone failures and dedicated timezone tests remain.
+            .env("TZ", "UTC0")
             .env("CODEX_HOME", root.join("arbitrary-execution-home"));
         if scenario == "manager" {
             command.env(MANAGER_ARTIFACT_PROBE_ENV, "1");
@@ -15264,6 +15349,8 @@ exit 73
         let scenario = std::env::var(MAIN_PROBE_ARGS).unwrap();
         let args = match scenario.as_str() {
             "bare" => vec![],
+            "termux-version-json" => vec!["termux".into(), "version".into(), "--json".into()],
+            "termux-version-details" => vec!["termux".into(), "version".into(), "--details".into()],
             "version" | "core-only-version" => vec![OsString::from("--version")],
             "update" => vec![
                 OsString::from("update"),
@@ -19142,7 +19229,7 @@ esac
         b5_write_channel_curl(
             &fixture.prefix.join("bin/curl"),
             &fixture.curl_log,
-            DEFAULT_UPDATE_INDEX_URL,
+            BASE_UPDATE_INDEX_URL,
             &fixture.index_path,
             &fixture.signature_path,
             &fixture.base,
@@ -24940,6 +25027,7 @@ exit 2
                     key,
                     (&verified_current, "9.9.9"),
                     UpdateHoldPolicy::Enforce,
+                    update_edition::Edition::Preserve,
                     None,
                 )
                 .unwrap();
@@ -26224,6 +26312,7 @@ exit 0
             &roots,
             &b8_process_env(&fixture.prefix, &fixture.tmp),
             UpdateHoldPolicy::ForceHeld,
+            update_edition::Edition::Preserve,
             None,
         )
         .unwrap();
@@ -28913,7 +29002,7 @@ exit 0
         assert_eq!(first.status.code(), Some(0), "{:?}", first.stderr);
         let text = String::from_utf8(first.stdout).unwrap();
         assert!(
-            text.contains("Termux release: Base #1 -> Base #2"),
+            text.contains("Termux release: Core #1 -> Core #2"),
             "{text}"
         );
         assert!(!text.contains("Release date:"), "{text}");
@@ -28952,7 +29041,7 @@ exit 0
                 result.stderr
             );
             let text = String::from_utf8(result.stdout).unwrap();
-            assert!(text.contains("Termux release: Base #2"), "{text}");
+            assert!(text.contains("Termux release: Core #2"), "{text}");
             assert!(!text.contains("Release date:"), "{text}");
             assert!(!text.contains('\u{1b}'));
             assert_eq!(std::fs::read(&state).unwrap(), before);
@@ -29020,9 +29109,11 @@ exit 0
             "{marker}  '{DEFAULT_UPSTREAM_LATEST_URL}') exec \"$cat_path\" {} ;;\n",
             b5_shell_quote(&upstream_json)
         );
+        // This signed fixture has Core/Runtime only. Inventory, not its label,
+        // chooses the compatible legacy Base index for the public Core lane.
         let public_curl = current_curl
             .replacen(marker, &injected, 1)
-            .replace(&fixture.index_url, DEFAULT_UPDATE_INDEX_URL);
+            .replace(&fixture.index_url, BASE_UPDATE_INDEX_URL);
         std::fs::write(&curl, public_curl).unwrap();
         let run_manual = |details: bool| {
             std::process::Command::new(std::env::current_exe().unwrap())
@@ -29281,5 +29372,119 @@ exit 0
             provider_state.as_bytes()
         );
         remove_temp_root(fixture.root);
+    }
+    #[cfg(unix)]
+    #[test]
+    fn test_offline_termux_version_and_explicit_core_edition_keep_signed_full_rollback() {
+        let root = temp_root("edition-version");
+        let openssl = b4_termux_openssl();
+        let source = b4_source_roots(&root, &openssl);
+        std::fs::create_dir(&source.generation_root).unwrap();
+        let private = root.join("keys/private.pem");
+        let public = root.join("keys/public.pem");
+        b4_generate_release_keypair(&openssl, &private, &public);
+        let full = b2_write_root_generation(&source, "full-version-fixture", true, "supported");
+        let core = b2_write_root_generation(&source, "core-version-fixture", false, "supported");
+        let entrypoint = root.join("fixture-core");
+        b8_write_core_probe_wrapper(&entrypoint);
+        b2_attach_core(&full, &openssl, &entrypoint);
+        b2_attach_core(&core, &openssl, &entrypoint);
+        b4_write_signed_release(&full, 165, &openssl, &private);
+        b4_write_signed_release(&core, 166, &openssl, &private);
+        let (_, signed_core) = read_local_release_manifest(&core).unwrap();
+        let binding = openssl_sha256(&openssl, &core.join("release.manifest")).unwrap();
+        let component = |name: &str, path: &str, revision: u64| {
+            format!("\"{name}\":{{\"revision\":{revision},\"inputs_sha256\":\"{}\",\"artifact_sha256\":\"{}\",\"interface\":\"qualified-v1\"}}","c".repeat(64),signed_core.files.iter().find(|f| f.relative_path==path).unwrap().sha256)
+        };
+        let metadata=format!("{{\"schema\":\"codex-component-input-v1\",\"generation_id\":\"core-version-fixture\",\"manifest_sha256\":\"{binding}\",\"composition_revision\":3,\"components\":{{{},{}}}}}",component("core","core",2),component("runtime","runtime",1));
+        std::fs::write(core.join("component-input-v1"), &metadata).unwrap();
+        b4_sign_update_index(
+            &core.join("component-input-v1"),
+            &core.join("component-input-v1.sig"),
+            &openssl,
+            &private,
+        );
+        assert!(component_metadata::decode(metadata.as_bytes(), &signed_core, &binding).is_some());
+        for corrupt in [
+            metadata.replace("\"revision\":2", "\"revision\":0"),
+            metadata.replace("core-version-fixture", "other-generation"),
+            metadata.replace("\"composition_revision\":3,", ""),
+        ] {
+            assert!(
+                component_metadata::decode(corrupt.as_bytes(), &signed_core, &binding).is_none()
+            );
+        }
+
+        let (home, prefix, tmp) = b4_prepare_public_environment(&root, &openssl, true);
+        b7_seed_initial_release(&full, &home, &prefix, &public);
+        std::fs::copy(&entrypoint, prefix.join("bin/codex")).unwrap();
+        let roots = b7_public_roots(&home, &prefix);
+        let paths = CoreStatePaths::new(&roots.state_root).unwrap();
+        let before = read_pointer_state(&paths).unwrap().unwrap();
+        let old = termux_version::read(&roots, termux_version::Format::Json).unwrap();
+        assert!(old.contains("\"edition\":\"Full\""));
+        assert!(old.contains("\"release_sequence\":165"));
+        assert!(old.contains("\"component_revisions\":null"));
+        // No optional Manager is required to identify a signed Full generation.
+        std::fs::remove_file(roots.generation_root.join(&before.current).join("manager")).unwrap();
+        assert!(termux_version::read(&roots, termux_version::Format::Json)
+            .unwrap()
+            .contains("\"status\":\"unavailable\""));
+        assert!(activate_signed_local_release_outcome_with_hold_policy(
+            &core,
+            &roots,
+            &b8_process_env(&prefix, &tmp),
+            UpdateHoldPolicy::Enforce,
+            update_edition::Edition::Full,
+            None
+        )
+        .is_err());
+        assert_eq!(read_pointer_state(&paths).unwrap().unwrap(), before);
+        let result = activate_signed_local_release_outcome_with_hold_policy(
+            &core,
+            &roots,
+            &b8_process_env(&prefix, &tmp),
+            UpdateHoldPolicy::Enforce,
+            update_edition::Edition::Core,
+            None,
+        )
+        .unwrap();
+        assert_eq!(result.generation_id(), "core-version-fixture");
+        let current = read_pointer_state(&paths).unwrap().unwrap();
+        assert_eq!(current.previous.as_deref(), Some("full-version-fixture"));
+        assert!(roots
+            .generation_root
+            .join("full-version-fixture/release.sig")
+            .is_file());
+        assert_eq!(
+            installed_update_index_url(&roots).unwrap(),
+            BASE_UPDATE_INDEX_URL
+        );
+        let version = run_public_main_probe(&root, "termux-version-json");
+        assert!(version.status.success(), "{version:?}");
+        let text = String::from_utf8(version.stdout).unwrap();
+        assert!(text.contains("\"edition\":\"Core\""));
+        assert!(text.contains("\"release_sequence\":166"));
+        assert!(text.contains("\"composition_revision\":3"));
+        assert!(text.contains("\"revision\":2"));
+        assert!(text.contains("\"status\":\"not_installed\""));
+        assert_eq!(read_pointer_state(&paths).unwrap().unwrap(), current);
+        let details = run_public_main_probe(&root, "termux-version-details");
+        assert!(details.status.success(), "{details:?}");
+        assert!(String::from_utf8(details.stdout)
+            .unwrap()
+            .contains("Termux release: Core #166"));
+        // A previous signed sequence is not silently admitted by edition choice.
+        assert!(activate_signed_local_release_outcome_with_hold_policy(
+            &full,
+            &roots,
+            &b8_process_env(&prefix, &tmp),
+            UpdateHoldPolicy::Enforce,
+            update_edition::Edition::Preserve,
+            None
+        )
+        .is_err());
+        assert_eq!(read_pointer_state(&paths).unwrap().unwrap(), current);
+        remove_temp_root(root);
     }
 }

@@ -280,7 +280,7 @@ pub(super) fn upstream(version: &str, info: Option<&Publication>, include_change
     text
 }
 
-fn fields(
+pub(super) fn fields(
     cursor: &mut JsonCursor<'_>,
     mut read: impl FnMut(&str, &mut JsonCursor<'_>) -> Result<(), LocalProductError>,
 ) -> Result<(), LocalProductError> {
@@ -311,7 +311,7 @@ fn fields(
 }
 
 fn decode(bytes: &[u8], manifest: &LocalReleaseManifest, digest: &str) -> Option<Display> {
-    if bytes.len() > 4096 {
+    if bytes.len() > 16 * 1024 {
         return None;
     }
     let mut cursor = JsonCursor::new(bytes);
@@ -411,7 +411,7 @@ fn is_full(manifest: &LocalReleaseManifest) -> bool {
 fn label_of(manifest: &LocalReleaseManifest) -> String {
     format!(
         "{} #{}",
-        if is_full(manifest) { "Full" } else { "Base" },
+        if is_full(manifest) { "Full" } else { "Core" },
         manifest.release_sequence
     )
 }
@@ -444,8 +444,8 @@ fn render(
     }
     if is_full(target) {
         match display.and_then(|display| display.base) {
-            Some(base) => text.push_str(&format!(" · Base #{base}")),
-            None => text.push_str(" · Base: unavailable"),
+            Some(base) => text.push_str(&format!(" · Core #{base}")),
+            None => text.push_str(" · Core: unavailable"),
         }
     }
     if details {
@@ -471,7 +471,7 @@ fn render(
         if details && is_full(target) {
             let component = display
                 .and_then(|d| d.base)
-                .map(|sequence| format!("Base #{sequence}"))
+                .map(|sequence| format!("Core #{sequence}"))
                 .unwrap_or_else(|| format!("{} package", label_of(target)));
             text.push_str(&format!(
                 "\nCore ({component}) · Published: {}",
@@ -525,26 +525,36 @@ pub(super) fn line(
     current: &LocalReleaseManifest,
     target: &LocalReleaseManifest,
     details: bool,
+    acquired_metadata: Option<&std::path::Path>,
 ) -> String {
+    // Candidate acquisition already owns these optional signed bytes. Reuse
+    // that exact observation, including absence/failure, instead of refetching.
     let sequence = REMOTE_ACQUISITION_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let root = std::env::temp_dir().join(format!(
+    let temporary = std::env::temp_dir().join(format!(
         ".release-display-{}-{sequence}",
         std::process::id()
     ));
-    let display = if create_remote_acquisition_root(&root).is_ok() {
-        let display = (|| {
-            let mut bytes = 0;
-            for (name, limit) in [("component-input-v1", 4096), ("component-input-v1.sig", 64)] {
-                fetch_remote_resource_with_timeout(
-                    roots,
-                    base,
-                    name,
-                    &root.join(name),
-                    limit,
-                    &mut bytes,
-                    "2",
-                )
-                .ok()?;
+    let root = acquired_metadata.unwrap_or(&temporary);
+    let available = acquired_metadata.is_some() || create_remote_acquisition_root(root).is_ok();
+    let display = if available {
+        (|| {
+            if acquired_metadata.is_none() {
+                let mut bytes = 0;
+                for (name, limit) in [
+                    ("component-input-v1", component_metadata::LIMIT),
+                    ("component-input-v1.sig", 64),
+                ] {
+                    fetch_remote_resource_with_timeout(
+                        roots,
+                        base,
+                        name,
+                        &root.join(name),
+                        limit,
+                        &mut bytes,
+                        "2",
+                    )
+                    .ok()?;
+                }
             }
             let payload = root.join("component-input-v1");
             verify_release_signature_with_key(
@@ -557,19 +567,20 @@ pub(super) fn line(
             let digest = openssl_sha256(&roots.openssl, manifest_path).ok()?;
             let data = read_bounded_regular_file(
                 &payload,
-                4096,
+                component_metadata::LIMIT as usize,
                 "read release display",
                 LocalProductError::Release("release display exceeds bound"),
                 LocalProductError::Release("release display is not a regular file"),
             )
             .ok()?;
             decode(&data, target, &digest)
-        })();
-        let _ = std::fs::remove_dir_all(&root);
-        display
+        })()
     } else {
         None
     };
+    if available && acquired_metadata.is_none() {
+        let _ = std::fs::remove_dir_all(&temporary);
+    }
     if !public_origin(&base.value, &target.generation_id) || (!details && current == target) {
         return render(current, target, display.as_ref(), None, None, details);
     }
@@ -741,7 +752,7 @@ mod tests {
         assert!(!unchanged.contains("changes:"));
         assert!(!unchanged.contains("Full notes:"));
         let compact = render(&current, &current, None, Some(&info), Some(&info), false);
-        assert_eq!(compact, "Termux release: Full #59 · Base: unavailable");
+        assert_eq!(compact, "Termux release: Full #59 · Core: unavailable");
         let mut repack = current.clone();
         repack.generation_id = "local-repacked".into();
         repack.release_sequence += 1;
@@ -846,11 +857,11 @@ mod tests {
         };
         assert_eq!(
             render(&previous, &target, Some(&info), None, None, true),
-            "Termux release: Full #57 -> Full #59 · Base #58 · Release date: 2026-10-17 (UTC)"
+            "Termux release: Full #57 -> Full #59 · Core #58 · Release date: 2026-10-17 (UTC)"
         );
         assert_eq!(
             render(&target, &target, None, None, None, true),
-            "Termux release: Full #59 · Base: unavailable · Release date: unavailable"
+            "Termux release: Full #59 · Core: unavailable · Release date: unavailable"
         );
         assert_eq!(
             render(
@@ -865,7 +876,7 @@ mod tests {
                 None,
                 true
             ),
-            "Termux release: Base #59 · Release date: 2026-10-17 (UTC)"
+            "Termux release: Core #59 · Release date: 2026-10-17 (UTC)"
         );
         let legacy=br#"{"schema":"codex-component-input-v1","generation_id":"local-display-test","manifest_sha256":"old"}"#;
         assert!(decode(legacy, &target, "old").is_none());

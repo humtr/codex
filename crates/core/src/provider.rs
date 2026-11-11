@@ -243,6 +243,33 @@ fn selected(
     }
     Ok(manifest)
 }
+/// Offline inventory of Core's independently selected Provider package.
+/// No service, account, login, inference or mutable selection operation runs.
+pub(super) struct Inventory {
+    pub generation: String,
+    pub sequence: u64,
+    pub manifest_digest: String,
+    pub previous: Option<String>,
+}
+pub(super) fn inventory(roots: &LocalCoreRoots) -> Result<Option<Inventory>> {
+    let store = Store::new(roots)?;
+    if fs::symlink_metadata(&store.root).is_err_and(|e| e.kind() == std::io::ErrorKind::NotFound) {
+        return Ok(None);
+    }
+    private_directory(&store.root, false)?;
+    let _lease = store.lease()?;
+    let Some(state) = store.state()? else {
+        return Ok(None);
+    };
+    let manifest = selected(roots, &store, &state.current, state.floor)?;
+    Ok(Some(Inventory {
+        generation: state.current.id,
+        sequence: manifest.sequence,
+        manifest_digest: state.current.digest,
+        previous: state.previous.map(|v| v.id),
+    }))
+}
+
 fn probe(path: &Path, store: &Store) -> Result<()> {
     let output = store.root.join(format!(".probe-{}", std::process::id()));
     let file = fresh(&output)?;

@@ -76,7 +76,7 @@ impl BuildPolicy {
         if !tty {
             return Err(error("missing release needs a build policy; set CODEX_TERMUX_UPDATE_BUILD_POLICY=keep, local or remote (or use --wait/--no-wait)"));
         }
-        eprintln!("Missing qualified artifacts: [1] Keep current  [2] Build locally (prepare required tools)  [3] Request remote build  [q] Keep current");
+        eprintln!("Missing qualified artifacts: [1] Build locally (prepare required tools)  [2] Request remote build  [q] Keep current");
         let mut input = WaitInput::new(true);
         loop {
             let key = input.key();
@@ -92,9 +92,9 @@ impl BuildPolicy {
                 ));
             }
             match key {
-                Some(b'1' | b'q' | b'Q' | 4) => return Ok(Self::Keep),
-                Some(b'2') => return Ok(Self::Local),
-                Some(b'3') => return Ok(Self::Remote),
+                Some(b'q' | b'Q' | 4) => return Ok(Self::Keep),
+                Some(b'1') => return Ok(Self::Local),
+                Some(b'2') => return Ok(Self::Remote),
                 _ => (),
             }
         }
@@ -679,6 +679,7 @@ pub(super) fn finish(
     outcome: SignedUpdateOutcome,
     policy: BuildPolicy,
     no_wait: bool,
+    edition: update_edition::Edition,
     presentation: &mut UpdatePresentation,
 ) -> Result<Completion, LocalProductError> {
     if rollback_guard::effective_update_hold(roots, None)?.is_some() {
@@ -729,7 +730,13 @@ pub(super) fn finish(
         }
         BuildPolicy::Local => {
             let _lease = maintenance::UpdateLease::acquire(roots)?;
-            let result = activate_local_built_update(roots, env, Some(presentation), Some(latest))?;
+            let result = activate_local_built_update_for_edition(
+                roots,
+                env,
+                Some(presentation),
+                Some(latest),
+                edition,
+            )?;
             presentation.finish_local_activation(&result.current_version);
             return Ok(Completion::Exit(0));
         }
@@ -782,11 +789,12 @@ pub(super) fn finish(
         let state = m2_generation_state::read_pointer_state(&paths)
             .map_err(LocalProductError::State)?
             .ok_or(LocalProductError::NoCurrentGeneration)?;
-        let index = match fetch_signed_update_index_with_timeout(roots, state.update_key, "5") {
-            Ok(index) => Some(index),
-            Err(LocalProductError::RemoteTransportFailed { .. }) => None,
-            Err(error) => return Err(error),
-        };
+        let index =
+            match fetch_signed_update_index_for_edition(roots, state.update_key, "5", edition) {
+                Ok(index) => Some(index),
+                Err(LocalProductError::RemoteTransportFailed { .. }) => None,
+                Err(error) => return Err(error),
+            };
         if index
             .as_ref()
             .is_none_or(|index| index.generation_id == seen)
@@ -849,6 +857,7 @@ pub(super) fn finish(
                 roots,
                 env,
                 UpdateHoldPolicy::Enforce,
+                edition,
                 Some(presentation),
             )?
         };
@@ -1234,6 +1243,7 @@ esac"#,
                     }),
                     BuildPolicy::Remote,
                     false,
+                    update_edition::Edition::Preserve,
                     &mut presentation,
                 )
                 .unwrap();
@@ -1265,7 +1275,7 @@ esac"#,
                     assert_eq!(unsafe { kill(probe.child.id() as i32, 18) }, 0);
                     probe.wait_for_input();
                 }
-                probe.master.write_all(b"2").unwrap();
+                probe.master.write_all(b"1").unwrap();
                 let status = probe.wait_exit();
                 let mut output = String::new();
                 probe
@@ -1296,7 +1306,7 @@ esac"#,
             probe.wait_for_input();
             probe
                 .master
-                .write_all(&[probe.original.chars[0], b'2'])
+                .write_all(&[probe.original.chars[0], b'1'])
                 .unwrap();
             assert!(
                 probe.wait_exit().success(),
@@ -1344,7 +1354,7 @@ esac"#,
                         .write_all(&[probe.original.chars[index]])
                         .unwrap();
                 }
-                probe.master.write_all(b"2").unwrap();
+                probe.master.write_all(b"1").unwrap();
                 assert!(
                     probe.wait_exit().success(),
                     "ignored signal {number} ended the updater"

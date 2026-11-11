@@ -21,7 +21,8 @@ envelope rather than concatenated documents:
     "layout": "root-code-mode-host-v2",
     "runtime": {"status": "healthy"},
     "code_mode_host": {"status": "healthy"},
-    "sandbox": {"status": "unsupported", "reason": "bwrap is not used"}
+    "sandbox": {"status": "unsupported", "reason": "bwrap is not used",
+                "classification": "platform_limitation", "severity": "info"}
   },
   "manager": {},
   "summary": {}
@@ -79,3 +80,10 @@ with `compat/codex-code-mode-host` only as a bounded migration input; it never
 produces that layout, and it never treats an unlisted root-level symlink as the
 companion. The next authenticated generation is the required permanent repair
 for such an old layout.
+
+The ordinary Termux no-bwrap environment is informational and contributes no
+warning by itself. Explicit unsupported sandbox requests still fail at execution;
+actual approval/Auto Review, authentication, Native, metadata and SQLite/rollout
+failures retain their existing failure boundaries. A platform limitation is not
+proof that sandboxing or a requested approval policy was enforced. Doctor never
+repairs user databases or rewrites rollout records.

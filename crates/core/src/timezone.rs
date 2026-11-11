@@ -17,6 +17,15 @@ const DATABASE_BYTE_LIMIT: usize = 16 * 1024 * 1024;
 const ZONE_BYTE_LIMIT: usize = 1024 * 1024;
 
 pub(super) fn configure(command: &mut Command) {
+    // A version query is an upstream metadata contract. It starts no work and
+    // must not write a timezone cache or acquire extra diagnostic stderr.
+    if command
+        .get_args()
+        .next()
+        .is_some_and(|arg| arg == "--version" || arg == "-V")
+    {
+        return;
+    }
     if !Path::new("/system/bin/getprop").is_file() {
         return;
     }
