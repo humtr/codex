@@ -278,6 +278,7 @@ def prove(source,inputs,candidate,log_root,run_id):
 def admit_published_candidate(source,candidate,value,run):
     """A qualified unsigned selection can bind a future separately signed issue."""
     sha=git(source,'rev-parse','HEAD').decode().strip()
+    validate_receipt(value,run,sha)
     version,components=selected(source,candidate)
     if (not accepted_run(run,'full-qualification.yml',sha)
             or not isinstance(value,dict) or set(value)!={'schema','source_sha','upstream_version','generation_id','run_id',
@@ -305,22 +306,87 @@ def admit_published_candidate(source,candidate,value,run):
     return value
 
 
-def require_qualified_full(source,candidate,directory,request=api,lookup=successful_run,fetch=gh):
-    sha=git(source,'rev-parse','HEAD').decode().strip()
+def validate_receipt(value,run,sha):
+    """Admit a completed source run's digest-bound receipt before publication."""
+    fields={'schema','source_sha','upstream_version','generation_id','run_id','component_runs',
+            'components','inventory','candidate_sha256','descriptor_sha256','composition_sha256',
+            'checks','execution_outputs'}
+    digest=lambda item:isinstance(item,str) and re.fullmatch('[0-9a-f]{64}',item) is not None
+    if (not accepted_run(run,'full-qualification.yml',sha) or not isinstance(value,dict) or set(value)!=fields
+            or value['schema']!='codex-full-qualification-v1' or value['source_sha']!=sha
+            or not isinstance(value['upstream_version'],str)
+            or re.fullmatch('[0-9]+[.][0-9]+[.][0-9]+',value['upstream_version']) is None
+            or value['generation_id']!='full-qualification-'+value['upstream_version'].replace('.','-')+'-'+sha[:12]
+            or value['run_id']!=str(run['id']) or not isinstance(value['component_runs'],dict)
+            or set(value['component_runs'])!=set(WORKFLOWS)
+            or any(type(number) is not int or number<=0 for number in value['component_runs'].values())
+            or any(not digest(value[key]) for key in ('candidate_sha256','descriptor_sha256','composition_sha256'))
+            or value['checks']!=['qualified-component-inputs','full-android-interface-probes','runtime-and-tui-version']):
+        raise ValueError('Full qualification receipt source or execution boundary differs')
+    components=value['components'];inventory=value['inventory'];outputs=value['execution_outputs']
+    if (not isinstance(components,dict) or set(components)!={'core','runtime','manager','tui'}
+            or not isinstance(inventory,dict) or set(inventory)!=set(EXTENDED_FILES)
+            or not isinstance(outputs,dict) or set(outputs)!={'manager','core','runtime','tui'}
+            or any(not digest(item) for item in outputs.values())):
+        raise ValueError('Full receipt complete component inventory differs')
+    expected_outputs={'manager':b'codex-manager-artifact-v1\ncore_api=codex-manager-core-v1\n',
+                      'runtime':('codex-cli '+value['upstream_version']+'\n').encode(),
+                      'tui':('codex-cli '+value['upstream_version']+'\n').encode()}
+    if any(outputs[name]!=hashlib.sha256(output).hexdigest() for name,output in expected_outputs.items()):
+        raise ValueError('Full receipt version or Manager execution output differs')
+    for name,entry in inventory.items():
+        if (not isinstance(entry,dict) or set(entry)!={'sha256','mode','bytes'} or not digest(entry['sha256'])
+                or entry['mode']!=EXTENDED_FILES[name] or type(entry['bytes']) is not int
+                or not 0<=entry['bytes']<=536870912):
+            raise ValueError('Full receipt payload identity differs')
+    for name,path in {'core':'core','runtime':'runtime','manager':'manager','tui':'helpers/2'}.items():
+        entry=components[name]
+        if (not isinstance(entry,dict) or set(entry)!={'inputs_sha256','artifact_sha256','interface'}
+                or not digest(entry['inputs_sha256']) or entry['artifact_sha256']!=inventory[path]['sha256']
+                or not isinstance(entry['interface'],str)
+                or re.fullmatch('[A-Za-z0-9._:-]{1,96}',entry['interface']) is None):
+            raise ValueError('Full receipt component digest differs')
+    selected={name:{'sha256':entry['sha256'],'mode':int(entry['mode'],8),'size':entry['bytes']}
+              for name,entry in inventory.items()}
+    if value['candidate_sha256']!=hashlib.sha256(canonical(selected)).hexdigest():
+        raise ValueError('Full receipt candidate digest differs')
+    return value
+
+
+def read_qualified_full(sha,directory,request=api,lookup=successful_run,fetch=gh):
+    """Read-only admission; absence grants no Full publication authority."""
+    if not isinstance(sha,str) or re.fullmatch('[0-9a-f]{40}',sha) is None:
+        raise ValueError('Full proof requires exact source')
     run,_=lookup('full-qualification.yml',sha)
-    if run is None or not accepted_run(run,'full-qualification.yml',sha):
-        raise ValueError('selected Full needs a successful exact-source composition qualification')
+    if run is None or not accepted_run(run,'full-qualification.yml',sha):return None
+    if type(run.get('id')) is not int or run['id']<=0:raise ValueError('Full run identity is invalid')
     page=request('actions/runs/'+str(run['id'])+'/artifacts?per_page=100')
-    if page['total_count']!=len(page['artifacts']):raise ValueError('incomplete Full proof artifact listing')
+    if page['total_count']!=len(page['artifacts']) or len(page['artifacts'])>100:
+        raise ValueError('incomplete Full proof artifact listing')
     matches=[entry for entry in page['artifacts'] if entry['name']=='full-composition-qualification' and entry['expired'] is False]
     if len(matches)!=1:raise ValueError('Full composition proof is missing, expired or ambiguous')
     directory.mkdir(mode=0o700)
     fetch('run','download',str(run['id']),'--repo',REPO,'--name','full-composition-qualification','--dir',str(directory))
     value=json.loads(regular(directory/'full-qualification.json',32768),object_pairs_hook=unique)
-    admit_published_candidate(source,candidate,value,run)
+    validate_receipt(value,run,sha)
+    current=request('actions/runs/'+str(run['id']))
+    if current.get('id')!=run['id'] or not accepted_run(current,'full-qualification.yml',sha):
+        raise ValueError('Full run no longer qualifies')
     for name,number in value['component_runs'].items():
         actual=request('actions/runs/'+str(number))
-        if not accepted_run(actual,WORKFLOWS[name],sha):raise ValueError('Full component run no longer qualifies: '+name)
+        if actual.get('id')!=number or not accepted_run(actual,WORKFLOWS[name],sha):
+            raise ValueError('Full component run no longer qualifies: '+name)
+    return run,value
+
+
+def require_qualified_full(source,candidate,directory,request=api,lookup=successful_run,fetch=gh):
+    sha=git(source,'rev-parse','HEAD').decode().strip()
+    admitted=read_qualified_full(sha,directory,request,lookup,fetch)
+    if admitted is None:raise ValueError('selected Full needs a successful exact-source composition qualification')
+    run,value=admitted
+    # The earlier controller receipt is not signing authority: compare every
+    # actual candidate byte, normalized descriptor and input again here.
+    admit_published_candidate(source,candidate,value,run)
     return value
 
 

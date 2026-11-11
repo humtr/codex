@@ -20,6 +20,7 @@ from tui_artifact import verify as verify_frontend, verify_recipe
 from upstream_release import load, build_recipe, bind_frontend
 from release_components import base_fingerprint, verified_published_base
 from release_preflight import stable_version
+from full_qualification import read_qualified_full
 
 from qualification_signal import (REPO, SOURCE_BRANCH, GitHubFailure, gh, api,
                                   owned_run, accepted_run, successful_run)
@@ -90,7 +91,22 @@ def registered_frontend(value, product, main):
     return bind_frontend(value,product,encoded)['frontend']
 
 
-def ensure_frontend(source, current, root, pinned):
+def publish_frontend_input(item):
+    bundle,tag,name,directory=item['bundle'],item['tag'],item['name'],item['directory']
+    listed=api('releases?per_page=100')
+    existing=next((release for release in listed if release['tag_name']==tag),None)
+    if existing is None:
+        gh('release','create',tag,str(bundle),'--repo',REPO,'--target','main',
+           '--title','Qualified unsigned frontend '+item['version'],
+           '--notes','Exact native source '+item['source']+' and execution evidence; the tag is a container on main, not source authority.',
+           '--prerelease','--latest=false')
+    readback=directory/'readback';readback.mkdir()
+    gh('release','download',tag,'--repo',REPO,'--pattern',name,'--dir',str(readback))
+    if (readback/name).read_bytes()!=bundle.read_bytes():
+        raise ValueError('immutable frontend input readback differs; never overwrite it')
+
+
+def ensure_frontend(source, current, root, pinned, *, pending, required_run_id=None):
     value = load(source/'release/upstream.json')
     value['frontend'] = pinned
     native = None
@@ -107,6 +123,12 @@ def ensure_frontend(source, current, root, pinned):
         if (accepted_run(run, 'manager-tui-native.yml', run['head_sha'])
                 and all(run['id'] != candidate['id'] for candidate in candidates)):
             candidates.append(run)
+    if required_run_id is not None:
+        if type(required_run_id) is not int or required_run_id<=0:raise ValueError('invalid Full-selected frontend run')
+        exact=api('actions/runs/'+str(required_run_id))
+        if not accepted_run(exact,'manager-tui-native.yml',current):
+            raise ValueError('Full-selected frontend no longer qualifies for this source')
+        candidates=[exact]
     for index, run in enumerate(candidates):
         if not frontend_recipe_matches(source,run['head_sha']):
             continue  # Reject stale recipes before downloading large outputs.
@@ -154,17 +176,9 @@ def ensure_frontend(source, current, root, pinned):
         name='manager-tui-inputs-'+value['upstream']['version']+'-'+run['head_sha'][:12]+'.tar.gz'
         bundle=directory/name;bundle.write_bytes(bundle_inputs(artifact,proof))
         checksum=hashlib.sha256(bundle.read_bytes()).hexdigest()
-        listed=api('releases?per_page=100')
-        existing=next((release for release in listed if release['tag_name']==tag),None)
-        if existing is None:
-            gh('release','create',tag,str(bundle),'--repo',REPO,'--target','main',
-               '--title','Qualified unsigned frontend '+value['upstream']['version'],
-               '--notes','Exact native source '+run['head_sha']+' and execution evidence; the tag is a container on main, not source authority.',
-               '--prerelease','--latest=false')
-        readback=directory/'readback';readback.mkdir()
-        gh('release','download',tag,'--repo',REPO,'--pattern',name,'--dir',str(readback))
-        if (readback/name).read_bytes()!=bundle.read_bytes():
-            raise ValueError('immutable frontend input readback differs; never overwrite it')
+        publication={'bundle':bundle,'tag':tag,'name':name,'directory':directory,
+                     'version':value['upstream']['version'],'source':run['head_sha']}
+        pending.append(publication)
         value['frontend']={'source':run['head_sha'],'run_id':str(run['id']),'sha256':digest,
             'input_url':'https://github.com/'+REPO+'/releases/download/'+tag+'/'+name,'input_sha256':checksum}
         return value
@@ -318,34 +332,67 @@ def run(source, requested_upstream=None):
                         'run_id':failed['id'],'conclusion':failed.get('conclusion'),
                         'url':'https://github.com/'+REPO+'/actions/runs/'+str(failed['id'])}
             return {'state':'awaiting-exact-proof','workflow':workflow,'source':current}
-    value=None
-    if product==current or registration_pending:
-        with tempfile.TemporaryDirectory(prefix='release-inputs-',dir=os.environ.get('TMPDIR')) as temporary:
-            value=ensure_frontend(source,product,Path(temporary),registered)
-    selected = value if value is not None else {**before,'frontend':registered}
-    binding = {'source': product, 'frontend': selected['frontend']}
-    changed_binding = selected['frontend'] != registered
-    if previous==product and not changed_binding and requested_upstream is None:
-        return {'state':'already-pinned','source':current}
-    public_runs=api('actions/workflows/auto-release-termux.yml/runs?branch=main&per_page=100')['workflow_runs']
-    if any(run['status'] != 'completed' for run in public_runs):
-        return {'state':'awaiting-publication','source':current}
-    if not caller_compatible(source,main):
-        return {'state':'awaiting-accepted-caller-repin','source':current,'main':main}
-    variant=release_lane(source,previous,product,main)
-    if selected['frontend'] is None:
-        variant='base'
-    if previous==product and not changed_binding:
+    with tempfile.TemporaryDirectory(prefix='release-inputs-',dir=os.environ.get('TMPDIR')) as temporary:
+        root=Path(temporary);pending=[]
+        value=None
+        if product==current or registration_pending:
+            selection=root/'frontend';selection.mkdir()
+            value=ensure_frontend(source,product,selection,registered,pending=pending)
+        selected = value if value is not None else {**before,'frontend':registered}
+        binding = {'source': product, 'frontend': selected['frontend']}
+        changed_binding = selected['frontend'] != registered
+        if previous==product and not changed_binding and requested_upstream is None:
+            return {'state':'already-pinned','source':current}
+        public_runs=api('actions/workflows/auto-release-termux.yml/runs?branch=main&per_page=100')['workflow_runs']
+        if any(run['status'] != 'completed' for run in public_runs):
+            return {'state':'awaiting-publication','source':current}
+        if not caller_compatible(source,main):
+            return {'state':'awaiting-accepted-caller-repin','source':current,'main':main}
+        variant=release_lane(source,previous,product,main)
+        if selected['frontend'] is None:
+            if variant=='full':
+                return {'state':'awaiting-exact-proof','workflow':'manager-tui-native.yml','source':product}
+            variant='base'
+        if variant in ('full','both'):
+            admitted=read_qualified_full(product,root/'full-proof')
+            if admitted is None:
+                if variant=='full':
+                    return {'state':'awaiting-exact-proof','workflow':'full-qualification.yml','source':product}
+                # Both lanes explicitly permit the independent Core first.
+                # Do not publish an unqualified optional frontend along with it.
+                variant='base';pending.clear()
+                selected={**selected,'frontend':None}
+                binding={'source':product,'frontend':None}
+                changed_binding=registered is not None
+            else:
+                _,proof=admitted
+                if proof['upstream_version']!=before['upstream']['version']:
+                    raise ValueError('Full-qualified upstream version differs; publication not started')
+                required=proof['component_runs']['tui']
+                if selected['frontend']['run_id']!=str(required):
+                    pending.clear()
+                    selection=root/'qualified-frontend';selection.mkdir()
+                    selected=ensure_frontend(source,product,selection,registered,
+                                             pending=pending,required_run_id=required)
+                    if selected['frontend'] is None or selected['frontend']['run_id']!=str(required):
+                        raise ValueError('Full-qualified frontend bytes are unavailable; publication not started')
+                    binding={'source':product,'frontend':selected['frontend']}
+                    changed_binding=selected['frontend']!=registered
+        if api('git/ref/heads/main')['object']['sha']!=main:
+            raise ValueError('publication main moved before qualified selection')
+        for publication in pending:publish_frontend_input(publication)
+        if previous==product and not changed_binding:
+            dispatch('auto-release-termux.yml','main',{'publish':'true','rebuild_current':'true','variant':variant,
+                                                    'upstream_version':before['upstream']['version']})
+            return {'state':'requested-build-started','source':product,'version':requested_upstream,'variant':variant}
+        promoted=commit_files('main',main,{
+            'release-source-v1':(product+'\n').encode(),
+            'release-frontend-v1':(json.dumps(binding,sort_keys=True)+'\n').encode(),
+        }, 'Pin accepted source and qualified composition results '+product[:12])
         dispatch('auto-release-termux.yml','main',{'publish':'true','rebuild_current':'true','variant':variant,
                                                 'upstream_version':before['upstream']['version']})
-        return {'state':'requested-build-started','source':product,'version':requested_upstream,'variant':variant}
-    promoted=commit_files('main',main,{
-        'release-source-v1':(product+'\n').encode(),
-        'release-frontend-v1':(json.dumps(binding,sort_keys=True)+'\n').encode(),
-    }, 'Pin accepted source and qualified composition results '+product[:12])
-    dispatch('auto-release-termux.yml','main',{'publish':'true','rebuild_current':'true','variant':variant,
-                                            'upstream_version':before['upstream']['version']})
-    return {'state':'accepted-product-pinned-public-proof-started','source':product,'main':promoted}
+        return {'state':'accepted-product-pinned-public-proof-started','source':product,'main':promoted}
+
 
 
 

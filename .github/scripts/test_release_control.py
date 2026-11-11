@@ -20,6 +20,14 @@ class ReleaseControlTests(unittest.TestCase):
         permission = patch.object(control, 'release_authorized', return_value=True)
         permission.start()
         self.addCleanup(permission.stop)
+        # These established publication tests model an already accepted Full;
+        # missing/invalid composition and no-side-effect gates have dedicated
+        # test_full_publication_admission.py oracles.
+        composition = patch.object(control, 'read_qualified_full',
+                                   return_value=({'id':99},{'component_runs':{'tui':123},
+                                       'upstream_version':control.load(Path(__file__).resolve().parents[2]/'release/upstream.json')['upstream']['version']}))
+        composition.start()
+        self.addCleanup(composition.stop)
 
     def test_documentation_head_requests_the_existing_accepted_product_without_a_rebuild_or_pointer_write(self):
         root=Path(__file__).resolve().parents[2];head='a'*40;product='c'*40
@@ -83,7 +91,7 @@ class ReleaseControlTests(unittest.TestCase):
                  patch.object(control,'verify_frontend') as verify,patch.object(control,'dispatch') as dispatch:
                 value=control.load(source/'release/upstream.json')
                 registered=control.registered_frontend(value,sha,'b'*40)
-                selected=control.ensure_frontend(source,sha,destination,registered)
+                selected=control.ensure_frontend(source,sha,destination,registered,pending=[])
                 self.assertEqual(selected['frontend'],pinned)
                 self.assertEqual((destination/'0/artifact/codex').read_bytes(),binary)
                 self.assertEqual(verify.call_args.args[0].source_sha,sha)
