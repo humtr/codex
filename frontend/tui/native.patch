@@ -700,7 +700,7 @@ index 3d1c608ca1..ce94da5326 100644
          config_notification_test_generation: 0,
          config_notification_test_pending: None,
 diff --git a/codex-rs/tui/src/app/tests.rs b/codex-rs/tui/src/app/tests.rs
-index f8d8f9a909..e19377ca26 100644
+index f8d8f9a909..0120534207 100644
 --- a/codex-rs/tui/src/app/tests.rs
 +++ b/codex-rs/tui/src/app/tests.rs
 @@ -95,7 +95,7 @@ mod recap_generation;
@@ -712,7 +712,82 @@ index f8d8f9a909..e19377ca26 100644
  mod startup;
  #[path = "tests/startup_frame_tests.rs"]
  mod startup_frame_tests;
-@@ -3731,7 +3731,7 @@ async fn remote_resume_rejects_explicit_permission_override() -> Result<()> {
+@@ -976,6 +976,74 @@ async fn enqueue_primary_thread_session_replays_turns_before_initial_prompt_subm
+     Ok(())
+ }
+ 
++#[tokio::test]
++async fn enqueue_primary_thread_session_submits_checkpoint_after_replayed_quota_error() -> Result<()>
++{
++    let (mut app, mut events, _ops) = make_test_app_with_channels().await;
++    let thread = ThreadId::new();
++    let checkpoint = "Continue the saved conversation without repeating completed tools.";
++    set_test_initial_prompt(&mut app, checkpoint.into());
++    app.chat_widget.update_account_state(None, None, true, true);
++    while events.try_recv().is_ok() {}
++    let session = test_thread_session(thread, test_path_buf("/tmp/project"));
++    let expected_model = session.model.clone();
++    let mut previous = test_turn(
++        "previous-account-turn",
++        TurnStatus::Failed,
++        vec![ThreadItemPayload::UserMessage {
++            id: "previous-input".into(),
++            client_id: None,
++            content: vec![AppServerUserInput::Text {
++                text: "the original request".into(),
++                text_elements: Vec::new(),
++            }],
++        }],
++    );
++    previous.error = Some(serde_json::from_value(serde_json::json!({
++        "message": "Previous account reached its usage limit.",
++        "codexErrorInfo": "usageLimitExceeded",
++        "additionalDetails": null
++    }))?);
++    app.enqueue_primary_thread_session(session, vec![previous])
++        .await?;
++    app.chat_widget.submit_initial_user_message_if_pending();
++    let mut submissions = Vec::new();
++    let mut history = String::new();
++    while let Ok(event) = events.try_recv() {
++        match event {
++            AppEvent::SubmitThreadOp {
++                thread_id,
++                op: Op::UserTurn { items, .. },
++            } => {
++                assert_eq!(thread_id, thread);
++                submissions.push(items);
++            }
++            AppEvent::CodexOp(Op::UserTurn { items, .. }) => submissions.push(items),
++            AppEvent::RefreshRateLimits {
++                origin: RateLimitRefreshOrigin::Recovery,
++            } => {
++                panic!("historical account quota must not gate the resumed checkpoint");
++            }
++            AppEvent::InsertHistoryCell(cell) => {
++                history.push_str(&lines_to_single_string(&cell.transcript_lines(100)));
++            }
++            _ => {}
++        }
++    }
++    assert_eq!(
++        submissions,
++        vec![vec![UserInput::Text {
++            text: checkpoint.into(),
++            text_elements: Vec::new(),
++        }]]
++    );
++    assert!(history.contains("the original request"));
++    assert!(history.contains("Previous account reached its usage limit."));
++    assert_eq!(app.chat_widget.thread_id(), Some(thread));
++    assert_eq!(app.chat_widget.current_model(), expected_model);
++    Ok(())
++}
++
+ #[tokio::test]
+ async fn reset_thread_event_state_aborts_listener_tasks() {
+     struct NotifyOnDrop(Option<tokio::sync::oneshot::Sender<()>>);
+@@ -3731,7 +3799,7 @@ async fn remote_resume_rejects_explicit_permission_override() -> Result<()> {
              },
              super::resume_preparation::ResumeSource::Backend(&settings),
          )
@@ -721,7 +796,7 @@ index f8d8f9a909..e19377ca26 100644
      assert!(matches!(result, Err(AppRunControl::Continue)));
      assert_eq!(app.active_thread_id, None);
      let cell = std::iter::from_fn(|| events.try_recv().ok())
-@@ -6546,6 +6546,10 @@ async fn make_test_app() -> Box<App> {
+@@ -6546,6 +6614,10 @@ async fn make_test_app() -> Box<App> {
      let session_telemetry = test_session_telemetry(&config, model.as_str());
  
      Box::new(App {
@@ -732,7 +807,7 @@ index f8d8f9a909..e19377ca26 100644
          feature_write_lock: Arc::default(),
          config_notification_test_generation: 0,
          config_notification_test_pending: None,
-@@ -6673,6 +6677,10 @@ pub(super) async fn make_test_app_with_channels() -> (
+@@ -6673,6 +6745,10 @@ pub(super) async fn make_test_app_with_channels() -> (
  
      (
          Box::new(App {
@@ -743,7 +818,7 @@ index f8d8f9a909..e19377ca26 100644
              feature_write_lock: Arc::default(),
              config_notification_test_generation: 0,
              config_notification_test_pending: None,
-@@ -7668,7 +7676,7 @@ fn test_turn(turn_id: &str, status: TurnStatus, items: Vec<ThreadItemPayload>) -
+@@ -7668,7 +7744,7 @@ fn test_turn(turn_id: &str, status: TurnStatus, items: Vec<ThreadItemPayload>) -
      }
  }
  
@@ -752,7 +827,7 @@ index f8d8f9a909..e19377ca26 100644
      ServerNotification::TurnStarted(TurnStartedNotification {
          thread_id: thread_id.to_string(),
          turn: Turn {
-@@ -7678,7 +7686,7 @@ fn turn_started_notification(thread_id: ThreadId, turn_id: &str) -> ServerNotifi
+@@ -7678,7 +7754,7 @@ fn turn_started_notification(thread_id: ThreadId, turn_id: &str) -> ServerNotifi
      })
  }
  
@@ -761,7 +836,7 @@ index f8d8f9a909..e19377ca26 100644
      thread_id: ThreadId,
      turn_id: &str,
      status: TurnStatus,
-@@ -8652,7 +8660,7 @@ async fn in_app_resume_uses_configured_or_explicit_cwd() -> Result<()> {
+@@ -8652,7 +8728,7 @@ async fn in_app_resume_uses_configured_or_explicit_cwd() -> Result<()> {
                  },
                  super::resume_preparation::ResumeSource::Backend(&settings),
              )
