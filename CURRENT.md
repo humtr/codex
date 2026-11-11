@@ -12,10 +12,10 @@ This integration starts from `7b98296a411a2c435bb9f34ee51f286f33f3491b`
 in an independent `integration/release-framework-20261112` worktree.
 Feature commits are fast-forward integrated into that official development
 branch; the primary checkout remains on its protected older lineage. The
-remote checkpoint `787fcd2bc6708941ffbdd6a193bae35d3b8478a5` passed Source,
+remote checkpoint `62d10cf16d9edd3de0a678e61b049275159e50a7` passed Source,
 Core/Runtime, Manager, Provider and stock Android qualification. Full TUI and
-Full composition retain their separate exact-source gates. Later formal consumer
-and current-selection changes require their affected exact-source gates; query
+Full composition retain their separate exact-source gates. Later reentry-lifetime, private-handoff and source-bound Native changes require
+their affected exact-source gates; query
 the actual HEAD and its Checks before relying on an earlier checkpoint.
 
 The independently read remote `main` is
@@ -201,14 +201,29 @@ manual profile switch. This was the Native enum string `none`, not JSON null.
 The target profile had different OpenAI/low/priority defaults; only two original
 synthetic responses had occurred and no destination follow-up was submitted.
 The failure receipt is `02d20ac216a71f5e0d224731fc1f700edbcae58f6817e7833501e0d35001ec73`.
-Source f915344e/f1491afb now captures the current collaboration selection,
-verifies the exact Native thread/model/Provider/effort without a resume effect,
-and uses the existing private saved-selection mode to avoid stale destination
-overrides. Ordinary resume tier options and permission/reviewer authority stay
-intact. Four new Rust regressions cover current/default differences, nullable
-versus explicit-none effort, Native readback and private/ordinary resume. CI
-requires each actual named PASS; their hosted execution and the corrected
-actual changed-selection trial remain acceptance gates.
+Source f915344e/f1491afb captures the current collaboration selection and
+verifies the exact Native thread/model/Provider/effort without a resume effect.
+The later cc0e117b/c0d02750 correction consumes a typed, same-PID initial
+reentry intent before either frontend entrypoint starts threads. All five Core
+Runtime producers remove that private mode/PID from children. Initial reentry
+restores Native-saved model/effort/tier; later ordinary resume does not reuse
+that initial tier decision or stale launch-map model defaults. Four focused
+Core tests, the actual seven-case process environment fixture and complete
+frontend Python suite passed; the integrated frontend/checker/workflow/docs
+run passed 10/2/13/10 tests respectively, all exit 0. The exact-source hosted
+TUI gate now requires all 19 named passes; it has not yet qualified this source.
+
+A further actual producer review found that old S165/d2 profile handoffs can
+forward stale launch flags without that bound intent. Source 52d52426 therefore
+rejects private profile v1/v2 and quota handoffs before Manager context, usage,
+cooldown or Native processing. Public profile selection and ordinary explicit
+CLI options retain their contract. The old frontend may already have exited
+and released normally; rejection starts no further resume or record mutation.
+Held-Writer/file-inventory negatives and a real same-PID exec positive passed.
+The complete Manager suite passed **138 tests (60 library, 77 process, one
+window), zero failed or ignored**, plus strict all-target clippy and docs gates.
+Final-current positive and intentional old-generation negative PTY trials remain
+separate acceptance tasks; old signed frontends were not modified.
 Historical quota replay now restores display history without starting new
 account recovery. The receipt digest is
 `217048f8b2e750c6bfda0d21c7368fdd745cec820591c4afd8d8cf409caf1ff3`.
@@ -254,6 +269,30 @@ A one-line test-only reference-slice correction in 54e3328a then passed strict
 all-target clippy and all four terminal-session regression tests. These counts
 are not added to earlier repeated suites. The warm-owner compiler proof is
 not relabeled as a live restart trial.
+
+A real source-bound compiler trial then exposed a missing production handoff:
+Operator verified the Core Owner/workspace, but submitted ModelAdapter requests
+lost those execution facts before McpBridge registered the turn. The original
+compiler was admitted without a bounded receipt. Its original cleanup Stop ACK
+remains unconfirmed; later Native history showed an interrupted command with
+exit -1 and a notLoaded thread. That readback found no shared claims, while the isolated
+Provider receipt remains reconciliation-required. The original effect, receipt
+and owned Runtime were preserved; no new-ID rerun or retroactive scope was used.
+
+Source 911ceeb9 now carries only verified private scope through ordinary and
+gateway-correction submissions, strips it before remote admission/dispatch, and
+commits next sampling facts with original results under the existing lock. A
+durable original-offer reservation fact preserves settlement across commit/
+restart even when later hook facts classify differently. Exact legacy ToolSearch
+reservations are reconciled by their original identity; positively unreserved
+reads remain independent of an unrelated broken ledger. Two commit/restart
+failures and a legacy ToolSearch failure were reproduced before the fix; all ten
+focused cases then passed. The full Provider all-target suite passed **374 tests,
+zero failed, 34 unchanged explicit opt-in ignores**, exit 0 in 337.83 seconds;
+strict clippy and final formatting/diff gates passed. An initial formatting-only
+failure remains recorded; Cargo-normalized before/after text proved unchanged
+semantics. The corrected actual cold-compiler trial and exact-source hosted
+qualification remain distinct pending gates.
 
 The existing selected-controls qualifier also passed on a Core-only fixture:
 21.18 seconds, exit 0, no Manager/Enhanced and zero model requests. Its checked
@@ -428,15 +467,15 @@ Accepted baseline and integration checkpoint receipts:
 | same | TUI Native Qualification | [43013363622](https://github.com/humtr/codex/actions/runs/43013363622) | success |
 
 The 7b98296 receipts supersede the earlier f9dfc3f failure only as baseline
-proof. Integration checkpoint `787fcd2bc6708941ffbdd6a193bae35d3b8478a5`:
+proof. Integration checkpoint `62d10cf16d9edd3de0a678e61b049275159e50a7`:
 
 | Workflow | Run | Conclusion |
 | --- | --- | --- |
-| Source Acceptance | [43104266073](https://github.com/humtr/codex/actions/runs/43104266073) | success |
-| Core/Runtime Qualification | [43104266214](https://github.com/humtr/codex/actions/runs/43104266214) | success |
-| Manager Qualification | [43104266119](https://github.com/humtr/codex/actions/runs/43104266119) | success |
-| Provider Qualification | [43104266147](https://github.com/humtr/codex/actions/runs/43104266147) | success |
-| Stock Android window | [43104266064](https://github.com/humtr/codex/actions/runs/43104266064) | success |
+| Source Acceptance | [43109845874](https://github.com/humtr/codex/actions/runs/43109845874) | success |
+| Core/Runtime Qualification | [43109846716](https://github.com/humtr/codex/actions/runs/43109846716) | success |
+| Manager Qualification | [43109845674](https://github.com/humtr/codex/actions/runs/43109845674) | success |
+| Provider Qualification | [43109845502](https://github.com/humtr/codex/actions/runs/43109845502) | success |
+| Stock Android window | [43109845521](https://github.com/humtr/codex/actions/runs/43109845521) | success |
 
 At cf849ac3, the actual Core producer built SHA256 `48c041e4…f4596f` once. Source Acceptance
 restored and reverified the same bytes/input/original production run and skipped

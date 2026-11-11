@@ -10,8 +10,8 @@ Git history preserves the completed plan and its source provenance.
 
 Official input: `7b98296a411a2c435bb9f34ee51f286f33f3491b`, upstream
 0.167.1 / `0a94398fa60c4fac0e7659e4213a0a36e613dd46`.
-One integration worktree and three isolated feature worktrees share this
-baseline. No primary-checkout reset, cleanup or branch switch is allowed.
+One integration worktree and owner-isolated feature worktrees share this
+baseline; later focused worktrees start from frozen integration checkpoints. No primary-checkout reset, cleanup or branch switch is allowed.
 One Writer owns each overlapping file; transfers are explicit.
 
 **Decision A:** rewrite/rust-core is the one continuing development source.
@@ -75,12 +75,12 @@ Owner database or alternate Writer controller.
 | W12 | Offline Core-owned version JSON/details, optional components and legacy unknown revisions | Integration; termux_version.rs, component_metadata.rs, provider.rs | Local Core 271/0 and installed read-only candidate passed |
 | W13 | No-bwrap is normal platform information; explicit unsupported requests and real failures remain failures | Integration; Core Doctor path and DOCTOR norm | Local Core/Doctor passed; exact hosted qualification |
 | W14 | Signed Core/Full fixtures, rollback, mismatched edition, noninteractive/version coverage | Integration; Core tests | Local signed fixtures/menu passed; exact hosted results |
-| W15 | Original P0, hook-aware scopes, running/final-poll continuity and immutable cold receipt-chain readback | Native; native_claims/effect, mcp, native_route.patch, lifecycle tests | Actual Core-only compilers overlap 5.760s; 364 Provider tests and actual Controller/Stop/StopTree/queue controls passed; final-source CI remains |
+| W15 | Original P0, verified submitted/attached scopes, durable original reservations, running/final-poll continuity and immutable cold receipt-chain readback | Native; native_claims/effect, mcp, native_route.patch, lifecycle tests | Warm compilers overlap 5.760s; new scope/commit/restart regression10 and Provider374 pass; corrected cold-source trial and final-source CI remain |
 | W16 | Exact Owner/home display, default-off auto, short descriptor-transition locks and unsafe-route rejection | Integration/Release after file-lease transfer; Manager terminal/window/task, Provider callback | Actual stock Android 66edd08d success; final source/device boundary retained |
 | W17 | Fresh authenticated ChatGPT catalog, independent inference auth, stable stored Provider/model IDs | Models; models/control/projection and Provider docs | Candidate hosted tests; reuse operating live model loop only within stated boundary |
 | W18 | One independent shell, original-call replay, conflicts, bounded output/process cleanup; common annotations unchanged | Integration; termux_shell, worker, candidate.py, connector refresh and qualification | Standalone candidate worker and actual connected replay during bounded Native Busy passed; final-source Provider CI remains |
 | W19 | OpenAI upstream-only; ChatGPT account catalog-only through picker/direct input/reentry/effort; preserve upstream command-name completion | Models; termux_chat_models, input preparation, TUI patch | Candidate full TUI, provider transitions and unsupported-model errors |
-| W20 | Decode known legacy owner records safely; preserve current Native-accepted selection, same thread and quota checkpoint; keep private restore distinct from ordinary resume | Native/Models; runtime-binding/native, profile_transport, profile_manager, app_server_session and quota replay | Ordinary manual switch passed; old d2 changed-selection regression reproduced; final corrected trial and four named Rust PASS gates remain |
+| W20 | Decode legacy owners safely; preserve current Native selection/thread; consume initial intent once, fence Native children and reject unsupported private handoffs | Native/Models; runtime-binding/native, profile_transport, profile_manager, app_server_session and quota replay | Ordinary manual switch passed; old d2 regression reproduced; Manager138 and process-bound intent checks pass; final-current/legacy trials and hosted19 named gates remain |
 
 ## Source provenance and independent review
 

@@ -69,6 +69,20 @@ mixed-binary activation must account for that older unrecorded-effect boundary.
 No source compatibility check authorizes stopping an operating Writer or rewriting
 its claim ledger.
 
+Both submitted and attached paths must carry the existing Core-verified Native
+execution and canonical workspace facts into their Broker turn. Keep that scope
+internal to the verified owner path; remote requests, serialized caller fields,
+account labels or a claimed working directory cannot create this authority.
+Transport must preserve it until Broker admission, then omit it from app/remote
+payloads. A missing proof remains conservative rather than an invented scope.
+
+Settle an original call using its durable admission and reservation identity,
+including after a result commit or process restart. The next sampling turn's
+hook/execution facts cannot reclassify that earlier reservation. Updating result
+receipts and next-turn facts must preserve this distinction under the existing
+lock and recovery contract. Only positively recorded unreserved reads may avoid
+shared-ledger settlement; missing legacy evidence retains conservative recovery.
+
 An empty `write_stdin` observation may retain exactly one original bounded
 same-work/session claim when the current Native turn proves that its applicable
 exec/continuation hooks are absent. Both Broker and shared-ledger admission verify

@@ -14,17 +14,23 @@ unsigned CI; these are not intermediate approval gates.
 2. Execute the integrated current-selection `/switch` regressions and repeat
    the actual cross-profile ChatGPT trial with the final candidate. The old d2
    frontend reproduced high reverting to explicit none; the source correction
-   now distinguishes absent effort, explicit none and launch defaults while
-   preserving Native saved settings and ordinary upstream resume options.
-3. Complete final-composition Native observer/terminal and current-selection
-   acceptance. G Provider/worker CI, actual Android standalone worker and the
+   now distinguishes absent effort, explicit none and launch defaults. Its single-use
+   reentry intent cannot leak into Native children or later ordinary resume;
+   unbound legacy private profile/quota handoffs fail before Manager mutation.
+   Final-current positive and old-generation refusal need actual PTY receipts.
+3. Execute the corrected source-bound cold-compiler/restart trial. Its first
+   attempt exposed lost verified execution scope; the fix and ten focused cases
+   are integrated, with 374 Provider tests and strict clippy passing. Preserve
+   the original interrupted result and unknown Stop ACK without retroactive
+   scope or a new-ID retry. Complete final-composition Native observer/terminal
+   and current-selection acceptance. G Provider/worker CI, actual Android standalone worker and the
    manual same-thread destination selection passed within CURRENT's bounds. Integrated cold-receipt tests, actual connected
    MCP during Native Busy, Core-only Stop/StopTree controls, warm parallel
    compilers and candidate switch/model routes have passed within the separate
    evidence boundaries in CURRENT.
 4. Finalize exact-head CI receipts, file accounting and protected-asset/branch
-   readback. At 787fcd2b, Source, Core/Runtime, Manager, Provider and actual
-   stock Android gates passed. Later consumer/selection changes need new gates.
+   readback. At 62d10cf1, Source, Core/Runtime, Manager, Provider and actual
+   stock Android gates passed. Later reentry, Manager compatibility and Native scope changes need new gates.
    The later Full probe environment fix and explicit compaction regression need
    their exact-source gates; GitHub startup failures did not execute TUI tests.
 
