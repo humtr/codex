@@ -14,6 +14,7 @@ REQUIRED = (
     'active_chat_provider_steer_uses_native_input_without_synchronization',
     'replayed_rate_limit_error_preserves_current_account_and_initial_prompt',
     'enqueue_primary_thread_session_submits_checkpoint_after_replayed_quota_error',
+    'termux_chat_models_compaction_preserves_provider_selection_and_scoped_choices',
 )
 
 
