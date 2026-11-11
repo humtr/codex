@@ -9,6 +9,7 @@ The Core state/generation layout is:
 
 ```text
 $PREFIX/bin/codex                                      stable public entrypoint
+~/.local/lib/codex/core/current -> generations/<id>     derived legacy compatibility alias
 ~/.local/lib/codex/core/generations/<id>/             immutable complete generation
   generation.meta                                     versioned local descriptor
   release.manifest                                    signed release/integrity inventory + release key
@@ -95,6 +96,16 @@ keys in state are the canonical 32 raw key bytes encoded as exactly 64 lowercase
 hex digits. The `previous` generation and `previous_key` are present or absent as
 one pair. There is no separate `verified` pointer, keyring, discovered-key set,
 or unbounded key history.
+
+The `core/current` link is a derived compatibility view of `activation-state.current`,
+not a source of generation selection, rollback authority or release trust.
+On successful activation, rollback and initial bootstrap it must be pointed
+atomically to the current complete generation. If a process dies between the
+state commit and alias update, the next ordinary Core dispatch repairs the
+alias under the existing activation writer lock; it must not select a runtime
+from the alias. Existing non-symlink paths or symlinks outside the owned
+`generations/<id>` pattern must never be overwritten. A broken compatibility
+alias must not undo a successfully committed signed release.
 
 Only content that has already passed release admission and candidate probes may
 become `current`. Ordinary runtime selection uses only current; it does not
