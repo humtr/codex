@@ -93,6 +93,9 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn('owner-free-synthetic-thread',fixture)
         self.assertIn('elapsedRealtime()+15000',fixture)
         self.assertIn('TestWatcher failureEvidence',fixture)
+        caller=fixture.split('    void launch(String id)',1)[1].split('    static class Result',1)[0]
+        self.assertIn('"com.termux.RUN_COMMAND_SESSION_ACTION","0"',caller)
+        self.assertNotIn('"com.termux.RUN_COMMAND_SESSION_ACTION","3"',caller)
         self.assertIn('getTranscriptText()',fixture)
         failure=workflow.split('      - name: Collect failed disposable-emulator diagnostics',1)[1].split('      - name:',1)[0]
         self.assertIn('if: failure()',failure)
