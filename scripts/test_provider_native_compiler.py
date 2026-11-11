@@ -256,6 +256,19 @@ class NativeCompilerEvidence(unittest.TestCase):
             with self.subTest(output=invalid), self.assertRaises(AssertionError):
                 q.command_output(dict(silent, output=invalid))
 
+    def test_effectful_qualifier_supplies_all_required_history_evidence_arguments(self):
+        import ast
+        import inspect
+        helpers = {name: inspect.signature(getattr(q, name)) for name in ['command_item', 'published_command']}
+        calls = [node for node in ast.walk(ast.parse(Path(q.__file__).read_text()))
+                 if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in helpers]
+        self.assertGreaterEqual(len(calls), 4)
+        for call in calls:
+            with self.subTest(helper=call.func.id, line=call.lineno):
+                self.assertFalse(any(isinstance(arg, ast.Starred) for arg in call.args))
+                self.assertTrue(all(key.arg is not None for key in call.keywords))
+                helpers[call.func.id].bind(*[None for _ in call.args], **{key.arg: None for key in call.keywords})
+
     def test_actual_intervals_must_overlap_not_only_http_admission(self):
         self.assertEqual(q.overlapping_commands([{'startedAtMs': 100, 'completedAtMs': 200},
                                                 {'startedAtMs': 150, 'completedAtMs': 250}]), 50)

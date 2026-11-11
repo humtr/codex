@@ -539,7 +539,7 @@ def probe(args):
                 assert command_item(final, arguments[label]['cmd'], prefix / 'bin/bash', workspace, invocations[label]['id'], command_output(settled[label])) == commands[('a', 'b').index(label)]
             else:
                 assert command_item(final, opaque_args['cmd'], prefix / 'bin/bash', workspace,
-                                    turn(work)['calls']['opaque-after-settlement']['id']) == opaque_item
+                                    turn(work)['calls']['opaque-after-settlement']['id'], command_output(opaque_result)) == opaque_item
             save(root / f'native-history-{label}.json', final)
         final_status = client.call('codex_status', {'work_id': works['a']['work_id']})
         assert final_status['native_effects']['unconfirmed_effects'] == 0
