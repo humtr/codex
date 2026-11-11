@@ -371,6 +371,27 @@ jobs:
           for name in ['core-model_provider', 'core-compact', 'core-guardian', 'client', 'config']:
               nonzero_tests((root / f'native-provider-{name}.log').read_text())
           PYTHON
+      - name: Verify actual hook matching used by Native resource proof
+        if: inputs.scope == 'full'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd upstream/codex-rs
+          cargo "+$RUST_VERSION" test --locked --target aarch64-unknown-linux-musl -p codex-hooks --lib native_resource_proof_ -- --nocapture 2>&1 | tee "$RUNNER_TEMP/native-provider-hooks.log"
+          python3 - <<'PYTHON'
+          import os, re
+          from pathlib import Path
+          text = (Path(os.environ['RUNNER_TEMP']) / 'native-provider-hooks.log').read_text()
+          names = [
+              'native_resource_proof_retains_unrelated_input_hook_and_its_dispatch',
+              'native_resource_proof_rejects_each_matching_tool_event_and_permission_alias',
+              'native_resource_proof_rejects_unknown_async_and_non_tool_hook_effects',
+              'native_resource_proof_rejects_async_work_retained_after_reconfiguration',
+          ]
+          for name in names:
+              assert re.search(r'(?m)^test [A-Za-z0-9_:]*' + name + r' \.\.\. ok$', text), name
+          assert re.search(r'test result: ok\. [4-9][0-9]* passed; 0 failed; 0 ignored;', text), text[-6000:]
+          PYTHON
       - name: Verify Native provider API
         if: inputs.scope != 'frontend-compatibility'
         shell: bash

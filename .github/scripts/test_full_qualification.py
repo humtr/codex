@@ -203,8 +203,7 @@ class FullQualificationTests(unittest.TestCase):
     def test_full_workflow_has_only_readonly_qualification_authority(self):
         workflow=(ROOT/'.github/workflows/full-qualification.yml').read_text()
         self.assertIn('branches: [rewrite/rust-core]',workflow)
-        for path in ('crates/core/**','crates/manager/**','crates/runtime-binding/**','crates/release-builder/**','frontend/tui/**'):
-            self.assertIn('      - '+path,workflow)
+        self.assertNotIn('    paths:',workflow.split('permissions:',1)[0])
         self.assertIn('contents: read',workflow);self.assertIn('actions: read',workflow)
         for forbidden in ('contents: write','actions: write','secrets:','release_signing','release_reservations','git push','gh release','--publish'):
             self.assertNotIn(forbidden,workflow)

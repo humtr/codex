@@ -3,27 +3,6 @@ name: Independent Core/runtime qualification
 on:
   push:
     branches: [rewrite/rust-core]
-    paths:
-      - '.github/workflows/core-runtime-qualification.yml'
-      - '.github/workflows/qualify-termux-runtime.yml'
-      - '.github/workflows/android-component.yml'
-      - '.github/scripts/component_inputs.py'
-      - '.github/scripts/component_artifact.py'
-      - 'release/android-build-inputs-v1.json'
-      - '.github/workflows/termux-runtime-source.yml'
-      - '.github/scripts/runtime_inputs.py'
-      - '.github/scripts/runtime_artifact.py'
-      - 'release/runtime-build-inputs-v1'
-      - '.github/scripts/release_preflight.py'
-      - '.github/scripts/release_decision.py'
-      - '.github/scripts/release_heads.py'
-      - '.github/scripts/upstream_release.py'
-      - 'release/upstream.json'
-      - 'crates/core/**'
-      - 'crates/runtime-binding/**'
-      - 'crates/release-builder/**'
-      - 'Cargo.toml'
-      - 'Cargo.lock'
   workflow_dispatch:
     inputs:
       advance_release:
