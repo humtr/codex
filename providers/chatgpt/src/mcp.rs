@@ -784,9 +784,15 @@ impl Broker {
                 "pending_result":true})
             })
             .collect::<Vec<_>>();
+        let shared = SharedNativeGuard::shared_status(
+            self.shared_guard_home().as_deref(),
+            owned_lanes,
+            lane_owners,
+        )
+        .unwrap_or_else(|reason| json!({"available":false,"error":reason}));
         Ok(
             json!({"active":entries,"unconfirmed_effects":state.claims.len(),
-            "external_call_receipts":state.external.len()}),
+            "external_call_receipts":state.external.len(),"shared":shared}),
         )
     }
     pub(crate) fn has_unsettled_stopped_effects(
