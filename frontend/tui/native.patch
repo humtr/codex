@@ -1050,10 +1050,10 @@ index 9c848858c6..6c796281ae 100644
      OpenFullAccessConfirmation {
          preset: ApprovalPreset,
 diff --git a/codex-rs/tui/src/app_server_session.rs b/codex-rs/tui/src/app_server_session.rs
-index ae79c9ad3d..a4a6181808 100644
+index ae79c9ad3d05bb355cca4f3fd7c62235c603c34a..8ee39bccd684efe879011d63fec548028f86c819 100644
 --- a/codex-rs/tui/src/app_server_session.rs
 +++ b/codex-rs/tui/src/app_server_session.rs
-@@ -309,6 +309,7 @@ fn is_thread_settings_update_unsupported(source: &JSONRPCErrorError) -> bool {
+@@ -309,6 +309,7 @@
  /// its first frame without waiting for the rate-limit round-trip.
  pub(crate) struct AppServerBootstrap {
      pub(crate) duration: Duration,
@@ -1061,7 +1061,7 @@ index ae79c9ad3d..a4a6181808 100644
      pub(crate) account_email: Option<String>,
      pub(crate) auth_mode: Option<TelemetryAuthMode>,
      pub(crate) status_account_display: Option<StatusAccountDisplay>,
-@@ -379,6 +380,12 @@ pub(crate) enum ThreadSettingsOwner {
+@@ -379,6 +380,12 @@
  pub(crate) enum ResumeModelSettings {
      /// Sends the current config's model, provider, and reasoning effort as explicit overrides.
      OverrideFromCurrentConfig,
@@ -1074,7 +1074,7 @@ index ae79c9ad3d..a4a6181808 100644
      /// Omits those overrides so app-server restores the settings saved with the thread.
      RestoreFromThread,
      /// Rejoins a loaded thread without changing any of its existing settings.
-@@ -751,7 +758,7 @@ impl AppServerSession {
+@@ -751,7 +758,7 @@
  
      pub(crate) async fn bootstrap(&mut self, config: &Config) -> Result<AppServerBootstrap> {
          let started_at = Instant::now();
@@ -1083,7 +1083,7 @@ index ae79c9ad3d..a4a6181808 100644
          let mut bootstrap = self.bootstrap_with_account(config, account).await?;
          bootstrap.duration = started_at.elapsed();
          Ok(bootstrap)
-@@ -762,7 +769,7 @@ impl AppServerSession {
+@@ -762,7 +769,7 @@
          config: &Config,
      ) -> Result<AppServerBootstrap> {
          let started_at = Instant::now();
@@ -1092,7 +1092,7 @@ index ae79c9ad3d..a4a6181808 100644
          let mut bootstrap = self
              .bootstrap_with_account_inner(config, account, EmptyCatalogFallback::ManagedNewThread)
              .await?;
-@@ -776,19 +783,21 @@ impl AppServerSession {
+@@ -776,19 +783,21 @@
      pub(crate) async fn bootstrap_with_account(
          &mut self,
          config: &Config,
@@ -1117,7 +1117,7 @@ index ae79c9ad3d..a4a6181808 100644
          // `hooks/list` holds the global config queue during startup. Submit models and config
          // requirements together so an uncached model fetch can overlap both config requests.
          let model_request_id = self.next_request_id();
-@@ -849,7 +858,7 @@ impl AppServerSession {
+@@ -849,7 +858,7 @@
                  requirements,
              );
          }
@@ -1126,7 +1126,7 @@ index ae79c9ad3d..a4a6181808 100644
              available_models = self
                  .constrain_api_key_models(
                      config,
-@@ -898,7 +907,7 @@ impl AppServerSession {
+@@ -898,7 +907,7 @@
              plan_type,
              feedback_audience,
              has_chatgpt_account,
@@ -1135,7 +1135,7 @@ index ae79c9ad3d..a4a6181808 100644
              Some(Account::ApiKey {}) => (
                  None,
                  Some(TelemetryAuthMode::ApiKey),
-@@ -926,7 +935,7 @@ impl AppServerSession {
+@@ -926,7 +935,7 @@
                      Some(StatusAccountDisplay::ChatGpt {
                          email,
                          plan: Some(plan_type_display_name(plan_type)),
@@ -1144,7 +1144,7 @@ index ae79c9ad3d..a4a6181808 100644
                      }),
                      Some(plan_type),
                      feedback_audience,
-@@ -940,11 +949,12 @@ impl AppServerSession {
+@@ -940,11 +949,12 @@
          };
          Ok(AppServerBootstrap {
              duration: started_at.elapsed(),
@@ -1158,7 +1158,7 @@ index ae79c9ad3d..a4a6181808 100644
              default_model,
              feedback_audience,
              has_chatgpt_account,
-@@ -1021,6 +1031,11 @@ impl AppServerSession {
+@@ -1021,6 +1031,11 @@
                  "Cloud conversations currently use server-selected permissions."
              );
          }
@@ -1170,7 +1170,7 @@ index ae79c9ad3d..a4a6181808 100644
          let request_id = self.next_request_id();
          let session_config = self.session_config_with_effective_service_tier(config);
          let mut params = thread_start_params_from_config(
-@@ -1195,6 +1210,11 @@ impl AppServerSession {
+@@ -1195,6 +1210,11 @@
          if self.thread_params_mode == ThreadParamsMode::Cloud {
              color_eyre::eyre::bail!("Cloud conversations cannot be forked in the TUI yet.");
          }
@@ -1182,7 +1182,7 @@ index ae79c9ad3d..a4a6181808 100644
          self.thread_tool_transport().validate_config(&config)?;
          let fork_parent = match presentation {
              ForkPresentation::Regular => self
-@@ -1463,6 +1483,53 @@ impl AppServerSession {
+@@ -1463,6 +1483,53 @@
          Ok(response.thread)
      }
  
@@ -1236,11 +1236,10 @@ index ae79c9ad3d..a4a6181808 100644
      pub(crate) async fn thread_archive(&mut self, thread_id: ThreadId) -> Result<()> {
          let request_id = self.next_request_id();
          let _: ThreadArchiveResponse = self
-@@ -2125,30 +2192,56 @@ fn approvals_reviewer_override_from_config(
- fn config_request_overrides_from_config(
+@@ -2126,29 +2193,55 @@
      config: &Config,
      thread_params_mode: ThreadParamsMode,
-+) -> Option<HashMap<String, serde_json::Value>> {
+ ) -> Option<HashMap<String, serde_json::Value>> {
 +    // A qualified Termux local frontend uses the official app-server, including
 +    // when invocation/profile settings differ from that daemon's defaults.
 +    // Keep those settings thread-scoped through the existing public API.
@@ -1253,7 +1252,7 @@ index ae79c9ad3d..a4a6181808 100644
 +    config: &Config,
 +    thread_params_mode: ThreadParamsMode,
 +    local_launch: bool,
- ) -> Option<HashMap<String, serde_json::Value>> {
++) -> Option<HashMap<String, serde_json::Value>> {
      let mut session_config = toml::Value::Table(toml::Table::new());
      for layer in config.config_layer_stack.layers_low_to_high() {
 -        if matches!(&layer.name, ConfigLayerSource::SessionFlags) {
@@ -1269,10 +1268,10 @@ index ae79c9ad3d..a4a6181808 100644
 +        {
              codex_config::merge_toml_values(&mut session_config, &layer.config);
          }
-     }
++    }
 +    if local_launch {
 +        crate::termux_chat_models::add_installed_provider(config, &mut session_config);
-+    }
+     }
      let mut overrides: HashMap<_, _> = session_config
          .as_table()
          .into_iter()
@@ -1306,7 +1305,7 @@ index ae79c9ad3d..a4a6181808 100644
          })
          .filter_map(|(key, value)| {
              serde_json::to_value(value)
-@@ -2439,6 +2532,28 @@ fn thread_resume_params_from_config(
+@@ -2439,6 +2532,28 @@
              config.model.clone(),
              provider_selection::explicit_provider(&config),
          ),
@@ -1335,10 +1334,17 @@ index ae79c9ad3d..a4a6181808 100644
          ResumeModelSettings::RestoreFromThread | ResumeModelSettings::PreserveExistingThread => {
              (None, None)
          }
-@@ -2460,6 +2575,11 @@ fn thread_resume_params_from_config(
+@@ -2460,6 +2575,18 @@
          ),
          ..ThreadResumeParams::default()
      };
++    #[cfg(unix)]
++    preserve_saved_termux_selection(
++        &mut params,
++        crate::termux_permissions::enabled()
++            && model_settings == ResumeModelSettings::RestoreFromThread
++            && std::env::var(crate::termux_chat_models::REENTRY_MODE).as_deref() == Ok("resume"),
++    );
 +    let permission_overrides = crate::termux_permissions::resume_permissions(
 +        &config.permissions.effective_permission_profile(),
 +        permission_overrides,
@@ -1347,7 +1353,40 @@ index ae79c9ad3d..a4a6181808 100644
      if thread_params_mode == ThreadParamsMode::Remote || !permission_overrides.approval_policy {
          params.approval_policy = None;
      }
-@@ -3117,6 +3237,71 @@ mod tests {
+@@ -2475,6 +2602,32 @@
+         params.runtime_workspace_roots = None;
+     }
+     params
++}
++
++// A qualified same-thread re-entry uses the Native owner's saved selection.
++// Launch/profile defaults still configure the route, but are not selections to
++// write back into the thread. In particular, None is not the enum effort "none".
++#[cfg(unix)]
++fn preserve_saved_termux_selection(params: &mut ThreadResumeParams, restore: bool) {
++    if !restore {
++        return;
++    }
++    params.model = None;
++    params.model_provider = None;
++    params.service_tier = None;
++    if let Some(overrides) = params.config.as_mut() {
++        for key in [
++            "model",
++            "model_provider",
++            "model_reasoning_effort",
++            "service_tier",
++        ] {
++            overrides.remove(key);
++        }
++        if overrides.is_empty() {
++            params.config = None;
++        }
++    }
+ }
+ 
+ fn thread_fork_params_from_config(
+@@ -3117,6 +3270,71 @@
          Ok(())
      }
  
@@ -1419,10 +1458,12 @@ index ae79c9ad3d..a4a6181808 100644
      fn rate_limit_snapshot(limit_id: &str) -> RateLimitSnapshot {
          RateLimitSnapshot {
              limit_id: Some(limit_id.to_string()),
-@@ -4052,6 +4237,78 @@ mod tests {
+@@ -4050,6 +4268,139 @@
+         assert_eq!(start.config, Some(expected_config.clone()));
+         assert_eq!(resume.config, Some(expected_config.clone()));
          assert_eq!(fork.config, Some(expected_config));
-     }
- 
++    }
++
 +    #[tokio::test]
 +    async fn termux_backend_catalog_effort_only_resume_preserves_native_model_selection()
 +    -> Result<()> {
@@ -1495,13 +1536,73 @@ index ae79c9ad3d..a4a6181808 100644
 +        Ok(())
 +    }
 +
++    #[cfg(unix)]
++    #[tokio::test]
++    async fn termux_chat_models_profile_resume_preserves_saved_none_and_explicit_tier_contract()
++    -> Result<()> {
++        let home = tempfile::tempdir()?;
++        let config = ConfigBuilder::default()
++            .codex_home(home.path().to_path_buf())
++            .cli_overrides(vec![
++                ("model".into(), "destination-default".into()),
++                ("model_provider".into(), "openai".into()),
++                ("model_reasoning_effort".into(), "high".into()),
++                ("service_tier".into(), "priority".into()),
++                ("personality".into(), "friendly".into()),
++            ])
++            .build()
++            .await?;
++        let launch = config_request_overrides_for_launch(&config, ThreadParamsMode::Embedded, true)
++            .expect("qualified launch has exact configuration overrides");
++        assert_eq!(launch["model"], "destination-default");
++        assert_eq!(launch["model_provider"], "openai");
++        assert_eq!(launch["model_reasoning_effort"], "high");
++        assert_eq!(launch["service_tier"], "priority");
++        let mut params = thread_resume_params_from_config(
++            config,
++            ThreadId::new(),
++            ThreadParamsMode::Embedded,
++            None,
++            ResumeModelSettings::RestoreFromThread,
++            crate::resume_permissions::ResumePermissions::default(),
++        );
++        assert_eq!(params.service_tier, Some(Some("priority".into())));
++        let ordinary = serde_json::to_value(&params)?;
++        preserve_saved_termux_selection(&mut params, false);
++        assert_eq!(
++            serde_json::to_value(&params)?,
++            ordinary,
++            "ordinary explicit tier must survive"
++        );
++        // Exercise the complete private re-entry boundary even outside Termux's
++        // process-wide environment: the real config producer supplied these keys.
++        params.config = Some(launch);
++        preserve_saved_termux_selection(&mut params, true);
++        assert_eq!(params.model, None);
++        assert_eq!(params.model_provider, None);
++        assert_eq!(params.service_tier, None);
++        let remaining = params.config.unwrap();
++        assert_eq!(remaining["personality"], "friendly");
++        for key in [
++            "model",
++            "model_provider",
++            "model_reasoning_effort",
++            "service_tier",
++        ] {
++            assert!(
++                !remaining.contains_key(key),
++                "saved Native selection owns {key}"
++            );
++        }
++        Ok(())
+     }
+ 
      #[tokio::test]
-     async fn config_overrides_forward_explicit_summary_verbosity_and_web_search() -> Result<()> {
-         let home = tempfile::tempdir()?;
-@@ -4436,6 +4693,29 @@ mod tests {
+@@ -4435,6 +4786,29 @@
+         let loaded_items: usize = resumed.turns.iter().map(|turn| turn.items.len()).sum();
          assert!(loaded_items <= HISTORY_ITEM_PAGE_LIMIT as usize);
          assert!(app_server.has_older_history(source_thread_id));
- 
++
 +        let complete = app_server
 +            .thread_read_complete_public_history(source_thread_id)
 +            .await?;
@@ -1524,10 +1625,9 @@ index ae79c9ad3d..a4a6181808 100644
 +                .iter()
 +                .all(|turn| turn.items_view == codex_app_server_protocol::TurnItemsView::Full)
 +        );
-+
+ 
          let mut side_config = config;
          side_config.ephemeral = true;
-         let next_request_id = app_server.next_request_id;
 diff --git a/codex-rs/tui/src/app_server_session/rollout_history.rs b/codex-rs/tui/src/app_server_session/rollout_history.rs
 index b072d8f907..d94586e727 100644
 --- a/codex-rs/tui/src/app_server_session/rollout_history.rs

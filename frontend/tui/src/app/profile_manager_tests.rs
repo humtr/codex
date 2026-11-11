@@ -360,6 +360,9 @@ fn profile_manager_reentry_preserves_typed_exit_and_exact_profile_thread_argv() 
         command.get_current_dir(),
         Some(std::path::Path::new("/owned/current-workspace"))
     );
+    assert!(command.get_envs().any(|(key, value)| {
+        key == crate::termux_chat_models::REENTRY_MODE && value == Some(OsStr::new("resume"))
+    }));
     assert!(ProfileReentry::from_error(&std::io::Error::other("unrelated")).is_none());
 }
 
@@ -577,6 +580,265 @@ async fn profile_manager_persistence_rejects_missing_and_unwritable_without_work
     assert!(!path.exists());
     assert!(recorded_params(&requests, "turn/start").is_empty());
     assert!(recorded_params(&requests, "thread/unsubscribe").is_empty());
+    proxy.abort();
+    Ok(())
+}
+
+#[tokio::test]
+async fn profile_manager_preserves_current_selection_instead_of_launch_defaults()
+-> color_eyre::Result<()> {
+    use codex_protocol::openai_models::ReasoningEffort;
+    let (mut chat, _events, _rx, _ops) =
+        crate::chatwidget::tests::make_chatwidget_manual_with_sender().await;
+    let mut session = super::super::tests::test_thread_session(
+        codex_protocol::ThreadId::new(),
+        chat.config_ref().cwd.to_path_buf(),
+    );
+    session.model_provider_id = crate::termux_chat_models::PROVIDER.into();
+    session.model = "chatgpt-desktop/app/previous-server-model".into();
+    session.reasoning_effort = Some(ReasoningEffort::Low);
+    chat.handle_thread_session(session);
+    let launch_model = chat.config_ref().model.clone();
+    let launch_effort = chat.config_ref().model_reasoning_effort.clone();
+    chat.set_model("chatgpt-desktop/app/current-server-model");
+    chat.set_service_tier(Some("default".into()));
+    for effort in [
+        Some(ReasoningEffort::High),
+        Some(ReasoningEffort::None),
+        None,
+    ] {
+        chat.set_reasoning_effort(effort.clone());
+        let selection = chat.effective_collaboration_mode();
+        let flags = preserved_flags(chat.config_ref(), &selection).unwrap();
+        assert_eq!(
+            flags
+                .chunks_exact(2)
+                .find(|pair| pair[0] == "--model")
+                .unwrap()[1],
+            "chatgpt-desktop/app/current-server-model"
+        );
+        let parsed = codex_utils_cli::CliConfigOverrides {
+            raw_overrides: flags
+                .chunks_exact(2)
+                .filter(|pair| pair[0] == "-c")
+                .map(|pair| pair[1].clone())
+                .collect(),
+        }
+        .parse_overrides()
+        .map_err(|error| color_eyre::eyre::eyre!("{error}"))?;
+        let lookup = |key: &str| {
+            parsed
+                .iter()
+                .find(|(name, _)| name == key)
+                .map(|(_, value)| value)
+        };
+        assert_eq!(
+            lookup("model_provider").and_then(toml::Value::as_str),
+            Some(crate::termux_chat_models::PROVIDER)
+        );
+        assert_eq!(
+            lookup("model_reasoning_effort").and_then(toml::Value::as_str),
+            effort.as_ref().map(ReasoningEffort::as_str)
+        );
+        assert_eq!(
+            lookup("service_tier").and_then(toml::Value::as_str),
+            Some("default")
+        );
+        assert_eq!(chat.config_ref().model, launch_model);
+        assert_eq!(chat.config_ref().model_reasoning_effort, launch_effort);
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn profile_manager_replaces_stale_session_flags_and_keeps_permission_authority()
+-> color_eyre::Result<()> {
+    use codex_protocol::config_types::{CollaborationMode, ModeKind, Settings};
+    use codex_protocol::openai_models::ReasoningEffort;
+    let home = tempfile::tempdir()?;
+    let catalog = include_str!("../fixtures/chat-model-catalog.json");
+    std::fs::write(home.path().join("models.json"), catalog)?;
+    let mut config = crate::legacy_core::config::ConfigBuilder::default()
+        .codex_home(home.path().to_path_buf())
+        .cli_overrides(vec![
+            ("model_providers".into(), "[chatgpt_desktop]\nname='Owned Chat fixture'\nwire_api='responses'\nbase_url='http://127.0.0.1:1/v1'\nrequires_openai_auth=false\n".parse::<toml::Value>()?),
+            ("model".into(), "launch-model".into()),
+            ("model_provider".into(), "openai".into()),
+            ("model_reasoning_effort".into(), "low".into()),
+            ("service_tier".into(), "priority".into()),
+            ("approval_policy".into(), "on-request".into()),
+            ("approvals_reviewer".into(), "user".into()),
+            ("sandbox_mode".into(), "read-only".into()),
+            (
+                "model_catalog_json".into(),
+                home.path()
+                    .join("models.json")
+                    .to_string_lossy()
+                    .into_owned()
+                    .into(),
+            ),
+        ])
+        .build()
+        .await?;
+    config.model_provider_id = crate::termux_chat_models::PROVIDER.into();
+    config.service_tier = Some("default".into());
+    let selection = CollaborationMode {
+        mode: ModeKind::Default,
+        settings: Settings {
+            model: "chatgpt-desktop/app/current-server-model".into(),
+            reasoning_effort: Some(ReasoningEffort::High),
+            developer_instructions: None,
+        },
+    };
+    let flags = preserved_flags(&config, &selection).unwrap();
+    let parsed = codex_utils_cli::CliConfigOverrides {
+        raw_overrides: flags
+            .chunks_exact(2)
+            .filter(|pair| pair[0] == "-c")
+            .map(|pair| pair[1].clone())
+            .collect(),
+    }
+    .parse_overrides()
+    .map_err(|error| color_eyre::eyre::eyre!("{error}"))?;
+    let lookup = |key: &str| {
+        let values: Vec<_> = parsed.iter().filter(|(name, _)| name == key).collect();
+        assert_eq!(values.len(), 1, "exactly one current {key}");
+        values[0].1.as_str().unwrap().to_string()
+    };
+    assert_eq!(
+        lookup("model_provider"),
+        crate::termux_chat_models::PROVIDER
+    );
+    assert_eq!(lookup("model_reasoning_effort"), "high");
+    assert_eq!(lookup("service_tier"), "default");
+    assert_eq!(lookup("approval_policy"), "on-request");
+    assert_eq!(lookup("approvals_reviewer"), "user");
+    if let Some(profile) = config.permissions.active_permission_profile() {
+        assert_eq!(lookup("default_permissions"), profile.id);
+    } else {
+        assert_eq!(lookup("sandbox_mode"), "read-only");
+    }
+    assert_eq!(
+        lookup("model_catalog_json"),
+        home.path().join("models.json").to_string_lossy()
+    );
+    assert_eq!(config.model.as_deref(), Some("launch-model"));
+    assert_eq!(config.model_reasoning_effort, Some(ReasoningEffort::Low));
+    let destination = tempfile::tempdir()?;
+    let target_defaults = "model='destination-default'\nmodel_provider='openai'\nmodel_reasoning_effort='low'\nservice_tier='priority'\napproval_policy='never'\nsandbox_mode='danger-full-access'\n";
+    std::fs::write(destination.path().join("config.toml"), target_defaults)?;
+    let mut target_overrides = parsed;
+    let selected_model = flags
+        .chunks_exact(2)
+        .find(|pair| pair[0] == "--model")
+        .unwrap()[1]
+        .clone();
+    target_overrides.push(("model".into(), selected_model.into()));
+    let target = crate::legacy_core::config::ConfigBuilder::default()
+        .codex_home(destination.path().to_path_buf())
+        .cli_overrides(target_overrides)
+        .build()
+        .await?;
+    assert_eq!(target.model.as_deref(), Some(selection.model()));
+    assert_eq!(
+        target.model_provider_id,
+        crate::termux_chat_models::PROVIDER
+    );
+    assert_eq!(target.model_reasoning_effort, Some(ReasoningEffort::High));
+    assert_eq!(target.service_tier.as_deref(), Some("default"));
+    assert_eq!(
+        target.permissions.approval_policy.value(),
+        config.permissions.approval_policy.value()
+    );
+    assert_eq!(
+        target.permissions.effective_permission_profile(),
+        config.permissions.effective_permission_profile()
+    );
+    assert_eq!(target.approvals_reviewer, config.approvals_reviewer);
+    assert_eq!(target.model_catalog_source, config.model_catalog_source);
+    assert_eq!(
+        std::fs::read_to_string(destination.path().join("config.toml"))?,
+        target_defaults
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn profile_manager_requires_native_ack_before_preserving_current_selection()
+-> color_eyre::Result<()> {
+    use super::super::tests::session_lifecycle_requests::{
+        recorded_params, start_recording_app_server,
+    };
+    use codex_protocol::openai_models::ReasoningEffort;
+    let (mut app, _events, _ops) = super::super::tests::make_test_app_with_channels().await;
+    let (mut server, requests, proxy) = start_recording_app_server(&app.config, None, None).await?;
+    let started = server.start_thread(&app.config).await?;
+    let thread = started.session.thread_id;
+    app.chat_widget.handle_thread_session(started.session);
+    let original = app.chat_widget.effective_collaboration_mode();
+    requests.lock().unwrap().clear();
+    assert!(
+        current_selection_saved(&mut server, thread, app.chat_widget.config_ref(), &original).await
+    );
+    app.chat_widget.set_model("unacknowledged-model");
+    let unsaved = app.chat_widget.effective_collaboration_mode();
+    assert!(
+        !current_selection_saved(&mut server, thread, app.chat_widget.config_ref(), &unsaved).await
+    );
+    assert_eq!(
+        server.thread_read(thread, false).await?.model.as_deref(),
+        Some(original.model())
+    );
+    app.chat_widget.set_model(original.model());
+    for effort in [
+        Some(ReasoningEffort::High),
+        Some(ReasoningEffort::None),
+        None,
+    ] {
+        let selection = original.with_updates(None, Some(effort.clone()), None);
+        assert!(
+            server
+                .thread_settings_update(codex_app_server_protocol::ThreadSettingsUpdateParams {
+                    thread_id: thread.to_string(),
+                    effort: effort.clone(),
+                    collaboration_mode: Some(selection.clone()),
+                    ..Default::default()
+                })
+                .await?
+        );
+        app.chat_widget.set_reasoning_effort(effort);
+        assert!(
+            current_selection_saved(
+                &mut server,
+                thread,
+                app.chat_widget.config_ref(),
+                &selection
+            )
+            .await
+        );
+    }
+    let mut wrong_provider = app.chat_widget.config_ref().clone();
+    wrong_provider.model_provider_id = "foreign-provider".into();
+    assert!(
+        !current_selection_saved(
+            &mut server,
+            thread,
+            &wrong_provider,
+            &app.chat_widget.effective_collaboration_mode()
+        )
+        .await
+    );
+    for method in [
+        "turn/start",
+        "thread/unsubscribe",
+        "thread/archive",
+        "thread/unarchive",
+    ] {
+        assert!(
+            recorded_params(&requests, method).is_empty(),
+            "read/ack must not call {method}"
+        );
+    }
     proxy.abort();
     Ok(())
 }
