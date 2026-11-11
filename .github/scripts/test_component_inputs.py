@@ -57,8 +57,16 @@ class ComponentInputsTests(unittest.TestCase):
             '      - name: Retain verified exact-input production output',
             '      - name: Transfer unsigned component')]
         self.assertEqual(positions,sorted(positions))
-        self.assertEqual(body.count("if: steps.component-cache.outputs.cache-hit != 'true'"),2)
+        self.assertEqual(body.count("if: ${{ !inputs.reuse_qualified && steps.component-cache.outputs.cache-hit != 'true' }}"),2)
         self.assertNotIn('restore-keys:',producer)
+        self.assertIn('if: ${{ !inputs.reuse_qualified }}',producer)
+        consume=body.split('      - name: Consume exact qualified component across branches',1)[1].split('      - name:',1)[0]
+        self.assertIn('if: inputs.reuse_qualified',consume)
+        self.assertIn('qualified_component.py --source source --component "$COMPONENT"',consume)
+        self.assertNotIn('cargo ',consume)
+        self.assertEqual(runtime.count('reuse_qualified: ${{ !inputs.base_only }}'),2)
+        self.assertNotIn('reuse_qualified: true',source)
+        self.assertNotIn('reuse_qualified: true',manager)
         self.assertIn('component_artifact.py verify',producer)
         self.assertIn('cargo "+$RUST_VERSION" test --locked -p codex-manager',manager)
         self.assertIn('CODEX_MANAGER_ARTIFACT_PROBE=1',manager)

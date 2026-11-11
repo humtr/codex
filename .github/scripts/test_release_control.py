@@ -138,7 +138,7 @@ class ReleaseControlTests(unittest.TestCase):
             def git(*args):
                 return subprocess.check_output(['git','-C',str(root),*args],stderr=subprocess.DEVNULL).decode().strip()
             git('init');git('config','user.name','Owned');git('config','user.email','owned@example.invalid')
-            for name in ['auto-release-termux.yml','qualify-termux-runtime.yml','termux-runtime-source.yml']:
+            for name in ['auto-release-termux.yml','qualify-termux-runtime.yml','termux-runtime-source.yml','android-component.yml']:
                 path=root/'.github/workflows'/name;path.parent.mkdir(parents=True,exist_ok=True);path.write_text('accepted '+name+'\n')
             (root/'scripts').mkdir();(root/'scripts/pin_release.py').write_text('accepted caller\n')
             git('add','.');git('commit','-qm','accepted implementation');accepted=git('rev-parse','HEAD')
@@ -152,6 +152,10 @@ class ReleaseControlTests(unittest.TestCase):
                 self.assertTrue(control.caller_compatible(root,'a'*40))
                 path=root/'.github/workflows/termux-runtime-source.yml';path.write_text('different runtime producer\n')
                 git('add','.');git('commit','-qm','new runtime implementation')
+                self.assertFalse(control.caller_compatible(root,'a'*40))
+                path.write_text('accepted termux-runtime-source.yml\n')
+                path=root/'.github/workflows/android-component.yml';path.write_text('different component consumer\n')
+                git('add','.');git('commit','-qm','new component consumer')
                 self.assertFalse(control.caller_compatible(root,'a'*40))
 
     def test_exact_failed_proof_is_reported_without_waiting_or_repeating_dispatch(self):

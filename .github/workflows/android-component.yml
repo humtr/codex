@@ -8,6 +8,10 @@ on:
       component:
         required: true
         type: string
+      reuse_qualified:
+        description: Consume exact-source accepted bytes across branch cache boundaries; never compile
+        type: boolean
+        default: false
     outputs:
       artifact_name:
         value: ${{ jobs.produce.outputs.artifact_name }}
@@ -71,14 +75,23 @@ jobs:
           git -C source checkout --detach FETCH_HEAD
           test "$(git -C source rev-parse HEAD)" = "$SOURCE_SHA"
           python3 source/.github/scripts/component_inputs.py --source source --component "$COMPONENT" --env >> "$GITHUB_ENV"
+      - name: Consume exact qualified component across branches
+        if: inputs.reuse_qualified
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python3 source/.github/scripts/qualified_component.py --source source --component "$COMPONENT" \
+            --artifact "$RUNNER_TEMP/component" --transfer "$RUNNER_TEMP/qualified-component-transfer"
       - name: Restore identical production output
+        if: ${{ !inputs.reuse_qualified }}
         id: component-cache
         uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830
         with:
           path: ${{ runner.temp }}/component
           key: android-component-v1-${{ inputs.component }}-${{ needs.identity.outputs.fingerprint }}
       - name: Cross-build selected Android component once
-        if: steps.component-cache.outputs.cache-hit != 'true'
+        if: ${{ !inputs.reuse_qualified && steps.component-cache.outputs.cache-hit != 'true' }}
         run: |
           set -euo pipefail
           test "$INPUTS_SHA256" = '${{ needs.identity.outputs.fingerprint }}'
@@ -102,7 +115,7 @@ jobs:
           set -euo pipefail
           python3 source/.github/scripts/component_artifact.py verify --source source --component "$COMPONENT" --artifact "$RUNNER_TEMP/component"
       - name: Retain verified exact-input production output
-        if: steps.component-cache.outputs.cache-hit != 'true'
+        if: ${{ !inputs.reuse_qualified && steps.component-cache.outputs.cache-hit != 'true' }}
         uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830
         with:
           path: ${{ runner.temp }}/component
