@@ -2,8 +2,10 @@
 
 This is terminal integration proof, not Chat inference or stable artifact admission.
 The Provider binary supplies the real readable-history checkpoint operation.
+Current-cell assertions require the existing pyte/wcwidth qualification tools.
 """
 import argparse
+import codecs
 import fcntl
 import hashlib
 import http.server
@@ -61,6 +63,13 @@ def fixture_auth_command(root, provider):
 
 
 def probe(args):
+    import pyte
+    from wcwidth import wcwidth
+    from qualification_diagnostics import terminal_screen_lines
+
+    display = pyte.Screen(160, 40)
+    stream = pyte.Stream(display)
+    decoder = codecs.getincrementaldecoder('utf-8')(errors='replace')
     root = Path(tempfile.mkdtemp(prefix='ct.', dir=os.environ['TMPDIR']))
     process = master = server = queue_service = None
     accepted = False
@@ -197,9 +206,14 @@ def probe(args):
             while time.monotonic() < until:
                 if select.select([master], [], [], .03)[0]:
                     try:
-                        screen += os.read(master, 65536).decode(errors='replace')
+                        text = decoder.decode(os.read(master, 65536))
                     except OSError:
                         break
+                    screen += text
+                    stream.feed(text)
+
+        def visible():
+            return '\n'.join(terminal_screen_lines(display, wcwidth))
 
         def wait(predicate, seconds=35):
             until = time.monotonic() + seconds
@@ -298,11 +312,14 @@ def probe(args):
             # A cold return can use the exact upstream bundled catalog, which
             # offers several efforts. Complete that real upstream picker before
             # expecting reentry; the fixture-only `none` model has no such step.
-            wait(lambda: 'Select Reasoning Level for' in screen or
+            wait(lambda: 'Select Reasoning Level for' in visible() or
                  rpc(home, 'thread/read', {'threadId': thread, 'includeTurns': False})
                  ['thread']['modelProvider'] == target)
-            if 'Select Reasoning Level for' in screen:
-                rendered = re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]', '', screen)
+            if 'Select Reasoning Level for' in visible():
+                # Cursor updates can split `3. High` across raw byte fragments.
+                # Read observed terminal cells, and wait for the option itself.
+                wait(lambda: re.search(r'\b3\.\s+High\b', visible()))
+                rendered = visible()
                 assert target == 'openai' and 'Select Reasoning Level for GPT-6.1-Sol' in rendered
                 assert re.search(r'\b3\.\s+High\b', rendered), 'the selected effort must actually be offered'
                 assert len(requests) == before_requests, 'opening effort selection must not infer'
@@ -425,6 +442,8 @@ def probe(args):
                                                  if not line.startswith('model_catalog_json')) + '\n')
             master, slave = pty.openpty()
             fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 40, 160, 0, 0))
+            display.reset()
+            decoder.reset()
             process = subprocess.Popen([str(prefix / 'bin/codex'), '--no-alt-screen', 'resume', thread],
                 env=env, cwd=root / 'w', stdin=slave, stdout=slave, stderr=slave,
                 start_new_session=True)
@@ -553,6 +572,8 @@ def probe(args):
             assert enqueue(cold_args) == cold_receipt, 'unknown queued delivery did not recover the original item'
             master, slave = pty.openpty()
             fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 40, 160, 0, 0))
+            display.reset()
+            decoder.reset()
             process = subprocess.Popen([str(prefix / 'bin/codex'), '--no-alt-screen', 'resume', thread],
                 env=env, cwd=root / 'w', stdin=slave, stdout=slave, stderr=slave, start_new_session=True)
             os.close(slave)

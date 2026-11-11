@@ -552,8 +552,8 @@ class LiveTui:
     def start(self):
         self.wait(lambda: self.thread is not None, 90)
         # A new TUI thread can be UI-ready before Native has materialized it.
-        # Requiring thread/read here deadlocks before the first input can
-        # create its backend owner. The first submitted turn is verified below.
+        # Start observes the composer only. Explicit Provider reentry below
+        # verifies exact Native model metadata before the first model input.
         # The installed upstream greeting varies (the current TUI can show a
         # suggestion instead of the older "To get started" /model hint).
         # Readiness is the real composer, not the incidental greeting.
