@@ -438,8 +438,9 @@ prompts, downloaded artifacts or request receipts. Signing and installation do n
 imply public upload or promotion; publication needs its separate configured
 permission and the complete source/execution/readback gates.
 
-Periodic preparation authorizes a lane's publication only for independently
-authenticated strictly newer qualified upstream inputs. Base does not wait for
+Periodic preparation may discover and qualify independently authenticated new
+upstream inputs. Publication additionally requires the immutable-main exact-source
+release intent defined in [SIGNING](SIGNING.md). Base does not wait for
 enhanced-TUI qualification; Full still requires its admitted frontend/backend pair.
 Equality is a no-op; older/malformed/unavailable or unqualified inputs
 cannot publish. Manual publication requires its explicit authorization input.

@@ -3,6 +3,10 @@ run-name: ${{ inputs.scope == 'full' && 'Codex TUI native qualification' || form
 on:
   workflow_dispatch:
     inputs:
+      advance_release:
+        description: Signal separately authorized exact-source release intent on main
+        type: boolean
+        default: false
       scope:
         description: Select full qualification, Native API tests, or retained frontend compatibility checks
         type: choice
@@ -716,7 +720,7 @@ jobs:
 
   notify_acceptance:
     needs: upstream-baseline
-    if: always() && needs.upstream-baseline.result == 'success' && github.ref == 'refs/heads/rewrite/rust-core' && inputs.scope == 'full'
+    if: always() && needs.upstream-baseline.result == 'success' && github.ref == 'refs/heads/rewrite/rust-core' && github.event_name == 'workflow_dispatch' && inputs.advance_release && inputs.scope == 'full'
     permissions:
       contents: read
       actions: write

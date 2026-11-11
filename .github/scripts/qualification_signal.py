@@ -76,7 +76,7 @@ def qualified_runtime_run(source):
     return run['id'] if matches else None
 
 
-def signal_job(dependency, legacy=False):
+def signal_job(dependency, legacy=False, intent=True):
     if dependency not in {'accepted', 'qualify', 'upstream-baseline'}:
         raise ValueError('unknown qualification dependency')
     # Only the source owner may notify the publication controller, and only
@@ -85,6 +85,8 @@ def signal_job(dependency, legacy=False):
     condition=f"always() && needs.{dependency}.result == 'success'" if not legacy or dependency == 'qualify' else 'always()'
     if not legacy or dependency == 'qualify':
         condition += " && github.ref == 'refs/heads/rewrite/rust-core'"
+    if not legacy and intent:
+        condition += " && github.event_name == 'workflow_dispatch' && inputs.advance_release"
     if not legacy and dependency == 'upstream-baseline':
         condition += " && inputs.scope == 'full'"
     return f'''
@@ -110,8 +112,8 @@ def signal_job(dependency, legacy=False):
 def native_recipe(workflow):
     # Isolated notification and scheduling metadata do not change built bytes.
     # Build settings and every build/test step remain byte-bound.
-    for legacy in (False, True):
-        tail = signal_job('upstream-baseline', legacy=legacy)
+    for legacy, intent in ((False, True), (False, False), (True, False)):
+        tail = signal_job('upstream-baseline', legacy=legacy, intent=intent)
         if workflow.endswith(tail):
             workflow = workflow[:-len(tail)]
             break

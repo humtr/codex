@@ -22,6 +22,10 @@ on:
       - 'Cargo.lock'
   workflow_dispatch:
     inputs:
+      advance_release:
+        description: Signal separately authorized exact-source release intent on main
+        type: boolean
+        default: false
       rebuild_current:
         description: Qualify authenticated current runtime; false discovers latest upstream
         type: boolean
@@ -42,7 +46,7 @@ jobs:
 
   notify_acceptance:
     needs: qualify
-    if: always() && needs.qualify.result == 'success' && github.ref == 'refs/heads/rewrite/rust-core'
+    if: always() && needs.qualify.result == 'success' && github.ref == 'refs/heads/rewrite/rust-core' && github.event_name == 'workflow_dispatch' && inputs.advance_release
     permissions:
       contents: read
       actions: write

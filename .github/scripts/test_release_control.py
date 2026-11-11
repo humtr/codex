@@ -14,6 +14,13 @@ import release_control as control
 
 
 class ReleaseControlTests(unittest.TestCase):
+    def setUp(self):
+        # Existing publication tests model the separately authorized lane;
+        # authorization itself and default denial have independent tests below.
+        permission = patch.object(control, 'release_authorized', return_value=True)
+        permission.start()
+        self.addCleanup(permission.stop)
+
     def test_documentation_head_requests_the_existing_accepted_product_without_a_rebuild_or_pointer_write(self):
         root=Path(__file__).resolve().parents[2];head='a'*40;product='c'*40
         version=control.load(root/'release/upstream.json')['upstream']['version']

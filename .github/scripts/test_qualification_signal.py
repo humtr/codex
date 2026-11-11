@@ -10,22 +10,25 @@ ROOT=Path(__file__).resolve().parents[2]
 
 
 class QualificationSignalTests(unittest.TestCase):
-    def test_notifiers_admit_only_successful_owned_release_qualifications(self):
+    def test_notifiers_require_explicit_dispatch_intent_and_success(self):
+        import itertools
         for dependency in ('accepted', 'qualify', 'upstream-baseline'):
             expression=re.search(r'(?m)^    if: (.+)$', signal_job(dependency))[1]
-            for ref in ('refs/heads/rewrite/rust-core', 'refs/heads/integration/codex-native-20261110',
-                        'refs/heads/main', 'refs/tags/v0.167.0', ''):
-                for result in ('success', 'failure', 'cancelled', 'skipped'):
-                    for scope in ('full', 'focused'):
-                        with self.subTest(dependency=dependency, ref=ref, result=result, scope=scope):
-                            evaluated=(expression.replace('always()', 'True')
-                                       .replace('needs.'+dependency+'.result', repr(result))
-                                       .replace('github.ref', repr(ref))
-                                       .replace('inputs.scope', repr(scope))
-                                       .replace('&&', ' and '))
-                            expected=(ref=='refs/heads/rewrite/rust-core' and result=='success'
-                                      and (dependency!='upstream-baseline' or scope=='full'))
-                            self.assertEqual(eval(evaluated, {'__builtins__': {}}, {}), expected)
+            cases=itertools.product(
+                ('refs/heads/rewrite/rust-core','refs/heads/integration/owned','refs/heads/main',''),
+                ('success','failure','cancelled','skipped'),('full','focused'),
+                ('push','workflow_dispatch','schedule'),(False,True))
+            for ref,result,scope,event,intent in cases:
+                with self.subTest(dependency=dependency,ref=ref,result=result,scope=scope,event=event,intent=intent):
+                    terms={'always()':'True','needs.'+dependency+'.result':repr(result),
+                           'github.ref':repr(ref),'inputs.scope':repr(scope),
+                           'github.event_name':repr(event),'inputs.advance_release':repr(intent)}
+                    evaluated=expression
+                    for key,value in terms.items():evaluated=evaluated.replace(key,value)
+                    expected=(ref=='refs/heads/rewrite/rust-core' and result=='success'
+                              and event=='workflow_dispatch' and intent
+                              and (dependency!='upstream-baseline' or scope=='full'))
+                    self.assertEqual(eval(evaluated.replace('&&',' and '),{'__builtins__':{}},{}),expected)
 
     def test_runtime_transfer_selects_only_an_owned_successful_exact_source_and_live_artifact(self):
         source='a'*40

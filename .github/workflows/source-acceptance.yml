@@ -2,6 +2,11 @@ name: Source acceptance
 
 on:
   workflow_dispatch:
+    inputs:
+      advance_release:
+        description: Signal separately authorized exact-source release intent on main
+        type: boolean
+        default: false
   push:
     branches:
       - rewrite/rust-core
@@ -346,7 +351,7 @@ jobs:
 
   notify_acceptance:
     needs: accepted
-    if: always() && needs.accepted.result == 'success' && github.ref == 'refs/heads/rewrite/rust-core'
+    if: always() && needs.accepted.result == 'success' && github.ref == 'refs/heads/rewrite/rust-core' && github.event_name == 'workflow_dispatch' && inputs.advance_release
     permissions:
       contents: read
       actions: write

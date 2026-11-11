@@ -250,6 +250,38 @@ def git_head(source):
     return subprocess.check_output(['git','-C',str(source),'rev-parse','HEAD'],text=True).strip()
 
 
+def release_authorized(source_sha, main_sha, version):
+    """An immutable publication-owner decision, never inferred from green CI.
+
+    The scheduled main controller reads this from main, not the candidate
+    checkout. Missing intent is a normal development state; invalid records
+    fail closed. Existing source/qualification/caller/signature gates still
+    apply after authorization.
+    """
+    if not all(re.fullmatch('[0-9a-f]{40}', item) for item in (source_sha, main_sha)):
+        raise ValueError('release intent requires exact source and main identities')
+    try:
+        record = api('contents/release-intent-v1?ref=' + main_sha)
+    except GitHubFailure as error:
+        if error.detail == 'HTTP 404':
+            return False
+        raise
+    raw = base64.b64decode(record['content'], validate=False)
+    if len(raw) > 4096:
+        raise ValueError('release intent exceeds bound')
+    from release_components import unique
+    value = json.loads(raw, object_pairs_hook=unique)
+    if (not isinstance(value, dict)
+            or set(value) != {'schema', 'source_sha', 'upstream_version', 'publication'}
+            or value['schema'] != 'codex-release-intent-v1'
+            or not isinstance(value['source_sha'], str)
+            or re.fullmatch('[0-9a-f]{40}', value['source_sha']) is None
+            or value['publication'] is not True):
+        raise ValueError('invalid explicit release intent')
+    stable_version(value['upstream_version'])
+    return value['source_sha'] == source_sha and value['upstream_version'] == version
+
+
 def run(source, requested_upstream=None):
     current=subprocess.check_output(['git','-C',str(source),'rev-parse','HEAD'],text=True).strip()
     if api('git/ref/heads/'+SOURCE_BRANCH)['object']['sha']!=current:
@@ -259,6 +291,8 @@ def run(source, requested_upstream=None):
         if requested_upstream != load(source/'release/upstream.json')['upstream']['version']:
             raise ValueError('requested upstream differs from the selected exact source; build not started')
     main=api('git/ref/heads/main')['object']['sha']
+    if not release_authorized(current, main, load(source/'release/upstream.json')['upstream']['version']):
+        return {'state':'awaiting-release-authorization','source':current,'main':main}
     pointer=api('contents/release-source-v1?ref='+main)
     previous=base64.b64decode(pointer['content']).decode().strip()
     before=load(source/'release/upstream.json')
