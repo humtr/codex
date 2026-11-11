@@ -608,6 +608,19 @@ struct ActiveEffects {
     #[serde(default)]
     external: BTreeMap<String, ExternalEffectReceipt>,
 }
+impl ActiveEffects {
+    fn session_poll_scope(&self, lane: &str, session: u64) -> Option<Effect> {
+        let mut owners = self
+            .claims
+            .values()
+            .filter(|held| held.lane == lane && held.session_id == Some(session));
+        let original = owners.next()?;
+        if owners.next().is_some() || !matches!(original.effect.claim_scope(), Effect::Paths(_)) {
+            return None;
+        }
+        Some(original.effect.clone())
+    }
+}
 fn external_effect_id(lane: &str, tool_id: &str) -> String {
     digest(&("upstream-native-effect-v1", lane, tool_id))
 }
@@ -1201,7 +1214,12 @@ impl Broker {
         }
         let root =
             std::fs::canonicalize(workspace).map_err(|_| Error("native_workspace_unavailable"))?;
-        let effect = native_effect::classify_with_execution(name, input, Some(&root), execution);
+        let inherited_poll =
+            native_effect::qualified_session_poll(name, input, Some(&root), execution)
+                .and_then(|session| state.session_poll_scope(lane, session));
+        let effect = inherited_poll.clone().unwrap_or_else(|| {
+            native_effect::classify_with_execution(name, input, Some(&root), execution)
+        });
         let read_only = effect == Effect::Read;
         let continuation = continued_process(name, input);
         if state.claims.values().any(|held| {
@@ -1210,7 +1228,9 @@ impl Broker {
         }) {
             return Err(Error("native_resource_busy"));
         }
-        native_effect::can_offer(&effect, &root).map_err(Error)?;
+        if inherited_poll.is_none() {
+            native_effect::can_offer(&effect, &root).map_err(Error)?;
+        }
         // There is no authoritative external receipt for this identity yet:
         // a previous reservation could have crashed before delivery. Do not
         // mistake that known unoffered claim for a live Native invocation.
@@ -2072,8 +2092,16 @@ impl Broker {
                 if calls.len() == 32 {
                     break;
                 }
-                let effect =
-                    call.admission_effect(next.workspace.as_deref(), next.execution.as_ref());
+                let inherited_poll = native_effect::qualified_session_poll(
+                    &call.name,
+                    &call.input,
+                    next.workspace.as_deref(),
+                    next.execution.as_ref(),
+                )
+                .and_then(|session| claims.session_poll_scope(&next.lane, session));
+                let effect = inherited_poll.clone().unwrap_or_else(|| {
+                    call.admission_effect(next.workspace.as_deref(), next.execution.as_ref())
+                });
                 let continuation = continued_process(&call.name, &call.input);
                 // The call's authoritative turn still says it was not offered.
                 // Repair a crash between a previous shared reservation and turn
@@ -2094,7 +2122,7 @@ impl Broker {
                     changed = true;
                     continue;
                 }
-                if let Effect::Paths(_) = &effect {
+                if inherited_poll.is_none() && matches!(&effect, Effect::Paths(_)) {
                     let verified = next
                         .workspace
                         .as_ref()
@@ -4287,6 +4315,164 @@ mod native_concurrency_tests {
             .contains_key(offered[0]["id"].as_str().unwrap()));
         fs::remove_dir_all(root).unwrap();
     }
+    #[tokio::test]
+    async fn nc_parallel_compiler_session_polls_preserve_original_scopes_and_results() {
+        let (root, journal, tools) = fixture();
+        let execution = native_effect::compiler_fixture(&root);
+        let broker = Broker::new(journal.clone());
+        let mut tokens = Vec::new();
+        let mut originals = Vec::new();
+        for (lane, session) in [("a", 51), ("b", 52)] {
+            fs::write(
+                root.join(format!("{lane}.c")),
+                "int main(void){return 0;}\n",
+            )
+            .unwrap();
+            let token = broker
+                .register_scoped(lane, tools.clone(), false, Some(&root))
+                .await
+                .unwrap();
+            broker
+                .bind_execution(&token, Some(execution.clone()))
+                .await
+                .unwrap();
+            let command = Arguments {
+                call_id: format!("compile-{lane}"), name: "functions.exec_command".into(),
+                input: json!({"cmd":format!("clang -O0 {lane}.c -o {lane}.out"),"workdir":root,"login":false}).to_string(),
+                report: String::new(),
+            };
+            let id = accepted(&broker, &token, &command).await;
+            let running = json!({"output":format!("Process running with session ID {session}")});
+            broker
+                .settle(&token, &[(id, running.clone())])
+                .await
+                .unwrap();
+            tokens.push(token);
+            originals.push((command, running));
+        }
+        let poll = |id: &str, session: u64, chars: &str| Arguments {
+            call_id: id.into(),
+            name: "functions.write_stdin".into(),
+            input: json!({"session_id":session,"chars":chars,"yield_time_ms":1000}).to_string(),
+            report: String::new(),
+        };
+        // The original compiler may have produced its output before the next
+        // poll. Revalidating launch snapshots here would reject a valid result.
+        for lane in ["a", "b"] {
+            fs::write(root.join(format!("{lane}.out")), b"compiled output").unwrap();
+        }
+        let held: ActiveEffects = journal
+            .read(&digest(&"native-effect-claims-v1"))
+            .unwrap()
+            .unwrap();
+        assert_eq!(held.claims.len(), 2);
+        let mut ambiguous: ActiveEffects = journal
+            .read(&digest(&"native-effect-claims-v1"))
+            .unwrap()
+            .unwrap();
+        let original = ambiguous
+            .claims
+            .values()
+            .find(|claim| claim.lane == "a")
+            .unwrap()
+            .clone();
+        ambiguous.claims.insert("duplicate-owner".into(), original);
+        assert!(ambiguous.session_poll_scope("a", 51).is_none());
+        for (id, session, chars) in [("foreign", 52, ""), ("unknown", 53, ""), ("write", 51, "x")] {
+            let rejected = poll(id, session, chars);
+            broker.enqueue(&tokens[0], &rejected).await.unwrap();
+            assert!(broker.offer(&tokens[0]).await.unwrap().is_empty());
+            assert_eq!(
+                broker.invoke(&tokens[0], rejected).await.unwrap()["error"],
+                "native_resource_busy"
+            );
+        }
+        let external = poll("external-poll", 52, "");
+        let mut unsafe_hooks = execution.clone();
+        unsafe_hooks.hook_free_tools.clear();
+        for (id, facts) in [
+            ("missing-proof", None),
+            ("unsafe-hooks", Some(&unsafe_hooks)),
+        ] {
+            assert_eq!(
+                broker
+                    .admit_external_tool_with_execution(
+                        "b",
+                        id,
+                        &external.name,
+                        &external.input,
+                        &root,
+                        facts
+                    )
+                    .await,
+                Err(Error("native_resource_busy"))
+            );
+        }
+        broker
+            .admit_external_tool_with_execution(
+                "b",
+                &external.call_id,
+                &external.name,
+                &external.input,
+                &root,
+                Some(&execution),
+            )
+            .await
+            .unwrap();
+        let first_poll = poll("poll-running", 51, "");
+        let first_id = accepted(&broker, &tokens[0], &first_poll).await;
+        let running = json!({"output":"Process running with session ID 51"});
+        broker
+            .settle(&tokens[0], &[(first_id, running.clone())])
+            .await
+            .unwrap();
+        assert_eq!(
+            broker.invoke(&tokens[0], first_poll).await.unwrap(),
+            running
+        );
+        let status = broker.effect_status("a").unwrap();
+        assert_eq!(status["unconfirmed_effects"], 2);
+        assert_eq!(status["shared"]["unconfirmed_effects"], 2);
+        assert!(status["shared"]["active"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|claim| claim["resource_kind"] == "bounded"));
+        let terminal = json!({"output":"Process exited with code 0"});
+        broker
+            .settle_external_tools("b", &[(external.call_id, terminal.clone())])
+            .await
+            .unwrap();
+        assert_eq!(
+            broker.effect_status("a").unwrap()["shared"]["unconfirmed_effects"],
+            1
+        );
+        let final_poll = poll("poll-exited", 51, "");
+        let id = accepted(&broker, &tokens[0], &final_poll).await;
+        broker
+            .settle(&tokens[0], &[(id, terminal.clone())])
+            .await
+            .unwrap();
+        assert_eq!(
+            broker.invoke(&tokens[0], final_poll).await.unwrap(),
+            terminal
+        );
+        for (token, (command, result)) in tokens.iter().zip(originals) {
+            assert_eq!(broker.invoke(token, command).await.unwrap(), result);
+        }
+        assert_eq!(
+            broker
+                .invoke(&tokens[0], poll("write", 51, "x"))
+                .await
+                .unwrap()["error"],
+            "native_resource_busy"
+        );
+        let status = broker.effect_status("a").unwrap();
+        assert_eq!(status["unconfirmed_effects"], 0);
+        assert_eq!(status["shared"]["unconfirmed_effects"], 0);
+        fs::remove_dir_all(root).unwrap();
+    }
+
     #[tokio::test]
     async fn nc_opaque_async_process_keeps_claim_until_continuation_confirms_exit() {
         let (root, journal, tools) = fixture();

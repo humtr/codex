@@ -69,6 +69,15 @@ mixed-binary activation must account for that older unrecorded-effect boundary.
 No source compatibility check authorizes stopping an operating Writer or rewriting
 its claim ledger.
 
+An empty `write_stdin` observation may retain exactly one original bounded
+same-work/session claim when the current Native turn proves that its applicable
+exec/continuation hooks are absent. Both Broker and shared-ledger admission verify
+the same original scope; the poll does not revalidate pre-launch output snapshots
+or replace the original call identity. Nonempty stdin, unknown or foreign sessions,
+ambiguous ownership and missing/legacy hook or scope proof retain conservative
+admission. A running poll preserves the claim; only the original terminal result
+releases it. Parallel execution must remain observable through these continuations.
+
 The implementation contract is scoped logical identity plus a payload
 fingerprint and durable intent/result. Use existing call_id, work/controller
 generation, native request/turn and Broker token identities. One operation's
