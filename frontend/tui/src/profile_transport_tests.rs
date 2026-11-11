@@ -114,3 +114,71 @@ fn profile_transport_core_daemon_actions_refuse_without_affecting_remote_or_read
         true
     ));
 }
+
+#[test]
+fn profile_transport_owner_diagnostics_exclude_private_stderr() {
+    assert_eq!(
+        rejection_reason(b"codex: native_owner_writer_unresolved: details"),
+        "Native writer is held but its qualified owner is unavailable"
+    );
+    assert_eq!(
+        rejection_reason(b"codex: native_owner_binding_invalid: details"),
+        "live Native execution binding is unsupported or invalid"
+    );
+    let secret = b"private token=secret conversation content";
+    assert!(!rejection_reason(secret).contains("secret"));
+    assert!(!rejection_reason(secret).contains("conversation"));
+}
+
+#[tokio::test]
+async fn profile_transport_core_errors_preserve_absence_rejection_and_limits() {
+    use std::os::unix::fs::PermissionsExt;
+    let root = tempfile::tempdir().unwrap();
+    let core = root.path().join("core");
+    assert!(matches!(
+        call_manager_result(&core, &[], 2).await,
+        Err(CoreCallError::Unavailable)
+    ));
+    // The current test executable cannot act as a Core; executable validation
+    // and every child outcome remain distinct from a valid null owner reply.
+    std::fs::write(&core, b"unexecutable").unwrap();
+    assert!(matches!(
+        call_manager_result(&core, &[], 2).await,
+        Err(CoreCallError::UnsafeExecutable)
+    ));
+    let shell = std::env::var_os("PREFIX")
+        .map(|prefix| Path::new(&prefix).join("bin/sh"))
+        .filter(|path| path.is_absolute() && path.is_file())
+        .unwrap_or_else(|| Path::new("/bin/sh").to_path_buf());
+    let script = |body: &str| {
+        std::fs::write(&core, format!("#!{}\n{body}\n", shell.display())).unwrap();
+        std::fs::set_permissions(&core, std::fs::Permissions::from_mode(0o700)).unwrap();
+    };
+    script("printf '%s\n' '{\"schema\":\"codex-manager-task-connection-v1\",\"connection\":null}'");
+    let bytes = call_manager_result(&core, &[], 2).await.unwrap();
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&bytes).unwrap()["connection"],
+        serde_json::Value::Null
+    );
+    script(
+        "printf '%s\n' 'codex: native_owner_ambiguous: private token must not escape' >&2; exit 7",
+    );
+    let error = call_manager_result(&core, &[], 2).await.unwrap_err();
+    assert!(matches!(
+        error,
+        CoreCallError::Rejected { code: Some(7), .. }
+    ));
+    assert!(!error.to_string().contains("token"));
+    script(
+        "while :; do printf 'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'; done",
+    );
+    assert!(matches!(
+        call_manager_result(&core, &[], 2).await,
+        Err(CoreCallError::OutputTooLarge)
+    ));
+    script("sleep 2");
+    assert!(matches!(
+        call_manager_result(&core, &[], 0).await,
+        Err(CoreCallError::Timeout)
+    ));
+}

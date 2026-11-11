@@ -90,7 +90,15 @@ owner shapes (home/runtime, optionally followed by `catalog-v1`) only when priva
 owner/PID reads and the kernel prove the recorded process is absent or now has a
 different executable. Preserve those records without interpreting their old codec.
 A matching live owner, unreadable/unsafe owner or PID, unknown owner shape and any
-malformed current config-v1 record remain errors. A bounded explicit device repair
+malformed current config-v1 record remain errors. This same distinction governs
+Core's Native connection query and TUI profile re-entry: recognized retired
+records cannot poison a different thread's owner lookup. A null connection means
+that the native writer-lock coordination has positively established a free writer;
+a registry, peer, protocol or process-query failure must never become null.
+TUI reports bounded Core failure categories and exit state without copying private
+stderr, credentials or conversation data. The existing connection schema remains
+compatible for supported older frontends; diagnostics do not transfer a writer.
+A bounded explicit device repair
 may separately archive a verified inactive historical record, preserving its
 complete contents and restore path; ordinary discovery performs no such mutation.
 An unavailable rendezvous does not establish that its Native process or writer

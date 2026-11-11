@@ -878,6 +878,24 @@ mod tests {
             format!("{}\n", std::process::id()).as_bytes(),
         )
         .unwrap();
+        // Old signed generations published only the home/program prefix. A
+        // positively different live image proves PID reuse before schema parsing;
+        // it must not make every unrelated task undiscoverable.
+        let legacy = family.join("000000000000cafe");
+        fs::create_dir(&legacy).unwrap();
+        set_mode(&legacy, 0o700).unwrap();
+        let legacy_owner = [
+            home.as_os_str().as_bytes(),
+            b"\0",
+            program.as_os_str().as_bytes(),
+        ]
+        .concat();
+        write_new_record(&legacy.join("owner"), &legacy_owner).unwrap();
+        write_new_record(
+            &legacy.join("pid"),
+            format!("{}\n", std::process::id()).as_bytes(),
+        )
+        .unwrap();
         let socket = root.join("s");
         let _socket = std::os::unix::net::UnixListener::bind(&socket).unwrap();
         set_mode(&socket, 0o600).unwrap();
@@ -887,6 +905,36 @@ mod tests {
         assert_eq!(found[0].home, home);
         assert_eq!(found[0].pid, running.0.id());
         assert!(native::servers(&context.home, Instant::now()).is_err());
+        // The same legacy schema is never admitted as a live current binding.
+        fs::write(legacy.join("pid"), format!("{}\n", running.0.id())).unwrap();
+        assert!(native::servers(&context.home, Instant::now() + SCAN_TIME).is_err());
+        fs::write(legacy.join("pid"), format!("{}\n", std::process::id())).unwrap();
+        assert_eq!(
+            native::servers(&context.home, Instant::now() + SCAN_TIME)
+                .unwrap()
+                .len(),
+            1
+        );
+        assert_eq!(fs::read(legacy.join("owner")).unwrap(), legacy_owner);
+        let old_catalog = [legacy_owner.as_slice(), b"\0catalog-v1"].concat();
+        fs::write(legacy.join("owner"), &old_catalog).unwrap();
+        assert_eq!(
+            native::servers(&context.home, Instant::now() + SCAN_TIME)
+                .unwrap()
+                .len(),
+            1
+        );
+        // Unknown codecs and malformed current bindings cannot become safe
+        // absence merely because their PID was reused by another executable.
+        for suffix in [b"\0unknown-v9".as_slice(), b"\0config-v1"] {
+            fs::write(
+                legacy.join("owner"),
+                [legacy_owner.as_slice(), suffix].concat(),
+            )
+            .unwrap();
+            assert!(native::servers(&context.home, Instant::now() + SCAN_TIME).is_err());
+        }
+        fs::write(legacy.join("owner"), &legacy_owner).unwrap();
 
         let retired = family.join("0000000000000000");
         let pid_file = retired.join("pid");
@@ -917,6 +965,156 @@ mod tests {
         fs::remove_file(&program).unwrap();
         assert!(native::servers(&context.home, Instant::now() + SCAN_TIME).is_err());
     }
+    #[test]
+    fn qualified_owner_probe_child() {
+        use std::io::Read;
+        let Some(root) = std::env::var_os("CODEX_TEST_NATIVE_OWNER_FIXTURE").map(PathBuf::from)
+        else {
+            return;
+        };
+        let lock = File::open(root.join(format!(".codex/thread-writer-locks/{ID}.lock"))).unwrap();
+        lock.try_lock().unwrap();
+        let socket = root.join("s");
+        let _listener = std::os::unix::net::UnixListener::bind(&socket).unwrap();
+        set_mode(&socket, 0o600).unwrap();
+        write_new_record(&root.join("ready"), b"ready").unwrap();
+        let mut input = [0];
+        std::io::stdin().read_exact(&mut input).unwrap();
+    }
+
+    #[test]
+    fn qualified_owner_preserves_live_writer_and_rejects_duplicate_bindings() {
+        use std::io::Write;
+        let root = std::env::temp_dir().join(format!(
+            "ow{}-{}",
+            std::process::id(),
+            TEMP_COUNTER.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir(&root).unwrap();
+        set_mode(&root, 0o700).unwrap();
+        struct Cleanup(PathBuf);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                let _ = fs::remove_dir_all(&self.0);
+            }
+        }
+        let _cleanup = Cleanup(root.clone());
+        let locks = root.join(".codex/thread-writer-locks");
+        fs::create_dir_all(&locks).unwrap();
+        set_mode(&locks, 0o700).unwrap();
+        write_new_record(&locks.join(".coordination.lock"), b"").unwrap();
+        let writer = locks.join(format!("{ID}.lock"));
+        write_new_record(&writer, b"original native writer").unwrap();
+        let home = root.join("account");
+        fs::create_dir(&home).unwrap();
+        set_mode(&home, 0o700).unwrap();
+        let program = root.join(".local/lib/codex/core/generations/owner-test/runtime");
+        fs::create_dir_all(program.parent().unwrap()).unwrap();
+        fs::copy(std::env::current_exe().unwrap(), &program).unwrap();
+        set_mode(&program, 0o700).unwrap();
+        struct Running(std::process::Child);
+        impl Drop for Running {
+            fn drop(&mut self) {
+                let _ = self.0.kill();
+                let _ = self.0.wait();
+            }
+        }
+        let mut running = Running(
+            Command::new(&program)
+                .args([
+                    "--exact",
+                    "task::tests::qualified_owner_probe_child",
+                    "--nocapture",
+                ])
+                .env("CODEX_TEST_NATIVE_OWNER_FIXTURE", &root)
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::null())
+                .spawn()
+                .unwrap(),
+        );
+        let ready_deadline = Instant::now() + Duration::from_secs(5);
+        while !root.join("ready").is_file() {
+            assert!(
+                running.0.try_wait().unwrap().is_none(),
+                "owner fixture exited before readiness"
+            );
+            assert!(
+                Instant::now() < ready_deadline,
+                "owner fixture readiness timed out"
+            );
+            thread::sleep(Duration::from_millis(10));
+        }
+        let config = b"current execution settings";
+        let publish = |family: &str| {
+            let catalog = (family == "catalogs").then_some(b"{\"models\":[]}".as_slice());
+            let namespace = codex_runtime_binding::configuration_namespace(
+                &home,
+                program.as_os_str(),
+                catalog,
+                None,
+                config,
+                None,
+            );
+            let parent = root.join(".local/share/codex/core").join(family);
+            fs::create_dir_all(&parent).unwrap();
+            set_mode(&parent, 0o700).unwrap();
+            let dir = parent.join(&namespace);
+            fs::create_dir(&dir).unwrap();
+            set_mode(&dir, 0o700).unwrap();
+            fs::create_dir(dir.join("config")).unwrap();
+            set_mode(&dir.join("config"), 0o700).unwrap();
+            write_new_record(&dir.join("config/config.toml"), config).unwrap();
+            if let Some(catalog) = catalog {
+                write_new_record(&dir.join("models.json"), catalog).unwrap();
+            }
+            write_new_record(
+                &dir.join("owner"),
+                &codex_runtime_binding::configuration_owner_bytes(
+                    &home,
+                    program.as_os_str(),
+                    catalog.is_some(),
+                    false,
+                ),
+            )
+            .unwrap();
+            write_new_record(&dir.join("pid"), format!("{}\n", running.0.id()).as_bytes()).unwrap();
+            std::os::unix::fs::symlink(root.join("s"), dir.join("s")).unwrap();
+            dir
+        };
+        publish("servers");
+        let owner = native::owner(&root, ID, Instant::now() + SCAN_TIME)
+            .unwrap()
+            .unwrap();
+        assert_eq!(owner.pid, running.0.id());
+        assert_eq!(owner.home, home);
+        assert_eq!(owner.socket, root.join("s"));
+        assert!(!native::writer_free(&root, ID).unwrap());
+        assert!(native::owns_writer(&root, ID, &owner).unwrap());
+        let duplicate = publish("catalogs");
+        let error = native::owner(&root, ID, Instant::now() + SCAN_TIME).unwrap_err();
+        assert!(
+            error.to_string().starts_with("native_owner_ambiguous:"),
+            "{error}"
+        );
+        assert_eq!(fs::read(&writer).unwrap(), b"original native writer");
+        assert!(!native::writer_free(&root, ID).unwrap());
+        fs::remove_dir_all(duplicate).unwrap();
+        assert_eq!(
+            native::owner(&root, ID, Instant::now() + SCAN_TIME)
+                .unwrap()
+                .unwrap()
+                .pid,
+            running.0.id()
+        );
+        running.0.stdin.take().unwrap().write_all(b"x").unwrap();
+        assert!(running.0.wait().unwrap().success());
+        assert!(native::owner(&root, ID, Instant::now() + SCAN_TIME)
+            .unwrap()
+            .is_none());
+        assert_eq!(fs::read(&writer).unwrap(), b"original native writer");
+    }
+
     #[test]
     fn local_connect_full_backlog_obeys_deadline_and_preserves_listener() {
         let root = std::env::temp_dir().join(format!("hc{}", std::process::id()));

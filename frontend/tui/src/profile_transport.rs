@@ -8,16 +8,89 @@ use std::time::Duration;
 use tokio::io::AsyncReadExt;
 use tokio::process::Command;
 
-/// Bounded same-generation Manager IPC; Native retains execution authority.
+/// Failure categories contain no raw child stderr, paths, credentials or history.
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum CoreCallError {
+    #[error("qualified Core executable is unavailable")]
+    Unavailable,
+    #[error("qualified Core executable failed ownership or permission validation")]
+    UnsafeExecutable,
+    #[error("qualified Core process could not be started")]
+    Spawn,
+    #[error("qualified Core response could not be read")]
+    Read,
+    #[error("qualified Core response exceeded its size limit")]
+    OutputTooLarge,
+    #[error("qualified Core request timed out; existing ownership is unchanged")]
+    Timeout,
+    #[error("qualified Core rejected the request (exit {code:?}): {reason}")]
+    Rejected {
+        code: Option<i32>,
+        reason: &'static str,
+    },
+}
+
+fn rejection_reason(stderr: &[u8]) -> &'static str {
+    // Only Core-owned bounded categories are public. Never echo arbitrary stderr.
+    let text = std::str::from_utf8(stderr).unwrap_or_default();
+    let code = text
+        .strip_prefix("codex: ")
+        .unwrap_or(text)
+        .split(':')
+        .next();
+    match code {
+        Some("native_owner_registry_invalid") => "Native owner registry identity is malformed",
+        Some("native_owner_binding_invalid") => {
+            "live Native execution binding is unsupported or invalid"
+        }
+        Some("native_owner_ambiguous") => "multiple Native owners require reconciliation",
+        Some("native_owner_writer_unresolved") => {
+            "Native writer is held but its qualified owner is unavailable"
+        }
+        Some("native_owner_unsafe") => "Native owner identity or ownership could not be verified",
+        _ if text.trim()
+            == "codex: Native owner is unavailable, ambiguous, unsafe or unresponsive" =>
+        {
+            "installed Core could not verify Native ownership"
+        }
+        _ => "see the Core diagnostic for this request; no ownership was transferred",
+    }
+}
+
+async fn bounded_output(
+    stream: impl tokio::io::AsyncRead + Unpin,
+    limit: u64,
+) -> Result<Vec<u8>, CoreCallError> {
+    let mut bytes = Vec::new();
+    stream
+        .take(limit + 1)
+        .read_to_end(&mut bytes)
+        .await
+        .map_err(|_| CoreCallError::Read)?;
+    if bytes.len() as u64 > limit {
+        return Err(CoreCallError::OutputTooLarge);
+    }
+    Ok(bytes)
+}
+
+/// Bounded qualified Core IPC; existing callers retain their optional-view API.
 pub(crate) async fn call_manager(core: &Path, args: &[String], seconds: u64) -> Option<Vec<u8>> {
-    let metadata = std::fs::symlink_metadata(core).ok()?;
+    call_manager_result(core, args, seconds).await.ok()
+}
+
+pub(crate) async fn call_manager_result(
+    core: &Path,
+    args: &[String],
+    seconds: u64,
+) -> Result<Vec<u8>, CoreCallError> {
+    let metadata = std::fs::symlink_metadata(core).map_err(|_| CoreCallError::Unavailable)?;
     if !core.is_absolute()
         || !metadata.is_file()
         || metadata.uid() != unsafe { libc::geteuid() }
         || metadata.mode() & 0o022 != 0
         || metadata.mode() & 0o111 == 0
     {
-        return None;
+        return Err(CoreCallError::UnsafeExecutable);
     }
     tokio::time::timeout(Duration::from_secs(seconds), async {
         let mut child = Command::new(core)
@@ -25,26 +98,25 @@ pub(crate) async fn call_manager(core: &Path, args: &[String], seconds: u64) -> 
             .args(args)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
-            .stderr(Stdio::null())
+            .stderr(Stdio::piped())
             .kill_on_drop(true)
             .spawn()
-            .ok()?;
-        let mut bytes = Vec::new();
-        child
-            .stdout
-            .take()?
-            .take(262145)
-            .read_to_end(&mut bytes)
-            .await
-            .ok()?;
-        if bytes.len() > 262144 || !child.wait().await.ok()?.success() {
-            return None;
+            .map_err(|_| CoreCallError::Spawn)?;
+        let stdout = child.stdout.take().ok_or(CoreCallError::Read)?;
+        let stderr = child.stderr.take().ok_or(CoreCallError::Read)?;
+        let (bytes, errors) =
+            tokio::try_join!(bounded_output(stdout, 262144), bounded_output(stderr, 4096))?;
+        let status = child.wait().await.map_err(|_| CoreCallError::Read)?;
+        if !status.success() {
+            return Err(CoreCallError::Rejected {
+                code: status.code(),
+                reason: rejection_reason(&errors),
+            });
         }
-        Some(bytes)
+        Ok(bytes)
     })
     .await
-    .ok()
-    .flatten()
+    .map_err(|_| CoreCallError::Timeout)?
 }
 
 /// Core owns the server lifecycle for its explicit qualified local endpoint.
