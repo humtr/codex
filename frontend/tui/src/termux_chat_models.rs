@@ -4,7 +4,6 @@ use codex_config::ConfigLayerSource;
 use codex_protocol::openai_models::ModelPreset;
 use codex_protocol::openai_models::ModelsResponse as Catalog;
 use codex_protocol::openai_models::ReasoningEffort;
-use std::collections::HashSet;
 use std::fs::File;
 use std::io::Read;
 use std::os::unix::fs::MetadataExt;
@@ -42,6 +41,165 @@ pub(crate) fn installed_command(config: &Config) -> Option<ProviderCommand> {
         return None;
     }
     Some(ProviderCommand { binary, state })
+}
+
+/// Account-verified app observation; never another provider's fallback catalog.
+pub(crate) struct LiveCatalog {
+    pub models: Vec<ModelPreset>,
+    pub path: std::path::PathBuf,
+    source: Vec<u8>,
+}
+
+impl LiveCatalog {
+    pub(crate) fn requires_binding(&self, config: &Config) -> bool {
+        config.model_catalog_source.as_deref() != Some(self.source.as_slice())
+    }
+
+    pub(crate) fn admits(&self, model: &str, effort: &ReasoningEffort, saved: bool) -> bool {
+        self.models.iter().any(|entry| {
+            entry.model == model
+                && (saved || entry.show_in_picker)
+                && entry
+                    .supported_reasoning_efforts
+                    .iter()
+                    .any(|level| level.effort == *effort)
+        })
+    }
+}
+
+/// Reuse the Provider's existing authenticated discovery and immutable snapshot
+/// producer. No login, profile preparation or model inference occurs here.
+pub(crate) async fn live_catalog(config: &Config) -> Result<LiveCatalog, String> {
+    use tokio::io::AsyncReadExt;
+    let provider = installed_command(config)
+        .ok_or("ChatGPT model discovery is unavailable: installed Provider command is invalid")?;
+    let mut child = tokio::process::Command::new(&provider.binary)
+        .args(["host", "models", "--state"])
+        .arg(&provider.state)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .kill_on_drop(true)
+        .spawn()
+        .map_err(|_| "ChatGPT model discovery could not start")?;
+    let mut stdout = child
+        .stdout
+        .take()
+        .ok_or("ChatGPT catalog stdout is unavailable")?
+        .take(4 * 1024 * 1024 + 1);
+    let mut stderr = child
+        .stderr
+        .take()
+        .ok_or("ChatGPT catalog stderr is unavailable")?
+        .take(4097);
+    let mut output = Vec::new();
+    let mut errors = Vec::new();
+    let status = tokio::time::timeout(std::time::Duration::from_secs(20), async {
+        let (_, _, status) = tokio::try_join!(
+            stdout.read_to_end(&mut output),
+            stderr.read_to_end(&mut errors),
+            child.wait()
+        )?;
+        Ok::<_, std::io::Error>(status)
+    })
+    .await
+    .map_err(|_| "ChatGPT model discovery timed out; selection unchanged")?
+    .map_err(|_| "ChatGPT model discovery failed; selection unchanged")?;
+    if output.len() > 4 * 1024 * 1024 || errors.len() > 4096 {
+        return Err("ChatGPT model discovery exceeded its response limit".into());
+    }
+    if !status.success() {
+        let code = serde_json::from_slice::<serde_json::Value>(&output)
+            .ok()
+            .and_then(|v| v["error"].as_str().map(str::to_owned))
+            .filter(|v| {
+                !v.is_empty()
+                    && v.len() < 128
+                    && v.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
+            })
+            .unwrap_or_else(|| "provider_control_failed".into());
+        return Err(format!(
+            "ChatGPT model discovery failed: {code}; selection unchanged"
+        ));
+    }
+    decode_live_catalog(&provider, &output)
+}
+
+fn decode_live_catalog(provider: &ProviderCommand, bytes: &[u8]) -> Result<LiveCatalog, String> {
+    let value: serde_json::Value =
+        serde_json::from_slice(bytes).map_err(|_| "Invalid ChatGPT catalog response")?;
+    if value["schema"] != "codex-chatgpt-app-models-v1"
+        || value["source"] != "app_and_config"
+        || value["account_verified_now"] != true
+        || value["inference_submitted"] != false
+        || value["observed_at_unix_ms"].as_u64().is_none()
+        || ["account", "user", "structure"]
+            .iter()
+            .any(|key| value["identity"][*key].as_str().is_none_or(str::is_empty))
+    {
+        return Err(
+            "The installed Provider does not supply an account-verified model catalog".into(),
+        );
+    }
+    let path = value["native_catalog_path"]
+        .as_str()
+        .map(std::path::PathBuf::from)
+        .ok_or("ChatGPT catalog snapshot path is unavailable")?;
+    if !path.is_absolute() || path.parent() != Some(provider.state.join("catalogs").as_path()) {
+        return Err("ChatGPT catalog snapshot is outside the Provider state".into());
+    }
+    let source = private_bytes(&path, 4 * 1024 * 1024)
+        .ok_or("ChatGPT catalog snapshot is unavailable or unsafe")?;
+    let stored: serde_json::Value =
+        serde_json::from_slice(&source).map_err(|_| "Invalid ChatGPT catalog snapshot")?;
+    if stored != value["native_catalog"] {
+        return Err("ChatGPT catalog snapshot changed during discovery".into());
+    }
+    let catalog: Catalog =
+        serde_json::from_value(stored).map_err(|_| "Unsupported ChatGPT native catalog schema")?;
+    let models: Vec<ModelPreset> = catalog.models.into_iter().map(Into::into).collect();
+    let mut seen = std::collections::HashSet::new();
+    if models.iter().any(|model| {
+        !valid_chat_id(&model.model)
+            || !seen.insert(model.model.clone())
+            || model.supported_reasoning_efforts.is_empty()
+            || !model
+                .supported_reasoning_efforts
+                .iter()
+                .any(|e| e.effort == model.default_reasoning_effort)
+    }) {
+        return Err("Invalid ChatGPT model identity or reasoning options".into());
+    }
+    Ok(LiveCatalog {
+        models,
+        path,
+        source,
+    })
+}
+
+/// Only an explicit /provider choice may read the other provider's catalog.
+/// OpenAI's active list is returned unchanged, with its upstream order/options.
+pub(crate) fn native_provider_catalog(
+    config: &Config,
+    current: Vec<ModelPreset>,
+) -> Vec<ModelPreset> {
+    if config.model_provider_id == "openai" {
+        return current;
+    }
+    private_bytes(
+        &config.codex_home.join("models_cache.json"),
+        4 * 1024 * 1024,
+    )
+    .and_then(|bytes| serde_json::from_slice::<Catalog>(&bytes).ok())
+    .map(|catalog| {
+        catalog
+            .models
+            .into_iter()
+            .map(ModelPreset::from)
+            .filter(|model| !model.model.starts_with("chatgpt-desktop/"))
+            .collect()
+    })
+    .unwrap_or_default()
 }
 
 /// Wait for admitted Native execution before recording a new CLI draft.
@@ -459,6 +617,7 @@ fn installed_catalog(config: &Config) -> Option<(Catalog, Vec<u8>)> {
 pub(crate) fn restore_catalog(
     config: &mut Config,
     model: Option<&str>,
+    observed_path: Option<&Path>,
 ) -> Result<bool, &'static str> {
     let Some(model) = model.filter(|model| model.starts_with("chatgpt-desktop/")) else {
         return Ok(false);
@@ -466,8 +625,15 @@ pub(crate) fn restore_catalog(
     if config.model_catalog.is_some() {
         return Ok(false);
     }
-    let (catalog, source) =
-        installed_catalog(config).ok_or("installed_chat_catalog_unavailable")?;
+    let (catalog, source) = if let Some(path) = observed_path {
+        let source =
+            private_bytes(path, 4 * 1024 * 1024).ok_or("observed_chat_catalog_unavailable")?;
+        let catalog =
+            serde_json::from_slice(&source).map_err(|_| "observed_chat_catalog_invalid")?;
+        (catalog, source)
+    } else {
+        installed_catalog(config).ok_or("installed_chat_catalog_unavailable")?
+    };
     if !valid_chat_id(model) || !catalog.models.iter().any(|entry| entry.slug == model) {
         return Err("saved_chat_model_unavailable");
     }
@@ -494,43 +660,15 @@ fn chat_catalog(config: &Config) -> Option<Vec<ModelPreset>> {
     (!models.is_empty()).then_some(models)
 }
 
-pub(crate) fn augment(config: &Config, mut models: Vec<ModelPreset>) -> Vec<ModelPreset> {
-    if !crate::termux_permissions::enabled()
-        || !matches!(config.model_provider_id.as_str(), "openai" | PROVIDER)
-        || config
-            .config_layer_stack
-            .required_model_provider()
-            .is_some()
-        || std::env::var_os("CODEX_PROFILE_CORE").is_none()
-    {
+/// Scope all current-provider surfaces without querying or augmenting OpenAI.
+pub(crate) fn augment(config: &Config, models: Vec<ModelPreset>) -> Vec<ModelPreset> {
+    if config.model_provider_id != PROVIDER {
         return models;
-    }
-    let Some(chat) = chat_catalog(config) else {
-        return models;
-    };
-    let mut seen: HashSet<String> = models.iter().map(|m| m.model.clone()).collect();
-    if config.model_provider_id == PROVIDER
-        && let Some(bytes) = private_bytes(
-            &config.codex_home.join("models_cache.json"),
-            4 * 1024 * 1024,
-        )
-        && let Ok(native) = serde_json::from_slice::<Catalog>(&bytes)
-    {
-        for model in native.models.into_iter().map(ModelPreset::from) {
-            if model.show_in_picker
-                && !model.model.starts_with("chatgpt-desktop/")
-                && seen.insert(model.model.clone())
-            {
-                models.push(model);
-            }
-        }
-    }
-    for model in chat {
-        if seen.insert(model.model.clone()) {
-            models.push(model);
-        }
     }
     models
+        .into_iter()
+        .filter(|model| valid_chat_id(&model.model))
+        .collect()
 }
 
 pub(crate) fn admits(config: &Config, model: &str, effort: &ReasoningEffort) -> bool {
@@ -593,6 +731,99 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn termux_chat_models_current_provider_catalog_preserves_openai_order_without_app_lookup()
+    {
+        let home = tempfile::tempdir().unwrap();
+        installed_profile(home.path());
+        let mut config = crate::legacy_core::config::ConfigBuilder::default()
+            .codex_home(home.path().to_path_buf())
+            .build()
+            .await
+            .unwrap();
+        let catalog: Catalog =
+            serde_json::from_slice(include_bytes!("fixtures/chat-model-catalog.json")).unwrap();
+        let chat: Vec<ModelPreset> = catalog.models.into_iter().map(Into::into).collect();
+        let mut native = chat.clone();
+        for (index, model) in native.iter_mut().enumerate() {
+            model.model = format!("upstream-{index}");
+        }
+        config.model_provider_id = "openai".into();
+        assert_eq!(augment(&config, native.clone()), native);
+        assert_eq!(native_provider_catalog(&config, native.clone()), native);
+        // A missing or invalid installed Chat catalog must have no OpenAI effect.
+        std::fs::remove_file(home.path().join("chat-models.json")).unwrap();
+        assert_eq!(augment(&config, native.clone()), native);
+        config.model_provider_id = PROVIDER.into();
+        assert!(augment(&config, native.clone()).is_empty());
+        let mixed: Vec<_> = native.into_iter().chain(chat.clone()).collect();
+        assert_eq!(augment(&config, mixed), chat);
+    }
+
+    #[tokio::test]
+    async fn termux_chat_models_live_catalog_requires_current_account_and_exact_private_snapshot() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = tempfile::tempdir().unwrap();
+        let state = root.path().join("state");
+        let snapshots = state.join("catalogs");
+        std::fs::create_dir_all(&snapshots).unwrap();
+        let path = snapshots.join("live.json");
+        let mut native: serde_json::Value =
+            serde_json::from_slice(include_bytes!("fixtures/chat-model-catalog.json")).unwrap();
+        native["models"][0]["slug"] = serde_json::json!("chatgpt-desktop/app/server-added-model");
+        std::fs::write(&path, serde_json::to_vec(&native).unwrap()).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+        let provider = ProviderCommand {
+            binary: root.path().join("provider"),
+            state,
+        };
+        let reply = serde_json::json!({
+            "schema":"codex-chatgpt-app-models-v1", "source":"app_and_config",
+            "account_verified_now":true, "inference_submitted":false,
+            "observed_at_unix_ms":1, "identity":{"account":"owned","user":"fixture","structure":"personal"},
+            "native_catalog":native,"native_catalog_path":path
+        });
+        let decoded = decode_live_catalog(&provider, &serde_json::to_vec(&reply).unwrap()).unwrap();
+        assert!(
+            decoded
+                .models
+                .iter()
+                .any(|model| model.model == "chatgpt-desktop/app/server-added-model")
+        );
+        assert_eq!(decoded.path, path);
+        let mut config = crate::legacy_core::config::ConfigBuilder::default()
+            .codex_home(root.path().to_path_buf())
+            .build()
+            .await
+            .unwrap();
+        assert!(decoded.requires_binding(&config));
+        config.model_catalog_source = Some(decoded.source.clone());
+        assert!(!decoded.requires_binding(&config));
+        for (field, value) in [
+            ("account_verified_now", serde_json::json!(false)),
+            ("source", serde_json::json!("configured_only")),
+            ("inference_submitted", serde_json::json!(true)),
+            ("schema", serde_json::json!("old-protocol")),
+            (
+                "native_catalog_path",
+                serde_json::json!(root.path().join("foreign.json")),
+            ),
+        ] {
+            let mut invalid = reply.clone();
+            invalid[field] = value;
+            assert!(
+                decode_live_catalog(&provider, &serde_json::to_vec(&invalid).unwrap()).is_err(),
+                "{field}"
+            );
+        }
+        let mut changed = reply.clone();
+        changed["native_catalog"]["models"][0]["slug"] =
+            serde_json::json!("chatgpt-desktop/app/changed");
+        assert!(decode_live_catalog(&provider, &serde_json::to_vec(&changed).unwrap()).is_err());
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+        assert!(decode_live_catalog(&provider, &serde_json::to_vec(&reply).unwrap()).is_err());
+    }
+
+    #[tokio::test]
     async fn termux_chat_models_installed_catalog_decodes_in_real_config() {
         let home = tempfile::tempdir().unwrap();
         let catalog = installed_profile(home.path());
@@ -614,10 +845,13 @@ mod tests {
             "marked routing must decode"
         );
         let mut cold = config.clone();
-        assert_eq!(restore_catalog(&mut cold, Some("gpt-6.1-sol")), Ok(false));
+        assert_eq!(
+            restore_catalog(&mut cold, Some("gpt-6.1-sol"), None),
+            Ok(false)
+        );
         assert!(cold.model_catalog.is_none());
         assert_eq!(
-            restore_catalog(&mut cold, Some("chatgpt-desktop/gpt-6")),
+            restore_catalog(&mut cold, Some("chatgpt-desktop/gpt-6"), None),
             Ok(true)
         );
         assert_eq!(
@@ -626,6 +860,35 @@ mod tests {
         );
         assert_eq!(cold.model.as_deref(), Some("gpt-6.1-sol"));
         assert_eq!(cold.model_reasoning_effort, Some(ReasoningEffort::High));
+        let fresh_path = home.path().join("fresh-models.json");
+        let mut fresh: serde_json::Value =
+            serde_json::from_slice(include_bytes!("fixtures/chat-model-catalog.json")).unwrap();
+        fresh["models"][0]["slug"] = serde_json::json!("chatgpt-desktop/app/new-server-model");
+        std::fs::write(&fresh_path, serde_json::to_vec(&fresh).unwrap()).unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&fresh_path, std::fs::Permissions::from_mode(0o600)).unwrap();
+        let mut fresh_resume = config.clone();
+        assert_eq!(
+            restore_catalog(
+                &mut fresh_resume,
+                Some("chatgpt-desktop/app/new-server-model"),
+                Some(&fresh_path)
+            ),
+            Ok(true)
+        );
+        assert_eq!(fresh_resume.model.as_deref(), config.model.as_deref());
+        assert_eq!(
+            fresh_resume.model_reasoning_effort,
+            config.model_reasoning_effort
+        );
+        assert!(
+            restore_catalog(
+                &mut config.clone(),
+                Some("chatgpt-desktop/app/retired-model"),
+                Some(&fresh_path)
+            )
+            .is_err()
+        );
         let mut explicit_catalog = cold.clone();
         explicit_catalog
             .model_catalog
@@ -634,7 +897,7 @@ mod tests {
             .models
             .retain(|m| m.slug == "chatgpt-desktop/gpt-6-pro");
         assert_eq!(
-            restore_catalog(&mut explicit_catalog, Some("chatgpt-desktop/gpt-6")),
+            restore_catalog(&mut explicit_catalog, Some("chatgpt-desktop/gpt-6"), None),
             Ok(false)
         );
         assert_eq!(
@@ -703,7 +966,11 @@ mod tests {
         std::fs::write(&catalog, serde_json::to_vec(&custom).unwrap()).unwrap();
         let mut hidden_resume = config.clone();
         assert_eq!(
-            restore_catalog(&mut hidden_resume, Some("chatgpt-desktop/configured-model")),
+            restore_catalog(
+                &mut hidden_resume,
+                Some("chatgpt-desktop/configured-model"),
+                None
+            ),
             Ok(true),
             "a saved model remains resumable when it is absent from the picker"
         );

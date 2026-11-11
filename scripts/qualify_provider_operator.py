@@ -32,7 +32,7 @@ def fixture_auth(path, provider_binary=None):
     """Use fixture HTTP auth but the actual installed CLI control protocol."""
     control = ''
     if provider_binary is not None:
-        control = ('if [ "$1" = presentation ] || [ "$1" = work ]; then exec ' +
+        control = ('if [ "$1" = presentation ] || [ "$1" = work ] || [ "$1" = host ]; then exec ' +
                    shlex.quote(str(provider_binary.resolve(strict=True))) + ' "$@"; fi\n')
     path.write_text('#!' + os.environ['PREFIX'] + '/bin/sh\n' + control +
                     'if [ "$1" = work ]; then echo "codex-chatgpt-provider: unsupported work action" >&2; exit 2; fi\n' +

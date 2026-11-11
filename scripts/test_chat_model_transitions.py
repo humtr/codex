@@ -12,6 +12,28 @@ from qualify_chat_model_transitions import fixture_auth_command
 
 
 class FixtureSynchronizeContract(unittest.TestCase):
+    def test_catalog_observation_requires_the_exact_owned_state(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            auth = root / 'fixture-auth'
+            auth.write_text(fixture_auth_command(root, root / 'real-provider'))
+            auth.chmod(0o700)
+            reply = {'schema': 'codex-chatgpt-app-models-v1', 'inference_submitted': False}
+            (root / 'synthetic-live-models.json').write_text(json.dumps(reply))
+            state = str(root / 'state')
+            accepted = subprocess.run([str(auth), 'host', 'models', '--state', state],
+                                      capture_output=True, text=True, timeout=5)
+            self.assertEqual(accepted.returncode, 0, accepted.stderr)
+            self.assertEqual(json.loads(accepted.stdout), reply)
+            for args in [
+                ('host', 'models', '--state', str(root / 'other')),
+                ('host', 'ensure', '--state', state),
+                ('host', 'models', '--state', state, '--refresh', 'false'),
+            ]:
+                rejected = subprocess.run([str(auth), *args], capture_output=True, text=True, timeout=5)
+                self.assertNotEqual(rejected.returncode, 0)
+                self.assertEqual(rejected.stdout, '')
+
     def test_exact_thread_and_state_are_required_before_ready(self):
         thread = '01a1c381-aaaa-7aaa-8aaa-123456789012'
         with tempfile.TemporaryDirectory() as directory:

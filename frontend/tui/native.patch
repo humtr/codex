@@ -1,6 +1,6 @@
 # codex-upstream-base 086ccc833bc9cf01024ad2dd6af7dbd421b6bf9a
 diff --git a/codex-rs/tui/src/app.rs b/codex-rs/tui/src/app.rs
-index 80459f4..4d11074 100644
+index 80459f4113..4d110749b0 100644
 --- a/codex-rs/tui/src/app.rs
 +++ b/codex-rs/tui/src/app.rs
 @@ -153,7 +153,6 @@ use codex_otel::SessionTelemetry;
@@ -70,7 +70,7 @@ index 80459f4..4d11074 100644
              .set_sparkle_terminal_focus(tui.is_terminal_focused());
          if tui.is_owned_screen() {
 diff --git a/codex-rs/tui/src/app/app_server_events.rs b/codex-rs/tui/src/app/app_server_events.rs
-index 87ccb44..5682de5 100644
+index 87ccb4495d..5682de56ee 100644
 --- a/codex-rs/tui/src/app/app_server_events.rs
 +++ b/codex-rs/tui/src/app/app_server_events.rs
 @@ -98,6 +98,10 @@ impl App {
@@ -85,7 +85,7 @@ index 87ccb44..5682de5 100644
                      skipped,
                      "app-server event consumer lagged; dropping ignored events"
 diff --git a/codex-rs/tui/src/app/backend_selection.rs b/codex-rs/tui/src/app/backend_selection.rs
-index 5e777ba..6d15bc7 100644
+index 5e777ba283..6d15bc74e2 100644
 --- a/codex-rs/tui/src/app/backend_selection.rs
 +++ b/codex-rs/tui/src/app/backend_selection.rs
 @@ -61,7 +61,7 @@ impl App {
@@ -108,7 +108,7 @@ index 5e777ba..6d15bc7 100644
              if let Some(mut input) = self.agents_overview.input_states.remove(&thread_id) {
                  let blank = self.agents_overview.blank_sessions.contains_key(&thread_id);
 diff --git a/codex-rs/tui/src/app/config_persistence.rs b/codex-rs/tui/src/app/config_persistence.rs
-index 8a04d72..d7425a9 100644
+index 8a04d72452..d7425a9520 100644
 --- a/codex-rs/tui/src/app/config_persistence.rs
 +++ b/codex-rs/tui/src/app/config_persistence.rs
 @@ -28,30 +28,43 @@ async fn build_config_on_runtime_worker(
@@ -191,7 +191,7 @@ index 8a04d72..d7425a9 100644
      }
  
 diff --git a/codex-rs/tui/src/app/daemon_menu.rs b/codex-rs/tui/src/app/daemon_menu.rs
-index ada9e88..a5a1e67 100644
+index ada9e88080..a5a1e670b2 100644
 --- a/codex-rs/tui/src/app/daemon_menu.rs
 +++ b/codex-rs/tui/src/app/daemon_menu.rs
 @@ -27,6 +27,13 @@ impl Renderable for DaemonMenuHeader {
@@ -242,7 +242,7 @@ index ada9e88..a5a1e67 100644
                  || self.daemon_restart.is_some(),
              disabled_reason: self
 diff --git a/codex-rs/tui/src/app/event_dispatch.rs b/codex-rs/tui/src/app/event_dispatch.rs
-index ba6e3f8..dba93ef 100644
+index ba6e3f8af0..856a516027 100644
 --- a/codex-rs/tui/src/app/event_dispatch.rs
 +++ b/codex-rs/tui/src/app/event_dispatch.rs
 @@ -150,6 +150,19 @@ impl App {
@@ -364,39 +364,166 @@ index ba6e3f8..dba93ef 100644
              AppEvent::UpdateModel(model) => {
                  if self
                      .active_thread_model_setting_update_params(model.clone())
-@@ -2473,6 +2535,10 @@ impl App {
+@@ -2212,6 +2274,11 @@ impl App {
+                 }
+             }
+             AppEvent::ApplyModelSelection { model, effort } => {
++                #[cfg(unix)]
++                if self.chat_widget.config_ref().model_provider_id == crate::termux_chat_models::PROVIDER {
++                    self.app_event_tx.send(AppEvent::SelectSessionModel { model, effort, service_tier:None });
++                    return Ok(AppRunControl::Continue);
++                }
+                 if app_server.thread_params_mode().settings_owner()
+                     == ThreadSettingsOwner::Server
+                 {
+@@ -2364,12 +2431,24 @@ impl App {
+             }
+             AppEvent::FetchModels { request_id } => {
+                 if self.chat_widget.model_popup_request_is_current(request_id) {
++                    #[cfg(unix)]
++                    if self.chat_widget.config_ref().model_provider_id == crate::termux_chat_models::PROVIDER {
++                        let config = self.chat_widget.config_ref().clone();
++                        let tx = self.app_event_tx.clone();
++                        tokio::spawn(async move {
++                            let result = crate::termux_chat_models::live_catalog(&config).await
++                                .map(|catalog| catalog.models);
++                            tx.send(AppEvent::ModelsLoaded { request_id, result });
++                        });
++                        return Ok(AppRunControl::Continue);
++                    }
+                     app_server.fetch_models(request_id, self.app_event_tx.clone());
+                 }
+             }
+             AppEvent::ModelsLoaded { request_id, result: Ok(models) }
+                 if self.chat_widget.model_popup_request_is_current(request_id)
+-                    && self.chat_widget.status_account_display() == Some(&StatusAccountDisplay::ApiKey) =>
++                    && self.chat_widget.status_account_display() == Some(&StatusAccountDisplay::ApiKey)
++                    && self.chat_widget.config_ref().model_provider_id != "chatgpt_desktop" =>
+             {
+                 let checked = app_server.constrain_api_key_models(
+                     self.chat_widget.config_ref(),
+@@ -2399,6 +2478,11 @@ impl App {
+                 self.chat_widget.open_advanced_reasoning_popup(model);
+             }
+             AppEvent::ApplyAdvancedReasoning { model, effort } => {
++                #[cfg(unix)]
++                if self.chat_widget.config_ref().model_provider_id == crate::termux_chat_models::PROVIDER {
++                    self.app_event_tx.send(AppEvent::SelectSessionModel { model, effort:Some(effort), service_tier:None });
++                    return Ok(AppRunControl::Continue);
++                }
+                 self.app_event_tx.send(AppEvent::FollowTranscript);
+                 if app_server.thread_params_mode().settings_owner()
+                     == ThreadSettingsOwner::Server
+@@ -2473,6 +2557,63 @@ impl App {
              AppEvent::OpenAllModelsPopup => {
                  self.chat_widget.open_all_models_popup();
              }
 +            #[cfg(unix)]
 +            AppEvent::OpenProviderModelsPopup { provider } => {
-+                self.chat_widget.open_provider_models_popup(&provider);
++                let config = self.chat_widget.config_ref();
++                let models = if provider == crate::termux_chat_models::PROVIDER {
++                    match crate::termux_chat_models::live_catalog(config).await {
++                        Ok(catalog) => catalog.models,
++                        Err(error) => {
++                            self.chat_widget.add_error_message(error);
++                            return Ok(AppRunControl::Continue);
++                        }
++                    }
++                } else if provider == "openai" {
++                    crate::termux_chat_models::native_provider_catalog(
++                        config, self.model_catalog.try_list_models()?)
++                } else {
++                    return Ok(AppRunControl::Continue);
++                };
++                self.chat_widget.open_provider_models_popup(&provider, models);
++            }
++            #[cfg(unix)]
++            AppEvent::OpenChatModelPopup => {
++                if self.chat_widget.config_ref().model_provider_id == crate::termux_chat_models::PROVIDER {
++                    match crate::termux_chat_models::live_catalog(self.chat_widget.config_ref()).await {
++                        Ok(catalog) => {
++                            self.chat_widget.set_chat_models(catalog.models.clone());
++                            self.model_catalog = self.chat_widget.model_catalog();
++                            app_server.set_available_models(self.model_catalog.try_list_models()?);
++                            self.chat_widget.open_model_popup_with_presets(catalog.models);
++                        }
++                        Err(error) => {
++                            self.chat_widget.set_chat_models(Vec::new());
++                            self.model_catalog = self.chat_widget.model_catalog();
++                            app_server.set_available_models(self.model_catalog.try_list_models()?);
++                            self.chat_widget.add_error_message(error);
++                        }
++                    }
++                }
++            }
++            #[cfg(unix)]
++            AppEvent::RefreshChatModelCommand { args } => {
++                if self.chat_widget.config_ref().model_provider_id == crate::termux_chat_models::PROVIDER {
++                    match crate::termux_chat_models::live_catalog(self.chat_widget.config_ref()).await {
++                        Ok(catalog) => {
++                            self.chat_widget.set_chat_models(catalog.models);
++                            self.model_catalog = self.chat_widget.model_catalog();
++                            app_server.set_available_models(self.model_catalog.try_list_models()?);
++                            self.chat_widget.handle_resolved_model_command_args(&args);
++                        }
++                        Err(error) => {
++                            self.chat_widget.set_chat_models(Vec::new());
++                            self.model_catalog = self.chat_widget.model_catalog();
++                            app_server.set_available_models(self.model_catalog.try_list_models()?);
++                            self.chat_widget.add_error_message(error);
++                        }
++                    }
++                }
 +            }
              AppEvent::OpenFullAccessConfirmation {
                  preset,
                  return_to_permissions,
-@@ -2677,6 +2743,19 @@ impl App {
+@@ -2677,6 +2818,43 @@ impl App {
                  self.persist_daybreak_selection(app_server, thread_id, enabled).await;
              }
              AppEvent::SelectSessionModel { model, effort, service_tier } => {
 +                #[cfg(unix)]
-+                if crate::termux_permissions::enabled()
-+                    && crate::termux_chat_models::needs_reentry(
-+                        &self.chat_widget.config_ref().model_provider_id, &model)
-+                {
-+                    if let Some(mut request) = chat_model_reentry::prepare(
-+                        self, app_server, model, effort).await
-+                    {
-+                        request.set_service_tier(service_tier);
-+                        return Err(std::io::Error::other(request).into());
++                if crate::termux_permissions::enabled() {
++                    let config = self.chat_widget.config_ref();
++                    if crate::termux_chat_models::needs_reentry(&config.model_provider_id, &model) {
++                        self.chat_widget.add_error_message(
++                            "This model belongs to another provider. Use /provider to change providers.".into());
++                        return Ok(AppRunControl::Continue);
 +                    }
-+                    return Ok(AppRunControl::Continue);
++                    if config.model_provider_id == crate::termux_chat_models::PROVIDER {
++                        let selected_effort = effort.clone().unwrap_or(codex_protocol::openai_models::ReasoningEffort::None);
++                        match crate::termux_chat_models::live_catalog(config).await {
++                            Ok(catalog) if catalog.admits(&model, &selected_effort, self.chat_widget.current_model() == model) => {
++                                if catalog.requires_binding(self.chat_widget.config_ref()) {
++                                    if let Some(mut request) = chat_model_reentry::prepare_catalog_change(
++                                        self, app_server, model, Some(selected_effort), Some(catalog),
++                                    ).await {
++                                        request.set_service_tier(service_tier);
++                                        return Err(std::io::Error::other(request).into());
++                                    }
++                                    return Ok(AppRunControl::Continue);
++                                }
++                                self.chat_widget.set_chat_models(catalog.models);
++                                self.model_catalog = self.chat_widget.model_catalog();
++                                app_server.set_available_models(self.model_catalog.try_list_models()?);
++                            }
++                            Ok(_) => {
++                                self.chat_widget.add_error_message("Selected ChatGPT model or reasoning level is unavailable for this account; selection unchanged.".into());
++                                return Ok(AppRunControl::Continue);
++                            }
++                            Err(error) => {
++                                self.chat_widget.set_chat_models(Vec::new());
++                                self.chat_widget.add_error_message(error);
++                                return Ok(AppRunControl::Continue);
++                            }
++                        }
++                    }
 +                }
                  self.app_event_tx.send(AppEvent::FollowTranscript);
                  self.select_session_model(app_server, model, effort, service_tier).await;
              }
 diff --git a/codex-rs/tui/src/app/history_pagination.rs b/codex-rs/tui/src/app/history_pagination.rs
-index 74f8b7e..292dc2b 100644
+index 74f8b7edd1..292dc2bea4 100644
 --- a/codex-rs/tui/src/app/history_pagination.rs
 +++ b/codex-rs/tui/src/app/history_pagination.rs
 @@ -114,6 +114,8 @@ impl App {
@@ -409,7 +536,7 @@ index 74f8b7e..292dc2b 100644
              .history_loaded(&self.transcript_cells, inserted.clone());
          if !inserted.is_empty() {
 diff --git a/codex-rs/tui/src/app/reconnect.rs b/codex-rs/tui/src/app/reconnect.rs
-index a998f6c..163b478 100644
+index a998f6c511..163b478825 100644
 --- a/codex-rs/tui/src/app/reconnect.rs
 +++ b/codex-rs/tui/src/app/reconnect.rs
 @@ -586,6 +586,9 @@ impl App {
@@ -423,7 +550,7 @@ index a998f6c..163b478 100644
              crate::security_setup::prefetch(
                  &self.config,
 diff --git a/codex-rs/tui/src/app/resume_preparation.rs b/codex-rs/tui/src/app/resume_preparation.rs
-index 55b8791..74e61de 100644
+index 55b8791adc..74e61de25d 100644
 --- a/codex-rs/tui/src/app/resume_preparation.rs
 +++ b/codex-rs/tui/src/app/resume_preparation.rs
 @@ -49,16 +49,20 @@ impl App {
@@ -514,7 +641,7 @@ index 55b8791..74e61de 100644
      }
  }
 diff --git a/codex-rs/tui/src/app/session_lifecycle.rs b/codex-rs/tui/src/app/session_lifecycle.rs
-index 9203adf..672808a 100644
+index 9203adf62c..672808a541 100644
 --- a/codex-rs/tui/src/app/session_lifecycle.rs
 +++ b/codex-rs/tui/src/app/session_lifecycle.rs
 @@ -1401,7 +1401,7 @@ impl App {
@@ -527,7 +654,7 @@ index 9203adf..672808a 100644
              Ok(prepared) => prepared,
              Err(control) => return Ok(control),
 diff --git a/codex-rs/tui/src/app/startup.rs b/codex-rs/tui/src/app/startup.rs
-index fca1ef2..0f69c52 100644
+index fca1ef21b6..0f69c52f22 100644
 --- a/codex-rs/tui/src/app/startup.rs
 +++ b/codex-rs/tui/src/app/startup.rs
 @@ -938,6 +938,9 @@ impl App {
@@ -552,7 +679,7 @@ index fca1ef2..0f69c52 100644
              config_notification_test_generation: 0,
              config_notification_test_pending: None,
 diff --git a/codex-rs/tui/src/app/test_support.rs b/codex-rs/tui/src/app/test_support.rs
-index 3d1c608..ce94da5 100644
+index 3d1c608ca1..ce94da5326 100644
 --- a/codex-rs/tui/src/app/test_support.rs
 +++ b/codex-rs/tui/src/app/test_support.rs
 @@ -21,6 +21,10 @@ pub(crate) async fn make_test_app() -> Box<App> {
@@ -567,7 +694,7 @@ index 3d1c608..ce94da5 100644
          config_notification_test_generation: 0,
          config_notification_test_pending: None,
 diff --git a/codex-rs/tui/src/app/tests.rs b/codex-rs/tui/src/app/tests.rs
-index f8d8f9a..e19377c 100644
+index f8d8f9a909..e19377ca26 100644
 --- a/codex-rs/tui/src/app/tests.rs
 +++ b/codex-rs/tui/src/app/tests.rs
 @@ -95,7 +95,7 @@ mod recap_generation;
@@ -638,7 +765,7 @@ index f8d8f9a..e19377c 100644
              Ok(prepared) => prepared,
              Err(_) => panic!("saved thread should be ready for attachment"),
 diff --git a/codex-rs/tui/src/app/tests/session_lifecycle_requests.rs b/codex-rs/tui/src/app/tests/session_lifecycle_requests.rs
-index 53563c3..a417add 100644
+index 53563c33e9..a417add537 100644
 --- a/codex-rs/tui/src/app/tests/session_lifecycle_requests.rs
 +++ b/codex-rs/tui/src/app/tests/session_lifecycle_requests.rs
 @@ -43,8 +43,9 @@ use tokio_tungstenite::tungstenite::Error as WebSocketError;
@@ -675,7 +802,7 @@ index 53563c3..a417add 100644
          .lock()
          .expect("request recorder lock")
 diff --git a/codex-rs/tui/src/app/tests/user_verification_routes_tests.rs b/codex-rs/tui/src/app/tests/user_verification_routes_tests.rs
-index ca06b51..341b2a5 100644
+index ca06b5196d..341b2a53f1 100644
 --- a/codex-rs/tui/src/app/tests/user_verification_routes_tests.rs
 +++ b/codex-rs/tui/src/app/tests/user_verification_routes_tests.rs
 @@ -276,6 +276,7 @@ async fn inactive_thread_user_verification_preserves_foreground_stream() -> Resu
@@ -687,7 +814,7 @@ index ca06b51..341b2a5 100644
                  completed_messages.push(source.clone());
                  app.handle_consolidate_agent_message(
 diff --git a/codex-rs/tui/src/app/thread_routing.rs b/codex-rs/tui/src/app/thread_routing.rs
-index b824a9f..1a44849 100644
+index b824a9f528..1a4484971e 100644
 --- a/codex-rs/tui/src/app/thread_routing.rs
 +++ b/codex-rs/tui/src/app/thread_routing.rs
 @@ -1999,6 +1999,15 @@ impl App {
@@ -716,7 +843,7 @@ index b824a9f..1a44849 100644
                      .pending_app_server_requests
                      .contains_server_request(request.as_ref())
 diff --git a/codex-rs/tui/src/app/user_turn_submission.rs b/codex-rs/tui/src/app/user_turn_submission.rs
-index 229d21e..1caed85 100644
+index 229d21e22b..1caed85880 100644
 --- a/codex-rs/tui/src/app/user_turn_submission.rs
 +++ b/codex-rs/tui/src/app/user_turn_submission.rs
 @@ -156,6 +156,12 @@ pub(super) async fn try_submit_user_turn(
@@ -733,7 +860,7 @@ index 229d21e..1caed85 100644
          .turn_start(
              thread_id,
 diff --git a/codex-rs/tui/src/app_event.rs b/codex-rs/tui/src/app_event.rs
-index 9c84885..a72c132 100644
+index 9c848858c6..6c796281ae 100644
 --- a/codex-rs/tui/src/app_event.rs
 +++ b/codex-rs/tui/src/app_event.rs
 @@ -296,6 +296,12 @@ pub(crate) struct AgentPickerThreadRefresh {
@@ -810,7 +937,7 @@ index 9c84885..a72c132 100644
          copy_source: Option<String>,
          cwd: PathBuf,
          inline_visualization_context: Option<InlineVisualizationContext>,
-@@ -1247,6 +1291,11 @@ pub(crate) enum AppEvent {
+@@ -1247,6 +1291,17 @@ pub(crate) enum AppEvent {
  
      /// Update the current model slug in the running app and widget.
      UpdateModel(String),
@@ -819,10 +946,16 @@ index 9c84885..a72c132 100644
 +        model: String,
 +        effort: Option<ReasoningEffort>,
 +    },
++    #[cfg(unix)]
++    OpenChatModelPopup,
++    #[cfg(unix)]
++    RefreshChatModelCommand {
++        args: String,
++    },
  
      /// Apply a model-picker selection to the active conversation and saved local defaults.
      ApplyModelSelection {
-@@ -1407,6 +1456,12 @@ pub(crate) enum AppEvent {
+@@ -1407,6 +1462,12 @@ pub(crate) enum AppEvent {
      /// Open the full model picker (non-auto models).
      OpenAllModelsPopup,
  
@@ -836,7 +969,7 @@ index 9c84885..a72c132 100644
      OpenFullAccessConfirmation {
          preset: ApprovalPreset,
 diff --git a/codex-rs/tui/src/app_server_session.rs b/codex-rs/tui/src/app_server_session.rs
-index ae79c9a..a4a6181 100644
+index ae79c9ad3d..a4a6181808 100644
 --- a/codex-rs/tui/src/app_server_session.rs
 +++ b/codex-rs/tui/src/app_server_session.rs
 @@ -309,6 +309,7 @@ fn is_thread_settings_update_unsupported(source: &JSONRPCErrorError) -> bool {
@@ -1315,7 +1448,7 @@ index ae79c9a..a4a6181 100644
          side_config.ephemeral = true;
          let next_request_id = app_server.next_request_id;
 diff --git a/codex-rs/tui/src/app_server_session/rollout_history.rs b/codex-rs/tui/src/app_server_session/rollout_history.rs
-index b072d8f..d94586e 100644
+index b072d8f907..d94586e727 100644
 --- a/codex-rs/tui/src/app_server_session/rollout_history.rs
 +++ b/codex-rs/tui/src/app_server_session/rollout_history.rs
 @@ -149,6 +149,68 @@ impl AppServerSession {
@@ -1441,7 +1574,7 @@ index b072d8f..d94586e 100644
              &mut response.thread,
              response.turns_backwards_cursor.clone(),
 diff --git a/codex-rs/tui/src/app_server_session/rollout_history_tests.rs b/codex-rs/tui/src/app_server_session/rollout_history_tests.rs
-index 71a652a..f40d3c0 100644
+index 71a652ad23..f40d3c0bde 100644
 --- a/codex-rs/tui/src/app_server_session/rollout_history_tests.rs
 +++ b/codex-rs/tui/src/app_server_session/rollout_history_tests.rs
 @@ -484,3 +484,115 @@ async fn stale_legacy_history_mode_is_revalidated_before_resume() -> Result<()>
@@ -1561,7 +1694,7 @@ index 71a652a..f40d3c0 100644
 +    Ok(())
 +}
 diff --git a/codex-rs/tui/src/bottom_pane/chat_composer.rs b/codex-rs/tui/src/bottom_pane/chat_composer.rs
-index bcc2456..9150a77 100644
+index bcc24561d8..9150a775f9 100644
 --- a/codex-rs/tui/src/bottom_pane/chat_composer.rs
 +++ b/codex-rs/tui/src/bottom_pane/chat_composer.rs
 @@ -508,6 +508,10 @@ pub enum InputResult {
@@ -1576,7 +1709,7 @@ index bcc2456..9150a77 100644
          command,
          SlashCommand::Export | SlashCommand::Title | SlashCommand::Statusline
 diff --git a/codex-rs/tui/src/bottom_pane/slash_commands.rs b/codex-rs/tui/src/bottom_pane/slash_commands.rs
-index 4c455ed..b842f88 100644
+index 4c455ed8c1..b842f88003 100644
 --- a/codex-rs/tui/src/bottom_pane/slash_commands.rs
 +++ b/codex-rs/tui/src/bottom_pane/slash_commands.rs
 @@ -339,6 +339,8 @@ mod tests {
@@ -1589,7 +1722,7 @@ index 4c455ed..b842f88 100644
                  SlashCommand::Copy,
                  SlashCommand::Export,
 diff --git a/codex-rs/tui/src/chatwidget.rs b/codex-rs/tui/src/chatwidget.rs
-index d2962e8..c19397f 100644
+index d2962e8001..c19397f404 100644
 --- a/codex-rs/tui/src/chatwidget.rs
 +++ b/codex-rs/tui/src/chatwidget.rs
 @@ -284,8 +284,8 @@ mod input_queue;
@@ -1645,7 +1778,7 @@ index d2962e8..c19397f 100644
          self.external_writer_view = true;
          self.pause_unavailable_thread();
 diff --git a/codex-rs/tui/src/chatwidget/constructor.rs b/codex-rs/tui/src/chatwidget/constructor.rs
-index 6e405d2..20ceccf 100644
+index 6e405d201e..20ceccf59b 100644
 --- a/codex-rs/tui/src/chatwidget/constructor.rs
 +++ b/codex-rs/tui/src/chatwidget/constructor.rs
 @@ -143,7 +143,7 @@ impl ChatWidget {
@@ -1659,7 +1792,7 @@ index 6e405d2..20ceccf 100644
              windows_sandbox_config: Default::default(),
 diff --git a/codex-rs/tui/src/chatwidget/image_submission.rs b/codex-rs/tui/src/chatwidget/image_submission.rs
 deleted file mode 100644
-index 832104c..0000000
+index 832104c555..0000000000
 --- a/codex-rs/tui/src/chatwidget/image_submission.rs
 +++ /dev/null
 @@ -1,174 +0,0 @@
@@ -1838,7 +1971,7 @@ index 832104c..0000000
 -        .collect()
 -}
 diff --git a/codex-rs/tui/src/chatwidget/input_flow.rs b/codex-rs/tui/src/chatwidget/input_flow.rs
-index fd7fb8f..aa873aa 100644
+index fd7fb8f86c..aa873aa7db 100644
 --- a/codex-rs/tui/src/chatwidget/input_flow.rs
 +++ b/codex-rs/tui/src/chatwidget/input_flow.rs
 @@ -13,7 +13,7 @@ use crate::bottom_pane::slash_commands::find_slash_command;
@@ -1915,7 +2048,7 @@ index fd7fb8f..aa873aa 100644
          }
          self.bottom_pane.set_pending_input_preview(
 diff --git a/codex-rs/tui/src/chatwidget/input_restore.rs b/codex-rs/tui/src/chatwidget/input_restore.rs
-index 559a851..a2ab075 100644
+index 559a851d0d..a2ab075fe7 100644
 --- a/codex-rs/tui/src/chatwidget/input_restore.rs
 +++ b/codex-rs/tui/src/chatwidget/input_restore.rs
 @@ -356,7 +356,7 @@ impl ChatWidget {
@@ -1937,7 +2070,7 @@ index 559a851..a2ab075 100644
          let composer = ThreadComposerState {
              text: draft.text,
 diff --git a/codex-rs/tui/src/chatwidget/input_submission.rs b/codex-rs/tui/src/chatwidget/input_submission.rs
-index 7d0c740..332d58a 100644
+index 7d0c7403b5..332d58a200 100644
 --- a/codex-rs/tui/src/chatwidget/input_submission.rs
 +++ b/codex-rs/tui/src/chatwidget/input_submission.rs
 @@ -114,7 +114,7 @@ impl ChatWidget {
@@ -2022,7 +2155,7 @@ index 7d0c740..332d58a 100644
                      text,
                      local_images,
 diff --git a/codex-rs/tui/src/chatwidget/interaction.rs b/codex-rs/tui/src/chatwidget/interaction.rs
-index 617253a..1cb6f05 100644
+index 617253a793..1cb6f050d7 100644
 --- a/codex-rs/tui/src/chatwidget/interaction.rs
 +++ b/codex-rs/tui/src/chatwidget/interaction.rs
 @@ -152,16 +152,24 @@ impl ChatWidget {
@@ -2073,10 +2206,19 @@ index 617253a..1cb6f05 100644
              return KeyEventAction::None;
          }
 diff --git a/codex-rs/tui/src/chatwidget/model_command.rs b/codex-rs/tui/src/chatwidget/model_command.rs
-index bde9ce7..c34cf76 100644
+index bde9ce72ee..a4caed2152 100644
 --- a/codex-rs/tui/src/chatwidget/model_command.rs
 +++ b/codex-rs/tui/src/chatwidget/model_command.rs
-@@ -128,10 +128,14 @@ fn resolve_model_command(chat: &ChatWidget, args: &str) -> Result<ModelCommand,
+@@ -3,6 +3,8 @@
+ use super::ChatWidget;
+ use super::session_model_selection::AstraModelPickerAction;
+ use super::slash_command_args;
++#[cfg(unix)]
++use crate::app_event::AppEvent;
+ use codex_protocol::config_types::SERVICE_TIER_DEFAULT_REQUEST_VALUE;
+ use codex_protocol::openai_models::ModelPreset;
+ use codex_protocol::openai_models::ReasoningEffort;
+@@ -128,10 +130,22 @@ fn resolve_model_command(chat: &ChatWidget, args: &str) -> Result<ModelCommand,
          .model
          .clone()
          .unwrap_or_else(|| chat.current_model().to_owned());
@@ -2084,6 +2226,14 @@ index bde9ce7..c34cf76 100644
 -        chat.model_catalog.models.iter().find(|model| {
 -            model.model == model_name && (args.model.is_none() || model.show_in_picker)
 -        })
++    #[cfg(unix)]
++    if crate::termux_permissions::enabled()
++        && crate::termux_chat_models::needs_reentry(&chat.config.model_provider_id, &model_name)
++    {
++        return Err(
++            "This model belongs to another provider. Use /provider to change providers.".into(),
++        );
++    }
 +    #[cfg(unix)]
 +    let models =
 +        crate::termux_chat_models::augment(&chat.config, chat.model_catalog.models.clone());
@@ -2095,8 +2245,65 @@ index bde9ce7..c34cf76 100644
      else {
          return Err(format!(
              "Model '{model_name}' is unavailable. Use /model to see available models."
+@@ -146,6 +160,17 @@ fn resolve_model_command(chat: &ChatWidget, args: &str) -> Result<ModelCommand,
+ 
+ impl ChatWidget {
+     pub(super) fn handle_model_command_args(&mut self, args: &str) {
++        #[cfg(unix)]
++        if self.config.model_provider_id == crate::termux_chat_models::PROVIDER {
++            self.app_event_tx.send(AppEvent::RefreshChatModelCommand {
++                args: args.to_owned(),
++            });
++            return;
++        }
++        self.handle_resolved_model_command_args(args);
++    }
++
++    pub(crate) fn handle_resolved_model_command_args(&mut self, args: &str) {
+         let command = match resolve_model_command(self, args) {
+             Ok(command) => command,
+             Err(error) => {
+diff --git a/codex-rs/tui/src/chatwidget/model_popup_state.rs b/codex-rs/tui/src/chatwidget/model_popup_state.rs
+index 15f99f85bb..a34a583b13 100644
+--- a/codex-rs/tui/src/chatwidget/model_popup_state.rs
++++ b/codex-rs/tui/src/chatwidget/model_popup_state.rs
+@@ -6,6 +6,16 @@ use super::model_popups::MODEL_SELECTION_VIEW_ID;
+ use super::*;
+ 
+ impl ChatWidget {
++    #[cfg(unix)]
++    pub(crate) fn set_chat_models(&mut self, models: Vec<ModelPreset>) {
++        if self.config.model_provider_id == crate::termux_chat_models::PROVIDER {
++            Arc::make_mut(&mut self.model_catalog).models =
++                crate::termux_chat_models::augment(&self.config, models);
++            self.refresh_effective_service_tier();
++            self.refresh_model_dependent_surfaces();
++        }
++    }
++
+     pub(super) fn refresh_account_scoped_models(&mut self) {
+         if self.status_account_display == Some(StatusAccountDisplay::ApiKey) {
+             for model in &mut Arc::make_mut(&mut self.model_catalog).models {
+@@ -40,6 +50,17 @@ impl ChatWidget {
+             return false;
+         }
+         self.model_popup_request_id = None;
++        #[cfg(unix)]
++        if self.config.model_provider_id == crate::termux_chat_models::PROVIDER {
++            match result {
++                Ok(presets) => self.set_chat_models(presets),
++                Err(error) => {
++                    self.set_chat_models(Vec::new());
++                    self.add_error_message(error);
++                }
++            }
++            return true;
++        }
+         let Ok(presets) = result else {
+             return false;
+         };
 diff --git a/codex-rs/tui/src/chatwidget/model_popups.rs b/codex-rs/tui/src/chatwidget/model_popups.rs
-index 62af5d1..54c0958 100644
+index 62af5d124d..6ce6835e2c 100644
 --- a/codex-rs/tui/src/chatwidget/model_popups.rs
 +++ b/codex-rs/tui/src/chatwidget/model_popups.rs
 @@ -9,6 +9,10 @@ use crate::model_catalog::LUNA_RESERVE_MODEL;
@@ -2110,7 +2317,19 @@ index 62af5d1..54c0958 100644
  
  impl ChatWidget {
      /// Open a popup to choose a quick auto model. Selecting "All models"
-@@ -80,6 +84,8 @@ impl ChatWidget {
+@@ -22,6 +26,11 @@ impl ChatWidget {
+             return;
+         }
+ 
++        #[cfg(unix)]
++        if self.config.model_provider_id == crate::termux_chat_models::PROVIDER {
++            self.app_event_tx.send(AppEvent::OpenChatModelPopup);
++            return;
++        }
+         let presets: Vec<ModelPreset> = match self.model_catalog.try_list_models() {
+             Ok(models) => models,
+             Err(_) => {
+@@ -80,6 +89,8 @@ impl ChatWidget {
      }
  
      pub(crate) fn open_model_popup_with_presets(&mut self, presets: Vec<ModelPreset>) {
@@ -2119,7 +2338,7 @@ index 62af5d1..54c0958 100644
          if self.restrict_model_picker_to_luna_reserve() {
              self.open_luna_reserve_model_popup(presets, MODEL_SELECTION_VIEW_ID);
              return;
-@@ -197,6 +203,120 @@ impl ChatWidget {
+@@ -197,6 +208,108 @@ impl ChatWidget {
          );
      }
  
@@ -2146,10 +2365,6 @@ index 62af5d1..54c0958 100644
 +            );
 +            return;
 +        }
-+        let presets = crate::termux_chat_models::augment(
-+            &self.config,
-+            self.model_catalog.try_list_models().unwrap_or_default(),
-+        );
 +        let current = self.config.model_provider_id.as_str();
 +        let mut ids = Vec::new();
 +        let mut items = Vec::new();
@@ -2157,24 +2372,20 @@ index 62af5d1..54c0958 100644
 +            ("openai", "OpenAI / Codex", "Select a native Codex model"),
 +            (
 +                crate::termux_chat_models::PROVIDER,
-+                "ChatGPT AppHost",
++                "ChatGPT Linux app",
 +                "Select a model offered by the current ChatGPT account",
 +            ),
 +        ] {
-+            let count = presets
-+                .iter()
-+                .filter(|model| {
-+                    model.show_in_picker && Self::model_belongs_to_provider(&model.model, provider)
-+                })
-+                .count();
-+            if count == 0 {
++            if provider == crate::termux_chat_models::PROVIDER
++                && crate::termux_chat_models::installed_command(&self.config).is_none()
++            {
 +                continue;
 +            }
 +            let id = provider.to_owned();
 +            ids.push(id.clone());
 +            items.push(SelectionItem {
 +                name: title.to_owned(),
-+                description: Some(format!("{description} ({count} models)")),
++                description: Some(description.to_owned()),
 +                is_current: current == provider,
 +                actions: vec![Box::new(move |tx| {
 +                    tx.send(AppEvent::OpenProviderModelsPopup {
@@ -2217,17 +2428,13 @@ index 62af5d1..54c0958 100644
 +    }
 +
 +    #[cfg(unix)]
-+    pub(crate) fn open_provider_models_popup(&mut self, provider: &str) {
++    pub(crate) fn open_provider_models_popup(&mut self, provider: &str, presets: Vec<ModelPreset>) {
 +        if !matches!(provider, "openai" | crate::termux_chat_models::PROVIDER) {
 +            return;
 +        }
 +        if !self.is_session_configured() {
 +            return;
 +        }
-+        let presets = crate::termux_chat_models::augment(
-+            &self.config,
-+            self.model_catalog.try_list_models().unwrap_or_default(),
-+        );
 +        let filtered: Vec<_> = presets
 +            .into_iter()
 +            .filter(|model| {
@@ -2240,7 +2447,7 @@ index 62af5d1..54c0958 100644
      pub(super) fn is_auto_model(model: &str) -> bool {
          model.starts_with("codex-auto-")
      }
-@@ -233,6 +353,15 @@ impl ChatWidget {
+@@ -233,6 +346,15 @@ impl ChatWidget {
          presets: Vec<ModelPreset>,
          view_id: &'static str,
      ) {
@@ -2256,7 +2463,7 @@ index 62af5d1..54c0958 100644
          if presets.is_empty() {
              self.bottom_pane.dismiss_view_by_id(view_id);
              self.add_info_message(
-@@ -294,6 +423,48 @@ impl ChatWidget {
+@@ -294,6 +416,40 @@ impl ChatWidget {
          effort_for_action: Option<ReasoningEffortConfig>,
          should_prompt_plan_mode_scope: bool,
      ) -> Vec<SelectionAction> {
@@ -2281,31 +2488,23 @@ index 62af5d1..54c0958 100644
 +        {
 +            let model_changed = model_for_action != self.current_model();
 +            let effort_changed = effort_for_action != self.effective_reasoning_effort();
-+            let plan_mode = self.active_mode_kind() == ModeKind::Plan;
 +            if !model_changed && !effort_changed {
 +                return Vec::new();
 +            }
-+            // The selected account/config profile is not a Chat default. Use
-+            // upstream session actions without persisting a Chat slug into it.
++            // Revalidate account availability before the upstream session-only
++            // update, preserving Plan/Default semantics and file-owned defaults.
 +            return vec![Box::new(move |tx| {
-+                if model_changed {
-+                    tx.send(AppEvent::UpdateModel(model_for_action.clone()));
-+                }
-+                if effort_changed {
-+                    if plan_mode {
-+                        tx.send(AppEvent::UpdatePlanModeReasoningEffort(
-+                            effort_for_action.clone(),
-+                        ));
-+                    } else {
-+                        tx.send(AppEvent::UpdateReasoningEffort(effort_for_action.clone()));
-+                    }
-+                }
++                tx.send(AppEvent::SelectSessionModel {
++                    model: model_for_action.clone(),
++                    effort: effort_for_action.clone(),
++                    service_tier: None,
++                });
 +            })];
 +        }
          let warning = effort_for_action
              .as_ref()
              .and_then(|effort| self.ultra_reasoning_concurrency_warning(effort));
-@@ -771,3 +942,7 @@ impl ChatWidget {
+@@ -771,3 +927,7 @@ impl ChatWidget {
          }
      }
  }
@@ -2314,7 +2513,7 @@ index 62af5d1..54c0958 100644
 +#[path = "termux_chat_model_selection_tests.rs"]
 +mod termux_chat_model_selection_tests;
 diff --git a/codex-rs/tui/src/chatwidget/permission_popups.rs b/codex-rs/tui/src/chatwidget/permission_popups.rs
-index a91e85c..694c645 100644
+index a91e85ce9f..694c6456b4 100644
 --- a/codex-rs/tui/src/chatwidget/permission_popups.rs
 +++ b/codex-rs/tui/src/chatwidget/permission_popups.rs
 @@ -120,7 +120,12 @@ impl ChatWidget {
@@ -2350,7 +2549,7 @@ index a91e85c..694c645 100644
 +#[path = "termux_permission_popups_tests.rs"]
 +mod termux_tests;
 diff --git a/codex-rs/tui/src/chatwidget/permission_shortcuts.rs b/codex-rs/tui/src/chatwidget/permission_shortcuts.rs
-index 444a11d..0ee2b06 100644
+index 444a11d8bb..0ee2b06c4d 100644
 --- a/codex-rs/tui/src/chatwidget/permission_shortcuts.rs
 +++ b/codex-rs/tui/src/chatwidget/permission_shortcuts.rs
 @@ -52,7 +52,9 @@ impl ChatWidget {
@@ -2365,7 +2564,7 @@ index 444a11d..0ee2b06 100644
              }
              for reviewer in [ApprovalsReviewer::User, ApprovalsReviewer::AutoReview] {
 diff --git a/codex-rs/tui/src/chatwidget/permissions_menu.rs b/codex-rs/tui/src/chatwidget/permissions_menu.rs
-index b6614dc..2d28089 100644
+index b6614dc81e..2d28089647 100644
 --- a/codex-rs/tui/src/chatwidget/permissions_menu.rs
 +++ b/codex-rs/tui/src/chatwidget/permissions_menu.rs
 @@ -6,6 +6,9 @@ use codex_protocol::models::BUILT_IN_PERMISSION_PROFILE_DANGER_FULL_ACCESS;
@@ -2439,7 +2638,7 @@ index b6614dc..2d28089 100644
              discovery
                  .profiles
 diff --git a/codex-rs/tui/src/chatwidget/rate_limits.rs b/codex-rs/tui/src/chatwidget/rate_limits.rs
-index a7162b9..ad1207b 100644
+index a7162b98b9..ad1207b45e 100644
 --- a/codex-rs/tui/src/chatwidget/rate_limits.rs
 +++ b/codex-rs/tui/src/chatwidget/rate_limits.rs
 @@ -644,6 +644,29 @@ impl ChatWidget {
@@ -2473,7 +2672,7 @@ index a7162b9..ad1207b 100644
          self.local_settings.notices.hide_rate_limit_model_nudge = Some(hidden);
          if hidden {
 diff --git a/codex-rs/tui/src/chatwidget/reconnect.rs b/codex-rs/tui/src/chatwidget/reconnect.rs
-index d2608b1..f374713 100644
+index d2608b1226..f374713f68 100644
 --- a/codex-rs/tui/src/chatwidget/reconnect.rs
 +++ b/codex-rs/tui/src/chatwidget/reconnect.rs
 @@ -30,7 +30,7 @@ impl ChatWidget {
@@ -2486,7 +2685,7 @@ index d2608b1..f374713 100644
          // still sends microphone audio. Retire local media before showing offline UI.
          self.record_realtime_disconnect_failure();
 diff --git a/codex-rs/tui/src/chatwidget/session_model_selection.rs b/codex-rs/tui/src/chatwidget/session_model_selection.rs
-index 0e896a8..f8cdf09 100644
+index 0e896a8b0e..f8cdf09396 100644
 --- a/codex-rs/tui/src/chatwidget/session_model_selection.rs
 +++ b/codex-rs/tui/src/chatwidget/session_model_selection.rs
 @@ -59,6 +59,12 @@ impl ChatWidget {
@@ -2503,7 +2702,7 @@ index 0e896a8..f8cdf09 100644
          if model == LUNA_RESERVE_MODEL {
              return None;
 diff --git a/codex-rs/tui/src/chatwidget/slash_dispatch.rs b/codex-rs/tui/src/chatwidget/slash_dispatch.rs
-index 44f3c87..9c7604a 100644
+index 44f3c879e2..9c7604a460 100644
 --- a/codex-rs/tui/src/chatwidget/slash_dispatch.rs
 +++ b/codex-rs/tui/src/chatwidget/slash_dispatch.rs
 @@ -304,6 +304,10 @@ impl ChatWidget {
@@ -2541,7 +2740,7 @@ index 44f3c87..9c7604a 100644
      }
  
 diff --git a/codex-rs/tui/src/chatwidget/streaming.rs b/codex-rs/tui/src/chatwidget/streaming.rs
-index 6229fd7..763a75e 100644
+index 6229fd735a..763a75ea66 100644
 --- a/codex-rs/tui/src/chatwidget/streaming.rs
 +++ b/codex-rs/tui/src/chatwidget/streaming.rs
 @@ -90,6 +90,12 @@ impl ChatWidget {
@@ -2576,7 +2775,7 @@ index 6229fd7..763a75e 100644
              self.handle_stream_finished();
              self.request_redraw();
 diff --git a/codex-rs/tui/src/chatwidget/tests.rs b/codex-rs/tui/src/chatwidget/tests.rs
-index 42f292b..501dbfb 100644
+index 42f292b52b..501dbfb676 100644
 --- a/codex-rs/tui/src/chatwidget/tests.rs
 +++ b/codex-rs/tui/src/chatwidget/tests.rs
 @@ -303,6 +303,9 @@ mod status_surface_command_tests;
@@ -2590,7 +2789,7 @@ index 42f292b..501dbfb 100644
  mod terminal_program_status;
  mod terminal_title;
 diff --git a/codex-rs/tui/src/chatwidget/tests/composer_submission.rs b/codex-rs/tui/src/chatwidget/tests/composer_submission.rs
-index 47c6985..b629edb 100644
+index 47c6985de1..36d0f37b78 100644
 --- a/codex-rs/tui/src/chatwidget/tests/composer_submission.rs
 +++ b/codex-rs/tui/src/chatwidget/tests/composer_submission.rs
 @@ -389,7 +389,7 @@ async fn parent_owned_thread_preserves_queued_input_before_draining() {
@@ -2705,7 +2904,7 @@ index 47c6985..b629edb 100644
              });
      }
  }
-@@ -2970,3 +2970,161 @@ async fn provider_error_recovers_the_rejected_initial_prompt() {
+@@ -2970,3 +2970,194 @@ async fn provider_error_recovers_the_rejected_initial_prompt() {
      assert!(!chat.input_queue.user_turn_pending_start);
      assert!(operations.try_recv().is_err());
  }
@@ -2714,14 +2913,38 @@ index 47c6985..b629edb 100644
 +#[tokio::test(flavor = "multi_thread")]
 +async fn bound_chat_synchronization_orders_native_input_and_retains_cancelled_or_failed_drafts() {
 +    use std::os::unix::fs::PermissionsExt;
-+    for scenario in ["ready", "cancel", "failure"] {
++    for scenario in ["ready", "cancel", "failure", "unavailable", "changed_model"] {
 +        let root = tempfile::tempdir().unwrap();
 +        let binary = root.path().join("provider");
 +        let shell = std::env::var_os("PREFIX")
 +            .map(PathBuf::from)
 +            .map(|prefix| prefix.join("bin/sh"))
 +            .unwrap_or_else(|| PathBuf::from("/bin/sh"));
++        let snapshots = root.path().join("catalogs");
++        std::fs::create_dir(&snapshots).unwrap();
++        let path = snapshots.join("fixture.json");
++        let mut catalog: serde_json::Value =
++            serde_json::from_slice(include_bytes!("../../fixtures/chat-model-catalog.json"))
++                .unwrap();
++        if scenario == "unavailable" {
++            catalog["models"]
++                .as_array_mut()
++                .unwrap()
++                .retain(|model| model["slug"] != "chatgpt-desktop/gpt-6");
++        }
++        std::fs::write(&path, serde_json::to_vec(&catalog).unwrap()).unwrap();
++        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
++        let observed = serde_json::json!({"schema":"codex-chatgpt-app-models-v1", "source":"app_and_config",
++            "account_verified_now":true, "inference_submitted":false, "observed_at_unix_ms":1,
++            "identity":{"account":"fixture", "user":"fixture", "structure":"personal"},
++            "native_catalog":catalog, "native_catalog_path":path});
++        std::fs::write(
++            root.path().join("live-models.json"),
++            serde_json::to_vec(&observed).unwrap(),
++        )
++        .unwrap();
 +        std::fs::write(&binary, format!(r##"#!{}
++if [ "$1" = host ]; then cat "$4/live-models.json"; exit; fi
 +: > "$6/observed"
 +if [ -f "$6/failure" ]; then printf '{{"error":"bound_chat_native_route_changed"}}'; exit 2; fi
 +if [ -f "$6/ready" ]; then
@@ -2740,6 +2963,7 @@ index 47c6985..b629edb 100644
 +        chat.config.codex_home =
 +            codex_utils_absolute_path::AbsolutePathBuf::try_from(root.path()).unwrap();
 +        chat.config.model_provider_id = crate::termux_chat_models::PROVIDER.into();
++        chat.set_model("chatgpt-desktop/gpt-6");
 +        chat.thread_id = Some(ThreadId::new());
 +        let image = root.path().join("image.png");
 +        image::RgbImage::new(2, 2).save(&image).unwrap();
@@ -2770,10 +2994,18 @@ index 47c6985..b629edb 100644
 +            chat.handle_key_event(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL));
 +            assert!(!chat.turn_lifecycle.agent_turn_running);
 +        } else {
-+            std::fs::write(root.path().join(scenario), "").unwrap();
++            let signal = if matches!(scenario, "unavailable" | "changed_model") {
++                "ready"
++            } else {
++                scenario
++            };
++            std::fs::write(root.path().join(signal), "").unwrap();
 +            tokio::time::timeout(Duration::from_secs(5), async {
 +                loop {
 +                    if let AppEvent::InputPrepared(id) = events.recv().await.unwrap() {
++                        if scenario == "changed_model" {
++                            chat.set_model("chatgpt-desktop/gpt-6-pro");
++                        }
 +                        chat.on_input_prepared(id);
 +                        break;
 +                    }
@@ -2868,7 +3100,7 @@ index 47c6985..b629edb 100644
 +    }
 +}
 diff --git a/codex-rs/tui/src/chatwidget/tests/mcp_startup.rs b/codex-rs/tui/src/chatwidget/tests/mcp_startup.rs
-index 58bc215..f0efcdd 100644
+index 58bc2153d1..f0efcdd457 100644
 --- a/codex-rs/tui/src/chatwidget/tests/mcp_startup.rs
 +++ b/codex-rs/tui/src/chatwidget/tests/mcp_startup.rs
 @@ -280,7 +280,7 @@ async fn review_during_mcp_startup_preserves_draft_when_foreground_work_is_pendi
@@ -2881,7 +3113,7 @@ index 58bc215..f0efcdd 100644
                      UserMessageHistoryRecord::UserMessageText,
                      UserMessageSource::Prompt,
 diff --git a/codex-rs/tui/src/chatwidget/tests/sparkle_submission_tests.rs b/codex-rs/tui/src/chatwidget/tests/sparkle_submission_tests.rs
-index e56ea9b..18b6d7f 100644
+index e56ea9b893..18b6d7f7ca 100644
 --- a/codex-rs/tui/src/chatwidget/tests/sparkle_submission_tests.rs
 +++ b/codex-rs/tui/src/chatwidget/tests/sparkle_submission_tests.rs
 @@ -30,7 +30,7 @@ async fn ordinary_and_prepared_image_submissions_consume_the_sparkle_before_rend
@@ -2912,7 +3144,7 @@ index e56ea9b..18b6d7f 100644
                  UserMessageHistoryRecord::UserMessageText,
                  ShellEscapePolicy::Disallow,
 diff --git a/codex-rs/tui/src/chatwidget/tests/startup_submission_tests.rs b/codex-rs/tui/src/chatwidget/tests/startup_submission_tests.rs
-index b908218..87f6696 100644
+index b9082189b4..87f6696085 100644
 --- a/codex-rs/tui/src/chatwidget/tests/startup_submission_tests.rs
 +++ b/codex-rs/tui/src/chatwidget/tests/startup_submission_tests.rs
 @@ -124,11 +124,11 @@ async fn initial_prompt_image_preparation_preserves_recall_metadata() {
@@ -2942,7 +3174,7 @@ index b908218..87f6696 100644
                  }
              }
 diff --git a/codex-rs/tui/src/chatwidget/user_messages.rs b/codex-rs/tui/src/chatwidget/user_messages.rs
-index 9fa654f..c68d4ee 100644
+index 9fa654fb1f..c68d4ee021 100644
 --- a/codex-rs/tui/src/chatwidget/user_messages.rs
 +++ b/codex-rs/tui/src/chatwidget/user_messages.rs
 @@ -78,7 +78,7 @@ pub(super) enum MessageDelivery {
@@ -2964,7 +3196,7 @@ index 9fa654f..c68d4ee 100644
              delivery: MessageDelivery::Unsent,
              pending_pastes: Vec::new(),
 diff --git a/codex-rs/tui/src/cli.rs b/codex-rs/tui/src/cli.rs
-index ca006e9..13ef6f3 100644
+index ca006e91b1..13ef6f3987 100644
 --- a/codex-rs/tui/src/cli.rs
 +++ b/codex-rs/tui/src/cli.rs
 @@ -9,6 +9,10 @@ use codex_utils_cli::SharedCliOptions;
@@ -2979,7 +3211,7 @@ index ca006e9..13ef6f3 100644
      #[clap(skip)]
      pub daemon_cli_executable: Option<AbsolutePathBuf>,
 diff --git a/codex-rs/tui/src/clipboard_copy.rs b/codex-rs/tui/src/clipboard_copy.rs
-index 03ce890..ec71124 100644
+index 03ce890474..ec71124d78 100644
 --- a/codex-rs/tui/src/clipboard_copy.rs
 +++ b/codex-rs/tui/src/clipboard_copy.rs
 @@ -110,6 +110,18 @@ fn copy_to_clipboard(
@@ -3061,7 +3293,7 @@ index 03ce890..ec71124 100644
  pub(crate) fn is_ssh_session() -> bool {
      std::env::var_os("SSH_TTY").is_some() || std::env::var_os("SSH_CONNECTION").is_some()
 diff --git a/codex-rs/tui/src/history_cell/messages.rs b/codex-rs/tui/src/history_cell/messages.rs
-index 66f407a..0afac14 100644
+index 66f407a510..0afac1483a 100644
 --- a/codex-rs/tui/src/history_cell/messages.rs
 +++ b/codex-rs/tui/src/history_cell/messages.rs
 @@ -576,9 +576,34 @@ pub(crate) struct AgentMarkdownCell {
@@ -3138,7 +3370,7 @@ index 66f407a..0afac14 100644
      }
  
 diff --git a/codex-rs/tui/src/lib.rs b/codex-rs/tui/src/lib.rs
-index e1bf622..b85cade 100644
+index e1bf6223ed..b2429bd7c6 100644
 --- a/codex-rs/tui/src/lib.rs
 +++ b/codex-rs/tui/src/lib.rs
 @@ -41,7 +41,6 @@ pub use codex_app_server_client::RemoteAppServerEndpoint;
@@ -3327,7 +3559,7 @@ index e1bf622..b85cade 100644
              &initial_config,
              &app_server_target,
              Feature::GcpSetupWizard,
-@@ -1880,50 +1939,137 @@ async fn run_ratatui_app(
+@@ -1880,50 +1939,153 @@ async fn run_ratatui_app(
      let uses_embedded_network_policy = app_server_target.uses_embedded_network_policy();
      // A startup picker may consume its connection, but its selection keeps that backend.
      app_server_target.preserve_selected_backend(&session_selection);
@@ -3480,8 +3712,24 @@ index e1bf622..b85cade 100644
 +                            saved.model.as_deref(),
 +                    };
 +                    let selected = selected.map(str::to_owned);
-+                    crate::termux_chat_models::restore_catalog(&mut config, selected.as_deref())
-+                        .map_err(color_eyre::eyre::Report::msg)
++                    let observed = if let Some(model) = selected.as_deref()
++                        .filter(|model| model.starts_with("chatgpt-desktop/"))
++                    {
++                        let catalog = crate::termux_chat_models::live_catalog(&config).await
++                            .map_err(color_eyre::eyre::Report::msg)?;
++                        let effort = match app::config_persistence::resume_model_settings_for_overrides(&config, &overrides) {
++                            crate::app_server_session::ResumeModelSettings::OverrideFromCurrentConfig
++                            | crate::app_server_session::ResumeModelSettings::ExplicitFromCurrentConfig { effort: true, .. } => config.model_reasoning_effort.clone(),
++                            _ => saved.reasoning_effort.clone(),
++                        }.unwrap_or(codex_protocol::openai_models::ReasoningEffort::None);
++                        if !catalog.admits(model, &effort, true) {
++                            color_eyre::eyre::bail!("Saved ChatGPT model or reasoning level is unavailable for this account; thread preserved.");
++                        }
++                        Some(catalog)
++                    } else { None };
++                    crate::termux_chat_models::restore_catalog(
++                        &mut config, selected.as_deref(), observed.as_ref().map(|catalog| catalog.path.as_path()),
++                    ).map_err(color_eyre::eyre::Report::msg)
 +                })
 +                .await
 +                .map_err(color_eyre::eyre::Report::from)
@@ -3506,7 +3754,7 @@ index e1bf622..b85cade 100644
      };
  
      if let resume_picker::SessionSelection::Resume(target)
-@@ -2322,9 +2468,10 @@ pub enum LoginStatus {
+@@ -2322,9 +2484,10 @@ pub enum LoginStatus {
  /// Reads the account once to determine login status and preserve the response for bootstrap.
  async fn get_login_status(
      app_server: &mut AppServerSession,
@@ -3521,7 +3769,7 @@ index e1bf622..b85cade 100644
          Some(AppServerAccount::Chatgpt { .. }) => LoginStatus::AuthMode(AuthMode::Chatgpt),
          Some(AppServerAccount::AmazonBedrock { .. } | AppServerAccount::Gcp {}) | None => {
 diff --git a/codex-rs/tui/src/lib_tests.rs b/codex-rs/tui/src/lib_tests.rs
-index bb54411..2e131b0 100644
+index bb5441180f..2e131b0dfd 100644
 --- a/codex-rs/tui/src/lib_tests.rs
 +++ b/codex-rs/tui/src/lib_tests.rs
 @@ -57,18 +57,20 @@ requires_openai_auth = {requires_openai_auth}
@@ -3551,7 +3799,7 @@ index bb54411..2e131b0 100644
          server.shutdown().await?;
      }
 diff --git a/codex-rs/tui/src/permission_discovery.rs b/codex-rs/tui/src/permission_discovery.rs
-index 91153c6..c73e71d 100644
+index 91153c6e3f..c73e71dc9d 100644
 --- a/codex-rs/tui/src/permission_discovery.rs
 +++ b/codex-rs/tui/src/permission_discovery.rs
 @@ -7,6 +7,8 @@ use crate::app_server_session::AppServerSession;
@@ -3573,7 +3821,7 @@ index 91153c6..c73e71d 100644
  use std::time::Duration;
  use uuid::Uuid;
 diff --git a/codex-rs/tui/src/resume_picker.rs b/codex-rs/tui/src/resume_picker.rs
-index 8b8401c..6443e51 100644
+index 8b8401ccb7..6443e51a39 100644
 --- a/codex-rs/tui/src/resume_picker.rs
 +++ b/codex-rs/tui/src/resume_picker.rs
 @@ -4021,11 +4021,12 @@ fn plural_time(value: i64, unit: &str) -> String {
@@ -3703,7 +3951,7 @@ index 8b8401c..6443e51 100644
          assert!(rendered.contains("Branch:      codex/raw-scrollback-mode"));
          assert!(rendered.contains("Conversation:"));
 diff --git a/codex-rs/tui/src/slash_command.rs b/codex-rs/tui/src/slash_command.rs
-index dfd0538..90d3dd1 100644
+index dfd05384f7..90d3dd178e 100644
 --- a/codex-rs/tui/src/slash_command.rs
 +++ b/codex-rs/tui/src/slash_command.rs
 @@ -13,6 +13,8 @@ pub enum SlashCommand {
@@ -3776,21 +4024,22 @@ index dfd0538..90d3dd1 100644
              | SlashCommand::Delete
              | SlashCommand::Fork
 diff --git a/codex-rs/tui/src/startup_orchestration.rs b/codex-rs/tui/src/startup_orchestration.rs
-index 43331cd..b659f1c 100644
+index 43331cdae9..b88cd3f83f 100644
 --- a/codex-rs/tui/src/startup_orchestration.rs
 +++ b/codex-rs/tui/src/startup_orchestration.rs
-@@ -567,7 +567,9 @@ pub(super) async fn run_main_inner(
+@@ -567,7 +567,10 @@ pub(super) async fn run_main_inner(
      } else {
          None
      };
 -    let auto_start_daemon = cfg!(any(unix, windows))
 +    let core_owned =
 +        profile_transport::core_owned(&app_server_target, termux_permissions::enabled());
-+    let auto_start_daemon = !core_owned && cfg!(any(unix, windows))
++    let auto_start_daemon = !core_owned
++        && cfg!(any(unix, windows))
          && (cli.agents_overview || config.features.enabled(Feature::DaemonAutoStart))
          && implicit_connection
          && !cli.no_daemon
-@@ -643,14 +645,18 @@ pub(super) async fn run_main_inner(
+@@ -643,14 +646,18 @@ pub(super) async fn run_main_inner(
              daemon_exclusion = Some("this Windows launcher");
          }
      }
@@ -3818,7 +4067,7 @@ index 43331cd..b659f1c 100644
          app_server_target = AppServerTarget::Embedded;
          daemon_exclusion = Some("daemon feature settings");
 diff --git a/codex-rs/tui/src/thread_transcript.rs b/codex-rs/tui/src/thread_transcript.rs
-index 807d7ac..8aaa34e 100644
+index 807d7ac4f0..8aaa34eb5f 100644
 --- a/codex-rs/tui/src/thread_transcript.rs
 +++ b/codex-rs/tui/src/thread_transcript.rs
 @@ -275,7 +275,10 @@ fn item_to_cells(

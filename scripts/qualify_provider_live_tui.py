@@ -541,7 +541,7 @@ class LiveTui:
             # An upstream partial provider definition requires a nonempty name.
             # These fields declare the observer transport; /provider still owns
             # selecting the model and the installed route supplies its auth.
-            command += ['-c', 'model_providers.chatgpt_desktop.name="ChatGPT AppHost"',
+            command += ['-c', 'model_providers.chatgpt_desktop.name="ChatGPT Linux app"',
                         '-c', 'model_providers.chatgpt_desktop.base_url=' + json.dumps(endpoint)]
         self.process = subprocess.Popen(command, cwd=args.workspace, env=env,
                                         stdin=slave, stdout=slave, stderr=slave,
@@ -632,7 +632,7 @@ class LiveTui:
         self.screen = ''
         self.paste('/provider ')
         self.wait(lambda: 'Select Provider' in plain(self.screen))
-        assert 'ChatGPT AppHost' in plain(self.screen)
+        assert 'ChatGPT Linux app' in plain(self.screen)
         os.write(self.master, b'\x1b[F')
         self.drain(.3)
         self.screen = ''
@@ -658,7 +658,7 @@ class LiveTui:
         # provider/model admission is verified from that turn's readback.
         save(self.root / (self.label + '-selection.json'),
              {'at': stamp(), 'thread': self.thread, 'command': '/provider',
-              'picker_provider': 'ChatGPT AppHost', 'picker_model': 'GPT-6',
+              'picker_provider': 'ChatGPT Linux app', 'picker_model': 'GPT-6',
               'native_settings_verified': False})
 
     def submit(self, text, count, marker, allow_failed=False):

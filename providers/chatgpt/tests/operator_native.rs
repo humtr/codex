@@ -115,6 +115,10 @@ impl Bridge for Synthetic {
             }
             "model_catalog" => {
                 json!({"identity":{"generation":"fixture","account":"owned-synthetic-account","user":"owned-synthetic-user","structure":"personal"},"options":[{"label":"Qualification family","options":[
+                {"slug":"gpt-6","lane":"instant","modelLabel":"Instant","isAvailable":true},
+                {"slug":"gpt-6-thinking","lane":"thinking","modelLabel":"Thinking","isAvailable":true,"thinkingEffort":"standard"},
+                {"slug":"gpt-6-thinking","lane":"thinking","modelLabel":"Thinking","isAvailable":true,"thinkingEffort":"extended"},
+                {"slug":"gpt-6-thinking","lane":"thinking","modelLabel":"Thinking","isAvailable":true,"thinkingEffort":"max"},
                 {"slug":"qualification-thinking","lane":"thinking","modelLabel":"Thinking","isAvailable":true,"thinkingEffort":"extended"},
                 {"slug":"qualification-thinking","lane":"thinking","modelLabel":"Thinking","isAvailable":true,"thinkingEffort":"max"},
                 {"slug":"qualification-unavailable","lane":"instant","modelLabel":"Unavailable","isAvailable":false}

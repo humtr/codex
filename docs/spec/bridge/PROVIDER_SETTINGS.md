@@ -166,12 +166,12 @@ added only with qualified host discovery. Retained history remains the migration
 default; choosing project mode requires a name and defaults creation to enabled.
 Neither saving that choice nor listing models proves a host operation is available.
 
-The effective selectable model catalog combines models and thinking options
-actually offered by the authenticated ChatGPT app with entries the user adds in
-provider configuration. App discovery is account-scoped, observes the app's
-offered model/effort semantics, and submits no inference. An explicit configured
-entry can add a model or a compatible route and can deliberately correct a
-matching mapping; do not make user additions replace the app's whole list.
+The effective selectable model catalog consists of models and thinking options
+actually offered to the authenticated ChatGPT app account. App discovery is
+account-scoped and submits no inference. Configuration can label or map an
+actually offered route and correct its Native effort translation; it cannot grant
+entitlement, expose an unavailable route, rename an app slug into another app ID,
+or change the server's Pro lane. User additions do not replace the app's whole list.
 Keep the common app-to-Native effort translation as validated data, independent
 of model-name branches. The currently observed app values `standard`,
 `extended`, and `max` correspond to Native `medium`, `high`, and `xhigh` in
@@ -198,9 +198,10 @@ are presentation data. This avoids giving an existing family alias a different
 execution meaning when the app offers separate Instant/Thinking models.
 Retain existing configured IDs for saved bindings, hidden unless explicitly
 configured as selectable. They are not alternative names for new app IDs.
-Configured model entries augment the bootstrap catalog before app discovery and
-the app catalog after discovery. Matching model/effort entries correct the
-existing route; unrelated offered routes remain available. Validate supplied
+Configured model entries augment the bootstrap compatibility catalog before app
+discovery. After discovery only entries whose actual host model and thinking
+option remain offered are selectable. Matching entries may correct the Native
+effort translation; unrelated offered routes remain available. Validate supplied
 definitions before merging so malformed duplicates are not normalized away.
 This operation starts no inference and does not change a selected model. A missing
 app capability or unmapped effort is reported with its specific cause.
@@ -554,3 +555,43 @@ membership and native TUI reports/tool effects, not just HTTP success or counter
 Count setup, creation requests, user-message objects, tool returns, model starts,
 retries and compaction separately; actual Chat allowance debits remain unknown
 without suitable evidence. Project operations/settings must not spend inference.
+
+## Provider-scoped model discovery
+
+The stored Provider ID `chatgpt_desktop` and `chatgpt-desktop/` model IDs are
+compatibility identities; the user-facing transport name is **ChatGPT Linux app**.
+A model ID, server slug, Provider ID, app account and Native execution home have
+separate meanings. Existing thread records are not rewritten for display naming.
+
+`/model`, its inline arguments, reasoning choices and current-provider inventory
+use only the selected Provider. OpenAI keeps its upstream catalog, order and
+selection behavior and never queries the ChatGPT app merely to list its models.
+An explicit `/provider` choice may discover that destination's models before a
+settled same-thread reentry. A foreign model passed to `/model` fails without
+changing Provider. Other Providers retain their own catalog owner.
+
+For ChatGPT, the existing authenticated `host models` control supplies all
+currently offered server models and reasoning options, using `with_app_options`.
+Configuration may label or map an offered route; it cannot grant entitlement,
+restore `isAvailable=false`, invent an unoffered route or change a Pro lane.
+Configured defaults and retained observations are not the current account's
+selectable catalog. Discovery errors clear selectable stale choices and preserve
+the current thread, selected model/effort and input. No other Provider supplies
+a fallback. A model disappearing from the server remains in Native history but
+is unavailable for a new selection or reentry.
+
+Fresh discovery uses the existing immutable catalog snapshot producer, with
+account identity checked after the app read. TUI consumes that exact private
+snapshot and carries it through Core's ordinary catalog binding for a Provider
+reentry or cold saved-thread restoration. A new CLI may project an older
+service's fresh reply only when its existing journal observation matches the
+reply's authenticated account and observation time. Retained/configured-only
+responses, changed observations and unknown reply schemas remain failures;
+compatibility is a capability contract rather than equal package versions. This never edits shared profiles, authentication, an active sibling's
+catalog, the Native writer or old signed generations. Selection is revalidated
+before applying Native's session-only model settings. Before accepting a new
+ChatGPT input, the existing input barrier checks the selected model and effort
+against a fresh account-bound catalog; unavailable choices or a model change
+during preparation retain the draft. Steering an already admitted running turn
+keeps that turn's own contract. Account changes refresh the current inventory
+through the same discovery path.
