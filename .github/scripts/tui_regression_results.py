@@ -22,6 +22,7 @@ REQUIRED = (
     'termux_chat_models_reentry_intent_accepts_only_known_modes',
     'termux_chat_models_reentry_is_initial_only_and_select_keeps_explicit_settings',
     'termux_chat_models_reentry_tier_is_cleared_only_for_initial_restore',
+    'termux_chat_models_owner_reentry_rebinds_consumed_intent_only_for_exec',
 )
 
 
