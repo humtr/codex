@@ -5,7 +5,7 @@ use std::ffi::{OsStr, OsString};
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read};
 use std::os::fd::{AsRawFd, FromRawFd};
-use std::os::unix::ffi::OsStrExt;
+use std::os::unix::ffi::{OsStrExt, OsStringExt};
 use std::os::unix::fs::{FileTypeExt, MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::os::unix::net::UnixStream;
 use std::path::{Component, Path, PathBuf};
@@ -14,7 +14,13 @@ use std::time::{Duration, Instant};
 
 pub const MAX_SERVERS: usize = 64;
 fn invalid() -> io::Error {
-    io::Error::other("Native owner is unavailable, ambiguous, unsafe or unresponsive")
+    failure(
+        "native_owner_unsafe",
+        "identity or ownership could not be verified",
+    )
+}
+fn failure(code: &str, reason: &str) -> io::Error {
+    io::Error::other(format!("{code}: {reason}"))
 }
 #[derive(PartialEq, Eq)]
 enum PathPresence {
@@ -219,17 +225,51 @@ fn server_family(
             Err(_) if process_exited(pid)? => continue,
             Err(_) => return Err(invalid()),
         };
-        let Binding { home, program } = Binding::read(&dir, |path, limit| {
-            if inspect_path(path).map_err(|_| io::Error::other("unsafe execution record"))?
-                == PathPresence::Missing
-            {
-                return Err(io::Error::from(io::ErrorKind::NotFound));
+        // Recognized old codecs retain an owned home/runtime identity prefix.
+        // Exclude only a positively reused PID before decoding that old codec;
+        // current/unknown codecs still require their complete validated binding.
+        let owner_record = record(&dir.join("owner"))?;
+        let fields = owner_record.split(|byte| *byte == 0).collect::<Vec<_>>();
+        let legacy = matches!(fields.as_slice(), [_, _] | [_, _, b"catalog-v1"]);
+        let binding = if legacy {
+            let home = PathBuf::from(OsString::from_vec(fields[0].to_vec()));
+            if !is_safe_absolute_path(&home) {
+                return Err(invalid());
             }
-            bounded_record(path, limit).map_err(|_| io::Error::other("unsafe execution record"))
-        })
-        .map_err(|_| invalid())?;
+            None
+        } else {
+            Some(
+                Binding::read(&dir, |path, limit| {
+                    if inspect_path(path)
+                        .map_err(|_| io::Error::other("unsafe execution record"))?
+                        == PathPresence::Missing
+                    {
+                        return Err(io::Error::from(io::ErrorKind::NotFound));
+                    }
+                    bounded_record(path, limit)
+                        .map_err(|_| io::Error::other("unsafe execution record"))
+                })
+                .map_err(|_| {
+                    failure(
+                        "native_owner_binding_invalid",
+                        "execution binding is unsupported or invalid",
+                    )
+                })?,
+            )
+        };
+        let program = fields
+            .get(1)
+            .filter(|bytes| !bytes.is_empty())
+            .map(|bytes| PathBuf::from(OsString::from_vec(bytes.to_vec())))
+            .ok_or_else(|| {
+                failure(
+                    "native_owner_registry_invalid",
+                    "execution identity is malformed",
+                )
+            })?;
         let generations = home_root.join(".local/lib/codex/core/generations");
-        if program.file_name() != Some(OsStr::new("runtime"))
+        if !is_safe_absolute_path(&program)
+            || program.file_name() != Some(OsStr::new("runtime"))
             || program.parent().and_then(Path::parent) != Some(generations.as_path())
         {
             return Err(invalid());
@@ -246,6 +286,12 @@ fn server_family(
             Err(_) if process_exited(pid)? => continue,
             Err(_) => return Err(invalid()),
         }
+        let Binding { home, program } = binding.ok_or_else(|| {
+            failure(
+                "native_owner_binding_invalid",
+                "matching live legacy execution binding is unsupported",
+            )
+        })?;
         private(&home, true)?;
         if !is_existing_executable(&program)? {
             return Err(invalid());
@@ -436,7 +482,10 @@ pub fn owner(home_root: &Path, id: &str, deadline: Instant) -> io::Result<Option
     for server in servers(home_root, deadline)? {
         if owns_writer(home_root, id, &server)? {
             if owner.is_some() {
-                return Err(invalid());
+                return Err(failure(
+                    "native_owner_ambiguous",
+                    "multiple verified writers were discovered",
+                ));
             }
             // Kernel peer identity, not an unrelated server's responsiveness.
             server.stream(deadline)?;
@@ -447,7 +496,10 @@ pub fn owner(home_root: &Path, id: &str, deadline: Instant) -> io::Result<Option
         }
     }
     if owner.is_none() && !writer_free(home_root, id)? {
-        return Err(invalid());
+        return Err(failure(
+            "native_owner_writer_unresolved",
+            "writer is held but its qualified owner is unavailable",
+        ));
     }
     Ok(owner)
 }

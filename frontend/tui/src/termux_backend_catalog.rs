@@ -202,14 +202,14 @@ async fn read_owner(
     core: &Path,
     thread: codex_protocol::ThreadId,
 ) -> color_eyre::Result<Option<OwnerConnection>> {
-    let bytes = crate::profile_transport::call_manager(
+    let bytes = crate::profile_transport::call_manager_result(
         core,
         &["__task-connection-v1".to_owned(), thread.to_string()],
         12,
     )
-    .await
-    .ok_or_else(|| color_eyre::eyre::eyre!("qualified Native owner discovery is unavailable"))?;
-    let reply: ConnectionReply = serde_json::from_slice(&bytes)?;
+    .await?;
+    let reply: ConnectionReply = serde_json::from_slice(&bytes)
+        .map_err(|_| color_eyre::eyre::eyre!("Core returned invalid Native connection metadata"))?;
     if reply.schema != "codex-manager-task-connection-v1" {
         color_eyre::eyre::bail!("unsupported Native connection metadata");
     }

@@ -97,6 +97,21 @@ mod tests {
         fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
         assert!(connection(&root, id).is_err());
         assert_eq!(fs::read(&path).unwrap(), b"unknown writer");
+        let coordination = locks.join(".coordination.lock");
+        fs::write(&coordination, b"").unwrap();
+        fs::set_permissions(&coordination, fs::Permissions::from_mode(0o600)).unwrap();
+        let writer = fs::File::open(&path).unwrap();
+        writer.try_lock().unwrap();
+        let error = connection(&root, id).unwrap_err();
+        assert!(error
+            .to_string()
+            .starts_with("native_owner_writer_unresolved:"));
+        assert_eq!(fs::read(&path).unwrap(), b"unknown writer");
+        drop(writer);
+        assert!(connection(&root, id)
+            .unwrap()
+            .contains("\"connection\":null"));
+        assert_eq!(fs::read(&path).unwrap(), b"unknown writer");
         fs::remove_dir_all(root).unwrap();
     }
 }
