@@ -830,6 +830,7 @@ async fn profile_manager_requires_native_ack_before_preserving_current_selection
     );
     for method in [
         "turn/start",
+        "thread/resume",
         "thread/unsubscribe",
         "thread/archive",
         "thread/unarchive",
