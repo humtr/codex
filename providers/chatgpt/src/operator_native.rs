@@ -666,6 +666,67 @@ impl Pool {
             clients: Mutex::new(BTreeMap::new()),
         }))
     }
+    /// Optional display runs only after the caller has settled its original
+    /// Native request. Manager owns preference, idempotence and Android policy.
+    pub(crate) fn request_terminal_display(&self, thread: &str) {
+        let Ok(mut command) = self.terminal_display_command(thread) else {
+            return;
+        };
+        tokio::spawn(async move {
+            let Ok(mut child) = command.spawn() else {
+                return;
+            };
+            // No retry or result substitution: a display failure cannot replay
+            // inference, transfer a writer or alter the settled work receipt.
+            let _ = tokio::time::timeout(Duration::from_secs(30), child.wait()).await;
+        });
+    }
+
+    fn terminal_display_command(&self, thread: &str) -> Result<tokio::process::Command, Error> {
+        use codex_runtime_binding::native;
+        if !native::canonical_session_id(thread) {
+            return Err(Error("terminal_native_identity_invalid"));
+        }
+        native::private(&self.installation, true)
+            .and_then(|()| native::private(&self.home, true))
+            .map_err(|_| Error("terminal_execution_home_unsafe"))?;
+        let home = std::fs::symlink_metadata(&self.home)
+            .map_err(|_| Error("terminal_execution_home_unsafe"))?;
+        let core = self
+            .config
+            .execution
+            .core
+            .as_ref()
+            .ok_or(Error("operator_core_required"))?;
+        let metadata =
+            std::fs::symlink_metadata(core).map_err(|_| Error("terminal_core_unavailable"))?;
+        if !core.is_absolute()
+            || !metadata.is_file()
+            || metadata.uid() != unsafe { libc::geteuid() }
+            || metadata.mode() & 0o022 != 0
+            || metadata.mode() & 0o111 == 0
+        {
+            return Err(Error("terminal_core_unsafe"));
+        }
+        let mut command = tokio::process::Command::new(core);
+        command
+            .args(["termux", "__terminal-auto-show-v1", thread])
+            .arg(&self.home)
+            .arg(home.dev().to_string())
+            .arg(home.ino().to_string())
+            .env("HOME", &self.installation)
+            .env("CODEX_HOME", &self.home)
+            .env_remove("CODEX_SQLITE_HOME")
+            .env_remove("CODEX_TERMUX_CORE_API")
+            .env_remove("CODEX_TERMUX_CORE_ENTRYPOINT")
+            .current_dir(&self.workspace)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .kill_on_drop(true);
+        Ok(command)
+    }
+
     pub fn routing(&self) -> Result<Value, Error> {
         registration::native_routing(&self.config, &self.state, &self.binary, &self.base_url)
     }

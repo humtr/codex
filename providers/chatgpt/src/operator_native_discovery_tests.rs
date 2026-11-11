@@ -447,3 +447,62 @@ async fn unsafe_candidates_still_fail_beside_a_verified_writer() {
         Some(Error("native_binding_invalid"))
     );
 }
+
+#[test]
+fn terminal_display_uses_exact_native_identity_without_inference_or_reentry() {
+    use std::ffi::OsStr;
+    let fixture = Fixture::new();
+    let core = fixture.root.join("core");
+    fs::write(&core, b"owned executable fixture").unwrap();
+    fs::set_permissions(&core, fs::Permissions::from_mode(0o700)).unwrap();
+    let mut config = Config::default();
+    config.execution.core = Some(core.clone());
+    let pool = Pool::for_test(
+        config,
+        fixture.root.join("state"),
+        fixture.installation.clone(),
+        fixture.home.clone(),
+        fixture.root.clone(),
+        fixture.program.clone(),
+    );
+    let command = pool.terminal_display_command(THREAD).unwrap();
+    let command = command.as_std();
+    let metadata = fs::symlink_metadata(&fixture.home).unwrap();
+    let expected = vec![
+        "termux".into(),
+        "__terminal-auto-show-v1".into(),
+        THREAD.into(),
+        fixture.home.as_os_str().to_owned(),
+        metadata.dev().to_string().into(),
+        metadata.ino().to_string().into(),
+    ];
+    assert_eq!(command.get_program(), core.as_os_str());
+    assert_eq!(
+        command.get_args().collect::<Vec<_>>(),
+        expected
+            .iter()
+            .map(|v: &std::ffi::OsString| v.as_os_str())
+            .collect::<Vec<_>>()
+    );
+    let env = command
+        .get_envs()
+        .collect::<std::collections::BTreeMap<_, _>>();
+    assert_eq!(
+        env.get(OsStr::new("HOME")),
+        Some(&Some(fixture.installation.as_os_str()))
+    );
+    assert_eq!(
+        env.get(OsStr::new("CODEX_HOME")),
+        Some(&Some(fixture.home.as_os_str()))
+    );
+    assert_eq!(env.get(OsStr::new("CODEX_SQLITE_HOME")), Some(&None));
+    assert!(pool.terminal_display_command("../other").is_err());
+    fs::set_permissions(&core, fs::Permissions::from_mode(0o722)).unwrap();
+    assert!(pool.terminal_display_command(THREAD).is_err());
+    fs::set_permissions(&core, fs::Permissions::from_mode(0o700)).unwrap();
+    let retained = fixture.installation.join("retained");
+    fs::rename(&fixture.home, &retained).unwrap();
+    std::os::unix::fs::symlink(&retained, &fixture.home).unwrap();
+    assert!(pool.terminal_display_command(THREAD).is_err());
+    assert!(retained.join("thread-writer-locks").is_dir());
+}
