@@ -1,4 +1,5 @@
 import json
+import os
 from pathlib import Path
 import shutil
 import struct
@@ -62,6 +63,54 @@ class ComponentInputsTests(unittest.TestCase):
         self.assertIn('cargo "+$RUST_VERSION" test --locked -p codex-manager',manager)
         self.assertIn('CODEX_MANAGER_ARTIFACT_PROBE=1',manager)
         self.assertNotIn('component: core',manager)
+
+    def test_cargo_config_follows_producer_cwd_not_manifest_path(self):
+        # Production invokes Cargo from the checkout parent. A manifest path
+        # does not make source/.cargo or member-local configs compiler inputs.
+        producer=(ROOT/'.github/workflows/android-component.yml').read_text()
+        build=producer.split('      - name: Cross-build selected Android component once\n',1)[1]
+        build=build.split('      - name:',1)[0]
+        self.assertNotIn('working-directory:',producer)
+        self.assertNotRegex(build,r'(?m)^\s*(?:cd|pushd)\s')
+        self.assertIn('--manifest-path source/Cargo.toml',build)
+        cargo=shutil.which('cargo')
+        self.assertIsNotNone(cargo,'component input contract requires the Cargo producer')
+        outer=Path(self.temp.name)/'cargo-discovery';outer.mkdir()
+        source=outer/'source';member=source/'member'
+        (member/'src').mkdir(parents=True)
+        (source/'Cargo.toml').write_text('[workspace]\nmembers=["member"]\nresolver="2"\n')
+        (member/'Cargo.toml').write_text(
+            '[package]\nname="component_config_probe"\nversion="0.0.0"\nedition="2021"\n')
+        (member/'src/lib.rs').write_text('pub fn component() {}\n')
+        (member/'build.rs').write_text(
+            'fn main() {\n'
+            ' println!("cargo:rerun-if-env-changed=COMPONENT_CONFIG_PROBE");\n'
+            ' let seen=std::env::var("COMPONENT_CONFIG_PROBE").unwrap_or("absent".into());\n'
+            ' println!("cargo:warning=component-config-probe={}", seen);\n'
+            ' assert_eq!(seen, std::env::var("EXPECTED_COMPONENT_CONFIG_PROBE").unwrap());\n'
+            '}\n')
+        for directory,value in [(source,'workspace'),(member,'member')]:
+            config=directory/'.cargo';config.mkdir()
+            (config/'config.toml').write_text('[env]\nCOMPONENT_CONFIG_PROBE="'+value+'"\n')
+        env=dict(os.environ,RUSTFLAGS='',CARGO_ENCODED_RUSTFLAGS='',CARGO_INCREMENTAL='0')
+        env.pop('COMPONENT_CONFIG_PROBE',None)
+        for cwd,expected in [(outer,'absent'),(source,'workspace'),(member,'member')]:
+            with self.subTest(cwd=cwd.name,configuration=expected):
+                # A fresh target is essential: cached build-script output is
+                # not evidence for a different Cargo configuration search.
+                invocation={**env,'CARGO_TARGET_DIR':str(outer/('target-'+expected)),
+                            'EXPECTED_COMPONENT_CONFIG_PROBE':expected}
+                command=[cargo,'check','--offline','--manifest-path',str(source/'Cargo.toml'),
+                         '-p','component_config_probe']
+                result=subprocess.run(command,cwd=cwd,env=invocation,text=True,
+                                      capture_output=True,timeout=60)
+                self.assertEqual(result.returncode,0,result.stderr)
+                self.assertIn('component-config-probe='+expected,result.stderr)
+        before={name:inputs.fingerprint(self.root,name) for name in inputs.COMPONENTS}
+        ignored=self.root/'.cargo';ignored.mkdir(exist_ok=True)
+        (ignored/'config.toml').write_text('[build]\nrustflags=["--cfg=unconsumed"]\n')
+        self.commit()
+        self.assertEqual(before,{name:inputs.fingerprint(self.root,name) for name in inputs.COMPONENTS})
 
     def test_actual_dependency_graph_and_embedded_lock_are_exact(self):
         core=inputs.fingerprint(self.root,'core');manager=inputs.fingerprint(self.root,'manager')
