@@ -73,7 +73,7 @@ fn profile_resume_reenters_exact_conversation_and_home_preserving_state_and_exit
     fs::set_permissions(&default, fs::Permissions::from_mode(0o700)).unwrap();
     for (target, expected_home) in [("work", &account), ("default", &default)] {
         let before = inventory(&home);
-        let output = base_manager_command(&home, &core)
+        let output = reentry_manager_command(&home, &core)
             .current_dir(&home)
             .env("CODEX_HOME", &default)
             .env("CODEX_SQLITE_HOME", "/unrelated")
@@ -148,7 +148,7 @@ fn profile_resume_keeps_selected_registry_stable_during_writer_release() {
     let held = fs::File::open(dir.join(format!("{ID}.lock"))).unwrap();
     held.try_lock().unwrap();
     let registry = fs::File::open(home.join(".local/share/codex/manager/profiles")).unwrap();
-    let mut child = base_manager_command(&home, &core)
+    let mut child = reentry_manager_command(&home, &core)
         .args(["__profile-resume-v1", "work", ID])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -323,7 +323,7 @@ fn profile_resume_tty_refusal_returns_only_explicit_original_home_same_pid_cwd_u
     held.try_lock().unwrap();
     let before = inventory(&home);
     for target in ["work", "missing"] {
-        let mut command = base_manager_command(&home, &core);
+        let mut command = reentry_manager_command(&home, &core);
         command.env("CODEX_HOME", &source).current_dir(&cwd).args([
             "__profile-resume-v1",
             target,
@@ -360,7 +360,7 @@ fn profile_resume_tty_cancel_eof_and_bounded_input_never_confirm_return() {
     let source = source_home(&root);
     let before = inventory(&home);
     for input in [b"q\n".as_slice(), b"other\n", b"\x04", &[b'x'; 128]] {
-        let mut command = base_manager_command(&home, &core);
+        let mut command = reentry_manager_command(&home, &core);
         command
             .env("CODEX_HOME", &source)
             .args(["__profile-resume-v1", "missing", ID]);
@@ -389,7 +389,7 @@ fn profile_resume_tty_missing_unsafe_source_or_any_redirected_stream_does_not_pr
         Some(root.0.join("missing").as_path()),
         Some(Path::new("")),
     ] {
-        let mut command = base_manager_command(&home, &core);
+        let mut command = reentry_manager_command(&home, &core);
         if let Some(path) = inherited {
             command.env("CODEX_HOME", path);
         }
@@ -399,7 +399,7 @@ fn profile_resume_tty_missing_unsafe_source_or_any_redirected_stream_does_not_pr
         assert!(!output.contains("Enter to return"));
     }
     fs::set_permissions(&source, fs::Permissions::from_mode(0o755)).unwrap();
-    let mut command = base_manager_command(&home, &core);
+    let mut command = reentry_manager_command(&home, &core);
     command
         .env("CODEX_HOME", &source)
         .args(["__profile-resume-v1", "missing", ID]);
@@ -408,7 +408,7 @@ fn profile_resume_tty_missing_unsafe_source_or_any_redirected_stream_does_not_pr
     assert!(!output.contains("Enter to return"));
     fs::set_permissions(&source, fs::Permissions::from_mode(0o700)).unwrap();
     for stream in 0..3 {
-        let mut command = base_manager_command(&home, &core);
+        let mut command = reentry_manager_command(&home, &core);
         command
             .env("CODEX_HOME", &source)
             .args(["__profile-resume-v1", "missing", ID]);
@@ -416,7 +416,7 @@ fn profile_resume_tty_missing_unsafe_source_or_any_redirected_stream_does_not_pr
         assert_eq!(status.code(), Some(1));
         assert!(!output.contains("Enter to return"));
     }
-    let mut command = base_manager_command(&home, &core);
+    let mut command = reentry_manager_command(&home, &core);
     command
         .env("CODEX_HOME", &source)
         .args(["__profile-resume-v1", "missing", "invalid"]);
@@ -430,7 +430,7 @@ fn profile_resume_tty_revalidates_original_physical_identity_and_private_mode() 
     let (root, core, home) = setup();
     let source = source_home(&root);
     for replace in [false, true] {
-        let mut command = base_manager_command(&home, &core);
+        let mut command = reentry_manager_command(&home, &core);
         command
             .env("CODEX_HOME", &source)
             .args(["__profile-resume-v1", "missing", ID]);
@@ -458,7 +458,7 @@ fn profile_resume_tty_success_executes_destination_without_return_prompt() {
     let (root, core, home) = setup();
     let source = source_home(&root);
     let before = inventory(&home);
-    let mut command = base_manager_command(&home, &core);
+    let mut command = reentry_manager_command(&home, &core);
     command
         .env("CODEX_HOME", &source)
         .args(["__profile-resume-v1", "work", ID]);
@@ -470,5 +470,135 @@ fn profile_resume_tty_success_executes_destination_without_return_prompt() {
         home.join(".local/share/codex/manager/profiles/work/home")
             .display()
     )));
+    assert_eq!(inventory(&home), before);
+}
+
+#[test]
+fn private_profile_handoff_rejects_legacy_or_foreign_intent_before_state_changes() {
+    let (_root, core, home) = setup();
+    let locks = home.join(".codex/thread-writer-locks");
+    fs::create_dir_all(&locks).unwrap();
+    fs::set_permissions(home.join(".codex"), fs::Permissions::from_mode(0o700)).unwrap();
+    fs::set_permissions(&locks, fs::Permissions::from_mode(0o700)).unwrap();
+    let lock = locks.join(format!("{ID}.lock"));
+    fs::write(&lock, b"original-writer-lock").unwrap();
+    fs::set_permissions(&lock, fs::Permissions::from_mode(0o600)).unwrap();
+    let held = fs::File::open(&lock).unwrap();
+    held.try_lock().unwrap();
+    fs::write(
+        home.join(".codex/rollout.jsonl"),
+        b"original input, result, approval and high effort\n",
+    )
+    .unwrap();
+    let flags = r#"["--model","stale-launch-model","-c","model_reasoning_effort=\"none\""]"#;
+    let handoff = serde_json::json!({
+        "profile":"work", "thread":ID, "turn":"original-turn", "model":"stale-launch-model",
+        "trigger":"quota", "flags":["--model","stale-launch-model"]
+    })
+    .to_string();
+    let parent_pid = std::process::id().to_string();
+    let before = inventory(&home);
+    let check = |mut command: Command, args: &[&str]| {
+        let output = command.args(args).output().unwrap();
+        assert_eq!(output.status.code(), Some(1), "{output:?}");
+        assert!(output.stdout.is_empty());
+        let error = String::from_utf8(output.stderr).unwrap();
+        assert!(
+            error.contains("unsupported TUI reentry generation"),
+            "{error}"
+        );
+        assert!(error.contains("no profile resume started"), "{error}");
+        assert!(
+            !error.contains("Enter to return"),
+            "no stale-flag fallback: {error}"
+        );
+        assert_eq!(inventory(&home), before);
+        let probe = fs::File::open(&lock).unwrap();
+        assert!(matches!(
+            probe.try_lock(),
+            Err(std::fs::TryLockError::WouldBlock)
+        ));
+    };
+    for args in [
+        vec!["__profile-resume-v1", "work", ID],
+        vec!["__profile-resume-v2", "work", ID, flags],
+        vec!["__quota-handoff-v1", &handoff],
+    ] {
+        for (mode, pid) in [
+            (None, None),
+            (Some("resume"), None),
+            (Some("select"), None),
+            (Some("resume"), Some(parent_pid.as_str())),
+            (Some("resume"), Some("invalid")),
+        ] {
+            let mut command = super::base_manager_command(&home, &core);
+            if let Some(mode) = mode {
+                command.env("CODEX_CHAT_MODEL_REENTRY", mode);
+            }
+            if let Some(pid) = pid {
+                command.env("CODEX_CHAT_MODEL_REENTRY_PID", pid);
+            }
+            check(command, &args);
+        }
+        for mode in ["select", "unknown", ""] {
+            check(manager_command_with_reentry(&home, &core, mode), &args);
+        }
+        // Admission precedes even context capture, not just the later Writer wait.
+        let mut command = super::base_manager_command(&home, &core);
+        command.env("HOME", home.join(".codex/rollout.jsonl"));
+        check(command, &args);
+    }
+}
+
+#[test]
+fn private_profile_v2_reentry_keeps_same_exec_pid_and_exact_current_flags() {
+    let (_root, core, home) = setup();
+    let body = fs::read_to_string(&core).unwrap();
+    fs::write(&core, body.replace("exit 37",
+        "printf 'REENTRY=%s:%s:%s\\n' \"${CODEX_CHAT_MODEL_REENTRY-}\" \"${CODEX_CHAT_MODEL_REENTRY_PID-}\" \"$$\"\nexit 37")).unwrap();
+    let flags = r#"["--model","current-model","-c","model_reasoning_effort=\"high\""]"#;
+    let before = inventory(&home);
+    let child = reentry_manager_command(&home, &core)
+        .args(["__profile-resume-v2", "work", ID, flags])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let pid = child.id();
+    let output = child.wait_with_output().unwrap();
+    assert_eq!(output.status.code(), Some(37), "{output:?}");
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        stdout.contains(&format!("REENTRY=resume:{pid}:{pid}\n")),
+        "{stdout}"
+    );
+    assert!(stdout.contains(&format!("ARG=<resume>\nARG=<{ID}>\nARG=<--model>\nARG=<current-model>\nARG=<-c>\nARG=<model_reasoning_effort=\"high\">\n")), "{stdout}");
+    assert_eq!(inventory(&home), before);
+}
+
+#[test]
+fn public_profile_use_keeps_explicit_cli_flags_with_an_unbound_legacy_marker() {
+    let (_root, core, home) = setup();
+    let before = inventory(&home);
+    let output = super::base_manager_command(&home, &core)
+        .env("CODEX_CHAT_MODEL_REENTRY", "resume")
+        .args([
+            "profile",
+            "use",
+            "work",
+            "--",
+            "resume",
+            ID,
+            "--model",
+            "explicit-model",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(37), "{output:?}");
+    assert!(
+        String::from_utf8(output.stdout)
+            .unwrap()
+            .contains("ARG=<--model>\nARG=<explicit-model>\n")
+    );
     assert_eq!(inventory(&home), before);
 }

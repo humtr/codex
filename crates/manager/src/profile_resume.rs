@@ -3,6 +3,29 @@ use super::*;
 use std::io::{BufRead, IsTerminal};
 use std::os::unix::fs::MetadataExt;
 
+// Private UI handoffs carry route flags, not a fresh user model selection.
+// Reject older/unbound producers before Manager reads or changes profile/Native
+// state; their flags may contain stale launch defaults. This PID scopes only the
+// exec intent and grants no account or Native Writer authority.
+pub(super) fn validate_private_reentry(args: &[OsString]) -> Result<(), ManagerError> {
+    if !matches!(
+        args.first().and_then(|arg| arg.to_str()),
+        Some("__profile-resume-v1" | "__profile-resume-v2" | "__quota-handoff-v1")
+    ) {
+        return Ok(());
+    }
+    let mode = std::env::var_os("CODEX_CHAT_MODEL_REENTRY");
+    let pid = std::env::var("CODEX_CHAT_MODEL_REENTRY_PID")
+        .ok()
+        .and_then(|value| value.parse::<u32>().ok());
+    if mode.as_deref() != Some(OsStr::new("resume")) || pid != Some(std::process::id()) {
+        return Err(ManagerError::operation(
+            "codex termux: unsupported TUI reentry generation; reopen the saved conversation with the current TUI; no profile resume started",
+        ));
+    }
+    Ok(())
+}
+
 pub(super) fn run(context: &Context, args: &[OsString]) -> Result<Option<String>, ManagerError> {
     run_with(context, args, &[])
 }

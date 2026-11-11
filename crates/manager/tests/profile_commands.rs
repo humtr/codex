@@ -231,13 +231,45 @@ fn runtime_config_endpoint_requires_exact_handoff_and_safe_directory() {
     }
 }
 
+// Model a qualified UI -> Core -> Manager exec chain: the launcher PID is
+// retained across exec, instead of guessing the future child PID in its parent.
+fn manager_command_with_reentry(home: &Path, core: &Path, mode: &str) -> Command {
+    let base = base_manager_command(home, core);
+    let mut command = Command::new(test_shell());
+    command.env_clear();
+    for (name, value) in base.get_envs() {
+        if let Some(value) = value {
+            command.env(name, value);
+        }
+    }
+    command.args([
+        "-c",
+        "CODEX_CHAT_MODEL_REENTRY=\"$1\"; shift; CODEX_CHAT_MODEL_REENTRY_PID=$$; export CODEX_CHAT_MODEL_REENTRY CODEX_CHAT_MODEL_REENTRY_PID; exec \"$@\"",
+        "owned-reentry",
+        mode,
+    ]);
+    command.arg(manager_binary());
+    command
+}
+
+fn reentry_manager_command(home: &Path, core: &Path) -> Command {
+    manager_command_with_reentry(home, core, "resume")
+}
+
 fn run_manager(
     home: &Path,
     core: &Path,
     args: &[&str],
     inherited_codex_home: Option<&Path>,
 ) -> Output {
-    let mut command = base_manager_command(home, core);
+    let mut command = if matches!(
+        args.first().copied(),
+        Some("__profile-resume-v1" | "__profile-resume-v2" | "__quota-handoff-v1")
+    ) {
+        reentry_manager_command(home, core)
+    } else {
+        base_manager_command(home, core)
+    };
     command.args(args);
     if let Some(value) = inherited_codex_home {
         command.env("CODEX_HOME", value);

@@ -57,6 +57,12 @@ markers cannot replace an ordinary invocation's explicit selection. This private
 handoff requires compatible producers and consumers; it does not rewrite older
 signed generations or acquire an existing Writer.
 
+Manager refuses older private profile/quota handoffs that lack the current
+same-PID Resume intent. Reopen that saved conversation with the current frontend;
+the refusal does not start another resume or replay stale flags. An older TUI may
+already have exited normally before Manager receives the handoff. Ordinary CLI
+and public profile commands continue to honor their explicit options.
+
 ## Product acceptance boundaries
 
 Qualify the exact changed source through full TUI CI and the affected Native

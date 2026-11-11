@@ -75,6 +75,16 @@ transits may rebind the already captured typed intent; they do not manufacture a
 new thread or transfer a Writer. Older signed generations remain immutable, and
 cross-generation private handoffs require compatible producers and consumers.
 
+Manager must reject private profile-resume and quota handoffs without the current
+same-PID Resume intent before context, usage, cooldown or Native-owner processing.
+Older handoffs may carry stale launch defaults and must not be interpreted as a
+fresh explicit selection or automatically returned through those same flags.
+The old frontend may already have exited and released its Writer normally; this
+rejection promises no additional Manager resume or record mutation, not a still
+running old UI. Reopen the saved conversation with a compatible current frontend.
+Public profile selection and ordinary CLI explicit overrides remain independent
+of this private compatibility check.
+
 ## App host and authenticated identity
 
 The candidate `host.rootfs` field selects an explicitly provisioned official-app

@@ -59,7 +59,12 @@ for line in sys.stdin:
         .unwrap();
     }
     fn run(&self, args: &[&str], success: bool) -> Output {
-        let out = base_manager_command(&self.root.0, &self.core)
+        let mut command = if args.first() == Some(&"__quota-handoff-v1") {
+            reentry_manager_command(&self.root.0, &self.core)
+        } else {
+            base_manager_command(&self.root.0, &self.core)
+        };
+        let out = command
             .env("PATH", std::env::var_os("PATH").unwrap())
             .env("CODEX_HOME", self.root.0.join(".codex"))
             .args(args)

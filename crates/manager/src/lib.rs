@@ -320,6 +320,7 @@ where
 }
 
 fn run_inner(args: Vec<OsString>) -> Result<Option<String>, ManagerError> {
+    profile_resume::validate_private_reentry(&args)?;
     if args.first().is_some_and(|arg| {
         matches!(
             arg.to_str(),
