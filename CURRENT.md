@@ -230,6 +230,17 @@ After this and the Busy trial below, a read under the existing ledger lock
 confirmed zero claims and the original empty digest. No manual settlement or
 ledger mutation was used.
 
+A separate actual Core-only observer fixture passed in 4.40 seconds, exit 0.
+The same Native thread/turn remained active after its original observer
+connection closed; owner-context reentry and a same-Owner observer recovered
+the original socket. A different execution home's resume was explicitly
+refused while the original Writer's kernel lock, inode, process and record
+remained unchanged. The original response completed once; closing the final
+subscriber then produced verified safe Owner absence. One loopback synthetic
+response, zero live Provider requests and zero Android dispatches were used.
+Receipt SHA256: `a135b830efc406cfe0e9cb71496287569118ca6ef046da0f838bcb776ae43da8`.
+This verifies Native observation, not public Manager/Enhanced screen display.
+
 ## Physical terminal test boundary
 
 One pre-isolation failed unit fixture recreated its owned display descriptor
