@@ -184,18 +184,24 @@ jobs:
         run: |
           set -euo pipefail
           # The current Rust verifier and immutable archive upload have succeeded.
+          # Approved publication callers and explicit noncanonical branch proofs
+          # keep their existing candidate provenance without a new Core label.
+          eligible="$(python3 source/.github/scripts/runtime_production.py eligible-origin \
+            --source source --run-id "$GITHUB_RUN_ID")"
           if test -n "$PRODUCTION_RUN"; then
             python3 source/.github/scripts/runtime_production.py record --source source \
               --artifact "$RUNNER_TEMP/runtime-artifact" --selection "$RUNNER_TEMP/runtime-selection.json" \
               --receipt "$RUNNER_TEMP/runtime-production.json" --consumer "$RUNNER_TEMP/runtime-consumer.json"
-          else
+            echo 'recorded=true' >> "$GITHUB_OUTPUT"
+          elif test "$eligible" = true; then
             python3 source/.github/scripts/runtime_production.py record --source source \
               --artifact "$RUNNER_TEMP/runtime-artifact" --run-id "$GITHUB_RUN_ID" \
               --artifact-id '${{ steps.raw-upload.outputs.artifact-id }}' \
               --receipt "$RUNNER_TEMP/runtime-production.json" --consumer "$RUNNER_TEMP/runtime-consumer.json"
+            echo 'recorded=true' >> "$GITHUB_OUTPUT"
           fi
       - name: Retain original raw runtime production receipt
-        if: ${{ !cancelled() && steps.production.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.production.outputs.recorded == 'true' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: termux-runtime-production

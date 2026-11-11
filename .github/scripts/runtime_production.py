@@ -170,6 +170,19 @@ def inventory(artifact):
     return result
 
 
+def recordable_origin(source,run_id,request=api):
+    """Only the official Core source run can create a reusable raw origin.
+
+    Other approved reusable-workflow parents retain their existing verified
+    candidate provenance. Their absence from this discovery path is not a
+    production failure and never assigns them Core qualification authority.
+    """
+    if type(run_id) is not int or run_id<=0:
+        raise ValueError('invalid current raw producer run identity')
+    consumer=git(source,'rev-parse','HEAD').decode().strip()
+    return owned_run(request('actions/runs/'+str(run_id)),WORKFLOW,consumer)
+
+
 def record(source,artifact,selection=None,run_id=None,artifact_id=None,request=api):
     """Record only after the current Rust verify-runtime gate has succeeded."""
     consumer=git(source,'rev-parse','HEAD').decode().strip()
@@ -229,7 +242,7 @@ def consumer_record(source,receipt,output):
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action',choices=['resolve','download','record'])
+    parser.add_argument('action',choices=['resolve','download','record','eligible-origin'])
     parser.add_argument('--source',type=Path,required=True)
     parser.add_argument('--artifact',type=Path)
     parser.add_argument('--transfer',type=Path)
@@ -244,6 +257,8 @@ def main():
         if value is not None:
             write(args.selection,value);print('run_id='+str(value['production_run_id']))
         return
+    if args.action=='eligible-origin':
+        print('true' if recordable_origin(args.source,args.run_id) else 'false');return
     if args.action=='download':
         download(read(args.selection),args.transfer);return
     value=record(args.source,args.artifact,read(args.selection) if args.selection else None,

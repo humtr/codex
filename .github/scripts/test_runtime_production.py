@@ -190,6 +190,22 @@ class RawProductionTests(unittest.TestCase):
                     production.download(selected,destination,self.request)
                 self.assertFalse(destination.exists());self.assertFalse((self.folder/'outside').exists())
                 self.artifact,self.archive=artifact,archive
+    def test_only_canonical_fresh_source_run_receives_reusable_origin_label(self):
+        self.run['head_sha']=self.sha()
+        self.assertTrue(production.recordable_origin(self.source,11,self.request))
+        for field,value in [('head_branch','main'),('head_branch','integration/explicit-proof'),
+                            ('path','.github/workflows/approved-publication-parent.yml'),
+                            ('head_sha',self.previous)]:
+            with self.subTest(field=field,value=value):
+                original=self.run[field];self.run[field]=value
+                self.assertFalse(production.recordable_origin(self.source,11,self.request))
+                self.run[field]=original
+        with self.assertRaises(ValueError):production.recordable_origin(self.source,False,self.request)
+        text=(ROOT/'.github/workflows/termux-runtime-source.yml').read_text()
+        self.assertIn('elif test "$eligible" = true; then',text)
+        self.assertIn("steps.production.outputs.recorded == 'true'",text)
+        self.assertIn('runtime_production.py eligible-origin',text)
+
     def test_current_build_records_only_its_own_uploaded_artifact(self):
         self.run['head_sha']=self.sha();self.run['status']='in_progress';self.run['conclusion']=None
         self.job['status']='in_progress';self.job['conclusion']=None

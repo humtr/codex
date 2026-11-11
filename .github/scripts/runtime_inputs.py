@@ -130,6 +130,8 @@ RAW_COMPILER_STEPS = frozenset({
 # This is NOT an artifact/cache fingerprint allowlist: both complete production
 # input objects, immutable producer provenance and current bytes must still match.
 RAW_CONSUMER_STEP_BODIES = frozenset({
+    'b1ddb837b4786ae17970b1bb4e383bff5d714e0ccb14d6bc78c7a60f9ae995c9',  # Record original raw runtime production identity
+    '0923af9b5bcb8c534794475e06c076d355e83d51cf78905851d56715bf101adf',  # Retain original raw runtime production receipt
     '1d9a3f1c4bd11e4855c0912e6dfc2e5c34871958e305a83116b9398729882529',  # Package runtime and preparation evidence with original modes
     '24011ec579fa49dc2dfd8c5268d3fe8ced29223251b296a68084734b99ab4e61',  # Retain runtime and preparation evidence
     '2fdc074c852546fcd6da7b2063ad2046ec9fc3523f92ae46ff34e4f1d2e00073',  # Verify reusable raw runtime before qualification
