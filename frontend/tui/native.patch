@@ -242,7 +242,7 @@ index ada9e88080..a5a1e670b2 100644
                  || self.daemon_restart.is_some(),
              disabled_reason: self
 diff --git a/codex-rs/tui/src/app/event_dispatch.rs b/codex-rs/tui/src/app/event_dispatch.rs
-index ba6e3f8af0..856a516027 100644
+index ba6e3f8af0..7019ca2558 100644
 --- a/codex-rs/tui/src/app/event_dispatch.rs
 +++ b/codex-rs/tui/src/app/event_dispatch.rs
 @@ -150,6 +150,19 @@ impl App {
@@ -414,7 +414,7 @@ index ba6e3f8af0..856a516027 100644
                  self.app_event_tx.send(AppEvent::FollowTranscript);
                  if app_server.thread_params_mode().settings_owner()
                      == ThreadSettingsOwner::Server
-@@ -2473,6 +2557,63 @@ impl App {
+@@ -2473,6 +2557,69 @@ impl App {
              AppEvent::OpenAllModelsPopup => {
                  self.chat_widget.open_all_models_popup();
              }
@@ -430,8 +430,14 @@ index ba6e3f8af0..856a516027 100644
 +                        }
 +                    }
 +                } else if provider == "openai" {
-+                    crate::termux_chat_models::native_provider_catalog(
-+                        config, self.model_catalog.try_list_models()?)
++                    match crate::termux_chat_models::native_provider_catalog(
++                        config, self.model_catalog.try_list_models()?).await {
++                        Ok(models) => models,
++                        Err(error) => {
++                            self.chat_widget.add_error_message(error);
++                            return Ok(AppRunControl::Continue);
++                        }
++                    }
 +                } else {
 +                    return Ok(AppRunControl::Continue);
 +                };
@@ -478,7 +484,7 @@ index ba6e3f8af0..856a516027 100644
              AppEvent::OpenFullAccessConfirmation {
                  preset,
                  return_to_permissions,
-@@ -2677,6 +2818,43 @@ impl App {
+@@ -2677,6 +2824,43 @@ impl App {
                  self.persist_daybreak_selection(app_server, thread_id, enabled).await;
              }
              AppEvent::SelectSessionModel { model, effort, service_tier } => {

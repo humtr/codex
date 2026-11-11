@@ -464,7 +464,7 @@ pub(super) async fn prepare_catalog_change(
             }
         };
         request = reentry_request(config, thread, &model, &effort, false, Some(&catalog.path))?;
-    } else if !termux_chat_models::admits(config, &model, &effort) {
+    } else if !termux_chat_models::admits(config, &model, &effort).await {
         app.chat_widget.add_error_message(
             "Selected OpenAI model or reasoning level is unavailable; provider unchanged.".into(),
         );
@@ -1014,11 +1014,14 @@ args=["token","--state","/owned/state"]
         .unwrap();
         std::fs::set_permissions(&profile, std::fs::Permissions::from_mode(0o600)).unwrap();
         assert_eq!(reentry_source(&app), Some(thread));
-        assert!(termux_chat_models::admits(
-            app.chat_widget.config_ref(),
-            "chatgpt-desktop/gpt-6",
-            &ReasoningEffort::None,
-        ));
+        assert!(
+            termux_chat_models::admits(
+                app.chat_widget.config_ref(),
+                "chatgpt-desktop/gpt-6",
+                &ReasoningEffort::None,
+            )
+            .await
+        );
         while events.try_recv().is_ok() {}
         while ops.try_recv().is_ok() {}
         requests.lock().unwrap().clear();

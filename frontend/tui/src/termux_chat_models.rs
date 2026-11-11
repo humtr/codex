@@ -179,27 +179,48 @@ fn decode_live_catalog(provider: &ProviderCommand, bytes: &[u8]) -> Result<LiveC
 
 /// Only an explicit /provider choice may read the other provider's catalog.
 /// OpenAI's active list is returned unchanged, with its upstream order/options.
-pub(crate) fn native_provider_catalog(
+pub(crate) async fn native_provider_catalog(
     config: &Config,
     current: Vec<ModelPreset>,
-) -> Vec<ModelPreset> {
+) -> Result<Vec<ModelPreset>, String> {
     if config.model_provider_id == "openai" {
-        return current;
+        return Ok(current);
     }
-    private_bytes(
-        &config.codex_home.join("models_cache.json"),
-        4 * 1024 * 1024,
+    openai_catalog(config).await
+}
+
+async fn openai_catalog(config: &Config) -> Result<Vec<ModelPreset>, String> {
+    // Destination preview uses the actual upstream provider, including its
+    // credential-scoped cache, bundled fallback, ordering and auth filtering.
+    // This preview is offline; normal OpenAI startup/model refresh still owns
+    // network discovery after reentry. Never read an unscoped cache ourselves.
+    let info = config
+        .model_providers
+        .get("openai")
+        .cloned()
+        .ok_or("OpenAI model provider is unavailable")?;
+    let auth = codex_login::AuthManager::shared_from_auth_config(
+        config.auth_config(),
+        /*enable_codex_api_key_env*/ false,
     )
-    .and_then(|bytes| serde_json::from_slice::<Catalog>(&bytes).ok())
-    .map(|catalog| {
-        catalog
-            .models
-            .into_iter()
-            .map(ModelPreset::from)
-            .filter(|model| !model.model.starts_with("chatgpt-desktop/"))
-            .collect()
-    })
-    .unwrap_or_default()
+    .await
+    .map_err(|_| "OpenAI authentication could not be loaded for model discovery")?;
+    let provider = codex_model_provider::create_model_provider(info, Some(auth));
+    let manager = provider.models_manager(config.codex_home.to_path_buf(), None);
+    manager.set_api_key_model_discovery_enabled(
+        config
+            .features
+            .enabled(codex_features::Feature::ApiKeyModelDiscovery),
+    );
+    Ok(manager
+        .list_models(
+            codex_models_manager::manager::RefreshStrategy::Offline,
+            config.http_client_factory(),
+        )
+        .await
+        .into_iter()
+        .filter(|model| !model.model.starts_with("chatgpt-desktop/"))
+        .collect())
 }
 
 /// Wait for admitted Native execution before recording a new CLI draft.
@@ -671,7 +692,7 @@ pub(crate) fn augment(config: &Config, models: Vec<ModelPreset>) -> Vec<ModelPre
         .collect()
 }
 
-pub(crate) fn admits(config: &Config, model: &str, effort: &ReasoningEffort) -> bool {
+pub(crate) async fn admits(config: &Config, model: &str, effort: &ReasoningEffort) -> bool {
     if model.starts_with("chatgpt-desktop/") {
         return valid_chat_id(model)
             && chat_catalog(config).is_some_and(|catalog| {
@@ -683,17 +704,14 @@ pub(crate) fn admits(config: &Config, model: &str, effort: &ReasoningEffort) -> 
                 })
             });
     }
-    private_bytes(
-        &config.codex_home.join("models_cache.json"),
-        4 * 1024 * 1024,
-    )
-    .and_then(|bytes| serde_json::from_slice::<Catalog>(&bytes).ok())
-    .is_some_and(|catalog| {
-        catalog.models.iter().any(|m| {
-            m.slug == model
-                && m.supported_reasoning_levels
+    openai_catalog(config).await.is_ok_and(|catalog| {
+        catalog.iter().any(|entry| {
+            entry.model == model
+                && entry.show_in_picker
+                && entry
+                    .supported_reasoning_efforts
                     .iter()
-                    .any(|e| e.effort == *effort)
+                    .any(|level| level.effort == *effort)
         })
     })
 }
@@ -749,7 +767,12 @@ mod tests {
         }
         config.model_provider_id = "openai".into();
         assert_eq!(augment(&config, native.clone()), native);
-        assert_eq!(native_provider_catalog(&config, native.clone()), native);
+        assert_eq!(
+            native_provider_catalog(&config, native.clone())
+                .await
+                .unwrap(),
+            native
+        );
         // A missing or invalid installed Chat catalog must have no OpenAI effect.
         std::fs::remove_file(home.path().join("chat-models.json")).unwrap();
         assert_eq!(augment(&config, native.clone()), native);
@@ -757,6 +780,56 @@ mod tests {
         assert!(augment(&config, native.clone()).is_empty());
         let mixed: Vec<_> = native.into_iter().chain(chat.clone()).collect();
         assert_eq!(augment(&config, mixed), chat);
+    }
+
+    #[tokio::test]
+    async fn termux_chat_models_cold_openai_return_uses_upstream_catalog_and_rejects_foreign_cache()
+    {
+        use codex_models_manager::manager::{ModelsManager, StaticModelsManager};
+        use std::os::unix::fs::PermissionsExt;
+        let home = tempfile::tempdir().unwrap();
+        let mut config = crate::legacy_core::config::ConfigBuilder::default()
+            .codex_home(home.path().to_path_buf())
+            .build()
+            .await
+            .unwrap();
+        config.cli_auth_credentials_store_mode = codex_login::AuthCredentialsStoreMode::File;
+        config.model_provider_id = PROVIDER.into();
+        let bundled = codex_models_manager::bundled_models_response().unwrap();
+        let upstream = StaticModelsManager::new(
+            None,
+            bundled.clone(),
+            codex_models_manager::ModelOrigin::Bundled,
+        );
+        let expected = upstream.try_list_models().unwrap();
+        assert!(!expected.is_empty());
+        assert!(!home.path().join("models_cache.json").exists());
+        let actual = native_provider_catalog(&config, Vec::new()).await.unwrap();
+        assert_eq!(actual, expected);
+        let selected = actual.iter().find(|model| model.show_in_picker).unwrap();
+        assert!(admits(&config, &selected.model, &selected.default_reasoning_effort).await);
+        assert!(!admits(&config, "not-an-upstream-model", &ReasoningEffort::None).await);
+        // A different provider/account's otherwise well-formed, recent cache
+        // must not grant its catalog to OpenAI or change the bundled ordering.
+        let mut foreign = bundled;
+        foreign.models[0].slug = "foreign-cache-only".into();
+        let cache = serde_json::json!({
+            "fetched_at": chrono::Utc::now(),
+            "client_version": codex_models_manager::client_version_to_whole(),
+            "identity": "another-provider-and-account",
+            "models": foreign.models
+        });
+        let path = home.path().join("models_cache.json");
+        let bytes = serde_json::to_vec(&cache).unwrap();
+        std::fs::write(&path, &bytes).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+        assert_eq!(
+            native_provider_catalog(&config, Vec::new()).await.unwrap(),
+            expected
+        );
+        assert!(!admits(&config, "foreign-cache-only", &ReasoningEffort::None).await);
+        assert_eq!(std::fs::read(&path).unwrap(), bytes);
+        assert!(!home.path().join("auth.json").exists());
     }
 
     #[tokio::test]
@@ -940,27 +1013,29 @@ mod tests {
         let models = chat_catalog(&config).expect("actual installed ModelInfo catalog must decode");
         assert_eq!(models.len(), 2);
         assert!(models.iter().any(|m| m.model == "chatgpt-desktop/gpt-6"));
-        assert!(admits(
-            &config,
-            "chatgpt-desktop/gpt-6",
-            &ReasoningEffort::XHigh
-        ));
-        assert!(!admits(
-            &config,
-            "chatgpt-desktop/gpt-6-pro",
-            &ReasoningEffort::XHigh
-        ));
+        assert!(admits(&config, "chatgpt-desktop/gpt-6", &ReasoningEffort::XHigh).await);
+        assert!(
+            !admits(
+                &config,
+                "chatgpt-desktop/gpt-6-pro",
+                &ReasoningEffort::XHigh
+            )
+            .await
+        );
         let mut custom: serde_json::Value =
             serde_json::from_slice(include_bytes!("fixtures/chat-model-catalog.json")).unwrap();
         let mut added = custom["models"][0].clone();
         added["slug"] = serde_json::json!("chatgpt-desktop/configured-model");
         custom["models"].as_array_mut().unwrap().push(added);
         std::fs::write(&catalog, serde_json::to_vec(&custom).unwrap()).unwrap();
-        assert!(admits(
-            &config,
-            "chatgpt-desktop/configured-model",
-            &ReasoningEffort::None
-        ));
+        assert!(
+            admits(
+                &config,
+                "chatgpt-desktop/configured-model",
+                &ReasoningEffort::None
+            )
+            .await
+        );
         custom["models"].as_array_mut().unwrap().last_mut().unwrap()["visibility"] =
             serde_json::json!("hide");
         std::fs::write(&catalog, serde_json::to_vec(&custom).unwrap()).unwrap();
