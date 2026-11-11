@@ -35,6 +35,14 @@ impl Tool {
     }
 }
 
+/// Private scope admitted through the verified Core owner, never a wire field.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct NativeScope {
+    pub workspace: std::path::PathBuf,
+    pub execution: Option<crate::native_effect::Execution>,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Request {
     pub model: String,
@@ -50,6 +58,9 @@ pub struct Request {
     pub turn: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) execution: Option<crate::native_effect::Execution>,
+    // Deserializing a request or persisted request cannot grant this authority.
+    #[serde(skip)]
+    pub(crate) native_scope: Option<NativeScope>,
     pub guardian: bool,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub thread_title: bool,
@@ -113,6 +124,33 @@ fn tools(
 }
 
 impl Request {
+    /// The caller must have discovered this exact owner/workspace through Core.
+    /// Raw Native metadata is correlation until its process/thread/turn matches.
+    pub(crate) fn bind_native_scope(
+        &mut self,
+        workspace: &std::path::Path,
+        owner: &crate::cdp::Process,
+    ) -> Result<(), Error> {
+        if !workspace.is_absolute()
+            || std::fs::canonicalize(workspace).ok().as_deref() != Some(workspace)
+            || !workspace.is_dir()
+        {
+            return Err(Error("native_workspace_identity_invalid"));
+        }
+        self.native_scope = Some(NativeScope {
+            workspace: workspace.into(),
+            execution: self
+                .execution
+                .as_ref()
+                .filter(|execution| {
+                    execution.belongs_to(owner, &self.thread, self.turn.as_deref())
+                        && execution.cwd == workspace
+                })
+                .cloned(),
+        });
+        Ok(())
+    }
+
     pub(crate) fn is_auxiliary(&self) -> bool {
         self.guardian || self.thread_title
     }
@@ -340,6 +378,7 @@ impl Request {
             parent,
             turn: field("turn_id"),
             execution,
+            native_scope: None,
             guardian,
             thread_title: field("thread_source").as_deref() == Some("thread_title"),
             compaction,
@@ -512,6 +551,68 @@ mod tests {
         }
         std::fs::remove_dir_all(root).unwrap();
     }
+    #[test]
+    fn native_scope_requires_matching_owner_and_cannot_be_deserialized() {
+        let root = std::env::temp_dir().join(format!(
+            "protocol-scope-{}",
+            crate::journal::random_id().unwrap()
+        ));
+        std::fs::create_dir(&root).unwrap();
+        let root = std::fs::canonicalize(root).unwrap();
+        let owner = crate::cdp::Process::read(std::process::id()).unwrap();
+        let mut execution = crate::native_effect::hook_fixture(&root);
+        execution.thread = "native-thread".into();
+        execution.turn = "native-turn".into();
+        let mut body = request();
+        body["client_metadata"]["x-codex-turn-metadata"]["turn_id"] = json!("native-turn");
+        body["client_metadata"]["termux_native_execution"] =
+            json!(serde_json::to_string(&execution).unwrap());
+        body["native_scope"] = json!({"workspace":root,"execution":execution});
+        body["client_metadata"]["native_execution_scope"] = body["native_scope"].clone();
+        let mut parsed = Request::parse(body, &Config::default(), None).unwrap();
+        assert!(
+            parsed.native_scope.is_none(),
+            "wire fields never grant an admitted Native scope"
+        );
+        parsed.bind_native_scope(&root, &owner).unwrap();
+        assert_eq!(
+            parsed.native_scope.as_ref().unwrap().execution,
+            Some(execution.clone())
+        );
+        let mut serialized = serde_json::to_value(&parsed).unwrap();
+        assert!(serialized.get("native_scope").is_none());
+        serialized["native_scope"] = json!({"workspace":root,"execution":execution});
+        let restored: Request = serde_json::from_value(serialized).unwrap();
+        assert!(
+            restored.native_scope.is_none(),
+            "persisted/wire requests must be rediscovered through Core"
+        );
+        for case in ["pid", "start", "thread", "turn", "cwd", "schema"] {
+            let mut wrong = execution.clone();
+            match case {
+                "pid" => wrong.pid += 1,
+                "start" => wrong.start.push('0'),
+                "thread" => wrong.thread.push_str("-other"),
+                "turn" => wrong.turn.push_str("-other"),
+                "cwd" => wrong.cwd = root.join("other"),
+                "schema" => wrong.schema = 99,
+                _ => unreachable!(),
+            }
+            parsed.execution = Some(wrong);
+            parsed.bind_native_scope(&root, &owner).unwrap();
+            assert!(
+                parsed.native_scope.as_ref().unwrap().execution.is_none(),
+                "{case}"
+            );
+            assert_eq!(parsed.native_scope.as_ref().unwrap().workspace, root);
+        }
+        assert_eq!(
+            parsed.bind_native_scope(std::path::Path::new("."), &owner),
+            Err(Error("native_workspace_identity_invalid"))
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn host_web_search_is_not_invented_as_a_native_executable() {
         let mut body = json!({"model":"chatgpt-desktop/gpt-6","stream":true,"input":"task","tools":[{"type":"web_search","external_web_access":true}]});

@@ -459,6 +459,11 @@ struct Invocation {
     pub input: String,
     pub report: String,
     offered: bool,
+    // Written with the actual offer. A newer sampling request must not change
+    // whether this original receipt must reconcile the shared reservation.
+    // Older readers may omit it; unknown legacy offers require exact lookup.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    shared_reserved: Option<bool>,
     result: Option<Value>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     native_input: Vec<Value>,
@@ -496,6 +501,10 @@ impl NativeProcessOrigin {
     }
 }
 impl Invocation {
+    fn requires_shared_settlement(&self) -> bool {
+        self.shared_reserved != Some(false)
+    }
+
     fn admission_effect(
         &self,
         workspace: Option<&Path>,
@@ -1609,10 +1618,11 @@ impl Broker {
             let Some(result) = call.result.as_ref() else {
                 continue;
             };
-            if let Some(workspace) = turn.workspace.as_deref().filter(|_| {
-                call.admission_effect(turn.workspace.as_deref(), turn.execution.as_ref())
-                    != Effect::Read
-            }) {
+            if let Some(workspace) = turn
+                .workspace
+                .as_deref()
+                .filter(|_| call.requires_shared_settlement())
+            {
                 SharedNativeGuard::settle_external(
                     workspace,
                     self.shared_guard_home().as_deref(),
@@ -1678,10 +1688,11 @@ impl Broker {
             let Some(result) = call.result.as_ref() else {
                 continue;
             };
-            if let Some(workspace) = turn.workspace.as_deref().filter(|_| {
-                call.admission_effect(turn.workspace.as_deref(), turn.execution.as_ref())
-                    != Effect::Read
-            }) {
+            if let Some(workspace) = turn
+                .workspace
+                .as_deref()
+                .filter(|_| call.requires_shared_settlement())
+            {
                 SharedNativeGuard::settle_external(
                     workspace,
                     self.shared_guard_home().as_deref(),
@@ -2214,6 +2225,7 @@ impl Broker {
                 input: args.input.clone(),
                 report: args.report.clone(),
                 offered: false,
+                shared_reserved: None,
                 result: None,
                 native_input: Vec::new(),
                 effect: Some(effect),
@@ -2488,6 +2500,7 @@ impl Broker {
                         Err(reason) => return Err(Self::shared_guard_error(reason)),
                     }
                 }
+                let shared_reserved = next.workspace.is_some() && effect != Effect::Read;
                 let continuing_owned = continuation.is_some_and(|session| {
                     claims
                         .claims
@@ -2521,6 +2534,7 @@ impl Broker {
                     );
                     claims_changed = true;
                 }
+                call.shared_reserved = Some(shared_reserved);
                 call.offered = true;
                 changed = true;
                 calls.push(
@@ -2580,6 +2594,34 @@ impl Broker {
         native_input: &[Value],
         prepare: impl FnOnce() -> Result<(), Error> + Send,
     ) -> Result<(), Error> {
+        self.settle_prepared_scope(token, results, catalog, native_input, None, prepare)
+            .await
+    }
+
+    pub(crate) async fn settle_prepared_scoped(
+        &self,
+        token: &str,
+        results: &[(String, Value)],
+        catalog: Option<BTreeMap<String, Tool>>,
+        native_input: &[Value],
+        scope: Option<&crate::protocol::NativeScope>,
+        prepare: impl FnOnce() -> Result<(), Error> + Send,
+    ) -> Result<(), Error> {
+        self.settle_prepared_scope(token, results, catalog, native_input, Some(scope), prepare)
+            .await
+    }
+
+    async fn settle_prepared_scope(
+        &self,
+        token: &str,
+        results: &[(String, Value)],
+        catalog: Option<BTreeMap<String, Tool>>,
+        native_input: &[Value],
+        // Outer None preserves attached/legacy callers' existing binding;
+        // Some(None) is an explicitly unscoped MCP sampling request.
+        scope: Option<Option<&crate::protocol::NativeScope>>,
+        prepare: impl FnOnce() -> Result<(), Error> + Send,
+    ) -> Result<(), Error> {
         let mut registry = self.registry.lock().await;
         let turns = &mut registry.turns;
         let turn = turns
@@ -2616,6 +2658,17 @@ impl Broker {
             }
             next.tools = catalog;
         }
+        if let Some(scope) = scope {
+            if scope.map(|scope| scope.workspace.as_path()) != next.workspace.as_deref() {
+                return Err(Error("mcp_native_scope_changed"));
+            }
+            let execution = scope.and_then(|scope| scope.execution.clone());
+            if next.execution != execution && next.calls.values().any(|call| call.result.is_none())
+            {
+                return Err(Error("mcp_pending_catalog_change"));
+            }
+            next.execution = execution;
+        }
         // Validate the full batch, then persist its authoritative result BEFORE
         // releasing the OS-shared claim. A failed journal commit must leave the
         // old writer reserved. After a crash between these two operations, the
@@ -2631,9 +2684,9 @@ impl Broker {
                     .values()
                     .find(|v| v.id == *id)
                     .ok_or(Error("mcp_result_invalid"))?;
-                if call.admission_effect(turn.workspace.as_deref(), turn.execution.as_ref())
-                    != Effect::Read
-                {
+                // Read the original durable offer fact, not the new sample's
+                // classification. This remains correct after commit/restart.
+                if call.requires_shared_settlement() {
                     SharedNativeGuard::settle_external(
                         workspace,
                         self.shared_guard_home().as_deref(),
@@ -6031,3 +6084,7 @@ mod native_concurrency_tests {
         fs::remove_dir_all(root).unwrap();
     }
 }
+
+#[cfg(test)]
+#[path = "mcp_scope_settlement_tests.rs"]
+mod scope_settlement_tests;

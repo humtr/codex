@@ -54,6 +54,8 @@ struct Settlement {
     native_input: Vec<Value>,
     #[serde(default)]
     prepared: bool,
+    #[serde(default)]
+    native_scope: Option<crate::protocol::NativeScope>,
 }
 #[derive(Clone, Default, Serialize, Deserialize)]
 struct Lane {
@@ -94,11 +96,12 @@ async fn settle_round(
     // Broker commit succeeded but the lane commit/reply was lost. Never submit
     // to the app or dispatch native effects while reconciling this intent.
     let result = broker
-        .settle_prepared(
+        .settle_prepared_scoped(
             &token,
             &intent.received,
             intent.catalog.clone(),
             &intent.native_input,
+            intent.native_scope.as_ref(),
             || {
                 lane.settlement.as_mut().unwrap().prepared = true;
                 journal.write(key, &*lane)
@@ -146,6 +149,36 @@ async fn observe_stopped_lane(
     }
     Ok(())
 }
+pub(crate) const NATIVE_SCOPE: &str = "native_execution_scope";
+fn take_native_scope(command: &mut Value) -> Result<Option<crate::protocol::NativeScope>, Error> {
+    let value = command
+        .as_object_mut()
+        .and_then(|value| value.remove(NATIVE_SCOPE));
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    let scope: crate::protocol::NativeScope =
+        serde_json::from_value(value).map_err(|_| Error("mcp_native_scope_invalid"))?;
+    if !scope.workspace.is_absolute()
+        || std::fs::canonicalize(&scope.workspace).ok().as_ref() != Some(&scope.workspace)
+        || !scope.workspace.is_dir()
+        || scope.execution.as_ref().is_some_and(|execution| {
+            command["nativeThread"].as_str() != Some(execution.thread.as_str())
+                || command["nativeTurn"].as_str() != Some(execution.turn.as_str())
+                || execution.cwd != scope.workspace
+        })
+    {
+        return Err(Error("mcp_native_scope_invalid"));
+    }
+    Ok(Some(scope))
+}
+fn submission_digest(command: &Value, scope: Option<&crate::protocol::NativeScope>) -> String {
+    match scope {
+        Some(scope) => digest(&("native-scoped-mcp-v1", command, scope)),
+        None => digest(command), // Preserve the existing unscoped receipt format.
+    }
+}
+
 type Lanes = Arc<Mutex<BTreeMap<String, Arc<Mutex<Lane>>>>>;
 pub struct McpBridge {
     remote: Arc<dyn Bridge>,
@@ -337,10 +370,11 @@ impl Bridge for McpBridge {
             Ok(())
         })
     }
-    fn admit_submission(&self, command: Value) -> BoxFuture<'static, Result<(), Error>> {
+    fn admit_submission(&self, mut command: Value) -> BoxFuture<'static, Result<(), Error>> {
         let lanes = self.lanes.clone();
         let remote = self.remote.clone();
         Box::pin(async move {
+            let _scope = take_native_scope(&mut command)?;
             let marker = command["lane"].as_str().ok_or(Error("mcp_lane_required"))?;
             let lane = lanes
                 .lock()
@@ -378,7 +412,7 @@ impl Bridge for McpBridge {
             remote.admit_submission(command).await
         })
     }
-    fn operation(&self, command: Value) -> BoxFuture<'static, Result<Value, Error>> {
+    fn operation(&self, mut command: Value) -> BoxFuture<'static, Result<Value, Error>> {
         let (remote, broker, journal, connector, lanes) = (
             self.remote.clone(),
             self.broker.clone(),
@@ -388,6 +422,7 @@ impl Bridge for McpBridge {
         );
         let epoch = self.epoch.clone();
         Box::pin(async move {
+            let native_scope = take_native_scope(&mut command)?;
             let op = command["op"]
                 .as_str()
                 .ok_or(Error("mcp_operation_invalid"))?;
@@ -493,15 +528,16 @@ impl Bridge for McpBridge {
                 let round = command["round"]
                     .as_str()
                     .ok_or(Error("mcp_round_required"))?;
+                let submission = submission_digest(&command, native_scope.as_ref());
                 if let Some(intent) = &lane.settlement {
-                    if intent.round != round || intent.submission != digest(&command) {
+                    if intent.round != round || intent.submission != submission {
                         return Err(Error("mcp_settlement_reconciliation_required"));
                     }
                     settle_round(&mut lane, &broker, &journal, &key).await?;
                     return Ok(json!({"started":true,"retained_mcp_return":true,"reused":true}));
                 }
                 if lane.round == round {
-                    if lane.submission != digest(&command) {
+                    if lane.submission != submission {
                         return Err(Error("mcp_submission_changed"));
                     }
                     return Ok(json!({"started":true,"reused":true}));
@@ -550,11 +586,12 @@ impl Bridge for McpBridge {
                     let mut next = lane.clone();
                     next.settlement = Some(Settlement {
                         round: round.into(),
-                        submission: digest(&command),
+                        submission: submission.clone(),
                         received,
                         catalog,
                         native_input: messages,
                         prepared: false,
+                        native_scope: native_scope.clone(),
                     });
                     // Keep memory fenced too if the durable write outcome is
                     // uncertain. A later observer may retry this same commit.
@@ -580,7 +617,22 @@ impl Bridge for McpBridge {
                 };
                 let catalog = tools(&instructions)?.unwrap_or_else(|| lane.tools.clone());
                 let previous_token = lane.token.clone();
-                let token = broker.register(&marker, catalog.clone(), true).await?;
+                let token = broker
+                    .register_scoped(
+                        &marker,
+                        catalog.clone(),
+                        true,
+                        native_scope.as_ref().map(|scope| scope.workspace.as_path()),
+                    )
+                    .await?;
+                broker
+                    .bind_execution(
+                        &token,
+                        native_scope
+                            .as_ref()
+                            .and_then(|scope| scope.execution.clone()),
+                    )
+                    .await?;
                 if source.is_some() && command["source_context_required"] == true {
                     broker.require_source_context(&token).await?;
                 }
@@ -602,7 +654,7 @@ impl Bridge for McpBridge {
                 lane.last_public.clear();
                 lane.offered.clear();
                 lane.complete = false;
-                lane.submission = digest(&command);
+                lane.submission = submission;
                 lane.source = source;
                 journal.write(&key, &*lane)?;
                 let mut submitted = command;
@@ -917,6 +969,7 @@ mod tests {
                 catalog: None,
                 prepared: false,
                 native_input: Vec::new(),
+                native_scope: None,
             }),
             ..Lane::default()
         };
@@ -1185,3 +1238,7 @@ mod tests {
         assert_eq!(host_block(&resolved, &json!([])), None);
     }
 }
+
+#[cfg(test)]
+#[path = "mcp_bridge_scope_tests.rs"]
+mod scope_tests;

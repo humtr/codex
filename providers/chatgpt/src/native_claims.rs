@@ -154,7 +154,7 @@ impl Ledger {
         for path in [home, directory.as_path()] {
             match fs::symlink_metadata(path) {
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                    return Ok(State::default())
+                    return Ok(State::default());
                 }
                 Ok(meta)
                     if meta.is_dir()
@@ -174,7 +174,7 @@ impl Ledger {
                     && fs::symlink_metadata(directory.join("claims.json"))
                         .is_err_and(|error| error.kind() == std::io::ErrorKind::NotFound) =>
             {
-                return Ok(State::default())
+                return Ok(State::default());
             }
             Err(_) => return Err(fail()),
         };
@@ -613,9 +613,9 @@ impl Guard {
         input: &str,
         result: &serde_json::Value,
     ) -> Result<(), String> {
-        if native_effect::classify(tool, input, Some(cwd)) == Effect::Read {
-            return Ok(());
-        }
+        // This path reconciles an original reserved (or legacy-unknown) offer.
+        // Current tool classification cannot erase an older exact reservation.
+        // Known unreserved reads are skipped by the Broker's durable offer fact.
         let ledger = match private_test_home {
             Some(home) => Ledger::at(cwd, home)?,
             None => Ledger::new(cwd)?,

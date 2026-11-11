@@ -6631,7 +6631,7 @@ impl Host for Operator {
     }
     fn exchange(
         &self,
-        request: Request,
+        mut request: Request,
         events: mpsc::Sender<Event>,
         cancel: CancellationToken,
     ) -> BoxFuture<'static, Result<(), Error>> {
@@ -6845,6 +6845,9 @@ impl Host for Operator {
                         )
                     })
                     .cloned();
+                if path == ReturnPath::Mcp {
+                    request.bind_native_scope(&pool.workspace, &native.owner.process)?;
+                }
                 let forward = async {
                     while let Some(event) = receiver.recv().await {
                         if let Event::Tool(call) = &event {

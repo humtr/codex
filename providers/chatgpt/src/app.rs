@@ -2105,6 +2105,16 @@ async fn preparing<T>(
         result = operation => result,
     }
 }
+fn with_native_scope(mut command: Value, request: &Request) -> Value {
+    if let Some(scope) = &request.native_scope {
+        // Both ordinary and gateway-correction submissions cross McpBridge.
+        // It removes these facts before remote admission and dispatch.
+        command[crate::mcp_bridge::NATIVE_SCOPE] = serde_json::to_value(scope).unwrap();
+        command["nativeTurn"] = json!(request.turn);
+    }
+    command
+}
+
 async fn exchange(
     services: LaneServices<'_>,
     key: &str,
@@ -2449,7 +2459,10 @@ async fn exchange(
                     && external.native_turn.is_some()
             })
             .map(|external| &external.input);
-        let mut command = json!({"lane":lane.marker,"nativeThread":request.thread,"nativeTurn":request.turn,"nativeParent":request.parent,"policyDigest":context::digest(&request.instructions),"hostToolsDigest":context::digest(&request.host_tools),"model":request.host_model,"thinkingEffort":request.thinking_effort,"messages":messages,"instructions":instructions,"results":results});
+        let mut command = with_native_scope(
+            json!({"lane":lane.marker,"nativeThread":request.thread,"nativeTurn":request.turn,"nativeParent":request.parent,"policyDigest":context::digest(&request.instructions),"hostToolsDigest":context::digest(&request.host_tools),"model":request.host_model,"thinkingEffort":request.thinking_effort,"messages":messages,"instructions":instructions,"results":results}),
+            request,
+        );
         for message in command["messages"].as_array_mut().unwrap() {
             if message["role"] == "user" {
                 message["sourceFingerprint"] = json!(context::digest(&message["text"]));
@@ -2802,7 +2815,7 @@ async fn exchange(
                     .send(report)
                     .await
                     .map_err(|_| Error("native_observer_closed"))?;
-                let submitted=bridge.operation(json!({"op":"submit","lane":lane.marker,"nativeThread":request.thread,"nativeParent":request.parent,"round":lane.round,"model":request.host_model,"thinkingEffort":request.thinking_effort,"messages":[],"instructions":[],"results":[{"id":id,"result":result}]})).await;
+                let submitted=bridge.operation(with_native_scope(json!({"op":"submit","lane":lane.marker,"nativeThread":request.thread,"nativeParent":request.parent,"round":lane.round,"model":request.host_model,"thinkingEffort":request.thinking_effort,"messages":[],"instructions":[],"results":[{"id":id,"result":result}]}), request)).await;
                 if submitted.is_ok() {
                     lane.phase = Phase::Running
                 }
@@ -4610,5 +4623,57 @@ mod approval_tests {
                 std::fs::remove_dir_all(root).unwrap();
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod native_submission_scope_tests {
+    use super::*;
+
+    #[test]
+    fn native_scope_ordinary_and_correction_submissions_preserve_only_admitted_facts() {
+        let root = std::env::temp_dir().join(format!("app-native-scope-{}", random_id().unwrap()));
+        std::fs::create_dir(&root).unwrap();
+        let root = std::fs::canonicalize(root).unwrap();
+        let mut request = Request::parse(
+            json!({"stream":true,"model":"chatgpt-desktop/gpt-6","input":"owned",
+                "client_metadata":{"x-codex-turn-metadata":{"thread_id":"owned","turn_id":"turn"}}}),
+            &crate::config::Config::default(), None,
+        ).unwrap();
+        let mut facts = crate::native_effect::hook_fixture(&root);
+        facts.thread = request.thread.clone();
+        facts.turn = request.turn.clone().unwrap();
+        request.execution = Some(facts);
+        for command in [
+            json!({"nativeThread":"owned","messages":[{"role":"user","text":"owned"}],"results":[]}),
+            json!({"op":"submit","nativeThread":"owned","messages":[],"results":[{"id":"original","result":{"error":"rejected before effects"}}]}),
+        ] {
+            assert_eq!(
+                with_native_scope(command.clone(), &request),
+                command,
+                "raw HTTP execution metadata is not a verified Native scope"
+            );
+        }
+        request
+            .bind_native_scope(
+                &root,
+                &crate::cdp::Process::read(std::process::id()).unwrap(),
+            )
+            .unwrap();
+        for command in [
+            json!({"nativeThread":"owned","messages":[{"role":"user","text":"owned"}],"results":[]}),
+            json!({"op":"submit","nativeThread":"owned","messages":[],"results":[{"id":"original","result":{"error":"rejected before effects"}}]}),
+        ] {
+            let admitted = with_native_scope(command.clone(), &request);
+            assert_eq!(
+                admitted[crate::mcp_bridge::NATIVE_SCOPE],
+                json!(request.native_scope)
+            );
+            assert_eq!(admitted["nativeTurn"], "turn");
+            for (key, value) in command.as_object().unwrap() {
+                assert_eq!(&admitted[key], value);
+            }
+        }
+        std::fs::remove_dir_all(root).unwrap();
     }
 }
