@@ -1,5 +1,6 @@
 """Unsigned exact-source Full composition from independently qualified bytes."""
 import argparse
+from contextlib import contextmanager, ExitStack
 import hashlib
 import json
 import os
@@ -9,6 +10,7 @@ import shutil
 import stat
 import subprocess
 import tarfile
+import tempfile
 from types import SimpleNamespace
 from component_artifact import regular,unpack as unpack_component,verify as verify_component
 from component_inputs import git
@@ -184,18 +186,50 @@ def execution_outputs(log_root,version):
     return logs
 
 
+def owned_private_directory(path):
+    info=path.lstat()
+    return stat.S_ISDIR(info.st_mode) and info.st_uid==os.getuid() and stat.S_IMODE(info.st_mode)==0o700
+
+
+@contextmanager
+def probe_environment(log_root):
+    """Isolate upstream alias/config creation without inheriting a user's home."""
+    log_root=log_root.resolve(strict=True)
+    if not owned_private_directory(log_root):raise ValueError('Full probe log root must be owned and private')
+    temporary=Path(tempfile.gettempdir()).resolve(strict=True)
+    with ExitStack() as cleanup:
+        if not owned_private_directory(temporary):
+            parent=temporary.stat()
+            protected=(parent.st_uid==os.getuid() and not parent.st_mode&0o022) or (
+                parent.st_uid==0 and parent.st_mode&stat.S_ISVTX)
+            if not stat.S_ISDIR(parent.st_mode) or not protected:
+                raise ValueError('Full probe temporary parent is not protected')
+            temporary=Path(cleanup.enter_context(tempfile.TemporaryDirectory(prefix='fp-',dir=temporary))).resolve(strict=True)
+        # A Termux private socket root may already consume almost all sun_path.
+        # Borrow only that validated root; never remove it or create a long alias.
+        if not owned_private_directory(temporary):raise ValueError('Full probe temporary root must be owned and private')
+        if len(os.fsencode(temporary/str(os.getuid())/('0'*64)))>107:
+            raise ValueError('Full probe temporary socket root is too long')
+        probe_home=Path(cleanup.enter_context(tempfile.TemporaryDirectory(prefix='full-probe-',dir=log_root))).resolve(strict=True)
+        if not owned_private_directory(probe_home):raise ValueError('Full probe home must be owned and private')
+        yield {'HOME':str(probe_home),'TMPDIR':str(temporary)}
+
+
 def probe(source,inputs,candidate,log_root,run_id):
     plan=admit_plan(source,json.loads(regular(inputs/'inputs.json',262144),object_pairs_hook=unique))
     verify_full(candidate,plan['upstream_version'],deferred=True)
     before=candidate_digest(candidate,deferred=True)
     if not re.fullmatch('[1-9][0-9]*',str(run_id)):raise ValueError('Full probe requires its run identity')
     log_root.mkdir(mode=0o700)
-    for name,binary,args in [('manager','manager',['--artifact-probe']),('core','core',['update','--help']),
-                              ('runtime','runtime',['--version']),('tui','helpers/2',['--version'])]:
-        with (log_root/(name+'.out')).open('xb') as stdout,(log_root/(name+'.err')).open('xb') as stderr:
-            result=subprocess.run([str(candidate/binary),*args],stdin=subprocess.DEVNULL,stdout=stdout,stderr=stderr,
-                                  env={'CODEX_MANAGER_ARTIFACT_PROBE':'1'} if name=='manager' else {},timeout=20)
-        if result.returncode!=0:raise ValueError('Full '+name+' probe exited '+str(result.returncode))
+    with probe_environment(log_root) as runtime_environment:
+        for name,binary,args in [('manager','manager',['--artifact-probe']),('core','core',['update','--help']),
+                                  ('runtime','runtime',['--version']),('tui','helpers/2',['--version'])]:
+            environment=({'CODEX_MANAGER_ARTIFACT_PROBE':'1'} if name=='manager' else
+                         runtime_environment if name in ('runtime','tui') else {})
+            with (log_root/(name+'.out')).open('xb') as stdout,(log_root/(name+'.err')).open('xb') as stderr:
+                result=subprocess.run([str(candidate/binary),*args],stdin=subprocess.DEVNULL,stdout=stdout,stderr=stderr,
+                                      env=environment,timeout=20)
+            if result.returncode!=0:raise ValueError('Full '+name+' probe exited '+str(result.returncode))
     outputs=execution_outputs(log_root,plan['upstream_version'])
     if candidate_digest(candidate,deferred=True)!=before:raise ValueError('Full candidate changed during probes')
     (candidate/'.manager-probe-deferred').unlink()

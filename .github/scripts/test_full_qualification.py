@@ -3,6 +3,9 @@ import copy
 import hashlib
 import io
 import json
+import textwrap
+import sys
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -120,7 +123,28 @@ class FullQualificationTests(unittest.TestCase):
                         full.unpack_candidate(target,destination)
                     self.assertFalse(destination.exists())
 
-    def composition(self,root):
+    def version_probe(self,path,receipt):
+        body=textwrap.dedent(r"""
+            import json,os,stat,sys
+            from pathlib import Path
+            if not os.environ.get('HOME'):
+                sys.stderr.write('WARNING: proceeding, even though we could not create PATH aliases: Could not find home directory\n')
+            else:
+                home=Path(os.environ['HOME']);temporary=Path(os.environ['TMPDIR'])
+                assert set(os.environ)<={'HOME','TMPDIR','LC_CTYPE'}
+                for root in (home,temporary):
+                    assert root==root.resolve(strict=True)
+                    info=root.stat()
+                    assert info.st_uid==os.getuid() and stat.S_IMODE(info.st_mode)==0o700
+                assert len(os.fsencode(temporary/str(os.getuid())/('0'*64)))<=107
+                (home/'owned-alias').write_text('private version probe')
+                Path(@@RECEIPT@@).write_text(json.dumps({'home':str(home),'tmpdir':str(temporary),
+                                                       'environment_keys':sorted(os.environ)}))
+            print('codex-cli '+@@VERSION@@)
+            """).replace('@@RECEIPT@@',repr(str(receipt))).replace('@@VERSION@@',repr(VERSION))
+        path.write_text('#!'+sys.executable+'\n'+body);path.chmod(0o755)
+
+    def composition(self,root,*,private_probes=False):
         base=self.base(root/'base')
         shell=shutil.which('sh')
         script={'core':"printf 'usage: codex update [--wait | --no-wait]\\n'",
@@ -129,8 +153,12 @@ class FullQualificationTests(unittest.TestCase):
         for name,command in script.items():
             old=sha256(base/name);(base/name).write_text('#!'+shell+'\n'+command+'\n');(base/name).chmod(0o755)
             metadata.write_text(metadata.read_text().replace(old,sha256(base/name)))
+        if private_probes:
+            old=sha256(base/'runtime');self.version_probe(base/'runtime',root/'runtime-env.json')
+            metadata.write_text(metadata.read_text().replace(old,sha256(base/'runtime')))
         manager=root/'manager';manager.write_text('#!'+shell+"\nprintf 'codex-manager-artifact-v1\\ncore_api=codex-manager-core-v1\\n'\n");manager.chmod(0o755)
         frontend=root/'frontend';frontend.write_text('#!'+shell+"\nprintf 'codex-cli "+VERSION+"\\n'\n");frontend.chmod(0o755)
+        if private_probes:self.version_probe(frontend,root/'tui-env.json')
         builder=root/'builder'
         builder.write_text('#!'+shutil.which('python3')+'\nimport pathlib,shutil,sys\na=dict(zip(sys.argv[2::2],sys.argv[3::2]))\nshutil.copyfile(a["--artifact"],a["--output"])\npathlib.Path(a["--output"]).chmod(0o755)\n');builder.chmod(0o755)
         output=root/'full'
@@ -158,14 +186,21 @@ class FullQualificationTests(unittest.TestCase):
 
     def test_actual_process_results_and_exact_candidate_are_bound_before_full_proof(self):
         with tempfile.TemporaryDirectory() as temp:
-            root=Path(temp);_,candidate,_,_,_=self.composition(root)
+            root=Path(temp);_,candidate,_,_,_=self.composition(root,private_probes=True)
             inputs=root/'inputs';inputs.mkdir();(inputs/'inputs.json').write_bytes(canonical(self.resolve()))
             logs=root/'logs'
             selected={name:{'inputs_sha256':'b'*64,'artifact_sha256':sha256(candidate/path),'interface':'test-interface-v1'}
                       for name,path in {'core':'core','runtime':'runtime','manager':'manager','tui':'helpers/2'}.items()}
-            with patch.object(full,'git',side_effect=self.source_git),patch.object(full,'selected',return_value=(VERSION,selected)):
+            with patch.object(full,'git',side_effect=self.source_git),patch.object(full,'selected',return_value=(VERSION,selected)),patch.dict(os.environ,{'PROBE_SECRET_SENTINEL':'not-a-credential'}):
                 receipt=full.probe(ROOT,inputs,candidate,logs,'99')
                 self.assertEqual(set(receipt['exit_codes'].values()),{0})
+                environments=[json.loads((root/(name+'-env.json')).read_text()) for name in ('runtime','tui')]
+                self.assertEqual(environments[0],environments[1])
+                probe_home=Path(environments[0]['home']);probe_tmp=Path(environments[0]['tmpdir'])
+                self.assertEqual(probe_home.parent,logs.resolve())
+                self.assertFalse(probe_home.exists())
+                if probe_tmp!=Path(tempfile.gettempdir()).resolve():self.assertFalse(probe_tmp.exists())
+                self.assertNotIn('PROBE_SECRET_SENTINEL',environments[0]['environment_keys'])
                 proof=full.prove(ROOT,inputs,candidate,logs,'99')
                 self.assertEqual(proof['source_sha'],SHA);self.assertEqual(proof['component_runs'],{'core':11,'manager':12,'tui':13})
                 self.assertEqual(set(proof['inventory']),set(full.EXTENDED_FILES))
@@ -193,6 +228,40 @@ class FullQualificationTests(unittest.TestCase):
                 (logs/'runtime.out').write_bytes(original);(logs/'manager.err').write_text('actual fault\n')
                 with self.assertRaises(ValueError):full.prove(ROOT,inputs,candidate,logs,'99')
 
+    def test_probe_environment_is_private_canonical_and_cleans_only_owned_directories(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp);logs=root/'logs';logs.mkdir(mode=0o700)
+            parent=Path(tempfile.gettempdir()).resolve(strict=True)
+            parent_identity=parent.stat().st_dev,parent.stat().st_ino,parent.stat().st_mode
+            with self.assertRaisesRegex(RuntimeError,'owned failure'):
+                with full.probe_environment(logs) as environment:
+                    probe_home=Path(environment['HOME']);probe_tmp=Path(environment['TMPDIR'])
+                    self.assertEqual(set(environment),{'HOME','TMPDIR'})
+                    self.assertTrue(full.owned_private_directory(probe_home))
+                    self.assertTrue(full.owned_private_directory(probe_tmp))
+                    self.assertLessEqual(len(os.fsencode(probe_tmp/str(os.getuid())/('0'*64))),107)
+                    (probe_home/'owned').write_text('remove only this new home')
+                    raise RuntimeError('owned failure')
+            self.assertFalse(probe_home.exists())
+            if probe_tmp!=parent:self.assertFalse(probe_tmp.exists())
+            self.assertEqual((parent.stat().st_dev,parent.stat().st_ino,parent.stat().st_mode),parent_identity)
+            self.assertEqual(list(logs.iterdir()),[])
+            long_root=root/('long-'+80*'x');long_root.mkdir(mode=0o700)
+            alias=root/'short';alias.symlink_to(long_root)
+            for temporary in (long_root,alias):
+                with self.subTest(root=temporary.name),patch.object(full.tempfile,'gettempdir',return_value=str(temporary)):
+                    with self.assertRaisesRegex(ValueError,'socket root is too long'):
+                        with full.probe_environment(logs):self.fail('unsafe socket root accepted')
+                    self.assertEqual(list(logs.iterdir()),[])
+            unsafe=root/'unsafe';unsafe.mkdir(mode=0o777);unsafe.chmod(0o777)
+            with patch.object(full.tempfile,'gettempdir',return_value=str(unsafe)):
+                with self.assertRaisesRegex(ValueError,'temporary parent is not protected'):
+                    with full.probe_environment(logs):self.fail('unprotected temporary parent accepted')
+            self.assertTrue(alias.is_symlink());self.assertTrue(long_root.is_dir());self.assertTrue(unsafe.is_dir())
+            logs.chmod(0o755)
+            with self.assertRaisesRegex(ValueError,'log root must be owned and private'):
+                with full.probe_environment(logs):self.fail('nonprivate log root accepted')
+
     def test_failed_component_execution_retains_unqualified_marker_and_no_receipt(self):
         with tempfile.TemporaryDirectory() as temp:
             root=Path(temp);_,candidate,_,_,_=self.composition(root)
@@ -203,6 +272,7 @@ class FullQualificationTests(unittest.TestCase):
                 full.probe(ROOT,inputs,candidate,root/'logs','99')
             self.assertTrue((candidate/'.manager-probe-deferred').is_file())
             self.assertFalse((root/'logs/execution.json').exists())
+            self.assertEqual(list((root/'logs').glob('full-probe-*')),[])
 
     def test_manager_proof_cannot_substitute_a_build_or_another_accountable_run(self):
         with tempfile.TemporaryDirectory() as temp:

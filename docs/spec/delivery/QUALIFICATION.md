@@ -106,6 +106,9 @@ are checked; a TUI artifact's upstream version alone is insufficient.
 The result uses an unpublishable `full-qualification-*` generation identity.
 The job executes the actual selected Android Core/Manager, runtime and adapted TUI
 probes and binds their exits, bounded stdout/stderr and before/after payload digest.
+Runtime and TUI probes receive a fresh private home and an owned canonical short
+temporary root, without user credentials or configuration. Cleanup removes only
+probe-created directories, preserving a borrowed private Termux socket root.
 Unexpected diagnostics, a failed process or changed byte leaves the candidate
 unqualified. Its final proof binds exact source, component runs, component input
 and artifact digests, normalized descriptor, full inventory and composition digest.
