@@ -16,6 +16,7 @@ class StockFixtureTests(unittest.TestCase):
         cls.root=Path(cls.temp.name)
         cls.base=cls.root/'proof'
         cls.base.mkdir(mode=0o700)
+        cls.home=cls.root/'home';cls.home.mkdir(mode=0o700)
         cls.native=cls.root/'native'
         cls.binary=cls.root/'core'
         compiler=shutil.which('cc') or shutil.which('clang')
@@ -28,12 +29,45 @@ class StockFixtureTests(unittest.TestCase):
         cls.temp.cleanup()
     def setUp(self):
         (self.base/'stages.log').unlink(missing_ok=True)
+        self.native.unlink(missing_ok=True)
+        (self.home/(UUID+'.saved')).unlink(missing_ok=True)
     def run_fixture(self,args,native=False):
-        env=dict(os.environ,TMPDIR=str(self.root),SENTINEL_SECRET='never-log-environment')
+        env=dict(os.environ,TMPDIR=str(self.root),HOME=str(self.home),CODEX_HOME=str(self.home),
+                 SENTINEL_SECRET='never-log-environment')
         return subprocess.run([str(self.native if native else self.binary),*args],
-                              executable=str(self.binary),env=env,capture_output=True,text=True,timeout=5)
+                              executable=str(self.binary),env=env,cwd=self.home,
+                              capture_output=True,text=True,timeout=5)
     def stages(self):
         return (self.base/'stages.log').read_text()
+    def test_synthetic_capability_is_exact_read_only_and_precedes_manager_dispatch(self):
+        shutil.copy2(self.binary,self.native)
+        (self.home/(UUID+'.saved')).touch(mode=0o600)
+        result=self.run_fixture(['termux','__terminal-capabilities-v1','--','resume',UUID])
+        self.assertEqual(result.returncode,0)
+        self.assertEqual(result.stdout,'codex-terminal-capabilities-v1\nidentity=native\n')
+        self.assertEqual(result.stderr,'')
+        self.assertIn('stage=core-capability-native',self.stages())
+        self.assertIn('stage=cwd-is-home detail=1',self.stages())
+        self.assertNotIn('stage=core-manager-dispatch',self.stages())
+        self.assertFalse((self.base/'workloads').exists())
+        self.assertFalse((self.base/(UUID+'.ready')).exists())
+    def test_missing_frontend_thread_and_malformed_capability_cannot_admit(self):
+        args=['termux','__terminal-capabilities-v1','--','resume',UUID]
+        for fault in ['missing-frontend','missing-thread','non-executable','wrong-command','malformed-id']:
+            with self.subTest(fault=fault):
+                self.native.unlink(missing_ok=True)
+                if fault!='missing-frontend':shutil.copy2(self.binary,self.native)
+                saved=self.home/(UUID+'.saved');saved.unlink(missing_ok=True)
+                if fault!='missing-thread':saved.touch(mode=0o600)
+                if fault=='non-executable':self.native.chmod(0o600)
+                request=list(args)
+                if fault=='wrong-command':request[3]='new'
+                if fault=='malformed-id':request[4]='/'*36
+                result=self.run_fixture(request)
+                self.assertEqual(result.returncode,26)
+                self.assertEqual(result.stdout,'');self.assertEqual(result.stderr,'')
+                self.assertFalse((self.base/'workloads').exists())
+
     def test_dispatch_exec_failure_preserves_exit_and_logs_no_environment(self):
         result=self.run_fixture(['termux','test-command'])
         self.assertEqual(result.returncode,11)

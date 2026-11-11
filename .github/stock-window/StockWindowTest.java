@@ -90,6 +90,7 @@ public class StockWindowTest {
     int selected(){final int[] pid={-1};instrumentation.runOnMainSync(()->{if(activity.getCurrentSession()!=null)pid[0]=activity.getCurrentSession().getPid();});return pid[0];}
     int focus(String id) throws Exception {
         ProcessBuilder builder=new ProcessBuilder(BASE+"/core","termux","__terminal-focus-v1",id);
+        builder.directory(new File(HOME));
         builder.environment().put("HOME","/data/data/com.termux/files/home");
         builder.environment().put("PREFIX","/data/data/com.termux/files/usr");
         builder.environment().put("TMPDIR","/data/data/com.termux/files/usr/tmp");
@@ -116,6 +117,9 @@ public class StockWindowTest {
         ArrayList<String> command=new ArrayList<>(Arrays.asList(BASE+"/core","termux"));
         command.addAll(Arrays.asList(args));
         ProcessBuilder builder=new ProcessBuilder(command);
+        // HOME in the environment does not change Android's inherited app cwd.
+        // RunCommandService requires the forwarded workdir to be writable.
+        builder.directory(new File(HOME));
         builder.environment().put("HOME",HOME);
         builder.environment().put("PREFIX","/data/data/com.termux/files/usr");
         builder.environment().put("TMPDIR","/data/data/com.termux/files/usr/tmp");
