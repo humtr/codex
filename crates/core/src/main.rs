@@ -1,6 +1,8 @@
 use std::ffi::{OsStr, OsString};
 
 #[cfg(unix)]
+mod current_alias;
+#[cfg(unix)]
 mod execution_lease;
 #[cfg(unix)]
 mod local_source;
@@ -7645,6 +7647,9 @@ fn execute_activated_route(
 ) -> Result<PublicDispatchCompletion, LocalProductError> {
     use std::os::unix::fs::PermissionsExt as _;
 
+    // A prior crash may have committed activation before repointing this
+    // derived legacy alias. It never controls selection or blocks launch.
+    let _ = current_alias::repair_from_state(roots);
     let _ = maintenance::prune(roots);
     let _lease = maintenance::launch_lease(&roots.generation_root).map_err(|source| {
         LocalProductError::Io {
@@ -8430,6 +8435,12 @@ fn activate_prepared_local_release(
             }
         }
         return Err(LocalProductError::State(error));
+    }
+    // The signed pointer is authoritative; keep the legacy current path in
+    // step after commit without rolling back a successful activation if the
+    // non-authoritative alias is obstructed.
+    if let Err(error) = current_alias::sync(roots, &after.current) {
+        eprintln!("codex: active Core changed, but current compatibility alias could not be updated: {error}");
     }
     finalize_validated_update_hold_locked(
         roots,
@@ -10687,6 +10698,9 @@ fn bootstrap_initial_signed_local_release(
 
     m2_generation_state::activate_pointer_state(&state_paths, None, &after)
         .map_err(LocalProductError::State)?;
+    if let Err(error) = current_alias::repair_from_state(roots) {
+        eprintln!("codex: initial Core active, but current compatibility alias could not be updated: {error}");
+    }
     Ok(after.current)
 }
 
@@ -12301,6 +12315,9 @@ fn rollback_signed_local_release(
             }
         }
         return Err(LocalProductError::State(error));
+    }
+    if let Err(error) = current_alias::sync(roots, &after.current) {
+        eprintln!("codex: Core rollback committed, but current compatibility alias could not be updated: {error}");
     }
     if let Some(hold) = hold.as_ref() {
         if let Err(error) = write_update_hold_locked(roots, hold) {
@@ -20733,6 +20750,12 @@ esac
         let state = plan_initial_pointer_state_with_key(&generation_id, bootstrap_key)
             .map_err(LocalProductError::StateFormat)?;
         activate_pointer_state(&paths, None, &state).map_err(LocalProductError::State)?;
+        // This legacy fixture initializes the pointer directly instead of
+        // calling production bootstrap. Mirror its derived compatibility path.
+        current_alias::repair_from_state(&roots).map_err(|source| LocalProductError::Io {
+            operation: "sync test bootstrap Core compatibility alias",
+            source,
+        })?;
         Ok(state)
     }
 
@@ -20918,6 +20941,10 @@ esac
         assert_eq!(state.previous, None);
         assert_eq!(state.previous_key, None);
         assert!(roots.generation_root.join("bootstrap-g0").is_dir());
+        assert_eq!(
+            std::fs::read_link(home.join(".local/lib/codex/core/current")).unwrap(),
+            std::path::PathBuf::from("generations/bootstrap-g0"),
+        );
         assert!(matches!(
             bootstrap_self_test(&roots, &pin),
             Err(LocalProductError::Release(
@@ -21561,7 +21588,11 @@ esac
             output.stdout,
             output.stderr
         );
-        let _ = generation_id;
+        assert_eq!(
+            std::fs::read_link(home.join(".local/lib/codex/core/current")).unwrap(),
+            std::path::PathBuf::from("generations").join(generation_id),
+            "signed activation must repoint the current compatibility alias",
+        );
         let expected = "Codex 9.9.9 is now active.\n";
         assert!(
             output
@@ -21588,7 +21619,11 @@ esac
             output.stdout,
             output.stderr
         );
-        let _ = generation_id;
+        assert_eq!(
+            std::fs::read_link(home.join(".local/lib/codex/core/current")).unwrap(),
+            std::path::PathBuf::from("generations").join(generation_id),
+            "signed rollback must repoint the current compatibility alias",
+        );
         let expected = "Rolled back the Termux release for Codex 9.9.9.\n";
         assert!(
             output
