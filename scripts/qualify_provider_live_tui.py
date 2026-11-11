@@ -35,6 +35,7 @@ from qualify_tasks import Ws
 # chatgpt-desktop/gpt-6 alias remains usable for saved work but is hidden in the
 # installed picker; it is not the model selected by this live UI acceptance.
 MODEL = 'chatgpt-desktop/app/gpt-6'
+MODEL_EFFORT = 'none'
 
 
 def require_short_native_socket_tmpdir(tmpdir=None):
@@ -644,22 +645,41 @@ class LiveTui:
         self.screen = ''
         os.write(self.master, b'\r')
         self.drain(1)
-        # The installed upstream picker calls this "Select Reasoning Level".
-        # Requiring the final selection keeps a new input from being pasted
-        # into a still-open popup instead of being submitted as a Native turn.
-        self.wait(lambda: 'Select Reasoning Level for ChatGPT' in plain(self.screen))
-        os.write(self.master, b'\x1b[H')
-        self.drain(.3)
-        self.screen = ''
-        os.write(self.master, b'\r')
-        self.wait(lambda: 'Ask Codex to do anything' in plain(self.screen)
-                  and 'ChatGPT' in plain(self.screen) and 'GPT-6' in plain(self.screen))
-        # Only the UI choice is known before the first turn. Native's actual
-        # provider/model admission is verified from that turn's readback.
+        # Instant can offer only `none` and skip the effort modal. A composer
+        # repaint alone is insufficient: verify the same Native thread's exact
+        # selected Provider/model/effort before permitting the first model input.
+        selected = None
+
+        def ready():
+            nonlocal selected
+            rendered = plain(self.screen)
+            if not ('Ask Codex to do anything' in rendered
+                    and 'ChatGPT' in rendered and 'GPT-6' in rendered):
+                return False
+            current = self.read(turns=False)
+            assert current['id'] == self.thread, 'selection changed Native thread'
+            if (current.get('modelProvider') != 'chatgpt_desktop'
+                    or current.get('model') != MODEL
+                    or current.get('reasoningEffort') != MODEL_EFFORT):
+                return False
+            selected = current
+            return True
+
+        self.wait(lambda: 'Select Reasoning Level for ChatGPT' in plain(self.screen) or ready())
+        reasoning_picker = 'Select Reasoning Level for ChatGPT' in plain(self.screen)
+        if reasoning_picker:
+            os.write(self.master, b'\x1b[H')
+            self.drain(.3)
+            self.screen = ''
+            os.write(self.master, b'\r')
+            self.wait(ready)
+        assert selected is not None, 'Native model selection is unavailable'
         save(self.root / (self.label + '-selection.json'),
              {'at': stamp(), 'thread': self.thread, 'command': '/provider',
               'picker_provider': 'ChatGPT Linux app', 'picker_model': 'GPT-6',
-              'native_settings_verified': False})
+              'reasoning_picker': reasoning_picker,
+              'native_model': selected['model'], 'native_effort': selected['reasoningEffort'],
+              'native_settings_verified': True})
 
     def submit(self, text, count, marker, allow_failed=False):
         try:

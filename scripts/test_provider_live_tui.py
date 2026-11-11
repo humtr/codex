@@ -289,12 +289,85 @@ class TuiObservation(unittest.TestCase):
                 self.assertTrue(predicate(), 'TUI modal was not actually completed')
 
             client.wait = wait
+            client.read = lambda turns=False: {
+                'id': client.thread, 'modelProvider': 'chatgpt_desktop',
+                'model': MODEL, 'reasoningEffort': 'none'}
             client.select_chatgpt()
             self.assertEqual(submitted, ['/provider '])
             self.assertEqual(os.read(reader, 100), b'\x1b[F\r\x1b[H\r\x1b[H\r')
             selected = json.loads((root / 'primary-selection.json').read_text())
-            self.assertFalse(selected['native_settings_verified'])
+            self.assertTrue(selected['native_settings_verified'])
+            self.assertTrue(selected['reasoning_picker'])
             self.assertEqual(selected['picker_model'], 'GPT-6')
+
+    def test_single_effort_selection_needs_no_extra_enter_after_exact_native_admission(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            client = object.__new__(LiveTui)
+            client.root, client.label = root, 'primary'
+            client.thread = '550e8400-e29b-41d4-a716-446655440000'
+            reader, client.master = os.pipe()
+            self.addCleanup(os.close, reader)
+            self.addCleanup(os.close, client.master)
+            client.drain = lambda *_: None
+            submitted = []
+            client.paste = submitted.append
+            screens = iter((
+                'Select Provider\n ChatGPT Linux app',
+                'Select Model and Effort\n ChatGPT · GPT-6 · Instant',
+                'Ask Codex to do anything\n ChatGPT · GPT-6 · Instant',
+            ))
+
+            def wait(predicate, seconds=None):
+                client.screen = next(screens)
+                self.assertTrue(predicate(), 'single-effort selection was not admitted')
+
+            client.wait = wait
+            client.read = lambda turns=False: {
+                'id': client.thread, 'modelProvider': 'chatgpt_desktop',
+                'model': MODEL, 'reasoningEffort': 'none'}
+            client.select_chatgpt()
+            self.assertEqual(submitted, ['/provider '])
+            self.assertEqual(os.read(reader, 100), b'\x1b[F\r\x1b[H\r',
+                             'an unnecessary Enter must not become composer input')
+            selected = json.loads((root / 'primary-selection.json').read_text())
+            self.assertTrue(selected['native_settings_verified'])
+            self.assertFalse(selected['reasoning_picker'])
+            self.assertEqual((selected['native_model'], selected['native_effort']), (MODEL, 'none'))
+
+    def test_ready_composer_cannot_admit_missing_or_stale_native_selection(self):
+        for changed in [None, {'modelProvider': 'openai'}, {'model': 'chatgpt-desktop/removed'},
+                        {'reasoningEffort': 'high'}]:
+            with self.subTest(changed=changed), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                client = object.__new__(LiveTui)
+                client.root, client.label = root, 'primary'
+                client.thread = '550e8400-e29b-41d4-a716-446655440000'
+                reader, client.master = os.pipe()
+                self.addCleanup(os.close, reader)
+                self.addCleanup(os.close, client.master)
+                client.drain = lambda *_: None
+                submitted = []
+                client.paste = submitted.append
+                screens = iter(('Select Provider\n ChatGPT Linux app',
+                                'Select Model and Effort\n GPT-6',
+                                'Ask Codex to do anything\n ChatGPT · GPT-6'))
+
+                def wait(predicate, seconds=None):
+                    client.screen = next(screens)
+                    self.assertTrue(predicate(), 'stale Native model selection')
+
+                def read(turns=False):
+                    if changed is None:
+                        raise AssertionError('the exact installed Native owner is unavailable')
+                    return {'id': client.thread, 'modelProvider': 'chatgpt_desktop',
+                            'model': MODEL, 'reasoningEffort': 'none', **changed}
+
+                client.wait, client.read = wait, read
+                with self.assertRaisesRegex(AssertionError, 'stale Native model selection|Native owner is unavailable'):
+                    client.select_chatgpt()
+                self.assertEqual(submitted, ['/provider '])
+                self.assertFalse((root / 'primary-selection.json').exists())
 
     def test_new_tui_thread_uses_ui_readiness_before_native_materialization(self):
         client = object.__new__(LiveTui)
