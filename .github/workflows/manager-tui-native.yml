@@ -621,16 +621,21 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          retain_stage=host-directory
+          trap 'retain_status=$?; trap - ERR; python3 "$GITHUB_WORKSPACE/experiment/.github/scripts/qualification_failure.py" --stage "$retain_stage" --status "$retain_status" --logs "$RUNNER_TEMP" || :; exit "$retain_status"' ERR
           # Production uses the official host, whose V8 build has its own release
           # tooling. Exercise those exact authenticated bytes instead of adding
           # another host/V8 producer to this frontend build.
           host="$RUNNER_TEMP/profile-code-mode-host"
           mkdir -m 0700 "$host"
+          retain_stage=host-download
           curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
             --connect-timeout 15 --max-time 180 --max-filesize 536870912 \
             "https://github.com/openai/codex/releases/download/rust-v${UPSTREAM_VERSION}/codex-package-aarch64-unknown-linux-musl.tar.gz" \
             --output "$host/package.tar.gz"
+          retain_stage=host-digest
           echo "$UPSTREAM_ARCHIVE_SHA256  $host/package.tar.gz" | sha256sum -c -
+          retain_stage=host-extract
           python3 - <<'PYTHON'
           import os, shutil, tarfile
           from pathlib import Path
@@ -643,9 +648,11 @@ jobs:
                   shutil.copyfileobj(source, target)
           (root / 'codex-code-mode-host').chmod(0o755)
           PYTHON
+          retain_stage=host-probe
           "$host/codex-code-mode-host" --help > "$host/help.txt"
           export CARGO_BIN_EXE_codex="${CODEX_QUALIFICATION_CLI:-$GITHUB_WORKSPACE/upstream/codex-rs/target/aarch64-unknown-linux-musl/release/codex}"
           export CARGO_BIN_EXE_codex_code_mode_host="$host/codex-code-mode-host"
+          retain_stage=retained-features
           PYTHONDONTWRITEBYTECODE=1 python3 "$GITHUB_WORKSPACE/experiment/frontend/tui/check_upstream_features.py" --run "$GITHUB_WORKSPACE/upstream" --logs "$RUNNER_TEMP"
       - name: Inspect TUI lint fixes
         if: inputs.scope != 'native-api'
@@ -705,6 +712,7 @@ jobs:
             ${{ runner.temp }}/native-provider-*.log
             ${{ runner.temp }}/native-protocol-generated.tar.gz
             ${{ runner.temp }}/profile-tui-focused.log
+            ${{ runner.temp }}/profile-tui-failure-summary.json
             ${{ runner.temp }}/profile-tui-mutation.log
             ${{ runner.temp }}/profile-tui-login-mutation.log
             ${{ runner.temp }}/profile-tui-blank-mutation.log
