@@ -41,7 +41,7 @@ jobs:
           candidate="$RUNNER_TEMP/full-candidate"
           logs="$RUNNER_TEMP/full-probes"
           python3 source/.github/scripts/full_qualification.py probe --source source --inputs "$RUNNER_TEMP/full-inputs" \
-            --candidate "$candidate" --logs "$logs" --run-id "$GITHUB_RUN_ID"
+            --candidate "$candidate" --logs "$logs" --run-id "$GITHUB_RUN_ID" --home-parent "$GITHUB_WORKSPACE/source"
           python3 source/.github/scripts/full_qualification.py prove --source source --inputs "$RUNNER_TEMP/full-inputs" \
             --candidate "$candidate" --logs "$logs" --run-id "$GITHUB_RUN_ID" --output "$RUNNER_TEMP/full-qualification.json"
       - name: Retain unsigned exact composition proof

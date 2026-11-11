@@ -192,10 +192,14 @@ def owned_private_directory(path):
 
 
 @contextmanager
-def probe_environment(log_root):
+def probe_environment(log_root,home_parent):
     """Isolate upstream alias/config creation without inheriting a user's home."""
     log_root=log_root.resolve(strict=True)
     if not owned_private_directory(log_root):raise ValueError('Full probe log root must be owned and private')
+    home_parent=home_parent.resolve(strict=True)
+    parent=home_parent.lstat()
+    if not stat.S_ISDIR(parent.st_mode) or parent.st_uid!=os.getuid() or parent.st_mode&0o022:
+        raise ValueError('Full probe home parent must be owned and protected')
     temporary=Path(tempfile.gettempdir()).resolve(strict=True)
     with ExitStack() as cleanup:
         if not owned_private_directory(temporary):
@@ -210,18 +214,23 @@ def probe_environment(log_root):
         if not owned_private_directory(temporary):raise ValueError('Full probe temporary root must be owned and private')
         if len(os.fsencode(temporary/str(os.getuid())/('0'*64)))>107:
             raise ValueError('Full probe temporary socket root is too long')
-        probe_home=Path(cleanup.enter_context(tempfile.TemporaryDirectory(prefix='full-probe-',dir=log_root))).resolve(strict=True)
-        if not owned_private_directory(probe_home):raise ValueError('Full probe home must be owned and private')
+        # Release arg0 refuses alias creation beneath the actual TMPDIR. Resolve
+        # both paths before admission; a short symlink must not bypass this guard.
+        if home_parent.is_relative_to(temporary):
+            raise ValueError('Full probe home parent must be outside canonical temporary root')
+        probe_home=Path(cleanup.enter_context(tempfile.TemporaryDirectory(prefix='full-probe-',dir=home_parent))).resolve(strict=True)
+        if not owned_private_directory(probe_home) or probe_home.is_relative_to(temporary):
+            raise ValueError('Full probe home must be private and outside canonical temporary root')
         yield {'HOME':str(probe_home),'TMPDIR':str(temporary)}
 
 
-def probe(source,inputs,candidate,log_root,run_id):
+def probe(source,inputs,candidate,log_root,run_id,*,home_parent):
     plan=admit_plan(source,json.loads(regular(inputs/'inputs.json',262144),object_pairs_hook=unique))
     verify_full(candidate,plan['upstream_version'],deferred=True)
     before=candidate_digest(candidate,deferred=True)
     if not re.fullmatch('[1-9][0-9]*',str(run_id)):raise ValueError('Full probe requires its run identity')
     log_root.mkdir(mode=0o700)
-    with probe_environment(log_root) as runtime_environment:
+    with probe_environment(log_root,home_parent) as runtime_environment:
         for name,binary,args in [('manager','manager',['--artifact-probe']),('core','core',['update','--help']),
                                   ('runtime','runtime',['--version']),('tui','helpers/2',['--version'])]:
             environment=({'CODEX_MANAGER_ARTIFACT_PROBE':'1'} if name=='manager' else
@@ -321,6 +330,7 @@ def main():
     parser.add_argument('--source',type=Path,required=True);parser.add_argument('--inputs',type=Path,required=True)
     parser.add_argument('--builder',type=Path);parser.add_argument('--candidate',type=Path)
     parser.add_argument('--logs',type=Path);parser.add_argument('--run-id');parser.add_argument('--output',type=Path)
+    parser.add_argument('--home-parent',type=Path)
     args=parser.parse_args()
     if args.action=='acquire':
         plan=resolve(args.source);args.inputs.mkdir(mode=0o700)
@@ -332,8 +342,9 @@ def main():
         if args.builder is None or args.candidate is None:parser.error('assemble requires builder and candidate')
         assemble(args.source,args.inputs,args.builder,args.candidate)
     elif args.action=='probe':
-        if any(getattr(args,key) is None for key in ('candidate','logs','run_id')):parser.error('probe requires candidate, logs and run-id')
-        probe(args.source,args.inputs,args.candidate,args.logs,args.run_id)
+        if any(getattr(args,key) is None for key in ('candidate','logs','run_id','home_parent')):
+            parser.error('probe requires candidate, logs, run-id and home-parent')
+        probe(args.source,args.inputs,args.candidate,args.logs,args.run_id,home_parent=args.home_parent)
     else:
         if any(getattr(args,key) is None for key in ('candidate','logs','run_id','output')):parser.error('prove requires candidate, logs, run-id and output')
         args.output.write_bytes(canonical(prove(args.source,args.inputs,args.candidate,args.logs,args.run_id)))

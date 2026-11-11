@@ -129,6 +129,9 @@ class FullQualificationTests(unittest.TestCase):
             from pathlib import Path
             if not os.environ.get('HOME'):
                 sys.stderr.write('WARNING: proceeding, even though we could not create PATH aliases: Could not find home directory\n')
+            elif Path(os.environ['HOME']).joinpath('.codex').is_relative_to(Path(os.environ['TMPDIR'])):
+                sys.stderr.write('WARNING: proceeding, even though we could not create PATH aliases: '
+                                 'Refusing to create helper binaries under temporary dir '+repr(os.environ['TMPDIR'])+'\n')
             else:
                 home=Path(os.environ['HOME']);temporary=Path(os.environ['TMPDIR'])
                 assert set(os.environ)<={'HOME','TMPDIR','LC_CTYPE'}
@@ -185,19 +188,21 @@ class FullQualificationTests(unittest.TestCase):
             with self.assertRaises(ValueError):full.verify_full(full_root,VERSION)
 
     def test_actual_process_results_and_exact_candidate_are_bound_before_full_proof(self):
-        with tempfile.TemporaryDirectory() as temp:
+        with tempfile.TemporaryDirectory() as temp, tempfile.TemporaryDirectory(prefix='.full-probe-homes-',dir=ROOT) as homes:
             root=Path(temp);_,candidate,_,_,_=self.composition(root,private_probes=True)
             inputs=root/'inputs';inputs.mkdir();(inputs/'inputs.json').write_bytes(canonical(self.resolve()))
             logs=root/'logs'
             selected={name:{'inputs_sha256':'b'*64,'artifact_sha256':sha256(candidate/path),'interface':'test-interface-v1'}
                       for name,path in {'core':'core','runtime':'runtime','manager':'manager','tui':'helpers/2'}.items()}
             with patch.object(full,'git',side_effect=self.source_git),patch.object(full,'selected',return_value=(VERSION,selected)),patch.dict(os.environ,{'PROBE_SECRET_SENTINEL':'not-a-credential'}):
-                receipt=full.probe(ROOT,inputs,candidate,logs,'99')
+                receipt=full.probe(ROOT,inputs,candidate,logs,'99',home_parent=Path(homes))
                 self.assertEqual(set(receipt['exit_codes'].values()),{0})
                 environments=[json.loads((root/(name+'-env.json')).read_text()) for name in ('runtime','tui')]
                 self.assertEqual(environments[0],environments[1])
                 probe_home=Path(environments[0]['home']);probe_tmp=Path(environments[0]['tmpdir'])
-                self.assertEqual(probe_home.parent,logs.resolve())
+                self.assertEqual(probe_home.parent,Path(homes).resolve())
+                self.assertFalse(probe_home.is_relative_to(probe_tmp))
+                self.assertEqual(list(Path(homes).iterdir()),[])
                 self.assertFalse(probe_home.exists())
                 if probe_tmp!=Path(tempfile.gettempdir()).resolve():self.assertFalse(probe_tmp.exists())
                 self.assertNotIn('PROBE_SECRET_SENTINEL',environments[0]['environment_keys'])
@@ -229,12 +234,14 @@ class FullQualificationTests(unittest.TestCase):
                 with self.assertRaises(ValueError):full.prove(ROOT,inputs,candidate,logs,'99')
 
     def test_probe_environment_is_private_canonical_and_cleans_only_owned_directories(self):
-        with tempfile.TemporaryDirectory() as temp:
+        with tempfile.TemporaryDirectory() as temp, tempfile.TemporaryDirectory(prefix='.full-probe-homes-',dir=ROOT) as homes:
             root=Path(temp);logs=root/'logs';logs.mkdir(mode=0o700)
             parent=Path(tempfile.gettempdir()).resolve(strict=True)
             parent_identity=parent.stat().st_dev,parent.stat().st_ino,parent.stat().st_mode
+            home_parent=Path(homes);home_parent.chmod(0o755)
+            home_parent_identity=home_parent.stat().st_dev,home_parent.stat().st_ino,home_parent.stat().st_mode
             with self.assertRaisesRegex(RuntimeError,'owned failure'):
-                with full.probe_environment(logs) as environment:
+                with full.probe_environment(logs,Path(homes)) as environment:
                     probe_home=Path(environment['HOME']);probe_tmp=Path(environment['TMPDIR'])
                     self.assertEqual(set(environment),{'HOME','TMPDIR'})
                     self.assertTrue(full.owned_private_directory(probe_home))
@@ -245,34 +252,80 @@ class FullQualificationTests(unittest.TestCase):
             self.assertFalse(probe_home.exists())
             if probe_tmp!=parent:self.assertFalse(probe_tmp.exists())
             self.assertEqual((parent.stat().st_dev,parent.stat().st_ino,parent.stat().st_mode),parent_identity)
+            self.assertEqual((home_parent.stat().st_dev,home_parent.stat().st_ino,home_parent.stat().st_mode),home_parent_identity)
+            self.assertEqual(list(home_parent.iterdir()),[])
             self.assertEqual(list(logs.iterdir()),[])
             long_root=root/('long-'+80*'x');long_root.mkdir(mode=0o700)
             alias=root/'short';alias.symlink_to(long_root)
             for temporary in (long_root,alias):
                 with self.subTest(root=temporary.name),patch.object(full.tempfile,'gettempdir',return_value=str(temporary)):
                     with self.assertRaisesRegex(ValueError,'socket root is too long'):
-                        with full.probe_environment(logs):self.fail('unsafe socket root accepted')
+                        with full.probe_environment(logs,Path(homes)):self.fail('unsafe socket root accepted')
                     self.assertEqual(list(logs.iterdir()),[])
             unsafe=root/'unsafe';unsafe.mkdir(mode=0o777);unsafe.chmod(0o777)
             with patch.object(full.tempfile,'gettempdir',return_value=str(unsafe)):
                 with self.assertRaisesRegex(ValueError,'temporary parent is not protected'):
-                    with full.probe_environment(logs):self.fail('unprotected temporary parent accepted')
+                    with full.probe_environment(logs,Path(homes)):self.fail('unprotected temporary parent accepted')
             self.assertTrue(alias.is_symlink());self.assertTrue(long_root.is_dir());self.assertTrue(unsafe.is_dir())
             logs.chmod(0o755)
             with self.assertRaisesRegex(ValueError,'log root must be owned and private'):
-                with full.probe_environment(logs):self.fail('nonprivate log root accepted')
+                with full.probe_environment(logs,Path(homes)):self.fail('nonprivate log root accepted')
+
+
+    def test_version_probe_preserves_both_release_arg0_home_failures(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp);binary=root/'version';receipt=root/'receipt'
+            self.version_probe(binary,receipt)
+            home=root/'home';home.mkdir(mode=0o700)
+            for environment,diagnostic in [({},b'Could not find home directory'),
+                    ({'HOME':str(home),'TMPDIR':str(root)},b'Refusing to create helper binaries under temporary dir')]:
+                with self.subTest(environment_keys=list(environment)):
+                    result=subprocess.run([str(binary),'--version'],env=environment,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+                    self.assertEqual(result.returncode,0)
+                    self.assertEqual(result.stdout,('codex-cli '+VERSION+'\n').encode())
+                    self.assertIn(diagnostic,result.stderr)
+                    self.assertFalse(receipt.exists());self.assertEqual(list(home.iterdir()),[])
+
+    def test_probe_home_parent_rejects_temporary_aliases_and_unprotected_roots(self):
+        with tempfile.TemporaryDirectory() as temp, tempfile.TemporaryDirectory(prefix='.full-probe-homes-',dir=ROOT) as homes:
+            logs=Path(temp)/'logs';logs.mkdir(mode=0o700);home_parent=Path(homes)
+            with full.probe_environment(logs,home_parent) as environment:
+                temporary=Path(environment['TMPDIR'])
+                with tempfile.TemporaryDirectory(prefix='home-',dir=temporary) as nested:
+                    unsafe=Path(nested);alias=home_parent/'alias';alias.symlink_to(unsafe)
+                    before=sorted(temporary.iterdir())
+                    for selected in (temporary,unsafe,alias):
+                        with self.subTest(parent=str(selected)),patch.object(full.tempfile,'gettempdir',return_value=str(temporary)):
+                            with self.assertRaisesRegex(ValueError,'outside canonical temporary root'):
+                                with full.probe_environment(logs,selected):self.fail('HOME beneath TMPDIR accepted')
+                            self.assertEqual(list(unsafe.iterdir()),[])
+                            self.assertEqual(sorted(temporary.iterdir()),before)
+                    alias.unlink()
+                unsafe=home_parent/'unprotected';unsafe.mkdir(mode=0o700);unsafe.chmod(0o777)
+                with self.assertRaisesRegex(ValueError,'home parent must be owned and protected'):
+                    with full.probe_environment(logs,unsafe):self.fail('unprotected home parent accepted')
+                self.assertEqual(list(unsafe.iterdir()),[])
+            self.assertTrue(home_parent.is_dir());self.assertTrue(logs.is_dir())
+
+    def test_probe_cli_requires_explicit_home_parent_before_candidate_access(self):
+        command=[sys.executable,'-B',str(ROOT/'.github/scripts/full_qualification.py'),'probe',
+                 '--source',str(ROOT),'--inputs','/nonexistent-owned-inputs','--candidate','/nonexistent-owned-candidate',
+                 '--logs','/nonexistent-owned-logs','--run-id','99']
+        result=subprocess.run(command,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+        self.assertEqual(result.returncode,2)
+        self.assertIn(b'probe requires candidate, logs, run-id and home-parent',result.stderr)
 
     def test_failed_component_execution_retains_unqualified_marker_and_no_receipt(self):
-        with tempfile.TemporaryDirectory() as temp:
+        with tempfile.TemporaryDirectory() as temp, tempfile.TemporaryDirectory(prefix='.full-probe-homes-',dir=ROOT) as homes:
             root=Path(temp);_,candidate,_,_,_=self.composition(root)
             manager=candidate/'manager';old=sha256(manager);manager.write_text('#!'+shutil.which('sh')+'\nexit 9\n')
             meta=candidate/'generation.meta';meta.write_text(meta.read_text().replace(old,sha256(manager)))
             inputs=root/'inputs';inputs.mkdir();(inputs/'inputs.json').write_bytes(canonical(self.resolve()))
             with patch.object(full,'git',side_effect=self.source_git),self.assertRaisesRegex(ValueError,'exited 9'):
-                full.probe(ROOT,inputs,candidate,root/'logs','99')
+                full.probe(ROOT,inputs,candidate,root/'logs','99',home_parent=Path(homes))
             self.assertTrue((candidate/'.manager-probe-deferred').is_file())
             self.assertFalse((root/'logs/execution.json').exists())
-            self.assertEqual(list((root/'logs').glob('full-probe-*')),[])
+            self.assertEqual(list(Path(homes).iterdir()),[])
 
     def test_manager_proof_cannot_substitute_a_build_or_another_accountable_run(self):
         with tempfile.TemporaryDirectory() as temp:
