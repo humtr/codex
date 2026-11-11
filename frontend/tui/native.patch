@@ -1,9 +1,9 @@
 # codex-upstream-base 086ccc833bc9cf01024ad2dd6af7dbd421b6bf9a
 diff --git a/codex-rs/tui/src/app.rs b/codex-rs/tui/src/app.rs
-index 80459f4113..4d110749b0 100644
+index 80459f41136d4db5026f4224711d2770164a435c..a626539e4d52300c1508089fa0a3e517507d1358 100644
 --- a/codex-rs/tui/src/app.rs
 +++ b/codex-rs/tui/src/app.rs
-@@ -153,7 +153,6 @@ use codex_otel::SessionTelemetry;
+@@ -153,7 +153,6 @@
  use codex_otel::TelemetryAuthMode;
  use codex_protocol::ThreadId;
  use codex_protocol::models::ActivePermissionProfile;
@@ -11,7 +11,7 @@ index 80459f4113..4d110749b0 100644
  use codex_protocol::models::PermissionProfile;
  use codex_protocol::openai_models::ModelAvailabilityNux;
  use codex_protocol::openai_models::ModelPreset;
-@@ -219,9 +218,11 @@ mod backend_events;
+@@ -219,9 +218,11 @@
  mod backend_selection;
  pub(crate) mod backend_sessions;
  mod background_requests;
@@ -24,7 +24,7 @@ index 80459f4113..4d110749b0 100644
  mod connector_mentions;
  mod daemon_menu;
  mod daybreak;
-@@ -240,7 +241,13 @@ mod managed_worktree_creation;
+@@ -240,7 +241,13 @@
  mod misalignment_policy;
  mod model_defaults;
  mod new_session;
@@ -38,7 +38,7 @@ index 80459f4113..4d110749b0 100644
  mod turn_tips;
  pub(crate) use new_session::has_launch_setting;
  mod clipboard;
-@@ -443,7 +450,7 @@ fn auto_review_mode() -> AutoReviewMode {
+@@ -443,7 +450,7 @@
          approval_policy: AskForApproval::OnRequest,
          approvals_reviewer: ApprovalsReviewer::AutoReview,
          active_permission_profile: ActivePermissionProfile::new(
@@ -47,10 +47,13 @@ index 80459f4113..4d110749b0 100644
          ),
      }
  }
-@@ -535,6 +542,10 @@ struct InitialHistoryReplayBuffer {
+@@ -535,6 +542,13 @@
  }
  
  pub(crate) struct App {
++    // Re-entry launch flags selected a route once, not later `/resume` overrides.
++    #[cfg(unix)]
++    termux_routing_flags: bool,
 +    #[cfg(unix)]
 +    quota_switch: quota_switch::State,
 +    #[cfg(unix)]
@@ -58,7 +61,7 @@ index 80459f4113..4d110749b0 100644
      feature_write_lock: Arc<tokio::sync::Mutex<()>>,
      config_notification_test_generation: u64,
      config_notification_test_pending: Option<u64>,
-@@ -1305,6 +1316,10 @@ impl App {
+@@ -1305,6 +1319,10 @@
      }
  
      fn render_chat_widget_frame(&mut self, tui: &mut tui::Tui, screen_size: Size) -> Result<Rect> {
@@ -108,10 +111,10 @@ index 5e777ba283..6d15bc74e2 100644
              if let Some(mut input) = self.agents_overview.input_states.remove(&thread_id) {
                  let blank = self.agents_overview.blank_sessions.contains_key(&thread_id);
 diff --git a/codex-rs/tui/src/app/config_persistence.rs b/codex-rs/tui/src/app/config_persistence.rs
-index 8a04d72452..d7425a9520 100644
+index 8a04d724522490941798f369222e3ef7980605a5..d16d6a1430082cbf700d7cab8c1a0d0608c2b05b 100644
 --- a/codex-rs/tui/src/app/config_persistence.rs
 +++ b/codex-rs/tui/src/app/config_persistence.rs
-@@ -28,30 +28,43 @@ async fn build_config_on_runtime_worker(
+@@ -28,29 +28,64 @@
      }
  }
  
@@ -135,15 +138,8 @@ index 8a04d72452..d7425a9520 100644
 -    if harness_overrides.model.is_some()
 -        || harness_overrides.model_provider.is_some()
 -        || has_layer_override
-+    #[cfg(unix)]
-+    if crate::termux_permissions::enabled()
-+        && std::env::var(crate::termux_chat_models::REENTRY_MODE).as_deref() == Ok("resume")
-     {
+-    {
 -        crate::app_server_session::ResumeModelSettings::OverrideFromCurrentConfig
--    } else {
--        crate::app_server_session::ResumeModelSettings::RestoreFromThread
-+        return crate::app_server_session::ResumeModelSettings::RestoreFromThread;
-+    }
 +    let selected = |key| {
 +        config.config_layer_stack.layers_high_to_low().any(|layer| {
 +            matches!(
@@ -169,27 +165,96 @@ index 8a04d72452..d7425a9520 100644
 +            provider,
 +            effort,
 +        };
-     }
++    }
 +    crate::app_server_session::ResumeModelSettings::OverrideFromCurrentConfig
++}
++
++pub(crate) fn startup_resume_model_settings_for_overrides(
++    config: &Config,
++    harness_overrides: &ConfigOverrides,
++    intent: Option<crate::termux_reentry::Intent>,
++) -> crate::app_server_session::ResumeModelSettings {
++    #[cfg(unix)]
++    let qualified = crate::termux_permissions::enabled();
++    #[cfg(not(unix))]
++    let qualified = false;
++    initial_resume_model_settings(
++        resume_model_settings_for_overrides(config, harness_overrides),
++        intent,
++        qualified,
++    )
++}
++
++fn initial_resume_model_settings(
++    ordinary: crate::app_server_session::ResumeModelSettings,
++    intent: Option<crate::termux_reentry::Intent>,
++    qualified: bool,
++) -> crate::app_server_session::ResumeModelSettings {
++    if qualified && intent == Some(crate::termux_reentry::Intent::Resume) {
++        crate::app_server_session::ResumeModelSettings::RestoreFromTermuxReentry
+     } else {
+-        crate::app_server_session::ResumeModelSettings::RestoreFromThread
++        ordinary
+     }
  }
  
- pub(super) fn has_explicit_resume_permission_override(
-@@ -1159,6 +1172,15 @@ impl App {
+@@ -1159,6 +1194,10 @@
      }
  
      pub(super) fn resume_model_settings(&self) -> crate::app_server_session::ResumeModelSettings {
 +        #[cfg(unix)]
-+        if crate::termux_permissions::enabled()
-+            && matches!(
-+                std::env::var(crate::termux_chat_models::REENTRY_MODE).as_deref(),
-+                Ok("select" | "resume")
-+            )
-+        {
++        if crate::termux_permissions::enabled() && self.termux_routing_flags {
 +            return crate::app_server_session::ResumeModelSettings::RestoreFromThread;
 +        }
          resume_model_settings_for_overrides(&self.config, &self.harness_overrides)
      }
  
+@@ -1656,6 +1695,45 @@
+             app.config.model_reasoning_effort,
+             Some(ReasoningEffortConfig::Low)
+         );
++    }
++
++    #[cfg(unix)]
++    #[tokio::test]
++    async fn termux_chat_models_reentry_is_initial_only_and_select_keeps_explicit_settings() {
++        use crate::app_server_session::ResumeModelSettings;
++        use crate::termux_reentry::Intent;
++
++        let mut app = make_test_app().await;
++        app.harness_overrides.model = Some("explicit-model".into());
++        let ordinary = resume_model_settings_for_overrides(&app.config, &app.harness_overrides);
++        assert!(matches!(
++            ordinary,
++            ResumeModelSettings::OverrideFromCurrentConfig
++                | ResumeModelSettings::ExplicitFromCurrentConfig { model: true, .. }
++        ));
++        assert_eq!(
++            initial_resume_model_settings(ordinary, Some(Intent::Resume), true),
++            ResumeModelSettings::RestoreFromTermuxReentry
++        );
++        for (intent, qualified) in [
++            (Some(Intent::Select), true),
++            (Some(Intent::Resume), false),
++            (None, true),
++        ] {
++            assert_eq!(
++                initial_resume_model_settings(ordinary, intent, qualified),
++                ordinary
++            );
++        }
++        // The App only remembers that launch model flags selected a route. It
++        // cannot regenerate the initial-only tier restoration intent later.
++        app.termux_routing_flags = true;
++        assert_ne!(
++            app.resume_model_settings(),
++            ResumeModelSettings::RestoreFromTermuxReentry
++        );
++        app.termux_routing_flags = false;
++        assert_eq!(app.resume_model_settings(), ordinary);
+     }
+ 
+     #[tokio::test]
 diff --git a/codex-rs/tui/src/app/daemon_menu.rs b/codex-rs/tui/src/app/daemon_menu.rs
 index ada9e88080..a5a1e670b2 100644
 --- a/codex-rs/tui/src/app/daemon_menu.rs
@@ -660,10 +725,35 @@ index 9203adf62c..672808a541 100644
              Ok(prepared) => prepared,
              Err(control) => return Ok(control),
 diff --git a/codex-rs/tui/src/app/startup.rs b/codex-rs/tui/src/app/startup.rs
-index fca1ef21b6..0f69c52f22 100644
+index fca1ef21b67bb3236dd9ebc3e59801c6a8a62b43..2e80dce3a718e38f342a1a3b4cc9fb90e344abba 100644
 --- a/codex-rs/tui/src/app/startup.rs
 +++ b/codex-rs/tui/src/app/startup.rs
-@@ -938,6 +938,9 @@ impl App {
+@@ -256,6 +256,7 @@
+         mut startup_draft: StartupDraftPump,
+         managed_worktree: Option<crate::ManagedTuiWorktree>,
+         daemon_cli_executable: Option<AbsolutePathBuf>,
++        termux_reentry: Option<crate::termux_reentry::Intent>,
+     ) -> Result<AppExitInfo> {
+         use tokio_stream::StreamExt;
+ 
+@@ -664,10 +665,12 @@
+                 if let Some(history_mode) = target_session.history_mode {
+                     app_server.remember_thread_history_mode(target_session.thread_id, history_mode);
+                 }
+-                let model_settings = config_persistence::resume_model_settings_for_overrides(
+-                    &config,
+-                    &harness_overrides,
+-                );
++                let model_settings =
++                    config_persistence::startup_resume_model_settings_for_overrides(
++                        &config,
++                        &harness_overrides,
++                        termux_reentry,
++                    );
+                 let resumed = match startup_draft
+                     .run_until(
+                         tui,
+@@ -938,6 +941,9 @@
                      started.session.windows_sandbox_host
                  })
          };
@@ -673,10 +763,12 @@ index fca1ef21b6..0f69c52f22 100644
          // This launch warning belongs to the TUI, independent of picker/trust client replacement.
          if let Some(warning) = daemon_startup_warning {
              app_event_tx.send(AppEvent::InsertHistoryCell(Box::new(
-@@ -968,6 +971,10 @@ See the Codex keymap documentation for supported actions and examples."
+@@ -968,6 +974,12 @@
          let agents_overview =
              agents_overview::AgentsOverviewState::new(local_settings.tui.agents_overview_grouping);
          let mut app = Self {
++            #[cfg(unix)]
++            termux_routing_flags: termux_reentry.is_some(),
 +            #[cfg(unix)]
 +            quota_switch: Default::default(),
 +            #[cfg(unix)]
@@ -700,10 +792,10 @@ index 3d1c608ca1..ce94da5326 100644
          config_notification_test_generation: 0,
          config_notification_test_pending: None,
 diff --git a/codex-rs/tui/src/app/tests.rs b/codex-rs/tui/src/app/tests.rs
-index f8d8f9a909..0120534207 100644
+index f8d8f9a90927c3c8982945a5e80eb8d0fa8dbf21..e73bb3e1652ca085a33c45fc73fa8a8bc97784c4 100644
 --- a/codex-rs/tui/src/app/tests.rs
 +++ b/codex-rs/tui/src/app/tests.rs
-@@ -95,7 +95,7 @@ mod recap_generation;
+@@ -95,7 +95,7 @@
  mod resume_shutdown_tests;
  mod safety_buffering;
  #[path = "tests/session_lifecycle_requests.rs"]
@@ -712,10 +804,13 @@ index f8d8f9a909..0120534207 100644
  mod startup;
  #[path = "tests/startup_frame_tests.rs"]
  mod startup_frame_tests;
-@@ -976,6 +976,74 @@ async fn enqueue_primary_thread_session_replays_turns_before_initial_prompt_subm
-     Ok(())
- }
+@@ -973,6 +973,74 @@
+         assert_eq!(app.chat_widget.composer_text_with_pending(), expected);
+     }
  
++    Ok(())
++}
++
 +#[tokio::test]
 +async fn enqueue_primary_thread_session_submits_checkpoint_after_replayed_quota_error() -> Result<()>
 +{
@@ -781,13 +876,10 @@ index f8d8f9a909..0120534207 100644
 +    assert!(history.contains("Previous account reached its usage limit."));
 +    assert_eq!(app.chat_widget.thread_id(), Some(thread));
 +    assert_eq!(app.chat_widget.current_model(), expected_model);
-+    Ok(())
-+}
-+
- #[tokio::test]
- async fn reset_thread_event_state_aborts_listener_tasks() {
-     struct NotifyOnDrop(Option<tokio::sync::oneshot::Sender<()>>);
-@@ -3731,7 +3799,7 @@ async fn remote_resume_rejects_explicit_permission_override() -> Result<()> {
+     Ok(())
+ }
+ 
+@@ -3731,7 +3799,7 @@
              },
              super::resume_preparation::ResumeSource::Backend(&settings),
          )
@@ -796,10 +888,12 @@ index f8d8f9a909..0120534207 100644
      assert!(matches!(result, Err(AppRunControl::Continue)));
      assert_eq!(app.active_thread_id, None);
      let cell = std::iter::from_fn(|| events.try_recv().ok())
-@@ -6546,6 +6614,10 @@ async fn make_test_app() -> Box<App> {
+@@ -6546,6 +6614,12 @@
      let session_telemetry = test_session_telemetry(&config, model.as_str());
  
      Box::new(App {
++        #[cfg(unix)]
++        termux_routing_flags: false,
 +        #[cfg(unix)]
 +        quota_switch: Default::default(),
 +        #[cfg(unix)]
@@ -807,10 +901,12 @@ index f8d8f9a909..0120534207 100644
          feature_write_lock: Arc::default(),
          config_notification_test_generation: 0,
          config_notification_test_pending: None,
-@@ -6673,6 +6745,10 @@ pub(super) async fn make_test_app_with_channels() -> (
+@@ -6673,6 +6747,12 @@
  
      (
          Box::new(App {
++            #[cfg(unix)]
++            termux_routing_flags: false,
 +            #[cfg(unix)]
 +            quota_switch: Default::default(),
 +            #[cfg(unix)]
@@ -818,7 +914,7 @@ index f8d8f9a909..0120534207 100644
              feature_write_lock: Arc::default(),
              config_notification_test_generation: 0,
              config_notification_test_pending: None,
-@@ -7668,7 +7744,7 @@ fn test_turn(turn_id: &str, status: TurnStatus, items: Vec<ThreadItemPayload>) -
+@@ -7668,7 +7748,7 @@
      }
  }
  
@@ -827,7 +923,7 @@ index f8d8f9a909..0120534207 100644
      ServerNotification::TurnStarted(TurnStartedNotification {
          thread_id: thread_id.to_string(),
          turn: Turn {
-@@ -7678,7 +7754,7 @@ fn turn_started_notification(thread_id: ThreadId, turn_id: &str) -> ServerNotifi
+@@ -7678,7 +7758,7 @@
      })
  }
  
@@ -836,7 +932,7 @@ index f8d8f9a909..0120534207 100644
      thread_id: ThreadId,
      turn_id: &str,
      status: TurnStatus,
-@@ -8652,7 +8728,7 @@ async fn in_app_resume_uses_configured_or_explicit_cwd() -> Result<()> {
+@@ -8652,7 +8732,7 @@
                  },
                  super::resume_preparation::ResumeSource::Backend(&settings),
              )
@@ -1050,7 +1146,7 @@ index 9c848858c6..6c796281ae 100644
      OpenFullAccessConfirmation {
          preset: ApprovalPreset,
 diff --git a/codex-rs/tui/src/app_server_session.rs b/codex-rs/tui/src/app_server_session.rs
-index ae79c9ad3d05bb355cca4f3fd7c62235c603c34a..8ee39bccd684efe879011d63fec548028f86c819 100644
+index ae79c9ad3d05bb355cca4f3fd7c62235c603c34a..43a2002281d3013320c7c52b0b0917cff0ae73dc 100644
 --- a/codex-rs/tui/src/app_server_session.rs
 +++ b/codex-rs/tui/src/app_server_session.rs
 @@ -309,6 +309,7 @@
@@ -1061,7 +1157,7 @@ index ae79c9ad3d05bb355cca4f3fd7c62235c603c34a..8ee39bccd684efe879011d63fec54802
      pub(crate) account_email: Option<String>,
      pub(crate) auth_mode: Option<TelemetryAuthMode>,
      pub(crate) status_account_display: Option<StatusAccountDisplay>,
-@@ -379,6 +380,12 @@
+@@ -379,8 +380,17 @@
  pub(crate) enum ResumeModelSettings {
      /// Sends the current config's model, provider, and reasoning effort as explicit overrides.
      OverrideFromCurrentConfig,
@@ -1073,8 +1169,13 @@ index ae79c9ad3d05bb355cca4f3fd7c62235c603c34a..8ee39bccd684efe879011d63fec54802
 +    },
      /// Omits those overrides so app-server restores the settings saved with the thread.
      RestoreFromThread,
++    /// Initial qualified re-entry restores all saved selection, including absent tier.
++    /// Later ordinary resume requests must use `RestoreFromThread` instead.
++    RestoreFromTermuxReentry,
      /// Rejoins a loaded thread without changing any of its existing settings.
-@@ -751,7 +758,7 @@
+     PreserveExistingThread,
+ }
+@@ -751,7 +761,7 @@
  
      pub(crate) async fn bootstrap(&mut self, config: &Config) -> Result<AppServerBootstrap> {
          let started_at = Instant::now();
@@ -1083,7 +1184,7 @@ index ae79c9ad3d05bb355cca4f3fd7c62235c603c34a..8ee39bccd684efe879011d63fec54802
          let mut bootstrap = self.bootstrap_with_account(config, account).await?;
          bootstrap.duration = started_at.elapsed();
          Ok(bootstrap)
-@@ -762,7 +769,7 @@
+@@ -762,7 +772,7 @@
          config: &Config,
      ) -> Result<AppServerBootstrap> {
          let started_at = Instant::now();
@@ -1092,7 +1193,7 @@ index ae79c9ad3d05bb355cca4f3fd7c62235c603c34a..8ee39bccd684efe879011d63fec54802
          let mut bootstrap = self
              .bootstrap_with_account_inner(config, account, EmptyCatalogFallback::ManagedNewThread)
              .await?;
-@@ -776,19 +783,21 @@
+@@ -776,19 +786,21 @@
      pub(crate) async fn bootstrap_with_account(
          &mut self,
          config: &Config,
@@ -1117,7 +1218,7 @@ index ae79c9ad3d05bb355cca4f3fd7c62235c603c34a..8ee39bccd684efe879011d63fec54802
          // `hooks/list` holds the global config queue during startup. Submit models and config
          // requirements together so an uncached model fetch can overlap both config requests.
          let model_request_id = self.next_request_id();
-@@ -849,7 +858,7 @@
+@@ -849,7 +861,7 @@
                  requirements,
              );
          }
@@ -1126,7 +1227,7 @@ index ae79c9ad3d05bb355cca4f3fd7c62235c603c34a..8ee39bccd684efe879011d63fec54802
              available_models = self
                  .constrain_api_key_models(
                      config,
-@@ -898,7 +907,7 @@
+@@ -898,7 +910,7 @@
              plan_type,
              feedback_audience,
              has_chatgpt_account,
@@ -1135,7 +1236,7 @@ index ae79c9ad3d05bb355cca4f3fd7c62235c603c34a..8ee39bccd684efe879011d63fec54802
              Some(Account::ApiKey {}) => (
                  None,
                  Some(TelemetryAuthMode::ApiKey),
-@@ -926,7 +935,7 @@
+@@ -926,7 +938,7 @@
                      Some(StatusAccountDisplay::ChatGpt {
                          email,
                          plan: Some(plan_type_display_name(plan_type)),
@@ -1144,7 +1245,7 @@ index ae79c9ad3d05bb355cca4f3fd7c62235c603c34a..8ee39bccd684efe879011d63fec54802
                      }),
                      Some(plan_type),
                      feedback_audience,
-@@ -940,11 +949,12 @@
+@@ -940,11 +952,12 @@
          };
          Ok(AppServerBootstrap {
              duration: started_at.elapsed(),
@@ -1158,7 +1259,7 @@ index ae79c9ad3d05bb355cca4f3fd7c62235c603c34a..8ee39bccd684efe879011d63fec54802
              default_model,
              feedback_audience,
              has_chatgpt_account,
-@@ -1021,6 +1031,11 @@
+@@ -1021,6 +1034,11 @@
                  "Cloud conversations currently use server-selected permissions."
              );
          }
@@ -1170,7 +1271,7 @@ index ae79c9ad3d05bb355cca4f3fd7c62235c603c34a..8ee39bccd684efe879011d63fec54802
          let request_id = self.next_request_id();
          let session_config = self.session_config_with_effective_service_tier(config);
          let mut params = thread_start_params_from_config(
-@@ -1195,6 +1210,11 @@
+@@ -1195,6 +1213,11 @@
          if self.thread_params_mode == ThreadParamsMode::Cloud {
              color_eyre::eyre::bail!("Cloud conversations cannot be forked in the TUI yet.");
          }
@@ -1182,7 +1283,7 @@ index ae79c9ad3d05bb355cca4f3fd7c62235c603c34a..8ee39bccd684efe879011d63fec54802
          self.thread_tool_transport().validate_config(&config)?;
          let fork_parent = match presentation {
              ForkPresentation::Regular => self
-@@ -1463,6 +1483,53 @@
+@@ -1463,6 +1486,53 @@
          Ok(response.thread)
      }
  
@@ -1236,7 +1337,7 @@ index ae79c9ad3d05bb355cca4f3fd7c62235c603c34a..8ee39bccd684efe879011d63fec54802
      pub(crate) async fn thread_archive(&mut self, thread_id: ThreadId) -> Result<()> {
          let request_id = self.next_request_id();
          let _: ThreadArchiveResponse = self
-@@ -2126,29 +2193,55 @@
+@@ -2126,29 +2196,55 @@
      config: &Config,
      thread_params_mode: ThreadParamsMode,
  ) -> Option<HashMap<String, serde_json::Value>> {
@@ -1305,10 +1406,26 @@ index ae79c9ad3d05bb355cca4f3fd7c62235c603c34a..8ee39bccd684efe879011d63fec54802
          })
          .filter_map(|(key, value)| {
              serde_json::to_value(value)
-@@ -2439,6 +2532,28 @@
+@@ -2426,22 +2522,36 @@
+         })
+         .flatten();
+     let mut config_overrides = config_request_overrides_from_config(&config, thread_params_mode);
+-    if model_settings == ResumeModelSettings::RestoreFromThread
+-        && let Some(overrides) = config_overrides.as_mut()
+-    {
+-        overrides.remove("model_reasoning_effort");
+-        if overrides.is_empty() {
+-            config_overrides = None;
+-        }
+-    }
+     let (model, model_provider) = match model_settings {
+         ResumeModelSettings::OverrideFromCurrentConfig => (
              config.model.clone(),
              provider_selection::explicit_provider(&config),
          ),
+-        ResumeModelSettings::RestoreFromThread | ResumeModelSettings::PreserveExistingThread => {
+-            (None, None)
+-        }
 +        ResumeModelSettings::ExplicitFromCurrentConfig {
 +            model,
 +            provider,
@@ -1331,20 +1448,25 @@ index ae79c9ad3d05bb355cca4f3fd7c62235c603c34a..8ee39bccd684efe879011d63fec54802
 +                provider.then(|| config.model_provider_id.clone()),
 +            )
 +        }
-         ResumeModelSettings::RestoreFromThread | ResumeModelSettings::PreserveExistingThread => {
-             (None, None)
-         }
-@@ -2460,6 +2575,18 @@
++        ResumeModelSettings::RestoreFromThread
++        | ResumeModelSettings::RestoreFromTermuxReentry
++        | ResumeModelSettings::PreserveExistingThread => (None, None),
+     };
+     let mut params = ThreadResumeParams {
+         thread_id: thread_id.to_string(),
+@@ -2460,6 +2570,20 @@
          ),
          ..ThreadResumeParams::default()
      };
-+    #[cfg(unix)]
-+    preserve_saved_termux_selection(
-+        &mut params,
-+        crate::termux_permissions::enabled()
-+            && model_settings == ResumeModelSettings::RestoreFromThread
-+            && std::env::var(crate::termux_chat_models::REENTRY_MODE).as_deref() == Ok("resume"),
-+    );
++    if matches!(
++        model_settings,
++        ResumeModelSettings::RestoreFromThread | ResumeModelSettings::RestoreFromTermuxReentry
++    ) {
++        restore_native_model_selection(
++            &mut params,
++            model_settings == ResumeModelSettings::RestoreFromTermuxReentry,
++        );
++    }
 +    let permission_overrides = crate::termux_permissions::resume_permissions(
 +        &config.permissions.effective_permission_profile(),
 +        permission_overrides,
@@ -1353,31 +1475,27 @@ index ae79c9ad3d05bb355cca4f3fd7c62235c603c34a..8ee39bccd684efe879011d63fec54802
      if thread_params_mode == ThreadParamsMode::Remote || !permission_overrides.approval_policy {
          params.approval_policy = None;
      }
-@@ -2475,6 +2602,32 @@
+@@ -2475,6 +2599,28 @@
          params.runtime_workspace_roots = None;
      }
      params
 +}
 +
-+// A qualified same-thread re-entry uses the Native owner's saved selection.
-+// Launch/profile defaults still configure the route, but are not selections to
-+// write back into the thread. In particular, None is not the enum effort "none".
-+#[cfg(unix)]
-+fn preserve_saved_termux_selection(params: &mut ThreadResumeParams, restore: bool) {
-+    if !restore {
-+        return;
-+    }
++// Native restore omits model/provider/effort in both the public fields and the
++// qualified launch map. Only initial Termux re-entry also restores saved tier;
++// ordinary resume retains its explicit tier contract. None is not effort "none".
++fn restore_native_model_selection(params: &mut ThreadResumeParams, restore_tier: bool) {
 +    params.model = None;
 +    params.model_provider = None;
-+    params.service_tier = None;
++    if restore_tier {
++        params.service_tier = None;
++    }
 +    if let Some(overrides) = params.config.as_mut() {
-+        for key in [
-+            "model",
-+            "model_provider",
-+            "model_reasoning_effort",
-+            "service_tier",
-+        ] {
++        for key in ["model", "model_provider", "model_reasoning_effort"] {
 +            overrides.remove(key);
++        }
++        if restore_tier {
++            overrides.remove("service_tier");
 +        }
 +        if overrides.is_empty() {
 +            params.config = None;
@@ -1386,7 +1504,7 @@ index ae79c9ad3d05bb355cca4f3fd7c62235c603c34a..8ee39bccd684efe879011d63fec54802
  }
  
  fn thread_fork_params_from_config(
-@@ -3117,6 +3270,71 @@
+@@ -3117,6 +3263,71 @@
          Ok(())
      }
  
@@ -1458,7 +1576,7 @@ index ae79c9ad3d05bb355cca4f3fd7c62235c603c34a..8ee39bccd684efe879011d63fec54802
      fn rate_limit_snapshot(limit_id: &str) -> RateLimitSnapshot {
          RateLimitSnapshot {
              limit_id: Some(limit_id.to_string()),
-@@ -4050,6 +4268,139 @@
+@@ -4050,6 +4261,218 @@
          assert_eq!(start.config, Some(expected_config.clone()));
          assert_eq!(resume.config, Some(expected_config.clone()));
          assert_eq!(fork.config, Some(expected_config));
@@ -1568,7 +1686,7 @@ index ae79c9ad3d05bb355cca4f3fd7c62235c603c34a..8ee39bccd684efe879011d63fec54802
 +        );
 +        assert_eq!(params.service_tier, Some(Some("priority".into())));
 +        let ordinary = serde_json::to_value(&params)?;
-+        preserve_saved_termux_selection(&mut params, false);
++        restore_native_model_selection(&mut params, false);
 +        assert_eq!(
 +            serde_json::to_value(&params)?,
 +            ordinary,
@@ -1577,7 +1695,20 @@ index ae79c9ad3d05bb355cca4f3fd7c62235c603c34a..8ee39bccd684efe879011d63fec54802
 +        // Exercise the complete private re-entry boundary even outside Termux's
 +        // process-wide environment: the real config producer supplied these keys.
 +        params.config = Some(launch);
-+        preserve_saved_termux_selection(&mut params, true);
++        restore_native_model_selection(&mut params, false);
++        assert_eq!(params.model, None);
++        assert_eq!(params.model_provider, None);
++        assert_eq!(params.service_tier, Some(Some("priority".into())));
++        let ordinary = params.config.as_ref().unwrap();
++        assert_eq!(ordinary["service_tier"], "priority");
++        assert_eq!(ordinary["personality"], "friendly");
++        for key in ["model", "model_provider", "model_reasoning_effort"] {
++            assert!(
++                !ordinary.contains_key(key),
++                "old route cannot replace a resumed thread's {key}"
++            );
++        }
++        restore_native_model_selection(&mut params, true);
 +        assert_eq!(params.model, None);
 +        assert_eq!(params.model_provider, None);
 +        assert_eq!(params.service_tier, None);
@@ -1595,10 +1726,76 @@ index ae79c9ad3d05bb355cca4f3fd7c62235c603c34a..8ee39bccd684efe879011d63fec54802
 +            );
 +        }
 +        Ok(())
++    }
++
++    #[tokio::test]
++    async fn termux_chat_models_reentry_tier_is_cleared_only_for_initial_restore() -> Result<()> {
++        let home = tempfile::tempdir()?;
++        let config = ConfigBuilder::default()
++            .codex_home(home.path().to_path_buf())
++            .cli_overrides(vec![
++                ("model".into(), "explicit-model".into()),
++                ("model_reasoning_effort".into(), "high".into()),
++                ("service_tier".into(), "priority".into()),
++                ("personality".into(), "friendly".into()),
++            ])
++            .build()
++            .await?;
++        let thread = ThreadId::new();
++        for (settings, tier) in [
++            (ResumeModelSettings::RestoreFromTermuxReentry, None),
++            (
++                ResumeModelSettings::RestoreFromThread,
++                Some(Some("priority".to_owned())),
++            ),
++            (
++                ResumeModelSettings::ExplicitFromCurrentConfig {
++                    model: true,
++                    provider: false,
++                    effort: true,
++                },
++                Some(Some("priority".to_owned())),
++            ),
++        ] {
++            let params = thread_resume_params_from_config(
++                config.clone(),
++                thread,
++                ThreadParamsMode::Embedded,
++                None,
++                settings,
++                crate::resume_permissions::ResumePermissions::default(),
++            );
++            assert_eq!(params.thread_id, thread.to_string());
++            assert_eq!(params.service_tier, tier);
++            if settings == ResumeModelSettings::RestoreFromTermuxReentry {
++                assert_eq!(params.model, None);
++                assert_eq!(params.model_provider, None);
++                let remaining = params.config.expect("unrelated personality remains");
++                assert_eq!(remaining["personality"], "friendly");
++                for key in [
++                    "model",
++                    "model_provider",
++                    "model_reasoning_effort",
++                    "service_tier",
++                ] {
++                    assert!(!remaining.contains_key(key));
++                }
++            } else if matches!(
++                settings,
++                ResumeModelSettings::ExplicitFromCurrentConfig { .. }
++            ) {
++                assert_eq!(params.model.as_deref(), Some("explicit-model"));
++                assert_eq!(
++                    params.config.as_ref().unwrap()["model_reasoning_effort"],
++                    "high"
++                );
++            }
++        }
++        Ok(())
      }
  
      #[tokio::test]
-@@ -4435,6 +4786,29 @@
+@@ -4435,6 +4858,29 @@
          let loaded_items: usize = resumed.turns.iter().map(|turn| turn.items.len()).sum();
          assert!(loaded_items <= HISTORY_ITEM_PAGE_LIMIT as usize);
          assert!(app_server.has_older_history(source_thread_id));
@@ -1629,10 +1826,10 @@ index ae79c9ad3d05bb355cca4f3fd7c62235c603c34a..8ee39bccd684efe879011d63fec54802
          let mut side_config = config;
          side_config.ephemeral = true;
 diff --git a/codex-rs/tui/src/app_server_session/rollout_history.rs b/codex-rs/tui/src/app_server_session/rollout_history.rs
-index b072d8f907..d94586e727 100644
+index b072d8f9072964758f4f0faf615091db258dbaf3..c52e702eabaed4ac264a0fb3c040b5976d59f9d3 100644
 --- a/codex-rs/tui/src/app_server_session/rollout_history.rs
 +++ b/codex-rs/tui/src/app_server_session/rollout_history.rs
-@@ -149,6 +149,68 @@ impl AppServerSession {
+@@ -149,6 +149,68 @@
          .await
      }
  
@@ -1701,7 +1898,7 @@ index b072d8f907..d94586e727 100644
      pub(crate) async fn resume_thread_with_permission_overrides(
          &mut self,
          local_settings: &crate::local_settings::LocalSettings,
-@@ -157,6 +219,13 @@ impl AppServerSession {
+@@ -157,12 +219,21 @@
          model_settings: ResumeModelSettings,
          permission_overrides: crate::resume_permissions::ResumePermissions,
      ) -> Result<AppServerStartedThread> {
@@ -1715,7 +1912,16 @@ index b072d8f907..d94586e727 100644
          if self.thread_params_mode().settings_owner() == ThreadSettingsOwner::Client {
              self.thread_tool_transport().validate_config(&config)?;
          }
-@@ -221,7 +290,6 @@ impl AppServerSession {
+         let session_config = if matches!(
+             model_settings,
+-            ResumeModelSettings::RestoreFromThread | ResumeModelSettings::PreserveExistingThread
++            ResumeModelSettings::RestoreFromThread
++                | ResumeModelSettings::RestoreFromTermuxReentry
++                | ResumeModelSettings::PreserveExistingThread
+         ) {
+             config.clone()
+         } else {
+@@ -221,7 +292,6 @@
                  params: params.clone(),
              })
              .await;
@@ -1723,7 +1929,7 @@ index b072d8f907..d94586e727 100644
          let mut response: ThreadResumeResponse = match resume_response {
              Ok(response) => response,
              Err(TypedRequestError::Server { source, .. })
-@@ -231,7 +299,10 @@ impl AppServerSession {
+@@ -231,7 +301,10 @@
                  params.exclude_turns = false;
                  let request_id = self.next_request_id();
                  self.request_handle
@@ -1735,7 +1941,7 @@ index b072d8f907..d94586e727 100644
                      .await
                      .map_err(|err| {
                          bootstrap_request_error("thread/resume failed during TUI bootstrap", err)
-@@ -244,6 +315,18 @@ impl AppServerSession {
+@@ -244,6 +317,18 @@
                  ));
              }
          };
@@ -3478,13 +3684,17 @@ index 9fa654fb1f..c68d4ee021 100644
              delivery: MessageDelivery::Unsent,
              pending_pastes: Vec::new(),
 diff --git a/codex-rs/tui/src/cli.rs b/codex-rs/tui/src/cli.rs
-index ca006e91b1..13ef6f3987 100644
+index ca006e91b15a0111ebb88586a207076bf2042844..f42bfe62d7008fb65c68228716c6dd8992fef220 100644
 --- a/codex-rs/tui/src/cli.rs
 +++ b/codex-rs/tui/src/cli.rs
-@@ -9,6 +9,10 @@ use codex_utils_cli::SharedCliOptions;
+@@ -9,6 +9,14 @@
  #[derive(Parser, Clone, Debug)]
  #[command(version)]
  pub struct Cli {
++    /// Private launch intent captured before the executable starts any threads.
++    #[clap(skip)]
++    pub termux_reentry: Option<crate::termux_reentry::Intent>,
++
 +    /// Private signed-helper capability query; no configuration or UI.
 +    #[arg(long, hide = true)]
 +    pub termux_backend_capabilities: bool,
@@ -3652,10 +3862,10 @@ index 66f407a510..0afac1483a 100644
      }
  
 diff --git a/codex-rs/tui/src/lib.rs b/codex-rs/tui/src/lib.rs
-index e1bf6223ed..b2429bd7c6 100644
+index e1bf6223edb5691839bf92ed5b09d8e3266a81ce..5ad21b0d3bca1d2f97bcb2bb41d14c2ef02f071a 100644
 --- a/codex-rs/tui/src/lib.rs
 +++ b/codex-rs/tui/src/lib.rs
-@@ -41,7 +41,6 @@ pub use codex_app_server_client::RemoteAppServerEndpoint;
+@@ -41,7 +41,6 @@
  use codex_app_server_protocol::Account as AppServerAccount;
  use codex_app_server_protocol::AskForApproval;
  use codex_app_server_protocol::ConfigWarningNotification;
@@ -3663,7 +3873,7 @@ index e1bf6223ed..b2429bd7c6 100644
  use codex_app_server_protocol::Thread as AppServerThread;
  use codex_app_server_protocol::ThreadListCwdFilter;
  use codex_app_server_protocol::ThreadListParams;
-@@ -103,6 +102,7 @@ pub(crate) use codex_app_server_client::legacy_core;
+@@ -103,6 +102,7 @@
  
  pub(crate) use worktree_startup::ManagedTuiWorktree;
  
@@ -3671,7 +3881,7 @@ index e1bf6223ed..b2429bd7c6 100644
  mod activation_key_guard;
  mod additional_dirs;
  mod analytics;
-@@ -138,7 +138,13 @@ mod experimental_features;
+@@ -138,7 +138,13 @@
  mod markdown_copy;
  mod permission_discovery;
  mod pets;
@@ -3685,7 +3895,7 @@ index e1bf6223ed..b2429bd7c6 100644
  mod worktree_browser;
  pub use custom_terminal::Terminal;
  mod assistant_directives;
-@@ -233,6 +239,10 @@ mod terminal_probe;
+@@ -233,6 +239,10 @@
  mod terminal_size_telemetry;
  mod terminal_title;
  mod terminal_visualization_instructions;
@@ -3696,7 +3906,15 @@ index e1bf6223ed..b2429bd7c6 100644
  mod text_formatting;
  mod text_selection;
  mod theme_picker;
-@@ -1096,7 +1106,7 @@ fn app_server_target_for_launch(
+@@ -281,6 +291,7 @@
+ use crate::startup_hooks_review::maybe_run_startup_hooks_review;
+ use crate::tui::Tui;
+ pub use cli::Cli;
++pub mod termux_reentry;
+ use codex_arg0::Arg0DispatchPaths;
+ pub use markdown_render::render_markdown_text;
+ pub use public_widgets::composer_input::ComposerAction;
+@@ -1096,7 +1107,7 @@
                  allow_embedded_fallback: false,
              }
          }
@@ -3705,7 +3923,7 @@ index e1bf6223ed..b2429bd7c6 100644
          // A shared daemon cannot adopt this invocation's executor selection.
          None if can_reuse_implicit_local_daemon && exec_server_url.is_none() => {
              default_daemon_socket.map_or(AppServerTarget::Embedded, |socket_path| {
-@@ -1174,18 +1184,36 @@ pub async fn run_main(
+@@ -1174,18 +1185,36 @@
      loader_overrides: LoaderOverrides,
      explicit_remote_endpoint: Option<RemoteAppServerEndpoint>,
  ) -> std::io::Result<AppExitInfo> {
@@ -3744,7 +3962,7 @@ index e1bf6223ed..b2429bd7c6 100644
              Err(err) if startup_draft::StartupCancelled::matches(&err) => Ok(AppExitInfo {
                  token_usage: TokenUsage::default(),
                  thread_id: None,
-@@ -1280,9 +1308,24 @@ async fn run_ratatui_app(
+@@ -1280,9 +1309,24 @@
      // Initialize high-fidelity session event logging if enabled.
      session_log::maybe_init(&initial_config);
  
@@ -3771,7 +3989,7 @@ index e1bf6223ed..b2429bd7c6 100644
              start_app_server(
                  &mut app_server_target,
                  arg0_paths.clone(),
-@@ -1296,8 +1339,9 @@ async fn run_ratatui_app(
+@@ -1296,8 +1340,9 @@
                  &mut state_db,
                  environment_manager.clone(),
                  embedded_network_policy.clone(),
@@ -3783,7 +4001,7 @@ index e1bf6223ed..b2429bd7c6 100644
          .await;
      tui.terminal_size_tags =
          launch_telemetry.record(&app_server_target, matches!(&startup_app_server, Ok(Ok(_))));
-@@ -1360,7 +1404,10 @@ async fn run_ratatui_app(
+@@ -1360,7 +1405,10 @@
              unreachable!("app server should exist when auth is required");
          };
          let login_status = startup_draft
@@ -3795,7 +4013,7 @@ index e1bf6223ed..b2429bd7c6 100644
              .await;
          match login_status {
              Ok(Ok((login_status, account))) => (login_status, Some(account)),
-@@ -1377,10 +1424,22 @@ async fn run_ratatui_app(
+@@ -1377,10 +1425,22 @@
      // Workload identity bypasses interactive login; every other provider uses account/read.
      let requires_openai_auth = startup_account
          .as_ref()
@@ -3820,7 +4038,7 @@ index e1bf6223ed..b2429bd7c6 100644
          should_show_trust_screen_flag,
      );
  
-@@ -1391,17 +1450,17 @@ async fn run_ratatui_app(
+@@ -1391,17 +1451,17 @@
          }
          // Authentication can change while any interactive onboarding screen is open.
          startup_account = None;
@@ -3841,7 +4059,7 @@ index e1bf6223ed..b2429bd7c6 100644
              &initial_config,
              &app_server_target,
              Feature::GcpSetupWizard,
-@@ -1880,50 +1939,153 @@ async fn run_ratatui_app(
+@@ -1880,50 +1940,154 @@
      let uses_embedded_network_policy = app_server_target.uses_embedded_network_policy();
      // A startup picker may consume its connection, but its selection keeps that backend.
      app_server_target.preserve_selected_backend(&session_selection);
@@ -3866,9 +4084,6 @@ index e1bf6223ed..b2429bd7c6 100644
 -                ),
 -            )
 -            .await
--        {
--            Ok(Ok(app_server)) => {
--                // A picker can replace the server; account reads belong to their original session.
 +    let mut app_server = loop {
 +        #[cfg(unix)]
 +        let live_owner = {
@@ -3904,25 +4119,9 @@ index e1bf6223ed..b2429bd7c6 100644
 +                }
 +            };
 +            if app_server_target != before {
-                 startup_account = None;
--                AppServerSession::new(
--                    backend_id,
--                    app_server,
--                    app_server_target.thread_params_mode(),
--                )
--                .with_local_codex_home(&config.codex_home)
--                .with_remote_cwd_override(remote_cwd_override.clone())
--            }
--            Ok(Err(err)) => {
--                terminal_restore_guard.restore_silently();
--                session_log::log_session_end();
--                return Err(err);
++                startup_account = None;
 +                shutdown_app_server_if_present(app_server.take()).await;
-             }
--            Err(err) => {
--                terminal_restore_guard.restore_silently();
--                session_log::log_session_end();
--                return Err(err.into());
++            }
 +            owned
 +        };
 +        let mut session = match app_server.take() {
@@ -3978,17 +4177,40 @@ index e1bf6223ed..b2429bd7c6 100644
 +            && config.model_catalog.is_none()
 +            && let resume_picker::SessionSelection::Resume(target)
 +            | resume_picker::SessionSelection::Fork(target) = &session_selection
-+        {
+         {
+-            Ok(Ok(app_server)) => {
+-                // A picker can replace the server; account reads belong to their original session.
+-                startup_account = None;
+-                AppServerSession::new(
+-                    backend_id,
+-                    app_server,
+-                    app_server_target.thread_params_mode(),
+-                )
+-                .with_local_codex_home(&config.codex_home)
+-                .with_remote_cwd_override(remote_cwd_override.clone())
+-            }
+-            Ok(Err(err)) => {
+-                terminal_restore_guard.restore_silently();
+-                session_log::log_session_end();
+-                return Err(err);
+-            }
+-            Err(err) => {
+-                terminal_restore_guard.restore_silently();
+-                session_log::log_session_end();
+-                return Err(err.into());
+-            }
+-        },
 +            let restored = startup_draft
 +                .run_until(&mut tui, async {
 +                    let saved = session.thread_read(target.thread_id, false).await?;
-+                    let selected = match app::config_persistence::resume_model_settings_for_overrides(
-+                        &config, &overrides,
++                    let selected = match app::config_persistence::startup_resume_model_settings_for_overrides(
++                        &config, &overrides, cli.termux_reentry,
 +                    ) {
 +                        crate::app_server_session::ResumeModelSettings::OverrideFromCurrentConfig
 +                        | crate::app_server_session::ResumeModelSettings::ExplicitFromCurrentConfig { model: true, .. } =>
 +                            config.model.as_deref(),
 +                        crate::app_server_session::ResumeModelSettings::RestoreFromThread
++                            | crate::app_server_session::ResumeModelSettings::RestoreFromTermuxReentry
 +                            | crate::app_server_session::ResumeModelSettings::PreserveExistingThread
 +                            | crate::app_server_session::ResumeModelSettings::ExplicitFromCurrentConfig { model: false, .. } =>
 +                            saved.model.as_deref(),
@@ -3999,7 +4221,7 @@ index e1bf6223ed..b2429bd7c6 100644
 +                    {
 +                        let catalog = crate::termux_chat_models::live_catalog(&config).await
 +                            .map_err(color_eyre::eyre::Report::msg)?;
-+                        let effort = match app::config_persistence::resume_model_settings_for_overrides(&config, &overrides) {
++                        let effort = match app::config_persistence::startup_resume_model_settings_for_overrides(&config, &overrides, cli.termux_reentry) {
 +                            crate::app_server_session::ResumeModelSettings::OverrideFromCurrentConfig
 +                            | crate::app_server_session::ResumeModelSettings::ExplicitFromCurrentConfig { effort: true, .. } => config.model_reasoning_effort.clone(),
 +                            _ => saved.reasoning_effort.clone(),
@@ -4029,14 +4251,29 @@ index e1bf6223ed..b2429bd7c6 100644
 +                    shutdown_startup_session(Some(session), &mut terminal_restore_guard).await;
 +                    return Err(error);
 +                }
-             }
--        },
++            }
 +        }
 +        break session;
      };
  
      if let resume_picker::SessionSelection::Resume(target)
-@@ -2322,9 +2484,10 @@ pub enum LoginStatus {
+@@ -2107,6 +2271,7 @@
+     let should_prompt_windows_sandbox_nux_at_startup = false;
+ 
+     let Cli {
++        termux_reentry,
+         prompt,
+         shared,
+         daemon_cli_executable,
+@@ -2235,6 +2400,7 @@
+         startup_draft,
+         managed_worktree,
+         daemon_cli_executable,
++        termux_reentry,
+     ))
+     .await;
+ 
+@@ -2322,9 +2488,10 @@
  /// Reads the account once to determine login status and preserve the response for bootstrap.
  async fn get_login_status(
      app_server: &mut AppServerSession,
@@ -4437,3 +4674,75 @@ index dd48bb15cbb3d73aca91b38a9efa56e22181ceba..c11a1c3da3604662156b88d0f5a381ec
          let threads = list_pinned_threads(&app_server.request_handle())
              .await
              .map_err(color_eyre::eyre::Report::msg)?
+
+diff --git a/codex-rs/cli/src/main.rs b/codex-rs/cli/src/main.rs
+index 1c3fe17c1cfb536c5402453f6efabd87548ea1e9..dcef49a93d549e1c0c94889cdb9a7a54ab9dca4b 100644
+--- a/codex-rs/cli/src/main.rs
++++ b/codex-rs/cli/src/main.rs
+@@ -1037,9 +1037,17 @@
+ fn main() -> anyhow::Result<()> {
+     codex_build_info::initialize!();
+     let remote_control_disabled = codex_app_server::take_remote_control_disabled_env();
++    // SAFETY: arg0 dispatch creates the first runtime/worker threads below.
++    let termux_reentry = unsafe { codex_tui::termux_reentry::take_before_threads() };
+     arg0_dispatch_or_else(move |arg0_paths: Arg0DispatchPaths| async move {
+         // Finish polling the large subcommand dispatcher before polling interactive TUI events.
+-        if let Some(tui) = Box::pin(dispatch_cli(arg0_paths, remote_control_disabled)).await? {
++        if let Some(tui) = Box::pin(dispatch_cli(
++            arg0_paths,
++            remote_control_disabled,
++            termux_reentry,
++        ))
++        .await?
++        {
+             tui.await?;
+         }
+         Ok(())
+@@ -1049,6 +1057,7 @@
+ async fn dispatch_cli(
+     arg0_paths: Arg0DispatchPaths,
+     remote_control_disabled: bool,
++    termux_reentry: Option<codex_tui::termux_reentry::Intent>,
+ ) -> anyhow::Result<Option<impl Future<Output = anyhow::Result<()>>>> {
+     let MultitoolCli {
+         config_overrides: mut root_config_overrides,
+@@ -1058,6 +1067,7 @@
+         subcommand,
+     } = config_override_args::try_parse_from(std::env::args_os())
+         .unwrap_or_else(|error| error.exit());
++    interactive.termux_reentry = termux_reentry;
+     // Retain the launch target through TUI exit, even if a launcher changes selection.
+     let daemon_cli_executable = arg0_paths
+         .codex_self_exe
+
+diff --git a/codex-rs/tui/src/main.rs b/codex-rs/tui/src/main.rs
+index 1e5c8d2513d8422075c8dde16c82d8ef0f2c0047..8407d89431ac1a3a5bc2c608f02d5401fc7ed6f3 100644
+--- a/codex-rs/tui/src/main.rs
++++ b/codex-rs/tui/src/main.rs
+@@ -24,9 +24,12 @@
+ 
+ fn main() -> anyhow::Result<()> {
+     codex_build_info::initialize!();
+-    arg0_dispatch_or_else(|arg0_paths: Arg0DispatchPaths| async move {
++    // SAFETY: no arg0 helper, runtime or worker thread has started yet.
++    let termux_reentry = unsafe { codex_tui::termux_reentry::take_before_threads() };
++    arg0_dispatch_or_else(move |arg0_paths: Arg0DispatchPaths| async move {
+         let top_cli = TopCli::parse();
+         let mut inner = top_cli.inner;
++        inner.termux_reentry = termux_reentry;
+         inner
+             .config_overrides
+             .raw_overrides
+
+diff --git a/codex-rs/tui/src/app/tests/startup_defaults_tests.rs b/codex-rs/tui/src/app/tests/startup_defaults_tests.rs
+index 5b6c38053a042093679f09e87c8092d11e459f4d..b0c96ac2bbf69bb6e84d811867fc12d5e7031c79 100644
+--- a/codex-rs/tui/src/app/tests/startup_defaults_tests.rs
++++ b/codex-rs/tui/src/app/tests/startup_defaults_tests.rs
+@@ -50,6 +50,7 @@
+         crate::startup_draft::tests::quiet_startup_test_pump(),
+         /*managed_worktree*/ None,
+         /*daemon_cli_executable*/ None,
++        /*termux_reentry*/ None,
+     )
+     .await
+ }

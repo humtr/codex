@@ -57,6 +57,24 @@ Show invalid configuration and unapplied changes clearly. No settings read/edit
 may submit Chat or create a project. Unknown keys/types and inconsistent limits
 must be diagnosed, not silently ignored. Avoid secret values in status output.
 
+### Existing-thread UI re-entry
+
+A qualified execution-profile or model re-entry may request the existing Native
+thread's saved selection for its initial resume. Capture that launch intent once,
+before the frontend starts threads, and pass it explicitly to initial startup.
+Do not read a persistent process environment marker to decide later ordinary
+resume overrides. Explicit selection mode keeps its model/effort choice; later
+ordinary resume retains its normal explicit service-tier contract.
+
+The private handoff is bound to the process replaced by `exec`. Its PID is an
+intent-lifetime check, not Owner, Writer or account authority. A spawned child,
+missing or mismatched binding, unknown mode or legacy unbound marker must not
+silently override ordinary CLI selection. Remove the intent after capture and
+from every Core-launched Runtime child. Existing valid Core/Manager/owner exec
+transits may rebind the already captured typed intent; they do not manufacture a
+new thread or transfer a Writer. Older signed generations remain immutable, and
+cross-generation private handoffs require compatible producers and consumers.
+
 ## App host and authenticated identity
 
 The candidate `host.rootfs` field selects an explicitly provisioned official-app

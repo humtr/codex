@@ -93,7 +93,14 @@ pub(crate) async fn reenter_owner(
         if owner.execution_home.as_path() != current.as_path() {
             use std::os::unix::process::CommandExt;
             let invocation: Vec<_> = std::env::args_os().skip(1).collect();
-            return Err(owner_reentry_command(&core, thread, socket_path, &invocation)?.exec());
+            return Err(owner_reentry_command(
+                &core,
+                thread,
+                socket_path,
+                &invocation,
+                cli.termux_reentry,
+            )?
+            .exec());
         }
     }
     Ok(())
@@ -104,6 +111,7 @@ fn owner_reentry_command(
     thread: codex_protocol::ThreadId,
     socket: &Path,
     invocation: &[OsString],
+    intent: Option<crate::termux_reentry::Intent>,
 ) -> std::io::Result<std::process::Command> {
     let mut injected = OsString::from("unix://");
     injected.push(socket);
@@ -115,6 +123,7 @@ fn owner_reentry_command(
     let mut command = std::process::Command::new(core);
     command.args(["termux", "__task-reentry-v1", &thread.to_string(), "--"]);
     command.args(&invocation[2..]);
+    crate::termux_reentry::configure_exec(&mut command, intent);
     Ok(command)
 }
 
@@ -324,8 +333,9 @@ mod tests {
         .collect();
         invocation.push(thread.to_string().into());
         invocation.push(OsString::from_vec(b"opaque-\xff".to_vec()));
-        let output = owner_reentry_command(&core, thread, Path::new("/owned/socket"), &invocation)?
-            .output()?;
+        let output =
+            owner_reentry_command(&core, thread, Path::new("/owned/socket"), &invocation, None)?
+                .output()?;
         assert!(output.status.success());
         let mut expected = format!("termux\0__task-reentry-v1\0{thread}\0--\0").into_bytes();
         for argument in &invocation[2..] {
@@ -334,10 +344,55 @@ mod tests {
         }
         assert_eq!(output.stdout, expected);
         assert!(
-            owner_reentry_command(&core, thread, Path::new("/another/socket"), &invocation)
-                .is_err()
+            owner_reentry_command(
+                &core,
+                thread,
+                Path::new("/another/socket"),
+                &invocation,
+                None
+            )
+            .is_err()
         );
         Ok(())
+    }
+
+    #[test]
+    fn termux_chat_models_owner_reentry_rebinds_consumed_intent_only_for_exec() {
+        use crate::termux_reentry::{ENV, Intent, OWNER_PID_ENV};
+        let thread = codex_protocol::ThreadId::new();
+        let invocation = [
+            OsString::from("--remote"),
+            OsString::from("unix:///owned/socket"),
+            OsString::from("resume"),
+            OsString::from(thread.to_string()),
+        ];
+        for intent in [None, Some(Intent::Select), Some(Intent::Resume)] {
+            let command = owner_reentry_command(
+                Path::new("/owned/core"),
+                thread,
+                Path::new("/owned/socket"),
+                &invocation,
+                intent,
+            )
+            .unwrap();
+            let mode = match intent {
+                None => None,
+                Some(Intent::Select) => Some("select"),
+                Some(Intent::Resume) => Some("resume"),
+            };
+            assert!(
+                command
+                    .get_envs()
+                    .any(|(key, value)| key == ENV && value == mode.map(std::ffi::OsStr::new))
+            );
+            let pid = intent.map(|_| std::process::id().to_string());
+            assert!(command.get_envs().any(|(key, value)| key == OWNER_PID_ENV
+                && value == pid.as_deref().map(std::ffi::OsStr::new)));
+            assert_eq!(
+                command.get_args().last(),
+                Some(std::ffi::OsStr::new(&thread.to_string()))
+            );
+        }
     }
 
     #[tokio::test]

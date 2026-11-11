@@ -102,15 +102,15 @@ impl ChatModelReentry {
         command
             .args(&self.args)
             .current_dir(&self.cwd)
-            .env("CODEX_HOME", &self.home)
-            .env(
-                termux_chat_models::REENTRY_MODE,
-                if self.restore_saved {
-                    "resume"
-                } else {
-                    "select"
-                },
-            );
+            .env("CODEX_HOME", &self.home);
+        crate::termux_reentry::configure_exec(
+            &mut command,
+            Some(if self.restore_saved {
+                crate::termux_reentry::Intent::Resume
+            } else {
+                crate::termux_reentry::Intent::Select
+            }),
+        );
         if let Some(profile) = &self.return_profile {
             command.env("CODEX_CHAT_RETURN_PROFILE", profile);
         } else {
@@ -941,7 +941,7 @@ args=["token","--state","/owned/state"]
         let cmd = request.command();
         assert!(
             cmd.get_envs()
-                .any(|(key, value)| key == termux_chat_models::REENTRY_MODE
+                .any(|(key, value)| key == crate::termux_reentry::ENV
                     && value == Some(std::ffi::OsStr::new("select")))
         );
         assert_eq!(
