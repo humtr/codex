@@ -48,14 +48,24 @@ Actions artifact transfer wraps the verified six-file raw directory in one
 transport helper admits only bounded, unique, flat regular members, restores
 their recorded modes into an absent private directory, then invokes the same
 Rust verifier. It does not infer executable modes or repair a rejected input.
-The selected successful run, exact source and artifact authority remain the
-workflow's responsibility. The local/raw compiler cache retains its original
-directory format and is verified directly; an advertised loose Actions artifact
-is a transfer failure, not a reason to rebuild or choose another run.
-Local execution and remote runners call the same Rust producer. Recipe fingerprints
-bind its source/preparation/normalization code, exact upstream tuple, lock audit,
-toolchain and build settings; a Core-only commit cannot invalidate that raw
-runtime recipe. Signed component metadata's `runtime_inputs_sha256` additionally
+The selected original producer source, run, job and immutable Actions artifact
+ID/digest remain the workflow's responsibility. The downloader checks the exact
+API-bound ZIP digest and byte count before admitting its single `runtime.tar`.
+An advertised loose or mismatched Actions artifact is a transfer failure, not a
+reason to rebuild, chmod-repair or choose another run. Remote raw reuse does not
+trust a loose cache or a self-authenticating receipt stored beside its bytes.
+Local execution and remote runners call the same Rust producer. The raw compiler
+identity binds source/preparation/normalization code, the exact upstream tuple,
+lock audit, dependency closure, Cargo compiler settings, toolchain and build steps.
+Only audited exact effect-isolated transport/control steps are normalized away;
+new or changed setup, environment and unclassified steps remain bound. Consumer
+transport validation and identity calculation are not upstream compiler inputs.
+Cargo compile caches remain optimization inputs that Cargo must revalidate.
+A completed original producer job can supply identical raw inputs even if another
+job of its parent run failed. Its source/run/job/artifact and file digests remain
+in `termux-runtime-production`; this records production, not qualification.
+Every current consumer reruns the Rust verifier and its exact-source qualification.
+An absent or expired original artifact permits fresh production; it never authorizes guessed reuse. Signed component metadata's `runtime_inputs_sha256` additionally
 binds the Rust release-builder/runtime-binding adaptation sources and builder
 Rust toolchain when reusing already-adapted published runtime bytes. Legacy metadata
 without that field remains admissible for installation but does not authorize

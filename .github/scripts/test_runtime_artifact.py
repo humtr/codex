@@ -33,7 +33,7 @@ def workflow_step(name, openssl):
     marker = '--openssl /usr/bin/openssl'
     expected_uses = {
         'Package runtime and preparation evidence with original modes': 1,
-        'Verify reusable raw runtime before qualification': 2,
+        'Verify reusable raw runtime before qualification': 1,
     }
     if step.count(marker) != expected_uses[name]:
         raise AssertionError('runtime workflow changed its pinned OpenSSL verifier calls')
@@ -225,7 +225,7 @@ class RuntimeTransferTests(unittest.TestCase):
                 self.assertFalse((root / 'restored').exists(), fault)
                 self.assertFalse((root / 'escaped').exists())
 
-    def test_reusable_raw_workflow_distinguishes_cache_from_actions_transfer(self):
+    def test_raw_workflow_admits_original_production_but_never_an_unbound_cache(self):
         for qualified, rejected in ((False, False), (False, True), (True, False), (True, True)):
             with self.subTest(qualified=qualified, rejected=rejected), tempfile.TemporaryDirectory() as temporary:
                 root = Path(temporary)
@@ -247,17 +247,20 @@ class RuntimeTransferTests(unittest.TestCase):
                         (root / 'runtime-transfer/codex').write_bytes(b'old loose runtime')
                 elif rejected:
                     (original / 'codex').chmod(0o644)
-                env = {**os.environ, 'QUALIFIED_RUN': '123' if qualified else '',
+                env = {**os.environ, 'PRODUCTION_RUN': '123' if qualified else '',
                        'CACHE_HIT': '' if qualified else 'true', 'RUNNER_TEMP': str(root),
                        'GITHUB_WORKSPACE': str(root), 'GITHUB_OUTPUT': str(root / 'outputs'),
                        'CODEX_RELEASE_BUILDER': str(self.builder)}
                 result = subprocess.run(['bash', '-c', workflow_step('Verify reusable raw runtime before qualification', self.openssl)],
                     cwd=root, env=env, capture_output=True, text=True)
-                self.assertEqual(result.returncode == 0, not rejected, result.stderr)
+                self.assertEqual(result.returncode == 0, not (qualified and rejected), result.stderr)
                 self.assertEqual((root / 'outputs').read_text() if (root / 'outputs').exists() else '',
-                                 '' if rejected else 'reuse=true\n')
-                if not rejected:
+                                 'reuse=true\n' if qualified and not rejected else '')
+                if qualified and not rejected:
                     self.assertEqual(self.verify(root / 'runtime-artifact').returncode, 0)
+                if not qualified:
+                    # Even a self-consistent loose cache grants no production admission.
+                    self.assertEqual((original/'codex').stat().st_mode&0o777,0o644 if rejected else 0o700)
 
 
 if __name__ == '__main__':

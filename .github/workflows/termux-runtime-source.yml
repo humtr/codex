@@ -51,7 +51,7 @@ jobs:
           path: ${{ runner.temp }}/runtime-base
           if-no-files-found: error
           retention-days: 7
-      - name: Resolve exact-source qualified runtime artifact
+      - name: Resolve production-equivalent raw runtime artifact
         if: steps.base.outputs.reuse_runtime != 'true'
         id: qualified
         env:
@@ -59,21 +59,18 @@ jobs:
           SOURCE_SHA: ${{ inputs.source_sha }}
         run: |
           set -euo pipefail
-          PYTHONPATH=source/.github/scripts python3 - <<'PYTHON' >> "$GITHUB_OUTPUT"
-          import os
-          from qualification_signal import qualified_runtime_run
-          run = qualified_runtime_run(os.environ['SOURCE_SHA'])
-          if run is not None:
-              print('run_id='+str(run))
-          PYTHON
-      - name: Download the qualified runtime across workflow refs
+          # Production reuse is not source qualification. The current consumer
+          # still verifies and qualifies its own exact source and component bytes.
+          python3 source/.github/scripts/runtime_production.py resolve \
+            --source source --selection "$RUNNER_TEMP/runtime-selection.json" >> "$GITHUB_OUTPUT"
+      - name: Download original raw runtime production
         if: steps.qualified.outputs.run_id != ''
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
-        with:
-          github-token: ${{ github.token }}
-          run-id: ${{ steps.qualified.outputs.run_id }}
-          name: termux-runtime-source
-          path: ${{ runner.temp }}/runtime-transfer
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python3 source/.github/scripts/runtime_production.py download --source source \
+            --selection "$RUNNER_TEMP/runtime-selection.json" --transfer "$RUNNER_TEMP/runtime-transfer"
       - name: Provision exact official build toolchain
         if: steps.base.outputs.reuse_runtime != 'true'
         run: |
@@ -83,7 +80,7 @@ jobs:
       - name: Resolve portable runtime recipe
         if: steps.base.outputs.reuse_runtime != 'true'
         id: recipe
-        run: echo "fingerprint=$(python3 source/.github/scripts/runtime_inputs.py)" >> "$GITHUB_OUTPUT"
+        run: echo "fingerprint=$(python3 source/.github/scripts/runtime_inputs.py --production)" >> "$GITHUB_OUTPUT"
       - name: Build shared Rust source preparation
         if: steps.base.outputs.reuse_runtime != 'true'
         run: |
@@ -91,29 +88,17 @@ jobs:
           CARGO_TARGET_DIR="$RUNNER_TEMP/source-tools" cargo "+$RUST_VERSION" build \
             --manifest-path source/Cargo.toml --release --locked -p codex-release-builder
           echo "CODEX_RELEASE_BUILDER=$RUNNER_TEMP/source-tools/release/codex-release-builder" >> "$GITHUB_ENV"
-      - name: Restore completed raw build for identical production inputs
-        if: steps.base.outputs.reuse_runtime != 'true' && steps.qualified.outputs.run_id == ''
-        id: raw-cache
-        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830
-        with:
-          path: ${{ runner.temp }}/runtime-artifact
-          key: termux-raw-runtime-v1-${{ steps.recipe.outputs.fingerprint }}
       - name: Verify reusable raw runtime before qualification
         if: steps.base.outputs.reuse_runtime != 'true'
         id: raw
         env:
-          QUALIFIED_RUN: ${{ steps.qualified.outputs.run_id }}
-          CACHE_HIT: ${{ steps.raw-cache.outputs.cache-hit }}
+          PRODUCTION_RUN: ${{ steps.qualified.outputs.run_id }}
         run: |
           set -euo pipefail
-          if test -n "$QUALIFIED_RUN"; then
+          if test -n "$PRODUCTION_RUN"; then
             python3 source/.github/scripts/runtime_artifact.py unpack \
               --transfer "$RUNNER_TEMP/runtime-transfer" --artifact "$RUNNER_TEMP/runtime-artifact" \
               --builder "$CODEX_RELEASE_BUILDER" \
-              --recipe "$GITHUB_WORKSPACE/source/release/upstream.json" --openssl /usr/bin/openssl
-            echo 'reuse=true' >> "$GITHUB_OUTPUT"
-          elif test "$CACHE_HIT" = true; then
-            "$CODEX_RELEASE_BUILDER" verify-runtime --artifact "$RUNNER_TEMP/runtime-artifact" \
               --recipe "$GITHUB_WORKSPACE/source/release/upstream.json" --openssl /usr/bin/openssl
             echo 'reuse=true' >> "$GITHUB_OUTPUT"
           fi
@@ -172,12 +157,6 @@ jobs:
             --target-dir "$CARGO_TARGET_DIR" \
             --rustc "$(command -v rustc)" --cargo "$(command -v cargo)" --openssl /usr/bin/openssl \
             --output "$RUNNER_TEMP/runtime-artifact"
-      - name: Cache completed raw build without granting admission
-        if: steps.build.outcome == 'success' && steps.raw-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830
-        with:
-          path: ${{ runner.temp }}/runtime-artifact
-          key: termux-raw-runtime-v1-${{ steps.recipe.outputs.fingerprint }}
       - name: Package runtime and preparation evidence with original modes
         if: ${{ !cancelled() && (steps.build.outcome == 'success' || steps.raw.outputs.reuse == 'true') }}
         id: transfer
@@ -188,11 +167,41 @@ jobs:
             --builder "$CODEX_RELEASE_BUILDER" \
             --recipe "$GITHUB_WORKSPACE/source/release/upstream.json" --openssl /usr/bin/openssl
       - name: Retain runtime and preparation evidence
+        id: raw-upload
         if: ${{ !cancelled() && steps.transfer.outcome == 'success' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: termux-runtime-source
           path: ${{ runner.temp }}/runtime-upload/runtime.tar
+          if-no-files-found: error
+          retention-days: 7
+      - name: Record original raw runtime production identity
+        id: production
+        if: steps.raw-upload.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRODUCTION_RUN: ${{ steps.qualified.outputs.run_id }}
+        run: |
+          set -euo pipefail
+          # The current Rust verifier and immutable archive upload have succeeded.
+          if test -n "$PRODUCTION_RUN"; then
+            python3 source/.github/scripts/runtime_production.py record --source source \
+              --artifact "$RUNNER_TEMP/runtime-artifact" --selection "$RUNNER_TEMP/runtime-selection.json" \
+              --receipt "$RUNNER_TEMP/runtime-production.json" --consumer "$RUNNER_TEMP/runtime-consumer.json"
+          else
+            python3 source/.github/scripts/runtime_production.py record --source source \
+              --artifact "$RUNNER_TEMP/runtime-artifact" --run-id "$GITHUB_RUN_ID" \
+              --artifact-id '${{ steps.raw-upload.outputs.artifact-id }}' \
+              --receipt "$RUNNER_TEMP/runtime-production.json" --consumer "$RUNNER_TEMP/runtime-consumer.json"
+          fi
+      - name: Retain original raw runtime production receipt
+        if: ${{ !cancelled() && steps.production.outcome == 'success' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: termux-runtime-production
+          path: |
+            ${{ runner.temp }}/runtime-production.json
+            ${{ runner.temp }}/runtime-consumer.json
           if-no-files-found: error
           retention-days: 7
       - name: Retain reusable compile cache
