@@ -1,0 +1,120 @@
+name: Canonical Android component producer
+on:
+  workflow_call:
+    inputs:
+      source_sha:
+        required: true
+        type: string
+      component:
+        required: true
+        type: string
+    outputs:
+      artifact_name:
+        value: ${{ jobs.produce.outputs.artifact_name }}
+      inputs_sha256:
+        value: ${{ jobs.identity.outputs.fingerprint }}
+permissions:
+  contents: read
+  actions: read
+jobs:
+  identity:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      fingerprint: ${{ steps.inputs.outputs.INPUTS_SHA256 }}
+    steps:
+      - name: Fetch immutable producer source
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          git init source
+          git -C source remote add origin https://github.com/humtr/codex.git
+          git -C source fetch --no-tags --depth=1 origin "$SOURCE_SHA"
+          git -C source checkout --detach FETCH_HEAD
+          test "$(git -C source rev-parse HEAD)" = "$SOURCE_SHA"
+      - name: Resolve exact component inputs
+        id: inputs
+        env:
+          COMPONENT: ${{ inputs.component }}
+        run: |
+          set -euo pipefail
+          python3 source/.github/scripts/component_inputs.py --source source --component "$COMPONENT" --env >> "$GITHUB_OUTPUT"
+  produce:
+    needs: identity
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    # Serialize only byte-identical inputs. A second caller consumes the first
+    # completed output; unrelated components and inputs remain independent.
+    concurrency:
+      group: android-${{ inputs.component }}-${{ needs.identity.outputs.fingerprint }}
+      cancel-in-progress: false
+    outputs:
+      artifact_name: android-${{ inputs.component }}
+    env:
+      COMPONENT: ${{ inputs.component }}
+      SOURCE_SHA: ${{ inputs.source_sha }}
+      CARGO_TARGET_DIR: ${{ runner.temp }}/component-target
+      RUSTFLAGS: ''
+      CARGO_ENCODED_RUSTFLAGS: ''
+      CARGO_INCREMENTAL: '0'
+    steps:
+      - name: Fetch immutable producer source
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          git init source
+          git -C source remote add origin https://github.com/humtr/codex.git
+          git -C source fetch --no-tags --depth=1 origin "$SOURCE_SHA"
+          git -C source checkout --detach FETCH_HEAD
+          test "$(git -C source rev-parse HEAD)" = "$SOURCE_SHA"
+          python3 source/.github/scripts/component_inputs.py --source source --component "$COMPONENT" --env >> "$GITHUB_ENV"
+      - name: Restore identical production output
+        id: component-cache
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: ${{ runner.temp }}/component
+          key: android-component-v1-${{ inputs.component }}-${{ needs.identity.outputs.fingerprint }}
+      - name: Cross-build selected Android component once
+        if: steps.component-cache.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          test "$INPUTS_SHA256" = '${{ needs.identity.outputs.fingerprint }}'
+          rustup toolchain install "$RUST_VERSION" --profile minimal --target "$ANDROID_TARGET"
+          toolchain="$ANDROID_SDK_ROOT/ndk/$ANDROID_NDK_VERSION/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          linker="$toolchain/aarch64-linux-android$ANDROID_API-clang"
+          test -x "$linker"
+          test -x "$toolchain/llvm-ar"
+          export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$linker"
+          export CC_aarch64_linux_android="$linker"
+          export AR_aarch64_linux_android="$toolchain/llvm-ar"
+          cargo "+$RUST_VERSION" build --release --locked --manifest-path source/Cargo.toml \
+            --target "$ANDROID_TARGET" -p "$COMPONENT_PACKAGE"
+          mkdir -m 0700 "$RUNNER_TEMP/component"
+          install -m 0755 "$CARGO_TARGET_DIR/$ANDROID_TARGET/release/$COMPONENT_PACKAGE" "$RUNNER_TEMP/component/$COMPONENT_PACKAGE"
+          python3 source/.github/scripts/component_artifact.py record --source source --component "$COMPONENT" \
+            --artifact "$RUNNER_TEMP/component" --run-id "$GITHUB_RUN_ID"
+      - name: Reverify every reused or new artifact
+        run: |
+          set -euo pipefail
+          python3 source/.github/scripts/component_artifact.py verify --source source --component "$COMPONENT" --artifact "$RUNNER_TEMP/component"
+      - name: Retain verified exact-input production output
+        if: steps.component-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: ${{ runner.temp }}/component
+          key: android-component-v1-${{ inputs.component }}-${{ needs.identity.outputs.fingerprint }}
+      - name: Package exact producer bytes and receipt
+        run: |
+          set -euo pipefail
+          python3 source/.github/scripts/component_artifact.py pack --source source --component "$COMPONENT" \
+            --artifact "$RUNNER_TEMP/component" --transfer "$RUNNER_TEMP/component-transfer"
+      - name: Transfer unsigned component
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: android-${{ inputs.component }}
+          path: ${{ runner.temp }}/component-transfer/component.tar
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0

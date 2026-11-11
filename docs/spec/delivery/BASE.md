@@ -129,7 +129,8 @@ Independence has distinct observable levels:
 - **Component reuse:** the builder accepts an independently admitted Manager;
   local reconstruction already carries forward its bytes after the Core-API
   probe. A compatible unchanged Manager need not be rebuilt to change Core.
-  The integrated CI build may still compile both; that is not a Core dependency.
+  The canonical Android producer builds each component from its own inputs;
+  Full consumes their admitted outputs and still proves their composition.
 - **Feature-preserving public updates:** stable remains one signed combination.
   Preserving /switch and the enhanced /model/permission UI requires its frontend
   to pass the qualified backend protocol/behavior gate. Exact backend-version

@@ -24,9 +24,11 @@ class SourceAcceptanceTests(unittest.TestCase):
         for stale in ['EXPECTED_PARENT', 'EXPECTED_MAIN', 'ACCEPTED_SOURCE',
                       'PUBLIC_GENERATION', 'PUBLIC_SEQUENCE', '  packages:']:
             self.assertNotIn(stale, workflow)
-        product = workflow.split('- name: Fetch exact event product source', 1)[1].split('- name: Cross-build', 1)[0]
-        self.assertIn('origin "$GITHUB_SHA"', product)
-        self.assertIn('rev-parse HEAD)" = "$GITHUB_SHA"', product)
+        product = workflow.split('  android-core:', 1)[1].split('  workspace:', 1)[0]
+        self.assertIn('uses: ./.github/workflows/android-component.yml', product)
+        self.assertIn('source_sha: ${{ github.sha }}', product)
+        self.assertIn('component: core', product)
+        self.assertIn('component_artifact.py unpack', workflow)
         self.assertEqual(workflow.count('cargo test --workspace --locked'), 1)
         self.assertIn('cargo test --workspace --locked -- --test-threads=1', workflow)
         self.assertEqual(workflow.count('sudo unshare --mount --pid --fork --mount-proc --propagation private'), 1)

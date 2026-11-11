@@ -87,62 +87,10 @@ jobs:
   android-core:
     needs: contract
     if: needs.contract.outputs.scope == 'full'
-    name: Build event Android/AArch64 Core proof artifact
-    runs-on: ubuntu-24.04
-    timeout-minutes: 30
-    steps:
-      - name: Fetch exact event product source
-        shell: bash
-        run: |
-          set -euo pipefail
-          git init product
-          git -C product remote add origin "https://github.com/$GITHUB_REPOSITORY.git"
-          git -C product fetch --no-tags --depth=1 origin "$GITHUB_SHA"
-          git -C product checkout --detach FETCH_HEAD
-          test "$(git -C product rev-parse HEAD)" = "$GITHUB_SHA"
-          python3 product/.github/scripts/upstream_release.py product/release/upstream.json --component core >> "$GITHUB_ENV"
-
-      - name: Restore compiler cache
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            ${{ env.CARGO_TARGET_DIR }}
-          key: source-${{ runner.os }}-${{ runner.arch }}-rust${{ env.RUST_VERSION }}-${{ hashFiles('**/Cargo.lock') }}-${{ github.sha }}
-          restore-keys: |
-            source-${{ runner.os }}-${{ runner.arch }}-rust${{ env.RUST_VERSION }}-${{ hashFiles('**/Cargo.lock') }}-
-
-      - name: Cross-build Android/AArch64 Core
-        shell: bash
-        run: |
-          set -euo pipefail
-          rustup toolchain install "$RUST_VERSION" --profile minimal --target aarch64-linux-android
-          ndk="$ANDROID_SDK_ROOT/ndk/$ANDROID_NDK_VERSION"
-          toolchain="$ndk/toolchains/llvm/prebuilt/linux-x86_64/bin"
-          linker="$toolchain/aarch64-linux-android$ANDROID_API-clang"
-          test -x "$linker"
-          test -x "$toolchain/llvm-ar"
-          export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$linker"
-          export CC_aarch64_linux_android="$linker"
-          export AR_aarch64_linux_android="$toolchain/llvm-ar"
-          cargo "+$RUST_VERSION" build --release --locked             --manifest-path product/Cargo.toml             --target aarch64-linux-android -p codex
-          core="$CARGO_TARGET_DIR/aarch64-linux-android/release/codex"
-          test -x "$core"
-          file "$core" | grep -F 'ARM aarch64'
-          readelf -l "$core" | grep -F '/system/bin/linker64'
-          mkdir -p "$RUNNER_TEMP/source-android-core"
-          cp "$core" "$RUNNER_TEMP/source-android-core/codex"
-          chmod 0755 "$RUNNER_TEMP/source-android-core/codex"
-
-      - name: Transfer unsigned test-only Core artifact
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: source-accepted-android-core
-          path: ${{ runner.temp }}/source-android-core/codex
-          if-no-files-found: error
-          retention-days: 1
-          compression-level: 0
+    uses: ./.github/workflows/android-component.yml
+    with:
+      source_sha: ${{ github.sha }}
+      component: core
 
   workspace:
     name: Locked workspace check, test, clippy, and fmt
@@ -173,13 +121,15 @@ jobs:
       - name: Download accepted Android Core proof artifact
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
-          name: source-accepted-android-core
-          path: ${{ runner.temp }}/source-android-core
+          name: android-core
+          path: ${{ runner.temp }}/source-android-core-transfer
 
       - name: Provision pinned Android bionic execution substrate
         shell: bash
         run: |
           set -euo pipefail
+          python3 source/.github/scripts/component_artifact.py unpack --source source --component core \
+            --transfer "$RUNNER_TEMP/source-android-core-transfer" --artifact "$RUNNER_TEMP/source-android-core"
           core="$RUNNER_TEMP/source-android-core/codex"
           chmod 0755 "$core"
           test -x "$core"

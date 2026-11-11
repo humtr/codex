@@ -1,0 +1,80 @@
+name: Independent Manager qualification
+on:
+  workflow_dispatch:
+  push:
+    branches: [rewrite/rust-core]
+    paths:
+      - crates/manager/**
+      - crates/runtime-binding/**
+      - Cargo.toml
+      - Cargo.lock
+      - release/android-build-inputs-v1.json
+      - release/upstream.json
+      - .github/workflows/manager-qualification.yml
+      - .github/workflows/android-component.yml
+      - .github/scripts/component_inputs.py
+      - .github/scripts/component_artifact.py
+      - .github/scripts/provision_android_bionic.sh
+permissions:
+  contents: read
+  actions: read
+jobs:
+  artifact:
+    uses: ./.github/workflows/android-component.yml
+    with:
+      source_sha: ${{ github.sha }}
+      component: manager
+  qualify:
+    needs: artifact
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
+    steps:
+      - name: Fetch immutable Manager source
+        run: |
+          set -euo pipefail
+          git init source
+          git -C source remote add origin https://github.com/humtr/codex.git
+          git -C source fetch --no-tags --depth=1 origin "$GITHUB_SHA"
+          git -C source checkout --detach FETCH_HEAD
+          test "$(git -C source rev-parse HEAD)" = "$GITHUB_SHA"
+          python3 source/.github/scripts/component_inputs.py --source source --component manager --env >> "$GITHUB_ENV"
+      - name: Download independent Manager output
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: android-manager
+          path: ${{ runner.temp }}/manager-transfer
+      - name: Verify exact bytes and Android interface
+        run: |
+          set -euo pipefail
+          python3 source/.github/scripts/component_artifact.py unpack --source source --component manager \
+            --transfer "$RUNNER_TEMP/manager-transfer" --artifact "$RUNNER_TEMP/manager"
+          bash source/.github/scripts/provision_android_bionic.sh
+          env -i CODEX_MANAGER_ARTIFACT_PROBE=1 "$RUNNER_TEMP/manager/codex-manager" --artifact-probe > "$RUNNER_TEMP/manager-probe.out"
+          printf 'codex-manager-artifact-v1\ncore_api=codex-manager-core-v1\n' > "$RUNNER_TEMP/manager-probe.expected"
+          cmp "$RUNNER_TEMP/manager-probe.expected" "$RUNNER_TEMP/manager-probe.out"
+      - name: Manager behavior and shared interface regressions
+        run: |
+          set -euo pipefail
+          rustup toolchain install "$RUST_VERSION" --profile minimal
+          cd source
+          cargo "+$RUST_VERSION" test --locked -p codex-manager -- --test-threads=1
+      - name: Retain independent qualification receipt
+        run: |
+          set -euo pipefail
+          python3 - <<'PYTHON'
+          import json,os,pathlib,hashlib
+          root=pathlib.Path(os.environ['RUNNER_TEMP'])
+          value=json.loads((root/'manager/component.json').read_text())
+          value={'schema':'codex-component-qualification-v1','component':value,
+                 'qualification_source':os.environ['GITHUB_SHA'], 'run_id':os.environ['GITHUB_RUN_ID'],
+                 'checks':['android-interface-probe','manager-behavior-regressions'],
+                 'probe_sha256':hashlib.sha256((root/'manager-probe.out').read_bytes()).hexdigest()}
+          (root/'manager-qualification.json').write_text(json.dumps(value,sort_keys=True)+'\n')
+          PYTHON
+      - name: Upload successful Manager proof
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: manager-qualification
+          path: ${{ runner.temp }}/manager-qualification.json
+          if-no-files-found: error
+          retention-days: 7
