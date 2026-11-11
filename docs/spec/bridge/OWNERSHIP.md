@@ -57,6 +57,19 @@ must not require Manager. Without Manager, its profile/quota/window commands
 report that capability unavailable, while native UI and Provider selection work.
 This composition requires its own execution proof before release.
 
+Account/quota switching and execution-profile switching are Manager policies over
+one Native conversation, distinct from Provider or model selection. Before
+re-entry, validate the destination and preserve the original thread, selected
+Provider/model/effort, permissions, completed tool results and pending input.
+Core discovers the verified Native owner; a TUI observes that owner or requests
+the existing legal idle release/re-entry contract through that authority. Account selection never authorizes taking a
+live writer, erasing history, replaying a completed effect or substituting a new
+thread. If discovery, destination permissions or model entitlement is uncertain,
+keep the original work intact and state the actual blocking condition.
+A re-entry notice is not proof of resumed inference: qualification observes the
+same thread accepting its intended follow-up and attributes its original results
+and subsequent model/tool effects to the selected destination account.
+
 The source candidate may expose `codex-chatgpt-provider serve --descriptor PATH
 --state PATH [--port PORT]`, `status --state PATH` and command-backed `token
 --state PATH`. These are Provider-owned operations, not Core dispatch commands.

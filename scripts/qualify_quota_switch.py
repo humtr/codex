@@ -254,6 +254,36 @@ def probe(args):
             assert not failures,failures
             return {'accepted':True,'namedPermissionsPreserved':args.named_permission,'nativeCommandEffects':1,'automaticHandoffs':1,'sameThread':True,'checkpointPrompts':1,'originalPrompts':1,'visibleFinal':True,'visibleSwitchNotice':args.ui_proof,'nativeMenuAndToggle':args.ui_proof,'settingsPreserved':True,'counts':counts,'realModelRequests':0,'productionChanged':False}
         finally:
+            # Preserve the first failure and inspect only this owned fixture
+            # before teardown; a picker/re-entry notice is not continuation.
+            import sys
+            if sys.exc_info()[0] is not None:
+                diagnostic={'counts':dict(counts),'requests':list(requests),'errors':[]}
+                if process is not None:
+                    try:
+                        import hashlib
+                        argv=Path(f'/proc/{process.pid}/cmdline').read_bytes().split(b'\0')
+                        diagnostic['process']={'pid':process.pid,'exe':str(Path(f'/proc/{process.pid}/exe').resolve()),'argv':[{'bytes':len(value),'sha256':hashlib.sha256(value).hexdigest(),'checkpoint':b'saved conversation checkpoint' in value} for value in argv if value]}
+                    except OSError:pass
+                try:
+                    if master is not None and process and process.poll() is None:
+                        os.write(master,b'\x1bOQ')  # F2: existing warning details
+                        deadline=time.monotonic()+2
+                        while time.monotonic()<deadline:drain()
+                    diagnostic['loaded']=loaded()
+                    if 'thread' in locals():
+                        diagnostic['thread']=rpc(home,'thread/read',{'threadId':thread,'includeTurns':True})
+                except Exception as error:
+                    diagnostic['errors'].append(type(error).__name__+': '+str(error))
+                diagnostic['logs']={}
+                for log in root.rglob('*.log'):
+                    try:
+                        if log.is_file() and not log.is_symlink():
+                            diagnostic['logs'][str(log.relative_to(root))]=log.read_text(errors='replace')[-16000:]
+                    except OSError:pass
+                failure=args.report.with_suffix('.failure.json')
+                try:failure.write_text(json.dumps(diagnostic,indent=2));failure.chmod(0o600)
+                except OSError:pass  # Keep the original acceptance failure.
             evidence=args.report.with_suffix('.screen.txt')
             evidence.write_text(screen);evidence.chmod(0o600)
             if process and process.poll() is None:
