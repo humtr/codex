@@ -5609,7 +5609,7 @@ mod native_concurrency_tests {
             }});
             if completion_before_restart {
                 broker
-                    .settle_native_processes(&["b"], &root, &[completion.clone()])
+                    .settle_native_processes(&["b"], &root, std::slice::from_ref(&completion))
                     .await
                     .unwrap();
             }
