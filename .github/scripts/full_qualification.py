@@ -90,8 +90,10 @@ def unpack_candidate(archive_path,output):
                 offset=entry.offset_data+((entry.size+511)//512)*512
             if names!={'candidate','candidate/helpers'}|{'candidate/'+name for name in BASE_FILES}:
                 raise ValueError('candidate transfer inventory differs')
-            stream.seek(offset);tail=stream.read(10241)
-            if len(tail)>10240 or len(tail)<1024 or any(tail):raise ValueError('candidate transfer trailing bytes differ')
+            # Two EOF blocks can cross a record boundary: valid padding reaches10752 bytes.
+            expected_ending=1024+(-(offset+1024)%tarfile.RECORDSIZE)
+            stream.seek(offset);tail=stream.read(expected_ending+1)
+            if len(tail)!=expected_ending or any(tail):raise ValueError('candidate transfer trailing bytes differ')
             output.mkdir(mode=0o700);(output/'helpers').mkdir(mode=0o700)
             try:
                 for entry in entries:

@@ -124,6 +124,26 @@ class RuntimeTransferTests(unittest.TestCase):
                 self.assertEqual({p.name: (p.read_bytes(), stat.S_IMODE(p.stat().st_mode))
                                   for p in directory.iterdir()}, before)
 
+    def test_runtime_roundtrip_accepts_every_standard_record_alignment(self):
+        endings=set()
+        for index in range(20):
+            with self.subTest(alignment=index), tempfile.TemporaryDirectory() as temporary:
+                root=Path(temporary);original=self.raw(root)
+                payload=elf()+b'x'*(index*512+17)
+                (original/'codex').write_bytes(payload)
+                (original/'sha256.txt').write_text(hashlib.sha256(payload).hexdigest()+'  codex\n')
+                transfer=root/'transfer'
+                packed=self.run_transfer('pack',original,transfer)
+                self.assertEqual(packed.returncode,0,packed.stderr)
+                path=transfer/transport.ARCHIVE
+                with tarfile.open(path,'r:') as archive:
+                    last=list(archive)[-1];end=last.offset_data+(last.size+511)//512*512
+                endings.add(path.stat().st_size-end)
+                restored=root/'restored';result=self.run_transfer('unpack',restored,transfer)
+                self.assertEqual(result.returncode,0,result.stderr)
+                self.assertEqual((restored/'codex').read_bytes(),payload)
+        self.assertEqual(endings,set(range(1024,10753,512)))
+
     def test_pack_does_not_repair_an_unsafe_runtime_or_replace_existing_output(self):
         for mode in (0o644, 0o666, 0o777, 0o4700):
             with self.subTest(mode=oct(mode)), tempfile.TemporaryDirectory() as temporary:
@@ -150,7 +170,8 @@ class RuntimeTransferTests(unittest.TestCase):
     def test_unpack_rejects_inventory_alias_mode_and_admission_faults(self):
         faults = ('extra', 'missing', 'duplicate', 'traversal', 'absolute', 'symlink', 'hardlink',
                   'directory', 'fifo', 'not-executable', 'writable', 'setuid', 'digest', 'source',
-                  'audit', 'trailing-data', 'loose', 'transfer-extra', 'transfer-alias')
+                  'audit', 'trailing-data', 'truncated-tail', 'second-archive', 'extra-zero-record',
+                  'nonzero-ending', 'loose', 'transfer-extra', 'transfer-alias')
         for fault in faults:
             with self.subTest(fault=fault), tempfile.TemporaryDirectory() as temporary:
                 root = Path(temporary)
@@ -186,6 +207,11 @@ class RuntimeTransferTests(unittest.TestCase):
                     for entry, data in entries: archive.addfile(entry, io.BytesIO(data))
                 if fault == 'trailing-data':
                     with archive_path.open('ab') as output: output.write(b'undeclared trailer')
+                elif fault in ('truncated-tail', 'second-archive', 'extra-zero-record', 'nonzero-ending'):
+                    raw=archive_path.read_bytes()
+                    archive_path.write_bytes({'truncated-tail':raw[:-512], 'second-archive':raw+raw,
+                                              'extra-zero-record':raw+b'\0'*10240,
+                                              'nonzero-ending':raw[:-1]+b'x'}[fault])
                 elif fault == 'loose':
                     archive_path.unlink()
                     for path in original.iterdir(): shutil.copy2(path, transfer / path.name)

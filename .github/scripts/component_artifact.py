@@ -120,7 +120,9 @@ def unpack(source,component,artifact,transfer):
             entries.append(entry)
             offset=entry.offset_data+(entry.size+511)//512*512
         ending=data[offset:]
-        if len(ending)<1024 or len(ending)>10240 or any(ending):
+        # Two EOF blocks can cross a record boundary: valid padding reaches10752 bytes.
+        expected_ending=1024+(-(offset+1024)%tarfile.RECORDSIZE)
+        if len(ending)!=expected_ending or any(ending):
             raise ValueError('invalid component transfer ending')
         expected={COMPONENTS[component][1]:0o755,'component.json':0o644}
         if (len(entries)!=2 or {e.name for e in entries}!=set(expected)
