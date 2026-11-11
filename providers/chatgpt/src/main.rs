@@ -287,6 +287,20 @@ fn control_command(args: &[String]) -> Result<(), String> {
         ))
         .map_err(|e| e.to_string())?;
     let mut public = value["result"].clone();
+    if value["is_error"] != true
+        && tool == "codex_host"
+        && action == "models"
+        && public["source"] == "app_and_config"
+        && public.get("schema").is_none()
+    {
+        let config_path = store::config_path().map_err(|e| e.to_string())?;
+        public = codex_chatgpt_provider::registration::current_selection_reply(
+            &config_path,
+            &root,
+            &public,
+        )
+        .map_err(|e| e.to_string())?;
+    }
     if !diagnostic_caps {
         omit_capabilities(&mut public);
     }

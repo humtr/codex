@@ -249,7 +249,60 @@ impl Catalog {
                 models.push(retained);
             }
         }
-        merge_models(&mut models, configured);
+        // User configuration may name or map an actually offered route, but
+        // cannot grant account entitlement or restore an unavailable host model.
+        // Retained legacy IDs above remain hidden for saved Native records.
+        for configured_model in configured {
+            let mut admitted = configured_model.clone();
+            admitted.routes.retain(|route| {
+                if admitted
+                    .id
+                    .strip_prefix(APP_MODEL_PREFIX)
+                    .is_some_and(|slug| slug != route.host_model)
+                {
+                    return false;
+                }
+                models
+                    .iter()
+                    .filter(|model| model.id.starts_with(APP_MODEL_PREFIX))
+                    .any(|model| {
+                        model.routes.iter().any(|offered| {
+                            offered.host_model == route.host_model
+                                && offered.thinking_effort == route.thinking_effort
+                        })
+                    })
+            });
+            if admitted.routes.is_empty() {
+                continue;
+            }
+            // The app's lane is authoritative, including Pro. A configured
+            // label must not turn a Pro route into a non-Pro execution lane.
+            let pro = models
+                .iter()
+                .filter(|model| model.id.starts_with(APP_MODEL_PREFIX))
+                .filter(|model| {
+                    model.routes.iter().any(|offered| {
+                        admitted.routes.iter().any(|route| {
+                            offered.host_model == route.host_model
+                                && offered.thinking_effort == route.thinking_effort
+                        })
+                    })
+                })
+                .map(|model| model.pro)
+                .collect::<BTreeSet<_>>();
+            if pro.len() != 1 {
+                return Err(Error("app_model_route_ambiguous"));
+            }
+            admitted.pro = *pro.first().unwrap();
+            if admitted.id.starts_with(APP_MODEL_PREFIX) {
+                // All other server-offered efforts stay available as well.
+                merge_models(&mut models, &[admitted]);
+            } else if let Some(model) = models.iter_mut().find(|model| model.id == admitted.id) {
+                *model = admitted;
+            } else {
+                models.push(admitted);
+            }
+        }
         let result = Self {
             version: catalog_version(),
             models,
@@ -385,9 +438,9 @@ mod tests {
         let merged = catalog
             .with_app_options(&options, std::slice::from_ref(&configured))
             .unwrap();
-        assert_eq!(
-            merged.route(&configured.id, "ultra").unwrap().host_model,
-            "explicit-worker"
+        assert!(
+            merged.route(&configured.id, "ultra").is_none(),
+            "configuration cannot invent an unoffered app route"
         );
         assert!(merged.route(&configured.id, "high").is_some());
         options[0]["options"][1]["thinkingEffort"] = json!("custom-effort");
@@ -410,6 +463,66 @@ mod tests {
             Some("custom-effort")
         );
     }
+    #[test]
+    fn app_catalog_configuration_cannot_grant_unavailable_entitlement_or_change_pro_lane() {
+        use serde_json::json;
+        let catalog = Catalog::default();
+        let options = json!([{"label":"Server family","options":[
+            {"slug":"offered-pro","lane":"pro","modelLabel":"Pro","isAvailable":true},
+            {"slug":"denied","lane":"thinking","modelLabel":"Denied","isAvailable":false}
+        ]}]);
+        let mut offered = catalog.models[0].clone();
+        offered.id = "chatgpt-desktop/app/offered-pro".into();
+        offered.pro = false;
+        offered.routes = vec![Route {
+            effort: "none".into(),
+            host_model: "offered-pro".into(),
+            thinking_effort: None,
+        }];
+        let mut denied = offered.clone();
+        denied.id = "chatgpt-desktop/app/denied".into();
+        denied.routes[0].host_model = "denied".into();
+        let admitted = catalog
+            .with_app_options(&options, &[offered, denied])
+            .unwrap();
+        assert!(admitted.find("chatgpt-desktop/app/denied").is_none());
+        assert!(
+            admitted
+                .find("chatgpt-desktop/app/offered-pro")
+                .unwrap()
+                .pro
+        );
+        assert!(catalog
+            .models
+            .iter()
+            .all(|old| admitted.find(&old.id).unwrap().hidden));
+    }
+
+    #[test]
+    fn app_catalog_refresh_removes_revoked_models_and_preserves_other_server_efforts() {
+        use serde_json::json;
+        let catalog = Catalog::default();
+        let mut options = json!([{"label":"New family","options":[
+            {"slug":"new-thinking","lane":"thinking","modelLabel":"Thinking","thinkingEffort":"standard","isAvailable":true},
+            {"slug":"new-thinking","lane":"thinking","modelLabel":"Thinking","thinkingEffort":"extended","isAvailable":true}
+        ]}]);
+        let discovered = catalog.with_app_options(&options, &[]).unwrap();
+        let mut configured = discovered
+            .find("chatgpt-desktop/app/new-thinking")
+            .unwrap()
+            .clone();
+        configured.routes.truncate(1);
+        let admitted = catalog
+            .with_app_options(&options, &[configured.clone()])
+            .unwrap();
+        assert_eq!(admitted.find(&configured.id).unwrap().routes.len(), 2);
+        for option in options[0]["options"].as_array_mut().unwrap() {
+            option["isAvailable"] = json!(false);
+        }
+        let revoked = catalog.with_app_options(&options, &[configured]).unwrap();
+        assert!(revoked.find("chatgpt-desktop/app/new-thinking").is_none());
+    }
+
     #[test]
     fn edited_data_can_add_model_or_effort_without_rust_changes() {
         let mut catalog = Catalog::default();
