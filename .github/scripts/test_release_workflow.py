@@ -45,6 +45,21 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn('0 failed; 0 ignored;',step)
         self.assertNotIn('continue-on-error',step)
 
+    def test_android_window_proof_uses_event_source_and_observes_the_real_activity(self):
+        workflow=(ROOT/'.github/workflows/stock-window-proof.yml').read_text()
+        self.assertIn('PRODUCT_SOURCE: ${{ github.sha }}',workflow)
+        self.assertIn('branches: [rewrite/rust-core]',workflow)
+        self.assertIn('test "$PRODUCT_SOURCE" = "$GITHUB_SHA"',workflow)
+        self.assertNotIn('contents: write',workflow)
+        self.assertNotIn('secrets.',workflow)
+        self.assertNotIn('EXTERNAL_STORAGE',workflow)
+        fixture=(ROOT/'.github/stock-window/StockWindowTest.java').read_text()
+        for evidence in ('getCurrentSession().getPid()', 'exact native foreground UUID',
+                         'hasWindowFocus()', 'concurrent-single-surface','foreign-home-refusal'):
+            self.assertIn(evidence,fixture)
+        self.assertIn('"native_owner_inference"',workflow.replace("'",'"'))
+        self.assertIn('owner-free-synthetic-thread',fixture)
+
     def test_single_source_and_no_unsigned_public_authority(self):
         text=(ROOT/'.github/workflows/auto-release-termux.yml').read_text()
         header,body=text.split('\njobs:\n',1)

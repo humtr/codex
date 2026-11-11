@@ -30,7 +30,17 @@ int main(int argc, char **argv) {
         for(;;)pause();
     }
     if (strcmp(argv[0], NATIVE)) {
-        char *args[]={NATIVE,argc>1?argv[1]:NULL,NULL};execv(NATIVE,args);return 15;
+        const char *id=argc>1?argv[1]:NULL;
+        if(argc==3&&!strcmp(argv[1],"resume")) {
+            // Test-only saved-thread oracle. Real Owner/writer and real model
+            // continuity are qualified separately; do not create a fresh ID.
+            char saved[1024];const char *home=getenv("CODEX_HOME");
+            if(!home||strlen(argv[2])!=36)return 24;
+            int n=snprintf(saved,sizeof(saved),"%s/%s.saved",home,argv[2]);
+            if(n<0||(size_t)n>=sizeof(saved)||access(saved,R_OK))return 25;
+            id=argv[2];
+        }
+        char *args[]={NATIVE,(char *)id,NULL};execv(NATIVE,args);return 15;
     }
     if(argc!=2||strlen(argv[1])!=36)return 16;
     char path[1024],descriptor[32];
