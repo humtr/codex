@@ -495,6 +495,19 @@ fn apply_child_env_plan_and_fence(
         .env_remove("LD_LIBRARY_PATH");
 }
 
+// A frontend re-entry marker is meaningful only to the initial TUI process.
+// Native execution and its tool children must never inherit that UI intent.
+#[cfg(unix)]
+fn apply_runtime_child_env_plan_and_fence(
+    command: &mut std::process::Command,
+    env_plan: Option<&TermuxBaseEnvPlan>,
+) {
+    apply_child_env_plan_and_fence(command, env_plan);
+    command
+        .env_remove("CODEX_CHAT_MODEL_REENTRY")
+        .env_remove("CODEX_CHAT_MODEL_REENTRY_PID");
+}
+
 #[cfg(unix)]
 fn exec_runtime<P, I, S, R, C>(
     program: P,
@@ -518,7 +531,7 @@ where
     };
     let mut command = std::process::Command::new(program.as_ref());
     command.args(args);
-    apply_child_env_plan_and_fence(&mut command, env_plan);
+    apply_runtime_child_env_plan_and_fence(&mut command, env_plan);
     runtime_fds.configure(&mut command);
     command.exec()
 }
@@ -1983,7 +1996,7 @@ where
         .map_err(QualifiedUpstreamDoctorProbeError::Io)?;
     let mut cmd = std::process::Command::new(selection.runtime.program_path);
     cmd.args(args);
-    apply_child_env_plan_and_fence(&mut cmd, Some(&env_plan));
+    apply_runtime_child_env_plan_and_fence(&mut cmd, Some(&env_plan));
     runtime_fds.configure(&mut cmd);
     Ok(run_doctor_child(cmd, DOCTOR_COMMAND_TIMEOUT)?.0.success())
 }
@@ -2485,7 +2498,7 @@ where
             cmd.arg("--json");
         }
     }
-    apply_child_env_plan_and_fence(&mut cmd, Some(&env_plan));
+    apply_runtime_child_env_plan_and_fence(&mut cmd, Some(&env_plan));
     apply_doctor_color_override(&mut cmd, use_color, force_color);
     runtime_fds.configure(&mut cmd);
     let (status, bytes) = run_doctor_child(cmd, DOCTOR_COMMAND_TIMEOUT)?;
@@ -12763,6 +12776,42 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(unix)]
+    #[test]
+    fn runtime_child_fence_removes_reentry_intent_and_preserves_other_environment() {
+        for mode in ["select", "resume"] {
+            for runtime in [false, true] {
+                let mut command = std::process::Command::new(resolve_test_tool("sh").unwrap());
+                command.args([
+                    "-c",
+                    r#"printf '%s|%s' "${CODEX_CHAT_MODEL_REENTRY-unset}" "${CR12_REENTRY_CHILD_KEEP-unset}""#,
+                ]);
+                command.env("CODEX_CHAT_MODEL_REENTRY", mode);
+                command.env("CODEX_CHAT_MODEL_REENTRY_PID", "42");
+                command.env("CR12_REENTRY_CHILD_KEEP", "owned");
+                if runtime {
+                    apply_runtime_child_env_plan_and_fence(&mut command, None);
+                } else {
+                    // Core -> Manager/TUI transit retains the initial intent.
+                    apply_child_env_plan_and_fence(&mut command, None);
+                }
+                assert!(command.get_envs().any(|(key, value)| {
+                    key == "CODEX_CHAT_MODEL_REENTRY_PID"
+                        && value
+                            == if runtime {
+                                None
+                            } else {
+                                Some(std::ffi::OsStr::new("42"))
+                            }
+                }));
+                let output = command.output().unwrap();
+                assert!(output.status.success());
+                let expected = format!("{}|owned", if runtime { "unset" } else { mode });
+                assert_eq!(output.stdout, expected.as_bytes());
+                assert!(output.stderr.is_empty());
+            }
+        }
+    }
     #[cfg(unix)]
     use super::m2_generation_state::*;
     use super::*;
