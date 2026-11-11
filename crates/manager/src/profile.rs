@@ -242,36 +242,57 @@ fn bounded_tree(path: &Path, depth: usize, count: &mut usize) -> Result<(), Mana
 // Only execution identity is retained. All unrelated environment values are
 // discarded while streaming; neither argv nor account payload is inspected.
 fn execution_home(reader: impl Read) -> Result<Option<PathBuf>, ManagerError> {
+    execution_home_or_default(reader, false)
+}
+
+// Terminal return also supports a qualified process using upstream's default
+// HOME/.codex. The profile deletion scan keeps its explicit-CODEX_HOME contract.
+pub(super) fn execution_home_or_default(
+    reader: impl Read,
+    allow_default: bool,
+) -> Result<Option<PathBuf>, ManagerError> {
     let mut key = Vec::new();
     let mut value = Vec::new();
     let mut in_value = false;
-    let mut selected = false;
+    let mut selected = 0;
     let mut home = None;
+    let mut default = None;
     for (count, byte) in std::io::BufReader::new(reader).bytes().enumerate() {
         if count >= 1024 * 1024 {
             return Err(ERR_BUSY);
         }
         let byte = byte.map_err(|_| ERR_BUSY)?;
         if byte == 0 {
-            if selected {
-                if home.is_some() || value.len() > 4096 {
+            if selected != 0 {
+                let destination = if selected == 1 {
+                    &mut home
+                } else {
+                    &mut default
+                };
+                if destination.is_some() || value.len() > 4096 {
                     return Err(ERR_BUSY);
                 }
-                home = Some(PathBuf::from(OsString::from_vec(std::mem::take(
+                *destination = Some(PathBuf::from(OsString::from_vec(std::mem::take(
                     &mut value,
                 ))));
             }
             key.clear();
             in_value = false;
-            selected = false;
+            selected = 0;
         } else if !in_value && byte == b'=' {
             in_value = true;
-            selected = key == b"CODEX_HOME";
+            selected = if key == b"CODEX_HOME" {
+                1
+            } else if allow_default && key == b"HOME" {
+                2
+            } else {
+                0
+            };
         } else if !in_value {
             if key.len() < 64 {
                 key.push(byte);
             }
-        } else if selected {
+        } else if selected != 0 {
             if value.len() >= 4096 {
                 return Err(ERR_BUSY);
             }
@@ -281,7 +302,7 @@ fn execution_home(reader: impl Read) -> Result<Option<PathBuf>, ManagerError> {
     if in_value || !key.is_empty() {
         return Err(ERR_BUSY);
     }
-    Ok(home)
+    Ok(home.or_else(|| default.map(|home| home.join(".codex"))))
 }
 
 fn process_alive(path: &Path) -> Result<bool, ManagerError> {
@@ -431,6 +452,39 @@ mod tests {
         assert!(execution_home(b"OTHER=value\0".as_slice())
             .unwrap()
             .is_none());
+    }
+
+    #[test]
+    fn terminal_execution_metadata_uses_only_qualified_explicit_or_default_home() {
+        for (input, expected) in [
+            (
+                b"HOME=/owned\0SECRET=discard\0".as_slice(),
+                Some("/owned/.codex"),
+            ),
+            (
+                b"HOME=/install\0CODEX_HOME=/owned/execution\0".as_slice(),
+                Some("/owned/execution"),
+            ),
+            (b"UNRELATED=value\0".as_slice(), None),
+        ] {
+            assert_eq!(
+                execution_home_or_default(input, true).unwrap(),
+                expected.map(PathBuf::from)
+            );
+        }
+        assert_eq!(execution_home(b"HOME=/owned\0".as_slice()).unwrap(), None);
+        for input in [
+            b"HOME=/a\0HOME=/b\0".as_slice(),
+            b"HOME=unfinished",
+            b"CODEX_HOME=/a\0CODEX_HOME=/b\0",
+        ] {
+            assert!(execution_home_or_default(input, true).is_err());
+        }
+        assert!(
+            execution_home_or_default(format!("HOME={}\0", "x".repeat(4097)).as_bytes(), true)
+                .is_err()
+        );
+        assert!(execution_home_or_default(vec![b'x'; 1024 * 1024 + 1].as_slice(), true).is_err());
     }
 
     #[test]

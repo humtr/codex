@@ -37,6 +37,8 @@ pub(super) fn read(path: &Path) -> Result<serde_json::Value, ManagerError> {
     }
     serde_json::from_slice(&read_bounded(path).map_err(|_| ERROR)?).map_err(|_| ERROR)
 }
+pub(super) const DISPLAY_PENDING: ManagerError =
+    ManagerError::operation("codex termux: terminal display is pending; original launch preserved");
 const LAUNCH_MAX_BYTES: usize = 64 * 1024;
 fn write_launch(path: &Path, value: &serde_json::Value) -> Result<(), ManagerError> {
     let bytes = value.to_string();
@@ -122,7 +124,7 @@ fn service(name: &str, program: &Path, args: &[&str], cwd: &Path) -> bool {
     if program.contains(',') || cwd.contains('\0') || args.iter().any(|arg| arg.contains(',')) {
         return false;
     }
-    let command = format!("startservice -n com.termux/com.termux.app.RunCommandService -a com.termux.RUN_COMMAND --es com.termux.RUN_COMMAND_PATH {} --esa com.termux.RUN_COMMAND_ARGUMENTS {} --es com.termux.RUN_COMMAND_WORKDIR {} --es com.termux.RUN_COMMAND_RUNNER terminal-session --es com.termux.RUN_COMMAND_SHELL_NAME {} --es com.termux.RUN_COMMAND_SHELL_CREATE_MODE no-shell-with-name --ei com.termux.RUN_COMMAND_SESSION_ACTION 0", shell_quote(program), shell_quote(&args.join(",")), shell_quote(cwd), shell_quote(name));
+    let command = format!("startservice -n com.termux/com.termux.app.RunCommandService -a com.termux.RUN_COMMAND --es com.termux.RUN_COMMAND_PATH {} --esa com.termux.RUN_COMMAND_ARGUMENTS {} --es com.termux.RUN_COMMAND_WORKDIR {} --es com.termux.RUN_COMMAND_RUNNER terminal-session --es com.termux.RUN_COMMAND_SHELL_NAME {} --es com.termux.RUN_COMMAND_SHELL_CREATE_MODE no-shell-with-name --es com.termux.RUN_COMMAND_SESSION_ACTION 0", shell_quote(program), shell_quote(&args.join(",")), shell_quote(cwd), shell_quote(name));
     origin::command(&command, 15).is_some_and(|out| {
         out.status.success()
             && out.stderr.is_empty()
@@ -136,11 +138,76 @@ pub(super) fn launch(
     args: &[OsString],
     program: Option<&Path>,
 ) -> Result<Option<String>, ManagerError> {
+    launch_named(context, profile, args, program, &random()?, None)
+}
+
+pub(super) fn display(
+    context: &Context,
+    id: &str,
+    home: &Path,
+    args: &[OsString],
+) -> Result<Option<String>, ManagerError> {
+    if !canonical_session_id(id) {
+        return Err(ERR_USAGE);
+    }
+    launch_named(
+        context,
+        None,
+        args,
+        Some(&context.core_entrypoint),
+        &id.replace('-', ""),
+        Some((id, home)),
+    )
+}
+
+fn launch_named(
+    context: &Context,
+    profile: Option<&ProfileTarget>,
+    args: &[OsString],
+    program: Option<&Path>,
+    token: &str,
+    display: Option<(&str, &Path)>,
+) -> Result<Option<String>, ManagerError> {
     let directory = directory(context)?;
-    let token = random()?;
+    // Serialize the existing one-shot launch directory. A competing click gets
+    // a pending result, never permission to construct a second Native session.
+    let _launch_lock = profile::directory_lock(&directory, libc::LOCK_EX)?;
+    if let Some((id, home)) = display {
+        prune_pending(&directory);
+        terminal::prune(&directory);
+        let route_path = directory.join(format!("route-{token}"));
+        if route_path.exists() {
+            let route = read(&route_path)?;
+            if route["thread"] != id || !valid_route(&route) {
+                return Err(ERROR);
+            }
+            // A live service root or old route.thread alone cannot establish
+            // the conversation currently shown by this foreground frontend.
+            return terminal::focus_display(context, id, home, Some(&route));
+        }
+        for (count, entry) in fs::read_dir(&directory).map_err(|_| ERROR)?.enumerate() {
+            if count >= 1024 {
+                return Err(ERROR);
+            }
+            let entry = entry.map_err(|_| ERROR)?;
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            if name == format!("launch-{token}") || name.starts_with(&format!("consumed-{token}-"))
+            {
+                return Err(DISPLAY_PENDING);
+            }
+        }
+    }
     let name = format!("codex-{token}");
     let cwd = std::env::current_dir().map_err(|_| ERROR)?;
-    let path = prepare(context, profile, args, program, &token)?;
+    let path = prepare(
+        context,
+        profile,
+        args,
+        program,
+        token,
+        display.map(|(id, _)| id),
+    )?;
     sync_directory(&directory).map_err(|_| ERROR)?;
     if !service(
         &name,
@@ -154,7 +221,11 @@ pub(super) fn launch(
         ],
         &cwd,
     ) {
-        // Remove an unconsumed request: a delayed service may fail, but cannot replay it.
+        if display.is_some() {
+            // Unknown Android delivery is not permission to replace this exact
+            // launch. A delayed starter can still consume the original once.
+            return Err(DISPLAY_PENDING);
+        }
         let _ = fs::remove_file(path);
         return Err(ERROR);
     }
@@ -163,8 +234,18 @@ pub(super) fn launch(
         thread::sleep(Duration::from_millis(10));
     }
     if !directory.join(format!("route-{token}")).exists() {
+        if display.is_some() {
+            return Err(DISPLAY_PENDING);
+        }
         let _ = fs::remove_file(path);
         return Err(ERROR);
+    }
+    if let Some((id, home)) = display {
+        let route = read(&directory.join(format!("route-{token}")))?;
+        if route["thread"] != id || !valid_route(&route) {
+            return Err(ERROR);
+        }
+        return terminal::focus_display(context, id, home, Some(&route));
     }
     Ok(None)
 }
@@ -175,6 +256,7 @@ fn prepare(
     args: &[OsString],
     program: Option<&Path>,
     token: &str,
+    thread_id: Option<&str>,
 ) -> Result<PathBuf, ManagerError> {
     let cwd = std::env::current_dir().map_err(|_| ERROR)?;
     let environment: Vec<_> = std::env::vars_os()
@@ -186,7 +268,7 @@ fn prepare(
         .map(|(key, value)| serde_json::json!([bytes(&key), bytes(&value)]))
         .collect();
     let pid = std::process::id();
-    let record = serde_json::json!({"schema":"codex-window-launch-v1","pid":pid,"start":terminal::process(pid)?.1,"name":format!("codex-{token}"),"cwd":bytes(cwd.as_os_str()),"env":environment,"profile":profile.map(profile::target_name),"program":program.map(|p| bytes(p.as_os_str())),"args":args.iter().map(|v| bytes(v)).collect::<Vec<_>>()});
+    let record = serde_json::json!({"schema":"codex-window-launch-v1","thread":thread_id,"pid":pid,"start":terminal::process(pid)?.1,"name":format!("codex-{token}"),"cwd":bytes(cwd.as_os_str()),"env":environment,"profile":profile.map(profile::target_name),"program":program.map(|p| bytes(p.as_os_str())),"args":args.iter().map(|v| bytes(v)).collect::<Vec<_>>()});
     let directory = directory(context)?;
     prune_pending(&directory);
     let path = directory.join(format!("launch-{token}"));
@@ -211,6 +293,7 @@ fn prune_pending(directory: &Path) {
                 continue;
             };
             if v["schema"] == "codex-window-launch-v1"
+                && v.get("thread").is_none_or(serde_json::Value::is_null)
                 && v["start"]
                     .as_u64()
                     .is_some_and(|start| terminal::departed(pid, start))
@@ -248,6 +331,15 @@ pub(super) fn start(context: &Context, args: &[OsString]) -> Result<Option<Strin
         if record["schema"] != "codex-window-launch-v1" || record["name"] != format!("codex-{id}") {
             return Err(ERROR);
         }
+        if let Some(thread) = record.get("thread").filter(|v| !v.is_null()) {
+            let thread = thread
+                .as_str()
+                .filter(|v| canonical_session_id(v))
+                .ok_or(ERROR)?;
+            if thread.replace('-', "") != id {
+                return Err(ERROR);
+            }
+        }
         let environment = record["env"].as_array().ok_or(ERROR)?;
         for (key, _) in std::env::vars_os() {
             if !TERMINAL_ENV
@@ -278,7 +370,7 @@ pub(super) fn start(context: &Context, args: &[OsString]) -> Result<Option<Strin
         if !tty.starts_with("/dev/pts") {
             return Err(ERROR);
         }
-        let route = serde_json::json!({"kind":"stock","name":format!("codex-{id}"),"pid":pid,"start":start,"tty":tty});
+        let route = serde_json::json!({"kind":"stock","thread":record.get("thread").cloned().unwrap_or(serde_json::Value::Null),"name":format!("codex-{id}"),"pid":pid,"start":start,"tty":tty});
         write_new_record(
             &directory.join(format!("route-{id}")),
             route.to_string().as_bytes(),
@@ -397,13 +489,13 @@ mod tests {
         let live = directory.join(format!("launch-{}", random().unwrap()));
         write_launch(
             &live,
-            &serde_json::json!({"schema":"codex-window-launch-v1","pid":pid,"start":start}),
+            &serde_json::json!({"schema":"codex-window-launch-v1","thread":null,"pid":pid,"start":start}),
         )
         .unwrap();
         let reused = directory.join(format!("launch-{}", random().unwrap()));
         write_launch(
             &reused,
-            &serde_json::json!({"schema":"codex-window-launch-v1","pid":pid,"start":start+1}),
+            &serde_json::json!({"schema":"codex-window-launch-v1","thread":null,"pid":pid,"start":start+1}),
         )
         .unwrap();
         let foreign = directory.join(format!("launch-{}", random().unwrap()));
@@ -415,14 +507,50 @@ mod tests {
         let malformed = directory.join(format!("launch-{}", random().unwrap()));
         write_launch(
             &malformed,
-            &serde_json::json!({"schema":"codex-window-launch-v1","pid":pid}),
+            &serde_json::json!({"schema":"codex-window-launch-v1","thread":null,"pid":pid}),
         )
         .unwrap();
+        let uncertain = directory.join(format!("launch-{}", random().unwrap()));
+        write_launch(
+            &uncertain,
+            &serde_json::json!({"schema":"codex-window-launch-v1","thread":"01a0fc82-dc8f-7d13-bb78-7e120f1fa9b3","pid":pid,"start":start+1}),
+        ).unwrap();
         prune_pending(&directory);
+        assert!(
+            uncertain.exists(),
+            "departed requester does not prove Android rejected display"
+        );
         assert!(live.exists() && foreign.exists() && malformed.exists());
         assert!(!reused.exists());
         assert!(!terminal::departed(pid, start));
         assert!(terminal::departed(pid, start + 1));
         remove_private_tree(&directory).unwrap();
+    }
+    #[test]
+    fn repeated_thread_display_preserves_pending_launch_without_dispatch() {
+        let root = std::env::temp_dir().join(format!(
+            "codex-window-display-{}-{}",
+            std::process::id(),
+            TEMP_COUNTER.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir(&root).unwrap();
+        set_mode(&root, PRIVATE_DIR_MODE).unwrap();
+        let context = Context {
+            home: root.clone(),
+            inherited_codex_home: None,
+            core_entrypoint: PathBuf::from("/not-executed"),
+        };
+        let id = "01a0fc82-dc8f-7d13-bb78-7e120f1fa9b3";
+        let token = id.replace('-', "");
+        let directory = directory(&context).unwrap();
+        let pid = std::process::id();
+        let path = directory.join(format!("launch-{token}"));
+        write_launch(&path,&serde_json::json!({"schema":"codex-window-launch-v1","thread":id,"pid":pid,"start":terminal::process(pid).unwrap().1})).unwrap();
+        let before = fs::read(&path).unwrap();
+        for _ in 0..2 {
+            assert!(display(&context, id, &root, &[]).is_err());
+            assert_eq!(fs::read(&path).unwrap(), before);
+        }
+        fs::remove_dir_all(root).unwrap();
     }
 }

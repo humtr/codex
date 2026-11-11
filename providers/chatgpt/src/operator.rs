@@ -4051,6 +4051,12 @@ impl Operator {
                 if joining {
                     result["inference_submitted"] = json!(false);
                 }
+                drop(works);
+                // The original turn is admitted and persisted. Display observes
+                // that turn; its availability cannot authorize another input.
+                if let Ok(pool) = self.work_pool(&record).await {
+                    pool.request_terminal_display(&record.thread);
+                }
                 Ok(result)
             }
             Some("compact") => {

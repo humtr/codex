@@ -60,7 +60,7 @@ codex termux notify set [--channel <notification|toast|both>]
     [--content-chars <0|1..4096>] [--preserve-newlines <0|1>]
     [--toast-gravity <top|middle|bottom>] [--toast-short <0|1>]
     [--toast-background <empty|#RRGGBB>] [--toast-color <empty|#RRGGBB>]
-    [--group <GROUP_ID>] [--focus <window|termux>]
+    [--group <GROUP_ID>] [--focus <window|termux>] [--auto-display <on|off>]
 ```
 
 `notify set` accepts options in any order, at most once each, and no trailing
@@ -115,7 +115,7 @@ group\t<GROUP_ID>
 `notify show` emits the nine configuration `key=value` lines in this order:
 `channel`, `hooks`, `content-chars`, `preserve-newlines`, `toast-gravity`,
 `toast-short`, `toast-background`, `toast-color`, and `group`, followed by
-`focus=window|termux` from the separate focus record. It emits no path, source detail, payload,
+`focus=window|termux` and `auto-display=on|off` from their separate records. It emits no path, source detail, payload,
 environment, or credential. An absent record yields the defaults without
 creating Manager state. A malformed, symlinked, overlong, incorrectly-modeled,
 or conflicting record is an operation failure and is never replaced
@@ -200,13 +200,14 @@ delivery is unavailable. `notification`, `toast`, and `both` select the
 corresponding capability-aware provider attempts; `both` attempts each
 independently. Manager emits no success text for the endpoint.
 
-Default window focus uses the admitted Manager's `__terminal-focus-v1 UUID`
-action for a canonical session identity. It resolves the live registered workload
-and revalidates its native terminal or stock dedicated-window route as defined in
-Section3; it never starts/resumes Codex or creates a replacement workload.
-AI and tmux are not needed. A missing or invalid session identity uses the
-Activity-only action. A valid identity with a stale/unavailable exact target must
-not guess another workload or construct a window to simulate successful return.
+Default window display uses the admitted Manager's `__terminal-show-v1 UUID`
+action for a canonical session identity, binding the execution-home identity when
+available. [TERMINAL](TERMINAL.md#exact-headless-native-display) owns exact focus,
+verified headless construction, repeated-click idempotence and optional automatic
+display. This creates no replacement Native work or model input. AI and tmux are
+not needed. A missing or invalid identity uses Activity-only return; uncertain
+ownership never guesses another workload. The auto-display preference defaults
+off and does not enable/disable notifications or rewrite existing upstream hooks.
 
 Explicit termux focus and `notify test` use the Activity-only action: bring the
 Termux Activity forward with reorder-to-front/single-top, preserving its selected

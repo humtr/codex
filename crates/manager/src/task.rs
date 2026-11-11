@@ -378,6 +378,31 @@ fn verify_owner(context: &Context, task: &Task) -> Result<(), ManagerError> {
     }
     Ok(())
 }
+/// Display resumes exactly this UUID. A live writer stays in its server; the
+/// owner-free path uses upstream's saved-session lookup (missing UUID is fatal,
+/// never StartFresh) and Native's final atomic writer acquisition.
+pub(super) fn display_command(
+    context: &Context,
+    home: &Path,
+    id: &str,
+) -> Result<Command, ManagerError> {
+    if !canonical_session_id(id) {
+        return Err(ERR_USAGE);
+    }
+    native::private(home, true).map_err(|_| ERR_TASK)?;
+    let tasks = discover(context, Some(id))?;
+    match tasks.as_slice() {
+        [task] if task.server.home == home => {
+            verify_owner(context, task)?;
+            resume_command(context, home, id, Some(&task.server.socket))
+        }
+        [] if native::writer_free(&context.home, id).map_err(|_| ERR_TASK)? => {
+            resume_command(context, home, id, None)
+        }
+        _ => Err(ERR_TASK),
+    }
+}
+
 fn reconnect(context: &Context, task: &Task) -> Result<(), ManagerError> {
     // Revalidate the observed Native writer at the connection/exec boundary.
     verify_owner(context, task)?;

@@ -306,21 +306,43 @@ fn native_route(value: &serde_json::Value) -> Option<super::origin::Origin> {
     }
     super::origin::Origin::parse(&value["origin"].to_string())
 }
-pub(super) fn focus(context: &Context, args: &[OsString]) -> Result<Option<String>, ManagerError> {
-    let [id] = args else {
-        return Err(ERR_USAGE);
-    };
-    let id = id
-        .to_str()
-        .filter(|id| canonical_session_id(id))
-        .ok_or(ERR_USAGE)?;
-    let mut targets = bare_targets(context, id)?;
-    if targets.len() != 1 {
+fn target_execution_home(
+    context: &Context,
+    target: &Target,
+    id: &str,
+    home: &Path,
+) -> Result<(), ManagerError> {
+    // The installed executable, PID/start, live unlinked foreground FD and PTY
+    // must qualify before reading this process's bounded execution identity.
+    if !valid_target(context, target, id) {
         return Err(ERROR);
     }
-    let target = targets.pop().unwrap();
-    if !valid_target(context, &target, id) {
+    let actual = super::profile::execution_home_or_default(
+        fs::File::open(format!("/proc/{}/environ", target.pid)).map_err(|_| ERROR)?,
+        true,
+    )?
+    .ok_or(ERROR)?;
+    if actual != home {
         return Err(ERROR);
+    }
+    codex_runtime_binding::native::private(&actual, true).map_err(|_| ERROR)?;
+    if !valid_target(context, target, id) {
+        return Err(ERROR);
+    }
+    Ok(())
+}
+
+fn focus_target(
+    context: &Context,
+    target: &Target,
+    id: &str,
+    execution_home: Option<&Path>,
+) -> Result<Option<String>, ManagerError> {
+    if !valid_target(context, target, id) {
+        return Err(ERROR);
+    }
+    if let Some(home) = execution_home {
+        target_execution_home(context, target, id, home)?;
     }
     let origin = native_route(&target.route);
     if let Some(origin) = &origin {
@@ -330,8 +352,11 @@ pub(super) fn focus(context: &Context, args: &[OsString]) -> Result<Option<Strin
     } else if !super::window::valid_route(&target.route) {
         return Err(ERROR);
     }
-    if !valid_target(context, &target, id) {
+    if !valid_target(context, target, id) {
         return Err(ERROR);
+    }
+    if let Some(home) = execution_home {
+        target_execution_home(context, target, id, home)?;
     }
     let focused = match origin {
         Some(origin) => super::origin::focus(&origin),
@@ -341,6 +366,142 @@ pub(super) fn focus(context: &Context, args: &[OsString]) -> Result<Option<Strin
         return Err(ERROR);
     }
     Ok(None)
+}
+
+pub(super) fn focus(context: &Context, args: &[OsString]) -> Result<Option<String>, ManagerError> {
+    let [id] = args else {
+        return Err(ERR_USAGE);
+    };
+    let id = id
+        .to_str()
+        .filter(|id| canonical_session_id(id))
+        .ok_or(ERR_USAGE)?;
+    let targets = bare_targets(context, id)?;
+    let [target] = targets.as_slice() else {
+        return Err(ERROR);
+    };
+    focus_target(context, target, id, None)
+}
+
+pub(super) fn focus_display(
+    context: &Context,
+    id: &str,
+    home: &Path,
+    route: Option<&serde_json::Value>,
+) -> Result<Option<String>, ManagerError> {
+    // Owner uncertainty is never treated as an owner-free saved session, even
+    // when a terminal binding is already present.
+    let _ = super::task::display_command(context, home, id)?;
+    let targets = bare_targets(context, id)?;
+    let [target] = targets.as_slice() else {
+        return Err(super::window::DISPLAY_PENDING);
+    };
+    if route.is_some_and(|route| route != &target.route) {
+        return Err(ERROR);
+    }
+    focus_target(context, target, id, Some(home))?;
+    Ok(Some(
+        "Existing terminal focus requested; Android visibility is not confirmed.\n".into(),
+    ))
+}
+
+// A routing proof, not an Owner registry: bind a notification to the exact
+// execution directory, and recheck Native's authoritative Owner at execution.
+pub(super) fn display_args(context: &Context, id: &str) -> Result<Vec<OsString>, ManagerError> {
+    if !canonical_session_id(id) {
+        return Err(ERR_USAGE);
+    }
+    let home = context
+        .inherited_codex_home
+        .as_ref()
+        .map(PathBuf::from)
+        .unwrap_or_else(|| context.home.join(".codex"));
+    codex_runtime_binding::native::private(&home, true).map_err(|_| ERROR)?;
+    let metadata = fs::symlink_metadata(&home).map_err(|_| ERROR)?;
+    Ok(vec![
+        id.into(),
+        home.into_os_string(),
+        metadata.dev().to_string().into(),
+        metadata.ino().to_string().into(),
+    ])
+}
+
+fn display_identity(
+    context: &Context,
+    args: &[OsString],
+) -> Result<(String, PathBuf), ManagerError> {
+    let id = args
+        .first()
+        .and_then(|v| v.to_str())
+        .filter(|id| canonical_session_id(id))
+        .ok_or(ERR_USAGE)?;
+    let home = match args {
+        [_] => {
+            codex_runtime_binding::native::owner(
+                &context.home,
+                id,
+                std::time::Instant::now() + std::time::Duration::from_secs(10),
+            )
+            .map_err(|_| super::task::ERR_TASK)?
+            .ok_or(super::task::ERR_TASK)?
+            .home
+        }
+        [_, home, dev, ino] => {
+            let home = PathBuf::from(home);
+            codex_runtime_binding::native::private(&home, true).map_err(|_| ERROR)?;
+            let metadata = fs::symlink_metadata(&home).map_err(|_| ERROR)?;
+            if dev.to_str().and_then(|v| v.parse::<u64>().ok()) != Some(metadata.dev())
+                || ino.to_str().and_then(|v| v.parse::<u64>().ok()) != Some(metadata.ino())
+            {
+                return Err(ERROR);
+            }
+            home
+        }
+        _ => return Err(ERR_USAGE),
+    };
+    Ok((id.to_owned(), home))
+}
+
+pub(super) fn show(
+    context: &Context,
+    args: &[OsString],
+    automatic: bool,
+) -> Result<Option<String>, ManagerError> {
+    if automatic && !super::read_auto_display(context) {
+        return Ok(None);
+    }
+    let (id, home) = display_identity(context, args)?;
+    // Admission precedes both existing-terminal selection and construction.
+    // Auto ON shares this path; OFF returned before any Owner query above.
+    let _ = super::task::display_command(context, &home, &id)?;
+    let targets = bare_targets(context, &id)?;
+    if !targets.is_empty() {
+        if targets.len() != 1 {
+            return Err(ERROR);
+        }
+        return focus_display(context, &id, &home, None);
+    }
+    // The one-shot terminal revalidates the same authority before resume.
+    let metadata = fs::symlink_metadata(&home).map_err(|_| ERROR)?;
+    let args = vec![
+        "termux".into(),
+        "__terminal-display-v1".into(),
+        id.clone().into(),
+        home.clone().into_os_string(),
+        metadata.dev().to_string().into(),
+        metadata.ino().to_string().into(),
+    ];
+    super::window::display(context, &id, &home, &args)
+}
+
+pub(super) fn reenter(
+    context: &Context,
+    args: &[OsString],
+) -> Result<Option<String>, ManagerError> {
+    use std::os::unix::process::CommandExt;
+    let (id, home) = display_identity(context, args)?;
+    let _ = super::task::display_command(context, &home, &id)?.exec();
+    Err(super::ERR_LAUNCH)
 }
 
 #[cfg(test)]

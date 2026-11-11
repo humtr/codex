@@ -69,7 +69,7 @@ const HELP: &str = concat!(
     "codex termux task takeover <THREAD_UUID> [--profile PROFILE_ID] [--force-server PID:START]\n",
     "codex termux notify show\n",
     "codex termux notify test\n",
-    "codex termux notify set [--channel <notification|toast|both>] [--hooks <none|all|EVENT[,EVENT...]>] [--content-chars <0|1..4096>] [--preserve-newlines <0|1>] [--toast-gravity <top|middle|bottom>] [--toast-short <0|1>] [--toast-background <empty|#RRGGBB>] [--toast-color <empty|#RRGGBB>] [--group <GROUP_ID>] [--focus <window|termux>]\n",
+    "codex termux notify set [--channel <notification|toast|both>] [--hooks <none|all|EVENT[,EVENT...]>] [--content-chars <0|1..4096>] [--preserve-newlines <0|1>] [--toast-gravity <top|middle|bottom>] [--toast-short <0|1>] [--toast-background <empty|#RRGGBB>] [--toast-color <empty|#RRGGBB>] [--group <GROUP_ID>] [--focus <window|termux>] [--auto-display <on|off>]\n",
 );
 
 static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -229,6 +229,7 @@ struct NotifyConfig {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 struct NotifyPatch {
+    auto_display: Option<bool>,
     focus_window: Option<bool>,
     channel: Option<NotifyChannel>,
     hooks: Option<NotifyHooks>,
@@ -371,6 +372,22 @@ fn run_inner(args: Vec<OsString>) -> Result<Option<String>, ManagerError> {
     if is_exact(args.first(), "launch") {
         return launch::launch(&capture_context()?, &args[1..]);
     }
+    if is_exact(args.first(), "__terminal-show-v1")
+        || is_exact(args.first(), "__terminal-auto-show-v1")
+    {
+        let context = capture_context()?;
+        let automatic = is_exact(args.first(), "__terminal-auto-show-v1");
+        let result = terminal::show(&context, &args[1..], automatic);
+        if let Err(error) = &result {
+            if let Ok(config) = read_notify_config(&context) {
+                invoke_termux_toast(&config, error.message);
+            }
+        }
+        return result;
+    }
+    if is_exact(args.first(), "__terminal-display-v1") {
+        return terminal::reenter(&capture_context()?, &args[1..]);
+    }
     if is_exact(args.first(), "__terminal-focus-v1") {
         return terminal::focus(&capture_context()?, &args[1..]);
     }
@@ -435,22 +452,31 @@ fn run_inner(args: Vec<OsString>) -> Result<Option<String>, ManagerError> {
             Ok(None)
         }
         CommandKind::NotifyShow => Ok(Some(format!(
-            "{}focus={}\n",
+            "{}focus={}\nauto-display={}\n",
             format_notify_config(&read_notify_config(&context)?),
             if read_focus_window(&context) {
                 "window"
             } else {
                 "termux"
+            },
+            if read_auto_display(&context) {
+                "on"
+            } else {
+                "off"
             }
         ))),
         CommandKind::NotifyTest => test_notification(&context),
         CommandKind::NotifySet => {
             let patch = command.notify_patch.expect("notify set patch is parsed");
             let focus = patch.focus_window;
+            let auto_display = patch.auto_display;
             let config = read_notify_config(&context)?.merge(patch);
             publish_notify_config(&context, &config)?;
             if let Some(enabled) = focus {
                 publish_focus_window(&context, enabled)?;
+            }
+            if let Some(enabled) = auto_display {
+                publish_auto_display(&context, enabled)?;
             }
             Ok(Some("saved\n".to_owned()))
         }
@@ -580,6 +606,16 @@ fn parse_notify_set_args(args: &[OsString]) -> Result<NotifyPatch, ManagerError>
         let option = args[index].to_str().ok_or(ERR_USAGE)?;
         let value = args.get(index + 1).ok_or(ERR_USAGE)?;
         match option {
+            "--auto-display" => {
+                if patch.auto_display.is_some() {
+                    return Err(ERR_USAGE);
+                }
+                patch.auto_display = Some(match value.to_str() {
+                    Some("on") => true,
+                    Some("off") => false,
+                    _ => return Err(ERR_USAGE),
+                });
+            }
             "--focus" => {
                 if patch.focus_window.is_some() {
                     return Err(ERR_USAGE);
@@ -1435,6 +1471,46 @@ fn publish_focus_window(context: &Context, enabled: bool) -> Result<(), ManagerE
     result
 }
 
+fn read_auto_display(context: &Context) -> bool {
+    let Ok(Some(directory)) = existing_notify_directory(context) else {
+        return false;
+    };
+    let path = directory.join("auto-display-v1");
+    let Ok(metadata) = fs::symlink_metadata(&path) else {
+        return false;
+    };
+    metadata.is_file()
+        && !metadata.file_type().is_symlink()
+        && metadata.permissions().mode() & 0o7777 == PRIVATE_FILE_MODE
+        && read_bounded(&path).is_ok_and(|bytes| bytes == b"on\n")
+}
+fn publish_auto_display(context: &Context, enabled: bool) -> Result<(), ManagerError> {
+    let directory = notify_directory_for_create(context)?;
+    let path = directory.join("auto-display-v1");
+    if let Ok(metadata) = fs::symlink_metadata(&path) {
+        if !metadata.is_file()
+            || metadata.file_type().is_symlink()
+            || metadata.permissions().mode() & 0o7777 != PRIVATE_FILE_MODE
+        {
+            return Err(ERR_NOTIFY_CONFIG);
+        }
+    }
+    let temporary = directory.join(format!(
+        ".auto-display-{}-{}",
+        std::process::id(),
+        TEMP_COUNTER.fetch_add(1, Ordering::Relaxed)
+    ));
+    let result = (|| {
+        write_new_record(&temporary, if enabled { b"on\n" } else { b"off\n" })?;
+        fs::rename(&temporary, &path).map_err(|_| ERR_NOTIFY_CONFIG)?;
+        sync_directory(&directory).map_err(|_| ERR_NOTIFY_CONFIG)
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(temporary);
+    }
+    result
+}
+
 fn notification_focus_action(context: &Context, session_id: Option<&str>) -> String {
     let action = notification_action(context);
     let Some(id) = session_id.filter(|id| canonical_session_id(id)) else {
@@ -1446,11 +1522,15 @@ fn notification_focus_action(context: &Context, session_id: Option<&str>) -> Str
     let Some(core) = context.core_entrypoint.to_str() else {
         return action;
     };
-    // Exact return never dispatches a native window constructor or guesses a replacement.
+    let args = terminal::display_args(context, id).unwrap_or_else(|_| vec![id.into()]);
+    let arguments = args
+        .iter()
+        .map(|v| shell_quote(v.to_str().unwrap_or("")))
+        .collect::<Vec<_>>()
+        .join(" ");
     format!(
-        "{} termux __terminal-focus-v1 {} >/dev/null 2>&1",
-        shell_quote(core),
-        shell_quote(id)
+        "{} termux __terminal-show-v1 {arguments} >/dev/null 2>&1",
+        shell_quote(core)
     )
 }
 
@@ -2901,14 +2981,14 @@ mod tests {
     }
 
     #[test]
-    fn notification_focus_action_default_window_quoted_and_no_resume() {
+    fn notification_display_action_binds_thread_and_never_submits_a_prompt() {
         let root = TestRoot::new();
         let mut context = root.context();
         context.home = root.0.join("home' with space");
         let id = "01a0fc82-dc8f-7d13-bb78-7e120f1fa9b3";
         publish_focus_window(&context, true).unwrap();
         let expected = format!(
-            "{} termux __terminal-focus-v1 '{}' >/dev/null 2>&1",
+            "{} termux __terminal-show-v1 '{}' >/dev/null 2>&1",
             shell_quote(context.core_entrypoint.to_str().unwrap()),
             id
         );
@@ -2936,5 +3016,57 @@ mod tests {
             args[1].clone()
         ])
         .is_err());
+    }
+    #[test]
+    fn automatic_display_is_explicit_default_off_and_does_not_override_notification_focus() {
+        let root = TestRoot::new();
+        let context = root.context();
+        assert!(!read_auto_display(&context));
+        assert!(terminal::show(&context, &["invalid".into()], true).is_ok());
+        let patch = parse_notify_set_args(&["--auto-display".into(), "on".into()]).unwrap();
+        assert_eq!(patch.auto_display, Some(true));
+        publish_auto_display(&context, true).unwrap();
+        assert!(read_auto_display(&context));
+        publish_focus_window(&context, false).unwrap();
+        assert!(read_auto_display(&context));
+        publish_auto_display(&context, false).unwrap();
+        assert!(!read_auto_display(&context));
+        assert!(!read_focus_window(&context));
+        assert!(parse_notify_set_args(&["--auto-display".into(), "maybe".into()]).is_err());
+        let path = existing_notify_directory(&context)
+            .unwrap()
+            .unwrap()
+            .join("auto-display-v1");
+        fs::write(&path, b"on\nextra").unwrap();
+        assert!(!read_auto_display(&context));
+        fs::remove_file(&path).unwrap();
+        std::os::unix::fs::symlink(root.0.join("missing"), &path).unwrap();
+        assert!(!read_auto_display(&context));
+        assert_eq!(publish_auto_display(&context, true), Err(ERR_NOTIFY_CONFIG));
+    }
+    #[test]
+    fn terminal_display_captures_exact_home_and_rejects_replaced_directory() {
+        let root = TestRoot::new();
+        let mut context = root.context();
+        let home = root.0.join("execution");
+        fs::create_dir(&home).unwrap();
+        set_mode(&home, PRIVATE_DIR_MODE).unwrap();
+        context.inherited_codex_home = Some(home.clone().into_os_string());
+        let id = "01a0fc82-dc8f-7d13-bb78-7e120f1fa9b3";
+        let args = terminal::display_args(&context, id).unwrap();
+        assert_eq!(args.len(), 4);
+        assert_eq!(args[0], id);
+        assert_eq!(args[1], home.as_os_str());
+        let action = notification_focus_action(&context, Some(id));
+        assert!(action.contains("__terminal-show-v1"));
+        assert!(action.contains(home.to_str().unwrap()));
+        assert!(!action.contains("--model"));
+        assert!(!action.contains("takeover"));
+        let directory = File::open(&home).unwrap();
+        fs::rename(&home, root.0.join("old-execution")).unwrap();
+        fs::create_dir(&home).unwrap();
+        set_mode(&home, PRIVATE_DIR_MODE).unwrap();
+        assert!(terminal::show(&context, &args, false).is_err());
+        drop(directory);
     }
 }

@@ -19,6 +19,9 @@ mod task_snapshot;
 #[path = "profile_commands/quota.rs"]
 mod quota;
 
+#[path = "profile_commands/terminal_display.rs"]
+mod terminal_display;
+
 const CORE_API_ENV: &str = "CODEX_TERMUX_CORE_API";
 const CORE_ENTRYPOINT_ENV: &str = "CODEX_TERMUX_CORE_ENTRYPOINT";
 const CORE_API: &str = "codex-manager-core-v1";
@@ -1395,7 +1398,7 @@ fn notification_configuration_and_emit_are_best_effort_at_manager_boundary() {
     assert_eq!(shown.status.code(), Some(0));
     assert_eq!(
         shown.stdout,
-        b"channel=both\nhooks=Stop\ncontent-chars=8\npreserve-newlines=0\ntoast-gravity=bottom\ntoast-short=1\ntoast-background=#a0b1c2\ntoast-color=#d3e4f5\ngroup=ops.v1\nfocus=window\n"
+        b"channel=both\nhooks=Stop\ncontent-chars=8\npreserve-newlines=0\ntoast-gravity=bottom\ntoast-short=1\ntoast-background=#a0b1c2\ntoast-color=#d3e4f5\ngroup=ops.v1\nfocus=window\nauto-display=off\n"
     );
     assert!(shown.stderr.is_empty());
 
@@ -1488,7 +1491,7 @@ fn native_completion_argv_delivers_once_ignores_stdin_and_respects_disabled_even
     assert_eq!(calls.matches("provider=").count(), 1);
     assert!(calls.contains("arg=--content\narg=completed normally\n"));
     assert!(
-        calls.contains("__terminal-focus-v1")
+        calls.contains("__terminal-show-v1")
             && calls.contains("01a0fc82-dc8f-7d13-bb78-7e120f1fa9b3")
     );
     assert!(!calls.contains("ignored-"));
@@ -1780,7 +1783,7 @@ fn notification_click_reuses_activity_repeatedly_with_quoted_absolute_provider_a
 }
 
 #[test]
-fn notification_window_click_uses_core_only_and_failure_never_creates_a_window() {
+fn notification_click_uses_exact_core_thread_request_without_a_fallback_prompt() {
     let root = TestRoot::new();
     let home = root.0.join("home ' $(touch injected)");
     fs::create_dir(&home).unwrap();
@@ -1796,7 +1799,7 @@ fn notification_window_click_uses_core_only_and_failure_never_creates_a_window()
     let shown = run_manager(&home, &core, &["notify", "show"], None);
     assert!(String::from_utf8(shown.stdout)
         .unwrap()
-        .ends_with("focus=window\n"));
+        .ends_with("focus=window\nauto-display=off\n"));
     let output = run_manager_with_input(&home, &core, &["notify", "emit", "Stop"], &providers, &log,
         br#"{"session_id":"01a0fc82-dc8f-7d13-bb78-7e120f1fa9b3","content":"test","command":"touch injected"}"#);
     assert!(output.status.success() && output.stdout.is_empty() && output.stderr.is_empty());
@@ -1809,7 +1812,7 @@ fn notification_window_click_uses_core_only_and_failure_never_creates_a_window()
         .next()
         .unwrap();
     assert!(
-        action.contains("__terminal-focus-v1")
+        action.contains("__terminal-show-v1")
             && !action.contains("resume")
             && !action.contains("bin/ai")
             && !action.contains("startservice")
@@ -1830,7 +1833,7 @@ fn notification_window_click_uses_core_only_and_failure_never_creates_a_window()
     }
     assert_eq!(
         fs::read_to_string(&clicked_log).unwrap(),
-        "core\ntermux\n__terminal-focus-v1\n01a0fc82-dc8f-7d13-bb78-7e120f1fa9b3\n".repeat(3)
+        "core\ntermux\n__terminal-show-v1\n01a0fc82-dc8f-7d13-bb78-7e120f1fa9b3\n".repeat(3)
     );
     assert!(!root.0.join("injected").exists());
 }
