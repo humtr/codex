@@ -35,7 +35,7 @@ signed Core upgrade/bootstrap route; retain that real compatibility consumer
 until the supported-client floor and explicit retirement policy permit removal.
 Worker source readback alone proves neither new direct delivery nor legacy
 migration. Implementation, qualification, publication and device activation remain
-separate states. CURRENT's consolidated plan owns sequence and proof status.
+separate states. CURRENT records observed proof; HANDOFF records unfinished acceptance.
 
 #### Signed composition and public qualification
 
@@ -239,6 +239,14 @@ has schema `codex-release-intent-v1`, the exact `source_sha`, selected
 intent leaves development accepted and publication pending; malformed or
 unavailable authority fails closed. The candidate branch cannot supply intent.
 All existing exact-run, caller-pin, signing and promotion checks still apply.
+A prospective Full input or reference additionally requires its successful exact
+[Full qualification](QUALIFICATION.md), selected TUI run and unchanged main before
+any public frontend container or reference mutation. Proof transport is bound to
+its immutable artifact ID, archive digest, bounded inventory and source runs.
+A Core-only lane discards pending optional frontend publication and prospective
+optional binding; it preserves issued Full and rollback assets. The signing
+reservation separately compares the actual assembled candidate with that proof,
+so earlier controller admission cannot authorize different bytes.
 A qualification completion relay additionally requires an explicit manual
 `advance_release=true` input on the official development branch; default false
 prevents a source push from requesting publication. An explicitly

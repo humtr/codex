@@ -61,10 +61,10 @@ Owner database or alternate Writer controller.
 | Work | Defect / scope and implemented decision | Writer and principal source | Acceptance still required after focused local proof |
 | --- | --- | --- | --- |
 | W0 | Correct shallow ancestry, current S165 installation and mixed live generations; preserve dirty source | Integration; Git/process/installed inventory | Final remote HEAD and protected-asset comparison |
-| W1 | Input identity follows actual producers, recipe, ABI, flags and lockfiles; qualification is separate | Release; component_inputs.py, component_artifact.py | Exact-source artifact/proof receipts |
+| W1 | Input identity follows actual producers, recipe, ABI, flags and lockfiles; qualification is separate | Release; component_inputs.py, component_artifact.py, qualified_component.py | Exact-source artifact/proof receipts |
 | W2 | One canonical Android Core producer reused by source and runtime consumers | Release; reusable Core workflow and consumers | Hosted producer/cache plus consumer gates |
 | W3 | Manager independent build and interface qualification | Release; manager workflow; Manager source | Hosted exact-source Manager qualification |
-| W4 | Unsigned Full assembly binds successful same-source Core/Manager/full-TUI evidence | Release; full_qualification.py and workflow | Exact-source Full run after prerequisites |
+| W4 | Unsigned Full assembly binds successful same-source Core/Manager/full-TUI evidence | Release; full_qualification.py, release_control.py and workflow | Exact-source Full run after prerequisites |
 | W5 | rN input revisions and composition revision separate from global sequence; immutable signed history | Release; component_revisions.py, release_reservations.py | Pure tests passed; no formal reservation/signing authorized |
 | W6 | Preserve upstream TUI behavior; new model/switch paths have explicit Retain oracles | Models/Native; TUI patch and tests | Full hosted TUI tests |
 | W7 | Existing current alias is already integrated; retain authority/symlink guards | Integration; current_alias.rs, existing tests | Reuse source tests; no redundant implementation |
@@ -78,9 +78,9 @@ Owner database or alternate Writer controller.
 | W15 | Original P0, hook-aware scopes, running/final-poll continuity and immutable cold receipt-chain readback | Native; native_claims/effect, mcp, native_route.patch, lifecycle tests | Actual Core-only compilers overlap 5.760s; 364 Provider tests and actual Controller/Stop/StopTree/queue controls passed; final-source CI remains |
 | W16 | Exact Owner/home display, default-off auto, short descriptor-transition locks and unsafe-route rejection | Integration/Release after file-lease transfer; Manager terminal/window/task, Provider callback | Actual stock Android 66edd08d success; final source/device boundary retained |
 | W17 | Fresh authenticated ChatGPT catalog, independent inference auth, stable stored Provider/model IDs | Models; models/control/projection and Provider docs | Candidate hosted tests; reuse operating live model loop only within stated boundary |
-| W18 | One independent shell, original-call replay, conflicts, bounded output/process cleanup; common annotations unchanged | Integration; termux_shell, worker and integration test | Standalone candidate worker and actual connected replay during bounded Native Busy passed; final-source Provider CI remains |
+| W18 | One independent shell, original-call replay, conflicts, bounded output/process cleanup; common annotations unchanged | Integration; termux_shell, worker, candidate.py, connector refresh and qualification | Standalone candidate worker and actual connected replay during bounded Native Busy passed; final-source Provider CI remains |
 | W19 | OpenAI upstream-only; ChatGPT account catalog-only through picker/direct input/reentry/effort; preserve upstream command-name completion | Models; termux_chat_models, input preparation, TUI patch | Candidate full TUI, provider transitions and unsupported-model errors |
-| W20 | Decode known legacy owner records safely, reject uncertainty, preserve same thread and original quota checkpoint | Native/Models; runtime-binding/native, profile_transport, quota replay | Actual candidate same-thread switch with synthetic response passed; final Full/account boundary retained |
+| W20 | Decode known legacy owner records safely; preserve current Native-accepted selection, same thread and quota checkpoint; keep private restore distinct from ordinary resume | Native/Models; runtime-binding/native, profile_transport, profile_manager, app_server_session and quota replay | Ordinary manual switch passed; old d2 changed-selection regression reproduced; final corrected trial and four named Rust PASS gates remain |
 
 ## Source provenance and independent review
 
@@ -146,6 +146,11 @@ upstream historical-quota replay and checkpoint acceptance add product +6/-0
 and tests +144/-0. Those expanded upstream hunks are already in the TUI patch
 total. W15 hook/claim machinery, W16 terminal display, W19 catalogs, shared
 fixture publication and global W9/W10 bookkeeping are not counted again here.
+The later current-selection correction f915344e/f1491afb adds product
++88/-4 and tests +324/-0, including semantic app_server_session Rust and
+the no-resume readback assertion. These are measured additional deltas, not
+an independent total to add to the global patch accounting. The final subset
+reconciles the file union and the updated ownership norm after source freeze.
 Replacement lines are included in additions/deletions, not extra LoC.
 
 Rollback for development is a reviewed revert of a coherent feature commit,
@@ -245,7 +250,7 @@ Unique operating snapshots and experiments are not wholesale merge inputs.
 | `remote:origin/wip/chatgpt-accounts-source-20261110` | `2dd07d422ad0` | integrated legacy; check consumers before deletion | no |
 | `remote:origin/work/capability-restoration-166` | `3c1e47e46cef` | integrated legacy; eligible after acceptance/consumer review | no |
 
-The final inventory at 66edd08d contains 94 local/remote refs and 83 registered
+The checkpoint inventory at 66edd08d contains 94 local/remote refs and 83 registered
 worktrees. The 16 orphaned transfer refs below were also reviewed: 15 are direct
 ancestors; native-result29's two commits have exact stable-patch equivalents
 141c0e71/5056cc30 already in development. Their names/SHAs have no current

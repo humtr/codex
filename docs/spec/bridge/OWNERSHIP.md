@@ -66,6 +66,13 @@ the existing legal idle release/re-entry contract through that authority. Accoun
 live writer, erasing history, replaying a completed effect or substituting a new
 thread. If discovery, destination permissions or model entitlement is uncertain,
 keep the original work intact and state the actual blocking condition.
+Preserve the current Native-accepted model and effort rather than launch
+defaults. Read-only metadata must confirm the exact thread/model/Provider/effort
+before profile re-entry; that check must not resume or mutate another session.
+The private same-thread restore path retains Native-saved nullable effort and
+tier without reapplying destination defaults or stale launch overrides. An
+absent effort differs from the explicit `none` value. Ordinary upstream resume
+and its explicit options retain their existing contract.
 A re-entry notice is not proof of resumed inference: qualification observes the
 same thread accepting its intended follow-up and attributes its original results
 and subsequent model/tool effects to the selected destination account.

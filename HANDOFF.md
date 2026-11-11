@@ -11,16 +11,20 @@ unsigned CI; these are not intermediate approval gates.
 1. Execute the integrated d2 pin-refresh fixture correction and new compaction
    regression in full TUI CI; preserve the earlier positive gates and compile
    cache. Complete final exact-source full TUI and unsigned Full composition.
-2. Integrate the audited formal-path early Full admission and cross-branch
-   qualified component reuse; keep Core-only publication independent.
-3. Complete final-composition Native observer/terminal acceptance, manual
-   `/switch` destination selection and the exact-source Provider/worker gate. Integrated cold-receipt tests, actual connected
+2. Execute the integrated current-selection `/switch` regressions and repeat
+   the actual cross-profile ChatGPT trial with the final candidate. The old d2
+   frontend reproduced high reverting to explicit none; the source correction
+   now distinguishes absent effort, explicit none and launch defaults while
+   preserving Native saved settings and ordinary upstream resume options.
+3. Complete final-composition Native observer/terminal and current-selection
+   acceptance. G Provider/worker CI, actual Android standalone worker and the
+   manual same-thread destination selection passed within CURRENT's bounds. Integrated cold-receipt tests, actual connected
    MCP during Native Busy, Core-only Stop/StopTree controls, warm parallel
    compilers and candidate switch/model routes have passed within the separate
    evidence boundaries in CURRENT.
 4. Finalize exact-head CI receipts, file accounting and protected-asset/branch
-   readback. At 66edd08d, Source, Core/Runtime, Manager, Provider and actual
-   stock Android gates passed. Source Acceptance also passed at exact dfd53e61.
+   readback. At 787fcd2b, Source, Core/Runtime, Manager, Provider and actual
+   stock Android gates passed. Later consumer/selection changes need new gates.
    The later Full probe environment fix and explicit compaction regression need
    their exact-source gates; GitHub startup failures did not execute TUI tests.
 

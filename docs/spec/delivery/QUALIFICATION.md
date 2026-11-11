@@ -24,6 +24,19 @@ current Core build embeds the complete workspace Cargo.lock, so its identity mus
 include those actual bytes even when the changed lock entry is not a linked
 Core dependency. A narrower identity requires changing that producer first.
 
+Formal component consumers admit the completed exact-source Core or Manager
+qualification independently of branch-local build caches. They bind the immutable
+artifact ID, current GitHub archive digest and byte count, then revalidate the
+actual transfer, input identity, modes and ELF target. Original production source
+and run remain unchanged. Missing or invalid qualified bytes refuse; formal
+consumption never falls back to another compilation. Developer production still
+uses the single canonical producer and its exact-input cache.
+A Full input plan retains each original component artifact ID and successful
+run. Acquisition and later reassembly consume those same IDs, verify current
+source/run/role and actual archive bytes, and recheck run qualification. The
+retained Full proof binds that plan to its component runs; a newer run or an
+artifact name alone cannot replace a selected input.
+
 Raw Runtime reuse selects the original immutable GitHub artifact only after both
 source trees have equal complete normalized production inputs. It verifies that
 source's actual completed compiler/upload job, archive ID/digest and current

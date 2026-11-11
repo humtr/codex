@@ -12,13 +12,11 @@ This integration starts from `7b98296a411a2c435bb9f34ee51f286f33f3491b`
 in an independent `integration/release-framework-20261112` worktree.
 Feature commits are fast-forward integrated into that official development
 branch; the primary checkout remains on its protected older lineage. The
-remote checkpoint `66edd08d34879224b6c0b05d4ffa68a6d97c800a` passed Source,
-Core/Runtime, Manager, Provider and stock Android qualification. Full TUI,
-Full composition and later affected receipt-restoration changes retain their
-separate exact-source gates. Source Acceptance also passed at exact
-`dfd53e61f462ce0f458ac3d96d913038aa567c56`, including its Native/Manager changes;
-that is not a substitute for the other component gates. Query the actual HEAD and its Checks
-before relying on a preceding checkpoint's acceptance.
+remote checkpoint `787fcd2bc6708941ffbdd6a193bae35d3b8478a5` passed Source,
+Core/Runtime, Manager, Provider and stock Android qualification. Full TUI and
+Full composition retain their separate exact-source gates. Later formal consumer
+and current-selection changes require their affected exact-source gates; query
+the actual HEAD and its Checks before relying on an earlier checkpoint.
 
 The independently read remote `main` is
 `b2567063d2a7a333a718d2495e2c9f8c928d822c`.
@@ -187,8 +185,30 @@ used only owned transfer fixtures. Receipt SHA256:
 Ordinary and named-permission automatic quota handoffs also passed; an
 incompatible permission profile stopped before any destination inference.
 Those three trials exercised the `/switch` menu but automatic handoff, not
-manual destination-row selection. They used zero live model requests and no
-physical Android transport; protected and input bytes were unchanged.
+manual destination-row selection. A separate actual manual trial then disabled
+automatic handoff, selected `next` in the picker, verified the same UUID's new
+Owner/home before destination inference and submitted one typed follow-up.
+It preserved gpt-6.1-sol/OpenAI/high, named permissions and original tool effect
+exactly once. Its source and current selections matched; this does not prove
+preservation after a later model change. Manual receipt SHA256:
+`744545926ef31dd2b1775643e88c315bf7b66baf2829f08ad0d3139c9af95e1c`.
+Those trials used zero live model requests and no physical Android transport;
+protected and input bytes were unchanged and owned processes finished.
+A further changed-selection trial on the old d2 frontend reproduced a separate
+regression: the same thread retained ChatGPT, its model, tier and turns, but
+current `high` effort reverted to the source launch's explicit `none` after a
+manual profile switch. This was the Native enum string `none`, not JSON null.
+The target profile had different OpenAI/low/priority defaults; only two original
+synthetic responses had occurred and no destination follow-up was submitted.
+The failure receipt is `02d20ac216a71f5e0d224731fc1f700edbcae58f6817e7833501e0d35001ec73`.
+Source f915344e/f1491afb now captures the current collaboration selection,
+verifies the exact Native thread/model/Provider/effort without a resume effect,
+and uses the existing private saved-selection mode to avoid stale destination
+overrides. Ordinary resume tier options and permission/reviewer authority stay
+intact. Four new Rust regressions cover current/default differences, nullable
+versus explicit-none effort, Native readback and private/ordinary resume. CI
+requires each actual named PASS; their hosted execution and the corrected
+actual changed-selection trial remain acceptance gates.
 Historical quota replay now restores display history without starting new
 account recovery. The receipt digest is
 `217048f8b2e750c6bfda0d21c7368fdd745cec820591c4afd8d8cf409caf1ff3`.
@@ -317,6 +337,19 @@ contains exactly the previous 17 tools plus that one shell. This wire evidence
 uses the existing installed worker; the separately tested hardened candidate
 was not activated. Shared claims were empty at that initial observation.
 
+The independently qualified G Android worker was then acquired by immutable
+artifact 13893816894 and verified against its exact source and closed inventory.
+Executable SHA256 `68df8ecb6918153d28808e3a029cc53ae77579cffa20557d29dadc97ea4d5b12`
+passed real private stdio execution without Provider or Core: exact replay and
+conflict refusal, worker-restart receipt recovery, timeout/background-child
+cleanup, cancellation preserving the original unknown intent, simultaneous
+worker calls with one effect, and the 64 KiB output bound. All three workers
+exited 0 with empty stderr, owned children were inactive and the Native sentinel,
+operating wrapper and Core stayed unchanged. Execution receipt SHA256:
+`a7d828a8444baec9b47d4a1d427a7475e4b668ca8a3c87fa7b898576946ddff6`.
+This is actual candidate Android execution; its connected ChatGPT tunnel was
+not activated or refreshed.
+
 A subsequent actual connected call, `cr12-root-294`, ran while an owned real
 clang command held a verified bounded Native claim. A conflicting command
 against the same output had returned native_resource_busy, executed=false.
@@ -395,15 +428,15 @@ Accepted baseline and integration checkpoint receipts:
 | same | TUI Native Qualification | [43013363622](https://github.com/humtr/codex/actions/runs/43013363622) | success |
 
 The 7b98296 receipts supersede the earlier f9dfc3f failure only as baseline
-proof. Integration checkpoint `66edd08d34879224b6c0b05d4ffa68a6d97c800a`:
+proof. Integration checkpoint `787fcd2bc6708941ffbdd6a193bae35d3b8478a5`:
 
 | Workflow | Run | Conclusion |
 | --- | --- | --- |
-| Source Acceptance | [43093224066](https://github.com/humtr/codex/actions/runs/43093224066) | success |
-| Core/Runtime Qualification | [43093224160](https://github.com/humtr/codex/actions/runs/43093224160) | success |
-| Manager Qualification | [43093224067](https://github.com/humtr/codex/actions/runs/43093224067) | success |
-| Provider Qualification | [43093223902](https://github.com/humtr/codex/actions/runs/43093223902) | success |
-| Stock Android window | [43093224127](https://github.com/humtr/codex/actions/runs/43093224127) | success |
+| Source Acceptance | [43104266073](https://github.com/humtr/codex/actions/runs/43104266073) | success |
+| Core/Runtime Qualification | [43104266214](https://github.com/humtr/codex/actions/runs/43104266214) | success |
+| Manager Qualification | [43104266119](https://github.com/humtr/codex/actions/runs/43104266119) | success |
+| Provider Qualification | [43104266147](https://github.com/humtr/codex/actions/runs/43104266147) | success |
+| Stock Android window | [43104266064](https://github.com/humtr/codex/actions/runs/43104266064) | success |
 
 At cf849ac3, the actual Core producer built SHA256 `48c041e4…f4596f` once. Source Acceptance
 restored and reverified the same bytes/input/original production run and skipped
@@ -420,11 +453,8 @@ Full run 43090735816 refused missing exact-source prerequisites at dispatch,
 which preserves the admission gate. Later exact-source runs must satisfy all
 required gates before the new source is reported accepted.
 
-At `dfd53e61f462ce0f458ac3d96d913038aa567c56`, manual Source Acceptance
-[43098958949](https://github.com/humtr/codex/actions/runs/43098958949) completed
-successfully: full workspace/Android focused proofs, warnings-as-errors clippy
-and formatting all passed. Its Android Core producer restored identical input
-bytes, reverified them and transferred the artifact without rebuilding.
+At the preceding dfd53e61 checkpoint, Source Acceptance 43098958949 also
+completed successfully with actual Core cache-byte revalidation.
 The full-TUI request 43097766900 and its one accepted rerun failed at GitHub
 startup before any runner/test job was created. The reported internal-error
 request IDs are retained; this is distinct from d2's actual Retain failure.
@@ -467,11 +497,32 @@ case still requires actual hosted compilation and execution. The pinned upstream
 autocomplete is command-name completion (`/mo` to `/model`); direct model argument
 resolution is separately tested and is not called a model-name completion engine.
 
-A formal-path audit confirms that the new reservation gate revalidates exact
-Full proof, component runs and assembled payload digests before any reservation
-or signing. Two earlier consumers still require integration: defer frontend
-container publication until Full admission, and import the qualified Android
-component artifact across branches instead of relying on branch-scoped caches.
+The formal-path consumers now defer frontend public inputs/references until
+exact Full admission and use immutable qualified Android artifacts across branch
+cache boundaries. The Full proof's actual ZIP digest, byte count, closed inventory
+and exact source/component runs are revalidated. Core-only prospective bindings
+and publication queues contain no optional frontend. The final reservation still
+compares every actual candidate payload and normalized composition before signing.
+The Full input consumer additionally preserves the original inputs-v1 plan
+and downloads each of its six immutable artifact IDs. Same-name replacement or
+a newer run cannot replace those selections; source/run/role, archive digest,
+byte count and bounded regular-file ZIP inventory are checked before assembly.
+The proof reader retains that original source-and-runs-bound plan for private
+reassembly. At f9d43ee2, 67 distinct Full/input/controller/reservation/intent and
+qualified-component tests passed, plus thirteen workflow and ten documentation
+tests. The earlier eight input/transfer tests remain separate. A real 567-byte G
+Manager proof archive (artifact 13893541451) passed the new transport and matched
+its original G source/run/component digest. None is formal signing or publication
+acceptance.
+
+That new consumer also acquired actual G Core and Manager qualification artifacts
+in 19.11 seconds without compiling: Core artifact 13893267008 retained original
+cf849ac3 production/run 43090735720 and binary 48c041e4...f4596f; Manager artifact
+13891669517 retained G production/run 43104266119 and binary
+`0cbc83d22087d0dcc410361195cd48ad52d2c2aa59025f96e23f5f45e45cad40`.
+The consumer implementation was 9b88a644; qualified source was detached G.
+Acquisition receipt SHA256:
+`cc9015cc8176bcd82197368db9336109f96e10a5efc6c255b80e72b576308948`.
 The existing exact-main guard remains closed; no formal publication was attempted.
 
 The read-only pre-push audit found no exact-main release-intent-v1, no
