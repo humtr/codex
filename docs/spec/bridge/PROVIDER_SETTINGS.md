@@ -566,6 +566,9 @@ separate meanings. Existing thread records are not rewritten for display naming.
 `/model`, its inline arguments, reasoning choices and current-provider inventory
 use only the selected Provider. OpenAI keeps its upstream catalog, order and
 selection behavior and never queries the ChatGPT app merely to list its models.
+An explicit return to OpenAI uses upstream discovery, including its bundled
+catalog when no cache exists and its account-scoped cache validation. A retained
+cache from another Provider or account cannot authorize that destination.
 An explicit `/provider` choice may discover that destination's models before a
 settled same-thread reentry. A foreign model passed to `/model` fails without
 changing Provider. Other Providers retain their own catalog owner.
