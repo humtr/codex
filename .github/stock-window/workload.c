@@ -34,10 +34,34 @@ static void stage(const char *name, int detail) {
     errno=saved_errno;
 }
 static int failed(const char *name, int code) { stage(name,code);return code; }
+static int saved_thread(const char *id) {
+    if(!id||strlen(id)!=36)return 0;
+    for(size_t i=0;i<36;i++) {
+        if(i==8||i==13||i==18||i==23) { if(id[i]!='-')return 0; }
+        else if(!((id[i]>='0'&&id[i]<='9')||(id[i]>='a'&&id[i]<='f')))return 0;
+    }
+    char saved[1024];const char *home=getenv("CODEX_HOME");
+    if(!home)return 0;
+    int n=snprintf(saved,sizeof(saved),"%s/%s.saved",home,id);
+    return n>=0&&(size_t)n<sizeof(saved)&&!access(saved,R_OK);
+}
 int main(int argc, char **argv) {
     stage("entry",argc);
+    char cwd[1024];const char *home=getenv("HOME");
+    stage("cwd-is-home",home&&getcwd(cwd,sizeof(cwd))&&!strcmp(cwd,home));
     setenv("CODEX_TERMUX_CORE_API", "codex-manager-core-v1", 1);
     setenv("CODEX_TERMUX_CORE_ENTRYPOINT", CORE, 1);
+    if (argc > 2 && !strcmp(argv[1], "termux") && !strcmp(argv[2], "__terminal-capabilities-v1")) {
+        // Explicit synthetic Core admission for the fixture's real FD publisher.
+        // This does not qualify a product Core, Native Owner or model inference.
+        struct stat st;
+        if(argc!=6||strcmp(argv[3],"--")||strcmp(argv[4],"resume")||!saved_thread(argv[5])
+                ||lstat(NATIVE,&st)||!S_ISREG(st.st_mode)||access(NATIVE,X_OK))
+            return failed("core-capability-unavailable",26);
+        stage("core-capability-native",0);
+        fputs("codex-terminal-capabilities-v1\nidentity=native\n",stdout);
+        return 0;
+    }
     if (argc > 2 && !strcmp(argv[1], "termux")) {
         stage("core-manager-dispatch",0);
         char **args = calloc(argc, sizeof(char *));
@@ -61,10 +85,7 @@ int main(int argc, char **argv) {
         if(argc==3&&!strcmp(argv[1],"resume")) {
             // Test-only saved-thread oracle. Real Owner/writer and real model
             // continuity are qualified separately; do not create a fresh ID.
-            char saved[1024];const char *home=getenv("CODEX_HOME");
-            if(!home||strlen(argv[2])!=36)return failed("resume-home-or-id",24);
-            int n=snprintf(saved,sizeof(saved),"%s/%s.saved",home,argv[2]);
-            if(n<0||(size_t)n>=sizeof(saved)||access(saved,R_OK))return failed("resume-saved-thread",25);
+            if(!saved_thread(argv[2]))return failed("resume-saved-thread",25);
             id=argv[2];
         }
         stage("core-native-exec",0);
