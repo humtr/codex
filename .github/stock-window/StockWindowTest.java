@@ -13,6 +13,10 @@ import androidx.test.platform.app.InstrumentationRegistry;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 import com.termux.shared.termux.shell.command.runner.terminal.TermuxSession;
 import org.junit.Test;
+import org.junit.Rule;
+import org.junit.rules.TestWatcher;
+import org.junit.runner.Description;
+import java.io.RandomAccessFile;
 import org.junit.runner.RunWith;
 import java.io.File;
 import java.nio.charset.StandardCharsets;
@@ -30,6 +34,51 @@ public class StockWindowTest {
     final AtomicInteger sequence=new AtomicInteger();
     final Instrumentation instrumentation=InstrumentationRegistry.getInstrumentation();
     TermuxActivity activity;
+    // The APK and all terminal contents belong to this empty disposable fixture.
+    // Capture failure evidence without changing timeouts, PTYs or assertions.
+    @Rule public final TestWatcher failureEvidence=new TestWatcher() {
+        @Override protected void failed(Throwable failure,Description description) {
+            try { captureFailure(description.getMethodName()); }
+            catch(Throwable diagnosticFailure) {
+                android.util.Log.e("StockWindowProof","fixture diagnostics unavailable",diagnosticFailure);
+            }
+        }
+    };
+    String tail(File file,int limit) throws Exception {
+        try(RandomAccessFile input=new RandomAccessFile(file,"r")) {
+            long length=input.length();int size=(int)Math.min(length,limit);
+            byte[] bytes=new byte[size];input.seek(length-size);input.readFully(bytes);
+            return new String(bytes,StandardCharsets.UTF_8);
+        }
+    }
+    void captureFailure(String method) throws Exception {
+        StringBuilder detail=new StringBuilder("failed="+method+"\n");
+        instrumentation.runOnMainSync(()->{
+            if(activity==null||activity.getTermuxService()==null){detail.append("service unavailable\n");return;}
+            detail.append("sessions=").append(count()).append(" window_focused=")
+                .append(activity.getWindow().getDecorView().hasWindowFocus()).append('\n');
+            int seen=0;
+            for(TermuxSession wrapper:activity.getTermuxService().getTermuxSessions()) {
+                if(seen++>=8)break;
+                com.termux.terminal.TerminalSession session=wrapper.getTerminalSession();
+                detail.append("pid=").append(session.getPid()).append(" selected=")
+                    .append(session==activity.getCurrentSession()).append(" running=")
+                    .append(session.isRunning()).append('\n');
+                if(session.getEmulator()!=null) {
+                    String text=session.getEmulator().getScreen().getTranscriptText();
+                    detail.append(text.substring(Math.max(0,text.length()-4096))).append('\n');
+                }
+            }
+        });
+        File[] logs=new File(BASE).listFiles((dir,name)->name.endsWith(".log"));
+        if(logs!=null) {
+            Arrays.sort(logs,(a,b)->a.getName().compareTo(b.getName()));
+            for(int i=0;i<Math.min(logs.length,16);i++)
+                detail.append("file=").append(logs[i].getName()).append('\n').append(tail(logs[i],8192)).append('\n');
+        }
+        Files.write(new File(BASE+"/failure.txt").toPath(),detail.toString().getBytes(StandardCharsets.UTF_8));
+        android.util.Log.e("StockWindowProof","bounded fixture failure evidence saved; sessions and stage logs retained");
+    }
     interface Condition { boolean get() throws Exception; }
     void until(Condition condition) throws Exception {
         long end=SystemClock.elapsedRealtime()+15000;

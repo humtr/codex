@@ -91,6 +91,14 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("'native_owner_inference':False",workflow)
         self.assertIn("'synthetic_core_transport':True",workflow)
         self.assertIn('owner-free-synthetic-thread',fixture)
+        self.assertIn('elapsedRealtime()+15000',fixture)
+        self.assertIn('TestWatcher failureEvidence',fixture)
+        self.assertIn('getTranscriptText()',fixture)
+        failure=workflow.split('      - name: Collect failed disposable-emulator diagnostics',1)[1].split('      - name:',1)[0]
+        self.assertIn('if: failure()',failure)
+        self.assertIn('stock-stages.txt',failure)
+        self.assertIn('stock-activity.txt',failure)
+        self.assertNotIn('continue-on-error',workflow)
 
     def test_single_source_and_no_unsigned_public_authority(self):
         text=(ROOT/'.github/workflows/auto-release-termux.yml').read_text()
