@@ -1143,7 +1143,11 @@ impl Broker {
         input: &str,
         workspace: &Path,
     ) -> Result<(), Error> {
-        self.admit_external_tool_with_execution(lane, id, name, input, workspace, None)
+        // This test helper models a Native patch with an explicit hook proof.
+        // Missing-metadata tests call the production method with None directly.
+        let facts = matches!(name, "apply_patch" | "functions.apply_patch")
+            .then(|| native_effect::hook_fixture(workspace));
+        self.admit_external_tool_with_execution(lane, id, name, input, workspace, facts.as_ref())
             .await
     }
 
@@ -3045,10 +3049,91 @@ mod native_concurrency_tests {
         }
     }
     async fn accepted(broker: &Broker, token: &str, call: &Arguments) -> String {
+        if call.name == "functions.apply_patch" {
+            let workspace = {
+                let registry = broker.registry.lock().await;
+                let turn = registry.turns.get(token).unwrap();
+                turn.execution
+                    .is_none()
+                    .then(|| turn.workspace.clone())
+                    .flatten()
+            };
+            if let Some(root) = workspace {
+                broker
+                    .bind_execution(token, Some(native_effect::hook_fixture(&root)))
+                    .await
+                    .unwrap();
+            }
+        }
         broker.enqueue(token, call).await.unwrap();
         let offered = broker.offer(token).await.unwrap();
         assert_eq!(offered.len(), 1);
         offered[0]["id"].as_str().unwrap().to_owned()
+    }
+
+    #[tokio::test]
+    async fn nc_patch_hook_proof_is_required_before_independent_shared_admission() {
+        let (root, journal, tools) = fixture();
+        fs::write(root.join("a"), "old\n").unwrap();
+        fs::write(root.join("b"), "old\n").unwrap();
+        let broker = Broker::new(journal);
+        let token = broker
+            .register_scoped("first", tools, false, Some(&root))
+            .await
+            .unwrap();
+        accepted(&broker, &token, &patch("a", "old", "new")).await;
+        let second = patch("b", "old", "new");
+        assert_eq!(
+            broker
+                .admit_external_tool_with_execution(
+                    "second",
+                    "unproven",
+                    &second.name,
+                    &second.input,
+                    &root,
+                    None,
+                )
+                .await,
+            Err(Error("native_resource_busy"))
+        );
+        let mut facts = native_effect::hook_fixture(&root);
+        facts.hook_free_tools = vec!["exec_command".into()];
+        assert_eq!(
+            broker
+                .admit_external_tool_with_execution(
+                    "second",
+                    "matching-hook",
+                    &second.name,
+                    &second.input,
+                    &root,
+                    Some(&facts),
+                )
+                .await,
+            Err(Error("native_resource_busy"))
+        );
+        facts.hook_free_tools.push("apply_patch".into());
+        broker
+            .admit_external_tool_with_execution(
+                "second",
+                "proven",
+                &second.name,
+                &second.input,
+                &root,
+                Some(&facts),
+            )
+            .await
+            .unwrap();
+        let status = broker.effect_status("second").unwrap();
+        assert_eq!(
+            status["unconfirmed_effects"], 2,
+            "both independent calls retain their original claims"
+        );
+        assert!(status["active"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|entry| entry["resource_kind"] == "bounded"));
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[tokio::test]
@@ -3972,6 +4057,10 @@ mod native_concurrency_tests {
             .unwrap();
         let two = broker
             .register_scoped("two", tools, false, Some(&root))
+            .await
+            .unwrap();
+        broker
+            .bind_execution(&two, Some(native_effect::hook_fixture(&root)))
             .await
             .unwrap();
         let first = patch("file", "alpha", "ALPHA");

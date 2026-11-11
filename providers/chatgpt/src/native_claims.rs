@@ -715,7 +715,7 @@ impl Guard {
             tool,
             input,
             ledger,
-            native_effect::classify(tool, input, Some(cwd)),
+            native_effect::classify_with_fixture(tool, input, Some(cwd)),
         )
     }
 
@@ -983,7 +983,7 @@ mod tests {
                     Entry {
                         thread: thread.into(),
                         fingerprint: fingerprint("functions.apply_patch", input, &root),
-                        effect: native_effect::classify(
+                        effect: native_effect::classify_with_fixture(
                             "functions.apply_patch",
                             input,
                             Some(&root),
@@ -1048,12 +1048,12 @@ mod tests {
         // Verify the actual process-shared state and deterministic resource
         // decisions, independent of Broker's process-local mutex.
         let ledger = Ledger::at(&cwd, &home).unwrap();
-        let a = native_effect::classify(
+        let a = native_effect::classify_with_fixture(
             "functions.apply_patch",
             "*** Begin Patch\n*** Update File: a\n@@\n-old\n+new\n*** End Patch\n",
             Some(&cwd),
         );
-        let b = native_effect::classify(
+        let b = native_effect::classify_with_fixture(
             "functions.apply_patch",
             "*** Begin Patch\n*** Update File: b\n@@\n-old\n+new\n*** End Patch\n",
             Some(&cwd),
@@ -1263,13 +1263,13 @@ mod tests {
             Some(&blocked_home),
             "reader",
             "time",
-            "clock.curr_time",
+            "tool_search",
             None,
             &serde_json::json!({"value":"read result"}),
         )
         .unwrap();
         assert_eq!(
-            native_effect::classify(
+            native_effect::classify_with_fixture(
                 "functions.exec_command",
                 r#"{"cmd":"cat a; touch b"}"#,
                 Some(&cwd)
@@ -1277,7 +1277,7 @@ mod tests {
             Effect::Opaque
         );
         assert_eq!(
-            native_effect::classify(
+            native_effect::classify_with_fixture(
                 "functions.exec_command",
                 r#"{"cmd":"cat ../outside"}"#,
                 Some(&cwd)

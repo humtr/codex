@@ -24,16 +24,51 @@ pub(crate) struct Execution {
     pub path: String,
     pub variables: Vec<String>,
     pub no_default_config: bool,
+    /// Schema 2 proves hook absence for each actual Native tool independently.
+    #[serde(default)]
+    pub hook_free_tools: Vec<String>,
 }
 
 impl Execution {
+    fn known_schema(&self) -> bool {
+        match self.schema {
+            // Legacy facts are readable, but lack a per-tool/current-async proof.
+            1 => self.hook_free_tools.is_empty(),
+            2 => {
+                self.hook_free_tools.len() <= 5
+                    && self.hook_free_tools.iter().all(|tool| {
+                        matches!(
+                            tool.as_str(),
+                            "exec_command"
+                                | "apply_patch"
+                                | "view_image"
+                                | "clock.curr_time"
+                                | "clock.sleep"
+                        )
+                    })
+            }
+            _ => false,
+        }
+    }
+
+    pub(super) fn permits_bounded_tool(&self, tool: &str, workspace: &Path) -> bool {
+        self.known_schema()
+            && self.cwd == workspace
+            && workspace.is_absolute()
+            && self.pid > 1
+            && !self.start.is_empty()
+            && self.start.bytes().all(|b| b.is_ascii_digit())
+            && self.schema == 2
+            && self.hook_free_tools.iter().any(|name| name == tool)
+    }
+
     pub(crate) fn belongs_to(
         &self,
         owner: &crate::cdp::Process,
         thread: &str,
         turn: Option<&str>,
     ) -> bool {
-        self.schema == 1
+        self.known_schema()
             && self.pid == owner.pid
             && self.start == owner.start
             && self.thread == thread
@@ -41,7 +76,7 @@ impl Execution {
     }
 
     fn ordinary(&self, workspace: &Path) -> bool {
-        self.schema == 1
+        self.known_schema()
             && self.pid > 1
             && !self.start.is_empty()
             && self.start.bytes().all(|b| b.is_ascii_digit())
@@ -491,6 +526,35 @@ pub(super) fn classify(input: &str, workspace: &Path, execution: &Execution) -> 
 }
 
 #[cfg(test)]
+pub(crate) fn hook_fixture(workspace: &Path) -> Execution {
+    let owner = crate::cdp::Process::read(std::process::id()).unwrap();
+    Execution {
+        schema: 2,
+        pid: owner.pid,
+        start: owner.start,
+        thread: "hook-fixture-thread".into(),
+        turn: "hook-fixture-turn".into(),
+        cwd: workspace.into(),
+        shell: workspace.join("unused-shell"),
+        prefix: workspace.into(),
+        home: workspace.into(),
+        path: String::new(),
+        variables: Vec::new(),
+        no_default_config: false,
+        hook_free_tools: [
+            "exec_command",
+            "apply_patch",
+            "view_image",
+            "clock.curr_time",
+            "clock.sleep",
+        ]
+        .into_iter()
+        .map(str::to_owned)
+        .collect(),
+    }
+}
+
+#[cfg(test)]
 pub(crate) fn fixture(workspace: &Path) -> Execution {
     let prefix = workspace.join("toolchain");
     for directory in ["bin", "include/clang/Config", "include/llvm/Config"] {
@@ -512,7 +576,7 @@ pub(crate) fn fixture(workspace: &Path) -> Execution {
     .unwrap();
     let owner = crate::cdp::Process::read(std::process::id()).unwrap();
     Execution {
-        schema: 1,
+        schema: 2,
         pid: owner.pid,
         start: owner.start,
         thread: "compiler-test-thread".into(),
@@ -527,6 +591,7 @@ pub(crate) fn fixture(workspace: &Path) -> Execution {
             .map(str::to_owned)
             .collect(),
         no_default_config: false,
+        hook_free_tools: vec!["exec_command".into(), "apply_patch".into()],
     }
 }
 

@@ -73,7 +73,11 @@ def execution_proof(record, turn, *, home, prefix, workspace, runtime, observed)
     assert observed['image'] == str(runtime), 'selected Native owner is not the explicit installed runtime'
     assert owner['home'] == str(workspace.parent / 'h/.codex')
     assert Path(owner['directory']).parent == home / '.local/share/codex/core/catalogs'
-    assert proof['schema'] == 1 and type(proof['schema']) is int
+    assert type(proof['schema']) is int and proof['schema'] == 2, 'actual per-tool Native hook proof is required'
+    tools = proof.get('hook_free_tools')
+    assert isinstance(tools, list) and len(tools) <= 5 and all(tool in (
+        'exec_command', 'apply_patch', 'view_image', 'clock.curr_time', 'clock.sleep'
+    ) for tool in tools) and 'exec_command' in tools, 'actual Native tool hook proof is absent'
     assert proof['pid'] == observed['pid'] and proof['start'] == observed['start']
     assert proof['thread'] == record['thread'] and proof['turn'] == record['native_turn']
     assert proof['cwd'] == str(workspace) and proof['prefix'] == str(prefix)

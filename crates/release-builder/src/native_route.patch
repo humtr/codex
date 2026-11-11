@@ -2485,9 +2485,9 @@ index c0ac2d4..a8ac1c0 100644
              config.model_provider.clone(),
 diff --git a/codex-rs/core/src/native_execution.rs b/codex-rs/core/src/native_execution.rs
 new file mode 100644
-index 0000000..e8b20f5
 --- /dev/null
-@@ -0,0 +1,174 @@
++++ b/codex-rs/core/src/native_execution.rs
+@@ -0,0 +1,212 @@
 +//! Private execution facts for the local ChatGPT Provider's resource admission.
 +//! Native remains the only executor. No tool arguments or environment values
 +//! are rewritten, and no compiler or shell is run to obtain these facts.
@@ -2507,6 +2507,7 @@ index 0000000..e8b20f5
 +    shell: &Path,
 +    thread: &str,
 +    turn: &str,
++    hook_free_tools: &[&str],
 +) -> Option<Value> {
 +    let pid = std::process::id();
 +    let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
@@ -2526,7 +2527,7 @@ index 0000000..e8b20f5
 +    let mut variables = env.keys().collect::<Vec<_>>();
 +    variables.sort();
 +    Some(
-+        json!({"schema":1,"pid":pid,"start":start,"thread":thread,"turn":turn,
++        json!({"schema":2,"hook_free_tools":hook_free_tools,"pid":pid,"start":start,"thread":thread,"turn":turn,
 +        "cwd":cwd,"shell":shell,"prefix":prefix,"home":home,"path":path,
 +        "variables":variables,"no_default_config":env.get("CLANG_NO_DEFAULT_CONFIG").is_some_and(|s|!s.is_empty())}),
 +    )
@@ -2534,23 +2535,52 @@ index 0000000..e8b20f5
 +
 +pub(crate) fn capture(session: &Session, step: &StepContext) -> Option<Value> {
 +    // This is private, model-invisible metadata for the qualified local route.
-+    // The Provider consumes it only for bounded exec_command effects. Since
-+    // capture precedes tool selection, cover both UnifiedExec calls and their
-+    // actual permission-hook identities; unrelated input hooks still dispatch.
++    // The same registry and aliases used by dispatch prove each bounded tool.
++    // A patch hook must not invalidate an unrelated exec, nor may an image or
++    // clock tool bypass a matching hook merely because its main action reads.
 +    if step.turn.config.model_provider_id != "chatgpt_desktop"
 +        || step.environments.turn_environments().count() != 1
 +        || !step.executor_hook_sources.is_empty()
-+        || !session.hooks().tool_has_no_hook_effects(
++    {
++        return None;
++    }
++    let hooks = session.hooks();
++    let mut hook_free_tools = Vec::new();
++    for (tool, names, permissions) in [
++        (
++            "exec_command",
 +            &[
 +                "exec_command",
 +                "functions.exec_command",
 +                "write_stdin",
 +                "functions.write_stdin",
-+            ],
-+            &["Bash", "write_stdin"],
-+        )
-+    {
-+        return None;
++            ][..],
++            &["Bash", "write_stdin"][..],
++        ),
++        (
++            "apply_patch",
++            &["apply_patch", "functions.apply_patch", "Write", "Edit"][..],
++            &["apply_patch", "Write", "Edit"][..],
++        ),
++        (
++            "view_image",
++            &["view_image", "functions.view_image"][..],
++            &[][..],
++        ),
++        (
++            "clock.curr_time",
++            &["clock.curr_time", "mcp__clock__curr_time"][..],
++            &[][..],
++        ),
++        (
++            "clock.sleep",
++            &["clock.sleep", "mcp__clock__sleep"][..],
++            &[][..],
++        ),
++    ] {
++        if hooks.tool_has_no_hook_effects(names, permissions) {
++            hook_free_tools.push(tool);
++        }
 +    }
 +    let environment = step.environments.primary()?;
 +    if environment.environment.is_remote()
@@ -2585,6 +2615,7 @@ index 0000000..e8b20f5
 +        &shell.shell_path,
 +        &session.thread_id.to_string(),
 +        &step.turn.sub_id,
++        &hook_free_tools,
 +    )
 +}
 +
@@ -2610,8 +2641,14 @@ index 0000000..e8b20f5
 +            Path::new("/selected/prefix/bin/bash"),
 +            "thread",
 +            "turn",
++            &["exec_command", "apply_patch"],
 +        )
 +        .unwrap();
++        assert_eq!(value["schema"], 2);
++        assert_eq!(
++            value["hook_free_tools"],
++            json!(["exec_command", "apply_patch"])
++        );
 +        assert_eq!(value["path"], "/selected/prefix/bin");
 +        assert_eq!(value["prefix"], "/selected/prefix");
 +        assert_eq!(value["no_default_config"], false);
@@ -2631,7 +2668,8 @@ index 0000000..e8b20f5
 +                Path::new("/work"),
 +                Path::new("/bin/bash"),
 +                "thread",
-+                "turn"
++                "turn",
++                &[]
 +            )
 +            .is_none()
 +        );
@@ -4625,7 +4663,7 @@ diff --git a/codex-rs/hooks/src/registry.rs b/codex-rs/hooks/src/registry.rs
 diff --git a/codex-rs/hooks/src/engine/mod_tests.rs b/codex-rs/hooks/src/engine/mod_tests.rs
 --- a/codex-rs/hooks/src/engine/mod_tests.rs
 +++ b/codex-rs/hooks/src/engine/mod_tests.rs
-@@ -3029,3 +3029,131 @@
+@@ -3029,3 +3029,159 @@
          }]
      );
  }
@@ -4714,6 +4752,34 @@ diff --git a/codex-rs/hooks/src/engine/mod_tests.rs b/codex-rs/hooks/src/engine/
 +        assert!(
 +            !engine.tool_has_no_hook_effects(NATIVE_EXEC_HOOK_NAMES, NATIVE_EXEC_PERMISSION_NAMES)
 +        );
++    }
++    for (names, permissions) in [
++        (
++            &["apply_patch", "functions.apply_patch", "Write", "Edit"][..],
++            &["apply_patch", "Write", "Edit"][..],
++        ),
++        (&["view_image", "functions.view_image"][..], &[][..]),
++        (&["clock.curr_time", "mcp__clock__curr_time"][..], &[][..]),
++        (&["clock.sleep", "mcp__clock__sleep"][..], &[][..]),
++    ] {
++        for event in [HookEventName::PreToolUse, HookEventName::PostToolUse] {
++            for name in names {
++                let matcher = format!("^{}$", regex::escape(name));
++                let engine = native_proof_engine(Some(&matcher), event);
++                assert!(!engine.tool_has_no_hook_effects(names, permissions));
++                assert!(
++                    engine.tool_has_no_hook_effects(
++                        NATIVE_EXEC_HOOK_NAMES,
++                        NATIVE_EXEC_PERMISSION_NAMES
++                    ),
++                    "a matching patch/image/MCP hook must not block unrelated exec"
++                );
++            }
++        }
++        for name in permissions {
++            let engine = native_proof_engine(Some(name), HookEventName::PermissionRequest);
++            assert!(!engine.tool_has_no_hook_effects(names, permissions));
++        }
 +    }
 +}
 +
