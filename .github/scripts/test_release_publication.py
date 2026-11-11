@@ -61,8 +61,11 @@ class ReleasePublicationTests(unittest.TestCase):
             return ['\n'.join(lines) for lines in
                     variants(current, target, display, publication, base, **kwargs)]
         unchanged = outputs()
-        self.assertEqual(unchanged, ['Termux release: Full #11 · Base #10'])
+        self.assertEqual(unchanged, ['Termux release: Full #11 · Core #10'])
+        self.assertEqual(outputs(legacy_labels=True), ['Termux release: Full #11 · Base #10'])
         detailed = outputs(details=True)
+        self.assertTrue(any('Core (Core #10)' in text for text in detailed))
+        self.assertTrue(all('Base #' not in text for text in detailed))
         self.assertTrue(any('Published: 2026-11-03 11:12:23 KST' in text for text in detailed))
         self.assertTrue(any('Release date: 2026-11-03 (UTC)' in text for text in detailed))
         self.assertTrue(all('changes:' not in text and 'Full notes:' not in text for text in unchanged))
@@ -77,6 +80,36 @@ class ReleasePublicationTests(unittest.TestCase):
             self.assertTrue(all('Published:' not in text for text in actual))
             for other in {'Core', 'Manager', 'TUI'} - {section}:
                 self.assertTrue(all(other + ' changes:' not in text for text in actual), (path, other))
+
+    def test_only_first_update_explicitly_accepts_retained_base_display(self):
+        self.build_signed(frontend=True)
+        manifest = self.signed / 'releases' / GENERATION / 'release.manifest'
+        display = self.root / 'display.json'
+        plain = self.root / 'plain.txt'
+        actual = self.root / 'actual.txt'
+        plain.write_text('Codex 0.167.1 is already up to date.\n')
+        check = [sys.executable, str(SCRIPT.with_name('check_update_display.py')),
+                 '--plain', str(plain), '--actual', str(actual), '--component', str(display),
+                 '--current', str(manifest), '--target', str(manifest)]
+        for full in (True, False):
+            if not full:
+                rows = manifest.read_text().splitlines()
+                rows = [row for row in rows if not row.startswith(('file\tmanager\t', 'file\thelpers/2\t'))]
+                count = sum(row.startswith('file\t') for row in rows)
+                rows = ['file_count\t' + str(count) if row.startswith('file_count\t') else
+                        'generation_id\tlocal-base-display-current-11' if row.startswith('generation_id\t') else row for row in rows]
+                manifest.write_text('\n'.join(rows) + '\n')
+            display.write_text(json.dumps({'display': {'release_date': '2026-11-03',
+                'base_sequence': 10 if full else None,
+                'base_generation': 'local-base-display-10' if full else None}}))
+            for label in ('Core', 'Base'):
+                rendered = f'Termux release: Full #11 · {label} #10' if full else f'Termux release: {label} #11'
+                actual.write_text(plain.read_text() + rendered + '\n')
+                with self.subTest(full=full, label=label):
+                    result = subprocess.run(check, capture_output=True)
+                    self.assertEqual(result.returncode == 0, label == 'Core', result.stderr.decode())
+                    retained = subprocess.run([*check, '--allow-legacy'], capture_output=True)
+                    self.assertEqual(retained.returncode, 0, retained.stderr.decode())
 
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory(prefix="release-publication-test-")

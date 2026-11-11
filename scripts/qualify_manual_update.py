@@ -293,7 +293,7 @@ def probe(args):
                 receive_terminal()
             if (not choice_sent and args.mode.startswith('choose-')
                     and terminal_contains(transcript, 'Missing qualified artifacts:')):
-                os.write(master, b'1' if args.mode == 'choose-keep' else b'3')
+                os.write(master, b'q' if args.mode == 'choose-keep' else b'2')
                 choice_sent = True
             if ('Waiting for signed publication.' in transcript and not key_sent
                     and args.mode not in ['qualification-failed','publication-failed']
@@ -335,7 +335,12 @@ def probe(args):
         assert dispatches == expected_dispatches, calls
         if args.mode.startswith('choose-'):
             assert choice_sent, 'interactive missing-artifact choice was never displayed'
+            for option in ('[1] Build locally', '[2] Request remote build', '[q] Keep current'):
+                assert terminal_contains(transcript, option), (option, transcript[-2000:])
+            assert not terminal_contains(transcript, '[1] Keep current'), transcript[-2000:]
+            assert not terminal_contains(transcript, '[3] Request remote build'), transcript[-2000:]
             result['interactiveChoice'] = args.mode.removeprefix('choose-')
+            result['singleCancelChoice'] = True
         if args.mode in ['keep', 'choose-keep']:
             assert terminal_contains(transcript, 'No build requested.'), transcript[-1500:]
         if args.mode in ['bad-signature', 'uncertain', 'qualification-failed','publication-failed']:
@@ -401,7 +406,7 @@ def probe(args):
             assert '2026-10-27 21:30:00 KST (UTC+09:00)' in transcript
             if fields['manager_artifact_digest'] != '-':
                 component = json.loads((root / 'component-input-v1').read_text())['display']
-                assert f"Core (Base #{component['base_sequence']}) · Published: 2026-10-26 11:00:00 KST (UTC+09:00)" in transcript
+                assert f"Core (Core #{component['base_sequence']}) · Published: 2026-10-26 11:00:00 KST (UTC+09:00)" in transcript
             assert 'Provider package: #8 · installed' in transcript and 'Generation: provider-chatgpt-v0.0.0-display-owned-8' in transcript
             assert '2026-10-29 02:04:05 KST (UTC+09:00)' in transcript
             assert 'Provider changes:' in transcript and 'Core changes:' in transcript

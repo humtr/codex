@@ -7,7 +7,7 @@ from pathlib import Path
 from release_publication import parse_manifest
 
 
-def variants(current, target, component, publication, base_publication, *, details=False, prior_notes=False, legacy_base=False):
+def variants(current, target, component, publication, base_publication, *, details=False, prior_notes=False, legacy_base=False, legacy_labels=False):
     old, old_files = parse_manifest(current)
     new, files = parse_manifest(target)
     before = {name: (digest, mode) for name, digest, mode in old_files}
@@ -15,17 +15,19 @@ def variants(current, target, component, publication, base_publication, *, detai
 
     def changed(*paths):
         return prior_notes or any(before.get(path) != after.get(path) for path in paths)
-    edition = 'Full' if any(name == 'manager' for name, _, _ in files) else 'Base'
-    previous = 'Full' if any(name == 'manager' for name, _, _ in old_files) else 'Base'
+    # Storage remains base_*; only retained shipped executables emit Base labels.
+    core_label = 'Base' if legacy_labels else 'Core'
+    edition = 'Full' if any(name == 'manager' for name, _, _ in files) else core_label
+    previous = 'Full' if any(name == 'manager' for name, _, _ in old_files) else core_label
     prefix = f'Termux release: {previous} #{old["release_sequence"]}'
     if old['generation_id'] != new['generation_id']:
         prefix += f' -> {edition} #{new["release_sequence"]}'
     display = json.loads(component.read_text())['display']
     if edition == 'Full':
         if legacy_base:
-            prefix += ' · Base: unavailable'
+            prefix += f' · {core_label}: unavailable'
         else:
-            prefix += f' · Base #{display["base_sequence"]}'
+            prefix += f' · {core_label} #{display["base_sequence"]}'
     legacy = prefix + f' · Release date: {display["release_date"]} (UTC)'
     def original(path, tag):
         if path is None:
@@ -69,7 +71,7 @@ def variants(current, target, component, publication, base_publication, *, detai
             full = ([prefix + ' · Published: ' + stamp(info)] if info else [legacy]) if details else [prefix]
             url = 'https://github.com/humtr/codex/releases/tag/' + new['generation_id']
             if details and edition == 'Full':
-                component = 'Base #' + str(display['base_sequence']) if display.get('base_generation') else 'Full #' + new['release_sequence'] + ' package'
+                component = core_label + ' #' + str(display['base_sequence']) if display.get('base_generation') else 'Full #' + new['release_sequence'] + ' package'
                 full.append(f'Core ({component}) · Published: ' + stamp(core))
             core_url = 'https://github.com/humtr/codex/releases/tag/' + display.get('base_generation', new['generation_id']) if display.get('base_generation') else url
             if changed('core', 'runtime', 'codex-code-mode-host', 'helpers/0', 'helpers/1'):
@@ -98,16 +100,19 @@ if __name__ == '__main__':
                 variants(args.current, args.target, args.component, args.publication, args.base_publication, details=args.details)]
     if args.allow_legacy:
         # The first update is executed by the retained previously shipped Core.
-        # Only that invocation may still emit unchanged component notes or
-        # treat an unadapted new base convention as unavailable before activation.
+        # Only that invocation may still emit Base labels, unchanged component
+        # notes, or treat an unadapted new base convention as unavailable.
         expected.append(plain)
-        for legacy_base in (False, True):
-            for prior_notes in (False, True):
+        for legacy_labels in (False, True):
+            for legacy_base in (False, True):
+                for prior_notes in (False, True):
+                    expected.extend([[plain[0], *detail, *plain[1:]] for detail in
+                                     variants(args.current, args.target, args.component, args.publication,
+                                              args.base_publication, details=True, prior_notes=prior_notes,
+                                              legacy_base=legacy_base, legacy_labels=legacy_labels)])
                 expected.extend([[plain[0], *detail, *plain[1:]] for detail in
                                  variants(args.current, args.target, args.component, args.publication,
-                                          args.base_publication, details=True, prior_notes=prior_notes, legacy_base=legacy_base)])
-            expected.extend([[plain[0], *detail, *plain[1:]] for detail in
-                             variants(args.current, args.target, args.component, args.publication,
-                                      args.base_publication, details=False, legacy_base=legacy_base)])
+                                          args.base_publication, details=False, legacy_base=legacy_base,
+                                          legacy_labels=legacy_labels)])
     actual = args.actual.read_text().splitlines()
     assert actual in expected, (actual, expected)
