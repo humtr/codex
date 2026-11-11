@@ -67,6 +67,7 @@ def probe(args):
     requests, failures = [], []
     screen = ''
     reentry_observations = []
+    reasoning_selections = []
     home = None
     report = None
     try:
@@ -294,6 +295,26 @@ def probe(args):
             os.write(master, b'\x1b[H')
             drain(.3)
             os.write(master, b'\r')
+            # A cold return can use the exact upstream bundled catalog, which
+            # offers several efforts. Complete that real upstream picker before
+            # expecting reentry; the fixture-only `none` model has no such step.
+            wait(lambda: 'Select Reasoning Level for' in screen or
+                 rpc(home, 'thread/read', {'threadId': thread, 'includeTurns': False})
+                 ['thread']['modelProvider'] == target)
+            if 'Select Reasoning Level for' in screen:
+                rendered = re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]', '', screen)
+                assert target == 'openai' and 'Select Reasoning Level for GPT-6.1-Sol' in rendered
+                assert re.search(r'\b3\.\s+High\b', rendered), 'the selected effort must actually be offered'
+                assert len(requests) == before_requests, 'opening effort selection must not infer'
+                os.write(master, b'\x1b[H\x1b[B\x1b[B')
+                drain(.3)
+                os.write(master, b'\r')
+                wait(lambda: rpc(home, 'thread/read', {'threadId': thread, 'includeTurns': False})
+                     ['thread']['modelProvider'] == target)
+                selected = rpc(home, 'thread/read', {'threadId': thread, 'includeTurns': False})['thread']
+                assert selected['id'] == thread and selected['reasoningEffort'] == 'high'
+                assert len(requests) == before_requests, 'effort selection must not infer'
+                reasoning_selections.append({'provider': target, 'model': selected['model'], 'effort': 'high'})
 
         wait(lambda: len(loaded()) == 1)
         thread = loaded()[0]
@@ -342,6 +363,7 @@ def probe(args):
                     'emptyRoundtrip': True, 'syntheticResponsesRequests': 0, 'chatSubmissions': 0,
                     'checkpointsInjected': 0, 'managerAbsent': args.without_manager,
                     'sharedSessionsDirectory': args.shared_sessions,
+                    'explicitReasoningSelections': reasoning_selections,
                     'nativeSettingsAuditEvents': len(settings),
                     'maximumNativeSocketBytes': check_native_socket_budget(home),
                     'input_sha256': {name: hashlib.file_digest(getattr(args, name).open('rb'), 'sha256').hexdigest()
@@ -553,6 +575,7 @@ def probe(args):
                 'nativeToChatNoInference': True, 'chatToNativeSummaries': 0,
                 'syntheticResponsesRequests': len(requests), 'chatSubmissions': 0,
                 'syntheticInputSynchronizations': len(synthetic_synchronizations()),
+                'explicitReasoningSelections': reasoning_selections,
                 'realProviderSynchronizationQualified': False,
                 'providerCheckpointReal': True, 'chatRepliesSynthetic': True,
                 'signedDisposableComposition': True, 'operatingRuntimeChanged': False,
