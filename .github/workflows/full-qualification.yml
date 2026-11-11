@@ -4,6 +4,24 @@ on:
   push:
     branches: [rewrite/rust-core]
     paths:
+      - crates/core/**
+      - crates/manager/**
+      - crates/runtime-binding/**
+      - crates/release-builder/**
+      - frontend/tui/**
+      - Cargo.toml
+      - Cargo.lock
+      - release/**
+      - .github/workflows/android-component.yml
+      - .github/workflows/core-runtime-qualification.yml
+      - .github/workflows/qualify-termux-runtime.yml
+      - .github/workflows/termux-runtime-source.yml
+      - .github/workflows/manager-qualification.yml
+      - .github/workflows/manager-tui-native.yml
+      - .github/scripts/component_*.py
+      - .github/scripts/runtime_*.py
+      - .github/scripts/release_components.py
+      - .github/scripts/tui_artifact.py
       - .github/workflows/full-qualification.yml
       - .github/scripts/full_qualification.py
       - .github/scripts/test_full_qualification.py
