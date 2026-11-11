@@ -281,6 +281,16 @@ def probe(args):
                         if log.is_file() and not log.is_symlink():
                             diagnostic['logs'][str(log.relative_to(root))]=log.read_text(errors='replace')[-16000:]
                     except OSError:pass
+                # Read only disposable fixture logs; never a user's state DB.
+                diagnostic['native_logs']={}
+                import sqlite3
+                for database in root.rglob('logs*.sqlite'):
+                    try:
+                        if database.is_symlink() or not database.resolve().is_relative_to(root):continue
+                        with sqlite3.connect(database.as_uri()+'?mode=ro',uri=True,timeout=1) as db:
+                            diagnostic['native_logs'][str(database.relative_to(root))]=db.execute('SELECT ts,level,target,feedback_log_body FROM logs ORDER BY id DESC LIMIT 120').fetchall()
+                    except (OSError,sqlite3.Error) as error:
+                        diagnostic['errors'].append('fixture log read: '+str(error))
                 failure=args.report.with_suffix('.failure.json')
                 try:failure.write_text(json.dumps(diagnostic,indent=2));failure.chmod(0o600)
                 except OSError:pass  # Keep the original acceptance failure.
