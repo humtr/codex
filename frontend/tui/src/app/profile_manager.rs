@@ -169,6 +169,9 @@ impl ProfileReentry {
         let mut command = std::process::Command::new(&self.core);
         command.env_remove("CODEX_QUOTA_SWITCH_NOTICE");
         command.env_remove("CODEX_PROFILE_PERMISSION_SNAPSHOT");
+        // Routing flags describe the current selection; Native restores the durable
+        // thread settings, including an absent effort/tier, after the home changes.
+        command.env(crate::termux_chat_models::REENTRY_MODE, "resume");
         if let Some(profile) = &self.permissions {
             command.env(
                 "CODEX_PROFILE_PERMISSION_SNAPSHOT",
@@ -239,12 +242,28 @@ pub(super) async fn prepare(
         );
         return None;
     }
+    let selection = app.chat_widget.effective_collaboration_mode();
+    let config = app.chat_widget.config_ref();
+    if !matches!(
+        tokio::time::timeout(
+            Duration::from_secs(3),
+            current_selection_saved(app_server, thread, config, &selection),
+        )
+        .await,
+        Ok(true)
+    ) {
+        app.chat_widget.add_error_message(
+            "Current model settings have not been confirmed by Native; profile unchanged."
+                .to_string(),
+        );
+        return None;
+    }
     Some(ProfileReentry {
         core,
         profile,
         thread,
         cwd: app.config.cwd.to_path_buf(),
-        flags: preserved_flags(app.chat_widget.config_ref())?,
+        flags: preserved_flags(config, &selection)?,
         handoff: None,
         session_off: super::quota_switch::session_off(app),
         permissions: Some(
@@ -263,7 +282,10 @@ pub(super) fn flags(request: &ProfileReentry) -> &[String] {
     &request.flags
 }
 
-fn preserved_flags(config: &crate::legacy_core::config::Config) -> Option<Vec<String>> {
+fn preserved_flags(
+    config: &crate::legacy_core::config::Config,
+    selection: &codex_protocol::config_types::CollaborationMode,
+) -> Option<Vec<String>> {
     use codex_config::ConfigLayerSource;
     let mut flags = Vec::new();
     for layer in config.config_layer_stack.layers_low_to_high() {
@@ -282,7 +304,9 @@ fn preserved_flags(config: &crate::legacy_core::config::Config) -> Option<Vec<St
                     key.as_str(),
                     "profile"
                         | "model"
+                        | "model_provider"
                         | "model_reasoning_effort"
+                        | "service_tier"
                         | "sandbox_mode"
                         | "default_permissions"
                         | "approval_policy"
@@ -293,16 +317,22 @@ fn preserved_flags(config: &crate::legacy_core::config::Config) -> Option<Vec<St
             }
         }
     }
-    flags.extend(["--model".into(), config.model.clone()?]);
+    if selection.model().is_empty() {
+        return None;
+    }
+    flags.extend(["--model".into(), selection.model().to_string()]);
     flags.extend([
         "-c".into(),
         format!("model_provider={:?}", config.model_provider_id),
     ]);
-    if let Some(effort) = &config.model_reasoning_effort {
+    if let Some(effort) = selection.reasoning_effort() {
         flags.extend([
             "-c".into(),
             format!("model_reasoning_effort={:?}", effort.as_str()),
         ]);
+    }
+    if let Some(tier) = &config.service_tier {
+        flags.extend(["-c".into(), format!("service_tier={tier:?}")]);
     }
     let permission = if let Some(profile) = config.permissions.active_permission_profile() {
         format!("default_permissions={:?}", profile.id)
@@ -330,6 +360,27 @@ fn preserved_flags(config: &crate::legacy_core::config::Config) -> Option<Vec<St
         ),
     ]);
     (flags.len() <= 256 && flags.iter().map(String::len).sum::<usize>() <= 65536).then_some(flags)
+}
+
+// A failed settings update must not turn a profile change into an implicit
+// rollback to launch defaults. This read does not acquire another writer or infer.
+// The public metadata reports model/provider/effort; Native separately restores
+// its saved tier rather than treating the optimistic UI tier cache as an ACK.
+async fn current_selection_saved(
+    app_server: &mut crate::app_server_session::AppServerSession,
+    thread: codex_protocol::ThreadId,
+    config: &crate::legacy_core::config::Config,
+    selection: &codex_protocol::config_types::CollaborationMode,
+) -> bool {
+    app_server
+        .thread_read(thread, false)
+        .await
+        .is_ok_and(|saved| {
+            saved.id == thread.to_string()
+                && saved.model.as_deref() == Some(selection.model())
+                && saved.model_provider == config.model_provider_id
+                && saved.reasoning_effort == selection.reasoning_effort()
+        })
 }
 
 /// Only native durability is needed; saved chats do not hydrate their history.
