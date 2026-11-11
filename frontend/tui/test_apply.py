@@ -1,12 +1,96 @@
 """Exercise the actual frontend assembler with disposable upstream trees."""
 from pathlib import Path
 import subprocess
+import json
+import shutil
 import os
 import tempfile
 import unittest
 from unittest import mock
 
 from apply import apply, check_scope
+
+
+class ReentryEnvironmentTests(unittest.TestCase):
+    def test_reentry_marker_is_consumed_once_before_child_execution(self):
+        package = Path(__file__).resolve().parent
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / 'capture.rs'
+            source.write_text(r'''#[path = @MODULE@]
+mod termux_reentry;
+fn main() {
+    use std::os::unix::process::CommandExt;
+    let args: Vec<String> = std::env::args().collect();
+    let expected = match args[2].as_str() {
+        "select" => Some(termux_reentry::Intent::Select),
+        "resume" => Some(termux_reentry::Intent::Resume),
+        _ => None,
+    };
+    if args[1] == "bind" || args[1] == "unknown" {
+        let mut command = std::process::Command::new(std::env::current_exe().unwrap());
+        command.args(["consume", &args[2], &args[3]]);
+        if args[1] == "bind" {
+            termux_reentry::configure_exec(&mut command, expected);
+        } else {
+            command.env(termux_reentry::ENV, "unknown")
+                .env(termux_reentry::OWNER_PID_ENV, std::process::id().to_string());
+        }
+        panic!("exec failed: {}", command.exec());
+    }
+    // This fixture is a real synchronous main, not a multithreaded test body.
+    let actual = unsafe { termux_reentry::take_before_threads() };
+    assert_eq!(actual, expected);
+    assert!(std::env::var_os(termux_reentry::ENV).is_none());
+    assert!(std::env::var_os(termux_reentry::OWNER_PID_ENV).is_none());
+    assert_eq!(unsafe { termux_reentry::take_before_threads() }, None);
+    let output = std::process::Command::new(&args[3])
+        .args(["-c", "if printenv CODEX_CHAT_MODEL_REENTRY >/dev/null || printenv CODEX_CHAT_MODEL_REENTRY_PID >/dev/null; then exit 9; fi; printf REENTRY_CHILD_CLEAN"])
+        .output().unwrap();
+    assert!(output.status.success());
+    assert_eq!(output.stdout, b"REENTRY_CHILD_CLEAN");
+    assert!(output.stderr.is_empty());
+    println!("REENTRY_CONSUMED_ONCE_AND_CHILD_CLEAN");
+}
+'''.replace('@MODULE@', json.dumps(str(package / 'src/termux_reentry.rs'))))
+            binary = root / 'capture'
+            subprocess.run([shutil.which('rustc') or 'rustc', '--edition=2024', '-Dwarnings',
+                            str(source), '-o', str(binary)], check=True)
+            shell = shutil.which('sh')
+            self.assertIsNotNone(shell)
+            cases = [
+                ('bind', 'select', {}),
+                ('bind', 'resume', {}),
+                ('consume', 'none', {}),
+                ('consume', 'none', {'CODEX_CHAT_MODEL_REENTRY': 'resume'}),
+                ('consume', 'none', {'CODEX_CHAT_MODEL_REENTRY': 'resume',
+                                     'CODEX_CHAT_MODEL_REENTRY_PID': str(os.getpid())}),
+                ('consume', 'none', {'CODEX_CHAT_MODEL_REENTRY': 'resume',
+                                     'CODEX_CHAT_MODEL_REENTRY_PID': 'invalid'}),
+                ('unknown', 'none', {}),
+            ]
+            for stage, expected, supplied in cases:
+                with self.subTest(stage=stage, expected=expected, supplied=supplied):
+                    environment = dict(os.environ)
+                    environment.pop('CODEX_CHAT_MODEL_REENTRY', None)
+                    environment.pop('CODEX_CHAT_MODEL_REENTRY_PID', None)
+                    environment.update(supplied)
+                    result = subprocess.run([str(binary), stage, expected, shell],
+                                            env=environment, text=True, capture_output=True)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(result.stdout, 'REENTRY_CONSUMED_ONCE_AND_CHILD_CLEAN\n')
+
+    def test_both_actual_entrypoints_capture_before_arg0_runtime(self):
+        patch = (Path(__file__).resolve().parent / 'native.patch').read_text()
+        for path in ['codex-rs/cli/src/main.rs', 'codex-rs/tui/src/main.rs']:
+            with self.subTest(path=path):
+                section = patch.split('diff --git a/' + path + ' b/' + path + '\n', 1)[1]
+                section = section.split('\ndiff --git ', 1)[0]
+                result = '\n'.join(line[1:] for line in section.splitlines()
+                                   if line.startswith((' ', '+')) and not line.startswith('+++'))
+                self.assertEqual(result.count('termux_reentry::take_before_threads()'), 1)
+                self.assertLess(result.index('termux_reentry::take_before_threads()'),
+                                result.index('arg0_dispatch_or_else('))
 
 
 class AssemblyTests(unittest.TestCase):
@@ -101,8 +185,13 @@ class AssemblyTests(unittest.TestCase):
             schema = upstream / 'codex-rs/app-server-protocol/schema/precomputed'
             schema.mkdir(parents=True)
             (schema / 'app-server-exports-stable.json.zst').write_bytes(b'upstream generated protocol output')
+            entry = upstream / 'codex-rs/cli/src/main.rs'
+            entry.parent.mkdir(parents=True)
+            entry.write_text('consume private startup intent before threads\n')
             check_scope(upstream, native_files)
             for path in [core, outside, core.parent / 'new.rs', upstream / 'new.rs',
+                         upstream / 'codex-rs/cli/src/lib.rs',
+                         upstream / 'codex-rs/cli/Cargo.toml',
                          upstream / 'codex-rs/app-server-protocol/unrelated.rs']:
                 with self.subTest(path=path.relative_to(upstream)):
                     before = path.read_bytes() if path.exists() else None

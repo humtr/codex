@@ -361,7 +361,11 @@ fn profile_manager_reentry_preserves_typed_exit_and_exact_profile_thread_argv() 
         Some(std::path::Path::new("/owned/current-workspace"))
     );
     assert!(command.get_envs().any(|(key, value)| {
-        key == crate::termux_chat_models::REENTRY_MODE && value == Some(OsStr::new("resume"))
+        key == crate::termux_reentry::ENV && value == Some(OsStr::new("resume"))
+    }));
+    assert!(command.get_envs().any(|(key, value)| {
+        key == crate::termux_reentry::OWNER_PID_ENV
+            && value == Some(OsStr::new(&std::process::id().to_string()))
     }));
     assert!(ProfileReentry::from_error(&std::io::Error::other("unrelated")).is_none());
 }

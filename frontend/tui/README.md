@@ -41,24 +41,36 @@ compiler diagnostics and affected native API contracts. Verify the final
 candidate at its own exact SHA in whole TUI CI and actual Android Core
 execution. A passing CI for an earlier SHA cannot qualify a later candidate.
 
-## Live /provider acceptance remains open
+## Existing-thread re-entry intent
 
-Earlier whole [TUI Native CI](https://github.com/humtr/codex/actions/runs/42742653586)
-passed on `f1ba6719`; later TUI qualifier fixes at `5384d938` passed
-40 Python and 10 assembly checks. Synthetic Core→TUI→Chat→Native
-`sameThread=true` is **not** a real model admission.
+A qualified profile or model re-entry binds its private launch intent to the
+current process before replacing it with `exec`. Both actual upstream entry
+points consume and remove that intent before arg0 dispatch starts threads.
+Only initial startup receives the typed restore choice. Later ordinary resume
+keeps its explicit model and service-tier override contract. Core also removes
+the intent from each Runtime child, including Native servers and probes.
 
-In the candidate test, `/provider` selected GPT-6. Its first real request
-then returned `native_thread_owner_unavailable`, because the operating
-Provider's Core/home/workspace did not match the isolated candidate's Native
-writer. This does not independently implicate Core or Manager. The next test
-must bind the same actual writer, complete two real GPT-6 turns on the same
-Native thread and independently prove stream-cut/HTTP 413 recovery and
-unrelated-work concurrency. Do not re-submit a possibly accepted turn.
+The PID binding scopes UI launch intent; it grants no Native ownership or account
+permission. Core, Manager and owner re-entry preserve the same PID through their
+existing `exec` paths. Spawned children, malformed bindings and older unbound
+markers cannot replace an ordinary invocation's explicit selection. This private
+handoff requires compatible producers and consumers; it does not rewrite older
+signed generations or acquire an existing Writer.
 
-Before any live fixture, use the
-[mandatory preflight](../../docs/TERMUX_CONSTRAINTS.md): real dispatcher
-`$PREFIX/bin/codex`, actual generation, correct configured Provider owner,
-short private socket `TMPDIR` (107 encoded bytes maximum) and distinct
-per-work evidence scratch. Never change operating signed Full159/Full153,
-profiles, services or Android sdcard for qualification alone.
+## Product acceptance boundaries
+
+Qualify the exact changed source through full TUI CI and the affected Native
+product paths. Synthetic responses can prove picker routing, profile transitions,
+existing-thread history and actual Native command effects; they do not prove
+inference with an authenticated ChatGPT app. Successful operating App/Native
+inference likewise does not qualify a different candidate installation.
+
+Before a live fixture, follow the
+[mandatory preflight](../../docs/TERMUX_CONSTRAINTS.md): exact dispatcher and
+generation, the actual configured Provider/AppHost owner, a short private socket
+`TMPDIR` (107 encoded bytes maximum) and distinct evidence scratch. A private
+candidate cannot borrow an operating AppHost journal, registry or Writer to
+satisfy that ownership boundary. If candidate activation needs an operating
+change, preserve the source and isolated proofs and report that separate gate.
+Do not replace signed generations, profiles, services or account assets for a
+qualification alone, and do not re-submit a possibly accepted turn.

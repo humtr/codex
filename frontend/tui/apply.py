@@ -28,6 +28,8 @@ def check_scope(upstream, native_files=()):
         ['git', '-C', str(upstream), 'ls-files', '--others', '--exclude-standard', '-z'])
     unexpected = sorted(path for path in set((changed + added).split(b'\0'))
                         if path and path != b'codex-rs/Cargo.lock'
+                        # The shared CLI consumes the private TUI marker before threads.
+                        and path != b'codex-rs/cli/src/main.rs'
                         and path not in native_files
                         and not path.startswith(b'codex-rs/app-server-protocol/schema/')
                         and not path.startswith(b'codex-rs/tui/'))

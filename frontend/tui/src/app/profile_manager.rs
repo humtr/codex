@@ -171,7 +171,10 @@ impl ProfileReentry {
         command.env_remove("CODEX_PROFILE_PERMISSION_SNAPSHOT");
         // Routing flags describe the current selection; Native restores the durable
         // thread settings, including an absent effort/tier, after the home changes.
-        command.env(crate::termux_chat_models::REENTRY_MODE, "resume");
+        crate::termux_reentry::configure_exec(
+            &mut command,
+            Some(crate::termux_reentry::Intent::Resume),
+        );
         if let Some(profile) = &self.permissions {
             command.env(
                 "CODEX_PROFILE_PERMISSION_SNAPSHOT",
