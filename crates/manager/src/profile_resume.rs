@@ -125,15 +125,19 @@ pub(super) fn switch_with(
     // Destination must be valid before even observing the old writer.
     let home = task::destination(context, Some(target))?;
     let deadline = Instant::now() + Duration::from_secs(3);
-    while !codex_runtime_binding::native::writer_free(&context.home, id)
+    while !codex_runtime_binding::native::writer_free_until(&context.home, id, deadline)
         .map_err(|_| task::ERR_TASK)?
     {
+        thread::sleep(
+            Duration::from_millis(25).min(deadline.saturating_duration_since(Instant::now())),
+        );
+        // Preserve the last positive held-writer observation at the deadline;
+        // do not turn the next expired registry probe into an unrelated error.
         if Instant::now() >= deadline {
             return Err(ManagerError::operation(
                 "codex termux: profile switch refused; conversation writer is still owned; reconnect to its owner or explicitly use task takeover",
             ));
         }
-        thread::sleep(Duration::from_millis(25));
     }
     // Native resume provides the final atomic writer acquisition if ownership races.
     let mut command = task::resume_command(context, &home, id, None)?;

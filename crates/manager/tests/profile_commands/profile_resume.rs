@@ -94,6 +94,7 @@ fn profile_resume_refuses_held_coordination_or_writer_without_stopping_or_unlink
     let dir = home.join(".codex/thread-writer-locks");
     fs::create_dir_all(&dir).unwrap();
     fs::set_permissions(&dir, fs::Permissions::from_mode(0o700)).unwrap();
+    fs::set_permissions(dir.parent().unwrap(), fs::Permissions::from_mode(0o700)).unwrap();
     let coordination = dir.join(".coordination.lock");
     let writer = dir.join(format!("{ID}.lock"));
     for path in [&coordination, &writer] {
@@ -140,6 +141,7 @@ fn profile_resume_keeps_selected_registry_stable_during_writer_release() {
     let dir = home.join(".codex/thread-writer-locks");
     fs::create_dir_all(&dir).unwrap();
     fs::set_permissions(&dir, fs::Permissions::from_mode(0o700)).unwrap();
+    fs::set_permissions(dir.parent().unwrap(), fs::Permissions::from_mode(0o700)).unwrap();
     for name in [".coordination.lock".to_string(), format!("{ID}.lock")] {
         let path = dir.join(name);
         fs::write(&path, b"").unwrap();
