@@ -75,8 +75,10 @@ exec/continuation hooks are absent. Both Broker and shared-ledger admission veri
 the same original scope; the poll does not revalidate pre-launch output snapshots
 or replace the original call identity. Nonempty stdin, unknown or foreign sessions,
 ambiguous ownership and missing/legacy hook or scope proof retain conservative
-admission. A running poll preserves the claim; only the original terminal result
-releases it. Parallel execution must remain observable through these continuations.
+admission. A running poll preserves the claim. Only the matching original terminal
+result or authoritative Native command-completion item releases it; both must prove
+the original call/session and turn. Parallel execution remains observable through
+these continuations.
 Native may commit a terminal command item before its last output is collected.
 Before releasing that original claim, retain its exact call/session, Native
 PID/start/thread and original turn evidence on the existing receipt. An empty
@@ -86,6 +88,13 @@ recreate a process claim. Ambiguous/reused session identity, a changed owner,
 pending or unknown observations, a collected terminal result and missing legacy
 proof cannot grant this observation exception. Repeated original call IDs still
 return their immutable original receipts; a new call cannot reuse an expired proof.
+After Provider restart or payload-cache eviction, only the currently admitted,
+account/branch-verified source-discovery chain may supply cold MCP receipts for
+this observation. Read the entire original-to-current chain, including later
+collectors and session reuse; restoring just an old completion would revive an
+expired proof. These reads do not cache or reactivate retired execution tokens,
+restore a Controller lease, change a call ID or rewrite an original result.
+Missing, stopped, foreign or unsettled chain entries remain unavailable.
 
 The implementation contract is scoped logical identity plus a payload
 fingerprint and durable intent/result. Use existing call_id, work/controller
