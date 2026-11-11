@@ -3,6 +3,12 @@ package com.termux.app;
 import android.app.Instrumentation;
 import android.content.Intent;
 import android.os.SystemClock;
+import android.system.Os;
+import android.system.StructStat;
+import org.json.JSONObject;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.concurrent.atomic.AtomicInteger;
 import androidx.test.platform.app.InstrumentationRegistry;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 import com.termux.shared.termux.shell.command.runner.terminal.TermuxSession;
@@ -18,6 +24,10 @@ import static org.junit.Assert.*;
 public class StockWindowTest {
     static final String BASE="/data/data/com.termux/files/home/.stock-proof";
     static final String[] IDS={"11a0fe94-2d11-79f3-8f5b-9c1958465dc1","11a0fe94-2d11-79f3-8f5b-9c1958465dc2"};
+    static final String HOME="/data/data/com.termux/files/home";
+    static final String HEADLESS="11a0fe94-2d11-79f3-8f5b-9c1958465dc3";
+    static final String AUTOMATIC="11a0fe94-2d11-79f3-8f5b-9c1958465dc4";
+    final AtomicInteger sequence=new AtomicInteger();
     final Instrumentation instrumentation=InstrumentationRegistry.getInstrumentation();
     TermuxActivity activity;
     interface Condition { boolean get() throws Exception; }
@@ -44,8 +54,83 @@ public class StockWindowTest {
         intent.putExtra("com.termux.RUN_COMMAND_ARGUMENTS",new String[]{"launcher",id});
         intent.putExtra("com.termux.RUN_COMMAND_WORKDIR","/data/data/com.termux/files/home");
         intent.putExtra("com.termux.RUN_COMMAND_RUNNER","terminal-session");
-        intent.putExtra("com.termux.RUN_COMMAND_SESSION_ACTION",3);
+        intent.putExtra("com.termux.RUN_COMMAND_SESSION_ACTION","3");
         instrumentation.getTargetContext().startService(intent);
+    }
+    static class Result {
+        final int code;final String output;
+        Result(int code,String output){this.code=code;this.output=output;}
+    }
+    Result manager(String... args) throws Exception {
+        ArrayList<String> command=new ArrayList<>(Arrays.asList(BASE+"/core","termux"));
+        command.addAll(Arrays.asList(args));
+        ProcessBuilder builder=new ProcessBuilder(command);
+        builder.environment().put("HOME",HOME);
+        builder.environment().put("PREFIX","/data/data/com.termux/files/usr");
+        builder.environment().put("TMPDIR","/data/data/com.termux/files/usr/tmp");
+        builder.environment().put("PATH","/data/data/com.termux/files/usr/bin:/system/bin");
+        File output=new File(BASE+"/manager-"+sequence.incrementAndGet()+".log");
+        Process process=builder.redirectErrorStream(true).redirectOutput(output).start();
+        assertTrue("bounded Manager display",process.waitFor(30,TimeUnit.SECONDS));
+        return new Result(process.exitValue(),read(output.getPath()));
+    }
+    Result display(String id, String home, boolean automatic) throws Exception {
+        StructStat st=Os.stat(home);
+        return manager(automatic?"__terminal-auto-show-v1":"__terminal-show-v1",id,home,
+                       Long.toString(st.st_dev),Long.toString(st.st_ino));
+    }
+    void admitted(Result result) {
+        assertTrue("display admission or original pending receipt: "+result.output,
+            result.code==0 || (result.code==1&&result.output.contains("display is pending")));
+    }
+    String executionHome(String name) throws Exception {
+        String home=BASE+"/"+name;Files.createDirectories(new File(home).toPath());Os.chmod(home,0700);return home;
+    }
+    int ready(String id) throws Exception {
+        until(()->new File(BASE+"/"+id+".ready").isFile());
+        return Integer.parseInt(read(BASE+"/"+id+".ready"));
+    }
+    void exactForeground(int pid,String id) throws Exception {
+        until(()->selected()==pid);
+        File directory=new File(HOME+"/.local/share/codex/manager/terminals");
+        File[] bindings=directory.listFiles((dir,name)->name.startsWith("binding-"+pid+"-"));
+        assertNotNull(bindings);assertEquals("one live foreground binding",1,bindings.length);
+        JSONObject binding=new JSONObject(read(bindings[0].getPath()));
+        assertEquals(pid,binding.getInt("pid"));
+        assertEquals("exact native foreground UUID",id,read("/proc/"+pid+"/fd/"+binding.getInt("fd")));
+        until(()->{
+            final boolean[] focused={false};
+            instrumentation.runOnMainSync(()->focused[0]=activity.getWindow().getDecorView().hasWindowFocus());
+            return focused[0];
+        });
+    }
+    void headlessDisplayProof() throws Exception {
+        String home=executionHome("execution");String foreign=executionHome("foreign");
+        Files.createFile(new File(home+"/"+HEADLESS+".saved").toPath());
+        Files.createFile(new File(home+"/"+AUTOMATIC+".saved").toPath());
+        assertEquals(0,manager("notify","set","--auto-display","off").code);
+        int before=count();int selectedBefore=selected();
+        assertEquals(0,display(HEADLESS,home,true).code);
+        assertEquals("OFF starts no surface",before,count());assertEquals(selectedBefore,selected());
+        admitted(display(HEADLESS,home,false));int pid=ready(HEADLESS);
+        until(()->count()==before+1);exactForeground(pid,HEADLESS);
+        for(int i=0;i<3;i++){
+            assertEquals(0,display(HEADLESS,home,false).code);
+            exactForeground(pid,HEADLESS);assertEquals(before+1,count());
+        }
+        assertEquals("same UUID with another home is refused",1,display(HEADLESS,foreign,false).code);
+        exactForeground(pid,HEADLESS);assertEquals(before+1,count());
+        assertEquals(0,manager("notify","set","--auto-display","on").code);
+        final Result[] raced=new Result[2];final Throwable[] errors=new Throwable[2];
+        Thread click=new Thread(()->{try{raced[0]=display(AUTOMATIC,home,false);}catch(Throwable error){errors[0]=error;}});
+        Thread auto=new Thread(()->{try{raced[1]=display(AUTOMATIC,home,true);}catch(Throwable error){errors[1]=error;}});
+        click.start();auto.start();click.join(35000);auto.join(35000);
+        assertFalse(click.isAlive());assertFalse(auto.isAlive());assertNull(errors[0]);assertNull(errors[1]);
+        admitted(raced[0]);admitted(raced[1]);int automaticPid=ready(AUTOMATIC);
+        until(()->count()==before+2);exactForeground(automaticPid,AUTOMATIC);
+        assertEquals(0,display(HEADLESS,home,true).code);exactForeground(pid,HEADLESS);
+        assertEquals(before+2,count());assertEquals(4,read(BASE+"/workloads").trim().split("\n").length);
+        android.util.Log.i("StockWindowProof", "HEADLESS_DISPLAY_PROOF owner-free-synthetic-thread real-manager real-android-activity exact-foreground-uuid repeated-click auto-off-on concurrent-single-surface foreign-home-refusal no-workload-replay");
     }
     @Test public void stockManagerCreatesOnceAndSelectsEachExistingWorkload() throws Exception {
         Intent intent=new Intent(Intent.ACTION_MAIN).setClassName("com.termux","com.termux.app.TermuxActivity").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
@@ -68,5 +153,6 @@ public class StockWindowTest {
         int before=count();assertEquals("closed binding refuses before AM constructor",1,focus(IDS[0]));assertEquals(before,count());
         assertEquals(0,focus(IDS[1]));until(()->selected()==pids[1]);
         android.util.Log.i("StockWindowProof", "STOCK_WINDOW_PROOF real-stock-apk real-manager real-am-client bare-two-launches six-existing-returns no-replay stale-refusal");
+        headlessDisplayProof();
     }
 }

@@ -1,7 +1,7 @@
 name: Official APK window fallback proof
 on:
   push:
-    branches: [experiment/stock-window-proof]
+    branches: [rewrite/rust-core]
   workflow_dispatch:
 permissions:
   contents: read
@@ -11,7 +11,7 @@ jobs:
     timeout-minutes: 45
     env:
       STOCK_SOURCE: 8629e632fcb95da272221be327db653fb24befe9
-      PRODUCT_SOURCE: 24ad60da232d279063939c83cc7cebe0fb60bc3d
+      PRODUCT_SOURCE: ${{ github.sha }}
       ANDROID_NDK_VERSION: '27.3.13750724'
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -22,6 +22,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          test "$PRODUCT_SOURCE" = "$GITHUB_SHA"
+          [[ "$PRODUCT_SOURCE" =~ ^[0-9a-f]{40}$ ]]
           git init stock
           git -C stock remote add origin https://github.com/termux/termux-app.git
           git -C stock fetch --depth=1 origin "$STOCK_SOURCE"
@@ -53,12 +55,13 @@ jobs:
           export PATH="$JAVA_HOME/bin:$PATH"
           (cd stock; ./gradlew --no-daemon :app:assembleDebug :app:assembleDebugAndroidTest)
           ndk="$ANDROID_SDK_ROOT/ndk/$ANDROID_NDK_VERSION"
-          rustup toolchain install 1.98.0 --profile minimal --target x86_64-linux-android
+          rust_version=$(python3 -c 'import json;print(json.load(open("product/release/upstream.json"))["toolchains"]["core_rust"])')
+          rustup toolchain install "$rust_version" --profile minimal --target x86_64-linux-android
           export CARGO_TARGET_DIR="$RUNNER_TEMP/cargo-target"
           export CARGO_TARGET_X86_64_LINUX_ANDROID_LINKER="$ndk/toolchains/llvm/prebuilt/linux-x86_64/bin/x86_64-linux-android24-clang"
           "$CARGO_TARGET_X86_64_LINUX_ANDROID_LINKER" -O2 -Wall -Wextra -Werror -c proof/.github/stock-window/rename.c -o "$RUNNER_TEMP/rename.o"
           export RUSTFLAGS="-C link-arg=$RUNNER_TEMP/rename.o"
-          cargo +1.98.0 build --release --locked --manifest-path product/Cargo.toml --target x86_64-linux-android -p codex-manager
+          cargo "+$rust_version" build --release --locked --manifest-path product/Cargo.toml --target x86_64-linux-android -p codex-manager
           mkdir fixture
           cp "$CARGO_TARGET_DIR/x86_64-linux-android/release/codex-manager" fixture/manager
           "$CARGO_TARGET_X86_64_LINUX_ANDROID_LINKER" -O2 -Wall -Wextra -Werror proof/.github/stock-window/workload.c -o fixture/core
@@ -97,8 +100,6 @@ jobs:
           test -f "$stock_apk"
           adb install "$stock_apk"
           adb install stock/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
-          adb shell pm grant com.termux android.permission.WRITE_EXTERNAL_STORAGE
-          adb shell pm grant com.termux android.permission.READ_EXTERNAL_STORAGE
           adb shell appops set com.termux SYSTEM_ALERT_WINDOW allow
           adb shell am start -n com.termux/com.termux.app.TermuxActivity
           for attempt in $(seq 1 120); do
@@ -115,6 +116,18 @@ jobs:
           grep -F 'OK (1 test)' "$RUNNER_TEMP/stock-proof.txt"
           adb logcat -d -s StockWindowProof:I > "$RUNNER_TEMP/stock-proof-marker.txt"
           grep -F 'STOCK_WINDOW_PROOF real-stock-apk real-manager real-am-client' "$RUNNER_TEMP/stock-proof-marker.txt"
+          grep -F 'HEADLESS_DISPLAY_PROOF owner-free-synthetic-thread real-manager real-android-activity' "$RUNNER_TEMP/stock-proof-marker.txt"
+          python3 - <<'PYTHON'
+          import json, os
+          from pathlib import Path
+          root=Path(os.environ['RUNNER_TEMP'])
+          proof={'schema':'codex-android-window-qualification-v1','source_sha':os.environ['GITHUB_SHA'],
+                 'run_id':os.environ['GITHUB_RUN_ID'],'stock_source':os.environ['STOCK_SOURCE'],
+                 'android_api':30,'physical_device':False,'synthetic_frontend':True,
+                 'native_owner_inference':False,'activity_session_pid_observed':True,
+                 'foreground_uuid_observed':True,'auto_on_off':True,'repeated_and_concurrent_display':True}
+          (root/'stock-proof.json').write_text(json.dumps(proof,sort_keys=True)+'\n')
+          PYTHON
       - name: Preserve bounded proof and diagnostics
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -123,6 +136,7 @@ jobs:
           path: |
             ${{ runner.temp }}/stock-proof.txt
             ${{ runner.temp }}/stock-proof-marker.txt
+            ${{ runner.temp }}/stock-proof.json
             ${{ runner.temp }}/stock-capability.txt
             ${{ runner.temp }}/emulator.log
           retention-days: 7
