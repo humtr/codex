@@ -12,6 +12,108 @@ import qualify_provider_native_compiler as q
 import qualify_provider_native_trial as trial
 
 
+class CandidateInstallationBoundary(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory(prefix='native-candidate-boundary-')
+        self.addCleanup(self.temporary.cleanup)
+        self.prefix = Path(self.temporary.name)
+        self.case = self.prefix / 'candidate'
+        self.case.mkdir(mode=0o700)
+        self.home = self.case / 'h'
+        self.home.mkdir(mode=0o700)
+        self.core = self.case / 'p/bin/codex'
+        self.core.parent.mkdir(parents=True)
+        self.core.write_bytes(b'owned-core')
+        self.core.chmod(0o755)
+        (self.prefix / 'bin').mkdir()
+        (self.prefix / 'bin/codex').write_bytes(b'operating-core-sentinel')
+        self.generation = self.home / '.local/lib/codex/core/generations/owned-candidate'
+        self.generation.mkdir(parents=True)
+        (self.generation / 'core').write_bytes(self.core.read_bytes())
+        (self.generation / 'runtime').write_bytes(b'owned-runtime')
+        self.fields = {'core_artifact_digest': q.sha(self.core), 'runtime_digest': q.sha(self.generation / 'runtime')}
+        marker = self.case / 'owned-fixture'
+        marker.write_text('owned test installation')
+        marker.chmod(0o600)
+        self.public = self.case / 'fixture-public.pem'
+        private = self.case / 'fixture-key.pem'
+        subprocess.run(['openssl', 'genpkey', '-algorithm', 'Ed25519', '-out', str(private)], check=True, capture_output=True)
+        subprocess.run(['openssl', 'pkey', '-in', str(private), '-pubout', '-out', str(self.public)], check=True, capture_output=True)
+        private.chmod(0o600)
+        manifest = self.generation / 'release.manifest'
+        manifest.write_bytes(b'owned candidate manifest')
+        subprocess.run(['openssl', 'pkeyutl', '-sign', '-inkey', str(private), '-rawin', '-in', str(manifest),
+            '-out', str(self.generation / 'release.sig')], check=True, capture_output=True)
+        self.activation = self.home / '.local/share/codex/core/activation-state'
+        self.activation.parent.mkdir(parents=True)
+        self.activation.write_text(q.fixture_activation_state(self.generation.name, self.public))
+        self.activation.chmod(0o600)
+
+    def select(self, **changed):
+        values = dict(core=self.core, generation=self.generation, home=self.home, prefix=self.prefix, candidate_root=self.case)
+        values.update(changed)
+        # The closed inventory has its own full parser/digest suite. These
+        # negatives isolate the additional candidate boundary and real signature.
+        with patch.object(q, 'local_generation_inventory', return_value=(self.fields, [])) as inventory:
+            result = q.selected_installation(**values)
+            inventory.assert_called_once_with(self.generation)
+            return result
+
+    def test_private_fixture_accepts_exact_digests_and_ephemeral_signature(self):
+        self.assertEqual(self.select(), 'candidate-native-compiler')
+        self.assertEqual((self.prefix / 'bin/codex').read_bytes(), b'operating-core-sentinel')
+
+    def test_operating_mode_does_not_accept_candidate_entrypoint(self):
+        with self.assertRaisesRegex(AssertionError, 'actual installed Core'):
+            q.selected_installation(self.core, self.generation, self.home, self.prefix)
+
+    def test_foreign_home_alias_and_nonprivate_root_fail_before_launch(self):
+        with self.assertRaisesRegex(AssertionError, 'candidate HOME'):
+            self.select(home=self.prefix)
+        alias = self.prefix / 'alias'
+        alias.symlink_to(self.case, target_is_directory=True)
+        with self.assertRaisesRegex(AssertionError, 'alias'):
+            self.select(candidate_root=alias)
+        self.case.chmod(0o755)
+        with self.assertRaisesRegex(AssertionError, 'private'):
+            self.select()
+
+    def test_changed_core_runtime_and_activation_fail_without_repair(self):
+        self.core.chmod(0o777)
+        with self.assertRaisesRegex(AssertionError, 'Core executable'):
+            self.select()
+        self.core.chmod(0o755)
+        self.core.write_bytes(b'changed core')
+        with self.assertRaisesRegex(AssertionError, 'Core digest'):
+            self.select()
+        self.core.write_bytes(b'owned-core')
+        (self.generation / 'runtime').write_bytes(b'changed runtime')
+        with self.assertRaisesRegex(AssertionError, 'Runtime digest'):
+            self.select()
+        (self.generation / 'runtime').write_bytes(b'owned-runtime')
+        self.activation.write_text(self.activation.read_text().replace('current=owned-candidate', 'current=other'))
+        with self.assertRaisesRegex(AssertionError, 'ephemeral fixture key'):
+            self.select()
+        self.assertIn('current=other', self.activation.read_text())
+
+    def test_foreign_marker_key_and_invalid_signature_are_rejected(self):
+        marker = self.case / 'owned-fixture'
+        marker.unlink()
+        marker.symlink_to(self.core)
+        with self.assertRaisesRegex(AssertionError, 'marker'):
+            self.select()
+        marker.unlink()
+        marker.write_text('owned')
+        marker.chmod(0o600)
+        self.public.chmod(0o666)
+        with self.assertRaisesRegex(AssertionError, 'public key'):
+            self.select()
+        self.public.chmod(0o600)
+        (self.generation / 'release.manifest').write_bytes(b'changed manifest')
+        with self.assertRaises(subprocess.CalledProcessError):
+            self.select()
+
+
 class NativeCompilerEvidence(unittest.TestCase):
     def setUp(self):
         self.home = Path('/data/data/com.termux/files/home')
