@@ -23,6 +23,7 @@ SUITES = {
         'native_completion_admitted_hook_arc_drives_pre_post_and_permission_after_reload',
         'native_completion_advertised_scope_includes_actual_bash_hooks',
         'native_completion_admitted_snapshot_preserves_wait_after_later_hook_reload',
+        'native_completion_network_permission_keeps_original_admitted_hooks',
     ),
     'protocol': (
         'native_completion_typescript_keeps_nullable_field_and_real_type_dependencies',
