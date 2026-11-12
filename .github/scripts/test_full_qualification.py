@@ -347,6 +347,68 @@ class FullQualificationTests(unittest.TestCase):
                     request=lambda *args:self.fail('unexpected API'),fetch=lambda *args:self.fail('unexpected download'))
             self.assertFalse((Path(temp)/'proof').exists())
 
+    def test_compact_native_patch_keeps_complete_changes_and_bounded_proof(self):
+        workflow = (ROOT / '.github/workflows/manager-tui-native.yml').read_text()
+        excluded = tuple('codex-rs/app-server-protocol/schema/precomputed/' + name
+                         for name in ('app-server-exports-experimental.json.zst',
+                                      'app-server-exports-stable.json.zst'))
+        self.assertEqual(workflow.count('git apply --reverse --check --unidiff-zero \\'), 2)
+        for path in excluded:
+            self.assertEqual(workflow.count(f"--exclude='{path}'"), 2)
+        for stage in ('formatted', 'linted'):
+            name = f'profile-tui-{stage}.patch'
+            self.assertIn(f'git diff --unified=0 -- codex-rs > "$RUNNER_TEMP/{name}"', workflow)
+            self.assertIn(f'test "$(wc -c < "$RUNNER_TEMP/{name}")" -le 1048576', workflow)
+        self.assertIn('cmp "$RUNNER_TEMP/profile-tui-formatted.patch" '
+                      '"$RUNNER_TEMP/profile-tui-linted.patch"', workflow)
+        with tempfile.TemporaryDirectory(prefix='full-compact-patch-') as temporary:
+            root = Path(temporary)
+            def git(*args, input=None):
+                return subprocess.run(['git', '-C', str(root), *args], input=input,
+                                      capture_output=True, check=True).stdout
+            git('init')
+            tracked = root / 'tracked.rs'
+            original = ''.join(f'baseline_{i:05d}_' + 'X' * 42 + '\n'
+                               for i in range(30000)).encode()
+            tracked.write_bytes(original)
+            precomputed = root / 'codex-rs/app-server-protocol/schema/precomputed'
+            precomputed.mkdir(parents=True)
+            for path in excluded:
+                (root / path).write_bytes(b'original\x00binary')
+            git('add', '.')
+            git('-c', 'user.name=Owned fixture', '-c', 'user.email=owned@example.invalid',
+                'commit', '-m', 'owned input')
+            tracked.write_bytes(''.join(
+                f'changed_{i:05d}_' + 'Y' * 43 + '\n' if i % 8 == 0
+                else f'baseline_{i:05d}_' + 'X' * 42 + '\n'
+                for i in range(30000)).encode())
+            for path in excluded:
+                (root / path).write_bytes(b'changed\x00binary')
+            added = root / 'generated.rs'
+            added.write_bytes(b'new native source\n')
+            git('add', '-N', 'generated.rs')
+            regular = git('diff', '--', '.')
+            compact = git('diff', '--unified=0', '--', '.')
+            self.assertGreater(len(regular), 1024 * 1024)
+            self.assertLessEqual(len(compact), 1024 * 1024)
+            self.assertEqual(compact.count(b'Binary files '), 2)
+            command = ['git', '-C', str(root), 'apply', '--reverse', '--check',
+                       '--unidiff-zero']
+            def check_reversal(payload, *args):
+                return subprocess.run([*command, *args, '-'], input=payload,
+                                      capture_output=True).returncode
+            options = tuple('--exclude=' + path for path in excluded)
+            self.assertNotEqual(check_reversal(compact), 0)
+            self.assertNotEqual(check_reversal(compact, options[0]), 0)
+            self.assertEqual(check_reversal(compact, *options), 0)
+            tampered = compact.replace(b'+changed_00000_', b'+foreign_00000_', 1)
+            self.assertNotEqual(check_reversal(tampered, *options), 0)
+            git('apply', '--reverse', '--unidiff-zero', *options, '-', input=compact)
+            self.assertEqual(tracked.read_bytes(), original)
+            self.assertFalse(added.exists())
+            for path in excluded:
+                self.assertEqual((root / path).read_bytes(), b'changed\x00binary')
+
     def test_full_workflow_has_only_readonly_qualification_authority(self):
         workflow=(ROOT/'.github/workflows/full-qualification.yml').read_text()
         self.assertIn('branches: [rewrite/rust-core]',workflow)
