@@ -3045,10 +3045,10 @@ index c0ac2d401b6367fa748d059d42db71149ff97f47..a8ac1c080bfd64d8b29a74d964e68846
              config.model_provider.clone(),
 diff --git a/codex-rs/core/src/native_completion.rs b/codex-rs/core/src/native_completion.rs
 new file mode 100644
-index 0000000000000000000000000000000000000000..7e7e3912fc9e8e50797afc6b30cc158b81f31539
+index 0000000000000000000000000000000000000000..c9f8d22ad17d506f7d183c20167b3426f77b6292
 --- /dev/null
 +++ b/codex-rs/core/src/native_completion.rs
-@@ -0,0 +1,1135 @@
+@@ -0,0 +1,1181 @@
 +//! Completion facts produced by Native, never inferred from command text.
 +//! The state belongs to the existing ToolCallState and survives its joined abort.
 +use crate::session::session::Session;
@@ -3508,11 +3508,36 @@ index 0000000000000000000000000000000000000000..7e7e3912fc9e8e50797afc6b30cc158b
 +    }
 +}
 +
++fn header_json(proof: &impl serde::Serialize) -> String {
++    match serde_json::to_string(proof) {
++        Ok(json) => format!("{HEADER}{json}\n"),
++        // An invalid envelope is not completion evidence; preserve an explicit
++        // diagnostic rather than asserting success or inventing a null proof.
++        Err(error) => format!("{HEADER}serialization_failed: {error}\n"),
++    }
++}
++
 +fn header(proof: &Option<NativeEffectCompletion>) -> String {
-+    format!(
-+        "{HEADER}{}\n",
-+        serde_json::to_string(proof).expect("typed Native completion serializes")
-+    )
++    header_json(proof)
++}
++
++fn attach_code_mode_proof(
++    object: &mut serde_json::Map<String, Value>,
++    proof: &impl serde::Serialize,
++) {
++    match serde_json::to_value(proof) {
++        Ok(value) => {
++            object.insert("native_completion".to_owned(), value);
++        }
++        Err(error) => {
++            // Without a typed proof, consumers must not settle an
++            // effect. Keep the original output and expose the fault.
++            object.insert(
++                "native_completion_error".to_owned(),
++                Value::String(error.to_string()),
++            );
++        }
++    }
 +}
 +
 +/// Decorate only after the original handler, error hooks and joined cancellation.
@@ -3636,12 +3661,7 @@ index 0000000000000000000000000000000000000000..7e7e3912fc9e8e50797afc6b30cc158b
 +    fn code_mode_result(&self, payload: &ToolPayload) -> Value {
 +        let mut result = self.original.code_mode_result(payload);
 +        match &mut result {
-+            Value::Object(object) => {
-+                object.insert(
-+                    "native_completion".to_owned(),
-+                    serde_json::to_value(&self.proof).expect("typed Native completion serializes"),
-+                );
-+            }
++            Value::Object(object) => attach_code_mode_proof(object, &self.proof),
 +            Value::String(text) => {
 +                if self.supervised {
 +                    describe_supervised_scope(text);
@@ -3675,6 +3695,32 @@ index 0000000000000000000000000000000000000000..7e7e3912fc9e8e50797afc6b30cc158b
 +            },
 +            hooks: NativeCompletionHooks::Absent,
 +        }
++    }
++
++    /// A serializer fault must never be reported as a confirmed Native effect.
++    #[test]
++    fn native_completion_serialization_failure_remains_explicit_and_unqualified() {
++        struct FailingSerialization;
++
++        impl serde::Serialize for FailingSerialization {
++            fn serialize<S>(&self, _serializer: S) -> Result<S::Ok, S::Error>
++            where
++                S: serde::Serializer,
++            {
++                Err(serde::ser::Error::custom("original encoding fault"))
++            }
++        }
++
++        assert_eq!(
++            header_json(&FailingSerialization),
++            "Native completion: serialization_failed: original encoding fault\n"
++        );
++        let mut output = serde_json::Map::new();
++        output.insert("exit_code".to_owned(), Value::from(19));
++        attach_code_mode_proof(&mut output, &FailingSerialization);
++        assert!(!output.contains_key("native_completion"));
++        assert_eq!(output["native_completion_error"], "original encoding fault");
++        assert_eq!(output["exit_code"], 19);
 +    }
 +
 +    #[test]
@@ -9261,7 +9307,7 @@ index f9afaaa41d5349e519ca45585bcd05954655dd4d..38e6100ed094ca9caf492a1daadca09b
  
          Ok(managed)
 diff --git a/codex-rs/core/src/unified_exec/process_manager.rs b/codex-rs/core/src/unified_exec/process_manager.rs
-index 9715d1b1a8d0c3e2f0c02c7b27858fa77bb75bd6..2f49feaf555c49c4b44bf1b6a0c2c8e6ab82c522 100644
+index 9715d1b1a8d0c3e2f0c02c7b27858fa77bb75bd6..3dbd8deaae3533a119e0bd066bcedb2ef0e9fe8b 100644
 --- a/codex-rs/core/src/unified_exec/process_manager.rs
 +++ b/codex-rs/core/src/unified_exec/process_manager.rs
 @@ -449,6 +449,44 @@ fn terminate_process_on_network_denial(
@@ -9516,7 +9562,7 @@ index 9715d1b1a8d0c3e2f0c02c7b27858fa77bb75bd6..2f49feaf555c49c4b44bf1b6a0c2c8e6
          if environment.is_remote() || request.exec_server_shell_snapshot.is_some() {
 +            if let Some(attempt) = native_completion
 +                .as_ref()
-+                .and_then(|state| state.begin_attempt())
++                .and_then(crate::native_completion::CallCompletion::begin_attempt)
 +            {
 +                // Remote/driver acknowledgement has no local successful OS wait.
 +                attempt.observe(None);
@@ -9531,7 +9577,7 @@ index 9715d1b1a8d0c3e2f0c02c7b27858fa77bb75bd6..2f49feaf555c49c4b44bf1b6a0c2c8e6
 -        let spawn_result = codex_sandboxing::spawn_process(codex_sandboxing::SpawnRequest {
 +        let native_attempt = native_completion
 +            .as_ref()
-+            .and_then(|state| state.begin_attempt());
++            .and_then(crate::native_completion::CallCompletion::begin_attempt);
 +        let spawn_request = codex_sandboxing::SpawnRequest {
              command: &request.command,
              cwd: native_cwd.as_path(),

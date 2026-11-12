@@ -59,6 +59,13 @@ flowchart TD
 W6 Retain and already-accepted W7/W8 baseline evidence constrain every affected
 TUI change. W15's completed operating P0 is not a prerequisite blocking other
 work. Publication reservation metadata does not authorize signing/publication.
+The independent follow-on Writer owns the final Source TLS fixture handoff and
+the Native completion/process-manager Clippy repair in
+`crates/release-builder/src/native_route.patch`. These edits do not transfer
+Runtime, Provider or TUI execution authority and must receive exact-source
+qualification before W8/W10/W15 can close. The earlier successful 53-gate
+Core receipt belongs to the 1f checkpoint, not automatically the next SHA.
+
 W20 reuses Core Owner discovery and upstream Native resume; it introduces no
 Owner database or alternate Writer controller. The diagram orders source
 responsibilities; actual Full admission follows successful same-source Core,
@@ -175,51 +182,90 @@ The producer-helper change is itself an input and requires fresh qualification.
 The original 1,370–3,020 product and 500–800 documentation LoC ranges were
 pre-investigation estimates for W0–W14. They are not completed counts. The
 original W16 estimate and 559-line shell patch are not added to final totals.
-The following measured `aa863b50` checkpoint counts each changed line
-once. Later test-fixture and documentation edits require a fresh final measurement. Both embedded patches are expanded onto the same official ce210 upstream;
-wrapper text, upstream-version noise, reverted iterations and overlapping work
-assignments are excluded from semantic totals.
+The working-tree measurement below is relative to the original official
+7b98296 baseline and is refreshed at source freeze. Both embedded patches are
+expanded onto the same official ce210 upstream; wrapper text, upstream-version
+noise, reverted iterations and overlapping work assignments are excluded.
 
 | Category | Added LoC | Deleted LoC | Replacement pairs, already included |
 | --- | ---: | ---: | ---: |
 | Product | 10332 | 1119 | 666 |
-| Tests | 19401 | 1363 | 862 |
+| Tests | 19476 | 1366 | 865 |
 | Build/CI/support | 3076 | 270 | 122 |
-| Norms/documentation | 2209 | 497 | 297 |
+| Norms/documentation | 2555 | 513 | 308 |
 
-The physical Git delta contains 172 files: 127 modified and 45 new, none deleted
+The physical Git delta contains 174 files: 128 modified and 46 new, none deleted
 relative to baseline. Replacing the two physical patch containers with their
-106 changed logical files gives 276 distinct owned/logical files: 229 modified,
-47 new, none deleted. The containers hold Native 84 files (+7413/-132) and TUI
+106 changed logical files gives 278 distinct owned/logical files: 230 modified,
+48 new, none deleted. The containers hold Native 84 files (+7467/-132) and TUI
 22 files (+715/-86); those deltas are already classified in the product/test
-rows, not additional work. Replacement pairs are the smaller side of each
-replacement hunk and are subsets of additions/deletions, not another LoC total.
-Rust test-item classification lexically excludes comments/strings and supports
-cfg(all(test,...)); validation scripts count as tests. Source/line images and
-hashes allow independent recalculation.
+rows. Replacement pairs are the smaller side of each replacement hunk and are
+subsets of additions/deletions, not another LoC total. Rust test-item
+classification lexically excludes comments/strings and supports cfg(all(test,...));
+validation scripts count as tests. Source/line images and hashes support
+independent recalculation.
 
-Classifier SHA256: `1297f91ead3d140405e2292a5586c1ed3eccb72a5d48279ac70f8a72d563f466`.
-The parent-module cfg(test) review classifies eight test-only imports/helpers
-under tests rather than product; aggregate added/deleted totals are unchanged.
-Measured checkpoint receipt: `b19f886160534b2da9471def55c1c9ccf5cc98a7cb7dbf5bc00695a32a73cc6b`.
-Expanded-image ledger SHA256:
-`b3c180599ef234b24a262838db15a9a09f28f1c79206a8323691faa3e7492d7a`.
-The final categorized receipt is recorded with the source-freeze evidence;
-numeric documentation counts include this record itself.
+Classifier SHA256: `30e8ab6bdf525db6d2f612bfdc57b021818bef005c01dfb9fc75a8b86b23e01e`.
+Eight parent-module test-only imports/helpers are counted under tests, preserving
+total additions/deletions. Expanded-image ledger SHA256:
+`afc06641c2eeff310fffb1eab0d2ac34714eac3b9f4630d5414ec5d1491cf83c`.
+The final categorized receipt is bound separately to the frozen source; numeric
+documentation counts include this record and the file ledger itself. The ledger
+generator SHA256 is `38f61150046c011ca05aeefa4979ff1926085a8566b4d64f7a2895953533c8cb`.
+
+### Per-work exclusive file ownership
+
+The [complete file ledger](RELEASE_FRAMEWORK_CHANGE_OWNERSHIP.tsv) assigns each
+changed physical or expanded logical file to one primary W owner and records
+shared responsibilities separately. The table is an exclusive whole-file
+allocation, not a claim that every changed hunk was caused by that work package.
+Documentation is counted once at W9. Expanded patch images replace their two
+containers; the containers are not counted again. W7/W8 reuse the integrated
+baseline; W13's implementation and tests are shared in W11/W14 and its norm in
+W9, so a zero direct-file allocation does not mean the work was omitted.
+The separate W20 hunk slice below is nonadditive. Parallel implementation used
+explicit file leases; retirement and rollback preserve original owner receipts.
+These working-tree counts are refreshed before the final source freeze.
+
+| Work | Modified / new / deleted files | Product + / - / replacement | Tests + / - / replacement | Build and CI + / - / replacement | Docs + / - / replacement |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| W0 | 1 / 0 / 0 | 0 / 0 / 0 | 0 / 0 / 0 | 4 / 4 / 4 | 0 / 0 / 0 |
+| W1 | 2 / 3 / 0 | 0 / 0 / 0 | 254 / 1 / 1 | 266 / 3 / 3 | 0 / 0 / 0 |
+| W2 | 6 / 7 / 0 | 0 / 0 / 0 | 419 / 7 / 7 | 817 / 138 / 37 | 0 / 0 / 0 |
+| W3 | 0 / 1 / 0 | 0 / 0 / 0 | 0 / 0 / 0 | 81 / 0 / 0 | 0 / 0 / 0 |
+| W4 | 1 / 5 / 0 | 0 / 0 / 0 | 921 / 2 / 2 | 647 / 0 / 0 | 0 / 0 / 0 |
+| W5 | 4 / 4 / 0 | 0 / 0 / 0 | 181 / 0 / 0 | 407 / 16 / 16 | 0 / 0 / 0 |
+| W6 | 5 / 2 / 0 | 0 / 0 / 0 | 142 / 9 / 9 | 159 / 4 / 3 | 0 / 0 / 0 |
+| W7 | 0 / 0 / 0 | 0 / 0 / 0 | 0 / 0 / 0 | 0 / 0 / 0 | 0 / 0 / 0 |
+| W8 | 0 / 0 / 0 | 0 / 0 / 0 | 0 / 0 / 0 | 0 / 0 / 0 | 0 / 0 / 0 |
+| W9 | 20 / 5 / 0 | 0 / 0 / 0 | 0 / 0 / 0 | 0 / 0 / 0 | 2555 / 513 / 308 |
+| W10 | 10 / 3 / 0 | 0 / 0 / 0 | 460 / 31 / 27 | 256 / 44 / 30 | 0 / 0 / 0 |
+| W11 | 3 / 1 / 0 | 285 / 85 / 65 | 268 / 34 / 20 | 0 / 0 / 0 | 0 / 0 / 0 |
+| W12 | 0 / 2 / 0 | 350 / 0 / 0 | 25 / 0 / 0 | 0 / 0 / 0 | 0 / 0 / 0 |
+| W13 | 0 / 0 / 0 | 0 / 0 / 0 | 0 / 0 / 0 | 0 / 0 / 0 | 0 / 0 / 0 |
+| W14 | 3 / 0 / 0 | 0 / 0 / 0 | 28 / 17 / 15 | 0 / 0 / 0 | 0 / 0 / 0 |
+| W15 | 107 / 9 / 0 | 7502 / 781 / 440 | 12886 / 1068 / 634 | 322 / 0 / 0 | 0 / 0 / 0 |
+| W16 | 8 / 2 / 0 | 507 / 47 / 36 | 1270 / 26 / 23 | 45 / 6 / 4 | 0 / 0 / 0 |
+| W17 | 4 / 0 / 0 | 166 / 6 / 6 | 149 / 3 / 3 | 0 / 0 / 0 | 0 / 0 / 0 |
+| W18 | 9 / 3 / 0 | 529 / 6 / 6 | 564 / 2 / 2 | 70 / 55 / 25 | 0 / 0 / 0 |
+| W19 | 15 / 0 / 0 | 540 / 126 / 58 | 739 / 99 / 64 | 2 / 0 / 0 | 0 / 0 / 0 |
+| W20 | 32 / 1 / 0 | 453 / 68 / 55 | 1170 / 67 / 58 | 0 / 0 / 0 | 0 / 0 / 0 |
 
 ### W20 measured subset and shared ownership
 
 The reconciled direct W20 slice is **11 logical files/hunks: product +178/-22,
-tests +525/-1**. It includes Manager quota/profile handling, typed TUI transport,
+tests +528/-1**. It includes Manager quota/profile handling, typed TUI transport,
 profile-manager tests, quota qualification and expanded upstream historical-quota
 replay. This declared slice is not a complete exclusive W20 total.
-The inspectable affected union has 43 files (28 physical plus 15 expanded TUI),
+The earlier f2aef205 affected union has 43 files (28 physical plus 15 expanded TUI),
 +4006/-351. Owner registry/Writer lookup is shared with W15, terminal fixtures
 with W16, selection/reentry/child fencing with W19, and norms with W9. That union
 is neither W20-only LoC nor an addition to the global totals above.
 Earlier 6450/f915/f149 snapshots are superseded measurement checkpoints, not
-summable work. The final ledger binds exact before/after images and hunk ownership:
-`c22187301e2530be47a4bb28c8c82d4253c1f50bda74ab444b5bd2b7a0813403`.
+summable work. The refreshed direct-slice ledger binds exact 1f before/after images and hunk
+ownership, including the fixture-only TOML parser correction:
+`d31dc0d46d9e936876cd2f58562a40751e8690b783b0a81fe9f6ba928f846d6c`.
+The historical shared union is not a current exclusive W20 measurement.
 The W-task table owns file responsibility; this ledger prevents duplicate counts.
 
 Rollback for development is a reviewed revert of a coherent feature commit,
@@ -231,177 +277,235 @@ anti-rollback sequence rules; S164 cannot silently replace newer S165.
 
 ## Branch disposition
 
-Snapshot 03:14:44–03:18:45 UTC: 112 local/tracking refs, 95 worktrees and 45
-actual remote heads; 166 local and 257 remote tag names, zero common-name tag
-mismatches and zero open PRs. All dispositions are accounted for: 73 unchanged,
-16 unchanged transfers and 23 refreshed owned/current refs. The audit is bound by
-`db0207c8fb8048701a29fcf2e8e804ca81a5f226f415e48afe4f23cc56b15408`.
-Worktree presence is an ownership constraint, not proof a process is idle.
-No branch, worktree or tag is deleted. Release/rollback/evidence and other-owner
-snapshots are retained; integrated refs require owner/consumer release before
-retirement. Unique experiments are not automatic merge inputs.
+The read-only snapshot at 05:24:20 UTC, classified at 05:30:40 UTC, covers
+114 local/tracking refs, 99 registered worktrees, 45 actual remote heads,
+17 auxiliary refs and zero open PRs. There are 166 local and 257 remote tag
+names, 258 names in the union and zero common-name object mismatches. An
+annotated peeled row is not an extra remote tag. All tag names/objects and
+worktree ownership were retained in the original audit; no ref was deleted.
 
-The table records observed SHA values, not a promise that refs remain frozen.
-After its e8a08631 anchor, Runtime source7f3c3ef was integrated as f2aef205 and
-source2612cdce added the fiftieth required oracle and removed the temporary
-contingency workflow. Remote outage documentation through19c1694a was read and
-reconciled against recovered original receipts; its expired temporary notice
-was not reintroduced. Exact-main release-intent remained absent (404), main was
-b2567063, and the authoritative development remote was ec51fe4a at observation.
+Audit SHA256: `d47b958c7d81c81cc52d104412e6d7b00f0761eac7745893f9633bca2223277e`.
+Complete inventory SHA256:
+`ff1cf0e7a8b27b753d6768be71be06bd4a2f04ad1188ba4c218d3b4256a5187a`.
+The anchor is local `578a386b88ef0cfecb268c439c485b650f457970`, official
+development `1f1f5cffa26bccf27428132e7482c1a0e959fbf4` and publication
+main `b2567063d2a7a333a718d2495e2c9f8c928d822c`. These are observations,
+not a promise that refs stay frozen. The final source readback is separate.
 
-| Ref | Observed SHA | Disposition | Worktree present |
-| --- | --- | --- | --- |
-| `local:archive/linux-app-operating-source-20261106` | `97118e775bc6` | other owner/operating snapshot: preserve | yes |
-| `local:archive/mobile-desktop-attempt-20261106` | `8de07907b110` | other owner/operating snapshot: preserve | no |
-| `local:backup/user-dirty-20261109` | `0401e4af6207` | other owner/operating snapshot: preserve | no |
-| `local:backup/user-dirty-20261109-base` | `0814be7b51dd` | integrated legacy; owner/consumer release required | no |
-| `local:design/entry-architecture-20261105` | `604df76bb30f` | integrated; preserve active worktree | yes |
-| `local:docs/release-framework-handoff-20261111` | `9a236db89a37` | evidence selected into current integration; preserve source | yes |
-| `local:docs/review-actions-20261110` | `e16bb12defc9` | integrated; preserve active worktree | yes |
-| `local:draft/thread-model-catalog-20261106` | `8d095cd754fa` | unique historical experiment; preserve, no automatic merge | no |
-| `local:experiment/profile-tui` | `c4d9a41d3827` | integrated legacy; owner/consumer release required | no |
-| `local:experiment/web-provider` | `6aab6cd9c8e3` | unique historical experiment; preserve, no automatic merge | no |
-| `local:experiment/web-termux` | `08e985693f0a` | unique historical experiment; preserve, no automatic merge | no |
-| `local:feat/termux-mcp-shell-20261111` | `c0a8189815c7` | patch integrated; preserve original worktree | yes |
-| `local:fix/accepted-caller-repin-20261111` | `c642dd208735` | publication authority/history: preserve | yes |
-| `local:fix/active-steer-20261104` | `f8d1a7f47c62` | integrated; preserve active worktree | yes |
-| `local:fix/attached-native-development-loop-20261106` | `cc535d18a897` | integrated; preserve active worktree | yes |
-| `local:fix/chatgpt-resume-concurrency-20261108` | `f93256083902` | integrated; preserve active worktree | yes |
-| `local:fix/current-generation-compat-link-20261111` | `a8cb66c6f2b0` | integrated; preserve active worktree | yes |
-| `local:fix/hosted-preflight-0161` | `ce371e090f86` | unique historical experiment; preserve, no automatic merge | no |
-| `local:fix/mobile-desktop-20261106` | `8de07907b110` | other owner/operating snapshot: preserve | yes |
-| `local:fix/native-route-transition-20261105` | `987dee84a5c3` | other owner/operating snapshot: preserve | yes |
-| `local:fix/native-startup-settlement-20261108` | `317c7fe41d15` | integrated; preserve active worktree | yes |
-| `local:fix/p0-413-native-repair` | `0902eb69b319` | integrated legacy; owner/consumer release required | no |
-| `local:fix/p0-stream-resume-identity` | `49e292b011e0` | integrated; preserve active worktree | yes |
-| `local:fix/release-notify-admission-20261111` | `c19b61bb3d1d` | integrated; preserve active worktree | yes |
-| `local:handoff/pro-local-baseline-20261106` | `b8c14252ee33` | other owner/operating snapshot: preserve | yes |
-| `local:integration/codex-native-20261110` | `a55d5bb8fffa` | integrated; preserve active worktree | yes |
-| `local:integration/release-framework-20261112` | `e8a08631d7e0` | Preserve current integration and its backup; not official development or publication head. | yes |
-| `local:legacy/monolith` | `bf30a7dc94d4` | release/compatibility evidence: preserve | no |
-| `local:main` | `53176ed79097` | publication authority/history: preserve | yes |
-| `local:native-completion-schema4-20261112-r3` | `853720856987` | All 17 changed blobs match integration e8a08631 exactly. Preserve the reviewed source and 437-test receipt. | no |
-| `local:plan/release-framework-20261111` | `3ef675ad721c` | evidence selected into current integration; preserve source | yes |
-| `local:prep/0.164-native-review` | `27a918678644` | integrated; preserve active worktree | yes |
-| `local:prep/pro-baseline-20261106` | `6018ad990f14` | unique historical experiment; preserve, no automatic merge | no |
-| `local:prod/download-size-v1-base-9300` | `9300a68852c8` | release/compatibility evidence: preserve | no |
-| `local:refactor/docs-contract-20261110` | `0aebdd7f2614` | integrated; preserve active worktree | yes |
-| `local:refactor/naming-and-delivery-rules` | `306d842f86aa` | integrated legacy; owner/consumer release required | no |
-| `local:release/frozen-full-1670-caller` | `6624418979e1` | publication authority/history: preserve | yes |
-| `local:release/frozen-full-1670-s163` | `d6f090e835a7` | release/compatibility evidence: preserve | yes |
-| `local:rewrite/rust-core` | `e4f9ab5dc304` | patch integrated; preserve original worktree | yes |
-| `local:tdev-work/AUTHORITY-COMPACTION-V1-88d33545bf5e4bc6b24ebaeb6962ee5b` | `838c8ba7e773` | other owner/operating snapshot: preserve | no |
-| `local:tdev-work/RUNTIME-ALIGNMENT-0-159-2-AUTHORITY-560ff9af76714c9baee22584368935f3` | `019f2066cfcb` | other owner/operating snapshot: preserve | no |
-| `local:tdev-work/release-download-size-v1-a0dce69bd40e43f7b22f4d303b70efa5` | `ba0eacc4a077` | other owner/operating snapshot: preserve | no |
-| `local:tdev-work/update-download-size-v1-9fcae140207f4608b7268cd77f0146f5` | `4fd14ed8aafc` | integrated legacy; owner/consumer release required | no |
-| `local:wip/chatgpt-accounts-source-20261110` | `2dd07d422ad0` | integrated; preserve active worktree | yes |
-| `local:work/native-completion-20261112` | `69e6fa352d62` | Preserve prior Owner/format source and its private device evidence; later schema4 source supersedes the consumer checkpoint. | yes |
-| `local:work/native-completion-producer-20261112` | `210dec0c1218` | Original producer cherry-pick is recorded at 3306589d; later tree supervisor producer supersedes it. Preserve history. | yes |
-| `local:work/native-owner-20261112` | `b0a955086a5e` | Original worker source cherry-pick is recorded at 4a2ed284. Preserve original candidate/Owner evidence. | yes |
-| `local:work/native-source-bound-20261112` | `2090c574b957` | Carry forward the root f06 inventory and reviewed source-bound receipt; no replay or deletion. | yes |
-| `local:work/native-tree-producer-20261112` | `7f3c3ef265cf` | Final Runtime frozen r2 is independently reviewed. Not yet in anchor e8a08631; root later reported integration f2aef205. Preserve source and exact qualification boundary. | yes |
-| `local:work/provider-models-20261112` | `fefaad9cf005` | Original source cherry-pick is recorded at c0d02750; preserve branch and historical per-source receipts. | yes |
-| `local:work/reentry-handoff-guard-20261112` | `3c994eaf4d6a` | Carry forward root f06 inventory: Manager test formatting correction; preserve branch, no code replay. | yes |
-| `local:work/release-framework-20261112` | `9fd0c1af0475` | Original reentry PASS gate cherry-pick is recorded at f12e3025; current mandatory gates supersede this source. Preserve. | yes |
-| `local:work/release-lifecycle-20261112` | `7228a8a76728` | Original admission gate cherry-pick is recorded at 0df10ca4. Preserve source; final gate inventory has subsequently grown. | yes |
-| `tracking:integration-transfer/acceptance-final` | `3140f7fc3239` | integrated transfer; evidence-owner review before retirement | no |
-| `tracking:integration-transfer/barrier31` | `ea04c19208b0` | integrated transfer; evidence-owner review before retirement | no |
-| `tracking:integration-transfer/codegate-v2` | `81049caeb05b` | integrated transfer; evidence-owner review before retirement | no |
-| `tracking:integration-transfer/discovery29` | `0c5a70523f7a` | integrated transfer; evidence-owner review before retirement | no |
-| `tracking:integration-transfer/fixture30` | `7ef80be546c6` | integrated transfer; evidence-owner review before retirement | no |
-| `tracking:integration-transfer/gates31` | `12129a5ed37e` | integrated transfer; evidence-owner review before retirement | no |
-| `tracking:integration-transfer/native-result29` | `fa6b46789fed` | integrated; retain evidence worktree until owner release | no |
-| `tracking:integration-transfer/package-fixture26` | `e6f50f2977e1` | integrated transfer; evidence-owner review before retirement | no |
-| `tracking:integration-transfer/preflight-20261110` | `f6dff75b72d0` | integrated transfer; evidence-owner review before retirement | no |
-| `tracking:integration-transfer/provider-final` | `495c5213160e` | integrated transfer; evidence-owner review before retirement | no |
-| `tracking:integration-transfer/qualification30` | `e0cca4c2d695` | integrated; retain evidence worktree until owner release | no |
-| `tracking:integration-transfer/recovery28` | `5c9334b6aa53` | integrated ref; preserve other-owner dirty evidence worktree | no |
-| `tracking:integration-transfer/result29` | `94e09c845b84` | integrated transfer; evidence-owner review before retirement | no |
-| `tracking:integration-transfer/runtime-final` | `3c043bdd7e80` | integrated transfer; evidence-owner review before retirement | no |
-| `tracking:integration-transfer/tui-proof-final` | `392b026f02a4` | integrated transfer; evidence-owner review before retirement | no |
-| `tracking:integration-transfer/validation-final` | `18b90a5b34c8` | integrated transfer; evidence-owner review before retirement | no |
-| `tracking:origin/HEAD` | `b2567063d2a7` | publication authority/history: preserve | no |
-| `tracking:origin/archive/linux-app-operating-source-20261106` | `97118e775bc6` | other owner/operating snapshot: preserve | no |
-| `tracking:origin/archive/mobile-desktop-attempt-20261106` | `8de07907b110` | other owner/operating snapshot: preserve | no |
-| `tracking:origin/contingency/native-completion-20261112-remote` | `bfec2858798b` | Preserve original failed runs and successful unsigned Provider run43143270459. This predates schema4/tree proof and cannot qualify the final source. | no |
-| `tracking:origin/contingency/native-schema4-20261112-wip` | `08585ddd1cbb` | Outage WIP ancestor of later local consumer work; no runs on this branch. Preserve original unverified snapshot and worktree. | no |
-| `tracking:origin/contingency/release-framework-20261112` | `e8a08631d7e0` | Preserve current integration and its backup; not official development or publication head. | no |
-| `tracking:origin/contingency/release-framework-20261112-remote` | `dabd08ff52a7` | Ancestor of e8a08631. Existing contingency-native-proof workflow targets only this recovery branch; preliminary proof is not final Core/Full qualification. | no |
-| `tracking:origin/contingency/termux-outage-20261112` | `cc9d70b60220` | Ancestor of integration. Local tracking is stale versus remote19c1694a; preserve external documentation without automatic replay. | no |
-| `tracking:origin/contingency/termux-outage-20261112-models` | `fefaad9cf005` | Original source cherry-pick is recorded at c0d02750; preserve branch and historical per-source receipts. | no |
-| `tracking:origin/contingency/termux-outage-20261112-native-base` | `b0a955086a5e` | Original worker source cherry-pick is recorded at 4a2ed284. Preserve original candidate/Owner evidence. | no |
-| `tracking:origin/contingency/termux-outage-20261112-native-provider` | `69e6fa352d62` | Preserve prior Owner/format source and its private device evidence; later schema4 source supersedes the consumer checkpoint. | no |
-| `tracking:origin/contingency/termux-outage-20261112-native-provider-wip` | `7d42beee0ceb` | Preserve the exact unverified source backup and temporary evidence worktree; later reviewed schema4 commit is the acceptance input. | no |
-| `tracking:origin/contingency/termux-outage-20261112-producer` | `210dec0c1218` | Original producer cherry-pick is recorded at 3306589d; later tree supervisor producer supersedes it. Preserve history. | no |
-| `tracking:origin/contingency/termux-outage-20261112-release` | `9fd0c1af0475` | Original reentry PASS gate cherry-pick is recorded at f12e3025; current mandatory gates supersede this source. Preserve. | no |
-| `tracking:origin/design/entry-architecture-20261105` | `604df76bb30f` | integrated legacy; owner/consumer release required | no |
-| `tracking:origin/docs/release-framework-handoff-20261111` | `9a236db89a37` | evidence selected into current integration; preserve source | no |
-| `tracking:origin/draft/thread-model-catalog-20261106` | `8d095cd754fa` | unique historical experiment; preserve, no automatic merge | no |
-| `tracking:origin/experiment/profile-tui` | `2c9ec49685aa` | integrated legacy; owner/consumer release required | no |
-| `tracking:origin/experiment/stock-window-proof` | `ee28c904cb55` | unique historical experiment; preserve, no automatic merge | no |
-| `tracking:origin/experiment/web-provider` | `6aab6cd9c8e3` | unique historical experiment; preserve, no automatic merge | no |
-| `tracking:origin/experiment/web-termux` | `08e985693f0a` | unique historical experiment; preserve, no automatic merge | no |
-| `tracking:origin/fix/active-steer-20261104` | `f8d1a7f47c62` | integrated legacy; owner/consumer release required | no |
-| `tracking:origin/fix/attached-native-development-loop-20261106` | `cc535d18a897` | integrated legacy; owner/consumer release required | no |
-| `tracking:origin/fix/chatgpt-resume-concurrency-20261108` | `f93256083902` | integrated legacy; owner/consumer release required | no |
-| `tracking:origin/fix/current-generation-compat-link-20261111` | `a8cb66c6f2b0` | integrated legacy; owner/consumer release required | no |
-| `tracking:origin/fix/hosted-preflight-0161` | `ce371e090f86` | unique historical experiment; preserve, no automatic merge | no |
-| `tracking:origin/fix/native-route-transition-20261105` | `987dee84a5c3` | unique historical experiment; preserve, no automatic merge | no |
-| `tracking:origin/fix/p0-413-native-repair` | `0902eb69b319` | integrated legacy; owner/consumer release required | no |
-| `tracking:origin/fix/release-notify-admission-20261111` | `c19b61bb3d1d` | integrated legacy; owner/consumer release required | no |
-| `tracking:origin/fix/stopped-native-shared-claim-reconciliation` | `fec19d8e2c9a` | integrated legacy; owner/consumer release required | no |
-| `tracking:origin/handoff/pro-local-baseline-20261106` | `b8c14252ee33` | unique historical experiment; preserve, no automatic merge | no |
-| `tracking:origin/integration/codex-native-20261110` | `a55d5bb8fffa` | integrated legacy; owner/consumer release required | no |
-| `tracking:origin/legacy/monolith` | `bf30a7dc94d4` | release/compatibility evidence: preserve | no |
-| `tracking:origin/lupi/review-20261109` | `53176ed79097` | publication authority/history: preserve | no |
-| `tracking:origin/main` | `b2567063d2a7` | publication authority/history: preserve | no |
-| `tracking:origin/prep/0.164-native-review` | `27a918678644` | integrated legacy; owner/consumer release required | no |
-| `tracking:origin/prep/pro-baseline-20261106` | `6018ad990f14` | unique historical experiment; preserve, no automatic merge | no |
-| `tracking:origin/prod/download-size-v1-seq23-source` | `b164e5b61cb4` | release/compatibility evidence: preserve | no |
-| `tracking:origin/release/frozen-full-1670-s163` | `d6f090e835a7` | release/compatibility evidence: preserve | no |
-| `tracking:origin/release/seq18-no-emoji-product` | `9300a68852c8` | unique historical experiment; preserve, no automatic merge | no |
-| `tracking:origin/rewrite/rust-core` | `26952f732a67` | Historical J checkpoint; authoritative remote rewrite is ec51fe4a at this observation. No local tracking update was performed. | no |
-| `tracking:origin/wip/chatgpt-accounts-source-20261110` | `2dd07d422ad0` | integrated legacy; owner/consumer release required | no |
-| `tracking:origin/work/capability-restoration-166` | `3c1e47e46cef` | integrated legacy; check remaining consumers | no |
-
-The following authoritative remote observations differ from or lack a local
-tracking ref; the other forty remote heads match entries above.
-
-| Actual remote ref | Observed SHA | Disposition |
+| Class | Disposition | Condition before any retirement |
 | --- | --- | --- |
-| `remote:contingency/native-producer-20261112-remote` | `69d402b31c8e` | Ancestor of integration; actual compiler import/type correction retained. Final tree producer is separate source7f3c3ef. |
-| `remote:contingency/native-proof-gates-20261112-remote` | `3562d5d327df` | Ancestor of integration; CodeMode34 gate retained and extended in final mandatory inventory. No independent release authority. |
-| `remote:contingency/termux-outage-20261112` | `19c1694a547c` | Two ops-only documentation commits after cc9, not locally fetched or automatically merged. Exact diff delivered to root for reconciliation after observed recovery. |
-| `remote:contingency/tui-push-qualification-20261112` | `07ba87f0b67d` | Ancestor of integration; temporary official-rewrite full-push policy has been retired in the current source in favor of the existing explicit manual qualification path. |
-| `remote:rewrite/rust-core` | `ec51fe4a5f51` | Authoritative rewrite head at observation; valid 0.167.2 discovery ancestor of integration. Its earlier Core success does not qualify new production inputs. |
+| A | Technical retirement candidate after final acceptance | Required final CI/actual acceptance, preservation of original evidence, owner and consumer release; classification alone is not deletion authority |
+| B | Remove dependencies before retirement | Related worktree, original failure/result, current test and recovery owners must release their references |
+| C | Preserve for operation, publication or compatibility | Official source/main, signed history, fixed callers and rollback remain protected |
+| D | Hold for another owner or unique history | Preserve the owner's intent, dirty recovery snapshots and unintegrated experiments |
 
-### Retirement prerequisites
+| Scope | Total | A | B | C | D |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Local and tracking refs | 114 | 22 | 48 | 15 | 29 |
+| Actual remote heads | 45 | 8 | 18 | 7 | 12 |
+| Registered worktrees | 99 | 0 | 35 | 5 | 59 |
+| Auxiliary refs | 17 | 0 | 3 | 0 | 14 |
 
-An additional consumer scan covered current workflows, scripts, release inputs
-and user/agent entry guides. No open PR was present at this read. Ref aliases
-sharing an owned worktree SHA/name remain subject to that owner's release,
-even when the remote-tracking ref itself has no worktree. The old integration
-name in the TUI artifact test is an intentional negative branch-admission
-fixture; README now points only to rewrite/rust-core.
+Immediate deletion eligibility at this snapshot is **zero**; actual deletion
+is **zero**. A worktree's presence establishes an ownership dependency, not an
+idle process. Related-worktree counts below are per ref and are not additive.
+Compared with the prior aa audit, the new Native evidence-retention branch and
+two detached acceptance worktrees are held in B. The 89 unchanged legacy
+ref/SHA dispositions retain their original evidence and owner conditions.
 
-| Integrated inactive ref | Remaining retirement condition |
-| --- | --- |
-| `local:backup/user-dirty-20261109-base` | preserve other owner |
-| `local:experiment/profile-tui` | eligible after final source acceptance no open pr |
-| `local:fix/p0-413-native-repair` | eligible after final source acceptance no open pr |
-| `local:refactor/naming-and-delivery-rules` | eligible after final source acceptance no open pr |
-| `local:tdev-work/update-download-size-v1-9fcae140207f4608b7268cd77f0146f5` | eligible after final source acceptance no open pr |
-| `remote:origin/design/entry-architecture-20261105` | after related worktree owner release |
-| `remote:origin/experiment/profile-tui` | eligible after final source acceptance no open pr |
-| `remote:origin/fix/active-steer-20261104` | after related worktree owner release |
-| `remote:origin/fix/attached-native-development-loop-20261106` | after related worktree owner release |
-| `remote:origin/fix/chatgpt-resume-concurrency-20261108` | after related worktree owner release |
-| `remote:origin/fix/current-generation-compat-link-20261111` | after related worktree owner release |
-| `remote:origin/fix/p0-413-native-repair` | eligible after final source acceptance no open pr |
-| `remote:origin/fix/release-notify-admission-20261111` | after related worktree owner release |
-| `remote:origin/fix/stopped-native-shared-claim-reconciliation` | eligible after final source acceptance no open pr |
-| `remote:origin/integration/codex-native-20261110` | after related worktree owner release |
-| `remote:origin/prep/0.164-native-review` | after related worktree owner release |
-| `remote:origin/wip/chatgpt-accounts-source-20261110` | preserve other owner |
+### Complete local and tracking reference classification
 
-No deletion is performed during source acceptance. Release/rollback and other-owner snapshots remain preserved.
+| Class | Ref | Exact object | Owner | Related worktrees |
+| --- | --- | --- | --- | ---: |
+| D | `refs/heads/archive/linux-app-operating-source-20261106` | `97118e775bc6e7dbcebe20fdcb7f763ae1ee7278` | prior_record | 1 |
+| D | `refs/heads/archive/mobile-desktop-attempt-20261106` | `8de07907b1108bdc7ee7646e1ea55faa1ae14dec` | prior_record | 1 |
+| D | `refs/heads/backup/user-dirty-20261109` | `0401e4af620733cb757f3ede72129c35a7dc5d4c` | prior_record | 0 |
+| D | `refs/heads/backup/user-dirty-20261109-base` | `0814be7b51ddb058d3791b36275bb18487bee86c` | prior_record | 0 |
+| B | `refs/heads/cr12-native-wire-retention-20261112` | `65641fade7a9423c20a7f90f6fefa19a0491cc2f` | native | 1 |
+| B | `refs/heads/design/entry-architecture-20261105` | `604df76bb30f361543246a7face53004b1f3d55a` | prior_record | 1 |
+| B | `refs/heads/docs/release-framework-handoff-20261111` | `9a236db89a3778a1d28a488d093ddee9943759d3` | prior_record | 1 |
+| B | `refs/heads/docs/review-actions-20261110` | `e16bb12defc984ddd8f7f2318f32222f904b44da` | prior_record | 1 |
+| D | `refs/heads/draft/thread-model-catalog-20261106` | `8d095cd754faf9f4ee8707f176d9648431bc08da` | prior_record | 0 |
+| A | `refs/heads/experiment/profile-tui` | `c4d9a41d3827e05ef176abee55422f1d3c06a9a2` | prior_record | 0 |
+| D | `refs/heads/experiment/web-provider` | `6aab6cd9c8e34d4d831517baf45418448de4549c` | prior_record | 0 |
+| D | `refs/heads/experiment/web-termux` | `08e985693f0a0c258701f58be4b9118c52050edc` | prior_record | 0 |
+| B | `refs/heads/feat/termux-mcp-shell-20261111` | `c0a8189815c70f0c6678bc9374bcd352423dca57` | prior_record | 1 |
+| C | `refs/heads/fix/accepted-caller-repin-20261111` | `c642dd2087356254978993173d3c66d0f3a621dc` | prior_record | 1 |
+| B | `refs/heads/fix/active-steer-20261104` | `f8d1a7f47c6281dfd69a905b5eafdd49fb47e1f4` | prior_record | 1 |
+| B | `refs/heads/fix/attached-native-development-loop-20261106` | `cc535d18a897dad2c0323f72c7a2b6edf1ddafac` | prior_record | 1 |
+| B | `refs/heads/fix/chatgpt-resume-concurrency-20261108` | `f93256083902fd4f5b289e895f8a3633046a0b17` | prior_record | 1 |
+| B | `refs/heads/fix/current-generation-compat-link-20261111` | `a8cb66c6f2b0e3648bff05a615c67314c268ebc9` | prior_record | 1 |
+| D | `refs/heads/fix/hosted-preflight-0161` | `ce371e090f865852ae1ca01a5513a75a1b485b7c` | prior_record | 0 |
+| D | `refs/heads/fix/mobile-desktop-20261106` | `8de07907b1108bdc7ee7646e1ea55faa1ae14dec` | prior_record | 1 |
+| D | `refs/heads/fix/native-route-transition-20261105` | `987dee84a5c33bf26371666a35cc615e2f284376` | prior_record | 1 |
+| B | `refs/heads/fix/native-startup-settlement-20261108` | `317c7fe41d15af72f2c36b85da50163a3d8e858c` | prior_record | 1 |
+| A | `refs/heads/fix/p0-413-native-repair` | `0902eb69b319f105d98d0043fe0d63436235453d` | prior_record | 0 |
+| B | `refs/heads/fix/p0-stream-resume-identity` | `49e292b011e0c7d44e2a23f6856ca94a346956b0` | prior_record | 1 |
+| C | `refs/heads/fix/release-notify-admission-20261111` | `c19b61bb3d1d3bdb7e3c4f2ad9763d71397e5ca0` | prior_record | 1 |
+| D | `refs/heads/handoff/pro-local-baseline-20261106` | `b8c14252ee338a75ace4cf3bfdc463d9747108c5` | prior_record | 1 |
+| B | `refs/heads/integration/codex-native-20261110` | `a55d5bb8fffa2f2fc918c47e8aa404647a141411` | prior_record | 1 |
+| B | `refs/heads/integration/release-framework-20261112` | `578a386b88ef0cfecb268c439c485b650f457970` | root | 1 |
+| C | `refs/heads/legacy/monolith` | `bf30a7dc94d4dad7f58836c69028160856e63c58` | prior_record | 0 |
+| C | `refs/heads/main` | `53176ed79097a7a68e7bfd4dd961f94b71dff27a` | prior_record | 1 |
+| B | `refs/heads/native-completion-schema4-20261112-r3` | `8537208569876ea5b8a0dc79a556d94573a93449` | native | 0 |
+| B | `refs/heads/plan/release-framework-20261111` | `3ef675ad721c0a08a50891394cf03df3abb66b2d` | prior_record | 1 |
+| B | `refs/heads/prep/0.164-native-review` | `27a91867864496ab97aa99fdb18502adfeedef93` | prior_record | 1 |
+| D | `refs/heads/prep/pro-baseline-20261106` | `6018ad990f140d06d7b6aedf0ac866034bb1fe68` | prior_record | 0 |
+| C | `refs/heads/prod/download-size-v1-base-9300` | `9300a68852c879f4730e9191e46837cfab6745d9` | prior_record | 0 |
+| B | `refs/heads/refactor/docs-contract-20261110` | `0aebdd7f2614a38c08f96e1c266f0a7c2d88609a` | prior_record | 1 |
+| A | `refs/heads/refactor/naming-and-delivery-rules` | `306d842f86aa658dfc9a6932ecd5ded08ff23913` | prior_record | 0 |
+| C | `refs/heads/release/frozen-full-1670-caller` | `6624418979e1e682ce8971710935d29cc4d490fd` | prior_record | 1 |
+| C | `refs/heads/release/frozen-full-1670-s163` | `d6f090e835a74b86677f2f672ef55669ec459fe1` | prior_record | 1 |
+| D | `refs/heads/rewrite/rust-core` | `e4f9ab5dc3045cbde8317774da95eb98db7646dd` | prior_record | 1 |
+| D | `refs/heads/tdev-work/AUTHORITY-COMPACTION-V1-88d33545bf5e4bc6b24ebaeb6962ee5b` | `838c8ba7e773cf9a9c660a6d6d3cc924d6f3b017` | prior_record | 0 |
+| D | `refs/heads/tdev-work/RUNTIME-ALIGNMENT-0-159-2-AUTHORITY-560ff9af76714c9baee22584368935f3` | `019f2066cfcb3cd7625c23fb1440fb6af4131e37` | prior_record | 0 |
+| D | `refs/heads/tdev-work/release-download-size-v1-a0dce69bd40e43f7b22f4d303b70efa5` | `ba0eacc4a07783997dc4a294d961ac6d0c5633f7` | prior_record | 0 |
+| A | `refs/heads/tdev-work/update-download-size-v1-9fcae140207f4608b7268cd77f0146f5` | `4fd14ed8aafcf29602f43e00c314eb8da39a6e5f` | prior_record | 0 |
+| B | `refs/heads/wip/chatgpt-accounts-source-20261110` | `2dd07d422ad063107f344ac88409271b6ad380ba` | prior_record | 1 |
+| B | `refs/heads/work/native-completion-20261112` | `69e6fa352d6201079d4836c4915818006b412a8e` | native | 1 |
+| B | `refs/heads/work/native-completion-producer-20261112` | `210dec0c121811da33b3c54911a365a7352f429f` | models | 1 |
+| B | `refs/heads/work/native-owner-20261112` | `b0a955086a5e8f175ffe27bf63d2fb7c10558faa` | native | 1 |
+| B | `refs/heads/work/native-source-bound-20261112` | `2090c574b95703d7560044a471f61cd886c38526` | native | 1 |
+| B | `refs/heads/work/native-tree-producer-20261112` | `274190f3a97c5e87349c7d8feb50e4bd17fcec21` | models | 1 |
+| B | `refs/heads/work/provider-models-20261112` | `fefaad9cf00505be31b785dee33825463469958a` | models | 1 |
+| B | `refs/heads/work/reentry-handoff-guard-20261112` | `3c994eaf4d6aae933178a132eec9a34430a3638b` | models | 1 |
+| B | `refs/heads/work/release-framework-20261112` | `9fd0c1af0475be9cbed74a950b168c83312bf7bd` | release | 1 |
+| B | `refs/heads/work/release-lifecycle-20261112` | `7228a8a76728bdf93af6e8dc9d979bd0bd9e8ee2` | release | 1 |
+| B | `refs/heads/work/release-source-fixture-20261112` | `6f4e38febef6b9966974b4856c5554d98f523043` | release | 1 |
+| A | `refs/remotes/integration-transfer/acceptance-final` | `3140f7fc32394024ac79476a7a87f7a0aade5336` | legacy_transfer_evidence | 0 |
+| A | `refs/remotes/integration-transfer/barrier31` | `ea04c19208b097ac1c2830cede8f1acf7b1563c7` | legacy_transfer_evidence | 0 |
+| A | `refs/remotes/integration-transfer/codegate-v2` | `81049caeb05b351da76ce948bc1464cd8007aed6` | legacy_transfer_evidence | 0 |
+| A | `refs/remotes/integration-transfer/discovery29` | `0c5a70523f7a7aca42f1e5910fbd4bf57a7ca180` | legacy_transfer_evidence | 0 |
+| A | `refs/remotes/integration-transfer/fixture30` | `7ef80be546c6d815c3f9993178b205170f8b9cc3` | legacy_transfer_evidence | 0 |
+| A | `refs/remotes/integration-transfer/gates31` | `12129a5ed37efda26119b79e1e25350d91a39808` | legacy_transfer_evidence | 0 |
+| B | `refs/remotes/integration-transfer/native-result29` | `fa6b46789feddea27d5a6551c6eeeba6f09af56d` | legacy_transfer_evidence | 1 |
+| A | `refs/remotes/integration-transfer/package-fixture26` | `e6f50f2977e1357e078917172ac9d59f7adad575` | legacy_transfer_evidence | 0 |
+| A | `refs/remotes/integration-transfer/preflight-20261110` | `f6dff75b72d0d985cc3372baf5cf04d37d411314` | legacy_transfer_evidence | 0 |
+| A | `refs/remotes/integration-transfer/provider-final` | `495c5213160e43682bc8e10d8f5203cc992399b9` | legacy_transfer_evidence | 0 |
+| B | `refs/remotes/integration-transfer/qualification30` | `e0cca4c2d695694898841d7476acbaaf8ed581f0` | legacy_transfer_evidence | 1 |
+| D | `refs/remotes/integration-transfer/recovery28` | `5c9334b6aa537102e6a0394247a61be4b44535f1` | legacy_transfer_evidence | 1 |
+| A | `refs/remotes/integration-transfer/result29` | `94e09c845b84a0050a0474ba7da34eb26bb3c253` | legacy_transfer_evidence | 0 |
+| A | `refs/remotes/integration-transfer/runtime-final` | `3c043bdd7e80cb8ef2fdcbe7132cc45c285ecd60` | legacy_transfer_evidence | 0 |
+| A | `refs/remotes/integration-transfer/tui-proof-final` | `392b026f02a41f1364e575393dd78adc1774dd31` | legacy_transfer_evidence | 0 |
+| A | `refs/remotes/integration-transfer/validation-final` | `18b90a5b34c819de11fbf36cd3a47ca30d35ec46` | legacy_transfer_evidence | 0 |
+| C | `refs/remotes/origin/HEAD` | `b2567063d2a7a333a718d2495e2c9f8c928d822c` | prior_record | 0 |
+| D | `refs/remotes/origin/archive/linux-app-operating-source-20261106` | `97118e775bc6e7dbcebe20fdcb7f763ae1ee7278` | prior_record | 1 |
+| D | `refs/remotes/origin/archive/mobile-desktop-attempt-20261106` | `8de07907b1108bdc7ee7646e1ea55faa1ae14dec` | prior_record | 1 |
+| B | `refs/remotes/origin/contingency/native-completion-20261112-remote` | `bfec2858798bfdea18843112019c3f3a1b9e6fc7` | native | 0 |
+| B | `refs/remotes/origin/contingency/native-schema4-20261112-wip` | `08585ddd1cbb2bb67f1419233be9b8b56f99a416` | native | 1 |
+| A | `refs/remotes/origin/contingency/release-framework-20261112` | `e8a08631d7e067f9e601dc95a150f9f50a9cf67e` | root | 0 |
+| A | `refs/remotes/origin/contingency/release-framework-20261112-remote` | `dabd08ff52a7846e58ed913d8191626e9a4d315f` | root | 0 |
+| D | `refs/remotes/origin/contingency/termux-outage-20261112` | `cc9d70b6022057144e613ee39801f116d6a00b0a` | external_ops | 0 |
+| B | `refs/remotes/origin/contingency/termux-outage-20261112-models` | `fefaad9cf00505be31b785dee33825463469958a` | models | 1 |
+| B | `refs/remotes/origin/contingency/termux-outage-20261112-native-base` | `b0a955086a5e8f175ffe27bf63d2fb7c10558faa` | native | 1 |
+| B | `refs/remotes/origin/contingency/termux-outage-20261112-native-provider` | `69e6fa352d6201079d4836c4915818006b412a8e` | native | 1 |
+| B | `refs/remotes/origin/contingency/termux-outage-20261112-native-provider-wip` | `7d42beee0cebd3e55cdaa25dbb2321622390bd29` | native | 1 |
+| B | `refs/remotes/origin/contingency/termux-outage-20261112-producer` | `210dec0c121811da33b3c54911a365a7352f429f` | models | 1 |
+| B | `refs/remotes/origin/contingency/termux-outage-20261112-release` | `9fd0c1af0475be9cbed74a950b168c83312bf7bd` | release | 1 |
+| B | `refs/remotes/origin/design/entry-architecture-20261105` | `604df76bb30f361543246a7face53004b1f3d55a` | prior_record | 1 |
+| B | `refs/remotes/origin/docs/release-framework-handoff-20261111` | `9a236db89a3778a1d28a488d093ddee9943759d3` | prior_record | 1 |
+| D | `refs/remotes/origin/draft/thread-model-catalog-20261106` | `8d095cd754faf9f4ee8707f176d9648431bc08da` | prior_record | 0 |
+| A | `refs/remotes/origin/experiment/profile-tui` | `2c9ec49685aa5677ed146d5f86f740464449740a` | prior_record | 0 |
+| D | `refs/remotes/origin/experiment/stock-window-proof` | `ee28c904cb55d17848827c7c5bc986c79dedcbea` | prior_record | 1 |
+| D | `refs/remotes/origin/experiment/web-provider` | `6aab6cd9c8e34d4d831517baf45418448de4549c` | prior_record | 0 |
+| D | `refs/remotes/origin/experiment/web-termux` | `08e985693f0a0c258701f58be4b9118c52050edc` | prior_record | 0 |
+| B | `refs/remotes/origin/fix/active-steer-20261104` | `f8d1a7f47c6281dfd69a905b5eafdd49fb47e1f4` | prior_record | 1 |
+| B | `refs/remotes/origin/fix/attached-native-development-loop-20261106` | `cc535d18a897dad2c0323f72c7a2b6edf1ddafac` | prior_record | 1 |
+| B | `refs/remotes/origin/fix/chatgpt-resume-concurrency-20261108` | `f93256083902fd4f5b289e895f8a3633046a0b17` | prior_record | 1 |
+| B | `refs/remotes/origin/fix/current-generation-compat-link-20261111` | `a8cb66c6f2b0e3648bff05a615c67314c268ebc9` | prior_record | 1 |
+| D | `refs/remotes/origin/fix/hosted-preflight-0161` | `ce371e090f865852ae1ca01a5513a75a1b485b7c` | prior_record | 0 |
+| D | `refs/remotes/origin/fix/native-route-transition-20261105` | `987dee84a5c33bf26371666a35cc615e2f284376` | prior_record | 1 |
+| A | `refs/remotes/origin/fix/p0-413-native-repair` | `0902eb69b319f105d98d0043fe0d63436235453d` | prior_record | 0 |
+| C | `refs/remotes/origin/fix/release-notify-admission-20261111` | `c19b61bb3d1d3bdb7e3c4f2ad9763d71397e5ca0` | prior_record | 1 |
+| A | `refs/remotes/origin/fix/stopped-native-shared-claim-reconciliation` | `fec19d8e2c9a08115b8e13c4a71f548dd794cb9d` | prior_record | 0 |
+| D | `refs/remotes/origin/handoff/pro-local-baseline-20261106` | `b8c14252ee338a75ace4cf3bfdc463d9747108c5` | prior_record | 1 |
+| B | `refs/remotes/origin/integration/codex-native-20261110` | `a55d5bb8fffa2f2fc918c47e8aa404647a141411` | prior_record | 1 |
+| C | `refs/remotes/origin/legacy/monolith` | `bf30a7dc94d4dad7f58836c69028160856e63c58` | prior_record | 0 |
+| C | `refs/remotes/origin/lupi/review-20261109` | `53176ed79097a7a68e7bfd4dd961f94b71dff27a` | prior_record | 1 |
+| C | `refs/remotes/origin/main` | `b2567063d2a7a333a718d2495e2c9f8c928d822c` | prior_record | 0 |
+| B | `refs/remotes/origin/prep/0.164-native-review` | `27a91867864496ab97aa99fdb18502adfeedef93` | prior_record | 1 |
+| D | `refs/remotes/origin/prep/pro-baseline-20261106` | `6018ad990f140d06d7b6aedf0ac866034bb1fe68` | prior_record | 0 |
+| C | `refs/remotes/origin/prod/download-size-v1-seq23-source` | `b164e5b61cb438913cdb1633d74c62d6c96f6523` | prior_record | 0 |
+| C | `refs/remotes/origin/release/frozen-full-1670-s163` | `d6f090e835a74b86677f2f672ef55669ec459fe1` | prior_record | 1 |
+| D | `refs/remotes/origin/release/seq18-no-emoji-product` | `9300a68852c879f4730e9191e46837cfab6745d9` | prior_record | 0 |
+| C | `refs/remotes/origin/rewrite/rust-core` | `1f1f5cffa26bccf27428132e7482c1a0e959fbf4` | root | 1 |
+| B | `refs/remotes/origin/wip/chatgpt-accounts-source-20261110` | `2dd07d422ad063107f344ac88409271b6ad380ba` | prior_record | 1 |
+| B | `refs/remotes/origin/work/capability-restoration-166` | `3c1e47e46cef62f1ad781ac7207b09d7e1b138b2` | prior_record | 0 |
+
+### Complete actual remote-head classification
+
+| Class | Remote ref | Exact object | Owner |
+| --- | --- | --- | --- |
+| D | `refs/heads/archive/linux-app-operating-source-20261106` | `97118e775bc6e7dbcebe20fdcb7f763ae1ee7278` | prior_record |
+| D | `refs/heads/archive/mobile-desktop-attempt-20261106` | `8de07907b1108bdc7ee7646e1ea55faa1ae14dec` | prior_record |
+| B | `refs/heads/contingency/native-completion-20261112-remote` | `bfec2858798bfdea18843112019c3f3a1b9e6fc7` | native |
+| A | `refs/heads/contingency/native-producer-20261112-remote` | `69d402b31c8efde828b86020ff7aa89ffe4b3896` | models |
+| A | `refs/heads/contingency/native-proof-gates-20261112-remote` | `3562d5d327dfc39f8891e8b5a908ac86cef6373c` | release |
+| B | `refs/heads/contingency/native-schema4-20261112-wip` | `08585ddd1cbb2bb67f1419233be9b8b56f99a416` | native |
+| A | `refs/heads/contingency/release-framework-20261112` | `e8a08631d7e067f9e601dc95a150f9f50a9cf67e` | root |
+| A | `refs/heads/contingency/release-framework-20261112-remote` | `dabd08ff52a7846e58ed913d8191626e9a4d315f` | root |
+| D | `refs/heads/contingency/termux-outage-20261112` | `19c1694a547c5c0aa3c269eaf23550b6b8703f37` | external_ops |
+| B | `refs/heads/contingency/termux-outage-20261112-models` | `fefaad9cf00505be31b785dee33825463469958a` | models |
+| B | `refs/heads/contingency/termux-outage-20261112-native-base` | `b0a955086a5e8f175ffe27bf63d2fb7c10558faa` | native |
+| B | `refs/heads/contingency/termux-outage-20261112-native-provider` | `69e6fa352d6201079d4836c4915818006b412a8e` | native |
+| B | `refs/heads/contingency/termux-outage-20261112-native-provider-wip` | `7d42beee0cebd3e55cdaa25dbb2321622390bd29` | native |
+| B | `refs/heads/contingency/termux-outage-20261112-producer` | `210dec0c121811da33b3c54911a365a7352f429f` | models |
+| B | `refs/heads/contingency/termux-outage-20261112-release` | `9fd0c1af0475be9cbed74a950b168c83312bf7bd` | release |
+| A | `refs/heads/contingency/tui-push-qualification-20261112` | `07ba87f0b67d4f3ae2dd4ae3afd78a5a0012dd2e` | root |
+| B | `refs/heads/design/entry-architecture-20261105` | `604df76bb30f361543246a7face53004b1f3d55a` | prior_record |
+| B | `refs/heads/docs/release-framework-handoff-20261111` | `9a236db89a3778a1d28a488d093ddee9943759d3` | prior_record |
+| D | `refs/heads/draft/thread-model-catalog-20261106` | `8d095cd754faf9f4ee8707f176d9648431bc08da` | prior_record |
+| A | `refs/heads/experiment/profile-tui` | `2c9ec49685aa5677ed146d5f86f740464449740a` | prior_record |
+| D | `refs/heads/experiment/stock-window-proof` | `ee28c904cb55d17848827c7c5bc986c79dedcbea` | prior_record |
+| D | `refs/heads/experiment/web-provider` | `6aab6cd9c8e34d4d831517baf45418448de4549c` | prior_record |
+| D | `refs/heads/experiment/web-termux` | `08e985693f0a0c258701f58be4b9118c52050edc` | prior_record |
+| B | `refs/heads/fix/active-steer-20261104` | `f8d1a7f47c6281dfd69a905b5eafdd49fb47e1f4` | prior_record |
+| B | `refs/heads/fix/attached-native-development-loop-20261106` | `cc535d18a897dad2c0323f72c7a2b6edf1ddafac` | prior_record |
+| B | `refs/heads/fix/chatgpt-resume-concurrency-20261108` | `f93256083902fd4f5b289e895f8a3633046a0b17` | prior_record |
+| B | `refs/heads/fix/current-generation-compat-link-20261111` | `a8cb66c6f2b0e3648bff05a615c67314c268ebc9` | prior_record |
+| D | `refs/heads/fix/hosted-preflight-0161` | `ce371e090f865852ae1ca01a5513a75a1b485b7c` | prior_record |
+| D | `refs/heads/fix/native-route-transition-20261105` | `987dee84a5c33bf26371666a35cc615e2f284376` | prior_record |
+| A | `refs/heads/fix/p0-413-native-repair` | `0902eb69b319f105d98d0043fe0d63436235453d` | prior_record |
+| C | `refs/heads/fix/release-notify-admission-20261111` | `c19b61bb3d1d3bdb7e3c4f2ad9763d71397e5ca0` | prior_record |
+| A | `refs/heads/fix/stopped-native-shared-claim-reconciliation` | `fec19d8e2c9a08115b8e13c4a71f548dd794cb9d` | prior_record |
+| D | `refs/heads/handoff/pro-local-baseline-20261106` | `b8c14252ee338a75ace4cf3bfdc463d9747108c5` | prior_record |
+| B | `refs/heads/integration/codex-native-20261110` | `a55d5bb8fffa2f2fc918c47e8aa404647a141411` | prior_record |
+| C | `refs/heads/legacy/monolith` | `bf30a7dc94d4dad7f58836c69028160856e63c58` | prior_record |
+| C | `refs/heads/lupi/review-20261109` | `53176ed79097a7a68e7bfd4dd961f94b71dff27a` | prior_record |
+| C | `refs/heads/main` | `b2567063d2a7a333a718d2495e2c9f8c928d822c` | publication |
+| B | `refs/heads/prep/0.164-native-review` | `27a91867864496ab97aa99fdb18502adfeedef93` | prior_record |
+| D | `refs/heads/prep/pro-baseline-20261106` | `6018ad990f140d06d7b6aedf0ac866034bb1fe68` | prior_record |
+| C | `refs/heads/prod/download-size-v1-seq23-source` | `b164e5b61cb438913cdb1633d74c62d6c96f6523` | prior_record |
+| C | `refs/heads/release/frozen-full-1670-s163` | `d6f090e835a74b86677f2f672ef55669ec459fe1` | prior_record |
+| D | `refs/heads/release/seq18-no-emoji-product` | `9300a68852c879f4730e9191e46837cfab6745d9` | prior_record |
+| C | `refs/heads/rewrite/rust-core` | `1f1f5cffa26bccf27428132e7482c1a0e959fbf4` | root |
+| B | `refs/heads/wip/chatgpt-accounts-source-20261110` | `2dd07d422ad063107f344ac88409271b6ad380ba` | prior_record |
+| B | `refs/heads/work/capability-restoration-166` | `3c1e47e46cef62f1ad781ac7207b09d7e1b138b2` | prior_record |
+
+### Retirement prerequisites and live consumers
+
+Current workflows, scripts, release inputs and entry guides were scanned.
+Main still pins the reusable release caller at
+`c19b61bb3d1d3bdb7e3c4f2ad9763d71397e5ca0` in two places. Its two related
+refs remain C even though newer code is integrated. Main has no branch
+protection/ruleset; its unchanged exact-main release-intent check is a separate
+implemented authority boundary. No repin, signing or publication occurred.
+
+The primary local rewrite/rust-core remains e4f9ab5d on the old lineage and is
+D, not the continuing official remote. Both user-dirty backup and its named
+base remain D as an original recovery pair. Ref aliases sharing another
+owner's worktree or source retain that owner's release condition. The old
+integration name in a TUI artifact test is an intentional negative input,
+not a production consumer. README selects only the official development line.
+
+Six historical dfd53e61 push runs remain queued with zero jobs at the original
+05:26 observation: Source43097698392, stock43097698113, Full43097698240,
+Provider43097698142, Manager43097698237 and Core43097698276. They are this
+integration's earlier CURRENT-only commit and ancestors of the new source;
+none is current acceptance evidence. The current jobs were running or complete,
+so no blocking was demonstrated. Qualification is unsigned; release advancement
+requires explicit manual dispatch and its existing approval gate. The original
+IDs/statuses were retained without cancellation or re-execution. Inspection
+SHA256: `34b50c48c48ed379f7561ad70c50a7f56edc33833f6ed7b8024065786ec01afc`.
+
+No branch, worktree, tag, CI run or protected asset is deleted by this record.

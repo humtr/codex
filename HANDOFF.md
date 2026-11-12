@@ -8,42 +8,33 @@ CI. These are not intermediate approval gates.
 
 ## Remaining source acceptance
 
-1. Execute the final integrated Runtime/Provider pair. Producer 1e203874 and
-   consumer d4028958 are implemented and independently reviewed; local Provider
-   440/440, Python 41/41, PTY/helper 15/15, strict lint/format and exact upstream/
-   provided source assembly passed. The aa proof passed Core 32/32 and full
-   PTY 76/76, then failed its new Guardian HTTP-request assertion. The final
-   admission correctly refused the otherwise built/smoke-tested candidate.
-   Fixture-only correction 5857e515 is integrated and independently reviewed;
-   execute all mandatory 53 gates plus unchanged full PTY/rollout suites. Earlier 3d's
-   50-gate success does not qualify the subsequent ingress cases.
-2. Complete unloaded source-bound observation, cold compiler/Provider restart,
-   changed Stop/ACK and independent-sibling execution on the new qualified Runtime.
-   Original r1/r2 IDs, results and uncertain state remain preserved without
-   resubmission. Independent-CODEX_HOME Owner discovery is already corrected and
-   checked; do not repeat it as an unresolved source defect. Parent-only exit,
-   Stop ACK or absent asynchronous history cannot stand in for tree completion.
-3. Finish affected final-composition switch checks. Earlier J same-thread tests
-   passed with four synthetic responses and two real one-time effects, preserving
-   Provider/model/effort/tier. Separate old-d2/S165 private-handoff refusals
-   preserved original records and created no destination Owner/inference.
-   Reuse only those exact boundaries; the user's original error-screen PID/thread
-   has not been mapped to the observed read-only Owner.
-4. Complete exact-source Source, Core/Runtime, Manager, Provider, stock Android,
-   full TUI and Full composition acceptance. Preserve all six immutable Full
-   inputs and use one full TUI dispatch with publication advancement disabled.
-   Source fixture correction is accepted at aa (272 distinct Core cases).
-   The TUI constructor compiled at 3d, whose focused suite passed 179/180;
-   test-only TOML correction 785fe070 still needs the complete hosted test.
-   aa TUI failed at dependency download before compilation. Mixed-generation
-   admission and tree lifetime require their exact-source proof. The legitimate
-   0.167.2 recipe is preserved, while the operating
-   S165 installation remains 0.167.1. A running job is not a successful gate.
-5. Finish final-composition Native/terminal checks and new-worker Native-Busy
-   independence, then collect exact-head CI and protected-ref readbacks. New
-   worker standalone execution, final semantic accounting, branch inventory and
-   independent source review already have recorded receipts. No operating
-   activation is needed to complete isolated source acceptance.
+1. Complete actual execution on the qualified 1f Runtime and frozen Provider:
+   unloaded source-bound observation, cold compiler/Provider restart, selected
+   Stop/ACK settlement, independent sibling execution, Core-only default UI,
+   independent shell during real Native Busy and existing AutoReview allow/deny
+   cases. The complete 53-gate Core qualification is accepted; its original
+   package, hook and schema proof is in CURRENT. Actual device execution remains
+   separate. Preserve original r1/r2 uncertain IDs/results without resubmission;
+   parent-only exit, Stop ACK or absent asynchronous history are not settlement.
+2. Finish affected final-composition switch checks after full TUI qualification.
+   Earlier J same-thread and old-d2/S165 safe-refusal evidence is limited to its
+   original source/inputs. Keep the original user error-screen PID/thread
+   attribution separate from the observed read-only Owner; do not infer it.
+3. Complete exact-final-source Source, Core/Runtime, Manager, Provider, stock
+   Android, full TUI and Full composition qualification. The 1f Core, Manager,
+   Provider and stock Android runs succeeded; Source failed in the TLS port
+   fixture. Test-only 578a386b corrects atomic port publication and passed six
+   download tests plus strict Core Clippy/formatting. TUI 43158539818 failed
+   four Clippy diagnostics; the isolated Writer fixed both typed-completion
+   expect calls and both redundant attempt closures in the actual Native
+   source producer, but hosted requalification remains pending. Final
+   Full requires all six exact-source immutable inputs. Preserve one full TUI
+   dispatch per source with publication advancement disabled. Final artifact
+   digests/producer inputs, not a new SHA label alone, determine evidence reuse.
+4. Finish documentation/file ownership accounting, exact-head CI and protected
+   ref/asset readbacks. Final source uses the legitimate 0.167.2 recipe; operating
+   S165 stays0.167.1. Source acceptance does not require operating activation.
+   A running or queued job is not a successful gate.
 
 ## Protected operating acceptance
 

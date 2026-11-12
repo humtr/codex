@@ -8,135 +8,63 @@ owns the W-task DAG, file Writers, provenance and change accounting.
 
 ## Source and publication authority
 
-The sole ongoing development branch is
+The sole continuing development branch is
 [rewrite/rust-core](https://github.com/humtr/codex/tree/rewrite/rust-core).
-Integration starts from `7b98296a411a2c435bb9f34ee51f286f33f3491b` in the
-independent `integration/release-framework-20261112` worktree. Feature commits
-are fast-forwarded to development; the protected primary checkout remains
-`e4f9ab5d` on its older 0.167.0 lineage.
+The last fully enumerated qualification checkpoint before independent handoff
+was `1f1f5cffa26bccf27428132e7482c1a0e959fbf4`, pushed and read back on
+November 12 at 05:00 UTC. Follow-up starts from its local descendant
+`578a386b88ef0cfecb268c439c485b650f457970`; a new exact-source
+qualification must bind the subsequently integrated development HEAD. The isolated integration
+worktree starts from `7b98296a411a2c435bb9f34ee51f286f33f3491b`;
+the primary checkout remains `e4f9ab5d` on its older 0.167.0 lineage.
 
-The last integration checkpoint evaluated across Source, Core/Runtime, Manager,
-Provider and stock Android is `26952f732a673ed2dd78187121d6374ddcfe9c88`:
-all five gates passed. Its full TUI run failed when compiling
-the focused test target; the production CLI build and upload succeeded.
-At checkpoint `3d81ae14`, Manager, Provider and stock Android passed; Source
-Acceptance exposed an oversized debug-binary rollback fixture. Test-only fix
-`a596efe9` preserves the production byte bound. Exact-source checkpoint
-`aa863b505bae6b5a6d525e364f0373e4e2a27844` subsequently passed Source,
-Manager, Provider and stock Android. Its Core/Runtime qualification failed at
-one mandatory Guardian assertion after Core 32/32 and PTY 76/76 passed. The final
-execution-proof gate correctly refused the candidate despite successful raw
-Runtime production and Android smoke. Its full TUI run failed before compilation
-because the external dependency mirror could not be reached. The earlier 3d
-TUI compiled and executed 180 focused tests: 179 passed and one fixture failed
-while parsing its TOML document. These failures have distinct causes; neither
-run qualifies the complete frontend. Read actual HEAD/Checks before reusing a
-checkpoint.
-
-Remote `main` remains `b2567063d2a7a333a718d2495e2c9f8c928d822c`,
-the separate publication/approval authority. Neither branch has GitHub branch
-protection. The exact-main release-intent guard is closed: the read returned
-HTTP 404 for release-intent-v1. No formal release signing, sequence reservation,
-publication, stable-index
+Remote main remains `b2567063d2a7a333a718d2495e2c9f8c928d822c`, the
+separate publication/approval authority. Neither branch has GitHub branch
+protection. The exact-main release-intent read returned HTTP 404 before this
+push. No formal signing, sequence reservation, publication, stable-index
 change or operating activation was performed.
 
-The recipe now selects Codex **0.167.2**, upstream source
-`ce21072c90d32c40af7a55b60b2fb35c84a43a6a`. During integration, official upstream
-discovery advanced development to `ec51fe4a5f5153a441cf78b1e8ce108050274e80`
-at 00:48:38 UTC on November 12. It changes only the release recipe and is a
-direct child of checkpoint J. Integration preserves it in merge `795e0cae`.
-The current Runtime producer is integrated as `1e203874` from `c174ae83`,
-paired with Provider consumer `d4028958` from `4e6b31e3`. These extend the
-previous `f2aef205`/`e8a08631` process-tree pair with mixed-generation fences. Both Core-only
-`--frontend upstream` preparation and separate Enhanced TUI preparation passed
-on the exact 0.167.2 source. The normalized lock contains the same 1,308 external
-identities and 171 workspace version updates; its SHA256 is
-`5e1781c98407bf0cbf67bb39a2dffffa6d2a259871a47fe99946de22c716a782`.
-Assembly receipt: `99ebd9a19fba7691da29ed034e9a3c0f7a62e1ad29cbf57a467e232f989d2ca9`.
-This source preparation does not prove hosted Core compilation or execution.
+The official recipe now selects Codex **0.167.2**, upstream
+`ce21072c90d32c40af7a55b60b2fb35c84a43a6a`. Official discovery
+`ec51fe4a5f5153a441cf78b1e8ce108050274e80` advanced the development
+branch at 00:48:38 UTC; merge `795e0cae` preserves that valid descendant.
+The user's original **0.167.1** baseline and the operating **Full S165 0.167.1**
+remain distinct from the new recipe. No signed generation was rewritten.
 
-The earlier basic-Runtime run
-[43138521772](https://github.com/humtr/codex/actions/runs/43138521772)
-failed Core compilation after PTY 66/66: the late-history path named RolloutItem
-in the wrong crate and lacked HasLegacyEvent in scope. Those production-reference
-corrections are proved at `dabd08ff52a7846e58ed913d8191626e9a4d315f` by terminal
-successful run [43142830623](https://github.com/humtr/codex/actions/runs/43142830623),
-completed 03:21:40 UTC. All 34 named gates passed: Core 24, full PTY 66,
-full rollout 163, protocol 2, app-server protocol 1, Native hooks 1 and hook
-matching 4; both schema checks and final cache save passed. Original proof
-artifact 13911434762 is 114,366 bytes, ZIP SHA256
-`391c3ec12206b327c816005e3fb8a71c96260a208b09edebf2dc6941faae8987`.
-This earlier compiler checkpoint does not qualify the later process-tree code.
+Runtime producer `1e203874` and Provider consumer `d4028958` are the
+current process-tree and versioned-ingress pair. Both basic Runtime and separate
+Enhanced TUI source preparation passed against the exact upstream. The normalized
+lock preserves 1,308 external identities and updates 171 workspace versions;
+SHA256 `5e1781c98407bf0cbf67bb39a2dffffa6d2a259871a47fe99946de22c716a782`.
+Source assembly is not hosted compilation or actual Native execution.
 
-Parent OS wait alone cannot prove detached descendants ended. The final producer
-uses the existing pre-thread spawn helper to supervise each execution. Positive
-root wait, exclusive child reaping through ECHILD, a private completion frame,
-EOF and successful helper wait are required together. Stop/pruning targets only
-the selected scope; root status remains distinct from descendant lifetime.
-Device helper/PTY focus passed 15/15 with zero ignored and strict production-lib
-Clippy. An earlier full Android PTY run passed 52/54: both failures were reproduced
-on pristine upstream and remain failures, not accepted candidate passes.
-Final focused receipt: `76fa362e3b2843446577360257184812ded8e12c594a95a5403a8e795b0afbbe`.
-Independent current producer reviews:
-`95d4feef81d7b80aaf806fb2a0360acdfdece9a35230356e0ff474ae3cb32d01` and
-`670455ed2c3ea85e5fe801d5185bf1b20c93a68dc03aa43ce9208c27bb879819`.
-The unchanged helper/PTY subset can reuse its focused receipt; new Core and
-Guardian cases require hosted execution. Exact integrated Core/Runtime and TUI
-execution remains an acceptance boundary.
+The subsequent changes are test-only: `34ac9668` retains an original private
+Native fixture for inspectable proof; `785fe070` uses the TOML document parser
+for a document fixture; `5857e515` distinguishes one Guardian inference POST
+from the existing pool's two WebSocket preparation GETs. All original permission,
+selection, request-count and no-Native-authority assertions are preserved.
+The updated Guardian fixture and all mandatory 53 Native checks passed in the
+complete 1f Core qualification, including the unchanged full PTY/rollout suites.
+Enhanced TUI and actual Runtime/Provider joint acceptance remain separate.
+Raw build or Android-smoke success alone cannot qualify either boundary.
 
-The compatibility audit found that an old Provider could ignore the new proof
-and treat root exit as terminal scope. The current producer retains the legacy
-running-session header while descendants remain, labels root status separately,
-and delays canonical terminal history until verified tree closure. Native
-inference uses the versioned private ingress: an old Provider returns 404 before
-admission, inference or effects. Core, live switches, Memory and Guardian clients
-use the configured Provider identity; absent Native URL fails before generic
-auth/API resolution. The route itself grants no execution authority. Ordinary
-OpenAI routes and original output bytes remain unchanged; complete late-output
-capture is not a new guarantee. No fallback reexecutes the original request.
+Complete history corrected the initial shallow-repository ancestry assumption.
+The old Native and planning lines have common ancestors with development;
+main has separate ancestry. PR #29, a55d5bb8 Native integration and the account
+draft through 8f97affc were already integrated. Selective source reconciliation
+preserved the newer recipe and other owners' files.
 
-The bot's unchanged-producer Source and Core/Runtime gates passed separately;
-they do not qualify the new input-inventory and completion changes. The observed operating
-S165 installation remains **0.167.1**. Official upstream comparison identifies
-two GCP incremental-tool changes and the version release; receipt
-`98e166ac76a9786457308377ec1c8d413a3e7b49da959fa1e71306674fd8cf45`.
-After unshallowing, Native/plan
-histories have common ancestors with development; main retains separate ancestry.
-Native integration a55d5bb8, PR #29's current alias and the account draft
-2dd07d42 (through 8f97affc) are already integrated. No primary checkout reset,
-branch deletion or whole obsolete-lineage replacement occurred.
+At the completed 05:24–05:30 UTC branch audit, there were 114 local/tracking
+refs, 99 worktrees, 45 actual remote heads, 166 local and 257 remote tag names,
+zero common-name tag mismatches and zero open PRs. Audit SHA256:
+`d47b958c7d81c81cc52d104412e6d7b00f0761eac7745893f9633bca2223277e`.
+The finite integration record owns complete ref dispositions. Immediate deletion
+eligibility and actual branch/worktree/tag deletion were both zero.
 
-At the 03:14:44–03:18:45 UTC inventory, there were 112 local/tracking refs,
-95 worktrees, 45 actual remote heads, 166 local tag names and 257 remote tag
-names. No common-name tag SHA mismatch or open PR was found. All refs have a
-classified disposition; 73 unchanged and 16 unchanged transfer dispositions
-were reused, and 23 current/owned classifications refreshed. Actual remote
-heads are distinguished from stale local tracking refs. No branch was deleted.
-Receipt: `db0207c8fb8048701a29fcf2e8e804ca81a5f226f415e48afe4f23cc56b15408`.
-The finite integration record carries this snapshot and later integrated-source
-corrections; it is not a claim that no ref can subsequently advance.
-
-The observed bridge outage ended at 02:44 UTC. Exact original-call requery
-recovered root590, Models693, Native1115 and Release823 before continuing their
-owned work. This did not restart an operating service or replay a command under
-a new identity. Root's original shell receipt is bound by
-`316427ff407a5038dfd015e65e5a643b4f2a485d4de0e2ae085ea485c7c621d7`.
-Local and remote contingency changes were compared and reconciled in `90c42fd7`;
-its tree exactly matches `dabd08ff` and preserves both histories. All 63 local
-workflow/document checks passed on that tree. The expired temporary outage
-notice and its navigation pointers were retired after this reconciliation;
-Git history preserves the notice and unverified WIP checkpoints.
-
-Gate commit `4cd0e80e` requires all 53 named original-execution and descendant
-oracles in both independent Runtime proof and complete TUI qualification: 32
-Core, 15 PTY, one Guardian and five protocol/hook/history cases. Full PTY and
-rollout suites remain mandatory. Its 70 workflow/artifact/document tests, YAML
-parse and diff checks passed, receipt
-`6b14a915fb878534e9b4352f74f2a9bc34d4e053a0bfb1a13958ad9b2143b2e5`.
-This gate-plumbing proof is not execution of the new 53 upstream Rust tests.
-Full TUI uses explicit manual dispatch with all full gates and the unchanged
-explicit-intent publication relay. The temporary outage-only workflow is retired;
-independent Core Runtime qualification remains a permanent source gate.
+Superseded checkpoints, original failed iterations and their receipts remain in
+[the immutable pre-consolidation record](https://github.com/humtr/codex/blob/1f1f5cffa26bccf27428132e7482c1a0e959fbf4/CURRENT.md).
+This includes the recovered original calls from the temporary bridge outage;
+no unresolved effect was replayed under a new identity.
 
 ## Independently observed operating installation
 
@@ -408,24 +336,6 @@ boolean alone is not accepted as real process settlement. Earlier control tests
 that asserted only those weaker states cannot qualify the corrected boundary.
 Original raw results and failed receipts remain unchanged.
 
-The integrated producer base (`15301ff6` / `a4e31865`, worker source `0008`)
-passed four real Protocol/Rollout/AppServerProtocol tests in the frozen selected
-0.167.1 workspace. Selected sources and external dependency identities were
-preserved; unreachable workspace members and an unused global V8 patch were
-omitted only in that disposable check. This is not full-workspace or 0.167.2
-qualification. Log SHA256: 5133da4396dcbf9f5279a18ed34b084ba585d783671c1069dfe960113983e4d4.
-The Core/Hooks continuation stopped before those tests at two Android mxc-sdk
-E0433 dependency errors, exit 101; no substitute implementation was introduced.
-Receipt: 002cc9122eee54d065ed224bfecc5cf340c7e847cfe997a5ba9a6dda521e6a10.
-
-Provider consumer snapshot 18a7969046a76e776f4553e2ee9f79dccebb035cd8b7ed616a0250ee3e1d498c
-passed all targets: 412 primary tests, zero failures, 34 existing ignored cases;
-recursive child summaries are not counted again. Strict Clippy then reported
-five diagnostics and stopped before the formatter step. Result receipt:
-4e0563e45b5a398206ee37d71ff5dcb0f1c2b2606fc6c3e8dacf3f37167900dd.
-These snapshots precede the final per-tool admission/Hook and portable-PTY
-signal-wait corrections; their success does not accept those later changes.
-
 HTTP 413 and CDP failures were injected at production interfaces; no deliberate
 live ChatGPT 413 was induced. Actual Native observer/TUI disconnection preserved
 Writers. Original-result/receipt replay was exercised; a live Chat final ACK was
@@ -444,6 +354,20 @@ without querying the Linux app. ChatGPT uses the authenticated app/server catalo
 availability and actual reasoning options, without two-model restriction or
 foreign-provider fallback. Other providers retain their upstream catalog path;
 no additional real third-provider inference was claimed.
+
+The default synchronous Auto Review path keeps the current selected model and
+supported effort under the upstream reviewer policy. Its existing auxiliary
+AppHost lane is independent of development work and cannot grant Native effect
+authority. Optional Guardian V2 instead requests a fixed Luna classifier model,
+which the current ChatGPT catalog does not admit: HTTP 400
+unsupported_desktop_route remains explicit. Upstream records failure/risk 1.0,
+emits an ExtensionWarning and follows its existing synchronous-review or AskUser
+decision; classifier failure does not create an automatic approval. No model
+alias, approval-policy change or separate Doctor attestation is introduced.
+The 53-gate ingress fixture is not live classifier acceptance. Six relevant
+offline cases passed at 1f; the two actual reviewer opt-ins remain separate
+until explicitly executed. Source/consumer review:
+`3eb3ac1e95fecfbdb5b5e32dd4df519468fe61379d0511b42c7a4287a73e1486`.
 
 | Actual candidate path | Receipt SHA256 / limit |
 | --- | --- |
@@ -465,13 +389,6 @@ exited 0; only that verified compiler's pidfd was briefly controlled with a
 45-second resume watchdog, not the Runtime/Writer.
 Wire receipt: cca529071712d3daae62d9e3cbecab1b3032bcd5edcab9efbeadc1cc993babcc.
 
-Separately, qualified G Android worker artifact 13893816894, executable
-68df8ecb6918153d28808e3a029cc53ae77579cffa20557d29dadc97ea4d5b12,
-passed actual private stdio without Provider/Core: replay/conflict, restart,
-cancellation preserving unknown intent, process-group cleanup, concurrent
-one-effect execution, 64 KiB bound and private file modes. Three workers exited
-0; original Native sentinel and operating wrapper/Core stayed unchanged.
-Receipt: a7d828a8444baec9b47d4a1d427a7475e4b668ca8a3c87fa7b898576946ddff6.
 The refreshed frozen worker from the `4e6b31e3` five-object Provider build closure passed
 actual private stdio again: single tool/common annotations, no Core/Provider,
 original-ID replay/restart/conflict, cancelled unknown intent and child cleanup,
@@ -540,132 +457,92 @@ reindex, thread-ID change or user-Writer termination occurred.
 
 ## Exact-source CI evidence
 
-| Source | Workflow | Run | Conclusion |
+The current 1f1f5cff checkpoint has seven registered qualification runs.
+The table records verified conclusions only; unfinished runs do not grant
+admission. Full attempt 1 refused missing prerequisite evidence before assembly
+and must be executed again after successful exact-source prerequisites.
+
+| Source | Workflow | Run | Last verified conclusion |
 | --- | --- | --- | --- |
-| 7b98296a411a2c435bb9f34ee51f286f33f3491b | Source | [43012469220](https://github.com/humtr/codex/actions/runs/43012469220) | success |
-| same baseline | Core/Runtime | [43013017085](https://github.com/humtr/codex/actions/runs/43013017085) | success |
-| same baseline | TUI | [43013363622](https://github.com/humtr/codex/actions/runs/43013363622) | success |
-| 787fcd2bc6708941ffbdd6a193bae35d3b8478a5 | Full TUI | [43104655110](https://github.com/humtr/codex/actions/runs/43104655110) | success |
-| 26952f732a673ed2dd78187121d6374ddcfe9c88 | Source | [43118366133](https://github.com/humtr/codex/actions/runs/43118366133) | success |
-| same J checkpoint | Core/Runtime | [43118366004](https://github.com/humtr/codex/actions/runs/43118366004) | success |
-| same J checkpoint | Manager | [43118366040](https://github.com/humtr/codex/actions/runs/43118366040) | success |
-| same J checkpoint | Provider | [43118366092](https://github.com/humtr/codex/actions/runs/43118366092) | success |
-| same J checkpoint | Stock Android | [43118366005](https://github.com/humtr/codex/actions/runs/43118366005) | success |
-| same J checkpoint | Full TUI | [43118617817](https://github.com/humtr/codex/actions/runs/43118617817) | failure: focused test compilation |
-| same J checkpoint | Full composition, attempt 1 | [43118366010](https://github.com/humtr/codex/actions/runs/43118366010) | refused missing exact-source prerequisite |
-| ec51fe4a5f5153a441cf78b1e8ce108050274e80 | Source, upstream discovery only | [43130011419](https://github.com/humtr/codex/actions/runs/43130011419) | success |
-| same upstream-discovery source | Core/Runtime | [43130014157](https://github.com/humtr/codex/actions/runs/43130014157) | success; completed 2026-11-12 01:28:06 UTC |
-| 5f05d2d50ab15b749536f54b66332c15d0b6134f | Preliminary Native Runtime proof | [43138521772](https://github.com/humtr/codex/actions/runs/43138521772) | failure: Core production compilation after PTY 66/66 |
-| dabd08ff52a7846e58ed913d8191626e9a4d315f | Earlier Native Runtime compiler/proof checkpoint | [43142830623](https://github.com/humtr/codex/actions/runs/43142830623) | success; 34 required checks, full PTY/rollout, final cache complete |
-| bfec2858798bfdea18843112019c3f3a1b9e6fc7 | Earlier Provider consumer checkpoint | [43143270459](https://github.com/humtr/codex/actions/runs/43143270459) | success; 429 distinct tests, predates final schema-4 tree proof |
-| 3d81ae14cbfa567c05d7cb4b8287113b0c7f74b1 | Source | [43148496588](https://github.com/humtr/codex/actions/runs/43148496588) | failure: debug executable exceeded rollback fixture bound; test-only fix a596efe9 |
-| same 3d checkpoint | Core/Runtime | [43148496770](https://github.com/humtr/codex/actions/runs/43148496770) | success; original 50 required checks, full PTY 76 and rollout 163 |
-| same 3d checkpoint | Manager | [43148496548](https://github.com/humtr/codex/actions/runs/43148496548) | success; 139 actual tests |
-| same 3d checkpoint | Provider | [43148496475](https://github.com/humtr/codex/actions/runs/43148496475) | success; 437 distinct tests, prior consumer |
-| same 3d checkpoint | Stock Android | [43148496525](https://github.com/humtr/codex/actions/runs/43148496525) | success; real emulator Activity/session checks, synthetic Core/frontend |
-| same 3d checkpoint | Full composition, attempt 1 | [43148496578](https://github.com/humtr/codex/actions/runs/43148496578) | refused pending exact-source Core prerequisite before assembly |
-| same 3d checkpoint | Full TUI | [43148525665](https://github.com/humtr/codex/actions/runs/43148525665) | failure: focused 179/180, TOML fixture document parse |
-| aa863b505bae6b5a6d525e364f0373e4e2a27844 | Source | [43152378817](https://github.com/humtr/codex/actions/runs/43152378817) | success; Core 272 distinct cases and strict workspace lint/format |
-| same aa checkpoint | Core/Runtime | [43152378677](https://github.com/humtr/codex/actions/runs/43152378677) | failure: mandatory Guardian assertion after Core 32/32 and full PTY 76/76; final admission refused |
-| same aa checkpoint | Manager | [43152378731](https://github.com/humtr/codex/actions/runs/43152378731) | success; 139 distinct cases |
-| same aa checkpoint | Provider | [43152378678](https://github.com/humtr/codex/actions/runs/43152378678) | success; 440 distinct cases; opt-in actual-Native cases separate |
-| same aa checkpoint | Stock Android | [43152378689](https://github.com/humtr/codex/actions/runs/43152378689) | success; real API-30 Activity/session, synthetic Core/frontend |
-| same aa checkpoint | Full TUI | [43152405151](https://github.com/humtr/codex/actions/runs/43152405151) | failure: dependency mirror connection, before source compilation |
-| same aa checkpoint | Full composition, attempt 1 | [43152378691](https://github.com/humtr/codex/actions/runs/43152378691) | refused pending exact-source Core prerequisite before assembly |
+| 1f1f5cffa26bccf27428132e7482c1a0e959fbf4 | Source | [43158448316](https://github.com/humtr/codex/actions/runs/43158448316) | failure: TLS fixture connection before stall oracle |
+| same 1f checkpoint | Core/Runtime | [43158448288](https://github.com/humtr/codex/actions/runs/43158448288) | success; all 53 required checks and final admission |
+| same 1f checkpoint | Manager | [43158448242](https://github.com/humtr/codex/actions/runs/43158448242) | success |
+| same 1f checkpoint | Provider | [43158448224](https://github.com/humtr/codex/actions/runs/43158448224) | success |
+| same 1f checkpoint | Stock Android | [43158448254](https://github.com/humtr/codex/actions/runs/43158448254) | success |
+| same 1f checkpoint | Full TUI | [43158539818](https://github.com/humtr/codex/actions/runs/43158539818) | failure: two native_completion expect_used and two process_manager redundant closures; no signed advancement |
+| same 1f checkpoint | Full composition, attempt 1 | [43158448095](https://github.com/humtr/codex/actions/runs/43158448095) | refused pending exact-source prerequisite |
 
-The 3d Core/Runtime workflow completed successfully. Its original 50 named
-checks each passed once: Core 30, PTY 15, protocol two, rollout one, app-server
-protocol one and hooks one; the full PTY suite passed 76 and rollout passed 163.
-The later Core URL and Guardian cases are not covered by those 50 checks.
-Original job-log SHA256: `df04665cd6879ce843da412c5f88023ff29cf46ee8b77d0ffc169c426e6a023c`;
-named-check receipt: `b95789baadcaeb20849f33231f94a32800c1298ff12705c2c16844d2f1f6fe19`.
-Source job130952343696 reused the canonical
-Android Core artifact and reverified it rather than rebuilding. The failing
-Source workspace job copied its oversized hosted debug test harness as a prior
-installed Core. Fix a596efe9 instead shares the existing bounded bootstrap
-launcher in the three affected fixtures, preserves genuine installed ELF branches
-and all rollback/digest/mode assertions, and leaves the production 64 MiB bound
-unchanged. Seven focused tests passed, including three with a separately built
-genuine Android Core; strict lint/format passed. Original failure log:
-`669a22a273e9385155ac2238093272ac9fad6aae2eeeb14e69b8b424f24b392d`.
+Core/Runtime attempt 1 completed successfully at 05:33:12 UTC, including the
+final required gate130995541165. Its original Native proof artifact13918770699
+was downloaded once and its 13 files/hash-bound logs were verified. All **53
+required names** passed. Actual package execution was **276/276**, including
+full PTY76 and rollout163; the required names are a subset, not an additional
+53 executions. Four additional hook tests and two schema commands also passed.
+The corrected Guardian fixture proved one inference POST and the existing two
+WebSocket preparation GETs. This is upstream Runtime proof, not Enhanced TUI,
+physical Android or live authenticated App inference. Verification SHA256:
+`20e4681ed4defffba6b3abb79f2a4cdedb057ae2c2442e85c1c55adbd6fcae42`.
 
-At aa, Source Acceptance passed 269 ordinary Core tests plus three separately
-executed genuine-Android admission cases: 272 distinct passes, one existing
-ignored smoke. Strict workspace Clippy and formatting passed. Manager passed
-139 (60 library, 78 profile commands, one window); Provider passed 440 (340
-library and 100 integration), with its existing 34 opt-in cases still separate.
-The original Source workspace log is bound by
-`b9c71425410def5af7744246fdd936f47f84c726069e42cefaa3034704914eb3`.
+Manager's immutable proof artifact 13916797569 was acquired through the strict
+Full input verifier and matched its successful run/source and closed inventory.
+Receipt: `488953c750cf9de088222a52a250a986180c44c0b281cee9883640cfa6cddca3`.
+A matching binary/input digest does not authorize rewriting original producer
+provenance. Final Full still requires all six verified inputs.
 
-The 3d TUI failure occurred before ConfigBuilder or the profile flag producer:
-a table document was passed to the TOML value-expression parser. Test-only
-`785fe070` (origin `37911fb8`) uses the document parser with the exact same
-fixture text and preserves every selection, destination and permission
-assertion. The pinned parser reproduced exit 1; the corrected document parser
-and actual upstream CLI table roundtrip returned 0, with all 43 registry package
-identities matching the original lock. This local proof does not execute the
-whole named TUI test. Receipt:
-`bd391ee1f1e1a03df45da34d6de8b78b185c545f3b5a75b1214c68570657c072`.
-The original TUI failure log remains
-`9d1e0859943347e645a2d90f1d00b17b93820398f9c8b2a4b50d7b2a1a9bc2f0`.
-The aa Runtime proof's new Guardian fixture observed three total HTTP requests
-where it asserted one. Its log records that aggregate failure, not their methods.
-Independent source inspection identified the unchanged pool's two test WebSocket
-prewarm requests alongside the inference POST, and existing Guardian correlation
-metadata. These must be checked explicitly; the one-inference-request and Native
-authority boundaries are retained. The original failed log SHA256 is
-`af3fb2e2041baddbecbd832af86e9566f50f61fd08c28c9d277a656f9c92b972`;
-source review: `ddd22f826ee2439c1fdbd85d9fa7f8855d6806f5fcb6be1fb296c39d49afb714`.
-Later package tests did not execute. At the 04:49:52 UTC API readback, both the
-mandatory Native job and final execution-proof admission were terminal failures;
-raw production/smoke success was not promoted to qualification. Metadata receipt:
-`1150dba4df4a1471aa08054698402aa239b19e5da66eff66812eaf3d22ae911f`.
-Fixture-only correction `5857e515` (origin `274190f3`) now checks exactly one
-inference POST plus the pinned pool's two WebSocket upgrade GETs, all on the
-expected route. It preserves normal Guardian correlation metadata and checks
-that no Native execution authority is present; missing Native URL still produces
-zero requests. The existing scoped mock synchronizes the upgrade observation.
-Both independent reviews found no production behavior change. Actual embedded
-ReleaseBuilder compilation, basic/provided source assembly, scope, lock and
-format checks passed all thirteen steps. Only one expanded test file changed;
-all other 105 logical-file images/maps and every baseline image are identical.
-Handoff receipt: `9ff0828d88829857b9fd2d78a8b478c25eeb0bf32acf230f98aa33aa8dcc89a6`;
-assembly: `43d8f326deaba21229bc0e1ade7e4146e328898074f53593ba22eef5d6a2e0ae`.
-The corrected Rust test remains pending actual hosted execution. No mandatory
-selector, inference-count assertion or production retry policy was weakened.
-The independent aa tooling failure was curl exit 28 while connecting to the
-kernel mirror, before source compilation; no timeout or test was weakened.
-Its original log is `66025d8a07817a39c07cd8075d33eb56152550d706c35ed34c7e2179b2a4c79e`.
+Reusable historical evidence is limited to its exact source and boundary:
 
-G full TUI completed 2026-11-11 23:41:42 UTC: focused 172/172; mandatory
-independent-fault oracles; Native/config/hooks/API; Retain TUI 53/53, engine
-43/43, apply-patch 2/2; strict lint and proof upload/cache all passed.
-The exact pin and compaction regressions passed. Optional mutation flags were
-false and their steps skipped; promotion was false. This qualifies G's TUI,
-not J's later typed-reentry changes or a Full composition.
-Proof artifact 13899854078 passed original ZIP digest/inventory/semantic checks:
-b2d0256d8a30c1146351c1f04e1ed67770793e90f8fbdea1405c124aec13a86d.
+| Source | Accepted evidence | Limit |
+| --- | --- | --- |
+| 7b98296a | Source [43012469220](https://github.com/humtr/codex/actions/runs/43012469220), Core/Runtime [43013017085](https://github.com/humtr/codex/actions/runs/43013017085), TUI [43013363622](https://github.com/humtr/codex/actions/runs/43013363622) | Original 0.167.1 baseline |
+| 787fcd2b | Full TUI [43104655110](https://github.com/humtr/codex/actions/runs/43104655110): focused 172, Retain TUI 53, engine 43, apply-patch 2 | Predates current switch/Runtime changes |
+| 3d81ae14 | Core/Runtime [43148496770](https://github.com/humtr/codex/actions/runs/43148496770): original 50 named gates, full PTY 76 and rollout 163 | Does not cover the later three ingress checks |
+| aa863b50 | Source [43152378817](https://github.com/humtr/codex/actions/runs/43152378817): Core 272 distinct passes, strict workspace lint/format | Predates latest test fixtures |
+| aa863b50 | Manager [43152378731](https://github.com/humtr/codex/actions/runs/43152378731): 139; Provider [43152378678](https://github.com/humtr/codex/actions/runs/43152378678): 440; stock Android [43152378689](https://github.com/humtr/codex/actions/runs/43152378689) | Opt-in Native/live cases remain separate |
 
-J run 43118617817 completed with failure at 2026-11-12 00:19:10 UTC. The
-focused target reported E0063: its shared App test constructor omitted the new
-termux_routing_flags field. Zero focused tests executed; all later mandatory
-gates were skipped by the failure. The narrow constructor correction initializes
-ordinary fixture routing to false, matching the existing test constructors.
-Exact-upstream patch application/format, seventeen frontend Python tests and ten
-documentation tests passed locally. Hosted compilation/execution remains required.
-Original job-log SHA256:
-726ba05376f260d5f83fb91ea70ccbc9645f16417b754320b45d1afa141bd3be.
+The 3d TUI focused run passed 179/180 and failed while parsing its fixture's
+TOML document. Its test-only correction preserves every behavior assertion.
+The aa Native proof passed Core 32/32 and PTY 76/76, then failed its new
+Guardian aggregate request assertion; final candidate admission correctly failed.
+The aa TUI failed at dependency-mirror connection before compilation.
+These are three distinct failures, not successful qualification. Original logs
+and narrow correction/review receipts are retained in the immutable record above.
 
-The earlier d2 pin failure (52/53) was fixed by observing its distinct pending
-refresh, keeping every pin/unpin/persistence assertion; G verifies that fix.
-Separate GitHub startup/finalization failures did not establish test success.
-Superseded I failed only the subsequently fixed formatting gates. Original failed,
-cancelled and prerequisite-refusal receipts are retained; no assertion was weakened
-or mandatory test skipped. Later Owner/Runtime/Provider source still needs all
-affected exact-source qualifications and final Full acceptance.
+The 1f Source workspace failure occurred before the payload-stall oracle:
+curl returned 7, no HTTP status and zero bytes. The fixture exposed its port
+file before writing the value; a controlled pause reproduced the empty read.
+Test-only `578a386b` publishes the completed private port file atomically,
+preserving production code, timeouts and every download assertion. Six actual
+download tests, strict all-target Core Clippy, formatting and diff checks
+passed. The original CI did not retain its port/URL, so its precise scheduling
+interleaving is not asserted. Independent review:
+`0db42c867660457722655e91e4f8d2e09be51c457f234d98359089ba0b6389d2`.
+The corrected source still needs hosted Source Acceptance.
 
-Before every push, recheck development and main: the existing main schedule may
-advance upstream discovery independently. Its observed November 12 update to
-rust-v0.167.2 is preserved above; the combined integration still needs its own
-exact-source qualification. No main, stable index, signing key, release, installed generation,
-operating account/service or active user Writer was changed.
+At the independent 18:57–19:12 KST readback, the original integration worktree
+remained on 578a386b with four original dirty documentation files and the remote
+development branch remained 1f1f5cff. A separate exclusive Writer worktree at
+`work/independent-accept-20261112` copied those four files byte-for-byte
+(SHA256 verified) without clearing their original staged/unstaged state.
+Bridge read-only inventory returned 131 Native works: 68 completed, 56 stopped,
+6 reconciliation_required, and 1 interrupted, with none in an ordinary running
+phase. These seven uncertain/interrupted works were not settled or replayed.
+Installed S159/S163/S165 and isolated fixture processes remain distinct and
+were not indiscriminately stopped.
+
+The independent Writer traced four exact 1f TUI Clippy errors to the real
+`crates/release-builder/src/native_route.patch` producer using official upstream
+blob `9715d1b1a8d0c3e2f0c02c7b27858fa77bb75bd6`. Two typed completion
+serialization `expect()` calls now emit explicit unqualified errors instead of
+fabricating completion evidence; two `begin_attempt` closures use the equivalent
+method directly. The patch retained its full-index upstream ancestry.
+Patch reverse-application, rustfmt, `git diff --check` and documentation
+contracts passed. Local release-workflow 14/14, runtime inputs 3/3,
+runtime-production 12/12, reentry environment 2/2 and TUI producer 3/3
+passed; a separate TUI artifact test bundle reached the 60-second execution
+limit without a final result. No hosted Source/TUI/Full acceptance or candidate
+live-model acceptance is inferred from these local checks.
+
+No timeout, test selector, assertion strength, retry policy or approval policy
+was weakened to obtain a pass. A Guardian route fixture proves ingress and
+metadata boundaries, not authenticated application inference or all Auto Review
+behavior. Each final source and actual product boundary must be checked separately.
