@@ -29,6 +29,7 @@ SUITES = {
         'native_completion_intercepted_patch_refuses_before_file_effects',
         'native_completion_successful_wait_without_numeric_exit_is_terminal',
         'native_completion_nonprocess_hook_refusal_preserves_discovery_and_plain_tools',
+        'native_completion_code_mode_refuses_before_cell_dispatch',
     ),
     'protocol': (
         'native_completion_typescript_keeps_nullable_field_and_real_type_dependencies',
