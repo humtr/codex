@@ -1164,6 +1164,89 @@ mod tests {
         assert!(rewritten.get("process_hooks_absent").is_none());
         assert!(serde_json::from_value::<OldEntry>(rewritten).is_ok());
     }
+
+    #[test]
+    fn historical_true_field_survives_read_only_and_is_removed_only_on_authorized_write() {
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct LegacyState {
+            claims: BTreeMap<String, LegacyEntry>,
+        }
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct LegacyEntry {
+            thread: String,
+            fingerprint: String,
+            effect: Effect,
+            session: Option<u64>,
+            owner: Option<ProcessOwner>,
+        }
+        let cwd = root();
+        let home = root();
+        let ledger = Ledger::at(&cwd, &home).unwrap();
+        let identity = "original:receipt";
+        let original = serde_json::json!({"claims": {identity: {
+            "thread":"original", "fingerprint":"immutable-original-fingerprint",
+            "effect":"Opaque", "session":null, "owner":null,
+            "process_hooks_absent":true
+        }}});
+        let bytes = serde_json::to_vec(&original).unwrap();
+        fs::write(ledger.directory.join("claims.json"), &bytes).unwrap();
+        let snapshot = ledger.read_state().unwrap();
+        assert!(snapshot.claims[identity].process_hooks_absent);
+        assert_eq!(
+            fs::read(ledger.directory.join("claims.json")).unwrap(),
+            bytes
+        );
+        assert!(serde_json::from_slice::<LegacyState>(&bytes).is_err());
+
+        // A read-only transaction must not silently rewrite the old receipt.
+        ledger
+            .transact(|state| {
+                assert_eq!(
+                    state.claims[identity].fingerprint,
+                    "immutable-original-fingerprint"
+                );
+                Ok(((), false))
+            })
+            .unwrap();
+        assert_eq!(
+            fs::read(ledger.directory.join("claims.json")).unwrap(),
+            bytes
+        );
+
+        // A later authorized state transition drops only the redundant wire
+        // field, retaining the original claim identity and effect.
+        ledger
+            .transact(|state| {
+                state.claims.insert(
+                    "independent:read".into(),
+                    Entry {
+                        thread: "independent".into(),
+                        fingerprint: "read-receipt".into(),
+                        effect: Effect::Read,
+                        session: None,
+                        owner: None,
+                        continuation_effect: None,
+                        process_hooks_absent: false,
+                    },
+                );
+                Ok(((), true))
+            })
+            .unwrap();
+        let rewritten = fs::read(ledger.directory.join("claims.json")).unwrap();
+        let old: LegacyState = serde_json::from_slice(&rewritten).unwrap();
+        assert_eq!(
+            old.claims[identity].fingerprint,
+            "immutable-original-fingerprint"
+        );
+        assert_eq!(old.claims[identity].thread, "original");
+        assert_eq!(old.claims[identity].effect, Effect::Opaque);
+        assert!(old.claims[identity].session.is_none());
+        assert!(old.claims[identity].owner.is_none());
+        fs::remove_dir_all(cwd).unwrap();
+        fs::remove_dir_all(home).unwrap();
+    }
     fn waited(call: &str, session: Option<u64>, exit: i64, output: &str) -> serde_json::Value {
         let proof = serde_json::json!({"schema":"codex-native-completion-v1","call_id":call,
             "session_id":session,"outcome":"process_tree_completed","exit_code":exit,"hooks":"absent"});
