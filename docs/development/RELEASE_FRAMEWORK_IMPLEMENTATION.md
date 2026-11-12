@@ -1,5 +1,10 @@
 # Release framework integration — finite implementation record
 
+**URGENT USER CONTINUITY DIRECTIVE — 2026-11-12 11:00 KST**
+
+Before the next ordinary work-plan review, context compaction, handoff or reconnection, read the repository-root [MUST-READ-USER-DIRECTIVE.md](../../MUST-READ-USER-DIRECTIVE.md) alongside `AGENTS.md` and `HANDOFF.md`. The user expects Termux network connectivity to be lost at approximately 11:00 KST. **A TermuxBridge transport loss is not, by itself, a Native Busy/Stop deadlock or CI failure.** Keep running local work and existing GitHub Actions undisturbed; safely preserve owned committed progress, use the verified GitHub contingency refs for conditional remote continuation if the separate GitHub connection remains available, and reconcile original effects/owners before returning to Termux when connectivity is restored. Do not send any queue message or direct inference to the Pro orchestrator, reset another worker, force-stop an uncertain process, bypass authentication, publish/sign a release or claim this notice has already been consumed by an active model. This is a temporary operator contingency, **not** a new W-task, product requirement, or authorization gate.
+
+
 This is the bounded W0–W20 integration record, not a second product
 specification or a new authorization gate. It is retained while final source,
 CI and live acceptance are being closed. Stable requirements belong to SPEC
