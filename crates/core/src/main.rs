@@ -19489,14 +19489,11 @@ esac
                 &prefix,
                 &home.join(".local/lib/codex/core/release-public-key.pem"),
             );
-            std::fs::copy(
-                installed_core_digest
-                    .as_ref()
-                    .map(|_| current.join("core"))
-                    .unwrap_or_else(|| std::env::current_exe().unwrap()),
-                prefix.join("bin/codex"),
-            )
-            .unwrap();
+            if installed_core_digest.is_some() {
+                std::fs::copy(current.join("core"), prefix.join("bin/codex")).unwrap();
+            } else {
+                b5_write_stable_core_probe_wrapper(&prefix.join("bin/codex"));
+            }
             std::fs::set_permissions(
                 prefix.join("bin/codex"),
                 std::fs::Permissions::from_mode(0o755),
@@ -19744,10 +19741,7 @@ esac
             &home.join(".local/lib/codex/core/release-public-key.pem"),
         );
         let stable_entrypoint = prefix.join("bin/codex");
-        std::fs::copy(std::env::current_exe().unwrap(), &stable_entrypoint).unwrap();
-        let mut stable_mode = std::fs::metadata(&stable_entrypoint).unwrap().permissions();
-        stable_mode.set_mode(0o755);
-        std::fs::set_permissions(&stable_entrypoint, stable_mode).unwrap();
+        b5_write_stable_core_probe_wrapper(&stable_entrypoint);
         std::fs::remove_file(home.join(".local/lib/codex/core/release-public-key.pem")).unwrap();
 
         let roots = b7_public_roots(&home, &prefix);
@@ -25611,6 +25605,16 @@ exit 0
     }
 
     #[cfg(unix)]
+    fn b5_write_stable_core_probe_wrapper(path: &std::path::Path) {
+        // Exercise real executable launcher bytes without making the fixture
+        // size depend on debug information in the whole Rust test harness.
+        b8_write_core_probe_wrapper(path);
+        let mut original = std::fs::read(path).unwrap();
+        original.extend_from_slice(b"# original stable launcher\n");
+        std::fs::write(path, original).unwrap();
+    }
+
+    #[cfg(unix)]
     struct B5RemoteFixture {
         root: std::path::PathBuf,
         home: std::path::PathBuf,
@@ -25651,12 +25655,7 @@ exit 0
         b4_write_signed_release(&release, 2, &openssl, &private_key);
 
         let stable_entrypoint = prefix.join("bin/codex");
-        // Exercise real executable launcher bytes without making the fixture
-        // size depend on debug information in the whole Rust test harness.
-        b8_write_core_probe_wrapper(&stable_entrypoint);
-        let mut original = std::fs::read(&stable_entrypoint).unwrap();
-        original.extend_from_slice(b"# original stable launcher\n");
-        std::fs::write(&stable_entrypoint, original).unwrap();
+        b5_write_stable_core_probe_wrapper(&stable_entrypoint);
 
         let base = format!("https://releases.example.invalid/codex/{generation_id}/");
         let curl_log = root.join("curl-log");
@@ -26023,11 +26022,29 @@ exit 0
         b8_write_core_probe_wrapper(&core);
         b2_attach_core(&release, &openssl, &core);
         let stable_entrypoint = prefix.join("bin/codex");
-        std::fs::copy(std::env::current_exe().unwrap(), &stable_entrypoint).unwrap();
-        let mut stable_mode = std::fs::metadata(&stable_entrypoint).unwrap().permissions();
-        stable_mode.set_mode(0o755);
-        std::fs::set_permissions(&stable_entrypoint, stable_mode).unwrap();
+        b5_write_stable_core_probe_wrapper(&stable_entrypoint);
         let stable_before_digest = openssl_sha256(&openssl, &stable_entrypoint).unwrap();
+        assert_ne!(
+            stable_before_digest,
+            openssl_sha256(&openssl, &core).unwrap()
+        );
+        let original_probe = std::process::Command::new(&stable_entrypoint)
+            .env(INTERNAL_BOOTSTRAP_MODE_ENV, "self-test")
+            .env(INTERNAL_BOOTSTRAP_KEY_ENV, &public_key)
+            .env_remove(INTERNAL_BOOTSTRAP_SOURCE_ENV)
+            .env("HOME", &home)
+            .env("PREFIX", &prefix)
+            .env("TMPDIR", &tmp)
+            .output()
+            .unwrap();
+        assert_eq!(original_probe.status.code(), Some(1));
+        assert!(
+            String::from_utf8_lossy(&original_probe.stderr)
+                .contains("fresh bootstrap requires absent authoritative v3 state"),
+            "stdout={:?} stderr={:?}",
+            original_probe.stdout,
+            original_probe.stderr
+        );
         b2_add_tc2_browser_helpers(&release);
         b2_add_helper(&release);
         let mut helper_mode = std::fs::metadata(release.join("helpers/2"))
