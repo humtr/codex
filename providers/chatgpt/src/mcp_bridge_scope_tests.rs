@@ -184,7 +184,10 @@ async fn native_scope_missing_legacy_or_foreign_facts_never_narrow_tool_effects(
         );
         assert_eq!(fixture.stored()["origin"], "native");
         if mode == "unbound-native" {
-            assert!(fixture.request.execution.is_some(), "raw claimed facts are deliberately present");
+            assert!(
+                fixture.request.execution.is_some(),
+                "raw claimed facts are deliberately present"
+            );
             assert!(fixture.request.native_scope.is_none());
             assert!(fixture.stored()["workspace"].is_null());
         } else {
@@ -274,7 +277,13 @@ async fn native_scope_settlement_preserves_original_receipt_and_updates_only_nex
         .broker
         .bind_execution(
             &fixture.token,
-            fixture.request.native_scope.as_ref().unwrap().execution.clone(),
+            fixture
+                .request
+                .native_scope
+                .as_ref()
+                .unwrap()
+                .execution
+                .clone(),
         )
         .await
         .unwrap();
@@ -366,4 +375,28 @@ async fn native_scope_rejects_cross_thread_or_noncanonical_private_descriptors()
         );
         assert_eq!(fixture.remote.commands.lock().unwrap().len(), before);
     }
+}
+
+#[tokio::test]
+async fn native_cached_offer_requires_original_scope_even_when_legacy_origin_is_absent() {
+    let mut fixture = Fixture::new("generic").await;
+    let args = patch("original-cached", "a");
+    let original = fixture.offer(&args).await;
+    assert_eq!(original["offered"], true);
+    let key = digest(&("mcp-turn-v1", &fixture.token));
+    let mut legacy = fixture.stored();
+    legacy.as_object_mut().unwrap().remove("origin");
+    fixture.journal.write(&key, &legacy).unwrap();
+    let before: Value = fixture.journal.read(&key).unwrap().unwrap();
+    fixture.bridge.native_adapter = true;
+    assert_eq!(
+        fixture
+            .bridge
+            .operation(json!({"op":"snapshot","lane":"scope-lane"}))
+            .await,
+        Err(Error("native_execution_completion_unavailable"))
+    );
+    let after: Value = fixture.journal.read(&key).unwrap().unwrap();
+    assert_eq!(before, after, "refusal must not replace the cached original offer");
+    assert_eq!(after["calls"][&args.call_id], original);
 }

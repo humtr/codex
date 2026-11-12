@@ -648,10 +648,14 @@ impl Bridge for McpBridge {
                 let catalog = tools(&instructions)?.unwrap_or_else(|| lane.tools.clone());
                 let previous_token = lane.token.clone();
                 let token = if native_adapter || native_scope.is_some() {
-                    broker.register_scoped(
-                        &marker, catalog.clone(), true,
-                        native_scope.as_ref().map(|scope| scope.workspace.as_path()),
-                    ).await?
+                    broker
+                        .register_scoped(
+                            &marker,
+                            catalog.clone(),
+                            true,
+                            native_scope.as_ref().map(|scope| scope.workspace.as_path()),
+                        )
+                        .await?
                 } else {
                     broker.register(&marker, catalog.clone(), true).await?
                 };
@@ -824,7 +828,7 @@ impl Bridge for McpBridge {
                 // Replaying a cached executable offer is still forwarding. A
                 // constructor change cannot turn an earlier generic offer into
                 // a source-verified Native invocation.
-                broker.require_native_origin(&token)?;
+                broker.validate_native_offers(&token, &lane.offered)?;
             }
             let raw = snapshot["messages"]
                 .as_array()

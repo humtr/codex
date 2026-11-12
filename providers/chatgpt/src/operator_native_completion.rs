@@ -464,7 +464,6 @@ mod tests {
         (history, rows)
     }
 
-
     #[test]
     fn unloaded_default_namespace_aliases_preserve_original_history_and_reject_foreign() {
         let (history, rows) = fixture();

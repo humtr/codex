@@ -499,7 +499,8 @@ mod tests {
         let mut item = end["payload"].clone();
         item["id"] = json!("original");
         item["type"] = json!("command_execution");
-        let canonical = json!({"thread_id":"owned-thread","turn_id":"turn","completed_at_ms":42,"item":item});
+        let canonical =
+            json!({"thread_id":"owned-thread","turn_id":"turn","completed_at_ms":42,"item":item});
         assert!(witnesses["original"].matches_canonical_command(&canonical));
         let mut changed = canonical.clone();
         changed["item"]["interaction_input"] = json!("different input");

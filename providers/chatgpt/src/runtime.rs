@@ -805,12 +805,15 @@ pub async fn serve(descriptor: Option<PathBuf>, root: PathBuf, port: u16) -> Res
     });
     let bridge: Arc<dyn crate::app::Bridge> = match &mcp {
         Some(broker) if settings.transport.return_path == crate::config::ReturnPath::Mcp => {
-            Arc::new(crate::mcp_bridge::McpBridge::new(
-                bridge,
-                broker.clone(),
-                journal.clone(),
-                settings.transport.connector_name.clone(),
-            )?.with_native_admission())
+            Arc::new(
+                crate::mcp_bridge::McpBridge::new(
+                    bridge,
+                    broker.clone(),
+                    journal.clone(),
+                    settings.transport.connector_name.clone(),
+                )?
+                .with_native_admission(),
+            )
         }
         _ => bridge,
     };

@@ -889,15 +889,18 @@ impl Operator {
             remote: bridge.clone(),
             path: ReturnPath::LocalFunction,
         });
-        let mcp_bridge: Arc<dyn Bridge> = Arc::new(crate::mcp_bridge::McpBridge::new(
-            Arc::new(crate::app::Transport {
-                remote: bridge.clone(),
-                path: ReturnPath::Mcp,
-            }),
-            broker.clone(),
-            journal.clone(),
-            config.transport.connector_name.clone(),
-        )?.with_native_admission());
+        let mcp_bridge: Arc<dyn Bridge> = Arc::new(
+            crate::mcp_bridge::McpBridge::new(
+                Arc::new(crate::app::Transport {
+                    remote: bridge.clone(),
+                    path: ReturnPath::Mcp,
+                }),
+                broker.clone(),
+                journal.clone(),
+                config.transport.connector_name.clone(),
+            )?
+            .with_native_admission(),
+        );
         let mcp_host = Arc::new(
             AppHost::new(mcp_bridge, journal.clone())
                 .with_native_admission()

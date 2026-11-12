@@ -397,8 +397,7 @@ pub(crate) fn qualified_session_continuation(
 ) -> Option<u64> {
     let (root, facts) = workspace.zip(execution)?;
     // Each invocation carries its own actual hook aliases and dispatch binding.
-    if process_tool(tool) != Some("write_stdin")
-        || !facts.permits_bounded_tool("write_stdin", root)
+    if process_tool(tool) != Some("write_stdin") || !facts.permits_bounded_tool("write_stdin", root)
     {
         return None;
     }
@@ -658,10 +657,7 @@ mod tests {
             assert!(facts.belongs_to(&owner, &facts.thread, Some(&facts.turn)));
             let input = r#"{"session_id":91,"chars":""}"#;
             facts.hook_free_tools = vec!["exec_command".into()];
-            assert_eq!(
-                dispatch_error(exec_tool, Some(&root), Some(&facts)),
-                None
-            );
+            assert_eq!(dispatch_error(exec_tool, Some(&root), Some(&facts)), None);
             assert_eq!(
                 dispatch_error(poll_tool, Some(&root), Some(&facts)),
                 Some("native_execution_completion_unavailable")
@@ -671,10 +667,7 @@ mod tests {
                 None
             );
             facts.hook_free_tools = vec!["write_stdin".into()];
-            assert_eq!(
-                dispatch_error(poll_tool, Some(&root), Some(&facts)),
-                None
-            );
+            assert_eq!(dispatch_error(poll_tool, Some(&root), Some(&facts)), None);
             assert_eq!(
                 dispatch_error(exec_tool, Some(&root), Some(&facts)),
                 Some("native_execution_completion_unavailable")
@@ -712,10 +705,7 @@ mod tests {
                 Some("native_execution_completion_unavailable")
             );
             assert_eq!(
-                empty_session_poll(
-                    poll_tool,
-                    r#"{"session_id":91,"session_id":92}"#
-                ),
+                empty_session_poll(poll_tool, r#"{"session_id":91,"session_id":92}"#),
                 None
             );
             fs::remove_dir_all(root).unwrap();
@@ -1341,17 +1331,22 @@ mod tests {
             "mcp__clock.sleep",
             "foreign.curr_time",
         ] {
-            assert!(matches!(
-                classify_with_execution(name, "{}", Some(&root), Some(&facts)),
-                Effect::Opaque
-            ), "{name}");
+            assert!(
+                matches!(
+                    classify_with_execution(name, "{}", Some(&root), Some(&facts)),
+                    Effect::Opaque
+                ),
+                "{name}"
+            );
         }
         for name in ["view_image", "functions.view_image"] {
-            assert!(matches!(
-                classify_with_execution(name, "{}", Some(&root), Some(&facts)),
-                Effect::Read
-            ), "{name}");
+            assert!(
+                matches!(
+                    classify_with_execution(name, "{}", Some(&root), Some(&facts)),
+                    Effect::Read
+                ),
+                "{name}"
+            );
         }
     }
-
 }

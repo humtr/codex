@@ -1063,7 +1063,8 @@ impl Guard {
         let observation = process_observation(result, call_id, self.continuation);
         let running = observation.running;
         let mut exited = observation.terminal;
-        let not_spawned = native_effect::process_tool(&self.tool) == Some("exec_command") && observation.not_spawned;
+        let not_spawned = native_effect::process_tool(&self.tool) == Some("exec_command")
+            && observation.not_spawned;
         let session = self.continuation;
         self.ledger.transact(|state| {
             if session.is_some() && observation.not_spawned {
@@ -1121,7 +1122,10 @@ impl Guard {
                 }
                 return Ok(((), false));
             }
-            if native_effect::process_tool(&self.tool) == Some("exec_command") && running.is_some() && !exited && !not_spawned
+            if native_effect::process_tool(&self.tool) == Some("exec_command")
+                && running.is_some()
+                && !exited
+                && !not_spawned
             {
                 if let Some(claim) = state.claims.get_mut(&self.identity) {
                     claim.session = running;
@@ -1130,7 +1134,10 @@ impl Guard {
             }
             // An exec result without an identifiable exit or live session is
             // unresolved; only unambiguous terminal evidence frees that claim.
-            if native_effect::process_tool(&self.tool) == Some("exec_command") && !exited && !not_spawned {
+            if native_effect::process_tool(&self.tool) == Some("exec_command")
+                && !exited
+                && !not_spawned
+            {
                 return Ok(((), false));
             }
             Ok(((), state.claims.remove(&self.identity).is_some()))
@@ -2168,24 +2175,14 @@ mod tests {
             for name in ["a.c", "b.c"] {
                 fs::write(cwd.join(name), "int main(void){return 0;}\n").unwrap();
             }
-            let input = serde_json::json!({"cmd":"clang -O0 a.c -o a.out","workdir":cwd,"login":false})
-                .to_string();
-            let scope = native_effect::classify_with_execution(
-                exec_tool,
-                &input,
-                Some(&cwd),
-                Some(&facts),
-            );
-            let mut original = Guard::begin_effect(
-                &cwd,
-                "a",
-                "start",
-                exec_tool,
-                &input,
-                ledger.clone(),
-                scope,
-            )
-            .unwrap();
+            let input =
+                serde_json::json!({"cmd":"clang -O0 a.c -o a.out","workdir":cwd,"login":false})
+                    .to_string();
+            let scope =
+                native_effect::classify_with_execution(exec_tool, &input, Some(&cwd), Some(&facts));
+            let mut original =
+                Guard::begin_effect(&cwd, "a", "start", exec_tool, &input, ledger.clone(), scope)
+                    .unwrap();
             original
                 .observed(Some(
                     &serde_json::json!({"output":"Process running with session ID 51\nOutput:\n"}),

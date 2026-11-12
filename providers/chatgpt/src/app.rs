@@ -2000,7 +2000,10 @@ impl Host for AppHost {
             let mut lane = mutex.try_lock().map_err(|_| Error("native_lane_busy"))?;
             let retained_answer = lane.phase == Phase::Idle
                 && lane.request == context::digest(&request)
-                && !lane.cached.iter().any(|event| matches!(event, Event::Tool(_)));
+                && !lane
+                    .cached
+                    .iter()
+                    .any(|event| matches!(event, Event::Tool(_)));
             if lane.origin != origin && !retained_answer {
                 return Err(Error("native_tool_origin_changed"));
             }
@@ -2151,7 +2154,21 @@ fn native_call_error(request: &Request, call: &Call) -> Option<Error> {
         &call.tool,
         scope.map(|scope| scope.workspace.as_path()),
         scope.and_then(|scope| scope.execution.as_ref()),
-    ).map(Error)
+    )
+    .map(Error)
+}
+
+fn validate_cached_calls(lane: &Lane, request: &Request) -> Result<(), Error> {
+    if lane.origin == crate::protocol::ToolOrigin::Native {
+        for event in &lane.cached {
+            if let Event::Tool(call) = event {
+                if let Some(error) = native_call_error(request, call) {
+                    return Err(error);
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 fn with_native_scope(mut command: Value, request: &Request) -> Value {
@@ -2184,6 +2201,7 @@ async fn exchange(
     }
     let request_digest = context::digest(request);
     if request_digest == lane.request && lane.phase == Phase::Idle {
+        validate_cached_calls(lane, request)?;
         for event in &lane.cached {
             events
                 .send(event.clone())
@@ -2240,6 +2258,7 @@ async fn exchange(
     lane.identity = Some(current);
     journal.write(key, lane)?;
     if request_digest == lane.request && lane.phase == Phase::ToolsReady {
+        validate_cached_calls(lane, request)?;
         for event in &lane.cached {
             events
                 .send(event.clone())
@@ -2400,6 +2419,7 @@ async fn exchange(
     if recovering {
         // The response observer is new; restore already observed public deltas
         // before app snapshots supply only their unseen suffixes.
+        validate_cached_calls(lane, request)?;
         for event in &lane.cached {
             events
                 .send(event.clone())
@@ -2823,7 +2843,10 @@ async fn exchange(
                     Err(error) => return Err(error),
                 };
                 if lane.origin == crate::protocol::ToolOrigin::Native {
-                    if let Some(error) = batch.iter().find_map(|call| native_call_error(request, call)) {
+                    if let Some(error) = batch
+                        .iter()
+                        .find_map(|call| native_call_error(request, call))
+                    {
                         rejected = Some(error);
                         continue;
                     }
@@ -4788,14 +4811,49 @@ mod native_submission_scope_tests {
     #[tokio::test]
     async fn native_constructor_refuses_unbound_effects_before_pending_or_publication() {
         for (native, name, definition, expected_offer) in [
-            (true, "exec_command", json!({"type":"function","name":"exec_command","parameters":{"type":"object"}}), false),
-            (true, "functions.exec_command", json!({"type":"function","name":"functions.exec_command","parameters":{"type":"object"}}), false),
-            (true, "apply_patch", json!({"type":"custom","name":"apply_patch","format":{"type":"text"}}), false),
-            (true, "view_image", json!({"type":"function","name":"view_image","parameters":{"type":"object"}}), false),
-            (true, "clock.curr_time", json!({"type":"function","name":"clock.curr_time","parameters":{"type":"object"}}), false),
-            (true, "ordinary.custom", json!({"type":"custom","name":"ordinary.custom","format":{"type":"text"}}), false),
+            (
+                true,
+                "exec_command",
+                json!({"type":"function","name":"exec_command","parameters":{"type":"object"}}),
+                false,
+            ),
+            (
+                true,
+                "functions.exec_command",
+                json!({"type":"function","name":"functions.exec_command","parameters":{"type":"object"}}),
+                false,
+            ),
+            (
+                true,
+                "apply_patch",
+                json!({"type":"custom","name":"apply_patch","format":{"type":"text"}}),
+                false,
+            ),
+            (
+                true,
+                "view_image",
+                json!({"type":"function","name":"view_image","parameters":{"type":"object"}}),
+                false,
+            ),
+            (
+                true,
+                "clock.curr_time",
+                json!({"type":"function","name":"clock.curr_time","parameters":{"type":"object"}}),
+                false,
+            ),
+            (
+                true,
+                "ordinary.custom",
+                json!({"type":"custom","name":"ordinary.custom","format":{"type":"text"}}),
+                false,
+            ),
             (true, "tool_search", json!({"type":"tool_search"}), true),
-            (false, "exec_command", json!({"type":"function","name":"exec_command","parameters":{"type":"object"}}), true),
+            (
+                false,
+                "exec_command",
+                json!({"type":"function","name":"exec_command","parameters":{"type":"object"}}),
+                true,
+            ),
         ] {
             let root = std::env::temp_dir().join(format!("app-origin-{}", random_id().unwrap()));
             let journal = Arc::new(Journal::open(&root).unwrap());
@@ -4804,12 +4862,18 @@ mod native_submission_scope_tests {
                 tool: Some((name.into(), "{}".into())),
             });
             let host = AppHost::new(bridge.clone(), journal.clone());
-            let host = if native { host.with_native_admission() } else { host };
+            let host = if native {
+                host.with_native_admission()
+            } else {
+                host
+            };
             let mut request = Request::parse(
                 json!({"stream":true,"model":"chatgpt-desktop/gpt-6","input":"owned",
                     "tools":[definition]}),
-                &crate::config::Config::default(), Some("owned-thread"),
-            ).unwrap();
+                &crate::config::Config::default(),
+                Some("owned-thread"),
+            )
+            .unwrap();
             // Claimed metadata is deliberately not a Core-admitted NativeScope.
             request.execution = Some(crate::native_effect::hook_fixture(
                 &std::fs::canonicalize(&root).unwrap(),
@@ -4819,21 +4883,33 @@ mod native_submission_scope_tests {
             tokio::time::timeout(
                 Duration::from_secs(3),
                 host.exchange(request.clone(), tx, CancellationToken::new()),
-            ).await.unwrap().unwrap();
+            )
+            .await
+            .unwrap()
+            .unwrap();
             let mut published = Vec::new();
             while let Ok(event) = rx.try_recv() {
                 published.push(event);
             }
             assert_eq!(
-                published.iter().any(|event| matches!(event, Event::Tool(_))),
-                expected_offer, "{native}: {name}"
+                published
+                    .iter()
+                    .any(|event| matches!(event, Event::Tool(_))),
+                expected_offer,
+                "{native}: {name}"
             );
-            let saved: Lane = journal.read(&context::digest(&request.thread)).unwrap().unwrap();
-            assert_eq!(saved.origin, if native {
-                crate::protocol::ToolOrigin::Native
-            } else {
-                crate::protocol::ToolOrigin::Generic
-            });
+            let saved: Lane = journal
+                .read(&context::digest(&request.thread))
+                .unwrap()
+                .unwrap();
+            assert_eq!(
+                saved.origin,
+                if native {
+                    crate::protocol::ToolOrigin::Native
+                } else {
+                    crate::protocol::ToolOrigin::Generic
+                }
+            );
             if expected_offer {
                 assert_eq!(saved.pending.len(), 1);
                 assert_eq!(saved.pending[0].tool.key(), name);
@@ -4842,14 +4918,22 @@ mod native_submission_scope_tests {
                 assert!(saved.pending.is_empty());
                 assert_eq!(saved.phase, Phase::Idle);
                 let state = bridge.state.lock().unwrap();
-                let correction = state.commands.iter().find(|command| {
-                    command["op"] == "submit"
-                        && command["results"].as_array().is_some_and(|results| !results.is_empty())
-                }).unwrap();
+                let correction = state
+                    .commands
+                    .iter()
+                    .find(|command| {
+                        command["op"] == "submit"
+                            && command["results"]
+                                .as_array()
+                                .is_some_and(|results| !results.is_empty())
+                    })
+                    .unwrap();
                 assert_eq!(correction["results"][0]["id"], "original-host-call");
                 assert_eq!(correction["results"][0]["result"]["executed"], false);
-                assert_eq!(correction["results"][0]["result"]["error"]["code"],
-                    "native_execution_completion_unavailable");
+                assert_eq!(
+                    correction["results"][0]["result"]["error"]["code"],
+                    "native_execution_completion_unavailable"
+                );
                 assert_eq!(state.submissions, 2);
             }
             std::fs::remove_dir_all(root).unwrap();
@@ -4867,14 +4951,22 @@ mod native_submission_scope_tests {
         let host = AppHost::new(bridge.clone(), journal.clone()).with_native_admission();
         let request = Request::parse(
             json!({"stream":true,"model":"chatgpt-desktop/gpt-6","input":"title only"}),
-            &crate::config::Config::default(), Some("title-thread"),
-        ).unwrap();
+            &crate::config::Config::default(),
+            Some("title-thread"),
+        )
+        .unwrap();
         let (tx, mut rx) = mpsc::channel(32);
-        host.exchange(request.clone(), tx, CancellationToken::new()).await.unwrap();
+        host.exchange(request.clone(), tx, CancellationToken::new())
+            .await
+            .unwrap();
         let mut original = Vec::new();
-        while let Ok(event) = rx.try_recv() { original.push(event); }
+        while let Ok(event) = rx.try_recv() {
+            original.push(event);
+        }
         assert!(!original.iter().any(|event| matches!(event, Event::Tool(_))));
-        assert!(original.iter().any(|event| matches!(event, Event::Completed { .. })));
+        assert!(original
+            .iter()
+            .any(|event| matches!(event, Event::Completed { .. })));
         let calls = bridge.state.lock().unwrap().commands.len();
         // Old missing provenance is restrictive for a new round, but a complete
         // immutable answer can still be observed by a read-only replay.
@@ -4885,19 +4977,76 @@ mod native_submission_scope_tests {
         journal.write(&key, &legacy).unwrap();
         let reader = AppHost::new(bridge.clone(), journal.clone());
         let (tx, mut rx) = mpsc::channel(32);
-        reader.exchange(request.clone(), tx, CancellationToken::new()).await.unwrap();
+        reader
+            .exchange(request.clone(), tx, CancellationToken::new())
+            .await
+            .unwrap();
         let mut replay = Vec::new();
-        while let Ok(event) = rx.try_recv() { replay.push(event); }
-        assert_eq!(serde_json::to_value(replay).unwrap(), serde_json::to_value(original).unwrap());
+        while let Ok(event) = rx.try_recv() {
+            replay.push(event);
+        }
+        assert_eq!(
+            serde_json::to_value(replay).unwrap(),
+            serde_json::to_value(original).unwrap()
+        );
         assert_eq!(bridge.state.lock().unwrap().commands.len(), calls);
         let mut changed = request;
-        changed.input.push(json!({"role":"user","content":"new input"}));
+        changed
+            .input
+            .push(json!({"role":"user","content":"new input"}));
         let (tx, _rx) = mpsc::channel(32);
         assert_eq!(
             reader.exchange(changed, tx, CancellationToken::new()).await,
             Err(Error("native_tool_origin_changed"))
         );
         assert_eq!(bridge.state.lock().unwrap().commands.len(), calls);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+    #[tokio::test]
+    async fn legacy_cached_executable_offer_is_not_a_retained_result_read() {
+        let root = std::env::temp_dir().join(format!("app-cached-origin-{}", random_id().unwrap()));
+        let journal = Arc::new(Journal::open(&root).unwrap());
+        let bridge = Arc::new(AdmissionBridge {
+            state: std::sync::Mutex::new(AdmissionState::default()),
+            tool: Some(("exec_command".into(), "{}".into())),
+        });
+        let generic = AppHost::new(bridge.clone(), journal.clone());
+        let request = Request::parse(
+            json!({"stream":true,"model":"chatgpt-desktop/gpt-6","input":"owned",
+                "tools":[{"type":"function","name":"exec_command","parameters":{"type":"object"}}]}),
+            &crate::config::Config::default(),
+            Some("cached-thread"),
+        )
+        .unwrap();
+        let (tx, mut rx) = mpsc::channel(32);
+        generic
+            .exchange(request.clone(), tx, CancellationToken::new())
+            .await
+            .unwrap();
+        let first_tool = std::iter::from_fn(|| rx.try_recv().ok())
+            .any(|event| matches!(event, Event::Tool(_)));
+        assert!(first_tool);
+        let key = context::digest(&request.thread);
+        let saved: Lane = journal.read(&key).unwrap().unwrap();
+        assert_eq!(saved.phase, Phase::ToolsReady);
+        let pending = serde_json::to_value(&saved.pending).unwrap();
+        let cached = serde_json::to_value(&saved.cached).unwrap();
+        let mut legacy = serde_json::to_value(&saved).unwrap();
+        legacy.as_object_mut().unwrap().remove("origin");
+        journal.write(&key, &legacy).unwrap();
+        let native = AppHost::new(bridge.clone(), journal.clone()).with_native_admission();
+        let (tx, mut rx) = mpsc::channel(32);
+        assert_eq!(
+            native.exchange(request, tx, CancellationToken::new()).await,
+            Err(Error("native_execution_completion_unavailable"))
+        );
+        let replayed_tool = std::iter::from_fn(|| rx.try_recv().ok())
+            .any(|event| matches!(event, Event::Tool(_)));
+        assert!(!replayed_tool);
+        let after: Lane = journal.read(&key).unwrap().unwrap();
+        assert_eq!(serde_json::to_value(&after.pending).unwrap(), pending);
+        assert_eq!(serde_json::to_value(&after.cached).unwrap(), cached);
+        assert_eq!(bridge.state.lock().unwrap().submissions, 1);
         std::fs::remove_dir_all(root).unwrap();
     }
 
