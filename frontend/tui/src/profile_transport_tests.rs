@@ -125,6 +125,10 @@ fn profile_transport_owner_diagnostics_exclude_private_stderr() {
         rejection_reason(b"codex: native_owner_binding_invalid: details"),
         "live Native execution binding is unsupported or invalid"
     );
+    assert_eq!(
+        rejection_reason(b"codex: qualified Native owner discovery is unavailable\n"),
+        "installed Core cannot provide qualified Native owner discovery; check Core/TUI generation compatibility"
+    );
     let secret = b"private token=secret conversation content";
     assert!(!rejection_reason(secret).contains("secret"));
     assert!(!rejection_reason(secret).contains("conversation"));

@@ -37,7 +37,8 @@ fn rejection_reason(stderr: &[u8]) -> &'static str {
         .strip_prefix("codex: ")
         .unwrap_or(text)
         .split(':')
-        .next();
+        .next()
+        .map(str::trim);
     match code {
         Some("native_owner_registry_invalid") => "Native owner registry identity is malformed",
         Some("native_owner_binding_invalid") => {
@@ -48,6 +49,9 @@ fn rejection_reason(stderr: &[u8]) -> &'static str {
             "Native writer is held but its qualified owner is unavailable"
         }
         Some("native_owner_unsafe") => "Native owner identity or ownership could not be verified",
+        Some("qualified Native owner discovery is unavailable") => {
+            "installed Core cannot provide qualified Native owner discovery; check Core/TUI generation compatibility"
+        }
         _ if text.trim()
             == "codex: Native owner is unavailable, ambiguous, unsafe or unresponsive" =>
         {

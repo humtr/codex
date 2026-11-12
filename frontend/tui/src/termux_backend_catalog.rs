@@ -59,6 +59,18 @@ struct OwnerConnection {
     socket: AbsolutePathBuf,
 }
 
+fn needs_owner_reentry(
+    owner: &OwnerConnection,
+    current_home: &Path,
+    selected_socket: &Path,
+) -> bool {
+    // The original --remote endpoint is an observation, not Owner authority.
+    // A reused PID or a new Core generation must never carry its old socket
+    // into the verified Native writer's execution home.
+    let verified_socket: &Path = owner.socket.as_ref();
+    owner.execution_home != current_home || verified_socket != selected_socket
+}
+
 /// Resolve a known thread's execution identity before config/auth/draft startup.
 pub(crate) async fn reenter_owner(
     cli: &crate::Cli,
@@ -90,13 +102,14 @@ pub(crate) async fn reenter_owner(
         .map_err(|error| std::io::Error::other(format!("Native owner lookup failed: {error:#}")))?;
     if let Some(owner) = owner {
         let current = codex_utils_home_dir::find_codex_home()?;
-        if owner.execution_home.as_path() != current.as_path() {
+        if needs_owner_reentry(&owner, current.as_path(), socket_path) {
             use std::os::unix::process::CommandExt;
             let invocation: Vec<_> = std::env::args_os().skip(1).collect();
             return Err(owner_reentry_command(
                 &core,
                 thread,
                 socket_path,
+                &owner.socket,
                 &invocation,
                 cli.termux_reentry,
             )?
@@ -109,19 +122,26 @@ pub(crate) async fn reenter_owner(
 fn owner_reentry_command(
     core: &Path,
     thread: codex_protocol::ThreadId,
-    socket: &Path,
+    selected_socket: &Path,
+    verified_socket: &Path,
     invocation: &[OsString],
     intent: Option<crate::termux_reentry::Intent>,
 ) -> std::io::Result<std::process::Command> {
-    let mut injected = OsString::from("unix://");
-    injected.push(socket);
-    if invocation.len() < 3 || invocation[0] != "--remote" || invocation[1] != injected {
+    let mut selected = OsString::from("unix://");
+    selected.push(selected_socket);
+    if invocation.len() < 3 || invocation[0] != "--remote" || invocation[1] != selected {
         return Err(std::io::Error::other(
             "qualified startup invocation does not match its Native endpoint",
         ));
     }
+    // Core revalidates the writer before exec. Its verified endpoint, not an
+    // inherited --remote argument, must be the one actually reattached.
+    let mut verified = OsString::from("unix://");
+    verified.push(verified_socket);
     let mut command = std::process::Command::new(core);
     command.args(["termux", "__task-reentry-v1", &thread.to_string(), "--"]);
+    command.args(["--remote"]);
+    command.arg(verified);
     command.args(&invocation[2..]);
     crate::termux_reentry::configure_exec(&mut command, intent);
     Ok(command)
@@ -333,12 +353,24 @@ mod tests {
         .collect();
         invocation.push(thread.to_string().into());
         invocation.push(OsString::from_vec(b"opaque-\xff".to_vec()));
-        let output =
-            owner_reentry_command(&core, thread, Path::new("/owned/socket"), &invocation, None)?
-                .output()?;
+        let output = owner_reentry_command(
+            &core,
+            thread,
+            Path::new("/owned/socket"),
+            Path::new("/verified/new-generation/socket"),
+            &invocation,
+            None,
+        )?
+        .output()?;
         assert!(output.status.success());
         let mut expected = format!("termux\0__task-reentry-v1\0{thread}\0--\0").into_bytes();
-        for argument in &invocation[2..] {
+        for argument in [
+            OsString::from("--remote"),
+            OsString::from("unix:///verified/new-generation/socket"),
+        ]
+        .iter()
+        .chain(&invocation[2..])
+        {
             expected.extend_from_slice(argument.as_bytes());
             expected.push(0);
         }
@@ -348,12 +380,37 @@ mod tests {
                 &core,
                 thread,
                 Path::new("/another/socket"),
+                Path::new("/verified/new-generation/socket"),
                 &invocation,
-                None
+                None,
             )
-            .is_err()
+            .is_err(),
+            "a verified endpoint cannot excuse mismatched incoming argv"
         );
         Ok(())
+    }
+
+    #[test]
+    fn termux_backend_catalog_reenters_for_stale_socket_or_execution_home() {
+        let owner = OwnerConnection {
+            execution_home: "/account-b".into(),
+            socket: AbsolutePathBuf::from_absolute_path("/core-new/socket").unwrap(),
+        };
+        assert!(needs_owner_reentry(
+            &owner,
+            Path::new("/account-b"),
+            Path::new("/core-old/socket")
+        ));
+        assert!(needs_owner_reentry(
+            &owner,
+            Path::new("/account-a"),
+            Path::new("/core-new/socket")
+        ));
+        assert!(!needs_owner_reentry(
+            &owner,
+            Path::new("/account-b"),
+            Path::new("/core-new/socket")
+        ));
     }
 
     #[test]
@@ -370,6 +427,7 @@ mod tests {
             let command = owner_reentry_command(
                 Path::new("/owned/core"),
                 thread,
+                Path::new("/owned/socket"),
                 Path::new("/owned/socket"),
                 &invocation,
                 intent,
