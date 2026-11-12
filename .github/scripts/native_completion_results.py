@@ -25,6 +25,9 @@ SUITES = {
         'native_completion_admitted_snapshot_preserves_wait_after_later_hook_reload',
         'native_completion_network_permission_keeps_original_admitted_hooks',
         'native_completion_process_capability_is_per_tool_and_refuses_before_effects',
+        'native_completion_local_driver_refusal_uses_actual_request_and_preserves_upstream',
+        'native_completion_intercepted_patch_refuses_before_file_effects',
+        'native_completion_successful_wait_without_numeric_exit_is_terminal',
     ),
     'protocol': (
         'native_completion_typescript_keeps_nullable_field_and_real_type_dependencies',
@@ -44,6 +47,7 @@ SUITES = {
         'native_completion_driver_status_and_termination_request_are_not_os_wait',
         'native_completion_pipe_and_pty_preserve_actual_wait_codes',
         'native_completion_local_termination_confirms_only_after_wait',
+        'native_completion_portable_pty_signal_proves_wait_without_numeric_exit',
     ),
 }
 
