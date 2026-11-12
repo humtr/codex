@@ -33,6 +33,8 @@ official 0.167.1 recipe.
 flowchart TD
     W0["W0 source, install and ownership"] --> W1["W1 inputs and metadata"]
     W0 --> N["W15 and W20 Native ownership"]
+    N --> E["W15 Runtime execution proof"]
+    E --> R
     W0 --> P["W17 authenticated catalog"]
     W1 --> R["W2 and W3 component production"]
     W1 --> V["W5a component revisions"]
@@ -47,14 +49,25 @@ flowchart TD
     D --> A
     M["W18 independent MCP shell"] --> A
     S --> A
-    A --> Q["W10 exact-source unsigned CI"]
+    A --> Q["W10 component CI, then Full acceptance"]
 ```
 
 W6 Retain and already-accepted W7/W8 baseline evidence constrain every affected
 TUI change. W15's completed operating P0 is not a prerequisite blocking other
 work. Publication reservation metadata does not authorize signing/publication.
 W20 reuses Core Owner discovery and upstream Native resume; it introduces no
-Owner database or alternate Writer controller.
+Owner database or alternate Writer controller. The diagram orders source
+responsibilities; actual Full admission follows successful same-source Core,
+Manager and full-TUI qualification. Runtime execution-proof changes invalidate
+Runtime production inputs and require affected consumer qualification again.
+
+For the current W15 correction, Models is the sole assembler/Writer of
+native_route.patch and its Core/Protocol/rollout changes. Release has a narrow
+lease for the upstream PTY process.rs/pty.rs/pipe.rs hunks and actual-wait tests,
+which it hands back to Models; Release also owns the required CI selectors.
+Native owns Provider proof parsing, original receipt settlement and unloaded/Stop
+observers. Integration owns norms and final assembly. These are existing
+execution/receipt paths, not a new executor, history store or approval gate.
 
 ## Work packages and evidence gates
 
@@ -75,12 +88,12 @@ Owner database or alternate Writer controller.
 | W12 | Offline Core-owned version JSON/details, optional components and legacy unknown revisions | Integration; termux_version.rs, component_metadata.rs, provider.rs | Local Core 271/0 and installed read-only candidate passed |
 | W13 | No-bwrap is normal platform information; explicit unsupported requests and real failures remain failures | Integration; Core Doctor path and DOCTOR norm | Local Core/Doctor passed; exact hosted qualification |
 | W14 | Signed Core/Full fixtures, rollback, mismatched edition, noninteractive/version coverage | Integration; Core tests | Local signed fixtures/menu passed; exact hosted results |
-| W15 | Original P0, verified submitted/attached scopes, durable original reservations, running/final-poll continuity and immutable cold receipt-chain readback | Native; native_claims/effect, mcp, native_route.patch, lifecycle tests | Warm compilers overlap 5.760s; scope/commit/restart regression10 and Provider374 pass; actual cold result recovered, independent-home Writer and unloaded completion corrections/acceptance remain |
+| W15 | Original P0, verified scopes/reservations and cold receipt continuity; distinguish real OS wait/pre-backend rejection from synthetic exit/Stop/history absence | Native Provider; Models Runtime patch; Release PTY and CI under explicit leases | Warm overlap 5.760s and scope suite pass; Owner correction integrated; actual cold completion and typed producer/consumer/Stop acceptance remain |
 | W16 | Exact Owner/home display, default-off auto, short descriptor-transition locks and unsafe-route rejection | Integration/Release after file-lease transfer; Manager terminal/window/task, Provider callback | Actual stock Android 66edd08d success; final source/device boundary retained |
 | W17 | Fresh authenticated ChatGPT catalog, independent inference auth, stable stored Provider/model IDs | Models; models/control/projection and Provider docs | Candidate hosted tests; reuse operating live model loop only within stated boundary |
 | W18 | One independent shell, original-call replay, conflicts, bounded output/process cleanup; common annotations unchanged | Integration; termux_shell, worker, candidate.py, connector refresh and qualification | Standalone candidate worker and actual connected replay during bounded Native Busy passed; final-source Provider CI remains |
 | W19 | OpenAI upstream-only; ChatGPT account catalog-only through picker/direct input/reentry/effort; preserve upstream command-name completion | Models; termux_chat_models, input preparation, TUI patch | Candidate full TUI, provider transitions and unsupported-model errors |
-| W20 | Decode legacy owners safely; verify actual execution-home Writer locks; preserve current Native selection/thread; consume initial intent once, fence Native children and reject unsupported private handoffs | Native/Models; runtime-binding/native, profile_transport, profile_manager, app_server_session and quota replay | Ordinary manual switch passed; old d2 regression reproduced; Manager138 and process-bound intent checks pass; final-current/legacy trials and hosted19 named gates remain |
+| W20 | Decode legacy owners safely; verify actual execution-home Writer locks; preserve current Native selection/thread; consume initial intent once, fence Native children and reject unsupported private handoffs | Native/Models; runtime-binding/native, profile_transport, profile_manager, app_server_session and quota replay | Owner correction154 affected tests/readbacks pass, including Manager139; ordinary manual switch passed and old d2 regression preserved; final-current/legacy trials and hosted19 named gates remain |
 
 ## Source provenance and independent review
 
@@ -112,12 +125,15 @@ original source/account/device boundaries. New effects, owner parsing,
 catalog selection, terminal display, metadata consumers and CI producers are
 retested. No assertion is weakened and no required gate is deleted or skipped.
 
-Local TUI compilation lacks the pinned rusty_v8 dependency. Hosted d2 source
-did build and execute the real patched frontend and passed focused/Native/API
-gates, then failed Retain; that failure must be resolved before qualification.
-Actual candidate PTY switch and provider-model continuity with synthetic
-responses passed separately. Old-runtime compiler and incomplete earlier switch
-trials remain original failure evidence, not accepted new behavior.
+Local TUI compilation lacks the pinned rusty_v8 dependency. Hosted G full TUI
+passed focused/Native/API and every mandatory Retain gate, including the corrected
+pin refresh and compaction tests. Its success does not qualify J's later typed
+reentry tests or subsequent Runtime changes. Actual candidate PTY switch and
+provider-model continuity with synthetic responses passed separately. Old-runtime
+compiler and incomplete earlier switch trials remain original failure evidence,
+not accepted new behavior. Existing Stop/empty-jobs tests alone cannot certify
+actual process termination; the new Runtime proof must pass positive and negative
+consumer cases before final availability acceptance.
 
 Live model evidence used the operating Provider and one original Chat/Native
 thread, preserving approval and sandbox configuration. Synthetic account
