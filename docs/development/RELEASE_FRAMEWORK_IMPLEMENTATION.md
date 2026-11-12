@@ -25,7 +25,11 @@ The original assumption that e4f9ab5d and plan3ef675ad had no common ancestor
 was caused by a shallow repository. The complete history establishes common
 ancestors 27103ec0 and 0aebdd7f respectively. Selective patch review is still
 necessary because the old checkout pins 0.167.0. It must not replace the
-official 0.167.1 recipe.
+selected official recipe. The initial 0.167.1 input remains historical evidence.
+During execution, discovery commit `ec51fe4a` advanced the official branch to
+0.167.2 / `ce21072c90d32c40af7a55b60b2fb35c84a43a6a`; merge `795e0cae`
+preserves that direct descendant of J. Apply and qualify the combined candidate
+on the new exact upstream. Existing S165 remains 0.167.1 and is not rewritten.
 
 ## Implementation order
 
@@ -93,7 +97,7 @@ execution/receipt paths, not a new executor, history store or approval gate.
 | W17 | Fresh authenticated ChatGPT catalog, independent inference auth, stable stored Provider/model IDs | Models; models/control/projection and Provider docs | Candidate hosted tests; reuse operating live model loop only within stated boundary |
 | W18 | One independent shell, original-call replay, conflicts, bounded output/process cleanup; common annotations unchanged | Integration; termux_shell, worker, candidate.py, connector refresh and qualification | Standalone candidate worker and actual connected replay during bounded Native Busy passed; final-source Provider CI remains |
 | W19 | OpenAI upstream-only; ChatGPT account catalog-only through picker/direct input/reentry/effort; preserve upstream command-name completion | Models; termux_chat_models, input preparation, TUI patch | Candidate full TUI, provider transitions and unsupported-model errors |
-| W20 | Decode legacy owners safely; verify actual execution-home Writer locks; preserve current Native selection/thread; consume initial intent once, fence Native children and reject unsupported private handoffs | Native/Models; runtime-binding/native, profile_transport, profile_manager, app_server_session and quota replay | Owner correction154 affected tests/readbacks pass, including Manager139; ordinary manual switch passed and old d2 regression preserved; final-current/legacy trials and hosted19 named gates remain |
+| W20 | Decode legacy owners safely; verify actual execution-home Writer locks; preserve current Native selection/thread; consume initial intent once, fence Native children and reject unsupported private handoffs | Native/Models; runtime-binding/native, profile_transport, profile_manager, app_server_session and quota replay | Owner correction154 affected tests/readbacks pass, including Manager139; provisional J same-thread switch and old-d2/S165 safe refusals passed; original d2 regression preserved; final Runtime/composition and hosted19 named gates remain |
 
 ## Source provenance and independent review
 

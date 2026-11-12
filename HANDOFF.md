@@ -19,8 +19,10 @@ CI. These are not intermediate approval gates.
    resubmission. Independent-CODEX_HOME Writer discovery is now integrated
    and passed affected tests/readbacks; do not repeat it as an unresolved
    source defect. Revalidate changed Runtime/Stop consumers on the final inputs.
-3. Finish the intentional S165 private-handoff refusal and the affected
-   final-composition switch checks. J's provisional same-thread trial passed:
+3. Finish the affected final-composition switch checks. The separate S165
+   private-handoff refusal passed with unchanged original records and no
+   destination Owner/inference; it is a compatibility boundary, not a final Full
+   proof. J's provisional same-thread trial passed:
    four bounded synthetic responses, two real one-time tool effects, current
    Provider/model/effort/tier preserved and no child intent leakage. Its evidence
    and the separate old-d2 refusal are recorded in CURRENT, not promoted to
@@ -30,7 +32,9 @@ CI. These are not intermediate approval gates.
    and Retain gates passed; J's focused target failed to compile a missing App
    fixture field, before any of its nineteen named cases ran. The constructor
    correction needs hosted execution. New Owner/Runtime/Provider source requires
-   new exact-source gates. Retain original six immutable Full inputs.
+   new exact-source gates. The bot's valid upstream 0.167.2 discovery was merged;
+   verify its new archive, patch application and qualification separately from
+   earlier 0.167.1 evidence. Retain original six immutable Full inputs.
 5. Finish final-composition Native/terminal checks, independent review,
    exact-head CI receipts, semantic/physical LoC and branch/protected-asset
    readback. Do not treat running jobs or earlier component proofs as final success.

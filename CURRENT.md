@@ -28,8 +28,16 @@ protection. The exact-main release-intent guard is closed: the read returned
 HTTP 404 for release-intent-v1. No signing, reservation, publication, stable-index
 change or operating activation was performed.
 
-The recipe selects Codex **0.167.1**, upstream source
-`0a94398fa60c4fac0e7659e4213a0a36e613dd46`. After unshallowing, Native/plan
+The recipe now selects Codex **0.167.2**, upstream source
+`ce21072c90d32c40af7a55b60b2fb35c84a43a6a`. During integration, official upstream
+discovery advanced development to `ec51fe4a5f5153a441cf78b1e8ce108050274e80`
+at 00:48:38 UTC on November 12. It changes only the release recipe and is a
+direct child of checkpoint J. Integration preserves it in merge `795e0cae`;
+new-source preparation and qualification remain pending. The observed operating
+S165 installation remains **0.167.1**. Official upstream comparison identifies
+two GCP incremental-tool changes and the version release; receipt
+`98e166ac76a9786457308377ec1c8d413a3e7b49da959fa1e71306674fd8cf45`.
+After unshallowing, Native/plan
 histories have common ancestors with development; main retains separate ancestry.
 Native integration a55d5bb8, PR #29's current alias and the account draft
 2dd07d42 (through 8f97affc) are already integrated. No primary checkout reset,
@@ -194,7 +202,21 @@ remained unchanged; two synthetic responses, zero live responses. The old UI may
 already have exited normally, so this does not claim an active old Writer survived.
 Receipt: 6615198335d2f62bf56bbe07e503f212e445d0a63ae2d9a669db4e87a246a798.
 The first negative fixture's raw-versus-adapted ELF assertion failed before
-switching and is preserved separately. The S165 negative check remains open.
+switching and is preserved separately.
+
+The separate signed-S165 read-copy trial also passed, exit 0. Its real TUI
+opened `/switch` and the target picker; the guarded candidate Manager refused
+the unsupported private reentry before any destination Owner or inference. The
+original rollout bytes and OpenAI/model/effort/tier selection were unchanged.
+The executed ELF, private generation helper, metadata and original S165 copy
+all matched `7a8c732b9bd5b651818b4bde07b3b207e1ae1e1a47eacccf18e4a6acfb1f6b50`.
+This mixed composition used one synthetic response, no live model/account or
+physical Activity, and no old fixture thread. It does not certify final Full.
+Original signed files, operating Core/activation/current remained unchanged;
+owned Runtime PID30746 exited. A loopback client-disconnect BrokenPipe is
+retained in the raw log, not hidden as an extra successful request. Summary
+`0513bac71065c1b4d083e56244c85746236530f21e36c1912f18eae9652f8bc7`;
+result `2c42c097693a164faab36302fc866bea30419b13d79a55d3a33469608423c9e2`.
 
 ## Native effects, recovery and parallel availability
 
@@ -378,6 +400,6 @@ or mandatory test skipped. Later Owner/Runtime/Provider source still needs all
 affected exact-source qualifications and final Full acceptance.
 
 Before every push, recheck development and main: the existing main schedule may
-advance upstream discovery independently. The last checked upstream was
-rust-v0.167.1. No main, stable index, signing key, release, installed generation,
+advance upstream discovery independently. Its observed November 12 update to
+rust-v0.167.2 is preserved above and needs new exact-source qualification. No main, stable index, signing key, release, installed generation,
 operating account/service or active user Writer was changed.
