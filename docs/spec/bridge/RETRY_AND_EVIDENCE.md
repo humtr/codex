@@ -50,8 +50,13 @@ create that authority. Preserve original results, including unsuccessful exits;
 new evidence may supplement a matching immutable receipt but cannot overwrite it
 or promote an unproven legacy boolean. A changed result or uncertain identity stays
 unsettled. A genuine nonzero OS exit is still terminal evidence when its producer
-positively distinguishes it from a synthetic status. A new producer's explicit
-unconfirmed completion field cannot fall back to legacy text/exit inference;
+positively distinguishes it from a synthetic status. A successful OS wait can
+also confirm termination when the PTY does not retain an exact numeric status.
+The canonical six-field `wait_completed` object with explicit `exit_code: null`
+means confirmed wait with an unknown numeric code; it never invents that code.
+This is distinct from an entirely null completion field or a failed wait.
+A new producer's explicit unconfirmed completion field cannot fall back to legacy
+text/exit inference;
 legacy omission and new unconfirmed evidence are different states. When one call
 makes multiple backend attempts, each attempt must be positively settled before
 that call grants terminal authority. A late earlier wait cannot replace the final
@@ -79,12 +84,43 @@ and asynchronous work retained across configuration changes remain unbounded.
 This admission observation never disables a hook, changes approval policy or
 changes the original tool invocation. Missing proof remains opaque. This rule also
 covers bounded file patches and ordinary image/clock reads: their hooks can add
-unbounded effects. Private execution schema 2 records hook-free tool identities,
-including actual matcher aliases, separately; a patch hook does not disable an
-unrelated proven command. Legacy schema 1 remains readable for request and receipt
-continuity, but cannot grant new bounded admission without current hook proof.
+unbounded effects. Private execution schema 3 records hook-free tool identities,
+including actual matcher aliases, separately and binds them to the hook engine
+used by the admitted dispatch. Exec and stdin have separate entries; a future
+continuation's hook does not remove the current exec's completion capability.
+Resource-scope classification remains a separate requirement. A hook-free opaque
+command may still finish with its original positive OS-wait evidence. A patch
+hook does not disable an unrelated proven command. If configuration changes
+after advertisement but before admission,
+refuse that dispatch before any hook or backend effect. Once admitted, retain the
+same hook engine through applicable PreToolUse, PostToolUse, PermissionRequest
+and managed-network approval dispatch, including asynchronous review contexts.
+A later configuration refresh must not substitute another engine for that call.
+Completion may reuse hook-free evidence verified at actual admission only when
+that same engine dispatched the invocation. Unrelated asynchronous work starting
+later cannot retroactively change this original evidence; a sampling snapshot
+alone does not establish it. Ordinary unbound upstream calls retain their own
+conservative checks.
+Legacy execution schemas 1 and 2 remain readable for request and receipt
+continuity, but cannot grant new bounded admission without dispatch-bound proof.
 Native's special ToolSearch payload has no tool hooks and remains read-only
 metadata discovery, including while an unrelated effect is unconfirmed.
+
+Generation compatibility is checked after exact original-result replay and before
+reserving or forwarding a new process invocation. A producer without verified
+current dispatch/completion capability receives an explicit, non-executed refusal;
+it must not start a new process that the consumer can never positively settle.
+Distinguish a positively identified unsupported generation from unavailable
+completion capability, including matching or asynchronous hooks. Missing metadata
+alone does not identify the Runtime version. Do not disable the hooks or turn
+unconfirmed completion into success to make such a configuration executable.
+This is not a ban on historical threads, existing Writers or original receipt
+queries. Replaying a stored original call result or reading existing history is
+not a new `write_stdin` invocation. A new legacy continuation, including empty
+stdin, lacks current hook-binding proof and receives the same pre-effect refusal.
+An existing session/Owner identity alone cannot authorize it. A current qualified
+Runtime may resume an old thread through the ordinary ownership contract without
+rewriting its historical identities; its new invocations use current proof.
 
 Persisted bounded file claims carry the classifier's scope-proof version. An
 older, unknown or partially marked claim remains readable and retains its original

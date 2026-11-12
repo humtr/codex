@@ -15,9 +15,9 @@ independent `integration/release-framework-20261112` worktree. Feature commits
 are fast-forwarded to development; the protected primary checkout remains
 `e4f9ab5d` on its older 0.167.0 lineage.
 
-The last remotely accepted checkpoint is
-`26952f732a673ed2dd78187121d6374ddcfe9c88`: Source, Core/Runtime, Manager,
-Provider and stock Android gates passed. Its full TUI run failed when compiling
+The last integration checkpoint evaluated across Source, Core/Runtime, Manager,
+Provider and stock Android is `26952f732a673ed2dd78187121d6374ddcfe9c88`:
+all five gates passed. Its full TUI run failed when compiling
 the focused test target; the production CLI build and upload succeeded.
 Later independent-home Owner fixes and execution-settlement corrections need
 their own exact-source gates. Read actual HEAD/Checks before reusing a checkpoint.
@@ -33,8 +33,11 @@ The recipe now selects Codex **0.167.2**, upstream source
 `ce21072c90d32c40af7a55b60b2fb35c84a43a6a`. During integration, official upstream
 discovery advanced development to `ec51fe4a5f5153a441cf78b1e8ce108050274e80`
 at 00:48:38 UTC on November 12. It changes only the release recipe and is a
-direct child of checkpoint J. Integration preserves it in merge `795e0cae`;
-new-source preparation and qualification remain pending. The observed operating
+direct child of checkpoint J. Integration preserves it in merge `795e0cae`.
+The integrated producer base applied and normalized successfully on this input;
+its later Hook/wait corrections still require combined source qualification.
+The bot's unchanged-producer Source and Core/Runtime gates passed separately;
+they do not qualify the new input-inventory and completion changes. The observed operating
 S165 installation remains **0.167.1**. Official upstream comparison identifies
 two GCP incremental-tool changes and the version release; receipt
 `98e166ac76a9786457308377ec1c8d413a3e7b49da959fa1e71306674fd8cf45`.
@@ -272,6 +275,24 @@ boolean alone is not accepted as real process settlement. Earlier control tests
 that asserted only those weaker states cannot qualify the corrected boundary.
 Original raw results and failed receipts remain unchanged.
 
+The integrated producer base (`15301ff6` / `a4e31865`, worker source `0008`)
+passed four real Protocol/Rollout/AppServerProtocol tests in the frozen selected
+0.167.1 workspace. Selected sources and external dependency identities were
+preserved; unreachable workspace members and an unused global V8 patch were
+omitted only in that disposable check. This is not full-workspace or 0.167.2
+qualification. Log SHA256: 5133da4396dcbf9f5279a18ed34b084ba585d783671c1069dfe960113983e4d4.
+The Core/Hooks continuation stopped before those tests at two Android mxc-sdk
+E0433 dependency errors, exit 101; no substitute implementation was introduced.
+Receipt: 002cc9122eee54d065ed224bfecc5cf340c7e847cfe997a5ba9a6dda521e6a10.
+
+Provider consumer snapshot 18a7969046a76e776f4553e2ee9f79dccebb035cd8b7ed616a0250ee3e1d498c
+passed all targets: 412 primary tests, zero failures, 34 existing ignored cases;
+recursive child summaries are not counted again. Strict Clippy then reported
+five diagnostics and stopped before the formatter step. Result receipt:
+4e0563e45b5a398206ee37d71ff5dcb0f1c2b2606fc6c3e8dacf3f37167900dd.
+These snapshots precede the final per-tool admission/Hook and portable-PTY
+signal-wait corrections; their success does not accept those later changes.
+
 HTTP 413 and CDP failures were injected at production interfaces; no deliberate
 live ChatGPT 413 was induced. Actual Native observer/TUI disconnection preserved
 Writers. Original-result/receipt replay was exercised; a live Chat final ACK was
@@ -384,6 +405,8 @@ reindex, thread-ID change or user-Writer termination occurred.
 | same J checkpoint | Stock Android | [43118366005](https://github.com/humtr/codex/actions/runs/43118366005) | success |
 | same J checkpoint | Full TUI | [43118617817](https://github.com/humtr/codex/actions/runs/43118617817) | failure: focused test compilation |
 | same J checkpoint | Full composition, attempt 1 | [43118366010](https://github.com/humtr/codex/actions/runs/43118366010) | refused missing exact-source prerequisite |
+| ec51fe4a5f5153a441cf78b1e8ce108050274e80 | Source, upstream discovery only | [43130011419](https://github.com/humtr/codex/actions/runs/43130011419) | success |
+| same upstream-discovery source | Core/Runtime | [43130014157](https://github.com/humtr/codex/actions/runs/43130014157) | success; completed 2026-11-12 01:28:06 UTC |
 
 G full TUI completed 2026-11-11 23:41:42 UTC: focused 172/172; mandatory
 independent-fault oracles; Native/config/hooks/API; Retain TUI 53/53, engine
@@ -414,5 +437,6 @@ affected exact-source qualifications and final Full acceptance.
 
 Before every push, recheck development and main: the existing main schedule may
 advance upstream discovery independently. Its observed November 12 update to
-rust-v0.167.2 is preserved above and needs new exact-source qualification. No main, stable index, signing key, release, installed generation,
+rust-v0.167.2 is preserved above; the combined integration still needs its own
+exact-source qualification. No main, stable index, signing key, release, installed generation,
 operating account/service or active user Writer was changed.
