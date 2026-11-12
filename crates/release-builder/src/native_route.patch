@@ -1,6 +1,6 @@
-# codex-upstream-base 086ccc833bc9cf01024ad2dd6af7dbd421b6bf9a
+# codex-upstream-base 0a94398fa60c4fac0e7659e4213a0a36e613dd46
 diff --git a/codex-rs/app-server-client/src/lib.rs b/codex-rs/app-server-client/src/lib.rs
-index c4b9011..91106f7 100644
+index c4b9011f60..91106f7126 100644
 --- a/codex-rs/app-server-client/src/lib.rs
 +++ b/codex-rs/app-server-client/src/lib.rs
 @@ -754,6 +754,15 @@ impl AppServerRequestHandle {
@@ -39,7 +39,7 @@ index c4b9011..91106f7 100644
          }
      }
 diff --git a/codex-rs/app-server-client/src/remote.rs b/codex-rs/app-server-client/src/remote.rs
-index c6ac801..bbfa4fb 100644
+index c6ac801872..bbfa4fb0e0 100644
 --- a/codex-rs/app-server-client/src/remote.rs
 +++ b/codex-rs/app-server-client/src/remote.rs
 @@ -157,6 +157,7 @@ enum RemoteClientCommand {
@@ -70,8 +70,191 @@ index c6ac801..bbfa4fb 100644
                              metadata.platform_family = response.result.get("platformFamily")
                                  .and_then(serde_json::Value::as_str).map(str::to_string);
                              metadata.platform_os = response.result.get("platformOs")
+diff --git a/codex-rs/app-server-protocol/src/protocol/thread_history.rs b/codex-rs/app-server-protocol/src/protocol/thread_history.rs
+index 6d2b1d8e09..535a596055 100644
+--- a/codex-rs/app-server-protocol/src/protocol/thread_history.rs
++++ b/codex-rs/app-server-protocol/src/protocol/thread_history.rs
+@@ -457,6 +457,11 @@ impl ThreadHistoryBuilder {
+             EventMsg::WebSearchBegin(payload) => self.handle_web_search_begin(payload),
+             EventMsg::WebSearchEnd(payload) => self.handle_web_search_end(payload),
+             EventMsg::ExecCommandBegin(payload) => self.handle_exec_command_begin(payload),
++            // New Native ends (including an explicit unknown receipt) supplement
++            // the canonical ItemCompleted. Never overwrite its public item or
++            // lifecycle times with compatibility data. Legacy omitted ends keep
++            // their original reconstruction path.
++            EventMsg::ExecCommandEnd(payload) if payload.native_completion.is_some() => {}
+             EventMsg::ExecCommandEnd(payload) => self.handle_exec_command_end(payload),
+             EventMsg::GuardianAssessment(payload) => self.handle_guardian_assessment(payload),
+             EventMsg::ApplyPatchApprovalRequest(payload) => {
+@@ -2741,6 +2746,126 @@ mod tests {
+         );
+     }
+ 
++    #[test]
++    fn native_completion_late_receipt_does_not_duplicate_or_rewrite_public_history()
++    -> anyhow::Result<()> {
++        use codex_protocol::items::ModelInvocationContext;
++        use codex_protocol::protocol::NativeCompletionHooks;
++        use codex_protocol::protocol::NativeCompletionOutcome;
++        use codex_protocol::protocol::NativeCompletionSchema;
++        use codex_protocol::protocol::NativeEffectCompletion;
++        let canonical = EventMsg::ItemCompleted(ItemCompletedEvent {
++            thread_id: ThreadId::new(),
++            turn_id: "turn-original".into(),
++            item: CoreTurnItem::CommandExecution(CoreCommandExecutionItem {
++                model_context: Some(ModelInvocationContext {
++                    model_slug: "saved-model".into(),
++                    reasoning_effort: Some("high".into()),
++                }),
++                sandbox_type: Some(codex_protocol::sandbox::SandboxType::None),
++                id: "exec-original".into(),
++                plugin_id: None,
++                script_path: None,
++                process_id: Some("71".into()),
++                command: vec!["owned-command".into()],
++                cwd: test_path_buf("/tmp").abs().into(),
++                parsed_cmd: Vec::new(),
++                source: ExecCommandSource::UnifiedExecStartup,
++                interaction_input: None,
++                status: CoreCommandExecutionStatus::Failed,
++                aggregated_output: Some("original timeout output".into()),
++                exit_code: Some(124),
++                duration: Some(Duration::from_millis(9)),
++            }),
++            started_at_ms: Some(1),
++            completed_at_ms: 123,
++        });
++        let mut original = canonical
++            .as_legacy_events(false)
++            .into_iter()
++            .find_map(|event| match event {
++                EventMsg::ExecCommandEnd(end) => Some(end),
++                _ => None,
++            })
++            .ok_or_else(|| anyhow::anyhow!("original compatibility event"))?;
++        original.native_completion = Some(None);
++        let mut late = original.clone();
++        late.native_completion = Some(Some(NativeEffectCompletion {
++            schema: NativeCompletionSchema::V1,
++            call_id: late.call_id.clone(),
++            session_id: Some(71),
++            outcome: NativeCompletionOutcome::WaitCompleted,
++            exit_code: Some(137),
++            hooks: NativeCompletionHooks::Absent,
++        }));
++        let baseline = vec![
++            RolloutItem::EventMsg(EventMsg::TurnStarted(TurnStartedEvent {
++                turn_attribution: None,
++                turn_id: "turn-original".into(),
++                root_turn_id: None,
++                trace_id: None,
++                started_at: None,
++                model_context_window: None,
++                collaboration_mode_kind: Default::default(),
++            })),
++            RolloutItem::EventMsg(canonical),
++        ];
++        let mut augmented = baseline.clone();
++        augmented.push(RolloutItem::EventMsg(EventMsg::ExecCommandEnd(original)));
++        augmented.push(RolloutItem::EventMsg(EventMsg::ExecCommandEnd(late)));
++        for mode in [ThreadHistoryMode::Legacy, ThreadHistoryMode::Paginated] {
++            let replay = |rows: &[RolloutItem]| {
++                let mut builder = ThreadHistoryBuilder::new();
++                for row in rows {
++                    if let RolloutItem::EventMsg(event) = row {
++                        builder.handle_event_for_history_mode(event, mode);
++                    }
++                }
++                builder.finish()
++            };
++            let live = replay(&baseline);
++            assert_eq!(live.len(), 1);
++            assert_eq!(live[0].item_payloads().count(), 1);
++            let Some(ThreadItemPayload::CommandExecution {
++                model_context,
++                sandbox_type,
++                exit_code,
++                aggregated_output,
++                ..
++            }) = live[0].item_payloads().next()
++            else {
++                anyhow::bail!("one original public command");
++            };
++            assert!(model_context.is_some());
++            assert!(sandbox_type.is_some());
++            assert_eq!(*exit_code, Some(124));
++            assert_eq!(
++                aggregated_output.as_deref(),
++                Some("original timeout output")
++            );
++            assert_eq!(
++                replay(&augmented),
++                live,
++                "live canonical metadata and times"
++            );
++
++            // These analytics fields are deliberately live-only in upstream.
++            // Compare cold reconstruction to the canonical-only wire baseline,
++            // not to a fabricated serialization of model/sandbox metadata.
++            let cold = |rows: &[RolloutItem]| -> anyhow::Result<Vec<RolloutItem>> {
++                let persisted = codex_rollout::persisted_rollout_items(rows, mode);
++                Ok(serde_json::from_slice(&serde_json::to_vec(&persisted)?)?)
++            };
++            let cold_baseline = cold(&baseline)?;
++            let cold_augmented = cold(&augmented)?;
++            let expected = replay(&cold_baseline);
++            assert_eq!(expected.len(), 1);
++            assert_eq!(expected[0].item_payloads().count(), 1);
++            assert_eq!(replay(&cold_augmented), expected);
++        }
++        Ok(())
++    }
++
+     #[test]
+     fn preserves_command_plugin_id_and_redacts_secrets_across_legacy_upsert() {
+         let turn_id = "turn-1";
+@@ -2804,6 +2929,7 @@ mod tests {
+                 completed_at_ms: 1_000,
+             }),
+             EventMsg::ExecCommandEnd(ExecCommandEndEvent {
++                native_completion: None,
+                 call_id: "exec-1".to_string(),
+                 plugin_id: Some("sample@openai-curated".to_string()),
+                 script_path: Some("scripts/run.py".to_string()),
+@@ -3513,6 +3639,7 @@ mod tests {
+                 })]),
+             }),
+             EventMsg::ExecCommandEnd(ExecCommandEndEvent {
++                native_completion: None,
+                 call_id: "exec-1".into(),
+                 plugin_id: None,
+                 script_path: None,
+@@ -3809,6 +3936,7 @@ mod tests {
+                 ..Default::default()
+             }),
+             EventMsg::ExecCommandEnd(ExecCommandEndEvent {
++                native_completion: None,
+                 call_id: "exec-declined".into(),
+                 plugin_id: None,
+                 script_path: None,
+@@ -4213,6 +4341,7 @@ mod tests {
+                 ..Default::default()
+             }),
+             EventMsg::ExecCommandEnd(ExecCommandEndEvent {
++                native_completion: None,
+                 call_id: "exec-late".into(),
+                 plugin_id: None,
+                 script_path: None,
+@@ -4324,6 +4453,7 @@ mod tests {
+                 ..Default::default()
+             }),
+             EventMsg::ExecCommandEnd(ExecCommandEndEvent {
++                native_completion: None,
+                 call_id: "exec-unknown-turn".into(),
+                 plugin_id: None,
+                 script_path: None,
 diff --git a/codex-rs/app-server-protocol/src/protocol/v1.rs b/codex-rs/app-server-protocol/src/protocol/v1.rs
-index cdf6ca2..9692e82 100644
+index cdf6ca20a4..9692e82884 100644
 --- a/codex-rs/app-server-protocol/src/protocol/v1.rs
 +++ b/codex-rs/app-server-protocol/src/protocol/v1.rs
 @@ -76,6 +76,10 @@ pub struct InitializeCapabilities {
@@ -86,7 +269,7 @@ index cdf6ca2..9692e82 100644
      /// Absolute path to the server's $CODEX_HOME directory.
      pub codex_home: AbsolutePathBuf,
 diff --git a/codex-rs/app-server-protocol/src/protocol/v2/thread.rs b/codex-rs/app-server-protocol/src/protocol/v2/thread.rs
-index aba591b..00bddc0 100644
+index aba591b950..00bddc0838 100644
 --- a/codex-rs/app-server-protocol/src/protocol/v2/thread.rs
 +++ b/codex-rs/app-server-protocol/src/protocol/v2/thread.rs
 @@ -235,6 +235,12 @@ impl ThreadStartResponse {
@@ -103,7 +286,7 @@ index aba591b..00bddc0 100644
      /// Omitted/null preserves the list; [] clears it.
      #[ts(optional = nullable)]
 diff --git a/codex-rs/app-server-transport/src/transport/mod.rs b/codex-rs/app-server-transport/src/transport/mod.rs
-index cd75578..28b1eb7 100644
+index cd7557810b..28b1eb7249 100644
 --- a/codex-rs/app-server-transport/src/transport/mod.rs
 +++ b/codex-rs/app-server-transport/src/transport/mod.rs
 @@ -382,6 +382,7 @@ mod tests {
@@ -115,7 +298,7 @@ index cd75578..28b1eb7 100644
                      codex_home,
                      platform_family: "unix".to_string(),
 diff --git a/codex-rs/app-server-transport/src/transport/remote_control/segment_tests.rs b/codex-rs/app-server-transport/src/transport/remote_control/segment_tests.rs
-index 3b2406b..bfb2c94 100644
+index 3b2406b6f1..bfb2c94032 100644
 --- a/codex-rs/app-server-transport/src/transport/remote_control/segment_tests.rs
 +++ b/codex-rs/app-server-transport/src/transport/remote_control/segment_tests.rs
 @@ -136,6 +136,7 @@ fn invalid_response_becomes_remote_control_jsonrpc_error() {
@@ -127,7 +310,7 @@ index 3b2406b..bfb2c94 100644
                      codex_home,
                      platform_family: "unix".to_string(),
 diff --git a/codex-rs/app-server-transport/src/transport/remote_control/tests.rs b/codex-rs/app-server-transport/src/transport/remote_control/tests.rs
-index 8cd8793..fd46ab2 100644
+index 8cd8793bdf..fd46ab2f92 100644
 --- a/codex-rs/app-server-transport/src/transport/remote_control/tests.rs
 +++ b/codex-rs/app-server-transport/src/transport/remote_control/tests.rs
 @@ -1890,6 +1890,7 @@ async fn remote_control_http_mode_enrolls_before_connecting() {
@@ -139,7 +322,7 @@ index 8cd8793..fd46ab2 100644
                              codex_home: codex_home.path().abs(),
                              platform_family: "test-family".to_string(),
 diff --git a/codex-rs/app-server/src/config_manager.rs b/codex-rs/app-server/src/config_manager.rs
-index 461920b..9133dd2 100644
+index 461920b677..9133dd23dc 100644
 --- a/codex-rs/app-server/src/config_manager.rs
 +++ b/codex-rs/app-server/src/config_manager.rs
 @@ -430,27 +430,6 @@ impl ConfigManager {
@@ -311,7 +494,7 @@ index 461920b..9133dd2 100644
                  Ok(())
              },
 diff --git a/codex-rs/app-server/src/config_manager_provider_tests.rs b/codex-rs/app-server/src/config_manager_provider_tests.rs
-index 1f2129d..28e5e4e 100644
+index 1f2129d69d..28e5e4e245 100644
 --- a/codex-rs/app-server/src/config_manager_provider_tests.rs
 +++ b/codex-rs/app-server/src/config_manager_provider_tests.rs
 @@ -1,4 +1,4 @@
@@ -418,7 +601,7 @@ index 1f2129d..28e5e4e 100644
      Ok(())
  }
 diff --git a/codex-rs/app-server/src/request_processors/account_processor/workspace_routing.rs b/codex-rs/app-server/src/request_processors/account_processor/workspace_routing.rs
-index aef1593..71ca534 100644
+index aef1593c8e..71ca5343f6 100644
 --- a/codex-rs/app-server/src/request_processors/account_processor/workspace_routing.rs
 +++ b/codex-rs/app-server/src/request_processors/account_processor/workspace_routing.rs
 @@ -184,6 +184,28 @@ fn workspace_config_load_reason(error: &io::Error) -> String {
@@ -463,7 +646,7 @@ index aef1593..71ca534 100644
          if let Some(Account::Chatgpt { workspace_name, .. }) = &mut account {
              *workspace_name = read.workspace_name;
 diff --git a/codex-rs/app-server/src/request_processors/account_processor/workspace_routing_tests.rs b/codex-rs/app-server/src/request_processors/account_processor/workspace_routing_tests.rs
-index dafe4e8..242146d 100644
+index dafe4e8e98..242146d8db 100644
 --- a/codex-rs/app-server/src/request_processors/account_processor/workspace_routing_tests.rs
 +++ b/codex-rs/app-server/src/request_processors/account_processor/workspace_routing_tests.rs
 @@ -5,6 +5,36 @@ use pretty_assertions::assert_eq;
@@ -504,7 +687,7 @@ index dafe4e8..242146d 100644
  #[test_case(CloudConfigBundleLoadErrorCode::Auth, "cloud config: authentication failed"; "refresh")]
  fn cloud_failures_preserve_policy_denials_but_redact_other_messages(
 diff --git a/codex-rs/app-server/src/request_processors/initialize_processor.rs b/codex-rs/app-server/src/request_processors/initialize_processor.rs
-index f6b282e..ce097d8 100644
+index f6b282e7e1..ce097d8e82 100644
 --- a/codex-rs/app-server/src/request_processors/initialize_processor.rs
 +++ b/codex-rs/app-server/src/request_processors/initialize_processor.rs
 @@ -213,6 +213,7 @@ impl InitializeRequestProcessor {
@@ -516,7 +699,7 @@ index f6b282e..ce097d8 100644
              codex_home,
              platform_family: std::env::consts::FAMILY.to_string(),
 diff --git a/codex-rs/app-server/src/request_processors/thread_goal_processor.rs b/codex-rs/app-server/src/request_processors/thread_goal_processor.rs
-index 82aeaf7..bada44d 100644
+index 82aeaf7f46..bada44de51 100644
 --- a/codex-rs/app-server/src/request_processors/thread_goal_processor.rs
 +++ b/codex-rs/app-server/src/request_processors/thread_goal_processor.rs
 @@ -162,7 +162,7 @@ impl ThreadGoalRequestProcessor {
@@ -529,7 +712,7 @@ index 82aeaf7..bada44d 100644
                  .map_err(|error| config_load_error(&error))?;
          }
 diff --git a/codex-rs/app-server/src/request_processors/thread_processor.rs b/codex-rs/app-server/src/request_processors/thread_processor.rs
-index 36d9f43..cc75fcd 100644
+index 36d9f435ae..f68d9e35d6 100644
 --- a/codex-rs/app-server/src/request_processors/thread_processor.rs
 +++ b/codex-rs/app-server/src/request_processors/thread_processor.rs
 @@ -2585,7 +2585,7 @@ impl ThreadRequestProcessor {
@@ -692,7 +875,7 @@ index 36d9f43..cc75fcd 100644
                  .map_err(|err| config_load_error(&err))?;
              let redact_resume_payloads =
 diff --git a/codex-rs/app-server/src/request_processors/thread_queue_processor.rs b/codex-rs/app-server/src/request_processors/thread_queue_processor.rs
-index be77be3..a2f5b5a 100644
+index be77be34d6..a2f5b5ad68 100644
 --- a/codex-rs/app-server/src/request_processors/thread_queue_processor.rs
 +++ b/codex-rs/app-server/src/request_processors/thread_queue_processor.rs
 @@ -193,7 +193,7 @@ impl ThreadQueueRequestProcessor {
@@ -705,7 +888,7 @@ index be77be3..a2f5b5a 100644
              .map_err(|error| config_load_error(&error))?;
          let submission = self
 diff --git a/codex-rs/app-server/src/request_processors/turn_processor.rs b/codex-rs/app-server/src/request_processors/turn_processor.rs
-index eeed287..a3dd6bd 100644
+index eeed287866..a3dd6bdddf 100644
 --- a/codex-rs/app-server/src/request_processors/turn_processor.rs
 +++ b/codex-rs/app-server/src/request_processors/turn_processor.rs
 @@ -194,7 +194,7 @@ impl TurnRequestProcessor {
@@ -792,7 +975,7 @@ index eeed287..a3dd6bd 100644
              .map_err(|error| config_load_error(&error))?;
  
 diff --git a/codex-rs/app-server/tests/suite/v2/initialize.rs b/codex-rs/app-server/tests/suite/v2/initialize.rs
-index 2d181de..69cdc95 100644
+index 2d181de648..69cdc9539e 100644
 --- a/codex-rs/app-server/tests/suite/v2/initialize.rs
 +++ b/codex-rs/app-server/tests/suite/v2/initialize.rs
 @@ -55,6 +55,7 @@ async fn initialize_uses_client_info_name_as_originator() -> Result<()> {
@@ -828,7 +1011,7 @@ index 2d181de..69cdc95 100644
  }
  
 diff --git a/codex-rs/app-server/tests/suite/v2/model_provider_enforcement_tests.rs b/codex-rs/app-server/tests/suite/v2/model_provider_enforcement_tests.rs
-index 03a1b19..63dba6d 100644
+index 03a1b192d6..63dba6dc3d 100644
 --- a/codex-rs/app-server/tests/suite/v2/model_provider_enforcement_tests.rs
 +++ b/codex-rs/app-server/tests/suite/v2/model_provider_enforcement_tests.rs
 @@ -4,12 +4,14 @@ use anyhow::Result;
@@ -1057,7 +1240,7 @@ index 03a1b19..63dba6d 100644
      Ok(())
  }
 diff --git a/codex-rs/app-server/tests/suite/v2/thread_settings_update.rs b/codex-rs/app-server/tests/suite/v2/thread_settings_update.rs
-index ab688b1..0728321 100644
+index ab688b12e9..0728321097 100644
 --- a/codex-rs/app-server/tests/suite/v2/thread_settings_update.rs
 +++ b/codex-rs/app-server/tests/suite/v2/thread_settings_update.rs
 @@ -774,3 +774,558 @@ async fn thread_settings_update_preserves_session_profiles() -> Result<()> {
@@ -1620,7 +1803,7 @@ index ab688b1..0728321 100644
 +    Ok(())
 +}
 diff --git a/codex-rs/core/src/agent/child_config.rs b/codex-rs/core/src/agent/child_config.rs
-index 96d9675..186e386 100644
+index 96d9675f63..186e386de6 100644
 --- a/codex-rs/core/src/agent/child_config.rs
 +++ b/codex-rs/core/src/agent/child_config.rs
 @@ -220,6 +220,8 @@ async fn apply_requested_spawn_agent_model_overrides(
@@ -1660,7 +1843,7 @@ index 96d9675..186e386 100644
          .get_model_info(&model, &config.to_models_manager_config())
          .await;
 diff --git a/codex-rs/core/src/agent/control/spawn.rs b/codex-rs/core/src/agent/control/spawn.rs
-index 024a089..774cbd7 100644
+index 024a0893c9..774cbd73b0 100644
 --- a/codex-rs/core/src/agent/control/spawn.rs
 +++ b/codex-rs/core/src/agent/control/spawn.rs
 @@ -529,7 +529,9 @@ impl LocalAgentControl {
@@ -1675,7 +1858,7 @@ index 024a089..774cbd7 100644
          });
          let inherited_instructions = if let Some(parent) = inherited_parent {
 diff --git a/codex-rs/core/src/agent/control_tests.rs b/codex-rs/core/src/agent/control_tests.rs
-index 8724766..d2ad02a 100644
+index 87247661d2..d2ad02a576 100644
 --- a/codex-rs/core/src/agent/control_tests.rs
 +++ b/codex-rs/core/src/agent/control_tests.rs
 @@ -511,7 +511,9 @@ async fn mcp_attribution_in_constructed_request(thread: &CodexThread) -> McpAttr
@@ -1690,7 +1873,7 @@ index 8724766..d2ad02a 100644
              &prompt,
              &step_context.settings.model_info,
 diff --git a/codex-rs/core/src/agent/host/spawn.rs b/codex-rs/core/src/agent/host/spawn.rs
-index 35c243f..f97c910 100644
+index 35c243ffe3..f97c9100f8 100644
 --- a/codex-rs/core/src/agent/host/spawn.rs
 +++ b/codex-rs/core/src/agent/host/spawn.rs
 @@ -76,7 +76,9 @@ async fn prepare_spawn_inputs(
@@ -1704,8 +1887,20 @@ index 35c243f..f97c910 100644
              .prompt_cache_key_policy(),
          ..StartThreadOptions::new(config)
      };
+diff --git a/codex-rs/core/src/agent/host/spawn_tests.rs b/codex-rs/core/src/agent/host/spawn_tests.rs
+index c9504fb56f..09a0250fb9 100644
+--- a/codex-rs/core/src/agent/host/spawn_tests.rs
++++ b/codex-rs/core/src/agent/host/spawn_tests.rs
+@@ -41,6 +41,7 @@ async fn spawn_call(parent: &CodexThread) -> anyhow::Result<ToolInvocation> {
+         .capture_step_context(session.new_default_turn().await, &CancellationToken::new())
+         .await?;
+     Ok(ToolInvocation {
++        native_completion: None,
+         session: Arc::clone(session),
+         turn: Arc::clone(&step.turn),
+         step_context: step,
 diff --git a/codex-rs/core/src/client.rs b/codex-rs/core/src/client.rs
-index 889a626..96b9ae9 100644
+index 889a62680f..96b9ae99e0 100644
 --- a/codex-rs/core/src/client.rs
 +++ b/codex-rs/core/src/client.rs
 @@ -739,6 +739,36 @@ impl ModelClient {
@@ -1746,7 +1941,7 @@ index 889a626..96b9ae9 100644
      ///
      /// This constructor does not perform network I/O itself; the session opens a websocket lazily
 diff --git a/codex-rs/core/src/codex_delegate.rs b/codex-rs/core/src/codex_delegate.rs
-index d4227af..cfbf15e 100644
+index d4227af4b1..cfbf15e713 100644
 --- a/codex-rs/core/src/codex_delegate.rs
 +++ b/codex-rs/core/src/codex_delegate.rs
 @@ -76,7 +76,9 @@ pub(crate) async fn run_codex_thread_interactive(
@@ -1780,7 +1975,7 @@ index d4227af..cfbf15e 100644
                          op: Op::Shutdown {},
                          turn_extension_init: None,
 diff --git a/codex-rs/core/src/codex_delegate_tests.rs b/codex-rs/core/src/codex_delegate_tests.rs
-index 26e780e..351bcfa 100644
+index 26e780e3eb..351bcfaa69 100644
 --- a/codex-rs/core/src/codex_delegate_tests.rs
 +++ b/codex-rs/core/src/codex_delegate_tests.rs
 @@ -151,6 +151,7 @@ async fn forward_ops_preserves_submission_trace_context() {
@@ -1837,7 +2032,7 @@ index 26e780e..351bcfa 100644
          Arc::clone(&context),
          context.initial_environments.clone(),
 diff --git a/codex-rs/core/src/codex_thread.rs b/codex-rs/core/src/codex_thread.rs
-index a8d5865..39ad148 100644
+index a8d5865e7c..39ad148674 100644
 --- a/codex-rs/core/src/codex_thread.rs
 +++ b/codex-rs/core/src/codex_thread.rs
 @@ -609,6 +609,7 @@ impl CodexThread {
@@ -1882,7 +2077,7 @@ index a8d5865..39ad148 100644
      ///
      /// Runtime replacement uses this after resume so clients keep their current thread settings
 diff --git a/codex-rs/core/src/compact.rs b/codex-rs/core/src/compact.rs
-index 2f6a91d..4e5fa24 100644
+index 2f6a91de70..4e5fa24417 100644
 --- a/codex-rs/core/src/compact.rs
 +++ b/codex-rs/core/src/compact.rs
 @@ -294,7 +294,7 @@ async fn run_compact_task_inner_impl(
@@ -1895,7 +2090,7 @@ index 2f6a91d..4e5fa24 100644
          // Clone is required because of the loop
          let mut turn_input = history
 diff --git a/codex-rs/core/src/compact_remote_v2.rs b/codex-rs/core/src/compact_remote_v2.rs
-index f84dc6e..9affe52 100644
+index f84dc6e1bb..9affe52e75 100644
 --- a/codex-rs/core/src/compact_remote_v2.rs
 +++ b/codex-rs/core/src/compact_remote_v2.rs
 @@ -301,7 +301,7 @@ async fn run_remote_compaction_request_v2(
@@ -1908,10 +2103,10 @@ index f84dc6e..9affe52 100644
                  biased;
                  _ = cancellation.cancelled() => return Err(CodexErr::TurnAborted),
 diff --git a/codex-rs/core/src/compact_remote_v2_attempt.rs b/codex-rs/core/src/compact_remote_v2_attempt.rs
-index 37bbc15..f42e50c 100644
+index 2c5ce6fd4d..cbf04f380c 100644
 --- a/codex-rs/core/src/compact_remote_v2_attempt.rs
 +++ b/codex-rs/core/src/compact_remote_v2_attempt.rs
-@@ -142,7 +142,7 @@ pub(super) async fn run_remote_compact_v2_attempt(
+@@ -141,7 +141,7 @@ pub(super) async fn run_remote_compact_v2_attempt(
                  .executed_tool_calls
                  .attach_to_compaction_prompt(&mut input);
              let client_session = client_session.unwrap_or_else(|| {
@@ -1921,7 +2116,7 @@ index 37bbc15..f42e50c 100644
              (
                  model_info,
 diff --git a/codex-rs/core/src/compact_remote_v2_installation_tests.rs b/codex-rs/core/src/compact_remote_v2_installation_tests.rs
-index 5f9e290..51c1859 100644
+index 5f9e290bd9..51c18591d0 100644
 --- a/codex-rs/core/src/compact_remote_v2_installation_tests.rs
 +++ b/codex-rs/core/src/compact_remote_v2_installation_tests.rs
 @@ -67,7 +67,12 @@ async fn prepared_prefix_rejection_respects_caller_intent(
@@ -1939,7 +2134,7 @@ index 5f9e290..51c1859 100644
          prefix: CompactionPrefix {
              generation: history.history_version(),
 diff --git a/codex-rs/core/src/config/mod.rs b/codex-rs/core/src/config/mod.rs
-index 8d93436..141a659 100644
+index 8d93436455..141a6592a0 100644
 --- a/codex-rs/core/src/config/mod.rs
 +++ b/codex-rs/core/src/config/mod.rs
 @@ -1066,6 +1066,10 @@ pub struct Config {
@@ -2028,7 +2223,7 @@ index 8d93436..141a659 100644
              chatgpt_base_url_is_explicit,
              chatgpt_base_url: cfg
 diff --git a/codex-rs/core/src/guardian/input_budget.rs b/codex-rs/core/src/guardian/input_budget.rs
-index 9ba8ef3..ba6406f 100644
+index 9ba8ef3f2f..ba6406f678 100644
 --- a/codex-rs/core/src/guardian/input_budget.rs
 +++ b/codex-rs/core/src/guardian/input_budget.rs
 @@ -166,17 +166,22 @@ pub(crate) async fn finalize(
@@ -2065,8 +2260,20 @@ index 9ba8ef3..ba6406f 100644
      let mut existing = super::request_budget::estimate_request_tokens(&request)
          .max(usize::try_from(session.get_total_token_usage().await).unwrap_or(usize::MAX));
      // These reminders are appended after the accepted input. Reserve their full
+diff --git a/codex-rs/core/src/guardian/recorded_tool_call.rs b/codex-rs/core/src/guardian/recorded_tool_call.rs
+index f2a128d0ee..b1c20afc16 100644
+--- a/codex-rs/core/src/guardian/recorded_tool_call.rs
++++ b/codex-rs/core/src/guardian/recorded_tool_call.rs
+@@ -87,6 +87,7 @@ pub(crate) async fn review_tool_call(
+             })?;
+         let source = parsed_call.direct_source();
+         let mut invocation = ToolInvocation {
++            native_completion: None,
+             session: Arc::clone(session),
+             turn: Arc::clone(&step.turn),
+             step_context: Arc::clone(&step),
 diff --git a/codex-rs/core/src/guardian/request_budget.rs b/codex-rs/core/src/guardian/request_budget.rs
-index d1cf8d6..5b7caf1 100644
+index d1cf8d64d1..5b7caf11c8 100644
 --- a/codex-rs/core/src/guardian/request_budget.rs
 +++ b/codex-rs/core/src/guardian/request_budget.rs
 @@ -69,15 +69,20 @@ pub(crate) async fn prepare_prompt(
@@ -2130,7 +2337,7 @@ index d1cf8d6..5b7caf1 100644
      if total > maximum {
          session
 diff --git a/codex-rs/core/src/guardian/request_budget_tests.rs b/codex-rs/core/src/guardian/request_budget_tests.rs
-index 0a0a049..9fb258c 100644
+index 0a0a049584..9fb258cf86 100644
 --- a/codex-rs/core/src/guardian/request_budget_tests.rs
 +++ b/codex-rs/core/src/guardian/request_budget_tests.rs
 @@ -66,7 +66,9 @@ async fn request_histogram_counts_admitted_steps_without_counting_retry_preparat
@@ -2145,7 +2352,7 @@ index 0a0a049..9fb258c 100644
                  &prompt,
                  &step.settings.model_info,
 diff --git a/codex-rs/core/src/guardian/review_session.rs b/codex-rs/core/src/guardian/review_session.rs
-index 250a5db..c023eff 100644
+index 250a5dbcce..c023eff1ac 100644
 --- a/codex-rs/core/src/guardian/review_session.rs
 +++ b/codex-rs/core/src/guardian/review_session.rs
 @@ -242,6 +242,8 @@ async fn run_review_on_session(
@@ -2158,7 +2365,7 @@ index 250a5db..c023eff 100644
          .get_model_info(
              review_model.model.as_str(),
 diff --git a/codex-rs/core/src/guardian/review_session_setup.rs b/codex-rs/core/src/guardian/review_session_setup.rs
-index 64955ba..4d3bc4c 100644
+index 64955bacbe..4d3bc4c08c 100644
 --- a/codex-rs/core/src/guardian/review_session_setup.rs
 +++ b/codex-rs/core/src/guardian/review_session_setup.rs
 @@ -107,10 +107,18 @@ impl PreparedGuardianContext {
@@ -2183,7 +2390,7 @@ index 64955ba..4d3bc4c 100644
              internal_parent: Some(crate::thread_manager::InternalSessionParent {
                  thread_id: self.parent.thread_id(),
 diff --git a/codex-rs/core/src/guardian/reviewer_config.rs b/codex-rs/core/src/guardian/reviewer_config.rs
-index 66a5ed5..51c7817 100644
+index 66a5ed5f4a..51c781706e 100644
 --- a/codex-rs/core/src/guardian/reviewer_config.rs
 +++ b/codex-rs/core/src/guardian/reviewer_config.rs
 @@ -105,7 +105,7 @@ pub(crate) async fn resolve_review_model(
@@ -2214,7 +2421,7 @@ index 66a5ed5..51c7817 100644
                      .get_model_info(
                          review_model.model.as_str(),
 diff --git a/codex-rs/core/src/guardian/test_host.rs b/codex-rs/core/src/guardian/test_host.rs
-index 3f98917..0b5e4b2 100644
+index 3f98917afb..0b5e4b2951 100644
 --- a/codex-rs/core/src/guardian/test_host.rs
 +++ b/codex-rs/core/src/guardian/test_host.rs
 @@ -28,7 +28,7 @@ pub(crate) fn install(session: &Session, config: &Config) {
@@ -2227,7 +2434,7 @@ index 3f98917..0b5e4b2 100644
          SessionSource::Exec,
          session.services.turn_environments.environment_manager(),
 diff --git a/codex-rs/core/src/guardian/tests.rs b/codex-rs/core/src/guardian/tests.rs
-index 239a965..0bdee1e 100644
+index 239a965fcb..5794cc6193 100644
 --- a/codex-rs/core/src/guardian/tests.rs
 +++ b/codex-rs/core/src/guardian/tests.rs
 @@ -174,10 +174,7 @@ async fn guardian_test_session_turn_and_rx(
@@ -2374,7 +2581,15 @@ index 239a965..0bdee1e 100644
      crate::guardian::test_host::install(&session, &config);
      let turn_mut = Arc::get_mut(&mut turn).expect("turn should be uniquely owned");
      turn_mut.config = Arc::clone(&config);
-@@ -3954,16 +3941,14 @@ async fn guardian_review_session_config_preserves_parent_network_proxy() {
+@@ -3276,6 +3263,7 @@ async fn guardian_review_retries_two_parse_failures_then_approves() -> anyhow::R
+         .remove("encrypted_content");
+     expected["arguments"] = serde_json::json!(r#"{"target":"/root","message":"opaque-message"}"#);
+     let invocation = crate::tools::context::ToolInvocation {
++        native_completion: None,
+         session: Arc::clone(&session),
+         step_context: crate::session::step_context::StepContext::for_test(Arc::clone(&turn)),
+         turn,
+@@ -3954,16 +3942,14 @@ async fn guardian_review_session_config_preserves_parent_network_proxy() {
  #[tokio::test]
  async fn guardian_review_session_config_clears_context_overrides_for_distinct_effective_model() {
      let server = start_mock_server().await;
@@ -2394,7 +2609,7 @@ index 239a965..0bdee1e 100644
      crate::guardian::test_host::install(&session, &turn.config);
      let mut config = (*turn.config).clone();
      config.model = Some("codex-auto-review".to_string());
-@@ -3994,16 +3979,14 @@ async fn guardian_review_session_config_preserves_context_overrides_for_same_eff
+@@ -3994,16 +3980,14 @@ async fn guardian_review_session_config_preserves_context_overrides_for_same_eff
      let (mut session, mut turn) = guardian_test_session_and_turn(&server).await;
      let parent_model = turn.model_info().model.as_ref().clone();
      let auth_manager = Arc::clone(&session.services.auth_manager);
@@ -2414,19 +2629,20 @@ index 239a965..0bdee1e 100644
      config.model = Some("stale-parent-model".to_string());
      config.model_context_window = Some(128_000);
 diff --git a/codex-rs/core/src/lib.rs b/codex-rs/core/src/lib.rs
-index 5157340..18d932b 100644
+index 51573406cb..afb77f3e79 100644
 --- a/codex-rs/core/src/lib.rs
 +++ b/codex-rs/core/src/lib.rs
-@@ -10,6 +10,7 @@ mod apps;
+@@ -10,6 +10,8 @@ mod apps;
  mod client;
  mod client_common;
  mod model_request;
++mod native_completion;
 +mod native_execution;
  mod realtime_context;
  mod realtime_conversation;
  mod realtime_history;
 diff --git a/codex-rs/core/src/mcp_tool_call_tests.rs b/codex-rs/core/src/mcp_tool_call_tests.rs
-index c0ac2d4..a8ac1c0 100644
+index c0ac2d401b..a8ac1c080b 100644
 --- a/codex-rs/core/src/mcp_tool_call_tests.rs
 +++ b/codex-rs/core/src/mcp_tool_call_tests.rs
 @@ -2930,7 +2930,7 @@ async fn guardian_mode_skips_auto_when_annotations_do_not_require_approval() {
@@ -2483,8 +2699,787 @@ index c0ac2d4..a8ac1c0 100644
          turn_context.config = Arc::clone(&config);
          turn_context.provider = create_model_provider(
              config.model_provider.clone(),
+diff --git a/codex-rs/core/src/native_completion.rs b/codex-rs/core/src/native_completion.rs
+new file mode 100644
+index 0000000000..e077912a7c
+--- /dev/null
++++ b/codex-rs/core/src/native_completion.rs
+@@ -0,0 +1,772 @@
++//! Completion facts produced by Native, never inferred from command text.
++//! The state belongs to the existing ToolCallState and survives its joined abort.
++use crate::session::session::Session;
++use crate::session::step_context::StepContext;
++use crate::tools::registry::AnyToolResult;
++use codex_hooks::Hooks;
++use codex_protocol::models::FunctionCallOutputBody;
++use codex_protocol::models::FunctionCallOutputContentItem;
++use codex_protocol::models::ResponseInputItem;
++use codex_protocol::protocol::NativeCompletionHooks;
++use codex_protocol::protocol::NativeCompletionOutcome;
++use codex_protocol::protocol::NativeCompletionSchema;
++use codex_protocol::protocol::NativeEffectCompletion;
++use codex_tools::FunctionCallError;
++use codex_tools::ToolName;
++use codex_tools::ToolOutput;
++use codex_tools::ToolPayload;
++use serde_json::Value;
++use std::sync::Arc;
++use std::sync::Mutex;
++use std::sync::OnceLock;
++use std::sync::atomic::AtomicBool;
++use std::sync::atomic::Ordering;
++use tokio::sync::watch;
++
++fn hooks_free(hooks: &Hooks, tool: &str) -> bool {
++    match tool {
++        "exec_command" => {
++            hooks.tool_has_no_hook_effects(&["exec_command", "functions.exec_command"], &["Bash"])
++        }
++        "write_stdin" => hooks
++            .tool_has_no_hook_effects(&["write_stdin", "functions.write_stdin"], &["write_stdin"]),
++        _ => false,
++    }
++}
++
++const HEADER: &str = "Native completion: ";
++
++struct Origin {
++    tool: &'static str,
++    call_id: String,
++    hooks: Arc<Hooks>,
++}
++
++pub(crate) struct CallCompletion {
++    origin: OnceLock<Origin>,
++    call_id: OnceLock<String>,
++    exec_session: OnceLock<i32>,
++    running_session: OnceLock<i32>,
++    attempts: Mutex<Vec<Option<Result<i32, ()>>>>,
++    rejected: AtomicBool,
++    waited: Mutex<Option<(i32, i32)>>,
++    finished: watch::Sender<Option<bool>>,
++}
++
++impl Default for CallCompletion {
++    fn default() -> Self {
++        Self {
++            origin: OnceLock::new(),
++            call_id: OnceLock::new(),
++            exec_session: OnceLock::new(),
++            running_session: OnceLock::new(),
++            attempts: Mutex::new(Vec::new()),
++            rejected: AtomicBool::new(false),
++            waited: Mutex::new(None),
++            finished: watch::channel(None).0,
++        }
++    }
++}
++
++impl CallCompletion {
++    pub(crate) fn capture(
++        &self,
++        session: &Session,
++        step: &StepContext,
++        call_id: &str,
++        tool: &ToolName,
++    ) {
++        if !tool.is_default_namespace()
++            || !matches!(tool.name.as_str(), "exec_command" | "write_stdin")
++        {
++            return;
++        }
++        // Null distinguishes a new unconfirmed result from a legacy Runtime
++        // that predates typed evidence; consumers must not downgrade to text.
++        let _ = self.call_id.set(call_id.to_owned());
++        if call_id.is_empty()
++            || call_id.len() > 256
++            || step.environments.turn_environments().count() != 1
++            || !step.executor_hook_sources.is_empty()
++        {
++            return;
++        }
++        let Some(environment) = step.environments.primary() else {
++            return;
++        };
++        if environment.environment.is_remote() || !environment.config().environment_hooks.is_empty()
++        {
++            return;
++        }
++        let hooks = session.hooks();
++        let actual_tool = match tool.name.as_str() {
++            "exec_command" => "exec_command",
++            "write_stdin" => "write_stdin",
++            _ => return,
++        };
++        if hooks_free(&hooks, actual_tool) {
++            let _ = self.origin.set(Origin {
++                tool: actual_tool,
++                call_id: call_id.to_owned(),
++                hooks,
++            });
++        }
++    }
++
++    pub(crate) fn is_admitted(&self) -> bool {
++        self.origin.get().is_some()
++    }
++
++    pub(crate) fn bind_exec_session(&self, session_id: i32) {
++        if session_id >= 0 {
++            let _ = self.exec_session.set(session_id);
++        }
++    }
++
++    pub(crate) fn observed_running(&self, session_id: i32) {
++        if session_id >= 0
++            && self
++                .origin
++                .get()
++                .is_some_and(|origin| origin.tool == "write_stdin")
++        {
++            let _ = self.running_session.set(session_id);
++        }
++    }
++
++    pub(crate) fn begin_attempt(self: &Arc<Self>) -> Option<NativeAttempt> {
++        let mut attempts = self.attempts.lock().ok()?;
++        let index = attempts.len();
++        attempts.push(None);
++        Some(NativeAttempt {
++            state: Arc::clone(self),
++            index,
++        })
++    }
++
++    pub(crate) fn initial_rejection(&self) {
++        if self
++            .attempts
++            .lock()
++            .is_ok_and(|attempts| attempts.is_empty())
++        {
++            self.rejected.store(true, Ordering::Release);
++        }
++    }
++
++    pub(crate) fn attempts_confirmed(&self) -> bool {
++        self.attempts.lock().is_ok_and(|attempts| {
++            !attempts.is_empty()
++                && attempts
++                    .iter()
++                    .all(|attempt| matches!(attempt, Some(Ok(_))))
++        })
++    }
++
++    pub(crate) async fn wait_for_attempts(&self) -> bool {
++        let mut changed = self.finished.subscribe();
++        loop {
++            changed.borrow_and_update();
++            let state = self.attempts.lock().ok().map(|attempts| {
++                if attempts
++                    .iter()
++                    .any(|attempt| matches!(attempt, Some(Err(()))))
++                    || attempts.is_empty()
++                {
++                    Some(false)
++                } else if attempts
++                    .iter()
++                    .all(|attempt| matches!(attempt, Some(Ok(_))))
++                {
++                    Some(true)
++                } else {
++                    None
++                }
++            });
++            match state {
++                Some(Some(done)) => return done,
++                None => return false,
++                Some(None) => {}
++            }
++            if changed.changed().await.is_err() {
++                return false;
++            }
++        }
++    }
++
++    pub(crate) fn observed_wait(&self, session_id: i32, actual_exit_code: i32) {
++        if session_id >= 0
++            && let Ok(mut waited) = self.waited.lock()
++        {
++            *waited = Some((session_id, actual_exit_code));
++        }
++    }
++
++    pub(crate) fn finish(&self, session: &Session) {
++        // Hook configuration is replaced only with a newly allocated Arc in
++        // Session::update_config. Retaining the original Arc prevents address
++        // reuse: reconfiguration cannot silently restore this snapshot identity.
++        // Dynamic environment/executor overlays were excluded at admission.
++        let valid = self.origin.get().is_some_and(|origin| {
++            Arc::ptr_eq(&origin.hooks, &session.hooks()) && hooks_free(&origin.hooks, origin.tool)
++        });
++        self.finished.send_replace(Some(valid));
++    }
++
++    pub(crate) fn hook_free_finished(&self) -> bool {
++        *self.finished.borrow() == Some(true)
++    }
++
++    pub(crate) async fn wait_for_finish(&self) -> bool {
++        let mut finished = self.finished.subscribe();
++        loop {
++            if let Some(valid) = *finished.borrow_and_update() {
++                return valid;
++            }
++            if finished.changed().await.is_err() {
++                return false;
++            }
++        }
++    }
++
++    fn make(
++        &self,
++        outcome: NativeCompletionOutcome,
++        session_id: Option<i32>,
++        exit_code: Option<i32>,
++    ) -> Option<NativeEffectCompletion> {
++        if !self.hook_free_finished() {
++            return None;
++        }
++        Some(NativeEffectCompletion {
++            schema: NativeCompletionSchema::V1,
++            call_id: self.origin.get()?.call_id.clone(),
++            session_id,
++            outcome,
++            exit_code,
++            hooks: NativeCompletionHooks::Absent,
++        })
++    }
++
++    pub(crate) fn wait_proof(
++        &self,
++        session_id: i32,
++        actual_exit_code: i32,
++    ) -> Option<NativeEffectCompletion> {
++        self.make(
++            NativeCompletionOutcome::WaitCompleted,
++            Some(session_id),
++            Some(actual_exit_code),
++        )
++    }
++
++    fn proof(&self) -> Option<NativeEffectCompletion> {
++        let waited = *self.waited.lock().ok()?;
++        let attempts = self.attempts.lock().ok()?;
++        if !attempts.is_empty() {
++            if !attempts
++                .iter()
++                .all(|attempt| matches!(attempt, Some(Ok(_))))
++            {
++                return None;
++            }
++            let code = attempts.last()?.as_ref()?.as_ref().ok().copied()?;
++            let session_id = *self.exec_session.get()?;
++            if waited.is_some_and(|observed| observed != (session_id, code)) {
++                return None;
++            }
++            // A completed sandbox attempt can return an error before a managed
++            // process is bound (including a subsequently declined retry). Its
++            // actual last wait still settles the original execution, never as
++            // a fabricated pre-backend rejection.
++            return self.wait_proof(session_id, code);
++        }
++        if let Some((session_id, code)) = waited {
++            return self.wait_proof(session_id, code);
++        }
++        if self.rejected.load(Ordering::Acquire) {
++            return self.make(NativeCompletionOutcome::PreBackendRejected, None, None);
++        }
++        if let Some(session_id) = self.running_session.get() {
++            return self.make(
++                NativeCompletionOutcome::SessionRunning,
++                Some(*session_id),
++                None,
++            );
++        }
++        None
++    }
++}
++
++/// A token is tied to one backend attempt, including retries that reuse the
++/// public process session number. A late first wait cannot complete another.
++#[derive(Clone)]
++pub(crate) struct NativeAttempt {
++    state: Arc<CallCompletion>,
++    index: usize,
++}
++impl NativeAttempt {
++    pub(crate) fn observe(&self, code: Option<i32>) {
++        if let Ok(mut attempts) = self.state.attempts.lock()
++            && let Some(attempt) = attempts.get_mut(self.index)
++        {
++            let observed = code.ok_or(());
++            match attempt {
++                None => *attempt = Some(observed),
++                Some(previous) if *previous == observed => {}
++                Some(_) => *attempt = Some(Err(())),
++            }
++        }
++        self.state.finished.send_modify(|_| {});
++    }
++}
++
++/// A cancelled producer must not leave the original exit watcher waiting for a
++/// finalization that can no longer arrive. Dropping is never positive evidence.
++pub(crate) struct FinishGuard(pub(crate) Arc<CallCompletion>);
++impl Drop for FinishGuard {
++    fn drop(&mut self) {
++        self.0.finished.send_if_modified(|finished| {
++            if finished.is_none() {
++                *finished = Some(false);
++                true
++            } else {
++                false
++            }
++        });
++    }
++}
++
++fn header(proof: &Option<NativeEffectCompletion>) -> String {
++    format!(
++        "{HEADER}{}\n",
++        serde_json::to_string(proof).expect("typed Native completion serializes")
++    )
++}
++
++/// Decorate only after the original handler, error hooks and joined cancellation.
++/// Errors remain errors; child output and the original public exit code are intact.
++pub(crate) fn decorate(
++    result: Result<AnyToolResult, FunctionCallError>,
++    state: &CallCompletion,
++) -> Result<AnyToolResult, FunctionCallError> {
++    let Some(call_id) = state.call_id.get() else {
++        return result;
++    };
++    let proof = state.proof();
++    match result {
++        Ok(mut result) => {
++            result.result = Box::new(CompletionOutput {
++                original: result.result,
++                call_id: call_id.clone(),
++                proof,
++            });
++            Ok(result)
++        }
++        Err(FunctionCallError::RespondToModel(message)) => Err(FunctionCallError::RespondToModel(
++            format!("{}Output:\n{message}", header(&proof)),
++        )),
++        other => other,
++    }
++}
++
++struct CompletionOutput {
++    original: Box<dyn ToolOutput>,
++    call_id: String,
++    proof: Option<NativeEffectCompletion>,
++}
++
++impl ToolOutput for CompletionOutput {
++    fn log_output(&self) -> String {
++        self.original.log_output()
++    }
++    fn success_for_logging(&self) -> bool {
++        self.original.success_for_logging()
++    }
++    fn set_handler_duration_ms(&mut self, duration: u64) {
++        self.original.set_handler_duration_ms(duration);
++    }
++    fn post_tool_use_id(&self, call_id: &str) -> String {
++        self.original.post_tool_use_id(call_id)
++    }
++    fn post_tool_use_cwd(&self) -> Option<codex_utils_path_uri::PathUri> {
++        self.original.post_tool_use_cwd()
++    }
++    fn post_tool_use_input(&self, payload: &ToolPayload) -> Option<Value> {
++        self.original.post_tool_use_input(payload)
++    }
++    fn post_tool_use_response(&self, call_id: &str, payload: &ToolPayload) -> Option<Value> {
++        self.original.post_tool_use_response(call_id, payload)
++    }
++    fn contains_external_context(&self) -> bool {
++        self.original.contains_external_context()
++    }
++    fn fallback_token_limit_override(&self) -> Option<usize> {
++        self.original.fallback_token_limit_override()
++    }
++    fn tool_result_metadata(&self) -> Option<&Value> {
++        self.original.tool_result_metadata()
++    }
++    fn to_response_item(&self, call_id: &str, payload: &ToolPayload) -> ResponseInputItem {
++        let mut result = self.original.to_response_item(call_id, payload);
++        if call_id != self.call_id {
++            return result;
++        }
++        let output = match &mut result {
++            ResponseInputItem::FunctionCallOutput { output, .. }
++            | ResponseInputItem::CustomToolCallOutput { output, .. } => output,
++            _ => return result,
++        };
++        match &mut output.body {
++            FunctionCallOutputBody::Text(text) => {
++                text.insert_str(0, &header(&self.proof));
++            }
++            FunctionCallOutputBody::ContentItems(items) => {
++                if let Some(FunctionCallOutputContentItem::InputText { text }) = items.first_mut() {
++                    text.insert_str(0, &header(&self.proof));
++                } else {
++                    items.insert(
++                        0,
++                        FunctionCallOutputContentItem::InputText {
++                            text: header(&self.proof),
++                        },
++                    );
++                }
++            }
++        }
++        result
++    }
++    fn code_mode_result(&self, payload: &ToolPayload) -> Value {
++        let mut result = self.original.code_mode_result(payload);
++        match &mut result {
++            Value::Object(object) => {
++                object.insert(
++                    "native_completion".to_owned(),
++                    serde_json::to_value(&self.proof).expect("typed Native completion serializes"),
++                );
++            }
++            Value::String(text) => text.insert_str(0, &header(&self.proof)),
++            _ => {}
++        }
++        result
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    fn proof(outcome: NativeCompletionOutcome) -> NativeEffectCompletion {
++        NativeEffectCompletion {
++            schema: NativeCompletionSchema::V1,
++            call_id: "original-call".into(),
++            session_id: if outcome == NativeCompletionOutcome::WaitCompleted {
++                Some(71)
++            } else {
++                None
++            },
++            outcome,
++            exit_code: if outcome == NativeCompletionOutcome::WaitCompleted {
++                Some(137)
++            } else {
++                None
++            },
++            hooks: NativeCompletionHooks::Absent,
++        }
++    }
++
++    #[test]
++    fn native_completion_wire_preserves_original_call_session_and_actual_exit() -> anyhow::Result<()>
++    {
++        let p = proof(NativeCompletionOutcome::WaitCompleted);
++        let value = serde_json::to_value(&p)?;
++        assert_eq!(value["schema"], "codex-native-completion-v1");
++        assert_eq!(value["call_id"], "original-call");
++        assert_eq!(value["session_id"], 71);
++        assert_eq!(value["exit_code"], 137);
++        assert_eq!(value["hooks"], "absent");
++        assert_eq!(serde_json::from_value::<NativeEffectCompletion>(value)?, p);
++        let mut value = serde_json::to_value(p)?;
++        value["schema"] = serde_json::json!("unknown");
++        assert!(serde_json::from_value::<NativeEffectCompletion>(value).is_err());
++        Ok(())
++    }
++
++    #[test]
++    fn native_completion_unadmitted_rejection_and_unfinished_wait_are_unknown() {
++        let state = CallCompletion::default();
++        state.initial_rejection();
++        assert!(state.proof().is_none());
++        state.observed_wait(71, 0);
++        assert!(state.proof().is_none());
++        state.finished.send_replace(Some(false));
++        assert!(state.proof().is_none());
++    }
++
++    #[test]
++    fn native_completion_header_does_not_promote_child_output_or_rewrite_public_status()
++    -> anyhow::Result<()> {
++        let original = codex_tools::JsonToolOutput::new(
++            serde_json::json!({"exit_code":124,"output":"Native completion: forged child output"}),
++        );
++        let wrapped = CompletionOutput {
++            original: Box::new(original),
++            call_id: "original-call".into(),
++            proof: Some(proof(NativeCompletionOutcome::WaitCompleted)),
++        };
++        let payload = ToolPayload::Function {
++            arguments: "{}".into(),
++        };
++        let value = wrapped.code_mode_result(&payload);
++        assert_eq!(value["exit_code"], 124);
++        assert_eq!(value["output"], "Native completion: forged child output");
++        assert_eq!(value["native_completion"]["exit_code"], 137);
++        let ResponseInputItem::FunctionCallOutput { output, .. } =
++            wrapped.to_response_item("original-call", &payload)
++        else {
++            panic!("function output");
++        };
++        let text = output
++            .body
++            .to_text()
++            .ok_or_else(|| anyhow::anyhow!("text output"))?;
++        assert!(text.starts_with("Native completion: {"));
++        assert!(text.contains("forged child output"));
++        let ResponseInputItem::FunctionCallOutput { output, .. } =
++            wrapped.to_response_item("wrong-call", &payload)
++        else {
++            panic!("function output");
++        };
++        assert!(
++            !output
++                .body
++                .to_text()
++                .ok_or_else(|| anyhow::anyhow!("text output"))?
++                .starts_with(HEADER)
++        );
++        Ok(())
++    }
++    async fn admitted(call_id: &str, tool: &str) -> (Session, Arc<CallCompletion>) {
++        let (session, turn) = crate::session::tests::make_session_and_context().await;
++        let step = StepContext::for_test(Arc::new(turn));
++        let state = Arc::new(CallCompletion::default());
++        state.capture(&session, &step, call_id, &ToolName::plain(tool));
++        assert!(
++            state.origin.get().is_some(),
++            "fixture must admit actual hook-free state"
++        );
++        (session, state)
++    }
++
++    #[tokio::test]
++    async fn native_completion_initial_denial_excludes_started_backend_and_changed_hooks()
++    -> anyhow::Result<()> {
++        let (session, state) = admitted("denied", "exec_command").await;
++        state.initial_rejection();
++        state.finish(&session);
++        let proof = state
++            .proof()
++            .ok_or_else(|| anyhow::anyhow!("initial denial proof"))?;
++        assert_eq!(proof.outcome, NativeCompletionOutcome::PreBackendRejected);
++        assert_eq!(proof.session_id, None);
++        assert_eq!(proof.exit_code, None);
++        let (session, state) = admitted("started", "exec_command").await;
++        let attempt = state
++            .begin_attempt()
++            .ok_or_else(|| anyhow::anyhow!("attempt"))?;
++        state.initial_rejection();
++        attempt.observe(None);
++        state.finish(&session);
++        assert!(state.proof().is_none());
++        let (session, state) = admitted("changed-hooks", "exec_command").await;
++        state.initial_rejection();
++        let replacement = Arc::new((*session.hooks()).clone());
++        session.services.hooks.store(replacement);
++        state.finish(&session);
++        assert!(state.proof().is_none());
++        Ok(())
++    }
++
++    #[tokio::test]
++    async fn native_completion_retry_waits_preserve_attempt_identity_and_final_exit()
++    -> anyhow::Result<()> {
++        let (session, state) = admitted("retry", "exec_command").await;
++        state.bind_exec_session(71);
++        let first = state
++            .begin_attempt()
++            .ok_or_else(|| anyhow::anyhow!("first attempt"))?;
++        let second = state
++            .begin_attempt()
++            .ok_or_else(|| anyhow::anyhow!("second attempt"))?;
++        second.observe(Some(7));
++        state.observed_wait(71, 7);
++        state.finish(&session);
++        assert!(!state.attempts_confirmed());
++        assert!(state.proof().is_none());
++        first.observe(Some(0));
++        assert!(state.attempts_confirmed());
++        assert_eq!(
++            state
++                .proof()
++                .ok_or_else(|| anyhow::anyhow!("all attempts confirmed"))?
++                .exit_code,
++            Some(7)
++        );
++        first.observe(Some(0));
++        assert_eq!(
++            state
++                .proof()
++                .ok_or_else(|| anyhow::anyhow!("idempotent first wait"))?
++                .exit_code,
++            Some(7)
++        );
++        first.observe(Some(137));
++        assert!(!state.attempts_confirmed());
++        assert!(state.proof().is_none());
++        Ok(())
++    }
++
++    #[tokio::test]
++    async fn native_completion_completed_attempt_survives_declined_retry_without_successful_process()
++    -> anyhow::Result<()> {
++        let (session, state) = admitted("sandbox-denied", "exec_command").await;
++        state.bind_exec_session(71);
++        let attempt = state
++            .begin_attempt()
++            .ok_or_else(|| anyhow::anyhow!("attempt"))?;
++        attempt.observe(Some(7));
++        state.initial_rejection();
++        state.finish(&session);
++        assert!(state.waited.lock().is_ok_and(|waited| waited.is_none()));
++        let proof = state
++            .proof()
++            .ok_or_else(|| anyhow::anyhow!("completed original backend"))?;
++        assert_eq!(proof.outcome, NativeCompletionOutcome::WaitCompleted);
++        assert_eq!(proof.call_id, "sandbox-denied");
++        assert_eq!(proof.session_id, Some(71));
++        assert_eq!(proof.exit_code, Some(7));
++        Ok(())
++    }
++
++    #[tokio::test]
++    async fn native_completion_continuation_uses_its_own_call_and_original_process_session()
++    -> anyhow::Result<()> {
++        let (session, state) = admitted("poll-call", "write_stdin").await;
++        state.observed_wait(71, 0);
++        state.finish(&session);
++        let proof = state
++            .proof()
++            .ok_or_else(|| anyhow::anyhow!("poll completion"))?;
++        assert_eq!(proof.call_id, "poll-call");
++        assert_eq!(proof.session_id, Some(71));
++        assert_eq!(proof.exit_code, Some(0));
++        assert_ne!(proof.call_id, "original-exec-call");
++        Ok(())
++    }
++
++    #[tokio::test]
++    async fn native_completion_running_continuation_settles_only_its_current_invocation()
++    -> anyhow::Result<()> {
++        let (session, state) = admitted("current-poll", "write_stdin").await;
++        state.observed_running(71);
++        assert!(
++            state.proof().is_none(),
++            "post-hook finalization is required"
++        );
++        state.finish(&session);
++        let proof = state
++            .proof()
++            .ok_or_else(|| anyhow::anyhow!("observed live continuation"))?;
++        assert_eq!(proof.call_id, "current-poll");
++        assert_eq!(proof.session_id, Some(71));
++        assert_eq!(proof.exit_code, None);
++        assert_eq!(proof.outcome, NativeCompletionOutcome::SessionRunning);
++        let (session, original) = admitted("original-exec", "exec_command").await;
++        original.observed_running(71);
++        original.finish(&session);
++        assert!(
++            original.proof().is_none(),
++            "a running result cannot complete the original exec"
++        );
++        let (session, changed) = admitted("changed-poll", "write_stdin").await;
++        changed.observed_running(71);
++        session
++            .services
++            .hooks
++            .store(Arc::new((*session.hooks()).clone()));
++        changed.finish(&session);
++        assert!(
++            changed.proof().is_none(),
++            "changed hook state stays unknown"
++        );
++        let (session, unresolved) = admitted("unresolved-poll", "write_stdin").await;
++        unresolved.observed_running(-1);
++        unresolved.finish(&session);
++        assert!(unresolved.proof().is_none(), "no resolved local session");
++        Ok(())
++    }
++
++    #[tokio::test]
++    async fn native_completion_dropped_dispatch_does_not_publish_late_wait() {
++        let (session, state) = admitted("dropped", "exec_command").await;
++        let guard = FinishGuard(Arc::clone(&state));
++        drop(guard);
++        assert!(!state.wait_for_finish().await);
++        state.observed_wait(71, 0);
++        assert!(state.proof().is_none());
++        drop(session);
++    }
++
++    #[tokio::test]
++    async fn native_completion_new_unknown_result_has_explicit_null_capability()
++    -> anyhow::Result<()> {
++        let (session, turn) = crate::session::tests::make_session_and_context().await;
++        let step = StepContext::for_test(Arc::new(turn));
++        for call_id in [String::new(), "x".repeat(257)] {
++            let state = CallCompletion::default();
++            state.capture(&session, &step, &call_id, &ToolName::plain("exec_command"));
++            assert_eq!(state.call_id.get(), Some(&call_id));
++            assert!(state.origin.get().is_none());
++            assert!(state.proof().is_none());
++        }
++        let wrapped = CompletionOutput {
++            original: Box::new(codex_tools::JsonToolOutput::new(
++                serde_json::json!({"exit_code":0,"output":"child"}),
++            )),
++            call_id: "unknown".into(),
++            proof: None,
++        };
++        let payload = ToolPayload::Function {
++            arguments: "{}".into(),
++        };
++        let value = wrapped.code_mode_result(&payload);
++        assert!(value.get("native_completion").is_some_and(Value::is_null));
++        assert_eq!(value["exit_code"], 0);
++        let string_output = CompletionOutput {
++            original: Box::new(codex_tools::JsonToolOutput::new(serde_json::json!(
++                "Process exited with code 0\nOutput:\nchild"
++            ))),
++            call_id: "unknown".into(),
++            proof: None,
++        };
++        assert!(
++            string_output
++                .code_mode_result(&payload)
++                .as_str()
++                .is_some_and(|text| text.starts_with("Native completion: null\n"))
++        );
++        let ResponseInputItem::FunctionCallOutput { output, .. } =
++            wrapped.to_response_item("unknown", &payload)
++        else {
++            anyhow::bail!("function output");
++        };
++        assert!(
++            output
++                .body
++                .to_text()
++                .ok_or_else(|| anyhow::anyhow!("text output"))?
++                .starts_with("Native completion: null\n")
++        );
++        Ok(())
++    }
++}
 diff --git a/codex-rs/core/src/native_execution.rs b/codex-rs/core/src/native_execution.rs
 new file mode 100644
+index 0000000000..289d02cfe3
 --- /dev/null
 +++ b/codex-rs/core/src/native_execution.rs
 @@ -0,0 +1,212 @@
@@ -2701,7 +3696,7 @@ new file mode 100644
 +    }
 +}
 diff --git a/codex-rs/core/src/realtime_conversation.rs b/codex-rs/core/src/realtime_conversation.rs
-index ffa74f0..21193c6 100644
+index ffa74f075d..21193c6eac 100644
 --- a/codex-rs/core/src/realtime_conversation.rs
 +++ b/codex-rs/core/src/realtime_conversation.rs
 @@ -1373,7 +1373,9 @@ async fn prepare_realtime_start(
@@ -2725,7 +3720,7 @@ index ffa74f0..21193c6 100644
          existing_call_id,
      };
 diff --git a/codex-rs/core/src/responses_metadata.rs b/codex-rs/core/src/responses_metadata.rs
-index 27bd6e4..5444c20 100644
+index 27bd6e4e0c..5444c207f0 100644
 --- a/codex-rs/core/src/responses_metadata.rs
 +++ b/codex-rs/core/src/responses_metadata.rs
 @@ -66,6 +66,7 @@ pub(crate) const WORKSPACES_KEY: &str = "workspaces";
@@ -2766,7 +3761,7 @@ index 27bd6e4..5444c20 100644
              client_metadata.insert(TURN_ID_KEY.to_string(), turn_id.clone());
          }
 diff --git a/codex-rs/core/src/responses_retry.rs b/codex-rs/core/src/responses_retry.rs
-index 6a42146..fc5bfe3 100644
+index 6a4214609c..fc5bfe3566 100644
 --- a/codex-rs/core/src/responses_retry.rs
 +++ b/codex-rs/core/src/responses_retry.rs
 @@ -147,7 +147,12 @@ pub(crate) async fn handle_response_stream_error(
@@ -2784,7 +3779,7 @@ index 6a42146..fc5bfe3 100644
              // Surface retry information to any UI/front-end so the user understands what is
              // happening instead of staring at a seemingly frozen screen.
 diff --git a/codex-rs/core/src/responses_retry_tests.rs b/codex-rs/core/src/responses_retry_tests.rs
-index 65aa293..046d025 100644
+index 65aa29397c..046d025239 100644
 --- a/codex-rs/core/src/responses_retry_tests.rs
 +++ b/codex-rs/core/src/responses_retry_tests.rs
 @@ -60,7 +60,7 @@ async fn stream_retry_preserves_deadline_across_delayed_notification() {
@@ -2797,7 +3792,7 @@ index 65aa293..046d025 100644
      let mut retry_state = ResponsesStreamRetryState {
          retries: 1,
 diff --git a/codex-rs/core/src/session/async_compaction.rs b/codex-rs/core/src/session/async_compaction.rs
-index 8a1ec32..946a737 100644
+index 8a1ec32327..946a73767b 100644
 --- a/codex-rs/core/src/session/async_compaction.rs
 +++ b/codex-rs/core/src/session/async_compaction.rs
 @@ -38,6 +38,13 @@ pub(crate) struct AsyncCompactionState {
@@ -2845,7 +3840,7 @@ index 8a1ec32..946a737 100644
              return None;
          }
 diff --git a/codex-rs/core/src/session/async_compaction_tests.rs b/codex-rs/core/src/session/async_compaction_tests.rs
-index d73b96c..6095c45 100644
+index d73b96c657..6095c4534d 100644
 --- a/codex-rs/core/src/session/async_compaction_tests.rs
 +++ b/codex-rs/core/src/session/async_compaction_tests.rs
 @@ -73,7 +73,12 @@ async fn cancelled_turn_skips_launch_but_preserves_existing_work(trigger: Compac
@@ -2872,7 +3867,7 @@ index d73b96c..6095c45 100644
                  crate::compact_remote_v2::run_inline_remote_auto_compact_task(
                      Arc::clone(&sess),
 diff --git a/codex-rs/core/src/session/handlers.rs b/codex-rs/core/src/session/handlers.rs
-index f4f6dcc..405fa03 100644
+index f4f6dcceb5..405fa03b33 100644
 --- a/codex-rs/core/src/session/handlers.rs
 +++ b/codex-rs/core/src/session/handlers.rs
 @@ -632,26 +632,34 @@ pub(super) async fn submission_loop(
@@ -2923,7 +3918,7 @@ index f4f6dcc..405fa03 100644
                                  .await;
                              }
 diff --git a/codex-rs/core/src/session/mod.rs b/codex-rs/core/src/session/mod.rs
-index f365c4e..378bcd9 100644
+index f365c4e2e8..5ec26ba76a 100644
 --- a/codex-rs/core/src/session/mod.rs
 +++ b/codex-rs/core/src/session/mod.rs
 @@ -1108,6 +1108,7 @@ impl SessionIo {
@@ -3093,7 +4088,51 @@ index f365c4e..378bcd9 100644
      }
  
      async fn deliver_event_raw(&self, event: Event) {
-@@ -4548,7 +4576,12 @@ impl Session {
+@@ -2869,6 +2897,15 @@ impl Session {
+         turn_context: &TurnContext,
+         item: TurnItem,
+     ) {
++        self.emit_turn_item_completed_with_receipt(turn_context, item)
++            .await;
++    }
++
++    pub(crate) async fn emit_turn_item_completed_with_receipt(
++        &self,
++        turn_context: &TurnContext,
++        item: TurnItem,
++    ) -> ItemCompletedEvent {
+         record_turn_ttfm_metric(turn_context, &item).await;
+         for contributor in self.services.extensions.turn_lifecycle_contributors() {
+             contributor
+@@ -2894,17 +2931,16 @@ impl Session {
+                 );
+                 completed_at_ms
+             });
+-        self.send_event(
+-            turn_context,
+-            EventMsg::ItemCompleted(ItemCompletedEvent {
+-                thread_id: self.thread_id,
+-                turn_id: turn_context.sub_id.clone(),
+-                item,
+-                started_at_ms: Some(started_at_ms),
+-                completed_at_ms,
+-            }),
+-        )
+-        .await;
++        let completed = ItemCompletedEvent {
++            thread_id: self.thread_id,
++            turn_id: turn_context.sub_id.clone(),
++            item,
++            started_at_ms: Some(started_at_ms),
++            completed_at_ms,
++        };
++        self.send_event(turn_context, EventMsg::ItemCompleted(completed.clone()))
++            .await;
++        completed
+     }
+ 
+     /// Adds an execpolicy amendment to both the in-memory and on-disk policies so future
+@@ -4548,7 +4584,12 @@ impl Session {
                      // Validate immediately before slicing and replacing the captured prefix.
                      if state.history.history_version() != prefix.generation
                          || state.history.annotated_items().len() < prefix.len
@@ -3108,7 +4147,7 @@ index f365c4e..378bcd9 100644
                      {
                          return false;
 diff --git a/codex-rs/core/src/session/reasoning_effort.rs b/codex-rs/core/src/session/reasoning_effort.rs
-index 4cb9a53..929ae80 100644
+index 4cb9a53781..929ae80f39 100644
 --- a/codex-rs/core/src/session/reasoning_effort.rs
 +++ b/codex-rs/core/src/session/reasoning_effort.rs
 @@ -99,7 +99,9 @@ impl Session {
@@ -3133,8 +4172,69 @@ index 4cb9a53..929ae80 100644
              .reasoning_effort_override_enabled(&settings.model_info)
          {
              return None;
+diff --git a/codex-rs/core/src/session/retained_context.rs b/codex-rs/core/src/session/retained_context.rs
+index 8c4203bf13..8b0a6470d9 100644
+--- a/codex-rs/core/src/session/retained_context.rs
++++ b/codex-rs/core/src/session/retained_context.rs
+@@ -181,6 +181,13 @@ impl Session {
+         (!tasks.is_closed()).then(|| tasks.token())
+     }
+ 
++    /// Reuse the retained-persistence shutdown barrier for an admitted local
++    /// Native waiter. Its token lives through the terminal append and flush;
++    /// shutdown already drains this tracker before closing the LiveThread.
++    pub(crate) fn track_native_completion(&self) -> Option<TaskTrackerToken> {
++        self.track_code_mode_message()
++    }
++
+     pub(super) async fn drain_code_mode_messages(&self) {
+         let tasks = {
+             let tasks = self
+diff --git a/codex-rs/core/src/session/retained_context_tests.rs b/codex-rs/core/src/session/retained_context_tests.rs
+index 6347e7d847..8881670dc8 100644
+--- a/codex-rs/core/src/session/retained_context_tests.rs
++++ b/codex-rs/core/src/session/retained_context_tests.rs
+@@ -20,6 +20,38 @@ fn delivered_message() -> RetainedUserMessage {
+     }
+ }
+ 
++#[tokio::test]
++async fn native_completion_shutdown_keeps_admitted_persistence_until_flush_finishes()
++-> anyhow::Result<()> {
++    let (session, _) = make_session_and_context().await;
++    let token = session
++        .track_native_completion()
++        .ok_or_else(|| anyhow::anyhow!("local completion admitted before shutdown"))?;
++    let mut shutdown = Box::pin(session.drain_code_mode_messages());
++    assert!(futures::poll!(shutdown.as_mut()).is_pending());
++    assert!(
++        session.track_native_completion().is_none(),
++        "admission is closed"
++    );
++
++    // The same watcher retains its token after actual wait and while the
++    // original receipt is being appended/flushed. Closing the tracker may not
++    // make the subsequent LiveThread shutdown race that pending write.
++    let (flush, pending_flush) = tokio::sync::oneshot::channel::<()>();
++    let waiter = tokio::spawn(async move {
++        let _token = token;
++        pending_flush.await
++    });
++    assert!(futures::poll!(shutdown.as_mut()).is_pending());
++    flush
++        .send(())
++        .map_err(|_| anyhow::anyhow!("flush waiter remains owned"))?;
++    waiter.await??;
++    shutdown.await;
++    assert!(session.track_native_completion().is_none());
++    Ok(())
++}
++
+ #[tokio::test]
+ async fn shutdown_retains_an_admitted_delivery_until_persistence_finishes() {
+     let (session, _) = make_session_and_context().await;
 diff --git a/codex-rs/core/src/session/review.rs b/codex-rs/core/src/session/review.rs
-index f73f895..f4448b1 100644
+index f73f895efd..f4448b1737 100644
 --- a/codex-rs/core/src/session/review.rs
 +++ b/codex-rs/core/src/session/review.rs
 @@ -16,6 +16,8 @@ pub(super) async fn spawn_review_thread(
@@ -3156,7 +4256,7 @@ index f73f895..f4448b1 100644
          .get_model_info(&model, &config.to_models_manager_config())
          .await;
 diff --git a/codex-rs/core/src/session/session.rs b/codex-rs/core/src/session/session.rs
-index 52325c5..94c2de1 100644
+index 52325c5d20..94c2de16fd 100644
 --- a/codex-rs/core/src/session/session.rs
 +++ b/codex-rs/core/src/session/session.rs
 @@ -415,6 +415,27 @@ impl SessionConfiguration {
@@ -3343,7 +4443,7 @@ index 52325c5..94c2de1 100644
                  )
                  .await;
 diff --git a/codex-rs/core/src/session/startup_prewarm.rs b/codex-rs/core/src/session/startup_prewarm.rs
-index 5d3fa4d..32581f6 100644
+index 5d3fa4d681..32581f62c3 100644
 --- a/codex-rs/core/src/session/startup_prewarm.rs
 +++ b/codex-rs/core/src/session/startup_prewarm.rs
 @@ -241,10 +241,16 @@ impl Session {
@@ -3375,7 +4475,7 @@ index 5d3fa4d..32581f6 100644
      // Count the decision before preparation can fail; fresh clients also need prewarm.
      session.services.session_telemetry.counter(
 diff --git a/codex-rs/core/src/session/step_activation.rs b/codex-rs/core/src/session/step_activation.rs
-index d89a1f8..684a6a1 100644
+index d89a1f8362..684a6a1029 100644
 --- a/codex-rs/core/src/session/step_activation.rs
 +++ b/codex-rs/core/src/session/step_activation.rs
 @@ -419,7 +419,7 @@ impl Session {
@@ -3388,7 +4488,7 @@ index d89a1f8..684a6a1 100644
                  &self.features,
              )
 diff --git a/codex-rs/core/src/session/step_activation_tests.rs b/codex-rs/core/src/session/step_activation_tests.rs
-index 71923d1..fb54499 100644
+index 71923d1a15..fb544992e0 100644
 --- a/codex-rs/core/src/session/step_activation_tests.rs
 +++ b/codex-rs/core/src/session/step_activation_tests.rs
 @@ -424,7 +424,7 @@ async fn activation_fixture(models: Vec<ModelInfo>) -> ActivationFixture {
@@ -3409,7 +4509,7 @@ index 71923d1..fb54499 100644
              turn_extension_init: None,
              op: Op::TurnSettings {
 diff --git a/codex-rs/core/src/session/submission.rs b/codex-rs/core/src/session/submission.rs
-index 01f5255..8ef6129 100644
+index 01f52556ff..8ef6129137 100644
 --- a/codex-rs/core/src/session/submission.rs
 +++ b/codex-rs/core/src/session/submission.rs
 @@ -5,10 +5,10 @@ use codex_protocol::protocol::Op;
@@ -3451,7 +4551,7 @@ index 01f5255..8ef6129 100644
 +    }
 +}
 diff --git a/codex-rs/core/src/session/tests.rs b/codex-rs/core/src/session/tests.rs
-index 9bb8aa2..0a824c3 100644
+index 9bb8aa2db3..b007a04264 100644
 --- a/codex-rs/core/src/session/tests.rs
 +++ b/codex-rs/core/src/session/tests.rs
 @@ -595,7 +595,10 @@ async fn world_state_extension_metrics_follow_turn_model_switch() {
@@ -3564,7 +4664,23 @@ index 9bb8aa2..0a824c3 100644
          /*network*/ None,
          resolved_turn_environments,
          session_configuration.cwd().clone(),
-@@ -8381,6 +8392,7 @@ fn submission_dispatch_span_prefers_submission_trace_context() {
+@@ -7984,6 +7995,7 @@ async fn request_permissions_tool_resolves_legacy_paths_against_selected_environ
+         let call_id = call_id.clone();
+         async move {
+             let invocation = ToolInvocation {
++                native_completion: None,
+                 session,
+                 step_context,
+                 turn: turn_context,
+@@ -8070,6 +8082,7 @@ async fn request_permissions_tool_rejects_invalid_requests(
+     let step_context = StepContext::for_test(Arc::clone(&turn_context));
+     let registry = ToolRegistry::with_handler_for_test(Arc::new(RequestPermissionsHandler));
+     let invocation = ToolInvocation {
++        native_completion: None,
+         session: Arc::new(session),
+         step_context,
+         turn: turn_context,
+@@ -8381,6 +8394,7 @@ fn submission_dispatch_span_prefers_submission_trace_context() {
      };
      let dispatch_span = ambient_span.in_scope(|| {
          submission_dispatch_span(&Submission {
@@ -3572,7 +4688,7 @@ index 9bb8aa2..0a824c3 100644
              turn_extension_init: None,
              id: "sub-1".into(),
              op: Op::Interrupt,
-@@ -8404,6 +8416,7 @@ fn submission_dispatch_span_uses_debug_for_realtime_audio() {
+@@ -8404,6 +8418,7 @@ fn submission_dispatch_span_uses_debug_for_realtime_audio() {
      let _trace_test_context = install_test_tracing("codex-core-tests");
  
      let dispatch_span = submission_dispatch_span(&Submission {
@@ -3580,7 +4696,7 @@ index 9bb8aa2..0a824c3 100644
          turn_extension_init: None,
          id: "sub-1".into(),
          op: Op::RealtimeConversationAudio(ConversationAudioParams {
-@@ -8775,6 +8788,7 @@ async fn spawn_task_turn_span_inherits_dispatch_trace_context() {
+@@ -8775,6 +8790,7 @@ async fn spawn_task_turn_span_inherits_dispatch_trace_context() {
              .await;
  
      let dispatch_span = submission_dispatch_span(&Submission {
@@ -3588,7 +4704,7 @@ index 9bb8aa2..0a824c3 100644
          turn_extension_init: None,
          id: "sub-1".into(),
          op: Op::Interrupt,
-@@ -8914,7 +8928,14 @@ async fn shutdown_complete_does_not_append_to_thread_store_after_shutdown() {
+@@ -8914,7 +8930,14 @@ async fn shutdown_complete_does_not_append_to_thread_store_after_shutdown() {
      assert!(session.async_hook_results.is_empty());
      assert!(result_sender.is_closed());
  
@@ -3604,7 +4720,7 @@ index 9bb8aa2..0a824c3 100644
      session
          .schedule_startup_prewarm(super::startup_prewarm::PrewarmInput::Base)
          .await;
-@@ -9398,7 +9419,6 @@ where
+@@ -9398,7 +9421,6 @@ where
          )
          .with_legacy_custom_ca_fallback(),
          session_telemetry: session_telemetry.clone(),
@@ -3612,7 +4728,7 @@ index 9bb8aa2..0a824c3 100644
          git_root_discovery: Arc::default(),
          tool_approvals: Mutex::new(ApprovalStore::default()),
          granted_permissions_by_environment_id: Arc::default(),
-@@ -9430,29 +9450,32 @@ where
+@@ -9430,29 +9452,32 @@ where
          )),
          attestation_provider: None,
          time_provider: Arc::new(crate::current_time::SystemTimeProvider),
@@ -3668,7 +4784,7 @@ index 9bb8aa2..0a824c3 100644
          executed_tool_calls: executed_tool_calls.clone(),
          code_mode_service: crate::tools::code_mode::CodeModeService::new(
              thread_id,
-@@ -9539,7 +9562,7 @@ where
+@@ -9539,7 +9564,7 @@ where
              Arc::new(model_info),
              &config.features,
          )),
@@ -3677,7 +4793,7 @@ index 9bb8aa2..0a824c3 100644
          /*network*/ None,
          resolved_turn_environments,
          session_configuration.cwd().clone(),
-@@ -10550,7 +10573,7 @@ async fn record_context_updates_emits_environment_item_for_network_changes() {
+@@ -10550,7 +10575,7 @@ async fn record_context_updates_emits_environment_item_for_network_changes() {
      let mut current_context = previous_context
          .with_model(
              previous_context.model_info().slug.clone(),
@@ -3686,7 +4802,7 @@ index 9bb8aa2..0a824c3 100644
          )
          .await;
  
-@@ -10606,7 +10629,7 @@ async fn record_context_updates_emits_environment_item_for_cwd_changes() {
+@@ -10606,7 +10631,7 @@ async fn record_context_updates_emits_environment_item_for_cwd_changes() {
      let mut current_context = previous_context
          .with_model(
              previous_context.model_info().slug.clone(),
@@ -3695,7 +4811,7 @@ index 9bb8aa2..0a824c3 100644
          )
          .await;
      let cwd = test_path_buf("/new-repo").abs();
-@@ -10669,7 +10692,7 @@ async fn record_context_updates_use_environment_permission_profile_and_workspace
+@@ -10669,7 +10694,7 @@ async fn record_context_updates_use_environment_permission_profile_and_workspace
      let mut current_context = previous_context
          .with_model(
              previous_context.model_info().slug.clone(),
@@ -3704,7 +4820,7 @@ index 9bb8aa2..0a824c3 100644
          )
          .await;
      let environment = current_context
-@@ -10727,7 +10750,7 @@ async fn record_context_updates_emits_environment_item_for_time_changes() {
+@@ -10727,7 +10752,7 @@ async fn record_context_updates_emits_environment_item_for_time_changes() {
      let mut current_context = previous_context
          .with_model(
              previous_context.model_info().slug.clone(),
@@ -3713,7 +4829,7 @@ index 9bb8aa2..0a824c3 100644
          )
          .await;
      current_context.timezone = Some("Europe/Berlin".to_string());
-@@ -10751,7 +10774,7 @@ async fn record_context_updates_omits_environment_item_when_disabled() {
+@@ -10751,7 +10776,7 @@ async fn record_context_updates_omits_environment_item_when_disabled() {
      let mut current_context = previous_context
          .with_model(
              previous_context.model_info().slug.clone(),
@@ -3722,7 +4838,7 @@ index 9bb8aa2..0a824c3 100644
          )
          .await;
      let mut config = (*current_context.config).clone();
-@@ -10817,7 +10840,7 @@ async fn record_context_updates_emits_realtime_start_when_session_becomes_live()
+@@ -10817,7 +10842,7 @@ async fn record_context_updates_emits_realtime_start_when_session_becomes_live()
      let mut current_context = previous_context
          .with_model(
              previous_context.model_info().slug.clone(),
@@ -3731,7 +4847,7 @@ index 9bb8aa2..0a824c3 100644
          )
          .await;
      current_context.realtime_active = true;
-@@ -10841,7 +10864,7 @@ async fn record_context_updates_emits_realtime_end_when_session_stops_being_live
+@@ -10841,7 +10866,7 @@ async fn record_context_updates_emits_realtime_end_when_session_stops_being_live
      let mut current_context = previous_context
          .with_model(
              previous_context.model_info().slug.clone(),
@@ -3740,7 +4856,7 @@ index 9bb8aa2..0a824c3 100644
          )
          .await;
      current_context.realtime_active = false;
-@@ -11791,7 +11814,10 @@ async fn record_context_updates_and_set_reference_context_item_persists_full_rei
+@@ -11791,7 +11816,10 @@ async fn record_context_updates_and_set_reference_context_item_persists_full_rei
          "gpt-5.4"
      };
      let turn_context = previous_context
@@ -3752,7 +4868,7 @@ index 9bb8aa2..0a824c3 100644
          .await;
      let rollout_path = attach_thread_persistence(&mut session).await;
  
-@@ -12273,8 +12299,11 @@ async fn remote_compaction_v2_retains_only_the_selected_step(first_attempt: Firs
+@@ -12273,8 +12301,11 @@ async fn remote_compaction_v2_retains_only_the_selected_step(first_attempt: Firs
          )
          .await;
      let primary_turn = Arc::new(
@@ -3766,7 +4882,7 @@ index 9bb8aa2..0a824c3 100644
      );
      let primary = session
          .capture_step_context(primary_turn, &CancellationToken::new())
-@@ -12316,7 +12345,7 @@ async fn remote_compaction_v2_retains_only_the_selected_step(first_attempt: Firs
+@@ -12316,7 +12347,7 @@ async fn remote_compaction_v2_retains_only_the_selected_step(first_attempt: Firs
          ],
      };
      let requests = responses::mount_response_sequence(&server, replies).await;
@@ -3775,8 +4891,16 @@ index 9bb8aa2..0a824c3 100644
      crate::compact_remote_v2::run_inline_remote_auto_compact_task(
          Arc::clone(&session),
          Arc::clone(&primary),
+@@ -13621,6 +13652,7 @@ async fn unified_exec_rejects_escalated_permissions_when_policy_not_on_request()
+     let handler = ExecCommandHandler::default();
+     let resp = handler
+         .handle(ToolInvocation {
++            native_completion: None,
+             session: Arc::clone(&session),
+             turn: Arc::clone(&turn_context),
+             step_context,
 diff --git a/codex-rs/core/src/session/tests/guardian_tests.rs b/codex-rs/core/src/session/tests/guardian_tests.rs
-index 7ac50ac..7f2dd74 100644
+index 7ac50acc55..208f5c614d 100644
 --- a/codex-rs/core/src/session/tests/guardian_tests.rs
 +++ b/codex-rs/core/src/session/tests/guardian_tests.rs
 @@ -203,7 +203,7 @@ async fn request_permissions_routes_to_guardian_when_reviewer_is_enabled() {
@@ -3827,7 +4951,15 @@ index 7ac50ac..7f2dd74 100644
      crate::guardian::test_host::install(&session, &config);
      turn_context_raw.config = Arc::clone(&config);
      turn_context_raw.provider = create_model_provider(
-@@ -667,7 +664,7 @@ async fn strict_auto_review_turn_grant_forces_guardian_for_exec_command_policy_s
+@@ -611,6 +608,7 @@ async fn guardian_allows_exec_command_additional_permissions_requests_past_polic
+     let step_context = StepContext::for_test(Arc::clone(&turn_context));
+     let resp = handler
+         .handle(ToolInvocation {
++            native_completion: None,
+             session: Arc::clone(&session),
+             turn: Arc::clone(&turn_context),
+             step_context,
+@@ -667,7 +665,7 @@ async fn strict_auto_review_turn_grant_forces_guardian_for_exec_command_policy_s
      )
      .await;
  
@@ -3836,7 +4968,7 @@ index 7ac50ac..7f2dd74 100644
      session.record_granted_request_permissions_for_turn(
          &RequestPermissionsResponse {
              permissions: RequestPermissionProfile {
-@@ -711,7 +708,7 @@ async fn strict_auto_review_turn_grant_forces_guardian_for_exec_command_policy_s
+@@ -711,7 +709,7 @@ async fn strict_auto_review_turn_grant_forces_guardian_for_exec_command_policy_s
          Arc::clone(&session.services.auth_manager),
          config.model_provider.clone(),
      );
@@ -3845,8 +4977,40 @@ index 7ac50ac..7f2dd74 100644
      crate::guardian::test_host::install(&session, &config);
      turn_context_raw.config = Arc::clone(&config);
      turn_context_raw.provider = create_model_provider(
+@@ -737,6 +735,7 @@ async fn strict_auto_review_turn_grant_forces_guardian_for_exec_command_policy_s
+     let step_context = StepContext::for_test(Arc::clone(&turn_context));
+     let resp = handler
+         .handle(ToolInvocation {
++            native_completion: None,
+             session: Arc::clone(&session),
+             turn: Arc::clone(&turn_context),
+             step_context,
+@@ -891,6 +890,7 @@ async fn delayed_exec_command_uses_its_captured_authority_after_next_turn_starts
+     let command = "echo captured-action-authority";
+     let handler = crate::tools::handlers::ExecCommandHandler::default();
+     let invocation = handler.handle(ToolInvocation {
++        native_completion: None,
+         session: Arc::clone(&session),
+         turn: Arc::clone(&action_turn),
+         step_context,
+@@ -1099,6 +1099,7 @@ async fn guardian_allows_unified_exec_additional_permissions_requests_past_polic
+     let handler = ExecCommandHandler::default();
+     let resp = handler
+         .handle(ToolInvocation {
++            native_completion: None,
+             session: Arc::clone(&session),
+             turn: Arc::clone(&turn_context),
+             step_context,
+@@ -1225,6 +1226,7 @@ async fn exec_command_allows_sticky_turn_permissions_without_inline_request_perm
+     let step_context = StepContext::for_test(Arc::clone(&turn_context));
+     let resp = handler
+         .handle(ToolInvocation {
++            native_completion: None,
+             session: Arc::clone(&session),
+             turn: Arc::clone(&turn_context),
+             step_context,
 diff --git a/codex-rs/core/src/session/thread_settings.rs b/codex-rs/core/src/session/thread_settings.rs
-index c3a82ef..5a3adbb 100644
+index c3a82eff0f..5a3adbbd8b 100644
 --- a/codex-rs/core/src/session/thread_settings.rs
 +++ b/codex-rs/core/src/session/thread_settings.rs
 @@ -77,9 +77,52 @@ impl Session {
@@ -3924,10 +5088,10 @@ index c3a82ef..5a3adbb 100644
  
  /// Builds a current thread-owned snapshot for storage checkpoints.
 diff --git a/codex-rs/core/src/session/turn.rs b/codex-rs/core/src/session/turn.rs
-index b25f718..9b1e557 100644
+index ef7db28471..8eb5cbbb64 100644
 --- a/codex-rs/core/src/session/turn.rs
 +++ b/codex-rs/core/src/session/turn.rs
-@@ -210,7 +210,7 @@ pub(crate) async fn run_turn(
+@@ -211,7 +211,7 @@ pub(crate) async fn run_turn(
      drain_async_hook_results(&sess, &turn_context, /*before_user_prompt*/ true).await;
  
      let mut client_session =
@@ -3936,7 +5100,7 @@ index b25f718..9b1e557 100644
      // TODO(ccunningham): Pre-turn compaction runs before context updates and the
      // new user message are recorded. Estimate pending incoming items (context
      // diffs/full reinjection + user input) and trigger compaction preemptively
-@@ -1516,7 +1516,10 @@ async fn maybe_run_previous_model_inline_compact(
+@@ -1517,7 +1517,10 @@ async fn maybe_run_previous_model_inline_compact(
          return Ok(());
      }
      let mut previous_model_turn_context = turn_context
@@ -3948,7 +5112,7 @@ index b25f718..9b1e557 100644
          .await;
      // `with_model` preserves the current turn's access program. Restore the previous
      // turn's program so compaction uses the same model/cyber_access_program pair as that turn.
-@@ -3316,6 +3319,8 @@ async fn try_run_sampling_request(
+@@ -3324,6 +3327,8 @@ async fn try_run_sampling_request(
              ResponseEvent::ModelsEtag(etag) => {
                  // Update internal state with latest models etag
                  sess.services
@@ -3958,7 +5122,7 @@ index b25f718..9b1e557 100644
                      .refresh_if_new_etag(etag, turn_context.config.http_client_factory())
                      .await;
 diff --git a/codex-rs/core/src/session/turn_context.rs b/codex-rs/core/src/session/turn_context.rs
-index c08333d..87cb768 100644
+index c08333d350..87cb768dea 100644
 --- a/codex-rs/core/src/session/turn_context.rs
 +++ b/codex-rs/core/src/session/turn_context.rs
 @@ -346,6 +346,7 @@ pub struct TurnContext {
@@ -4167,7 +5331,7 @@ index c08333d..87cb768 100644
  }
  
 diff --git a/codex-rs/core/src/state/mod.rs b/codex-rs/core/src/state/mod.rs
-index 66df992..14e585f 100644
+index 66df9927d0..14e585fa35 100644
 --- a/codex-rs/core/src/state/mod.rs
 +++ b/codex-rs/core/src/state/mod.rs
 @@ -10,6 +10,7 @@ pub(crate) use additional_context::AdditionalContextFormat;
@@ -4179,7 +5343,7 @@ index 66df992..14e585f 100644
  pub(crate) use session::ReasoningEffortPin;
  pub(crate) use session::SessionState;
 diff --git a/codex-rs/core/src/state/service.rs b/codex-rs/core/src/state/service.rs
-index 3671386..e642ebf 100644
+index 3671386bd4..e642ebf3da 100644
 --- a/codex-rs/core/src/state/service.rs
 +++ b/codex-rs/core/src/state/service.rs
 @@ -48,6 +48,12 @@ use codex_utils_git_discovery::GitRootDiscovery;
@@ -4233,7 +5397,7 @@ index 3671386..e642ebf 100644
          clippy::expect_used,
          reason = "poisoned grant state must not authorize further operations"
 diff --git a/codex-rs/core/src/tasks/mod.rs b/codex-rs/core/src/tasks/mod.rs
-index 77ce9b8..5c27d8d 100644
+index 77ce9b873c..5c27d8df7c 100644
 --- a/codex-rs/core/src/tasks/mod.rs
 +++ b/codex-rs/core/src/tasks/mod.rs
 @@ -480,6 +480,8 @@ impl Session {
@@ -4262,7 +5426,7 @@ index 77ce9b8..5c27d8d 100644
              None => self.new_turn_with_default_settings(sub_id, options).await,
          };
 diff --git a/codex-rs/core/src/tasks/mod_tests.rs b/codex-rs/core/src/tasks/mod_tests.rs
-index fe6b6dd..45b5f66 100644
+index fe6b6dd0da..45b5f66b7b 100644
 --- a/codex-rs/core/src/tasks/mod_tests.rs
 +++ b/codex-rs/core/src/tasks/mod_tests.rs
 @@ -247,7 +247,10 @@ async fn turn_completion_metrics_follow_model_switch(scenario: UsageScenario) {
@@ -4278,7 +5442,7 @@ index fe6b6dd..45b5f66 100644
      );
      // Earlier session usage must not leak into this turn's per-model samples.
 diff --git a/codex-rs/core/src/tasks/review.rs b/codex-rs/core/src/tasks/review.rs
-index 7d9bf76..61421f2 100644
+index 7d9bf760a8..61421f2bf3 100644
 --- a/codex-rs/core/src/tasks/review.rs
 +++ b/codex-rs/core/src/tasks/review.rs
 @@ -128,7 +128,7 @@ async fn start_review_conversation(
@@ -4291,7 +5455,7 @@ index 7d9bf76..61421f2 100644
          Arc::clone(&session),
          ctx.clone(),
 diff --git a/codex-rs/core/src/thread_manager.rs b/codex-rs/core/src/thread_manager.rs
-index 7bd869f..dd48350 100644
+index 7bd869f2c0..dd48350a75 100644
 --- a/codex-rs/core/src/thread_manager.rs
 +++ b/codex-rs/core/src/thread_manager.rs
 @@ -514,6 +514,20 @@ pub(crate) struct ResumeThreadWithHistoryOptions {
@@ -4386,7 +5550,7 @@ index 7bd869f..dd48350 100644
              environment_manager: Arc::clone(&self.environment_manager),
              skills_service: Arc::clone(&self.skills_service),
 diff --git a/codex-rs/core/src/thread_manager_tests.rs b/codex-rs/core/src/thread_manager_tests.rs
-index 54e0677..bd0ba84 100644
+index 54e06778a3..bd0ba84e18 100644
 --- a/codex-rs/core/src/thread_manager_tests.rs
 +++ b/codex-rs/core/src/thread_manager_tests.rs
 @@ -3061,7 +3061,7 @@ async fn metadata_update_without_result_reads_only_when_the_caller_needs_the_thr
@@ -4463,7 +5627,7 @@ index 54e0677..bd0ba84 100644
      ));
  }
 diff --git a/codex-rs/core/src/thread_spawn.rs b/codex-rs/core/src/thread_spawn.rs
-index 4623a50..19c775d 100644
+index 4623a50c08..19c775d5f9 100644
 --- a/codex-rs/core/src/thread_spawn.rs
 +++ b/codex-rs/core/src/thread_spawn.rs
 @@ -173,6 +173,8 @@ pub(crate) async fn prepare(
@@ -4475,11 +5639,154 @@ index 4623a50..19c775d 100644
                      .models_manager
                      .get_model_info(model, &config.to_models_manager_config())
                      .await,
+diff --git a/codex-rs/core/src/tools/context.rs b/codex-rs/core/src/tools/context.rs
+index 252ca66b74..a9872c6376 100644
+--- a/codex-rs/core/src/tools/context.rs
++++ b/codex-rs/core/src/tools/context.rs
+@@ -46,6 +46,7 @@ pub type SharedTurnDiffTracker = Arc<Mutex<TurnDiffTracker>>;
+ /// Delivery does not finish the call: post-tool hooks can still be cancelled.
+ #[derive(Default)]
+ pub(crate) struct ToolCallState {
++    pub(crate) native_completion: Arc<crate::native_completion::CallCompletion>,
+     pub(crate) terminal_outcome_reached: AtomicBool,
+     pub(crate) delivered_assistant_message: OnceLock<String>,
+     pub(crate) invocation: crate::agent::host::InvocationReservation,
+@@ -108,6 +109,7 @@ impl ToolEnvironments {
+ 
+ #[derive(Clone)]
+ pub struct ToolInvocation {
++    pub(crate) native_completion: Option<Arc<crate::native_completion::CallCompletion>>,
+     pub session: Arc<Session>,
+     // TODO(sayan): Remove this compatibility field once handlers use `step_context.turn`.
+     pub turn: Arc<TurnContext>,
+diff --git a/codex-rs/core/src/tools/events.rs b/codex-rs/core/src/tools/events.rs
+index 2d5262ee9b..b9aa59b38d 100644
+--- a/codex-rs/core/src/tools/events.rs
++++ b/codex-rs/core/src/tools/events.rs
+@@ -42,6 +42,8 @@ pub(super) fn truncate_rejection_message(message: &str) -> String {
+ 
+ #[derive(Clone, Copy)]
+ pub(crate) struct ToolEventCtx<'a> {
++    pub native_terminal:
++        Option<&'a std::sync::OnceLock<codex_protocol::protocol::ExecCommandEndEvent>>,
+     pub sandbox_type: Option<codex_protocol::sandbox::SandboxType>,
+     pub model_context: Option<&'a ModelInvocationContext>,
+     pub session: &'a Session,
+@@ -61,6 +63,7 @@ impl<'a> ToolEventCtx<'a> {
+         turn_diff_tracker: Option<&'a SharedTurnDiffTracker>,
+     ) -> Self {
+         Self {
++            native_terminal: None,
+             model_context: None,
+             sandbox_type: None,
+             session,
+@@ -564,8 +567,9 @@ async fn emit_exec_end(
+     exec_result: ExecCommandResult,
+ ) {
+     let (plugin_id, script_path) = plugin_attribution_fields(exec_input.plugin_attribution);
+-    ctx.session
+-        .emit_turn_item_completed(
++    let completed = ctx
++        .session
++        .emit_turn_item_completed_with_receipt(
+             ctx.turn,
+             TurnItem::CommandExecution(CommandExecutionItem {
+                 id: ctx.call_id.to_string(),
+@@ -586,6 +590,13 @@ async fn emit_exec_end(
+             }),
+         )
+         .await;
++    if let Some(receipt) = ctx.native_terminal {
++        for event in EventMsg::ItemCompleted(completed).as_legacy_events(false) {
++            if let EventMsg::ExecCommandEnd(end) = event {
++                let _ = receipt.set(end);
++            }
++        }
++    }
+ }
+ 
+ fn plugin_attribution_fields(
+diff --git a/codex-rs/core/src/tools/handlers/apply_patch_tests.rs b/codex-rs/core/src/tools/handlers/apply_patch_tests.rs
+index e30ea8c49f..2b524dabb9 100644
+--- a/codex-rs/core/src/tools/handlers/apply_patch_tests.rs
++++ b/codex-rs/core/src/tools/handlers/apply_patch_tests.rs
+@@ -46,6 +46,7 @@ async fn invocation_for_payload(payload: ToolPayload) -> ToolInvocation {
+     let (session, turn) = make_session_and_context().await;
+     let turn = Arc::new(turn);
+     ToolInvocation {
++        native_completion: None,
+         session: session.into(),
+         step_context: StepContext::for_test(Arc::clone(&turn)),
+         turn,
+diff --git a/codex-rs/core/src/tools/handlers/extension_tools.rs b/codex-rs/core/src/tools/handlers/extension_tools.rs
+index c7f72f7b32..5a9bee6603 100644
+--- a/codex-rs/core/src/tools/handlers/extension_tools.rs
++++ b/codex-rs/core/src/tools/handlers/extension_tools.rs
+@@ -424,6 +424,7 @@ mod tests {
+         let (session, turn) = crate::session::tests::make_session_and_context().await;
+         let turn = Arc::new(turn);
+         let invocation = ToolInvocation {
++            native_completion: None,
+             session: session.into(),
+             step_context: StepContext::for_test(Arc::clone(&turn)),
+             turn,
+@@ -523,6 +524,7 @@ mod tests {
+         model_info.node_repl_disabled = !turn.model_info().node_repl_disabled;
+         let node_repl_disabled = model_info.node_repl_disabled;
+         let invocation = ToolInvocation {
++            native_completion: None,
+             session,
+             step_context,
+             turn,
+diff --git a/codex-rs/core/src/tools/handlers/mcp.rs b/codex-rs/core/src/tools/handlers/mcp.rs
+index cc850ba8c4..e5d92bb918 100644
+--- a/codex-rs/core/src/tools/handlers/mcp.rs
++++ b/codex-rs/core/src/tools/handlers/mcp.rs
+@@ -683,6 +683,7 @@ mod tests {
+             .expect("MCP tool spec should build");
+         assert_eq!(
+             handler.pre_tool_use_payload(&ToolInvocation {
++                native_completion: None,
+                 session: session.into(),
+                 step_context: StepContext::for_test(Arc::clone(&turn)),
+                 turn,
+@@ -719,6 +720,7 @@ mod tests {
+ 
+         assert_eq!(
+             handler.pre_tool_use_payload(&ToolInvocation {
++                native_completion: None,
+                 session: session.into(),
+                 step_context: StepContext::for_test(Arc::clone(&turn)),
+                 turn,
+@@ -751,6 +753,7 @@ mod tests {
+         let invocation = handler
+             .with_updated_hook_input(
+                 ToolInvocation {
++                    native_completion: None,
+                     session: session.into(),
+                     step_context: StepContext::for_test(Arc::clone(&turn)),
+                     turn,
+@@ -814,6 +817,7 @@ mod tests {
+         let handler = McpHandler::new(tool_info("filesystem", "filesystem", "read_file"))
+             .expect("MCP tool spec should build");
+         let invocation = ToolInvocation {
++            native_completion: None,
+             session: session.into(),
+             step_context: StepContext::for_test(Arc::clone(&turn)),
+             turn,
 diff --git a/codex-rs/core/src/tools/handlers/multi_agents_tests.rs b/codex-rs/core/src/tools/handlers/multi_agents_tests.rs
-index 0a9d78c..5de148f 100644
+index 0a9d78cd5c..1d9f97659c 100644
 --- a/codex-rs/core/src/tools/handlers/multi_agents_tests.rs
 +++ b/codex-rs/core/src/tools/handlers/multi_agents_tests.rs
-@@ -552,7 +552,10 @@ async fn spawn_agent_service_tier_inheritance_uses_root_preference_and_child_mod
+@@ -108,6 +108,7 @@ fn invocation(
+ ) -> ToolInvocation {
+     let step_context = StepContext::for_test(Arc::clone(&turn));
+     ToolInvocation {
++        native_completion: None,
+         session,
+         step_context,
+         turn,
+@@ -552,7 +553,10 @@ async fn spawn_agent_service_tier_inheritance_uses_root_preference_and_child_mod
      {
          let (mut session, turn) = make_session_and_context().await;
          let mut turn = turn
@@ -4491,7 +5798,7 @@ index 0a9d78c..5de148f 100644
              .await;
          let mut config = (*turn.config).clone();
          config.model_catalog = Some(service_tier_test_catalog());
-@@ -571,11 +574,12 @@ async fn spawn_agent_service_tier_inheritance_uses_root_preference_and_child_mod
+@@ -571,11 +575,12 @@ async fn spawn_agent_service_tier_inheritance_uses_root_preference_and_child_mod
                  .local_agent_runtime
                  .control(root.thread.session.session_id()),
          );
@@ -4505,7 +5812,7 @@ index 0a9d78c..5de148f 100644
          session.thread_id = root.thread_id;
  
          let output = SpawnAgentHandler::default()
-@@ -606,7 +610,10 @@ async fn spawn_agent_service_tier_inheritance_uses_root_preference_and_child_mod
+@@ -606,7 +611,10 @@ async fn spawn_agent_service_tier_inheritance_uses_root_preference_and_child_mod
      {
          let (mut session, turn) = make_session_and_context().await;
          let mut turn = turn
@@ -4517,7 +5824,7 @@ index 0a9d78c..5de148f 100644
              .await;
          let mut config = (*turn.config).clone();
          config.model_catalog = Some(service_tier_test_catalog());
-@@ -625,11 +632,12 @@ async fn spawn_agent_service_tier_inheritance_uses_root_preference_and_child_mod
+@@ -625,11 +633,12 @@ async fn spawn_agent_service_tier_inheritance_uses_root_preference_and_child_mod
                  .local_agent_runtime
                  .control(root.thread.session.session_id()),
          );
@@ -4531,7 +5838,7 @@ index 0a9d78c..5de148f 100644
          session.thread_id = root.thread_id;
  
          let output = SpawnAgentHandler::default()
-@@ -730,7 +738,10 @@ async fn spawn_agent_role_service_tier_cannot_override_root_preference() {
+@@ -730,7 +739,10 @@ async fn spawn_agent_role_service_tier_cannot_override_root_preference() {
  
      let (mut session, turn) = make_session_and_context().await;
      let mut turn = turn
@@ -4543,7 +5850,7 @@ index 0a9d78c..5de148f 100644
          .await;
      tokio::fs::create_dir_all(&turn.config.codex_home)
          .await
-@@ -809,7 +820,10 @@ async fn spawn_agent_full_history_fork_inherits_root_service_tier() {
+@@ -809,7 +821,10 @@ async fn spawn_agent_full_history_fork_inherits_root_service_tier() {
  
      let (mut session, turn) = make_session_and_context().await;
      let mut turn = turn
@@ -4555,7 +5862,7 @@ index 0a9d78c..5de148f 100644
          .await;
      let mut config = (*turn.config).clone();
      config.service_tier = Some(ServiceTier::Fast.request_value().to_string());
-@@ -866,7 +880,10 @@ async fn multi_agent_v2_full_history_fork_inherits_root_service_tier() {
+@@ -866,7 +881,10 @@ async fn multi_agent_v2_full_history_fork_inherits_root_service_tier() {
  
      let (mut session, turn) = make_session_and_context().await;
      let mut turn = turn
@@ -4567,8 +5874,1006 @@ index 0a9d78c..5de148f 100644
          .await;
      let mut config = (*turn.config).clone();
      config.service_tier = Some(ServiceTier::Fast.request_value().to_string());
+diff --git a/codex-rs/core/src/tools/handlers/request_plugin_install_tests.rs b/codex-rs/core/src/tools/handlers/request_plugin_install_tests.rs
+index f6af475f90..3149e320b1 100644
+--- a/codex-rs/core/src/tools/handlers/request_plugin_install_tests.rs
++++ b/codex-rs/core/src/tools/handlers/request_plugin_install_tests.rs
+@@ -58,6 +58,7 @@ async fn request_plugin_install_rejects_subagent_threads(presentation: ToolSugge
+ 
+     let result = RequestPluginInstallHandler::new(Vec::new(), presentation)
+         .handle(ToolInvocation {
++            native_completion: None,
+             session: Arc::new(session),
+             step_context: StepContext::for_test(Arc::clone(&turn)),
+             turn,
+diff --git a/codex-rs/core/src/tools/handlers/request_user_input_tests.rs b/codex-rs/core/src/tools/handlers/request_user_input_tests.rs
+index ecb5ed51bd..88c76b4752 100644
+--- a/codex-rs/core/src/tools/handlers/request_user_input_tests.rs
++++ b/codex-rs/core/src/tools/handlers/request_user_input_tests.rs
+@@ -40,6 +40,7 @@ async fn multi_agent_v2_request_user_input_rejects_subagent_threads() {
+         available_modes: Vec::new(),
+     }
+     .handle(ToolInvocation {
++        native_completion: None,
+         session: Arc::new(session),
+         step_context: StepContext::for_test(Arc::clone(&turn)),
+         turn,
+@@ -120,6 +121,7 @@ async fn request_user_input_sets_non_blocking_outside_plan_mode(
+                 available_modes: vec![ModeKind::Default],
+             }
+             .handle(ToolInvocation {
++                native_completion: None,
+                 session,
+                 step_context: StepContext::for_test(Arc::clone(&turn)),
+                 turn,
+@@ -243,6 +245,7 @@ async fn request_user_input_sets_blocking_from_turn_mode() {
+                 available_modes: vec![ModeKind::Plan],
+             }
+             .handle(ToolInvocation {
++                native_completion: None,
+                 session,
+                 step_context: StepContext::for_test(Arc::clone(&turn)),
+                 turn,
+diff --git a/codex-rs/core/src/tools/handlers/unified_exec/exec_command.rs b/codex-rs/core/src/tools/handlers/unified_exec/exec_command.rs
+index 6a81b62602..57f1d30961 100644
+--- a/codex-rs/core/src/tools/handlers/unified_exec/exec_command.rs
++++ b/codex-rs/core/src/tools/handlers/unified_exec/exec_command.rs
+@@ -136,6 +136,7 @@ impl ExecCommandHandler {
+         invocation: ToolInvocation,
+     ) -> Result<Box<dyn crate::tools::context::ToolOutput>, FunctionCallError> {
+         let ToolInvocation {
++            native_completion,
+             environments,
+             session,
+             step_context,
+@@ -156,12 +157,13 @@ impl ExecCommandHandler {
+         };
+ 
+         let manager: &UnifiedExecProcessManager = &session.services.unified_exec_manager;
+-        let context = UnifiedExecContext::new(
++        let mut context = UnifiedExecContext::new(
+             session.clone(),
+             step_context.clone(),
+             cancellation_token,
+             call_id.clone(),
+         );
++        context.native_completion = native_completion;
+         let turn_environment = selected_executor(&environments, &step_context.environments)?;
+         let parsed =
+             ParsedExecCommand::parse(&arguments, &session, &step_context, turn_environment)?;
+diff --git a/codex-rs/core/src/tools/handlers/unified_exec/write_stdin.rs b/codex-rs/core/src/tools/handlers/unified_exec/write_stdin.rs
+index ce64c7c004..fbfc142783 100644
+--- a/codex-rs/core/src/tools/handlers/unified_exec/write_stdin.rs
++++ b/codex-rs/core/src/tools/handlers/unified_exec/write_stdin.rs
+@@ -71,6 +71,7 @@ impl WriteStdinHandler {
+         invocation: ToolInvocation,
+     ) -> Result<Box<dyn crate::tools::context::ToolOutput>, FunctionCallError> {
+         let ToolInvocation {
++            native_completion,
+             session,
+             turn,
+             step_context,
+@@ -87,8 +88,9 @@ impl WriteStdinHandler {
+             ));
+         };
+         let args = WriteStdinArgs::parse(&payload)?;
+-        let context =
++        let mut context =
+             UnifiedExecContext::new(session.clone(), step_context, cancellation_token, call_id);
++        context.native_completion = native_completion;
+         let response = session
+             .services
+             .unified_exec_manager
+diff --git a/codex-rs/core/src/tools/handlers/unified_exec_tests.rs b/codex-rs/core/src/tools/handlers/unified_exec_tests.rs
+index 14dedbc272..28c4b2387c 100644
+--- a/codex-rs/core/src/tools/handlers/unified_exec_tests.rs
++++ b/codex-rs/core/src/tools/handlers/unified_exec_tests.rs
+@@ -33,6 +33,7 @@ async fn invocation_for_payload(
+     let (session, turn) = make_session_and_context().await;
+     let turn = Arc::new(turn);
+     ToolInvocation {
++        native_completion: None,
+         session: session.into(),
+         step_context: StepContext::for_test(Arc::clone(&turn)),
+         turn,
+@@ -346,6 +347,7 @@ async fn exec_command_rejects_login_when_selected_environment_disallows_it() {
+ 
+     let turn = Arc::new(turn);
+     let invocation = ToolInvocation {
++        native_completion: None,
+         session: session.into(),
+         step_context: StepContext::for_test(Arc::clone(&turn)),
+         turn,
+@@ -432,6 +434,7 @@ async fn exec_command_reuses_foreign_windows_grant() {
+     );
+     let response = ExecCommandHandler::default()
+         .handle(ToolInvocation {
++            native_completion: None,
+             session: Arc::clone(&session),
+             step_context,
+             turn,
+@@ -474,6 +477,7 @@ async fn exec_command_pre_tool_use_payload_uses_raw_command() {
+ 
+     assert_eq!(
+         handler.pre_tool_use_payload(&ToolInvocation {
++            native_completion: None,
+             session: session.into(),
+             step_context: StepContext::for_test(Arc::clone(&turn)),
+             turn,
+@@ -505,6 +509,7 @@ async fn exec_command_pre_tool_use_cwd_resolves_selected_environment() {
+     turn.initial_environments.environments.push(selected);
+     let turn = Arc::new(turn);
+     let mut invocation = ToolInvocation {
++        native_completion: None,
+         session: session.into(),
+         step_context: StepContext::for_test(Arc::clone(&turn)),
+         turn,
+@@ -578,6 +583,7 @@ async fn exec_command_pre_tool_use_payload_skips_write_stdin() {
+ 
+     assert_eq!(
+         handler.pre_tool_use_payload(&ToolInvocation {
++            native_completion: None,
+             session: session.into(),
+             step_context: StepContext::for_test(Arc::clone(&turn)),
+             turn,
+@@ -821,6 +827,7 @@ async fn exec_command_telemetry_records_configured_snapshot_mode(
+     )
+     .await;
+     let invocation = ToolInvocation {
++        native_completion: None,
+         session,
+         step_context: StepContext::for_test(Arc::clone(&turn)),
+         turn,
+diff --git a/codex-rs/core/src/tools/handlers/view_image.rs b/codex-rs/core/src/tools/handlers/view_image.rs
+index 8c62cf2394..66843e4046 100644
+--- a/codex-rs/core/src/tools/handlers/view_image.rs
++++ b/codex-rs/core/src/tools/handlers/view_image.rs
+@@ -389,6 +389,7 @@ mod tests {
+ 
+         let result = ViewImageHandler::default()
+             .handle(ToolInvocation {
++                native_completion: None,
+                 session: Arc::new(session),
+                 step_context: StepContext::for_test(Arc::clone(&turn)),
+                 turn,
+@@ -421,6 +422,7 @@ mod tests {
+ 
+         let result = ViewImageHandler::default()
+             .handle(ToolInvocation {
++                native_completion: None,
+                 session: Arc::new(session),
+                 step_context: StepContext::for_test(Arc::clone(&turn)),
+                 turn,
+@@ -466,6 +468,7 @@ mod tests {
+ 
+         let result = ViewImageHandler::default()
+             .handle(ToolInvocation {
++                native_completion: None,
+                 session: Arc::new(session),
+                 step_context: StepContext::for_test(Arc::clone(&turn)),
+                 turn,
+@@ -506,6 +509,7 @@ mod tests {
+ 
+         let result = ViewImageHandler::default()
+             .handle(ToolInvocation {
++                native_completion: None,
+                 session: Arc::new(session),
+                 step_context: StepContext::for_test(Arc::clone(&turn)),
+                 turn,
+diff --git a/codex-rs/core/src/tools/orchestrator.rs b/codex-rs/core/src/tools/orchestrator.rs
+index 809e43bc2e..e6195d6c56 100644
+--- a/codex-rs/core/src/tools/orchestrator.rs
++++ b/codex-rs/core/src/tools/orchestrator.rs
+@@ -191,7 +191,12 @@ impl ToolOrchestrator {
+                         .session
+                         .request_approval(action, approval_ctx)
+                         .await;
+-                    approval.result?;
++                    if let Err(error) = approval.result {
++                        if matches!(&error, ToolError::Rejected(_)) {
++                            tool.record_initial_rejection();
++                        }
++                        return Err(error);
++                    }
+                     initial_approval_source = approval.source;
+                 } else {
+                     otel.tool_decision(
+@@ -203,6 +208,7 @@ impl ToolOrchestrator {
+                 }
+             }
+             ExecApprovalRequirement::Forbidden { reason } => {
++                tool.record_initial_rejection();
+                 return Err(ToolError::Rejected(reason.clone()));
+             }
+             ExecApprovalRequirement::NeedsApproval { reason, .. }
+@@ -227,7 +233,12 @@ impl ToolOrchestrator {
+                     .session
+                     .request_approval(action, approval_ctx)
+                     .await;
+-                approval.result?;
++                if let Err(error) = approval.result {
++                    if matches!(&error, ToolError::Rejected(_)) {
++                        tool.record_initial_rejection();
++                    }
++                    return Err(error);
++                }
+                 initial_approval_source = approval.source;
+             }
+         }
+diff --git a/codex-rs/core/src/tools/parallel.rs b/codex-rs/core/src/tools/parallel.rs
+index 4361a91aa7..5f58aa7ecc 100644
+--- a/codex-rs/core/src/tools/parallel.rs
++++ b/codex-rs/core/src/tools/parallel.rs
+@@ -167,6 +167,12 @@ impl ToolCallRuntime {
+         {
+             return Either::Left(std::future::ready(Err(err)));
+         }
++        call_state.native_completion.capture(
++            &self.session,
++            &step_context,
++            &call.call_id,
++            &call.tool_name,
++        );
+         let message_admission =
+             super::user_messaging::admit_code_mode_send(&self.session, &source, &call.tool_name);
+         self.session
+@@ -359,7 +365,10 @@ impl ToolCallRuntime {
+             .instrument(dispatch_span.clone().or_current()),
+         ));
+ 
++        let native_finish =
++            crate::native_completion::FinishGuard(Arc::clone(&call_state.native_completion));
+         let completion = async move {
++            let _native_finish = native_finish;
+             let mut tool_call_timing_guard = tool_call_timing_guard;
+             let join_error = |err| {
+                 drop(call_state.invocation.take());
+@@ -435,7 +444,10 @@ impl ToolCallRuntime {
+             {
+                 result.result.set_handler_duration_ms(handler_duration_ms);
+             }
+-            result
++            // This follows all handler/post-hook effects or the joined abort. A
++            // retained snapshot cannot be replaced by a later sampling request.
++            call_state.native_completion.finish(&abort_session);
++            crate::native_completion::decorate(result, &call_state.native_completion)
+         }
+         .instrument(dispatch_span.or_current());
+         Either::Right(completion)
+diff --git a/codex-rs/core/src/tools/registry_tests.rs b/codex-rs/core/src/tools/registry_tests.rs
+index 10f445297f..6d8af3a164 100644
+--- a/codex-rs/core/src/tools/registry_tests.rs
++++ b/codex-rs/core/src/tools/registry_tests.rs
+@@ -466,6 +466,7 @@ async fn function_tools_expose_default_hook_payloads_and_rewrites() -> anyhow::R
+         tool_name: tool_name.clone(),
+     };
+     let invocation = ToolInvocation {
++        native_completion: None,
+         payload: ToolPayload::Function {
+             arguments: serde_json::json!({ "message": "hello" }).to_string(),
+         },
+@@ -513,6 +514,7 @@ async fn function_hook_input_defaults_empty_arguments_to_object() {
+         tool_name: tool_name.clone(),
+     };
+     let invocation = ToolInvocation {
++        native_completion: None,
+         payload: ToolPayload::Function {
+             arguments: "  ".to_string(),
+         },
+@@ -545,6 +547,7 @@ async fn spawn_agent_function_tools_use_agent_matcher_alias() {
+             tool_name: tool_name.clone(),
+         };
+         let invocation = ToolInvocation {
++            native_completion: None,
+             payload: ToolPayload::Function {
+                 arguments: serde_json::json!({ "message": "inspect this repo" }).to_string(),
+             },
+@@ -870,6 +873,7 @@ fn test_invocation(
+ ) -> ToolInvocation {
+     let step_context = StepContext::for_test(Arc::clone(&turn));
+     ToolInvocation {
++        native_completion: None,
+         session,
+         step_context,
+         turn,
+diff --git a/codex-rs/core/src/tools/router.rs b/codex-rs/core/src/tools/router.rs
+index d21d1508e3..4fb03c07a9 100644
+--- a/codex-rs/core/src/tools/router.rs
++++ b/codex-rs/core/src/tools/router.rs
+@@ -408,6 +408,9 @@ impl ToolRouter {
+         // Keep the legacy ToolInvocation.turn field tied to the same request state until handlers migrate.
+         let turn = Arc::clone(&step_context.turn);
+         let invocation = ToolInvocation {
++            native_completion: call_state
++                .as_ref()
++                .map(|state| Arc::clone(&state.native_completion)),
+             session,
+             turn,
+             step_context,
+diff --git a/codex-rs/core/src/tools/runtimes/unified_exec.rs b/codex-rs/core/src/tools/runtimes/unified_exec.rs
+index 9d0352b0ac..3f381a0c96 100644
+--- a/codex-rs/core/src/tools/runtimes/unified_exec.rs
++++ b/codex-rs/core/src/tools/runtimes/unified_exec.rs
+@@ -58,6 +58,7 @@ use codex_shell_command::powershell::prefix_powershell_script_with_utf8;
+ use codex_utils_path_uri::PathUri;
+ use std::collections::HashMap;
+ use std::io;
++use std::sync::Arc;
+ use std::time::Duration;
+ use tokio_util::sync::CancellationToken;
+ 
+@@ -99,6 +100,7 @@ pub struct UnifiedExecApprovalKey {
+ /// Runtime adapter that keeps policy and sandbox orchestration on the
+ /// unified-exec side while delegating process startup to the manager.
+ pub struct UnifiedExecRuntime<'a> {
++    native_completion: Option<Arc<crate::native_completion::CallCompletion>>,
+     manager: &'a UnifiedExecProcessManager,
+ }
+ 
+@@ -142,9 +144,20 @@ fn build_unified_exec_sandbox_command(
+ }
+ 
+ impl<'a> UnifiedExecRuntime<'a> {
++    pub(crate) fn with_native_completion(
++        mut self,
++        state: Option<Arc<crate::native_completion::CallCompletion>>,
++    ) -> Self {
++        self.native_completion = state;
++        self
++    }
++
+     /// Creates a runtime bound to the shared unified-exec process manager.
+     pub fn new(manager: &'a UnifiedExecProcessManager) -> Self {
+-        Self { manager }
++        Self {
++            manager,
++            native_completion: None,
++        }
+     }
+ }
+ 
+@@ -159,6 +172,12 @@ impl Sandboxable for UnifiedExecRuntime<'_> {
+ }
+ 
+ impl Approvable<UnifiedExecRequest<'_>> for UnifiedExecRuntime<'_> {
++    fn record_initial_rejection(&self) {
++        if let Some(state) = &self.native_completion {
++            state.initial_rejection();
++        }
++    }
++
+     fn approval_action(
+         &self,
+         req: &UnifiedExecRequest<'_>,
+@@ -643,6 +662,7 @@ impl<'a> ToolRuntime<UnifiedExecRequest<'_>, UnifiedExecAttempt> for UnifiedExec
+                 windows_sandbox_proxy_settings_mode,
+                 prepared.tty,
+                 prepared.turn_environment.environment.as_ref(),
++                self.native_completion.clone(),
+             )
+             .await;
+         let mut process = with_launch_failure_events(process, prepared, ctx).await?;
+diff --git a/codex-rs/core/src/tools/sandboxing.rs b/codex-rs/core/src/tools/sandboxing.rs
+index d80079d307..a9acd1a16b 100644
+--- a/codex-rs/core/src/tools/sandboxing.rs
++++ b/codex-rs/core/src/tools/sandboxing.rs
+@@ -325,6 +325,9 @@ pub(crate) fn managed_network_for_sandbox_permissions(
+ }
+ 
+ pub(crate) trait Approvable<Req> {
++    /// Called only for an explicit rejection before this orchestrator's first attempt.
++    fn record_initial_rejection(&self) {}
++
+     /// Return per-request sandbox permissions for first-attempt sandbox
+     /// selection. Most tools use the ambient sandbox policy unchanged.
+     fn sandbox_permissions(&self, _req: &Req) -> SandboxPermissions {
+diff --git a/codex-rs/core/src/tools/tool_dispatch_trace_tests.rs b/codex-rs/core/src/tools/tool_dispatch_trace_tests.rs
+index 194c5d6bca..80388c7af4 100644
+--- a/codex-rs/core/src/tools/tool_dispatch_trace_tests.rs
++++ b/codex-rs/core/src/tools/tool_dispatch_trace_tests.rs
+@@ -358,6 +358,7 @@ fn test_invocation_with_payload(
+ ) -> ToolInvocation {
+     let step_context = StepContext::for_test(Arc::clone(&turn));
+     ToolInvocation {
++        native_completion: None,
+         session,
+         step_context,
+         turn,
+diff --git a/codex-rs/core/src/unified_exec/async_watcher.rs b/codex-rs/core/src/unified_exec/async_watcher.rs
+index 49ae8b2cf2..9e05f27b3e 100644
+--- a/codex-rs/core/src/unified_exec/async_watcher.rs
++++ b/codex-rs/core/src/unified_exec/async_watcher.rs
+@@ -176,7 +176,16 @@ pub(crate) fn spawn_exit_watcher(
+     let output_drained = process.output_drained_notify();
+     let interaction_lock = process.interaction_lock();
+ 
++    let context_session = Arc::clone(&session_ref);
++    // Register before spawning, while the admitted process is still owned.
++    // Remote/unknown processes cannot produce this proof and must not prolong
++    // graceful persistence shutdown. No new process or task registry is needed.
++    let completion_persistence = process
++        .has_admitted_native_wait()
++        .then(|| session_ref.track_native_completion())
++        .flatten();
+     tokio::spawn(async move {
++        let _completion_persistence = completion_persistence;
+         exit_token.cancelled().await;
+         output_drained.notified().await;
+         // Deferred network denial deliberately remains observable for a short
+@@ -191,7 +200,7 @@ pub(crate) fn spawn_exit_watcher(
+         let plugin_metrics_sidecar = plugin_metrics_sidecar
+             .as_ref()
+             .and_then(take_plugin_metrics_sidecar);
+-        if let Some(message) = process.failure_message() {
++        let terminal = if let Some(message) = process.failure_message() {
+             drop(plugin_metrics_sidecar);
+             emit_failed_exec_end_for_unified_exec(
+                 process.sandbox_type(),
+@@ -208,7 +217,7 @@ pub(crate) fn spawn_exit_watcher(
+                 message,
+                 duration,
+             )
+-            .await;
++            .await
+         } else {
+             let exit_code = process.exit_code().unwrap_or(-1);
+             let timed_out = process.timed_out();
+@@ -237,7 +246,18 @@ pub(crate) fn spawn_exit_watcher(
+                 duration,
+                 timed_out,
+             )
+-            .await;
++            .await
++        };
++        // The existing interaction critical section ends with the original event.
++        // Waiting for a late OS receipt must not block an independent poll/Stop.
++        drop(_interaction_guard);
++        // The original public terminal event may already report timeout124 or
++        // interruption. Only the actual local waiter can append this new fact.
++        if let (Some(mut terminal), Some(proof)) =
++            (terminal, process.native_wait_completion(process_id).await)
++        {
++            terminal.native_completion = Some(Some(proof));
++            persist_native_completion(&context_session, terminal).await;
+         }
+     });
+ }
+@@ -343,7 +363,7 @@ pub(crate) async fn emit_exec_end_for_unified_exec(
+     exit_code: i32,
+     duration: Duration,
+     timed_out: bool,
+-) {
++) -> Option<codex_protocol::protocol::ExecCommandEndEvent> {
+     let aggregated_output = resolve_aggregated_output(&output_buffer, fallback_output).await;
+     let output = ExecToolCallOutput {
+         exit_code,
+@@ -353,6 +373,7 @@ pub(crate) async fn emit_exec_end_for_unified_exec(
+         duration,
+         timed_out,
+     };
++    let terminal = std::sync::OnceLock::new();
+     let mut event_ctx = ToolEventCtx::new(
+         session_ref.as_ref(),
+         turn_ref.as_ref(),
+@@ -361,6 +382,7 @@ pub(crate) async fn emit_exec_end_for_unified_exec(
+         /*turn_diff_tracker*/ None,
+     );
+     event_ctx.sandbox_type = sandbox_type;
++    event_ctx.native_terminal = Some(&terminal);
+     let emitter = ToolEmitter::unified_exec(
+         &command,
+         cwd,
+@@ -377,6 +399,7 @@ pub(crate) async fn emit_exec_end_for_unified_exec(
+             },
+         )
+         .await;
++    terminal.into_inner()
+ }
+ 
+ #[allow(clippy::too_many_arguments)]
+@@ -394,7 +417,7 @@ pub(crate) async fn emit_failed_exec_end_for_unified_exec(
+     fallback_output: String,
+     message: String,
+     duration: Duration,
+-) {
++) -> Option<codex_protocol::protocol::ExecCommandEndEvent> {
+     let stdout = if fallback_output.is_empty() {
+         resolve_aggregated_output(&output_buffer, fallback_output).await
+     } else {
+@@ -413,6 +436,7 @@ pub(crate) async fn emit_failed_exec_end_for_unified_exec(
+         duration,
+         timed_out: false,
+     };
++    let terminal = std::sync::OnceLock::new();
+     let mut event_ctx = ToolEventCtx::new(
+         session_ref.as_ref(),
+         turn_ref.as_ref(),
+@@ -421,6 +445,7 @@ pub(crate) async fn emit_failed_exec_end_for_unified_exec(
+         /*turn_diff_tracker*/ None,
+     );
+     event_ctx.sandbox_type = sandbox_type;
++    event_ctx.native_terminal = Some(&terminal);
+     let emitter = ToolEmitter::unified_exec(
+         &command,
+         cwd,
+@@ -434,6 +459,7 @@ pub(crate) async fn emit_failed_exec_end_for_unified_exec(
+             ToolEventStage::Failure(ToolEventFailure::Output(output)),
+         )
+         .await;
++    terminal.into_inner()
+ }
+ 
+ /// Keep only a potentially incomplete UTF-8 suffix; malformed bytes remain raw.
+@@ -471,3 +497,18 @@ async fn resolve_aggregated_output(
+ #[cfg(test)]
+ #[path = "async_watcher_tests.rs"]
+ mod tests;
++
++pub(super) async fn persist_native_completion(
++    session: &Session,
++    event: codex_protocol::protocol::ExecCommandEndEvent,
++) {
++    if session.live_thread().is_none() {
++        return;
++    }
++    let items = [codex_protocol::protocol::RolloutItem::EventMsg(
++        codex_protocol::protocol::EventMsg::ExecCommandEnd(event),
++    )];
++    if !session.persist_rollout_items(&items).await || session.flush_rollout().await.is_err() {
++        tracing::warn!("Native completion persistence is unconfirmed; retain original effect");
++    }
++}
+diff --git a/codex-rs/core/src/unified_exec/mod.rs b/codex-rs/core/src/unified_exec/mod.rs
+index 78ec3c5d90..31a8ffed45 100644
+--- a/codex-rs/core/src/unified_exec/mod.rs
++++ b/codex-rs/core/src/unified_exec/mod.rs
+@@ -81,6 +81,7 @@ fn trace_id(id: &str) -> Option<&str> {
+ }
+ 
+ pub(crate) struct UnifiedExecContext {
++    pub(crate) native_completion: Option<Arc<crate::native_completion::CallCompletion>>,
+     pub session: Arc<Session>,
+     pub step_context: Arc<StepContext>,
+     pub cancellation_token: CancellationToken,
+@@ -95,6 +96,7 @@ impl UnifiedExecContext {
+         call_id: String,
+     ) -> Self {
+         Self {
++            native_completion: None,
+             session,
+             step_context,
+             cancellation_token,
+diff --git a/codex-rs/core/src/unified_exec/process.rs b/codex-rs/core/src/unified_exec/process.rs
+index f9afaaa41d..ef31f3aa08 100644
+--- a/codex-rs/core/src/unified_exec/process.rs
++++ b/codex-rs/core/src/unified_exec/process.rs
+@@ -91,13 +91,15 @@ pub(super) enum OutputDrainPolicy {
+ 
+ /// Transport-specific process handle used by unified exec.
+ enum ProcessHandle {
+-    Local(Box<ExecCommandSession>),
++    Local(Arc<ExecCommandSession>),
+     ExecServer(Arc<dyn ExecProcess>),
+ }
+ 
+ /// Unified wrapper over directly spawned PTY sessions and exec-server-backed
+ /// processes.
+ pub(crate) struct UnifiedExecProcess {
++    native_origin: std::sync::OnceLock<Arc<crate::native_completion::CallCompletion>>,
++    local_wait_observed: Arc<AtomicBool>,
+     process_handle: ProcessHandle,
+     output_tx: broadcast::Sender<Vec<u8>>,
+     output: OutputHandles,
+@@ -144,6 +146,8 @@ impl UnifiedExecProcess {
+         let (state_tx, state_rx) = watch::channel(ProcessState::default());
+ 
+         Self {
++            native_origin: std::sync::OnceLock::new(),
++            local_wait_observed: Arc::new(AtomicBool::new(false)),
+             process_handle,
+             output_tx,
+             output,
+@@ -159,6 +163,80 @@ impl UnifiedExecProcess {
+         }
+     }
+ 
++    pub(super) fn bind_native_origin(
++        &self,
++        state: Option<Arc<crate::native_completion::CallCompletion>>,
++    ) {
++        if let Some(state) = state {
++            let _ = self.native_origin.set(state);
++        }
++    }
++
++    pub(super) fn has_admitted_native_wait(&self) -> bool {
++        matches!(self.process_handle, ProcessHandle::Local(_))
++            && self
++                .native_origin
++                .get()
++                .is_some_and(|origin| origin.is_admitted())
++    }
++
++    pub(super) fn observe_native_running(
++        &self,
++        context: &super::UnifiedExecContext,
++        session_id: i32,
++    ) {
++        if matches!(self.process_handle, ProcessHandle::Local(_))
++            && !self.has_exited()
++            && let Some(current) = &context.native_completion
++        {
++            current.observed_running(session_id);
++        }
++    }
++
++    pub(super) fn observe_native_wait(&self, context: &super::UnifiedExecContext, session_id: i32) {
++        let (Some(current), Some(original)) =
++            (&context.native_completion, self.native_origin.get())
++        else {
++            return;
++        };
++        if !original.attempts_confirmed()
++            || (!Arc::ptr_eq(current, original) && !original.hook_free_finished())
++        {
++            return;
++        }
++        if let ProcessHandle::Local(handle) = &self.process_handle
++            && let Some(code) = handle.confirmed_exit_code()
++        {
++            current.observed_wait(session_id, code);
++        }
++    }
++
++    /// This watches the existing local wait receiver. Kill acknowledgement,
++    /// synthetic timeout status and remote transport completion are not OS waits.
++    pub(super) async fn native_wait_completion(
++        &self,
++        session_id: i32,
++    ) -> Option<codex_protocol::protocol::NativeEffectCompletion> {
++        let ProcessHandle::Local(handle) = &self.process_handle else {
++            return None;
++        };
++        let origin = self.native_origin.get()?;
++        let mut state = self.state_rx.clone();
++        loop {
++            if self.local_wait_observed.load(Ordering::Acquire) {
++                break;
++            }
++            if state.changed().await.is_err() {
++                return None;
++            }
++        }
++        let code = handle.confirmed_exit_code()?;
++        if !origin.wait_for_finish().await || !origin.wait_for_attempts().await {
++            return None;
++        }
++        origin.wait_proof(session_id, code)
++    }
++
+     pub(super) async fn write(&self, data: &[u8]) -> Result<(), UnifiedExecError> {
+         match &self.process_handle {
+             ProcessHandle::Local(process_handle) => process_handle
+@@ -356,6 +434,14 @@ impl UnifiedExecProcess {
+     pub(super) async fn from_spawned(
+         spawned: SpawnedPty,
+         sandbox_type: SandboxType,
++    ) -> Result<Self, UnifiedExecError> {
++        Self::from_spawned_with_native_attempt(spawned, sandbox_type, None).await
++    }
++
++    pub(super) async fn from_spawned_with_native_attempt(
++        spawned: SpawnedPty,
++        sandbox_type: SandboxType,
++        native_attempt: Option<crate::native_completion::NativeAttempt>,
+     ) -> Result<Self, UnifiedExecError> {
+         let SpawnedPty {
+             session: process_handle,
+@@ -363,8 +449,9 @@ impl UnifiedExecProcess {
+             stderr_rx,
+             mut exit_rx,
+         } = spawned;
++        let process_handle = Arc::new(process_handle);
+         let mut managed = Self::new(
+-            ProcessHandle::Local(Box::new(process_handle)),
++            ProcessHandle::Local(Arc::clone(&process_handle)),
+             Some(sandbox_type),
+             OutputDrainPolicy::BoundedAfterExit,
+         );
+@@ -377,11 +464,19 @@ impl UnifiedExecProcess {
+ 
+         match exit_rx.try_recv() {
+             Ok(exit_code) => {
++                if let Some(attempt) = &native_attempt {
++                    attempt.observe(process_handle.confirmed_exit_code());
++                }
++                managed.local_wait_observed.store(true, Ordering::Release);
+                 managed.signal_exit(Some(exit_code));
+                 managed.check_for_sandbox_denial().await?;
+                 return Ok(managed);
+             }
+             Err(TryRecvError::Closed) => {
++                if let Some(attempt) = &native_attempt {
++                    attempt.observe(process_handle.confirmed_exit_code());
++                }
++                managed.local_wait_observed.store(true, Ordering::Release);
+                 managed.signal_exit(/*exit_code*/ None);
+                 managed.check_for_sandbox_denial().await?;
+                 return Ok(managed);
+@@ -390,6 +485,10 @@ impl UnifiedExecProcess {
+         }
+ 
+         if let Ok(exit_result) = tokio::time::timeout(EARLY_EXIT_GRACE_PERIOD, &mut exit_rx).await {
++            if let Some(attempt) = &native_attempt {
++                attempt.observe(process_handle.confirmed_exit_code());
++            }
++            managed.local_wait_observed.store(true, Ordering::Release);
+             managed.signal_exit(exit_result.ok());
+             managed.check_for_sandbox_denial().await?;
+             return Ok(managed);
+@@ -397,9 +496,14 @@ impl UnifiedExecProcess {
+ 
+         tokio::spawn({
+             let state_tx = managed.state_tx.clone();
++            let wait_observed = Arc::clone(&managed.local_wait_observed);
+             let cancellation_token = managed.output.cancellation_token.clone();
+             async move {
+                 let exit_code = exit_rx.await.ok();
++                if let Some(attempt) = &native_attempt {
++                    attempt.observe(process_handle.confirmed_exit_code());
++                }
++                wait_observed.store(true, Ordering::Release);
+                 let state = state_tx.borrow().clone();
+                 let _ = state_tx.send_replace(state.exited(exit_code));
+                 cancellation_token.cancel();
+diff --git a/codex-rs/core/src/unified_exec/process_manager.rs b/codex-rs/core/src/unified_exec/process_manager.rs
+index 9715d1b1a8..7d850430b9 100644
+--- a/codex-rs/core/src/unified_exec/process_manager.rs
++++ b/codex-rs/core/src/unified_exec/process_manager.rs
+@@ -543,6 +543,9 @@ impl UnifiedExecProcessManager {
+         let prepared = &request.prepared;
+         let command = &prepared.resolved.command;
+         let cwd = prepared.cwd.clone();
++        if let Some(completion) = &context.native_completion {
++            completion.bind_exec_session(request.process_id);
++        }
+         let process = self.open_session_with_sandbox(&request, context).await;
+ 
+         let (attempt, mut deferred_network_approval) = match process {
+@@ -558,6 +561,7 @@ impl UnifiedExecProcessManager {
+             permissions,
+         } = attempt;
+         let process = Arc::new(process);
++        process.bind_native_origin(context.native_completion.clone());
+         if let Some(completion) = completion.as_ref() {
+             let _ = completion.process.set(Arc::clone(&process));
+         }
+@@ -852,6 +856,7 @@ impl UnifiedExecProcessManager {
+             (None, exit_code)
+         };
+ 
++        process.observe_native_wait(context, request.process_id);
+         let response = ExecCommandToolOutput {
+             event_call_id: context.call_id.clone(),
+             chunk_id,
+@@ -1119,6 +1124,15 @@ impl UnifiedExecProcessManager {
+             }
+         };
+ 
++        process.observe_native_wait(context, request.terminal.process_id);
++        if let Some(session_id) = process_id
++            && exit_code.is_none()
++        {
++            // The exact process was revalidated under the interaction lock and
++            // this invocation returned successfully while it was still local/live.
++            // Final hook validation decides whether the per-call fact is usable.
++            process.observe_native_running(context, session_id);
++        }
+         let response = ExecCommandToolOutput {
+             event_call_id,
+             chunk_id,
+@@ -1322,6 +1336,7 @@ impl UnifiedExecProcessManager {
+         windows_sandbox_proxy_settings_mode: codex_sandboxing::WindowsSandboxProxySettingsMode,
+         tty: bool,
+         environment: &codex_exec_server::Environment,
++        native_completion: Option<Arc<crate::native_completion::CallCompletion>>,
+     ) -> Result<UnifiedExecProcess, ToolError> {
+         let mut request = if environment.is_remote() || shell_snapshot.is_some() {
+             attempt.env_for_exec_server(command, options).await
+@@ -1341,7 +1356,7 @@ impl UnifiedExecProcessManager {
+         request.exec_server_network_proxy = network_proxy_launch;
+         request.exec_server_env_config = exec_server_env_config;
+         request.exec_server_shell_snapshot = shell_snapshot;
+-        self.open_session_with_prepared_exec_env(
++        self.open_session_with_prepared_exec_env_and_completion(
+             process_id,
+             &request,
+             Some(tool_ctx),
+@@ -1349,6 +1364,7 @@ impl UnifiedExecProcessManager {
+             network_policy_decider,
+             tty,
+             environment,
++            native_completion,
+         )
+         .await
+         .map_err(|err| match err {
+@@ -1372,8 +1388,40 @@ impl UnifiedExecProcessManager {
+         network_policy_decider: Option<Arc<dyn NetworkPolicyDecider>>,
+         tty: bool,
+         environment: &codex_exec_server::Environment,
++    ) -> Result<UnifiedExecProcess, UnifiedExecError> {
++        self.open_session_with_prepared_exec_env_and_completion(
++            process_id,
++            request,
++            tool_ctx,
++            windows_sandbox_proxy_settings_mode,
++            network_policy_decider,
++            tty,
++            environment,
++            None,
++        )
++        .await
++    }
++
++    #[allow(clippy::too_many_arguments)]
++    pub(crate) async fn open_session_with_prepared_exec_env_and_completion(
++        &self,
++        process_id: i32,
++        request: &ExecRequest,
++        tool_ctx: Option<&ToolCtx>,
++        windows_sandbox_proxy_settings_mode: codex_sandboxing::WindowsSandboxProxySettingsMode,
++        network_policy_decider: Option<Arc<dyn NetworkPolicyDecider>>,
++        tty: bool,
++        environment: &codex_exec_server::Environment,
++        native_completion: Option<Arc<crate::native_completion::CallCompletion>>,
+     ) -> Result<UnifiedExecProcess, UnifiedExecError> {
+         if environment.is_remote() || request.exec_server_shell_snapshot.is_some() {
++            if let Some(attempt) = native_completion
++                .as_ref()
++                .and_then(|state| state.begin_attempt())
++            {
++                // Remote/driver acknowledgement has no local successful OS wait.
++                attempt.observe(None);
++            }
+             let backend = environment.get_exec_backend();
+             let params = exec_server_params_for_request(
+                 process_id,
+@@ -1463,6 +1511,9 @@ impl UnifiedExecProcessManager {
+             } else {
+                 None
+             };
++        let native_attempt = native_completion
++            .as_ref()
++            .and_then(|state| state.begin_attempt());
+         let spawn_result = codex_sandboxing::spawn_process(codex_sandboxing::SpawnRequest {
+             command: &request.command,
+             cwd: native_cwd.as_path(),
+@@ -1475,9 +1526,18 @@ impl UnifiedExecProcessManager {
+             inherited_fds: codex_utils_pty::ChildFds::Inherited(&[]),
+         })
+         .await;
+-        let spawned =
+-            spawn_result.map_err(|err| UnifiedExecError::create_process(err.to_string()))?;
+-        UnifiedExecProcess::from_spawned(spawned, request.sandbox).await
++        let spawned = spawn_result.map_err(|err| {
++            if let Some(attempt) = &native_attempt {
++                attempt.observe(None);
++            }
++            UnifiedExecError::create_process(err.to_string())
++        })?;
++        UnifiedExecProcess::from_spawned_with_native_attempt(
++            spawned,
++            request.sandbox,
++            native_attempt,
++        )
++        .await
+     }
+ 
+     #[tracing::instrument(
+@@ -1516,7 +1576,8 @@ impl UnifiedExecProcessManager {
+         };
+         let shell_snapshot = shell_snapshot_request(prepared, context);
+         let mut orchestrator = ToolOrchestrator::new();
+-        let mut runtime = UnifiedExecRuntime::new(self);
++        let mut runtime =
++            UnifiedExecRuntime::new(self).with_native_completion(context.native_completion.clone());
+         let exec_approval_requirement = prepared
+             .approval_requirement(&context.session, &context.step_context)
+             .await;
+diff --git a/codex-rs/core/src/unified_exec/process_tests.rs b/codex-rs/core/src/unified_exec/process_tests.rs
+index 29dabeee2d..e2f889f3e7 100644
+--- a/codex-rs/core/src/unified_exec/process_tests.rs
++++ b/codex-rs/core/src/unified_exec/process_tests.rs
+@@ -214,3 +214,87 @@ async fn remote_process_preserves_executor_sandbox_type() {
+         assert_eq!(process.sandbox_type(), sandbox_type);
+     }
+ }
++
++#[cfg(unix)]
++#[tokio::test]
++async fn native_completion_timeout_keeps_public_124_until_original_os_wait_proves_exit()
++-> anyhow::Result<()> {
++    use crate::native_completion::CallCompletion;
++    use crate::session::step_context::StepContext;
++    use codex_tools::ToolName;
++    let (session, turn) = crate::session::tests::make_session_and_context().await;
++    let step = StepContext::for_test(Arc::new(turn));
++    let completion = Arc::new(CallCompletion::default());
++    completion.capture(
++        &session,
++        &step,
++        "original-timeout",
++        &ToolName::plain("exec_command"),
++    );
++    completion.bind_exec_session(71);
++    let attempt = completion
++        .begin_attempt()
++        .ok_or_else(|| anyhow::anyhow!("backend attempt"))?;
++    let directory = tempfile::tempdir()?;
++    let shell = if cfg!(target_os = "android") {
++        "/system/bin/sh"
++    } else {
++        "/bin/sh"
++    };
++    let spawned = codex_utils_pty::spawn_pipe_process(
++        shell,
++        &["-c".into(), "read value".into()],
++        directory.path(),
++        &std::collections::HashMap::new(),
++        &None,
++        &[],
++    )
++    .await?;
++    let process = UnifiedExecProcess::from_spawned_with_native_attempt(
++        spawned,
++        codex_sandboxing::SandboxType::None,
++        Some(attempt),
++    )
++    .await?;
++    process.bind_native_origin(Some(Arc::clone(&completion)));
++    assert!(!process.has_exited());
++    process.mark_timed_out();
++    process.terminate_confirmed().await?;
++    assert_eq!(process.exit_code(), Some(124));
++    completion.finish(&session);
++    let proof = tokio::time::timeout(
++        std::time::Duration::from_secs(5),
++        process.native_wait_completion(71),
++    )
++    .await?
++    .ok_or_else(|| anyhow::anyhow!("actual local wait must prove this original process"))?;
++    assert_eq!(proof.call_id, "original-timeout");
++    assert_eq!(proof.session_id, Some(71));
++    assert_eq!(proof.exit_code, Some(137));
++    assert_eq!(
++        proof.outcome,
++        codex_protocol::protocol::NativeCompletionOutcome::WaitCompleted
++    );
++    assert_eq!(
++        process.exit_code(),
++        Some(124),
++        "the original public timeout receipt is immutable"
++    );
++    Ok(())
++}
++
++#[tokio::test]
++async fn native_completion_remote_termination_ack_is_not_local_wait_evidence() -> anyhow::Result<()>
++{
++    let process = remote_process(
++        WriteStatus::Accepted,
++        None,
++        codex_sandboxing::SandboxType::None,
++    )
++    .await;
++    process.mark_timed_out();
++    process.terminate_confirmed().await?;
++    assert_eq!(process.exit_code(), Some(124));
++    assert!(process.native_wait_completion(71).await.is_none());
++    Ok(())
++}
 diff --git a/codex-rs/exec/src/lib.rs b/codex-rs/exec/src/lib.rs
-index 0a6a5cb..0683089 100644
+index 0a6a5cbc0f..0683089c12 100644
 --- a/codex-rs/exec/src/lib.rs
 +++ b/codex-rs/exec/src/lib.rs
 @@ -604,6 +604,7 @@ pub async fn run_main(cli: Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result
@@ -4580,26 +6885,28 @@ index 0a6a5cb..0683089 100644
          codex_self_exe: arg0_paths.codex_self_exe.clone(),
          codex_linux_sandbox_exe: arg0_paths.codex_linux_sandbox_exe.clone(),
 diff --git a/codex-rs/hooks/src/engine/command_runner.rs b/codex-rs/hooks/src/engine/command_runner.rs
+index 00cd404713..1d6626ab6d 100644
 --- a/codex-rs/hooks/src/engine/command_runner.rs
 +++ b/codex-rs/hooks/src/engine/command_runner.rs
-@@ -169,6 +169,13 @@
-             hook_result.run.entries = entries;
-             let _ = result_sender.try_send(hook_result);
+@@ -171,6 +171,13 @@ impl CommandHookRuntime {
          });
-+    }
-+
+     }
+ 
 +    /// Include tasks retained across reconfiguration in resource-proof admission.
 +    pub(crate) fn has_pending_async_hooks(&self) -> bool {
 +        let mut state = self.lock_state();
 +        while state.tasks.try_join_next().is_some() {}
 +        !state.tasks.is_empty()
-     }
- 
++    }
++
      pub(crate) fn schedule_async_task(&self, task: impl Future<Output = ()> + Send + 'static) {
+         let mut state = self.lock_state();
+         if state.concurrency_limit.is_closed() {
 diff --git a/codex-rs/hooks/src/engine/mod.rs b/codex-rs/hooks/src/engine/mod.rs
+index 5e3daf53b0..a2872a0d37 100644
 --- a/codex-rs/hooks/src/engine/mod.rs
 +++ b/codex-rs/hooks/src/engine/mod.rs
-@@ -334,6 +334,42 @@
+@@ -334,6 +334,42 @@ impl ClaudeHooksEngine {
          }
      }
  
@@ -4642,28 +6949,11 @@ diff --git a/codex-rs/hooks/src/engine/mod.rs b/codex-rs/hooks/src/engine/mod.rs
      pub(crate) fn warnings(&self) -> &[String] {
          &self.warnings
      }
-diff --git a/codex-rs/hooks/src/registry.rs b/codex-rs/hooks/src/registry.rs
---- a/codex-rs/hooks/src/registry.rs
-+++ b/codex-rs/hooks/src/registry.rs
-@@ -129,6 +129,14 @@
-         hooks
-     }
- 
-+    /// Check resource-proof admission against this session's admitted hooks.
-+    /// This does not disable, bypass, or execute a hook. The caller must also
-+    /// exclude dynamic environment/executor overlays before using the proof.
-+    pub fn tool_has_no_hook_effects(&self, tool_names: &[&str], permission_names: &[&str]) -> bool {
-+        self.engine
-+            .tool_has_no_hook_effects(tool_names, permission_names)
-+    }
-+
-     /// List this session's declarations, including hooks that are disabled or not yet trusted.
-     pub fn list_with_environment_hooks(
-         &self,
 diff --git a/codex-rs/hooks/src/engine/mod_tests.rs b/codex-rs/hooks/src/engine/mod_tests.rs
+index 4e93a0075d..5001906bd8 100644
 --- a/codex-rs/hooks/src/engine/mod_tests.rs
 +++ b/codex-rs/hooks/src/engine/mod_tests.rs
-@@ -3029,3 +3029,159 @@
+@@ -3029,3 +3029,177 @@ async fn mcp_interrupt_hooks_expand_event_input_and_bound_timeout() {
          }]
      );
  }
@@ -4823,3 +7113,790 @@ diff --git a/codex-rs/hooks/src/engine/mod_tests.rs b/codex-rs/hooks/src/engine/
 +    engine.command_runtime.shutdown().await;
 +    assert!(engine.tool_has_no_hook_effects(NATIVE_EXEC_HOOK_NAMES, NATIVE_EXEC_PERMISSION_NAMES));
 +}
++
++#[test]
++fn native_completion_hooks_are_scoped_to_original_exec_or_continuation() {
++    let exec_names = &["exec_command", "functions.exec_command"];
++    let poll_names = &["write_stdin", "functions.write_stdin"];
++    for (event, exec_matcher, poll_matcher) in [
++        (HookEventName::PreToolUse, "exec_command", "write_stdin"),
++        (HookEventName::PostToolUse, "exec_command", "write_stdin"),
++        (HookEventName::PermissionRequest, "Bash", "write_stdin"),
++    ] {
++        let exec_hook = native_proof_engine(Some(exec_matcher), event);
++        assert!(!exec_hook.tool_has_no_hook_effects(exec_names, &["Bash"]));
++        assert!(exec_hook.tool_has_no_hook_effects(poll_names, &["write_stdin"]));
++        let poll_hook = native_proof_engine(Some(poll_matcher), event);
++        assert!(poll_hook.tool_has_no_hook_effects(exec_names, &["Bash"]));
++        assert!(!poll_hook.tool_has_no_hook_effects(poll_names, &["write_stdin"]));
++    }
++}
+diff --git a/codex-rs/hooks/src/registry.rs b/codex-rs/hooks/src/registry.rs
+index 244ef75431..ba8f9d19fb 100644
+--- a/codex-rs/hooks/src/registry.rs
++++ b/codex-rs/hooks/src/registry.rs
+@@ -129,6 +129,14 @@ impl Hooks {
+         hooks
+     }
+ 
++    /// Check resource-proof admission against this session's admitted hooks.
++    /// This does not disable, bypass, or execute a hook. The caller must also
++    /// exclude dynamic environment/executor overlays before using the proof.
++    pub fn tool_has_no_hook_effects(&self, tool_names: &[&str], permission_names: &[&str]) -> bool {
++        self.engine
++            .tool_has_no_hook_effects(tool_names, permission_names)
++    }
++
+     /// List this session's declarations, including hooks that are disabled or not yet trusted.
+     pub fn list_with_environment_hooks(
+         &self,
+diff --git a/codex-rs/protocol/src/legacy_events.rs b/codex-rs/protocol/src/legacy_events.rs
+index 6aa205ba1c..801a0067cf 100644
+--- a/codex-rs/protocol/src/legacy_events.rs
++++ b/codex-rs/protocol/src/legacy_events.rs
+@@ -214,6 +214,12 @@ impl CommandExecutionItem {
+             CommandExecutionStatus::Declined => ExecCommandStatus::Declined,
+         };
+         Some(EventMsg::ExecCommandEnd(ExecCommandEndEvent {
++            native_completion: matches!(
++                self.source,
++                crate::protocol::ExecCommandSource::UnifiedExecStartup
++                    | crate::protocol::ExecCommandSource::UnifiedExecInteraction
++            )
++            .then_some(None),
+             call_id: self.id.clone(),
+             plugin_id: self.plugin_id.clone(),
+             script_path: self.script_path.clone(),
+diff --git a/codex-rs/protocol/src/protocol.rs b/codex-rs/protocol/src/protocol.rs
+index a0af620c34..f2f05b88e4 100644
+--- a/codex-rs/protocol/src/protocol.rs
++++ b/codex-rs/protocol/src/protocol.rs
+@@ -3874,8 +3874,53 @@ pub struct ExecCommandBeginEvent {
+     pub interaction_input: Option<String>,
+ }
+ 
++/// Host-owned completion evidence for one original Native execution call.
++/// Process session identifiers are not operating-system PIDs.
++#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, JsonSchema, TS)]
++#[serde(deny_unknown_fields)]
++pub struct NativeEffectCompletion {
++    pub schema: NativeCompletionSchema,
++    pub call_id: String,
++    pub session_id: Option<i32>,
++    pub outcome: NativeCompletionOutcome,
++    pub exit_code: Option<i32>,
++    pub hooks: NativeCompletionHooks,
++}
++
++#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, JsonSchema, TS)]
++pub enum NativeCompletionSchema {
++    #[serde(rename = "codex-native-completion-v1")]
++    V1,
++}
++
++#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, JsonSchema, TS)]
++#[serde(rename_all = "snake_case")]
++pub enum NativeCompletionOutcome {
++    PreBackendRejected,
++    WaitCompleted,
++    /// The current local write_stdin invocation returned to a still-live session.
++    /// This settles only that invocation, never the original process or its effects.
++    SessionRunning,
++}
++
++#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, JsonSchema, TS)]
++#[serde(rename_all = "snake_case")]
++pub enum NativeCompletionHooks {
++    Absent,
++}
++
+ #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema, TS)]
+ pub struct ExecCommandEndEvent {
++    /// Absent for legacy producers; explicit null means a new unconfirmed execution.
++    /// Typed evidence is emitted only for a confirmed original local invocation.
++    #[serde(
++        default,
++        skip_serializing_if = "Option::is_none",
++        with = "serde_with::rust::double_option"
++    )]
++    #[schemars(with = "Option<NativeEffectCompletion>")]
++    #[ts(as = "Option<NativeEffectCompletion>", optional = nullable)]
++    pub native_completion: Option<Option<NativeEffectCompletion>>,
+     /// Identifier for the ExecCommandBegin that finished.
+     pub call_id: String,
+     /// Trusted first-party plugin attributed to this command, when known.
+@@ -4828,6 +4873,111 @@ mod tests {
+     use tempfile::NamedTempFile;
+     use tempfile::TempDir;
+ 
++    #[test]
++    fn native_completion_typescript_keeps_nullable_field_and_real_type_dependencies() -> Result<()>
++    {
++        let schema = serde_json::to_value(schemars::schema_for!(ExecCommandEndEvent))?;
++        let property = &schema["properties"]["native_completion"];
++        assert!(
++            property
++                .to_string()
++                .contains("#/definitions/NativeEffectCompletion")
++        );
++        assert!(
++            property["anyOf"].as_array().is_some_and(|variants| {
++                variants.iter().any(|variant| variant["type"] == "null")
++            })
++        );
++        assert!(
++            !schema["required"].as_array().is_some_and(|required| {
++                required.iter().any(|name| name == "native_completion")
++            })
++        );
++        let exported = ExecCommandEndEvent::export_to_string()?;
++        assert!(
++            exported.contains("import type { NativeEffectCompletion }"),
++            "{exported}"
++        );
++        assert!(
++            exported.contains("native_completion?: NativeEffectCompletion | null"),
++            "{exported}"
++        );
++        let proof = NativeEffectCompletion::export_to_string()?;
++        for name in [
++            "NativeCompletionSchema",
++            "NativeCompletionOutcome",
++            "NativeCompletionHooks",
++        ] {
++            assert!(
++                proof.contains(&format!("import type {{ {name} }}")),
++                "{proof}"
++            );
++        }
++        Ok(())
++    }
++
++    #[test]
++    fn native_completion_terminal_wire_distinguishes_legacy_null_and_verified_wait() -> Result<()> {
++        let mut end = ExecCommandEndEvent {
++            native_completion: None,
++            call_id: "exec-original".into(),
++            plugin_id: None,
++            script_path: None,
++            process_id: Some("71".into()),
++            turn_id: "turn-original".into(),
++            completed_at_ms: 123,
++            command: vec!["owned-command".into()],
++            cwd: test_path_buf("/tmp").abs().into(),
++            parsed_cmd: Vec::new(),
++            source: ExecCommandSource::UnifiedExecStartup,
++            interaction_input: None,
++            aggregated_output: "original timeout output".into(),
++            exit_code: 124,
++            duration: Duration::from_millis(9),
++            status: ExecCommandStatus::Failed,
++        };
++        let legacy = serde_json::to_value(&end)?;
++        assert!(legacy.get("native_completion").is_none());
++        assert!(
++            serde_json::from_value::<ExecCommandEndEvent>(legacy)?
++                .native_completion
++                .is_none()
++        );
++        end.native_completion = Some(None);
++        let unknown = serde_json::to_value(&end)?;
++        assert!(
++            unknown
++                .get("native_completion")
++                .is_some_and(serde_json::Value::is_null)
++        );
++        assert_eq!(
++            serde_json::from_value::<ExecCommandEndEvent>(unknown.clone())?.native_completion,
++            Some(None)
++        );
++        let proof = NativeEffectCompletion {
++            schema: NativeCompletionSchema::V1,
++            call_id: end.call_id.clone(),
++            session_id: Some(71),
++            outcome: NativeCompletionOutcome::WaitCompleted,
++            exit_code: Some(137),
++            hooks: NativeCompletionHooks::Absent,
++        };
++        end.native_completion = Some(Some(proof.clone()));
++        let mut completed = serde_json::to_value(&end)?;
++        assert_eq!(
++            serde_json::from_value::<ExecCommandEndEvent>(completed.clone())?.native_completion,
++            Some(Some(proof))
++        );
++        assert_eq!(completed["exit_code"], 124);
++        assert_eq!(completed["native_completion"]["exit_code"], 137);
++        completed["native_completion"] = serde_json::Value::Null;
++        assert_eq!(
++            completed, unknown,
++            "the late witness must preserve every original terminal field"
++        );
++        Ok(())
++    }
++
+     #[test]
+     fn old_turn_started_records_have_no_root_attribution() {
+         let event: TurnStartedEvent = serde_json::from_value(serde_json::json!({
+diff --git a/codex-rs/rollout-trace/src/protocol_event.rs b/codex-rs/rollout-trace/src/protocol_event.rs
+index a911b2b5f3..0cb1f63cab 100644
+--- a/codex-rs/rollout-trace/src/protocol_event.rs
++++ b/codex-rs/rollout-trace/src/protocol_event.rs
+@@ -238,6 +238,7 @@ struct ExecCommandEndTracePayload<'a> {
+ impl<'a> From<&'a ExecCommandEndEvent> for ExecCommandEndTracePayload<'a> {
+     fn from(event: &'a ExecCommandEndEvent) -> Self {
+         let ExecCommandEndEvent {
++            native_completion: _,
+             call_id,
+             plugin_id,
+             script_path,
+diff --git a/codex-rs/rollout-trace/src/protocol_event_tests.rs b/codex-rs/rollout-trace/src/protocol_event_tests.rs
+index e8acb12272..803ca4ae67 100644
+--- a/codex-rs/rollout-trace/src/protocol_event_tests.rs
++++ b/codex-rs/rollout-trace/src/protocol_event_tests.rs
+@@ -88,6 +88,7 @@ fn exec_command_trace_payloads_use_inferred_native_cwd() -> anyhow::Result<()> {
+         interaction_input: None,
+     });
+     let end = EventMsg::ExecCommandEnd(ExecCommandEndEvent {
++        native_completion: None,
+         call_id: "call-end".to_string(),
+         plugin_id: Some("sample@openai-curated".to_string()),
+         script_path: Some("scripts/run.py".to_string()),
+diff --git a/codex-rs/rollout/src/policy.rs b/codex-rs/rollout/src/policy.rs
+index e62c423204..4e866a0d94 100644
+--- a/codex-rs/rollout/src/policy.rs
++++ b/codex-rs/rollout/src/policy.rs
+@@ -158,11 +158,27 @@ fn persisted_event_msg(
+             && event.kind != SubAgentActivityKind::Completed)
+             .then_some(Cow::Borrowed(ev)),
+ 
++        EventMsg::ExecCommandEnd(event) => {
++            event.native_completion.as_ref()?;
++            if event.aggregated_output.len() <= PERSISTED_COMMAND_OUTPUT_MAX_BYTES {
++                return Some(Cow::Borrowed(ev));
++            }
++            // Both the original unknown receipt and its late witness use the
++            // same existing bound. Do not persist a second unbounded transcript
++            // or change the original function/public live response.
++            let mut event = event.clone();
++            event.aggregated_output = truncate_middle_with_marker(
++                &event.aggregated_output,
++                PERSISTED_COMMAND_OUTPUT_MAX_BYTES,
++                PERSISTED_COMMAND_OUTPUT_TRUNCATION_MARKER,
++            );
++            Some(Cow::Owned(EventMsg::ExecCommandEnd(event)))
++        }
++
+         // Transient, non-durable events.
+         EventMsg::Error(_)
+         | EventMsg::ThreadQueueChanged(_)
+         | EventMsg::GuardianAssessment(_)
+-        | EventMsg::ExecCommandEnd(_)
+         | EventMsg::ViewImageToolCall(_)
+         | EventMsg::CollabAgentSpawnEnd(_)
+         | EventMsg::CollabAgentInteractionEnd(_)
+@@ -234,6 +250,21 @@ fn persisted_item_completed_event<'a>(
+     event: &ItemCompletedEvent,
+     history_mode: ThreadHistoryMode,
+ ) -> Option<Cow<'a, EventMsg>> {
++    // New UnifiedExec compatibility ends are completion receipts, not public
++    // history. Keep their canonical item through the existing bounded policy in
++    // both modes so a cold replay retains the original command and lifecycle.
++    let history_mode = if matches!(
++        &event.item,
++        TurnItem::CommandExecution(CommandExecutionItem {
++            source: codex_protocol::protocol::ExecCommandSource::UnifiedExecStartup
++                | codex_protocol::protocol::ExecCommandSource::UnifiedExecInteraction,
++            ..
++        })
++    ) {
++        ThreadHistoryMode::Paginated
++    } else {
++        history_mode
++    };
+     match history_mode {
+         ThreadHistoryMode::Legacy => {
+             // Legacy rollouts keep only items with no lossless raw ResponseItem or legacy
+diff --git a/codex-rs/rollout/src/policy_tests.rs b/codex-rs/rollout/src/policy_tests.rs
+index 87a7cf8e60..30c97c5f81 100644
+--- a/codex-rs/rollout/src/policy_tests.rs
++++ b/codex-rs/rollout/src/policy_tests.rs
+@@ -116,3 +116,146 @@ fn inline_image_generation_result_is_preserved() {
+         })
+     );
+ }
++
++#[test]
++fn native_completion_terminal_receipts_are_durable_in_both_history_modes() -> anyhow::Result<()> {
++    use codex_protocol::protocol::ExecCommandEndEvent;
++    use codex_protocol::protocol::ExecCommandSource;
++    use codex_protocol::protocol::ExecCommandStatus;
++    use codex_protocol::protocol::NativeCompletionHooks;
++    use codex_protocol::protocol::NativeCompletionOutcome;
++    use codex_protocol::protocol::NativeCompletionSchema;
++    use codex_protocol::protocol::NativeEffectCompletion;
++    use codex_utils_absolute_path::test_support::PathBufExt;
++    use codex_utils_absolute_path::test_support::test_path_buf;
++    let mut end = ExecCommandEndEvent {
++        native_completion: None,
++        call_id: "original-exec".into(),
++        plugin_id: None,
++        script_path: None,
++        process_id: Some("71".into()),
++        turn_id: "original-turn".into(),
++        completed_at_ms: 123,
++        command: vec!["owned-command".into()],
++        cwd: test_path_buf("/tmp").abs().into(),
++        parsed_cmd: Vec::new(),
++        source: ExecCommandSource::UnifiedExecStartup,
++        interaction_input: None,
++        aggregated_output: "original output".into(),
++        exit_code: 124,
++        duration: std::time::Duration::from_millis(9),
++        status: ExecCommandStatus::Failed,
++    };
++    for mode in [ThreadHistoryMode::Legacy, ThreadHistoryMode::Paginated] {
++        assert!(
++            persisted_event_msg(&EventMsg::ExecCommandEnd(end.clone()), mode).is_none(),
++            "legacy transient policy stays unchanged"
++        );
++    }
++    // The canonical item is the only public-history representation of these
++    // new receipts. Its existing 64-KiB output bound also applies in Legacy.
++    for source in [
++        ExecCommandSource::UnifiedExecStartup,
++        ExecCommandSource::UnifiedExecInteraction,
++    ] {
++        let canonical = EventMsg::ItemCompleted(ItemCompletedEvent {
++            thread_id: ThreadId::new(),
++            turn_id: end.turn_id.clone(),
++            item: TurnItem::CommandExecution(codex_protocol::items::CommandExecutionItem {
++                model_context: None,
++                sandbox_type: None,
++                id: end.call_id.clone(),
++                plugin_id: None,
++                script_path: None,
++                process_id: end.process_id.clone(),
++                command: end.command.clone(),
++                cwd: end.cwd.clone(),
++                parsed_cmd: Vec::new(),
++                source,
++                interaction_input: None,
++                status: codex_protocol::items::CommandExecutionStatus::Failed,
++                aggregated_output: Some(
++                    "x".repeat(super::PERSISTED_COMMAND_OUTPUT_MAX_BYTES + 100),
++                ),
++                exit_code: Some(124),
++                duration: Some(end.duration),
++            }),
++            started_at_ms: Some(1),
++            completed_at_ms: end.completed_at_ms,
++        });
++        let mut expected = None;
++        for mode in [ThreadHistoryMode::Legacy, ThreadHistoryMode::Paginated] {
++            let persisted = persisted_event_msg(&canonical, mode)
++                .ok_or_else(|| anyhow::anyhow!("canonical UnifiedExec item must persist"))?;
++            let EventMsg::ItemCompleted(item) = persisted.as_ref() else {
++                anyhow::bail!("canonical event retained");
++            };
++            let TurnItem::CommandExecution(command) = &item.item else {
++                anyhow::bail!("canonical command retained");
++            };
++            let output = command
++                .aggregated_output
++                .as_deref()
++                .ok_or_else(|| anyhow::anyhow!("bounded original output"))?;
++            assert!(output.len() <= super::PERSISTED_COMMAND_OUTPUT_MAX_BYTES);
++            assert!(output.contains(super::PERSISTED_COMMAND_OUTPUT_TRUNCATION_MARKER));
++            assert_eq!(command.exit_code, Some(124));
++            assert_eq!(command.id, end.call_id);
++            assert_eq!(item.started_at_ms, Some(1));
++            assert_eq!(item.completed_at_ms, end.completed_at_ms);
++            let value = serde_json::to_value(persisted.as_ref())?;
++            if let Some(expected) = &expected {
++                assert_eq!(&value, expected, "same bounded canonical persistence");
++            } else {
++                expected = Some(value);
++            }
++        }
++    }
++    for proof in [
++        None,
++        Some(NativeEffectCompletion {
++            schema: NativeCompletionSchema::V1,
++            call_id: end.call_id.clone(),
++            session_id: Some(71),
++            outcome: NativeCompletionOutcome::WaitCompleted,
++            exit_code: Some(137),
++            hooks: NativeCompletionHooks::Absent,
++        }),
++    ] {
++        end.native_completion = Some(proof);
++        let original = EventMsg::ExecCommandEnd(end.clone());
++        for mode in [ThreadHistoryMode::Legacy, ThreadHistoryMode::Paginated] {
++            let persisted = persisted_event_msg(&original, mode).ok_or_else(|| {
++                anyhow::anyhow!("new original receipt and late proof must persist")
++            })?;
++            assert_eq!(
++                serde_json::to_value(persisted.as_ref())?,
++                serde_json::to_value(&original)?
++            );
++            let mut large = end.clone();
++            large.aggregated_output = "y".repeat(super::PERSISTED_COMMAND_OUTPUT_MAX_BYTES + 100);
++            let large = EventMsg::ExecCommandEnd(large);
++            let bounded = persisted_event_msg(&large, mode)
++                .ok_or_else(|| anyhow::anyhow!("bounded Native receipt"))?;
++            let EventMsg::ExecCommandEnd(bounded_end) = bounded.as_ref() else {
++                anyhow::bail!("original receipt kind");
++            };
++            assert!(
++                bounded_end.aggregated_output.len() <= super::PERSISTED_COMMAND_OUTPUT_MAX_BYTES
++            );
++            assert!(
++                bounded_end
++                    .aggregated_output
++                    .contains(super::PERSISTED_COMMAND_OUTPUT_TRUNCATION_MARKER)
++            );
++            assert_eq!(bounded_end.native_completion, end.native_completion);
++            assert_eq!(bounded_end.call_id, end.call_id);
++            assert_eq!(bounded_end.exit_code, 124);
++            let mut bounded_wire = serde_json::to_value(bounded.as_ref())?;
++            let original_wire = serde_json::to_value(&large)?;
++            bounded_wire["aggregated_output"] = original_wire["aggregated_output"].clone();
++            assert_eq!(bounded_wire, original_wire, "only stored output is bounded");
++        }
++    }
++    Ok(())
++}
+diff --git a/codex-rs/utils/pty/src/pipe.rs b/codex-rs/utils/pty/src/pipe.rs
+index 1088c01fd1..4cdae51019 100644
+--- a/codex-rs/utils/pty/src/pipe.rs
++++ b/codex-rs/utils/pty/src/pipe.rs
+@@ -248,13 +248,19 @@ async fn spawn_process_with_stdin_mode(
+     let wait_exit_status = Arc::clone(&exit_status);
+     let exit_code = Arc::new(StdMutex::new(None));
+     let wait_exit_code = Arc::clone(&exit_code);
++    let confirmed_exit_code = Arc::new(StdMutex::new(None));
++    let wait_confirmed_exit_code = Arc::clone(&confirmed_exit_code);
+     #[cfg(windows)]
+     let wait_job = match &windows_terminator {
+         WindowsChildTerminator::Job(job) => Some(Arc::clone(job)),
+         WindowsChildTerminator::Process(_) => None,
+     };
+     let wait_handle: JoinHandle<()> = tokio::spawn(async move {
+-        let code = match child.wait().await {
++        let status = child.wait().await;
++        if let Ok(mut guard) = wait_confirmed_exit_code.lock() {
++            *guard = crate::process::confirmed_exit_code_from_result(&status);
++        }
++        let code = match status {
+             Ok(status) => {
+                 #[cfg(windows)]
+                 if let Some(job) = wait_job
+@@ -289,6 +295,7 @@ async fn spawn_process_with_stdin_mode(
+         wait_handle,
+         exit_status,
+         exit_code,
++        confirmed_exit_code,
+         /*pty_handles*/ None,
+         /*resizer*/ None,
+     );
+diff --git a/codex-rs/utils/pty/src/process.rs b/codex-rs/utils/pty/src/process.rs
+index 4ad710f63f..6704946598 100644
+--- a/codex-rs/utils/pty/src/process.rs
++++ b/codex-rs/utils/pty/src/process.rs
+@@ -48,6 +48,30 @@ pub(crate) fn exit_code_from_status(status: ExitStatus) -> i32 {
+     -1
+ }
+ 
++/// Only a successful local OS wait supplies numeric termination evidence.
++/// A failed wait and a synthetic backend status remain unconfirmed.
++pub(crate) fn confirmed_exit_code_from_result(result: &io::Result<ExitStatus>) -> Option<i32> {
++    result.as_ref().ok().and_then(|status| {
++        let code = exit_code_from_status(*status);
++        (code >= 0).then_some(code)
++    })
++}
++
++pub(crate) fn confirmed_portable_exit_code(
++    result: &io::Result<portable_pty::ExitStatus>,
++) -> Option<i32> {
++    result.as_ref().ok().and_then(|status| {
++        // portable-pty discards the numeric signal and substitutes code 1.
++        // Preserve its public result, but do not label that substitution an
++        // exact OS exit code or recover a number from a localized signal name.
++        status
++            .signal()
++            .is_none()
++            .then(|| i32::try_from(status.exit_code()).ok())
++            .flatten()
++    })
++}
++
+ pub(crate) trait ChildTerminator: Send + Sync {
+     fn signal(&mut self, signal: ProcessSignal) -> io::Result<()>;
+ 
+@@ -117,6 +141,7 @@ pub struct ProcessHandle {
+     wait_handle: StdMutex<Option<JoinHandle<()>>>,
+     exit_status: Arc<AtomicBool>,
+     exit_code: Arc<StdMutex<Option<i32>>>,
++    confirmed_exit_code: Arc<StdMutex<Option<i32>>>,
+     // PtyHandles must be preserved because the process will receive Control+C if the
+     // slave is closed
+     _pty_handles: StdMutex<Option<PtyHandles>>,
+@@ -142,6 +167,7 @@ impl ProcessHandle {
+         wait_handle: JoinHandle<()>,
+         exit_status: Arc<AtomicBool>,
+         exit_code: Arc<StdMutex<Option<i32>>>,
++        confirmed_exit_code: Arc<StdMutex<Option<i32>>>,
+         pty_handles: Option<PtyHandles>,
+         resizer: Option<ResizeFn>,
+     ) -> Self {
+@@ -154,6 +180,7 @@ impl ProcessHandle {
+             wait_handle: StdMutex::new(Some(wait_handle)),
+             exit_status,
+             exit_code,
++            confirmed_exit_code,
+             _pty_handles: StdMutex::new(pty_handles),
+             resizer: StdMutex::new(resizer),
+         }
+@@ -190,6 +217,16 @@ impl ProcessHandle {
+         self.exit_code.lock().ok().and_then(|guard| *guard)
+     }
+ 
++    /// The exact exit code observed by this handle's successful local OS waiter.
++    /// Termination requests, failed waits and driver-provided exit channels do
++    /// not populate this evidence, even when the legacy status reports exit.
++    pub fn confirmed_exit_code(&self) -> Option<i32> {
++        self.confirmed_exit_code
++            .lock()
++            .ok()
++            .and_then(|guard| *guard)
++    }
++
+     /// Resize the PTY in character cells.
+     pub fn resize(&self, size: TerminalSize) -> anyhow::Result<()> {
+         {
+@@ -469,6 +506,7 @@ pub fn spawn_from_driver(driver: ProcessDriver) -> SpawnedProcess {
+         wait_handle,
+         exit_status,
+         exit_code,
++        Arc::new(StdMutex::new(None)),
+         /*pty_handles*/ None,
+         resizer,
+     );
+@@ -480,3 +518,166 @@ pub fn spawn_from_driver(driver: ProcessDriver) -> SpawnedProcess {
+         exit_rx: exit_rx_out,
+     }
+ }
++
++#[cfg(all(test, unix))]
++mod native_completion_tests {
++    use super::*;
++    use std::collections::HashMap;
++    use std::os::fd::AsRawFd;
++    use std::os::unix::process::ExitStatusExt;
++    use std::sync::atomic::AtomicUsize;
++    use std::sync::atomic::Ordering;
++    use std::time::Duration;
++
++    fn shell() -> &'static str {
++        if cfg!(target_os = "android") {
++            "/system/bin/sh"
++        } else {
++            "/bin/sh"
++        }
++    }
++
++    #[test]
++    fn native_completion_wait_errors_and_lossy_portable_signals_are_unconfirmed() {
++        let failed = Err(io::Error::other("wait failed"));
++        assert_eq!(confirmed_exit_code_from_result(&failed), None);
++        for code in [0, 7, 124] {
++            assert_eq!(
++                confirmed_exit_code_from_result(&Ok(ExitStatus::from_raw(code << 8))),
++                Some(code)
++            );
++            assert_eq!(
++                confirmed_portable_exit_code(&Ok(portable_pty::ExitStatus::with_exit_code(
++                    code as u32
++                ))),
++                Some(code)
++            );
++        }
++        assert_eq!(
++            confirmed_exit_code_from_result(&Ok(ExitStatus::from_raw(libc::SIGKILL))),
++            Some(137)
++        );
++        assert_eq!(
++            confirmed_portable_exit_code(&Err(io::Error::other("wait failed"))),
++            None
++        );
++        assert_eq!(
++            confirmed_portable_exit_code(&Ok(portable_pty::ExitStatus::with_signal("Killed"))),
++            None
++        );
++    }
++
++    #[tokio::test]
++    async fn native_completion_driver_status_and_termination_request_are_not_os_wait()
++    -> anyhow::Result<()> {
++        for result in [Some(0), Some(7), Some(124), None] {
++            let requests = Arc::new(AtomicUsize::new(0));
++            let request_count = Arc::clone(&requests);
++            let (writer_tx, _writer_rx) = mpsc::channel(1);
++            let (stdout_tx, stdout_rx) = broadcast::channel(1);
++            let (exit_tx, exit_rx) = oneshot::channel();
++            let spawned = spawn_from_driver(ProcessDriver {
++                writer_tx,
++                stdout_rx,
++                stderr_rx: None,
++                exit_rx,
++                terminator: Some(Box::new(move || {
++                    request_count.fetch_add(1, Ordering::SeqCst);
++                })),
++                writer_handle: None,
++                resizer: None,
++            });
++            assert_eq!(spawned.session.confirmed_exit_code(), None);
++            spawned.session.request_terminate();
++            assert_eq!(requests.load(Ordering::SeqCst), 1);
++            assert_eq!(spawned.session.confirmed_exit_code(), None);
++            match result {
++                Some(code) => exit_tx
++                    .send(code)
++                    .map_err(|_| anyhow!("driver exit receiver closed"))?,
++                None => drop(exit_tx),
++            }
++            assert_eq!(
++                tokio::time::timeout(Duration::from_secs(5), spawned.exit_rx).await??,
++                result.unwrap_or(-1)
++            );
++            assert!(spawned.session.has_exited());
++            assert_eq!(spawned.session.exit_code(), Some(result.unwrap_or(-1)));
++            assert_eq!(spawned.session.confirmed_exit_code(), None);
++            drop(stdout_tx);
++        }
++        Ok(())
++    }
++
++    #[tokio::test]
++    async fn native_completion_pipe_and_pty_preserve_actual_wait_codes() -> anyhow::Result<()> {
++        let directory = tempfile::tempdir()?;
++        let inherited = std::fs::File::open("/dev/null")?;
++        let env = HashMap::new();
++        for tty in [false, true] {
++            for (command, expected) in [
++                ("exit 0", 0),
++                ("exit 7", 7),
++                ("exit 124", 124),
++                ("kill -KILL $$", 137),
++            ] {
++                let args = ["-c".to_owned(), command.to_owned()];
++                let spawned = if tty {
++                    crate::pty::spawn_process(
++                        shell(),
++                        &args,
++                        directory.path(),
++                        &env,
++                        &None,
++                        TerminalSize::default(),
++                        crate::ChildFds::Inherited(&[inherited.as_raw_fd()]),
++                    )
++                    .await?
++                } else {
++                    crate::pipe::spawn_process(shell(), &args, directory.path(), &env, &None, &[])
++                        .await?
++                };
++                assert_eq!(
++                    tokio::time::timeout(Duration::from_secs(5), spawned.exit_rx).await??,
++                    expected,
++                    "tty={tty} command={command}"
++                );
++                assert_eq!(
++                    spawned.session.confirmed_exit_code(),
++                    Some(expected),
++                    "tty={tty} command={command}"
++                );
++            }
++        }
++        Ok(())
++    }
++
++    #[tokio::test]
++    async fn native_completion_local_termination_confirms_only_after_wait() -> anyhow::Result<()> {
++        let directory = tempfile::tempdir()?;
++        let mut spawned = crate::pipe::spawn_process(
++            shell(),
++            &["-c".to_owned(), "printf 'ready\\n'; read value".to_owned()],
++            directory.path(),
++            &HashMap::new(),
++            &None,
++            &[],
++        )
++        .await?;
++        let ready = tokio::time::timeout(Duration::from_secs(5), spawned.stdout_rx.recv())
++            .await?
++            .ok_or_else(|| anyhow!("child stdout closed before readiness"))?;
++        assert_eq!(ready, b"ready\n");
++        assert!(!spawned.session.has_exited());
++        assert_eq!(spawned.session.confirmed_exit_code(), None);
++        spawned.session.request_terminate();
++        // The request itself grants no authority. The original waiter may race
++        // this observer, so synchronize on that waiter's existing exit channel.
++        assert_eq!(
++            tokio::time::timeout(Duration::from_secs(5), spawned.exit_rx).await??,
++            137
++        );
++        assert_eq!(spawned.session.confirmed_exit_code(), Some(137));
++        Ok(())
++    }
++}
+diff --git a/codex-rs/utils/pty/src/pty.rs b/codex-rs/utils/pty/src/pty.rs
+index 7bee13adee..9cdcaae995 100644
+--- a/codex-rs/utils/pty/src/pty.rs
++++ b/codex-rs/utils/pty/src/pty.rs
+@@ -272,8 +272,14 @@ async fn spawn_process_portable(
+     let wait_exit_status = Arc::clone(&exit_status);
+     let exit_code = Arc::new(StdMutex::new(None));
+     let wait_exit_code = Arc::clone(&exit_code);
++    let confirmed_exit_code = Arc::new(StdMutex::new(None));
++    let wait_confirmed_exit_code = Arc::clone(&confirmed_exit_code);
+     let wait_handle: JoinHandle<()> = tokio::task::spawn_blocking(move || {
+-        let code = match child.wait() {
++        let status = child.wait();
++        if let Ok(mut guard) = wait_confirmed_exit_code.lock() {
++            *guard = crate::process::confirmed_portable_exit_code(&status);
++        }
++        let code = match status {
+             Ok(status) => status.exit_code() as i32,
+             Err(_) => -1,
+         };
+@@ -306,6 +312,7 @@ async fn spawn_process_portable(
+         wait_handle,
+         exit_status,
+         exit_code,
++        confirmed_exit_code,
+         Some(handles),
+         /*resizer*/ None,
+     );
+@@ -429,7 +436,12 @@ async fn spawn_process_preserving_fds(
+     let wait_exit_status = Arc::clone(&exit_status);
+     let exit_code = Arc::new(StdMutex::new(None));
+     let wait_exit_code = Arc::clone(&exit_code);
++    let confirmed_exit_code = Arc::new(StdMutex::new(None));
++    let wait_confirmed_exit_code = Arc::clone(&confirmed_exit_code);
+     let on_exit = move |status: std::io::Result<std::process::ExitStatus>| {
++        if let Ok(mut guard) = wait_confirmed_exit_code.lock() {
++            *guard = crate::process::confirmed_exit_code_from_result(&status);
++        }
+         let code = match status {
+             Ok(status) if uses_portable_status => {
+                 portable_pty::ExitStatus::from(status).exit_code() as i32
+@@ -465,6 +477,7 @@ async fn spawn_process_preserving_fds(
+         wait_handle,
+         exit_status,
+         exit_code,
++        confirmed_exit_code,
+         Some(handles),
+         /*resizer*/ None,
+     );
