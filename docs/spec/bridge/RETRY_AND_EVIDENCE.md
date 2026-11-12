@@ -50,7 +50,13 @@ create that authority. Preserve original results, including unsuccessful exits;
 new evidence may supplement a matching immutable receipt but cannot overwrite it
 or promote an unproven legacy boolean. A changed result or uncertain identity stays
 unsettled. A genuine nonzero OS exit is still terminal evidence when its producer
-positively distinguishes it from a synthetic status.
+positively distinguishes it from a synthetic status. A new producer's explicit
+unconfirmed completion field cannot fall back to legacy text/exit inference;
+legacy omission and new unconfirmed evidence are different states. When one call
+makes multiple backend attempts, each attempt must be positively settled before
+that call grants terminal authority. A late earlier wait cannot replace the final
+attempt's exit. A late witness must preserve the original terminal payload and
+call/session/turn identity; it adds evidence without a second public command.
 
 Native bounded execution facts must reflect the selected executor environment and
 actual hook dispatch. An unrelated synchronous input-notification hook does not
@@ -101,9 +107,15 @@ An empty `write_stdin` observation may retain exactly one original bounded
 same-work/session claim when the current Native turn proves that its applicable
 exec/continuation hooks are absent. Both Broker and shared-ledger admission verify
 the same original scope; the poll does not revalidate pre-launch output snapshots
-or replace the original call identity. Nonempty stdin, unknown or foreign sessions,
-ambiguous ownership and missing/legacy hook or scope proof retain conservative
-admission. A running poll preserves the claim. A matching original terminal result
+or replace the original call identity. Nonempty stdin and continuations without
+applicable hook proof cannot inherit a bounded claim merely because the session
+is already owned. Before dispatch, the existing admission locks must reject any
+new conflict or durably widen the effective blocking scope. A refusal leaves the
+previous scope intact. Widening preserves the original input/fingerprint/result
+and is monotonic until positive settlement: a later empty poll, aborted admission
+or restart cannot narrow or discard it. Unknown or foreign sessions, ambiguous
+ownership and missing/legacy scope proof retain conservative admission. A running
+poll preserves the claim. A matching original terminal result
 or Native command-completion item releases it only with the completed-wait evidence
 and original call/session/turn binding above. Public terminal status alone adds no
 execution authority. Parallel execution remains observable through continuations.

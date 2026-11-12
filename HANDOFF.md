@@ -19,10 +19,12 @@ CI. These are not intermediate approval gates.
    resubmission. Independent-CODEX_HOME Writer discovery is now integrated
    and passed affected tests/readbacks; do not repeat it as an unresolved
    source defect. Revalidate changed Runtime/Stop consumers on the final inputs.
-3. Finish actual current-selection switch acceptance with the new frontend:
-   same thread, four bounded synthetic responses, two real tool effects,
-   preserved current Provider/model/effort/tier and no child intent leakage.
-   Run the intentional old-d2/S165 private-handoff refusals separately.
+3. Finish the intentional S165 private-handoff refusal and the affected
+   final-composition switch checks. J's provisional same-thread trial passed:
+   four bounded synthetic responses, two real one-time tool effects, current
+   Provider/model/effort/tier preserved and no child intent leakage. Its evidence
+   and the separate old-d2 refusal are recorded in CURRENT, not promoted to
+   final Runtime/Full acceptance.
    A read-only observed live Owner is not the original user's exact error screen.
 4. Complete exact-source full TUI and Full composition. G's pin, compaction
    and Retain gates passed; J's focused target failed to compile a missing App

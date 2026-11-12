@@ -177,8 +177,24 @@ Provider/model/effort/tier; later ordinary resume preserves its explicit choices
 Unbound legacy private profile/quota handoffs now fail before Manager mutation;
 the old TUI may already have exited normally. Public profile/CLI semantics remain.
 Seven actual process-environment cases and focused source tests passed; the
-latest hosted TUI gate requires nineteen named positives. Final-current positive
-and old-generation negative PTY acceptance remain pending.
+latest hosted TUI gate requires nineteen named positives. A subsequent private
+composition using J's production TUI, corrected Owner Core and 4fb23c69 Provider
+passed the changed-current-selection trial, exit 0. The same thread retained
+ChatGPT/gpt-6/high/default despite the destination's OpenAI/low/priority defaults.
+Four synthetic responses produced two real Native commands: distinct original
+call IDs, one effect each, correct stdout/exit 0 and no reentry mode/PID in either
+child. Withdrawing the model made no fifth request and preserved draft/history/
+selection. Installed Core, activation and S165 pointer were unchanged.
+Receipt: 0acccfe90f9ec25cd96cd7aea466f7fc58c1d45f04caf5f4466ef6560bf43a45.
+This is provisional composition evidence, not full J Qualification, live account
+switching or final Runtime acceptance. A separate new d2 legacy fixture then
+verified unsupported-generation refusal before destination Owner or inference.
+Its entire original canonical rollout hash and ChatGPT/high/default selection
+remained unchanged; two synthetic responses, zero live responses. The old UI may
+already have exited normally, so this does not claim an active old Writer survived.
+Receipt: 6615198335d2f62bf56bbe07e503f212e445d0a63ae2d9a669db4e87a246a798.
+The first negative fixture's raw-versus-adapted ELF assertion failed before
+switching and is preserved separately. The S165 negative check remains open.
 
 ## Native effects, recovery and parallel availability
 
