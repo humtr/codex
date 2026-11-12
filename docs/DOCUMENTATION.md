@@ -29,6 +29,10 @@ silently reconciled into current status. Recover their evidence from Git
 history only when necessary for an unfinished acceptance; current deployment
 facts belong to `CURRENT.md`.
 
+## Proposals pending product review
+
+- [Session-independent durable orchestration](development/orchestration/SESSION_INDEPENDENT_DURABLE_ORCHESTRATION.md) is a non-normative future design candidate, including the skill/plugin prototype. It does not replace SPEC, current Bridge contracts, or live acceptance evidence.
+
 ## Reading route
 
 1. AGENTS; actual HEAD, branch, dirty diff, ownership; this policy and CURRENT.
