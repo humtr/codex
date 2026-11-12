@@ -1,74 +1,62 @@
 # Handoff — remaining acceptance and operating boundaries
 
-Updated: 2026-11-12 KST. One current unfinished-work record.
+Updated: 2026-11-12 UTC. One current unfinished-work record.
 Read [CURRENT](CURRENT.md), [AGENTS](AGENTS.md) and the
 [finite integration record](docs/development/RELEASE_FRAMEWORK_IMPLEMENTATION.md).
-Continuous authorization covers development, safe branch integration and
-unsigned CI; these are not intermediate approval gates.
+Continuous authorization covers development, safe branch integration and unsigned
+CI. These are not intermediate approval gates.
 
 ## Remaining source acceptance
 
-1. Execute the integrated d2 pin-refresh fixture correction and new compaction
-   regression in full TUI CI; preserve the earlier positive gates and compile
-   cache. Complete final exact-source full TUI and unsigned Full composition.
-2. Execute the integrated current-selection `/switch` regressions and repeat
-   the actual cross-profile ChatGPT trial with the final candidate. The old d2
-   frontend reproduced high reverting to explicit none; the source correction
-   now distinguishes absent effort, explicit none and launch defaults. Its single-use
-   reentry intent cannot leak into Native children or later ordinary resume;
-   unbound legacy private profile/quota handoffs fail before Manager mutation.
-   Final-current positive and old-generation refusal need actual PTY receipts.
-3. Correct the independent-CODEX_HOME Writer lookup and unloaded-thread
-   completion observation, then finish the source-bound cold-compiler/restart
-   trial. The verified-scope/reservation fix is integrated with 374 Provider tests
-   and strict clippy passing. The next actual trial recovered its original exit-0
-   compiler result after Provider restart but exposed both later boundaries.
-   Preserve its original results, plus the earlier interrupted result and unknown
-   Stop ACK, without retroactive scope, a new-ID retry or inferred completion.
-   Verify actual lock namespaces and terminal/effect evidence before safe absence.
-   Complete final-composition Native observer/terminal
-   and current-selection acceptance. G Provider/worker CI, actual Android standalone worker and the
-   manual same-thread destination selection passed within CURRENT's bounds. Integrated cold-receipt tests, actual connected
-   MCP during Native Busy, Core-only Stop/StopTree controls, warm parallel
-   compilers and candidate switch/model routes have passed within the separate
-   evidence boundaries in CURRENT.
-4. Finalize exact-head CI receipts, file accounting and protected-asset/branch
-   readback. At 26952f73, Source, Core/Runtime, Manager, Provider and actual
-   stock Android gates passed. The new independent-home Owner and completion corrections need new gates.
-   The later Full probe environment fix and explicit compaction regression need
-   their exact-source gates; GitHub startup failures did not execute TUI tests.
+1. Complete Runtime execution proof and its Provider consumers: distinguish
+   actual OS wait/pre-backend rejection from synthetic exit, generic rejection,
+   Stop ACK, empty jobs and missing asynchronously persisted history.
+   Preserve original receipts; verify real normal rejection/Stop availability
+   as well as conservative unknown effects. Native owns Provider settlement;
+   Models owns the leased Native Runtime patch; Release owns named CI gates.
+2. Complete unloaded source-bound work observation and the cold compiler/
+   Provider-restart trial. Original r1/r2 results remain preserved without
+   resubmission. Independent-CODEX_HOME Writer discovery is now integrated
+   and passed affected tests/readbacks; do not repeat it as an unresolved
+   source defect. Revalidate changed Runtime/Stop consumers on the final inputs.
+3. Finish actual current-selection switch acceptance with the new frontend:
+   same thread, four bounded synthetic responses, two real tool effects,
+   preserved current Provider/model/effort/tier and no child intent leakage.
+   Run the intentional old-d2/S165 private-handoff refusals separately.
+   A read-only observed live Owner is not the original user's exact error screen.
+4. Complete exact-source full TUI and Full composition. G's pin, compaction
+   and Retain gates passed; J's later nineteen named reentry/model cases and
+   full run remain in progress. New Owner/Runtime/Provider source requires
+   new exact-source gates. Retain original six immutable Full inputs.
+5. Finish final-composition Native/terminal checks, independent review,
+   exact-head CI receipts, semantic/physical LoC and branch/protected-asset
+   readback. Do not treat running jobs or earlier component proofs as final success.
 
 ## Protected operating acceptance
 
-The new candidate is not the operating S165 installation. Actual live app
-inference has passed on the existing Provider/Core, including independent
-ordinary OpenAI authentication and same-Chat Native compilation. Actual
-candidate TUI routing and same-thread switch passed with synthetic models.
-Those are separate proof levels.
+The candidate is not the operating S165 installation. Actual operating App
+inference and same-Chat Native compilation passed. Actual candidate TUI/Native
+routing used synthetic inference. Those are separate proof levels.
 
-A private candidate installation cannot borrow the authenticated operating
-AppHost owner or its Provider's installation-scoped registry/Runtime. Read-only
-preflight established this boundary without a candidate model request. A
-future candidate live-app trial needs separately authorized activation in that
-installation or a separately authenticated private AppHost. Registry links,
-owner copying and service replacement are not development workarounds.
+A private candidate cannot borrow the authenticated operating AppHost owner or
+installation-scoped registry/Runtime. Future candidate live-App acceptance needs
+separately authorized activation or a separately authenticated private AppHost.
+Registry links, owner copying and service replacement are not workarounds.
 
-The stock Android emulator proves actual Activity/session behavior with
-synthetic Core transport/frontend. Physical-device foreground visibility,
-screen-lock/background restrictions and a real authenticated candidate
-account switch remain separate device/account acceptance. An earlier failed,
-pre-isolation unit fixture may have created one inert test terminal: count
-increased one to two, but exact session mapping/close is unavailable. Preserve
-its evidence and do not close an unidentified operating surface. Do not turn an AM
-acknowledgment or selected-session value into a claim of visible screen proof.
+Stock Android CI proves Activity/session behavior with synthetic Core transport/
+frontend. Physical foreground visibility, screen-lock/background restrictions,
+the user's original error-screen mapping and a real authenticated candidate
+account switch remain separate device/account acceptance.
 
-Existing S164/S165 and previous signed generations, stable indexes, formal
-signing/publication, operating installation replacement, service restart,
-account/token changes, real SQLite/JSONL repairs and active Writer transfer
-remain separate operations. Read-only data diagnostics found real historical
-DB/rollout discrepancies; they were not repaired or attributed to Native Busy.
+An early pre-isolation fixture may have created one inert terminal: count one
+to two, exact mapping unavailable. Preserve its evidence and do not close an
+unidentified operating surface. No later physical focus/close was attempted.
 
-The primary checkout's e4f9ab5d lineage and other workers' files remain
-untouched. Integrated branch classification is not deletion permission for
-owned worktrees or release/rollback evidence. Unknown receipts retain their
-original identities; uncertain Owner/effects remain preserved and fail closed.
+Existing S164/S165 and prior signed generations, stable indexes, formal signing/
+publication, operating installation/service changes, account/token changes,
+real SQLite/JSONL repairs and active Writer transfer remain separate operations.
+Read-only data discrepancies were not repaired or attributed to Native Busy.
+
+The primary e4f9ab5d checkout and other workers' files remain untouched.
+Integrated branch classification is not deletion authority. Unknown receipts
+retain original identities; uncertain Owner/effects remain preserved.

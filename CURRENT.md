@@ -1,599 +1,356 @@
 # Current product state
 
-Updated: 2026-11-12 KST. Observed facts and proof limits only.
+Updated: 2026-11-12 UTC. Observed facts and proof limits only.
 Requirements: [SPEC](SPEC.md) and [functional annexes](docs/spec/INDEX.md).
 Unfinished acceptance: [HANDOFF](HANDOFF.md).
-The finite integration record is [RELEASE_FRAMEWORK_IMPLEMENTATION](docs/development/RELEASE_FRAMEWORK_IMPLEMENTATION.md).
+The [finite integration record](docs/development/RELEASE_FRAMEWORK_IMPLEMENTATION.md)
+owns the W-task DAG, file Writers, provenance and change accounting.
 
 ## Source and publication authority
 
-The ongoing development branch is [rewrite/rust-core](https://github.com/humtr/codex/tree/rewrite/rust-core).
-This integration starts from `7b98296a411a2c435bb9f34ee51f286f33f3491b`
-in an independent `integration/release-framework-20261112` worktree.
-Feature commits are fast-forward integrated into that official development
-branch; the primary checkout remains on its protected older lineage. The
-remote checkpoint `26952f732a673ed2dd78187121d6374ddcfe9c88` passed Source,
-Core/Runtime, Manager, Provider and stock Android qualification. Full TUI and
-Full composition retain their separate exact-source gates. The new independent-home Owner and unloaded completion corrections require
-their affected exact-source gates; query
-the actual HEAD and its Checks before relying on an earlier checkpoint.
+The sole ongoing development branch is
+[rewrite/rust-core](https://github.com/humtr/codex/tree/rewrite/rust-core).
+Integration starts from `7b98296a411a2c435bb9f34ee51f286f33f3491b` in the
+independent `integration/release-framework-20261112` worktree. Feature commits
+are fast-forwarded to development; the protected primary checkout remains
+`e4f9ab5d` on its older 0.167.0 lineage.
 
-The independently read remote `main` is
-`b2567063d2a7a333a718d2495e2c9f8c928d822c`.
-It remains publication/approval authority, separate from development.
-The repository was initially shallow: after unshallowing, the Native patch
-and planning histories have common ancestors with development; `main` still
-has separate ancestry. Neither branch currently has GitHub branch protection.
-No history replacement or primary-worktree reset was performed.
+The last remotely accepted checkpoint is
+`26952f732a673ed2dd78187121d6374ddcfe9c88`: Source, Core/Runtime, Manager,
+Provider and stock Android gates passed. Its full TUI run remains in progress.
+Later independent-home Owner fixes and execution-settlement corrections need
+their own exact-source gates. Read actual HEAD/Checks before reusing a checkpoint.
 
-The recipe selects upstream **0.167.1**, source
-`0a94398fa60c4fac0e7659e4213a0a36e613dd46`.
-Native integration `a55d5bb8`, PR #29's `current` compatibility alias,
-and the account draft lineage `2dd07d42` are already in development ancestry.
-The account draft was integrated through `8f97affc`; it is not an unmerged
-feature to restore over the current AppHost implementation.
+Remote `main` remains `b2567063d2a7a333a718d2495e2c9f8c928d822c`,
+the separate publication/approval authority. Neither branch has GitHub branch
+protection. The exact-main release-intent guard is closed: the read returned
+HTTP 404 for release-intent-v1. No signing, reservation, publication, stable-index
+change or operating activation was performed.
+
+The recipe selects Codex **0.167.1**, upstream source
+`0a94398fa60c4fac0e7659e4213a0a36e613dd46`. After unshallowing, Native/plan
+histories have common ancestors with development; main retains separate ancestry.
+Native integration a55d5bb8, PR #29's current alias and the account draft
+2dd07d42 (through 8f97affc) are already integrated. No primary checkout reset,
+branch deletion or whole obsolete-lineage replacement occurred.
+
+At the f06fd10e inventory there were 97 local/tracking refs, 89 worktrees,
+31 actual remote heads, 166 local tags and 257 remote tag names. There were no
+common-name tag SHA mismatches or open PRs. Subsequent owned development
+worktrees are not included in that snapshot; final accounting must refresh it.
+Receipt: `5e4460cec925df7342610f96eadac10f91587b14c9ba95fd5db916efc4eddc3c`.
 
 ## Independently observed operating installation
 
-The new candidate Core's offline `termux version --json` read the existing
-installation without activation or replacement. It exited 0 with empty stderr.
-
-| Observation | Verified value / boundary |
+| Observation | Verified value and boundary |
 | --- | --- |
-| Selected signed generation | **Full S165**, `full-v0.167.1-7b98296-s165`, Codex **0.167.1** |
-| Previous generation | `full-v0.167.0-c19b61b-s163`, retained rollback |
-| Core | `74c9ef705d46a1c9a35711e8cb7a64adc107a60849994aa3ce324dc2063cdd55`, `core-api-v1` |
-| Runtime | `ef50757ebe89bf672ab2bb8a6fa875362f7882ba18537ed9bf64196e54bf3d29` |
-| Upstream source archive | `ef3e1443a7795d596f1601a533d7225a1030488d60c965af1f0610ab95889031` |
-| Optional Manager and Enhanced TUI | Present and digest-verified in S165 |
-| Selected Provider package | `chatgpt-da5bf622bc49-s25`, independently signature-verified; service/authentication readiness not queried |
-| Core S164 | Signed release reference exists; no S164 generation directory was installed on this device |
-| Component revisions | Absent in legacy S165 metadata; reported unavailable/null, never invented from sequence 165 |
+| Active signed generation | **Full S165**, full-v0.167.1-7b98296-s165, Codex **0.167.1** |
+| Retained rollback | full-v0.167.0-c19b61b-s163 |
+| Core | 74c9ef705d46a1c9a35711e8cb7a64adc107a60849994aa3ce324dc2063cdd55, core-api-v1 |
+| Runtime | ef50757ebe89bf672ab2bb8a6fa875362f7882ba18537ed9bf64196e54bf3d29 |
+| Upstream archive | ef3e1443a7795d596f1601a533d7225a1030488d60c965af1f0610ab95889031 |
+| Manager / Enhanced TUI | Present and digest-verified in S165 |
+| Selected signed Provider package | chatgpt-da5bf622bc49-s25, independently signature-verified |
+| Core S164 | Signed reference exists; no S164 generation directory installed on this device |
+| Legacy component revisions | Absent in S165 metadata; null/unavailable, not invented from sequence 165 |
 
-The candidate Core binary for that read was
-`cdca2946eaf840323f432b925fb7327662887ceae5e05a22ae82fa3829c0378a`
-from the integration working tree. It was **not installed**. The operating
-Core's earlier `codex termux version` still returned invalid command.
-Sixteen protected generation files and the active pointer were identical
-before and after the candidate read. Existing signed generations were not
-rewritten, re-signed or renamed.
+Candidate Core cdca2946eaf840323f432b925fb7327662887ceae5e05a22ae82fa3829c0378a
+read the installation with offline `termux version --json`, exit 0 and empty
+stderr, without activation. Sixteen protected generation files and the active
+pointer were identical before/after. A later Core-only version check preserved
+20 files plus the public Core/pointer and returned exactly codex-cli 0.167.1.
+The installed Core's earlier `codex termux version` returned invalid command;
+a source implementation is not an installed feature.
 
-A bounded read-only process inventory found runtime executables from S159,
-S163 and S165 concurrently (19, 16 and 5 processes respectively, including
-servers/children, not a count of independent TUI windows). Several older
-frontends inherit the current public Core path. This is coexistence evidence,
-not authorization to stop them or proof that all version combinations work.
+A read-only inventory found S159, S163 and S165 runtime processes concurrently
+(19, 16 and 5 including children/servers, not window counts). Older frontends
+can inherit the current public Core path. Coexistence does not prove every
+combination compatible or authorize stopping these processes.
 
-## Implemented source and local acceptance
+## Release, CLI and qualification implementation
 
-- Release inputs, canonical Android Core production, independent Manager
-  qualification, unsigned Full composition, component revisions and globally
-  reserved publication sequences are integrated. Legacy signed formats remain
-  readable. The exact-main release-intent guard stops development source
-  acceptance from authorizing publication. No reservation or signed release was
-  created by this integration.
-- Core-owned offline version inventory, explicit Core/Full update selection,
-  Core-only local-build independence, one cancellation choice and factual
-  no-bwrap diagnostics are implemented. Signed isolated Core/Full fixtures,
-  edition rejection, rollback preservation, missing optional components,
-  sidecar revisions and upstream version routing passed focused tests.
-  The complete Core suite passed: **271 passed, zero failed, one existing
-  explicitly gated real-Termux smoke test ignored**, exit 0 (468.84 test seconds)
-  at source d36ca465 using the repository's required single-thread test policy.
-  An earlier caller override to two threads caused shared-fixture lock errors;
-  that failed receipt remains preserved and the test policy was not changed.
-  Whole-workspace all-target clippy with warnings denied and the Provider
-  all-target lint gate both passed. The subsequent admission-argument grouping
-  passed the real remote acquisition/reuse regression and fresh Core/Manager build.
-  At exact build source 891c6595, actual isolated Termux PTY keep/remote menu
-  cases both exited 0: one cancellation, zero/one local request respectively,
-  lease release while waiting and unchanged activation. Real external requests
-  were zero. Installed and candidate Core-only version executions both returned
-  exactly codex-cli 0.167.1 with empty stderr; 20 signed-generation files, the
-  public Core and current pointer remained unchanged.
-- Manager display uses existing terminal/window machinery with verified
-  Owner/home/foreground identity, one-shot construction, duplicate suppression
-  and default-off automatic display. Correct stock SESSION_ACTION is a string.
-  **134 Manager tests passed** at feature 66edd08d: 59 library, 74 profile
-  integration and one window-launch test; zero failed/ignored. Seven display
-  cases also passed under an alternate umask. They include real isolated PTYs,
-  qualified Native Owner responses and simultaneous click/automatic commands.
-  The earlier stock Android race exposed a generic profile-lock error before
-  display idempotency. Window locks now cover only durable descriptor
-  transitions, not Android dispatch/wait/focus. Exact pending identity and
-  original Writer remain preserved; duplicate starters cannot delete an
-  original route. Strict clippy, formatting and documentation gates passed.
-  Stock run 43093224127 at 66edd08d passed actual Android API 30 Activity
-  focus, foreground UUID, repeated/concurrent display, auto ON/OFF and
-  foreign-home rejection. The Java assertions were not weakened. This fixture
-  uses real Manager/Service/PTY/Activity with synthetic Core transport/frontend;
-  it does not prove physical-device visibility or Native inference.
-- Independent shell source `c0a81898` is integrated. The hardened candidate
-  preserves original receipts, bounded output and owned process-group cleanup.
-  A separate candidate-worker process without Provider state passed shell
-  execution, exact replay, one-effect counter, argument conflict and unchanged
-  Native-claim sentinel. Connecting only for discovery retained the original
-  17 MCP tools plus `termux_shell`, 18 total. The Android workflow now preserves
-  and verifies a separate unsigned worker candidate instead of discarding the
-  executable built alongside the Provider. Eleven packaging tests passed.
-  Connector refresh now selects an explicit owned `mcp_command` independently
-  from the Provider/Desktop binary, preserves legacy omission behavior and
-  fails closed for an invalid explicit wrapper. The actual client suite passed
-  18 tests with 109 assertions; no operating refresh was performed.
-- At exact remote source `66edd08d`, the Provider all-target suite passed
-  **362 top-level tests**, zero failed, with 34 existing explicit asset/live/helper
-  entries ignored. Nested subprocess results are not double-counted. Strict
-  clippy and unsigned Android build passed; binary SHA256
-  `c0bb92d6768b119f2b941a9c562d9e6015a1917424a73d8a3280cb5bc2e7e548`.
-  The standalone worker test is included. Original failed receipts are retained:
-  a sibling fork could hold a copied executable's write descriptor and cause
-  ETXTBSY; fixture publication now uses a private child, without retrying effects,
-  increasing deadlines or weakening ownership assertions.
-- Provider/TUI source now keeps OpenAI's upstream catalog separate from the
-  authenticated ChatGPT app catalog, including availability and actual effort.
-  Internal Provider ID `chatgpt_desktop` and persisted model namespaces remain
-  compatible. New artifact naming uses `provider-chatgpt-v...`; old
-  `provider-gpt-v...` references remain readable.
-  Cold OpenAI return also uses the upstream offline model manager, including
-  account-scoped cache validation and bundled fallback, instead of manually
-  parsing models_cache.json. Local pristine-upstream assembly and focused
-  Python checks passed; combined Native/TUI source assembly at 891c6595 passed.
-  Local TUI Rust compilation was blocked by an unavailable pinned rusty_v8
-  dependency. Hosted run 43078797588 at d2ab3e0e built and executed the actual
-  patched frontend and passed focused TUI, independent Owner/model fault
-  oracles, Native inference/configuration, hook matching and Provider API gates.
-  The subsequent Retain step failed; its recovered cause and test-only correction
-  are recorded below. This run has not qualified the frontend. Candidate artifacts and earlier successful steps do
-  not establish Full qualification.
-- At b87d7e95 the complete Source Python/static gate passed **241 tests**
-  (36 repository scripts, 190 release helpers, 15 frontend Python tests),
-  exit 0. Documentation checks and ten regression tests passed; all 14
-  workflow YAML files parsed locally. Ruby/Psych is unavailable in Termux;
-  its unmodified hosted gate remains required.
+Core plus a qualified Runtime is the minimum product. Manager, Enhanced TUI and
+Provider are optional components with separate production/qualification and
+interface responsibilities. Core-only builds, updates and basic UI do not require
+a same-version optional frontend. Full preserves its composition gate.
 
-A disposable exact-26952f73 production-source mutation verified the existing
-prepared-selection oracle: the original test passed, changing only the real
-resolve_selection handoff to configured defaults compiled but failed the unchanged
-semantic assertion (exit 101), and byte-exact restoration rebuilt and passed.
-Original/restored executable digests matched. This is the INPUT preparation-fault
-proof, with zero real App requests; it does not establish candidate live App/UI
-acceptance or optional TUI-mutation results. Receipt SHA256:
-`6159de393b4997a1b3d894e6fed708351c3a4e0eb259cef8da2690d7c419970e`.
+Integrated source includes component input identities, canonical Android Core
+production/reuse, independent Manager qualification, unsigned Full assembly,
+component rN, composition identity and globally reserved Core/Full publication
+sequence. Legacy signed readers and rollback remain supported. The conservative
+input inventory includes selected package trees and Cargo.lock dependency edges;
+it is safe but not a minimal activated compile graph. A Manager test-only change
+can cause an avoidable cache miss/rN change without changing bytes; it does not
+invalidate every component. The independent inventory audit found no current
+under-inclusion: 32b8a5971c0e0e44409b1d70e995f010721b272999db281c4b17f4eb20e2d207.
 
-## Native ownership and availability evidence
+Core owns offline version/details/JSON, explicit Core/Full update selection,
+one cancel choice and no-bwrap platform classification. Explicit unsupported
+sandbox, approval/authentication/Native failures and data mismatches remain
+visible. Base-format compatibility, generation identity and rollback are preserved.
+The complete Core suite at d36ca465 passed 271 tests, zero failed, with one
+existing explicitly gated Termux smoke ignored. Whole-workspace strict clippy
+passed. Actual 891c6595 PTY update keep/remote cases exited 0 with one cancel,
+zero/one local request, released waiting lease and unchanged activation;
+external build requests were zero.
 
-The earlier Busy P0 was already operationally recovered: original evidence
-`NATIVE_RESOURCE_RECOVERED`, `SEQUENTIAL_EXEC_OK_2`, `NATIVE_REUSE_OK`
-all exited 0 and 15 claim tests passed. Its source patch `e4f9ab5d` is now
-selectively integrated; a range-diff confirmed patch equivalence. It is not
-an unresolved operating incident.
+Full consumers require exact-source Core/Manager/full-TUI qualifications and
+retain the original six-artifact input plan. Each immutable artifact ID/run/source,
+ZIP digest/size and closed regular-file inventory is verified. Qualification is
+not raw production, signing or publication. At f9d43ee2, 67 distinct Full,
+input/controller/reservation/intent and component tests, thirteen workflow tests
+and ten documentation tests passed. The actual provisional primitive probes
+passed exact stdout/empty stderr after private HOME/TMPDIR isolation; the earlier
+missing-HOME and temporary-root failures remain preserved.
 
-W20's installed Owner lookup failure was independently reproduced. A legacy
-server record naming an old runtime was parsed as a current Binding before
-process identity was checked; its PID had been reused by a proot loader.
-That unrelated stale registration poisoned Owner discovery. Candidate code
-skips only a positively different/exited process, keeps uncertain/unsafe
-records fail-closed, and preserves the private response schema.
-Against the same operating registry it returned confirmed writer-free absence
-for the unused test UUID and identified an actual live Owner correctly.
-No operating registry or Writer was changed. Nineteen Owner tests, the Core
-Owner contract test and eleven Manager task tests passed.
+| Actual evidence | Scope / receipt SHA256 |
+| --- | --- |
+| Immutable G Core/Manager acquisition | 19.11 seconds, no compilation; cc9015cc8176bcd82197368db9336109f96e10a5efc6c255b80e72b576308948 |
+| Provisional cf Core/Runtime + 66 Manager + d2 TUI probes | Four real probes, disposable test signing only; 275ef701761bceeb3b2f0d1c4d0d823b87b848cae0a9ccd6b64c07b9ceb2aee6 |
 
-The staged actual d2 frontend with candidate Core/Manager completed the
-same-thread switch fixture, exit 0: source model samples two, destination one,
-original prompt and checkpoint once, original Native tool effect once. Provider,
-model, effort, approval, reviewer and sandbox settings remained intact. This
-uses synthetic model responses and an explicitly mixed private candidate
-composition, not a real OpenAI account transition or qualified final Full.
-The later cf Core/Runtime + 66 Manager + d2 TUI fixture passed the existing
-40-assertion task qualifier with the actual Enhanced executable observed and
-the same UUID resolved across account-a, default and account-b. It preserved
-active/disconnected Writers, refused cross-home conflict, confirmed Stop and
-used only owned transfer fixtures. Receipt SHA256:
-`7549caa51bd4afa74a0a3b2954e41437dfbe46e9ed3440882d065482f6d26341`.
-Ordinary and named-permission automatic quota handoffs also passed; an
-incompatible permission profile stopped before any destination inference.
-Those three trials exercised the `/switch` menu but automatic handoff, not
-manual destination-row selection. A separate actual manual trial then disabled
-automatic handoff, selected `next` in the picker, verified the same UUID's new
-Owner/home before destination inference and submitted one typed follow-up.
-It preserved gpt-6.1-sol/OpenAI/high, named permissions and original tool effect
-exactly once. Its source and current selections matched; this does not prove
-preservation after a later model change. Manual receipt SHA256:
-`744545926ef31dd2b1775643e88c315bf7b66baf2829f08ad0d3139c9af95e1c`.
-Those trials used zero live model requests and no physical Android transport;
-protected and input bytes were unchanged and owned processes finished.
-A further changed-selection trial on the old d2 frontend reproduced a separate
-regression: the same thread retained ChatGPT, its model, tier and turns, but
-current `high` effort reverted to the source launch's explicit `none` after a
-manual profile switch. This was the Native enum string `none`, not JSON null.
-The target profile had different OpenAI/low/priority defaults; only two original
-synthetic responses had occurred and no destination follow-up was submitted.
-The failure receipt is `02d20ac216a71f5e0d224731fc1f700edbcae58f6817e7833501e0d35001ec73`.
-Source f915344e/f1491afb captures the current collaboration selection and
-verifies the exact Native thread/model/Provider/effort without a resume effect.
-The later cc0e117b/c0d02750 correction consumes a typed, same-PID initial
-reentry intent before either frontend entrypoint starts threads. All five Core
-Runtime producers remove that private mode/PID from children. Initial reentry
-restores Native-saved model/effort/tier; later ordinary resume does not reuse
-that initial tier decision or stale launch-map model defaults. Four focused
-Core tests, the actual seven-case process environment fixture and complete
-frontend Python suite passed; the integrated frontend/checker/workflow/docs
-run passed 10/2/13/10 tests respectively, all exit 0. The exact-source hosted
-TUI gate now requires all 19 named passes; it has not yet qualified this source.
+Core artifact 13893267008 retained original cf849ac3 production/run 43090735720
+and binary 48c041e4…f4596f. Manager artifact 13891669517 retained G production/run
+43104266119 and binary 0cbc83d22087d0dcc410361195cd48ad52d2c2aa59025f96e23f5f45e45cad40.
+Source Acceptance independently restored/reverified canonical Core bytes instead
+of producing another copy. The final reservation still binds actual candidate
+payloads and normalized composition before any separately authorized signing.
 
-A further actual producer review found that old S165/d2 profile handoffs can
-forward stale launch flags without that bound intent. Source 52d52426 therefore
-rejects private profile v1/v2 and quota handoffs before Manager context, usage,
-cooldown or Native processing. Public profile selection and ordinary explicit
-CLI options retain their contract. The old frontend may already have exited
-and released normally; rejection starts no further resume or record mutation.
-Held-Writer/file-inventory negatives and a real same-PID exec positive passed.
-The complete Manager suite passed **138 tests (60 library, 77 process, one
-window), zero failed or ignored**, plus strict all-target clippy and docs gates.
-Final-current positive and intentional old-generation negative PTY trials remain
-separate acceptance tasks; old signed frontends were not modified.
-Historical quota replay now restores display history without starting new
-account recovery. The receipt digest is
-`217048f8b2e750c6bfda0d21c7368fdd745cec820591c4afd8d8cf409caf1ff3`.
+## Native Owner and switch
 
-Native execution metadata previously rejected even an unrelated synchronous
-request-user-input notification hook. The new per-tool schema-2 hook gate distinguishes actual
-matching hooks from irrelevant hooks and retains opaque treatment for uncertain
-hook effects. Stored unmarked/mixed/unknown bounded claims are conservatively
-widened for new conflict decisions without rewriting their original snapshots.
-Queued legacy Read calls are checked against their original turn facts for both
-offer and settlement; original call IDs/fingerprints/results remain intact.
-Old schema-1 execution receipts remain readable but do not grant new parallel
-capability. An already-running old Provider may have unrecorded read effects;
-new source cannot retroactively arbitrate those. Coordinated future activation
-is a separate operating boundary. The patch applies to pristine upstream; four
-hook-engine regressions passed in the hosted frontend gate. The earlier
-old-runtime compiler trial had no compiler effect and was settled without
-stopping other work. New actual compiler trials exposed two continuation
-boundaries: a running empty poll lost its bounded scope, and a completed
-Native item could release the claim before its last output was collected.
-The fixes retain original call/session/PID/start/thread/turn evidence on the
-existing receipt, without synthesizing results or creating another registry.
-Pending, reused, foreign, collected or unproved session identities stay
-conservative.
+The installed Owner-query failure was reproduced read-only. A known legacy
+record naming an old runtime was decoded as a current Binding before checking
+its PID, which had been reused by a proot loader. That unrelated registration
+poisoned lookup. The correction excludes only proven retired/reused known
+records; unknown codecs, malformed current records, unsafe paths/peers and
+ambiguous Writers remain errors. No operating registry was repaired.
 
-At Provider source ca1dd504 with exact qualified cf849ac3 Core/Runtime, a
-Core-only fixture with no Manager/Enhanced ran two real clang processes with
-**5,760 ms overlap**, two simultaneous bounded claims and two 2,960,160-byte
-ELF outputs. Both original final polls returned exit 0; a conflicting opaque
-call was refused before effect and its old ID never executed later. A legal
-new call then ran on the same owned work. Original results were preserved,
-unconfirmed effects returned to zero and the shared ledger returned to its
-original empty digest. No model request was used. Evidence:
-`terminal-poll-integrated-cf-r1/compiler.json` and `compiler-receipts.json`.
-Provider-restart restoration of retired receipt chains was separately reproduced
-after actual cache eviction. The integrated fabf0606 fix reads only the admitted
-immutable source chain, including later collectors/reused session identities;
-it never reactivates retired execution tokens or transfers a Controller.
-Thirty-four Native concurrency and four source-discovery cases passed the
-focused producer tests. The integrated fabf0606 Provider suite passed **364
-top-level tests, zero failed, 34 existing explicitly gated entries ignored**.
-A one-line test-only reference-slice correction in 54e3328a then passed strict
-all-target clippy and all four terminal-session regression tests. These counts
-are not added to earlier repeated suites. The warm-owner compiler proof is
-not relabeled as a live restart trial.
+A subsequent actual compiler trial exposed a second defect: Owner proof assumed
+the installation's default writer-lock namespace and missed an independent
+CODEX_HOME Writer. The ff5b41d0 correction, integrated as baab4437 with a separate
+format-only f06fd10e commit, checks actual admitted execution homes, exact
+Core-produced shared aliases and safely decoded retired namespaces.
+Unknown held Writers remain unresolved even if another valid Owner exists.
+The original profile-switch deadline was retained.
 
-A real source-bound compiler trial then exposed a missing production handoff:
-Operator verified the Core Owner/workspace, but submitted ModelAdapter requests
-lost those execution facts before McpBridge registered the turn. The original
-compiler was admitted without a bounded receipt. Its original cleanup Stop ACK
-remains unconfirmed; later Native history showed an interrupted command with
-exit -1 and a notLoaded thread. That readback found no shared claims, while the isolated
-Provider receipt remains reconciliation-required. The original effect, receipt
-and owned Runtime were preserved; no new-ID rerun or retroactive scope was used.
+Affected tests passed **154**: runtime-binding seven, Manager 139, Core one and
+Provider discovery seven (one existing helper ignored). Strict Core/Manager/
+runtime-binding all-target clippy and both workspace/Provider format checks passed.
+Original fixture/format failures are retained, not counted as passing evidence.
 
-Source 911ceeb9 now carries only verified private scope through ordinary and
-gateway-correction submissions, strips it before remote admission/dispatch, and
-commits next sampling facts with original results under the existing lock. A
-durable original-offer reservation fact preserves settlement across commit/
-restart even when later hook facts classify differently. Exact legacy ToolSearch
-reservations are reconciled by their original identity; positively unreserved
-reads remain independent of an unrelated broken ledger. Two commit/restart
-failures and a legacy ToolSearch failure were reproduced before the fix; all ten
-focused cases then passed. The full Provider all-target suite passed **374 tests,
-zero failed, 34 unchanged explicit opt-in ignores**, exit 0 in 337.83 seconds;
-strict clippy and final formatting/diff gates passed. An initial formatting-only
-failure remains recorded; Cargo-normalized before/after text proved unchanged
-semantics. The next actual cold trial admitted the original compiler with a
-bounded Paths reservation, obtained Native exit 0, restarted only its owned
-Provider and recovered the original result. A sibling compiler also completed.
-Its first oracle incorrectly expected the persisted original effect to become
-Read; that failed receipt is preserved. The legitimate final collector leaves the
-original effect/fingerprint intact while its verified admission is unreserved.
-The subsequent completion observation exposed a separate production failure:
-all original Native turns were terminal and the thread was notLoaded, but the
-loaded-only background-jobs query rejected it. Work completion was not certified.
+Candidate Core SHA256
+31fc3fad74270f6a5560f2b071eaa9205a3d6d4beef0a5e5bc1fa32be4bcbb20
+returned null for completed compiler A and the correct independent home/socket
+for active B. It also returned safe null for the unused operating test UUID and
+correctly found a separately observed live S163 Owner in wrlab; its PID/start,
+installed Core and S165 pointer remained unchanged.
 
-A read-only check of the sibling's actual process then found a further Owner
-consumer defect: a normal independent CODEX_HOME held its real Writer FLOCK,
-while Core checked only the installation's default lock namespace and returned
-null. Declared profiles using Core's canonical shared-layout alias are a separate
-supported case. The independent-home false absence and unloaded completion
-observer require source corrections and fresh actual acceptance; notLoaded or
-that earlier null response is insufficient proof of free ownership. Original
-results, histories and owned Runtime processes remain preserved without a new-ID
-command retry, forced Writer release or operating service change.
+| Evidence | Receipt SHA256 |
+| --- | --- |
+| Owner source/tests | 7247395ebf4a442378a0894a8c7ceccd205c50fd0e08357464e1dbdd0cfc329b |
+| Candidate A/B readback | 8f78238e7a2a76eeec482775d31d6b04b5359838e06a0f67e086d85541ffa94a |
+| Operating read-only lookup | bcb75dcdba07cf63006d16cdcc2aa9957f8c85581eaa21de5dbf7773dbc8d623 |
 
-The existing selected-controls qualifier also passed on a Core-only fixture:
-21.18 seconds, exit 0, no Manager/Enhanced and zero model requests. Its checked
-AST preserved all 32 block assertions and seven helper assertions. Actual
-Native execution proved same-thread Controller transfer with receipt fencing,
-two independent Writers, a queued third writer under one parent, independent
-roots at a per-parent parallel limit of one, Stop preserving a sibling,
-restart-stable Stop, safe notLoaded-thread reload, original-start/call-count
-preservation on time extension, dependency evaluation and StopTree of five
-works including the coordinator. Receipt SHA256:
-`711b857bb0aa5be56429cf028b27646f9c83abcf41477de38070cd8d893aac70`.
-After this and the Busy trial below, a read under the existing ledger lock
-confirmed zero claims and the original empty digest. No manual settlement or
-ledger mutation was used.
+The observed live Owner was not directly mapped to the user's original error
+screen. That exact old TUI PID/thread remains unproven; do not substitute a
+different live thread as evidence for it.
 
-A separate actual Core-only observer fixture passed in 4.40 seconds, exit 0.
-The same Native thread/turn remained active after its original observer
-connection closed; owner-context reentry and a same-Owner observer recovered
-the original socket. A different execution home's resume was explicitly
-refused while the original Writer's kernel lock, inode, process and record
-remained unchanged. The original response completed once; closing the final
-subscriber then produced verified safe Owner absence. One loopback synthetic
-response, zero live Provider requests and zero Android dispatches were used.
-Receipt SHA256: `a135b830efc406cfe0e9cb71496287569118ca6ef046da0f838bcb776ae43da8`.
-This verifies Native observation, not public Manager/Enhanced screen display.
+Actual staged same-thread profile-switch tests passed with synthetic inference.
+The later cf/66/d2 task qualifier passed 40 assertions, including active/
+disconnected Writer preservation and cross-home refusal. Automatic quota
+handoffs passed ordinary/named-permission cases and refused an incompatible
+profile before destination inference. A manual auto-OFF picker trial verified
+the target Owner/home before follow-up and preserved OpenAI/gpt-6.1-sol/high,
+permissions and one original tool effect:
+744545926ef31dd2b1775643e88c315bf7b66baf2829f08ad0d3139c9af95e1c.
 
-A separate Core-only basic-UI trial passed through the ordinary Core dispatcher,
-without a Core-only override, Manager or Enhanced TUI. The actual process image
-was the selected qualified Runtime. Typed input caused exactly one real command,
-whose original Native result contained `OWNED_PERMISSION_PROOF:PL_MAIN`, exit 0.
-The same thread displayed `PL_MAIN_OK`; UI exit was 0 after 8.55 seconds.
-Two responses came from the loopback fixture, with zero real Provider inference
-and zero physical Android dispatch. Cleanup succeeded and operating Core,
-activation and current-generation pointer stayed unchanged. Receipt SHA256:
-`0e0506ca81fbe03bc19e91f7126956fe52470c9ad90acbb3cd3684bd29344446`.
+A separate old-d2 changed-selection trial reproduced high reverting to the
+Native enum string none after manual switching. Same thread, Provider, model
+and tier survived; only two original synthetic responses occurred, with no
+destination follow-up. Original failed receipt:
+02d20ac216a71f5e0d224731fc1f700edbcae58f6817e7833501e0d35001ec73.
 
-## Physical terminal test boundary
+The integrated correction captures current selection, uses a typed same-PID
+initial reentry intent before threads/dispatch and removes its mode/PID from
+all five Core Runtime child producers. Initial reentry restores saved
+Provider/model/effort/tier; later ordinary resume preserves its explicit choices.
+Unbound legacy private profile/quota handoffs now fail before Manager mutation;
+the old TUI may already have exited normally. Public profile/CLI semantics remain.
+Seven actual process-environment cases and focused source tests passed; the
+latest hosted TUI gate requires nineteen named positives. Final-current positive
+and old-generation negative PTY acceptance remain pending.
 
-One pre-isolation failed unit fixture recreated its owned display descriptor
-for `/not-executed` while inheriting the actual Termux AM transport. A subsequent
-read-only probe observed terminal count increasing from one to two, consistent
-with an inert test surface; the exact Android session could not be mapped.
-No further display/focus/close was issued to identify or remove it. Its original
-private descriptor and bounded evidence remain preserved; the complete
-environment was not logged. Signed installation bytes and activation remained
-unchanged. Direct display unit probes now run in transport-isolated subprocesses,
-so even failed admission cannot dispatch to operating Android. A reproduced
-dangling-route case also now fails before any new descriptor or Android request.
+## Native effects, recovery and parallel availability
 
-## Actual candidate TUI and independent MCP evidence
+The earlier P0 is already operationally recovered: NATIVE_RESOURCE_RECOVERED,
+SEQUENTIAL_EXEC_OK_2 and NATIVE_REUSE_OK exited 0, with fifteen claim tests.
+Its e4f9ab5d source patch is selectively integrated and patch-equivalent.
 
-The real d2 candidate PTY passed OpenAI → ChatGPT → OpenAI, foreign-provider
-direct-model rejection, cold resume and follow-up on the same thread with
-upstream High effort restored. Four responses were synthetic. A separate
-zero-input PTY trial proved that Provider/model/effort were durably applied
-before the first prompt: zero Responses/Chat submissions/checkpoints and two
-settings audit entries. Receipt digests are respectively
-`9ceef3690c2bf5910832f8157696aa5407952675ffad50698cbe8c5a4ba7ac79` and
-`921c3016abb6e4ceda7407baf35a66c21186f3913035b0a30fa52846c8452993`.
-These prove actual TUI/Native routing with synthetic inference, not a live
-authenticated candidate Full. The qualifier observes actual terminal cells
-and authoritative Native metadata rather than matching stale ANSI output.
+New source supplies per-tool schema-2 hook facts, conservative legacy claim
+handling, verified source-scope handoff, original reservation persistence,
+bounded empty continuation polls and cold original-receipt restoration.
+Remote/caller fields cannot manufacture internal Native scope. Historical
+schema-1 facts cannot grant new parallel capability, and an already-running old
+Provider's unrecorded effects cannot be retroactively arbitrated.
 
-A later actual d2 PTY trial exercised Native `/compact`, then the scoped model
-picker, foreign direct-model rejection and a follow-up on the same thread.
-Provider/model/effort and prior canonical turns were preserved; it exited 0 with
-exactly three synthetic Responses and zero real Provider inference. Protected
-operating Core/activation and all input binaries were unchanged. The earlier
-trial's automatic-title request caused a strict request-budget failure; the
-existing qualifier's explicit thread-name setup was restored before the new
-isolated trial, rather than relaxing the budget. Successful receipt SHA256:
-`3256d30da5e50ec754c26c8c5575cb0be4287a94ef603051c81c2a1e3b01178f`.
-This is actual PTY/Native compaction on the recorded unqualified composition,
-not final Full or live App acceptance.
+The source-bound/reservation change at 911ceeb9 passed 374 Provider tests, zero
+failed, 34 existing explicitly gated live/asset/helper entries ignored, plus
+strict clippy. Counts are top-level and not added to earlier repeated suites.
 
-The currently connected independent MCP `termux_shell` returned
-`DIRECT_TERMUX_MCP_INTEGRATION_OK`, exit 0. Repeating the exact call ID/arguments
-returned the identical original PID/output/timestamp; changed arguments with
-that ID returned `termux_call_id_payload_conflict`, executed=false. The catalog
-contains exactly the previous 17 tools plus that one shell. This wire evidence
-uses the existing installed worker; the separately tested hardened candidate
-was not activated. Shared claims were empty at that initial observation.
+| Actual execution | Result and proof boundary |
+| --- | --- |
+| Warm parallel compilers | ca1dd504 Provider + qualified cf Core/Runtime; two real clang processes overlapped 5,760 ms, two bounded claims and two 2,960,160-byte outputs; original final polls exit 0, conflicting call refused before effect, ledger returned to original empty digest |
+| Core-only controls | 32 plus seven assertions, 21.18 seconds, zero-model; 711b857bb0aa5be56429cf028b27646f9c83abcf41477de38070cd8d893aac70 |
+| Observer detach | Same active Owner/thread retained; a135b830efc406cfe0e9cb71496287569118ca6ef046da0f838bcb776ae43da8 |
+| Core-only basic UI | No Manager/Enhanced, actual Runtime, one real command/exit 0, same thread, two synthetic responses; 0e0506ca81fbe03bc19e91f7126956fe52470c9ad90acbb3cd3684bd29344446 |
 
-The independently qualified G Android worker was then acquired by immutable
-artifact 13893816894 and verified against its exact source and closed inventory.
-Executable SHA256 `68df8ecb6918153d28808e3a029cc53ae77579cffa20557d29dadc97ea4d5b12`
-passed real private stdio execution without Provider or Core: exact replay and
-conflict refusal, worker-restart receipt recovery, timeout/background-child
-cleanup, cancellation preserving the original unknown intent, simultaneous
-worker calls with one effect, and the 64 KiB output bound. All three workers
-exited 0 with empty stderr, owned children were inactive and the Native sentinel,
-operating wrapper and Core stayed unchanged. Execution receipt SHA256:
-`a7d828a8444baec9b47d4a1d427a7475e4b668ca8a3c87fa7b898576946ddff6`.
-This is actual candidate Android execution; its connected ChatGPT tunnel was
-not activated or refreshed.
+The cold source-bound trial is **not yet accepted**. Its first attempt retained
+an interrupted original result and unknown Stop ACK without replay. Attempt two
+recovered its original compiler exit-0 output after private Provider restart,
+but unloaded completion still called a loaded-only job API. B finished; A's
+original work/receipt remained preserved. This led to the Owner correction above
+and the completion/settlement work still in progress.
 
-A subsequent actual connected call, `cr12-root-294`, ran while an owned real
-clang command held a verified bounded Native claim. A conflicting command
-against the same output had returned native_resource_busy, executed=false.
-The independent shell returned `DIRECT_TERMUX_MCP_WHILE_NATIVE_BUSY`, exit 0.
-Exact call-ID/argument replay returned the original PID, timestamp and output;
-the effect marker remained one line. The original compiler then completed and
-its original session result was collected with exit 0; the refused call never
-executed. Timing control used only that compiler's verified pidfd, with an
-independent 45-second resume watchdog; explicit release resumed it after
-26.83 seconds. The Native Runtime/Writer stayed running. Protected operating
-Core, activation and current pointer remained unchanged; model requests were
-zero. The wire proof SHA256 is
-`cca529071712d3daae62d9e3cbecab1b3032bcd5edcab9efbeadc1cc993babcc`.
-This proves installed independent-MCP availability during candidate Core-only
-Native Busy, separately from the hardened candidate worker's process tests.
+Independent pinned-source review proved additional unsafe assumptions:
+synthetic termination status can precede successful OS wait; a CreateProcess/
+Rejected error can follow spawn; absent asynchronously persisted history cannot
+prove non-dispatch. Three existing-consumer negative tests compiled and failed
+semantically before correction. The Runtime producer and Provider consumers are
+being corrected together. Stop ACK, empty jobs, terminal item or legacy exited
+boolean alone is not accepted as real process settlement. Earlier control tests
+that asserted only those weaker states cannot qualify the corrected boundary.
+Original raw results and failed receipts remain unchanged.
 
-## Actual ChatGPT–Native development loop
+HTTP 413 and CDP failures were injected at production interfaces; no deliberate
+live ChatGPT 413 was induced. Actual Native observer/TUI disconnection preserved
+Writers. Original-result/receipt replay was exercised; a live Chat final ACK was
+not deliberately lost. No uncertain active Runtime was forcibly crashed.
+Boundary receipt: 2d18be369bf0680876e4995124acd434e63e4daf11f93fe398e370d2642c0681.
 
-The existing authenticated app's live catalog returned six visible choices
-plus three hidden compatibility entries, including GPT-6 and GPT-5.6 Sol
-Instant/Thinking/Pro. This demonstrates that two static entries are not the
-server catalog. Thinking supplied standard/extended/max options.
+## Provider, model and independent shell evidence
 
-An actual `chatgpt-desktop/app/gpt-5-6-thinking` request at effort `high`
-used one original Chat and one Native thread. After an initial MCP discovery
-failure with zero effects was preserved, a legitimate same-work follow-up
-wrote and compiled C, returning `W19_NATIVE_FIRST` and exit 0. A further
-same-thread turn modified the same file, recompiled and returned
-`W19_NATIVE_SECOND` and exit 0 to the original Chat. Final state was completed,
-Native idle, with no pending/active/unconfirmed effects.
-All three persisted turns retained Provider, model, effort, on-request
-approval and the existing sandbox setting.
+Stable IDs remain chatgpt_desktop and chatgpt-desktop/...; display naming is
+Linux ChatGPT app. New provider-chatgpt-v... names preserve old provider-gpt-v...
+readers. Ordinary Codex authentication, app inference identity, local service
+token, Native execution home and source-conversation ownership are distinct.
 
-This is **operating-binary live evidence**, not acceptance of the new TUI.
-The operating Provider binary was
-`e27e92c2442647da3a1997455198b4f5a64e700df6a4e6f37c70fb71b5eae44d`;
-it differed from the Core-selected signed Provider package.
-The masked receipt digest is
-`c44dc713ce94b3962d2dba41a27eb0deecc9c494ac049297bad473d8595e2929`.
-No login/token/service/hook setting was changed for the trial.
+OpenAI uses the upstream model manager, order, effort and account-scoped cache
+without querying the Linux app. ChatGPT uses the authenticated app/server catalog,
+availability and actual reasoning options, without two-model restriction or
+foreign-provider fallback. Other providers retain their upstream catalog path;
+no additional real third-provider inference was claimed.
 
-Two additional actual operating-App trials used private execution homes:
-one without ordinary `auth.json`, one with a synthetic invalid OpenAI API key.
-Both received actual `chatgpt-desktop/app/gpt-5-6-instant` responses. Explicit
-OpenAI routes in those same homes returned 401 missing bearer / invalid API
-key; the retrying owned CLI probes received SIGTERM at the 25-second bound
-(exit -15), rather than completing naturally. This does not claim a real revoked refresh-token test or actual
-OpenAI account switch. Receipt SHA256:
-`9891a5517af8dd78cd72ee121f217251db8a06f4b1edba9573d5b14ae056346a`.
+| Actual candidate path | Receipt SHA256 / limit |
+| --- | --- |
+| OpenAI → ChatGPT → OpenAI, cold resume, foreign direct-model refusal | 9ceef3690c2bf5910832f8157696aa5407952675ffad50698cbe8c5a4ba7ac79; four synthetic responses |
+| Zero-input Provider/model/effort persistence | 921c3016abb6e4ceda7407baf35a66c21186f3913035b0a30fa52846c8452993; zero model submissions |
+| Native compact, picker/direct selection, same-thread follow-up | 3256d30da5e50ec754c26c8c5575cb0be4287a94ef603051c81c2a1e3b01178f; three synthetic responses |
+| Actual preparation-source mutation at J | 6159de393b4997a1b3d894e6fed708351c3a4e0eb259cef8da2690d7c419970e; green → compiled semantic red → byte-exact restored green, zero real App calls |
 
-A read-only live-candidate preflight found an actual protected boundary:
-the operating Provider captures its installation HOME and verifies its own
-registry/Runtime; the authenticated AppHost retains its existing owner even
-with zero active lanes. A private candidate installation cannot borrow that
-Writer or AppHost identity. No candidate model request, registry link/copy,
-login or service replacement was attempted. Receipt SHA256:
-`9eac4dba78908b6b22c819e91e4056a61a94277648633ef37e2f53522604c4c4`.
-Candidate live acceptance therefore needs a separately authorized activation
-or a separately authenticated private AppHost; synthetic TUI and operating
-live evidence remain distinct.
+These d2 PTY compositions were explicitly provisional, not final Full/live
+account acceptance. Upstream completion is command-name /mo → /model;
+direct model argument resolution is a separate tested path.
 
-The user's confirmed connector refresh in the **janmori101** Linux app
-(17 to 18 actions, termux_shell registered) and actual independent MCP
-shell success remain accepted prior evidence. Native execution-home labels
-and the earlier wrlab OpenAI token_revoked observation do not establish the
-ChatGPT inference account or invalidate that refresh.
+The independent MCP contract remains one termux_shell plus the original seventeen
+tools and unchanged common annotations. The connected installed worker passed
+real execution, exact original-ID replay and changed-payload refusal. A connected
+call during an owned bounded Native Busy returned once; replay preserved its
+original PID/time/output and one-effect marker. The original compiler later
+exited 0; only that verified compiler's pidfd was briefly controlled with a
+45-second resume watchdog, not the Runtime/Writer.
+Wire receipt: cca529071712d3daae62d9e3cbecab1b3032bcd5edcab9efbeadc1cc993babcc.
 
-## Remote CI evidence and publication boundary
+Separately, qualified G Android worker artifact 13893816894, executable
+68df8ecb6918153d28808e3a029cc53ae77579cffa20557d29dadc97ea4d5b12,
+passed actual private stdio without Provider/Core: replay/conflict, restart,
+cancellation preserving unknown intent, process-group cleanup, concurrent
+one-effect execution, 64 KiB bound and private file modes. Three workers exited
+0; original Native sentinel and operating wrapper/Core stayed unchanged.
+Receipt: a7d828a8444baec9b47d4a1d427a7475e4b668ca8a3c87fa7b898576946ddff6.
+The candidate was not activated in the connected tunnel. Refresh selects an
+explicit independent mcp_command, preserves legacy omission and refuses invalid
+explicit wrappers; eighteen client tests/109 assertions passed without a refresh.
 
-Accepted baseline and integration checkpoint receipts:
+## Live App and Android boundaries
 
-| Exact source | Workflow | Run | Conclusion |
+The existing authenticated app returned six visible choices plus three hidden
+compatibility entries, including GPT-6 and GPT-5.6 Sol Instant/Thinking/Pro;
+Thinking offered standard/extended/max. One original Chat and Native thread
+used gpt-5-6-thinking/high to write/compile C (W19_NATIVE_FIRST, exit 0), edit the
+same file and recompile (W19_NATIVE_SECOND, exit 0). Original Provider/model/
+effort/approval/sandbox settings survived, final work/ledger was settled.
+Receipt: c44dc713ce94b3962d2dba41a27eb0deecc9c494ac049297bad473d8595e2929.
+
+That is operating-binary evidence: Provider
+e27e92c2442647da3a1997455198b4f5a64e700df6a4e6f37c70fb71b5eae44d
+differs from the selected signed package. No login/token/service change occurred.
+Private homes without auth.json and with a synthetic invalid OpenAI API key
+both received actual app inference; explicit OpenAI calls returned missing/
+invalid-key 401. The owned retrying CLI probes ended by bounded SIGTERM, not
+natural successful completion. This is not a real revoked refresh-token/account
+switch test: 9891a5517af8dd78cd72ee121f217251db8a06f4b1edba9573d5b14ae056346a.
+
+Read-only preflight proved a private candidate cannot borrow the operating
+AppHost's authenticated owner or installation-scoped Runtime registry.
+No registry link/copy or candidate live request was made:
+9eac4dba78908b6b22c819e91e4056a61a94277648633ef37e2f53522604c4c4.
+Candidate live acceptance requires separate authorized activation or private
+authentication. The confirmed janmori101 refresh (17 → 18 actions) remains
+valid prior evidence; execution-home labels and wrlab's old OpenAI token_revoked
+do not identify the app inference account.
+
+Manager uses existing terminal/window machinery, verified Owner/home identity,
+one-shot creation, duplicate suppression and default-off auto display. Real
+isolated PTY/Manager tests and stock Android API 30 CI passed actual Activity,
+foreground session UUID, repeated/concurrent click/auto ON/OFF and foreign-home
+refusal. The stock fixture has synthetic Core transport/frontend: it is not
+physical-device visibility, screen-lock/background or real Native inference proof.
+
+**Physical test exception:** one early failed unit fixture inherited real Termux
+AM and recreated an owned /not-executed display descriptor. A read-only probe
+observed terminal count one → two, consistent with an inert test surface; exact
+session mapping was unavailable. No further focus/close/relaunch occurred.
+Descriptor/evidence remain preserved and installed bytes/activation stayed
+unchanged. All later unit display probes isolate Android transport. Do not claim
+zero physical UI effects for this entire integration.
+
+Historical SQLite/rollout inconsistencies were diagnosed read-only and kept
+separate from Busy/Provider causes. No database or JSONL repair, deletion,
+reindex, thread-ID change or user-Writer termination occurred.
+
+## Exact-source CI evidence
+
+| Source | Workflow | Run | Conclusion |
 | --- | --- | --- | --- |
-| `7b98296a411a2c435bb9f34ee51f286f33f3491b` | Source Acceptance | [43012469220](https://github.com/humtr/codex/actions/runs/43012469220) | success |
-| same | Core/Runtime Qualification | [43013017085](https://github.com/humtr/codex/actions/runs/43013017085) | success |
-| same | TUI Native Qualification | [43013363622](https://github.com/humtr/codex/actions/runs/43013363622) | success |
+| 7b98296a411a2c435bb9f34ee51f286f33f3491b | Source | [43012469220](https://github.com/humtr/codex/actions/runs/43012469220) | success |
+| same baseline | Core/Runtime | [43013017085](https://github.com/humtr/codex/actions/runs/43013017085) | success |
+| same baseline | TUI | [43013363622](https://github.com/humtr/codex/actions/runs/43013363622) | success |
+| 787fcd2bc6708941ffbdd6a193bae35d3b8478a5 | Full TUI | [43104655110](https://github.com/humtr/codex/actions/runs/43104655110) | success |
+| 26952f732a673ed2dd78187121d6374ddcfe9c88 | Source | [43118366133](https://github.com/humtr/codex/actions/runs/43118366133) | success |
+| same J checkpoint | Core/Runtime | [43118366004](https://github.com/humtr/codex/actions/runs/43118366004) | success |
+| same J checkpoint | Manager | [43118366040](https://github.com/humtr/codex/actions/runs/43118366040) | success |
+| same J checkpoint | Provider | [43118366092](https://github.com/humtr/codex/actions/runs/43118366092) | success |
+| same J checkpoint | Stock Android | [43118366005](https://github.com/humtr/codex/actions/runs/43118366005) | success |
+| same J checkpoint | Full TUI | [43118617817](https://github.com/humtr/codex/actions/runs/43118617817) | in progress |
+| same J checkpoint | Full composition, attempt 1 | [43118366010](https://github.com/humtr/codex/actions/runs/43118366010) | refused missing exact-source prerequisite |
 
-The 7b98296 receipts supersede the earlier f9dfc3f failure only as baseline
-proof. Integration checkpoint `26952f732a673ed2dd78187121d6374ddcfe9c88`:
+G full TUI completed 2026-11-11 23:41:42 UTC: focused 172/172; mandatory
+independent-fault oracles; Native/config/hooks/API; Retain TUI 53/53, engine
+43/43, apply-patch 2/2; strict lint and proof upload/cache all passed.
+The exact pin and compaction regressions passed. Optional mutation flags were
+false and their steps skipped; promotion was false. This qualifies G's TUI,
+not J's later typed-reentry changes or a Full composition.
+Proof artifact 13899854078 passed original ZIP digest/inventory/semantic checks:
+b2d0256d8a30c1146351c1f04e1ed67770793e90f8fbdea1405c124aec13a86d.
 
-| Workflow | Run | Conclusion |
-| --- | --- | --- |
-| Source Acceptance | [43118366133](https://github.com/humtr/codex/actions/runs/43118366133) | success |
-| Core/Runtime Qualification | [43118366004](https://github.com/humtr/codex/actions/runs/43118366004) | success |
-| Manager Qualification | [43118366040](https://github.com/humtr/codex/actions/runs/43118366040) | success |
-| Provider Qualification | [43118366092](https://github.com/humtr/codex/actions/runs/43118366092) | success |
-| Stock Android window | [43118366005](https://github.com/humtr/codex/actions/runs/43118366005) | success |
+The earlier d2 pin failure (52/53) was fixed by observing its distinct pending
+refresh, keeping every pin/unpin/persistence assertion; G verifies that fix.
+Separate GitHub startup/finalization failures did not establish test success.
+Superseded I failed only the subsequently fixed formatting gates. Original failed,
+cancelled and prerequisite-refusal receipts are retained; no assertion was weakened
+or mandatory test skipped. Later Owner/Runtime/Provider source still needs all
+affected exact-source qualifications and final Full acceptance.
 
-At cf849ac3, the actual Core producer built SHA256 `48c041e4…f4596f` once. Source Acceptance
-restored and reverified the same bytes/input/original production run and skipped
-cross-compilation. Raw Runtime production was reused from immutable successful
-artifact 13887791090 after the current verifier checked its API identity, ZIP
-digest, complete inventory and production inputs; that raw-production receipt
-is not itself qualification. Consumer-specific Core/Runtime gates then passed.
-Manager at 66edd08d qualified independently as binary
-`16caee8493f22f47fee77658127627522af8b2d92334c9560f1807da018e4c89`.
-The cf849 stock run 43090735539 failed the same-thread click/auto race and led
-to the corrected, successful 66edd08d Stock run. The failed run's earlier
-Activity steps were not treated as whole-run success.
-Full run 43090735816 refused missing exact-source prerequisites at dispatch,
-which preserves the admission gate. Later exact-source runs must satisfy all
-required gates before the new source is reported accepted.
-
-At the preceding dfd53e61 checkpoint, Source Acceptance 43098958949 also
-completed successfully with actual Core cache-byte revalidation.
-The full-TUI request 43097766900 and its one accepted rerun failed at GitHub
-startup before any runner/test job was created. The reported internal-error
-request IDs are retained; this is distinct from d2's actual Retain failure.
-The original d2 run eventually reached completed/cancelled after the failed gate.
-Its recovered log identifies `pin_action_updates_shared_section_state`: 53 selected
-Retain tests, 52 passed and one failed at the expected PinToggled event. This is
-a new d2 failure, not the earlier f9 failure. Source analysis found that the
-fixture leaves a distinct asynchronous overview-refresh completion unsettled
-before its next pin action. The corrected fixture keeps the original pin/unpin
-and persistence assertions, additionally processes the exact matching successful
-refresh and checks refreshed UI state. Hosted execution remains required.
-The proof ZIP's 1,045,338 bytes uploaded successfully; GitHub then returned HTML
-instead of a FinalizeArtifact API response. That separate external failure does
-not justify changing upload limits or weakening tests. A bounded failure reporter
-now preserves the next actual command's original
-status and allowlisted test summaries before artifact upload; all original
-Retain commands and assertions remain required.
-
-An actual provisional Full payload probe exposed a different concrete defect:
-Runtime/TUI with an empty environment exited 0 but emitted a missing-HOME alias
-warning, which the strict stderr oracle correctly rejected. The corrected
-producer gives only those two probes a fresh private HOME and a validated short
-TMPDIR. Actual retry exposed the upstream refusal to create helpers beneath
-TMPDIR, so the home now uses an explicit owned protected parent outside that
-canonical temporary root. Both failures and the deferred qualification marker
-were retained. Thirteen Full tests, thirteen workflow tests and ten documentation
-tests passed after integration, without inherited user settings or weakened
-stderr checks. Exact-source Full CI remains a separate gate. The corrected helper also passed
-all four actual primitive probes on the explicitly provisional cf Core/Runtime,
-66 Manager and d2 TUI payload: exit 0, exact stdout, empty stderr, unchanged
-candidate digest and cleaned private HOME. This uses a disposable test signing
-key and does not establish formal Full qualification. Execution receipt SHA256:
-`275ef701761bceeb3b2f0d1c4d0d823b87b848cae0a9ccd6b64c07b9ceb2aee6`.
-
-A new TUI regression sends live and restored ContextCompaction notifications
-for both Providers, then checks same-thread model/effort/catalog/history and
-scoped picker/direct selection without inference. CI now requires its named
-PASS receipt. Rust formatting/source-signature review passed; this newly added
-case still requires actual hosted compilation and execution. The pinned upstream
-autocomplete is command-name completion (`/mo` to `/model`); direct model argument
-resolution is separately tested and is not called a model-name completion engine.
-
-The formal-path consumers now defer frontend public inputs/references until
-exact Full admission and use immutable qualified Android artifacts across branch
-cache boundaries. The Full proof's actual ZIP digest, byte count, closed inventory
-and exact source/component runs are revalidated. Core-only prospective bindings
-and publication queues contain no optional frontend. The final reservation still
-compares every actual candidate payload and normalized composition before signing.
-The Full input consumer additionally preserves the original inputs-v1 plan
-and downloads each of its six immutable artifact IDs. Same-name replacement or
-a newer run cannot replace those selections; source/run/role, archive digest,
-byte count and bounded regular-file ZIP inventory are checked before assembly.
-The proof reader retains that original source-and-runs-bound plan for private
-reassembly. At f9d43ee2, 67 distinct Full/input/controller/reservation/intent and
-qualified-component tests passed, plus thirteen workflow and ten documentation
-tests. The earlier eight input/transfer tests remain separate. A real 567-byte G
-Manager proof archive (artifact 13893541451) passed the new transport and matched
-its original G source/run/component digest. None is formal signing or publication
-acceptance.
-
-That new consumer also acquired actual G Core and Manager qualification artifacts
-in 19.11 seconds without compiling: Core artifact 13893267008 retained original
-cf849ac3 production/run 43090735720 and binary 48c041e4...f4596f; Manager artifact
-13891669517 retained G production/run 43104266119 and binary
-`0cbc83d22087d0dcc410361195cd48ad52d2c2aa59025f96e23f5f45e45cad40`.
-The consumer implementation was 9b88a644; qualified source was detached G.
-Acquisition receipt SHA256:
-`cc9015cc8176bcd82197368db9336109f96e10a5efc6c255b80e72b576308948`.
-The existing exact-main guard remains closed; no formal publication was attempted.
-
-The read-only pre-push audit found no exact-main release-intent-v1, no
-automatic Provider publisher and no workflow_run publisher. The existing main
-schedule still runs pinned upstream discovery before the guarded release
-controller; a new upstream could advance development independently, so remote
-HEAD must be rechecked before each push. The independently checked upstream
-release was still rust-v0.167.1. No main, stable index, signing key, release,
-operating install, account or active user Writer was changed.
+Before every push, recheck development and main: the existing main schedule may
+advance upstream discovery independently. The last checked upstream was
+rust-v0.167.1. No main, stable index, signing key, release, installed generation,
+operating account/service or active user Writer was changed.
