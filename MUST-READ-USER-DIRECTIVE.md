@@ -4,6 +4,18 @@
 
 **Explicit delivery restriction:** Do **not** enqueue a message, submit new inference, join the thread to send instructions, or deliver direct text to the **Pro orchestrator**. That would consume the user's Pro turn. This file is an indirect instruction to read on the next normal documentation check, compaction, handoff or recovery. It **cannot force an already-running model to read it**, and no one may claim it has been read without evidence.
 
+## Confirmed independent GitHub recovery refs
+
+As of 2026-11-12 10:50 KST, each of these **non-publication GitHub refs** was pushed and its remote SHA verified. On any remote fallback, **read the actual remote HEAD again**; worker commits or snapshots can advance after this index was written. Do not presume a backup branch is an accepted development source.
+
+- Integrated candidate + this notice: `contingency/termux-outage-20261112`
+- Models last committed checkpoint: `contingency/termux-outage-20261112-models`
+- Native base last committed checkpoint: `contingency/termux-outage-20261112-native-base`
+- Native Provider last committed checkpoint: `contingency/termux-outage-20261112-native-provider`
+- Release last committed checkpoint: `contingency/termux-outage-20261112-release`
+- Native completion producer last committed checkpoint: `contingency/termux-outage-20261112-producer`
+- **Unverified WIP safety snapshot only** of Native Provider's 13 local dirty paths (11 modified, 2 newly created Rust files): `contingency/termux-outage-20261112-native-provider-wip` (snapshot `7d42beee`). Created from a consistent read-only diff/new-file copy in a separate worktree; the original worker's dirty files and Git index are unchanged. **Do not merge/promote this WIP snapshot without owner-controlled review/tests.** The worker may continue editing later, so this snapshot is not automatically current.
+
 ## Treat loss of connectivity as transport uncertainty, not a dead end
 
 - A failed `@TermuxBridge`, MCP operation, disconnected stream, timeout, failed observer or missing ACK after the outage **does not establish** a Codex bug, `native_resource_busy`, an irrecoverable Stop/Owner barrier, a failed local build or stopped GitHub Actions. Mark the observation as *transport unavailable/uncertain* until source-specific evidence says otherwise.
