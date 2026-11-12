@@ -48,7 +48,7 @@ class NativeCompletionResultsTests(unittest.TestCase):
         for suite, package in packages:
             args = ['test', '--retries', '0', '--status-level', 'pass', '--locked', '--target',
                     'aarch64-unknown-linux-musl', '-p', package, '--lib']
-            if suite != 'pty':
+            if suite not in ('pty', 'rollout'):
                 args += ['-E', 'test(native_completion_)']
             expected_args.append(args)
         with tempfile.TemporaryDirectory() as directory:

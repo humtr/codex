@@ -385,7 +385,7 @@ jobs:
           python3 "$GITHUB_WORKSPACE/experiment/.github/scripts/native_completion_results.py" core "$RUNNER_TEMP/native-provider-completion-core.log"
           just test --retries 0 --status-level pass --locked --target aarch64-unknown-linux-musl -p codex-protocol --lib -E 'test(native_completion_)' 2>&1 | tee "$RUNNER_TEMP/native-provider-completion-protocol.log"
           python3 "$GITHUB_WORKSPACE/experiment/.github/scripts/native_completion_results.py" protocol "$RUNNER_TEMP/native-provider-completion-protocol.log"
-          just test --retries 0 --status-level pass --locked --target aarch64-unknown-linux-musl -p codex-rollout --lib -E 'test(native_completion_)' 2>&1 | tee "$RUNNER_TEMP/native-provider-completion-rollout.log"
+          just test --retries 0 --status-level pass --locked --target aarch64-unknown-linux-musl -p codex-rollout --lib 2>&1 | tee "$RUNNER_TEMP/native-provider-completion-rollout.log"
           python3 "$GITHUB_WORKSPACE/experiment/.github/scripts/native_completion_results.py" rollout "$RUNNER_TEMP/native-provider-completion-rollout.log"
           just test --retries 0 --status-level pass --locked --target aarch64-unknown-linux-musl -p codex-app-server-protocol --lib -E 'test(native_completion_)' 2>&1 | tee "$RUNNER_TEMP/native-provider-completion-app-server-protocol.log"
           python3 "$GITHUB_WORKSPACE/experiment/.github/scripts/native_completion_results.py" app-server-protocol "$RUNNER_TEMP/native-provider-completion-app-server-protocol.log"

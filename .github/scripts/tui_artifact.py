@@ -44,6 +44,10 @@ INPUTS = (
     "frontend/tui/check_upstream_features.py",
     "frontend/tui/test_upstream_features.py",
 )
+CONDITIONAL_INPUTS = {
+    ".github/scripts/native_completion_results.py",
+    ".github/scripts/tui_regression_results.py",
+}
 FILES = {"codex", "source.txt", "version.txt", "help.txt", "sha256.txt",
          "lock-audit.json", "native.patch"}
 LOCK = _INPUT['qualification']['lock_audit']
@@ -105,13 +109,27 @@ def verify_completion(proof, workflow):
 
 def verify_recipe(source, source_sha):
     inputs = load_release(source / 'release/upstream.json')
+    workflows = [subprocess.check_output(
+        ['git', '-C', str(source), 'show', revision + ':' + INPUTS[0]],
+        stderr=subprocess.DEVNULL).decode() for revision in ('HEAD', source_sha)]
     for relative in INPUTS:
+        if relative in CONDITIONAL_INPUTS:
+            present = [bool(subprocess.check_output(
+                ['git', '-C', str(source), 'ls-tree', '--name-only', revision, '--', relative],
+                stderr=subprocess.DEVNULL)) for revision in ('HEAD', source_sha)]
+            if not all(present):
+                declared = any(Path(relative).name in workflow or 'native_completion_results.py' in workflow
+                               for workflow in workflows)
+                # Only a genuinely older source pair with no declared contract
+                # may omit these files. One-sided absence never proves reuse.
+                if not any(present) and not declared:
+                    continue
+                raise ValueError('maintained native qualification input is missing: ' + relative)
         blobs = [subprocess.check_output(
             ["git", "-C", str(source), "rev-parse", f"{revision}:{relative}"],
             stderr=subprocess.DEVNULL) for revision in ("HEAD", source_sha)]
         if blobs[0] != blobs[1]:
             if relative == INPUTS[0]:
-                workflows=[subprocess.check_output(['git','-C',str(source),'show',revision+':'+relative]).decode() for revision in ('HEAD',source_sha)]
                 if native_recipe(workflows[0]) == native_recipe(workflows[1]):
                     continue
             raise ValueError("maintained native input differs from qualified source: " + relative)

@@ -223,6 +223,40 @@ class NativeArtifactTests(unittest.TestCase):
                 result = self.invoke(fixture)
                 self.assertEqual(result.returncode == 0, fault in (None,'legacy-count'), result.stderr)
 
+    def test_legacy_source_pair_may_omit_only_undeclared_checkers(self):
+        for fault in (None, 'declared', 'one-sided-added', 'one-sided-removed'):
+            with self.subTest(fault=fault), tempfile.TemporaryDirectory() as temp:
+                fixture = list(self.fixture(Path(temp)))
+                source, artifact, _, old_sha, _, run, run_file = fixture
+                def commit():
+                    subprocess.run(['git', '-C', str(source), 'add', '-A'], check=True)
+                    subprocess.run(['git', '-C', str(source), '-c', 'user.name=Owned',
+                                    '-c', 'user.email=owned@example.invalid', 'commit', '-m', 'checker fixture'],
+                                   check=True, capture_output=True)
+                    return subprocess.check_output(['git', '-C', str(source), 'rev-parse', 'HEAD'], text=True).strip()
+                if fault != 'one-sided-removed':
+                    for relative in qualifier.CONDITIONAL_INPUTS:
+                        (source / relative).unlink()
+                    if fault == 'declared':
+                        workflow = source / qualifier.INPUTS[0]
+                        workflow.write_text(self.workflow() + '          python3 native_completion_results.py pty proof.log\n')
+                    sha = commit()
+                    fixture[3] = sha
+                    run['head_sha'] = sha
+                    run_file.write_text(json.dumps(run))
+                    path = artifact / 'source.txt'
+                    path.write_text(path.read_text().replace(old_sha, sha))
+                if fault == 'one-sided-added':
+                    (source / '.github/scripts/native_completion_results.py').write_text('new checker\n')
+                    commit()
+                elif fault == 'one-sided-removed':
+                    (source / '.github/scripts/native_completion_results.py').unlink()
+                    commit()
+                result = self.invoke(fixture)
+                self.assertEqual(result.returncode == 0, fault is None, result.stderr)
+                if fault:
+                    self.assertIn('qualification input is missing', result.stderr)
+
     def test_new_completion_payload_requires_every_suite_and_named_positive(self):
         real_workflow = (TOOL.parents[2] / '.github/workflows/manager-tui-native.yml').read_text()
         block = real_workflow.split('      - name: Verify Native completion uses original OS wait evidence\n', 1)[1].split('      - name:', 1)[0]
