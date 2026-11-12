@@ -3684,10 +3684,10 @@ index 0000000000..154eedba95
 +}
 diff --git a/codex-rs/core/src/native_execution.rs b/codex-rs/core/src/native_execution.rs
 new file mode 100644
-index 0000000000..15bd7e0403
+index 0000000000..e632b0394d
 --- /dev/null
 +++ b/codex-rs/core/src/native_execution.rs
-@@ -0,0 +1,1385 @@
+@@ -0,0 +1,1384 @@
 +//! Private execution facts for the local ChatGPT Provider's resource admission.
 +//! Native remains the only executor. No tool arguments or environment values
 +//! are rewritten, and no compiler or shell is run to obtain these facts.
@@ -4434,7 +4434,6 @@ index 0000000000..15bd7e0403
 +        );
 +        Ok(())
 +    }
-+
 +
 +    #[cfg(unix)]
 +    #[tokio::test]
