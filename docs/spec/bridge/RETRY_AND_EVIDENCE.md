@@ -34,8 +34,10 @@ The existing status response exposes bounded, content-free resource scope and
 owner-process observations from that locked ledger; failed snapshots remain
 unavailable rather than an empty success. Status creates no ledger, removes no
 claim and does not infer completion from a departed process. Settlement requires
-original Native evidence of the matching process's completed OS wait, or positive
-proof from the original dispatch authority that the matching effect never started.
+original Native evidence that the matching execution and its surviving descendants
+have completed, or positive proof from the original dispatch authority that the
+matching effect never started. Parent-process exit alone cannot release a process
+claim, including a bounded compiler claim whose assembler may still be running.
 A termination request, Stop acknowledgment, empty job list, unloaded thread,
 missing history item, synthetic timeout/unknown exit status or legacy completion
 boolean is not that proof. A startup rejection may follow process creation;
@@ -49,12 +51,14 @@ thread/turn, input fingerprint and receipt. Execution stdout and model text cann
 create that authority. Preserve original results, including unsuccessful exits;
 new evidence may supplement a matching immutable receipt but cannot overwrite it
 or promote an unproven legacy boolean. A changed result or uncertain identity stays
-unsettled. A genuine nonzero OS exit is still terminal evidence when its producer
-positively distinguishes it from a synthetic status. A successful OS wait can
-also confirm termination when the PTY does not retain an exact numeric status.
-The canonical six-field `wait_completed` object with explicit `exit_code: null`
-means confirmed wait with an unknown numeric code; it never invents that code.
-This is distinct from an entirely null completion field or a failed wait.
+unsettled. A genuine nonzero root exit remains the original public result. It becomes
+terminal effect evidence only when the producer also confirms that execution's
+whole process scope. The canonical six-field `process_tree_completed` object
+binds that fact to the original call/session and retains the exact exit code when
+available. An explicit `exit_code: null` never invents a numeric status. Legacy
+`wait_completed` records remain readable parent-wait evidence; they cannot release
+a newly admitted process claim. This is distinct from an entirely null completion
+field or a failed wait. Already settled historical receipts are not rewritten.
 A new producer's explicit unconfirmed completion field cannot fall back to legacy
 text/exit inference;
 legacy omission and new unconfirmed evidence are different states. When one call
@@ -65,6 +69,25 @@ call/session/turn identity; it adds evidence without a second public command.
 Persist its original unconfirmed receipt and late witness through the same bounded
 output projection as canonical command history. This storage projection does not
 rewrite the original function result or public live output.
+
+Required local execution reuses the existing pre-thread spawn helper as that
+execution's exclusive descendant supervisor. Verify subtree adoption and child
+wait capabilities before allowing the target to start. The helper retains the
+original root status, reaps its owned descendants and reports closure only after
+positive root wait and an empty kernel child-wait set. The Runtime also requires
+the private completion frame and the actual successful helper wait. Procfs scan
+emptiness, a control-channel EOF or a killed helper cannot supply that proof.
+Stop targets the owned subtree while preserving the supervisor needed to observe
+its completion. Missing capability refuses before target execution; required
+launches never fall back to unguarded execution. This extends the existing process
+lifetime, without a second Native executor, effect ledger or Linux namespace.
+
+A root result may precede descendant completion. Keep its session, process entry
+and original receipt available until the scope actually completes, including
+shutdown, timeout, one-shot execution, release and pruning paths. A qualified
+Native result can expose the root exit plus a still-active process-scope session;
+ordinary upstream formatting remains unchanged. An explicit null completion or
+later supervision loss preserves uncertainty rather than releasing the claim.
 
 A successful local continuation may separately report `session_running` only
 after its own final, unchanged per-tool hook boundary is confirmed. Bind this
@@ -84,12 +107,14 @@ and asynchronous work retained across configuration changes remain unbounded.
 This admission observation never disables a hook, changes approval policy or
 changes the original tool invocation. Missing proof remains opaque. This rule also
 covers bounded file patches and ordinary image/clock reads: their hooks can add
-unbounded effects. Private execution schema 3 records hook-free tool identities,
+unbounded effects. Tool names or hook-free status alone do not establish read-only
+resource scope; the actual executor binding must support that classification.
+Private execution schema 4 records hook-free tool identities,
 including actual matcher aliases, separately and binds them to the hook engine
 used by the admitted dispatch. Exec and stdin have separate entries; a future
 continuation's hook does not remove the current exec's completion capability.
 Resource-scope classification remains a separate requirement. A hook-free opaque
-command may still finish with its original positive OS-wait evidence. A patch
+command may still finish with its original positive whole-scope evidence. A patch
 hook does not disable an unrelated proven command. If configuration changes
 after advertisement but before admission,
 refuse that dispatch before any hook or backend effect. Once admitted, retain the
@@ -101,8 +126,10 @@ that same engine dispatched the invocation. Unrelated asynchronous work starting
 later cannot retroactively change this original evidence; a sampling snapshot
 alone does not establish it. Ordinary unbound upstream calls retain their own
 conservative checks.
-Legacy execution schemas 1 and 2 remain readable for request and receipt
-continuity, but cannot grant new bounded admission without dispatch-bound proof.
+Legacy execution schemas 1, 2 and 3 remain readable for request and receipt
+continuity, but cannot authorize new executable offers without current verified
+dispatch/completion capability. Resource-scope proof version 3 is a separate
+classifier contract and must not be confused with execution schema 4.
 Native's special ToolSearch payload has no tool hooks and remains read-only
 metadata discovery, including while an unrelated effect is unconfirmed. Both the
 actual ToolSearch payload and the catalog's Search kind must identify it; a
@@ -117,8 +144,17 @@ that a detached descendant ended, so matching hooks also refuse before dispatch
 for non-process tools. This Native admission rule does not require generic,
 unscoped MCP calls to impersonate a Native Runtime. Verified Native scope with
 missing execution facts must remain Native and cannot fall back to that generic
-path. The producer must not start an effect that the consumer can never positively
-settle.
+path. A cached executable offer is still new dispatch and needs current proof;
+only a stored original result takes the replay path. The producer must not start
+an effect that the consumer can never positively settle.
+
+The Native CodeMode restriction uses the actual built-in runtime handler identity,
+not a tool's name or catalog kind. That handler refuses before hooks or cell
+dispatch because its nested executions have no original per-call completion
+binding here. Ordinary upstream CodeMode and a genuine generic runtime with the
+same tool name retain their own contracts. Every qualified Native result carries
+an authoritative completion envelope, including explicit null when unconfirmed;
+model text or a generic tool body cannot manufacture that envelope.
 Distinguish a positively identified unsupported generation from unavailable
 completion capability, including matching or asynchronous hooks. Missing metadata
 alone does not identify the Runtime version. Do not disable the hooks or turn
@@ -146,7 +182,10 @@ No source compatibility check authorizes stopping an operating Writer or rewriti
 its claim ledger.
 
 Both submitted and attached paths must carry the existing Core-verified Native
-execution and canonical workspace facts into their Broker turn. Keep that scope
+execution and canonical workspace facts into their Broker turn. Persist the
+private Native-versus-generic origin with the existing Broker/lane journal; do
+not infer that boundary from operator/model-adapter mode, tool names or caller
+strings. Missing legacy origin remains conservative for fresh Native admission. Keep that scope
 internal to the verified owner path; remote requests, serialized caller fields,
 account labels or a claimed working directory cannot create this authority.
 Transport must preserve it until Broker admission, then omit it from app/remote
@@ -160,9 +199,10 @@ lock and recovery contract. Only positively recorded unreserved reads may avoid
 shared-ledger settlement; missing legacy evidence retains conservative recovery.
 
 An empty `write_stdin` observation may retain exactly one original bounded
-same-work/session claim when the current Native turn proves that its applicable
-exec/continuation hooks are absent. Both Broker and shared-ledger admission verify
-the same original scope; the poll does not revalidate pre-launch output snapshots
+same-work/session claim when that continuation dispatch proves its applicable
+hooks are absent and the saved original bounded scope remains valid. It does not
+require a current or future exec call to be hook-free. Both Broker and shared-ledger
+admission verify the same original scope; the poll does not revalidate pre-launch output snapshots
 or replace the original call identity. Nonempty stdin and continuations without
 applicable hook proof cannot inherit a bounded claim merely because the session
 is already owned. Before dispatch, the existing admission locks must reject any
@@ -176,7 +216,7 @@ continuation leaves the widened original process scope in force.
 Unknown or foreign sessions, ambiguous
 ownership and missing/legacy scope proof retain conservative admission. A running
 poll preserves the claim. A matching original terminal result
-or Native command-completion item releases it only with the completed-wait evidence
+or Native command-completion item releases it only with the whole-scope evidence
 and original call/session/turn binding above. Public terminal status alone adds no
 execution authority. Parallel execution remains observable through continuations.
 Native may commit a terminal command item before its last output is collected.

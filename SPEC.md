@@ -116,9 +116,11 @@ results must survive observer disconnection, interrupted app response, transport
 limits, ambiguous acknowledgment and recovery without loss or duplicate effects.
 Unknown outcomes require original-request reconciliation, not silent replay,
 identity reset or a fallback model. Stop/handoff must explicitly fence or
-transfer ownership and preserve authorized pending work and history. Automatic
+transfer ownership and preserve authorized pending work and history. Automatic orphan
 settlement requires positive completion, original results and absent effective
-writers under the original lock; uncertainty remains recoverable. Account or
+writers under the original lock; uncertainty remains recoverable. For process
+effects, completion covers descendants that can continue the effect; parent exit
+alone is insufficient. Account or
 profile switching distinguishes a verified owner, confirmed free writer and
 unknown ownership without replacing the original thread.
 

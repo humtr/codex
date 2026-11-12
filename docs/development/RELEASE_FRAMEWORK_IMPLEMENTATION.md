@@ -1,10 +1,5 @@
 # Release framework integration — finite implementation record
 
-**URGENT USER CONTINUITY DIRECTIVE — 2026-11-12 11:00 KST**
-
-Before the next ordinary work-plan review, context compaction, handoff or reconnection, read the repository-root [MUST-READ-USER-DIRECTIVE.md](../../MUST-READ-USER-DIRECTIVE.md) alongside `AGENTS.md` and `HANDOFF.md`. The user expects Termux network connectivity to be lost at approximately 11:00 KST. **A TermuxBridge transport loss is not, by itself, a Native Busy/Stop deadlock or CI failure.** Keep running local work and existing GitHub Actions undisturbed; safely preserve owned committed progress, use the verified GitHub contingency refs for conditional remote continuation if the separate GitHub connection remains available, and reconcile original effects/owners before returning to Termux when connectivity is restored. Do not send any queue message or direct inference to the Pro orchestrator, reset another worker, force-stop an uncertain process, bypass authentication, publish/sign a release or claim this notice has already been consumed by an active model. This is a temporary operator contingency, **not** a new W-task, product requirement, or authorization gate.
-
-
 This is the bounded W0–W20 integration record, not a second product
 specification or a new authorization gate. It is retained while final source,
 CI and live acceptance are being closed. Stable requirements belong to SPEC
@@ -71,9 +66,10 @@ Manager and full-TUI qualification. Runtime execution-proof changes invalidate
 Runtime production inputs and require affected consumer qualification again.
 
 For the current W15 correction, Models is the sole assembler/Writer of
-native_route.patch and its Core/Protocol/rollout changes. Release has a narrow
-lease for the upstream PTY process.rs/pty.rs/pipe.rs hunks and actual-wait tests,
-which it hands back to Models; Release also owns the required CI selectors.
+native_route.patch and its Core/Protocol/rollout changes. Release handed back
+the existing spawn-helper supervision and tests for Models to assemble with
+the pipe/PTY and Core lifetime consumers. Integration owns the 49 required CI
+selectors shared by basic Runtime proof and complete Enhanced TUI qualification.
 Native owns Provider proof parsing, original receipt settlement and unloaded/Stop
 observers. Integration owns norms and final assembly. These are existing
 execution/receipt paths, not a new executor, history store or approval gate.

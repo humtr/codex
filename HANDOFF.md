@@ -1,19 +1,10 @@
 # Handoff — remaining acceptance and operating boundaries
 
-**Connectivity contingency:** network loss is expected around 2026-11-12 11:00 KST. Read [MUST-READ-USER-DIRECTIVE.md](MUST-READ-USER-DIRECTIVE.md) for the no-Pro-message, local-CI preservation, conditional remote-GitHub continuation and safe original-session rejoin steps. This does not supersede the unfinished acceptance below.
-
 Updated: 2026-11-12 UTC. One current unfinished-work record.
 Read [CURRENT](CURRENT.md), [AGENTS](AGENTS.md) and the
 [finite integration record](docs/development/RELEASE_FRAMEWORK_IMPLEMENTATION.md).
 Continuous authorization covers development, safe branch integration and unsigned
 CI. These are not intermediate approval gates.
-
-Termux transport has returned `Session terminated` since the observed outage;
-that is not evidence that local builds, Native work or uncertain shell calls
-finished. Retain each original call ID and arguments for receipt requery, and
-reconcile local HEAD/index/processes before joining remote contingency changes.
-At the 02:35 UTC remote read, development remained `ec51fe4a` and main `b2567063`;
-owned remote checkpoints continue development without operating activation.
 
 ## Remaining source acceptance
 
@@ -22,8 +13,8 @@ owned remote checkpoints continue development without operating activation.
    Stop ACK, empty jobs and missing asynchronously persisted history.
    Preserve original receipts; verify real normal rejection/Stop availability
    as well as conservative unknown effects. Native owns Provider settlement;
-   Models owns the leased Native Runtime patch; Release owns helper supervision
-   and named CI gates. Parent-only OS wait cannot release a process effect whose
+   Models owns the Native Runtime patch; Release reviews the existing helper
+   supervision and integration owns the named CI gates. Parent-only OS wait cannot release a process effect whose
    descendants may survive. Reuse the existing pre-thread spawn helper, retain
    root status separately, and require positive whole-tree completion. The
    actual CodeMode runtime must refuse before effects; a same-name ordinary

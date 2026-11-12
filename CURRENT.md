@@ -54,8 +54,9 @@ those production references; its hosted execution remains unproved here. The
 original job log is bound by SHA256
 `f169aa25587d7d029dff259421d9685341d6a3dae54b34bacc14d1409b69b5e0`.
 Parent OS wait does not prove detached descendants ended. The existing spawn
-helper supervision and precise CodeMode admission correction are still being
-implemented and require new producer/consumer execution evidence.
+helper supervision still needs complete producer/consumer execution evidence.
+The precise CodeMode handler admission correction is integrated from `30607112`;
+it is distinct from the pending process-tree completion qualification.
 
 The bot's unchanged-producer Source and Core/Runtime gates passed separately;
 they do not qualify the new input-inventory and completion changes. The observed operating
@@ -73,6 +74,26 @@ At the f06fd10e inventory there were 97 local/tracking refs, 89 worktrees,
 common-name tag SHA mismatches or open PRs. Subsequent owned development
 worktrees are not included in that snapshot; final accounting must refresh it.
 Receipt: `5e4460cec925df7342610f96eadac10f91587b14c9ba95fd5db916efc4eddc3c`.
+
+The observed bridge outage ended at 02:44 UTC. Exact original-call requery
+recovered root590, Models693, Native1115 and Release823 before continuing their
+owned work. This did not restart an operating service or replay a command under
+a new identity. Root's original shell receipt is bound by
+`316427ff407a5038dfd015e65e5a643b4f2a485d4de0e2ae085ea485c7c621d7`.
+Local and remote contingency changes were compared and reconciled in `90c42fd7`;
+its tree exactly matches `dabd08ff` and preserves both histories. All 63 local
+workflow/document checks passed on that tree. The expired temporary outage
+notice and its navigation pointers were retired after this reconciliation;
+Git history preserves the notice and unverified WIP checkpoints.
+
+Gate commit `7fc480f6` requires all 49 named original-execution and descendant
+oracles in both Runtime and full-TUI proof. Its 63 workflow/document tests,
+YAML parse and diff checks passed, receipt
+`227ecd3d322d32fe3428d118185c893aa42c8e0dc45fcdd23e15cafde6149ee5`.
+This gate-plumbing proof is not execution of those 49 upstream Rust tests.
+Complete TUI qualification again uses explicit manual dispatch, preserving
+all full gates and the unchanged explicit-intent publication relay. Unrelated
+source pushes do not automatically rebuild the optional frontend.
 
 ## Independently observed operating installation
 
