@@ -62,6 +62,9 @@ def inputs(source, component, revision='HEAD'):
         # Cargo.lock. Do not claim Manager-only lock independence while those
         # actual bytes remain compiled into Core.
         roots.extend(name for name,role in assets(read('release/runtime-build-inputs-v1').decode()).items() if role=='recipe')
+        # local_recipe() also directly embeds the complete source recipe. It
+        # is an input-role asset rather than part of build.rs's recipe bundle.
+        roots.append('release/upstream.json')
         result['embedded_lock_sha256']=hashlib.sha256(read('Cargo.lock')).hexdigest()
     tree=git(source,'ls-tree','-r',revision,'--',*roots).decode().splitlines()
     files={}

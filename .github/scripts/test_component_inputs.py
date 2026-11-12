@@ -141,15 +141,43 @@ class ComponentInputsTests(unittest.TestCase):
         self.commit()
         self.assertNotEqual(inputs.fingerprint(self.root,'manager'),manager)
 
-    def test_documentation_outputs_and_upstream_version_do_not_rebuild_wrappers(self):
+    def test_documentation_outputs_do_not_rebuild_wrappers(self):
         before={name:inputs.fingerprint(self.root,name) for name in inputs.COMPONENTS}
         (self.root/'CURRENT.md').write_text('new evidence')
-        recipe=self.root/'release/upstream.json';value=json.loads(recipe.read_text())
-        value['upstream']['version']='0.167.2';value['frontend']=None
-        recipe.write_text(json.dumps(value));self.commit()
+        self.commit()
         self.assertEqual(before,{name:inputs.fingerprint(self.root,name) for name in inputs.COMPONENTS})
+
+    def test_embedded_upstream_recipe_invalidates_core_but_not_manager(self):
+        # local_recipe() compiles this external blob through include_bytes!.
+        # It is independent of the runtime-inputs build-script role inventory.
+        before={name:inputs.fingerprint(self.root,name) for name in inputs.COMPONENTS}
+        recipe=self.root/'release/upstream.json';value=json.loads(recipe.read_text())
+        version=value['upstream']['version'].split('.')
+        value['upstream']['version']='.'.join([*version[:2],str(int(version[2])+1)]);value['frontend']=None
+        recipe.write_text(json.dumps(value));self.commit()
+        self.assertNotEqual(inputs.fingerprint(self.root,'core'),before['core'])
+        self.assertEqual(inputs.fingerprint(self.root,'manager'),before['manager'])
+        core=inputs.fingerprint(self.root,'core')
+        # The full source blob is compiled, including semantically equivalent
+        # formatting; a producer may not accept different embedded bytes.
+        recipe.write_text(json.dumps(value,indent=2)+'\n');self.commit()
+        self.assertNotEqual(inputs.fingerprint(self.root,'core'),core)
+        self.assertEqual(inputs.fingerprint(self.root,'manager'),before['manager'])
+        before={name:inputs.fingerprint(self.root,name) for name in inputs.COMPONENTS}
         value['toolchains']['core_rust']='1.99.0';recipe.write_text(json.dumps(value));self.commit()
         for name in inputs.COMPONENTS:self.assertNotEqual(inputs.fingerprint(self.root,name),before[name])
+
+    def test_stale_core_artifact_is_refused_after_embedded_recipe_changes(self):
+        folder=Path(self.temp.name)/'core-artifact';folder.mkdir()
+        (folder/'codex').write_bytes(self.binary())
+        receipt=artifact.record(self.root,'core',folder,'123')
+        self.assertEqual(artifact.verify(self.root,'core',folder),receipt)
+        recipe=self.root/'release/upstream.json';value=json.loads(recipe.read_text())
+        version=value['upstream']['version'].split('.')
+        value['upstream']['version']='.'.join([*version[:2],str(int(version[2])+1)])
+        recipe.write_text(json.dumps(value));self.commit()
+        with self.assertRaisesRegex(ValueError,'input'):
+            artifact.verify(self.root,'core',folder)
 
     def test_symlink_and_changed_compiler_settings_refuse_or_invalidate(self):
         before=inputs.fingerprint(self.root,'manager')
