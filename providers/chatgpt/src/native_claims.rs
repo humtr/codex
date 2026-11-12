@@ -35,10 +35,11 @@ struct Entry {
     session: Option<u64>,
     #[serde(default)]
     owner: Option<ProcessOwner>,
-    // A side-effectful continuation has its own original call authority. Its
-    // reservation is not the session's process claim and cannot be released
-    // by a different call's late wait witness.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    // Decode already-written continuation metadata, but never emit fields
+    // that an older process-sharing Provider's strict reader cannot decode.
+    // The original durable tool/input/receipt supplies this session on
+    // settlement; the distinct Opaque, session-less claim stays on disk.
+    #[serde(default, skip_serializing)]
     continuation_effect: Option<ContinuationEffect>,
     // Older serialized claims may contain this field. Read conservatively
     // but never write it into the shared ledger read by legacy Providers.
@@ -1065,12 +1066,30 @@ impl Guard {
             }) {
                 return Err("native_effect_identity_changed".into());
             }
-            if let Some(pending) = state
-                .claims
-                .get(&self.identity)
-                .and_then(|held| held.continuation_effect.as_ref())
-            {
-                if session != Some(pending.session) || !pending.settled_by(&observation) {
+            let pending_session = state.claims.get(&self.identity).and_then(|held| {
+                held.continuation_effect
+                    .as_ref()
+                    .map(|pending| pending.session)
+                    .or_else(|| {
+                        // New reservations use only fields known to every
+                        // legacy reader. Reconstruct continuation authority
+                        // from the authenticated original write_stdin input,
+                        // never from a different call's process wait.
+                        (native_effect::process_tool(&self.tool) == Some("write_stdin")
+                            && held.effect == Effect::Opaque
+                            && held.session.is_none())
+                        .then_some(session)
+                        .flatten()
+                    })
+            });
+            if let Some(pending_session) = pending_session {
+                if session != Some(pending_session)
+                    || !(ContinuationEffect {
+                        session: pending_session,
+                        hooks_absent: false,
+                    })
+                    .settled_by(&observation)
+                {
                     return Ok(((), false));
                 }
                 state.claims.remove(&self.identity);
@@ -1244,6 +1263,269 @@ mod tests {
         assert_eq!(old.claims[identity].effect, Effect::Opaque);
         assert!(old.claims[identity].session.is_none());
         assert!(old.claims[identity].owner.is_none());
+        fs::remove_dir_all(cwd).unwrap();
+        fs::remove_dir_all(home).unwrap();
+    }
+
+    #[test]
+    fn side_effectful_continuation_has_legacy_wire_shape_and_exact_restart_settlement() {
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct LegacyEntry {
+            thread: String,
+            fingerprint: String,
+            effect: Effect,
+            session: Option<u64>,
+            owner: Option<ProcessOwner>,
+        }
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct LegacyState {
+            claims: BTreeMap<String, LegacyEntry>,
+        }
+        let cwd = root();
+        let home = root();
+        fs::write(cwd.join("a"), "old\n").unwrap();
+        let ledger = Ledger::at(&cwd, &home).unwrap();
+        let mut original = Guard::begin_with(
+            &cwd,
+            "owner",
+            "start",
+            "functions.exec_command",
+            r#"{"cmd":"interactive process"}"#,
+            ledger.clone(),
+        )
+        .unwrap();
+        original
+            .observed(Some(&serde_json::json!({
+                "output":"Process running with session ID 51\nOutput:\n"
+            })))
+            .unwrap();
+        let input = r#"{"session_id":51,"chars":"send input"}"#;
+        let pending = Guard::begin_with(
+            &cwd,
+            "owner",
+            "poll",
+            "functions.write_stdin",
+            input,
+            ledger.clone(),
+        )
+        .unwrap();
+        let bytes = fs::read(ledger.directory.join("claims.json")).unwrap();
+        let old: LegacyState = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(old.claims.len(), 2);
+        assert_eq!(old.claims["owner:poll"].thread, "owner");
+        assert_eq!(old.claims["owner:poll"].effect, Effect::Opaque);
+        assert!(old.claims["owner:poll"].session.is_none());
+        assert!(old.claims["owner:poll"].owner.is_some());
+        let fingerprint_before = old.claims["owner:poll"].fingerprint.clone();
+
+        // The original process receipt cannot retire this different call.
+        original
+            .observed(Some(&waited("start", Some(51), 0, "")))
+            .unwrap();
+        assert!(ledger
+            .read_state()
+            .unwrap()
+            .claims
+            .contains_key("owner:poll"));
+        assert_eq!(
+            apply(&cwd, &home, "sibling", "blocked", "a")
+                .err()
+                .as_deref(),
+            Some("native_resource_busy")
+        );
+
+        // Rebuild the settlement from the original Native tool/input and
+        // result, not from a live Guard object or a substitute call identity.
+        drop(pending);
+        Guard::settle_external(
+            &cwd,
+            Some(&home),
+            "owner",
+            "poll",
+            "functions.write_stdin",
+            input,
+            &waited("foreign", Some(51), 0, ""),
+        )
+        .unwrap();
+        assert_eq!(
+            ledger.read_state().unwrap().claims["owner:poll"].fingerprint,
+            fingerprint_before
+        );
+        assert_eq!(
+            apply(&cwd, &home, "sibling", "still-blocked", "a")
+                .err()
+                .as_deref(),
+            Some("native_resource_busy")
+        );
+        Guard::settle_external(
+            &cwd,
+            Some(&home),
+            "owner",
+            "poll",
+            "functions.write_stdin",
+            input,
+            &waited("poll", Some(51), 0, ""),
+        )
+        .unwrap();
+        assert!(ledger.read_state().unwrap().claims.is_empty());
+        assert!(apply(&cwd, &home, "sibling", "released", "a").is_ok());
+        fs::remove_dir_all(cwd).unwrap();
+        fs::remove_dir_all(home).unwrap();
+    }
+
+    #[test]
+    fn historical_continuation_marker_and_true_field_decode_without_rewriting_original() {
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct LegacyEntry {
+            thread: String,
+            fingerprint: String,
+            effect: Effect,
+            session: Option<u64>,
+            owner: Option<ProcessOwner>,
+        }
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct LegacyState {
+            claims: BTreeMap<String, LegacyEntry>,
+        }
+        let cwd = root();
+        let home = root();
+        fs::write(cwd.join("a"), "old\n").unwrap();
+        let ledger = Ledger::at(&cwd, &home).unwrap();
+        let mut original = Guard::begin_with(
+            &cwd,
+            "owner",
+            "start",
+            "functions.exec_command",
+            r#"{"cmd":"interactive process"}"#,
+            ledger.clone(),
+        )
+        .unwrap();
+        original
+            .observed(Some(&serde_json::json!({
+                "output":"Process running with session ID 51\nOutput:\n"
+            })))
+            .unwrap();
+        let input = r#"{"session_id":51,"chars":"send input"}"#;
+        let _pending = Guard::begin_with(
+            &cwd,
+            "owner",
+            "poll",
+            "functions.write_stdin",
+            input,
+            ledger.clone(),
+        )
+        .unwrap();
+        let path = ledger.directory.join("claims.json");
+        let mut historical = serde_json::to_value(ledger.read_state().unwrap()).unwrap();
+        historical["claims"]["owner:poll"]["continuation_effect"] =
+            serde_json::json!({"session":51,"hooks_absent":true});
+        historical["claims"]["owner:poll"]["process_hooks_absent"] = serde_json::json!(true);
+        let bytes = serde_json::to_vec(&historical).unwrap();
+        fs::write(&path, &bytes).unwrap();
+        let snapshot = ledger.read_state().unwrap();
+        assert_eq!(
+            snapshot.claims["owner:poll"]
+                .continuation_effect
+                .as_ref()
+                .unwrap()
+                .session,
+            51
+        );
+        assert!(snapshot.claims["owner:poll"].process_hooks_absent);
+        assert!(serde_json::from_slice::<LegacyState>(&bytes).is_err());
+        ledger
+            .transact(|state| {
+                assert_eq!(
+                    state.claims["owner:poll"].fingerprint,
+                    fingerprint("functions.write_stdin", input, &cwd)
+                );
+                Ok(((), false))
+            })
+            .unwrap();
+        assert_eq!(fs::read(&path).unwrap(), bytes);
+
+        // A genuinely authorized write may normalize obsolete wire fields,
+        // without changing the pending invocation's hash or retiring it.
+        ledger
+            .transact(|state| {
+                state.claims.insert(
+                    "reader:completed".into(),
+                    Entry {
+                        thread: "reader".into(),
+                        fingerprint: "original-read".into(),
+                        effect: Effect::Read,
+                        session: None,
+                        owner: None,
+                        continuation_effect: None,
+                        process_hooks_absent: false,
+                    },
+                );
+                Ok(((), true))
+            })
+            .unwrap();
+        let rewritten = fs::read(&path).unwrap();
+        let old: LegacyState = serde_json::from_slice(&rewritten).unwrap();
+        assert_eq!(
+            old.claims["owner:poll"].fingerprint,
+            fingerprint("functions.write_stdin", input, &cwd)
+        );
+        assert_eq!(old.claims["owner:poll"].thread, "owner");
+        assert_eq!(old.claims["owner:poll"].effect, Effect::Opaque);
+        assert!(old.claims["owner:poll"].owner.is_some());
+        assert!(old.claims["owner:poll"].session.is_none());
+        assert_eq!(
+            apply(&cwd, &home, "sibling", "blocked", "a")
+                .err()
+                .as_deref(),
+            Some("native_resource_busy")
+        );
+        let running = serde_json::json!({"schema":"codex-native-completion-v1",
+            "call_id":"poll","session_id":51,"outcome":"session_running",
+            "exit_code":null,"hooks":"absent"});
+        Guard::settle_external(&cwd, Some(&home), "owner", "poll",
+            "functions.write_stdin", input, &serde_json::json!({
+                "call_id":"poll",
+                "output":format!("Native completion: {running}\nProcess running with session ID 51\nOutput:\n")
+            })
+        ).unwrap();
+        assert!(ledger
+            .read_state()
+            .unwrap()
+            .claims
+            .contains_key("owner:start"));
+        original
+            .observed(Some(&waited("start", Some(51), 0, "")))
+            .unwrap();
+        // The synthetic legacy Read above caused the authorized normalization
+        // write. A persisted, unsettled Read has an opaque claim scope and
+        // must not be mistaken for a completed Native tool invocation.
+        let remaining = ledger.read_state().unwrap();
+        assert_eq!(
+            remaining
+                .claims
+                .keys()
+                .map(String::as_str)
+                .collect::<Vec<_>>(),
+            vec!["reader:completed"]
+        );
+        assert_eq!(
+            apply(&cwd, &home, "sibling", "unsettled-read", "a")
+                .err()
+                .as_deref(),
+            Some("native_resource_busy")
+        );
+        // Retire only our synthetic test entry, not a real Native claim.
+        ledger
+            .transact(|state| {
+                assert!(state.claims.remove("reader:completed").is_some());
+                Ok(((), true))
+            })
+            .unwrap();
+        assert!(apply(&cwd, &home, "sibling", "released", "a").is_ok());
         fs::remove_dir_all(cwd).unwrap();
         fs::remove_dir_all(home).unwrap();
     }
