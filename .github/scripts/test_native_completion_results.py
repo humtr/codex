@@ -42,7 +42,7 @@ class NativeCompletionResultsTests(unittest.TestCase):
     def verify_workflow_gate(self, workflow, full_scope):
         block = workflow.read_text().split('      - name: Verify Native completion uses original OS wait evidence\n', 1)[1].split('      - name:', 1)[0]
         if full_scope:
-            self.assertIn("if: inputs.scope == 'full'", block)
+            self.assertIn("if: (inputs.scope || 'full') == 'full'", block)
         else:
             self.assertNotIn('if:', block)
         command = textwrap.dedent(block.split('        run: |\n', 1)[1])

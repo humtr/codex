@@ -1,5 +1,6 @@
 """Protect release privilege boundaries and parse every executable shell step."""
 import json
+import os
 from pathlib import Path
 import re
 import subprocess
@@ -44,14 +45,14 @@ class WorkflowTests(unittest.TestCase):
         self.assertLess(build.index('export CARGO_TARGET_DIR='),build.index('cargo "+$RUST_VERSION" build'))
 
     def test_every_final_development_head_has_readonly_component_receipts(self):
-        for name in ('core-runtime-qualification.yml','manager-qualification.yml','full-qualification.yml','provider-qualification.yml'):
+        for name in ('core-runtime-qualification.yml','manager-qualification.yml','full-qualification.yml','provider-qualification.yml','manager-tui-native.yml'):
             text=(ROOT/'.github/workflows'/name).read_text()
             header=text.split('permissions:',1)[0]
             self.assertIn('branches: [rewrite/rust-core]',header)
             self.assertNotIn('paths:',header)
         text=(ROOT/'.github/workflows/manager-tui-native.yml').read_text()
         step=text.split('      - name: Verify actual hook matching used by Native resource proof',1)[1].split('      - name:',1)[0]
-        self.assertIn("if: inputs.scope == 'full'",step)
+        self.assertIn("if: (inputs.scope || 'full') == 'full'",step)
         self.assertIn('-p codex-hooks --lib native_resource_proof_',step)
         for name in ('retains_unrelated_input_hook_and_its_dispatch',
                      'rejects_each_matching_tool_event_and_permission_alias',
@@ -60,6 +61,72 @@ class WorkflowTests(unittest.TestCase):
             self.assertIn('native_resource_proof_'+name,step)
         self.assertIn('0 failed; 0 ignored;',step)
         self.assertNotIn('continue-on-error',step)
+
+
+    def test_native_push_defaults_to_complete_unsigned_qualification(self):
+        text=(ROOT/'.github/workflows/manager-tui-native.yml').read_text()
+        header,body=text.split('\njobs:\n',1)
+        self.assertIn('  push:\n    branches: [rewrite/rust-core]\n',header)
+        self.assertIn("inputs.scope || 'full'",header)
+        self.assertIn('cancel-in-progress: false',header)
+        self.assertNotIn('paths:',header)
+        build,relay=body.split('\n  notify_acceptance:',1)
+        for forbidden in ('contents: write','actions: write','secrets.','gh release',
+                          'git push','accepted-release-inputs.yml'):
+            self.assertNotIn(forbidden,build)
+        self.assertIn("github.event_name == 'workflow_dispatch' && inputs.advance_release",relay)
+        blocks={}
+        for match in re.finditer(r'(?m)^      - name: (.+)\n',build):
+            tail=build[match.end():]
+            blocks[match[1]]=re.split(r'(?m)^      - name: ',tail,maxsplit=1)[0]
+        full_steps=(
+            'Build actual patched CLI with pinned external dependencies',
+            'Execute and identify native frontend',
+            'Upload unsigned frontend candidate',
+            'Prepare bounded nonowner ownership fixture',
+            'Focused actual native TUI regressions',
+            'Verify owner and model admission regressions detect their independent faults',
+            'Verify Native inference and configuration libraries',
+            'Verify Native completion uses original OS wait evidence',
+            'Verify actual hook matching used by Native resource proof',
+        )
+        scopes=(None,'','full','native-api','frontend-compatibility')
+        def evaluate(expression,scope):
+            expression=expression.replace('inputs.scope',repr(scope))
+            return eval(expression.replace('||',' or ').replace('&&',' and '),
+                        {'__builtins__':{}},{})
+        for scope in scopes:
+            for name in full_steps:
+                condition=re.search(r'(?m)^        if: (.+)$',blocks[name])[1]
+                with self.subTest(scope=scope,step=name):
+                    self.assertEqual(evaluate(condition,scope),(scope or 'full')=='full')
+            for name,excluded in (
+                ('Verify Native provider API','frontend-compatibility'),
+                ('Qualify retained upstream 0.162 features','native-api'),
+                ('Inspect TUI lint fixes','native-api'),
+            ):
+                condition=re.search(r'(?m)^        if: (.+)$',blocks[name])[1]
+                with self.subTest(scope=scope,step=name):
+                    self.assertEqual(evaluate(condition,scope),(scope or 'full')!=excluded)
+        # Execute the actual validation shell, including absent push inputs and
+        # explicit focused dispatches; do not merely mirror its string shape.
+        selection=blocks['Validate qualification selection']
+        expression=re.search(r'SCOPE: \$\{\{ (.+) \}\}',selection)[1]
+        lines=selection.split('        run: |\n',1)[1].splitlines()
+        command='\n'.join(line[10:] for line in lines)
+        for scope in (*scopes,'unknown'):
+            resolved=evaluate(expression,scope)
+            for mutation,native_mutation in (('false','false'),('true','false'),
+                                             ('false','true'),('true','true')):
+                env=os.environ.copy()
+                env.update(SCOPE=resolved,MUTATION=mutation,NATIVE_MUTATION=native_mutation)
+                result=subprocess.run(['bash','-c',command],env=env,
+                                      capture_output=True,text=True)
+                allowed=resolved in ('full','native-api','frontend-compatibility') and (
+                    resolved=='full' or mutation==native_mutation=='false')
+                with self.subTest(scope=scope,mutation=mutation,native_mutation=native_mutation):
+                    self.assertEqual(result.returncode,0 if allowed else 2,
+                                     result.stdout+result.stderr)
 
     def test_independent_worker_has_its_own_verified_unsigned_artifact(self):
         text=(ROOT/'.github/workflows/provider-qualification.yml').read_text()
@@ -81,7 +148,7 @@ class WorkflowTests(unittest.TestCase):
         from tui_regression_results import REQUIRED
         text=(ROOT/'.github/workflows/manager-tui-native.yml').read_text()
         step=text.split('      - name: Focused actual native TUI regressions',1)[1].split('      - name:',1)[0]
-        self.assertIn("if: inputs.scope == 'full'",step)
+        self.assertIn("if: (inputs.scope || 'full') == 'full'",step)
         self.assertIn('--retries 0',step)
         selectors=re.findall(r'test\(([^)]+)\)',step)
         for name in REQUIRED:

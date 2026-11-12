@@ -77,7 +77,7 @@ class QualificationSignalTests(unittest.TestCase):
                     changed.replace('ubuntu-24.04-arm', 'ubuntu-latest')]:
             self.assertNotEqual(native_recipe(original), native_recipe(bad))
 
-    def test_all_qualification_workflows_use_the_same_relay_and_only_controller_starts_native(self):
+    def test_qualification_relays_require_controller_intent_while_native_push_is_unsigned(self):
         for name,dependency in [('source-acceptance.yml','accepted'),('core-runtime-qualification.yml','qualify'),('manager-tui-native.yml','upstream-baseline')]:
             text=(ROOT/'.github/workflows'/name).read_text()
             self.assertTrue(text.endswith(signal_job(dependency)),name)
@@ -88,7 +88,7 @@ class QualificationSignalTests(unittest.TestCase):
         self.assertNotIn('inputs.scope', signal_job('accepted'))
         self.assertNotIn('inputs.scope', signal_job('qualify'))
         native=(ROOT/'.github/workflows/manager-tui-native.yml').read_text()
-        self.assertNotIn('  push:',native)
+        self.assertIn('  push:\n    branches: [rewrite/rust-core]\n',native)
         receiver=(ROOT/'.github/workflows/accepted-release-inputs.yml').read_text()
         self.assertIn('COMPLETED_RUN: ${{ inputs.completed_run }}',receiver)
         self.assertIn('[[ "$completed" =~ ^[1-9][0-9]{0,19}$ ]]',receiver)
