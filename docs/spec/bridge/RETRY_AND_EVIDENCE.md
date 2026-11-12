@@ -57,6 +57,17 @@ makes multiple backend attempts, each attempt must be positively settled before
 that call grants terminal authority. A late earlier wait cannot replace the final
 attempt's exit. A late witness must preserve the original terminal payload and
 call/session/turn identity; it adds evidence without a second public command.
+Persist its original unconfirmed receipt and late witness through the same bounded
+output projection as canonical command history. This storage projection does not
+rewrite the original function result or public live output.
+
+A successful local continuation may separately report `session_running` only
+after its own final, unchanged per-tool hook boundary is confirmed. Bind this
+nonterminal observation to that continuation call and the actual returned session.
+It can settle only the continuation invocation reservation in the existing ledger;
+it does not prove OS exit or release the original process claim. Do not accept it
+as a terminal command-completion receipt. Explicit null, changed hooks, unknown
+sessions and failed continuations retain their original unresolved reservations.
 
 Native bounded execution facts must reflect the selected executor environment and
 actual hook dispatch. An unrelated synchronous input-notification hook does not
@@ -113,7 +124,11 @@ is already owned. Before dispatch, the existing admission locks must reject any
 new conflict or durably widen the effective blocking scope. A refusal leaves the
 previous scope intact. Widening preserves the original input/fingerprint/result
 and is monotonic until positive settlement: a later empty poll, aborted admission
-or restart cannot narrow or discard it. Unknown or foreign sessions, ambiguous
+or restart cannot narrow or discard it. Keep the continuation invocation and the
+original process reservations distinct: the original process's late wait cannot
+erase an unresolved continuation or its hook effects. A confirmed nonterminal
+continuation leaves the widened original process scope in force.
+Unknown or foreign sessions, ambiguous
 ownership and missing/legacy scope proof retain conservative admission. A running
 poll preserves the claim. A matching original terminal result
 or Native command-completion item releases it only with the completed-wait evidence
