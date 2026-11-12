@@ -35,6 +35,16 @@ impl Tool {
     }
 }
 
+/// Restrictive provenance selected by an internal adapter constructor. It is
+/// never a Responses field. Old journal records cannot default to generic.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum ToolOrigin {
+    #[default]
+    Native,
+    Generic,
+}
+
 /// Private scope admitted through the verified Core owner, never a wire field.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

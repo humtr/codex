@@ -2,7 +2,7 @@ name: Optional ChatGPT provider source qualification
 on:
   workflow_dispatch:
   push:
-    branches: [rewrite/rust-core]
+    branches: [rewrite/rust-core, contingency/native-completion-20261112-remote]
 permissions:
   contents: read
 concurrency:

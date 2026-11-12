@@ -275,7 +275,7 @@ impl EndWitness {
             ]
             .iter()
             .all(|key| self.original[*key] == item[*key])
-            && self.original["interaction_input"] == item["input"]
+            && self.original["interaction_input"] == item["interaction_input"]
     }
 }
 fn event_session(value: Option<&Value>) -> Option<Option<u64>> {
@@ -488,6 +488,29 @@ mod tests {
         let child = json!({"output":[{"type":"input_text","text":"child output"},
             {"type":"input_text","text":format!("Native completion: {}",wait())}]});
         assert_eq!(result_proof(&child), Presence::Absent);
+    }
+    #[test]
+    fn canonical_command_preserves_nonempty_interaction_input_and_rejects_alias_or_mutation() {
+        let end = json!({"type":"event_msg","payload":{"type":"exec_command_end",
+            "call_id":"original","turn_id":"turn","process_id":"41","completed_at_ms":42,
+            "exit_code":124,"status":"failed","aggregated_output":"original timeout body",
+            "interaction_input":"owned input\n","native_completion":wait()}});
+        let witnesses = end_witnesses(&[end.clone()]).unwrap();
+        let mut item = end["payload"].clone();
+        item["id"] = json!("original");
+        item["type"] = json!("command_execution");
+        let canonical = json!({"thread_id":"owned-thread","turn_id":"turn","completed_at_ms":42,"item":item});
+        assert!(witnesses["original"].matches_canonical_command(&canonical));
+        let mut changed = canonical.clone();
+        changed["item"]["interaction_input"] = json!("different input");
+        assert!(!witnesses["original"].matches_canonical_command(&changed));
+        let mut alias = canonical;
+        alias["item"]
+            .as_object_mut()
+            .unwrap()
+            .remove("interaction_input");
+        alias["item"]["input"] = json!("owned input\n");
+        assert!(!witnesses["original"].matches_canonical_command(&alias));
     }
     #[test]
     fn late_wait_supplements_only_the_identical_unknown_end() {

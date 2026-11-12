@@ -11,7 +11,7 @@ impl Drop for Root {
     }
 }
 async fn fixture() -> (Root, Arc<Journal>, Arc<Broker>, String, Arguments) {
-    fixture_for("clock.curr_time").await
+    fixture_for("view_image").await
 }
 async fn fixture_for(name: &str) -> (Root, Arc<Journal>, Arc<Broker>, String, Arguments) {
     let root = std::env::temp_dir().join(format!("scope-settlement-{}", random_id().unwrap()));
@@ -19,9 +19,13 @@ async fn fixture_for(name: &str) -> (Root, Arc<Journal>, Arc<Broker>, String, Ar
     let root = Root(fs::canonicalize(root).unwrap());
     let journal = Arc::new(Journal::open(&root.0.join("journal")).unwrap());
     let broker = Broker::new(journal.clone());
+    let definition = if name == "tool_search" {
+        json!({"type":"tool_search"})
+    } else {
+        json!({"type":"function","name":name,"parameters":{"type":"object"}})
+    };
     let request = crate::protocol::Request::parse(
-        json!({"stream":true,"model":"chatgpt-desktop/gpt-6","input":"owned",
-            "tools":[{"type":"function","name":name,"parameters":{"type":"object"}}]}),
+        json!({"stream":true,"model":"chatgpt-desktop/gpt-6","input":"owned", "tools":[definition]}),
         &crate::config::Config::default(),
         Some("owned-thread"),
     )
@@ -33,7 +37,11 @@ async fn fixture_for(name: &str) -> (Root, Arc<Journal>, Arc<Broker>, String, Ar
     let call = Arguments {
         call_id: "original-clock".into(),
         name: name.into(),
-        input: "{}".into(),
+        input: if name == "tool_search" {
+            json!({"query":"metadata","limit":1}).to_string()
+        } else {
+            "{}".into()
+        },
         report: "owned".into(),
     };
     (root, journal, broker, token, call)
@@ -51,23 +59,66 @@ fn claim_count(path: &Path) -> usize {
         .len()
 }
 
+// Recreate an already offered old-generation reservation, not a newly permitted
+// unsupported call. The immutable identity comes from the original enqueue and
+// the physical claim uses the existing exact Shared API in this private root.
+async fn retained_legacy_opaque_offer(broker: &Broker, token: &str, call: &Arguments) -> String {
+    let mut registry = broker.registry.lock().await;
+    let turn = registry.turns.get_mut(token).unwrap();
+    let invocation = &turn.calls[&call.call_id];
+    let id = invocation.id.clone();
+    let root = turn.workspace.as_deref().unwrap();
+    SharedNativeGuard::offer_external_with_effect(
+        root,
+        broker.shared_guard_home().as_deref(),
+        &turn.lane,
+        &id,
+        &call.name,
+        &call.input,
+        Effect::Opaque,
+    )
+    .unwrap();
+    let key = digest(&"native-effect-claims-v1");
+    let mut claims: ActiveEffects = broker.journal.read(&key).unwrap().unwrap_or_default();
+    assert!(claims
+        .claims
+        .insert(
+            id.clone(),
+            ClaimedEffect {
+                lane: turn.lane.clone(),
+                effect: Effect::Opaque,
+                session_id: None,
+                turn_token: Some(token.into()),
+                continuations: BTreeMap::new(),
+                continuation_effect: None,
+                process_hooks_absent: false,
+            },
+        )
+        .is_none());
+    broker.journal.write(&key, &claims).unwrap();
+    let original = turn.calls.get_mut(&call.call_id).unwrap();
+    original.offered = true;
+    original.shared_reserved = Some(true);
+    broker.persist(token, turn).unwrap();
+    id
+}
+
 #[tokio::test]
 async fn native_scope_committed_result_releases_original_opaque_claim_after_restart_or_retry() {
     for recovery in ["restart", "retry"] {
         for legacy_reader in [false, true] {
             let (root, journal, broker, token, call) = fixture().await;
             broker.enqueue(&token, &call).await.unwrap();
-            // An older queued read declaration is readable but lacks current hook proof.
-            // Its real offer must remain Opaque and reserve the existing shared ledger.
+            // An older offered Read declaration was actually reserved as Opaque.
+            // Restore that retained state without dispatching a new unsupported call.
             {
                 let mut registry = broker.registry.lock().await;
                 let turn = registry.turns.get_mut(&token).unwrap();
                 turn.calls.get_mut(&call.call_id).unwrap().effect = Some(Effect::Read);
                 broker.persist(&token, turn).unwrap();
             }
-            let offered = broker.offer(&token).await.unwrap();
-            assert_eq!(offered.len(), 1);
-            let id = offered[0]["id"].as_str().unwrap().to_owned();
+            let id = retained_legacy_opaque_offer(&broker, &token, &call).await;
+            assert_eq!(broker.recorded_calls(&token).unwrap()[0]["offered"], true);
             let shared = shared_path(&broker);
             assert_eq!(claim_count(&shared), 1);
             let original_ledger = fs::read(&shared).unwrap();
@@ -152,7 +203,7 @@ async fn native_scope_committed_result_releases_original_opaque_claim_after_rest
 
 #[tokio::test]
 async fn native_scope_completed_known_read_does_not_consult_an_unrelated_broken_shared_ledger() {
-    for name in ["clock.curr_time", "tool_search"] {
+    for name in ["view_image", "tool_search"] {
         let (root, _journal, broker, token, call) = fixture_for(name).await;
         broker
             .bind_execution(&token, Some(native_effect::hook_fixture(&root.0)))

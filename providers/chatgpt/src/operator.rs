@@ -897,13 +897,15 @@ impl Operator {
             broker.clone(),
             journal.clone(),
             config.transport.connector_name.clone(),
-        )?);
+        )?.with_native_admission());
         let mcp_host = Arc::new(
             AppHost::new(mcp_bridge, journal.clone())
+                .with_native_admission()
                 .with_connector(config.transport.connector_name.clone()),
         );
         let local_host = Arc::new(
             AppHost::new(local_bridge, journal.clone())
+                .with_native_admission()
                 .with_connector(config.transport.connector_name.clone()),
         );
         let local = crate::local::Local::new(pool.clone(), journal.clone(), &config);
@@ -6939,9 +6941,7 @@ impl Host for Operator {
                         )
                     })
                     .cloned();
-                if path == ReturnPath::Mcp {
-                    request.bind_native_scope(&pool.workspace, &native.owner.process)?;
-                }
+                request.bind_native_scope(&pool.workspace, &native.owner.process)?;
                 let forward = async {
                     while let Some(event) = receiver.recv().await {
                         if let Event::Tool(call) = &event {

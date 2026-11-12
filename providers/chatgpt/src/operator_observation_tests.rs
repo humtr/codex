@@ -548,6 +548,15 @@ async fn retained_offered_result_remains_readable_when_native_socket_is_unavaila
         input: json!({"cmd":"printf original-result","login":false}).to_string(),
         report: "original operation".into(),
     };
+    broker
+        .bind_execution(
+            &record.token,
+            Some(crate::native_effect::hook_fixture(
+                record.workspace.as_deref().unwrap(),
+            )),
+        )
+        .await
+        .unwrap();
     broker.enqueue(&record.token, &call).await.unwrap();
     let offered = broker.offer(&record.token).await.unwrap();
     assert_eq!(offered.len(), 1);

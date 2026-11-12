@@ -810,13 +810,14 @@ pub async fn serve(descriptor: Option<PathBuf>, root: PathBuf, port: u16) -> Res
                 broker.clone(),
                 journal.clone(),
                 settings.transport.connector_name.clone(),
-            )?)
+            )?.with_native_admission())
         }
         _ => bridge,
     };
     let token = random_id()?;
     let host = Arc::new(
         AppHost::new(bridge.clone(), journal.clone())
+            .with_native_admission()
             .with_connector(settings.transport.connector_name.clone()),
     );
     let mut service = if native_controls {

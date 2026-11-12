@@ -209,6 +209,7 @@ pub struct McpBridge {
     connector: String,
     epoch: String,
     lanes: Lanes,
+    native_adapter: bool,
 }
 fn source_tool_request(
     message: &Value,
@@ -252,7 +253,13 @@ impl McpBridge {
             connector,
             epoch: random_id()?,
             lanes: Arc::new(Mutex::new(BTreeMap::new())),
+            native_adapter: false,
         })
+    }
+
+    pub(crate) fn with_native_admission(mut self) -> Self {
+        self.native_adapter = true;
+        self
     }
 }
 fn tools(instructions: &[Value]) -> Result<Option<BTreeMap<String, Tool>>, Error> {
@@ -443,6 +450,7 @@ impl Bridge for McpBridge {
             self.lanes.clone(),
         );
         let epoch = self.epoch.clone();
+        let native_adapter = self.native_adapter;
         Box::pin(async move {
             let native_scope = take_native_scope(&mut command)?;
             let op = command["op"]
@@ -639,14 +647,14 @@ impl Bridge for McpBridge {
                 };
                 let catalog = tools(&instructions)?.unwrap_or_else(|| lane.tools.clone());
                 let previous_token = lane.token.clone();
-                let token = broker
-                    .register_scoped(
-                        &marker,
-                        catalog.clone(),
-                        true,
+                let token = if native_adapter || native_scope.is_some() {
+                    broker.register_scoped(
+                        &marker, catalog.clone(), true,
                         native_scope.as_ref().map(|scope| scope.workspace.as_path()),
-                    )
-                    .await?;
+                    ).await?
+                } else {
+                    broker.register(&marker, catalog.clone(), true).await?
+                };
                 broker
                     .bind_execution(
                         &token,
@@ -806,9 +814,18 @@ impl Bridge for McpBridge {
                 lane.complete = true;
             }
             if lane.offered.is_empty() && !lane.complete {
+                if native_adapter {
+                    broker.require_native_origin(&token)?;
+                }
                 lane.offered = broker.offer(&token).await?;
             }
             let pending = !lane.offered.is_empty();
+            if pending && native_adapter {
+                // Replaying a cached executable offer is still forwarding. A
+                // constructor change cannot turn an earlier generic offer into
+                // a source-verified Native invocation.
+                broker.require_native_origin(&token)?;
+            }
             let raw = snapshot["messages"]
                 .as_array()
                 .cloned()

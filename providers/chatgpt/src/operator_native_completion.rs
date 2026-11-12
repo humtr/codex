@@ -246,7 +246,7 @@ pub(super) fn validate(
             continue;
         }
         if call["type"] != "function_call"
-            || !call["namespace"].is_null() && call["namespace"] != "functions"
+            || !crate::native_effect::default_namespace(&call["namespace"])
         {
             return Err(unsettled());
         }
@@ -462,6 +462,27 @@ mod tests {
                 "output":"Chunk ID: original\nWall time: 0.1 seconds\nProcess exited with code 0\nOutput:\n"}}),
         ];
         (history, rows)
+    }
+
+
+    #[test]
+    fn unloaded_default_namespace_aliases_preserve_original_history_and_reject_foreign() {
+        let (history, rows) = fixture();
+        for namespace in [Value::Null, json!(""), json!("functions")] {
+            let mut original = rows.clone();
+            original[1]["payload"]["namespace"] = namespace.clone();
+            original[4]["payload"]["namespace"] = namespace;
+            let before = original.clone();
+            validate("thread", "final", &history, &original, &closed()).unwrap();
+            assert_eq!(original, before);
+            for index in [1, 4] {
+                let mut foreign = original.clone();
+                foreign[index]["payload"]["namespace"] = json!("foreign");
+                assert!(validate("thread", "final", &history, &foreign, &closed()).is_err());
+                foreign[index]["payload"]["namespace"] = json!(7);
+                assert!(validate("thread", "final", &history, &foreign, &closed()).is_err());
+            }
+        }
     }
 
     #[test]

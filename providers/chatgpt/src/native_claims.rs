@@ -305,7 +305,7 @@ impl Ledger {
 pub(crate) mod completion;
 
 fn continuation(tool: &str, input: &str) -> Option<u64> {
-    (tool == "functions.write_stdin")
+    (native_effect::process_tool(tool) == Some("write_stdin"))
         .then(|| {
             serde_json::from_str::<serde_json::Value>(input)
                 .ok()?
@@ -1063,7 +1063,7 @@ impl Guard {
         let observation = process_observation(result, call_id, self.continuation);
         let running = observation.running;
         let mut exited = observation.terminal;
-        let not_spawned = self.tool == "functions.exec_command" && observation.not_spawned;
+        let not_spawned = native_effect::process_tool(&self.tool) == Some("exec_command") && observation.not_spawned;
         let session = self.continuation;
         self.ledger.transact(|state| {
             if session.is_some() && observation.not_spawned {
@@ -1121,7 +1121,7 @@ impl Guard {
                 }
                 return Ok(((), false));
             }
-            if self.tool == "functions.exec_command" && running.is_some() && !exited && !not_spawned
+            if native_effect::process_tool(&self.tool) == Some("exec_command") && running.is_some() && !exited && !not_spawned
             {
                 if let Some(claim) = state.claims.get_mut(&self.identity) {
                     claim.session = running;
@@ -1130,7 +1130,7 @@ impl Guard {
             }
             // An exec result without an identifiable exit or live session is
             // unresolved; only unambiguous terminal evidence frees that claim.
-            if self.tool == "functions.exec_command" && !exited && !not_spawned {
+            if native_effect::process_tool(&self.tool) == Some("exec_command") && !exited && !not_spawned {
                 return Ok(((), false));
             }
             Ok(((), state.claims.remove(&self.identity).is_some()))
@@ -1933,141 +1933,151 @@ mod tests {
 
     #[test]
     fn unproved_continuation_widens_shared_scope_before_an_independent_offer() {
-        for chars in ["", "input"] {
-            let cwd = root();
-            let home = root();
-            let facts = native_effect::compiler_fixture(&cwd);
-            let ledger = Ledger::at(&cwd, &home).unwrap();
-            fs::write(cwd.join("a.c"), "int main(void){return 0;}").unwrap();
-            fs::write(cwd.join("b.c"), "int main(void){return 0;}").unwrap();
-            let input =
-                serde_json::json!({"cmd":"clang -O0 a.c -o a.out","workdir":cwd,"login":false})
-                    .to_string();
-            let scope = native_effect::classify_with_execution(
-                "functions.exec_command",
-                &input,
-                Some(&cwd),
-                Some(&facts),
-            );
-            assert!(matches!(scope, Effect::Paths(_)));
-            let mut original = Guard::begin_effect(
-                &cwd,
-                "a",
-                "start",
-                "functions.exec_command",
-                &input,
-                ledger.clone(),
-                scope,
-            )
-            .unwrap();
-            original
-                .observed(Some(
-                    &serde_json::json!({"output":"Process running with session ID 51"}),
-                ))
+        for (exec_tool, poll_tool) in [
+            ("exec_command", "write_stdin"),
+            ("functions.exec_command", "functions.write_stdin"),
+        ] {
+            for chars in ["", "input"] {
+                let cwd = root();
+                let home = root();
+                let facts = native_effect::compiler_fixture(&cwd);
+                let ledger = Ledger::at(&cwd, &home).unwrap();
+                fs::write(cwd.join("a.c"), "int main(void){return 0;}").unwrap();
+                fs::write(cwd.join("b.c"), "int main(void){return 0;}").unwrap();
+                let input =
+                    serde_json::json!({"cmd":"clang -O0 a.c -o a.out","workdir":cwd,"login":false})
+                        .to_string();
+                let scope = native_effect::classify_with_execution(
+                    exec_tool,
+                    &input,
+                    Some(&cwd),
+                    Some(&facts),
+                );
+                assert!(matches!(scope, Effect::Paths(_)));
+                let mut original = Guard::begin_effect(
+                    &cwd,
+                    "a",
+                    "start",
+                    exec_tool,
+                    &input,
+                    ledger.clone(),
+                    scope,
+                )
                 .unwrap();
-            let fingerprint = ledger.read_state().unwrap().claims["a:start"]
-                .fingerprint
-                .clone();
-            let poll = serde_json::json!({"session_id":51,"chars":chars}).to_string();
-            Guard::begin_effect(
-                &cwd,
-                "a",
-                "unproved",
-                "functions.write_stdin",
-                &poll,
-                ledger.clone(),
-                Effect::Opaque,
-            )
-            .unwrap();
-            let state = ledger.read_state().unwrap();
-            assert_eq!(
-                state.claims["a:start"].effect.claim_scope(),
-                &Effect::Opaque
-            );
-            assert_eq!(state.claims["a:start"].fingerprint, fingerprint);
-            let other =
-                serde_json::json!({"cmd":"clang -O0 b.c -o b.out","workdir":cwd,"login":false})
-                    .to_string();
-            let scope = native_effect::classify_with_execution(
-                "functions.exec_command",
-                &other,
-                Some(&cwd),
-                Some(&facts),
-            );
-            assert_eq!(
+                original
+                    .observed(Some(
+                        &serde_json::json!({"output":"Process running with session ID 51"}),
+                    ))
+                    .unwrap();
+                let fingerprint = ledger.read_state().unwrap().claims["a:start"]
+                    .fingerprint
+                    .clone();
+                let poll = serde_json::json!({"session_id":51,"chars":chars}).to_string();
                 Guard::begin_effect(
                     &cwd,
-                    "b",
-                    "independent",
-                    "functions.exec_command",
-                    &other,
-                    Ledger::at(&cwd, &home).unwrap(),
-                    scope
+                    "a",
+                    "unproved",
+                    poll_tool,
+                    &poll,
+                    ledger.clone(),
+                    Effect::Opaque,
                 )
-                .err()
-                .as_deref(),
-                Some("native_resource_busy")
-            );
-            fs::remove_dir_all(cwd).unwrap();
-            fs::remove_dir_all(home).unwrap();
+                .unwrap();
+                let state = ledger.read_state().unwrap();
+                assert_eq!(
+                    state.claims["a:start"].effect.claim_scope(),
+                    &Effect::Opaque
+                );
+                assert_eq!(state.claims["a:start"].fingerprint, fingerprint);
+                let other =
+                    serde_json::json!({"cmd":"clang -O0 b.c -o b.out","workdir":cwd,"login":false})
+                        .to_string();
+                let scope = native_effect::classify_with_execution(
+                    exec_tool,
+                    &other,
+                    Some(&cwd),
+                    Some(&facts),
+                );
+                assert_eq!(
+                    Guard::begin_effect(
+                        &cwd,
+                        "b",
+                        "independent",
+                        exec_tool,
+                        &other,
+                        Ledger::at(&cwd, &home).unwrap(),
+                        scope
+                    )
+                    .err()
+                    .as_deref(),
+                    Some("native_resource_busy")
+                );
+                fs::remove_dir_all(cwd).unwrap();
+                fs::remove_dir_all(home).unwrap();
+            }
         }
     }
 
     #[test]
     fn running_continuation_settles_only_its_exact_invocation_and_null_does_not() {
-        for proof_present in [false, true] {
-            let cwd = root();
-            let home = root();
-            let ledger = Ledger::at(&cwd, &home).unwrap();
-            let mut original = Guard::begin_effect_with_continuation(
-                &cwd,
-                "a",
-                "start",
-                "functions.exec_command",
-                r#"{"cmd":"owned interactive process"}"#,
-                ledger.clone(),
-                Admission {
-                    effect: Effect::Opaque,
-                    hooks_absent: true,
-                },
-            )
-            .unwrap();
-            original.observed(Some(&serde_json::json!({"output":"Native completion: null\nProcess running with session ID 51\nOutput:\n"}))).unwrap();
-            let mut pending = Guard::begin_effect_with_continuation(
-                &cwd,
-                "a",
-                "poll",
-                "functions.write_stdin",
-                r#"{"session_id":51,"chars":"input"}"#,
-                ledger.clone(),
-                Admission {
-                    effect: Effect::Opaque,
-                    hooks_absent: true,
-                },
-            )
-            .unwrap();
-            let proof = if proof_present {
-                serde_json::json!({"schema":"codex-native-completion-v1","call_id":"poll",
-                "session_id":51,"outcome":"session_running","exit_code":null,"hooks":"absent"})
-            } else {
-                serde_json::Value::Null
-            };
-            let reply = serde_json::json!({"call_id":"poll","output":format!("Native completion: {proof}\nProcess running with session ID 51\nOutput:\n")});
-            pending.observed(Some(&reply)).unwrap();
-            let state = ledger.read_state().unwrap();
-            assert_eq!(state.claims["a:start"].effect, Effect::Opaque);
-            assert_eq!(state.claims["a:start"].session, Some(51));
-            assert_eq!(state.claims.contains_key("a:poll"), !proof_present);
-            assert_eq!(
-                process_observation(&reply, "foreign", Some(51)).running,
-                None
-            );
-            assert_eq!(process_observation(&reply, "poll", Some(52)).running, None);
-            if proof_present {
-                assert!(process_observation(&reply, "poll", None).proof.is_none());
+        for (exec_tool, poll_tool) in [
+            ("exec_command", "write_stdin"),
+            ("functions.exec_command", "functions.write_stdin"),
+        ] {
+            for proof_present in [false, true] {
+                let cwd = root();
+                let home = root();
+                let ledger = Ledger::at(&cwd, &home).unwrap();
+                let mut original = Guard::begin_effect_with_continuation(
+                    &cwd,
+                    "a",
+                    "start",
+                    exec_tool,
+                    r#"{"cmd":"owned interactive process"}"#,
+                    ledger.clone(),
+                    Admission {
+                        effect: Effect::Opaque,
+                        hooks_absent: true,
+                    },
+                )
+                .unwrap();
+                original.observed(Some(&serde_json::json!({"output":"Native completion: null\nProcess running with session ID 51\nOutput:\n"}))).unwrap();
+                let mut pending = Guard::begin_effect_with_continuation(
+                    &cwd,
+                    "a",
+                    "poll",
+                    poll_tool,
+                    r#"{"session_id":51,"chars":"input"}"#,
+                    ledger.clone(),
+                    Admission {
+                        effect: Effect::Opaque,
+                        hooks_absent: true,
+                    },
+                )
+                .unwrap();
+                let proof = if proof_present {
+                    serde_json::json!({"schema":"codex-native-completion-v1","call_id":"poll",
+                    "session_id":51,"outcome":"session_running","exit_code":null,"hooks":"absent"})
+                } else {
+                    serde_json::Value::Null
+                };
+                let reply = serde_json::json!({"call_id":"poll","output":format!("Native completion: {proof}\nProcess running with session ID 51\nOutput:\n")});
+                pending.observed(Some(&reply)).unwrap();
+                let state = ledger.read_state().unwrap();
+                assert_eq!(state.claims["a:start"].effect, Effect::Opaque);
+                assert_eq!(state.claims["a:start"].session, Some(51));
+                assert_eq!(state.claims.contains_key("a:poll"), !proof_present);
+                assert_eq!(
+                    process_observation(&reply, "foreign", Some(51)).running,
+                    None
+                );
+                assert_eq!(process_observation(&reply, "poll", Some(52)).running, None);
+                if proof_present {
+                    assert!(process_observation(&reply, "poll", None).proof.is_none());
+                }
+                fs::remove_dir_all(cwd).unwrap();
+                fs::remove_dir_all(home).unwrap();
             }
-            fs::remove_dir_all(cwd).unwrap();
-            fs::remove_dir_all(home).unwrap();
         }
     }
 
@@ -2147,139 +2157,144 @@ mod tests {
 
     #[test]
     fn continuation_scope_rejection_abort_and_original_wait_preserve_pending_invocation() {
-        let cwd = root();
-        let home = root();
-        let ledger = Ledger::at(&cwd, &home).unwrap();
-        let facts = native_effect::compiler_fixture(&cwd);
-        for name in ["a.c", "b.c"] {
-            fs::write(cwd.join(name), "int main(void){return 0;}\n").unwrap();
-        }
-        let input = serde_json::json!({"cmd":"clang -O0 a.c -o a.out","workdir":cwd,"login":false})
-            .to_string();
-        let scope = native_effect::classify_with_execution(
-            "functions.exec_command",
-            &input,
-            Some(&cwd),
-            Some(&facts),
-        );
-        let mut original = Guard::begin_effect(
-            &cwd,
-            "a",
-            "start",
-            "functions.exec_command",
-            &input,
-            ledger.clone(),
-            scope,
-        )
-        .unwrap();
-        original
-            .observed(Some(
-                &serde_json::json!({"output":"Process running with session ID 51\nOutput:\n"}),
-            ))
-            .unwrap();
-        let other_input =
-            serde_json::json!({"cmd":"clang -O0 b.c -o b.out","workdir":cwd,"login":false})
+        for (exec_tool, poll_tool) in [
+            ("exec_command", "write_stdin"),
+            ("functions.exec_command", "functions.write_stdin"),
+        ] {
+            let cwd = root();
+            let home = root();
+            let ledger = Ledger::at(&cwd, &home).unwrap();
+            let facts = native_effect::compiler_fixture(&cwd);
+            for name in ["a.c", "b.c"] {
+                fs::write(cwd.join(name), "int main(void){return 0;}\n").unwrap();
+            }
+            let input = serde_json::json!({"cmd":"clang -O0 a.c -o a.out","workdir":cwd,"login":false})
                 .to_string();
-        let other_scope = native_effect::classify_with_execution(
-            "functions.exec_command",
-            &other_input,
-            Some(&cwd),
-            Some(&facts),
-        );
-        let mut other = Guard::begin_effect(
-            &cwd,
-            "b",
-            "start",
-            "functions.exec_command",
-            &other_input,
-            ledger.clone(),
-            other_scope.clone(),
-        )
-        .unwrap();
-        let before = serde_json::to_value(ledger.read_state().unwrap()).unwrap();
-        let poll = r#"{"session_id":51,"chars":"input"}"#;
-        assert_eq!(
-            Guard::begin_effect(
+            let scope = native_effect::classify_with_execution(
+                exec_tool,
+                &input,
+                Some(&cwd),
+                Some(&facts),
+            );
+            let mut original = Guard::begin_effect(
                 &cwd,
                 "a",
-                "blocked",
-                "functions.write_stdin",
-                poll,
+                "start",
+                exec_tool,
+                &input,
                 ledger.clone(),
-                Effect::Opaque
+                scope,
             )
-            .err()
-            .as_deref(),
-            Some("native_resource_busy")
-        );
-        assert_eq!(
-            serde_json::to_value(ledger.read_state().unwrap()).unwrap(),
-            before
-        );
-        let wait = |id: &str, session: Option<u64>| {
-            serde_json::json!({"output":format!("Native completion: {}\nOutput:\n",
-            serde_json::json!({"schema":"codex-native-completion-v1","call_id":id,"session_id":session,
-                "outcome":"wait_completed","exit_code":0,"hooks":"absent"}))})
-        };
-        other.observed(Some(&wait("start", None))).unwrap();
-        let mut pending = Guard::begin_effect(
-            &cwd,
-            "a",
-            "pending",
-            "functions.write_stdin",
-            poll,
-            ledger.clone(),
-            Effect::Opaque,
-        )
-        .unwrap();
-        assert_eq!(
-            ledger.read_state().unwrap().claims["a:start"].effect,
-            Effect::Opaque
-        );
-        original.observed(Some(&wait("start", Some(51)))).unwrap();
-        assert!(!ledger.read_state().unwrap().claims.contains_key("a:start"));
-        assert!(ledger
-            .read_state()
-            .unwrap()
-            .claims
-            .contains_key("a:pending"));
-        pending
-            .observed(Some(
-                &serde_json::json!({"output":"Process exited with code 0\nOutput:\n"}),
-            ))
             .unwrap();
-        assert!(ledger
-            .read_state()
-            .unwrap()
-            .claims
-            .contains_key("a:pending"));
-        assert_eq!(
-            Guard::begin_effect(
+            original
+                .observed(Some(
+                    &serde_json::json!({"output":"Process running with session ID 51\nOutput:\n"}),
+                ))
+                .unwrap();
+            let other_input =
+                serde_json::json!({"cmd":"clang -O0 b.c -o b.out","workdir":cwd,"login":false})
+                    .to_string();
+            let other_scope = native_effect::classify_with_execution(
+                exec_tool,
+                &other_input,
+                Some(&cwd),
+                Some(&facts),
+            );
+            let mut other = Guard::begin_effect(
                 &cwd,
                 "b",
-                "after-original",
-                "functions.exec_command",
+                "start",
+                exec_tool,
                 &other_input,
                 ledger.clone(),
-                other_scope.clone()
+                other_scope.clone(),
             )
-            .err()
-            .as_deref(),
-            Some("native_resource_busy")
-        );
-        pending.observed(Some(&wait("pending", Some(51)))).unwrap();
-        assert!(Guard::begin_effect(
-            &cwd,
-            "b",
-            "after-exact-poll",
-            "functions.exec_command",
-            &other_input,
-            ledger,
-            other_scope
-        )
-        .is_ok());
-        fs::remove_dir_all(cwd).unwrap();
-        fs::remove_dir_all(home).unwrap();
+            .unwrap();
+            let before = serde_json::to_value(ledger.read_state().unwrap()).unwrap();
+            let poll = r#"{"session_id":51,"chars":"input"}"#;
+            assert_eq!(
+                Guard::begin_effect(
+                    &cwd,
+                    "a",
+                    "blocked",
+                    poll_tool,
+                    poll,
+                    ledger.clone(),
+                    Effect::Opaque
+                )
+                .err()
+                .as_deref(),
+                Some("native_resource_busy")
+            );
+            assert_eq!(
+                serde_json::to_value(ledger.read_state().unwrap()).unwrap(),
+                before
+            );
+            let wait = |id: &str, session: Option<u64>| {
+                serde_json::json!({"output":format!("Native completion: {}\nOutput:\n",
+                serde_json::json!({"schema":"codex-native-completion-v1","call_id":id,"session_id":session,
+                    "outcome":"wait_completed","exit_code":0,"hooks":"absent"}))})
+            };
+            other.observed(Some(&wait("start", None))).unwrap();
+            let mut pending = Guard::begin_effect(
+                &cwd,
+                "a",
+                "pending",
+                poll_tool,
+                poll,
+                ledger.clone(),
+                Effect::Opaque,
+            )
+            .unwrap();
+            assert_eq!(
+                ledger.read_state().unwrap().claims["a:start"].effect,
+                Effect::Opaque
+            );
+            original.observed(Some(&wait("start", Some(51)))).unwrap();
+            assert!(!ledger.read_state().unwrap().claims.contains_key("a:start"));
+            assert!(ledger
+                .read_state()
+                .unwrap()
+                .claims
+                .contains_key("a:pending"));
+            pending
+                .observed(Some(
+                    &serde_json::json!({"output":"Process exited with code 0\nOutput:\n"}),
+                ))
+                .unwrap();
+            assert!(ledger
+                .read_state()
+                .unwrap()
+                .claims
+                .contains_key("a:pending"));
+            assert_eq!(
+                Guard::begin_effect(
+                    &cwd,
+                    "b",
+                    "after-original",
+                    exec_tool,
+                    &other_input,
+                    ledger.clone(),
+                    other_scope.clone()
+                )
+                .err()
+                .as_deref(),
+                Some("native_resource_busy")
+            );
+            pending.observed(Some(&wait("pending", Some(51)))).unwrap();
+            assert!(Guard::begin_effect(
+                &cwd,
+                "b",
+                "after-exact-poll",
+                exec_tool,
+                &other_input,
+                ledger,
+                other_scope
+            )
+            .is_ok());
+            fs::remove_dir_all(cwd).unwrap();
+            fs::remove_dir_all(home).unwrap();
+        }
     }
 
     #[test]
