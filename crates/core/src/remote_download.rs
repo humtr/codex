@@ -478,7 +478,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
 server=http.server.ThreadingHTTPServer(('127.0.0.1',0),Handler)
 context=ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER); context.load_cert_chain(root/'cert.pem',root/'key.pem')
 server.socket=context.wrap_socket(server.socket,server_side=True)
-(root/'port').write_text(str(server.server_port)); server.serve_forever()
+(root/'port.tmp').write_text(str(server.server_port))
+(root/'port.tmp').replace(root/'port'); server.serve_forever()
 "#;
 
     fn serve(f: &mut Fixture) -> String {
