@@ -30,6 +30,11 @@ SUITES = {
         'native_completion_successful_wait_without_numeric_exit_is_terminal',
         'native_completion_nonprocess_hook_refusal_preserves_discovery_and_plain_tools',
         'native_completion_code_mode_refuses_before_cell_dispatch',
+        'native_completion_tree_wait_excludes_parent_only_and_earlier_attempt',
+        'native_completion_pre_exec_refusal_preserves_started_attempt_scope',
+        'native_completion_scope_header_preserves_root_exit_and_child_output',
+        'native_completion_root_exit_retains_session_until_tree_stop',
+        'native_completion_oneshot_keeps_original_supervised_attempt',
     ),
     'protocol': (
         'native_completion_typescript_keeps_nullable_field_and_real_type_dependencies',
@@ -50,6 +55,16 @@ SUITES = {
         'native_completion_pipe_and_pty_preserve_actual_wait_codes',
         'native_completion_local_termination_confirms_only_after_wait',
         'native_completion_portable_pty_signal_proves_wait_without_numeric_exit',
+        'native_completion_tree_guard_preserves_root_and_reaps_double_fork',
+        'native_completion_tree_guard_stop_preserves_supervisor_and_other_jobs',
+        'native_completion_tree_guard_root_kill_retains_detached_scope',
+        'native_completion_tree_guard_rejects_setup_without_target_fallback',
+        'native_completion_tree_guard_helper_loss_never_confirms_closure',
+        'native_completion_tree_guard_preserves_pty_foreground_interrupt',
+        'native_completion_tree_guard_hangup_stops_children_without_losing_owner',
+        'native_completion_tree_guard_requires_frame_and_actual_helper_wait',
+        'native_completion_tree_guard_closes_target_only_descriptors',
+        'native_completion_guarded_backends_preserve_root_and_descendant_scope',
     ),
 }
 

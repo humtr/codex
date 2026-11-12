@@ -87,12 +87,13 @@ its own changed-consumer checks; Core does not depend on that optional frontend'
 qualification. Test compilation and compiler caches are not second release
 artifact producers. A retained partial compile cache carries no qualification.
 
-The development branch also runs complete unsigned Enhanced TUI qualification
-on push. Missing dispatch inputs mean the full scope; explicit manual focused
-scopes remain separate evidence. A push cannot signal release advancement.
-Only a successful full manual run with explicit release intent on the qualified
-development ref may use the existing publication controller relay. All component
-and Full consumers still verify exact source, workflow and completed success.
+Complete unsigned Enhanced TUI qualification runs by explicit dispatch against
+the development source; unrelated pushes do not rebuild that optional frontend.
+The default full scope retains every gate, while explicit focused scopes remain
+separate evidence. Only a successful full manual run with explicit release intent
+on the qualified development ref may use the existing publication controller
+relay. Development acceptance uses no release intent. All component and Full
+consumers still verify exact source, workflow and completed success.
 
 ## Proof and publication boundaries
 

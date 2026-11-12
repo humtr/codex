@@ -1,8 +1,6 @@
 name: Codex TUI native qualification
-run-name: ${{ (inputs.scope || 'full') == 'full' && 'Codex TUI native qualification' || format('Focused Native {0}', (inputs.scope || 'full')) }}
+run-name: ${{ inputs.scope == 'full' && 'Codex TUI native qualification' || format('Focused Native {0}', inputs.scope) }}
 on:
-  push:
-    branches: [rewrite/rust-core]
   workflow_dispatch:
     inputs:
       advance_release:
@@ -30,11 +28,11 @@ permissions:
   contents: read
   actions: read
 concurrency:
-  group: manager-tui-native-${{ github.ref }}-${{ (inputs.scope || 'full') }}
+  group: manager-tui-native-${{ github.ref }}-${{ inputs.scope }}
   cancel-in-progress: false
 jobs:
   upstream-baseline:
-    name: ${{ (inputs.scope || 'full') == 'full' && 'Build and test native switch selection' || format('Focused native {0}', (inputs.scope || 'full')) }}
+    name: ${{ inputs.scope == 'full' && 'Build and test native switch selection' || format('Focused native {0}', inputs.scope) }}
     runs-on: ubuntu-24.04-arm
     # Cold builds can take 96 minutes before API tests; Native fault/restoration
     # rebuilds and retained-feature/lint gates still have to complete afterward.
@@ -54,7 +52,7 @@ jobs:
       - name: Validate qualification selection
         shell: bash
         env:
-          SCOPE: ${{ (inputs.scope || 'full') }}
+          SCOPE: ${{ inputs.scope }}
           MUTATION: ${{ inputs.mutation_check }}
           NATIVE_MUTATION: ${{ inputs.native_transition_mutation_check }}
         run: |
@@ -210,7 +208,7 @@ jobs:
           git diff --check
           git diff -- codex-rs > "$RUNNER_TEMP/profile-tui-formatted.patch"
       - name: Reuse identified frontend for compatibility checks
-        if: (inputs.scope || 'full') == 'frontend-compatibility'
+        if: inputs.scope == 'frontend-compatibility'
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -234,7 +232,7 @@ jobs:
               env.write(f'CODEX_QUALIFICATION_CLI={binary}\n')
           PYTHON
       - name: Build actual patched CLI with pinned external dependencies
-        if: (inputs.scope || 'full') == 'full'
+        if: inputs.scope == 'full'
         shell: bash
         run: |
           set -euo pipefail
@@ -242,7 +240,7 @@ jobs:
           cargo "+$RUST_VERSION" build --release --locked --target aarch64-unknown-linux-musl -p codex-cli --bin codex
           git diff --check
       - name: Execute and identify native frontend
-        if: (inputs.scope || 'full') == 'full'
+        if: inputs.scope == 'full'
         shell: bash
         run: |
           set -euo pipefail
@@ -271,7 +269,7 @@ jobs:
           printf 'upstream_sha=%s\nsource_sha=%s\ntarget=aarch64-unknown-linux-musl\nprofile=release opt-level=z codegen-units=1 strip=symbols\n' "$UPSTREAM_SHA" "$GITHUB_SHA" > "$root/artifact/source.txt"
           cat "$root/artifact/version.txt" "$root/artifact/source.txt" "$root/artifact/sha256.txt"
       - name: Upload unsigned frontend candidate
-        if: (inputs.scope || 'full') == 'full'
+        if: inputs.scope == 'full'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: manager-tui-native
@@ -280,7 +278,7 @@ jobs:
           retention-days: 3
           compression-level: 1
       - name: Prepare bounded nonowner ownership fixture
-        if: (inputs.scope || 'full') == 'full'
+        if: inputs.scope == 'full'
         shell: bash
         run: |
           set -euo pipefail
@@ -294,7 +292,7 @@ jobs:
           sudo chown 0 "$fixture"
           echo "CODEX_PROFILE_NONOWNER_CORE=$fixture" >> "$GITHUB_ENV"
       - name: Focused actual native TUI regressions
-        if: (inputs.scope || 'full') == 'full'
+        if: inputs.scope == 'full'
         shell: bash
         run: |
           set -euo pipefail
@@ -303,7 +301,7 @@ jobs:
           python3 "$GITHUB_WORKSPACE/experiment/frontend/tui/check_command_boundary.py" "$RUNNER_TEMP/profile-tui-pristine" --patched "$GITHUB_WORKSPACE/upstream" --test-log "$RUNNER_TEMP/profile-tui-focused.log"
           python3 "$GITHUB_WORKSPACE/experiment/.github/scripts/tui_regression_results.py" "$RUNNER_TEMP/profile-tui-focused.log"
       - name: Verify owner and model admission regressions detect their independent faults
-        if: (inputs.scope || 'full') == 'full'
+        if: inputs.scope == 'full'
         shell: bash
         run: |
           set -euo pipefail
@@ -357,7 +355,7 @@ jobs:
           cmp "$mask_original" "$mask_source"
           trap - EXIT
       - name: Verify Native inference and configuration libraries
-        if: (inputs.scope || 'full') == 'full'
+        if: inputs.scope == 'full'
         shell: bash
         run: |
           set -euo pipefail
@@ -380,7 +378,7 @@ jobs:
               nonzero_tests((root / f'native-provider-{name}.log').read_text())
           PYTHON
       - name: Verify Native completion uses original OS wait evidence
-        if: (inputs.scope || 'full') == 'full'
+        if: inputs.scope == 'full'
         shell: bash
         run: |
           set -euo pipefail
@@ -398,7 +396,7 @@ jobs:
           just test --retries 0 --status-level pass --locked --target aarch64-unknown-linux-musl -p codex-hooks --lib -E 'test(native_completion_)' 2>&1 | tee "$RUNNER_TEMP/native-provider-completion-hooks.log"
           python3 "$GITHUB_WORKSPACE/experiment/.github/scripts/native_completion_results.py" hooks "$RUNNER_TEMP/native-provider-completion-hooks.log"
       - name: Verify actual hook matching used by Native resource proof
-        if: (inputs.scope || 'full') == 'full'
+        if: inputs.scope == 'full'
         shell: bash
         run: |
           set -euo pipefail
@@ -419,7 +417,7 @@ jobs:
           assert re.search(r'test result: ok\. [4-9][0-9]* passed; 0 failed; 0 ignored;', text), text[-6000:]
           PYTHON
       - name: Verify Native provider API
-        if: (inputs.scope || 'full') != 'frontend-compatibility'
+        if: inputs.scope != 'frontend-compatibility'
         shell: bash
         run: |
           set -euo pipefail
@@ -642,7 +640,7 @@ jobs:
           cmp "$original" "$source"
           trap - EXIT
       - name: Qualify retained upstream 0.162 features
-        if: (inputs.scope || 'full') != 'native-api'
+        if: inputs.scope != 'native-api'
         shell: bash
         run: |
           set -euo pipefail
@@ -680,7 +678,7 @@ jobs:
           retain_stage=retained-features
           PYTHONDONTWRITEBYTECODE=1 python3 "$GITHUB_WORKSPACE/experiment/frontend/tui/check_upstream_features.py" --run "$GITHUB_WORKSPACE/upstream" --logs "$RUNNER_TEMP"
       - name: Inspect TUI lint fixes
-        if: (inputs.scope || 'full') != 'native-api'
+        if: inputs.scope != 'native-api'
         shell: bash
         run: |
           set -euo pipefail

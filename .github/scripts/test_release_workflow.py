@@ -45,14 +45,14 @@ class WorkflowTests(unittest.TestCase):
         self.assertLess(build.index('export CARGO_TARGET_DIR='),build.index('cargo "+$RUST_VERSION" build'))
 
     def test_every_final_development_head_has_readonly_component_receipts(self):
-        for name in ('core-runtime-qualification.yml','manager-qualification.yml','full-qualification.yml','provider-qualification.yml','manager-tui-native.yml'):
+        for name in ('core-runtime-qualification.yml','manager-qualification.yml','full-qualification.yml','provider-qualification.yml'):
             text=(ROOT/'.github/workflows'/name).read_text()
             header=text.split('permissions:',1)[0]
             self.assertIn('branches: [rewrite/rust-core]',header)
             self.assertNotIn('paths:',header)
         text=(ROOT/'.github/workflows/manager-tui-native.yml').read_text()
         step=text.split('      - name: Verify actual hook matching used by Native resource proof',1)[1].split('      - name:',1)[0]
-        self.assertIn("if: (inputs.scope || 'full') == 'full'",step)
+        self.assertIn("if: inputs.scope == 'full'",step)
         self.assertIn('-p codex-hooks --lib native_resource_proof_',step)
         for name in ('retains_unrelated_input_hook_and_its_dispatch',
                      'rejects_each_matching_tool_event_and_permission_alias',
@@ -62,11 +62,11 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn('0 failed; 0 ignored;',step)
         self.assertNotIn('continue-on-error',step)
 
-    def test_native_push_defaults_to_complete_unsigned_qualification(self):
+    def test_native_manual_qualification_preserves_full_gates_and_release_intent(self):
         text=(ROOT/'.github/workflows/manager-tui-native.yml').read_text()
         header,body=text.split('\njobs:\n',1)
-        self.assertIn('  push:\n    branches: [rewrite/rust-core]\n',header)
-        self.assertIn("inputs.scope || 'full'",header)
+        self.assertNotIn('  push:',header)
+        self.assertIn("default: full",header)
         self.assertIn('cancel-in-progress: false',header)
         self.assertNotIn('paths:',header)
         build,relay=body.split('\n  notify_acceptance:',1)
@@ -89,7 +89,7 @@ class WorkflowTests(unittest.TestCase):
             'Verify Native completion uses original OS wait evidence',
             'Verify actual hook matching used by Native resource proof',
         )
-        scopes=(None,'','full','native-api','frontend-compatibility')
+        scopes=('full','native-api','frontend-compatibility')
         def evaluate(expression,scope):
             expression=expression.replace('inputs.scope',repr(scope))
             return eval(expression.replace('||',' or ').replace('&&',' and '),
@@ -98,7 +98,7 @@ class WorkflowTests(unittest.TestCase):
             for name in full_steps:
                 condition=re.search(r'(?m)^        if: (.+)$',blocks[name])[1]
                 with self.subTest(scope=scope,step=name):
-                    self.assertEqual(evaluate(condition,scope),(scope or 'full')=='full')
+                    self.assertEqual(evaluate(condition,scope),scope=='full')
             for name,excluded in (
                 ('Verify Native provider API','frontend-compatibility'),
                 ('Qualify retained upstream 0.162 features','native-api'),
@@ -106,14 +106,14 @@ class WorkflowTests(unittest.TestCase):
             ):
                 condition=re.search(r'(?m)^        if: (.+)$',blocks[name])[1]
                 with self.subTest(scope=scope,step=name):
-                    self.assertEqual(evaluate(condition,scope),(scope or 'full')!=excluded)
-        # Execute the actual validation shell, including absent push inputs and
-        # explicit focused dispatches; do not merely mirror its string shape.
+                    self.assertEqual(evaluate(condition,scope),scope!=excluded)
+        # Execute the actual validation shell for all supported manual scopes
+        # and missing/invalid input; do not merely mirror its string shape.
         selection=blocks['Validate qualification selection']
         expression=re.search(r'SCOPE: \$\{\{ (.+) \}\}',selection)[1]
         lines=selection.split('        run: |\n',1)[1].splitlines()
         command='\n'.join(line[10:] for line in lines)
-        for scope in (*scopes,'unknown'):
+        for scope in (*scopes,'','unknown'):
             resolved=evaluate(expression,scope)
             for mutation,native_mutation in (('false','false'),('true','false'),
                                              ('false','true'),('true','true')):
@@ -147,7 +147,7 @@ class WorkflowTests(unittest.TestCase):
         from tui_regression_results import REQUIRED
         text=(ROOT/'.github/workflows/manager-tui-native.yml').read_text()
         step=text.split('      - name: Focused actual native TUI regressions',1)[1].split('      - name:',1)[0]
-        self.assertIn("if: (inputs.scope || 'full') == 'full'",step)
+        self.assertIn("if: inputs.scope == 'full'",step)
         self.assertIn('--retries 0',step)
         selectors=re.findall(r'test\(([^)]+)\)',step)
         for name in REQUIRED:
