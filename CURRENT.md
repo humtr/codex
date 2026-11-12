@@ -34,29 +34,40 @@ The recipe now selects Codex **0.167.2**, upstream source
 discovery advanced development to `ec51fe4a5f5153a441cf78b1e8ce108050274e80`
 at 00:48:38 UTC on November 12. It changes only the release recipe and is a
 direct child of checkpoint J. Integration preserves it in merge `795e0cae`.
-The integrated producer base applied and normalized successfully on this input;
-its later Hook/wait correction `210dec0c` also passed combined 0.167.2
-Native-plus-TUI preparation, exact lock audit and 52 constructor checks. The four
-selected wire/history tests passed again on its frozen 0.167.1 dependency closure
-(receipt `8b45aa80dc06deb2a885c4096a9b5ac961b9f4bf00109fb74610f0885204a352`).
-That selected run does not prove the full 0.167.2 Core or hosted suite. The
-independent Core Runtime workflow now requires the same mandatory named completion
-oracles as the Full TUI path, with full PTY and Rollout suites; its final hosted
-execution and Provider consumer acceptance remain pending.
-The first remote basic-Runtime checkpoint `5f05d2d5` completed run
-[43138521772](https://github.com/humtr/codex/actions/runs/43138521772) with
-**failure**. Its workflow/document contracts passed 57 tests and protocol
-schema generation succeeded. The entire PTY package passed 66 tests, including
-all five required completion cases. Core compilation then failed before its
-selected tests: the late-history path named `RolloutItem` in the wrong crate and
-the event conversion lacked `HasLegacyEvent` in scope. Commit `69d402b3` corrects
-those production references; its hosted execution remains unproved here. The
-original job log is bound by SHA256
-`f169aa25587d7d029dff259421d9685341d6a3dae54b34bacc14d1409b69b5e0`.
-Parent OS wait does not prove detached descendants ended. The existing spawn
-helper supervision still needs complete producer/consumer execution evidence.
-The precise CodeMode handler admission correction is integrated from `30607112`;
-it is distinct from the pending process-tree completion qualification.
+The final Runtime producer is integrated as `f2aef205` from `7f3c3ef2`,
+paired with Provider consumer `e8a08631` from `85372085`. Both Core-only
+`--frontend upstream` preparation and separate Enhanced TUI preparation passed
+on the exact 0.167.2 source. The normalized lock contains the same 1,308 external
+identities and 171 workspace version updates; its SHA256 is
+`5e1781c98407bf0cbf67bb39a2dffffa6d2a259871a47fe99946de22c716a782`.
+Assembly receipt: `38ebbe9af8b90520d10a8dfe9fac03ba80276bf246455319362af59fadfd2753`.
+This source preparation does not prove hosted Core compilation or execution.
+
+The earlier basic-Runtime run
+[43138521772](https://github.com/humtr/codex/actions/runs/43138521772)
+failed Core compilation after PTY 66/66: the late-history path named RolloutItem
+in the wrong crate and lacked HasLegacyEvent in scope. Those production-reference
+corrections are proved at `dabd08ff52a7846e58ed913d8191626e9a4d315f` by terminal
+successful run [43142830623](https://github.com/humtr/codex/actions/runs/43142830623),
+completed 03:21:40 UTC. All 34 named gates passed: Core 24, full PTY 66,
+full rollout 163, protocol 2, app-server protocol 1, Native hooks 1 and hook
+matching 4; both schema checks and final cache save passed. Original proof
+artifact 13911434762 is 114,366 bytes, ZIP SHA256
+`391c3ec12206b327c816005e3fb8a71c96260a208b09edebf2dc6941faae8987`.
+This earlier compiler checkpoint does not qualify the later process-tree code.
+
+Parent OS wait alone cannot prove detached descendants ended. The final producer
+uses the existing pre-thread spawn helper to supervise each execution. Positive
+root wait, exclusive child reaping through ECHILD, a private completion frame,
+EOF and successful helper wait are required together. Stop/pruning targets only
+the selected scope; root status remains distinct from descendant lifetime.
+Device helper/PTY focus passed 15/15 with zero ignored and strict production-lib
+Clippy. An earlier full Android PTY run passed 52/54: both failures were reproduced
+on pristine upstream and remain failures, not accepted candidate passes.
+Final focused receipt: `76fa362e3b2843446577360257184812ded8e12c594a95a5403a8e795b0afbbe`.
+Independent final producer review:
+`a441b1e59c401f7925ff4e9248a829ab48bd6189dc418ef2b6fa8767a95f86e1`.
+Exact integrated Core/Runtime and TUI execution remains an acceptance boundary.
 
 The bot's unchanged-producer Source and Core/Runtime gates passed separately;
 they do not qualify the new input-inventory and completion changes. The observed operating
@@ -69,11 +80,15 @@ Native integration a55d5bb8, PR #29's current alias and the account draft
 2dd07d42 (through 8f97affc) are already integrated. No primary checkout reset,
 branch deletion or whole obsolete-lineage replacement occurred.
 
-At the f06fd10e inventory there were 97 local/tracking refs, 89 worktrees,
-31 actual remote heads, 166 local tags and 257 remote tag names. There were no
-common-name tag SHA mismatches or open PRs. Subsequent owned development
-worktrees are not included in that snapshot; final accounting must refresh it.
-Receipt: `5e4460cec925df7342610f96eadac10f91587b14c9ba95fd5db916efc4eddc3c`.
+At the 03:14:44–03:18:45 UTC inventory, there were 112 local/tracking refs,
+95 worktrees, 45 actual remote heads, 166 local tag names and 257 remote tag
+names. No common-name tag SHA mismatch or open PR was found. All refs have a
+classified disposition; 73 unchanged and 16 unchanged transfer dispositions
+were reused, and 23 current/owned classifications refreshed. Actual remote
+heads are distinguished from stale local tracking refs. No branch was deleted.
+Receipt: `db0207c8fb8048701a29fcf2e8e804ca81a5f226f415e48afe4f23cc56b15408`.
+The finite integration record carries this snapshot and later integrated-source
+corrections; it is not a claim that no ref can subsequently advance.
 
 The observed bridge outage ended at 02:44 UTC. Exact original-call requery
 recovered root590, Models693, Native1115 and Release823 before continuing their
@@ -86,14 +101,15 @@ workflow/document checks passed on that tree. The expired temporary outage
 notice and its navigation pointers were retired after this reconciliation;
 Git history preserves the notice and unverified WIP checkpoints.
 
-Gate commit `7fc480f6` requires all 49 named original-execution and descendant
-oracles in both Runtime and full-TUI proof. Its 63 workflow/document tests,
-YAML parse and diff checks passed, receipt
-`227ecd3d322d32fe3428d118185c893aa42c8e0dc45fcdd23e15cafde6149ee5`.
-This gate-plumbing proof is not execution of those 49 upstream Rust tests.
-Complete TUI qualification again uses explicit manual dispatch, preserving
-all full gates and the unchanged explicit-intent publication relay. Unrelated
-source pushes do not automatically rebuild the optional frontend.
+Gate commit `2612cdce` requires all 50 named original-execution and descendant
+oracles in both independent Runtime proof and complete TUI qualification: 30
+Core, 15 PTY and five protocol/hook/history cases. Full PTY and rollout suites
+remain mandatory. Its 63 workflow/document tests, YAML parse and diff checks
+passed, receipt `00323625e691b7e67520a81f2237d341e395562e6f89cee0add81775315d0552`.
+This gate-plumbing proof is not execution of the final 50 upstream Rust tests.
+Full TUI uses explicit manual dispatch with all full gates and the unchanged
+explicit-intent publication relay. The temporary outage-only workflow is retired;
+independent Core Runtime qualification remains a permanent source gate.
 
 ## Independently observed operating installation
 
@@ -276,22 +292,40 @@ retained in the raw log, not hidden as an extra successful request. Summary
 `0513bac71065c1b4d083e56244c85746236530f21e36c1912f18eae9652f8bc7`;
 result `2c42c097693a164faab36302fc866bea30419b13d79a55d3a33469608423c9e2`.
 
+At 03:13:52 UTC the protected readback again matched all sixteen baseline
+files byte-for-byte and preserved their modes, sizes and mtimes: activation,
+public Core, keys and S163/S165 signed generation metadata/executables. S165's
+current pointer, the primary e4f9ab5d HEAD and its exact three untracked entries
+also remained unchanged. No operating command or mutation was needed.
+Receipt: `fc35769aad077b2d54aebcf35ab6c27945a0915e927bf80c86865d5d5810ebde`.
+
 ## Native effects, recovery and parallel availability
 
 The earlier P0 is already operationally recovered: NATIVE_RESOURCE_RECOVERED,
 SEQUENTIAL_EXEC_OK_2 and NATIVE_REUSE_OK exited 0, with fifteen claim tests.
 Its e4f9ab5d source patch is selectively integrated and patch-equivalent.
 
-New source supplies per-tool schema-2 hook facts, conservative legacy claim
-handling, verified source-scope handoff, original reservation persistence,
-bounded empty continuation polls and cold original-receipt restoration.
-Remote/caller fields cannot manufacture internal Native scope. Historical
-schema-1 facts cannot grant new parallel capability, and an already-running old
-Provider's unrecorded effects cannot be retroactively arbitrated.
+The integrated producer/consumer uses execution schema 4 and independently
+verified resource-scope schema 3. Fresh process-effect release requires canonical
+`process_tree_completed`; legacy parent-wait facts cannot release descendant
+scope. Older schema records remain readable and replayable without granting new
+parallel capability. Original results, late canonical End supplements and current
+continuation hook facts retain the same execution identity. Remote/caller fields
+cannot manufacture scope, and cached executable offers still need current
+verified dispatch capability. Exact CodeMode handlers are refused before effects;
+ordinary same-name tools are not treated as those handlers.
 
-The source-bound/reservation change at 911ceeb9 passed 374 Provider tests, zero
-failed, 34 existing explicitly gated live/asset/helper entries ignored, plus
-strict clippy. Counts are top-level and not added to earlier repeated suites.
+This qualification applies to the exact participating Runtime and Provider.
+Unrecorded effects in an already-running older Provider cannot be retroactively
+arbitrated by new source. No operating Provider was replaced for these checks.
+The final 17 Provider/qualifier files are byte-identical to the frozen `85372085`
+source. All-target tests passed **437 distinct cases** (338 library plus 99
+integration), zero failed and 34 existing gated live/asset/helper cases ignored.
+Recursive child summaries are not counted twice. Strict all-target Clippy,
+workspace/Provider format, 28 Python tests and diff checks passed.
+Receipt: `fb22b5411dfb05bdd5a3060c33260c7350f1c0ed7370265a251d932d8c48a709`.
+The original failing iterations remain preserved. Hosted final-source and actual
+new Runtime/Provider joint execution are separate from these local passes.
 
 | Actual execution | Result and proof boundary |
 | --- | --- |
@@ -305,14 +339,14 @@ an interrupted original result and unknown Stop ACK without replay. Attempt two
 recovered its original compiler exit-0 output after private Provider restart,
 but unloaded completion still called a loaded-only job API. B finished; A's
 original work/receipt remained preserved. This led to the Owner correction above
-and the completion/settlement work still in progress.
+and the completion/settlement corrections now integrated; joint execution remains pending.
 
 Independent pinned-source review proved additional unsafe assumptions:
 synthetic termination status can precede successful OS wait; a CreateProcess/
 Rejected error can follow spawn; absent asynchronously persisted history cannot
 prove non-dispatch. Three existing-consumer negative tests compiled and failed
-semantically before correction. The Runtime producer and Provider consumers are
-being corrected together. Stop ACK, empty jobs, terminal item or legacy exited
+semantically before correction. The Runtime producer and Provider consumers were
+corrected together in f2aef205/e8a08631; final joint acceptance remains separate. Stop ACK, empty jobs, terminal item or legacy exited
 boolean alone is not accepted as real process settlement. Earlier control tests
 that asserted only those weaker states cannot qualify the corrected boundary.
 Original raw results and failed receipts remain unchanged.
@@ -381,6 +415,16 @@ cancellation preserving unknown intent, process-group cleanup, concurrent
 one-effect execution, 64 KiB bound and private file modes. Three workers exited
 0; original Native sentinel and operating wrapper/Core stayed unchanged.
 Receipt: a7d828a8444baec9b47d4a1d427a7475e4b668ca8a3c87fa7b898576946ddff6.
+The final frozen worker from the same five-object Provider build closure passed
+actual private stdio again: single tool/common annotations, no Core/Provider,
+original-ID replay/restart/conflict, cancelled unknown intent and child cleanup,
+timeout, concurrent workers with one effect, exact 65,536-byte bound, private
+modes and unchanged sentinel. Three workers exited 0; five owned children were
+inactive. Worker SHA256:
+`21e82507bfd5349ab9445554a6dabf365005b82a9b1568248944344437b12816`.
+Execution receipt: `7a60052783151faac51459ebe4fcb454cde0faab741a7e656da1cd1c7d6488b4`;
+independent review: `bd15e1b11b73daedd6bb9e5014f8c86fa172b13a980e0c34f25b21bf9a16158b`.
+This does not yet prove the new worker plus final Runtime under Native Busy.
 The candidate was not activated in the connected tunnel. Refresh selects an
 explicit independent mcp_command, preserves legacy omission and refuses invalid
 explicit wrappers; eighteen client tests/109 assertions passed without a refresh.
@@ -450,6 +494,8 @@ reindex, thread-ID change or user-Writer termination occurred.
 | ec51fe4a5f5153a441cf78b1e8ce108050274e80 | Source, upstream discovery only | [43130011419](https://github.com/humtr/codex/actions/runs/43130011419) | success |
 | same upstream-discovery source | Core/Runtime | [43130014157](https://github.com/humtr/codex/actions/runs/43130014157) | success; completed 2026-11-12 01:28:06 UTC |
 | 5f05d2d50ab15b749536f54b66332c15d0b6134f | Preliminary Native Runtime proof | [43138521772](https://github.com/humtr/codex/actions/runs/43138521772) | failure: Core production compilation after PTY 66/66 |
+| dabd08ff52a7846e58ed913d8191626e9a4d315f | Earlier Native Runtime compiler/proof checkpoint | [43142830623](https://github.com/humtr/codex/actions/runs/43142830623) | success; 34 required checks, full PTY/rollout, final cache complete |
+| bfec2858798bfdea18843112019c3f3a1b9e6fc7 | Earlier Provider consumer checkpoint | [43143270459](https://github.com/humtr/codex/actions/runs/43143270459) | success; 429 distinct tests, predates final schema-4 tree proof |
 
 G full TUI completed 2026-11-11 23:41:42 UTC: focused 172/172; mandatory
 independent-fault oracles; Native/config/hooks/API; Retain TUI 53/53, engine
