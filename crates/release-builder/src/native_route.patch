@@ -1915,15 +1915,47 @@ index c9504fb56f24f94963cfba3fc68322958c17f305..09a0250fb965f0a370db25e9a942258c
          turn: Arc::clone(&step.turn),
          step_context: step,
 diff --git a/codex-rs/core/src/client.rs b/codex-rs/core/src/client.rs
-index 889a62680f58370efe3518bd72af035ffcd4b3fd..96b9ae99e025c7d0da969f8baedd0ec752eb0b09 100644
+index 889a62680f58370efe3518bd72af035ffcd4b3fd..1d5326656277fa61d88c005aca85c0c494c91291 100644
 --- a/codex-rs/core/src/client.rs
 +++ b/codex-rs/core/src/client.rs
-@@ -739,6 +739,36 @@ impl ModelClient {
+@@ -298,6 +298,7 @@ impl RequestRouteTelemetry {
+ #[derive(Debug, Clone)]
+ pub struct ModelClient {
+     state: Arc<ModelClientState>,
++    native_responses_route: bool,
+     agent_identity_policy: AgentIdentityAuthPolicy,
+     prompt_cache_key_policy: PromptCacheKey,
+     session_id_override: Option<String>,
+@@ -637,6 +638,7 @@ impl ModelClient {
+                 cached_websocket_session: StdMutex::new(WebsocketSession::default()),
+                 last_inference_tools: StdMutex::new(None),
+             }),
++            native_responses_route: false,
+             agent_identity_policy,
+             prompt_cache_key_policy: PromptCacheKey::default(),
+             session_id_override: None,
+@@ -652,6 +654,15 @@ impl ModelClient {
+         }
+     }
+ 
++    /// Bind the private Native ingress to the actual configured provider key.
++    /// This selects a wire compatibility boundary, not account or tool authority.
++    /// Ordinary clients keep their configured endpoint; request metadata cannot
++    /// opt into or bypass this route.
++    pub fn with_native_provider_route(mut self, provider_id: &str) -> Self {
++        self.native_responses_route = provider_id == "chatgpt_desktop";
++        self
++    }
++
+     pub(crate) fn with_executed_tool_calls(mut self, recorder: ExecutedToolCalls) -> Self {
+         self.executed_tool_calls = Some(recorder);
+         self
+@@ -739,6 +750,38 @@ impl ModelClient {
          }
      }
  
 +    /// Prepare another provider without carrying its predecessor's transport/cache state.
-+    pub(crate) fn with_provider(&self, provider: ModelProviderInfo) -> Self {
++    pub(crate) fn with_provider(&self, provider_id: &str, provider: ModelProviderInfo) -> Self {
 +        let state = &self.state;
 +        let fresh = Self::new(
 +            self.auth_manager(),
@@ -1944,9 +1976,11 @@ index 889a62680f58370efe3518bd72af035ffcd4b3fd..96b9ae99e025c7d0da969f8baedd0ec7
 +            self.http_client_factory.clone(),
 +            state.workspace_routing.clone(),
 +            self.request_contributors.clone(),
-+        );
++        )
++        .with_native_provider_route(provider_id);
 +        Self {
 +            state: fresh.state,
++            native_responses_route: fresh.native_responses_route,
 +            restored_history: true,
 +            ..self.clone()
 +        }
@@ -1955,6 +1989,213 @@ index 889a62680f58370efe3518bd72af035ffcd4b3fd..96b9ae99e025c7d0da969f8baedd0ec7
      /// Creates a fresh turn-scoped streaming session.
      ///
      /// This constructor does not perform network I/O itself; the session opens a websocket lazily
+@@ -1202,6 +1245,26 @@ impl ModelClient {
+     /// This centralizes setup used by both prewarm and normal request paths so they stay in
+     /// lockstep when auth/provider resolution changes.
+     async fn current_client_setup(&self, routing: ClientRouting) -> Result<CurrentClientSetup> {
++        self.validate_native_provider_base()?;
++        let native_responses =
++            self.native_responses_route && matches!(&routing, ClientRouting::Workspace);
++        let mut setup = self.current_client_setup_for_route(routing).await?;
++        if native_responses {
++            // One resolved Responses route covers normal, auxiliary, compaction,
++            // prewarm and WebSocket requests. Never fall back to an old Provider's
++            // unversioned ingress when optional execution facts are unavailable.
++            setup.api_provider.base_url = format!(
++                "{}/native-v4",
++                setup.api_provider.base_url.trim_end_matches('/'),
++            );
++        }
++        Ok(setup)
++    }
++
++    async fn current_client_setup_for_route(
++        &self,
++        routing: ClientRouting,
++    ) -> Result<CurrentClientSetup> {
+         if let Some((manager, mode)) = &self.runtime_auth {
+             let selected = codex_model_provider::select_runtime_auth(
+                 manager,
+@@ -1261,8 +1324,26 @@ impl ModelClient {
+             .await
+     }
+ 
++    fn validate_native_provider_base(&self) -> Result<()> {
++        if self.native_responses_route
++            && self
++                .state
++                .provider
++                .info()
++                .base_url
++                .as_deref()
++                .is_none_or(|base| base.trim().is_empty())
++        {
++            return Err(CodexErr::InvalidRequest(
++                "Native ChatGPT provider requires an explicit base_url".into(),
++            ));
++        }
++        Ok(())
++    }
++
+     // Realtime keeps provider auth until its runtime integration lands later in the stack.
+     async fn realtime_client_setup(&self) -> Result<CurrentClientSetup> {
++        self.validate_native_provider_base()?;
+         let provider = if self.state.provider.runtime_auth().is_some() {
+             create_model_provider(
+                 self.state.provider.info().clone(),
+diff --git a/codex-rs/core/src/client_tests.rs b/codex-rs/core/src/client_tests.rs
+index b6a539f56ce9c5ed6068b5bc0a7cf6e5111c2401..42b365a6e0c073b3b60a6d45c8bb32a645cbe76d 100644
+--- a/codex-rs/core/src/client_tests.rs
++++ b/codex-rs/core/src/client_tests.rs
+@@ -152,6 +152,148 @@ fn test_model_provider() -> SharedModelProvider {
+     test_model_client(SessionSource::Cli).state.provider.clone()
+ }
+ 
++#[tokio::test]
++async fn native_completion_provider_route_requires_versioned_native_ingress() -> anyhow::Result<()>
++{
++    async fn sample(client: &ModelClient) -> anyhow::Result<()> {
++        let prompt = Prompt {
++            base_instructions: BaseInstructions {
++                text: String::new(),
++                ..Default::default()
++            },
++            ..Default::default()
++        };
++        // No execution facts are attached: detached/auxiliary inference must
++        // retain the same compatibility fence as a toolful Native request.
++        let metadata = test_responses_metadata_for_client(
++            client,
++            None,
++            format!("{}:0", client.state.thread_id),
++            None,
++            TestCodexResponsesRequestKind::Turn,
++        );
++        let mut session = client.new_session();
++        let mut stream = session
++            .stream(
++                &prompt,
++                &test_model_info(),
++                &test_session_telemetry(),
++                None,
++                codex_protocol::config_types::ReasoningSummary::None,
++                None,
++                &metadata,
++                &InferenceTraceContext::disabled(),
++            )
++            .await?;
++        let mut completed = false;
++        while let Some(event) = stream.next().await {
++            completed |= matches!(event?, ResponseEvent::Completed { .. });
++        }
++        assert!(completed);
++        Ok(())
++    }
++
++    let server = MockServer::start().await;
++    let response = ResponseTemplate::new(200)
++        .insert_header("content-type", "text/event-stream")
++        .set_body_string(concat!(
++            "data: {\"type\":\"response.created\",\"response\":{\"id\":\"route-proof\"}}\n\n",
++            "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"route-proof\"}}\n\n",
++        ));
++    for endpoint in ["/v1/responses", "/v1/native-v4/responses"] {
++        Mock::given(method("POST"))
++            .and(path(endpoint))
++            .respond_with(response.clone())
++            .mount(&server)
++            .await;
++    }
++    let mut info =
++        create_oss_provider_with_base_url(&format!("{}/v1", server.uri()), WireApi::Responses);
++    info.name = "chatgpt_desktop".into();
++    info.supports_websockets = false;
++    let ordinary = test_model_client(SessionSource::Cli).with_provider("openai", info.clone());
++    let native = ordinary
++        .clone()
++        .with_native_provider_route("chatgpt_desktop");
++    let auxiliary = test_model_client(SessionSource::Internal(
++        InternalSessionSource::MemoryConsolidation,
++    ))
++    .with_provider("chatgpt_desktop", info.clone());
++    for (client, expected) in [
++        (ordinary, "/v1/responses"),
++        (native.clone(), "/v1/native-v4/responses"),
++        (auxiliary, "/v1/native-v4/responses"),
++        (
++            native.with_provider("openai", info.clone()),
++            "/v1/responses",
++        ),
++        (
++            native.with_provider("unrelated", info.clone()),
++            "/v1/responses",
++        ),
++    ] {
++        sample(&client).await?;
++        let requests = server
++            .received_requests()
++            .await
++            .ok_or_else(|| anyhow::anyhow!("missing captured response request"))?;
++        assert_eq!(
++            requests.last().map(|request| request.url.path()),
++            Some(expected)
++        );
++        assert_eq!(client.state.provider.info().base_url, info.base_url);
++    }
++    let setup = native
++        .current_client_setup(super::ClientRouting::Workspace)
++        .await?;
++    assert_eq!(
++        setup
++            .api_provider
++            .websocket_url_for_path("/responses")?
++            .path(),
++        "/v1/native-v4/responses",
++    );
++    assert_eq!(
++        native
++            .current_client_setup(super::ClientRouting::ConfiguredProvider)
++            .await?
++            .api_provider
++            .base_url,
++        info.base_url
++            .clone()
++            .ok_or_else(|| anyhow::anyhow!("missing test base"))?,
++    );
++
++    let mut missing_base = info.clone();
++    missing_base.base_url = None;
++    let missing = native.with_provider("chatgpt_desktop", missing_base);
++    let error = sample(&missing).await.err().ok_or_else(|| {
++        anyhow::anyhow!("a Native route must not resolve the default OpenAI destination")
++    })?;
++    assert!(error.to_string().contains("requires an explicit base_url"));
++    assert!(missing.realtime_client_setup().await.is_err());
++
++    // An old Provider accepts only this unversioned route. Its 404 on the
++    // private route must remain a failure: no retry may use the old ingress.
++    let legacy = MockServer::start().await;
++    Mock::given(method("POST"))
++        .and(path("/v1/responses"))
++        .respond_with(response)
++        .expect(0)
++        .mount(&legacy)
++        .await;
++    info.base_url = Some(format!("{}/v1", legacy.uri()));
++    let incompatible = native.with_provider("chatgpt_desktop", info);
++    assert!(sample(&incompatible).await.is_err());
++    let requests = legacy
++        .received_requests()
++        .await
++        .ok_or_else(|| anyhow::anyhow!("missing captured incompatible request"))?;
++    assert_eq!(requests.len(), 1);
++    assert_eq!(requests[0].url.path(), "/v1/native-v4/responses");
++    Ok(())
++}
++
+ #[test_case::test_case(None; "credential_auth")]
+ #[test_case::test_case(Some(RuntimeAuthMode::DualHeader); "dual_header")]
+ #[test_case::test_case(Some(RuntimeAuthMode::AssertionOnly); "assertion_only")]
 diff --git a/codex-rs/core/src/codex_delegate.rs b/codex-rs/core/src/codex_delegate.rs
 index d4227af4b1f031d13b540734d8ddbc77c9f40b6d..cfbf15e713f47768c0774fd3bcd9227624e0cbf6 100644
 --- a/codex-rs/core/src/codex_delegate.rs
@@ -2804,10 +3045,10 @@ index c0ac2d401b6367fa748d059d42db71149ff97f47..a8ac1c080bfd64d8b29a74d964e68846
              config.model_provider.clone(),
 diff --git a/codex-rs/core/src/native_completion.rs b/codex-rs/core/src/native_completion.rs
 new file mode 100644
-index 0000000000000000000000000000000000000000..3b9b9c56c615a665f08a509d56c1f650fc70ffb4
+index 0000000000000000000000000000000000000000..7e7e3912fc9e8e50797afc6b30cc158b81f31539
 --- /dev/null
 +++ b/codex-rs/core/src/native_completion.rs
-@@ -0,0 +1,1094 @@
+@@ -0,0 +1,1135 @@
 +//! Completion facts produced by Native, never inferred from command text.
 +//! The state belongs to the existing ToolCallState and survives its joined abort.
 +use crate::session::session::Session;
@@ -3313,11 +3554,16 @@ index 0000000000000000000000000000000000000000..3b9b9c56c615a665f08a509d56c1f650
 +    let Some(output) = text.find("\nOutput:") else {
 +        return;
 +    };
-+    if let Some(start) = text[..output].find(RUNNING) {
-+        text.replace_range(
-+            start..start + RUNNING.len(),
-+            "\nProcess scope remains active with session ID ",
-+        );
++    if text[..output].contains(RUNNING) {
++        // Existing consumers recognize this running-session line. A root's
++        // exit does not make the still-supervised scope terminal for them.
++        const EXITED: &str = "\nProcess exited with code ";
++        if let Some(start) = text[..output].find(EXITED) {
++            text.replace_range(
++                start..start + EXITED.len(),
++                "\nRoot process exited with code ",
++            );
++        }
 +    }
 +}
 +
@@ -3894,12 +4140,48 @@ index 0000000000000000000000000000000000000000..3b9b9c56c615a665f08a509d56c1f650
 +
 +    #[test]
 +    fn native_completion_scope_header_preserves_root_exit_and_child_output() {
-+        let mut text = "Wall time: 0.0100 seconds\nProcess exited with code 124\nProcess running with session ID 71\nOutput:\nProcess running with session ID child-spoof".to_owned();
-+        describe_supervised_scope(&mut text);
-+        assert_eq!(
-+            text,
-+            "Wall time: 0.0100 seconds\nProcess exited with code 124\nProcess scope remains active with session ID 71\nOutput:\nProcess running with session ID child-spoof"
-+        );
++        // Both preserved e4/7b and J consumers use this exact running-first
++        // terminal predicate (native_claims::process_status and
++        // mcp::native_process_result); the Output body is not authority.
++        let legacy_status = |text: &str| {
++            let header = text
++                .split_once("\nOutput:\n")
++                .map_or(text, |(header, _)| header);
++            let running = header
++                .find("Process running with session ID ")
++                .and_then(|start| {
++                    header[start + "Process running with session ID ".len()..]
++                        .split(|c: char| !c.is_ascii_digit())
++                        .next()?
++                        .parse::<u64>()
++                        .ok()
++                });
++            let exited = running.is_none()
++                && (header.contains("Process exited with code ")
++                    || header.contains("Process exited with signal "));
++            (running, exited)
++        };
++        for code in [0, 7, 124] {
++            let body = "Process exited with code 0\nProcess running with session ID child-spoof";
++            let mut pending = format!(
++                "Wall time: 0.0100 seconds\nProcess exited with code {code}\nProcess running with session ID 71\nOutput:\n{body}"
++            );
++            describe_supervised_scope(&mut pending);
++            assert_eq!(
++                pending,
++                format!(
++                    "Wall time: 0.0100 seconds\nRoot process exited with code {code}\nProcess running with session ID 71\nOutput:\n{body}"
++                )
++            );
++            assert_eq!(legacy_status(&pending), (Some(71), false));
++            let mut completed = format!(
++                "Wall time: 0.0100 seconds\nProcess exited with code {code}\nOutput:\n{body}"
++            );
++            let original = completed.clone();
++            describe_supervised_scope(&mut completed);
++            assert_eq!(completed, original);
++            assert_eq!(legacy_status(&completed), (None, true));
++        }
 +    }
 +}
 diff --git a/codex-rs/core/src/native_execution.rs b/codex-rs/core/src/native_execution.rs
@@ -5978,7 +6260,7 @@ index f73f895efd88925e4d9f43be9402bd60346e7f73..f4448b173720e933c2f5206bdae07810
          .get_model_info(&model, &config.to_models_manager_config())
          .await;
 diff --git a/codex-rs/core/src/session/session.rs b/codex-rs/core/src/session/session.rs
-index 52325c5d20ae22fddb1d1b06d5ff02bca92cb5c0..94c2de16fd0618955ce7a91a587afb47609fce50 100644
+index 52325c5d20ae22fddb1d1b06d5ff02bca92cb5c0..c93c949440fe88886c956f6718df4ab99ae15015 100644
 --- a/codex-rs/core/src/session/session.rs
 +++ b/codex-rs/core/src/session/session.rs
 @@ -415,6 +415,27 @@ impl SessionConfiguration {
@@ -6059,7 +6341,7 @@ index 52325c5d20ae22fddb1d1b06d5ff02bca92cb5c0..94c2de16fd0618955ce7a91a587afb47
                  git_root_discovery,
                  tool_approvals: Mutex::new(ApprovalStore::default()),
                  granted_permissions_by_environment_id: Arc::default(),
-@@ -1840,49 +1865,54 @@ impl Session {
+@@ -1840,49 +1865,55 @@ impl Session {
                  thread_store: Arc::clone(&thread_store),
                  attestation_provider: attestation_provider.clone(),
                  time_provider,
@@ -6133,6 +6415,7 @@ index 52325c5d20ae22fddb1d1b06d5ff02bca92cb5c0..94c2de16fd0618955ce7a91a587afb47
 -                    codex_responses_headers,
 -                    crate::cyber_access_program::ApiKeyCyberAccessPrograms::from_config(&config),
 -                ),
++                    .with_native_provider_route(&config.model_provider_id)
 +                    .with_executed_tool_calls(executed_tool_calls.clone())
 +                    .with_restored_history(matches!(
 +                        &initial_history,
@@ -6156,7 +6439,7 @@ index 52325c5d20ae22fddb1d1b06d5ff02bca92cb5c0..94c2de16fd0618955ce7a91a587afb47
                  executed_tool_calls: executed_tool_calls.clone(),
                  code_mode_service: crate::tools::code_mode::CodeModeService::new(
                      thread_id,
-@@ -1953,6 +1983,7 @@ impl Session {
+@@ -1953,6 +1984,7 @@ impl Session {
              let thread_config = sess
                  .effective_thread_config_snapshot(
                      &session_configuration,
@@ -6753,10 +7036,10 @@ index 7ac50acc55859d5723feb9002ac6611cab8809f6..208f5c614d53caaeece7f881d18ec276
              turn: Arc::clone(&turn_context),
              step_context,
 diff --git a/codex-rs/core/src/session/thread_settings.rs b/codex-rs/core/src/session/thread_settings.rs
-index c3a82eff0f558d024600627771ccdfd8a5f1e5b6..5a3adbbd8b02b4f62954f630b2c6cee954a65eac 100644
+index c3a82eff0f558d024600627771ccdfd8a5f1e5b6..d09708656d7e5cb4c43df33fb745396417ce51b1 100644
 --- a/codex-rs/core/src/session/thread_settings.rs
 +++ b/codex-rs/core/src/session/thread_settings.rs
-@@ -77,9 +77,52 @@ impl Session {
+@@ -77,9 +77,54 @@ impl Session {
  pub(super) async fn update(
      session: &Session,
      overrides: impl Into<WithTurnExtensionData<ThreadSettingsOverrides>>,
@@ -6793,7 +7076,9 @@ index c3a82eff0f558d024600627771ccdfd8a5f1e5b6..5a3adbbd8b02b4f62954f630b2c6cee9
 +            .try_ensure_rollout_materialized(codex_thread_store::PersistContext::Standard)
 +            .await?;
 +        let current = session.services.inference.load_full();
-+        let client = current.client.with_provider(config.model_provider.clone());
++        let client = current
++            .client
++            .with_provider(&config.model_provider_id, config.model_provider.clone());
 +        client.prewarm_auth().await?;
 +        let runtime = Arc::new(crate::state::InferenceRuntime {
 +            client,
@@ -6812,7 +7097,7 @@ index c3a82eff0f558d024600627771ccdfd8a5f1e5b6..5a3adbbd8b02b4f62954f630b2c6cee9
      let active_turn = session.active_turn.lock().await;
      // A registered running task retains its lineage so it can be recovered after a daemon
      // restart. Reservations and finishing turns have no interrupted work to continue.
-@@ -169,7 +212,7 @@ pub(super) async fn emit_applied(
+@@ -169,7 +214,7 @@ pub(super) async fn emit_applied(
      session: &Session,
      submission_id: String,
      snapshot: ThreadSettingsSnapshot,
@@ -6821,7 +7106,7 @@ index c3a82eff0f558d024600627771ccdfd8a5f1e5b6..5a3adbbd8b02b4f62954f630b2c6cee9
      let msg = EventMsg::ThreadSettingsApplied(ThreadSettingsAppliedEvent {
          thread_id: Some(session.thread_id()),
          thread_settings: snapshot,
-@@ -179,7 +222,7 @@ pub(super) async fn emit_applied(
+@@ -179,7 +224,7 @@ pub(super) async fn emit_applied(
              id: submission_id,
              msg,
          })
@@ -8288,13 +8573,48 @@ index 194c5d6bcacb966640dfaa8886f0a901b7410f94..80388c7af4aab0e0eba3343aa2aaf25a
          step_context,
          turn,
 diff --git a/codex-rs/core/src/unified_exec/async_watcher.rs b/codex-rs/core/src/unified_exec/async_watcher.rs
-index 49ae8b2cf27c7da1e8c9654e80c4ccaa5726361f..4fd4b300e6ac153a887c3cd5fce8b44662fc786b 100644
+index 49ae8b2cf27c7da1e8c9654e80c4ccaa5726361f..2fa8bf93d674fc1a32efc9f7c8ff16b5e1eb4ea3 100644
 --- a/codex-rs/core/src/unified_exec/async_watcher.rs
 +++ b/codex-rs/core/src/unified_exec/async_watcher.rs
-@@ -176,7 +176,16 @@ pub(crate) fn spawn_exit_watcher(
+@@ -167,6 +167,33 @@ pub(crate) fn spawn_exit_watcher(
+     network_denial_monitor: Option<tokio::task::JoinHandle<()>>,
+     plugin_metrics_sidecar: Option<SharedPluginMetricsSidecar>,
+ ) {
++    tokio::spawn(exit_watcher(
++        process,
++        context,
++        command,
++        cwd,
++        process_id,
++        plugin_attribution,
++        output_buffer,
++        started_at,
++        network_denial_monitor,
++        plugin_metrics_sidecar,
++    ));
++}
++
++#[allow(clippy::too_many_arguments)]
++fn exit_watcher(
++    process: Arc<UnifiedExecProcess>,
++    context: &UnifiedExecContext,
++    command: Vec<String>,
++    cwd: PathUri,
++    process_id: i32,
++    plugin_attribution: Option<PluginCommandAttribution>,
++    output_buffer: Arc<Mutex<OutputBuffers>>,
++    started_at: Instant,
++    network_denial_monitor: Option<tokio::task::JoinHandle<()>>,
++    plugin_metrics_sidecar: Option<SharedPluginMetricsSidecar>,
++) -> impl std::future::Future<Output = ()> + Send + 'static {
+     let session_ref = Arc::clone(&context.session);
+     let turn_ref = Arc::clone(&context.step_context.turn);
+     let model_info = Arc::clone(&context.step_context.settings.model_info);
+@@ -176,7 +203,16 @@ pub(crate) fn spawn_exit_watcher(
      let output_drained = process.output_drained_notify();
      let interaction_lock = process.interaction_lock();
  
+-    tokio::spawn(async move {
 +    let context_session = Arc::clone(&session_ref);
 +    // Register before spawning, while the admitted process is still owned.
 +    // Remote/unknown processes cannot produce this proof and must not prolong
@@ -8303,12 +8623,27 @@ index 49ae8b2cf27c7da1e8c9654e80c4ccaa5726361f..4fd4b300e6ac153a887c3cd5fce8b446
 +        .has_admitted_native_wait()
 +        .then(|| session_ref.track_native_completion())
 +        .flatten();
-     tokio::spawn(async move {
++    async move {
 +        let _completion_persistence = completion_persistence;
          exit_token.cancelled().await;
          output_drained.notified().await;
          // Deferred network denial deliberately remains observable for a short
-@@ -191,7 +200,7 @@ pub(crate) fn spawn_exit_watcher(
+@@ -185,13 +221,21 @@ pub(crate) fn spawn_exit_watcher(
+         if let Some(network_denial_monitor) = network_denial_monitor {
+             let _ = network_denial_monitor.await;
+         }
++        let duration = Instant::now().saturating_duration_since(started_at);
++        // A canonical completed item is terminal evidence to older Providers,
++        // even when they do not understand the new private completion field.
++        // Keep that projection pending until the same owned helper proves tree
++        // closure. No interaction lock is held while waiting for poll or Stop.
++        if process.is_tree_supervised() && !process.wait_for_process_tree().await {
++            tracing::warn!("Native process tree closure is unconfirmed; retain pending history");
++            return;
++        }
+         let _interaction_guard = interaction_lock.lock_owned().await;
+ 
+-        let duration = Instant::now().saturating_duration_since(started_at);
          let plugin_metrics_sidecar = plugin_metrics_sidecar
              .as_ref()
              .and_then(take_plugin_metrics_sidecar);
@@ -8317,7 +8652,7 @@ index 49ae8b2cf27c7da1e8c9654e80c4ccaa5726361f..4fd4b300e6ac153a887c3cd5fce8b446
              drop(plugin_metrics_sidecar);
              emit_failed_exec_end_for_unified_exec(
                  process.sandbox_type(),
-@@ -208,7 +217,7 @@ pub(crate) fn spawn_exit_watcher(
+@@ -208,7 +252,7 @@ pub(crate) fn spawn_exit_watcher(
                  message,
                  duration,
              )
@@ -8326,7 +8661,7 @@ index 49ae8b2cf27c7da1e8c9654e80c4ccaa5726361f..4fd4b300e6ac153a887c3cd5fce8b446
          } else {
              let exit_code = process.exit_code().unwrap_or(-1);
              let timed_out = process.timed_out();
-@@ -237,7 +246,18 @@ pub(crate) fn spawn_exit_watcher(
+@@ -237,9 +281,20 @@ pub(crate) fn spawn_exit_watcher(
                  duration,
                  timed_out,
              )
@@ -8344,9 +8679,12 @@ index 49ae8b2cf27c7da1e8c9654e80c4ccaa5726361f..4fd4b300e6ac153a887c3cd5fce8b446
 +            terminal.native_completion = Some(Some(proof));
 +            persist_native_completion(&context_session, terminal).await;
          }
-     });
+-    });
++    }
  }
-@@ -343,7 +363,7 @@ pub(crate) async fn emit_exec_end_for_unified_exec(
+ 
+ impl<const MAX_BYTES: usize> Buffer<MAX_BYTES> {
+@@ -343,7 +398,7 @@ pub(crate) async fn emit_exec_end_for_unified_exec(
      exit_code: i32,
      duration: Duration,
      timed_out: bool,
@@ -8355,7 +8693,7 @@ index 49ae8b2cf27c7da1e8c9654e80c4ccaa5726361f..4fd4b300e6ac153a887c3cd5fce8b446
      let aggregated_output = resolve_aggregated_output(&output_buffer, fallback_output).await;
      let output = ExecToolCallOutput {
          exit_code,
-@@ -353,6 +373,7 @@ pub(crate) async fn emit_exec_end_for_unified_exec(
+@@ -353,6 +408,7 @@ pub(crate) async fn emit_exec_end_for_unified_exec(
          duration,
          timed_out,
      };
@@ -8363,7 +8701,7 @@ index 49ae8b2cf27c7da1e8c9654e80c4ccaa5726361f..4fd4b300e6ac153a887c3cd5fce8b446
      let mut event_ctx = ToolEventCtx::new(
          session_ref.as_ref(),
          turn_ref.as_ref(),
-@@ -361,6 +382,7 @@ pub(crate) async fn emit_exec_end_for_unified_exec(
+@@ -361,6 +417,7 @@ pub(crate) async fn emit_exec_end_for_unified_exec(
          /*turn_diff_tracker*/ None,
      );
      event_ctx.sandbox_type = sandbox_type;
@@ -8371,7 +8709,7 @@ index 49ae8b2cf27c7da1e8c9654e80c4ccaa5726361f..4fd4b300e6ac153a887c3cd5fce8b446
      let emitter = ToolEmitter::unified_exec(
          &command,
          cwd,
-@@ -377,6 +399,7 @@ pub(crate) async fn emit_exec_end_for_unified_exec(
+@@ -377,6 +434,7 @@ pub(crate) async fn emit_exec_end_for_unified_exec(
              },
          )
          .await;
@@ -8379,7 +8717,7 @@ index 49ae8b2cf27c7da1e8c9654e80c4ccaa5726361f..4fd4b300e6ac153a887c3cd5fce8b446
  }
  
  #[allow(clippy::too_many_arguments)]
-@@ -394,7 +417,7 @@ pub(crate) async fn emit_failed_exec_end_for_unified_exec(
+@@ -394,7 +452,7 @@ pub(crate) async fn emit_failed_exec_end_for_unified_exec(
      fallback_output: String,
      message: String,
      duration: Duration,
@@ -8388,7 +8726,7 @@ index 49ae8b2cf27c7da1e8c9654e80c4ccaa5726361f..4fd4b300e6ac153a887c3cd5fce8b446
      let stdout = if fallback_output.is_empty() {
          resolve_aggregated_output(&output_buffer, fallback_output).await
      } else {
-@@ -413,6 +436,7 @@ pub(crate) async fn emit_failed_exec_end_for_unified_exec(
+@@ -413,6 +471,7 @@ pub(crate) async fn emit_failed_exec_end_for_unified_exec(
          duration,
          timed_out: false,
      };
@@ -8396,7 +8734,7 @@ index 49ae8b2cf27c7da1e8c9654e80c4ccaa5726361f..4fd4b300e6ac153a887c3cd5fce8b446
      let mut event_ctx = ToolEventCtx::new(
          session_ref.as_ref(),
          turn_ref.as_ref(),
-@@ -421,6 +445,7 @@ pub(crate) async fn emit_failed_exec_end_for_unified_exec(
+@@ -421,6 +480,7 @@ pub(crate) async fn emit_failed_exec_end_for_unified_exec(
          /*turn_diff_tracker*/ None,
      );
      event_ctx.sandbox_type = sandbox_type;
@@ -8404,7 +8742,7 @@ index 49ae8b2cf27c7da1e8c9654e80c4ccaa5726361f..4fd4b300e6ac153a887c3cd5fce8b446
      let emitter = ToolEmitter::unified_exec(
          &command,
          cwd,
-@@ -434,6 +459,7 @@ pub(crate) async fn emit_failed_exec_end_for_unified_exec(
+@@ -434,6 +494,7 @@ pub(crate) async fn emit_failed_exec_end_for_unified_exec(
              ToolEventStage::Failure(ToolEventFailure::Output(output)),
          )
          .await;
@@ -8412,7 +8750,7 @@ index 49ae8b2cf27c7da1e8c9654e80c4ccaa5726361f..4fd4b300e6ac153a887c3cd5fce8b446
  }
  
  /// Keep only a potentially incomplete UTF-8 suffix; malformed bytes remain raw.
-@@ -471,3 +497,18 @@ async fn resolve_aggregated_output(
+@@ -471,3 +532,18 @@ async fn resolve_aggregated_output(
  #[cfg(test)]
  #[path = "async_watcher_tests.rs"]
  mod tests;
@@ -8430,6 +8768,154 @@ index 49ae8b2cf27c7da1e8c9654e80c4ccaa5726361f..4fd4b300e6ac153a887c3cd5fce8b446
 +    if !session.persist_rollout_items(&items).await || session.flush_rollout().await.is_err() {
 +        tracing::warn!("Native completion persistence is unconfirmed; retain original effect");
 +    }
++}
+diff --git a/codex-rs/core/src/unified_exec/async_watcher_tests.rs b/codex-rs/core/src/unified_exec/async_watcher_tests.rs
+index 5e9973c75e80cec190ba92cf15cb4d02f2d03178..22b13efb5c5038bab12cffd96a362a54ae57e8c5 100644
+--- a/codex-rs/core/src/unified_exec/async_watcher_tests.rs
++++ b/codex-rs/core/src/unified_exec/async_watcher_tests.rs
+@@ -420,3 +420,143 @@ async fn streaming_output_bounds_invalid_bytes() {
+         ]
+     );
+ }
++
++#[cfg(any(target_os = "linux", target_os = "android"))]
++#[tokio::test]
++async fn native_completion_supervised_history_waits_for_tree_completion() -> anyhow::Result<()> {
++    use crate::native_completion::CallCompletion;
++    use crate::session::step_context::StepContext;
++    use codex_protocol::protocol::HasLegacyEvent;
++    use codex_tools::ToolName;
++    use codex_utils_absolute_path::AbsolutePathBuf;
++    use codex_utils_path_uri::PathUri;
++    use std::collections::HashMap;
++
++    for stop in [false, true] {
++        let (session, turn, rx_event) = make_session_and_context_with_rx().await;
++        let step = StepContext::for_test(turn);
++        let completion = Arc::new(CallCompletion::default());
++        let call_id = if stop { "stopped-tree" } else { "natural-tree" };
++        completion.capture(&session, &step, call_id, &ToolName::plain("exec_command"));
++        completion.bind_dispatch_hooks(session.hooks());
++        completion.bind_exec_session(71);
++        let attempt = completion
++            .begin_attempt()
++            .ok_or_else(|| anyhow::anyhow!("original supervised attempt"))?;
++        let owned = tempfile::tempdir()?;
++        let release = owned.path().join("release-descendant");
++        let (shell, sleep) = if cfg!(target_os = "android") {
++            ("/system/bin/sh", "/system/bin/sleep")
++        } else {
++            ("/bin/sh", "/bin/sleep")
++        };
++        let command = vec![
++            "-c".to_owned(),
++            "(exec >/dev/null 2>&1; while [ ! -f \"$1\" ]; do \"$2\" 0.01; done) & printf original-root; exit 7".to_owned(),
++            "owned-tree-history".to_owned(),
++            release.to_string_lossy().into_owned(),
++            sleep.to_owned(),
++        ];
++        let spawned = codex_utils_pty::pipe::spawn_process_guarded(
++            shell,
++            &command,
++            owned.path(),
++            &HashMap::new(),
++            &None,
++            &[],
++            true,
++        )
++        .await?;
++        let process = Arc::new(
++            UnifiedExecProcess::from_spawned_with_native_attempt(
++                spawned,
++                SandboxType::None,
++                Some(attempt),
++            )
++            .await?,
++        );
++        process.bind_native_origin(Some(Arc::clone(&completion)));
++        completion.finish(&session);
++        let context = UnifiedExecContext::new(
++            session,
++            step,
++            tokio_util::sync::CancellationToken::new(),
++            call_id.into(),
++        );
++        start_streaming_output(&process, &context);
++        let root_exited = process.cancellation_token();
++        tokio::time::timeout(Duration::from_secs(5), root_exited.cancelled()).await?;
++        let drained = process.output_drained_notify();
++        tokio::time::timeout(Duration::from_secs(5), drained.notified()).await?;
++        // Both predecessors are now ready. Restore the owned notification so
++        // polling the production watcher reaches its actual tree-wait boundary.
++        drained.notify_one();
++        assert_eq!(process.exit_code(), Some(7));
++        assert!(!process.scope_has_exited());
++        let watcher = super::exit_watcher(
++            Arc::clone(&process),
++            &context,
++            command,
++            PathUri::from(AbsolutePathBuf::from_absolute_path(owned.path())?),
++            71,
++            None,
++            Arc::clone(&process.output_handles().output_buffer),
++            Instant::now(),
++            None,
++            None,
++        );
++        tokio::pin!(watcher);
++        let pending = futures::poll!(watcher.as_mut()).is_pending();
++        let mut premature_terminal = false;
++        while let Ok(event) = rx_event.try_recv() {
++            premature_terminal |= matches!(
++                event.msg,
++                EventMsg::ItemCompleted(_) | EventMsg::ExecCommandEnd(_)
++            );
++        }
++        // Clean up the original child in both branches before checking the
++        // negative oracle, including when a disposable old-producer fault fires.
++        if stop {
++            process.terminate();
++        } else {
++            std::fs::write(&release, b"complete original descendant")?;
++        }
++        tokio::time::timeout(Duration::from_secs(5), watcher.as_mut()).await?;
++        assert!(pending);
++        assert!(
++            !premature_terminal,
++            "root exit must not publish terminal scope"
++        );
++        assert!(process.scope_has_exited());
++        assert_eq!(
++            process.exit_code(),
++            Some(7),
++            "Stop preserves original root status"
++        );
++        let mut completed = Vec::new();
++        while let Ok(event) = rx_event.try_recv() {
++            if let EventMsg::ItemCompleted(item) = event.msg {
++                completed.push(item);
++            }
++        }
++        assert_eq!(completed.len(), 1);
++        let canonical = completed
++            .pop()
++            .ok_or_else(|| anyhow::anyhow!("terminal item"))?;
++        let TurnItem::CommandExecution(item) = &canonical.item else {
++            anyhow::bail!("original command item required");
++        };
++        assert_eq!(item.id, call_id);
++        assert_eq!(item.process_id.as_deref(), Some("71"));
++        assert_eq!(item.exit_code, Some(7));
++        assert_eq!(item.aggregated_output.as_deref(), Some("original-root"));
++        let legacy = EventMsg::ItemCompleted(canonical).as_legacy_events(false);
++        let [EventMsg::ExecCommandEnd(end)] = legacy.as_slice() else {
++            anyhow::bail!("one original legacy terminal projection required");
++        };
++        assert_eq!(end.call_id, call_id);
++        assert_eq!(end.exit_code, 7);
++        assert_eq!(end.aggregated_output, "original-root");
++    }
++    Ok(())
 +}
 diff --git a/codex-rs/core/src/unified_exec/mod.rs b/codex-rs/core/src/unified_exec/mod.rs
 index 78ec3c5d90b4c9f8c2eb238834f777652d75172e..31a8ffed45518d084a7dfe0eb5a14f46cfa6693a 100644
@@ -9614,6 +10100,214 @@ index 0a6a5cbc0ff9c77f6d29a04a7677bddaf3ff47a8..0683089c12862296c4b73853ca0c4aa1
          service_tier: None,
          codex_self_exe: arg0_paths.codex_self_exe.clone(),
          codex_linux_sandbox_exe: arg0_paths.codex_linux_sandbox_exe.clone(),
+diff --git a/codex-rs/ext/guardian-v2/src/async_scorer/sampler.rs b/codex-rs/ext/guardian-v2/src/async_scorer/sampler.rs
+index 2dad92695d59908f684d06df5e2c3720850bb4b6..7516c5c28f98ae604e0cc76688da2366cbab0207 100644
+--- a/codex-rs/ext/guardian-v2/src/async_scorer/sampler.rs
++++ b/codex-rs/ext/guardian-v2/src/async_scorer/sampler.rs
+@@ -45,6 +45,8 @@ const MAX_CONCURRENT_REQUESTS: usize = 16;
+ 
+ /// Host-owned provider, authentication, and attribution for one Luna connection.
+ pub struct LunaSamplerConfig {
++    /// Actual configured Native adapter route; not inferred from model or account labels.
++    pub(super) native_responses_route: bool,
+     /// Provider and credentials selected for the owning thread.
+     pub provider: SharedModelProvider,
+     /// Provider and feature policy shared with ordinary model requests.
+diff --git a/codex-rs/ext/guardian-v2/src/async_scorer/sampler/connection_pool.rs b/codex-rs/ext/guardian-v2/src/async_scorer/sampler/connection_pool.rs
+index 23165a419f0b382af8d56edee3076142707be9fe..28feb625f8f992b8e13bfaafef62676b655af306 100644
+--- a/codex-rs/ext/guardian-v2/src/async_scorer/sampler/connection_pool.rs
++++ b/codex-rs/ext/guardian-v2/src/async_scorer/sampler/connection_pool.rs
+@@ -353,6 +353,21 @@ impl ConnectionPool {
+     }
+ 
+     async fn client_setup(&self) -> Result<ClientSetup, LunaSamplerError> {
++        if self.config.native_responses_route
++            && self
++                .config
++                .provider
++                .info()
++                .base_url
++                .as_deref()
++                .is_none_or(|base| base.trim().is_empty())
++        {
++            return Err(LunaSamplerError::Provider(
++                codex_protocol::error::CodexErr::InvalidRequest(
++                    "Native ChatGPT provider requires an explicit base_url".into(),
++                ),
++            ));
++        }
+         let mut auth_changes = self
+             .config
+             .provider
+@@ -360,7 +375,7 @@ impl ConnectionPool {
+             .map(|manager| manager.auth_change_receiver());
+         let revision = auth_changes.as_mut().map(|auth| *auth.borrow_and_update());
+         let ResolvedResponsesProvider {
+-            provider,
++            mut provider,
+             redirect_policy,
+         } = self
+             .config
+@@ -387,6 +402,12 @@ impl ConnectionPool {
+                 "authentication changed while resolving routing".into(),
+             )));
+         }
++        if self.config.native_responses_route {
++            // This classifier bypasses ModelClient. Bind its resolved HTTP and
++            // WebSocket destination to the same private Native compatibility
++            // ingress before deriving cache identity or opening a connection.
++            provider.base_url = format!("{}/native-v4", provider.base_url.trim_end_matches('/'));
++        }
+         let key = ResponsesConnectionKey::new(&provider, revision);
+         Ok(ClientSetup {
+             provider,
+diff --git a/codex-rs/ext/guardian-v2/src/async_scorer/sampler_routing_tests.rs b/codex-rs/ext/guardian-v2/src/async_scorer/sampler_routing_tests.rs
+index 5a94aed3ed681ce2670f7a3d70c5aa9912355a44..e39d0ff57a4889c5231758908597d3bf6c651b6d 100644
+--- a/codex-rs/ext/guardian-v2/src/async_scorer/sampler_routing_tests.rs
++++ b/codex-rs/ext/guardian-v2/src/async_scorer/sampler_routing_tests.rs
+@@ -305,3 +305,102 @@ async fn account_switch_cancels_request_opening_and_first_token_waits() -> Resul
+     }
+     Ok(())
+ }
++
++#[tokio::test]
++async fn native_completion_guardian_route_uses_selected_provider_ingress() -> Result<()> {
++    use wiremock::Mock;
++    use wiremock::ResponseTemplate;
++    use wiremock::matchers::method;
++    use wiremock::matchers::path;
++
++    let startup_server = responses::start_mock_server().await;
++    let test = core_test_support::test_codex::test_codex()
++        .build_with_auto_env(&startup_server)
++        .await?;
++    for (provider_id, current, explicit_base) in [
++        ("chatgpt_desktop", true, true),
++        ("openai", true, true),
++        ("other", true, true),
++        ("chatgpt_desktop", false, true),
++        ("chatgpt_desktop", true, false),
++    ] {
++        let server = responses::start_mock_server().await;
++        let expected = if provider_id == "chatgpt_desktop" {
++            "/v1/native-v4/responses"
++        } else {
++            "/v1/responses"
++        };
++        Mock::given(method("POST"))
++            .and(path(if current { expected } else { "/v1/responses" }))
++            .respond_with(
++                ResponseTemplate::new(200)
++                    .insert_header("content-type", "text/event-stream")
++                    .set_body_string(responses::sse(vec![
++                        ev_assistant_message("native-guardian", "low"),
++                        ev_completed("native-guardian"),
++                    ])),
++            )
++            .expect(if current && explicit_base { 1 } else { 0 })
++            .mount(&server)
++            .await;
++        let mut config = test.config.clone();
++        config.model_provider_id = provider_id.to_owned();
++        config.model_provider =
++            ModelProviderInfo::create_openai_provider(Some(format!("{}/v1", server.uri())));
++        if !explicit_base {
++            config.model_provider.base_url = None;
++        }
++        // Names and account/model labels do not select the Native path.
++        config.model_provider.name = "same-display-label".into();
++        config.model_provider.supports_websockets = false;
++        let session_store = codex_extension_api::ExtensionData::new("native-ingress-session");
++        let thread_store = codex_extension_api::ExtensionData::new("native-ingress-thread");
++        let input = codex_extension_api::ThreadStartInput {
++            config: &config,
++            session_source: &codex_protocol::protocol::SessionSource::Exec,
++            persistent_thread_state_available: false,
++            environments: &[],
++            mcp_resource_client: None,
++            extension_metrics: None,
++            session_store: &session_store,
++            thread_store: &thread_store,
++        };
++        let auth = AuthManager::from_auth_for_testing(CodexAuth::from_api_key("owned-fixture-key"));
++        let classifier =
++            crate::async_scorer::startup::sampler_config(&input, auth, /*manager*/ None).await;
++        assert_eq!(
++            classifier.provider.info().base_url,
++            config.model_provider.base_url
++        );
++        let sampler = super::LunaSampler::new(classifier);
++        let result = sampler.sample(sample_request("native-ingress-turn")).await;
++        if current && explicit_base {
++            assert_eq!(result?, "low");
++        } else {
++            let error = result
++                .err()
++                .ok_or_else(|| anyhow::anyhow!("unsupported Native route"))?;
++            if !explicit_base {
++                assert!(error.to_string().contains("requires an explicit base_url"));
++            }
++        }
++        let requests = server
++            .received_requests()
++            .await
++            .ok_or_else(|| anyhow::anyhow!("missing actual classifier request"))?;
++        if !explicit_base {
++            assert!(requests.is_empty());
++            continue;
++        }
++        assert_eq!(requests.len(), 1);
++        assert_eq!(requests[0].url.path(), expected);
++        let body: serde_json::Value = serde_json::from_slice(&requests[0].body)?;
++        assert_eq!(body["tool_choice"], "none");
++        assert!(body.get("tools").is_none_or(serde_json::Value::is_null));
++        assert!(
++            body.get("client_metadata")
++                .is_none_or(serde_json::Value::is_null)
++        );
++    }
++    Ok(())
++}
+diff --git a/codex-rs/ext/guardian-v2/src/async_scorer/sampler_tests.rs b/codex-rs/ext/guardian-v2/src/async_scorer/sampler_tests.rs
+index 69ea60efe301e1d97be0b2b376c01dd08a6a987c..5f0677762a121f7554d351b239ddf310908c2cba 100644
+--- a/codex-rs/ext/guardian-v2/src/async_scorer/sampler_tests.rs
++++ b/codex-rs/ext/guardian-v2/src/async_scorer/sampler_tests.rs
+@@ -240,6 +240,7 @@ pub(in crate::async_scorer) async fn proxy_websocket_servers_with_http(
+ 
+ pub(in crate::async_scorer) fn sampler_config(base_url: String) -> LunaSamplerConfig {
+     LunaSamplerConfig {
++        native_responses_route: false,
+         api_key_cyber_access_programs: ApiKeyCyberAccessPrograms::Disabled,
+         workspace_routing: codex_model_provider::WorkspaceRoutingContext::new(
+             "https://chatgpt.com/backend-api".into(),
+@@ -655,6 +656,7 @@ async fn preconnected_sampler_reuses_authenticated_websocket_for_classifications
+     );
+ 
+     let sampler = connect_sampler(LunaSamplerConfig {
++        native_responses_route: false,
+         api_key_cyber_access_programs: ApiKeyCyberAccessPrograms::Disabled,
+         workspace_routing: codex_model_provider::WorkspaceRoutingContext::new(
+             "https://chatgpt.com/backend-api".into(),
+@@ -835,6 +837,7 @@ async fn sampler_returns_classification_token_before_terminal_response_events()
+         ))),
+     );
+     let sampler = connect_sampler(LunaSamplerConfig {
++        native_responses_route: false,
+         api_key_cyber_access_programs: ApiKeyCyberAccessPrograms::Disabled,
+         workspace_routing: codex_model_provider::WorkspaceRoutingContext::new(
+             "https://chatgpt.com/backend-api".into(),
+diff --git a/codex-rs/ext/guardian-v2/src/async_scorer/startup.rs b/codex-rs/ext/guardian-v2/src/async_scorer/startup.rs
+index c7521b050ec649ed34d6f9672570ab87383eec56..e30d68a025b9c6104ceac476bc0f19d1b0010b01 100644
+--- a/codex-rs/ext/guardian-v2/src/async_scorer/startup.rs
++++ b/codex-rs/ext/guardian-v2/src/async_scorer/startup.rs
+@@ -103,6 +103,7 @@ pub(super) async fn sampler_config(
+             });
+     let luna_compaction_hash = luna_model.and_then(|model| model.comp_hash.clone());
+     LunaSamplerConfig {
++        native_responses_route: input.config.model_provider_id == "chatgpt_desktop",
+         api_key_cyber_access_programs: ApiKeyCyberAccessPrograms::from_config(input.config),
+         workspace_routing: input
+             .thread_store
 diff --git a/codex-rs/hooks/src/engine/command_runner.rs b/codex-rs/hooks/src/engine/command_runner.rs
 index 00cd404713c0bea3db25b4356b328940b45ec971..1d6626ab6d0e41d4540741cf1b9e9efaeb2a02d2 100644
 --- a/codex-rs/hooks/src/engine/command_runner.rs
@@ -9900,6 +10594,20 @@ index 244ef754313b297515062922c31a68eae6ebca19..b82da1d62a447444d0f008bac9957739
      /// List this session's declarations, including hooks that are disabled or not yet trusted.
      pub fn list_with_environment_hooks(
          &self,
+diff --git a/codex-rs/memories/write/src/runtime.rs b/codex-rs/memories/write/src/runtime.rs
+index 7eff8ef926eb7d16aa5c70f216a5f1402a203d4a..e5f808c1698a864945709a2506c3763c0752475f 100644
+--- a/codex-rs/memories/write/src/runtime.rs
++++ b/codex-rs/memories/write/src/runtime.rs
+@@ -345,7 +345,8 @@ impl MemoryStartupContext {
+             config.http_client_factory(),
+             config.workspace_routing_context(),
+             Vec::new(),
+-        );
++        )
++        .with_native_provider_route(&config.model_provider_id);
+ 
+         let mut client_session = model_client.new_session();
+         let window_id = format!("{}:0", self.thread_id);
 diff --git a/codex-rs/protocol/src/legacy_events.rs b/codex-rs/protocol/src/legacy_events.rs
 index 6aa205ba1c2d0bcffc7057c3ff255e9992be4bc1..801a0067cfe7c754ce65dc26f8641b5969f7f90d 100644
 --- a/codex-rs/protocol/src/legacy_events.rs
