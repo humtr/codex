@@ -25,8 +25,9 @@ CI. These are not intermediate approval gates.
    Run the intentional old-d2/S165 private-handoff refusals separately.
    A read-only observed live Owner is not the original user's exact error screen.
 4. Complete exact-source full TUI and Full composition. G's pin, compaction
-   and Retain gates passed; J's later nineteen named reentry/model cases and
-   full run remain in progress. New Owner/Runtime/Provider source requires
+   and Retain gates passed; J's focused target failed to compile a missing App
+   fixture field, before any of its nineteen named cases ran. The constructor
+   correction needs hosted execution. New Owner/Runtime/Provider source requires
    new exact-source gates. Retain original six immutable Full inputs.
 5. Finish final-composition Native/terminal checks, independent review,
    exact-head CI receipts, semantic/physical LoC and branch/protected-asset

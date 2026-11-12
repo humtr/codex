@@ -17,7 +17,8 @@ are fast-forwarded to development; the protected primary checkout remains
 
 The last remotely accepted checkpoint is
 `26952f732a673ed2dd78187121d6374ddcfe9c88`: Source, Core/Runtime, Manager,
-Provider and stock Android gates passed. Its full TUI run remains in progress.
+Provider and stock Android gates passed. Its full TUI run failed when compiling
+the focused test target; the production CLI build and upload succeeded.
 Later independent-home Owner fixes and execution-settlement corrections need
 their own exact-source gates. Read actual HEAD/Checks before reusing a checkpoint.
 
@@ -330,7 +331,7 @@ reindex, thread-ID change or user-Writer termination occurred.
 | same J checkpoint | Manager | [43118366040](https://github.com/humtr/codex/actions/runs/43118366040) | success |
 | same J checkpoint | Provider | [43118366092](https://github.com/humtr/codex/actions/runs/43118366092) | success |
 | same J checkpoint | Stock Android | [43118366005](https://github.com/humtr/codex/actions/runs/43118366005) | success |
-| same J checkpoint | Full TUI | [43118617817](https://github.com/humtr/codex/actions/runs/43118617817) | in progress |
+| same J checkpoint | Full TUI | [43118617817](https://github.com/humtr/codex/actions/runs/43118617817) | failure: focused test compilation |
 | same J checkpoint | Full composition, attempt 1 | [43118366010](https://github.com/humtr/codex/actions/runs/43118366010) | refused missing exact-source prerequisite |
 
 G full TUI completed 2026-11-11 23:41:42 UTC: focused 172/172; mandatory
@@ -341,6 +342,16 @@ false and their steps skipped; promotion was false. This qualifies G's TUI,
 not J's later typed-reentry changes or a Full composition.
 Proof artifact 13899854078 passed original ZIP digest/inventory/semantic checks:
 b2d0256d8a30c1146351c1f04e1ed67770793e90f8fbdea1405c124aec13a86d.
+
+J run 43118617817 completed with failure at 2026-11-12 00:19:10 UTC. The
+focused target reported E0063: its shared App test constructor omitted the new
+termux_routing_flags field. Zero focused tests executed; all later mandatory
+gates were skipped by the failure. The narrow constructor correction initializes
+ordinary fixture routing to false, matching the existing test constructors.
+Exact-upstream patch application/format, seventeen frontend Python tests and ten
+documentation tests passed locally. Hosted compilation/execution remains required.
+Original job-log SHA256:
+726ba05376f260d5f83fb91ea70ccbc9645f16417b754320b45d1afa141bd3be.
 
 The earlier d2 pin failure (52/53) was fixed by observing its distinct pending
 refresh, keeping every pin/unpin/persistence assertion; G verifies that fix.

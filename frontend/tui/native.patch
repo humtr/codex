@@ -777,13 +777,15 @@ index fca1ef21b67bb3236dd9ebc3e59801c6a8a62b43..2e80dce3a718e38f342a1a3b4cc9fb90
              config_notification_test_generation: 0,
              config_notification_test_pending: None,
 diff --git a/codex-rs/tui/src/app/test_support.rs b/codex-rs/tui/src/app/test_support.rs
-index 3d1c608ca1..ce94da5326 100644
+index 3d1c608ca1..72fc3552393e9b32369bd57276a0a4871f94cbfe 100644
 --- a/codex-rs/tui/src/app/test_support.rs
 +++ b/codex-rs/tui/src/app/test_support.rs
-@@ -21,6 +21,10 @@ pub(crate) async fn make_test_app() -> Box<App> {
+@@ -21,6 +21,12 @@ pub(crate) async fn make_test_app() -> Box<App> {
      let session_telemetry = test_session_telemetry(&config, model.as_str());
  
      Box::new(App {
++        #[cfg(unix)]
++        termux_routing_flags: false,
 +        #[cfg(unix)]
 +        quota_switch: Default::default(),
 +        #[cfg(unix)]
