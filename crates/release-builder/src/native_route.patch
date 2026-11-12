@@ -10162,10 +10162,10 @@ index 23165a419f0b382af8d56edee3076142707be9fe..28feb625f8f992b8e13bfaafef62676b
          Ok(ClientSetup {
              provider,
 diff --git a/codex-rs/ext/guardian-v2/src/async_scorer/sampler_routing_tests.rs b/codex-rs/ext/guardian-v2/src/async_scorer/sampler_routing_tests.rs
-index 5a94aed3ed681ce2670f7a3d70c5aa9912355a44..e39d0ff57a4889c5231758908597d3bf6c651b6d 100644
+index 5a94aed3ed681ce2670f7a3d70c5aa9912355a44..52a1b0f4d6e3119e568b8d1fff5ad12f6838e88e 100644
 --- a/codex-rs/ext/guardian-v2/src/async_scorer/sampler_routing_tests.rs
 +++ b/codex-rs/ext/guardian-v2/src/async_scorer/sampler_routing_tests.rs
-@@ -305,3 +305,102 @@ async fn account_switch_cancels_request_opening_and_first_token_waits() -> Resul
+@@ -305,3 +305,156 @@ async fn account_switch_cancels_request_opening_and_first_token_waits() -> Resul
      }
      Ok(())
  }
@@ -10174,6 +10174,7 @@ index 5a94aed3ed681ce2670f7a3d70c5aa9912355a44..e39d0ff57a4889c5231758908597d3bf
 +async fn native_completion_guardian_route_uses_selected_provider_ingress() -> Result<()> {
 +    use wiremock::Mock;
 +    use wiremock::ResponseTemplate;
++    use wiremock::matchers::header;
 +    use wiremock::matchers::method;
 +    use wiremock::matchers::path;
 +
@@ -10207,6 +10208,19 @@ index 5a94aed3ed681ce2670f7a3d70c5aa9912355a44..e39d0ff57a4889c5231758908597d3bf
 +            .expect(if current && explicit_base { 1 } else { 0 })
 +            .mount(&server)
 +            .await;
++        // The existing pool also opens its fixed initial WebSocket batch. Observe
++        // these upgrades separately from the single classifier inference POST.
++        let upgrade_mock = Mock::given(method("GET"))
++            .and(path(expected))
++            .and(header("upgrade", "websocket"))
++            .respond_with(ResponseTemplate::new(404))
++            .expect(if explicit_base {
++                u64::try_from(super::INITIAL_WEBSOCKET_CONNECTIONS)?
++            } else {
++                0
++            })
++            .mount_as_scoped(&server)
++            .await;
 +        let mut config = test.config.clone();
 +        config.model_provider_id = provider_id.to_owned();
 +        config.model_provider =
@@ -10236,6 +10250,8 @@ index 5a94aed3ed681ce2670f7a3d70c5aa9912355a44..e39d0ff57a4889c5231758908597d3bf
 +            classifier.provider.info().base_url,
 +            config.model_provider.base_url
 +        );
++        let source_session_id = classifier.session_id.clone();
++        let source_thread_id = classifier.thread_id.clone();
 +        let sampler = super::LunaSampler::new(classifier);
 +        let result = sampler.sample(sample_request("native-ingress-turn")).await;
 +        if current && explicit_base {
@@ -10248,6 +10264,10 @@ index 5a94aed3ed681ce2670f7a3d70c5aa9912355a44..e39d0ff57a4889c5231758908597d3bf
 +                assert!(error.to_string().contains("requires an explicit base_url"));
 +            }
 +        }
++        if explicit_base {
++            tokio::time::timeout(Duration::from_secs(2), upgrade_mock.wait_until_satisfied())
++                .await?;
++        }
 +        let requests = server
 +            .received_requests()
 +            .await
@@ -10256,15 +10276,49 @@ index 5a94aed3ed681ce2670f7a3d70c5aa9912355a44..e39d0ff57a4889c5231758908597d3bf
 +            assert!(requests.is_empty());
 +            continue;
 +        }
++        for request in &requests {
++            assert_eq!(request.url.path(), expected);
++        }
++        let (requests, upgrades): (Vec<_>, Vec<_>) = requests
++            .into_iter()
++            .partition(|request| request.method.as_str() == "POST");
 +        assert_eq!(requests.len(), 1);
++        assert_eq!(upgrades.len(), super::INITIAL_WEBSOCKET_CONNECTIONS);
++        for upgrade in upgrades {
++            assert_eq!(upgrade.method.as_str(), "GET");
++            assert_eq!(upgrade.headers.get("upgrade").unwrap(), "websocket");
++            assert!(
++                upgrade.headers["connection"]
++                    .to_str()?
++                    .eq_ignore_ascii_case("upgrade")
++            );
++            assert_eq!(upgrade.headers.get("sec-websocket-version").unwrap(), "13");
++            assert!(upgrade.body.is_empty());
++        }
 +        assert_eq!(requests[0].url.path(), expected);
 +        let body: serde_json::Value = serde_json::from_slice(&requests[0].body)?;
 +        assert_eq!(body["tool_choice"], "none");
 +        assert!(body.get("tools").is_none_or(serde_json::Value::is_null));
-+        assert!(
-+            body.get("client_metadata")
-+                .is_none_or(serde_json::Value::is_null)
++        let metadata = &body["client_metadata"];
++        assert_eq!(metadata["session_id"], source_session_id);
++        assert_eq!(metadata["parent_turn_id"], "native-ingress-turn");
++        assert_eq!(metadata["x-openai-subagent"], "guardian");
++        assert!(metadata.get("termux_native_execution").is_none());
++        let turn_metadata: serde_json::Value = serde_json::from_str(
++            metadata["x-codex-turn-metadata"]
++                .as_str()
++                .ok_or_else(|| anyhow::anyhow!("missing Guardian turn metadata"))?,
++        )?;
++        assert_eq!(turn_metadata["session_id"], metadata["session_id"]);
++        assert_eq!(turn_metadata["thread_id"], metadata["thread_id"]);
++        assert_eq!(turn_metadata["turn_id"], metadata["turn_id"]);
++        assert_eq!(turn_metadata["parent_turn_id"], "native-ingress-turn");
++        assert_eq!(
++            turn_metadata["guardian_classifier_source_thread_id"],
++            source_thread_id
 +        );
++        assert_eq!(turn_metadata["thread_source"], "guardian_classifier");
++        assert_eq!(turn_metadata["turn_trigger"], "guardian_classifier");
 +    }
 +    Ok(())
 +}
