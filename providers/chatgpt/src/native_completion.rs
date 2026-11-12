@@ -495,7 +495,7 @@ mod tests {
             "call_id":"original","turn_id":"turn","process_id":"41","completed_at_ms":42,
             "exit_code":124,"status":"failed","aggregated_output":"original timeout body",
             "interaction_input":"owned input\n","native_completion":wait()}});
-        let witnesses = end_witnesses(&[end.clone()]).unwrap();
+        let witnesses = end_witnesses(std::slice::from_ref(&end)).unwrap();
         let mut item = end["payload"].clone();
         item["id"] = json!("original");
         item["type"] = json!("command_execution");
