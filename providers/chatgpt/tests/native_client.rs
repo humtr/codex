@@ -241,11 +241,20 @@ fn fixture_operation(s: &mut State, command: Value) -> Result<Value, Error> {
     }
 }
 
-struct Root(PathBuf, bool);
+struct Root(PathBuf, bool, Option<PathBuf>);
 impl Drop for Root {
     fn drop(&mut self) {
         if self.1 || std::thread::panicking() {
             eprintln!("qualification state retained at {}", self.0.display());
+            return;
+        }
+        if let Some(proof) = &self.2 {
+            assert!(
+                matches!(fs::symlink_metadata(proof), Err(error) if error.kind() == std::io::ErrorKind::NotFound),
+                "never overwrite a retained native proof"
+            );
+            fs::rename(&self.0, proof).unwrap();
+            eprintln!("qualification state retained at {}", proof.display());
             return;
         }
         let _ = fs::remove_dir_all(&self.0);
@@ -377,6 +386,11 @@ async fn native_fixture(
             std::env::temp_dir().join(format!("pn-{}", &random_id().unwrap()[..8]))
         }),
         is_live,
+        if is_live {
+            None
+        } else {
+            std::env::var_os("CODEX_PROVIDER_NATIVE_PROOF").map(PathBuf::from)
+        },
     );
     use std::os::unix::fs::DirBuilderExt;
     if resume.is_none() {
@@ -1006,6 +1020,6 @@ fi
     }
     println!(
         "{}",
-        json!({"accepted":true,"runtime":runtime,"process":Process::read(std::process::id()).unwrap(),"fixtureHostSubmissions":submissions.len(),"nativeResponsesRequests":native_requests.load(Ordering::Relaxed),"gatewayErrorReturns":usize::from(reject_first),"fixtureUserObjects":submissions.iter().flat_map(|v|v["messages"].as_array().unwrap().iter()).filter(|v|v["role"]=="user").count(),"fixtureVisibleUserObjects":submissions.iter().flat_map(|v|v["messages"].as_array().unwrap().iter()).filter(|v|v["role"]=="user" && v["hidden"]==false).count(),"fixtureToolReturns":if mcp{5}else{3},"nativeEffects":if mcp{4}else{3},"nativeMcpDiscovery":mcp,"rejectedCallCorrected":reject_first,"chatSubmissions":0,"fixtureRemovedOnDrop":true})
+        json!({"accepted":true,"runtime":runtime,"process":Process::read(std::process::id()).unwrap(),"fixtureHostSubmissions":submissions.len(),"nativeResponsesRequests":native_requests.load(Ordering::Relaxed),"gatewayErrorReturns":usize::from(reject_first),"fixtureUserObjects":submissions.iter().flat_map(|v|v["messages"].as_array().unwrap().iter()).filter(|v|v["role"]=="user").count(),"fixtureVisibleUserObjects":submissions.iter().flat_map(|v|v["messages"].as_array().unwrap().iter()).filter(|v|v["role"]=="user" && v["hidden"]==false).count(),"fixtureToolReturns":if mcp{5}else{3},"nativeEffects":if mcp{4}else{3},"nativeMcpDiscovery":mcp,"rejectedCallCorrected":reject_first,"chatSubmissions":0,"fixtureRemovedOnDrop":root.2.is_none()})
     );
 }
