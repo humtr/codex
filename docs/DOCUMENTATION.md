@@ -31,7 +31,7 @@ facts belong to `CURRENT.md`.
 
 ## Proposals pending product review
 
-- [Session-independent durable orchestration](development/orchestration/SESSION_INDEPENDENT_DURABLE_ORCHESTRATION.md) is a non-normative future design candidate, including the skill/plugin prototype. It does not replace SPEC, current Bridge contracts, or live acceptance evidence.
+- [Session-independent durable orchestration](development/orchestration/SESSION_INDEPENDENT_DURABLE_ORCHESTRATION.md) is a non-normative future design candidate, including the private skill/plugin v0.1.3 pilot (Busy recovery and assistant-facing O/W session dashboard). It does not replace SPEC, current Bridge contracts, or live acceptance evidence; hardening and wrapper changes remain deferred.
 
 ## Reading route
 

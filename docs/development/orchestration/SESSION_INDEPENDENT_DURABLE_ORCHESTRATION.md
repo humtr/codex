@@ -6,6 +6,8 @@ Scope: assistant, orchestrator, and dynamically provisioned worker sessions.
 Related: ../../DOCUMENTATION.md; ../../spec/bridge/WORK.md; ../../spec/bridge/OWNERSHIP.md; ../../spec/bridge/RETRY_AND_EVIDENCE.md.
 This proposal does not modify SPEC.md, change approvals, or assert present runtime capability.
 
+Companion pilot (2026-11-13): the private ChatGPT **Durable Orchestration plugin v0.1.3** contains model-led guidance, Native Busy recovery instructions (v0.1.2), and an assistant-facing session dashboard (v0.1.3). Those are **skill/presentation behavior**, not shipped Codex Native/TermuxBridge changes or a durable unattended runtime. Further orchestration hardening is deferred for later evaluation; a future wrapper/Bridge upgrade may be useful but is not presumed necessary. See sections 14-16.
+
 ## 1. Objective and non-negotiable invariant
 
 A user delegates a bounded or multi-stage job to an assistant. The job must remain durable through repeated assistant, orchestrator, and worker conversation replacements. The job ends only when the user-defined completion criteria have been independently verified, or the user authorizes cancellation or a change of scope. Model turns, tool sessions, network streams, UI visibility, and context windows are never the job lifetime authority.
@@ -36,6 +38,8 @@ Allocation algorithm:
 6. Do not spin up a worker for simple work the orchestrator can complete safely. Do not keep a fixed G1/G2/G3 count as a product assumption.
 
 A worker cannot write another worker's owned files or share the same Native writer concurrently merely because distinct model sessions exist. The orchestrator must avoid creating so many workers that resource-busy or AppHost limits make the system less productive.
+
+**Busy is scoped, not a global stop decision:** inspect the exact affected call, its owner and resource scope before reducing capacity. A pending opaque Native command may forbid conflicting tool execution while an isolated, submitted-inference **model-only** worker can still run. Choose zero workers only when no independent ready task/capacity remains, not automatically on the first Busy error. Preserve real resource owners and approval boundaries.
 
 ## 4. Durable job completion contract
 
@@ -91,13 +95,37 @@ Keep checkpoints short enough for the successor to load selectively. Store large
 
 The runtime must survive ChatGPT app/process disconnect, Termux/Core/AppHost restart, assistant replacement and pending model responses. Persist job state and queues transactionally (for example SQLite WAL with explicit schema migrations, per-message acknowledgments and reconciled cursors). Provide an event-based dispatcher or an independent scheduled wakeup, rather than relying on a single active assistant chat to poll.
 
-Wake the orchestrator on worker result, approval request, crash, deadline, prolonged silence or runnable dependency. Require actual confirmation before marking delivery. Health monitors classify busy resources by evidence and owner; they must not kill or release active work merely because a timer expired.
+Wake the orchestrator on worker result, approval request, crash, deadline, prolonged silence or runnable dependency. Require actual confirmation before marking delivery. Health monitors classify busy resources by evidence and owner; they must not kill or release active work merely because a timer expired. When Stop/status themselves fail behind a shared resource guard, retain original pending effects, report the recovery-path defect and continue independently proven non-conflicting work; never clear shared claims or stop an unrelated process merely to make the global Busy flag disappear.
 
 A skill-only plugin may express this protocol and use currently accessible tools, but cannot itself guarantee automatic execution after all ChatGPT sessions have ended. Durable background execution requires an available scheduler/automation/agent-host capability and persistent tool permissions. A prototype must record this distinction explicitly.
 
 ## 9. Result delivery, routing and user reporting
 
-During an active job, orchestrator pushes meaningful progress to the logical assistant recipient and/or a user-visible notification path; reporting must not depend on the assistant manually polling. Progress includes Asia/Seoul timestamp when the user's timezone is Asia/Seoul, active worker count (actual, not configured), completed evidence, uncertain/blocked work, next decision, and changes since last report. Report at milestones or meaningful changes; avoid noisy repeated status.
+During an active job, orchestrator pushes meaningful progress to the logical assistant recipient and/or a user-visible notification path; reporting must not depend on the assistant manually polling. Progress begins with compact `[HH:MM]` local time (Asia/Seoul for this project), actual worker count (not configured concurrency), completed evidence, uncertain/blocked work, next decision, and changes since last report. Report at milestones or meaningful changes; avoid noisy repeated status.
+
+### 9.1 Assistant-facing session dashboard (plugin v0.1.3)
+
+Whenever an assistant actually creates, discovers, or resumes an orchestrator/worker model session, render a **single compact dashboard for that job**. This is the assistant's *view*, not an independent scheduler, a continually refreshed website, or a new Native API. Use grouped cards or a simple portable table; include **one row per actual session/generation**, not one row per logical job alone. Show an initial snapshot even before the saved Chat is available, then refresh only after meaningful state changes or a user status request.
+
+The dashboard must show:
+- Header: short job title and stable job ID, local `[HH:MM]` last-observed time, job completion/blocker summary and next action.
+- Totals: actual O generations, registered worker sessions, running/completed/blocked/unknown counts. Never present concurrency budget as worker count.
+- **Orchestrators**: O1/O2/... row per generation, mission, actual phase, one-line verified result or blocker, and own ChatGPT conversation link where verified. Retain replaced/interrupted O1 next to successor O2.
+- **Workers**: W1/W2/... row per real worker, assigned task, actual phase, one-line result or uncertainty and individual verified conversation link. Do not hide pending or interrupted workers.
+- Optional compact technical detail: original `work_id`, `thread_id`, `conversation_id`, model/effort **only if observed**; do not expose controller tokens, account secrets or long raw receipts in the main view.
+
+Verify each conversation ID against saved-chat observation in the **intended account and ChatGPT project** before constructing `https://chatgpt.com/c/{conversation_id}`; Native work/thread IDs are not chat IDs. If only `create` succeeded, show `생성됨 · 추론 시작 전` and `대화 미확인`. `queue accepted=true` means `큐 등록`, not work completed. A started but unobserved model remains `실행 확인 중`; `completed_result`/saved final with matching identity proves actual completion; `stop_requested`, timeout and `MCP server is not initialized` require original-receipt reconciliation. A verified saved Chat link does **not** guarantee user-side UI visibility.
+
+Suggested simple rendering (the link cells are **labels/placeholders**, never invented URLs):
+
+| 세션 | 작업 요약 | 검증 상태 | 대화 |
+| --- | --- | --- | --- |
+| O1 | 최초 분배 | 중단 · 인계 기록 확인 | 검증된 O1 대화 링크 |
+| O2 | 잔여 작업 인계 | 완료 · 원본 결과 확인 | 검증된 O2 대화 링크 |
+| W1 | 첫 번째 작업 | 완료 · 결과 영수증 확인 | 검증된 W1 대화 링크 |
+| W2 | 두 번째 작업 | 큐 등록 · 모델 실행 미확인 | 대화 미확인 |
+
+The actual UI separates O and W into sections; the combined table above illustrates per-session facts. On assistant replacement reconstruct from current work/chat receipts, mark any stale snapshot **마지막 확인 [HH:MM]**, and never claim a previous message updates automatically. The orchestrator may forward a `session_status_snapshot` with the underlying IDs/evidence; if delivery fails, the assistant reconstructs from reachable source records. Dashboard visibility is **not** an acceptance criterion replacing the job's original completion contract.
 
 On final verified completion:
 1. Persist the final proof manifest and exact result.
@@ -137,19 +165,62 @@ Each mutating operation requires an idempotency key and an observable outcome; t
 5. Queue insert ACK without delivery cannot be reported as completed; after restart all unacked events remain recoverable.
 6. AppHost/Termux restart preserves source conversation mapping, saved receipts and unresolved effects; no forced login/account switches.
 7. A2 replaces A1 several times; final report targets latest authorized A or a verified same-account/project report chat.
-8. Network timeout/HTTP 413/MCP uninitialized and resource busy leave the job recoverable; failed observation does not imply failed execution.
+8. Network timeout/HTTP 413/MCP uninitialized and resource busy leave the job recoverable; failed observation does not imply failed execution. Confirm original `work_id`/call receipt before any replay and test a non-conflicting model-only task while an unrelated opaque effect remains unresolved.
 9. Every mandatory completion criterion must pass with source and device/app evidence as applicable; partial worker results cannot close job.
 10. Tampered envelopes, stale leases, wrong project/account, unauthorized changes, and uncertain effects are rejected without execution.
 11. Operational reports are timestamped and evidence-backed; worker and orchestrator telemetry remain inspectable.
 12. Plugin-only test reports limitations honestly: without an event host/wakeup there is no guaranteed autonomous continuation after all sessions stop.
+13. If a running orchestrator is interrupted after submitting a worker start, a successor/observer retrieves that **same worker** by original work ID and verifies the existing saved final; no duplicate child start.
+14. Every created/discovered O/W session appears in the assistant dashboard with distinct role, phase, task summary and a saved-chat-verified link or explicit `대화 미확인`; preserve prior generations across handoff and show `[HH:MM]` observed time.
+15. On a Stop that returns an error after fencing, `stop_requested` remains distinct from `stopped`; no unrelated live shared owner or claim is cleared.
 
 ## 13. Delivery phases and relationship to existing Codex work
 
 Phase P0: review this proposal against SPEC, Bridge ownership and existing Native/Provider semantics; record approved contract separately.
-Phase P1: proof-of-concept skill/plugin using existing tool capabilities; establish account/project checks, worker allocation and bounded queue/receipt discipline.
+Phase P1: proof-of-concept skill/plugin using existing tool capabilities; establish account/project checks, worker allocation, Busy diagnosis, assistant dashboard and bounded queue/receipt discipline. **Plugin v0.1.3 is available as a private pilot, not a full acceptance of P1-P5.**
 Phase P2: durable journal, logical actors, checkpoint schema, generation fencing and message acknowledgment.
 Phase P3: model-session replacement, event-driven dispatch/wakeup, dynamic worker scaling and recipient handoff.
 Phase P4: exhaustive positive/negative tests, real ChatGPT saved conversation visibility, restart/recovery, user-visible results.
 Phase P5: carefully migrate existing jobs after original-effect reconciliation and explicit acceptance; never replay uncertain calls or disrupt operating releases.
 
 This document is a future development candidate. Do not represent Phase P1 as proof of P2-P5. Existing W0-W20 completion targets remain independent until separately accepted.
+
+## 14. Pilot lessons from v0.1.2 (Busy and uncertain execution)
+
+A bounded, isolated `durable-bridge-20261113-a` test through **TermuxBridge `codex_sessions` with `inference=submitted`** verified separate ChatGPT GPT-6 model conversations for an orchestrator and two workers. The orchestrator selected work, created actual independent worker Native work records, queued ASSIGN messages, and the workers consumed the queued inputs and saved independent final answers (`17 * 19 = 323`, `23 * 29 = 667`) in the intended `Codex Development` ChatGPT project. This proves a **Codex/Bridge-hosted ChatGPT model-session path**, not ChatGPT's internal Pro-style subagent mechanism.
+
+The independent pilot also exposed limits that must not be silently smoothed over:
+
+- Unrelated G1 `process_session=49962` retained `pending_result=true` after the underlying Cargo process was no longer observed. G1 Stop changed the work to `stop_requested`, but the Stop/status path returned `native_resource_shared_guard_failed`; this is **not** confirmed Stop or effect settlement.
+- A separate process-shared reservation had a **live, matching-PID-and-start-time owner**. It was not cleared or killed. That owner is not interchangeable with G1's opaque pending result.
+- Despite the G1 unresolved Native effect, isolated model-only worker assignments **succeeded**. The same Busy observation must not prohibit independent model requests by default.
+- One orchestrator round became `interrupted` while a worker launched. An assistant-mediated O1 -> O2 checkpoint preserved W1's verified output and scoped O2 to the remaining W2, without replaying W1. **Autonomous** replacement/fencing was **not** demonstrated.
+- An O2 worker `start` reported `MCP server is not initialized`, but later read-only `codex_sessions events.completed_result` and `codex_chats read` for the **original** worker proved the job had already completed. Never invent a new call ID after this error.
+
+**Operator decision sequence** for the plugin now: `identify owner -> inspect original effect, process and saved Chat -> classify actual contention -> request official Stop only if authorized and safely idle -> reconcile exact original receipt -> continue independently non-conflicting tasks -> checkpoint and hand off with unresolved facts`. Do not perform global resets, delete `claims.json`, kill unrelated PIDs or treat a speculative process disappearance as an execution receipt.
+
+The pilot demonstrates these bounded capabilities only. It does **not** prove robust high-concurrency execution, automatic recovery across device/process restart, automatic wakeup, native parent-child ownership, guaranteed visibility of all saved Chats, or final delivery to a newly designated assistant.
+
+## 15. v0.1.3 assistant dashboard: immediate capability versus future requirements
+
+The private plugin **v0.1.3** introduces a skill-backed reporting requirement (section 9.1): immediately show session summaries with links after O/W creation and refresh at meaningful changes. This uses existing ChatGPT answer rendering; it is not a standalone hosted dashboard, web page, stored interactive monitor, or continuously polling system.
+
+**Immediate scope:** retrieve verifiable work/chat identifiers, render a compact snapshot with separate orchestrator and worker groups, preserve generations and completed tasks across handoff, use saved-chat-verified links, and mark unavailable/unknown observations explicitly. Dynamic worker allocation remains the orchestrator's decision.
+
+**Deferred questions for later independent review:**
+
+1. Does the wrapper/TermuxBridge need a structured `session_status_snapshot` and stable logical O/W actor IDs, or can the skill derive them safely from existing `codex_sessions` / `codex_chats` receipts?
+2. Can account/project-scoped parent linkage, saved Chat visibility confirmation, and completion callbacks be exposed without duplicating Native effect authority?
+3. How should an interrupted AppHost orchestrator be resumed/fenced without manual assistant intervention or duplicate child start? Which evidence establishes exact ownership after an MCP initialization loss?
+4. Should Stop/status be inspectable when the very shared guard being diagnosed is unhealthy? Repair must preserve live process owner identities and never bypass denied effects.
+5. How can event-driven dashboard updates be delivered to the currently authorized assistant without implying perpetual model inference or relying on unsupported UI refresh semantics?
+
+A **wrapper upgrade is an option**, not an immediate requirement or approved product change. Prefer minimal demonstrated fixes to a new orchestration framework.
+
+## 16. Implementation and documentation boundary
+
+Current deliverables are: this **non-normative proposal** and a **private ChatGPT skill/plugin v0.1.3** that documents Busy handling, evidence-backed model work and an assistant-facing session dashboard. The separate pilot's saved conversation/tool receipts establish only their original bounded test scope. The plugin and its packaged SQLite helper do **not** implement an always-on scheduler, a true Native executor, source-level status/Stop repair, cross-session durable delivery, autonomous session replacement, or a user-visible hosted dashboard.
+
+The user has **deferred orchestration hardening and any Codex wrapper changes** for separate future review. Preserve that decision; do not advance P2-P5, modify signed releases or claim broad product acceptance solely because the dashboard renders or two small worker calculations succeeded.
+
+For future implementation, review the current SPEC, Bridge ownership/effect/Stop contracts and actual deployed source version independently; distinguish possible wrapper fixes from skill-only orchestration. Keep the immutable completion contract and test requirements in sections 1-13 as a proposal, not a claim of current delivery.
