@@ -69,6 +69,11 @@ env:
   ANDROID_RUNTIME_APEX_SHA256: '83bf0dce249728dae48149b80d28b48115c54adad95a352120d58a6ac669d1fc'
 
 jobs:
+  native-proof:
+    if: ${{ inputs.base_only || inputs.release_variant == 'base' }}
+    uses: ./.github/workflows/native-runtime-qualification.yml
+    with:
+      source_sha: ${{ inputs.source_sha }}
   runtime-source:
     if: ${{ inputs.base_only || inputs.release_variant == 'base' }}
     uses: ./.github/workflows/termux-runtime-source.yml
@@ -444,7 +449,7 @@ jobs:
 
   qualification:
     name: Require completed execution qualification
-    needs: [producer, smoke]
+    needs: [producer, smoke, native-proof]
     if: ${{ !cancelled() }}
     runs-on: ubuntu-24.04
     steps:
@@ -453,12 +458,18 @@ jobs:
           PRODUCER_RESULT: ${{ needs.producer.result }}
           CANDIDATE: ${{ needs.producer.outputs.candidate }}
           SMOKE_RESULT: ${{ needs.smoke.result }}
+          NATIVE_REQUIRED: ${{ inputs.base_only || inputs.release_variant == 'base' }}
+          NATIVE_RESULT: ${{ needs.native-proof.result }}
         run: |
           set -euo pipefail
           if test "$PRODUCER_RESULT" != success; then
             echo "Required candidate production did not succeed: $PRODUCER_RESULT" >&2
             exit 1
           fi
+          case "$NATIVE_REQUIRED:$NATIVE_RESULT" in
+            true:success|false:skipped) ;;
+            *) echo "Required Native runtime execution proof is incomplete: required=$NATIVE_REQUIRED result=$NATIVE_RESULT" >&2; exit 1 ;;
+          esac
           case "$CANDIDATE:$SMOKE_RESULT" in
             true:success|false:skipped) ;;
             *) echo "Candidate decision or Android execution proof is incomplete: candidate=$CANDIDATE smoke=$SMOKE_RESULT" >&2; exit 1 ;;

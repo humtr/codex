@@ -34,8 +34,17 @@ class NativeCompletionResultsTests(unittest.TestCase):
                     verify(self.output(suite) + '\nFAIL package module::' + name, suite)
 
     def test_actual_workflow_gate_preserves_argv_results_and_failure_status(self):
-        block = WORKFLOW.read_text().split('      - name: Verify Native completion uses original OS wait evidence\n', 1)[1].split('      - name:', 1)[0]
-        self.assertIn("if: inputs.scope == 'full'", block)
+        self.verify_workflow_gate(WORKFLOW, full_scope=True)
+
+    def test_independent_runtime_gate_preserves_each_named_result_and_failure_status(self):
+        self.verify_workflow_gate(ROOT / '.github/workflows/native-runtime-qualification.yml', full_scope=False)
+
+    def verify_workflow_gate(self, workflow, full_scope):
+        block = workflow.read_text().split('      - name: Verify Native completion uses original OS wait evidence\n', 1)[1].split('      - name:', 1)[0]
+        if full_scope:
+            self.assertIn("if: inputs.scope == 'full'", block)
+        else:
+            self.assertNotIn('if:', block)
         command = textwrap.dedent(block.split('        run: |\n', 1)[1])
         packages = [('pty', 'codex-utils-pty'), ('core', 'codex-core'),
                     ('protocol', 'codex-protocol'), ('rollout', 'codex-rollout'),

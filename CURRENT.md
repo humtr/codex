@@ -35,7 +35,14 @@ discovery advanced development to `ec51fe4a5f5153a441cf78b1e8ce108050274e80`
 at 00:48:38 UTC on November 12. It changes only the release recipe and is a
 direct child of checkpoint J. Integration preserves it in merge `795e0cae`.
 The integrated producer base applied and normalized successfully on this input;
-its later Hook/wait corrections still require combined source qualification.
+its later Hook/wait correction `210dec0c` also passed combined 0.167.2
+Native-plus-TUI preparation, exact lock audit and 52 constructor checks. The four
+selected wire/history tests passed again on its frozen 0.167.1 dependency closure
+(receipt `8b45aa80dc06deb2a885c4096a9b5ac961b9f4bf00109fb74610f0885204a352`).
+That selected run does not prove the full 0.167.2 Core or hosted suite. The
+independent Core Runtime workflow now requires the same 33 named completion
+oracles as the Full TUI path, with full PTY and Rollout suites; its final hosted
+execution and Provider consumer acceptance remain pending.
 The bot's unchanged-producer Source and Core/Runtime gates passed separately;
 they do not qualify the new input-inventory and completion changes. The observed operating
 S165 installation remains **0.167.1**. Official upstream comparison identifies

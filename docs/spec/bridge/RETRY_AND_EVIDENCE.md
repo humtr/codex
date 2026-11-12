@@ -104,12 +104,21 @@ conservative checks.
 Legacy execution schemas 1 and 2 remain readable for request and receipt
 continuity, but cannot grant new bounded admission without dispatch-bound proof.
 Native's special ToolSearch payload has no tool hooks and remains read-only
-metadata discovery, including while an unrelated effect is unconfirmed.
+metadata discovery, including while an unrelated effect is unconfirmed. Both the
+actual ToolSearch payload and the catalog's Search kind must identify it; a
+Function payload merely named tool_search does not acquire that exception.
 
 Generation compatibility is checked after exact original-result replay and before
-reserving or forwarding a new process invocation. A producer without verified
-current dispatch/completion capability receives an explicit, non-executed refusal;
-it must not start a new process that the consumer can never positively settle.
+reserving or forwarding any new Native effectful invocation, including ordinary
+file, image and clock tools whose hooks could create effects. A producer without
+verified current dispatch/completion capability receives an explicit,
+non-executed refusal. Synchronous hook-leader completion alone cannot prove
+that a detached descendant ended, so matching hooks also refuse before dispatch
+for non-process tools. This Native admission rule does not require generic,
+unscoped MCP calls to impersonate a Native Runtime. Verified Native scope with
+missing execution facts must remain Native and cannot fall back to that generic
+path. The producer must not start an effect that the consumer can never positively
+settle.
 Distinguish a positively identified unsupported generation from unavailable
 completion capability, including matching or asynchronous hooks. Missing metadata
 alone does not identify the Runtime version. Do not disable the hooks or turn
