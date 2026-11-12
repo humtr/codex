@@ -397,6 +397,9 @@ async fn native_cached_offer_requires_original_scope_even_when_legacy_origin_is_
         Err(Error("native_execution_completion_unavailable"))
     );
     let after: Value = fixture.journal.read(&key).unwrap().unwrap();
-    assert_eq!(before, after, "refusal must not replace the cached original offer");
+    assert_eq!(
+        before, after,
+        "refusal must not replace the cached original offer"
+    );
     assert_eq!(after["calls"][&args.call_id], original);
 }

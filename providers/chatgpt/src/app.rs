@@ -5023,8 +5023,8 @@ mod native_submission_scope_tests {
             .exchange(request.clone(), tx, CancellationToken::new())
             .await
             .unwrap();
-        let first_tool = std::iter::from_fn(|| rx.try_recv().ok())
-            .any(|event| matches!(event, Event::Tool(_)));
+        let first_tool =
+            std::iter::from_fn(|| rx.try_recv().ok()).any(|event| matches!(event, Event::Tool(_)));
         assert!(first_tool);
         let key = context::digest(&request.thread);
         let saved: Lane = journal.read(&key).unwrap().unwrap();
@@ -5040,8 +5040,8 @@ mod native_submission_scope_tests {
             native.exchange(request, tx, CancellationToken::new()).await,
             Err(Error("native_execution_completion_unavailable"))
         );
-        let replayed_tool = std::iter::from_fn(|| rx.try_recv().ok())
-            .any(|event| matches!(event, Event::Tool(_)));
+        let replayed_tool =
+            std::iter::from_fn(|| rx.try_recv().ok()).any(|event| matches!(event, Event::Tool(_)));
         assert!(!replayed_tool);
         let after: Lane = journal.read(&key).unwrap().unwrap();
         assert_eq!(serde_json::to_value(&after.pending).unwrap(), pending);
@@ -5049,5 +5049,4 @@ mod native_submission_scope_tests {
         assert_eq!(bridge.state.lock().unwrap().submissions, 1);
         std::fs::remove_dir_all(root).unwrap();
     }
-
 }

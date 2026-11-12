@@ -2683,7 +2683,10 @@ impl Broker {
             if *item != original || !call.offered || call.result.is_some() {
                 return Err(Error("mcp_call_changed"));
             }
-            let tool = turn.tools.get(&call.name).ok_or(Error("mcp_call_changed"))?;
+            let tool = turn
+                .tools
+                .get(&call.name)
+                .ok_or(Error("mcp_call_changed"))?;
             if let Some(reason) = native_effect::tool_dispatch_error(
                 tool,
                 turn.workspace.as_deref(),
