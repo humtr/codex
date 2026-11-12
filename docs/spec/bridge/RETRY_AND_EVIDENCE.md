@@ -33,10 +33,24 @@ process-shared claim ledger. A missing mirror entry never proves shared settleme
 The existing status response exposes bounded, content-free resource scope and
 owner-process observations from that locked ledger; failed snapshots remain
 unavailable rather than an empty success. Status creates no ledger, removes no
-claim and does not infer completion from a departed process. Only original Native
-terminal evidence or the existing verified non-dispatch reconciliation can settle
-an uncertain effect. Known disjoint resources may progress concurrently; an opaque
-shell's unknown effects are not confined merely by its current working directory.
+claim and does not infer completion from a departed process. Settlement requires
+original Native evidence of the matching process's completed OS wait, or positive
+proof from the original dispatch authority that the matching effect never started.
+A termination request, Stop acknowledgment, empty job list, unloaded thread,
+missing history item, synthetic timeout/unknown exit status or legacy completion
+boolean is not that proof. A startup rejection may follow process creation;
+its error wording alone cannot establish non-dispatch. Hook execution is a separate
+effect boundary: a backend that never started does not establish that an earlier
+applicable hook had no effect. Known disjoint resources may progress concurrently;
+an opaque shell's unknown effects are not confined merely by its working directory.
+
+Keep completion provenance with the existing original call/session, Native owner,
+thread/turn, input fingerprint and receipt. Execution stdout and model text cannot
+create that authority. Preserve original results, including unsuccessful exits;
+new evidence may supplement a matching immutable receipt but cannot overwrite it
+or promote an unproven legacy boolean. A changed result or uncertain identity stays
+unsettled. A genuine nonzero OS exit is still terminal evidence when its producer
+positively distinguishes it from a synthetic status.
 
 Native bounded execution facts must reflect the selected executor environment and
 actual hook dispatch. An unrelated synchronous input-notification hook does not
@@ -89,10 +103,10 @@ exec/continuation hooks are absent. Both Broker and shared-ledger admission veri
 the same original scope; the poll does not revalidate pre-launch output snapshots
 or replace the original call identity. Nonempty stdin, unknown or foreign sessions,
 ambiguous ownership and missing/legacy hook or scope proof retain conservative
-admission. A running poll preserves the claim. Only the matching original terminal
-result or authoritative Native command-completion item releases it; both must prove
-the original call/session and turn. Parallel execution remains observable through
-these continuations.
+admission. A running poll preserves the claim. A matching original terminal result
+or Native command-completion item releases it only with the completed-wait evidence
+and original call/session/turn binding above. Public terminal status alone adds no
+execution authority. Parallel execution remains observable through continuations.
 Native may commit a terminal command item before its last output is collected.
 Before releasing that original claim, retain its exact call/session, Native
 PID/start/thread and original turn evidence on the existing receipt. An empty
@@ -126,7 +140,18 @@ request from a stopped in-flight start is not a new user recovery turn.
 If the exact owned thread is `notLoaded`, Stop may load that same thread with
 its verified workspace and routing configuration solely to observe and terminate
 jobs. This submits no user turn or inference. Unavailable history, changed scope
-or failed loading remains unconfirmed. Assignment evaluation requires the current
+or failed loading remains unconfirmed. Stop can settle a positively recorded,
+never-offered call through its original admission receipt. An already offered call
+missing from asynchronously persisted history remains uncertain; it cannot become
+non-dispatched merely because Stop completed. Preserve its original identity and
+result for later observation without a replacement submission.
+A read-only completion observer never loads or resumes an unloaded thread. It may
+use the original source-bound receipt/history chain and qualified Writer absence,
+checking every still-relevant effect and reusing already proven original settlement.
+Historical tools are not rejected merely for being non-shell, and unknown or
+unsettled effects cannot be ignored merely because their turn is old. Incomplete
+history, failed persistence, missing receipts or ambiguous ownership leave
+completion unavailable. Assignment evaluation requires the current
 controller, exact result cursor, decision and findings text. Managed completion is
 the native completed turn and original final, not an explicit `codex_finish` call
 in its tool history. A final missing from one history page is not proof of absence.
@@ -160,12 +185,14 @@ For direct attached inference, a confirmed failed or interrupted Native turn
 ends that turn's result-producing lifetime without ending its development work.
 The existing Native observer may fence that same work into reconciliation only
 after verifying its exact execution owner, controller generation and latest turn,
-no owned background jobs, and committed original call/output pairs for every
-offered result that is still missing. Match the admitted tool identity and exact
-arguments/input, including a continuation's own call ID; a public command item
-may retain the original exec ID. Hold the work's existing Native admission while verifying
-and retiring this generation. Recover only its original public Native tool
-results, after Native's persistence barrier, into the existing Broker receipts.
+no owned background jobs, and committed original call/output pairs plus the
+execution-settlement proof above for every offered result that is still missing.
+Match the admitted tool identity and exact arguments/input, including a
+continuation's own call ID; a public command item may retain the original exec ID.
+Hold the work's existing Native admission while verifying and retiring this
+generation. Recover only its positively committed original public Native tool
+results into the existing Broker receipts. A persistence request or warning-only
+flush failure cannot certify that an absent call was never dispatched.
 Preserve a result already committed by the normal callback; Native's full stored
 output and its model-input truncation are different projections. A late callback
 from the retired turn cannot overwrite either result or acquire the next turn.
