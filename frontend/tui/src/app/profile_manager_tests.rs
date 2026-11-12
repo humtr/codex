@@ -662,10 +662,13 @@ async fn profile_manager_replaces_stale_session_flags_and_keeps_permission_autho
     let home = tempfile::tempdir()?;
     let catalog = include_str!("../fixtures/chat-model-catalog.json");
     std::fs::write(home.path().join("models.json"), catalog)?;
+    let model_providers = toml::from_str::<toml::Value>(
+        "[chatgpt_desktop]\nname='Owned Chat fixture'\nwire_api='responses'\nbase_url='http://127.0.0.1:1/v1'\nrequires_openai_auth=false\n",
+    )?;
     let mut config = crate::legacy_core::config::ConfigBuilder::default()
         .codex_home(home.path().to_path_buf())
         .cli_overrides(vec![
-            ("model_providers".into(), "[chatgpt_desktop]\nname='Owned Chat fixture'\nwire_api='responses'\nbase_url='http://127.0.0.1:1/v1'\nrequires_openai_auth=false\n".parse::<toml::Value>()?),
+            ("model_providers".into(), model_providers),
             ("model".into(), "launch-model".into()),
             ("model_provider".into(), "openai".into()),
             ("model_reasoning_effort".into(), "low".into()),
