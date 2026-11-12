@@ -145,14 +145,20 @@ fixtures are separate. Android stock tests prove Activity/session behavior on
 the pinned emulator APK with synthetic Core transport and frontend; they do not prove a
 physical device or real model inference.
 
-The W1 recheck at 26952f73 found no missing current input but measured one
-conservative cache miss: e961f25c-to-26952f73 changed only Manager's dedicated
+The first W1 recheck at 26952f73 measured one conservative cache miss: e961f25c-to-26952f73 changed only Manager's dedicated
 profile test formatting, which changed Manager's declared input identity while
 Core's remained identical. The audited package-tree inventory is retained; it is
 not described as the minimal activated Cargo graph. This may consume a new rN for
 identical output bytes. No incomplete test exclusion or alternate dependency
 resolver is introduced. Audit SHA256:
 `32b8a5971c0e0e44409b1d70e995f010721b272999db281c4b17f4eb20e2d207`.
+Its no-missing-input conclusion was incomplete: the real 0.167.2 transition
+exposed release-builder::local_recipe directly embedding release/upstream.json
+inside Core while the inventory excluded it. Source ea5f5e55 adds that blob to
+Core only and proves stale-artifact refusal; Manager's recipe independence stays
+intact. Two original red cases, three focused green cases, fifteen component/
+consumer passes and three current-descriptor passes are retained in CURRENT.
+The producer-helper change is itself an input and requires fresh qualification.
 
 ## Change accounting and rollback
 

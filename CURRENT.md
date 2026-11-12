@@ -25,7 +25,8 @@ their own exact-source gates. Read actual HEAD/Checks before reusing a checkpoin
 Remote `main` remains `b2567063d2a7a333a718d2495e2c9f8c928d822c`,
 the separate publication/approval authority. Neither branch has GitHub branch
 protection. The exact-main release-intent guard is closed: the read returned
-HTTP 404 for release-intent-v1. No signing, reservation, publication, stable-index
+HTTP 404 for release-intent-v1. No formal release signing, sequence reservation,
+publication, stable-index
 change or operating activation was performed.
 
 The recipe now selects Codex **0.167.2**, upstream source
@@ -87,11 +88,23 @@ Integrated source includes component input identities, canonical Android Core
 production/reuse, independent Manager qualification, unsigned Full assembly,
 component rN, composition identity and globally reserved Core/Full publication
 sequence. Legacy signed readers and rollback remain supported. The conservative
-input inventory includes selected package trees and Cargo.lock dependency edges;
-it is safe but not a minimal activated compile graph. A Manager test-only change
-can cause an avoidable cache miss/rN change without changing bytes; it does not
-invalidate every component. The independent inventory audit found no current
-under-inclusion: 32b8a5971c0e0e44409b1d70e995f010721b272999db281c4b17f4eb20e2d207.
+input inventory includes selected package trees and Cargo.lock dependency edges,
+but is not a minimal activated compile graph. A Manager test-only change can
+cause an avoidable cache miss/rN change without changing bytes; it does not
+invalidate every component. The earlier audit
+`32b8a5971c0e0e44409b1d70e995f010721b272999db281c4b17f4eb20e2d207`
+missed Core's direct embedding of release/upstream.json through release-builder.
+The 0.167.2 transition reproduced both an unchanged Core fingerprint and wrongful
+acceptance of the old artifact. The integrated ea5f5e55 fix includes that exact
+blob for Core; Manager remains independent of this recipe change. Two original
+red cases became three focused passes, the component/consumer suite passed
+fifteen tests, and the current 0.167.2 descriptor passed three additional cases.
+The bounded external-include/build-script audit found no further omission in
+Core, release-builder or runtime-binding. Receipt
+`6ffd3098733ad271d81e6a2edcf4657f3caae3393ba11512df0a467f2f15ae76`;
+audit `917598401dd7cbd126a68229c3ba180ed1bec55efa19142ae87b3c2647c38625`.
+The changed producer helper itself is also a declared input; final qualifications
+use its new identity rather than claiming every older artifact is reusable.
 
 Core owns offline version/details/JSON, explicit Core/Full update selection,
 one cancel choice and no-bwrap platform classification. Explicit unsupported
