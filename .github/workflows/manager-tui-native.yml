@@ -206,7 +206,16 @@ jobs:
           python3 ../experiment/frontend/tui/apply.py . --check-scope --native-preparation "$RUNNER_TEMP/profile-tui-native-preparation.json"
           git add -N codex-rs
           git diff --check
-          git diff -- codex-rs > "$RUNNER_TEMP/profile-tui-formatted.patch"
+          # Retain the complete changed-line diff without redundant unchanged context.
+          # The reverse check and the unchanged 1 MiB consumer bound fail closed.
+          git diff --unified=0 -- codex-rs > "$RUNNER_TEMP/profile-tui-formatted.patch"
+          # Generated protocol .zst files have index-only binary diffs, not reversible data.
+          # Keep them in the archived patch and its format/lint equality proof.
+          git apply --reverse --check --unidiff-zero \
+            --exclude='codex-rs/app-server-protocol/schema/precomputed/app-server-exports-experimental.json.zst' \
+            --exclude='codex-rs/app-server-protocol/schema/precomputed/app-server-exports-stable.json.zst' \
+            "$RUNNER_TEMP/profile-tui-formatted.patch"
+          test "$(wc -c < "$RUNNER_TEMP/profile-tui-formatted.patch")" -le 1048576
       - name: Reuse identified frontend for compatibility checks
         if: inputs.scope == 'frontend-compatibility'
         shell: bash
@@ -725,7 +734,16 @@ jobs:
               daemon.write_bytes(daemon_original)
           PYTHON
           git diff --exit-code -- codex-rs/tui/src/daemon_startup.rs
-          git diff -- codex-rs > "$RUNNER_TEMP/profile-tui-linted.patch"
+          # Retain the complete changed-line diff without redundant unchanged context.
+          # The reverse check and the unchanged 1 MiB consumer bound fail closed.
+          git diff --unified=0 -- codex-rs > "$RUNNER_TEMP/profile-tui-linted.patch"
+          # Generated protocol .zst files have index-only binary diffs, not reversible data.
+          # Keep them in the archived patch and its format/lint equality proof.
+          git apply --reverse --check --unidiff-zero \
+            --exclude='codex-rs/app-server-protocol/schema/precomputed/app-server-exports-experimental.json.zst' \
+            --exclude='codex-rs/app-server-protocol/schema/precomputed/app-server-exports-stable.json.zst' \
+            "$RUNNER_TEMP/profile-tui-linted.patch"
+          test "$(wc -c < "$RUNNER_TEMP/profile-tui-linted.patch")" -le 1048576
           cmp "$RUNNER_TEMP/profile-tui-formatted.patch" "$RUNNER_TEMP/profile-tui-linted.patch"
           python3 ../experiment/frontend/tui/apply.py . --check-scope --native-preparation "$RUNNER_TEMP/profile-tui-native-preparation.json"
       - name: Retain native focus and pending snapshots
