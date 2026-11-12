@@ -68,7 +68,7 @@ Runtime production inputs and require affected consumer qualification again.
 For the current W15 correction, Models is the sole assembler/Writer of
 native_route.patch and its Core/Protocol/rollout changes. Release handed back
 the existing spawn-helper supervision and tests for Models to assemble with
-the pipe/PTY and Core lifetime consumers. Integration owns the 50 required CI
+the pipe/PTY and Core lifetime consumers. Integration owns the 53 required CI
 selectors shared by basic Runtime proof and complete Enhanced TUI qualification.
 Native owns Provider proof parsing, original receipt settlement and unloaded/Stop
 observers. Integration owns norms and final assembly. These are existing
@@ -93,7 +93,7 @@ execution/receipt paths, not a new executor, history store or approval gate.
 | W12 | Offline Core-owned version JSON/details, optional components and legacy unknown revisions | Integration; termux_version.rs, component_metadata.rs, provider.rs | Local Core 271/0 and installed read-only candidate passed |
 | W13 | No-bwrap is normal platform information; explicit unsupported requests and real failures remain failures | Integration; Core Doctor path and DOCTOR norm | Local Core/Doctor passed; exact hosted qualification |
 | W14 | Signed Core/Full fixtures, rollback, mismatched edition, noninteractive/version coverage | Integration; Core tests | Local signed fixtures/menu passed; exact hosted results |
-| W15 | Original P0, verified scopes/reservations, execution schema 4 and canonical tree completion; retain root status, late receipts and selected-scope Stop/pruning | Native Provider; Models Runtime patch; Release PTY and CI under explicit leases | Provider437/Python28 and PTY15 pass; upstream/provided assembly and independent review pass; final hosted50 plus actual cold/tree/Stop/sibling acceptance remain |
+| W15 | Original P0, verified scopes/reservations, execution schema 4 and canonical tree completion; retain root status, late receipts and selected-scope Stop/pruning; versioned inference admission and delayed terminal history | Native Provider; Models Runtime patch; Release PTY and CI under explicit leases | Provider440/Python41 and unchanged PTY15 pass; upstream/provided assembly and independent review pass; final hosted53 plus actual cold/tree/Stop/sibling acceptance remain |
 | W16 | Exact Owner/home display, default-off auto, short descriptor-transition locks and unsafe-route rejection | Integration/Release after file-lease transfer; Manager terminal/window/task, Provider callback | Actual stock Android 66edd08d success; final source/device boundary retained |
 | W17 | Fresh authenticated ChatGPT catalog, independent inference auth, stable stored Provider/model IDs | Models; models/control/projection and Provider docs | Candidate hosted tests; reuse operating live model loop only within stated boundary |
 | W18 | One independent shell, original-call replay, conflicts, bounded output/process cleanup; common annotations unchanged | Integration; termux_shell, worker, candidate.py, connector refresh and qualification | Final frozen standalone worker passes eight actual stdio groups; earlier connected Busy replay preserved; final Runtime-Busy pair and exact Provider CI remain |
@@ -173,15 +173,15 @@ assignments are excluded from semantic totals.
 
 | Category | Added LoC | Deleted LoC | Replacement pairs, already included |
 | --- | ---: | ---: | ---: |
-| Product | 10192 | 1110 | 659 |
-| Tests | 18642 | 1326 | 841 |
-| Build/CI/support | 3067 | 270 | 122 |
-| Norms/documentation | 2136 | 497 | 297 |
+| Product | 10340 | 1119 | 666 |
+| Tests | 19393 | 1363 | 862 |
+| Build/CI/support | 3076 | 270 | 122 |
+| Norms/documentation | 2209 | 497 | 297 |
 
-The physical Git delta contains 167 files: 122 modified and 45 new, none deleted
+The physical Git delta contains 172 files: 127 modified and 45 new, none deleted
 relative to baseline. Replacing the two physical patch containers with their
-95 changed logical files gives 260 distinct owned/logical files: 213 modified,
-47 new, none deleted. The containers hold Native 73 files (+6866/-124) and TUI
+106 changed logical files gives 276 distinct owned/logical files: 229 modified,
+47 new, none deleted. The containers hold Native 84 files (+7413/-132) and TUI
 22 files (+715/-86); those deltas are already classified in the product/test
 rows, not additional work. Replacement pairs are the smaller side of each
 replacement hunk and are subsets of additions/deletions, not another LoC total.
@@ -189,9 +189,9 @@ Rust test-item classification lexically excludes comments/strings and supports
 cfg(all(test,...)); validation scripts count as tests. Source/line images and
 hashes allow independent recalculation.
 
-Classifier SHA256: `860cb4e5cb616633ce476ea51d60b668dfdbed8f993c5373e6416f417b57498f`.
+Classifier SHA256: `dd1aa13ce04884253d0d21d9b355f980b9297005a004b66ecbfc1985fc92fd3e`.
 Expanded-image ledger SHA256:
-`cc0f2861e5e0ec5d4b7afa8b7a5bdf65186dbfe744051f3a374229a552edf3ce`.
+`b3c180599ef234b24a262838db15a9a09f28f1c79206a8323691faa3e7492d7a`.
 The final categorized receipt is recorded with the source-freeze evidence;
 numeric documentation counts include this record itself.
 

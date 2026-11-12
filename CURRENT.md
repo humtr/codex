@@ -19,8 +19,11 @@ The last integration checkpoint evaluated across Source, Core/Runtime, Manager,
 Provider and stock Android is `26952f732a673ed2dd78187121d6374ddcfe9c88`:
 all five gates passed. Its full TUI run failed when compiling
 the focused test target; the production CLI build and upload succeeded.
-Later independent-home Owner fixes and execution-settlement corrections need
-their own exact-source gates. Read actual HEAD/Checks before reusing a checkpoint.
+At checkpoint `3d81ae14`, Manager, Provider and stock Android passed; Source
+Acceptance exposed an oversized debug-binary rollback fixture. Test-only fix
+`a596efe9` preserves the production byte bound and passed seven focused cases.
+Later execution-settlement changes still require their own exact-source gates.
+Read actual HEAD/Checks before reusing a checkpoint.
 
 Remote `main` remains `b2567063d2a7a333a718d2495e2c9f8c928d822c`,
 the separate publication/approval authority. Neither branch has GitHub branch
@@ -34,13 +37,14 @@ The recipe now selects Codex **0.167.2**, upstream source
 discovery advanced development to `ec51fe4a5f5153a441cf78b1e8ce108050274e80`
 at 00:48:38 UTC on November 12. It changes only the release recipe and is a
 direct child of checkpoint J. Integration preserves it in merge `795e0cae`.
-The final Runtime producer is integrated as `f2aef205` from `7f3c3ef2`,
-paired with Provider consumer `e8a08631` from `85372085`. Both Core-only
+The current Runtime producer is integrated as `1e203874` from `c174ae83`,
+paired with Provider consumer `d4028958` from `4e6b31e3`. These extend the
+previous `f2aef205`/`e8a08631` process-tree pair with mixed-generation fences. Both Core-only
 `--frontend upstream` preparation and separate Enhanced TUI preparation passed
 on the exact 0.167.2 source. The normalized lock contains the same 1,308 external
 identities and 171 workspace version updates; its SHA256 is
 `5e1781c98407bf0cbf67bb39a2dffffa6d2a259871a47fe99946de22c716a782`.
-Assembly receipt: `38ebbe9af8b90520d10a8dfe9fac03ba80276bf246455319362af59fadfd2753`.
+Assembly receipt: `99ebd9a19fba7691da29ed034e9a3c0f7a62e1ad29cbf57a467e232f989d2ca9`.
 This source preparation does not prove hosted Core compilation or execution.
 
 The earlier basic-Runtime run
@@ -65,9 +69,23 @@ Device helper/PTY focus passed 15/15 with zero ignored and strict production-lib
 Clippy. An earlier full Android PTY run passed 52/54: both failures were reproduced
 on pristine upstream and remain failures, not accepted candidate passes.
 Final focused receipt: `76fa362e3b2843446577360257184812ded8e12c594a95a5403a8e795b0afbbe`.
-Independent final producer review:
-`a441b1e59c401f7925ff4e9248a829ab48bd6189dc418ef2b6fa8767a95f86e1`.
-Exact integrated Core/Runtime and TUI execution remains an acceptance boundary.
+Independent current producer reviews:
+`95d4feef81d7b80aaf806fb2a0360acdfdece9a35230356e0ff474ae3cb32d01` and
+`670455ed2c3ea85e5fe801d5185bf1b20c93a68dc03aa43ce9208c27bb879819`.
+The unchanged helper/PTY subset can reuse its focused receipt; new Core and
+Guardian cases require hosted execution. Exact integrated Core/Runtime and TUI
+execution remains an acceptance boundary.
+
+The compatibility audit found that an old Provider could ignore the new proof
+and treat root exit as terminal scope. The current producer retains the legacy
+running-session header while descendants remain, labels root status separately,
+and delays canonical terminal history until verified tree closure. Native
+inference uses the versioned private ingress: an old Provider returns 404 before
+admission, inference or effects. Core, live switches, Memory and Guardian clients
+use the configured Provider identity; absent Native URL fails before generic
+auth/API resolution. The route itself grants no execution authority. Ordinary
+OpenAI routes and original output bytes remain unchanged; complete late-output
+capture is not a new guarantee. No fallback reexecutes the original request.
 
 The bot's unchanged-producer Source and Core/Runtime gates passed separately;
 they do not qualify the new input-inventory and completion changes. The observed operating
@@ -101,12 +119,13 @@ workflow/document checks passed on that tree. The expired temporary outage
 notice and its navigation pointers were retired after this reconciliation;
 Git history preserves the notice and unverified WIP checkpoints.
 
-Gate commit `2612cdce` requires all 50 named original-execution and descendant
-oracles in both independent Runtime proof and complete TUI qualification: 30
-Core, 15 PTY and five protocol/hook/history cases. Full PTY and rollout suites
-remain mandatory. Its 63 workflow/document tests, YAML parse and diff checks
-passed, receipt `00323625e691b7e67520a81f2237d341e395562e6f89cee0add81775315d0552`.
-This gate-plumbing proof is not execution of the final 50 upstream Rust tests.
+Gate commit `4cd0e80e` requires all 53 named original-execution and descendant
+oracles in both independent Runtime proof and complete TUI qualification: 32
+Core, 15 PTY, one Guardian and five protocol/hook/history cases. Full PTY and
+rollout suites remain mandatory. Its 70 workflow/artifact/document tests, YAML
+parse and diff checks passed, receipt
+`6b14a915fb878534e9b4352f74f2a9bc34d4e053a0bfb1a13958ad9b2143b2e5`.
+This gate-plumbing proof is not execution of the new 53 upstream Rust tests.
 Full TUI uses explicit manual dispatch with all full gates and the unchanged
 explicit-intent publication relay. The temporary outage-only workflow is retired;
 independent Core Runtime qualification remains a permanent source gate.
@@ -235,7 +254,12 @@ installed Core and S165 pointer remained unchanged.
 
 The observed live Owner was not directly mapped to the user's original error
 screen. That exact old TUI PID/thread remains unproven; do not substitute a
-different live thread as evidence for it.
+different live thread as evidence for it. The 03:35 UTC read-only follow-up
+identified 42 same-UID generation processes across S159/S163/S165. The five
+exact home/log paths were absent, and no private regular log descriptor was
+open in those processes. No pipe/socket or conversation body was read. Receipts:
+`c3462b34980c4b08b69cfa9305f95a9883e41173daf7701c6ee7c3f7c738190b` and
+`bba42944f1ca53aabf5ca9a0e090e20ed64f8c48bedf508fb17937d9a2b783cc`.
 
 Actual staged same-thread profile-switch tests passed with synthetic inference.
 The later cf/66/d2 task qualifier passed 40 assertions, including active/
@@ -318,12 +342,16 @@ ordinary same-name tools are not treated as those handlers.
 This qualification applies to the exact participating Runtime and Provider.
 Unrecorded effects in an already-running older Provider cannot be retroactively
 arbitrated by new source. No operating Provider was replaced for these checks.
-The final 17 Provider/qualifier files are byte-identical to the frozen `85372085`
-source. All-target tests passed **437 distinct cases** (338 library plus 99
-integration), zero failed and 34 existing gated live/asset/helper cases ignored.
-Recursive child summaries are not counted twice. Strict all-target Clippy,
-workspace/Provider format, 28 Python tests and diff checks passed.
-Receipt: `fb22b5411dfb05bdd5a3060c33260c7350f1c0ed7370265a251d932d8c48a709`.
+The mixed-generation consumer delta has ten files byte-identical to frozen
+`4e6b31e3`; its complete Provider tree is `1a32a6b76485f58c746cad173ddea14f04fbddf4`.
+All-target tests passed **440 distinct cases** (340 library plus 100 integration),
+zero failed and 34 existing gated live/asset/helper cases ignored. Recursive
+child summaries are not counted twice. Strict all-target Clippy, both format
+checks, 41 Python tests and diff checks passed. The actual loopback cut fixture
+checks the original body/call/response, one POST and upstream EOF separately from
+final Runtime execution. Receipt:
+`1d93d344dbe7b1f095a41d8233becc4886fbb48b966698adb5d21352e9153c87`;
+independent review `df913ddd5243c9fddbd94c0610d964ed0e890e4a15e955b1a4e932d23cb7a841`.
 The original failing iterations remain preserved. Hosted final-source and actual
 new Runtime/Provider joint execution are separate from these local passes.
 
@@ -346,7 +374,8 @@ synthetic termination status can precede successful OS wait; a CreateProcess/
 Rejected error can follow spawn; absent asynchronously persisted history cannot
 prove non-dispatch. Three existing-consumer negative tests compiled and failed
 semantically before correction. The Runtime producer and Provider consumers were
-corrected together in f2aef205/e8a08631; final joint acceptance remains separate. Stop ACK, empty jobs, terminal item or legacy exited
+corrected together in f2aef205/e8a08631 and extended by 1e203874/d4028958;
+final joint acceptance remains separate. Stop ACK, empty jobs, terminal item or legacy exited
 boolean alone is not accepted as real process settlement. Earlier control tests
 that asserted only those weaker states cannot qualify the corrected boundary.
 Original raw results and failed receipts remain unchanged.
@@ -415,15 +444,16 @@ cancellation preserving unknown intent, process-group cleanup, concurrent
 one-effect execution, 64 KiB bound and private file modes. Three workers exited
 0; original Native sentinel and operating wrapper/Core stayed unchanged.
 Receipt: a7d828a8444baec9b47d4a1d427a7475e4b668ca8a3c87fa7b898576946ddff6.
-The final frozen worker from the same five-object Provider build closure passed
+The refreshed frozen worker from the `4e6b31e3` five-object Provider build closure passed
 actual private stdio again: single tool/common annotations, no Core/Provider,
 original-ID replay/restart/conflict, cancelled unknown intent and child cleanup,
 timeout, concurrent workers with one effect, exact 65,536-byte bound, private
 modes and unchanged sentinel. Three workers exited 0; five owned children were
 inactive. Worker SHA256:
-`21e82507bfd5349ab9445554a6dabf365005b82a9b1568248944344437b12816`.
-Execution receipt: `7a60052783151faac51459ebe4fcb454cde0faab741a7e656da1cd1c7d6488b4`;
-independent review: `bd15e1b11b73daedd6bb9e5014f8c86fa172b13a980e0c34f25b21bf9a16158b`.
+`7996824b875c2585cde841962233ff9ee2d03e50107eff0df86c9be6b702a250`.
+Execution receipt: `ce23cf756b06393fa048396cb07ab1dd0cc5196c53c539d264da6f2b94b68ab6`.
+This is an Android local build/execution. The earlier `21e82507` worker receipt
+`7a60052783151faac51459ebe4fcb454cde0faab741a7e656da1cd1c7d6488b4` remains preserved.
 This does not yet prove the new worker plus final Runtime under Native Busy.
 The candidate was not activated in the connected tunnel. Refresh selects an
 explicit independent mcp_command, preserves legacy omission and refuses invalid
@@ -463,6 +493,10 @@ isolated PTY/Manager tests and stock Android API 30 CI passed actual Activity,
 foreground session UUID, repeated/concurrent click/auto ON/OFF and foreign-home
 refusal. The stock fixture has synthetic Core transport/frontend: it is not
 physical-device visibility, screen-lock/background or real Native inference proof.
+A physical read-only dumpsys attempt at 03:31 UTC returned Permission Denial for
+the app UID lacking android.permission.DUMP, despite process exit 0; adb was
+unavailable. No screen result is inferred from that exit status. Receipt:
+`b5ee8b32672ba10e5548002bbbd85161901bb30b007a6d20e2ee919cc7597cc2`.
 
 **Physical test exception:** one early failed unit fixture inherited real Termux
 AM and recreated an owned /not-executed display descriptor. A read-only probe
@@ -496,6 +530,23 @@ reindex, thread-ID change or user-Writer termination occurred.
 | 5f05d2d50ab15b749536f54b66332c15d0b6134f | Preliminary Native Runtime proof | [43138521772](https://github.com/humtr/codex/actions/runs/43138521772) | failure: Core production compilation after PTY 66/66 |
 | dabd08ff52a7846e58ed913d8191626e9a4d315f | Earlier Native Runtime compiler/proof checkpoint | [43142830623](https://github.com/humtr/codex/actions/runs/43142830623) | success; 34 required checks, full PTY/rollout, final cache complete |
 | bfec2858798bfdea18843112019c3f3a1b9e6fc7 | Earlier Provider consumer checkpoint | [43143270459](https://github.com/humtr/codex/actions/runs/43143270459) | success; 429 distinct tests, predates final schema-4 tree proof |
+| 3d81ae14cbfa567c05d7cb4b8287113b0c7f74b1 | Source | [43148496588](https://github.com/humtr/codex/actions/runs/43148496588) | failure: debug executable exceeded rollback fixture bound; test-only fix a596efe9 |
+| same 3d checkpoint | Manager | [43148496548](https://github.com/humtr/codex/actions/runs/43148496548) | success; 139 actual tests |
+| same 3d checkpoint | Provider | [43148496475](https://github.com/humtr/codex/actions/runs/43148496475) | success; 437 distinct tests, prior consumer |
+| same 3d checkpoint | Stock Android | [43148496525](https://github.com/humtr/codex/actions/runs/43148496525) | success; real emulator Activity/session checks, synthetic Core/frontend |
+| same 3d checkpoint | Full composition, attempt 1 | [43148496578](https://github.com/humtr/codex/actions/runs/43148496578) | refused pending exact-source Core prerequisite before assembly |
+
+At 04:01 UTC, 3d Core/Runtime run43148496770 and full TUI run43148525665
+were still running, not accepted. Their successful schema steps do not prove
+Core test or CLI build completion. Source job130952343696 reused the canonical
+Android Core artifact and reverified it rather than rebuilding. The failing
+Source workspace job copied its oversized hosted debug test harness as a prior
+installed Core. Fix a596efe9 instead shares the existing bounded bootstrap
+launcher in the three affected fixtures, preserves genuine installed ELF branches
+and all rollback/digest/mode assertions, and leaves the production 64 MiB bound
+unchanged. Seven focused tests passed, including three with a separately built
+genuine Android Core; strict lint/format passed. Original failure log:
+`669a22a273e9385155ac2238093272ac9fad6aae2eeeb14e69b8b424f24b392d`.
 
 G full TUI completed 2026-11-11 23:41:42 UTC: focused 172/172; mandatory
 independent-fault oracles; Native/config/hooks/API; Retain TUI 53/53, engine

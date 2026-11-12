@@ -8,12 +8,12 @@ CI. These are not intermediate approval gates.
 
 ## Remaining source acceptance
 
-1. Execute the final integrated Runtime/Provider pair. Producer f2aef205 and
-   consumer e8a08631 are implemented and independently reviewed; local Provider
-   437/437, Python 28/28, PTY/helper 15/15, strict lint/format and exact upstream/
+1. Execute the final integrated Runtime/Provider pair. Producer 1e203874 and
+   consumer d4028958 are implemented and independently reviewed; local Provider
+   440/440, Python 41/41, PTY/helper 15/15, strict lint/format and exact upstream/
    provided source assembly passed. The earlier dabd08ff compiler checkpoint
    passed hosted 34-gate proof; it does not qualify the new process-tree changes.
-   Run the mandatory final 50 gates and unchanged full PTY/rollout suites.
+   Run the mandatory final 53 gates and unchanged full PTY/rollout suites.
 2. Complete unloaded source-bound observation, cold compiler/Provider restart,
    changed Stop/ACK and independent-sibling execution on the new qualified Runtime.
    Original r1/r2 IDs, results and uncertain state remain preserved without
@@ -29,8 +29,8 @@ CI. These are not intermediate approval gates.
 4. Complete exact-source Source, Core/Runtime, Manager, Provider, stock Android,
    full TUI and Full composition acceptance. Preserve all six immutable Full
    inputs and use one full TUI dispatch with publication advancement disabled.
-   The TUI constructor correction and new tree lifetime tests need hosted
-   execution. The legitimate 0.167.2 recipe is preserved, while the operating
+   The TUI constructor, Source fixture correction, mixed-generation admission
+   and tree lifetime tests need hosted execution. The legitimate 0.167.2 recipe is preserved, while the operating
    S165 installation remains 0.167.1. A running job is not a successful gate.
 5. Finish final-composition Native/terminal checks and new-worker Native-Busy
    independence, then collect exact-head CI and protected-ref readbacks. New
