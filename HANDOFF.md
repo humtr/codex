@@ -10,18 +10,19 @@ CI. These are not intermediate approval gates.
 
 ## Remaining source acceptance
 
-1. Complete Runtime execution proof and its Provider consumers: distinguish
+1. **IMMEDIATE CONNECTIVITY CONTINGENCY (user directive; 2026-11-12 11:00 KST):** Before continuing any remaining acceptance, read [MUST-READ-USER-DIRECTIVE.md](MUST-READ-USER-DIRECTIVE.md) in full. A lost `@TermuxBridge`/MCP link means **transport uncertainty**, not an unsolvable Native Busy/Stop wall or failed GitHub CI. Preserve live local builds/tests and original call receipts; before the outage, safely commit and back up ownership-verified progress to the separate contingency GitHub refs. If the link drops, continue source review and existing GitHub CI **only if an independently authorized GitHub connection still works**, without overwriting potentially active local workers. At sensible existing work boundaries, make non-mutating connectivity checks and, after restoration, reconcile original Native calls, local worktrees and remote-only changes before returning to Termux. **Never send a direct Pro-orchestrator queue/message/inference, force-stop uncertain processes, replay effects, change accounts, or sign/activate the release.** This is a temporary continuity instruction, not a new W-task, approval gate or final acceptance proof.
+2. Complete Runtime execution proof and its Provider consumers: distinguish
    actual OS wait/pre-backend rejection from synthetic exit, generic rejection,
    Stop ACK, empty jobs and missing asynchronously persisted history.
    Preserve original receipts; verify real normal rejection/Stop availability
    as well as conservative unknown effects. Native owns Provider settlement;
    Models owns the leased Native Runtime patch; Release owns named CI gates.
-2. Complete unloaded source-bound work observation and the cold compiler/
+3. Complete unloaded source-bound work observation and the cold compiler/
    Provider-restart trial. Original r1/r2 results remain preserved without
    resubmission. Independent-CODEX_HOME Writer discovery is now integrated
    and passed affected tests/readbacks; do not repeat it as an unresolved
    source defect. Revalidate changed Runtime/Stop consumers on the final inputs.
-3. Finish the affected final-composition switch checks. The separate S165
+4. Finish the affected final-composition switch checks. The separate S165
    private-handoff refusal passed with unchanged original records and no
    destination Owner/inference; it is a compatibility boundary, not a final Full
    proof. J's provisional same-thread trial passed:
@@ -30,14 +31,14 @@ CI. These are not intermediate approval gates.
    and the separate old-d2 refusal are recorded in CURRENT, not promoted to
    final Runtime/Full acceptance.
    A read-only observed live Owner is not the original user's exact error screen.
-4. Complete exact-source full TUI and Full composition. G's pin, compaction
+5. Complete exact-source full TUI and Full composition. G's pin, compaction
    and Retain gates passed; J's focused target failed to compile a missing App
    fixture field, before any of its nineteen named cases ran. The constructor
    correction needs hosted execution. New Owner/Runtime/Provider source requires
    new exact-source gates. The bot's valid upstream 0.167.2 discovery was merged;
    verify its new archive, patch application and qualification separately from
    earlier 0.167.1 evidence. Retain original six immutable Full inputs.
-5. Finish final-composition Native/terminal checks, independent review,
+6. Finish final-composition Native/terminal checks, independent review,
    exact-head CI receipts, semantic/physical LoC and branch/protected-asset
    readback. Do not treat running jobs or earlier component proofs as final success.
 
