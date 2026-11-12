@@ -28,6 +28,7 @@ SUITES = {
         'native_completion_local_driver_refusal_uses_actual_request_and_preserves_upstream',
         'native_completion_intercepted_patch_refuses_before_file_effects',
         'native_completion_successful_wait_without_numeric_exit_is_terminal',
+        'native_completion_nonprocess_hook_refusal_preserves_discovery_and_plain_tools',
     ),
     'protocol': (
         'native_completion_typescript_keeps_nullable_field_and_real_type_dependencies',
