@@ -40,9 +40,23 @@ Native-plus-TUI preparation, exact lock audit and 52 constructor checks. The fou
 selected wire/history tests passed again on its frozen 0.167.1 dependency closure
 (receipt `8b45aa80dc06deb2a885c4096a9b5ac961b9f4bf00109fb74610f0885204a352`).
 That selected run does not prove the full 0.167.2 Core or hosted suite. The
-independent Core Runtime workflow now requires the same 33 named completion
+independent Core Runtime workflow now requires the same mandatory named completion
 oracles as the Full TUI path, with full PTY and Rollout suites; its final hosted
 execution and Provider consumer acceptance remain pending.
+The first remote basic-Runtime checkpoint `5f05d2d5` completed run
+[43138521772](https://github.com/humtr/codex/actions/runs/43138521772) with
+**failure**. Its workflow/document contracts passed 57 tests and protocol
+schema generation succeeded. The entire PTY package passed 66 tests, including
+all five required completion cases. Core compilation then failed before its
+selected tests: the late-history path named `RolloutItem` in the wrong crate and
+the event conversion lacked `HasLegacyEvent` in scope. Commit `69d402b3` corrects
+those production references; its hosted execution remains unproved here. The
+original job log is bound by SHA256
+`f169aa25587d7d029dff259421d9685341d6a3dae54b34bacc14d1409b69b5e0`.
+Parent OS wait does not prove detached descendants ended. The existing spawn
+helper supervision and precise CodeMode admission correction are still being
+implemented and require new producer/consumer execution evidence.
+
 The bot's unchanged-producer Source and Core/Runtime gates passed separately;
 they do not qualify the new input-inventory and completion changes. The observed operating
 S165 installation remains **0.167.1**. Official upstream comparison identifies
@@ -414,6 +428,7 @@ reindex, thread-ID change or user-Writer termination occurred.
 | same J checkpoint | Full composition, attempt 1 | [43118366010](https://github.com/humtr/codex/actions/runs/43118366010) | refused missing exact-source prerequisite |
 | ec51fe4a5f5153a441cf78b1e8ce108050274e80 | Source, upstream discovery only | [43130011419](https://github.com/humtr/codex/actions/runs/43130011419) | success |
 | same upstream-discovery source | Core/Runtime | [43130014157](https://github.com/humtr/codex/actions/runs/43130014157) | success; completed 2026-11-12 01:28:06 UTC |
+| 5f05d2d50ab15b749536f54b66332c15d0b6134f | Preliminary Native Runtime proof | [43138521772](https://github.com/humtr/codex/actions/runs/43138521772) | failure: Core production compilation after PTY 66/66 |
 
 G full TUI completed 2026-11-11 23:41:42 UTC: focused 172/172; mandatory
 independent-fault oracles; Native/config/hooks/API; Retain TUI 53/53, engine

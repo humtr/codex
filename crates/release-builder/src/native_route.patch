@@ -3684,10 +3684,10 @@ index 0000000000..154eedba95
 +}
 diff --git a/codex-rs/core/src/native_execution.rs b/codex-rs/core/src/native_execution.rs
 new file mode 100644
-index 0000000000..ad911167e8
+index 0000000000..e632b0394d
 --- /dev/null
 +++ b/codex-rs/core/src/native_execution.rs
-@@ -0,0 +1,1178 @@
+@@ -0,0 +1,1384 @@
 +//! Private execution facts for the local ChatGPT Provider's resource admission.
 +//! Native remains the only executor. No tool arguments or environment values
 +//! are rewritten, and no compiler or shell is run to obtain these facts.
@@ -3770,9 +3770,11 @@ index 0000000000..ad911167e8
 +            _ => {}
 +        }
 +    }
-+    match tool.to_string().as_str() {
-+        "clock.curr_time" => Some("clock.curr_time"),
-+        "clock.sleep" => Some("clock.sleep"),
++    // MCP preserves its server namespace separately from the raw tool name.
++    // Display formatting is not a callable identity or backend trust proof.
++    match (tool.namespace.as_deref(), tool.name.as_str()) {
++        (Some("clock" | "mcp__clock"), "curr_time") => Some("clock.curr_time"),
++        (Some("clock" | "mcp__clock"), "sleep") => Some("clock.sleep"),
 +        _ => None,
 +    }
 +}
@@ -3843,6 +3845,7 @@ index 0000000000..ad911167e8
 +/// hook consumers use the returned engine, never another session.hooks() load.
 +pub(crate) fn admit_hook_dispatch(
 +    invocation: &mut ToolInvocation,
++    code_mode_cell_tool: bool,
 +) -> Result<(), FunctionCallError> {
 +    if invocation
 +        .step_context
@@ -3862,6 +3865,28 @@ index 0000000000..ad911167e8
 +        )
 +    {
 +        return Ok(());
++    }
++    // A yielded cell can outlive its original tool response and its turn.
++    // This adapter has no cell-lifecycle receipt, so never treat that response
++    // as completion of all nested effects. The registry has already verified
++    // this exact built-in runtime and payload kind; ordinary tools with the
++    // same spelling must retain their normal dispatch path.
++    if code_mode_cell_tool
++        && invocation.tool_name.is_default_namespace()
++        && matches!(
++            (invocation.tool_name.name.as_str(), &invocation.payload),
++            (
++                codex_code_mode::PUBLIC_TOOL_NAME,
++                codex_tools::ToolPayload::Custom { .. }
++            ) | (
++                codex_code_mode::WAIT_TOOL_NAME,
++                codex_tools::ToolPayload::Function { .. }
++            )
++        )
++    {
++        return Err(FunctionCallError::RespondToModel(
++            "Native CodeMode cell lifecycle is unsupported by this adapter; no hook or cell backend was executed.".into(),
++        ));
 +    }
 +    let admitted = invocation
 +        .step_context
@@ -4412,6 +4437,154 @@ index 0000000000..ad911167e8
 +
 +    #[cfg(unix)]
 +    #[tokio::test]
++    async fn native_completion_code_mode_refuses_before_cell_dispatch() -> anyhow::Result<()> {
++        use crate::tools::code_mode::CodeModeExecuteHandler;
++        use crate::tools::code_mode::CodeModeWaitHandler;
++        use crate::tools::code_mode::execute_spec::create_code_mode_tool;
++        use crate::tools::registry::CoreToolRuntime;
++        use crate::tools::registry::ToolRegistry;
++        use codex_tools::ToolPayload;
++
++        let (session, turn) = crate::session::tests::make_session_and_context().await;
++        let session = Arc::new(session);
++        let turn = Arc::new(turn);
++        let clear_hooks = session.hooks();
++        let owned = tempfile::tempdir()?;
++        session.services.hooks.store(configured_hooks(
++            &session,
++            owned.path(),
++            "cell-must-not-run",
++            ".*",
++        )?);
++        let cell_tools: [Arc<dyn CoreToolRuntime>; 2] = [
++            Arc::new(CodeModeExecuteHandler::new(
++                create_code_mode_tool("Owned cell refusal fixture".into()),
++                Vec::new(),
++            )),
++            Arc::new(CodeModeWaitHandler::new(None, None)),
++        ];
++        assert!(cell_tools.iter().all(|tool| tool.is_code_mode_cell_tool()));
++        let registry = ToolRegistry::from_tools(cell_tools);
++        for namespace in [None, Some("functions")] {
++            for name in [
++                codex_code_mode::PUBLIC_TOOL_NAME,
++                codex_code_mode::WAIT_TOOL_NAME,
++            ] {
++                let id = format!("cell-refusal-{namespace:?}-{name}");
++                let step = StepContext::for_test(Arc::clone(&turn));
++                step.native_hooks.capture(session.hooks());
++                let tool = ToolName::new(namespace.map(str::to_owned), name);
++                let mut invocation = hook_probe_invocation(&session, step, tool, &id);
++                invocation.payload = if name == codex_code_mode::PUBLIC_TOOL_NAME {
++                    ToolPayload::Custom {
++                        input: "text('must-not-run')".into(),
++                    }
++                } else {
++                    ToolPayload::Function {
++                        arguments: r#"{"cell_id":"must-not-resume"}"#.into(),
++                    }
++                };
++                let error = admit_hook_dispatch(&mut invocation, true)
++                    .err()
++                    .ok_or_else(|| anyhow::anyhow!("cell admission must refuse"))?;
++                assert!(error.to_string().contains("Native CodeMode cell lifecycle"));
++                assert_eq!(invocation.call_id, id);
++                match &invocation.payload {
++                    ToolPayload::Custom { input } => assert_eq!(input, "text('must-not-run')"),
++                    ToolPayload::Function { arguments } => {
++                        assert_eq!(arguments, r#"{"cell_id":"must-not-resume"}"#);
++                    }
++                    _ => anyhow::bail!("original cell payload changed"),
++                }
++                let error = registry
++                    .dispatch_any_with_state(invocation, None)
++                    .await
++                    .err()
++                    .ok_or_else(|| anyhow::anyhow!("registered cell must refuse"))?;
++                assert!(error.to_string().contains("Native CodeMode cell lifecycle"));
++                assert!(
++                    error
++                        .to_string()
++                        .contains("no hook or cell backend was executed")
++                );
++            }
++        }
++        assert!(!owned.path().join("hook-effects").exists());
++
++        // Existing registration rejects the wrong payload before Native policy.
++        for name in [
++            codex_code_mode::PUBLIC_TOOL_NAME,
++            codex_code_mode::WAIT_TOOL_NAME,
++        ] {
++            let step = StepContext::for_test(Arc::clone(&turn));
++            step.native_hooks.capture(session.hooks());
++            let mut wrong_kind = hook_probe_invocation(
++                &session,
++                step,
++                ToolName::plain(name),
++                &format!("cell-wrong-kind-{name}"),
++            );
++            if name == codex_code_mode::WAIT_TOOL_NAME {
++                wrong_kind.payload = ToolPayload::Custom {
++                    input: "text('wrong-kind')".into(),
++                };
++            }
++            let error = registry
++                .dispatch_any_with_state(wrong_kind, None)
++                .await
++                .err()
++                .ok_or_else(|| anyhow::anyhow!("wrong cell kind must fail"))?;
++            assert!(error.to_string().contains("incompatible payload"));
++        }
++
++        session.services.hooks.store(clear_hooks);
++        let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
++        for name in [
++            codex_code_mode::PUBLIC_TOOL_NAME,
++            codex_code_mode::WAIT_TOOL_NAME,
++        ] {
++            // An unrelated function runtime with this spelling is not a cell.
++            let tool = ToolName::plain(name);
++            let generic = ToolRegistry::from_tools([Arc::new(HookAdmissionProbe {
++                name: tool.clone(),
++                calls: Arc::clone(&calls),
++                reload: None,
++                permission: false,
++            }) as Arc<dyn CoreToolRuntime>]);
++            let step = StepContext::for_test(Arc::clone(&turn));
++            step.native_hooks.capture(session.hooks());
++            generic
++                .dispatch_any_with_state(
++                    hook_probe_invocation(&session, step, tool, &format!("generic-{name}")),
++                    None,
++                )
++                .await?;
++
++            let mut ordinary = hook_probe_invocation(
++                &session,
++                StepContext::for_test(Arc::clone(&turn)),
++                ToolName::plain(name),
++                &format!("ordinary-{name}"),
++            );
++            if name == codex_code_mode::PUBLIC_TOOL_NAME {
++                ordinary.payload = ToolPayload::Custom {
++                    input: "text('ordinary')".into(),
++                };
++            }
++            assert!(admit_hook_dispatch(&mut ordinary, true).is_ok());
++            let step = StepContext::for_test(Arc::clone(&turn));
++            step.native_hooks.capture(session.hooks());
++            ordinary.step_context = step;
++            ordinary.tool_name = ToolName::namespaced("foreign", name);
++            assert!(admit_hook_dispatch(&mut ordinary, true).is_ok());
++        }
++        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 2);
++        assert!(!owned.path().join("hook-effects").exists());
++        Ok(())
++    }
++
++    #[cfg(unix)]
++    #[tokio::test]
 +    async fn native_completion_nonprocess_hook_refusal_preserves_discovery_and_plain_tools()
 +    -> anyhow::Result<()> {
 +        let (session, turn) = crate::session::tests::make_session_and_context().await;
@@ -4517,6 +4690,33 @@ index 0000000000..ad911167e8
 +                "hook-free {tool} must remain available"
 +            );
 +        }
++        // The MCP producer retains server and leaf separately, with an
++        // optional mcp__ namespace prefix. These aliases qualify hook dispatch
++        // only; a server named clock is not proof of read-only resource scope.
++        let unrelated = configured_hook_events(
++            &session,
++            owned.path(),
++            "unrelated",
++            "request_user_input",
++            &["pre", "post", "permission"],
++        )?;
++        let snapshot = HookSnapshot::default();
++        snapshot.capture(Arc::clone(&unrelated));
++        for (leaf, fact) in [("curr_time", "clock.curr_time"), ("sleep", "clock.sleep")] {
++            for namespace in ["clock", "mcp__clock"] {
++                let actual = ToolName::namespaced(namespace, leaf);
++                assert_eq!(qualified_hook_tool(&actual), Some(fact));
++                assert!(snapshot.admit(&unrelated, &actual).is_ok());
++            }
++            for namespace in ["foreign", "clock.", "mcp__clock__"] {
++                let foreign = ToolName::namespaced(namespace, leaf);
++                assert_eq!(qualified_hook_tool(&foreign), None);
++                assert!(snapshot.admit(&unrelated, &foreign).is_err());
++            }
++            for legacy in [fact.to_string(), format!("mcp__clock__{leaf}")] {
++                assert_eq!(qualified_hook_tool(&ToolName::plain(legacy)), Some(fact));
++            }
++        }
 +        // MCP uses the same canonical mcp__ name for all three actual hook
 +        // events. Test each event separately so a matching Pre hook cannot hide
 +        // a missing Permission matcher. view_image has no Permission producer;
@@ -4530,7 +4730,7 @@ index 0000000000..ad911167e8
 +                let hooks =
 +                    configured_hook_events(&session, owned.path(), "read", matcher, &[event])?;
 +                let snapshot = HookSnapshot::default();
-+                let scope = &snapshot.capture(hooks).hook_free_tools;
++                let scope = &snapshot.capture(Arc::clone(&hooks)).hook_free_tools;
 +                assert!(
 +                    !scope.contains(&tool),
 +                    "matching {event} must exclude {tool}"
@@ -4539,6 +4739,12 @@ index 0000000000..ad911167e8
 +                    scope.contains(&"exec_command"),
 +                    "unrelated read hooks must not block exec"
 +                );
++                if let Some(leaf) = tool.strip_prefix("clock.") {
++                    for namespace in ["clock", "mcp__clock"] {
++                        let actual = ToolName::namespaced(namespace, leaf);
++                        assert!(snapshot.admit(&hooks, &actual).is_err());
++                    }
++                }
 +                for other in ["view_image", "clock.curr_time", "clock.sleep"] {
 +                    if other != tool {
 +                        assert!(scope.contains(&other), "{tool} hook must not block {other}");
@@ -4711,7 +4917,7 @@ index 0000000000..ad911167e8
 +                let id = format!("driver-{enabled}-{login}");
 +                let mut invocation =
 +                    hook_probe_invocation(&session, step, ToolName::plain("exec_command"), &id);
-+                admit_hook_dispatch(&mut invocation)?;
++                admit_hook_dispatch(&mut invocation, false)?;
 +                let state = invocation
 +                    .native_completion
 +                    .clone()
@@ -4810,7 +5016,7 @@ index 0000000000..ad911167e8
 +            ToolName::plain("exec_command"),
 +            "patch-intercept",
 +        );
-+        admit_hook_dispatch(&mut invocation)?;
++        admit_hook_dispatch(&mut invocation, false)?;
 +        let state = invocation
 +            .native_completion
 +            .clone()
@@ -6839,6 +7045,36 @@ index 4623a50c08..19c775d5f9 100644
                      .models_manager
                      .get_model_info(model, &config.to_models_manager_config())
                      .await,
+diff --git a/codex-rs/core/src/tools/code_mode/execute_handler.rs b/codex-rs/core/src/tools/code_mode/execute_handler.rs
+index 756c8057d8..5492d08077 100644
+--- a/codex-rs/core/src/tools/code_mode/execute_handler.rs
++++ b/codex-rs/core/src/tools/code_mode/execute_handler.rs
+@@ -254,6 +254,10 @@
+ }
+ 
+ impl CoreToolRuntime for CodeModeExecuteHandler {
++    fn is_code_mode_cell_tool(&self) -> bool {
++        true
++    }
++
+     fn matches_kind(&self, payload: &ToolPayload) -> bool {
+         matches!(payload, ToolPayload::Custom { .. })
+     }
+diff --git a/codex-rs/core/src/tools/code_mode/wait_handler.rs b/codex-rs/core/src/tools/code_mode/wait_handler.rs
+index 1d3bc5643f..bbce16c95a 100644
+--- a/codex-rs/core/src/tools/code_mode/wait_handler.rs
++++ b/codex-rs/core/src/tools/code_mode/wait_handler.rs
+@@ -230,6 +230,10 @@
+ }
+ 
+ impl CoreToolRuntime for CodeModeWaitHandler {
++    fn is_code_mode_cell_tool(&self) -> bool {
++        true
++    }
++
+     fn pre_tool_use_payload(&self, _invocation: &ToolInvocation) -> Option<PreToolUsePayload> {
+         // Code-mode `wait` is runtime control for an existing code cell, not a
+         // standalone user action. Tool calls made from code mode still flow
 diff --git a/codex-rs/core/src/tools/context.rs b/codex-rs/core/src/tools/context.rs
 index 252ca66b74..a9872c6376 100644
 --- a/codex-rs/core/src/tools/context.rs
@@ -6860,10 +7096,18 @@ index 252ca66b74..a9872c6376 100644
      // TODO(sayan): Remove this compatibility field once handlers use `step_context.turn`.
      pub turn: Arc<TurnContext>,
 diff --git a/codex-rs/core/src/tools/events.rs b/codex-rs/core/src/tools/events.rs
-index 2d5262ee9b..b9aa59b38d 100644
+index 2d5262ee9b..43e646c1fe 100644
 --- a/codex-rs/core/src/tools/events.rs
 +++ b/codex-rs/core/src/tools/events.rs
-@@ -42,6 +42,8 @@ pub(super) fn truncate_rejection_message(message: &str) -> String {
+@@ -25,6 +25,7 @@
+ use codex_protocol::protocol::ExecCommandSource;
+ use codex_protocol::protocol::ExecCommandStatus;
+ use codex_protocol::protocol::FileChange;
++use codex_protocol::protocol::HasLegacyEvent;
+ use codex_protocol::protocol::PatchApplyStatus;
+ use codex_protocol::protocol::TurnDiffEvent;
+ use codex_shell_command::parse_command::parse_command;
+@@ -42,6 +43,8 @@
  
  #[derive(Clone, Copy)]
  pub(crate) struct ToolEventCtx<'a> {
@@ -6872,7 +7116,7 @@ index 2d5262ee9b..b9aa59b38d 100644
      pub sandbox_type: Option<codex_protocol::sandbox::SandboxType>,
      pub model_context: Option<&'a ModelInvocationContext>,
      pub session: &'a Session,
-@@ -61,6 +63,7 @@ impl<'a> ToolEventCtx<'a> {
+@@ -61,6 +64,7 @@
          turn_diff_tracker: Option<&'a SharedTurnDiffTracker>,
      ) -> Self {
          Self {
@@ -6880,7 +7124,7 @@ index 2d5262ee9b..b9aa59b38d 100644
              model_context: None,
              sandbox_type: None,
              session,
-@@ -564,8 +567,9 @@ async fn emit_exec_end(
+@@ -564,8 +568,9 @@
      exec_result: ExecCommandResult,
  ) {
      let (plugin_id, script_path) = plugin_attribution_fields(exec_input.plugin_attribution);
@@ -6892,7 +7136,7 @@ index 2d5262ee9b..b9aa59b38d 100644
              ctx.turn,
              TurnItem::CommandExecution(CommandExecutionItem {
                  id: ctx.call_id.to_string(),
-@@ -586,6 +590,13 @@ async fn emit_exec_end(
+@@ -586,6 +591,13 @@
              }),
          )
          .await;
@@ -7539,14 +7783,29 @@ index 4361a91aa7..5f58aa7ecc 100644
          .instrument(dispatch_span.or_current());
          Either::Right(completion)
 diff --git a/codex-rs/core/src/tools/registry.rs b/codex-rs/core/src/tools/registry.rs
-index c9c526ac74..d9ad9df8d5 100644
+index c9c526ac74..028d39aa17 100644
 --- a/codex-rs/core/src/tools/registry.rs
 +++ b/codex-rs/core/src/tools/registry.rs
-@@ -844,6 +844,9 @@ impl ToolRegistry {
+@@ -72,6 +72,11 @@
+         false
+     }
+ 
++    /// True only for the built-in CodeMode cell executor and waiter.
++    fn is_code_mode_cell_tool(&self) -> bool {
++        false
++    }
++
+     /// Returns a shared spec when both the spec and search metadata are immutable.
+     fn immutable_spec(&self) -> Option<&Arc<ToolSpec>> {
+         None
+@@ -844,6 +849,12 @@
              .await;
              err
          };
-+        if let Err(err) = crate::native_execution::admit_hook_dispatch(&mut invocation) {
++        if let Err(err) = crate::native_execution::admit_hook_dispatch(
++            &mut invocation,
++            tool.is_code_mode_cell_tool(),
++        ) {
 +            return Err(fail_before_execution(&invocation, err).await);
 +        }
          let environments = match tool.live_environment_resolver() {
@@ -7692,10 +7951,10 @@ index 194c5d6bca..80388c7af4 100644
          step_context,
          turn,
 diff --git a/codex-rs/core/src/unified_exec/async_watcher.rs b/codex-rs/core/src/unified_exec/async_watcher.rs
-index 49ae8b2cf2..9e05f27b3e 100644
+index 49ae8b2cf2..4fd4b300e6 100644
 --- a/codex-rs/core/src/unified_exec/async_watcher.rs
 +++ b/codex-rs/core/src/unified_exec/async_watcher.rs
-@@ -176,7 +176,16 @@ pub(crate) fn spawn_exit_watcher(
+@@ -176,7 +176,16 @@
      let output_drained = process.output_drained_notify();
      let interaction_lock = process.interaction_lock();
  
@@ -7712,7 +7971,7 @@ index 49ae8b2cf2..9e05f27b3e 100644
          exit_token.cancelled().await;
          output_drained.notified().await;
          // Deferred network denial deliberately remains observable for a short
-@@ -191,7 +200,7 @@ pub(crate) fn spawn_exit_watcher(
+@@ -191,7 +200,7 @@
          let plugin_metrics_sidecar = plugin_metrics_sidecar
              .as_ref()
              .and_then(take_plugin_metrics_sidecar);
@@ -7721,7 +7980,7 @@ index 49ae8b2cf2..9e05f27b3e 100644
              drop(plugin_metrics_sidecar);
              emit_failed_exec_end_for_unified_exec(
                  process.sandbox_type(),
-@@ -208,7 +217,7 @@ pub(crate) fn spawn_exit_watcher(
+@@ -208,7 +217,7 @@
                  message,
                  duration,
              )
@@ -7730,7 +7989,7 @@ index 49ae8b2cf2..9e05f27b3e 100644
          } else {
              let exit_code = process.exit_code().unwrap_or(-1);
              let timed_out = process.timed_out();
-@@ -237,7 +246,18 @@ pub(crate) fn spawn_exit_watcher(
+@@ -237,7 +246,18 @@
                  duration,
                  timed_out,
              )
@@ -7750,7 +8009,7 @@ index 49ae8b2cf2..9e05f27b3e 100644
          }
      });
  }
-@@ -343,7 +363,7 @@ pub(crate) async fn emit_exec_end_for_unified_exec(
+@@ -343,7 +363,7 @@
      exit_code: i32,
      duration: Duration,
      timed_out: bool,
@@ -7759,7 +8018,7 @@ index 49ae8b2cf2..9e05f27b3e 100644
      let aggregated_output = resolve_aggregated_output(&output_buffer, fallback_output).await;
      let output = ExecToolCallOutput {
          exit_code,
-@@ -353,6 +373,7 @@ pub(crate) async fn emit_exec_end_for_unified_exec(
+@@ -353,6 +373,7 @@
          duration,
          timed_out,
      };
@@ -7767,7 +8026,7 @@ index 49ae8b2cf2..9e05f27b3e 100644
      let mut event_ctx = ToolEventCtx::new(
          session_ref.as_ref(),
          turn_ref.as_ref(),
-@@ -361,6 +382,7 @@ pub(crate) async fn emit_exec_end_for_unified_exec(
+@@ -361,6 +382,7 @@
          /*turn_diff_tracker*/ None,
      );
      event_ctx.sandbox_type = sandbox_type;
@@ -7775,7 +8034,7 @@ index 49ae8b2cf2..9e05f27b3e 100644
      let emitter = ToolEmitter::unified_exec(
          &command,
          cwd,
-@@ -377,6 +399,7 @@ pub(crate) async fn emit_exec_end_for_unified_exec(
+@@ -377,6 +399,7 @@
              },
          )
          .await;
@@ -7783,7 +8042,7 @@ index 49ae8b2cf2..9e05f27b3e 100644
  }
  
  #[allow(clippy::too_many_arguments)]
-@@ -394,7 +417,7 @@ pub(crate) async fn emit_failed_exec_end_for_unified_exec(
+@@ -394,7 +417,7 @@
      fallback_output: String,
      message: String,
      duration: Duration,
@@ -7792,7 +8051,7 @@ index 49ae8b2cf2..9e05f27b3e 100644
      let stdout = if fallback_output.is_empty() {
          resolve_aggregated_output(&output_buffer, fallback_output).await
      } else {
-@@ -413,6 +436,7 @@ pub(crate) async fn emit_failed_exec_end_for_unified_exec(
+@@ -413,6 +436,7 @@
          duration,
          timed_out: false,
      };
@@ -7800,7 +8059,7 @@ index 49ae8b2cf2..9e05f27b3e 100644
      let mut event_ctx = ToolEventCtx::new(
          session_ref.as_ref(),
          turn_ref.as_ref(),
-@@ -421,6 +445,7 @@ pub(crate) async fn emit_failed_exec_end_for_unified_exec(
+@@ -421,6 +445,7 @@
          /*turn_diff_tracker*/ None,
      );
      event_ctx.sandbox_type = sandbox_type;
@@ -7808,7 +8067,7 @@ index 49ae8b2cf2..9e05f27b3e 100644
      let emitter = ToolEmitter::unified_exec(
          &command,
          cwd,
-@@ -434,6 +459,7 @@ pub(crate) async fn emit_failed_exec_end_for_unified_exec(
+@@ -434,6 +459,7 @@
              ToolEventStage::Failure(ToolEventFailure::Output(output)),
          )
          .await;
@@ -7816,7 +8075,7 @@ index 49ae8b2cf2..9e05f27b3e 100644
  }
  
  /// Keep only a potentially incomplete UTF-8 suffix; malformed bytes remain raw.
-@@ -471,3 +497,18 @@ async fn resolve_aggregated_output(
+@@ -471,3 +497,18 @@
  #[cfg(test)]
  #[path = "async_watcher_tests.rs"]
  mod tests;
@@ -7828,7 +8087,7 @@ index 49ae8b2cf2..9e05f27b3e 100644
 +    if session.live_thread().is_none() {
 +        return;
 +    }
-+    let items = [codex_protocol::protocol::RolloutItem::EventMsg(
++    let items = [codex_history::RolloutItem::EventMsg(
 +        codex_protocol::protocol::EventMsg::ExecCommandEnd(event),
 +    )];
 +    if !session.persist_rollout_items(&items).await || session.flush_rollout().await.is_err() {
