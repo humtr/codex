@@ -21,9 +21,17 @@ all five gates passed. Its full TUI run failed when compiling
 the focused test target; the production CLI build and upload succeeded.
 At checkpoint `3d81ae14`, Manager, Provider and stock Android passed; Source
 Acceptance exposed an oversized debug-binary rollback fixture. Test-only fix
-`a596efe9` preserves the production byte bound and passed seven focused cases.
-Later execution-settlement changes still require their own exact-source gates.
-Read actual HEAD/Checks before reusing a checkpoint.
+`a596efe9` preserves the production byte bound. Exact-source checkpoint
+`aa863b505bae6b5a6d525e364f0373e4e2a27844` subsequently passed Source,
+Manager, Provider and stock Android. Its Core/Runtime qualification failed at
+one mandatory Guardian assertion after Core 32/32 and PTY 76/76 passed. The final
+execution-proof gate correctly refused the candidate despite successful raw
+Runtime production and Android smoke. Its full TUI run failed before compilation
+because the external dependency mirror could not be reached. The earlier 3d
+TUI compiled and executed 180 focused tests: 179 passed and one fixture failed
+while parsing its TOML document. These failures have distinct causes; neither
+run qualifies the complete frontend. Read actual HEAD/Checks before reusing a
+checkpoint.
 
 Remote `main` remains `b2567063d2a7a333a718d2495e2c9f8c928d822c`,
 the separate publication/approval authority. Neither branch has GitHub branch
@@ -144,6 +152,16 @@ independent Core Runtime qualification remains a permanent source gate.
 | Core S164 | Signed reference exists; no S164 generation directory installed on this device |
 | Legacy component revisions | Absent in S165 metadata; null/unavailable, not invented from sequence 165 |
 
+S165's existing Ed25519 signature was independently verified at 04:20:50 UTC,
+using byte-exact private copies, the existing public key and the same OpenSSL
+verification path as Core: exit 0, `Signature Verified Successfully`. Manifest
+SHA256 is `bc45846a8367f051ad482e80e745355937d3a653664c6adfb37c316077d3fb14`;
+signature SHA256 is `44f6a2abc309c0865c4d07d6d6b1fa5ddaef3eee49308ae337805449042f34c0`.
+The public key matched activation's trusted key. Original inode/mode/hash/mtime,
+current pointer and activation were unchanged; private-key reads, signing and
+operating execution were zero. This does not verify absent S164 package bytes.
+Receipt: `4e5d0f872e076096a5eac686057261fc96db3fc0eb9fc05d6beb743a4f10ac9c`.
+
 Candidate Core cdca2946eaf840323f432b925fb7327662887ceae5e05a22ae82fa3829c0378a
 read the installation with offline `termux version --json`, exit 0 and empty
 stderr, without activation. Sixteen protected generation files and the active
@@ -162,7 +180,17 @@ combination compatible or authorize stopping these processes.
 Core plus a qualified Runtime is the minimum product. Manager, Enhanced TUI and
 Provider are optional components with separate production/qualification and
 interface responsibilities. Core-only builds, updates and basic UI do not require
-a same-version optional frontend. Full preserves its composition gate.
+a same-version optional frontend. Full preserves its composition gate. Its current
+six qualification inputs cover Core/Runtime, Manager and Enhanced TUI. The new
+Full revision map selects Manager/TUI together; independent production and
+qualification do not prove a new Manager-only or TUI-only installer. Legacy
+signed seven/eight-file Full inventories retain their original interpretation. Provider
+uses its independent signed package/installer; selected-Provider updates do not
+install an unselected Provider. The repository-owned tunnel recipe remains an
+explicit source-build path and is not included in the Full published inventory.
+The ownership annex is aligned with the requested Core/Full contract; it no
+longer treats a Full qualification as proof of implicit Provider/tunnel bundling.
+Independent producer/consumer review: `88ad3e8b1f2b2ee4586e02a8eb4046c6499281a102e29e4db4e984d38d1d7f18`.
 
 Integrated source includes component input identities, canonical Android Core
 production/reuse, independent Manager qualification, unsigned Full assembly,
@@ -531,14 +559,27 @@ reindex, thread-ID change or user-Writer termination occurred.
 | dabd08ff52a7846e58ed913d8191626e9a4d315f | Earlier Native Runtime compiler/proof checkpoint | [43142830623](https://github.com/humtr/codex/actions/runs/43142830623) | success; 34 required checks, full PTY/rollout, final cache complete |
 | bfec2858798bfdea18843112019c3f3a1b9e6fc7 | Earlier Provider consumer checkpoint | [43143270459](https://github.com/humtr/codex/actions/runs/43143270459) | success; 429 distinct tests, predates final schema-4 tree proof |
 | 3d81ae14cbfa567c05d7cb4b8287113b0c7f74b1 | Source | [43148496588](https://github.com/humtr/codex/actions/runs/43148496588) | failure: debug executable exceeded rollback fixture bound; test-only fix a596efe9 |
+| same 3d checkpoint | Core/Runtime | [43148496770](https://github.com/humtr/codex/actions/runs/43148496770) | success; original 50 required checks, full PTY 76 and rollout 163 |
 | same 3d checkpoint | Manager | [43148496548](https://github.com/humtr/codex/actions/runs/43148496548) | success; 139 actual tests |
 | same 3d checkpoint | Provider | [43148496475](https://github.com/humtr/codex/actions/runs/43148496475) | success; 437 distinct tests, prior consumer |
 | same 3d checkpoint | Stock Android | [43148496525](https://github.com/humtr/codex/actions/runs/43148496525) | success; real emulator Activity/session checks, synthetic Core/frontend |
 | same 3d checkpoint | Full composition, attempt 1 | [43148496578](https://github.com/humtr/codex/actions/runs/43148496578) | refused pending exact-source Core prerequisite before assembly |
+| same 3d checkpoint | Full TUI | [43148525665](https://github.com/humtr/codex/actions/runs/43148525665) | failure: focused 179/180, TOML fixture document parse |
+| aa863b505bae6b5a6d525e364f0373e4e2a27844 | Source | [43152378817](https://github.com/humtr/codex/actions/runs/43152378817) | success; Core 272 distinct cases and strict workspace lint/format |
+| same aa checkpoint | Core/Runtime | [43152378677](https://github.com/humtr/codex/actions/runs/43152378677) | failure: mandatory Guardian assertion after Core 32/32 and full PTY 76/76; final admission refused |
+| same aa checkpoint | Manager | [43152378731](https://github.com/humtr/codex/actions/runs/43152378731) | success; 139 distinct cases |
+| same aa checkpoint | Provider | [43152378678](https://github.com/humtr/codex/actions/runs/43152378678) | success; 440 distinct cases; opt-in actual-Native cases separate |
+| same aa checkpoint | Stock Android | [43152378689](https://github.com/humtr/codex/actions/runs/43152378689) | success; real API-30 Activity/session, synthetic Core/frontend |
+| same aa checkpoint | Full TUI | [43152405151](https://github.com/humtr/codex/actions/runs/43152405151) | failure: dependency mirror connection, before source compilation |
+| same aa checkpoint | Full composition, attempt 1 | [43152378691](https://github.com/humtr/codex/actions/runs/43152378691) | refused pending exact-source Core prerequisite before assembly |
 
-At 04:01 UTC, 3d Core/Runtime run43148496770 and full TUI run43148525665
-were still running, not accepted. Their successful schema steps do not prove
-Core test or CLI build completion. Source job130952343696 reused the canonical
+The 3d Core/Runtime workflow completed successfully. Its original 50 named
+checks each passed once: Core 30, PTY 15, protocol two, rollout one, app-server
+protocol one and hooks one; the full PTY suite passed 76 and rollout passed 163.
+The later Core URL and Guardian cases are not covered by those 50 checks.
+Original job-log SHA256: `df04665cd6879ce843da412c5f88023ff29cf46ee8b77d0ffc169c426e6a023c`;
+named-check receipt: `b95789baadcaeb20849f33231f94a32800c1298ff12705c2c16844d2f1f6fe19`.
+Source job130952343696 reused the canonical
 Android Core artifact and reverified it rather than rebuilding. The failing
 Source workspace job copied its oversized hosted debug test harness as a prior
 installed Core. Fix a596efe9 instead shares the existing bounded bootstrap
@@ -547,6 +588,54 @@ and all rollback/digest/mode assertions, and leaves the production 64 MiB bound
 unchanged. Seven focused tests passed, including three with a separately built
 genuine Android Core; strict lint/format passed. Original failure log:
 `669a22a273e9385155ac2238093272ac9fad6aae2eeeb14e69b8b424f24b392d`.
+
+At aa, Source Acceptance passed 269 ordinary Core tests plus three separately
+executed genuine-Android admission cases: 272 distinct passes, one existing
+ignored smoke. Strict workspace Clippy and formatting passed. Manager passed
+139 (60 library, 78 profile commands, one window); Provider passed 440 (340
+library and 100 integration), with its existing 34 opt-in cases still separate.
+The original Source workspace log is bound by
+`b9c71425410def5af7744246fdd936f47f84c726069e42cefaa3034704914eb3`.
+
+The 3d TUI failure occurred before ConfigBuilder or the profile flag producer:
+a table document was passed to the TOML value-expression parser. Test-only
+`785fe070` (origin `37911fb8`) uses the document parser with the exact same
+fixture text and preserves every selection, destination and permission
+assertion. The pinned parser reproduced exit 1; the corrected document parser
+and actual upstream CLI table roundtrip returned 0, with all 43 registry package
+identities matching the original lock. This local proof does not execute the
+whole named TUI test. Receipt:
+`bd391ee1f1e1a03df45da34d6de8b78b185c545f3b5a75b1214c68570657c072`.
+The original TUI failure log remains
+`9d1e0859943347e645a2d90f1d00b17b93820398f9c8b2a4b50d7b2a1a9bc2f0`.
+The aa Runtime proof's new Guardian fixture observed three total HTTP requests
+where it asserted one. Its log records that aggregate failure, not their methods.
+Independent source inspection identified the unchanged pool's two test WebSocket
+prewarm requests alongside the inference POST, and existing Guardian correlation
+metadata. These must be checked explicitly; the one-inference-request and Native
+authority boundaries are retained. The original failed log SHA256 is
+`af3fb2e2041baddbecbd832af86e9566f50f61fd08c28c9d277a656f9c92b972`;
+source review: `ddd22f826ee2439c1fdbd85d9fa7f8855d6806f5fcb6be1fb296c39d49afb714`.
+Later package tests did not execute. At the 04:49:52 UTC API readback, both the
+mandatory Native job and final execution-proof admission were terminal failures;
+raw production/smoke success was not promoted to qualification. Metadata receipt:
+`1150dba4df4a1471aa08054698402aa239b19e5da66eff66812eaf3d22ae911f`.
+Fixture-only correction `5857e515` (origin `274190f3`) now checks exactly one
+inference POST plus the pinned pool's two WebSocket upgrade GETs, all on the
+expected route. It preserves normal Guardian correlation metadata and checks
+that no Native execution authority is present; missing Native URL still produces
+zero requests. The existing scoped mock synchronizes the upgrade observation.
+Both independent reviews found no production behavior change. Actual embedded
+ReleaseBuilder compilation, basic/provided source assembly, scope, lock and
+format checks passed all thirteen steps. Only one expanded test file changed;
+all other 105 logical-file images/maps and every baseline image are identical.
+Handoff receipt: `9ff0828d88829857b9fd2d78a8b478c25eeb0bf32acf230f98aa33aa8dcc89a6`;
+assembly: `43d8f326deaba21229bc0e1ade7e4146e328898074f53593ba22eef5d6a2e0ae`.
+The corrected Rust test remains pending actual hosted execution. No mandatory
+selector, inference-count assertion or production retry policy was weakened.
+The independent aa tooling failure was curl exit 28 while connecting to the
+kernel mirror, before source compilation; no timeout or test was weakened.
+Its original log is `66025d8a07817a39c07cd8075d33eb56152550d706c35ed34c7e2179b2a4c79e`.
 
 G full TUI completed 2026-11-11 23:41:42 UTC: focused 172/172; mandatory
 independent-fault oracles; Native/config/hooks/API; Retain TUI 53/53, engine

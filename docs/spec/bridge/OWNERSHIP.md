@@ -11,8 +11,10 @@ new ChatGPT-operated MCP proposal. Reusable execution/identity/history/stop rule
 remain requirements for either path; replacing an adapter policy requires an
 explicit contract update and proof before activation.
 
-All Termux execution continues through Core and the
-same authenticated installation/update authority. Manager is never an alternative
+Native Codex execution continues through Core and the
+same authenticated installation/update authority. The independent Termux MCP shell
+has the separate execution boundary defined in [MCP_SHELL](../interfaces/MCP_SHELL.md);
+it does not create Native execution or Writer authority. Manager is never an alternative
 unsigned runtime launcher. Core may retain a small versioned optional-component
 dispatch contract; it must not inspect Manager's preference filenames or interpret
 account, window, quota or provider policies to make an execution decision.
@@ -165,13 +167,19 @@ stdio executable is a separate bounded maintenance action. MCP stdio stdout
 remains reserved for protocol messages, separate from diagnostics.
 
 ## Optional component and tunnel distribution
-Core is mandatory. Manager, enhanced TUI, Provider and the patched Termux tunnel
-client are independently selectable optional capabilities. Full selects all of
-these optional capabilities, including the prebuilt Android tunnel client;
-individual selection must also work without installing Full. Remote MCP setup
-resolves its tunnel dependency; a Core-only or local-function route has no new
-remote-tunnel requirement. Installing binaries does not enable services, log into
-an app, acquire credentials or create remote registrations implicitly.
+Core and its qualified Runtime are mandatory. Manager and enhanced TUI are
+optional to Core, with independent production and qualification. A Full declaration
+with component revisions selects the qualified Manager/TUI pair; this does not
+qualify arbitrary independent installer combinations. Existing signed inventories
+retain their original interpretation. Provider and the patched Termux tunnel
+client have separate package, qualification, selection and update authority.
+Selecting Full does not implicitly install or qualify either package. An explicitly
+bundled optional package must retain its own admission and rollback contract and
+appear in the authenticated inventory. Provider and tunnel selection must also
+work without installing Full. Remote MCP setup resolves its tunnel dependency;
+a Core-only or local-function route has no new remote-tunnel requirement.
+Installing binaries does not enable services, log into an app, acquire credentials
+or create remote registrations implicitly.
 
 Ordinary installation/update uses qualified prebuilt artifacts produced during
 release preparation, with authenticated inventories and independent component

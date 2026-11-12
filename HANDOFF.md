@@ -11,9 +11,12 @@ CI. These are not intermediate approval gates.
 1. Execute the final integrated Runtime/Provider pair. Producer 1e203874 and
    consumer d4028958 are implemented and independently reviewed; local Provider
    440/440, Python 41/41, PTY/helper 15/15, strict lint/format and exact upstream/
-   provided source assembly passed. The earlier dabd08ff compiler checkpoint
-   passed hosted 34-gate proof; it does not qualify the new process-tree changes.
-   Run the mandatory final 53 gates and unchanged full PTY/rollout suites.
+   provided source assembly passed. The aa proof passed Core 32/32 and full
+   PTY 76/76, then failed its new Guardian HTTP-request assertion. The final
+   admission correctly refused the otherwise built/smoke-tested candidate.
+   Fixture-only correction 5857e515 is integrated and independently reviewed;
+   execute all mandatory 53 gates plus unchanged full PTY/rollout suites. Earlier 3d's
+   50-gate success does not qualify the subsequent ingress cases.
 2. Complete unloaded source-bound observation, cold compiler/Provider restart,
    changed Stop/ACK and independent-sibling execution on the new qualified Runtime.
    Original r1/r2 IDs, results and uncertain state remain preserved without
@@ -29,8 +32,12 @@ CI. These are not intermediate approval gates.
 4. Complete exact-source Source, Core/Runtime, Manager, Provider, stock Android,
    full TUI and Full composition acceptance. Preserve all six immutable Full
    inputs and use one full TUI dispatch with publication advancement disabled.
-   The TUI constructor, Source fixture correction, mixed-generation admission
-   and tree lifetime tests need hosted execution. The legitimate 0.167.2 recipe is preserved, while the operating
+   Source fixture correction is accepted at aa (272 distinct Core cases).
+   The TUI constructor compiled at 3d, whose focused suite passed 179/180;
+   test-only TOML correction 785fe070 still needs the complete hosted test.
+   aa TUI failed at dependency download before compilation. Mixed-generation
+   admission and tree lifetime require their exact-source proof. The legitimate
+   0.167.2 recipe is preserved, while the operating
    S165 installation remains 0.167.1. A running job is not a successful gate.
 5. Finish final-composition Native/terminal checks and new-worker Native-Busy
    independence, then collect exact-head CI and protected-ref readbacks. New

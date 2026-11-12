@@ -65,6 +65,15 @@ responsibilities; actual Full admission follows successful same-source Core,
 Manager and full-TUI qualification. Runtime execution-proof changes invalidate
 Runtime production inputs and require affected consumer qualification again.
 
+The Full inventory decision follows the latest Core/Full contract and actual
+consumers: Core/Runtime, Manager and Enhanced TUI are the qualified composition;
+Provider and the tunnel retain independent package/install/update authority.
+An older ownership-annex sentence promised implicit inclusion of every optional
+package, which neither Full production nor the closed publication inventory
+implemented. That sentence is corrected without changing any signed inventory,
+weakening optional-package admission or adding an unrelated bundling pipeline.
+Native Core authority is also distinguished from the independent MCP shell.
+
 For the current W15 correction, Models is the sole assembler/Writer of
 native_route.patch and its Core/Protocol/rollout changes. Release handed back
 the existing spawn-helper supervision and tests for Models to assemble with
@@ -166,15 +175,15 @@ The producer-helper change is itself an input and requires fresh qualification.
 The original 1,370–3,020 product and 500–800 documentation LoC ranges were
 pre-investigation estimates for W0–W14. They are not completed counts. The
 original W16 estimate and 559-line shell patch are not added to final totals.
-The following baseline-to-source-freeze accounting counts each changed line
-once. Both embedded patches are expanded onto the same official ce210 upstream;
+The following measured `aa863b50` checkpoint counts each changed line
+once. Later test-fixture and documentation edits require a fresh final measurement. Both embedded patches are expanded onto the same official ce210 upstream;
 wrapper text, upstream-version noise, reverted iterations and overlapping work
 assignments are excluded from semantic totals.
 
 | Category | Added LoC | Deleted LoC | Replacement pairs, already included |
 | --- | ---: | ---: | ---: |
-| Product | 10340 | 1119 | 666 |
-| Tests | 19393 | 1363 | 862 |
+| Product | 10332 | 1119 | 666 |
+| Tests | 19401 | 1363 | 862 |
 | Build/CI/support | 3076 | 270 | 122 |
 | Norms/documentation | 2209 | 497 | 297 |
 
@@ -189,7 +198,10 @@ Rust test-item classification lexically excludes comments/strings and supports
 cfg(all(test,...)); validation scripts count as tests. Source/line images and
 hashes allow independent recalculation.
 
-Classifier SHA256: `dd1aa13ce04884253d0d21d9b355f980b9297005a004b66ecbfc1985fc92fd3e`.
+Classifier SHA256: `1297f91ead3d140405e2292a5586c1ed3eccb72a5d48279ac70f8a72d563f466`.
+The parent-module cfg(test) review classifies eight test-only imports/helpers
+under tests rather than product; aggregate added/deleted totals are unchanged.
+Measured checkpoint receipt: `b19f886160534b2da9471def55c1c9ccf5cc98a7cb7dbf5bc00695a32a73cc6b`.
 Expanded-image ledger SHA256:
 `b3c180599ef234b24a262838db15a9a09f28f1c79206a8323691faa3e7492d7a`.
 The final categorized receipt is recorded with the source-freeze evidence;
