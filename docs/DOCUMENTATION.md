@@ -31,7 +31,7 @@ facts belong to `CURRENT.md`.
 
 ## Proposals pending product review
 
-- [Session-independent durable orchestration](development/orchestration/SESSION_INDEPENDENT_DURABLE_ORCHESTRATION.md) is a non-normative future design candidate, including the private skill/plugin v0.1.3 pilot (Busy recovery and assistant-facing O/W session dashboard). It does not replace SPEC, current Bridge contracts, or live acceptance evidence; hardening and wrapper changes remain deferred.
+- [Session-independent durable orchestration](development/orchestration/SESSION_INDEPENDENT_DURABLE_ORCHESTRATION.md) is a non-normative future contract candidate, including the private skill/plugin v0.1.3 pilot. Its [Codex/ChatGPT orchestration bridge design](development/orchestration/CODEX_CHATGPT_ORCHESTRATION_BRIDGE_DESIGN.md) details the deferred wrapper budgets (parallel 5 / app starts 256 / Native calls 1024), four-field amendment, addressed worker->O->assistant reports, CLI versus Linux AppHost options and actual acceptance tests. Neither proposal overrides SPEC or current proofs. **0.167.2 release and authorized runtime replacement take priority**; implementation remains deferred.
 
 ## Reading route
 

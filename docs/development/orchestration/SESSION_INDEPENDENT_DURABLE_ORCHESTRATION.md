@@ -6,7 +6,7 @@ Scope: assistant, orchestrator, and dynamically provisioned worker sessions.
 Related: ../../DOCUMENTATION.md; ../../spec/bridge/WORK.md; ../../spec/bridge/OWNERSHIP.md; ../../spec/bridge/RETRY_AND_EVIDENCE.md.
 This proposal does not modify SPEC.md, change approvals, or assert present runtime capability.
 
-Companion pilot (2026-11-13): the private ChatGPT **Durable Orchestration plugin v0.1.3** contains model-led guidance, Native Busy recovery instructions (v0.1.2), and an assistant-facing session dashboard (v0.1.3). Those are **skill/presentation behavior**, not shipped Codex Native/TermuxBridge changes or a durable unattended runtime. Further orchestration hardening is deferred for later evaluation; a future wrapper/Bridge upgrade may be useful but is not presumed necessary. See sections 14-16.
+Companion pilot (2026-11-13): the private ChatGPT **Durable Orchestration plugin v0.1.3** contains model-led guidance, Native Busy recovery instructions (v0.1.2), and an assistant-facing session dashboard (v0.1.3). Those are **skill/presentation behavior**, not shipped Codex Native/TermuxBridge changes or a durable unattended runtime. Wrapper-level budget revision and addressed report/ACK interoperability are now explicit **deferred development requirements**, with CLI versus Linux AppHost interoperability subject to a real product-path choice. See sections 14-17 and the [Codex/ChatGPT bridge design](CODEX_CHATGPT_ORCHESTRATION_BRIDGE_DESIGN.md). The immediate priority is 0.167.2 release acceptance and safe authorized runtime replacement; no orchestration source change is authorized by this proposal.
 
 ## 1. Objective and non-negotiable invariant
 
@@ -48,7 +48,7 @@ Persist a versioned completion contract at creation:
 - Objective, in-scope deliverables, explicitly forbidden effects, requirements and priority.
 - Acceptance criteria per task and for the aggregate job, including what constitutes real product-path evidence.
 - Authorized execution environments, reviewer and model policy, dependencies, budget, maximum concurrent workers, and any approval gates.
-- Current contract version, exact user-authorized revisions, authorizing input references, and an audit trail.
+- Current contract version, exact user-authorized revisions, authorizing input references, and an audit trail. Future orchestration defaults are max 5 active sibling workers, 256 App starts, 1024 Native calls; elapsed duration is configurable rather than a silently invented user default (see section 17).
 - Final result routing policy, reporting language, time zone, and notification destination.
 
 A worker completion is not a job completion. An unverified test report or source commit is not proof of live behavior. The orchestrator may mark the job COMPLETED only when each mandatory criterion has evidence and a final verification manifest is durably committed. User-declared cancellation terminates only authorized future work and must settle in-flight effects separately.
@@ -66,7 +66,7 @@ All assistant-orchestrator-worker communication MUST be addressed to stable logi
 
 Message kinds: ASSIGN, REVISE, PROGRESS, QUESTION, APPROVAL_REQUEST, HEARTBEAT, RESULT, ERROR, RECONCILE, REPLACE, COMPLETE, CANCEL_REQUEST, FINAL_REPORT.
 
-The authoritative state transition is PERSISTED -> OFFERED -> RECEIVED -> ACCEPTED -> RUNNING -> EFFECT_SETTLED -> RESULT_RECORDED -> PARENT_ACKED. A queue insertion ACK only proves PERSISTED, not consumption or success. Messages may be delivered at least once; effects MUST be idempotent by original operation key or reconciled from the original receipt rather than replayed. Maintain explicit dead-letter and error pathways; never mark an unknown result as failed or completed by inference.
+The authoritative state transition is PERSISTED -> OFFERED -> RECEIVED -> ACCEPTED -> RUNNING -> EFFECT_SETTLED -> RESULT_RECORDED -> PARENT_ACKED. A queue insertion ACK only proves PERSISTED, not consumption or success. Messages may be delivered at least once; effects MUST be idempotent by original operation key or reconciled from the original receipt rather than replayed. Every ASSIGN MUST identify the **exact return destination**, Core execution home, native thread, result/ERROR/PROGRESS report command and ACK procedure before dispatch; "report back" by itself is insufficient. See the deferred bridge design section 4. Maintain explicit dead-letter and error pathways; never mark an unknown result as failed or completed by inference.
 
 Queue ordering is per logical recipient with dependencies respected. A recipient lease is fenced before another generation can accept new effects. An exhausted or disconnected ChatGPT session does not delete unacknowledged messages.
 
@@ -101,7 +101,7 @@ A skill-only plugin may express this protocol and use currently accessible tools
 
 ## 9. Result delivery, routing and user reporting
 
-During an active job, orchestrator pushes meaningful progress to the logical assistant recipient and/or a user-visible notification path; reporting must not depend on the assistant manually polling. Progress begins with compact `[HH:MM]` local time (Asia/Seoul for this project), actual worker count (not configured concurrency), completed evidence, uncertain/blocked work, next decision, and changes since last report. Report at milestones or meaningful changes; avoid noisy repeated status.
+During an active job, orchestrator pushes meaningful progress to a **verified, explicitly bound** logical assistant recipient and/or authorized user-visible notification path; reporting must not depend on the assistant manually polling. An Android/web ChatGPT conversation is not automatically a Native Codex thread. Worker results MUST be queued to the orchestrator's exact Native receiver with independent consumption/ACK evidence; the orchestrator MUST likewise send final/failed status to the authorized assistant endpoint, or persist pending delivery when that capability is absent. Progress begins with compact `[HH:MM]` local time (Asia/Seoul for this project), actual worker count (not configured concurrency), completed evidence, uncertain/blocked work, next decision, and changes since last report. Report at milestones or meaningful changes; avoid noisy repeated status.
 
 ### 9.1 Assistant-facing session dashboard (plugin v0.1.3)
 
@@ -215,12 +215,27 @@ The private plugin **v0.1.3** introduces a skill-backed reporting requirement (s
 4. Should Stop/status be inspectable when the very shared guard being diagnosed is unhealthy? Repair must preserve live process owner identities and never bypass denied effects.
 5. How can event-driven dashboard updates be delivered to the currently authorized assistant without implying perpetual model inference or relying on unsupported UI refresh semantics?
 
-A **wrapper upgrade is an option**, not an immediate requirement or approved product change. Prefer minimal demonstrated fixes to a new orchestration framework.
+The user has now explicitly requested a **deferred wrapper/Bridge improvement design** for addressed O/W/A reporting and four-field budget revision. Its implementation remains deferred until after the 0.167.2 release path. First test the existing CLI queue and Linux AppHost saved-Chat interop; prefer minimal demonstrated fixes to a new orchestration framework. See the [bridge design](CODEX_CHATGPT_ORCHESTRATION_BRIDGE_DESIGN.md).
 
 ## 16. Implementation and documentation boundary
 
 Current deliverables are: this **non-normative proposal** and a **private ChatGPT skill/plugin v0.1.3** that documents Busy handling, evidence-backed model work and an assistant-facing session dashboard. The separate pilot's saved conversation/tool receipts establish only their original bounded test scope. The plugin and its packaged SQLite helper do **not** implement an always-on scheduler, a true Native executor, source-level status/Stop repair, cross-session durable delivery, autonomous session replacement, or a user-visible hosted dashboard.
 
-The user has **deferred orchestration hardening and any Codex wrapper changes** for separate future review. Preserve that decision; do not advance P2-P5, modify signed releases or claim broad product acceptance solely because the dashboard renders or two small worker calculations succeeded.
+The user has **deferred implementation of the planned Codex wrapper orchestration improvements** for separate future review, with 0.167.2 final acceptance, deployment and safe runtime replacement prioritized. Preserve that decision; do not advance P2-P5, modify signed releases or claim broad product acceptance solely because the dashboard renders or two small worker calculations succeeded.
 
 For future implementation, review the current SPEC, Bridge ownership/effect/Stop contracts and actual deployed source version independently; distinguish possible wrapper fixes from skill-only orchestration. Keep the immutable completion contract and test requirements in sections 1-13 as a proposal, not a claim of current delivery.
+
+## 17. Deferred Codex wrapper budget and addressed-report implementation requirements
+
+The user requested that this proposal be expanded into a **concrete future development design**, without implementing it in the current 0.167.2 release path. The companion [Codex/ChatGPT orchestration bridge design](CODEX_CHATGPT_ORCHESTRATION_BRIDGE_DESIGN.md) is the detailed, reviewable authority for research hypotheses, producer/consumer scope, implementation sequence, positive/negative tests and acceptance boundaries; it is still **non-normative and unimplemented**.
+
+**Decision already made for the future target:**
+- Default orchestration capacity: `max_parallel=5`, `max_app_starts=256`, `max_native_calls=1024`; `max_elapsed_seconds` must be adjustable, and its global numeric default remains a separate configuration/user decision (12 hours is a design example, **not** a user-selected global default).
+- `extend_budget` must be revised so all four effective dimensions can be changed safely, including live submitted-inference paths after receipt reconciliation, with immutable consumed counters, stable original IDs, parent ceilings, safe decreases, reentry and Host admission proof. Current source rejects parallel/App changes and submitted-inference extension.
+- Worker ASSIGN must specify O's exact native thread/Core home, authenticated logical recipient, report envelope/command, progress/result/error criteria, queue receipt and actual receiving-turn/parent ACK. An assignment that lacks return-path instructions is invalid.
+- O must similarly deliver its `FINAL_REPORT` or `ERROR` to the **latest authenticated assistant recipient**, with a distinct ACK, without equating the current ChatGPT Android/web chat with a Native thread.
+- Distinguish Native queue insertion, receiving-turn consumption, actual Linux AppHost model submission, final model result and parent/assistant acceptance. An accepted `codex queue` or a successful saved-Chat `chat_input` alone cannot prove the full chain.
+
+**Architecture review remains open:** evaluate CLI/Native-only actor routing versus Linux AppHost-saved Chat-only messaging versus a **single Native queue with a bound Linux AppHost saved-chat adapter**. The latter is the preferred research candidate because it can preserve real ChatGPT conversation/account/project and native approval/effect authority without forcing every actor into TUI. No app-backed queue auto-wakeup or current Android assistant recipient is assumed supported until the full source-bound positive/negative receipts exist.
+
+**Do not start implementation as a side effect of this documentation**. Complete 0.167.2 source CI, actual product path, signing/publication and runtime replacement only under their separate approvals and existing rollout safeguards. After that work, revalidate source/version/capabilities, select the architecture using the detailed acceptance matrix and implement the smallest cohesive wrapper changes.
