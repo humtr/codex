@@ -26,16 +26,20 @@ REQUIRED = (
 )
 
 
-def verify(text):
+def verify_names(text, required, label):
     text = re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]', '', text)
     lines = text.splitlines()
-    for name in REQUIRED:
+    for name in required:
         results = [line for line in lines if re.search(r'\b' + re.escape(name) + r'(?:\s|$)', line)]
         passed = [line for line in results if re.match(r'^\s*PASS\b', line)]
         rejected = [line for line in results if re.match(r'^\s*(?:FAIL|SKIP|TIMEOUT|LEAK)\b', line)]
         if len(passed) != 1 or rejected:
-            raise ValueError('required TUI regression did not pass exactly once: ' + name)
-    return len(REQUIRED)
+            raise ValueError(f'required {label} regression did not pass exactly once: ' + name)
+    return len(required)
+
+
+def verify(text):
+    return verify_names(text, REQUIRED, 'TUI')
 
 
 if __name__ == '__main__':

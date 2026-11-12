@@ -114,7 +114,7 @@ class NativeArtifactTests(unittest.TestCase):
             workflow=source / qualifier.INPUTS[0])
 
     def test_actual_cli_accepts_only_successful_same_input_version_digest_and_native_proof(self):
-        cases = [None, "backend", "pin", "source-input", "owned-source", "raw", "checksum",
+        cases = [None, "backend", "pin", "source-input", "owned-source", "completion-checker", "raw", "checksum",
                  "source", "version", "lock", "zero", "failed-tests", "old-tests", "lint", "patch", "upstream-proof"]
         cases += ["run-" + key for key in ("id", "path", "event", "head_branch",
                                            "head_sha", "status", "conclusion", "repository")]
@@ -129,9 +129,9 @@ class NativeArtifactTests(unittest.TestCase):
                     run_file.write_text(json.dumps(run))
                 elif fault == "backend": version = "0.162.0"
                 elif fault == "pin": digest = "a" * 64
-                elif fault in ("source-input", "owned-source"):
-                    path = source / ("frontend/tui/src/owned.rs"
-                                     if fault == "owned-source" else qualifier.INPUTS[1])
+                elif fault in ("source-input", "owned-source", "completion-checker"):
+                    path = source / ({"owned-source": "frontend/tui/src/owned.rs",
+                                      "completion-checker": ".github/scripts/native_completion_results.py"}.get(fault, qualifier.INPUTS[1]))
                     path.write_text("different native source\n")
                     subprocess.run(["git", "-C", str(source), "add", "."], check=True)
                     subprocess.run(["git", "-C", str(source), "-c", "user.name=Owned",
@@ -222,6 +222,48 @@ class NativeArtifactTests(unittest.TestCase):
                 commit()
                 result = self.invoke(fixture)
                 self.assertEqual(result.returncode == 0, fault in (None,'legacy-count'), result.stderr)
+
+    def test_new_completion_payload_requires_every_suite_and_named_positive(self):
+        real_workflow = (TOOL.parents[2] / '.github/workflows/manager-tui-native.yml').read_text()
+        block = real_workflow.split('      - name: Verify Native completion uses original OS wait evidence\n', 1)[1].split('      - name:', 1)[0]
+        with tempfile.TemporaryDirectory() as temp:
+            fixture = self.fixture(Path(temp))
+            source, _, proof, _, digest, _, _ = fixture
+            workflow = source / qualifier.INPUTS[0]
+            workflow.write_text(self.workflow() + block)
+            logs = {}
+            for suite, names in qualifier.COMPLETION_SUITES.items():
+                logs[suite] = (''.join(f'PASS [0.01s] package module::{name}\n' for name in names) +
+                               f'Summary [3s] {len(names)} tests run: {len(names)} passed\n')
+                (proof / f'native-provider-completion-{suite}.log').write_text(logs[suite])
+            self.assertEqual(self.payload(fixture), digest)
+            for suite, names in qualifier.COMPLETION_SUITES.items():
+                path = proof / f'native-provider-completion-{suite}.log'
+                for fault in ('missing', 'skipped', 'duplicate', 'failed-suite', 'symlink'):
+                    with self.subTest(suite=suite, fault=fault):
+                        path.unlink()
+                        if fault == 'symlink':
+                            target = proof / 'owned-completion-log'
+                            target.write_text(logs[suite])
+                            path.symlink_to(target)
+                        elif fault != 'missing':
+                            text = logs[suite]
+                            if fault == 'skipped':
+                                text = text.replace('PASS [0.01s] package module::' + names[0],
+                                                    'SKIP [0.01s] package module::' + names[0])
+                            elif fault == 'duplicate':
+                                text += f'PASS [0.01s] package module::{names[0]}\n'
+                            else:
+                                text = text.replace(f'{len(names)} passed', f'{len(names)-1} passed, 1 failed')
+                            path.write_text(text)
+                        with self.assertRaises((ValueError, OSError)):
+                            self.payload(fixture)
+                        path.unlink(missing_ok=True)
+                        path.write_text(logs[suite])
+            command = 'python3 "$GITHUB_WORKSPACE/experiment/.github/scripts/native_completion_results.py" pty "$RUNNER_TEMP/native-provider-completion-pty.log"'
+            workflow.write_text(self.workflow() + block.replace(command, '# absent command'))
+            with self.assertRaisesRegex(ValueError, 'suite inventory'):
+                self.payload(fixture)
 
     def test_actual_cli_refuses_missing_extra_symlink_and_directory_artifacts_or_proof(self):
         cases = ["missing-" + name for name in sorted(qualifier.FILES)]

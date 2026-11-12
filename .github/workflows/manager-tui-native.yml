@@ -373,6 +373,24 @@ jobs:
           for name in ['core-model_provider', 'core-compact', 'core-guardian', 'client', 'config']:
               nonzero_tests((root / f'native-provider-{name}.log').read_text())
           PYTHON
+      - name: Verify Native completion uses original OS wait evidence
+        if: inputs.scope == 'full'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd upstream
+          just test --retries 0 --status-level pass --locked --target aarch64-unknown-linux-musl -p codex-utils-pty --lib 2>&1 | tee "$RUNNER_TEMP/native-provider-completion-pty.log"
+          python3 "$GITHUB_WORKSPACE/experiment/.github/scripts/native_completion_results.py" pty "$RUNNER_TEMP/native-provider-completion-pty.log"
+          just test --retries 0 --status-level pass --locked --target aarch64-unknown-linux-musl -p codex-core --lib -E 'test(native_completion_)' 2>&1 | tee "$RUNNER_TEMP/native-provider-completion-core.log"
+          python3 "$GITHUB_WORKSPACE/experiment/.github/scripts/native_completion_results.py" core "$RUNNER_TEMP/native-provider-completion-core.log"
+          just test --retries 0 --status-level pass --locked --target aarch64-unknown-linux-musl -p codex-protocol --lib -E 'test(native_completion_)' 2>&1 | tee "$RUNNER_TEMP/native-provider-completion-protocol.log"
+          python3 "$GITHUB_WORKSPACE/experiment/.github/scripts/native_completion_results.py" protocol "$RUNNER_TEMP/native-provider-completion-protocol.log"
+          just test --retries 0 --status-level pass --locked --target aarch64-unknown-linux-musl -p codex-rollout --lib -E 'test(native_completion_)' 2>&1 | tee "$RUNNER_TEMP/native-provider-completion-rollout.log"
+          python3 "$GITHUB_WORKSPACE/experiment/.github/scripts/native_completion_results.py" rollout "$RUNNER_TEMP/native-provider-completion-rollout.log"
+          just test --retries 0 --status-level pass --locked --target aarch64-unknown-linux-musl -p codex-app-server-protocol --lib -E 'test(native_completion_)' 2>&1 | tee "$RUNNER_TEMP/native-provider-completion-app-server-protocol.log"
+          python3 "$GITHUB_WORKSPACE/experiment/.github/scripts/native_completion_results.py" app-server-protocol "$RUNNER_TEMP/native-provider-completion-app-server-protocol.log"
+          just test --retries 0 --status-level pass --locked --target aarch64-unknown-linux-musl -p codex-hooks --lib -E 'test(native_completion_)' 2>&1 | tee "$RUNNER_TEMP/native-provider-completion-hooks.log"
+          python3 "$GITHUB_WORKSPACE/experiment/.github/scripts/native_completion_results.py" hooks "$RUNNER_TEMP/native-provider-completion-hooks.log"
       - name: Verify actual hook matching used by Native resource proof
         if: inputs.scope == 'full'
         shell: bash

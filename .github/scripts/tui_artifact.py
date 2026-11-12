@@ -15,6 +15,7 @@ from check_upstream_features import verify as verify_upstream_features
 
 from upstream_release import load as load_release, build_recipe
 from qualification_signal import native_recipe
+from native_completion_results import SUITES as COMPLETION_SUITES, verify as verify_completion_results
 RELEASE_INPUT = Path(__file__).resolve().parents[2] / 'release/upstream.json'
 # Kept as fixture conveniences; verify() reads the selected source authority.
 _INPUT = load_release(RELEASE_INPUT)
@@ -33,6 +34,8 @@ INPUTS = (
     "crates/release-builder/Cargo.toml",
     "Cargo.lock",
     ".github/scripts/upstream_release.py",
+    ".github/scripts/native_completion_results.py",
+    ".github/scripts/tui_regression_results.py",
     "frontend/tui/src",
     "frontend/tui/apply.py",
     "frontend/tui/test_apply.py",
@@ -73,6 +76,31 @@ def verify_focused(log, workflow):
     missing = [scope for scope in scopes if not any(scope in name for name in passed)]
     if missing:
         raise ValueError('native focused proof is missing scopes: '+', '.join(missing))
+
+
+
+def verify_completion(proof, workflow):
+    # Retained generations have no completion-proof contract. Once the exact
+    # qualified workflow declares it, all six bounded logs are mandatory.
+    commands = [line for line in workflow.splitlines()
+                if 'native_completion_results.py' in line and not line.lstrip().startswith('#')]
+    if not commands:
+        return 0
+    observed = []
+    for command in commands:
+        matches = re.findall(r'native_completion_results[.]py" ([a-z-]+) "\$RUNNER_TEMP/(native-provider-completion-[a-z-]+[.]log)"', command)
+        if len(matches) != 1:
+            raise ValueError('native completion proof selection is ambiguous or missing')
+        observed.append(matches[0])
+    expected = {(suite, f'native-provider-completion-{suite}.log') for suite in COMPLETION_SUITES}
+    if len(observed) != len(expected) or set(observed) != expected:
+        raise ValueError('native completion proof suite inventory differs')
+    count = 0
+    for suite, filename in observed:
+        log = bounded_read(proof / filename, 16 * 1024 * 1024, 'native completion tests').decode()
+        nonzero_tests(log)
+        count += verify_completion_results(log, suite)
+    return count
 
 
 def verify_recipe(source, source_sha):
@@ -167,6 +195,7 @@ def verify_payload(*, artifact, proof, source_sha, sha256, inputs, workflow):
         raise ValueError("native proof root is not an owned directory")
     log = bounded_read(proof / "profile-tui-focused.log", 16 * 1024 * 1024, "native tests").decode()
     verify_focused(log, workflow.read_text())
+    verify_completion(proof, workflow.read_text())
     verify_upstream_features(proof)
     formatted = bounded_read(proof / "profile-tui-formatted.patch", 1024 * 1024, "formatted native patch")
     linted = bounded_read(proof / "profile-tui-linted.patch", 1024 * 1024, "linted native patch")
