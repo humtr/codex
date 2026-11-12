@@ -3684,10 +3684,10 @@ index 0000000000..154eedba95
 +}
 diff --git a/codex-rs/core/src/native_execution.rs b/codex-rs/core/src/native_execution.rs
 new file mode 100644
-index 0000000000..ad911167e8
+index 0000000000..9763f489f5
 --- /dev/null
 +++ b/codex-rs/core/src/native_execution.rs
-@@ -0,0 +1,1178 @@
+@@ -0,0 +1,1213 @@
 +//! Private execution facts for the local ChatGPT Provider's resource admission.
 +//! Native remains the only executor. No tool arguments or environment values
 +//! are rewritten, and no compiler or shell is run to obtain these facts.
@@ -3770,9 +3770,11 @@ index 0000000000..ad911167e8
 +            _ => {}
 +        }
 +    }
-+    match tool.to_string().as_str() {
-+        "clock.curr_time" => Some("clock.curr_time"),
-+        "clock.sleep" => Some("clock.sleep"),
++    // MCP preserves its server namespace separately from the raw tool name.
++    // Display formatting is not a callable identity or backend trust proof.
++    match (tool.namespace.as_deref(), tool.name.as_str()) {
++        (Some("clock" | "mcp__clock"), "curr_time") => Some("clock.curr_time"),
++        (Some("clock" | "mcp__clock"), "sleep") => Some("clock.sleep"),
 +        _ => None,
 +    }
 +}
@@ -4517,6 +4519,33 @@ index 0000000000..ad911167e8
 +                "hook-free {tool} must remain available"
 +            );
 +        }
++        // The MCP producer retains server and leaf separately, with an
++        // optional mcp__ namespace prefix. These aliases qualify hook dispatch
++        // only; a server named clock is not proof of read-only resource scope.
++        let unrelated = configured_hook_events(
++            &session,
++            owned.path(),
++            "unrelated",
++            "request_user_input",
++            &["pre", "post", "permission"],
++        )?;
++        let snapshot = HookSnapshot::default();
++        snapshot.capture(Arc::clone(&unrelated));
++        for (leaf, fact) in [("curr_time", "clock.curr_time"), ("sleep", "clock.sleep")] {
++            for namespace in ["clock", "mcp__clock"] {
++                let actual = ToolName::namespaced(namespace, leaf);
++                assert_eq!(qualified_hook_tool(&actual), Some(fact));
++                assert!(snapshot.admit(&unrelated, &actual).is_ok());
++            }
++            for namespace in ["foreign", "clock.", "mcp__clock__"] {
++                let foreign = ToolName::namespaced(namespace, leaf);
++                assert_eq!(qualified_hook_tool(&foreign), None);
++                assert!(snapshot.admit(&unrelated, &foreign).is_err());
++            }
++            for legacy in [fact.to_string(), format!("mcp__clock__{leaf}")] {
++                assert_eq!(qualified_hook_tool(&ToolName::plain(legacy)), Some(fact));
++            }
++        }
 +        // MCP uses the same canonical mcp__ name for all three actual hook
 +        // events. Test each event separately so a matching Pre hook cannot hide
 +        // a missing Permission matcher. view_image has no Permission producer;
@@ -4530,7 +4559,7 @@ index 0000000000..ad911167e8
 +                let hooks =
 +                    configured_hook_events(&session, owned.path(), "read", matcher, &[event])?;
 +                let snapshot = HookSnapshot::default();
-+                let scope = &snapshot.capture(hooks).hook_free_tools;
++                let scope = &snapshot.capture(Arc::clone(&hooks)).hook_free_tools;
 +                assert!(
 +                    !scope.contains(&tool),
 +                    "matching {event} must exclude {tool}"
@@ -4539,6 +4568,12 @@ index 0000000000..ad911167e8
 +                    scope.contains(&"exec_command"),
 +                    "unrelated read hooks must not block exec"
 +                );
++                if let Some(leaf) = tool.strip_prefix("clock.") {
++                    for namespace in ["clock", "mcp__clock"] {
++                        let actual = ToolName::namespaced(namespace, leaf);
++                        assert!(snapshot.admit(&hooks, &actual).is_err());
++                    }
++                }
 +                for other in ["view_image", "clock.curr_time", "clock.sleep"] {
 +                    if other != tool {
 +                        assert!(scope.contains(&other), "{tool} hook must not block {other}");
