@@ -42,8 +42,8 @@ class NativeCompletionResultsTests(unittest.TestCase):
                     ('app-server-protocol', 'codex-app-server-protocol'), ('hooks', 'codex-hooks')]
         self.assertEqual(set(SUITES), {suite for suite, _ in packages})
         names = [name for suite in SUITES.values() for name in suite]
-        self.assertEqual(len(names), 22)
-        self.assertEqual(len(set(names)), 22)
+        self.assertEqual(len(names), 26)
+        self.assertEqual(len(set(names)), 26)
         expected_args = []
         for suite, package in packages:
             args = ['test', '--retries', '0', '--status-level', 'pass', '--locked', '--target',

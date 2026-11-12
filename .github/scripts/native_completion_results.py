@@ -19,6 +19,10 @@ SUITES = {
         'native_completion_remote_termination_ack_is_not_local_wait_evidence',
         'native_completion_shutdown_keeps_admitted_persistence_until_flush_finishes',
         'native_completion_running_continuation_settles_only_its_current_invocation',
+        'native_completion_hook_reload_before_admission_refuses_all_qualified_calls',
+        'native_completion_admitted_hook_arc_drives_pre_post_and_permission_after_reload',
+        'native_completion_advertised_scope_includes_actual_bash_hooks',
+        'native_completion_admitted_snapshot_preserves_wait_after_later_hook_reload',
     ),
     'protocol': (
         'native_completion_typescript_keeps_nullable_field_and_real_type_dependencies',
