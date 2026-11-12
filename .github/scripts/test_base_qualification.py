@@ -22,18 +22,42 @@ class BaseQualificationTests(unittest.TestCase):
                 expected = producer=='success' and (
                     candidate=='true' and smoke=='success' or candidate=='false' and smoke=='skipped')
                 result = subprocess.run(['bash','-c',script], capture_output=True, text=True,
-                    env={**os.environ,'PRODUCER_RESULT':producer,'CANDIDATE':candidate,'SMOKE_RESULT':smoke})
+                    env={**os.environ,'PRODUCER_RESULT':producer,'CANDIDATE':candidate,'SMOKE_RESULT':smoke,'NATIVE_REQUIRED':'true','NATIVE_RESULT':'success'})
                 self.assertEqual(result.returncode==0,expected,result.stderr)
 
     def test_failed_producer_without_a_candidate_cannot_report_qualification_success(self):
         script = step('Reject a candidate without successful execution proof')
         result = subprocess.run(['bash','-c',script], capture_output=True, text=True,
-            env={**os.environ,'PRODUCER_RESULT':'failure','CANDIDATE':'','SMOKE_RESULT':'skipped'})
+            env={**os.environ,'PRODUCER_RESULT':'failure','CANDIDATE':'','SMOKE_RESULT':'skipped','NATIVE_REQUIRED':'true','NATIVE_RESULT':'success'})
         self.assertNotEqual(result.returncode,0,'failed producer and absent candidate must fail this gate')
         workflow = (ROOT/'.github/workflows/qualify-termux-runtime.yml').read_text()
         gate = workflow.split('      - name: Reject a candidate without successful execution proof\n',1)[1]
         gate = gate.split('\n  smoke:',1)[0]
         self.assertIn('PRODUCER_RESULT: ${{ needs.producer.result }}',gate)
+
+    def test_core_native_proof_cannot_be_omitted_on_reused_or_noop_candidates(self):
+        script = step('Reject a candidate without successful execution proof')
+        for required, native, candidate in itertools.product(
+                ('true', 'false', '', 'TRUE'), ('success', 'failure', 'cancelled', 'skipped', ''), ('true', 'false')):
+            with self.subTest(required=required, native=native, candidate=candidate):
+                expected = (required, native) in {('true', 'success'), ('false', 'skipped')}
+                result = subprocess.run(['bash', '-c', script], capture_output=True, text=True,
+                    env={**os.environ, 'PRODUCER_RESULT':'success', 'CANDIDATE':candidate,
+                         'SMOKE_RESULT':'success' if candidate == 'true' else 'skipped',
+                         'NATIVE_REQUIRED':required, 'NATIVE_RESULT':native})
+                self.assertEqual(result.returncode == 0, expected, result.stderr)
+        workflow = (ROOT / '.github/workflows/qualify-termux-runtime.yml').read_text()
+        self.assertIn('needs: [producer, smoke, native-proof]', workflow)
+        native = workflow.split('  native-proof:\n', 1)[1].split('  runtime-source:', 1)[0]
+        self.assertIn("if: ${{ inputs.base_only || inputs.release_variant == 'base' }}", native)
+        self.assertIn('source_sha: ${{ inputs.source_sha }}', native)
+        proof = (ROOT / '.github/workflows/native-runtime-qualification.yml').read_text()
+        self.assertIn('--frontend upstream', proof)
+        self.assertNotIn('--frontend provided', proof)
+        self.assertNotIn('frontend/tui/', proof)
+        self.assertNotIn('build-runtime ', proof)
+        self.assertIn("recipe['qualification']['lock_audit']", proof)
+        self.assertIn('production_fingerprint(source)', proof)
 
     def fixture(self, root):
         (root / 'helpers').mkdir()

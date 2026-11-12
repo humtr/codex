@@ -1,0 +1,46 @@
+name: Preliminary Native source proof during Termux outage
+on:
+  push:
+    branches: [contingency/release-framework-20261112-remote]
+permissions:
+  contents: read
+concurrency:
+  group: contingency-native-source-proof
+  cancel-in-progress: false
+jobs:
+  contracts:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Fetch exact contingency source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = "refs/heads/contingency/release-framework-20261112-remote"
+          git init source
+          git -C source remote add origin "https://github.com/$GITHUB_REPOSITORY.git"
+          git -C source fetch --no-tags --depth=2 origin "$GITHUB_SHA"
+          git -C source checkout --detach FETCH_HEAD
+          test "$(git -C source rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Verify actual workflow contracts and source evidence boundaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd source
+          export PYTHONDONTWRITEBYTECODE=1
+          for workflow in .github/workflows/*.yml; do
+            ruby -e 'require "psych"; Psych.parse_file(ARGV.fetch(0))' "$workflow"
+          done
+          python3 .github/scripts/test_native_completion_results.py
+          python3 .github/scripts/test_base_qualification.py
+          python3 .github/scripts/test_release_workflow.py
+          python3 .github/scripts/test_component_inputs.py
+          python3 .github/scripts/test_runtime_production.py
+          python3 scripts/check_documentation.py
+          PYTHONPATH=. python3 scripts/test_documentation.py
+          git diff --check HEAD^ HEAD
+  native:
+    needs: contracts
+    uses: ./.github/workflows/native-runtime-qualification.yml
+    with:
+      source_sha: ${{ github.sha }}

@@ -198,7 +198,7 @@ class WorkflowTests(unittest.TestCase):
         qualification=(ROOT/'.github/workflows/qualify-termux-runtime.yml').read_text()
         self.assertTrue('--event-sha "$GITHUB_SHA"' in qualification,
                         'the decision must receive the actual immutable event SHA')
-        self.assertIn('needs: [producer, smoke]',qualification)
+        self.assertIn('needs: [producer, smoke, native-proof]',qualification)
         self.assertIn('steps.decision.outputs.candidate == \'true\'',qualification)
 
     def test_source_and_provider_gates_reject_mismatched_run_metadata(self):

@@ -76,6 +76,17 @@ An optional-component failure blocks that Full combination, not eligible Core.
 Actions transfer preserves modes in a bounded regular-file-only archive; a loose
 cache hit or executable filename is never an admitted artifact.
 
+Core/runtime qualification independently executes the Native completion,
+original-wait, hook-admission and durable-history proofs against the same basic
+upstream frontend preparation used by the Runtime producer. It binds the exact
+wrapper/upstream source, complete dependency audit, production input identities
+and retained logs. Reusing a signed or raw Runtime and a no-op candidate decision
+do not waive this proof. The final qualification requires both the applicable
+Android execution smoke and successful Native Runtime proof. Enhanced TUI keeps
+its own changed-consumer checks; Core does not depend on that optional frontend's
+qualification. Test compilation and compiler caches are not second release
+artifact producers. A retained partial compile cache carries no qualification.
+
 ## Proof and publication boundaries
 
 Source tests, component builds, native Android probes, live model/UI acceptance,
