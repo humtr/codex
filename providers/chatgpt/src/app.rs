@@ -30,10 +30,10 @@ pub trait Bridge: Send + Sync + 'static {
     fn fence_tools(&self, _lane: String) -> BoxFuture<'static, Result<(), Error>> {
         Box::pin(async { Ok(()) })
     }
-    fn clear_unexecuted_stopped_calls(
+    fn clear_settled_stopped_calls(
         &self,
         _lane: String,
-        _committed_native_items: std::collections::BTreeSet<String>,
+        _settled_native_calls: std::collections::BTreeSet<String>,
     ) -> BoxFuture<'static, Result<(), Error>> {
         Box::pin(async { Ok(()) })
     }
@@ -818,6 +818,8 @@ pub(crate) fn appended_steer(previous: &Request, current: &Request) -> bool {
 #[derive(Clone, Serialize, Deserialize)]
 struct Lane {
     native_thread: String,
+    #[serde(default)]
+    origin: crate::protocol::ToolOrigin,
     marker: String,
     gateway: String,
     phase: Phase,
@@ -869,15 +871,30 @@ pub(crate) fn lane_marker(journal: &Journal, thread: &str) -> Result<Option<Stri
     }
     Ok(Some(lane.marker))
 }
-pub(crate) fn has_stopped_pending_calls(journal: &Journal, thread: &str) -> Result<bool, Error> {
+/// Only an already-settled source round may support unloaded observation.
+/// It does not admit new input, query the app, or revive a discovery capability.
+pub(crate) fn settled_lane(
+    journal: &Journal,
+    thread: &str,
+    turn: &str,
+) -> Result<Option<(String, String)>, Error> {
     let Some(lane) = journal.read::<Lane>(&context::digest(&thread))? else {
-        return Ok(false);
+        return Ok(None);
     };
     if lane.native_thread != thread {
         return Err(Error("native_thread_identity_conflict"));
     }
-    Ok(lane.phase == Phase::Stopped && !lane.pending.is_empty())
+    Ok((lane.phase == Phase::Idle
+        && lane.turn.as_deref() == Some(turn)
+        && lane.pending.is_empty()
+        && lane.external.is_none()
+        && lane.host_block.is_none()
+        && lane.checkpoint.is_none()
+        && !lane.source_context_owed
+        && matches!(lane.cached.last(), Some(Event::Completed { .. })))
+    .then_some((lane.marker, lane.gateway)))
 }
+
 #[derive(Clone, Serialize, Deserialize)]
 struct External {
     input: crate::bound_chat::Input,
@@ -1154,6 +1171,7 @@ impl Lane {
     fn new(thread: &str) -> Result<Self, Error> {
         Ok(Self {
             native_thread: thread.into(),
+            origin: crate::protocol::ToolOrigin::Generic,
             marker: format!("lane_{}", random_id()?),
             gateway: format!("termux_codex_{}", random_id()?),
             phase: Phase::New,
@@ -1188,6 +1206,7 @@ impl Lane {
     }
     fn successor(&self, thread: &str) -> Result<Self, Error> {
         let mut next = Self::new(thread)?;
+        next.origin = self.origin;
         next.presentation = self.presentation.clone();
         next.previous_chats = self.previous_chats.clone();
         if let Some(id) = &self.conversation_id {
@@ -1256,6 +1275,7 @@ pub struct AppHost {
     journal: Arc<Journal>,
     lanes: Arc<Mutex<BTreeMap<String, Arc<Mutex<Lane>>>>>,
     connector: String,
+    native_adapter: bool,
 }
 impl AppHost {
     pub(crate) fn source_execution(
@@ -1653,7 +1673,12 @@ impl AppHost {
             journal,
             lanes: Arc::new(Mutex::new(BTreeMap::new())),
             connector: crate::config::TransportConfig::default().connector_name,
+            native_adapter: false,
         }
+    }
+    pub(crate) fn with_native_admission(mut self) -> Self {
+        self.native_adapter = true;
+        self
     }
     pub fn with_connector(mut self, connector: String) -> Self {
         self.connector = connector;
@@ -1733,10 +1758,10 @@ impl AppHost {
         }
         Ok(lane.phase == Phase::Stopped)
     }
-    pub(crate) async fn clear_unexecuted_stopped_calls(
+    pub(crate) async fn clear_settled_stopped_calls(
         &self,
         thread: &str,
-        committed_native_items: &std::collections::BTreeSet<String>,
+        settled_native_calls: &std::collections::BTreeSet<String>,
     ) -> Result<(), Error> {
         let key = context::digest(&thread);
         let Some(mutex) = self.existing_lane(thread).await? else {
@@ -1749,11 +1774,11 @@ impl AppHost {
             return Ok(());
         }
         self.bridge
-            .clear_unexecuted_stopped_calls(lane.marker.clone(), committed_native_items.clone())
+            .clear_settled_stopped_calls(lane.marker.clone(), settled_native_calls.clone())
             .await?;
         let before = lane.pending.len();
         lane.pending
-            .retain(|call| committed_native_items.contains(&call.id));
+            .retain(|call| !settled_native_calls.contains(&call.id));
         if lane.pending.len() != before {
             self.journal.write(&key, &*lane)?;
         }
@@ -1945,6 +1970,11 @@ impl Host for AppHost {
         let bridge = self.bridge.clone();
         let journal = self.journal.clone();
         let lanes = self.lanes.clone();
+        let origin = if self.native_adapter || request.native_scope.is_some() {
+            crate::protocol::ToolOrigin::Native
+        } else {
+            crate::protocol::ToolOrigin::Generic
+        };
         Box::pin(async move {
             let key = context::digest(&request.thread);
             let mutex = {
@@ -1952,9 +1982,13 @@ impl Host for AppHost {
                 if let Some(lane) = lanes.get(&key) {
                     lane.clone()
                 } else {
-                    let state = journal
-                        .read::<Lane>(&key)?
-                        .unwrap_or(Lane::new(&request.thread)?);
+                    let state = if let Some(state) = journal.read::<Lane>(&key)? {
+                        state
+                    } else {
+                        let mut state = Lane::new(&request.thread)?;
+                        state.origin = origin;
+                        state
+                    };
                     if state.native_thread != request.thread {
                         return Err(Error("native_thread_identity_conflict"));
                     }
@@ -1964,6 +1998,15 @@ impl Host for AppHost {
                 }
             };
             let mut lane = mutex.try_lock().map_err(|_| Error("native_lane_busy"))?;
+            let retained_answer = lane.phase == Phase::Idle
+                && lane.request == context::digest(&request)
+                && !lane
+                    .cached
+                    .iter()
+                    .any(|event| matches!(event, Event::Tool(_)));
+            if lane.origin != origin && !retained_answer {
+                return Err(Error("native_tool_origin_changed"));
+            }
             let result = exchange(
                 LaneServices {
                     bridge: bridge.as_ref(),
@@ -2105,6 +2148,29 @@ async fn preparing<T>(
         result = operation => result,
     }
 }
+fn native_call_error(request: &Request, call: &Call) -> Option<Error> {
+    let scope = request.native_scope.as_ref();
+    crate::native_effect::tool_dispatch_error(
+        &call.tool,
+        scope.map(|scope| scope.workspace.as_path()),
+        scope.and_then(|scope| scope.execution.as_ref()),
+    )
+    .map(Error)
+}
+
+fn validate_cached_calls(lane: &Lane, request: &Request) -> Result<(), Error> {
+    if lane.origin == crate::protocol::ToolOrigin::Native {
+        for event in &lane.cached {
+            if let Event::Tool(call) = event {
+                if let Some(error) = native_call_error(request, call) {
+                    return Err(error);
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 fn with_native_scope(mut command: Value, request: &Request) -> Value {
     if let Some(scope) = &request.native_scope {
         // Both ordinary and gateway-correction submissions cross McpBridge.
@@ -2135,6 +2201,7 @@ async fn exchange(
     }
     let request_digest = context::digest(request);
     if request_digest == lane.request && lane.phase == Phase::Idle {
+        validate_cached_calls(lane, request)?;
         for event in &lane.cached {
             events
                 .send(event.clone())
@@ -2191,6 +2258,7 @@ async fn exchange(
     lane.identity = Some(current);
     journal.write(key, lane)?;
     if request_digest == lane.request && lane.phase == Phase::ToolsReady {
+        validate_cached_calls(lane, request)?;
         for event in &lane.cached {
             events
                 .send(event.clone())
@@ -2351,6 +2419,7 @@ async fn exchange(
     if recovering {
         // The response observer is new; restore already observed public deltas
         // before app snapshots supply only their unseen suffixes.
+        validate_cached_calls(lane, request)?;
         for event in &lane.cached {
             events
                 .send(event.clone())
@@ -2773,6 +2842,15 @@ async fn exchange(
                     }
                     Err(error) => return Err(error),
                 };
+                if lane.origin == crate::protocol::ToolOrigin::Native {
+                    if let Some(error) = batch
+                        .iter()
+                        .find_map(|call| native_call_error(request, call))
+                    {
+                        rejected = Some(error);
+                        continue;
+                    }
+                }
                 calls.extend(batch);
                 if let Some(report) = report.filter(|r| !r.trim().is_empty()) {
                     reports.push((format!("report_{id}"), report));
@@ -2803,7 +2881,7 @@ async fn exchange(
                 if lane.confirmed.contains_key(id) || lane.pending.iter().any(|v| v.id == id) {
                     return Err(Error("host_call_replayed"));
                 }
-                let result = json!({"error":{"code":error.0,"message":"The gateway request was rejected before execution. Use exact keys from the Native tool catalog; use tool_search to discover deferred tools. No part of this rejected batch executed."}});
+                let result = json!({"executed":false,"error":{"code":error.0,"message":"The gateway request was rejected before execution. Use exact keys from the Native tool catalog; use tool_search to discover deferred tools. No part of this rejected batch executed."}});
                 lane.confirmed.insert(id.into(), context::digest(&result));
                 lane.rejected += 1;
                 let report=Event::Text{id:format!("rejected_{id}"),phase:"commentary".into(),delta:format!("Provider rejected a tool request before execution: {}. Returning the error for correction.\n",error.0)};
@@ -4674,6 +4752,301 @@ mod native_submission_scope_tests {
                 assert_eq!(&admitted[key], value);
             }
         }
+        std::fs::remove_dir_all(root).unwrap();
+    }
+    #[derive(Default)]
+    struct AdmissionState {
+        commands: Vec<Value>,
+        gateway: String,
+        round: String,
+        submissions: usize,
+    }
+    struct AdmissionBridge {
+        state: std::sync::Mutex<AdmissionState>,
+        tool: Option<(String, String)>,
+    }
+    impl Bridge for AdmissionBridge {
+        fn operation(&self, command: Value) -> BoxFuture<'static, Result<Value, Error>> {
+            let mut state = self.state.lock().unwrap();
+            state.commands.push(command.clone());
+            let result = match command["op"].as_str().unwrap() {
+                "identity" => json!({"generation":"owned-generation","account":"owned-account",
+                    "user":"owned-user","structure":"personal","present":true}),
+                "host_status" => json!({"saved_read_backoff":{"cooling_down":false}}),
+                "open" => {
+                    state.gateway = command["signature"]["name"].as_str().unwrap().into();
+                    json!({"localId":"owned-chat"})
+                }
+                "submit" => {
+                    state.submissions += 1;
+                    state.round = command["round"].as_str().unwrap().into();
+                    json!({"started":true})
+                }
+                "snapshot" => {
+                    let messages = if state.submissions == 1 {
+                        self.tool.as_ref().map(|(name, input)| json!([{
+                            "id":"original-host-call","author":{"role":"assistant"},
+                            "recipient":format!("local.{}", state.gateway),
+                            "status":"finished_successfully","end_turn":false,
+                            "content":{"content_type":"code","text":json!({"name":name,"input":input}).to_string()}
+                        }]))
+                    } else {
+                        None
+                    }.unwrap_or_else(|| json!([{
+                        "id":"original-final","author":{"role":"assistant"},"recipient":"all",
+                        "channel":"final","status":"finished_successfully","end_turn":true,
+                        "content":{"content_type":"text","parts":["ORIGINAL_FINAL"]}
+                    }]));
+                    json!({"round":state.round,"serverId":"owned-chat","messages":messages,
+                        "terminals":["done"],"pending":false,"streamActive":false,
+                        "roundStarts":1,"dispatches":state.submissions,
+                        "userMessages":1,"toolMessages":state.submissions.saturating_sub(1)})
+                }
+                _ => panic!("unexpected admission operation: {}", command["op"]),
+            };
+            Box::pin(async move { Ok(result) })
+        }
+    }
+
+    #[tokio::test]
+    async fn native_constructor_refuses_unbound_effects_before_pending_or_publication() {
+        for (native, name, definition, expected_offer) in [
+            (
+                true,
+                "exec_command",
+                json!({"type":"function","name":"exec_command","parameters":{"type":"object"}}),
+                false,
+            ),
+            (
+                true,
+                "functions.exec_command",
+                json!({"type":"function","name":"functions.exec_command","parameters":{"type":"object"}}),
+                false,
+            ),
+            (
+                true,
+                "apply_patch",
+                json!({"type":"custom","name":"apply_patch","format":{"type":"text"}}),
+                false,
+            ),
+            (
+                true,
+                "view_image",
+                json!({"type":"function","name":"view_image","parameters":{"type":"object"}}),
+                false,
+            ),
+            (
+                true,
+                "clock.curr_time",
+                json!({"type":"function","name":"clock.curr_time","parameters":{"type":"object"}}),
+                false,
+            ),
+            (
+                true,
+                "ordinary.custom",
+                json!({"type":"custom","name":"ordinary.custom","format":{"type":"text"}}),
+                false,
+            ),
+            (true, "tool_search", json!({"type":"tool_search"}), true),
+            (
+                false,
+                "exec_command",
+                json!({"type":"function","name":"exec_command","parameters":{"type":"object"}}),
+                true,
+            ),
+        ] {
+            let root = std::env::temp_dir().join(format!("app-origin-{}", random_id().unwrap()));
+            let journal = Arc::new(Journal::open(&root).unwrap());
+            let bridge = Arc::new(AdmissionBridge {
+                state: std::sync::Mutex::new(AdmissionState::default()),
+                tool: Some((name.into(), "{}".into())),
+            });
+            let host = AppHost::new(bridge.clone(), journal.clone());
+            let host = if native {
+                host.with_native_admission()
+            } else {
+                host
+            };
+            let mut request = Request::parse(
+                json!({"stream":true,"model":"chatgpt-desktop/gpt-6","input":"owned",
+                    "tools":[definition]}),
+                &crate::config::Config::default(),
+                Some("owned-thread"),
+            )
+            .unwrap();
+            // Claimed metadata is deliberately not a Core-admitted NativeScope.
+            request.execution = Some(crate::native_effect::hook_fixture(
+                &std::fs::canonicalize(&root).unwrap(),
+            ));
+            assert!(request.native_scope.is_none());
+            let (tx, mut rx) = mpsc::channel(32);
+            tokio::time::timeout(
+                Duration::from_secs(3),
+                host.exchange(request.clone(), tx, CancellationToken::new()),
+            )
+            .await
+            .unwrap()
+            .unwrap();
+            let mut published = Vec::new();
+            while let Ok(event) = rx.try_recv() {
+                published.push(event);
+            }
+            assert_eq!(
+                published
+                    .iter()
+                    .any(|event| matches!(event, Event::Tool(_))),
+                expected_offer,
+                "{native}: {name}"
+            );
+            let saved: Lane = journal
+                .read(&context::digest(&request.thread))
+                .unwrap()
+                .unwrap();
+            assert_eq!(
+                saved.origin,
+                if native {
+                    crate::protocol::ToolOrigin::Native
+                } else {
+                    crate::protocol::ToolOrigin::Generic
+                }
+            );
+            if expected_offer {
+                assert_eq!(saved.pending.len(), 1);
+                assert_eq!(saved.pending[0].tool.key(), name);
+                assert_eq!(saved.pending[0].id, "original-host-call");
+            } else {
+                assert!(saved.pending.is_empty());
+                assert_eq!(saved.phase, Phase::Idle);
+                let state = bridge.state.lock().unwrap();
+                let correction = state
+                    .commands
+                    .iter()
+                    .find(|command| {
+                        command["op"] == "submit"
+                            && command["results"]
+                                .as_array()
+                                .is_some_and(|results| !results.is_empty())
+                    })
+                    .unwrap();
+                assert_eq!(correction["results"][0]["id"], "original-host-call");
+                assert_eq!(correction["results"][0]["result"]["executed"], false);
+                assert_eq!(
+                    correction["results"][0]["result"]["error"]["code"],
+                    "native_execution_completion_unavailable"
+                );
+                assert_eq!(state.submissions, 2);
+            }
+            std::fs::remove_dir_all(root).unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn native_tool_free_answer_and_exact_retained_replay_need_no_owner_or_new_submission() {
+        let root = std::env::temp_dir().join(format!("app-origin-read-{}", random_id().unwrap()));
+        let journal = Arc::new(Journal::open(&root).unwrap());
+        let bridge = Arc::new(AdmissionBridge {
+            state: std::sync::Mutex::new(AdmissionState::default()),
+            tool: None,
+        });
+        let host = AppHost::new(bridge.clone(), journal.clone()).with_native_admission();
+        let request = Request::parse(
+            json!({"stream":true,"model":"chatgpt-desktop/gpt-6","input":"title only"}),
+            &crate::config::Config::default(),
+            Some("title-thread"),
+        )
+        .unwrap();
+        let (tx, mut rx) = mpsc::channel(32);
+        host.exchange(request.clone(), tx, CancellationToken::new())
+            .await
+            .unwrap();
+        let mut original = Vec::new();
+        while let Ok(event) = rx.try_recv() {
+            original.push(event);
+        }
+        assert!(!original.iter().any(|event| matches!(event, Event::Tool(_))));
+        assert!(original
+            .iter()
+            .any(|event| matches!(event, Event::Completed { .. })));
+        let calls = bridge.state.lock().unwrap().commands.len();
+        // Old missing provenance is restrictive for a new round, but a complete
+        // immutable answer can still be observed by a read-only replay.
+        let key = context::digest(&request.thread);
+        let saved: Lane = journal.read(&key).unwrap().unwrap();
+        let mut legacy = serde_json::to_value(&saved).unwrap();
+        legacy.as_object_mut().unwrap().remove("origin");
+        journal.write(&key, &legacy).unwrap();
+        let reader = AppHost::new(bridge.clone(), journal.clone());
+        let (tx, mut rx) = mpsc::channel(32);
+        reader
+            .exchange(request.clone(), tx, CancellationToken::new())
+            .await
+            .unwrap();
+        let mut replay = Vec::new();
+        while let Ok(event) = rx.try_recv() {
+            replay.push(event);
+        }
+        assert_eq!(
+            serde_json::to_value(replay).unwrap(),
+            serde_json::to_value(original).unwrap()
+        );
+        assert_eq!(bridge.state.lock().unwrap().commands.len(), calls);
+        let mut changed = request;
+        changed
+            .input
+            .push(json!({"role":"user","content":"new input"}));
+        let (tx, _rx) = mpsc::channel(32);
+        assert_eq!(
+            reader.exchange(changed, tx, CancellationToken::new()).await,
+            Err(Error("native_tool_origin_changed"))
+        );
+        assert_eq!(bridge.state.lock().unwrap().commands.len(), calls);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+    #[tokio::test]
+    async fn legacy_cached_executable_offer_is_not_a_retained_result_read() {
+        let root = std::env::temp_dir().join(format!("app-cached-origin-{}", random_id().unwrap()));
+        let journal = Arc::new(Journal::open(&root).unwrap());
+        let bridge = Arc::new(AdmissionBridge {
+            state: std::sync::Mutex::new(AdmissionState::default()),
+            tool: Some(("exec_command".into(), "{}".into())),
+        });
+        let generic = AppHost::new(bridge.clone(), journal.clone());
+        let request = Request::parse(
+            json!({"stream":true,"model":"chatgpt-desktop/gpt-6","input":"owned",
+                "tools":[{"type":"function","name":"exec_command","parameters":{"type":"object"}}]}),
+            &crate::config::Config::default(),
+            Some("cached-thread"),
+        )
+        .unwrap();
+        let (tx, mut rx) = mpsc::channel(32);
+        generic
+            .exchange(request.clone(), tx, CancellationToken::new())
+            .await
+            .unwrap();
+        let first_tool =
+            std::iter::from_fn(|| rx.try_recv().ok()).any(|event| matches!(event, Event::Tool(_)));
+        assert!(first_tool);
+        let key = context::digest(&request.thread);
+        let saved: Lane = journal.read(&key).unwrap().unwrap();
+        assert_eq!(saved.phase, Phase::ToolsReady);
+        let pending = serde_json::to_value(&saved.pending).unwrap();
+        let cached = serde_json::to_value(&saved.cached).unwrap();
+        let mut legacy = serde_json::to_value(&saved).unwrap();
+        legacy.as_object_mut().unwrap().remove("origin");
+        journal.write(&key, &legacy).unwrap();
+        let native = AppHost::new(bridge.clone(), journal.clone()).with_native_admission();
+        let (tx, mut rx) = mpsc::channel(32);
+        assert_eq!(
+            native.exchange(request, tx, CancellationToken::new()).await,
+            Err(Error("native_execution_completion_unavailable"))
+        );
+        let replayed_tool =
+            std::iter::from_fn(|| rx.try_recv().ok()).any(|event| matches!(event, Event::Tool(_)));
+        assert!(!replayed_tool);
+        let after: Lane = journal.read(&key).unwrap().unwrap();
+        assert_eq!(serde_json::to_value(&after.pending).unwrap(), pending);
+        assert_eq!(serde_json::to_value(&after.cached).unwrap(), cached);
+        assert_eq!(bridge.state.lock().unwrap().submissions, 1);
         std::fs::remove_dir_all(root).unwrap();
     }
 }

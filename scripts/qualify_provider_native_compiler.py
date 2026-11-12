@@ -73,11 +73,11 @@ def execution_proof(record, turn, *, home, prefix, workspace, runtime, observed)
     assert observed['image'] == str(runtime), 'selected Native owner is not the explicit installed runtime'
     assert owner['home'] == str(workspace.parent / 'h/.codex')
     assert Path(owner['directory']).parent == home / '.local/share/codex/core/catalogs'
-    assert type(proof['schema']) is int and proof['schema'] == 2, 'actual per-tool Native hook proof is required'
+    assert type(proof['schema']) is int and proof['schema'] == 4, 'actual dispatch-bound Native hook proof is required'
     tools = proof.get('hook_free_tools')
-    assert isinstance(tools, list) and len(tools) <= 5 and all(tool in (
-        'exec_command', 'apply_patch', 'view_image', 'clock.curr_time', 'clock.sleep'
-    ) for tool in tools) and 'exec_command' in tools, 'actual Native tool hook proof is absent'
+    assert isinstance(tools, list) and len(tools) <= 6 and all(isinstance(tool, str) and tool in (
+        'exec_command', 'write_stdin', 'apply_patch', 'view_image', 'clock.curr_time', 'clock.sleep'
+    ) for tool in tools) and len(set(tools)) == len(tools) and 'exec_command' in tools, 'actual Native tool hook proof is absent'
     assert proof['pid'] == observed['pid'] and proof['start'] == observed['start']
     assert proof['thread'] == record['thread'] and proof['turn'] == record['native_turn']
     assert proof['cwd'] == str(workspace) and proof['prefix'] == str(prefix)
@@ -103,20 +103,58 @@ def original_result(reply, invocation):
     return result
 
 
-def running_session(result):
-    matches = re.findall(r'^Process running with session ID ([0-9]+)$', result['output'], re.MULTILINE)
+def status_header(result):
+    return result['output'].partition('\nOutput:\n')[0]
+
+
+def completion_proof(result, outcome, session=None):
+    """Read only the original harness's first frame, never command stdout."""
+    def unique(fields):
+        value = {}
+        for key, item in fields:
+            assert key not in value, 'duplicate Native completion field'
+            value[key] = item
+        return value
+
+    first = result['output'].split('\n', 1)[0]
+    prefix = 'Native completion: '
+    assert first.startswith(prefix), 'actual Native completion frame is missing'
+    proof = json.loads(first[len(prefix):], object_pairs_hook=unique)
+    assert isinstance(proof, dict) and set(proof) == {
+        'schema', 'call_id', 'session_id', 'outcome', 'exit_code', 'hooks'
+    }, 'actual Native completion is unknown or malformed'
+    assert proof['schema'] == 'codex-native-completion-v1'
+    assert proof['call_id'] == result['call_id'], 'completion belongs to another invocation'
+    assert proof['hooks'] == 'absent'
+    assert proof['session_id'] is None or (
+        type(proof['session_id']) is int and 0 <= proof['session_id'] <= 2**31 - 1)
+    if session is not None:
+        assert proof['session_id'] == session, 'completion belongs to another Native session'
+    assert proof['outcome'] == outcome, 'parent status is not whole-process-tree completion'
+    if outcome == 'session_running':
+        assert proof['session_id'] is not None and proof['exit_code'] is None
+    else:
+        assert outcome == 'process_tree_completed'
+        assert type(proof['exit_code']) is int and proof['exit_code'] == 0, 'compiler tree did not complete successfully'
+    return proof
+
+
+def running_session(result, *, allow_parent_exit=False):
+    header = status_header(result)
+    matches = re.findall(r'^Process (?:running|scope remains active) with session ID ([0-9]+)$', header, re.MULTILINE)
     assert len(matches) == 1, 'actual compiler did not yield a retained session; parallel execution is unproven'
-    assert not re.search(r'(?:Process exited with code|Exit code:)\s*-?\d+', result['output'])
+    if not allow_parent_exit:
+        assert not re.search(r'(?:Process exited with code|Exit code:)\s*-?\d+', header)
     return int(matches[0])
 
 
 def completed(result):
-    codes = re.findall(r'^(?:Process exited with code |Exit code: )(-?\d+)\s*$', result['output'], re.MULTILINE)
+    header = status_header(result)
+    codes = re.findall(r'^(?:Process exited with code |Exit code: )(-?\d+)\s*$', header, re.MULTILINE)
     if not codes:
         return False
     assert codes == ['0'], 'actual Native command failed'
-    assert 'Process running with session ID ' not in result['output']
-    return True
+    return not re.search(r'^Process (?:running|scope remains active) with session ID ', header, re.MULTILINE)
 
 
 def command_output(result):
@@ -454,6 +492,7 @@ def probe(args):
             saved = record(work)
             proof = execution_proof(saved, turn(work), home=home, prefix=prefix, workspace=workspace,
                                     runtime=runtime, observed=process(saved['execution']))
+            assert 'write_stdin' in proof['hook_free_tools'], 'this fixture must collect original results through a supported continuation'
             owners[saved['execution']['process']['pid']] = saved['execution']
             save(root / f'execution-{label}.json', {'owner': saved['execution'], 'metadata': proof})
         assert len({work['thread_id'] for work in works.values()}) == 3
@@ -500,8 +539,10 @@ def probe(args):
                 result = original_result(reply, turn(work)['calls'][identity])
                 assert command_output(result) == '', 'plain compiler unexpectedly produced output'
                 if completed(result):
+                    completion_proof(result, 'process_tree_completed', session)
                     return result
-                assert running_session(result) == session, 'continuation changed the original Native process'
+                assert running_session(result, allow_parent_exit=True) == session, 'continuation changed the original Native process'
+                completion_proof(result, 'session_running', session)
             raise AssertionError('finite compiler observation budget exhausted; no replacement execution')
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
@@ -525,7 +566,21 @@ def probe(args):
         assert not (workspace / 'opaque-effect').exists(), 'rejected call silently ran after settlement'
         after = execute(opaque, 'opaque-after-settlement', opaque['exec'], opaque_args)
         opaque_result = original_result(after, turn(opaque)['calls']['opaque-after-settlement'])
-        assert completed(opaque_result)
+        if not completed(opaque_result):
+            opaque_session = running_session(opaque_result, allow_parent_exit=True)
+            for index in range(MAX_POLLS):
+                identity = f'opaque-after-settlement-poll-{index}'
+                reply = execute(opaque, identity, opaque['poll'], {'session_id': opaque_session, 'chars': '',
+                    'yield_time_ms': 1000, 'max_output_tokens': 1000})
+                opaque_result = original_result(reply, turn(opaque)['calls'][identity])
+                if completed(opaque_result):
+                    completion_proof(opaque_result, 'process_tree_completed', opaque_session)
+                    break
+                assert running_session(opaque_result, allow_parent_exit=True) == opaque_session
+                completion_proof(opaque_result, 'session_running', opaque_session)
+            else:
+                raise AssertionError('opaque scope observation budget exhausted; original execution retained')
+        completion_proof(opaque_result, 'process_tree_completed')
         assert command_output(opaque_result) == '', 'redirected command unexpectedly produced output'
         assert (workspace / 'opaque-effect').read_text() == 'compiler-settled'
         _, opaque_item = command_published(opaque, opaque_args['cmd'], turn(opaque)['calls']['opaque-after-settlement']['id'], command_output(opaque_result))
@@ -552,13 +607,18 @@ def probe(args):
             save(root / f'owned-loaded-threads-{pid}.json', loaded)
         bridge_log = root / 'bridge-commands.json'
         assert not bridge_log.exists() or not any(row['op'] == 'submit' for row in json.loads(bridge_log.read_text()))
-        save(root / 'original-results.json', {'initial': original, 'terminal': settled, 'opaque_rejected': refused, 'opaque_completed': after})
+        save(root / 'original-results.json', {'initial': original, 'terminal': settled, 'opaque_rejected': refused,
+            'opaque_completed': after, 'opaque_terminal': opaque_result})
+        completions = {label: completion_proof(result, 'process_tree_completed') for label, result in settled.items()}
+        completions['opaque'] = completion_proof(opaque_result, 'process_tree_completed')
+        save(root / 'native-process-tree-completions.json', completions)
         proof_result = {'accepted': True, 'scope': scope, 'fixture': str(root),
             'model_requests': 0, 'live_tui_accepted': False, 'actual_compilers': 2,
             'outputs': outputs,
             'native_command_overlap_ms': overlap, 'simultaneous_bounded_claims': 2,
             'opaque_pre_effect_rejected': True, 'rejected_call_not_replayed': True,
-            'original_results_preserved': True, 'unconfirmed_effects': 0, **stamp()}
+            'original_results_preserved': True, 'whole_process_trees_completed': len(completions),
+            'unconfirmed_effects': 0, **stamp()}
         accepted = True
     except BaseException as error:
         save(args.report, {'accepted': False, 'scope': scope, 'fixture': str(root),

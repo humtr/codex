@@ -54,6 +54,11 @@ impl Fixture {
             "Owned".into(),
         )
         .unwrap();
+        let bridge = if mode == "unbound-native" {
+            bridge.with_native_admission()
+        } else {
+            bridge
+        };
         let mut request = Request::parse(
             json!({"stream":true,"model":"chatgpt-desktop/gpt-6","input":"owned",
                 "client_metadata":{"x-codex-turn-metadata":{"thread_id":"scope-thread","turn_id":"scope-turn"}},
@@ -72,8 +77,8 @@ impl Fixture {
         if mode == "wrong-owner" {
             facts.start.push('0');
         }
-        request.execution = Some(facts);
-        if mode != "missing" {
+        request.execution = (mode != "missing").then_some(facts);
+        if !matches!(mode, "generic" | "unbound-native") {
             request.bind_native_scope(&root, &owner).unwrap();
         }
         bridge
@@ -163,15 +168,55 @@ async fn native_scope_is_bound_before_tool_discovery_and_never_reaches_the_app()
 
 #[tokio::test]
 async fn native_scope_missing_legacy_or_foreign_facts_never_narrow_tool_effects() {
-    for mode in ["missing", "legacy", "wrong-owner"] {
+    for mode in ["missing", "legacy", "wrong-owner", "unbound-native"] {
         let fixture = Fixture::new(mode).await;
         let call = fixture.offer(&patch("a", "a")).await;
-        assert_eq!(call["offered"], true, "{mode}");
+        assert_eq!(call["offered"], false, "{mode}");
         assert_eq!(call["effect"], "Opaque", "{mode}");
-        if mode == "wrong-owner" {
+        assert_eq!(call["result"]["executed"], false);
+        assert_eq!(
+            call["result"]["error"],
+            if mode == "legacy" {
+                "native_execution_generation_unsupported"
+            } else {
+                "native_execution_completion_unavailable"
+            }
+        );
+        assert_eq!(fixture.stored()["origin"], "native");
+        if mode == "unbound-native" {
+            assert!(
+                fixture.request.execution.is_some(),
+                "raw claimed facts are deliberately present"
+            );
+            assert!(fixture.request.native_scope.is_none());
+            assert!(fixture.stored()["workspace"].is_null());
+        } else {
+            assert_eq!(fixture.stored()["workspace"], json!(fixture.root));
+        }
+        if matches!(mode, "missing" | "wrong-owner" | "unbound-native") {
             assert!(fixture.stored()["execution"].is_null());
         }
+        assert_eq!(
+            fixture
+                .broker
+                .effect_status_with_owners(&["scope-lane"], &BTreeMap::new())
+                .unwrap()["unconfirmed_effects"],
+            0
+        );
     }
+    let generic = Fixture::new("generic").await;
+    let call = generic.offer(&patch("generic", "a")).await;
+    assert_eq!(
+        call["offered"], true,
+        "ordinary generic transport does not acquire Native scope"
+    );
+    assert_eq!(call["effect"], "Opaque");
+    assert!(generic.stored()["workspace"].is_null());
+    assert_eq!(generic.stored()["origin"], "generic");
+    assert_eq!(
+        generic.broker.require_native_origin(&generic.token),
+        Err(Error("mcp_tool_origin_changed"))
+    );
 }
 
 #[tokio::test]
@@ -221,9 +266,39 @@ async fn native_scope_settlement_preserves_original_receipt_and_updates_only_nex
         followup["effect"], "Opaque",
         "new calls cannot borrow the previous hook proof"
     );
+    assert_eq!(followup["offered"], false);
     assert_eq!(
-        followup["offered"], true,
-        "the original scoped claim was settled"
+        followup["result"]["error"],
+        "native_execution_completion_unavailable"
+    );
+    assert_eq!(
+        fixture
+            .broker
+            .effect_status_with_owners(&["scope-lane"], &BTreeMap::new())
+            .unwrap()["unconfirmed_effects"],
+        0,
+        "the original scoped claim was settled independently of a new unavailable invocation"
+    );
+    fixture
+        .broker
+        .bind_execution(
+            &fixture.token,
+            fixture
+                .request
+                .native_scope
+                .as_ref()
+                .unwrap()
+                .execution
+                .clone(),
+        )
+        .await
+        .unwrap();
+    let qualified = fixture
+        .offer(&patch("qualified-after-settlement", "b"))
+        .await;
+    assert_eq!(
+        qualified["offered"], true,
+        "a fresh qualified invocation remains available"
     );
     let mut changed = command;
     changed[NATIVE_SCOPE] = json!(fixture.request.native_scope.as_ref().unwrap());
@@ -306,4 +381,31 @@ async fn native_scope_rejects_cross_thread_or_noncanonical_private_descriptors()
         );
         assert_eq!(fixture.remote.commands.lock().unwrap().len(), before);
     }
+}
+
+#[tokio::test]
+async fn native_cached_offer_requires_original_scope_even_when_legacy_origin_is_absent() {
+    let mut fixture = Fixture::new("generic").await;
+    let args = patch("original-cached", "a");
+    let original = fixture.offer(&args).await;
+    assert_eq!(original["offered"], true);
+    let key = digest(&("mcp-turn-v1", &fixture.token));
+    let mut legacy = fixture.stored();
+    legacy.as_object_mut().unwrap().remove("origin");
+    fixture.journal.write(&key, &legacy).unwrap();
+    let before: Value = fixture.journal.read(&key).unwrap().unwrap();
+    fixture.bridge.native_adapter = true;
+    assert_eq!(
+        fixture
+            .bridge
+            .operation(json!({"op":"snapshot","lane":"scope-lane"}))
+            .await,
+        Err(Error("native_execution_completion_unavailable"))
+    );
+    let after: Value = fixture.journal.read(&key).unwrap().unwrap();
+    assert_eq!(
+        before, after,
+        "refusal must not replace the cached original offer"
+    );
+    assert_eq!(after["calls"][&args.call_id], original);
 }

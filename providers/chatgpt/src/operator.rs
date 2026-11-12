@@ -889,21 +889,26 @@ impl Operator {
             remote: bridge.clone(),
             path: ReturnPath::LocalFunction,
         });
-        let mcp_bridge: Arc<dyn Bridge> = Arc::new(crate::mcp_bridge::McpBridge::new(
-            Arc::new(crate::app::Transport {
-                remote: bridge.clone(),
-                path: ReturnPath::Mcp,
-            }),
-            broker.clone(),
-            journal.clone(),
-            config.transport.connector_name.clone(),
-        )?);
+        let mcp_bridge: Arc<dyn Bridge> = Arc::new(
+            crate::mcp_bridge::McpBridge::new(
+                Arc::new(crate::app::Transport {
+                    remote: bridge.clone(),
+                    path: ReturnPath::Mcp,
+                }),
+                broker.clone(),
+                journal.clone(),
+                config.transport.connector_name.clone(),
+            )?
+            .with_native_admission(),
+        );
         let mcp_host = Arc::new(
             AppHost::new(mcp_bridge, journal.clone())
+                .with_native_admission()
                 .with_connector(config.transport.connector_name.clone()),
         );
         let local_host = Arc::new(
             AppHost::new(local_bridge, journal.clone())
+                .with_native_admission()
                 .with_connector(config.transport.connector_name.clone()),
         );
         let local = crate::local::Local::new(pool.clone(), journal.clone(), &config);
@@ -1206,6 +1211,14 @@ impl Operator {
         args: &Value,
         require_controller: bool,
     ) -> Result<(Record, Arc<Native>), Error> {
+        self.binding_mode(args, require_controller, false).await
+    }
+    async fn binding_mode(
+        &self,
+        args: &Value,
+        require_controller: bool,
+        observation: bool,
+    ) -> Result<(Record, Arc<Native>), Error> {
         let works = self.works.lock().await;
         let work = find_work(&self.journal, &works, args["work_id"].as_str())?
             .ok_or(Error("operator_work_unavailable"))?;
@@ -1237,6 +1250,28 @@ impl Operator {
         };
         let native = match selected {
             Ok(native) => native,
+            Err(Error("native_thread_owner_unavailable")) if observation => {
+                // The original qualified server can read persisted history
+                // after unload. Observation never prepares a replacement server
+                // or acquires a Writer merely to answer status.
+                let native = pool.observe_owner(&record.execution).await?;
+                if native.owner != record.execution {
+                    return Err(Error("native_owner_reconciliation_required"));
+                }
+                native.confirm_writer_absent(&record.thread).await?;
+                let state = native
+                    .call(
+                        "thread/read",
+                        json!({"threadId":record.thread,"includeTurns":false}),
+                    )
+                    .await?;
+                if state["thread"]["id"] != record.thread
+                    || state["thread"]["status"]["type"] != "notLoaded"
+                {
+                    return Err(Error("native_observation_superseded"));
+                }
+                native
+            }
             Err(Error("native_thread_owner_unavailable"))
                 if matches!(
                     record.phase.as_str(),
@@ -1515,12 +1550,7 @@ impl Operator {
         let mut cursor = Value::Null;
         let mut jobs = vec![];
         for page in 0..32 {
-            let response = native
-                .call(
-                    "thread/backgroundTerminals/list",
-                    json!({"threadId":record.thread,"limit":100,"cursor":cursor}),
-                )
-                .await?;
+            let response = native.background_terminals(&record.thread, cursor).await?;
             let data = response["data"]
                 .as_array()
                 .ok_or(Error("native_jobs_unobservable"))?;
@@ -1625,50 +1655,6 @@ impl Operator {
         }
         Err(Error("native_history_read_bound"))
     }
-    async fn all_native_item_ids(
-        native: &Native,
-        thread: &str,
-        has_native_turn: bool,
-    ) -> Result<std::collections::BTreeSet<String>, Error> {
-        let mut cursor = Value::Null;
-        let mut ids = std::collections::BTreeSet::new();
-        for _ in 0..4096 {
-            let response = match native
-                .call(
-                    "thread/items/list",
-                    json!({"threadId":thread,"limit":100,"cursor":cursor,"sortDirection":"asc"}),
-                )
-                .await
-            {
-                Ok(response) => response,
-                Err(Error("native_history_not_ready")) if !has_native_turn => {
-                    return Ok(std::collections::BTreeSet::new());
-                }
-                Err(error) => return Err(error),
-            };
-            let items = response["data"]
-                .as_array()
-                .ok_or(Error("native_history_unavailable"))?;
-            for row in items {
-                let item = &row["item"];
-                if !row["turnId"].is_string() || !item["type"].is_string() {
-                    return Err(Error("native_history_unavailable"));
-                }
-                if let Some(id) = item["id"].as_str() {
-                    ids.insert(id.to_owned());
-                }
-            }
-            let next = response["nextCursor"].clone();
-            if next.is_null() {
-                return Ok(ids);
-            }
-            if next == cursor {
-                return Err(Error("native_history_cursor_repeated"));
-            }
-            cursor = next;
-        }
-        Err(Error("native_history_read_bound"))
-    }
     async fn reconcile_stopped_work_effects(
         &self,
         native: &Native,
@@ -1686,13 +1672,17 @@ impl Operator {
                 lanes.push(marker);
             }
         }
-        for lane in &lanes {
+        let evidence = if record.native_turn.is_some() {
+            Some(native.completion_evidence(&record.thread).await?)
+        } else {
+            None
+        };
+        if let Some(evidence) = &evidence {
+            let history = Self::history(native, &record.thread).await?;
             self.broker
-                .settle_stopped_processes(lane, workspace)
+                .settle_native_processes_with_evidence(&lanes, workspace, &history, evidence)
                 .await?;
         }
-        // Native owns process termination; remote inference has no authority
-        // to retain a Native session lease after confirmed Stop with no jobs.
         if !host_stopped {
             return Ok(());
         }
@@ -1704,35 +1694,24 @@ impl Operator {
                 }
             }
         }
-        let token_refs: Vec<&str> = tokens.iter().map(String::as_str).collect();
-        // An exact physical claim may survive after the Provider mirror has
-        // already settled. Checking only broker receipts misses that orphan.
-        let shared_orphan = self
-            .broker
-            .has_stopped_shared_unexecuted(&record.id, workspace)?;
-        if shared_orphan
-            || self
-                .broker
-                .has_unsettled_stopped_effects(&lanes, &token_refs)?
-            || crate::app::has_stopped_pending_calls(&self.journal, &record.thread)?
-        {
-            let committed =
-                Self::all_native_item_ids(native, &record.thread, record.native_turn.is_some())
-                    .await?;
-            self.broker
-                .reconcile_stopped_unexecuted(&lanes, &token_refs, &committed)
-                .await?;
-            // Only this work's unmaterialized, non-session effects may be
-            // removed. AppHost/external lanes are reconciled separately.
-            self.broker
-                .settle_stopped_shared_unexecuted(&record.id, workspace, &committed)?;
-            self.mcp_host
-                .clear_unexecuted_stopped_calls(&record.thread, &committed)
-                .await?;
-            self.local_host
-                .clear_unexecuted_stopped_calls(&record.thread, &committed)
-                .await?;
+        let mut results = std::collections::BTreeMap::new();
+        if let Some(evidence) = &evidence {
+            for token in &tokens {
+                let expected = self.broker.unreturned_native_calls(token)?;
+                results.insert(token.clone(), evidence.available_results(&expected)?);
+            }
         }
+        let refs: Vec<_> = tokens.iter().map(String::as_str).collect();
+        let settled = self
+            .broker
+            .reconcile_stopped_receipts(&lanes, &refs, &results, evidence.as_ref())
+            .await?;
+        self.mcp_host
+            .clear_settled_stopped_calls(&record.thread, &settled)
+            .await?;
+        self.local_host
+            .clear_settled_stopped_calls(&record.thread, &settled)
+            .await?;
         Ok(())
     }
     fn cursor(history: &[Value]) -> Cursor {
@@ -4317,7 +4296,12 @@ impl Operator {
                 if self.broker.has_pending_processes(&[record.id.as_str()])? {
                     if let Some(workspace) = record.workspace.as_deref() {
                         self.broker
-                            .settle_native_processes(&[record.id.as_str()], workspace, &history)
+                            .settle_native_processes_with_evidence(
+                                &[record.id.as_str()],
+                                workspace,
+                                &history,
+                                &native.completion_evidence(&record.thread).await?,
+                            )
                             .await?;
                     }
                 }
@@ -4360,7 +4344,9 @@ impl Operator {
         // make an ordinary status caller repair a benign observation race.
         for _ in 0..3 {
             match self.observe_status(&args).await {
-                Err(Error("native_observation_superseded")) => continue,
+                Err(Error("native_observation_superseded" | "native_thread_not_loaded")) => {
+                    continue
+                }
                 result => return result,
             }
         }
@@ -4541,6 +4527,11 @@ impl Operator {
                     )) => {
                         native = None;
                         events = None;
+                    }
+                    Err(Error("native_thread_not_loaded" | "native_observation_superseded")) => {
+                        // Only a read raced Native's unload/next-round boundary.
+                        // Reobserve; no effect or mutation is submitted again.
+                        continue;
                     }
                     Err(error) => {
                         eprintln!("native_completion_observation_failed: {}", error.0);
@@ -5090,6 +5081,98 @@ impl Operator {
         Ok(Some(work.record.clone()))
     }
 
+    async fn observe_unloaded_completion(
+        &self,
+        record: &Record,
+        native: &Native,
+    ) -> Result<Record, Error> {
+        let admission = {
+            let works = self.works.lock().await;
+            let work = works
+                .get(&record.thread)
+                .ok_or(Error("operator_work_unavailable"))?;
+            if !same_native_round(record, &work.record)
+                || work.record.token != record.token
+                || work.record.phase != record.phase
+                || !work.record.pending.is_empty()
+                || work.stops_in_progress != 0
+                || work.app_round.is_some()
+                || work.active.is_some()
+                || native.owner != record.execution
+            {
+                return Err(Error("native_observation_superseded"));
+            }
+            work.native_admission.clone()
+        };
+        let _admission = admission
+            .try_lock_owned()
+            .map_err(|_| Error("bound_chat_observation_busy"))?;
+        let turn = record
+            .native_turn
+            .as_deref()
+            .ok_or(Error("native_turn_unavailable"))?;
+        let source = crate::app::settled_lane(&self.journal, &record.thread, turn)?
+            .ok_or(Error("native_unloaded_source_unsettled"))?;
+        let lanes = [record.id.as_str(), source.0.as_str()];
+        let mcp_chain = if self.app_route(record, Some(turn))? == Some(ReturnPath::Mcp) {
+            Some(
+                crate::mcp_bridge::settled_lane_chain(&self.journal, &source.0, &source.1)?
+                    .ok_or(Error("native_unloaded_source_unsettled"))?,
+            )
+        } else {
+            None
+        };
+        let mut roots = vec![(record.token.as_str(), record.token.as_str())];
+        if let Some((root, last)) = mcp_chain.as_ref() {
+            roots.push((root.as_str(), last.as_str()));
+        }
+        let pool = self.work_pool(record).await?;
+        let evidence = native
+            .unloaded_history(&record.thread, &pool.workspace)
+            .await?;
+        let not_spawned = self
+            .broker
+            .unloaded_receipts(&lanes, &roots, &evidence)
+            .await?;
+        evidence.validate(turn, &not_spawned)?;
+        // Reobserve the original complete history and all-home Writer absence.
+        // This remains observation only: no resume, new lease or stopped-job fiction.
+        if native
+            .unloaded_history(&record.thread, &pool.workspace)
+            .await?
+            != evidence
+        {
+            return Err(Error("native_observation_superseded"));
+        }
+        let mut works = self.works.lock().await;
+        let work = works
+            .get_mut(&record.thread)
+            .ok_or(Error("operator_work_unavailable"))?;
+        if !same_native_round(record, &work.record)
+            || work.record.token != record.token
+            || work.record.phase != record.phase
+            || !work.record.pending.is_empty()
+            || work.stops_in_progress != 0
+            || work.app_round.is_some()
+            || work.active.is_some()
+            || self
+                .broker
+                .unloaded_receipts(&lanes, &roots, &evidence)
+                .await?
+                != not_spawned
+            || crate::app::settled_lane(&self.journal, &record.thread, turn)?.as_ref()
+                != Some(&source)
+            || mcp_chain.is_some()
+                && crate::mcp_bridge::settled_lane_chain(&self.journal, &source.0, &source.1)?
+                    != mcp_chain
+        {
+            return Err(Error("native_observation_superseded"));
+        }
+        work.record.phase = "completed".into();
+        self.persist(&work.record)?;
+        Ok(work.record.clone())
+    }
+
     async fn observe_native(
         &self,
         mut record: Record,
@@ -5132,7 +5215,12 @@ impl Operator {
             native.verify_scope(&record.thread, &pool.workspace).await?;
             let history = Self::history(native, &record.thread).await?;
             self.broker
-                .settle_native_processes(&lanes, &pool.workspace, &history)
+                .settle_native_processes_with_evidence(
+                    &lanes,
+                    &pool.workspace,
+                    &history,
+                    &native.completion_evidence(&record.thread).await?,
+                )
                 .await?;
         }
         let state = match attached_state {
@@ -5146,6 +5234,12 @@ impl Operator {
                     .await?
             }
         };
+        if app_routed
+            && state["thread"]["status"]["type"] == "notLoaded"
+            && matches!(record.phase.as_str(), "running" | "reconciliation_required")
+        {
+            record = self.observe_unloaded_completion(&record, native).await?;
+        }
         if app_routed
             && record.phase == "interrupted"
             && source_native_settled(&record, &state)
@@ -5285,7 +5379,7 @@ impl Operator {
     async fn observe_status(&self, args: &Value) -> Result<Value, Error> {
         let mut observed = false;
         let mut host_observation = Value::Null;
-        let (record, native) = self.binding(args, false).await?;
+        let (record, native) = self.binding_mode(args, false, true).await?;
         let (mut record, state, app_lane) = self.observe_native(record, &native).await?;
         if let Some(lane) = &record.driver {
             let snapshot = tokio::time::timeout(
@@ -6263,7 +6357,12 @@ impl Operator {
                 if self.broker.has_pending_processes(&[record.id.as_str()])? {
                     if let Some(workspace) = record.workspace.as_deref() {
                         self.broker
-                            .settle_native_processes(&[record.id.as_str()], workspace, history)
+                            .settle_native_processes_with_evidence(
+                                &[record.id.as_str()],
+                                workspace,
+                                history,
+                                &native.completion_evidence(&record.thread).await?,
+                            )
                             .await?;
                     }
                 }
@@ -6845,9 +6944,7 @@ impl Host for Operator {
                         )
                     })
                     .cloned();
-                if path == ReturnPath::Mcp {
-                    request.bind_native_scope(&pool.workspace, &native.owner.process)?;
-                }
+                request.bind_native_scope(&pool.workspace, &native.owner.process)?;
                 let forward = async {
                     while let Some(event) = receiver.recv().await {
                         if let Event::Tool(call) = &event {
@@ -6858,10 +6955,10 @@ impl Host for Operator {
                             if let Some(work) = effect_work.as_deref() {
                                 if let Err(error) = this
                                     .broker
-                                    .admit_external_tool_with_execution(
+                                    .admit_external_native_tool(
                                         work,
                                         &call.id,
-                                        &call.tool.key(),
+                                        &call.tool,
                                         &call.input,
                                         &effect_workspace,
                                         effect_execution.as_ref(),

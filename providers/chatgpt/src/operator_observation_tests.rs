@@ -67,10 +67,29 @@ async fn observation_endpoint(root: &Path) {
                         socket.send(json!({"id":id,"error":{"code":-32603,"message":"fixture start rejected before a receipt"}}).to_string().into()).await.unwrap();
                         continue;
                     }
+                    if method == "thread/backgroundTerminals/list" {
+                        let error = if state["jobs_error"].is_object() {
+                            Some(state["jobs_error"].clone())
+                        } else if state["thread"]["status"]["type"] == "notLoaded" {
+                            Some(json!({"code":-32600,"message":format!("thread not found: {}", state["thread"]["id"].as_str().unwrap())}))
+                        } else { None };
+                        if let Some(error) = error {
+                            socket.send(json!({"id":id,"error":error}).to_string().into()).await.unwrap();
+                            continue;
+                        }
+                    }
                     let result = match method {
                         "initialize" => json!({}),
-                        "thread/loaded/list" => json!({"data":["original-thread"],"nextCursor":null}),
+                        "thread/loaded/list" => json!({"data":if state["thread"]["status"]["type"] == "notLoaded" { json!([]) } else { json!([state["thread"]["id"]]) },"nextCursor":null}),
                         "thread/read" => {
+                            if state["advance_on_second_full_read"] == true && row["params"]["includeTurns"] == true {
+                                let reads = state["full_reads"].as_u64().unwrap_or(0) + 1;
+                                state["full_reads"] = json!(reads);
+                                if reads == 2 {
+                                    state["thread"]["turns"].as_array_mut().unwrap().last_mut().unwrap()["id"] = json!("different-turn");
+                                }
+                                fs::write(root.join("state.json"), state.to_string()).unwrap();
+                            }
                             let mut thread = state["thread"].clone();
                             if row["params"]["includeTurns"] != true { thread["turns"] = json!([]); }
                             json!({"thread":thread})
@@ -145,6 +164,9 @@ impl Fixture {
         self.peer_in(false).await.0
     }
     async fn peer_in(&mut self, endpoint: bool) -> (Owner, PathBuf) {
+        self.peer_thread(endpoint, "original-thread").await
+    }
+    async fn peer_thread(&mut self, endpoint: bool, thread: &str) -> (Owner, PathBuf) {
         let number = self.children.len();
         let root = self.root.join(format!("peer-{number}"));
         crate::journal::private_directory(&root).unwrap();
@@ -171,16 +193,17 @@ impl Fixture {
         crate::journal::private_directory(&directory.join("config")).unwrap();
         private_file(&root.join("owned"), b"owned absent-endpoint fixture");
         if endpoint {
-            let rollout = root.join("rollout-original-thread.jsonl");
+            let rollout = root.join(format!("rollout-{thread}.jsonl"));
             private_file(
                 &rollout,
-                b"{\"type\":\"session_meta\",\"payload\":{\"id\":\"original-thread\"}}\n",
+                (json!({"type":"session_meta","payload":{"id":thread}}).to_string() + "\n")
+                    .as_bytes(),
             );
             private_file(
                 &root.join("endpoint.json"),
                 json!({"socket":directory.join("s")}).to_string().as_bytes(),
             );
-            private_file(&root.join("state.json"), json!({"thread":{"id":"original-thread","cwd":self.workspace,"modelProvider":"chatgpt_desktop","status":{"type":"idle"},"turns":[],"path":rollout},"items":[],"jobs":[]}).to_string().as_bytes());
+            private_file(&root.join("state.json"), json!({"thread":{"id":thread,"cwd":self.workspace,"modelProvider":"chatgpt_desktop","status":{"type":"idle"},"turns":[],"path":rollout},"items":[],"jobs":[]}).to_string().as_bytes());
             private_file(&root.join("requests.jsonl"), b"");
         }
         let child = Command::new(&self.program)
@@ -223,6 +246,13 @@ impl Fixture {
         )
     }
     async fn operator(&self, owner: Owner) -> (Arc<Operator>, Arc<Broker>, Record) {
+        self.operator_thread(owner, "original-thread").await
+    }
+    async fn operator_thread(
+        &self,
+        owner: Owner,
+        thread: &str,
+    ) -> (Arc<Operator>, Arc<Broker>, Record) {
         struct NoopBridge;
         impl crate::app::Bridge for NoopBridge {
             fn operation(&self, _: Value) -> BoxFuture<'static, Result<Value, Error>> {
@@ -252,7 +282,7 @@ impl Fixture {
         let record = Record {
             schema: WORK_SCHEMA.into(),
             id: "observation-work".into(),
-            thread: "original-thread".into(),
+            thread: thread.into(),
             execution: owner,
             origin: "chatgpt".into(),
             native_turn: Some("original-turn".into()),
@@ -310,9 +340,7 @@ impl Fixture {
             "fixture-token".into(),
         )
         .unwrap();
-        let record = operator.works.lock().await["original-thread"]
-            .record
-            .clone();
+        let record = operator.works.lock().await[thread].record.clone();
         (operator, broker, record)
     }
 }
@@ -520,6 +548,15 @@ async fn retained_offered_result_remains_readable_when_native_socket_is_unavaila
         input: json!({"cmd":"printf original-result","login":false}).to_string(),
         report: "original operation".into(),
     };
+    broker
+        .bind_execution(
+            &record.token,
+            Some(crate::native_effect::hook_fixture(
+                record.workspace.as_deref().unwrap(),
+            )),
+        )
+        .await
+        .unwrap();
     broker.enqueue(&record.token, &call).await.unwrap();
     let offered = broker.offer(&record.token).await.unwrap();
     assert_eq!(offered.len(), 1);
@@ -722,4 +759,283 @@ async fn retained_offered_result_remains_readable_when_native_socket_is_unavaila
         records_retired
     );
     assert!(broker.recorded_calls(&next_token).unwrap().is_empty());
+}
+
+const UNLOADED_THREAD: &str = "00000000-0000-0000-0000-000000000041";
+
+async fn unloaded_fixture() -> (Fixture, PathBuf, Arc<Operator>, Arc<Broker>, Record) {
+    let mut fixture = Fixture::new();
+    let (owner, peer) = fixture.peer_thread(true, UNLOADED_THREAD).await;
+    let (operator, broker, _) = fixture.operator_thread(owner, UNLOADED_THREAD).await;
+    let record = {
+        let mut works = operator.works.lock().await;
+        let work = works.get_mut(UNLOADED_THREAD).unwrap();
+        work.record.phase = "running".into();
+        work.record.selection = Some(Selection {
+            inference: Inference::Submitted,
+            return_path: ReturnPath::Mcp,
+        });
+        operator.persist(&work.record).unwrap();
+        work.record.clone()
+    };
+    let path = peer.join(format!("rollout-{UNLOADED_THREAD}.jsonl"));
+    let original_end = json!({"type":"exec_command_end","call_id":"exec",
+        "turn_id":"first","process_id":"41","completed_at_ms":1,
+        "command":["owned fixture compiler"],"cwd":fixture.workspace,"parsed_cmd":[],
+        "source":"unified_exec_startup","interaction_input":null,"plugin_id":null,
+        "script_path":null,"aggregated_output":"","exit_code":0,
+        "duration":{"secs":0,"nanos":1},"status":"completed","native_completion":null});
+    let mut command = original_end.clone();
+    let fields = command.as_object_mut().unwrap();
+    for key in ["call_id", "turn_id", "completed_at_ms", "native_completion"] {
+        fields.remove(key);
+    }
+    fields.insert("type".into(), json!("CommandExecution"));
+    fields.insert("id".into(), json!("exec"));
+    let mut tree_end = original_end.clone();
+    tree_end["native_completion"] = json!({"schema":"codex-native-completion-v1",
+        "call_id":"exec","session_id":41,"outcome":"process_tree_completed",
+        "exit_code":0,"hooks":"absent"});
+    let rows = vec![
+        json!({"type":"session_meta","payload":{"id":UNLOADED_THREAD}}),
+        json!({"type":"turn_context","payload":{"turn_id":"first"}}),
+        json!({"type":"response_item","payload":{"type":"function_call","call_id":"exec",
+            "name":"exec_command","arguments":"{\"cmd\":\"owned fixture compiler\"}"}}),
+        json!({"type":"response_item","payload":{"type":"function_call_output","call_id":"exec",
+            "output":"Native completion: null\nChunk ID: original\nWall time: 0.1 seconds\nProcess running with session ID 41\nOutput:\n"}}),
+        json!({"type":"event_msg","payload":{"type":"item_completed","thread_id":UNLOADED_THREAD,
+            "turn_id":"first","completed_at_ms":1,"item":command}}),
+        json!({"type":"event_msg","payload":original_end}),
+        json!({"type":"event_msg","payload":tree_end}),
+        json!({"type":"turn_context","payload":{"turn_id":"original-turn"}}),
+        json!({"type":"response_item","payload":{"type":"function_call","call_id":"poll",
+            "name":"write_stdin","arguments":"{\"session_id\":41,\"chars\":\"\"}"}}),
+        json!({"type":"response_item","payload":{"type":"function_call_output","call_id":"poll",
+            "output":format!("Native completion: {}\nChunk ID: poll\nWall time: 0.0 seconds\nProcess exited with code 0\nOutput:\n",
+                json!({"schema":"codex-native-completion-v1","call_id":"poll","session_id":41,
+                    "outcome":"process_tree_completed","exit_code":0,"hooks":"absent"}))}}),
+    ];
+    fs::write(
+        &path,
+        rows.iter()
+            .map(|row| format!("{row}\n"))
+            .collect::<String>(),
+    )
+    .unwrap();
+    let state = json!({"thread":{"id":UNLOADED_THREAD,"cwd":fixture.workspace,
+        "modelProvider":"chatgpt_desktop","status":{"type":"notLoaded"},"path":path,
+        "turns":[{"id":"first","status":"completed","error":null,"items":[{
+            "type":"commandExecution","id":"exec","processId":"41","status":"completed",
+            "exitCode":0,"aggregatedOutput":null}]},
+        {"id":"original-turn","status":"completed","error":null,"items":[]}]},
+        "items":[],"jobs":[]});
+    fs::write(peer.join("state.json"), state.to_string()).unwrap();
+    let lane = json!({"native_thread":UNLOADED_THREAD,"marker":"observation-source",
+        "gateway":"fixture-gateway","phase":"idle","prefix":{"count":0,"digest":"","instructions":"","tools":""},
+        "request":"","turn":"original-turn","identity":null,"user_input":"","round":"",
+        "pending":[],"confirmed":{},"public":{},"cached":[{"Completed":{"input_tokens":0,"output_tokens":0}}],
+        "user_messages":1,"tool_messages":0,"dispatches":1,"checkpoint":null,"project":null,"last_error":null});
+    operator
+        .journal
+        .write(&digest(&UNLOADED_THREAD), &lane)
+        .unwrap();
+    let source_token = broker
+        .register_scoped(
+            "observation-source",
+            BTreeMap::new(),
+            true,
+            Some(&fixture.workspace),
+        )
+        .await
+        .unwrap();
+    operator.journal.write(&digest(&("mcp-lane-v1", "observation-source")),
+        &json!({"gateway":"fixture-gateway","tools":{},"token":source_token,"round":"","real_round":"",
+            "submission":"","model":null,"effort":null,"policy_digest":null,"host_tools_digest":null,
+            "offered":[],"public":{},"last_public":{},"complete":true,"discovery_root":source_token})).unwrap();
+    (fixture, peer, operator, broker, record)
+}
+
+fn assert_observation_only(peer: &Path) {
+    for line in fs::read_to_string(peer.join("requests.jsonl"))
+        .unwrap()
+        .lines()
+    {
+        let row: Value = serde_json::from_str(line).unwrap();
+        assert!(
+            matches!(
+                row["method"].as_str(),
+                Some(
+                    "initialize"
+                        | "thread/read"
+                        | "thread/loaded/list"
+                        | "thread/items/list"
+                        | "thread/backgroundTerminals/list"
+                )
+            ),
+            "unexpected mutation: {row}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn unloaded_completion_uses_original_history_and_never_prepares_or_acquires_a_writer() {
+    let (fixture, peer, operator, broker, record) = unloaded_fixture().await;
+    let before = fs::read(peer.join(format!("rollout-{UNLOADED_THREAD}.jsonl"))).unwrap();
+    let status = operator.status(json!({"work_id":record.id})).await.unwrap();
+    assert_eq!(status["phase"], "completed");
+    assert_eq!(status["thread_id"], UNLOADED_THREAD);
+    assert_eq!(status["native_status"]["type"], "notLoaded");
+    assert_eq!(status["completed"], true);
+    assert!(broker.recorded_calls(&record.token).unwrap().is_empty());
+    let next = operator.status(json!({"work_id":record.id})).await.unwrap();
+    assert_eq!(next["phase"], "completed");
+    assert_eq!(next["thread_id"], UNLOADED_THREAD);
+    let saved = &operator.works.lock().await[UNLOADED_THREAD].record;
+    assert_eq!(saved.native_turn, record.native_turn);
+    assert_eq!(saved.execution, record.execution);
+    assert_eq!(saved.token, record.token);
+    assert_eq!(
+        fs::read(peer.join(format!("rollout-{UNLOADED_THREAD}.jsonl"))).unwrap(),
+        before
+    );
+    assert!(!fixture.home.join("thread-writer-locks").exists());
+    assert_observation_only(&peer);
+}
+
+#[tokio::test]
+async fn unloaded_completion_refuses_hidden_calls_partial_history_and_changed_last_turn() {
+    let (_fixture, peer, operator, _broker, record) = unloaded_fixture().await;
+    let original: Value =
+        serde_json::from_slice(&fs::read(peer.join("state.json")).unwrap()).unwrap();
+    let path = PathBuf::from(original["thread"]["path"].as_str().unwrap());
+    let bytes = fs::read(&path).unwrap();
+    let rows: Vec<Value> = String::from_utf8(bytes.clone())
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    let mut hidden = original.clone();
+    hidden["thread"]["turns"][0]["items"] = json!([]);
+    fs::write(peer.join("state.json"), hidden.to_string()).unwrap();
+    fs::write(
+        &path,
+        rows.iter()
+            .filter(|row| row["type"] != "event_msg")
+            .map(|row| format!("{row}\n"))
+            .collect::<String>(),
+    )
+    .unwrap();
+    assert_eq!(
+        operator
+            .status(json!({"work_id":record.id}))
+            .await
+            .unwrap_err()
+            .0,
+        "native_unloaded_effects_unsettled"
+    );
+    fs::write(peer.join("state.json"), original.to_string()).unwrap();
+    let mut partial = bytes.clone();
+    partial.extend_from_slice(b"{\"unfinished\":");
+    fs::write(&path, partial).unwrap();
+    assert_eq!(
+        operator
+            .status(json!({"work_id":record.id}))
+            .await
+            .unwrap_err()
+            .0,
+        "native_unloaded_effects_unsettled"
+    );
+    fs::write(&path, bytes).unwrap();
+    let mut changed = original;
+    changed["advance_on_second_full_read"] = json!(true);
+    fs::write(peer.join("state.json"), changed.to_string()).unwrap();
+    assert!(operator.status(json!({"work_id":record.id})).await.is_err());
+    assert_eq!(
+        operator.works.lock().await[UNLOADED_THREAD].record.phase,
+        "running"
+    );
+    assert_observation_only(&peer);
+}
+
+#[tokio::test]
+async fn unloaded_completion_requires_source_ack_and_refuses_an_unresolved_actual_home_writer() {
+    let (fixture, peer, operator, _broker, record) = unloaded_fixture().await;
+    let key = digest(&UNLOADED_THREAD);
+    let original: Value = operator.journal.read(&key).unwrap().unwrap();
+    for (key_name, value) in [
+        ("phase", json!("running")),
+        ("cached", json!([])),
+        ("source_context_owed", json!(true)),
+        ("host_block", json!("pending_ack")),
+    ] {
+        let mut pending = original.clone();
+        pending[key_name] = value;
+        operator.journal.write(&key, &pending).unwrap();
+        assert_eq!(
+            operator
+                .status(json!({"work_id":record.id}))
+                .await
+                .unwrap_err()
+                .0,
+            "native_unloaded_source_unsettled"
+        );
+        assert_eq!(
+            operator.works.lock().await[UNLOADED_THREAD].record.phase,
+            "running"
+        );
+    }
+    operator.journal.write(&key, &original).unwrap();
+    let locks = fixture.home.join("thread-writer-locks");
+    crate::journal::private_directory(&locks).unwrap();
+    private_file(&locks.join(".coordination.lock"), b"");
+    let path = locks.join(format!("{UNLOADED_THREAD}.lock"));
+    private_file(&path, b"original unknown writer");
+    let writer = File::open(&path).unwrap();
+    writer.try_lock().unwrap();
+    assert_eq!(
+        operator
+            .status(json!({"work_id":record.id}))
+            .await
+            .unwrap_err()
+            .0,
+        "native_owner_observation_uncertain"
+    );
+    assert_eq!(fs::read(&path).unwrap(), b"original unknown writer");
+    assert!(File::open(&path).unwrap().try_lock().is_err());
+    assert_eq!(
+        operator.works.lock().await[UNLOADED_THREAD].record.phase,
+        "running"
+    );
+    assert_observation_only(&peer);
+}
+
+#[tokio::test]
+async fn unloaded_jobs_rejection_is_distinct_and_never_an_empty_job_list() {
+    let (_fixture, peer, operator, _broker, record) = unloaded_fixture().await;
+    let native = operator
+        .pool
+        .observe_owner(&record.execution)
+        .await
+        .unwrap();
+    assert_eq!(
+        native
+            .background_terminals(UNLOADED_THREAD, Value::Null)
+            .await
+            .unwrap_err()
+            .0,
+        "native_thread_not_loaded"
+    );
+    let mut state: Value =
+        serde_json::from_slice(&fs::read(peer.join("state.json")).unwrap()).unwrap();
+    state["jobs_error"] = json!({"code":-32603,"message":"unrelated private failure"});
+    fs::write(peer.join("state.json"), state.to_string()).unwrap();
+    assert_eq!(
+        native
+            .background_terminals(UNLOADED_THREAD, Value::Null)
+            .await
+            .unwrap_err()
+            .0,
+        "native_request_rejected"
+    );
+    assert_observation_only(&peer);
 }

@@ -1,5 +1,6 @@
 """The actual Native compiler qualifier must reject missing or borrowed proof."""
 import copy
+import json
 from pathlib import Path
 import subprocess
 import sys
@@ -124,7 +125,7 @@ class NativeCompilerEvidence(unittest.TestCase):
                       'home': str(self.workspace.parent / 'h/.codex'),
                       'process': {'pid': 123, 'start': '456', 'image': str(self.runtime)}}
         self.record = {'execution': self.owner, 'thread': 'native-thread', 'native_turn': 'native-turn'}
-        self.metadata = {'schema': 2, 'hook_free_tools': ['exec_command'], 'pid': 123, 'start': '456', 'thread': 'native-thread',
+        self.metadata = {'schema': 4, 'hook_free_tools': ['exec_command'], 'pid': 123, 'start': '456', 'thread': 'native-thread',
                          'turn': 'native-turn', 'cwd': str(self.workspace), 'prefix': str(self.prefix),
                          'home': str(self.home), 'shell': str(self.prefix / 'bin/bash'),
                          'variables': ['HOME', 'PREFIX', 'PATH'], 'no_default_config': False}
@@ -154,14 +155,17 @@ class NativeCompilerEvidence(unittest.TestCase):
             self.proof({'execution': dict(self.metadata, variables=['CLANG_NO_DEFAULT_CONFIG'])})
 
     def test_tool_specific_hook_proof_requires_selected_exec_and_rejects_legacy(self):
-        scoped = dict(self.metadata, schema=2, hook_free_tools=['exec_command'])
+        scoped = dict(self.metadata, schema=4, hook_free_tools=['exec_command'])
         self.assertEqual(self.proof({'execution': scoped}), scoped)
         self.assertEqual(self.proof({'execution': self.metadata}), self.metadata)
-        for tools in (None, [], ['apply_patch'], 'exec_command', ['exec_command', 'unknown']):
+        all_tools = ['exec_command', 'write_stdin', 'apply_patch', 'view_image', 'clock.curr_time', 'clock.sleep']
+        self.assertEqual(self.proof({'execution': dict(scoped, hook_free_tools=all_tools)})['hook_free_tools'], all_tools)
+        for tools in (None, [], ['apply_patch'], 'exec_command', ['exec_command', 'unknown'], ['exec_command', 'exec_command'], ['exec_command', {}], ['exec_command', []]):
             with self.subTest(tools=tools), self.assertRaises(AssertionError):
                 self.proof({'execution': dict(scoped, hook_free_tools=tools)})
-        with self.assertRaises(AssertionError):
-            self.proof({'execution': dict(self.metadata, schema=1, hook_free_tools=[])})
+        for legacy in (1, 2, 3):
+            with self.subTest(legacy=legacy), self.assertRaisesRegex(AssertionError, 'dispatch-bound'):
+                self.proof({'execution': dict(self.metadata, schema=legacy)})
 
     def test_native_image_and_private_execution_home_cannot_be_borrowed(self):
         for key, value in [('home', str(self.home / '.codex')), ('directory', str(self.workspace / 'catalog'))]:
@@ -200,6 +204,52 @@ class NativeCompilerEvidence(unittest.TestCase):
         for output in ['Process exited with code 1\n', 'Process exited with code 0\nProcess exited with code 1\n']:
             with self.subTest(output=output), self.assertRaises(AssertionError):
                 q.completed(dict(self.result, output=output))
+
+    def test_supervised_parent_exit_keeps_session_and_child_stdout_is_not_status(self):
+        result = dict(self.result, output='Native completion: null\nProcess exited with code 0\n'
+                      'Process scope remains active with session ID 76\nOutput:\nProcess exited with code 9\n')
+        self.assertFalse(q.completed(result))
+        self.assertEqual(q.running_session(result, allow_parent_exit=True), 76)
+        with self.assertRaises(AssertionError):
+            q.running_session(result)
+        with self.assertRaises(AssertionError):
+            q.completion_proof(result, 'process_tree_completed', 76)
+        done = dict(result, output='Process exited with code 0\nOutput:\nProcess running with session ID 999\n')
+        self.assertTrue(q.completed(done))
+        with self.assertRaises(AssertionError):
+            q.running_session(done, allow_parent_exit=True)
+
+    def test_tree_completion_is_original_current_call_evidence_not_parent_or_stdout(self):
+        proof = {'schema': 'codex-native-completion-v1', 'call_id': 'native-call', 'session_id': 76,
+                 'outcome': 'process_tree_completed', 'exit_code': 0, 'hooks': 'absent'}
+        def result(value, prefix=''):
+            return dict(self.result, output=prefix + 'Native completion: ' + json.dumps(value) +
+                        '\nProcess exited with code 0\nOutput:\noriginal bytes')
+        original = result(proof)
+        self.assertEqual(q.completion_proof(original, 'process_tree_completed', 76), proof)
+        self.assertEqual(q.command_output(original), 'original bytes')
+        for key, value in [('schema', 'unknown'), ('call_id', 'foreign'), ('session_id', 77),
+                           ('outcome', 'wait_completed'), ('exit_code', None), ('exit_code', True),
+                           ('hooks', 'unknown')]:
+            with self.subTest(key=key), self.assertRaises(AssertionError):
+                q.completion_proof(result(dict(proof, **{key: value})), 'process_tree_completed', 76)
+        for value in (None, {}, {key: value for key, value in proof.items() if key != 'exit_code'},
+                      dict(proof, additional=True)):
+            with self.subTest(value=value), self.assertRaises(AssertionError):
+                q.completion_proof(result(value), 'process_tree_completed', 76)
+        with self.assertRaises(AssertionError):
+            q.completion_proof(result(proof, 'ordinary error\n'), 'process_tree_completed', 76)
+        with self.assertRaises(AssertionError):
+            q.completion_proof(dict(self.result, output='Native completion: null\nOutput:\nNative completion: ' +
+                                    json.dumps(proof)), 'process_tree_completed', 76)
+        duplicate = json.dumps(proof).replace('"call_id":', '"call_id":"foreign","call_id":', 1)
+        with self.assertRaises(AssertionError):
+            q.completion_proof(dict(self.result, output='Native completion: ' + duplicate +
+                                    '\nOutput:\n'), 'process_tree_completed', 76)
+        running = dict(proof, outcome='session_running', exit_code=None)
+        self.assertEqual(q.completion_proof(result(running), 'session_running', 76), running)
+        with self.assertRaises(AssertionError):
+            q.completion_proof(result(running), 'process_tree_completed', 76)
 
     def test_both_actual_owners_and_sessions_must_hold_bounded_claims(self):
         rows = [{'owner_work': 'work-a', 'call': 'call-a', 'process_session': 76,

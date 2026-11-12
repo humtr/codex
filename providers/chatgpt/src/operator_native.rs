@@ -27,6 +27,168 @@ use tokio::{
     sync::{broadcast, mpsc, oneshot, Mutex},
 };
 
+#[path = "operator_native_completion.rs"]
+mod unloaded_completion;
+
+/// Positive completion witnesses read from the original verified Native
+/// Owner's existing rollout. No absence in this snapshot proves non-dispatch.
+pub(crate) struct CompletionEvidence {
+    pub owner: Owner,
+    pub thread: String,
+    pub witnesses: BTreeMap<String, crate::native_claims::completion::EndWitness>,
+    pub calls: BTreeMap<String, (String, Value)>,
+    rows: Vec<Value>,
+}
+impl CompletionEvidence {
+    fn from_rows(owner: Owner, thread: String, rows: Vec<Value>) -> Result<Self, Error> {
+        let witnesses = crate::native_claims::completion::end_witnesses(&rows).map_err(Error)?;
+        let mut calls = BTreeMap::new();
+        let mut canonical = BTreeMap::new();
+        let mut turn = String::new();
+        for row in &rows {
+            let item = &row["payload"];
+            if row["type"] == "turn_context"
+                || row["type"] == "event_msg" && item["type"] == "task_started"
+            {
+                turn = item["turn_id"].as_str().unwrap_or("").into();
+            }
+            if row["type"] == "event_msg"
+                && item["type"] == "item_completed"
+                && item["item"]["type"] == "CommandExecution"
+            {
+                let id = item["item"]["id"]
+                    .as_str()
+                    .filter(|id| !id.is_empty())
+                    .ok_or(Error("native_completion_identity_invalid"))?;
+                if item["thread_id"] != thread || canonical.insert(id, item).is_some() {
+                    return Err(Error("native_completion_identity_changed"));
+                }
+            }
+            if row["type"] == "response_item" && item["type"] == "function_call" {
+                let id = item["call_id"]
+                    .as_str()
+                    .filter(|id| !id.is_empty())
+                    .ok_or(Error("native_completion_identity_invalid"))?;
+                if calls
+                    .insert(id.into(), (turn.clone(), item.clone()))
+                    .is_some()
+                {
+                    return Err(Error("native_completion_identity_changed"));
+                }
+            }
+        }
+        for (id, witness) in &witnesses {
+            if matches!(&witness.proof, crate::native_claims::completion::Presence::Present(proof)
+                if proof.process_tree_completed())
+                && !canonical
+                    .get(id.as_str())
+                    .is_some_and(|item| witness.matches_canonical_command(item))
+            {
+                return Err(Error("native_completion_identity_changed"));
+            }
+        }
+        Ok(Self {
+            owner,
+            thread,
+            witnesses,
+            calls,
+            rows,
+        })
+    }
+    #[cfg(test)]
+    pub(crate) fn fixture(execution: &crate::native_effect::Execution, rows: Vec<Value>) -> Self {
+        let owner = Owner {
+            directory: PathBuf::from("/owned/registry"),
+            home: PathBuf::from("/owned/home"),
+            process: crate::cdp::Process {
+                pid: execution.pid,
+                start: execution.start.clone(),
+                image: PathBuf::from("/owned/runtime"),
+            },
+        };
+        Self::from_rows(owner, execution.thread.clone(), rows).unwrap()
+    }
+    pub(crate) fn available_results(
+        &self,
+        expected: &BTreeMap<String, Value>,
+    ) -> Result<Vec<(String, Value)>, Error> {
+        let present: BTreeSet<_> = self
+            .rows
+            .iter()
+            .filter(|row| row["type"] == "response_item")
+            .map(|row| &row["payload"])
+            .filter(|item| {
+                matches!(
+                    item["type"].as_str(),
+                    Some("function_call_output" | "custom_tool_call_output" | "tool_search_output")
+                )
+            })
+            .filter_map(|item| item["call_id"].as_str())
+            .collect();
+        let subset = expected
+            .iter()
+            .filter(|(id, _)| present.contains(id.as_str()))
+            .map(|(id, call)| (id.clone(), call.clone()))
+            .collect();
+        original_tool_results(&self.rows, &subset)
+    }
+}
+#[derive(Clone, PartialEq)]
+pub(crate) struct UnloadedHistory {
+    pub state: Value,
+    pub rows: Vec<Value>,
+    pub owner: Owner,
+    pub workspace: PathBuf,
+    pub thread: String,
+}
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct UnloadedReceipts {
+    pub non_commands: BTreeSet<String>,
+    pub legacy_processes: BTreeSet<String>,
+}
+impl UnloadedHistory {
+    pub(crate) fn validate(&self, turn: &str, receipts: &UnloadedReceipts) -> Result<(), Error> {
+        unloaded_completion::validate(&self.thread, turn, &self.state, &self.rows, receipts)
+    }
+    pub(crate) fn original_calls(&self) -> Result<BTreeMap<String, (String, Value, Value)>, Error> {
+        let mut turn = None;
+        let mut calls = BTreeMap::new();
+        let mut turns = BTreeMap::new();
+        for row in &self.rows {
+            let item = &row["payload"];
+            if row["type"] == "turn_context"
+                || row["type"] == "event_msg" && item["type"] == "task_started"
+            {
+                turn = item["turn_id"].as_str().map(str::to_owned);
+            }
+            if row["type"] == "response_item"
+                && matches!(
+                    item["type"].as_str(),
+                    Some("function_call" | "custom_tool_call" | "tool_search_call")
+                )
+            {
+                let id = item["call_id"]
+                    .as_str()
+                    .ok_or(Error("native_unloaded_effects_unsettled"))?;
+                if calls.insert(id.to_owned(), item.clone()).is_some() {
+                    return Err(Error("native_unloaded_effects_unsettled"));
+                }
+                turns.insert(id.to_owned(), turn.clone().unwrap_or_default());
+            }
+        }
+        let results: BTreeMap<_, _> = original_tool_results(&self.rows, &calls)?
+            .into_iter()
+            .collect();
+        Ok(calls
+            .into_iter()
+            .map(|(id, call)| {
+                let result = results[&id].clone();
+                (id.clone(), (turns[&id].clone(), call, result))
+            })
+            .collect())
+    }
+}
+
 const LIMIT: usize = 16 * 1024 * 1024;
 type PendingReply = oneshot::Sender<Result<Value, Error>>;
 type Replies = Arc<Mutex<BTreeMap<u64, PendingReply>>>;
@@ -39,8 +201,8 @@ fn committed_rollout_rows(bytes: &[u8], thread: &str) -> Result<Vec<Value>, Erro
         if !line.ends_with(b"\n") {
             break;
         }
-        let row: Value =
-            serde_json::from_slice(line).map_err(|_| Error("native_context_invalid"))?;
+        let row: Value = crate::native_claims::completion::strict_json(line)
+            .map_err(|_| Error("native_context_invalid"))?;
         if row["type"] == "session_meta" {
             if row["payload"]["id"] != thread {
                 return Err(Error("native_context_identity_changed"));
@@ -350,15 +512,33 @@ impl Native {
         original_tool_results(&self.rollout_rows(thread, true).await?, expected)
     }
 
+    pub(crate) async fn completion_evidence(
+        &self,
+        thread: &str,
+    ) -> Result<CompletionEvidence, Error> {
+        let rows = self.rollout_rows(thread, true).await?;
+        CompletionEvidence::from_rows(self.owner.clone(), thread.into(), rows)
+    }
+
     async fn rollout_rows(&self, thread: &str, persist: bool) -> Result<Vec<Value>, Error> {
         let row = self
             .call(
                 "thread/read",
-                // The full public read is Native's existing persistence
-                // barrier; a raw notification alone is not durable proof.
+                // Ask Native to expose its saved history before reading it.
+                // A failed/partial flush is not evidence that a missing call
+                // was never dispatched; only positive original rows authorize.
                 json!({"threadId":thread,"includeTurns":persist}),
             )
             .await?;
+        self.read_rollout_rows(thread, &row, false).await
+    }
+
+    async fn read_rollout_rows(
+        &self,
+        thread: &str,
+        row: &Value,
+        complete: bool,
+    ) -> Result<Vec<Value>, Error> {
         let path = PathBuf::from(
             row["thread"]["path"]
                 .as_str()
@@ -376,6 +556,9 @@ impl Native {
         let expected = thread.to_owned();
         let rows = tokio::task::spawn_blocking(move || {
             let bytes = crate::cdp::private_read(&path, 64 * 1024 * 1024)?;
+            if complete && !bytes.ends_with(b"\n") {
+                return Err(Error("native_unloaded_effects_unsettled"));
+            }
             committed_rollout_rows(&bytes, &expected)
         })
         .await
@@ -383,6 +566,83 @@ impl Native {
         self.owner.validate(&self.installation)?;
         Ok(rows)
     }
+    /// Confirm absence in Core's actual execution-home namespaces. This is
+    /// an observation, never permission to load or transfer a Writer.
+    pub(crate) async fn confirm_writer_absent(&self, thread: &str) -> Result<(), Error> {
+        self.owner.validate(&self.installation)?;
+        let installation = self.installation.clone();
+        let thread = thread.to_owned();
+        tokio::task::spawn_blocking(move || {
+            match codex_runtime_binding::native::owner(
+                &installation,
+                &thread,
+                std::time::Instant::now() + Duration::from_secs(2),
+            ) {
+                Ok(None) => Ok(()),
+                Ok(Some(_)) => Err(Error("native_writer_still_owned")),
+                Err(_) => Err(Error("native_owner_observation_uncertain")),
+            }
+        })
+        .await
+        .map_err(|_| Error("native_owner_observation_uncertain"))??;
+        self.owner.validate(&self.installation)
+    }
+
+    pub(crate) async fn unloaded_history(
+        &self,
+        thread: &str,
+        workspace: &Path,
+    ) -> Result<UnloadedHistory, Error> {
+        self.confirm_writer_absent(thread).await?;
+        let state = self
+            .call(
+                "thread/read",
+                json!({"threadId":thread,"includeTurns":true}),
+            )
+            .await?;
+        let saved = &state["thread"];
+        if saved["id"] != thread
+            || saved["modelProvider"] != "chatgpt_desktop"
+            || saved["status"]["type"] != "notLoaded"
+            || saved["cwd"]
+                .as_str()
+                .and_then(|p| std::fs::canonicalize(p).ok())
+                .as_deref()
+                != Some(workspace)
+        {
+            return Err(Error("native_observation_superseded"));
+        }
+        let rows = self.read_rollout_rows(thread, &state, true).await?;
+        self.confirm_writer_absent(thread).await?;
+        Ok(UnloadedHistory {
+            state,
+            rows,
+            owner: self.owner.clone(),
+            workspace: workspace.into(),
+            thread: thread.into(),
+        })
+    }
+
+    pub(crate) async fn background_terminals(
+        &self,
+        thread: &str,
+        cursor: Value,
+    ) -> Result<Value, Error> {
+        let row = self
+            .request(
+                "thread/backgroundTerminals/list",
+                json!({"threadId":thread,"limit":100,"cursor":cursor}),
+            )
+            .await?;
+        if row["error"]["code"].as_i64() == Some(-32600)
+            && row["error"]["message"].as_str()
+                == Some(format!("thread not found: {thread}").as_str())
+        {
+            return Err(Error("native_thread_not_loaded"));
+        }
+        native_reply("thread/backgroundTerminals/list", &row)
+    }
+
     pub async fn answer_question(
         &self,
         thread: &str,
@@ -1652,5 +1912,107 @@ mod reply_tests {
             native_reply("thread/items/list", &json!({})).unwrap_err().0,
             "native_reply_invalid"
         );
+    }
+}
+
+#[cfg(test)]
+mod completion_tree_evidence_tests {
+    use super::*;
+
+    fn owner() -> Owner {
+        Owner {
+            directory: PathBuf::from("/owned/registry"),
+            home: PathBuf::from("/owned/home"),
+            process: crate::cdp::Process {
+                pid: 42,
+                start: "1".into(),
+                image: PathBuf::from("/owned/runtime"),
+            },
+        }
+    }
+
+    fn tree_rows() -> Vec<Value> {
+        let proof = json!({"schema":"codex-native-completion-v1","call_id":"original",
+            "session_id":51,"outcome":"process_tree_completed","exit_code":137,"hooks":"absent"});
+        let original = json!({"type":"exec_command_end","call_id":"original","turn_id":"turn",
+            "process_id":"51","completed_at_ms":4,"command":["owned"],"cwd":"/owned/workspace",
+            "parsed_cmd":[],"source":"unified_exec_startup","interaction_input":"original input",
+            "aggregated_output":"unchanged timeout output","exit_code":124,"duration":{"secs":1,"nanos":0},
+            "status":"failed","native_completion":null});
+        let mut command = original.clone();
+        let fields = command.as_object_mut().unwrap();
+        for key in ["call_id", "turn_id", "completed_at_ms", "native_completion"] {
+            fields.remove(key);
+        }
+        fields.insert("type".into(), json!("CommandExecution"));
+        fields.insert("id".into(), json!("original"));
+        let mut late = original.clone();
+        late["native_completion"] = proof;
+        vec![
+            json!({"type":"turn_context","payload":{"turn_id":"turn"}}),
+            json!({"type":"response_item","payload":{"type":"function_call","call_id":"original",
+                "name":"exec_command","arguments":"{\"cmd\":\"owned\"}"}}),
+            json!({"type":"event_msg","payload":{"type":"item_completed","thread_id":"thread",
+                "turn_id":"turn","completed_at_ms":4,"item":command}}),
+            json!({"type":"event_msg","payload":original}),
+            json!({"type":"event_msg","payload":late}),
+        ]
+    }
+
+    #[test]
+    fn tree_witness_requires_same_original_canonical_payload() {
+        let rows = tree_rows();
+        let evidence =
+            CompletionEvidence::from_rows(owner(), "thread".into(), rows.clone()).unwrap();
+        let crate::native_claims::completion::Presence::Present(proof) =
+            &evidence.witnesses["original"].proof
+        else {
+            panic!("explicit supervised tree proof missing");
+        };
+        assert!(proof.process_tree_completed());
+        assert_eq!(proof.waited(), Some(137));
+        assert_eq!(evidence.rows[2]["payload"]["item"]["exit_code"], 124);
+        for fault in [
+            "missing",
+            "thread",
+            "turn",
+            "input",
+            "output",
+            "session",
+            "duplicate",
+        ] {
+            let mut changed = rows.clone();
+            match fault {
+                "missing" => {
+                    changed.remove(2);
+                }
+                "thread" => changed[2]["payload"]["thread_id"] = json!("foreign"),
+                "turn" => changed[2]["payload"]["turn_id"] = json!("foreign"),
+                "input" => changed[2]["payload"]["item"]["interaction_input"] = json!("changed"),
+                "output" => changed[2]["payload"]["item"]["aggregated_output"] = json!("changed"),
+                "session" => changed[2]["payload"]["item"]["process_id"] = json!("52"),
+                "duplicate" => changed.push(changed[2].clone()),
+                _ => unreachable!(),
+            }
+            assert!(
+                CompletionEvidence::from_rows(owner(), "thread".into(), changed).is_err(),
+                "{fault}"
+            );
+        }
+    }
+
+    #[test]
+    fn old_parent_wait_remains_readable_without_process_tree_authority() {
+        let mut rows = tree_rows();
+        rows[4]["payload"]["native_completion"]["outcome"] = json!("wait_completed");
+        rows.remove(2);
+        let evidence = CompletionEvidence::from_rows(owner(), "thread".into(), rows).unwrap();
+        let crate::native_claims::completion::Presence::Present(proof) =
+            &evidence.witnesses["original"].proof
+        else {
+            panic!("parent status should remain readable");
+        };
+        assert!(proof.wait_completed());
+        assert!(!proof.process_tree_completed());
     }
 }

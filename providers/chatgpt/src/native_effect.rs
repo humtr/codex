@@ -286,10 +286,10 @@ fn is_simple_read_command(input: &str) -> bool {
 /// Empty stdin only observes an existing process. Unknown input fields, input
 /// bytes and missing session identity cannot inherit an earlier resource proof.
 pub(crate) fn empty_session_poll(tool: &str, input: &str) -> Option<u64> {
-    if tool != "functions.write_stdin" {
+    if process_tool(tool) != Some("write_stdin") {
         return None;
     }
-    let value: serde_json::Value = serde_json::from_str(input).ok()?;
+    let value = crate::native_claims::completion::strict_json(input.as_bytes()).ok()?;
     let fields = value.as_object()?;
     if fields.keys().any(|key| {
         !matches!(
@@ -310,7 +310,95 @@ pub(crate) fn empty_session_poll(tool: &str, input: &str) -> Option<u64> {
     fields
         .get("session_id")?
         .as_u64()
-        .filter(|session| *session > 0)
+        .filter(|session| *session > 0 && *session <= i32::MAX as u64)
+}
+
+/// A dispatch view only: keep the original declaration, name and fingerprint.
+pub(crate) fn process_tool(tool: &str) -> Option<&'static str> {
+    match tool {
+        "exec_command" | "functions.exec_command" => Some("exec_command"),
+        "write_stdin" | "functions.write_stdin" => Some("write_stdin"),
+        _ => None,
+    }
+}
+
+/// Native normalizes only its dispatch view. Original response items retain
+/// missing/empty/default namespaces; foreign or malformed namespaces stay foreign.
+pub(crate) fn default_namespace(namespace: &serde_json::Value) -> bool {
+    namespace.is_null() || matches!(namespace.as_str(), Some("" | "functions"))
+}
+
+/// Called only with the original Core-verified Native sampling scope, before a
+/// new invocation is reserved or forwarded. Generic non-Native transport has no
+/// such scope. Stored receipt reads never pass through this gate. The caller
+/// verifies the actual Search payload before using its special metadata bypass.
+pub(crate) fn tool_dispatch_error(
+    tool: &crate::protocol::Tool,
+    workspace: Option<&Path>,
+    execution: Option<&Execution>,
+) -> Option<&'static str> {
+    use crate::protocol::ToolKind;
+    let key = tool.key();
+    if (key == "tool_search") != (tool.kind == ToolKind::Search) {
+        return Some("native_tool_identity_unsupported");
+    }
+    // Current-generation Runtime admission knows the actual handler identity.
+    // A generic same-name handler is not a CodeMode cell merely by declaration.
+    dispatch_error(&key, workspace, execution)
+}
+
+pub(crate) fn dispatch_error(
+    tool: &str,
+    workspace: Option<&Path>,
+    execution: Option<&Execution>,
+) -> Option<&'static str> {
+    if tool == "tool_search" {
+        return None;
+    }
+    let capability = match tool {
+        "exec_command" | "functions.exec_command" => Some("exec_command"),
+        "write_stdin" | "functions.write_stdin" => Some("write_stdin"),
+        "functions.apply_patch" | "apply_patch" => Some("apply_patch"),
+        "view_image" | "functions.view_image" => Some("view_image"),
+        "clock.curr_time" => Some("clock.curr_time"),
+        "clock.sleep" => Some("clock.sleep"),
+        _ => None,
+    };
+    match workspace.zip(execution) {
+        Some((root, facts)) => facts.dispatch_error(capability, root),
+        None => Some("native_execution_completion_unavailable"),
+    }
+}
+
+pub(crate) fn qualified_process_hooks(
+    tool: &str,
+    workspace: Option<&Path>,
+    execution: Option<&Execution>,
+) -> bool {
+    process_tool(tool).is_some_and(|tool| {
+        workspace
+            .zip(execution)
+            .is_some_and(|(root, facts)| facts.permits_bounded_tool(tool, root))
+    })
+}
+
+pub(crate) fn qualified_session_continuation(
+    tool: &str,
+    input: &str,
+    workspace: Option<&Path>,
+    execution: Option<&Execution>,
+) -> Option<u64> {
+    let (root, facts) = workspace.zip(execution)?;
+    // Each invocation carries its own actual hook aliases and dispatch binding.
+    if process_tool(tool) != Some("write_stdin") || !facts.permits_bounded_tool("write_stdin", root)
+    {
+        return None;
+    }
+    serde_json::from_str::<serde_json::Value>(input)
+        .ok()?
+        .get("session_id")?
+        .as_u64()
+        .filter(|id| *id <= i32::MAX as u64)
 }
 
 pub(crate) fn qualified_session_poll(
@@ -319,13 +407,8 @@ pub(crate) fn qualified_session_poll(
     workspace: Option<&Path>,
     execution: Option<&Execution>,
 ) -> Option<u64> {
-    let (root, facts) = workspace.zip(execution)?;
-    // Native schema 2's exec proof includes write_stdin's tool and permission
-    // hook aliases. A later turn must supply its own current proof as well.
-    facts
-        .permits_bounded_tool("exec_command", root)
-        .then(|| empty_session_poll(tool, input))
-        .flatten()
+    qualified_session_continuation(tool, input, workspace, execution)
+        .filter(|session| empty_session_poll(tool, input) == Some(*session))
 }
 
 pub(crate) fn classify(tool: &str, input: &str, workspace: Option<&Path>) -> Effect {
@@ -347,11 +430,9 @@ pub(crate) fn classify_with_execution(
         return Effect::Read;
     }
     let bounded_tool = match tool {
-        "functions.exec_command" => "exec_command",
+        "exec_command" | "functions.exec_command" => "exec_command",
         "functions.apply_patch" | "apply_patch" => "apply_patch",
-        "functions.view_image" => "view_image",
-        "clock.curr_time" => "clock.curr_time",
-        "clock.sleep" => "clock.sleep",
+        "view_image" | "functions.view_image" => "view_image",
         _ => return Effect::Opaque,
     };
     if !workspace
@@ -361,11 +442,11 @@ pub(crate) fn classify_with_execution(
         return Effect::Opaque;
     }
     let mut effect = match tool {
-        "clock.curr_time" | "clock.sleep" | "functions.view_image" => Effect::Read,
-        "functions.exec_command" if is_simple_read_command(input) => workspace
+        "view_image" | "functions.view_image" => Effect::Read,
+        "exec_command" | "functions.exec_command" if is_simple_read_command(input) => workspace
             .and_then(|root| compiler::qualified_read(input, root, execution?))
             .unwrap_or(Effect::Opaque),
-        "functions.exec_command" => workspace
+        "exec_command" | "functions.exec_command" => workspace
             .and_then(|root| compiler::classify(input, root, execution?))
             .unwrap_or(Effect::Opaque),
         "functions.apply_patch" | "apply_patch" => workspace
@@ -375,7 +456,7 @@ pub(crate) fn classify_with_execution(
     };
     if let Effect::Paths(files) = &mut effect {
         for file in files {
-            file.scope_schema = Some(2);
+            file.scope_schema = Some(3);
         }
     }
     effect
@@ -387,7 +468,7 @@ impl Effect {
     pub(crate) fn admission_scope(&self) -> &Self {
         match self {
             Self::Paths(files)
-                if files.is_empty() || files.iter().any(|file| file.scope_schema != Some(2)) =>
+                if files.is_empty() || files.iter().any(|file| file.scope_schema != Some(3)) =>
             {
                 &Self::Opaque
             }
@@ -558,6 +639,111 @@ mod tests {
     use std::os::unix::fs::symlink;
 
     #[test]
+    fn schema4_admission_defers_code_mode_identity_to_the_actual_runtime_handler() {
+        let root = temp();
+        let mut facts = compiler::hook_fixture(&root);
+        for namespace in [None, Some("functions"), Some("foreign")] {
+            for (name, kind) in [
+                ("exec", crate::protocol::ToolKind::Custom),
+                ("wait", crate::protocol::ToolKind::Function),
+            ] {
+                let tool = crate::protocol::Tool {
+                    name: name.into(),
+                    namespace: namespace.map(str::to_owned),
+                    kind,
+                    declaration: serde_json::json!({}),
+                };
+                let original = tool.clone();
+                assert_eq!(tool_dispatch_error(&tool, Some(&root), Some(&facts)), None);
+                assert_eq!(tool, original, "catalog identity is never normalized");
+                facts.schema = 3;
+                assert_eq!(
+                    tool_dispatch_error(&tool, Some(&root), Some(&facts)),
+                    Some("native_execution_generation_unsupported"),
+                    "older producers do not prove the actual handler admission guard"
+                );
+                facts.schema = 4;
+            }
+        }
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn process_completion_capability_is_per_tool_and_old_empty_polls_are_not_reads() {
+        for (exec_tool, poll_tool) in [
+            ("exec_command", "write_stdin"),
+            ("functions.exec_command", "functions.write_stdin"),
+        ] {
+            let root = temp();
+            let mut facts = compiler::hook_fixture(&root);
+            let owner = crate::cdp::Process::read(std::process::id()).unwrap();
+            assert!(facts.belongs_to(&owner, &facts.thread, Some(&facts.turn)));
+            let input = r#"{"session_id":91,"chars":""}"#;
+            facts.hook_free_tools = vec!["exec_command".into()];
+            assert_eq!(dispatch_error(exec_tool, Some(&root), Some(&facts)), None);
+            assert_eq!(
+                dispatch_error(poll_tool, Some(&root), Some(&facts)),
+                Some("native_execution_completion_unavailable")
+            );
+            assert_eq!(
+                qualified_session_poll(poll_tool, input, Some(&root), Some(&facts)),
+                None
+            );
+            facts.hook_free_tools = vec!["write_stdin".into()];
+            assert_eq!(dispatch_error(poll_tool, Some(&root), Some(&facts)), None);
+            assert_eq!(
+                dispatch_error(exec_tool, Some(&root), Some(&facts)),
+                Some("native_execution_completion_unavailable")
+            );
+            assert_eq!(
+                qualified_session_poll(poll_tool, input, Some(&root), Some(&facts)),
+                Some(91)
+            );
+            facts.hook_free_tools = vec!["exec_command".into()];
+            facts.schema = 2;
+            assert!(
+                facts.belongs_to(&owner, &facts.thread, Some(&facts.turn)),
+                "legacy facts remain readable"
+            );
+            for name in [exec_tool, poll_tool] {
+                assert_eq!(
+                    dispatch_error(name, Some(&root), Some(&facts)),
+                    Some("native_execution_generation_unsupported")
+                );
+            }
+            facts.hook_free_tools.push("write_stdin".into());
+            assert!(
+                !facts.belongs_to(&owner, &facts.thread, Some(&facts.turn)),
+                "schema2 does not silently acquire the new shape"
+            );
+            facts.schema = 3;
+            assert!(facts.belongs_to(&owner, &facts.thread, Some(&facts.turn)));
+            for name in [exec_tool, poll_tool] {
+                assert_eq!(
+                    dispatch_error(name, Some(&root), Some(&facts)),
+                    Some("native_execution_generation_unsupported")
+                );
+            }
+            facts.schema = 4;
+            facts.hook_free_tools.push("exec_command".into());
+            assert!(
+                !facts.belongs_to(&owner, &facts.thread, Some(&facts.turn)),
+                "duplicate capabilities are malformed"
+            );
+            assert_eq!(dispatch_error("tool_search", None, None), None);
+            assert_eq!(
+                dispatch_error(exec_tool, None, None),
+                Some("native_execution_completion_unavailable")
+            );
+            assert_eq!(
+                empty_session_poll(poll_tool, r#"{"session_id":91,"session_id":92}"#),
+                None
+            );
+            fs::remove_dir_all(root).unwrap();
+        }
+    }
+
+    #[test]
     fn session_poll_requires_empty_known_input_and_current_exec_hook_proof() {
         let root = temp();
         let mut facts = compiler::hook_fixture(&root);
@@ -649,6 +835,11 @@ mod tests {
             Effect::Opaque
         );
         facts.schema = 2;
+        facts.hook_free_tools = vec!["apply_patch".into(), "view_image".into()];
+        assert_eq!(
+            classify_with_execution("functions.view_image", "{}", Some(&root), Some(&facts)),
+            Effect::Opaque
+        );
         assert_eq!(
             classify_with_execution("functions.apply_patch", &patch, Some(&root), Some(&facts)),
             Effect::Opaque
@@ -690,7 +881,7 @@ mod tests {
             Some(&root),
         );
         let current = serde_json::to_value(&effect).unwrap();
-        assert_eq!(current["Paths"][0]["scope_schema"], 2);
+        assert_eq!(current["Paths"][0]["scope_schema"], 3);
         let restored: Effect = serde_json::from_value(current.clone()).unwrap();
         assert_eq!(restored.claim_scope(), &effect);
         // The actual prior file-record shape ignores the additive field. Its
@@ -702,7 +893,8 @@ mod tests {
         assert_eq!(serde_json::to_value(&unproved).unwrap(), old);
         for marker in [
             serde_json::json!(1),
-            serde_json::json!(3),
+            serde_json::json!(2),
+            serde_json::json!(4),
             serde_json::Value::Null,
         ] {
             let mut unknown = current.clone();
@@ -1157,5 +1349,35 @@ mod tests {
             Err("native_resource_path_changed")
         );
         fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn native_clock_hooks_do_not_attest_the_configured_backend_as_read_only() {
+        let root = std::env::temp_dir();
+        let root = std::fs::canonicalize(root).unwrap();
+        let facts = hook_fixture(&root);
+        for name in [
+            "clock.curr_time",
+            "clock.sleep",
+            "mcp__clock.curr_time",
+            "mcp__clock.sleep",
+            "foreign.curr_time",
+        ] {
+            assert!(
+                matches!(
+                    classify_with_execution(name, "{}", Some(&root), Some(&facts)),
+                    Effect::Opaque
+                ),
+                "{name}"
+            );
+        }
+        for name in ["view_image", "functions.view_image"] {
+            assert!(
+                matches!(
+                    classify_with_execution(name, "{}", Some(&root), Some(&facts)),
+                    Effect::Read
+                ),
+                "{name}"
+            );
+        }
     }
 }
