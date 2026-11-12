@@ -36,6 +36,11 @@ SUITES = {
         'native_completion_root_exit_retains_session_until_tree_stop',
         'native_completion_oneshot_keeps_original_supervised_attempt',
         'native_completion_pruning_stops_only_selected_scope',
+        'native_completion_supervised_history_waits_for_tree_completion',
+        'native_completion_provider_route_requires_versioned_native_ingress',
+    ),
+    'guardian': (
+        'native_completion_guardian_route_uses_selected_provider_ingress',
     ),
     'protocol': (
         'native_completion_typescript_keeps_nullable_field_and_real_type_dependencies',

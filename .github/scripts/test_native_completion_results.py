@@ -47,12 +47,12 @@ class NativeCompletionResultsTests(unittest.TestCase):
             self.assertNotIn('if:', block)
         command = textwrap.dedent(block.split('        run: |\n', 1)[1])
         packages = [('pty', 'codex-utils-pty'), ('core', 'codex-core'),
-                    ('protocol', 'codex-protocol'), ('rollout', 'codex-rollout'),
+                    ('guardian', 'codex-guardian-v2'), ('protocol', 'codex-protocol'), ('rollout', 'codex-rollout'),
                     ('app-server-protocol', 'codex-app-server-protocol'), ('hooks', 'codex-hooks')]
         self.assertEqual(set(SUITES), {suite for suite, _ in packages})
         names = [name for suite in SUITES.values() for name in suite]
-        self.assertEqual(len(names), 50)
-        self.assertEqual(len(set(names)), 50)
+        self.assertEqual(len(names), 53)
+        self.assertEqual(len(set(names)), 53)
         expected_args = []
         for suite, package in packages:
             args = ['test', '--retries', '0', '--status-level', 'pass', '--locked', '--target',

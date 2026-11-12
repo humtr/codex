@@ -85,9 +85,15 @@ lifetime, without a second Native executor, effect ledger or Linux namespace.
 A root result may precede descendant completion. Keep its session, process entry
 and original receipt available until the scope actually completes, including
 shutdown, timeout, one-shot execution, release and pruning paths. A qualified
-Native result can expose the root exit plus a still-active process-scope session;
-ordinary upstream formatting remains unchanged. An explicit null completion or
-later supervision loss preserves uncertainty rather than releasing the claim.
+Native result preserves the established running-session header while that scope
+remains active, and labels a separately known root exit as a root outcome. Keep
+its original numeric status and Output bytes unchanged. A completed/failed
+CommandExecution projection or legacy ExecCommandEnd must not advertise terminal
+scope before positive tree closure; the existing watcher publishes the single
+terminal event afterward. Unknown helper completion emits no positive terminal
+history. Ordinary unbound upstream formatting remains unchanged. An explicit
+null completion or later supervision loss preserves uncertainty rather than
+releasing the claim.
 
 A successful local continuation may separately report `session_running` only
 after its own final, unchanged per-tool hook boundary is confirmed. Bind this
@@ -134,6 +140,22 @@ Native's special ToolSearch payload has no tool hooks and remains read-only
 metadata discovery, including while an unrelated effect is unconfirmed. Both the
 actual ToolSearch payload and the catalog's Search kind must identify it; a
 Function payload merely named tool_search does not acquire that exception.
+
+The Runtime selects the versioned private ChatGPT Native inference ingress
+`/v1/native-v4/responses` from its actual configured Native Provider route,
+including auxiliary, approval-classifier and direct request paths. This Native
+route requires an explicit nonempty configured endpoint before authentication
+or generic API resolution; missing configuration cannot select the ordinary
+OpenAI default destination. The current Provider maps the versioned path to its
+existing authenticated handler. An older Provider rejects that path
+before request admission, app inference or tool effects. An optional execution
+fact is insufficient negotiation because older consumers may ignore it and
+misclassify bare tool aliases. Ordinary Provider/OpenAI response endpoints remain
+unchanged. The path itself creates no Native origin, scope or execution authority;
+the existing verified binding and per-invocation checks remain mandatory. Failure
+preserves the original work and does not trigger a legacy-endpoint fallback,
+new call ID, account change or task resubmission. Historical receipt/history
+reads remain separate from new inference admission.
 
 Generation compatibility is checked after exact original-result replay and before
 reserving or forwarding any new Native effectful invocation, including ordinary

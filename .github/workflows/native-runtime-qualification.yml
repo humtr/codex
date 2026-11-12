@@ -159,6 +159,8 @@ jobs:
           python3 "$GITHUB_WORKSPACE/experiment/.github/scripts/native_completion_results.py" pty "$RUNNER_TEMP/native-provider-completion-pty.log"
           just test --retries 0 --status-level pass --locked --target aarch64-unknown-linux-musl -p codex-core --lib -E 'test(native_completion_)' 2>&1 | tee "$RUNNER_TEMP/native-provider-completion-core.log"
           python3 "$GITHUB_WORKSPACE/experiment/.github/scripts/native_completion_results.py" core "$RUNNER_TEMP/native-provider-completion-core.log"
+          just test --retries 0 --status-level pass --locked --target aarch64-unknown-linux-musl -p codex-guardian-v2 --lib -E 'test(native_completion_)' 2>&1 | tee "$RUNNER_TEMP/native-provider-completion-guardian.log"
+          python3 "$GITHUB_WORKSPACE/experiment/.github/scripts/native_completion_results.py" guardian "$RUNNER_TEMP/native-provider-completion-guardian.log"
           just test --retries 0 --status-level pass --locked --target aarch64-unknown-linux-musl -p codex-protocol --lib -E 'test(native_completion_)' 2>&1 | tee "$RUNNER_TEMP/native-provider-completion-protocol.log"
           python3 "$GITHUB_WORKSPACE/experiment/.github/scripts/native_completion_results.py" protocol "$RUNNER_TEMP/native-provider-completion-protocol.log"
           just test --retries 0 --status-level pass --locked --target aarch64-unknown-linux-musl -p codex-rollout --lib 2>&1 | tee "$RUNNER_TEMP/native-provider-completion-rollout.log"
@@ -201,7 +203,7 @@ jobs:
           names = ['native-runtime-preparation.json', 'native-runtime-lock-audit.json',
                    'native-runtime-schema.log', 'native-runtime-prepared.patch', 'native-provider-hooks.log']
           names += ['native-provider-completion-' + suite + '.log' for suite in
-                    ['pty', 'core', 'protocol', 'rollout', 'app-server-protocol', 'hooks']]
+                    ['pty', 'core', 'guardian', 'protocol', 'rollout', 'app-server-protocol', 'hooks']]
           sha = subprocess.check_output(['git', '-C', str(source), 'rev-parse', 'HEAD'], text=True).strip()
           assert sha == os.environ['CODEX_SOURCE_SHA']
           proof = {'schema': 'codex-native-runtime-qualification-v1', 'source_sha': sha,
