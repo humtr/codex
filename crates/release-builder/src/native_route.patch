@@ -7096,10 +7096,18 @@ index 252ca66b74..a9872c6376 100644
      // TODO(sayan): Remove this compatibility field once handlers use `step_context.turn`.
      pub turn: Arc<TurnContext>,
 diff --git a/codex-rs/core/src/tools/events.rs b/codex-rs/core/src/tools/events.rs
-index 2d5262ee9b..b9aa59b38d 100644
+index 2d5262ee9b..43e646c1fe 100644
 --- a/codex-rs/core/src/tools/events.rs
 +++ b/codex-rs/core/src/tools/events.rs
-@@ -42,6 +42,8 @@ pub(super) fn truncate_rejection_message(message: &str) -> String {
+@@ -25,6 +25,7 @@
+ use codex_protocol::protocol::ExecCommandSource;
+ use codex_protocol::protocol::ExecCommandStatus;
+ use codex_protocol::protocol::FileChange;
++use codex_protocol::protocol::HasLegacyEvent;
+ use codex_protocol::protocol::PatchApplyStatus;
+ use codex_protocol::protocol::TurnDiffEvent;
+ use codex_shell_command::parse_command::parse_command;
+@@ -42,6 +43,8 @@
  
  #[derive(Clone, Copy)]
  pub(crate) struct ToolEventCtx<'a> {
@@ -7108,7 +7116,7 @@ index 2d5262ee9b..b9aa59b38d 100644
      pub sandbox_type: Option<codex_protocol::sandbox::SandboxType>,
      pub model_context: Option<&'a ModelInvocationContext>,
      pub session: &'a Session,
-@@ -61,6 +63,7 @@ impl<'a> ToolEventCtx<'a> {
+@@ -61,6 +64,7 @@
          turn_diff_tracker: Option<&'a SharedTurnDiffTracker>,
      ) -> Self {
          Self {
@@ -7116,7 +7124,7 @@ index 2d5262ee9b..b9aa59b38d 100644
              model_context: None,
              sandbox_type: None,
              session,
-@@ -564,8 +567,9 @@ async fn emit_exec_end(
+@@ -564,8 +568,9 @@
      exec_result: ExecCommandResult,
  ) {
      let (plugin_id, script_path) = plugin_attribution_fields(exec_input.plugin_attribution);
@@ -7128,7 +7136,7 @@ index 2d5262ee9b..b9aa59b38d 100644
              ctx.turn,
              TurnItem::CommandExecution(CommandExecutionItem {
                  id: ctx.call_id.to_string(),
-@@ -586,6 +590,13 @@ async fn emit_exec_end(
+@@ -586,6 +591,13 @@
              }),
          )
          .await;
@@ -7943,10 +7951,10 @@ index 194c5d6bca..80388c7af4 100644
          step_context,
          turn,
 diff --git a/codex-rs/core/src/unified_exec/async_watcher.rs b/codex-rs/core/src/unified_exec/async_watcher.rs
-index 49ae8b2cf2..9e05f27b3e 100644
+index 49ae8b2cf2..4fd4b300e6 100644
 --- a/codex-rs/core/src/unified_exec/async_watcher.rs
 +++ b/codex-rs/core/src/unified_exec/async_watcher.rs
-@@ -176,7 +176,16 @@ pub(crate) fn spawn_exit_watcher(
+@@ -176,7 +176,16 @@
      let output_drained = process.output_drained_notify();
      let interaction_lock = process.interaction_lock();
  
@@ -7963,7 +7971,7 @@ index 49ae8b2cf2..9e05f27b3e 100644
          exit_token.cancelled().await;
          output_drained.notified().await;
          // Deferred network denial deliberately remains observable for a short
-@@ -191,7 +200,7 @@ pub(crate) fn spawn_exit_watcher(
+@@ -191,7 +200,7 @@
          let plugin_metrics_sidecar = plugin_metrics_sidecar
              .as_ref()
              .and_then(take_plugin_metrics_sidecar);
@@ -7972,7 +7980,7 @@ index 49ae8b2cf2..9e05f27b3e 100644
              drop(plugin_metrics_sidecar);
              emit_failed_exec_end_for_unified_exec(
                  process.sandbox_type(),
-@@ -208,7 +217,7 @@ pub(crate) fn spawn_exit_watcher(
+@@ -208,7 +217,7 @@
                  message,
                  duration,
              )
@@ -7981,7 +7989,7 @@ index 49ae8b2cf2..9e05f27b3e 100644
          } else {
              let exit_code = process.exit_code().unwrap_or(-1);
              let timed_out = process.timed_out();
-@@ -237,7 +246,18 @@ pub(crate) fn spawn_exit_watcher(
+@@ -237,7 +246,18 @@
                  duration,
                  timed_out,
              )
@@ -8001,7 +8009,7 @@ index 49ae8b2cf2..9e05f27b3e 100644
          }
      });
  }
-@@ -343,7 +363,7 @@ pub(crate) async fn emit_exec_end_for_unified_exec(
+@@ -343,7 +363,7 @@
      exit_code: i32,
      duration: Duration,
      timed_out: bool,
@@ -8010,7 +8018,7 @@ index 49ae8b2cf2..9e05f27b3e 100644
      let aggregated_output = resolve_aggregated_output(&output_buffer, fallback_output).await;
      let output = ExecToolCallOutput {
          exit_code,
-@@ -353,6 +373,7 @@ pub(crate) async fn emit_exec_end_for_unified_exec(
+@@ -353,6 +373,7 @@
          duration,
          timed_out,
      };
@@ -8018,7 +8026,7 @@ index 49ae8b2cf2..9e05f27b3e 100644
      let mut event_ctx = ToolEventCtx::new(
          session_ref.as_ref(),
          turn_ref.as_ref(),
-@@ -361,6 +382,7 @@ pub(crate) async fn emit_exec_end_for_unified_exec(
+@@ -361,6 +382,7 @@
          /*turn_diff_tracker*/ None,
      );
      event_ctx.sandbox_type = sandbox_type;
@@ -8026,7 +8034,7 @@ index 49ae8b2cf2..9e05f27b3e 100644
      let emitter = ToolEmitter::unified_exec(
          &command,
          cwd,
-@@ -377,6 +399,7 @@ pub(crate) async fn emit_exec_end_for_unified_exec(
+@@ -377,6 +399,7 @@
              },
          )
          .await;
@@ -8034,7 +8042,7 @@ index 49ae8b2cf2..9e05f27b3e 100644
  }
  
  #[allow(clippy::too_many_arguments)]
-@@ -394,7 +417,7 @@ pub(crate) async fn emit_failed_exec_end_for_unified_exec(
+@@ -394,7 +417,7 @@
      fallback_output: String,
      message: String,
      duration: Duration,
@@ -8043,7 +8051,7 @@ index 49ae8b2cf2..9e05f27b3e 100644
      let stdout = if fallback_output.is_empty() {
          resolve_aggregated_output(&output_buffer, fallback_output).await
      } else {
-@@ -413,6 +436,7 @@ pub(crate) async fn emit_failed_exec_end_for_unified_exec(
+@@ -413,6 +436,7 @@
          duration,
          timed_out: false,
      };
@@ -8051,7 +8059,7 @@ index 49ae8b2cf2..9e05f27b3e 100644
      let mut event_ctx = ToolEventCtx::new(
          session_ref.as_ref(),
          turn_ref.as_ref(),
-@@ -421,6 +445,7 @@ pub(crate) async fn emit_failed_exec_end_for_unified_exec(
+@@ -421,6 +445,7 @@
          /*turn_diff_tracker*/ None,
      );
      event_ctx.sandbox_type = sandbox_type;
@@ -8059,7 +8067,7 @@ index 49ae8b2cf2..9e05f27b3e 100644
      let emitter = ToolEmitter::unified_exec(
          &command,
          cwd,
-@@ -434,6 +459,7 @@ pub(crate) async fn emit_failed_exec_end_for_unified_exec(
+@@ -434,6 +459,7 @@
              ToolEventStage::Failure(ToolEventFailure::Output(output)),
          )
          .await;
@@ -8067,7 +8075,7 @@ index 49ae8b2cf2..9e05f27b3e 100644
  }
  
  /// Keep only a potentially incomplete UTF-8 suffix; malformed bytes remain raw.
-@@ -471,3 +497,18 @@ async fn resolve_aggregated_output(
+@@ -471,3 +497,18 @@
  #[cfg(test)]
  #[path = "async_watcher_tests.rs"]
  mod tests;
@@ -8079,7 +8087,7 @@ index 49ae8b2cf2..9e05f27b3e 100644
 +    if session.live_thread().is_none() {
 +        return;
 +    }
-+    let items = [codex_protocol::protocol::RolloutItem::EventMsg(
++    let items = [codex_history::RolloutItem::EventMsg(
 +        codex_protocol::protocol::EventMsg::ExecCommandEnd(event),
 +    )];
 +    if !session.persist_rollout_items(&items).await || session.flush_rollout().await.is_err() {

@@ -62,7 +62,6 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn('0 failed; 0 ignored;',step)
         self.assertNotIn('continue-on-error',step)
 
-
     def test_native_push_defaults_to_complete_unsigned_qualification(self):
         text=(ROOT/'.github/workflows/manager-tui-native.yml').read_text()
         header,body=text.split('\njobs:\n',1)

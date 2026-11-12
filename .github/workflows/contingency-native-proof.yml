@@ -34,6 +34,7 @@ jobs:
           python3 .github/scripts/test_native_completion_results.py
           python3 .github/scripts/test_base_qualification.py
           python3 .github/scripts/test_release_workflow.py
+          python3 .github/scripts/test_qualification_signal.py
           python3 .github/scripts/test_component_inputs.py
           python3 .github/scripts/test_runtime_production.py
           python3 scripts/check_documentation.py

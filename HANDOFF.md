@@ -8,6 +8,13 @@ Read [CURRENT](CURRENT.md), [AGENTS](AGENTS.md) and the
 Continuous authorization covers development, safe branch integration and unsigned
 CI. These are not intermediate approval gates.
 
+Termux transport has returned `Session terminated` since the observed outage;
+that is not evidence that local builds, Native work or uncertain shell calls
+finished. Retain each original call ID and arguments for receipt requery, and
+reconcile local HEAD/index/processes before joining remote contingency changes.
+At the 02:35 UTC remote read, development remained `ec51fe4a` and main `b2567063`;
+owned remote checkpoints continue development without operating activation.
+
 ## Remaining source acceptance
 
 1. Complete Runtime execution proof and its Provider consumers: distinguish
@@ -15,7 +22,12 @@ CI. These are not intermediate approval gates.
    Stop ACK, empty jobs and missing asynchronously persisted history.
    Preserve original receipts; verify real normal rejection/Stop availability
    as well as conservative unknown effects. Native owns Provider settlement;
-   Models owns the leased Native Runtime patch; Release owns named CI gates.
+   Models owns the leased Native Runtime patch; Release owns helper supervision
+   and named CI gates. Parent-only OS wait cannot release a process effect whose
+   descendants may survive. Reuse the existing pre-thread spawn helper, retain
+   root status separately, and require positive whole-tree completion. The
+   actual CodeMode runtime must refuse before effects; a same-name ordinary
+   tool is not evidence of a CodeMode handler.
 2. Complete unloaded source-bound work observation and the cold compiler/
    Provider-restart trial. Original r1/r2 results remain preserved without
    resubmission. Independent-CODEX_HOME Writer discovery is now integrated
@@ -34,7 +46,9 @@ CI. These are not intermediate approval gates.
    and Retain gates passed; J's focused target failed to compile a missing App
    fixture field, before any of its nineteen named cases ran. The constructor
    correction needs hosted execution. New Owner/Runtime/Provider source requires
-   new exact-source gates. The bot's valid upstream 0.167.2 discovery was merged;
+   new exact-source gates. Basic-Runtime run 43138521772 passed PTY 66/66 but
+   failed Core compilation; the two production-reference corrections require
+   hosted revalidation. The bot's valid upstream 0.167.2 discovery was merged;
    verify its new archive, patch application and qualification separately from
    earlier 0.167.1 evidence. Retain original six immutable Full inputs.
 5. Finish final-composition Native/terminal checks, independent review,
