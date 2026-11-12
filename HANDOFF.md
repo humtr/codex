@@ -1,5 +1,7 @@
 # Handoff — remaining acceptance and operating boundaries
 
+**Connectivity contingency:** network loss is expected around 2026-11-12 11:00 KST. Read [MUST-READ-USER-DIRECTIVE.md](MUST-READ-USER-DIRECTIVE.md) for the no-Pro-message, local-CI preservation, conditional remote-GitHub continuation and safe original-session rejoin steps. This does not supersede the unfinished acceptance below.
+
 Updated: 2026-11-12 UTC. One current unfinished-work record.
 Read [CURRENT](CURRENT.md), [AGENTS](AGENTS.md) and the
 [finite integration record](docs/development/RELEASE_FRAMEWORK_IMPLEMENTATION.md).

@@ -1,5 +1,7 @@
 # Agent working protocol
 
+**Time-critical user continuity notice (2026-11-12, 11:00 KST):** read [MUST-READ-USER-DIRECTIVE.md](MUST-READ-USER-DIRECTIVE.md) before treating TermuxBridge loss as a Native/CI stop-wall. The separate GitHub fallback is conditional. No direct Pro-orchestrator queue/inference is authorized.
+
 This file governs developer-agent decisions and actions, not product features,
 deployment instructions or a chronology of incidents. Apply it from CLI, TUI
 and ChatGPT under the actual user's authorization and current owner controls.
