@@ -162,8 +162,13 @@ use the original source-bound receipt/history chain and qualified Writer absence
 checking every still-relevant effect and reusing already proven original settlement.
 Historical tools are not rejected merely for being non-shell, and unknown or
 unsettled effects cannot be ignored merely because their turn is old. Incomplete
-history, failed persistence, missing receipts or ambiguous ownership leave
-completion unavailable. Assignment evaluation requires the current
+history, unconfirmed persistence, missing receipts or ambiguous ownership leave
+completion unavailable. An append/flush acknowledgment failure is unknown delivery:
+a later fresh read of the complete original Native row may recover positive
+evidence when its call/input/session/turn/Owner binding is verified. Record that
+evidence durably on the existing original receipt before releasing its claim;
+neither the failed acknowledgment nor a missing row establishes non-dispatch.
+Assignment evaluation requires the current
 controller, exact result cursor, decision and findings text. Managed completion is
 the native completed turn and original final, not an explicit `codex_finish` call
 in its tool history. A final missing from one history page is not proof of absence.
