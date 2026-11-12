@@ -1,4 +1,7 @@
 import concurrent.futures
+import hashlib
+import http.client
+import http.server
 import json
 from pathlib import Path
 import sys
@@ -7,10 +10,90 @@ from types import SimpleNamespace
 import unittest
 
 sys.path.insert(0, str(Path(__file__).parent))
-from qualify_provider_result_recovery import completed_command, executable_item, fault_observed, native_request_identity, startup_settled
+from qualify_provider_result_recovery import CutProxy, NATIVE_RESPONSES_PATH, completed_command, executable_item, fault_observed, native_request_identity, startup_settled
 
 
 class ResultFaultBoundary(unittest.TestCase):
+
+    def test_versioned_native_request_keeps_original_call_and_consumes_cut_response(self):
+        requests, observed = [], []
+        metadata = {'thread_id': 'owned-thread', 'turn_id': 'owned-turn'}
+        body = json.dumps({'client_metadata': metadata, 'input': 'one owned fixture'}).encode()
+        events = [
+            {'type': 'response.created', 'response': {'id': 'original-response'}},
+            {'type': 'response.output_item.done', 'item': {
+                'type': 'function_call', 'call_id': 'original-call',
+                'name': 'exec_command', 'arguments': '{"cmd":"owned fixture"}'}},
+            {'type': 'response.completed', 'response': {'id': 'original-response'}},
+        ]
+
+        class Upstream(http.server.BaseHTTPRequestHandler):
+            def log_message(self, *_):
+                pass
+
+            def do_GET(self):
+                requests.append((self.command, self.path, b''))
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(b'{"data":[]}')
+
+            def do_POST(self):
+                original = self.rfile.read(int(self.headers['Content-Length']))
+                requests.append((self.command, self.path, original))
+                self.send_response(200)
+                self.send_header('Content-Type', 'text/event-stream')
+                self.end_headers()
+                for event in events:
+                    self.wfile.write(b'data: ' + json.dumps(event).encode() + b'\n\n')
+                    self.wfile.flush()
+
+        upstream = http.server.ThreadingHTTPServer(('127.0.0.1', 0), Upstream)
+        upstream.daemon_threads = True
+        thread = threading.Thread(target=upstream.serve_forever, daemon=True)
+        thread.start()
+        proxy = CutProxy()
+        proxy.port, proxy.thread = upstream.server_port, 'owned-thread'
+
+        def completed(identity):
+            observed.append(identity)
+            return {'id': identity, 'status': 'completed', 'exitCode': 0}
+
+        proxy.observe = completed
+        client = http.client.HTTPConnection('127.0.0.1', proxy.server.server_port, timeout=5)
+        try:
+            client.request('POST', NATIVE_RESPONSES_PATH, body,
+                           headers={'thread-id': 'owned-thread'})
+            response = client.getresponse()
+            self.assertEqual(response.status, 200)
+            delivered = response.read()
+            self.assertIn(b'original-call', delivered)
+            self.assertNotIn(b'response.completed', delivered)
+            self.assertTrue(proxy.fired.wait(5))
+            self.assertTrue(proxy.settled.wait(5))
+            self.assertEqual(requests, [('POST', '/v1/native-v4/responses', body)])
+            self.assertEqual(observed, ['original-call'])
+            row = proxy.records[0]
+            self.assertEqual((row['thread'], row['turn'], row['call_id']),
+                             ('owned-thread', 'owned-turn', 'original-call'))
+            self.assertEqual(row['body_sha256'], hashlib.sha256(body).hexdigest())
+            self.assertEqual(row['response_id'], 'original-response')
+            self.assertEqual(row['completed_response_id'], row['response_id'])
+            self.assertEqual(row['events'], [event['type'] for event in events])
+            self.assertTrue(row['upstream_eof'])
+            self.assertNotIn('transport_error', row)
+            client.close()
+            client = http.client.HTTPConnection('127.0.0.1', proxy.server.server_port, timeout=5)
+            client.request('GET', '/v1/models')
+            self.assertEqual(json.loads(client.getresponse().read()), {'data': []})
+            self.assertEqual(requests, [('POST', '/v1/native-v4/responses', body),
+                                        ('GET', '/v1/models', b'')])
+        finally:
+            client.close()
+            proxy.close()
+            upstream.shutdown()
+            upstream.server_close()
+            thread.join(timeout=5)
+
     def test_fault_matches_actual_native_body_identity_and_thread_header(self):
         metadata = {'thread_id': 'original-thread', 'turn_id': 'original-turn'}
         body = json.dumps({'client_metadata': {**metadata, 'x-codex-turn-metadata': json.dumps(metadata)}}).encode()

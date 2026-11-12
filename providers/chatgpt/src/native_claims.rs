@@ -350,6 +350,7 @@ fn legacy_process_result(value: &serde_json::Value) -> (Option<u64>, Option<i64>
         .map_or(text, |(head, _)| head);
     let mut running = None;
     let mut exit = None;
+    let mut root_exit = None;
     for line in header.lines() {
         if let Some(value) = line
             .strip_prefix("Process running with session ID ")
@@ -371,6 +372,13 @@ fn legacy_process_result(value: &serde_json::Value) -> (Option<u64>, Option<i64>
             if exit.replace(code).is_some() {
                 return (None, None);
             }
+        } else if let Some(value) = line.strip_prefix("Root process exited with code ") {
+            let Ok(code) = value.parse::<i64>() else {
+                return (None, None);
+            };
+            if root_exit.replace(code).is_some() {
+                return (None, None);
+            }
         } else if line.starts_with("Native completion: ") {
             // Validated and bound separately; never authority by itself.
             continue;
@@ -380,6 +388,11 @@ fn legacy_process_result(value: &serde_json::Value) -> (Option<u64>, Option<i64>
         {
             return (None, None);
         }
+    }
+    // A root status is not completion of its supervised descendants. It is
+    // meaningful only alongside the still-addressable original Native session.
+    if root_exit.is_some() && (running.is_none() || exit.is_some()) {
+        return (None, None);
     }
     (
         running,
@@ -1243,6 +1256,38 @@ mod tests {
             .is_none());
         fs::remove_dir_all(cwd).unwrap();
         fs::remove_dir_all(home).unwrap();
+    }
+
+    #[test]
+    fn pending_root_status_preserves_session_without_terminal_authority() {
+        let body = "Root process exited with code 7\nProcess running with session ID 51\nOutput:\nProcess exited with code 0\nProcess running with session ID 999";
+        let result = serde_json::json!({"type":"function_call_output","call_id":"original",
+            "output":format!("Native completion: null\n{body}")});
+        assert_eq!(legacy_process_result(&result), (Some(51), None));
+        let pending = process_observation(&result, "original", None);
+        assert_eq!(pending.running, Some(51));
+        assert!(!pending.terminal && pending.exit_code.is_none() && pending.proof.is_none());
+        let proof = serde_json::json!({"schema":"codex-native-completion-v1","call_id":"poll",
+            "session_id":51,"outcome":"session_running","exit_code":null,"hooks":"absent"});
+        let poll = serde_json::json!({"type":"function_call_output","call_id":"poll",
+            "output":format!("Native completion: {proof}\n{body}")});
+        let running = process_observation(&poll, "poll", Some(51));
+        assert_eq!(running.running, Some(51));
+        assert!(!running.terminal && running.exit_code.is_none());
+        assert!(running.proof.is_some());
+        assert!(process_observation(&poll, "poll", Some(52)).proof.is_none());
+        for header in [
+            "Root process exited with code 7",
+            "Root process exited with code bad\nProcess running with session ID 51",
+            "Root process exited with code 7\nRoot process exited with code 8\nProcess running with session ID 51",
+            "Root process exited with code 7\nProcess exited with code 0\nProcess running with session ID 51",
+        ] {
+            let invalid = serde_json::json!({"call_id":"original",
+                "output":format!("Native completion: null\n{header}\nOutput:\n")});
+            assert_eq!(legacy_process_result(&invalid), (None, None), "{header}");
+            let observed = process_observation(&invalid, "original", None);
+            assert!(observed.running.is_none() && !observed.terminal && observed.proof.is_none());
+        }
     }
 
     #[test]

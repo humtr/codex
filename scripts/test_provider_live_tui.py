@@ -18,7 +18,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).parent))
 from qualify_provider_live_tui import (
-    MODEL, LiveTui, ObservationProxy, TurnBudget, admitted_prompt, assistant_marker,
+    MODEL, NATIVE_RESPONSES_PATH, LiveTui, ObservationProxy, TurnBudget, admitted_prompt, assistant_marker,
     blank_history_error, blank_rollout, completed_fault, history, native_settled,
     installed_runtime, main, one_pwd, plain, request_identity, require_core_dispatcher,
     require_short_native_socket_tmpdir, require_terminal_owner,
@@ -71,7 +71,7 @@ class ObserverFault(unittest.TestCase):
         body = json.dumps({'model': MODEL, 'input': 'owned unit fixture', 'client_metadata': {
             'x-codex-turn-metadata': json.dumps({'thread_id': 'owned-native-thread', 'turn_id': 'fault-turn'})}}).encode()
         try:
-            client.request('POST', '/v1/responses', body, headers={
+            client.request('POST', NATIVE_RESPONSES_PATH, body, headers={
                 'session_id': 'not-the-native-thread', 'Authorization': 'Bearer private-fixture-token'})
             response = client.getresponse().read()
             self.assertIn(b'before effect', response)
@@ -96,7 +96,7 @@ class ObserverFault(unittest.TestCase):
             for attempted in (body, json.dumps(dict(json.loads(body), input='changed transient body')).encode()):
                 client.close()
                 client = http.client.HTTPConnection('127.0.0.1', proxy.server.server_port, timeout=5)
-                client.request('POST', '/v1/responses', attempted)
+                client.request('POST', NATIVE_RESPONSES_PATH, attempted)
                 rejected = client.getresponse()
                 self.assertEqual(rejected.status, 409)
                 self.assertEqual(json.loads(rejected.read())['error']['code'], 'qualification_no_replay')
@@ -775,7 +775,7 @@ class StreamEvidence(unittest.TestCase):
 
     def setUp(self):
         self.original = {
-            'injected': True, 'method': 'POST', 'path': '/v1/responses',
+            'injected': True, 'method': 'POST', 'path': NATIVE_RESPONSES_PATH,
             'thread': 'thread', 'turn': 'fault-turn', 'model': MODEL, 'http_status': 200,
             'content_type': 'text/event-stream', 'upstream_eof': True,
             'events': ['response.created', 'response.output_text.delta', 'response.completed'],
@@ -788,7 +788,7 @@ class StreamEvidence(unittest.TestCase):
 
     def test_original_response_requires_exact_identity_and_completed_transport(self):
         self.assertEqual(completed_fault([self.original], 'thread', 'fault-turn'), self.original)
-        for change in ({'http_status': 413}, {'upstream_eof': False}, {'transport_error': 'TimeoutError'},
+        for change in ({'path': '/v1/responses'}, {'http_status': 413}, {'upstream_eof': False}, {'transport_error': 'TimeoutError'},
                        {'terminal_response_id': 'replacement'}, {'terminal_status': 'failed'},
                        {'terminal': 'response.failed'}, {'thread': 'another-thread'}, {'turn': 'another-turn'},
                        {'cut_event': 0}, {'content_type': 'application/json'},

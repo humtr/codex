@@ -148,8 +148,16 @@ async fn start(config: Config) -> (std::net::SocketAddr, Arc<Fixture>, Cancellat
     (address, fixture, stop)
 }
 async fn send(address: std::net::SocketAddr, body: &[u8], headers: &str) -> TcpStream {
+    send_to(address, "/v1/responses", body, headers).await
+}
+async fn send_to(
+    address: std::net::SocketAddr,
+    path: &str,
+    body: &[u8],
+    headers: &str,
+) -> TcpStream {
     let mut stream = TcpStream::connect(address).await.unwrap();
-    stream.write_all(format!("POST /v1/responses HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\nAuthorization: Bearer {TOKEN}\r\nContent-Length: {}\r\n{headers}\r\n",body.len()).as_bytes()).await.unwrap();
+    stream.write_all(format!("POST {path} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\nAuthorization: Bearer {TOKEN}\r\nContent-Length: {}\r\n{headers}\r\n",body.len()).as_bytes()).await.unwrap();
     stream.write_all(body).await.unwrap();
     stream
 }
@@ -222,6 +230,78 @@ async fn responses_sse_returns_native_tools_and_public_transcript_in_order() {
     next["input"] = json!([{"type":"function_call_output","call_id":"original-host-call","output":"/owned/project"}]);
     let compressed = zstd::stream::encode_all(next.to_string().as_bytes(), 1).unwrap();
     let raw = collect(send(address, &compressed, "Content-Encoding: zstd\r\n").await).await;
+    let second = frames(&raw);
+    assert_eq!(
+        second.last().unwrap()["response"]["output"][0]["content"][0]["text"],
+        "Verified /owned/project"
+    );
+    assert_eq!(fixture.calls.load(Ordering::SeqCst), 2);
+    stop.cancel();
+}
+
+#[tokio::test]
+async fn native_v4_endpoint_keeps_auth_exact_calls_and_result_round_trip() {
+    let (address, fixture, stop) = start(Config::default()).await;
+    for (path, bytes, headers, status, code) in [
+        (
+            "/v1/native-v5/responses",
+            b"{malformed body must not be parsed".to_vec(),
+            "",
+            404,
+            "not_found",
+        ),
+        (
+            "/v1/native-v4/responses",
+            body().to_string().into_bytes(),
+            "Authorization: Bearer wrong\r\n",
+            401,
+            "unauthorized",
+        ),
+        (
+            "/v1/native-v4/responses",
+            body().to_string().into_bytes(),
+            "Origin: https://unowned.invalid\r\n",
+            401,
+            "origin_not_allowed",
+        ),
+    ] {
+        let raw = collect(send_to(address, path, &bytes, headers).await).await;
+        assert!(raw.starts_with(&format!("HTTP/1.1 {status}")), "{raw}");
+        assert!(raw.contains(code), "{raw}");
+        assert_eq!(fixture.calls.load(Ordering::SeqCst), 0);
+    }
+    let raw = collect(
+        send_to(
+            address,
+            "/v1/native-v4/responses",
+            body().to_string().as_bytes(),
+            "",
+        )
+        .await,
+    )
+    .await;
+    assert!(
+        raw.starts_with("HTTP/1.1 200"),
+        "original host calls={} response={raw}",
+        fixture.calls.load(Ordering::SeqCst)
+    );
+    let first = frames(&raw);
+    let result = &first.last().unwrap()["response"];
+    assert_eq!(result["output"][1]["namespace"], "functions");
+    assert_eq!(result["output"][1]["call_id"], "original-host-call");
+    let mut next = body();
+    next["input"] = json!([{"type":"function_call_output","call_id":"original-host-call","output":"/owned/project"}]);
+    let compressed = zstd::stream::encode_all(next.to_string().as_bytes(), 1).unwrap();
+    let raw = collect(
+        send_to(
+            address,
+            "/v1/native-v4/responses",
+            &compressed,
+            "Content-Encoding: zstd\r\n",
+        )
+        .await,
+    )
+    .await;
     let second = frames(&raw);
     assert_eq!(
         second.last().unwrap()["response"]["output"][0]["content"][0]["text"],

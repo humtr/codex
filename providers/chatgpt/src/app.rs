@@ -4941,6 +4941,83 @@ mod native_submission_scope_tests {
     }
 
     #[tokio::test]
+    async fn versioned_native_endpoint_never_grants_scope_and_preserves_retained_answer() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let root = std::env::temp_dir().join(format!("app-origin-http-{}", random_id().unwrap()));
+        let journal = Arc::new(Journal::open(&root).unwrap());
+        let bridge = Arc::new(AdmissionBridge {
+            state: std::sync::Mutex::new(AdmissionState::default()),
+            tool: Some(("exec_command".into(), "{\"cmd\":\"owned effect\"}".into())),
+        });
+        let host = Arc::new(AppHost::new(bridge.clone(), journal.clone()).with_native_admission());
+        let token = "owned_native_version_fixture_01234567890123456789";
+        let service =
+            crate::server::Service::new(crate::config::Config::default(), token.into(), host)
+                .unwrap();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let stop = CancellationToken::new();
+        let stopped = stop.clone();
+        let server = tokio::spawn(async move {
+            crate::server::serve(listener, service, stopped)
+                .await
+                .unwrap();
+        });
+        let thread = "versioned-unbound";
+        let workspace = std::fs::canonicalize(&root).unwrap();
+        let facts = crate::native_effect::hook_fixture(&workspace);
+        let body = json!({"stream":true,"model":"chatgpt-desktop/gpt-6","input":"owned",
+        "tools":[{"type":"function","name":"exec_command","parameters":{"type":"object"}}],
+        "native_scope":{"workspace":workspace,"execution":facts},
+        "client_metadata":{
+            "x-codex-turn-metadata":{"thread_id":thread,"turn_id":"owned-turn"},
+            "termux_native_execution":serde_json::to_string(&facts).unwrap()
+        }})
+        .to_string();
+        for _ in 0..2 {
+            let mut socket = tokio::net::TcpStream::connect(address).await.unwrap();
+            socket.write_all(format!("POST /v1/native-v4/responses HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\nAuthorization: Bearer {token}\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}", body.len()).as_bytes()).await.unwrap();
+            let mut bytes = Vec::new();
+            tokio::time::timeout(Duration::from_secs(5), socket.read_to_end(&mut bytes))
+                .await
+                .unwrap()
+                .unwrap();
+            let raw = String::from_utf8(bytes).unwrap();
+            assert!(raw.starts_with("HTTP/1.1 200"), "{raw}");
+            assert!(raw.contains("ORIGINAL_FINAL"), "{raw}");
+            assert!(!raw.contains("\"type\":\"function_call\""), "{raw}");
+            let saved: Lane = journal.read(&context::digest(&thread)).unwrap().unwrap();
+            assert_eq!(saved.origin, crate::protocol::ToolOrigin::Native);
+            assert!(saved.pending.is_empty());
+            assert_eq!(saved.phase, Phase::Idle);
+            let state = bridge.state.lock().unwrap();
+            assert_eq!(
+                state.submissions, 2,
+                "the retained answer must not resubmit"
+            );
+            let correction = state
+                .commands
+                .iter()
+                .find(|command| {
+                    command["op"] == "submit"
+                        && command["results"]
+                            .as_array()
+                            .is_some_and(|results| !results.is_empty())
+                })
+                .unwrap();
+            assert_eq!(correction["results"][0]["id"], "original-host-call");
+            assert_eq!(correction["results"][0]["result"]["executed"], false);
+            assert_eq!(
+                correction["results"][0]["result"]["error"]["code"],
+                "native_execution_completion_unavailable"
+            );
+        }
+        stop.cancel();
+        server.await.unwrap();
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
     async fn native_tool_free_answer_and_exact_retained_replay_need_no_owner_or_new_submission() {
         let root = std::env::temp_dir().join(format!("app-origin-read-{}", random_id().unwrap()));
         let journal = Arc::new(Journal::open(&root).unwrap());

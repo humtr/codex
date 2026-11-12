@@ -36,6 +36,7 @@ from qualify_tasks import Ws
 # installed picker; it is not the model selected by this live UI acceptance.
 MODEL = 'chatgpt-desktop/app/gpt-6'
 MODEL_EFFORT = 'none'
+NATIVE_RESPONSES_PATH = '/v1/native-v4/responses'
 
 
 def require_short_native_socket_tmpdir(tmpdir=None):
@@ -338,7 +339,7 @@ def completed_fault(records, thread, turn):
     assert len(fired) == 1, 'expected exactly one injected observer disconnection'
     row = fired[0]
     assert (row['method'], row['path'], row['thread'], row['turn'], row['model']) == (
-        'POST', '/v1/responses', thread, turn, MODEL)
+        'POST', NATIVE_RESPONSES_PATH, thread, turn, MODEL)
     assert row['http_status'] == 200 and row['content_type'].split(';')[0] == 'text/event-stream'
     assert row.get('upstream_eof') and 'transport_error' not in row, 'original upstream stream did not settle'
     assert row['events'].count('response.created') == row['events'].count('response.completed') == 1
@@ -348,7 +349,7 @@ def completed_fault(records, thread, turn):
     assert row['events'][row['cut_event']] == 'response.output_text.delta'
     assert row['execution']['thread'] == thread and row['execution']['turn'] == turn
     assert row['execution']['observed_at'] <= row['cut_at'] <= row['settled_at']
-    posts = [value for value in records if value['method'] == 'POST' and value['path'] == '/v1/responses']
+    posts = [value for value in records if value['method'] == 'POST' and value['path'] == NATIVE_RESPONSES_PATH]
     assert sum(value['body_sha256'] == row['body_sha256'] for value in posts) == 1, 'original request was resubmitted'
     # A tool round may legitimately precede this response in the same user turn.
     # After the cut, another request for that turn is a replay, even if its body
@@ -402,7 +403,7 @@ class ObservationProxy:
                 self.forward()
 
             def forward(self):
-                assert self.path in ('/v1/models', '/v1/responses')
+                assert self.path in ('/v1/models', NATIVE_RESPONSES_PATH)
                 size = int(self.headers.get('Content-Length', '0'))
                 assert 0 <= size <= 16 * 1024 * 1024
                 body = self.rfile.read(size)
@@ -410,7 +411,7 @@ class ObservationProxy:
                 record = {'at': stamp(), 'method': self.command,
                           'path': self.path, 'body_sha256': hashlib.sha256(body).hexdigest(),
                           'events': [], 'injected': False}
-                if self.path == '/v1/responses':
+                if self.path == NATIVE_RESPONSES_PATH:
                     value = json.loads(body)
                     record.update(request_identity(value), model=value['model'])
                 with owner.lock:

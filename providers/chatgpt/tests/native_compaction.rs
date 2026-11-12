@@ -539,7 +539,12 @@ async fn native_context_fixture(scenario: Scenario) {
                 async move {
                     let (parts, body) = request.into_parts();
                     let bytes = axum::body::to_bytes(body, 32 * 1024 * 1024).await.unwrap();
-                    if parts.uri.path() == "/v1/responses" {
+                    let native_response = matches!(
+                        parts.uri.path(),
+                        "/v1/responses" | "/v1/native-v4/responses"
+                    );
+                    if native_response {
+                        assert_eq!(parts.uri.path(), "/v1/native-v4/responses");
                         assert_eq!(parts.method, axum::http::Method::POST);
                         use std::io::Write;
                         use std::os::unix::fs::OpenOptionsExt;
@@ -561,9 +566,7 @@ async fn native_context_fixture(scenario: Scenario) {
                             .unwrap();
                         writeln!(file, "{value}").unwrap();
                     }
-                    if parts.uri.path() == "/v1/responses"
-                        && reject_first_response.swap(false, Ordering::SeqCst)
-                    {
+                    if native_response && reject_first_response.swap(false, Ordering::SeqCst) {
                         use axum::response::IntoResponse;
                         return (
                             axum::http::StatusCode::PAYLOAD_TOO_LARGE,

@@ -429,7 +429,14 @@ async fn handler(State(service): State<Arc<Service>>, request: HttpRequest) -> R
         }
         return axum::Json(json!({"object":"list","data":config.catalog.models.iter().filter(|m| !m.hidden).map(|m| json!({"id":m.id,"object":"model","owned_by":"termux-codex"})).collect::<Vec<_>>()})).into_response();
     }
-    if parts.uri.path() != "/v1/responses" || parts.method != "POST" {
+    // The versioned Native route is a compatibility fence for older consumers,
+    // not execution authority. Both paths retain the same authentication,
+    // parser and independently verified Native admission.
+    if !matches!(
+        parts.uri.path(),
+        "/v1/responses" | "/v1/native-v4/responses"
+    ) || parts.method != "POST"
+    {
         return failure(StatusCode::NOT_FOUND, "not_found");
     }
     // Reject the fixed standalone profile before model/catalog acquisition.

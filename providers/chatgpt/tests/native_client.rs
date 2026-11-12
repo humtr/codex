@@ -626,7 +626,8 @@ fi
           async move {
             let (parts, body) = request.into_parts();
             let bytes = axum::body::to_bytes(body, 32 * 1024 * 1024).await.unwrap();
-            if parts.uri.path() == "/v1/responses" {
+            if matches!(parts.uri.path(), "/v1/responses" | "/v1/native-v4/responses") {
+                assert_eq!(parts.uri.path(), "/v1/native-v4/responses");
                 response_count.fetch_add(1,Ordering::Relaxed);
                 let decoded = if parts
                     .headers

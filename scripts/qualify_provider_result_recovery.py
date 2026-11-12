@@ -23,7 +23,7 @@ import threading
 import time
 
 from qualify_provider_native_compiler import Client, payload, process, save, sha, stamp, stop_fixture_works, termux_path
-from qualify_provider_live_tui import request_identity
+from qualify_provider_live_tui import NATIVE_RESPONSES_PATH, request_identity
 from qualify_provider_operator import fixture_auth
 from qualify_provider_native_trial import stop_owned_pid
 from qualify_tasks import Ws
@@ -142,7 +142,7 @@ class CutProxy:
                 self.forward()
 
             def forward(self):
-                assert self.path in ('/v1/models', '/v1/responses')
+                assert self.path in ('/v1/models', NATIVE_RESPONSES_PATH)
                 length = int(self.headers.get('Content-Length', '0'))
                 assert 0 <= length <= 32 * 1024 * 1024
                 body = self.rfile.read(length)
