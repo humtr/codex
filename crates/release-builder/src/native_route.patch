@@ -71,7 +71,7 @@ index c6ac801872..bbfa4fb0e0 100644
                                  .and_then(serde_json::Value::as_str).map(str::to_string);
                              metadata.platform_os = response.result.get("platformOs")
 diff --git a/codex-rs/app-server-protocol/src/protocol/thread_history.rs b/codex-rs/app-server-protocol/src/protocol/thread_history.rs
-index 6d2b1d8e09..535a596055 100644
+index 6d2b1d8e09..d1ff4f8273 100644
 --- a/codex-rs/app-server-protocol/src/protocol/thread_history.rs
 +++ b/codex-rs/app-server-protocol/src/protocol/thread_history.rs
 @@ -457,6 +457,11 @@ impl ThreadHistoryBuilder {
@@ -86,7 +86,7 @@ index 6d2b1d8e09..535a596055 100644
              EventMsg::ExecCommandEnd(payload) => self.handle_exec_command_end(payload),
              EventMsg::GuardianAssessment(payload) => self.handle_guardian_assessment(payload),
              EventMsg::ApplyPatchApprovalRequest(payload) => {
-@@ -2741,6 +2746,126 @@ mod tests {
+@@ -2741,6 +2746,127 @@ mod tests {
          );
      }
  
@@ -94,6 +94,7 @@ index 6d2b1d8e09..535a596055 100644
 +    fn native_completion_late_receipt_does_not_duplicate_or_rewrite_public_history()
 +    -> anyhow::Result<()> {
 +        use codex_protocol::items::ModelInvocationContext;
++        use codex_protocol::protocol::HasLegacyEvent;
 +        use codex_protocol::protocol::NativeCompletionHooks;
 +        use codex_protocol::protocol::NativeCompletionOutcome;
 +        use codex_protocol::protocol::NativeCompletionSchema;
@@ -213,7 +214,7 @@ index 6d2b1d8e09..535a596055 100644
      #[test]
      fn preserves_command_plugin_id_and_redacts_secrets_across_legacy_upsert() {
          let turn_id = "turn-1";
-@@ -2804,6 +2929,7 @@ mod tests {
+@@ -2804,6 +2930,7 @@ mod tests {
                  completed_at_ms: 1_000,
              }),
              EventMsg::ExecCommandEnd(ExecCommandEndEvent {
@@ -221,7 +222,7 @@ index 6d2b1d8e09..535a596055 100644
                  call_id: "exec-1".to_string(),
                  plugin_id: Some("sample@openai-curated".to_string()),
                  script_path: Some("scripts/run.py".to_string()),
-@@ -3513,6 +3639,7 @@ mod tests {
+@@ -3513,6 +3640,7 @@ mod tests {
                  })]),
              }),
              EventMsg::ExecCommandEnd(ExecCommandEndEvent {
@@ -229,7 +230,7 @@ index 6d2b1d8e09..535a596055 100644
                  call_id: "exec-1".into(),
                  plugin_id: None,
                  script_path: None,
-@@ -3809,6 +3936,7 @@ mod tests {
+@@ -3809,6 +3937,7 @@ mod tests {
                  ..Default::default()
              }),
              EventMsg::ExecCommandEnd(ExecCommandEndEvent {
@@ -237,7 +238,7 @@ index 6d2b1d8e09..535a596055 100644
                  call_id: "exec-declined".into(),
                  plugin_id: None,
                  script_path: None,
-@@ -4213,6 +4341,7 @@ mod tests {
+@@ -4213,6 +4342,7 @@ mod tests {
                  ..Default::default()
              }),
              EventMsg::ExecCommandEnd(ExecCommandEndEvent {
@@ -245,7 +246,7 @@ index 6d2b1d8e09..535a596055 100644
                  call_id: "exec-late".into(),
                  plugin_id: None,
                  script_path: None,
-@@ -4324,6 +4453,7 @@ mod tests {
+@@ -4324,6 +4454,7 @@ mod tests {
                  ..Default::default()
              }),
              EventMsg::ExecCommandEnd(ExecCommandEndEvent {
