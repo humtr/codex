@@ -342,15 +342,8 @@ pub(crate) fn tool_dispatch_error(
     if (key == "tool_search") != (tool.kind == ToolKind::Search) {
         return Some("native_tool_identity_unsupported");
     }
-    if matches!(
-        (key.as_str(), &tool.kind),
-        ("exec" | "functions.exec", ToolKind::Custom)
-            | ("wait" | "functions.wait", ToolKind::Function)
-    ) {
-        // A yielded CodeMode cell can outlive this result and its Native turn.
-        // No cell completion authority is carried by the current adapter.
-        return Some("native_execution_completion_unavailable");
-    }
+    // Current-generation Runtime admission knows the actual handler identity.
+    // A generic same-name handler is not a CodeMode cell merely by declaration.
     dispatch_error(&key, workspace, execution)
 }
 
@@ -694,6 +687,14 @@ mod tests {
                 "schema2 does not silently acquire the new shape"
             );
             facts.schema = 3;
+            assert!(facts.belongs_to(&owner, &facts.thread, Some(&facts.turn)));
+            for name in [exec_tool, poll_tool] {
+                assert_eq!(
+                    dispatch_error(name, Some(&root), Some(&facts)),
+                    Some("native_execution_generation_unsupported")
+                );
+            }
+            facts.schema = 4;
             facts.hook_free_tools.push("exec_command".into());
             assert!(
                 !facts.belongs_to(&owner, &facts.thread, Some(&facts.turn)),

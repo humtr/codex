@@ -124,7 +124,7 @@ class NativeCompilerEvidence(unittest.TestCase):
                       'home': str(self.workspace.parent / 'h/.codex'),
                       'process': {'pid': 123, 'start': '456', 'image': str(self.runtime)}}
         self.record = {'execution': self.owner, 'thread': 'native-thread', 'native_turn': 'native-turn'}
-        self.metadata = {'schema': 3, 'hook_free_tools': ['exec_command'], 'pid': 123, 'start': '456', 'thread': 'native-thread',
+        self.metadata = {'schema': 4, 'hook_free_tools': ['exec_command'], 'pid': 123, 'start': '456', 'thread': 'native-thread',
                          'turn': 'native-turn', 'cwd': str(self.workspace), 'prefix': str(self.prefix),
                          'home': str(self.home), 'shell': str(self.prefix / 'bin/bash'),
                          'variables': ['HOME', 'PREFIX', 'PATH'], 'no_default_config': False}
@@ -154,13 +154,13 @@ class NativeCompilerEvidence(unittest.TestCase):
             self.proof({'execution': dict(self.metadata, variables=['CLANG_NO_DEFAULT_CONFIG'])})
 
     def test_tool_specific_hook_proof_requires_selected_exec_and_rejects_legacy(self):
-        scoped = dict(self.metadata, schema=3, hook_free_tools=['exec_command'])
+        scoped = dict(self.metadata, schema=4, hook_free_tools=['exec_command'])
         self.assertEqual(self.proof({'execution': scoped}), scoped)
         self.assertEqual(self.proof({'execution': self.metadata}), self.metadata)
         for tools in (None, [], ['apply_patch'], 'exec_command', ['exec_command', 'unknown']):
             with self.subTest(tools=tools), self.assertRaises(AssertionError):
                 self.proof({'execution': dict(scoped, hook_free_tools=tools)})
-        for legacy in (1, 2):
+        for legacy in (1, 2, 3):
             with self.subTest(legacy=legacy), self.assertRaisesRegex(AssertionError, 'dispatch-bound'):
                 self.proof({'execution': dict(self.metadata, schema=legacy)})
 

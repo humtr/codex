@@ -53,10 +53,8 @@ impl ContinuationEffect {
     pub(crate) fn settled_by(&self, observation: &ProcessObservation) -> bool {
         observation.proof.as_ref().is_some_and(|proof| {
             proof.session_id == Some(self.session)
-                && (proof.wait_completed() || proof.running() == Some(self.session))
-        }) || self.hooks_absent
-            && !observation.completion_protocol
-            && (observation.running == Some(self.session) || observation.terminal)
+                && (proof.process_tree_completed() || proof.running() == Some(self.session))
+        })
     }
 }
 
@@ -444,7 +442,7 @@ pub(crate) fn process_observation(
         completion::Presence::Absent => ProcessObservation {
             running,
             exit_code: legacy_exit,
-            terminal: legacy_exit.is_some(),
+            terminal: false,
             ..ProcessObservation::default()
         },
         completion::Presence::Unconfirmed => ProcessObservation {
@@ -461,11 +459,11 @@ pub(crate) fn process_observation(
             if !(proof.belongs_to(call_id, session) || rejected_current_invocation)
                 || running.is_some_and(|id| proof.session_id != Some(id))
                 || legacy_exit.is_some_and(|code| {
-                    !proof.wait_completed() || proof.waited().is_some_and(|actual| actual != code)
+                    !proof.wait_completed() && proof.running().is_none()
+                        || proof.waited().is_some_and(|actual| actual != code)
                 })
                 || proof.not_started() && (running.is_some() || legacy_exit.is_some())
-                || proof.running().is_some()
-                    && (session != proof.running() || legacy_exit.is_some())
+                || proof.running().is_some() && session != proof.running()
             {
                 return ProcessObservation {
                     completion_protocol: true,
@@ -479,7 +477,7 @@ pub(crate) fn process_observation(
                     proof.running().or(running)
                 },
                 exit_code: proof.waited(),
-                terminal: proof.wait_completed(),
+                terminal: proof.process_tree_completed(),
                 not_spawned: proof.not_started(),
                 proof: Some(proof),
                 completion_protocol: true,
@@ -581,39 +579,6 @@ impl Guard {
                     .any(|held| held.thread == thread && held.session.is_none()),
                 false,
             ))
-        })
-    }
-
-    /// The authoritative Native owner has confirmed termination: either a
-    /// matching qualified legacy command item. Empty jobs or Stop alone are
-    /// never terminal evidence; typed proof settles the exact original receipt.
-    /// Release only the original session IDs on this same thread; unknown
-    /// effects and other Native threads retain their reservations.
-    pub(crate) fn release_observed_processes(
-        cwd: &Path,
-        private_test_home: Option<&Path>,
-        thread: &str,
-        processes: &BTreeMap<String, u64>,
-    ) -> Result<(), String> {
-        if processes.is_empty() {
-            return Ok(());
-        }
-        let ledger = match private_test_home {
-            Some(home) => Ledger::at(cwd, home)?,
-            None => Ledger::new(cwd)?,
-        };
-        ledger.transact(|state| {
-            let before = state.claims.len();
-            for (call, session) in processes {
-                let identity = format!("{thread}:{call}");
-                if let Some(held) = state.claims.get(&identity) {
-                    if held.thread != thread || held.session != Some(*session) {
-                        return Err("native_effect_identity_changed".into());
-                    }
-                    state.claims.remove(&identity);
-                }
-            }
-            Ok(((), state.claims.len() != before))
         })
     }
 
@@ -1062,7 +1027,7 @@ impl Guard {
         };
         let observation = process_observation(result, call_id, self.continuation);
         let running = observation.running;
-        let mut exited = observation.terminal;
+        let exited = observation.terminal;
         let not_spawned = native_effect::process_tool(&self.tool) == Some("exec_command")
             && observation.not_spawned;
         let session = self.continuation;
@@ -1071,22 +1036,6 @@ impl Guard {
                 // The current continuation never reached its hooks/backend.
                 // This proves nothing about the already running original call.
                 return Ok(((), state.claims.remove(&self.identity).is_some()));
-            }
-            if exited && observation.proof.is_none() {
-                // Legacy output is only process evidence when this original
-                // reservation already proves the complete hook boundary.
-                let own = state.claims.get(&self.identity);
-                let original = || {
-                    state.claims.values().filter(|held| {
-                        held.thread == self.thread && session.is_some() && held.session == session
-                    })
-                };
-                let hook_free = |held: &Entry| {
-                    held.process_hooks_absent
-                        || matches!(held.effect.claim_scope(), Effect::Paths(_))
-                };
-                exited = own.is_some_and(hook_free)
-                    || (own.is_none() && original().next().is_some() && original().all(hook_free));
             }
             if observation.proof.as_ref().is_some_and(|proof| {
                 state
@@ -1150,10 +1099,96 @@ mod tests {
     use super::*;
     fn waited(call: &str, session: Option<u64>, exit: i64, output: &str) -> serde_json::Value {
         let proof = serde_json::json!({"schema":"codex-native-completion-v1","call_id":call,
-            "session_id":session,"outcome":"wait_completed","exit_code":exit,"hooks":"absent"});
+            "session_id":session,"outcome":"process_tree_completed","exit_code":exit,"hooks":"absent"});
         serde_json::json!({"type":"function_call_output","call_id":call,
             "output":format!("Native completion: {proof}\nProcess exited with code {exit}\nOutput:\n{output}")})
     }
+    #[test]
+    fn parent_wait_never_releases_bounded_or_opaque_process_scope() {
+        for tool in ["exec_command", "functions.exec_command"] {
+            for bounded in [false, true] {
+                for (outcome, code, closes) in [
+                    ("wait_completed", Some(0), false),
+                    ("wait_completed", Some(7), false),
+                    ("wait_completed", None, false),
+                    ("process_tree_completed", Some(0), true),
+                    ("process_tree_completed", Some(7), true),
+                    ("process_tree_completed", None, true),
+                ] {
+                    let cwd = root();
+                    let home = root();
+                    fs::write(cwd.join("a.c"), "int main(void) { return 0; }\n").unwrap();
+                    let facts = native_effect::compiler_fixture(&cwd);
+                    let input = if bounded {
+                        serde_json::json!({"cmd":"clang -O0 a.c -o a.out","workdir":cwd,"login":false}).to_string()
+                    } else {
+                        r#"{"cmd":"owned opaque process"}"#.into()
+                    };
+                    let effect = native_effect::classify_with_execution(tool, &input, Some(&cwd), Some(&facts));
+                    assert_eq!(matches!(effect, Effect::Paths(_)), bounded);
+                    let ledger = Ledger::at(&cwd, &home).unwrap();
+                    let mut claim = Guard::begin_effect_with_continuation(
+                        &cwd, "owner", "original", tool, &input, ledger.clone(),
+                        Admission { effect, hooks_absent: true },
+                    ).unwrap();
+                    let before = ledger.read_state().unwrap().claims["owner:original"].fingerprint.clone();
+                    let proof = serde_json::json!({"schema":"codex-native-completion-v1","call_id":"original",
+                        "session_id":null,"outcome":outcome,"exit_code":code,"hooks":"absent"});
+                    let result = serde_json::json!({"type":"function_call_output","call_id":"original",
+                        "output":format!("Native completion: {proof}\nProcess exited with code {}\nOutput:\nimmutable", code.unwrap_or(1))});
+                    claim.observed(Some(&result)).unwrap();
+                    let state = ledger.read_state().unwrap();
+                    assert_eq!(state.claims.is_empty(), closes, "{tool}/{bounded}/{outcome}/{code:?}");
+                    if !closes {
+                        assert_eq!(state.claims["owner:original"].fingerprint, before);
+                        claim.observed(Some(&serde_json::json!({"output":"Process exited with code 0\nOutput:\n"}))).unwrap();
+                        assert!(ledger.read_state().unwrap().claims.contains_key("owner:original"));
+                    }
+                    fs::remove_dir_all(cwd).unwrap();
+                    fs::remove_dir_all(home).unwrap();
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn session_running_after_parent_exit_settles_only_current_poll() {
+        let cwd = root();
+        let home = root();
+        let ledger = Ledger::at(&cwd, &home).unwrap();
+        let mut original = Guard::begin_with(
+            &cwd, "owner", "start", "functions.exec_command",
+            r#"{"cmd":"owned supervised tree"}"#, ledger.clone(),
+        ).unwrap();
+        original.observed(Some(&serde_json::json!({"output":"Native completion: null\nProcess running with session ID 51\nOutput:\n"}))).unwrap();
+        let mut poll = Guard::begin_with(
+            &cwd, "owner", "poll", "functions.write_stdin",
+            r#"{"session_id":51,"chars":"input"}"#, ledger.clone(),
+        ).unwrap();
+        let proof = serde_json::json!({"schema":"codex-native-completion-v1","call_id":"poll",
+            "session_id":51,"outcome":"session_running","exit_code":null,"hooks":"absent"});
+        let result = serde_json::json!({"type":"function_call_output","call_id":"poll",
+            "output":format!("Native completion: {proof}\nProcess exited with code 0\nProcess running with session ID 51\nOutput:\noriginal parent output")});
+        let observed = process_observation(&result, "poll", Some(51));
+        assert_eq!(observed.running, Some(51));
+        assert!(!observed.terminal);
+        let projected = serde_json::json!({"call_id":"poll","output":
+            serde_json::json!({"native_completion":proof,"exit_code":0,"session_id":51,
+                "wall_time_seconds":0.1,"output":"original parent output"}).to_string()});
+        let observed_projection = process_observation(&projected, "poll", Some(51));
+        assert_eq!(observed_projection.running, Some(51));
+        assert!(!observed_projection.terminal);
+        poll.observed(Some(&result)).unwrap();
+        let state = ledger.read_state().unwrap();
+        assert_eq!(state.claims.len(), 1);
+        assert_eq!(state.claims["owner:start"].session, Some(51));
+        assert_eq!(state.claims["owner:start"].effect, Effect::Opaque);
+        assert!(process_observation(&result, "other", Some(51)).proof.is_none());
+        assert!(process_observation(&result, "poll", Some(52)).proof.is_none());
+        fs::remove_dir_all(cwd).unwrap();
+        fs::remove_dir_all(home).unwrap();
+    }
+
     #[test]
     fn completion_safety_new_unknown_cannot_downgrade_to_legacy_exit() {
         for native in [
@@ -1293,7 +1328,7 @@ mod tests {
             .observed(Some(
                 &serde_json::json!({"output":format!("Native completion: {}\nOutput:\n",
                     serde_json::json!({"schema":"codex-native-completion-v1","call_id":"poll",
-                    "session_id":81,"outcome":"wait_completed","exit_code":0,"hooks":"absent"}))}),
+                    "session_id":81,"outcome":"process_tree_completed","exit_code":0,"hooks":"absent"}))}),
             ))
             .unwrap();
         let mut denied = Guard::begin_with(
@@ -1634,16 +1669,17 @@ mod tests {
     }
 
     #[test]
-    fn confirmed_stop_releases_only_the_original_thread_and_observed_session() {
+    fn process_tree_completion_releases_only_original_call_and_session() {
         let cwd = root();
         let home = root();
         fs::write(cwd.join("a"), "old\n").unwrap();
+        let input = r#"{"cmd":"sleep 30; printf output > a"}"#;
         let mut running = Guard::begin_with(
             &cwd,
             "stopped-thread",
             "exec",
             "functions.exec_command",
-            r#"{"cmd":"sleep 30; printf output > a"}"#,
+            input,
             Ledger::at(&cwd, &home).unwrap(),
         )
         .unwrap();
@@ -1654,29 +1690,30 @@ mod tests {
             .unwrap();
         let blocked = || apply(&cwd, &home, "other-thread", "patch", "a");
         assert_eq!(blocked().err().as_deref(), Some("native_resource_busy"));
-        Guard::release_observed_processes(
-            &cwd,
-            Some(&home),
-            "other-thread",
-            &[("exec".into(), 83)].into_iter().collect(),
-        )
-        .unwrap();
+        for (thread, call) in [("other-thread", "exec"), ("stopped-thread", "other-call")] {
+            Guard::settle_external(
+                &cwd,
+                Some(&home),
+                thread,
+                call,
+                "functions.exec_command",
+                input,
+                &waited(call, Some(83), 0, ""),
+            )
+            .unwrap();
+            assert_eq!(blocked().err().as_deref(), Some("native_resource_busy"));
+        }
+        let parent = serde_json::json!({"schema":"codex-native-completion-v1","call_id":"exec",
+            "session_id":83,"outcome":"wait_completed","exit_code":0,"hooks":"absent"});
+        running.observed(Some(&serde_json::json!({"output":format!(
+            "Native completion: {parent}\nProcess exited with code 0\nOutput:\n")}))).unwrap();
         assert_eq!(blocked().err().as_deref(), Some("native_resource_busy"));
-        Guard::release_observed_processes(
-            &cwd,
-            Some(&home),
-            "stopped-thread",
-            &[("other-call".into(), 83)].into_iter().collect(),
-        )
-        .unwrap();
+        assert_eq!(
+            running.observed(Some(&waited("exec", Some(84), 0, ""))),
+            Err("native_effect_identity_changed".into())
+        );
         assert_eq!(blocked().err().as_deref(), Some("native_resource_busy"));
-        Guard::release_observed_processes(
-            &cwd,
-            Some(&home),
-            "stopped-thread",
-            &[("exec".into(), 83)].into_iter().collect(),
-        )
-        .unwrap();
+        running.observed(Some(&waited("exec", Some(83), 0, ""))).unwrap();
         assert!(blocked().is_ok());
     }
 
@@ -2230,7 +2267,7 @@ mod tests {
             let wait = |id: &str, session: Option<u64>| {
                 serde_json::json!({"output":format!("Native completion: {}\nOutput:\n",
                 serde_json::json!({"schema":"codex-native-completion-v1","call_id":id,"session_id":session,
-                    "outcome":"wait_completed","exit_code":0,"hooks":"absent"}))})
+                    "outcome":"process_tree_completed","exit_code":0,"hooks":"absent"}))})
             };
             other.observed(Some(&wait("start", None))).unwrap();
             let mut pending = Guard::begin_effect(

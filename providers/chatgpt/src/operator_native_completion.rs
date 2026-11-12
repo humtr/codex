@@ -304,7 +304,7 @@ pub(super) fn validate(
                         }
                         continue;
                     }
-                    if !proof.wait_completed() {
+                    if !proof.process_tree_completed() {
                         return Err(unsettled());
                     }
                     let code = proof.waited();
@@ -537,7 +537,7 @@ mod tests {
         assert!(validate("thread", "final", &history, &rows, &closed()).is_err());
         let mut late = end;
         late["payload"]["native_completion"] = json!({"schema":"codex-native-completion-v1",
-            "call_id":"exec","session_id":41,"outcome":"wait_completed","exit_code":137,"hooks":"absent"});
+            "call_id":"exec","session_id":41,"outcome":"process_tree_completed","exit_code":137,"hooks":"absent"});
         rows.push(late.clone());
         validate("thread", "final", &history, &rows, &closed()).unwrap();
         let mut platform_signal = rows.clone();

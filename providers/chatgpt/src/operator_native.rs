@@ -43,6 +43,7 @@ impl CompletionEvidence {
     fn from_rows(owner: Owner, thread: String, rows: Vec<Value>) -> Result<Self, Error> {
         let witnesses = crate::native_claims::completion::end_witnesses(&rows).map_err(Error)?;
         let mut calls = BTreeMap::new();
+        let mut canonical = BTreeMap::new();
         let mut turn = String::new();
         for row in &rows {
             let item = &row["payload"];
@@ -50,6 +51,18 @@ impl CompletionEvidence {
                 || row["type"] == "event_msg" && item["type"] == "task_started"
             {
                 turn = item["turn_id"].as_str().unwrap_or("").into();
+            }
+            if row["type"] == "event_msg"
+                && item["type"] == "item_completed"
+                && item["item"]["type"] == "CommandExecution"
+            {
+                let id = item["item"]["id"]
+                    .as_str()
+                    .filter(|id| !id.is_empty())
+                    .ok_or(Error("native_completion_identity_invalid"))?;
+                if item["thread_id"] != thread || canonical.insert(id, item).is_some() {
+                    return Err(Error("native_completion_identity_changed"));
+                }
             }
             if row["type"] == "response_item" && item["type"] == "function_call" {
                 let id = item["call_id"]
@@ -62,6 +75,16 @@ impl CompletionEvidence {
                 {
                     return Err(Error("native_completion_identity_changed"));
                 }
+            }
+        }
+        for (id, witness) in &witnesses {
+            if matches!(&witness.proof, crate::native_claims::completion::Presence::Present(proof)
+                if proof.process_tree_completed())
+                && !canonical
+                    .get(id.as_str())
+                    .is_some_and(|item| witness.matches_canonical_command(item))
+            {
+                return Err(Error("native_completion_identity_changed"));
             }
         }
         Ok(Self {
@@ -1889,5 +1912,93 @@ mod reply_tests {
             native_reply("thread/items/list", &json!({})).unwrap_err().0,
             "native_reply_invalid"
         );
+    }
+}
+
+#[cfg(test)]
+mod completion_tree_evidence_tests {
+    use super::*;
+
+    fn owner() -> Owner {
+        Owner {
+            directory: PathBuf::from("/owned/registry"),
+            home: PathBuf::from("/owned/home"),
+            process: crate::cdp::Process {
+                pid: 42,
+                start: "1".into(),
+                image: PathBuf::from("/owned/runtime"),
+            },
+        }
+    }
+
+    fn tree_rows() -> Vec<Value> {
+        let proof = json!({"schema":"codex-native-completion-v1","call_id":"original",
+            "session_id":51,"outcome":"process_tree_completed","exit_code":137,"hooks":"absent"});
+        let original = json!({"type":"exec_command_end","call_id":"original","turn_id":"turn",
+            "process_id":"51","completed_at_ms":4,"command":["owned"],"cwd":"/owned/workspace",
+            "parsed_cmd":[],"source":"unified_exec_startup","interaction_input":"original input",
+            "aggregated_output":"unchanged timeout output","exit_code":124,"duration":{"secs":1,"nanos":0},
+            "status":"failed","native_completion":null});
+        let mut command = original.clone();
+        let fields = command.as_object_mut().unwrap();
+        for key in ["call_id", "turn_id", "completed_at_ms", "native_completion"] {
+            fields.remove(key);
+        }
+        fields.insert("type".into(), json!("CommandExecution"));
+        fields.insert("id".into(), json!("original"));
+        let mut late = original.clone();
+        late["native_completion"] = proof;
+        vec![
+            json!({"type":"turn_context","payload":{"turn_id":"turn"}}),
+            json!({"type":"response_item","payload":{"type":"function_call","call_id":"original",
+                "name":"exec_command","arguments":"{\"cmd\":\"owned\"}"}}),
+            json!({"type":"event_msg","payload":{"type":"item_completed","thread_id":"thread",
+                "turn_id":"turn","completed_at_ms":4,"item":command}}),
+            json!({"type":"event_msg","payload":original}),
+            json!({"type":"event_msg","payload":late}),
+        ]
+    }
+
+    #[test]
+    fn tree_witness_requires_same_original_canonical_payload() {
+        let rows = tree_rows();
+        let evidence = CompletionEvidence::from_rows(owner(), "thread".into(), rows.clone()).unwrap();
+        let crate::native_claims::completion::Presence::Present(proof) =
+            &evidence.witnesses["original"].proof
+        else {
+            panic!("explicit supervised tree proof missing");
+        };
+        assert!(proof.process_tree_completed());
+        assert_eq!(proof.waited(), Some(137));
+        assert_eq!(evidence.rows[2]["payload"]["item"]["exit_code"], 124);
+        for fault in ["missing", "thread", "turn", "input", "output", "session", "duplicate"] {
+            let mut changed = rows.clone();
+            match fault {
+                "missing" => { changed.remove(2); }
+                "thread" => changed[2]["payload"]["thread_id"] = json!("foreign"),
+                "turn" => changed[2]["payload"]["turn_id"] = json!("foreign"),
+                "input" => changed[2]["payload"]["item"]["interaction_input"] = json!("changed"),
+                "output" => changed[2]["payload"]["item"]["aggregated_output"] = json!("changed"),
+                "session" => changed[2]["payload"]["item"]["process_id"] = json!("52"),
+                "duplicate" => changed.push(changed[2].clone()),
+                _ => unreachable!(),
+            }
+            assert!(CompletionEvidence::from_rows(owner(), "thread".into(), changed).is_err(), "{fault}");
+        }
+    }
+
+    #[test]
+    fn old_parent_wait_remains_readable_without_process_tree_authority() {
+        let mut rows = tree_rows();
+        rows[4]["payload"]["native_completion"]["outcome"] = json!("wait_completed");
+        rows.remove(2);
+        let evidence = CompletionEvidence::from_rows(owner(), "thread".into(), rows).unwrap();
+        let crate::native_claims::completion::Presence::Present(proof) =
+            &evidence.witnesses["original"].proof
+        else {
+            panic!("parent status should remain readable");
+        };
+        assert!(proof.wait_completed());
+        assert!(!proof.process_tree_completed());
     }
 }

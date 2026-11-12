@@ -24,7 +24,8 @@ pub(crate) struct Execution {
     pub path: String,
     pub variables: Vec<String>,
     pub no_default_config: bool,
-    /// Schema 3 binds advertised hook facts to the actual dispatch hook snapshot.
+    /// Schema 4 binds actual dispatch hooks and the qualified runtime handlers.
+    /// Earlier schemas stay readable without granting new execution authority.
     #[serde(default)]
     pub hook_free_tools: Vec<String>,
 }
@@ -34,7 +35,7 @@ impl Execution {
         let allowed = match self.schema {
             1 => return self.hook_free_tools.is_empty(),
             2 => 5,
-            3 => 6,
+            3 | 4 => 6,
             _ => return false,
         };
         self.hook_free_tools.len() <= allowed
@@ -50,7 +51,7 @@ impl Execution {
                             | "view_image"
                             | "clock.curr_time"
                             | "clock.sleep"
-                    ) || self.schema == 3 && tool == "write_stdin")
+                    ) || matches!(self.schema, 3 | 4) && tool == "write_stdin")
                         && !self.hook_free_tools[..index].contains(tool)
                 })
     }
@@ -68,7 +69,7 @@ impl Execution {
 
     pub(super) fn permits_bounded_tool(&self, tool: &str, workspace: &Path) -> bool {
         self.describes_workspace(workspace)
-            && self.schema == 3
+            && self.schema == 4
             && self.hook_free_tools.iter().any(|name| name == tool)
     }
 
@@ -79,7 +80,7 @@ impl Execution {
     ) -> Option<&'static str> {
         if !self.describes_workspace(workspace) {
             Some("native_execution_completion_unavailable")
-        } else if self.schema != 3 {
+        } else if self.schema != 4 {
             Some("native_execution_generation_unsupported")
         } else if tool.is_some_and(|tool| !self.permits_bounded_tool(tool, workspace)) {
             Some("native_execution_completion_unavailable")
@@ -557,7 +558,7 @@ pub(super) fn classify(input: &str, workspace: &Path, execution: &Execution) -> 
 pub(crate) fn hook_fixture(workspace: &Path) -> Execution {
     let owner = crate::cdp::Process::read(std::process::id()).unwrap();
     Execution {
-        schema: 3,
+        schema: 4,
         pid: owner.pid,
         start: owner.start,
         thread: "hook-fixture-thread".into(),
@@ -605,7 +606,7 @@ pub(crate) fn fixture(workspace: &Path) -> Execution {
     .unwrap();
     let owner = crate::cdp::Process::read(std::process::id()).unwrap();
     Execution {
-        schema: 3,
+        schema: 4,
         pid: owner.pid,
         start: owner.start,
         thread: "compiler-test-thread".into(),

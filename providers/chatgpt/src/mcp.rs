@@ -479,8 +479,8 @@ struct Invocation {
     // original immutable function result (which may still be unavailable).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     terminal_completion: Option<crate::native_claims::completion::Proof>,
-    // The old completed_session marker did not retain the exit sentinel.
-    // Legacy reuse needs a newly observed original qualified ordinary exit.
+    // Retained for readable historical receipts only. A parent exit code
+    // cannot grant new process closure or result-poll admission.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     completed_legacy_exit: Option<i64>,
 }
@@ -691,8 +691,8 @@ struct ExternalEffectReceipt {
     // original immutable function result (which may still be unavailable).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     terminal_completion: Option<crate::native_claims::completion::Proof>,
-    // The old completed_session marker did not retain the exit sentinel.
-    // Legacy reuse needs a newly observed original qualified ordinary exit.
+    // Retained for readable historical receipts only. A parent exit code
+    // cannot grant new process closure or result-poll admission.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     completed_legacy_exit: Option<i64>,
 }
@@ -748,7 +748,14 @@ impl ExternalCompletion {
         Self::from_result_for(call_id, None, result)
     }
     fn from_result_for(call_id: &str, session: Option<u64>, result: &Value) -> Self {
-        let observation = crate::native_claims::process_observation(result, call_id, session);
+        let mut observation = crate::native_claims::process_observation(result, call_id, session);
+        if let Some(proof) =
+            crate::native_claims::completion::pre_dispatch_rejection(result, call_id)
+        {
+            observation.not_spawned = true;
+            observation.proof = Some(proof);
+            observation.completion_protocol = true;
+        }
         Self {
             fingerprint: digest(result),
             running: observation.running,
@@ -788,13 +795,10 @@ impl ExternalCompletion {
             Some(value) => {
                 crate::native_claims::completion::Proof::parse(value).is_some_and(|proof| {
                     proof.belongs_to(call, None)
-                        && proof.wait_completed()
+                        && proof.process_tree_completed()
                         && proof.waited() == saved.exit_code
                 })
             }
-            None if !saved.completion_protocol => saved
-                .exit_code
-                .is_some_and(crate::native_claims::confirmed_exit_code),
             None => false,
         }
     }
@@ -829,7 +833,7 @@ impl ExternalCompletion {
             };
             if proof.not_started()
                 || proof.running().is_some()
-                || proof.wait_completed() && self.confirmed_terminal()
+                || proof.wait_completed() && proof.waited() == saved.exit_code
             {
                 return json!({"output":format!("Native completion: {value}\nOutput:\n")});
             }
@@ -936,10 +940,7 @@ impl SessionPollEvidence {
                     receipt
                         .terminal_completion
                         .as_ref()
-                        .is_some_and(|proof| proof.wait_completed())
-                        || receipt
-                            .completed_legacy_exit
-                            .is_some_and(crate::native_claims::confirmed_exit_code)
+                        .is_some_and(|proof| proof.process_tree_completed())
                 }),
                 session,
             );
@@ -977,10 +978,7 @@ impl SessionPollEvidence {
                 call.completed_session.filter(|_| {
                     call.terminal_completion
                         .as_ref()
-                        .is_some_and(|proof| proof.wait_completed())
-                        || call
-                            .completed_legacy_exit
-                            .is_some_and(crate::native_claims::confirmed_exit_code)
+                        .is_some_and(|proof| proof.process_tree_completed())
                 }),
                 session,
             );
@@ -1073,26 +1071,7 @@ fn settle_effect_for(
         return;
     }
     let running = observation.running;
-    let exited = observation.terminal
-        && (observation.proof.is_some()
-            || claims.claims.get(id).is_some_and(|held| {
-                held.process_hooks_absent || matches!(held.effect.claim_scope(), Effect::Paths(_))
-            })
-            || !claims.claims.contains_key(id)
-                && continuation.is_some_and(|session| {
-                    let mut owners = claims
-                        .claims
-                        .values()
-                        .filter(|held| held.lane == lane && held.session_id == Some(session));
-                    let Some(first) = owners.next() else {
-                        return false;
-                    };
-                    let safe = |held: &ClaimedEffect| {
-                        held.process_hooks_absent
-                            || matches!(held.effect.claim_scope(), Effect::Paths(_))
-                    };
-                    safe(first) && owners.all(safe)
-                }));
+    let exited = observation.terminal;
     let not_spawned =
         native_effect::process_tool(name) == Some("exec_command") && observation.not_spawned;
     if let Some(pending) = claims
@@ -1381,11 +1360,15 @@ impl Broker {
                         .is_some_and(|output| output == *saved);
                 let closed_non_process = call.offered
                     && native_effect::process_tool(&call.name).is_none()
-                    && match call.effect.as_ref() {
+                    && (match call.effect.as_ref() {
                         Some(Effect::Read) => call.shared_reserved == Some(false),
                         Some(effect @ Effect::Paths(_)) => effect.claim_scope() == effect,
                         _ => false,
-                    }
+                    } || crate::native_claims::completion::pre_dispatch_rejection(saved, &call.id)
+                        .is_some_and(|proof| {
+                            crate::native_claims::completion::pre_dispatch_rejection(result, &call.id)
+                                == Some(proof)
+                        }))
                     && saved
                         .get("output")
                         .is_some_and(|output| *output == result["output"])
@@ -1460,7 +1443,6 @@ impl Broker {
                 continue;
             };
             if !receipt.settled
-                || receipt.process_hooks_absent != Some(true)
                 || receipt.workspace.as_deref() != Some(evidence.workspace.as_path())
             {
                 continue;
@@ -1474,19 +1456,44 @@ impl Broker {
             let Some((turn, raw, result)) = originals.get(id) else {
                 continue;
             };
+            let Some(raw_name) = raw["name"].as_str() else {
+                continue;
+            };
+            let raw_key = if native_effect::default_namespace(&raw["namespace"]) {
+                raw_name.to_owned()
+            } else if let Some(namespace) = raw["namespace"].as_str() {
+                format!("{namespace}.{raw_name}")
+            } else {
+                continue;
+            };
+            let name_matches = receipt.name == raw_key
+                || native_effect::default_namespace(&raw["namespace"])
+                    && receipt.name == format!("functions.{raw_name}");
+            let input = match raw["type"].as_str() {
+                Some("function_call") => raw["arguments"].as_str(),
+                Some("custom_tool_call") => raw["input"].as_str(),
+                _ => None,
+            };
             if *resource_id != external_effect_id(lane, id)
                 || !same_origin(receipt.process_origin.as_ref(), turn)
                 || completion.fingerprint != digest(result)
-                || raw["type"] != "function_call"
-                || !native_effect::default_namespace(&raw["namespace"])
-                || raw["name"].as_str() != native_effect::process_tool(&receipt.name)
-                || !raw["arguments"]
-                    .as_str()
-                    .is_some_and(|input| receipt.fingerprint == digest(&(&receipt.name, input)))
+                || !name_matches
+                || !input.is_some_and(|input| receipt.fingerprint == digest(&(&receipt.name, input)))
             {
                 continue;
             }
-            receipts.legacy_processes.insert(id.to_owned());
+            if native_effect::process_tool(&receipt.name).is_none() {
+                if crate::native_claims::completion::pre_dispatch_rejection(result, id)
+                    .is_some_and(|proof| {
+                        crate::native_claims::completion::pre_dispatch_rejection(&completion.marker(), id)
+                            == Some(proof)
+                    })
+                {
+                    receipts.non_commands.insert(id.to_owned());
+                }
+            } else if receipt.process_hooks_absent == Some(true) {
+                receipts.legacy_processes.insert(id.to_owned());
+            }
         }
         // Already-offered rejection strings and legacy external not_spawned
         // booleans do not prove that backend startup caused no effect.
@@ -1539,6 +1546,7 @@ impl Broker {
                             && call.result.is_none()
                             && !call.terminal_completion.as_ref().is_some_and(|proof| {
                                 native_effect::process_tool(&call.name) == Some("exec_command")
+                                    && proof.process_tree_completed()
                                     && proof.belongs_to(&call.id, None)
                                     && call.process_origin.is_some()
                             })
@@ -1636,6 +1644,7 @@ impl Broker {
                             .process_origin
                             .as_ref()
                             .is_some_and(|origin| origin.turn == witness.turn_id)
+                            && proof.process_tree_completed()
                             && proof.belongs_to(&call.id, session))
                         .then(|| (call.id.clone(), proof.clone()))
                     })
@@ -1696,6 +1705,7 @@ impl Broker {
                     .as_ref()
                     .filter(|proof| {
                         native_effect::process_tool(&call.name) == Some("exec_command")
+                            && proof.process_tree_completed()
                             && proof.belongs_to(&call.id, None)
                             && call.process_origin.is_some()
                     })
@@ -1724,26 +1734,6 @@ impl Broker {
                     )
                     .map_err(Self::shared_guard_error)?;
                 }
-                if let Some(session) = call.completed_session.filter(|_| {
-                    call.process_origin.is_some()
-                        && call
-                            .completed_legacy_exit
-                            .is_some_and(crate::native_claims::confirmed_exit_code)
-                }) {
-                    if let Some(workspace) = turn
-                        .workspace
-                        .as_deref()
-                        .filter(|_| call.requires_shared_settlement())
-                    {
-                        SharedNativeGuard::release_observed_processes(
-                            workspace,
-                            self.shared_guard_home().as_deref(),
-                            &turn.lane,
-                            &BTreeMap::from([(call.id.clone(), session)]),
-                        )
-                        .map_err(Self::shared_guard_error)?;
-                    }
-                }
                 let observation = crate::native_claims::process_observation(
                     result,
                     &call.id,
@@ -1752,9 +1742,6 @@ impl Broker {
                 if native_effect::process_tool(&call.name).is_none()
                     || observation.terminal
                     || observation.not_spawned
-                    || call
-                        .completed_legacy_exit
-                        .is_some_and(crate::native_claims::confirmed_exit_code)
                 {
                     settled.insert(call.id.clone());
                 }
@@ -1788,7 +1775,7 @@ impl Broker {
             let proven = receipt
                 .terminal_completion
                 .as_ref()
-                .is_some_and(|proof| proof.valid())
+                .is_some_and(|proof| proof.process_tree_completed() || proof.not_started())
                 || receipt
                     .completion
                     .as_ref()
@@ -1884,14 +1871,13 @@ impl Broker {
         &self,
         lanes: &[&str],
         workspace: &Path,
-        history: &[Value],
+        _history: &[Value],
         evidence: Option<&crate::operator_native::CompletionEvidence>,
     ) -> Result<(), Error> {
         use crate::native_claims::completion::{Presence, Proof};
         let mut registry = self.registry.lock().await;
         let key = digest(&"native-effect-claims-v1");
         let mut state: ActiveEffects = self.journal.read(&key)?.unwrap_or_default();
-        let mut ended = BTreeMap::<String, BTreeMap<String, u64>>::new();
         let claims: Vec<_> = state
             .claims
             .iter()
@@ -1920,19 +1906,11 @@ impl Broker {
                 })
                 .cloned();
             let external = state.external.get(&id).cloned();
-            let (name, source_id, origin, legacy_running) = if let Some(call) = &call {
-                let legacy = call.result.as_ref().is_some_and(|result| {
-                    matches!(
-                        crate::native_claims::completion::result_proof(result),
-                        Presence::Absent
-                    ) && native_process_result(result) == (claim.session_id, false)
-                        && claim.session_id.is_some()
-                });
+            let (name, source_id, origin) = if let Some(call) = &call {
                 (
                     call.name.clone(),
                     call.id.clone(),
                     call.process_origin.clone(),
-                    legacy,
                 )
             } else if let Some(receipt) = &external {
                 if receipt.lane.as_deref() != Some(claim.lane.as_str())
@@ -1957,17 +1935,10 @@ impl Broker {
                 let Some(source) = source else {
                     continue;
                 };
-                let legacy = receipt.completion.as_ref().is_some_and(|completion| {
-                    completion.native_result.as_ref().is_some_and(|saved| {
-                        !saved.completion_protocol && saved.native_completion.is_none()
-                    }) && completion.status() == (claim.session_id, false)
-                        && claim.session_id.is_some()
-                });
                 (
                     receipt.name.clone(),
                     source,
                     receipt.process_origin.clone(),
-                    legacy,
                 )
             } else {
                 continue;
@@ -1987,7 +1958,8 @@ impl Broker {
             });
             let typed: Option<Proof> = witness.and_then(|witness| match &witness.proof {
                 Presence::Present(proof)
-                    if original_matches
+                    if proof.process_tree_completed()
+                        && original_matches
                         && origin.as_ref().is_some_and(|origin| {
                             evidence.is_some_and(|evidence| {
                                 origin.matches_evidence(evidence, &witness.turn_id)
@@ -2037,92 +2009,9 @@ impl Broker {
                 }
                 continue;
             }
-            // Only an original legacy running result can use the established
-            // qualified legacy item path. A new witness, even null, blocks it.
-            let Some(session) = claim.session_id.filter(|_| {
-                legacy_running
-                    && witness.is_none()
-                    && (claim.process_hooks_absent
-                        || matches!(claim.effect.claim_scope(), Effect::Paths(_)))
-                    && (evidence.is_none() || original_matches && origin.is_some())
-            }) else {
-                continue;
-            };
-            let row = history.iter().find(|row| {
-                let item = &row["item"];
-                item["type"] == "commandExecution"
-                    && item["id"] == source_id
-                    && item["processId"]
-                        .as_str()
-                        .and_then(|id| id.parse::<u64>().ok())
-                        == Some(session)
-                    && matches!(item["status"].as_str(), Some("completed" | "failed"))
-                    && item["exitCode"]
-                        .as_i64()
-                        .is_some_and(crate::native_claims::confirmed_exit_code)
-                    && origin.as_ref().is_none_or(|origin| {
-                        row["turn_id"] == origin.turn
-                            && evidence.is_none_or(|evidence| {
-                                origin.matches_evidence(evidence, &origin.turn)
-                            })
-                    })
-            });
-            let Some(row) = row else {
-                continue;
-            };
-            ended
-                .entry(claim.lane.clone())
-                .or_default()
-                .insert(id.clone(), session);
-            if matches!(claim.effect.claim_scope(), Effect::Paths(_)) {
-                if let (Some(token), Some(turn)) =
-                    (claim.turn_token.as_ref(), recorded_turn.as_mut())
-                {
-                    let original = turn.calls.values_mut().find(|call| call.id == id).unwrap();
-                    if original
-                        .process_origin
-                        .as_ref()
-                        .is_some_and(|origin| row["turn_id"] == origin.turn)
-                    {
-                        original.completed_session = Some(session);
-                        original.completed_legacy_exit = row["item"]["exitCode"].as_i64();
-                        self.persist(token, turn)?;
-                        if registry.turns.contains_key(token) {
-                            registry.turns.insert(token.clone(), turn.clone());
-                        }
-                    }
-                } else if let Some(receipt) = state.external.get_mut(&id) {
-                    if receipt
-                        .process_origin
-                        .as_ref()
-                        .is_some_and(|origin| row["turn_id"] == origin.turn)
-                    {
-                        receipt.completed_session = Some(session);
-                        receipt.completed_legacy_exit = row["item"]["exitCode"].as_i64();
-                        changed = true;
-                    }
-                }
-            }
         }
         // Commit existing receipt supplements before releasing shared claims.
         if changed {
-            self.journal.write(&key, &state)?;
-        }
-        for (lane, processes) in &ended {
-            SharedNativeGuard::release_observed_processes(
-                workspace,
-                self.shared_guard_home().as_deref(),
-                lane,
-                processes,
-            )
-            .map_err(Self::shared_guard_error)?;
-        }
-        if !ended.is_empty() {
-            state.claims.retain(|id, claim| {
-                !ended
-                    .get(&claim.lane)
-                    .is_some_and(|set| set.contains_key(id))
-            });
             self.journal.write(&key, &state)?;
         }
         drop(registry);
@@ -2464,8 +2353,8 @@ impl Broker {
                 continue;
             };
             let terminal = call.terminal_completion.as_ref().filter(|proof|
-                native_effect::process_tool(&call.name) == Some("exec_command") && proof.belongs_to(&call.id, None)
-                && call.process_origin.is_some()).map(|proof|json!({
+                native_effect::process_tool(&call.name) == Some("exec_command") && proof.process_tree_completed()
+                && proof.belongs_to(&call.id, None) && call.process_origin.is_some()).map(|proof|json!({
                     "output":format!("Native completion: {}\nOutput:\n",serde_json::to_string(proof).unwrap())}));
             let Some(result) = terminal.as_ref().or(call.result.as_ref()) else {
                 continue;
@@ -2564,7 +2453,7 @@ impl Broker {
                 }
                 let terminal = receipt.terminal_completion.as_ref().filter(|proof| {
                     native_effect::process_tool(&receipt.name) == Some("exec_command")
-                        && proof.valid()
+                        && proof.process_tree_completed()
                         && receipt.process_origin.is_some()
                 });
                 let (source_call_id, result) = if let Some(proof) = terminal {
@@ -4202,7 +4091,7 @@ mod native_concurrency_tests {
             .await
             .unwrap();
         let proof = json!({"schema":"codex-native-completion-v1","call_id":"poll","session_id":83,
-            "outcome":"wait_completed","exit_code":137,"hooks":"absent"});
+            "outcome":"process_tree_completed","exit_code":137,"hooks":"absent"});
         broker.settle_external_tools("owner",&[("poll".into(),json!({
             "output":format!("Native completion: {proof}\nProcess exited with code 137\nOutput:\n")}))]).await.unwrap();
         assert_eq!(
@@ -4221,7 +4110,7 @@ mod native_concurrency_tests {
                     json!({
             "output":format!("Native completion: {}\nOutput:\n",json!({
                 "schema":"codex-native-completion-v1","call_id":"unblocked","session_id":null,
-                "outcome":"wait_completed","exit_code":0,"hooks":"absent"}))}),
+                "outcome":"process_tree_completed","exit_code":0,"hooks":"absent"}))}),
                 )],
             )
             .await
@@ -4354,18 +4243,7 @@ mod native_concurrency_tests {
             &catalog,
         )
         .unwrap();
-        let proof = json!({"schema":"codex-native-completion-v1","call_id":id,"session_id":null,
-            "outcome":"wait_completed","exit_code":0,"hooks":"absent"});
-        let evidence = crate::operator_native::CompletionEvidence::fixture(
-            &execution,
-            vec![
-                json!({"type":"turn_context","payload":{"turn_id":execution.turn}}),
-                json!({"type":"response_item","payload":raw[0].output_item().unwrap()}),
-                json!({"type":"event_msg","payload":{"type":"exec_command_end","call_id":id,
-                "turn_id":execution.turn,"process_id":null,"exit_code":0,"status":"completed",
-                "native_completion":proof}}),
-            ],
-        );
+        let evidence = tree_completion_fixture(&execution, raw[0].output_item().unwrap(), None, 0);
         let settled = broker
             .reconcile_stopped_receipts(
                 &["stopped-work"],
@@ -4662,7 +4540,7 @@ mod native_concurrency_tests {
     }
 
     #[tokio::test]
-    async fn completion_safety_legacy_requery_requires_identical_original_result_and_hooks() {
+    async fn completion_safety_legacy_parent_requery_preserves_identity_without_releasing_scope() {
         for (code, hooks) in [(0, true), (7, true), (124, true), (0, false)] {
             let (root, journal, _) = fixture();
             let facts = native_effect::compiler_fixture(&root);
@@ -4732,10 +4610,10 @@ mod native_concurrency_tests {
                 after.external[&id].completion.as_ref().unwrap().fingerprint,
                 digest(&raw)
             );
-            assert_eq!(after.claims.contains_key(&id), !hooks || code == 124);
+            assert!(after.claims.contains_key(&id));
             assert_eq!(
                 broker.effect_status("owner").unwrap()["shared"]["unconfirmed_effects"],
-                usize::from(!hooks || code == 124)
+                1
             );
             fs::remove_dir_all(root).unwrap();
         }
@@ -4900,7 +4778,7 @@ mod native_concurrency_tests {
                     };
                     let proof = if confirmed {
                         json!({"schema":"codex-native-completion-v1","call_id":id,
-                        "session_id":null,"outcome":"wait_completed","exit_code":null,"hooks":"absent"})
+                        "session_id":null,"outcome":"process_tree_completed","exit_code":null,"hooks":"absent"})
                     } else {
                         Value::Null
                     };
@@ -5387,7 +5265,7 @@ mod native_concurrency_tests {
             ("exec_command", "write_stdin"),
             ("functions.exec_command", "functions.write_stdin"),
         ] {
-            for mode in ["legacy1", "legacy2", "missing", "matching-hook"] {
+            for mode in ["legacy1", "legacy2", "legacy3", "missing", "matching-hook"] {
                 let (root, journal, tools) = fixture_with_process_aliases(exec_tool, poll_tool);
                 let supported = native_effect::hook_fixture(&root);
                 let mut facts = supported.clone();
@@ -5400,6 +5278,10 @@ mod native_concurrency_tests {
                     "legacy2" => {
                         facts.schema = 2;
                         facts.hook_free_tools.retain(|tool| tool != "write_stdin");
+                        "native_execution_generation_unsupported"
+                    }
+                    "legacy3" => {
+                        facts.schema = 3;
                         "native_execution_generation_unsupported"
                     }
                     "matching-hook" => {
@@ -5651,9 +5533,70 @@ mod native_concurrency_tests {
         }
     }
 
+    /// Explicit unit fixture for a complete supervised tree, not an inference
+    /// from the public parent status. Original raw call and canonical receipt
+    /// identities are supplied independently to the production reader.
+    fn tree_completion_fixture(
+        execution: &native_effect::Execution,
+        call: Value,
+        session: Option<u64>,
+        exit: i64,
+    ) -> crate::operator_native::CompletionEvidence {
+        let id = call["call_id"].as_str().unwrap();
+        let proof = json!({"schema":"codex-native-completion-v1","call_id":id,
+            "session_id":session,"outcome":"process_tree_completed","exit_code":exit,"hooks":"absent"});
+        let original_end = json!({"type":"exec_command_end","call_id":id,
+            "turn_id":execution.turn,"process_id":session.map(|id|id.to_string()),
+            "completed_at_ms":1,"command":["owned"],"cwd":execution.cwd,
+            "parsed_cmd":[],"source":"unified_exec_startup","interaction_input":null,
+            "plugin_id":null,"script_path":null,"aggregated_output":"owned original output",
+            "exit_code":exit,"duration":{"secs":0,"nanos":1},
+            "status":if exit == 0 {"completed"}else{"failed"},"native_completion":null});
+        let mut command = original_end.clone();
+        let fields = command.as_object_mut().unwrap();
+        for key in ["call_id", "turn_id", "completed_at_ms", "native_completion"] {
+            fields.remove(key);
+        }
+        fields.insert("type".into(), json!("CommandExecution"));
+        fields.insert("id".into(), json!(id));
+        let mut tree_end = original_end.clone();
+        tree_end["native_completion"] = proof;
+        crate::operator_native::CompletionEvidence::fixture(
+            execution,
+            vec![
+                json!({"type":"turn_context","payload":{"turn_id":execution.turn}}),
+                json!({"type":"response_item","payload":call}),
+                json!({"type":"event_msg","payload":{"type":"item_completed",
+                    "thread_id":execution.thread,"turn_id":execution.turn,
+                    "completed_at_ms":1,"item":command}}),
+                json!({"type":"event_msg","payload":original_end}),
+                json!({"type":"event_msg","payload":tree_end}),
+            ],
+        )
+    }
+    fn mcp_tree_completion_fixture(
+        broker: &Broker,
+        token: &str,
+        id: &str,
+        execution: &native_effect::Execution,
+        session: Option<u64>,
+        exit: i64,
+    ) -> crate::operator_native::CompletionEvidence {
+        let turn: Turn = broker.journal.read(&digest(&("mcp-turn-v1", token))).unwrap().unwrap();
+        let call = turn.calls.values().find(|call|call.id == id).unwrap();
+        let (native, _) = gateway_calls(
+            id,
+            &json!({"name":call.name,"input":call.input,"report":call.report}).to_string(),
+            &turn.tools,
+        ).unwrap();
+        let evidence = tree_completion_fixture(execution, native[0].output_item().unwrap(), session, exit);
+        assert!(call.matches_native_call(&turn, &evidence));
+        evidence
+    }
+
     fn waited(call: &str, session: Option<u64>, exit: i64) -> Value {
         let proof = json!({"schema":"codex-native-completion-v1","call_id":call,
-            "session_id":session,"outcome":"wait_completed","exit_code":exit,"hooks":"absent"});
+            "session_id":session,"outcome":"process_tree_completed","exit_code":exit,"hooks":"absent"});
         json!({"type":"function_call_output","call_id":call,
             "output":format!("Native completion: {proof}\nProcess exited with code {exit}\nOutput:\n")})
     }
@@ -6785,9 +6728,16 @@ mod native_concurrency_tests {
             .settle_native_processes(&["original"], &root, std::slice::from_ref(&item))
             .await
             .unwrap();
+        assert!(broker.has_pending_processes(&["original"]).unwrap(),
+            "even an ordinary parent exit is not descendant closure");
+        let evidence = mcp_tree_completion_fixture(&broker, &token, &id, &facts, Some(56351), 2);
+        broker
+            .settle_native_processes_with_evidence(&["original"], &root, std::slice::from_ref(&item), &evidence)
+            .await
+            .unwrap();
         assert!(!broker.has_pending_processes(&["original"]).unwrap());
         broker
-            .settle_native_processes(&["original"], &root, &[item])
+            .settle_native_processes_with_evidence(&["original"], &root, &[item], &evidence)
             .await
             .unwrap();
         let original_turn: Turn = journal
@@ -6841,8 +6791,11 @@ mod native_concurrency_tests {
             .await
             .unwrap();
         assert!(broker.has_pending_processes(&["local-function"]).unwrap());
+        let evidence = tree_completion_fixture(&facts,
+            json!({"type":"function_call","call_id":"native-call","namespace":"functions",
+                "name":"exec_command","arguments":exec.input}), Some(56351), 0);
         broker
-            .settle_native_processes(&["local-function"], &root, &[local_item])
+            .settle_native_processes_with_evidence(&["local-function"], &root, &[local_item], &evidence)
             .await
             .unwrap();
         assert!(!broker.has_pending_processes(&["local-function"]).unwrap());
@@ -7504,17 +7457,7 @@ mod native_concurrency_tests {
             &tools,
         )
         .unwrap();
-        let proof = json!({"schema":"codex-native-completion-v1","call_id":id,"session_id":null,
-            "outcome":"wait_completed","exit_code":0,"hooks":"absent"});
-        let evidence = crate::operator_native::CompletionEvidence::fixture(
-            &facts,
-            vec![
-                json!({"type":"turn_context","payload":{"turn_id":facts.turn}}),
-                json!({"type":"response_item","payload":native[0].output_item().unwrap()}),
-                json!({"type":"event_msg","payload":{"type":"exec_command_end","call_id":id,
-                "turn_id":facts.turn,"process_id":null,"exit_code":0,"status":"completed","native_completion":proof}}),
-            ],
-        );
+        let evidence = tree_completion_fixture(&facts, native[0].output_item().unwrap(), None, 0);
         broker
             .settle_native_processes_with_evidence(&["owner"], &root, &committed, &evidence)
             .await
@@ -7572,7 +7515,7 @@ mod native_concurrency_tests {
                 .unwrap()
                 .to_owned();
             let proof = json!({"schema":"codex-native-completion-v1","call_id":id,"session_id":null,
-                "outcome":"wait_completed","exit_code":0,"hooks":"absent"});
+                "outcome":"process_tree_completed","exit_code":0,"hooks":"absent"});
             let original = json!({"type":"function_call_output","call_id":id,
                 "output":format!("Native completion: {proof}\nChunk ID: original\nWall time: 0.03 seconds\nProcess exited with code 0\nOutput:\n{}", "complete output\n".repeat(10000))});
             let projection = json!({"type":"function_call_output","call_id":id,
@@ -7728,9 +7671,10 @@ mod native_concurrency_tests {
             assert_eq!(expected_calls[&poll_id]["arguments"], poll.input);
             assert!(broker.retained_result(&token, &poll).unwrap().is_none());
             if observed_command_first {
-                broker.settle_native_processes(&["owner"], &root, &[json!({"turn_id":facts.turn,"item":{
+                let evidence = mcp_tree_completion_fixture(&broker, &token, &exec_id, &facts, Some(42), 0);
+                broker.settle_native_processes_with_evidence(&["owner"], &root, &[json!({"turn_id":facts.turn,"item":{
                     "id":exec_id,"type":"commandExecution","status":"completed","processId":"42","exitCode":0,"aggregatedOutput":"original prefix\noriginal tail\n"
-                }})]).await.unwrap();
+                }})], &evidence).await.unwrap();
                 assert!(broker.active_claim_ids(&["owner"]).unwrap().is_empty());
                 assert_eq!(
                     broker.unreturned_native_calls(&token).unwrap(),
@@ -7923,18 +7867,7 @@ mod native_concurrency_tests {
                     &tools,
                 )
                 .unwrap();
-                let proof = json!({"schema":"codex-native-completion-v1","call_id":id,"session_id":51,
-                    "outcome":"wait_completed","exit_code":0,"hooks":"absent"});
-                let evidence = crate::operator_native::CompletionEvidence::fixture(
-                    &facts,
-                    vec![
-                        json!({"type":"turn_context","payload":{"turn_id":facts.turn}}),
-                        json!({"type":"response_item","payload":raw[0].output_item().unwrap()}),
-                        json!({"type":"event_msg","payload":{"type":"exec_command_end","call_id":id,
-                        "turn_id":facts.turn,"process_id":"51","exit_code":0,"status":"completed",
-                        "native_completion":proof}}),
-                    ],
-                );
+                let evidence = tree_completion_fixture(&facts, raw[0].output_item().unwrap(), Some(51), 0);
                 broker
                     .reconcile_stopped_receipts(
                         &["a"],
@@ -7978,7 +7911,7 @@ mod native_concurrency_tests {
                     digest(&(&token, &poll.call_id))
                 };
                 let proof = json!({"schema":"codex-native-completion-v1","call_id":poll_id,"session_id":51,
-                    "outcome":"wait_completed","exit_code":0,"hooks":"absent"});
+                    "outcome":"process_tree_completed","exit_code":0,"hooks":"absent"});
                 let result = json!({"type":"function_call_output","call_id":poll_id,
                     "output":format!("Native completion: {proof}\nProcess exited with code 0\nOutput:\n")});
                 if external {
@@ -8051,9 +7984,10 @@ mod native_concurrency_tests {
         // Native can publish terminal command history between a running poll
         // receipt and the next poll. This must retire the effect, while the
         // original session's remaining output is still available to its owner.
-        broker.settle_native_processes(&["b"], &root, &[json!({"turn_id":execution.turn,"item":{
+        let evidence = mcp_tree_completion_fixture(&broker, &tokens[1], &ids[1], &execution, Some(52), 0);
+        broker.settle_native_processes_with_evidence(&["b"], &root, &[json!({"turn_id":execution.turn,"item":{
             "id":ids[1],"type":"commandExecution","status":"completed","processId":"52","exitCode":0,"aggregatedOutput":null
-        }})]).await.unwrap();
+        }})], &evidence).await.unwrap();
         let before = broker.effect_status("b").unwrap();
         assert_eq!(before["unconfirmed_effects"], 1);
         assert_eq!(before["shared"]["unconfirmed_effects"], 1);
@@ -8279,9 +8213,10 @@ mod native_concurrency_tests {
             let completion = json!({"turn_id":execution.turn,"item":{
                 "id":ids[1],"type":"commandExecution","status":"completed","processId":"52","exitCode":0,"aggregatedOutput":null
             }});
+            let evidence = mcp_tree_completion_fixture(&broker, &tokens[1], &ids[1], &execution, Some(52), 0);
             if completion_before_restart {
                 broker
-                    .settle_native_processes(&["b"], &root, std::slice::from_ref(&completion))
+                    .settle_native_processes_with_evidence(&["b"], &root, std::slice::from_ref(&completion), &evidence)
                     .await
                     .unwrap();
             }
@@ -8289,7 +8224,7 @@ mod native_concurrency_tests {
             let restored = Broker::new(journal.clone());
             if !completion_before_restart {
                 restored
-                    .settle_native_processes(&["b"], &root, &[completion])
+                    .settle_native_processes_with_evidence(&["b"], &root, &[completion], &evidence)
                     .await
                     .unwrap();
             }
@@ -8507,9 +8442,10 @@ mod native_concurrency_tests {
                 tokens.push(token);
                 ids.push(id);
             }
-            broker.settle_native_processes(&["b"], &root, &[json!({"turn_id":execution.turn,"item":{
+            let evidence = mcp_tree_completion_fixture(&broker, &tokens[1], &ids[1], &execution, Some(52), 0);
+            broker.settle_native_processes_with_evidence(&["b"], &root, &[json!({"turn_id":execution.turn,"item":{
                 "id":ids[1],"type":"commandExecution","status":"completed","processId":"52","exitCode":0,"aggregatedOutput":null
-            }})]).await.unwrap();
+            }})], &evidence).await.unwrap();
             broker.retire(&tokens[1], false).await.unwrap();
             let last = broker
                 .register_scoped("b", tools.clone(), true, Some(&root))
@@ -8548,9 +8484,10 @@ mod native_concurrency_tests {
                     )
                     .await
                     .unwrap();
-                broker.settle_native_processes(&["b"], &root, &[json!({"turn_id":following.turn,"item":{
+                let evidence = mcp_tree_completion_fixture(&broker, &last, &id, &following, Some(52), 0);
+                broker.settle_native_processes_with_evidence(&["b"], &root, &[json!({"turn_id":following.turn,"item":{
                     "id":id,"type":"commandExecution","status":"completed","processId":"52","exitCode":0,"aggregatedOutput":null
-                }})]).await.unwrap();
+                }})], &evidence).await.unwrap();
             } else {
                 accepted(&broker, &last, &poll).await;
             }
@@ -8627,9 +8564,13 @@ mod native_concurrency_tests {
                 .unwrap();
             broker.settle_external_tools(lane, &[("exec".into(), json!({"output":format!("Process running with session ID {session}\nOutput:\n")}))]).await.unwrap();
         }
-        broker.settle_native_processes(&["b"], &root, &[json!({"turn_id":execution.turn,"item":{
+        let evidence = tree_completion_fixture(&execution,
+            json!({"type":"function_call","call_id":"exec","namespace":"functions","name":"exec_command",
+                "arguments":json!({"cmd":"clang -O0 b.c -o b.out","workdir":root,"login":false}).to_string()}),
+            Some(52), 0);
+        broker.settle_native_processes_with_evidence(&["b"], &root, &[json!({"turn_id":execution.turn,"item":{
             "id":"exec","type":"commandExecution","status":"completed","processId":"52","exitCode":0,"aggregatedOutput":null
-        }})]).await.unwrap();
+        }})], &evidence).await.unwrap();
         let input = json!({"session_id":52,"chars":""}).to_string();
         let mut unsafe_hooks = execution.clone();
         unsafe_hooks.hook_free_tools.clear();

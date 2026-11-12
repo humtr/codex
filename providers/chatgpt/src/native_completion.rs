@@ -74,6 +74,7 @@ pub(crate) fn strict_json(bytes: &[u8]) -> Result<Value, serde_json::Error> {
 pub(crate) enum Outcome {
     PreBackendRejected,
     WaitCompleted,
+    ProcessTreeCompleted,
     SessionRunning,
 }
 
@@ -128,7 +129,7 @@ impl Proof {
                 Outcome::PreBackendRejected => {
                     self.exit_code.is_none() && self.session_id.is_none()
                 }
-                Outcome::WaitCompleted => {
+                Outcome::WaitCompleted | Outcome::ProcessTreeCompleted => {
                     self.exit_code.is_none_or(|code| (0..=255).contains(&code))
                 }
                 Outcome::SessionRunning => self.session_id.is_some() && self.exit_code.is_none(),
@@ -139,13 +140,19 @@ impl Proof {
             && self.call_id == call
             && session.is_none_or(|session| self.session_id == Some(session))
     }
+    /// Parent status alone never proves that descendants stopped.
     pub(crate) fn wait_completed(&self) -> bool {
-        self.valid() && self.outcome == Outcome::WaitCompleted
+        self.valid()
+            && matches!(
+                self.outcome,
+                Outcome::WaitCompleted | Outcome::ProcessTreeCompleted
+            )
+    }
+    pub(crate) fn process_tree_completed(&self) -> bool {
+        self.valid() && self.outcome == Outcome::ProcessTreeCompleted
     }
     pub(crate) fn waited(&self) -> Option<i64> {
-        (self.valid() && self.outcome == Outcome::WaitCompleted)
-            .then_some(self.exit_code)
-            .flatten()
+        self.wait_completed().then_some(self.exit_code).flatten()
     }
     pub(crate) fn running(&self) -> Option<u64> {
         (self.valid() && self.outcome == Outcome::SessionRunning)
@@ -242,6 +249,26 @@ pub(crate) fn result_proof(value: &Value) -> Presence {
         }
     }
     result_text(value).map_or(Presence::Absent, |text| parse(text, false))
+}
+
+/// Only an authenticated original result may call this helper. A structured
+/// non-dispatch witness belongs to the current invocation, never an older
+/// process session, and must be the harness's first result frame.
+pub(crate) fn pre_dispatch_rejection(value: &Value, call_id: &str) -> Option<Proof> {
+    if value.get("call_id").is_some_and(|id| id.as_str() != Some(call_id))
+        || value.get("id").is_some_and(|id| id.as_str() != Some(call_id))
+        || value.get("type").is_some_and(|kind| {
+            !matches!(kind.as_str(), Some("function_call_output" | "custom_tool_call_output"))
+        })
+    {
+        return None;
+    }
+    match result_proof(value) {
+        Presence::Present(proof) if proof.belongs_to(call_id, None) && proof.not_started() => {
+            Some(proof)
+        }
+        _ => None,
+    }
 }
 
 /// A session-owned raw End row can add completion evidence without changing
@@ -387,6 +414,52 @@ mod tests {
             end_witnesses(&[end]).unwrap()["original"].proof,
             Presence::Present(_)
         ));
+    }
+
+    #[test]
+    fn parent_wait_is_status_and_only_tree_completion_closes_process_scope() {
+        for code in [Some(0), Some(7), None] {
+            let mut value = wait();
+            value["exit_code"] = serde_json::to_value(code).unwrap();
+            let parent = Proof::parse(&value).unwrap();
+            assert!(parent.wait_completed());
+            assert!(!parent.process_tree_completed());
+            value["outcome"] = json!("process_tree_completed");
+            let tree = Proof::parse(&value).unwrap();
+            assert!(tree.wait_completed());
+            assert!(tree.process_tree_completed());
+            assert_eq!(tree.waited(), code);
+            assert!(!tree.not_started());
+            assert_eq!(tree.running(), None);
+        }
+    }
+
+    #[test]
+    fn non_process_rejection_requires_current_original_first_harness_frame() {
+        let proof = json!({"schema":"codex-native-completion-v1","call_id":"original",
+            "session_id":null,"outcome":"pre_backend_rejected","exit_code":null,"hooks":"absent"});
+        for kind in ["function_call_output", "custom_tool_call_output"] {
+            let original = json!({"type":kind,"call_id":"original",
+                "output":format!("Native completion: {proof}\nOutput:\nunsupported actual handler")});
+            assert_eq!(pre_dispatch_rejection(&original, "original"), Proof::parse(&proof));
+            assert!(pre_dispatch_rejection(&original, "other").is_none());
+            let mut wrong = original.clone();
+            wrong["call_id"] = json!("other");
+            assert!(pre_dispatch_rejection(&wrong, "original").is_none());
+            for output in [
+                format!("Native completion: null\nOutput:\nNative completion: {proof}"),
+                format!("ordinary error\nNative completion: {proof}"),
+                "CreateProcess Rejected by backend".into(),
+                "Native completion: null\nOutput:\nunknown".into(),
+            ] {
+                wrong = original.clone();
+                wrong["output"] = json!(output);
+                assert!(pre_dispatch_rejection(&wrong, "original").is_none());
+            }
+        }
+        let wrong_kind = json!({"type":"message","call_id":"original",
+            "output":format!("Native completion: {proof}\nOutput:\n")});
+        assert!(pre_dispatch_rejection(&wrong_kind, "original").is_none());
     }
 
     #[test]
