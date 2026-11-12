@@ -17,6 +17,7 @@ SUITES = {
         'native_completion_new_unknown_result_has_explicit_null_capability',
         'native_completion_timeout_keeps_public_124_until_original_os_wait_proves_exit',
         'native_completion_remote_termination_ack_is_not_local_wait_evidence',
+        'native_completion_shutdown_keeps_admitted_persistence_until_flush_finishes',
     ),
     'protocol': (
         'native_completion_typescript_keeps_nullable_field_and_real_type_dependencies',
