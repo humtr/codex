@@ -464,6 +464,8 @@ struct Invocation {
     // Older readers may omit it; unknown legacy offers require exact lookup.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     shared_reserved: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    process_hooks_absent: Option<bool>,
     result: Option<Value>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     native_input: Vec<Value>,
@@ -473,6 +475,14 @@ struct Invocation {
     process_origin: Option<NativeProcessOrigin>,
     #[serde(default)]
     completed_session: Option<u64>,
+    // Positive Native harness evidence supplements, never replaces, the
+    // original immutable function result (which may still be unavailable).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    terminal_completion: Option<crate::native_claims::completion::Proof>,
+    // The old completed_session marker did not retain the exit sentinel.
+    // Legacy reuse needs a newly observed original qualified ordinary exit.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    completed_legacy_exit: Option<i64>,
 }
 // A terminal command item may arrive before its final write_stdin result.
 // Keep this evidence on the original receipt, never in a second session registry.
@@ -492,6 +502,17 @@ impl NativeProcessOrigin {
             turn: execution.turn.clone(),
         }
     }
+    fn matches_evidence(
+        &self,
+        evidence: &crate::operator_native::CompletionEvidence,
+        turn: &str,
+    ) -> bool {
+        self.pid == evidence.owner.process.pid
+            && self.start == evidence.owner.process.start
+            && self.thread == evidence.thread
+            && self.turn == turn
+            && !turn.is_empty()
+    }
     fn same_owner(&self, execution: &native_effect::Execution) -> bool {
         self.pid == execution.pid
             && self.start == execution.start
@@ -501,6 +522,48 @@ impl NativeProcessOrigin {
     }
 }
 impl Invocation {
+    fn matches_native_call(
+        &self,
+        turn: &Turn,
+        evidence: &crate::operator_native::CompletionEvidence,
+    ) -> bool {
+        let Some((native_turn, raw)) = evidence.calls.get(&self.id) else {
+            return false;
+        };
+        if !self
+            .process_origin
+            .as_ref()
+            .is_some_and(|origin| origin.matches_evidence(evidence, native_turn))
+        {
+            return false;
+        }
+        let Ok((calls, _)) = gateway_calls(
+            &self.id,
+            &json!({
+            "name":self.name,"input":self.input,"report":self.report})
+            .to_string(),
+            &turn.tools,
+        ) else {
+            return false;
+        };
+        let [call] = calls.as_slice() else {
+            return false;
+        };
+        let Ok(expected) = call.output_item() else {
+            return false;
+        };
+        [
+            "type",
+            "call_id",
+            "name",
+            "namespace",
+            "arguments",
+            "input",
+            "execution",
+        ]
+        .iter()
+        .all(|key| expected[*key] == raw[*key])
+    }
     fn requires_shared_settlement(&self) -> bool {
         self.shared_reserved != Some(false)
     }
@@ -594,6 +657,10 @@ struct ClaimedEffect {
     // identity so its authoritative exit can be replayed after a crash.
     #[serde(default)]
     continuations: BTreeMap<String, String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    continuation_effect: Option<crate::native_claims::ContinuationEffect>,
+    #[serde(default)]
+    process_hooks_absent: bool,
 }
 #[derive(Clone, Serialize, Deserialize)]
 struct ExternalEffectReceipt {
@@ -614,8 +681,39 @@ struct ExternalEffectReceipt {
     completion: Option<ExternalCompletion>,
     #[serde(default)]
     process_origin: Option<NativeProcessOrigin>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    process_hooks_absent: Option<bool>,
     #[serde(default)]
     completed_session: Option<u64>,
+    // Positive Native harness evidence supplements, never replaces, the
+    // original immutable function result (which may still be unavailable).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    terminal_completion: Option<crate::native_claims::completion::Proof>,
+    // The old completed_session marker did not retain the exit sentinel.
+    // Legacy reuse needs a newly observed original qualified ordinary exit.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    completed_legacy_exit: Option<i64>,
+}
+impl ExternalEffectReceipt {
+    fn matches_native_call(
+        &self,
+        id: &str,
+        evidence: &crate::operator_native::CompletionEvidence,
+    ) -> bool {
+        let Some((turn, raw)) = evidence.calls.get(id) else {
+            return false;
+        };
+        self.process_origin
+            .as_ref()
+            .is_some_and(|origin| origin.matches_evidence(evidence, turn))
+            && self.name == "functions.exec_command"
+            && raw["type"] == "function_call"
+            && raw["name"] == "exec_command"
+            && (raw["namespace"].is_null() || raw["namespace"] == "functions")
+            && raw["arguments"]
+                .as_str()
+                .is_some_and(|input| self.fingerprint == digest(&(&self.name, input)))
+    }
 }
 #[derive(Clone, Serialize, Deserialize)]
 struct ExternalCompletion {
@@ -624,31 +722,134 @@ struct ExternalCompletion {
     exited: bool,
     #[serde(default)]
     not_spawned: bool,
+    // Old exited/not_spawned booleans lost the underlying evidence. Never
+    // recreate a successful exit or non-dispatch marker from those alone.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    native_result: Option<ExternalResultProof>,
+}
+#[derive(Clone, Serialize, Deserialize)]
+struct ExternalResultProof {
+    schema: u8,
+    #[serde(default)]
+    source_call_id: Option<String>,
+    #[serde(default)]
+    running: Option<u64>,
+    exit_code: Option<i64>,
+    #[serde(default)]
+    native_completion: Option<Value>,
+    #[serde(default)]
+    completion_protocol: bool,
 }
 impl ExternalCompletion {
-    fn from_result(result: &Value) -> Self {
-        let (running, exited) = native_process_result(result);
-        let not_spawned = crate::native_claims::verified_exec_not_spawned(result);
+    #[cfg(test)]
+    fn from_result(call_id: &str, result: &Value) -> Self {
+        Self::from_result_for(call_id, None, result)
+    }
+    fn from_result_for(call_id: &str, session: Option<u64>, result: &Value) -> Self {
+        let observation = crate::native_claims::process_observation(result, call_id, session);
         Self {
             fingerprint: digest(result),
-            running,
-            exited,
-            not_spawned,
+            running: observation.running,
+            exited: observation.terminal,
+            not_spawned: observation.not_spawned,
+            native_result: Some(ExternalResultProof {
+                schema: 1,
+                source_call_id: Some(call_id.to_owned()),
+                running: observation.running,
+                exit_code: observation.exit_code,
+                native_completion: observation
+                    .proof
+                    .and_then(|proof| serde_json::to_value(proof).ok()),
+                completion_protocol: observation.completion_protocol,
+            }),
         }
     }
-
+    fn source_call_id(&self) -> Option<&str> {
+        self.native_result
+            .as_ref()
+            .filter(|proof| proof.schema == 1)?
+            .source_call_id
+            .as_deref()
+            .filter(|id| !id.is_empty())
+    }
+    fn confirmed_terminal(&self) -> bool {
+        let Some(call) = self.source_call_id() else {
+            return false;
+        };
+        let Some(saved) = self.native_result.as_ref() else {
+            return false;
+        };
+        if saved.running.is_some() {
+            return false;
+        }
+        match saved.native_completion.as_ref() {
+            Some(value) => {
+                crate::native_claims::completion::Proof::parse(value).is_some_and(|proof| {
+                    proof.belongs_to(call, None)
+                        && proof.wait_completed()
+                        && proof.waited() == saved.exit_code
+                })
+            }
+            None if !saved.completion_protocol => saved
+                .exit_code
+                .is_some_and(crate::native_claims::confirmed_exit_code),
+            None => false,
+        }
+    }
+    fn confirmed_exit(&self) -> Option<i64> {
+        self.confirmed_terminal()
+            .then(|| {
+                self.native_result
+                    .as_ref()
+                    .and_then(|saved| saved.exit_code)
+            })
+            .flatten()
+    }
+    fn status(&self) -> (Option<u64>, bool) {
+        if self.source_call_id().is_none() {
+            return (None, false);
+        }
+        (
+            self.native_result.as_ref().and_then(|proof| proof.running),
+            self.confirmed_terminal(),
+        )
+    }
     fn marker(&self) -> Value {
-        if let Some(session) = self.running {
-            json!({"output":format!("Process running with session ID {session}")})
-        } else if self.exited {
-            json!({"output":"Process exited with code 0"})
-        } else if self.not_spawned {
-            json!({"error":"native_call_not_dispatched","executed":false})
+        let Some(call) = self.source_call_id() else {
+            return json!({});
+        };
+        let saved = self.native_result.as_ref().unwrap();
+        if let Some(value) = &saved.native_completion {
+            let Some(proof) = crate::native_claims::completion::Proof::parse(value)
+                .filter(|proof| proof.belongs_to(call, None))
+            else {
+                return json!({});
+            };
+            if proof.not_started()
+                || proof.running().is_some()
+                || proof.wait_completed() && self.confirmed_terminal()
+            {
+                return json!({"output":format!("Native completion: {value}\nOutput:\n")});
+            }
+            return json!({});
+        }
+        if let Some(session) = saved.running {
+            let output = if saved.completion_protocol {
+                format!(
+                    "Native completion: null\nProcess running with session ID {session}\nOutput:\n"
+                )
+            } else {
+                format!("Process running with session ID {session}")
+            };
+            json!({"output":output})
+        } else if let Some(code) = self.confirmed_exit() {
+            json!({"output":format!("Process exited with code {code}")})
         } else {
             json!({})
         }
     }
 }
+
 #[derive(Default, Serialize, Deserialize)]
 struct ActiveEffects {
     claims: BTreeMap<String, ClaimedEffect>,
@@ -659,10 +860,22 @@ impl ActiveEffects {
     fn session_poll_scope(&self, lane: &str, session: u64) -> Option<Effect> {
         let mut owners = self
             .claims
-            .values()
-            .filter(|held| held.lane == lane && held.session_id == Some(session));
-        let original = owners.next()?;
+            .iter()
+            .filter(|(_, held)| held.lane == lane && held.session_id == Some(session));
+        let (id, original) = owners.next()?;
         if owners.next().is_some() || !matches!(original.effect.claim_scope(), Effect::Paths(_)) {
+            return None;
+        }
+        if original.turn_token.is_none()
+            && self
+                .external
+                .get(id)
+                .and_then(|receipt| receipt.completion.as_ref())
+                .map(ExternalCompletion::status)
+                != Some((Some(session), false))
+        {
+            // Old external status booleans are not session provenance. Only
+            // the identical original result can supplement that receipt.
             return None;
         }
         Some(original.effect.clone())
@@ -716,11 +929,16 @@ impl SessionPollEvidence {
             evidence.observe(
                 &receipt.name,
                 receipt.continuation,
-                receipt
-                    .completion
-                    .as_ref()
-                    .map(|result| (result.running, result.exited)),
-                receipt.completed_session,
+                receipt.completion.as_ref().map(ExternalCompletion::status),
+                receipt.completed_session.filter(|_| {
+                    receipt
+                        .terminal_completion
+                        .as_ref()
+                        .is_some_and(|proof| proof.wait_completed())
+                        || receipt
+                            .completed_legacy_exit
+                            .is_some_and(crate::native_claims::confirmed_exit_code)
+                }),
                 session,
             );
         }
@@ -746,8 +964,22 @@ impl SessionPollEvidence {
             self.observe(
                 &call.name,
                 continued_process(&call.name, &call.input),
-                call.result.as_ref().map(native_process_result),
-                call.completed_session,
+                call.result.as_ref().map(|result| {
+                    let observed = crate::native_claims::process_observation(
+                        result,
+                        &call.id,
+                        continued_process(&call.name, &call.input),
+                    );
+                    (observed.running, observed.terminal)
+                }),
+                call.completed_session.filter(|_| {
+                    call.terminal_completion
+                        .as_ref()
+                        .is_some_and(|proof| proof.wait_completed())
+                        || call
+                            .completed_legacy_exit
+                            .is_some_and(crate::native_claims::confirmed_exit_code)
+                }),
                 session,
             );
         }
@@ -791,9 +1023,69 @@ fn settle_effect(
     continuation: Option<u64>,
     result: &Value,
 ) {
-    let (running, exited) = native_process_result(result);
-    let not_spawned =
-        name == "functions.exec_command" && crate::native_claims::verified_exec_not_spawned(result);
+    settle_effect_for(claims, id, lane, name, continuation, result, id);
+}
+fn settle_effect_for(
+    claims: &mut ActiveEffects,
+    id: &str,
+    lane: &str,
+    name: &str,
+    continuation: Option<u64>,
+    result: &Value,
+    source_call_id: &str,
+) {
+    let observation =
+        crate::native_claims::process_observation(result, source_call_id, continuation);
+    if continuation.is_some() && observation.not_spawned {
+        // Only this pre-dispatch continuation is proven effect-free. Its
+        // original process and every other pending invocation remain owned.
+        claims.claims.remove(id);
+        return;
+    }
+    if observation.proof.as_ref().is_some_and(|proof| {
+        claims
+            .claims
+            .get(id)
+            .and_then(|held| held.session_id)
+            .is_some_and(|session| proof.session_id != Some(session))
+    }) {
+        return;
+    }
+    let running = observation.running;
+    let exited = observation.terminal
+        && (observation.proof.is_some()
+            || claims.claims.get(id).is_some_and(|held| {
+                held.process_hooks_absent || matches!(held.effect.claim_scope(), Effect::Paths(_))
+            })
+            || !claims.claims.contains_key(id)
+                && continuation.is_some_and(|session| {
+                    let mut owners = claims
+                        .claims
+                        .values()
+                        .filter(|held| held.lane == lane && held.session_id == Some(session));
+                    let Some(first) = owners.next() else {
+                        return false;
+                    };
+                    let safe = |held: &ClaimedEffect| {
+                        held.process_hooks_absent
+                            || matches!(held.effect.claim_scope(), Effect::Paths(_))
+                    };
+                    safe(first) && owners.all(safe)
+                }));
+    let not_spawned = name == "functions.exec_command" && observation.not_spawned;
+    if let Some(pending) = claims
+        .claims
+        .get(id)
+        .and_then(|held| held.continuation_effect.as_ref())
+    {
+        if continuation != Some(pending.session) || !pending.settled_by(&observation) {
+            return;
+        }
+        claims.claims.remove(id);
+        if !exited {
+            return;
+        }
+    }
     if name == "functions.exec_command" && running.is_some() && !exited && !not_spawned {
         if let Some(claim) = claims.claims.get_mut(id) {
             claim.session_id = running;
@@ -807,44 +1099,32 @@ fn settle_effect(
         return;
     }
     if let Some(session) = continuation {
-        if exited {
-            claims
+        if !exited {
+            // An orphan poll is still an unresolved original invocation. Mirror
+            // the shared reservation and retain a positively observed session
+            // for a later legitimate continuation, without claiming termination.
+            if let Some(claim) = claims
                 .claims
-                .retain(|_, held| !(held.lane == lane && held.session_id == Some(session)));
+                .get_mut(id)
+                .filter(|_| running == Some(session))
+            {
+                claim.session_id = running;
+            }
+            return;
         }
+        claims
+            .claims
+            .retain(|_, held| !(held.lane == lane && held.session_id == Some(session)));
     }
     claims.claims.remove(id);
 }
-/// These markers originate in the native tool's own public execution result.
-/// An unrecognized or failed continuation does not establish process exit.
+/// Only the qualified Native envelope establishes a process observation;
+/// child stdout, synthetic timeout codes and legacy signal text cannot.
 fn native_process_result(value: &Value) -> (Option<u64>, bool) {
-    let output = value
-        .get("output")
-        .and_then(Value::as_str)
-        .or_else(|| value.get("content").and_then(Value::as_str))
-        .map(str::to_owned)
-        .unwrap_or_else(|| value.to_string());
-    // The tool's status header precedes the "Output:" marker. Child process
-    // stdout is untrusted and can itself print status-looking strings: never
-    // allow that text to establish process exit or a new session lease.
-    let status = output
-        .split_once("\nOutput:\n")
-        .map(|(head, _)| head)
-        .or_else(|| output.split_once("\\nOutput:\\n").map(|(head, _)| head))
-        .unwrap_or(&output);
-    let session = status
-        .find("Process running with session ID ")
-        .and_then(|pos| {
-            status[pos + "Process running with session ID ".len()..]
-                .split(|c: char| !c.is_ascii_digit())
-                .next()
-                .and_then(|s| s.parse::<u64>().ok())
-        });
-    let exited = session.is_none()
-        && (status.contains("Process exited with code ")
-            || status.contains("Process exited with signal "));
-    (session, exited)
+    let (running, exit) = crate::native_claims::process_result(value);
+    (running, exit.is_some())
 }
+
 fn continued_process(name: &str, input: &str) -> Option<u64> {
     (name == "functions.write_stdin")
         .then(|| {
@@ -979,6 +1259,234 @@ impl Broker {
             "external_call_receipts":state.external.len(),"shared":shared}),
         )
     }
+    /// Read the existing original receipts, including an admitted cold source
+    /// chain. This grants no execution and never restores retired tokens.
+    pub(crate) async fn unloaded_receipts(
+        &self,
+        lanes: &[&str],
+        roots: &[(&str, &str)],
+        evidence: &crate::operator_native::UnloadedHistory,
+    ) -> Result<crate::operator_native::UnloadedReceipts, Error> {
+        let registry = self.registry.lock().await;
+        let state: ActiveEffects = self
+            .journal
+            .read(&digest(&"native-effect-claims-v1"))?
+            .unwrap_or_default();
+        if state
+            .claims
+            .values()
+            .any(|held| lanes.contains(&held.lane.as_str()))
+            || state.external.values().any(|receipt| {
+                !receipt.settled
+                    && receipt
+                        .lane
+                        .as_deref()
+                        .is_some_and(|lane| lanes.contains(&lane))
+            })
+        {
+            return Err(Error("native_unloaded_effects_unsettled"));
+        }
+        let originals = evidence.original_calls()?;
+        let mut receipts = crate::operator_native::UnloadedReceipts::default();
+        let same_origin = |origin: Option<&NativeProcessOrigin>, turn: &str| {
+            origin.is_some_and(|origin| {
+                !turn.is_empty()
+                    && origin.pid == evidence.owner.process.pid
+                    && origin.start == evidence.owner.process.start
+                    && origin.thread == evidence.thread
+                    && origin.turn == turn
+            })
+        };
+        let mut inspect = |token: &str, turn: &Turn| -> Result<(), Error> {
+            if !lanes.contains(&turn.lane.as_str())
+                || turn.calls.values().any(|call| call.result.is_none())
+            {
+                return Err(Error("native_unloaded_effects_unsettled"));
+            }
+            for (key, call) in &turn.calls {
+                let Some((native_turn, raw, result)) = originals.get(&call.id) else {
+                    continue;
+                };
+                if turn.workspace.as_deref() != Some(evidence.workspace.as_path())
+                    || !call.process_origin.as_ref().is_some_and(|origin| {
+                        origin.pid > 1
+                            && !origin.start.is_empty()
+                            && origin.start.bytes().all(|byte| byte.is_ascii_digit())
+                            && origin.thread == evidence.thread
+                            && origin.turn == *native_turn
+                            && !native_turn.is_empty()
+                    })
+                    || call.id != digest(&(token, key))
+                    || call.fingerprint != digest(&(&call.name, &call.input, &call.report))
+                {
+                    continue;
+                }
+                let (expected, _) = gateway_calls(
+                    &call.id,
+                    &json!({"name":call.name,"input":call.input,"report":call.report}).to_string(),
+                    &turn.tools,
+                )?;
+                let [expected] = expected.as_slice() else {
+                    return Err(Error("mcp_call_changed"));
+                };
+                let expected = expected.output_item()?;
+                if [
+                    "type",
+                    "call_id",
+                    "name",
+                    "namespace",
+                    "arguments",
+                    "input",
+                    "execution",
+                ]
+                .iter()
+                .any(|key| expected[*key] != raw[*key])
+                {
+                    continue;
+                }
+                let saved = call.result.as_ref().unwrap();
+                let rejected_before_offer = same_origin(call.process_origin.as_ref(), native_turn)
+                    && !call.offered
+                    && call.shared_reserved != Some(true)
+                    && saved["executed"] == false
+                    && result["output"]
+                        .as_str()
+                        .and_then(|text| serde_json::from_str::<Value>(text).ok())
+                        .is_some_and(|output| output == *saved);
+                let closed_non_process = call.offered
+                    && !matches!(
+                        call.name.as_str(),
+                        "functions.exec_command" | "functions.write_stdin"
+                    )
+                    && match call.effect.as_ref() {
+                        Some(Effect::Read) => call.shared_reserved == Some(false),
+                        Some(effect @ Effect::Paths(_)) => effect.claim_scope() == effect,
+                        _ => false,
+                    }
+                    && saved
+                        .get("output")
+                        .is_some_and(|output| *output == result["output"])
+                    && saved.get("call_id").is_none_or(|id| id == &call.id)
+                    && saved.get("id").is_none_or(|id| id == &call.id)
+                    && saved.get("name").is_none_or(|name| name == &call.name);
+                if rejected_before_offer || closed_non_process {
+                    receipts.non_commands.insert(call.id.clone());
+                }
+                let original_hooks = call.process_hooks_absent == Some(true)
+                    || matches!(call.effect.as_ref(),Some(effect @ Effect::Paths(_))
+                        if effect.claim_scope() == effect)
+                    // With a real workspace, write_stdin is an unreserved Read
+                    // only after original qualified completion-poll admission.
+                    || call.name == "functions.write_stdin"
+                        && call.shared_reserved == Some(false);
+                if call.offered
+                    && original_hooks
+                    && matches!(
+                        call.name.as_str(),
+                        "functions.exec_command" | "functions.write_stdin"
+                    )
+                    && saved
+                        .get("output")
+                        .is_some_and(|output| *output == result["output"])
+                    && saved.get("call_id").is_none_or(|value| value == &call.id)
+                    && saved.get("id").is_none_or(|value| value == &call.id)
+                {
+                    receipts.legacy_processes.insert(call.id.clone());
+                }
+            }
+            Ok(())
+        };
+        let mut observed = BTreeSet::new();
+        for (root, last) in roots {
+            let mut current = (*root).to_owned();
+            let mut order = None;
+            let mut lane = None;
+            let mut seen = BTreeSet::new();
+            loop {
+                if !seen.insert(current.clone()) {
+                    return Err(Error("mcp_source_discovery_invalid"));
+                }
+                let turn: Turn = self
+                    .journal
+                    .read(&digest(&("mcp-turn-v1", &current)))?
+                    .ok_or(Error("mcp_turn_unavailable"))?;
+                if order.is_some_and(|previous| previous >= turn.order)
+                    || lane.as_ref().is_some_and(|lane| lane != &turn.lane)
+                    || current != *last
+                        && (!turn.retired || !turn.source_bound || turn.discovery.is_none())
+                    || current == *last && turn.discovery.is_some()
+                {
+                    return Err(Error("mcp_source_discovery_invalid"));
+                }
+                inspect(&current, &turn)?;
+                observed.insert(current.clone());
+                if current == *last {
+                    break;
+                }
+                order = Some(turn.order);
+                lane = Some(turn.lane);
+                current = turn
+                    .discovery
+                    .ok_or(Error("mcp_source_discovery_invalid"))?;
+            }
+        }
+        for (token, turn) in &registry.turns {
+            if lanes.contains(&turn.lane.as_str()) && !observed.contains(token) {
+                inspect(token, turn)?;
+            }
+        }
+        for (resource_id, receipt) in &state.external {
+            let Some(lane) = receipt.lane.as_deref().filter(|lane| lanes.contains(lane)) else {
+                continue;
+            };
+            if !receipt.settled
+                || receipt.process_hooks_absent != Some(true)
+                || receipt.workspace.as_deref() != Some(evidence.workspace.as_path())
+            {
+                continue;
+            }
+            let Some(completion) = receipt.completion.as_ref() else {
+                continue;
+            };
+            let Some(id) = completion.source_call_id() else {
+                continue;
+            };
+            let Some((turn, raw, result)) = originals.get(id) else {
+                continue;
+            };
+            if *resource_id != external_effect_id(lane, id)
+                || !same_origin(receipt.process_origin.as_ref(), turn)
+                || completion.fingerprint != digest(result)
+                || raw["type"] != "function_call"
+                || !(raw["namespace"].is_null() || raw["namespace"] == "functions")
+                || raw["name"].as_str() != receipt.name.strip_prefix("functions.")
+                || !raw["arguments"]
+                    .as_str()
+                    .is_some_and(|input| receipt.fingerprint == digest(&(&receipt.name, input)))
+            {
+                continue;
+            }
+            receipts.legacy_processes.insert(id.to_owned());
+        }
+        // Already-offered rejection strings and legacy external not_spawned
+        // booleans do not prove that backend startup caused no effect.
+        let shared = SharedNativeGuard::shared_status(
+            self.shared_guard_home().as_deref(),
+            lanes,
+            &BTreeMap::new(),
+        )
+        .map_err(Self::shared_guard_error)?;
+        if shared["available"] != true
+            || shared["truncated"] != false
+            || !shared["active"]
+                .as_array()
+                .is_some_and(|rows| rows.iter().all(|row| row["owned"] == false))
+        {
+            return Err(Error("native_unloaded_effects_unsettled"));
+        }
+        Ok(receipts)
+    }
+
     pub(crate) fn has_unsettled_stopped_effects(
         &self,
         lanes: &[&str],
@@ -1006,10 +1514,15 @@ impl Broker {
                 .read::<Turn>(&digest(&("mcp-turn-v1", token)))?
             {
                 if lanes.contains(&turn.lane.as_str())
-                    && turn
-                        .calls
-                        .values()
-                        .any(|call| call.offered && call.result.is_none())
+                    && turn.calls.values().any(|call| {
+                        call.offered
+                            && call.result.is_none()
+                            && !call.terminal_completion.as_ref().is_some_and(|proof| {
+                                call.name == "functions.exec_command"
+                                    && proof.belongs_to(&call.id, None)
+                                    && call.process_origin.is_some()
+                            })
+                    })
                 {
                     return Ok(true);
                 }
@@ -1021,32 +1534,36 @@ impl Broker {
     /// lane have confirmed Stop (idle/systemError, no owned background
     /// terminals) and `committed_native_items` has been read from
     /// `thread/items/list`. Reconcile only offered calls and non-session claims
-    /// on the stopped work's lanes whose call IDs never reached Native items.
-    pub(crate) async fn reconcile_stopped_unexecuted(
+    /// Stop fences future dispatch; only durable never-offered state, an
+    /// original result, or an admitted positive terminal witness can settle
+    /// its effects. Missing history/item IDs are deliberately not an input.
+    pub(crate) async fn reconcile_stopped_receipts(
         &self,
         lanes: &[&str],
         tokens: &[&str],
-        committed_native_items: &BTreeSet<String>,
-    ) -> Result<(), Error> {
+        results: &BTreeMap<String, Vec<(String, Value)>>,
+        evidence: Option<&crate::operator_native::CompletionEvidence>,
+    ) -> Result<BTreeSet<String>, Error> {
         let mut registry = self.registry.lock().await;
         let key = digest(&"native-effect-claims-v1");
         let state: ActiveEffects = self.journal.read(&key)?.unwrap_or_default();
-        let mut candidate_tokens: BTreeSet<String> =
-            tokens.iter().map(|token| (*token).to_owned()).collect();
-        for (token, turn) in &registry.turns {
-            if lanes.contains(&turn.lane.as_str()) {
-                candidate_tokens.insert(token.clone());
-            }
-        }
-        for claim in state.claims.values() {
-            if lanes.contains(&claim.lane.as_str()) {
-                if let Some(token) = &claim.turn_token {
-                    candidate_tokens.insert(token.clone());
-                }
-            }
-        }
-        let not_dispatched = json!({"error":"native_call_not_dispatched","executed":false});
-        for token in candidate_tokens {
+        let mut candidates: BTreeSet<String> = tokens.iter().map(|token| (*token).into()).collect();
+        candidates.extend(
+            registry
+                .turns
+                .iter()
+                .filter(|(_, turn)| lanes.contains(&turn.lane.as_str()))
+                .map(|(token, _)| token.clone()),
+        );
+        candidates.extend(
+            state
+                .claims
+                .values()
+                .filter(|claim| lanes.contains(&claim.lane.as_str()))
+                .filter_map(|claim| claim.turn_token.clone()),
+        );
+        let mut settled = BTreeSet::new();
+        for token in candidates {
             let Some(mut turn) = registry.turns.get(&token).cloned().or(self
                 .journal
                 .read::<Turn>(&digest(&("mcp-turn-v1", &token)))?)
@@ -1056,119 +1573,236 @@ impl Broker {
             if !lanes.contains(&turn.lane.as_str()) {
                 continue;
             }
-            let mut turn_changed = false;
-            if !turn.retired {
-                turn.retire(true);
-                turn_changed = true;
-            }
-            for call in turn.calls.values_mut() {
-                if call.offered
-                    && call.result.is_none()
-                    && !committed_native_items.contains(&call.id)
-                {
-                    call.result = Some(not_dispatched.clone());
-                    turn_changed = true;
+            if let Some(results) = results.get(&token) {
+                for (id, result) in results {
+                    let call = turn
+                        .calls
+                        .values_mut()
+                        .find(|call| call.id == *id && call.offered)
+                        .ok_or(Error("mcp_result_invalid"))?;
+                    if result["call_id"].as_str() != Some(id.as_str()) {
+                        return Err(Error("mcp_result_invalid"));
+                    }
+                    if let Some(previous) = &call.result {
+                        if previous != result {
+                            return Err(Error("native_effect_result_changed"));
+                        }
+                    } else {
+                        call.result = Some(result.clone());
+                    }
                 }
             }
-            if turn_changed {
-                self.persist(&token, &turn)?;
-                if let Some(cached) = registry.turns.get_mut(&token) {
-                    *cached = turn;
+            if let Some(evidence) = evidence {
+                let accepted: Vec<_> = turn
+                    .calls
+                    .values()
+                    .filter(|call| {
+                        call.offered
+                            && call.name == "functions.exec_command"
+                            && call.matches_native_call(&turn, evidence)
+                    })
+                    .filter_map(|call| {
+                        let witness = evidence.witnesses.get(&call.id)?;
+                        let crate::native_claims::completion::Presence::Present(proof) =
+                            &witness.proof
+                        else {
+                            return None;
+                        };
+                        let session = call
+                            .result
+                            .as_ref()
+                            .and_then(|result| native_process_result(result).0);
+                        (call
+                            .process_origin
+                            .as_ref()
+                            .is_some_and(|origin| origin.turn == witness.turn_id)
+                            && proof.belongs_to(&call.id, session))
+                        .then(|| (call.id.clone(), proof.clone()))
+                    })
+                    .collect();
+                for (id, proof) in accepted {
+                    let call = turn.calls.values_mut().find(|call| call.id == id).unwrap();
+                    if call
+                        .terminal_completion
+                        .as_ref()
+                        .is_some_and(|old| old != &proof)
+                    {
+                        return Err(Error("native_effect_result_changed"));
+                    }
+                    call.terminal_completion = Some(proof);
                 }
             }
-        }
-        let mut state: ActiveEffects = self.journal.read(&key)?.unwrap_or_default();
-        let mut state_changed = false;
-        let committed_external: BTreeSet<String> = lanes
-            .iter()
-            .flat_map(|lane| {
-                committed_native_items
-                    .iter()
-                    .map(move |id| external_effect_id(lane, id))
-            })
-            .collect();
-        for (effect_id, receipt) in &mut state.external {
-            if !receipt.settled
-                && receipt.continuation.is_none()
-                && receipt.completion.is_none()
-                && receipt.lane.as_deref().is_some_and(|l| lanes.contains(&l))
-                && !committed_external.contains(effect_id)
+            turn.retire(true);
+            for call in turn
+                .calls
+                .values_mut()
+                .filter(|call| !call.offered && call.result.is_none())
             {
-                receipt.completion = Some(ExternalCompletion::from_result(&not_dispatched));
-                state_changed = true;
+                call.result = Some(json!({"error":"mcp_turn_stopped","executed":false}));
+            }
+            // The original result/supplement is durable before any physical
+            // reservation is released, including recovery after a crash.
+            self.persist(&token, &turn)?;
+            if registry.turns.contains_key(&token) {
+                registry.turns.insert(token.clone(), turn.clone());
+            }
+            for (logical, call) in &turn.calls {
+                if call.id != digest(&(&token, logical))
+                    || call.fingerprint != digest(&(&call.name, &call.input, &call.report))
+                {
+                    return Err(Error("native_effect_identity_changed"));
+                }
+                if !call.offered {
+                    if let Some(workspace) = turn
+                        .workspace
+                        .as_deref()
+                        .filter(|_| call.requires_shared_settlement())
+                    {
+                        SharedNativeGuard::abort_unoffered(
+                            workspace,
+                            self.shared_guard_home().as_deref(),
+                            &turn.lane,
+                            &call.id,
+                            &call.name,
+                            &call.input,
+                        )
+                        .map_err(Self::shared_guard_error)?;
+                    }
+                    settled.insert(call.id.clone());
+                    continue;
+                }
+                let terminal = call
+                    .terminal_completion
+                    .as_ref()
+                    .filter(|proof| {
+                        call.name == "functions.exec_command"
+                            && proof.belongs_to(&call.id, None)
+                            && call.process_origin.is_some()
+                    })
+                    .map(|proof| {
+                        json!({"output":format!(
+                        "Native completion: {}\nOutput:\n",serde_json::to_string(proof).unwrap())})
+                    });
+                let Some(result) = terminal.as_ref().or(call.result.as_ref()) else {
+                    continue;
+                };
+                // Also reconciles an original shared reservation whose local
+                // mirror was already committed before a crash.
+                if let Some(workspace) = turn
+                    .workspace
+                    .as_deref()
+                    .filter(|_| call.requires_shared_settlement())
+                {
+                    SharedNativeGuard::settle_external(
+                        workspace,
+                        self.shared_guard_home().as_deref(),
+                        &turn.lane,
+                        &call.id,
+                        &call.name,
+                        &call.input,
+                        result,
+                    )
+                    .map_err(Self::shared_guard_error)?;
+                }
+                if let Some(session) = call.completed_session.filter(|_| {
+                    call.process_origin.is_some()
+                        && call
+                            .completed_legacy_exit
+                            .is_some_and(crate::native_claims::confirmed_exit_code)
+                }) {
+                    if let Some(workspace) = turn
+                        .workspace
+                        .as_deref()
+                        .filter(|_| call.requires_shared_settlement())
+                    {
+                        SharedNativeGuard::release_observed_processes(
+                            workspace,
+                            self.shared_guard_home().as_deref(),
+                            &turn.lane,
+                            &BTreeMap::from([(call.id.clone(), session)]),
+                        )
+                        .map_err(Self::shared_guard_error)?;
+                    }
+                }
+                let observation = crate::native_claims::process_observation(
+                    result,
+                    &call.id,
+                    continued_process(&call.name, &call.input),
+                );
+                if !matches!(
+                    call.name.as_str(),
+                    "functions.exec_command" | "functions.write_stdin"
+                ) || observation.terminal
+                    || observation.not_spawned
+                    || call
+                        .completed_legacy_exit
+                        .is_some_and(crate::native_claims::confirmed_exit_code)
+                {
+                    settled.insert(call.id.clone());
+                }
             }
         }
-        if state_changed {
-            self.journal.write(&key, &state)?;
-        }
+        drop(registry);
         self.reconcile_persisted_integrated_receipts()?;
-        self.changed.notify_waiters();
-        Ok(())
-    }
-    /// These entry points are used only at the Native-confirmed stopped-work
-    /// boundary. The shared OS ledger is independent of the Provider mirror.
-    pub(crate) fn has_stopped_shared_unexecuted(
-        &self,
-        lane: &str,
-        workspace: &Path,
-    ) -> Result<bool, Error> {
-        SharedNativeGuard::has_stopped_unexecuted(
-            workspace,
-            self.shared_guard_home().as_deref(),
-            lane,
-        )
-        .map_err(Self::shared_guard_error)
-    }
-
-    pub(crate) fn settle_stopped_shared_unexecuted(
-        &self,
-        lane: &str,
-        workspace: &Path,
-        native_item_ids: &BTreeSet<String>,
-    ) -> Result<usize, Error> {
-        SharedNativeGuard::settle_stopped_unexecuted(
-            workspace,
-            self.shared_guard_home().as_deref(),
-            lane,
-            native_item_ids,
-        )
-        .map_err(Self::shared_guard_error)
-    }
-
-    /// The caller has already persisted and independently verified a Native
-    /// Stop: its thread is terminal/idle and has no owned background terminals.
-    /// Unknown effects cannot be retired by Stop; only the original observed
-    /// process-session reservations for that same Native thread are eligible.
-    /// Release the shared ledger first, then the Provider mirror. A failed
-    /// mirror commit keeps conservative claims that a later confirmed Stop or
-    /// stopped-work claim can reconcile without executing a tool again.
-    pub(crate) async fn settle_stopped_processes(
-        &self,
-        lane: &str,
-        workspace: &Path,
-    ) -> Result<(), Error> {
-        let _registry = self.registry.lock().await;
-        let key = digest(&"native-effect-claims-v1");
-        let mut state: ActiveEffects = self.journal.read(&key)?.unwrap_or_default();
-        let processes = state
-            .claims
-            .iter()
-            .filter(|(_, claim)| claim.lane == lane)
-            .filter_map(|(id, claim)| claim.session_id.map(|session| (id.clone(), session)))
-            .collect::<BTreeMap<_, _>>();
-        if processes.is_empty() {
-            return Ok(());
+        let state: ActiveEffects = self.journal.read(&key)?.unwrap_or_default();
+        for (id, receipt) in &state.external {
+            let Some(lane) = receipt.lane.as_deref().filter(|lane| lanes.contains(lane)) else {
+                continue;
+            };
+            if !receipt.settled || state.claims.contains_key(id) {
+                continue;
+            }
+            let original = receipt
+                .terminal_completion
+                .as_ref()
+                .map(|proof| proof.call_id.as_str())
+                .or_else(|| {
+                    receipt
+                        .completion
+                        .as_ref()
+                        .and_then(ExternalCompletion::source_call_id)
+                });
+            let Some(original) =
+                original.filter(|original| external_effect_id(lane, original) == *id)
+            else {
+                continue;
+            };
+            let proven = receipt
+                .terminal_completion
+                .as_ref()
+                .is_some_and(|proof| proof.valid())
+                || receipt
+                    .completion
+                    .as_ref()
+                    .is_some_and(|result| result.confirmed_terminal())
+                || !matches!(
+                    receipt.name.as_str(),
+                    "functions.exec_command" | "functions.write_stdin"
+                );
+            if proven {
+                settled.insert(original.to_owned());
+            }
         }
-        SharedNativeGuard::release_observed_processes(
-            workspace,
-            self.shared_guard_home().as_deref(),
-            lane,
-            &processes,
-        )
-        .map_err(Self::shared_guard_error)?;
-        state.claims.retain(|id, _| !processes.contains_key(id));
-        self.journal.write(&key, &state)?;
-        Ok(())
+        self.changed.notify_waiters();
+        Ok(settled)
+    }
+
+    #[cfg(test)]
+    async fn reconcile_stopped_unexecuted(
+        &self,
+        lanes: &[&str],
+        tokens: &[&str],
+        _absent_items: &BTreeSet<String>,
+    ) -> Result<(), Error> {
+        self.reconcile_stopped_receipts(lanes, tokens, &BTreeMap::new(), None)
+            .await
+            .map(|_| ())
+    }
+
+    #[cfg(test)]
+    async fn settle_stopped_processes(&self, _lane: &str, _workspace: &Path) -> Result<(), Error> {
+        // Legacy empty-jobs callers supply no process termination evidence.
+        self.reconcile_persisted_integrated_receipts()
     }
     pub(crate) fn active_claim_ids(&self, lanes: &[&str]) -> Result<BTreeSet<String>, Error> {
         let state: ActiveEffects = self
@@ -1207,162 +1841,264 @@ impl Broker {
         }
         Ok(false)
     }
-    /// Native's committed command end is independent of an app's next poll.
-    /// These items are read through the verified original Native work binding;
-    /// they never replace its original MCP invocation/result.
+    #[cfg(test)]
     pub(crate) async fn settle_native_processes(
         &self,
         lanes: &[&str],
         workspace: &Path,
         history: &[Value],
     ) -> Result<(), Error> {
+        self.observe_native_processes(lanes, workspace, history, None)
+            .await
+    }
+
+    /// Positive evidence is read from the same verified Native Owner as this
+    /// work. A new-protocol null/invalid witness never falls back to a legacy
+    /// UI exit code. Original function results are immutable throughout.
+    pub(crate) async fn settle_native_processes_with_evidence(
+        &self,
+        lanes: &[&str],
+        workspace: &Path,
+        history: &[Value],
+        evidence: &crate::operator_native::CompletionEvidence,
+    ) -> Result<(), Error> {
+        self.observe_native_processes(lanes, workspace, history, Some(evidence))
+            .await
+    }
+    async fn observe_native_processes(
+        &self,
+        lanes: &[&str],
+        workspace: &Path,
+        history: &[Value],
+        evidence: Option<&crate::operator_native::CompletionEvidence>,
+    ) -> Result<(), Error> {
+        use crate::native_claims::completion::{Presence, Proof};
         let mut registry = self.registry.lock().await;
         let key = digest(&"native-effect-claims-v1");
         let mut state: ActiveEffects = self.journal.read(&key)?.unwrap_or_default();
         let mut ended = BTreeMap::<String, BTreeMap<String, u64>>::new();
-        let mut ended_turns = BTreeMap::<String, String>::new();
-        let mut retired_settled = false;
-        for (id, claim) in &state.claims {
+        let claims: Vec<_> = state
+            .claims
+            .iter()
+            .map(|(id, claim)| (id.clone(), claim.clone()))
+            .collect();
+        let mut changed = false;
+        for (id, claim) in claims {
             if !lanes.contains(&claim.lane.as_str()) {
                 continue;
             }
-            if let Some(session) = claim.session_id {
-                if let Some(row) = history.iter().find(|row| {
-                    let item = &row["item"];
-                    item["type"] == "commandExecution"
-                        && item["id"].as_str().is_some_and(|native_id| {
-                            native_id == id
-                                || state.external.contains_key(id)
-                                    && external_effect_id(&claim.lane, native_id) == *id
-                        })
-                        && item["processId"]
-                            .as_str()
-                            .and_then(|value| value.parse::<u64>().ok())
-                            == Some(session)
-                        && matches!(item["status"].as_str(), Some("completed" | "failed"))
-                        // Native uses -1 for unconfirmed errors and 124 for its
-                        // timeout path, which can request termination before wait.
-                        // Neither sentinel independently establishes process exit.
-                        && item["exitCode"].as_i64().is_some_and(|code| code >= 0 && code != 124)
-                }) {
-                    ended
-                        .entry(claim.lane.clone())
-                        .or_default()
-                        .insert(id.clone(), session);
-                    if let Some(turn) = row["turn_id"].as_str() {
-                        ended_turns.insert(id.clone(), turn.to_owned());
-                    }
-                }
-                continue;
-            }
-            let Some(token) = claim.turn_token.as_deref() else {
-                continue;
-            };
-            let Some(result) = history
-                .iter()
-                .find(|row| row["item"]["id"].as_str() == Some(id.as_str()))
-                .and_then(|row| native_history_item_result(&row["item"]))
-            else {
-                continue;
-            };
-            let mut turn = match registry.turns.get(token).cloned() {
-                Some(turn) => turn,
-                None => match self
+            let mut recorded_turn = match claim.turn_token.as_ref() {
+                Some(token) => registry.turns.get(token).cloned().or(self
                     .journal
-                    .read::<Turn>(&digest(&("mcp-turn-v1", token)))?
-                {
-                    Some(turn) => turn,
-                    None => continue,
-                },
+                    .read::<Turn>(&digest(&("mcp-turn-v1", token)))?),
+                None => None,
             };
-            if !turn.retired || turn.lane != claim.lane {
-                continue;
-            }
-            let mut updated = false;
-            for call in turn.calls.values_mut() {
-                if call.id == *id && call.offered && call.result.is_none() {
-                    call.result = Some(result.clone());
-                    updated = true;
-                }
-            }
-            if updated {
-                self.persist(token, &turn)?;
-                if registry.turns.contains_key(token) {
-                    registry.turns.insert(token.to_owned(), turn);
-                }
-                retired_settled = true;
-            }
-        }
-        for (lane, sessions) in &ended {
-            for (id, session) in sessions {
-                let claim = &state.claims[id];
-                if !matches!(claim.effect.claim_scope(), Effect::Paths(_)) {
+            let call = recorded_turn
+                .as_ref()
+                .filter(|turn| {
+                    turn.lane == claim.lane && turn.workspace.as_deref() == Some(workspace)
+                })
+                .and_then(|turn| {
+                    turn.calls
+                        .values()
+                        .find(|call| call.id == id && call.offered)
+                })
+                .cloned();
+            let external = state.external.get(&id).cloned();
+            let (name, source_id, origin, legacy_running) = if let Some(call) = &call {
+                let legacy = call.result.as_ref().is_some_and(|result| {
+                    matches!(
+                        crate::native_claims::completion::result_proof(result),
+                        Presence::Absent
+                    ) && native_process_result(result) == (claim.session_id, false)
+                        && claim.session_id.is_some()
+                });
+                (
+                    call.name.clone(),
+                    call.id.clone(),
+                    call.process_origin.clone(),
+                    legacy,
+                )
+            } else if let Some(receipt) = &external {
+                if receipt.lane.as_deref() != Some(claim.lane.as_str())
+                    || receipt.workspace.as_deref() != Some(workspace)
+                {
                     continue;
                 }
-                if let Some(token) = claim.turn_token.as_deref() {
-                    let mut turn = match registry.turns.get(token).cloned() {
-                        Some(turn) => turn,
-                        None => match self
-                            .journal
-                            .read::<Turn>(&digest(&("mcp-turn-v1", token)))?
-                        {
-                            Some(turn) => turn,
-                            None => continue,
-                        },
-                    };
-                    if turn.lane != *lane {
-                        continue;
-                    }
-                    let mut updated = false;
-                    for call in turn
-                        .calls
-                        .values_mut()
-                        .filter(|call| call.id == *id && call.offered)
-                    {
-                        if call.name == "functions.exec_command"
-                            && call
-                                .process_origin
-                                .as_ref()
-                                .is_some_and(|origin| ended_turns.get(id) == Some(&origin.turn))
-                            && call.result.as_ref().map(native_process_result)
-                                == Some((Some(*session), false))
-                        {
-                            call.completed_session = Some(*session);
-                            updated = true;
-                        }
-                    }
-                    if updated {
-                        self.persist(token, &turn)?;
-                        if registry.turns.contains_key(token) {
-                            registry.turns.insert(token.to_owned(), turn);
-                        }
-                    }
-                } else if let Some(receipt) = state.external.get_mut(id) {
-                    if receipt.name == "functions.exec_command"
-                        && receipt
-                            .process_origin
-                            .as_ref()
-                            .is_some_and(|origin| ended_turns.get(id) == Some(&origin.turn))
-                        && receipt.completion.as_ref().is_some_and(|result| {
-                            result.running == Some(*session) && !result.exited
+                let source = receipt
+                    .completion
+                    .as_ref()
+                    .and_then(ExternalCompletion::source_call_id)
+                    .map(str::to_owned)
+                    .or_else(|| {
+                        evidence.and_then(|evidence| {
+                            evidence
+                                .witnesses
+                                .keys()
+                                .find(|native_id| external_effect_id(&claim.lane, native_id) == id)
+                                .cloned()
                         })
+                    });
+                let Some(source) = source else {
+                    continue;
+                };
+                let legacy = receipt.completion.as_ref().is_some_and(|completion| {
+                    completion.native_result.as_ref().is_some_and(|saved| {
+                        !saved.completion_protocol && saved.native_completion.is_none()
+                    }) && completion.status() == (claim.session_id, false)
+                        && claim.session_id.is_some()
+                });
+                (
+                    receipt.name.clone(),
+                    source,
+                    receipt.process_origin.clone(),
+                    legacy,
+                )
+            } else {
+                continue;
+            };
+            if name != "functions.exec_command" {
+                continue;
+            }
+            let witness = evidence.and_then(|evidence| evidence.witnesses.get(&source_id));
+            let original_matches = evidence.is_some_and(|evidence| {
+                if let (Some(call), Some(turn)) = (&call, &recorded_turn) {
+                    call.matches_native_call(turn, evidence)
+                } else {
+                    external
+                        .as_ref()
+                        .is_some_and(|receipt| receipt.matches_native_call(&source_id, evidence))
+                }
+            });
+            let typed: Option<Proof> = witness.and_then(|witness| match &witness.proof {
+                Presence::Present(proof)
+                    if original_matches
+                        && origin.as_ref().is_some_and(|origin| {
+                            evidence.is_some_and(|evidence| {
+                                origin.matches_evidence(evidence, &witness.turn_id)
+                            })
+                        })
+                        && proof.belongs_to(&source_id, claim.session_id)
+                        && (claim.session_id.is_none() || proof.session_id == claim.session_id) =>
+                {
+                    Some(proof.clone())
+                }
+                _ => None,
+            });
+            if let Some(proof) = typed {
+                if let (Some(token), Some(turn)) =
+                    (claim.turn_token.as_ref(), recorded_turn.as_mut())
+                {
+                    let original = turn.calls.values_mut().find(|call| call.id == id).unwrap();
+                    if original
+                        .terminal_completion
+                        .as_ref()
+                        .is_some_and(|old| old != &proof)
                     {
-                        receipt.completed_session = Some(*session);
+                        return Err(Error("native_effect_result_changed"));
+                    }
+                    original.terminal_completion = Some(proof);
+                    if matches!(claim.effect.claim_scope(), Effect::Paths(_)) {
+                        original.completed_session = claim.session_id;
+                    }
+                    self.persist(token, turn)?;
+                    if registry.turns.contains_key(token) {
+                        registry.turns.insert(token.clone(), turn.clone());
+                    }
+                } else if let Some(receipt) = state.external.get_mut(&id) {
+                    if receipt
+                        .terminal_completion
+                        .as_ref()
+                        .is_some_and(|old| old != &proof)
+                    {
+                        return Err(Error("native_effect_result_changed"));
+                    }
+                    receipt.terminal_completion = Some(proof);
+                    receipt.settled = false;
+                    if matches!(claim.effect.claim_scope(), Effect::Paths(_)) {
+                        receipt.completed_session = claim.session_id;
+                    }
+                    changed = true;
+                }
+                continue;
+            }
+            // Only an original legacy running result can use the established
+            // qualified legacy item path. A new witness, even null, blocks it.
+            let Some(session) = claim.session_id.filter(|_| {
+                legacy_running
+                    && witness.is_none()
+                    && (claim.process_hooks_absent
+                        || matches!(claim.effect.claim_scope(), Effect::Paths(_)))
+                    && (evidence.is_none() || original_matches && origin.is_some())
+            }) else {
+                continue;
+            };
+            let row = history.iter().find(|row| {
+                let item = &row["item"];
+                item["type"] == "commandExecution"
+                    && item["id"] == source_id
+                    && item["processId"]
+                        .as_str()
+                        .and_then(|id| id.parse::<u64>().ok())
+                        == Some(session)
+                    && matches!(item["status"].as_str(), Some("completed" | "failed"))
+                    && item["exitCode"]
+                        .as_i64()
+                        .is_some_and(crate::native_claims::confirmed_exit_code)
+                    && origin.as_ref().is_none_or(|origin| {
+                        row["turn_id"] == origin.turn
+                            && evidence.is_none_or(|evidence| {
+                                origin.matches_evidence(evidence, &origin.turn)
+                            })
+                    })
+            });
+            let Some(row) = row else {
+                continue;
+            };
+            ended
+                .entry(claim.lane.clone())
+                .or_default()
+                .insert(id.clone(), session);
+            if matches!(claim.effect.claim_scope(), Effect::Paths(_)) {
+                if let (Some(token), Some(turn)) =
+                    (claim.turn_token.as_ref(), recorded_turn.as_mut())
+                {
+                    let original = turn.calls.values_mut().find(|call| call.id == id).unwrap();
+                    if original
+                        .process_origin
+                        .as_ref()
+                        .is_some_and(|origin| row["turn_id"] == origin.turn)
+                    {
+                        original.completed_session = Some(session);
+                        original.completed_legacy_exit = row["item"]["exitCode"].as_i64();
+                        self.persist(token, turn)?;
+                        if registry.turns.contains_key(token) {
+                            registry.turns.insert(token.clone(), turn.clone());
+                        }
+                    }
+                } else if let Some(receipt) = state.external.get_mut(&id) {
+                    if receipt
+                        .process_origin
+                        .as_ref()
+                        .is_some_and(|origin| row["turn_id"] == origin.turn)
+                    {
+                        receipt.completed_session = Some(session);
+                        receipt.completed_legacy_exit = row["item"]["exitCode"].as_i64();
+                        changed = true;
                     }
                 }
             }
         }
-        // External receipts and the local mirror share one existing journal.
-        // Commit completion evidence before any process-shared claim release.
-        if !ended.is_empty() {
+        // Commit existing receipt supplements before releasing shared claims.
+        if changed {
             self.journal.write(&key, &state)?;
         }
-        for (lane, sessions) in &ended {
+        for (lane, processes) in &ended {
             SharedNativeGuard::release_observed_processes(
                 workspace,
                 self.shared_guard_home().as_deref(),
                 lane,
-                sessions,
+                processes,
             )
             .map_err(Self::shared_guard_error)?;
         }
@@ -1370,16 +2106,13 @@ impl Broker {
             state.claims.retain(|id, claim| {
                 !ended
                     .get(&claim.lane)
-                    .is_some_and(|processes| processes.contains_key(id))
+                    .is_some_and(|set| set.contains_key(id))
             });
             self.journal.write(&key, &state)?;
-            self.changed.notify_waiters();
         }
         drop(registry);
-        if retired_settled {
-            self.reconcile_persisted_integrated_receipts()?;
-            self.changed.notify_waiters();
-        }
+        self.reconcile_persisted_integrated_receipts()?;
+        self.changed.notify_waiters();
         Ok(())
     }
     /// Provider-owned AppHost tools also execute in upstream Native, but do
@@ -1397,9 +2130,32 @@ impl Broker {
     ) -> Result<(), Error> {
         // This test helper models a Native patch with an explicit hook proof.
         // Missing-metadata tests call the production method with None directly.
-        let facts = matches!(name, "apply_patch" | "functions.apply_patch")
-            .then(|| native_effect::hook_fixture(workspace));
+        let facts = matches!(
+            name,
+            "apply_patch"
+                | "functions.apply_patch"
+                | "functions.exec_command"
+                | "functions.write_stdin"
+        )
+        .then(|| native_effect::hook_fixture(workspace));
         self.admit_external_tool_with_execution(lane, id, name, input, workspace, facts.as_ref())
+            .await
+    }
+
+    pub(crate) async fn admit_external_native_tool(
+        &self,
+        lane: &str,
+        id: &str,
+        tool: &Tool,
+        input: &str,
+        workspace: &Path,
+        execution: Option<&native_effect::Execution>,
+    ) -> Result<(), Error> {
+        let name = tool.key();
+        if (name == "tool_search") != (tool.kind == crate::protocol::ToolKind::Search) {
+            return Err(Error("native_tool_identity_unsupported"));
+        }
+        self.admit_external_tool_with_execution(lane, id, &name, input, workspace, execution)
             .await
     }
 
@@ -1433,6 +2189,9 @@ impl Broker {
         }
         let root =
             std::fs::canonicalize(workspace).map_err(|_| Error("native_workspace_unavailable"))?;
+        if let Some(reason) = native_effect::dispatch_error(name, Some(&root), execution) {
+            return Err(Error(reason));
+        }
         let inherited_poll =
             native_effect::qualified_session_poll(name, input, Some(&root), execution).and_then(
                 |session| {
@@ -1447,6 +2206,8 @@ impl Broker {
         });
         let read_only = effect == Effect::Read;
         let continuation = continued_process(name, input);
+        let continuation_hooks_absent =
+            native_effect::qualified_process_hooks(name, Some(&root), execution);
         if state.claims.values().any(|held| {
             native_effect::conflicts(&effect, held.effect.claim_scope())
                 && !(continuation.is_some() && held.lane == lane && held.session_id == continuation)
@@ -1469,14 +2230,17 @@ impl Broker {
                 input,
             )
             .map_err(Self::shared_guard_error)?;
-            SharedNativeGuard::offer_external_with_effect(
+            SharedNativeGuard::offer_external_with_continuation(
                 &root,
                 self.shared_guard_home().as_deref(),
                 lane,
                 &resource_id,
                 name,
                 input,
-                effect.clone(),
+                crate::native_claims::Admission {
+                    effect: effect.clone(),
+                    hooks_absent: continuation_hooks_absent,
+                },
             )
             .map_err(Self::shared_guard_error)?;
         }
@@ -1486,7 +2250,31 @@ impl Broker {
                 .values()
                 .any(|held| held.lane == lane && held.session_id == Some(session))
         });
-        if effect != Effect::Read && !continuing_owned {
+        if continuing_owned && inherited_poll.is_none() && effect != Effect::Read {
+            for held in state
+                .claims
+                .values_mut()
+                .filter(|held| held.lane == lane && held.session_id == continuation)
+            {
+                held.process_hooks_absent |= matches!(held.effect.claim_scope(), Effect::Paths(_));
+                held.effect = Effect::Opaque;
+            }
+            state.claims.insert(
+                resource_id.clone(),
+                ClaimedEffect {
+                    lane: lane.into(),
+                    effect: Effect::Opaque,
+                    session_id: None,
+                    turn_token: None,
+                    continuations: BTreeMap::new(),
+                    process_hooks_absent: continuation_hooks_absent,
+                    continuation_effect: Some(crate::native_claims::ContinuationEffect {
+                        session: continuation.unwrap(),
+                        hooks_absent: continuation_hooks_absent,
+                    }),
+                },
+            );
+        } else if effect != Effect::Read && !continuing_owned {
             state.claims.insert(
                 resource_id.clone(),
                 ClaimedEffect {
@@ -1495,6 +2283,8 @@ impl Broker {
                     session_id: None,
                     turn_token: None,
                     continuations: BTreeMap::new(),
+                    continuation_effect: None,
+                    process_hooks_absent: continuation_hooks_absent,
                 },
             );
         }
@@ -1510,7 +2300,10 @@ impl Broker {
                 lane: Some(lane.into()),
                 completion: None,
                 process_origin: execution.map(NativeProcessOrigin::from_execution),
+                process_hooks_absent: Some(continuation_hooks_absent),
                 completed_session: None,
+                terminal_completion: None,
+                completed_legacy_exit: None,
             },
         );
         if let Err(error) = self.journal.write(&key, &state) {
@@ -1550,7 +2343,7 @@ impl Broker {
         // lease. A failed commit cannot free a writer that may be running.
         for (id, result) in results {
             let effect_id = external_effect_id(lane, id);
-            if let Some(receipt) = state.external.get_mut(&effect_id).filter(|v| !v.settled) {
+            if let Some(receipt) = state.external.get_mut(&effect_id) {
                 // This trusted original lane and delivery ID also identifies
                 // receipts created before durable lane ownership was recorded.
                 // Never guess a lane from an arbitrary orphaned journal entry.
@@ -1558,7 +2351,8 @@ impl Broker {
                     receipt.lane = Some(lane.to_owned());
                     changed = true;
                 }
-                let completion = ExternalCompletion::from_result(result);
+                let completion =
+                    ExternalCompletion::from_result_for(id, receipt.continuation, result);
                 if receipt
                     .completion
                     .as_ref()
@@ -1566,8 +2360,15 @@ impl Broker {
                 {
                     return Err(Error("native_effect_result_changed"));
                 }
-                if receipt.completion.is_none() {
+                if let Some(old) = receipt.completion.as_mut() {
+                    if old.native_result.is_none() && completion.native_result.is_some() {
+                        old.native_result = completion.native_result;
+                        receipt.settled = false;
+                        changed = true;
+                    }
+                } else {
                     receipt.completion = Some(completion);
+                    receipt.settled = false;
                     changed = true;
                 }
             }
@@ -1615,7 +2416,11 @@ impl Broker {
             else {
                 continue;
             };
-            let Some(result) = call.result.as_ref() else {
+            let terminal = call.terminal_completion.as_ref().filter(|proof|
+                call.name == "functions.exec_command" && proof.belongs_to(&call.id, None)
+                && call.process_origin.is_some()).map(|proof|json!({
+                    "output":format!("Native completion: {}\nOutput:\n",serde_json::to_string(proof).unwrap())}));
+            let Some(result) = terminal.as_ref().or(call.result.as_ref()) else {
                 continue;
             };
             if let Some(workspace) = turn
@@ -1713,41 +2518,57 @@ impl Broker {
             .external
             .iter()
             .filter_map(|(id, receipt)| {
-                (!receipt.settled)
-                    .then(|| {
-                        receipt
-                            .completion
-                            .as_ref()
-                            .map(|proof| (id.clone(), receipt.clone(), proof.marker()))
-                    })
-                    .flatten()
+                if receipt.settled {
+                    return None;
+                }
+                let terminal = receipt.terminal_completion.as_ref().filter(|proof| {
+                    receipt.name == "functions.exec_command"
+                        && proof.valid()
+                        && receipt.process_origin.is_some()
+                });
+                let (source_call_id, result) = if let Some(proof) = terminal {
+                    (
+                        proof.call_id.clone(),
+                        json!({"output":format!(
+                    "Native completion: {}\nOutput:\n",serde_json::to_string(proof).unwrap())}),
+                    )
+                } else {
+                    let completion = receipt.completion.as_ref()?;
+                    (completion.source_call_id()?.to_owned(), completion.marker())
+                };
+                Some((id.clone(), receipt.clone(), source_call_id, result))
             })
             .collect();
-        for (id, receipt, result) in completed {
+        for (id, receipt, source_call_id, result) in completed {
             let Some(lane) = receipt.lane.as_deref() else {
-                // Historical receipts without a verified lane cannot be
-                // silently released after a restart.
                 continue;
             };
+            if external_effect_id(lane, &source_call_id) != id {
+                return Err(Error("native_effect_identity_changed"));
+            }
             if let Some(root) = receipt.workspace.as_deref().filter(|_| !receipt.read_only) {
-                SharedNativeGuard::settle_external_receipt(
+                SharedNativeGuard::settle_external_receipt_for(
                     root,
                     self.shared_guard_home().as_deref(),
                     lane,
                     &id,
                     &receipt.name,
                     receipt.continuation,
-                    &result,
+                    crate::native_claims::OriginalResult {
+                        call_id: &source_call_id,
+                        value: &result,
+                    },
                 )
                 .map_err(Self::shared_guard_error)?;
             }
-            settle_effect(
+            settle_effect_for(
                 &mut state,
                 &id,
                 lane,
                 &receipt.name,
                 receipt.continuation,
                 &result,
+                &source_call_id,
             );
             state.external.get_mut(&id).unwrap().settled = true;
         }
@@ -2226,6 +3047,7 @@ impl Broker {
                 report: args.report.clone(),
                 offered: false,
                 shared_reserved: None,
+                process_hooks_absent: None,
                 result: None,
                 native_input: Vec::new(),
                 effect: Some(effect),
@@ -2234,6 +3056,8 @@ impl Broker {
                     .as_ref()
                     .map(NativeProcessOrigin::from_execution),
                 completed_session: None,
+                terminal_completion: None,
+                completed_legacy_exit: None,
             },
         );
         self.persist(token, &next)?;
@@ -2395,6 +3219,37 @@ impl Broker {
                 if calls.len() == 32 {
                     break;
                 }
+                let discovery = next.tools.get(&call.name).is_some_and(|tool| {
+                    tool.kind == crate::protocol::ToolKind::Search && tool.key() == "tool_search"
+                });
+                // This workspace is the existing Core-admitted NativeScope,
+                // retained even when its metadata is missing or foreign.
+                // Unscoped generic transport keeps its ordinary tool contract.
+                let native_origin = next.workspace.is_some()
+                    || matches!(
+                        call.name.as_str(),
+                        "functions.exec_command" | "functions.write_stdin"
+                    );
+                let reason = if !native_origin {
+                    None
+                } else if call.name == "tool_search" && !discovery {
+                    Some("native_tool_identity_unsupported")
+                } else if discovery {
+                    None
+                } else {
+                    native_effect::dispatch_error(
+                        &call.name,
+                        next.workspace.as_deref(),
+                        next.execution.as_ref(),
+                    )
+                };
+                if let Some(reason) = reason {
+                    call.result = Some(json!({"error":reason,"executed":false,
+                        "message":"This Native invocation lacks a supported dispatch-bound completion capability. The original call will not execute later; saved result reads remain available."}));
+                    call.shared_reserved = Some(false);
+                    changed = true;
+                    continue;
+                }
                 let inherited_poll = match (
                     native_effect::qualified_session_poll(
                         &call.name,
@@ -2426,6 +3281,11 @@ impl Broker {
                     call.admission_effect(next.workspace.as_deref(), next.execution.as_ref())
                 });
                 let continuation = continued_process(&call.name, &call.input);
+                let continuation_hooks_absent = native_effect::qualified_process_hooks(
+                    &call.name,
+                    next.workspace.as_deref(),
+                    next.execution.as_ref(),
+                );
                 // The call's authoritative turn still says it was not offered.
                 // Repair a crash between a previous shared reservation and turn
                 // commit, including its local non-authoritative claim mirror.
@@ -2471,14 +3331,17 @@ impl Broker {
                         &call.input,
                     )
                     .map_err(Self::shared_guard_error)?;
-                    match SharedNativeGuard::offer_external_with_effect(
+                    match SharedNativeGuard::offer_external_with_continuation(
                         workspace,
                         self.shared_guard_home().as_deref(),
                         &next.lane,
                         &call.id,
                         &call.name,
                         &call.input,
-                        effect.clone(),
+                        crate::native_claims::Admission {
+                            effect: effect.clone(),
+                            hooks_absent: continuation_hooks_absent,
+                        },
                     ) {
                         Ok(()) => reserved.push((
                             workspace.to_path_buf(),
@@ -2513,6 +3376,12 @@ impl Broker {
                     // including when the follow-up is in a different Native turn.
                     for held in claims.claims.values_mut() {
                         if held.lane == next.lane && held.session_id == continuation {
+                            if inherited_poll.is_none() && effect != Effect::Read {
+                                held.process_hooks_absent |=
+                                    matches!(held.effect.claim_scope(), Effect::Paths(_));
+                                held.effect = Effect::Opaque;
+                                claims_changed = true;
+                            }
                             if let std::collections::btree_map::Entry::Vacant(item) =
                                 held.continuations.entry(call.id.clone())
                             {
@@ -2520,6 +3389,26 @@ impl Broker {
                                 claims_changed = true;
                             }
                         }
+                    }
+                    if inherited_poll.is_none() && effect != Effect::Read {
+                        claims.claims.insert(
+                            call.id.clone(),
+                            ClaimedEffect {
+                                lane: next.lane.clone(),
+                                effect: Effect::Opaque,
+                                session_id: None,
+                                turn_token: Some(token.to_owned()),
+                                continuations: BTreeMap::new(),
+                                process_hooks_absent: continuation_hooks_absent,
+                                continuation_effect: Some(
+                                    crate::native_claims::ContinuationEffect {
+                                        session: continuation.unwrap(),
+                                        hooks_absent: continuation_hooks_absent,
+                                    },
+                                ),
+                            },
+                        );
+                        claims_changed = true;
                     }
                 } else if effect != Effect::Read {
                     claims.claims.insert(
@@ -2530,11 +3419,14 @@ impl Broker {
                             session_id: None,
                             turn_token: Some(token.to_owned()),
                             continuations: BTreeMap::new(),
+                            continuation_effect: None,
+                            process_hooks_absent: continuation_hooks_absent,
                         },
                     );
                     claims_changed = true;
                 }
                 call.shared_reserved = Some(shared_reserved);
+                call.process_hooks_absent = Some(continuation_hooks_absent);
                 call.offered = true;
                 changed = true;
                 calls.push(
@@ -3118,6 +4010,8 @@ mod native_concurrency_tests {
             session_id: None,
             turn_token: Some("original-turn".into()),
             continuations: BTreeMap::new(),
+            continuation_effect: None,
+            process_hooks_absent: false,
         };
         let mut state = ActiveEffects::default();
         state.claims.insert("first-call".into(), claim.clone());
@@ -3143,173 +4037,148 @@ mod native_concurrency_tests {
             None,
             &denied,
         );
+        assert!(
+            state.claims.contains_key("first-call"),
+            "generic rejection is not pre-dispatch evidence"
+        );
+        settle_effect(
+            &mut state,
+            "first-call",
+            "first",
+            "functions.exec_command",
+            None,
+            &rejected_before_backend("first-call"),
+        );
         assert!(!state.claims.contains_key("first-call"));
     }
 
     #[tokio::test]
     async fn nc_confirmed_stop_releases_original_session_and_preserves_unconfirmed_effects() {
-        let (root, journal, _) = fixture();
-        fs::write(root.join("file"), "alpha\n").unwrap();
-        let broker = Broker::new(journal);
-        let running = r#"{"cmd":"sleep 30; printf result > file"}"#;
+        let (root, journal, catalog) = fixture();
+        let broker = Broker::new(journal.clone());
+        let input = r#"{"cmd":"owned long process"}"#;
         broker
-            .admit_external_tool("owner", "run", "functions.exec_command", running, &root)
+            .admit_external_tool("owner", "run", "functions.exec_command", input, &root)
             .await
             .unwrap();
+        let original = json!({"output":"Process running with session ID 83\nOutput:\n"});
         broker
-            .settle_external_tools(
+            .settle_external_tools("owner", &[("run".into(), original)])
+            .await
+            .unwrap();
+        for lane in ["other", "owner"] {
+            broker.settle_stopped_processes(lane, &root).await.unwrap();
+            assert_eq!(
+                broker
+                    .admit_external_tool("other", "blocked", "functions.exec_command", input, &root)
+                    .await,
+                Err(Error("native_resource_busy"))
+            );
+        }
+        assert_eq!(
+            broker.effect_status("owner").unwrap()["unconfirmed_effects"],
+            1
+        );
+        broker
+            .admit_external_tool(
                 "owner",
-                &[(
-                    "run".into(),
-                    json!({"output":"Process running with session ID 83\nOutput:\n"}),
-                )],
+                "poll",
+                "functions.write_stdin",
+                r#"{"session_id":83,"chars":""}"#,
+                &root,
             )
             .await
             .unwrap();
-        let contested = r#"{"cmd":"printf other > file"}"#;
-        assert_eq!(
-            broker
-                .admit_external_tool(
-                    "other",
-                    "blocked",
-                    "functions.exec_command",
-                    contested,
-                    &root
-                )
-                .await,
-            Err(Error("native_resource_busy"))
-        );
-        broker
-            .settle_stopped_processes("other", &root)
-            .await
-            .unwrap();
-        assert_eq!(
-            broker
-                .admit_external_tool(
-                    "other",
-                    "blocked",
-                    "functions.exec_command",
-                    contested,
-                    &root
-                )
-                .await,
-            Err(Error("native_resource_busy"))
-        );
-        broker
-            .settle_stopped_processes("owner", &root)
-            .await
-            .unwrap();
+        let proof = json!({"schema":"codex-native-completion-v1","call_id":"poll","session_id":83,
+            "outcome":"wait_completed","exit_code":137,"hooks":"absent"});
+        broker.settle_external_tools("owner",&[("poll".into(),json!({
+            "output":format!("Native completion: {proof}\nProcess exited with code 137\nOutput:\n")}))]).await.unwrap();
         assert_eq!(
             broker.effect_status("owner").unwrap()["unconfirmed_effects"],
             0
         );
         broker
-            .admit_external_tool(
-                "other",
-                "blocked",
-                "functions.exec_command",
-                contested,
-                &root,
-            )
+            .admit_external_tool("other", "unblocked", "functions.exec_command", input, &root)
             .await
             .unwrap();
         broker
             .settle_external_tools(
                 "other",
                 &[(
-                    "blocked".into(),
-                    json!({"output":"Process exited with code 0\nOutput:\n"}),
+                    "unblocked".into(),
+                    json!({
+            "output":format!("Native completion: {}\nOutput:\n",json!({
+                "schema":"codex-native-completion-v1","call_id":"unblocked","session_id":null,
+                "outcome":"wait_completed","exit_code":0,"hooks":"absent"}))}),
                 )],
             )
             .await
             .unwrap();
 
-        let (_, _, catalog) = fixture();
         let token = broker
             .register_scoped("lane_app_owner", catalog, false, Some(&root))
             .await
             .unwrap();
-        let unexecuted_call = Arguments {
-            call_id: "unexecuted-mcp-call".into(),
+        let call = Arguments {
+            call_id: "offered-without-result".into(),
             name: "functions.exec_command".into(),
-            input: r#"{"cmd":"pwd"}"#.into(),
-            report: "probe".into(),
+            input: input.into(),
+            report: String::new(),
         };
-        let unexecuted_id = accepted(&broker, &token, &unexecuted_call).await;
-        let mut owners = BTreeMap::new();
-        owners.insert("lane_app_owner".into(), "work-owner".into());
+        let id = accepted(&broker, &token, &call).await;
+        let owners = BTreeMap::from([("lane_app_owner".into(), "work-owner".into())]);
         let status = broker
             .effect_status_with_owners(&["work-owner", "lane_app_owner"], &owners)
             .unwrap();
         assert_eq!(status["unconfirmed_effects"], 1);
         assert_eq!(status["active"][0]["owner_work"], "work-owner");
         assert_eq!(status["active"][0]["owned"], true);
-        let other_status = broker
-            .effect_status_with_owners(&["other"], &owners)
-            .unwrap();
-        assert_eq!(other_status["active"][0]["owner_work"], "work-owner");
-        assert_eq!(other_status["active"][0]["owned"], false);
         assert_eq!(
             broker
-                .admit_external_tool(
-                    "other",
-                    "blocked-by-mcp",
-                    "functions.exec_command",
-                    contested,
-                    &root
-                )
-                .await,
-            Err(Error("native_resource_busy"))
+                .effect_status_with_owners(&["other"], &owners)
+                .unwrap()["active"][0]["owned"],
+            false
         );
-        // If Native thread items contain the offered call ID, Stop must not
-        // release it as unexecuted.
-        let mut committed = BTreeSet::new();
-        committed.insert(unexecuted_id.clone());
-        broker
-            .reconcile_stopped_unexecuted(&["work-owner", "lane_app_owner"], &[&token], &committed)
-            .await
-            .unwrap();
-        assert_eq!(
-            broker.effect_status("work-owner").unwrap()["unconfirmed_effects"],
-            1
-        );
-        assert_eq!(
+        for ids in [BTreeSet::from([id.clone()]), BTreeSet::new()] {
             broker
-                .admit_external_tool(
-                    "other",
-                    "blocked-by-mcp",
-                    "functions.exec_command",
-                    contested,
-                    &root
-                )
-                .await,
-            Err(Error("native_resource_busy"))
-        );
-        // Once Native thread items at a confirmed Stop boundary prove the
-        // offered call ID never reached Native, reconcile it as not dispatched
-        // and release the conflicting reservation.
+                .reconcile_stopped_unexecuted(&["work-owner", "lane_app_owner"], &[&token], &ids)
+                .await
+                .unwrap();
+            assert_eq!(
+                broker
+                    .admit_external_tool(
+                        "other",
+                        "blocked-by-mcp",
+                        "functions.exec_command",
+                        input,
+                        &root
+                    )
+                    .await,
+                Err(Error("native_resource_busy"))
+            );
+            assert_eq!(broker.recorded_calls(&token).unwrap()[0]["settled"], false);
+        }
+        let proof = json!({"schema":"codex-native-completion-v1","call_id":id,"session_id":null,
+            "outcome":"pre_backend_rejected","exit_code":null,"hooks":"absent"});
+        let result = json!({"type":"function_call_output","call_id":id,
+            "output":format!("Native completion: {proof}\nOutput:\ninitial approval denied")});
         broker
-            .reconcile_stopped_unexecuted(
-                &["work-owner", "lane_app_owner"],
-                &[&token],
-                &BTreeSet::new(),
-            )
+            .retire_native_results(&token, "lane_app_owner", &[(id.clone(), result.clone())])
             .await
             .unwrap();
-        assert_eq!(
-            broker.effect_status("work-owner").unwrap()["unconfirmed_effects"],
-            0
-        );
-        let recorded = broker.recorded_calls(&token).unwrap();
-        assert_eq!(recorded.len(), 1);
-        assert_eq!(recorded[0]["id"], unexecuted_id);
-        assert_eq!(recorded[0]["settled"], true);
+        assert_eq!(broker.recorded_calls(&token).unwrap()[0]["id"], id);
+        assert_eq!(broker.recorded_calls(&token).unwrap()[0]["settled"], true);
+        let saved: Turn = journal
+            .read(&digest(&("mcp-turn-v1", &token)))
+            .unwrap()
+            .unwrap();
+        assert_eq!(saved.calls["offered-without-result"].result, Some(result));
         broker
             .admit_external_tool(
                 "other",
-                "unblocked-after-stop",
+                "after-positive-proof",
                 "functions.exec_command",
-                contested,
+                input,
                 &root,
             )
             .await
@@ -3319,120 +4188,1237 @@ mod native_concurrency_tests {
     #[tokio::test]
     async fn nc_confirmed_stop_releases_orphaned_physical_claim_after_mirror_settled() {
         let (root, journal, catalog) = fixture();
-        fs::write(root.join("file"), "original\n").unwrap();
+        let execution = native_effect::compiler_fixture(&root);
         let broker = Broker::new(journal.clone());
         let token = broker
-            .register_scoped("stopped-work", catalog, false, Some(&root))
+            .register_scoped("stopped-work", catalog.clone(), false, Some(&root))
+            .await
+            .unwrap();
+        broker
+            .bind_execution(&token, Some(execution.clone()))
             .await
             .unwrap();
         let call = Arguments {
             call_id: "orphaned-shell".into(),
             name: "functions.exec_command".into(),
             input: r#"{"cmd":"printf updated > file"}"#.into(),
-            report: "bounded fixture".into(),
+            report: "owned fixture".into(),
         };
         let id = accepted(&broker, &token, &call).await;
+        let original = json!({"output":"connection closed before terminal proof"});
         broker
-            .settle(
-                &token,
-                &[(
-                    id.clone(),
-                    json!({"output":"connection closed before terminal proof"}),
-                )],
-            )
+            .settle(&token, &[(id.clone(), original.clone())])
             .await
             .unwrap();
-
-        // Simulate the observed crash/recovery split: the original call
-        // result is durable and the Provider mirror has no active writer,
-        // but the OS-shared journal still contains the exact opaque claim.
         let key = digest(&"native-effect-claims-v1");
-        let mut mirror: ActiveEffects = journal.read(&key).unwrap().unwrap();
-        assert!(mirror.claims.remove(&id).is_some());
-        journal.write(&key, &mirror).unwrap();
+        let mut state: ActiveEffects = journal.read(&key).unwrap().unwrap();
+        assert!(state.claims.remove(&id).is_some());
+        journal.write(&key, &state).unwrap();
         assert_eq!(
             broker.effect_status("stopped-work").unwrap()["unconfirmed_effects"],
             0
         );
-        let competing = r#"{"cmd":"printf other > file"}"#;
-        assert_eq!(
+        for ids in [BTreeSet::from([id.clone()]), BTreeSet::new()] {
             broker
-                .admit_external_tool(
-                    "other-work",
-                    "before",
-                    "functions.exec_command",
-                    competing,
-                    &root
-                )
-                .await,
-            Err(Error("native_resource_busy"))
+                .reconcile_stopped_unexecuted(&["stopped-work"], &[&token], &ids)
+                .await
+                .unwrap();
+            assert_eq!(
+                broker
+                    .admit_external_tool(
+                        "other",
+                        "blocked",
+                        "functions.exec_command",
+                        &call.input,
+                        &root
+                    )
+                    .await,
+                Err(Error("native_resource_busy"))
+            );
+        }
+        let (raw, _) = gateway_calls(
+            &id,
+            &json!({"name":call.name,"input":call.input,"report":call.report}).to_string(),
+            &catalog,
+        )
+        .unwrap();
+        let proof = json!({"schema":"codex-native-completion-v1","call_id":id,"session_id":null,
+            "outcome":"wait_completed","exit_code":0,"hooks":"absent"});
+        let evidence = crate::operator_native::CompletionEvidence::fixture(
+            &execution,
+            vec![
+                json!({"type":"turn_context","payload":{"turn_id":execution.turn}}),
+                json!({"type":"response_item","payload":raw[0].output_item().unwrap()}),
+                json!({"type":"event_msg","payload":{"type":"exec_command_end","call_id":id,
+                "turn_id":execution.turn,"process_id":null,"exit_code":0,"status":"completed",
+                "native_completion":proof}}),
+            ],
         );
-
-        // An observed Native item is evidence that the original call may
-        // have executed; a stopped work must not free its reservation.
-        broker
-            .reconcile_stopped_unexecuted(
+        let settled = broker
+            .reconcile_stopped_receipts(
                 &["stopped-work"],
                 &[&token],
-                &BTreeSet::from([id.clone()]),
+                &BTreeMap::new(),
+                Some(&evidence),
             )
             .await
             .unwrap();
-        assert_eq!(
-            broker
-                .admit_external_tool(
-                    "other-work",
-                    "still-blocked",
-                    "functions.exec_command",
-                    competing,
-                    &root
-                )
-                .await,
-            Err(Error("native_resource_busy"))
-        );
-
-        // The physical OS ledger is not the Provider's active-claim mirror.
-        // The original call ID seen in Native keeps the physical writer held.
-        assert_eq!(
-            broker
-                .settle_stopped_shared_unexecuted(
-                    "stopped-work",
-                    &root,
-                    &BTreeSet::from([id.clone()])
-                )
-                .unwrap(),
-            0
-        );
-
-        // A verified Native Stop with no jobs and complete item history
-        // absent the original call ID allows exact physical reconciliation,
-        // even after the Provider mirror and saved call result have settled.
-        broker
-            .reconcile_stopped_unexecuted(&["stopped-work"], &[&token], &BTreeSet::new())
-            .await
+        assert!(settled.contains(&id));
+        let saved: Turn = journal
+            .read(&digest(&("mcp-turn-v1", &token)))
+            .unwrap()
             .unwrap();
-        assert!(broker
-            .has_stopped_shared_unexecuted("stopped-work", &root)
-            .unwrap());
-        assert_eq!(
-            broker
-                .settle_stopped_shared_unexecuted("stopped-work", &root, &BTreeSet::new())
-                .unwrap(),
-            1
-        );
-        assert_eq!(broker.recorded_calls(&token).unwrap()[0]["settled"], true);
+        assert_eq!(saved.calls["orphaned-shell"].result, Some(original));
+        assert!(saved.calls["orphaned-shell"].terminal_completion.is_some());
         broker
             .admit_external_tool(
-                "other-work",
-                "after-confirmed-stop",
+                "other",
+                "after-original-wait",
                 "functions.exec_command",
-                competing,
+                &call.input,
                 &root,
             )
             .await
             .unwrap();
     }
 
+    #[tokio::test]
+    async fn unloaded_no_offer_receipt_survives_cold_chain_without_reactivating_execution() {
+        let (root, journal, tools) = fixture();
+        let execution = native_effect::compiler_fixture(&root);
+        let broker = Broker::new(journal.clone());
+        broker
+            .admit_external_tool(
+                "other",
+                "held",
+                "functions.exec_command",
+                r#"{"cmd":"unknown independent work"}"#,
+                &root,
+            )
+            .await
+            .unwrap();
+        let token = broker
+            .register_scoped("no-offer", tools.clone(), true, Some(&root))
+            .await
+            .unwrap();
+        broker
+            .bind_execution(&token, Some(execution.clone()))
+            .await
+            .unwrap();
+        let args = Arguments {
+            call_id: "busy".into(),
+            name: "functions.exec_command".into(),
+            input: r#"{"cmd":"must not run"}"#.into(),
+            report: String::new(),
+        };
+        broker.enqueue(&token, &args).await.unwrap();
+        assert!(broker.offer(&token).await.unwrap().is_empty());
+        let saved: Turn = journal
+            .read(&digest(&("mcp-turn-v1", &token)))
+            .unwrap()
+            .unwrap();
+        let call = &saved.calls[&args.call_id];
+        assert!(!call.offered);
+        assert_ne!(call.shared_reserved, Some(true));
+        let result = call.result.clone().unwrap();
+        assert_eq!(result["executed"], false);
+        let (expected, _) = gateway_calls(
+            &call.id,
+            &json!({"name":call.name,"input":call.input,"report":call.report}).to_string(),
+            &saved.tools,
+        )
+        .unwrap();
+        let raw = expected[0].output_item().unwrap();
+        let mut evidence = crate::operator_native::UnloadedHistory {
+            state: json!({"thread":{"id":execution.thread,"status":{"type":"notLoaded"},
+                "turns":[{"id":execution.turn,"status":"completed","error":null,"items":[]}]}}),
+            rows: vec![
+                json!({"type":"session_meta","payload":{"id":execution.thread}}),
+                json!({"type":"turn_context","payload":{"turn_id":execution.turn}}),
+                json!({"type":"response_item","payload":raw}),
+                json!({"type":"response_item","payload":{"type":"function_call_output",
+                    "call_id":call.id,"output":result.to_string()}}),
+            ],
+            owner: crate::operator_native::Owner {
+                directory: root.clone(),
+                home: root.clone(),
+                process: crate::cdp::Process::read(std::process::id()).unwrap(),
+            },
+            workspace: root.clone(),
+            thread: execution.thread.clone(),
+        };
+        let ids = broker
+            .unloaded_receipts(&["no-offer"], &[(&token, &token)], &evidence)
+            .await
+            .unwrap();
+        assert_eq!(ids.non_commands, BTreeSet::from([call.id.clone()]));
+        evidence.validate(&execution.turn, &ids).unwrap();
+        for kind in 0..4 {
+            let mut wrong = evidence.clone();
+            match kind {
+                0 => wrong.owner.process.start.push('0'),
+                1 => wrong.rows[1]["payload"]["turn_id"] = json!("foreign-turn"),
+                2 => wrong.rows[2]["payload"]["arguments"] = json!("{\"cmd\":\"different\"}"),
+                _ => wrong.workspace = root.join("other"),
+            }
+            let missing = broker
+                .unloaded_receipts(&["no-offer"], &[(&token, &token)], &wrong)
+                .await
+                .unwrap();
+            assert!(missing.non_commands.is_empty() && missing.legacy_processes.is_empty());
+            assert!(wrong.validate(&execution.turn, &missing).is_err());
+        }
+        broker.retire(&token, false).await.unwrap();
+        let tail = broker
+            .register_scoped("no-offer", tools, true, Some(&root))
+            .await
+            .unwrap();
+        broker.source_discovery(&token, &tail).await.unwrap();
+        broker.retire(&tail, false).await.unwrap();
+        drop(broker);
+        let restored = Broker::new(journal);
+        restored
+            .restore_source_discovery(&token, &tail, "no-offer")
+            .await
+            .unwrap();
+        let cold = restored
+            .unloaded_receipts(&["no-offer"], &[(&token, &tail)], &evidence)
+            .await
+            .unwrap();
+        assert_eq!(cold, ids);
+        assert!(!restored.registry.lock().await.turns.contains_key(&token));
+        assert_eq!(
+            restored.retained_result(&token, &args).unwrap(),
+            Some(result)
+        );
+        let current = restored
+            .register_scoped("no-offer", saved.tools, true, Some(&root))
+            .await
+            .unwrap();
+        restored.source_discovery(&tail, &current).await.unwrap();
+        let next = Arguments {
+            call_id: "pending".into(),
+            ..args
+        };
+        restored.enqueue(&current, &next).await.unwrap();
+        assert_eq!(
+            restored
+                .unloaded_receipts(&["no-offer"], &[(&token, &current)], &evidence)
+                .await,
+            Err(Error("native_unloaded_effects_unsettled"))
+        );
+        assert_eq!(
+            restored.effect_status("no-offer").unwrap()["shared"]["active"][0]["owned"],
+            false
+        );
+        evidence.rows.clear();
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn unloaded_prior_settled_non_process_receipt_is_reused_but_current_unknown_is_not() {
+        let (root, journal, mut tools) = fixture();
+        for tool in tools.values_mut() {
+            if let Some(name) = tool.name.strip_prefix("functions.") {
+                tool.name = name.to_owned();
+                tool.namespace = Some("functions".into());
+            }
+        }
+        fs::write(root.join("file"), "alpha\n").unwrap();
+        let mut facts = native_effect::compiler_fixture(&root);
+        if !facts
+            .hook_free_tools
+            .iter()
+            .any(|name| name == "apply_patch")
+        {
+            facts.hook_free_tools.push("apply_patch".into());
+        }
+        facts.turn = "past-patch".into();
+        let broker = Broker::new(journal.clone());
+        let first = broker
+            .register_scoped("owned", tools.clone(), true, Some(&root))
+            .await
+            .unwrap();
+        broker
+            .bind_execution(&first, Some(facts.clone()))
+            .await
+            .unwrap();
+        let edit = patch("file", "alpha", "beta");
+        let patch_id = accepted(&broker, &first, &edit).await;
+        let patched =
+            json!({"type":"custom_tool_call_output","call_id":patch_id,"output":"updated file"});
+        fs::write(root.join("file"), "beta\n").unwrap();
+        broker
+            .settle(&first, &[(patch_id.clone(), patched.clone())])
+            .await
+            .unwrap();
+        let old: Turn = journal
+            .read(&digest(&("mcp-turn-v1", &first)))
+            .unwrap()
+            .unwrap();
+        assert!(matches!(
+            old.calls[&edit.call_id].effect,
+            Some(Effect::Paths(_))
+        ));
+        broker.retire(&first, false).await.unwrap();
+        let last = broker
+            .register_scoped("owned", tools, true, Some(&root))
+            .await
+            .unwrap();
+        broker.source_discovery(&first, &last).await.unwrap();
+        facts.turn = "current-compiler".into();
+        broker
+            .bind_execution(&last, Some(facts.clone()))
+            .await
+            .unwrap();
+        let command = Arguments {
+            call_id: "compiler".into(),
+            name: "functions.exec_command".into(),
+            input: r#"{"cmd":"printf owned"}"#.into(),
+            report: String::new(),
+        };
+        let id = accepted(&broker, &last, &command).await;
+        let result = json!({"type":"function_call_output","call_id":id,
+            "output":"Wall time: 0 seconds\nProcess exited with code 0\nOutput:\nowned"});
+        broker
+            .settle(&last, &[(id.clone(), result.clone())])
+            .await
+            .unwrap();
+        let raw = |id: &str, call: &Arguments| {
+            gateway_calls(
+                id,
+                &json!({"name":call.name,"input":call.input,"report":call.report}).to_string(),
+                &old.tools,
+            )
+            .unwrap()
+            .0[0]
+                .output_item()
+                .unwrap()
+        };
+        let mut evidence = crate::operator_native::UnloadedHistory {
+            state: json!({"thread":{"id":facts.thread,"status":{"type":"notLoaded"},"turns":[
+                {"id":"past-patch","status":"completed","error":null,"items":[
+                    {"id":patch_id,"type":"fileChange","status":"completed","changes":[]}]},
+                {"id":facts.turn,"status":"completed","error":null,"items":[
+                    {"id":id,"type":"commandExecution","processId":null,"status":"completed",
+                        "exitCode":0,"aggregatedOutput":"owned"}]}]}}),
+            rows: vec![
+                json!({"type":"session_meta","payload":{"id":facts.thread}}),
+                json!({"type":"turn_context","payload":{"turn_id":"past-patch"}}),
+                json!({"type":"response_item","payload":raw(&patch_id,&edit)}),
+                json!({"type":"response_item","payload":patched}),
+                json!({"type":"turn_context","payload":{"turn_id":facts.turn}}),
+                json!({"type":"response_item","payload":raw(&id,&command)}),
+                json!({"type":"response_item","payload":result}),
+                json!({"type":"event_msg","payload":{"type":"item_completed","thread_id":facts.thread,
+                    "turn_id":facts.turn,"item":{"type":"CommandExecution","id":id,
+                        "process_id":null,"status":"completed","exit_code":0}}}),
+            ],
+            owner: crate::operator_native::Owner {
+                directory: root.clone(),
+                home: root.clone(),
+                process: crate::cdp::Process::read(std::process::id()).unwrap(),
+            },
+            workspace: root.clone(),
+            thread: facts.thread.clone(),
+        };
+        let closed = broker
+            .unloaded_receipts(&["owned"], &[(&first, &last)], &evidence)
+            .await
+            .unwrap();
+        assert_eq!(closed.non_commands, BTreeSet::from([patch_id.clone()]));
+        assert!(closed.legacy_processes.contains(&id));
+        evidence.validate(&facts.turn, &closed).unwrap();
+        // The same historical output is not sufficient without its original
+        // matching, safely classified receipt.
+        evidence.rows[3]["payload"]["output"] = json!("different result");
+        let absent = broker
+            .unloaded_receipts(&["owned"], &[(&first, &last)], &evidence)
+            .await
+            .unwrap();
+        assert!(absent.non_commands.is_empty());
+        assert!(evidence.validate(&facts.turn, &absent).is_err());
+        let pending = patch("file", "beta", "gamma");
+        accepted(&broker, &last, &pending).await;
+        assert_eq!(
+            broker
+                .unloaded_receipts(&["owned"], &[(&first, &last)], &evidence)
+                .await,
+            Err(Error("native_unloaded_effects_unsettled"))
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn completion_safety_legacy_requery_requires_identical_original_result_and_hooks() {
+        for (code, hooks) in [(0, true), (7, true), (124, true), (0, false)] {
+            let (root, journal, _) = fixture();
+            let facts = native_effect::compiler_fixture(&root);
+            let broker = Broker::new(journal.clone());
+            broker
+                .admit_external_tool_with_execution(
+                    "owner",
+                    "original",
+                    "functions.exec_command",
+                    r#"{"cmd":"owned original process"}"#,
+                    &root,
+                    Some(&facts),
+                )
+                .await
+                .unwrap();
+            let raw = json!({"type":"function_call_output","call_id":"original",
+                "output":format!("Process exited with code {code}\nOutput:\noriginal")});
+            let key = digest(&"native-effect-claims-v1");
+            let id = external_effect_id("owner", "original");
+            let mut state: ActiveEffects = journal.read(&key).unwrap().unwrap();
+            // Model a retained pre-proof reader: the old original reservation
+            // remains, but its per-call hook authority was not persisted. This
+            // is not a newly dispatched unsupported invocation.
+            if !hooks {
+                state.claims.get_mut(&id).unwrap().process_hooks_absent = false;
+                state.external.get_mut(&id).unwrap().process_hooks_absent = None;
+                let path = broker
+                    .shared_guard_home()
+                    .unwrap()
+                    .join("shared-native-v1/claims.json");
+                let mut shared: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+                for claim in shared["claims"].as_object_mut().unwrap().values_mut() {
+                    claim
+                        .as_object_mut()
+                        .unwrap()
+                        .remove("process_hooks_absent");
+                }
+                fs::write(path, serde_json::to_vec(&shared).unwrap()).unwrap();
+            }
+            state.external.get_mut(&id).unwrap().completion = Some(
+                serde_json::from_value(json!({
+                "fingerprint":digest(&raw),"running":null,"exited":true,"not_spawned":false}))
+                .unwrap(),
+            );
+            journal.write(&key, &state).unwrap();
+            broker.reconcile_persisted_integrated_receipts().unwrap();
+            assert_eq!(
+                broker.active_claim_ids(&["owner"]).unwrap(),
+                BTreeSet::from([id.clone()])
+            );
+            let before: Value = journal.read(&key).unwrap().unwrap();
+            let mut changed = raw.clone();
+            changed["output"] = json!("different original output");
+            assert_eq!(
+                broker
+                    .settle_external_tools("owner", &[("original".into(), changed)])
+                    .await,
+                Err(Error("native_effect_result_changed"))
+            );
+            assert_eq!(journal.read::<Value>(&key).unwrap().unwrap(), before);
+            broker
+                .settle_external_tools("owner", &[("original".into(), raw.clone())])
+                .await
+                .unwrap();
+            let after: ActiveEffects = journal.read(&key).unwrap().unwrap();
+            assert_eq!(
+                after.external[&id].completion.as_ref().unwrap().fingerprint,
+                digest(&raw)
+            );
+            assert_eq!(after.claims.contains_key(&id), !hooks || code == 124);
+            assert_eq!(
+                broker.effect_status("owner").unwrap()["shared"]["unconfirmed_effects"],
+                usize::from(!hooks || code == 124)
+            );
+            fs::remove_dir_all(root).unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn actual_wait_without_numeric_exit_settles_original_receipts_but_unknown_does_not() {
+        for external in [false, true] {
+            for confirmed in [false, true] {
+                let (root, journal, tools) = fixture();
+                let facts = native_effect::hook_fixture(&root);
+                let broker = Broker::new(journal.clone());
+                let token = broker
+                    .register_scoped("owner", tools, false, Some(&root))
+                    .await
+                    .unwrap();
+                broker
+                    .bind_execution(&token, Some(facts.clone()))
+                    .await
+                    .unwrap();
+                let call = Arguments {
+                    call_id: "original".into(),
+                    name: "functions.exec_command".into(),
+                    input: r#"{"cmd":"owned opaque process"}"#.into(),
+                    report: String::new(),
+                };
+                let id = if external {
+                    broker
+                        .admit_external_tool_with_execution(
+                            "owner",
+                            "original",
+                            &call.name,
+                            &call.input,
+                            &root,
+                            Some(&facts),
+                        )
+                        .await
+                        .unwrap();
+                    "original".to_owned()
+                } else {
+                    accepted(&broker, &token, &call).await
+                };
+                let proof = if confirmed {
+                    json!({"schema":"codex-native-completion-v1","call_id":id,
+                    "session_id":null,"outcome":"wait_completed","exit_code":null,"hooks":"absent"})
+                } else {
+                    Value::Null
+                };
+                let result = json!({"type":"function_call_output","call_id":id,
+                    "output":format!("Native completion: {proof}\nProcess exited with code -1\nOutput:\noriginal terminal projection")});
+                if external {
+                    broker
+                        .settle_external_tools("owner", &[(id.clone(), result.clone())])
+                        .await
+                        .unwrap();
+                } else {
+                    broker
+                        .settle(&token, &[(id.clone(), result.clone())])
+                        .await
+                        .unwrap();
+                    assert_eq!(
+                        broker.retained_result(&token, &call).unwrap(),
+                        Some(result.clone())
+                    );
+                }
+                drop(broker);
+                let restored = Broker::new(journal.clone());
+                restored.reconcile_persisted_integrated_receipts().unwrap();
+                assert_eq!(
+                    !restored.active_claim_ids(&["owner"]).unwrap().is_empty(),
+                    !confirmed,
+                    "only the actual waited object, not whole null or public -1, settles"
+                );
+                assert_eq!(
+                    restored.effect_status("owner").unwrap()["shared"]["unconfirmed_effects"],
+                    usize::from(!confirmed)
+                );
+                if external {
+                    let state: ActiveEffects = journal
+                        .read(&digest(&"native-effect-claims-v1"))
+                        .unwrap()
+                        .unwrap();
+                    let completion = state.external[&external_effect_id("owner", &id)]
+                        .completion
+                        .as_ref()
+                        .unwrap();
+                    assert_eq!(completion.fingerprint, digest(&result));
+                    assert_eq!(
+                        completion.confirmed_exit(),
+                        None,
+                        "never fabricate a numeric exit"
+                    );
+                    assert_eq!(completion.status(), (None, confirmed));
+                }
+                let admission = restored
+                    .admit_external_tool_with_execution(
+                        "other",
+                        "new-logical-call",
+                        &call.name,
+                        &call.input,
+                        &root,
+                        Some(&facts),
+                    )
+                    .await;
+                assert_eq!(
+                    admission,
+                    if confirmed {
+                        Ok(())
+                    } else {
+                        Err(Error("native_resource_busy"))
+                    }
+                );
+                fs::remove_dir_all(root).unwrap();
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn orphan_continuation_unknown_keeps_both_claim_mirrors_after_restart() {
+        for external in [false, true] {
+            for running in [false, true] {
+                let (root, journal, tools) = fixture();
+                let facts = native_effect::hook_fixture(&root);
+                let broker = Broker::new(journal.clone());
+                let token = broker
+                    .register_scoped("owner", tools, false, Some(&root))
+                    .await
+                    .unwrap();
+                broker
+                    .bind_execution(&token, Some(facts.clone()))
+                    .await
+                    .unwrap();
+                let poll = Arguments {
+                    call_id: "orphan".into(),
+                    name: "functions.write_stdin".into(),
+                    input: r#"{"session_id":51,"chars":""}"#.into(),
+                    report: String::new(),
+                };
+                let (call, claim) = if external {
+                    broker
+                        .admit_external_tool_with_execution(
+                            "owner",
+                            "orphan",
+                            &poll.name,
+                            &poll.input,
+                            &root,
+                            Some(&facts),
+                        )
+                        .await
+                        .unwrap();
+                    ("orphan".to_owned(), external_effect_id("owner", "orphan"))
+                } else {
+                    let id = accepted(&broker, &token, &poll).await;
+                    (id.clone(), id)
+                };
+                let result = json!({"type":"function_call_output","call_id":call,"output":if running {
+                    "Native completion: null\nProcess running with session ID 51\nOutput:\noriginal"
+                } else { "Native completion: null\nOutput:\nunknown original result" }});
+                if external {
+                    broker
+                        .settle_external_tools("owner", &[(call.clone(), result.clone())])
+                        .await
+                        .unwrap();
+                } else {
+                    broker
+                        .settle(&token, &[(call.clone(), result.clone())])
+                        .await
+                        .unwrap();
+                    assert_eq!(
+                        broker.retained_result(&token, &poll).unwrap(),
+                        Some(result.clone())
+                    );
+                }
+                drop(broker);
+                let restored = Broker::new(journal.clone());
+                restored.reconcile_persisted_integrated_receipts().unwrap();
+                let state: ActiveEffects = journal
+                    .read(&digest(&"native-effect-claims-v1"))
+                    .unwrap()
+                    .unwrap();
+                assert!(
+                    state.claims.contains_key(&claim),
+                    "unknown original poll must retain the local mirror"
+                );
+                assert_eq!(state.claims[&claim].session_id, running.then_some(51));
+                assert_eq!(
+                    restored.effect_status("owner").unwrap()["shared"]["unconfirmed_effects"],
+                    1
+                );
+                if running {
+                    restored
+                        .admit_external_tool_with_execution(
+                            "owner",
+                            "collect",
+                            &poll.name,
+                            &poll.input,
+                            &root,
+                            Some(&facts),
+                        )
+                        .await
+                        .unwrap();
+                    restored
+                        .settle_external_tools(
+                            "owner",
+                            &[("collect".into(), waited("collect", Some(51), 0))],
+                        )
+                        .await
+                        .unwrap();
+                    assert!(!restored.has_pending_processes(&["owner"]).unwrap());
+                    assert_eq!(
+                        restored.effect_status("owner").unwrap()["shared"]["unconfirmed_effects"],
+                        0
+                    );
+                }
+                fs::remove_dir_all(root).unwrap();
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn native_scope_missing_foreign_and_legacy_nonprocess_facts_never_downgrade_to_generic() {
+        for name in [
+            "functions.apply_patch",
+            "functions.view_image",
+            "clock.curr_time",
+            "clock.sleep",
+            "ordinary.custom",
+        ] {
+            for mode in ["legacy1", "legacy2", "missing", "foreign", "matching-hook"] {
+                if name == "ordinary.custom" && mode == "matching-hook" {
+                    continue;
+                }
+                let (root, journal, _) = fixture();
+                let mut request=crate::protocol::Request::parse(json!({"stream":true,"model":"chatgpt-desktop/gpt-6",
+                    "input":"fixture","tools":[{"type":"function","name":name,"parameters":{"type":"object"}}]}),
+                    &crate::config::Config::default(),Some("owned-thread")).unwrap();
+                let owner = crate::cdp::Process::read(std::process::id()).unwrap();
+                let mut facts = native_effect::hook_fixture(&root);
+                request.turn = Some("owned-turn".into());
+                facts.thread = request.thread.clone();
+                facts.turn = "owned-turn".into();
+                let expected = match mode {
+                    "legacy1" => {
+                        facts.schema = 1;
+                        facts.hook_free_tools.clear();
+                        "native_execution_generation_unsupported"
+                    }
+                    "legacy2" => {
+                        facts.schema = 2;
+                        facts.hook_free_tools.retain(|t| t != "write_stdin");
+                        "native_execution_generation_unsupported"
+                    }
+                    "foreign" => {
+                        facts.pid += 1;
+                        "native_execution_completion_unavailable"
+                    }
+                    "matching-hook" => {
+                        facts.hook_free_tools.clear();
+                        "native_execution_completion_unavailable"
+                    }
+                    _ => "native_execution_completion_unavailable",
+                };
+                request.execution = (mode != "missing").then_some(facts);
+                request.bind_native_scope(&root, &owner).unwrap();
+                let scope = request
+                    .native_scope
+                    .as_ref()
+                    .expect("Native origin survives missing/foreign metadata");
+                if matches!(mode, "foreign" | "missing") {
+                    assert!(scope.execution.is_none());
+                }
+                let broker = Broker::new(journal.clone());
+                let token = broker
+                    .register_scoped(
+                        "owner",
+                        request.tools.clone(),
+                        false,
+                        Some(&scope.workspace),
+                    )
+                    .await
+                    .unwrap();
+                broker
+                    .bind_execution(&token, scope.execution.clone())
+                    .await
+                    .unwrap();
+                let call = Arguments {
+                    call_id: "refused".into(),
+                    name: name.into(),
+                    input: "{}".into(),
+                    report: String::new(),
+                };
+                broker.enqueue(&token, &call).await.unwrap();
+                assert!(broker.offer(&token).await.unwrap().is_empty());
+                let result = broker.retained_result(&token, &call).unwrap().unwrap();
+                assert_eq!(result["error"], expected, "{name}/{mode}");
+                assert_eq!(result["executed"], false);
+                assert_eq!(
+                    broker
+                        .admit_external_native_tool(
+                            "owner",
+                            "external",
+                            &request.tools[name],
+                            &call.input,
+                            &root,
+                            scope.execution.as_ref()
+                        )
+                        .await,
+                    Err(Error(expected))
+                );
+                let state: ActiveEffects = journal
+                    .read(&digest(&"native-effect-claims-v1"))
+                    .unwrap()
+                    .unwrap_or_default();
+                assert!(state.claims.is_empty());
+                assert!(state.external.is_empty());
+                broker.enqueue(&token, &call).await.unwrap();
+                assert_eq!(broker.retained_result(&token, &call).unwrap(), Some(result));
+                fs::remove_dir_all(root).unwrap();
+            }
+        }
+        // Generic transport is not a Native origin and has no privileged scope.
+        for name in ["ordinary.custom", "tool_search"] {
+            let (root, journal, _) = fixture();
+            let broker = Broker::new(journal);
+            let tools = crate::protocol::Request::parse(
+                json!({"stream":true,"model":"chatgpt-desktop/gpt-6","input":"generic",
+                "tools":[{"type":"function","name":name,"parameters":{"type":"object"}}]}),
+                &crate::config::Config::default(),
+                Some("generic"),
+            )
+            .unwrap()
+            .tools;
+            assert_eq!(tools[name].kind, crate::protocol::ToolKind::Function);
+            let token = broker.register("generic", tools, false).await.unwrap();
+            let call = Arguments {
+                call_id: "ordinary".into(),
+                name: name.into(),
+                input: "{}".into(),
+                report: String::new(),
+            };
+            broker.enqueue(&token, &call).await.unwrap();
+            assert_eq!(broker.offer(&token).await.unwrap().len(), 1);
+            fs::remove_dir_all(root).unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn only_actual_tool_search_payload_bypasses_native_generation_and_busy() {
+        for actual in [false, true] {
+            let (root, journal, _) = fixture();
+            let broker = Broker::new(journal.clone());
+            let search = if actual {
+                json!({"type":"tool_search"})
+            } else {
+                json!({"type":"function","name":"tool_search","parameters":{"type":"object"}})
+            };
+            let tools=crate::protocol::Request::parse(json!({"stream":true,"model":"chatgpt-desktop/gpt-6","input":"fixture",
+                "tools":[{"type":"function","name":"functions.exec_command","parameters":{"type":"object"}},search]}),
+                &crate::config::Config::default(),Some("owner")).unwrap().tools;
+            let token = broker
+                .register_scoped("owner", tools.clone(), false, Some(&root))
+                .await
+                .unwrap();
+            broker
+                .bind_execution(&token, Some(native_effect::hook_fixture(&root)))
+                .await
+                .unwrap();
+            let exec = Arguments {
+                call_id: "active".into(),
+                name: "functions.exec_command".into(),
+                input: r#"{"cmd":"opaque owned process"}"#.into(),
+                report: String::new(),
+            };
+            let id = accepted(&broker, &token, &exec).await;
+            let original = json!({"output":"Native completion: null\nProcess running with session ID 51\nOutput:\noriginal"});
+            broker
+                .settle(&token, &[(id.clone(), original.clone())])
+                .await
+                .unwrap();
+            broker.bind_execution(&token, None).await.unwrap();
+            let call = Arguments {
+                call_id: "metadata".into(),
+                name: "tool_search".into(),
+                input: r#"{"query":"metadata","limit":1}"#.into(),
+                report: String::new(),
+            };
+            broker.enqueue(&token, &call).await.unwrap();
+            let offered = broker.offer(&token).await.unwrap();
+            assert_eq!(offered.len(), usize::from(actual));
+            let external = broker
+                .admit_external_native_tool(
+                    "owner",
+                    "external-search",
+                    &tools["tool_search"],
+                    &call.input,
+                    &root,
+                    None,
+                )
+                .await;
+            assert_eq!(
+                external,
+                if actual {
+                    Ok(())
+                } else {
+                    Err(Error("native_tool_identity_unsupported"))
+                }
+            );
+            if !actual {
+                assert_eq!(
+                    broker.retained_result(&token, &call).unwrap().unwrap()["error"],
+                    "native_tool_identity_unsupported"
+                );
+            }
+            assert_eq!(
+                broker.retained_result(&token, &exec).unwrap(),
+                Some(original)
+            );
+            let state: ActiveEffects = journal
+                .read(&digest(&"native-effect-claims-v1"))
+                .unwrap()
+                .unwrap();
+            assert_eq!(state.claims.len(), 1);
+            assert!(state.claims.contains_key(&id));
+            assert_eq!(
+                broker.effect_status("owner").unwrap()["shared"]["unconfirmed_effects"],
+                1
+            );
+            fs::remove_dir_all(root).unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn legacy_empty_poll_refuses_without_mutating_existing_process_or_readback() {
+        for schema in [1, 2] {
+            let (root, journal, tools) = fixture();
+            let facts = native_effect::hook_fixture(&root);
+            let broker = Broker::new(journal.clone());
+            let token = broker
+                .register_scoped("owner", tools, false, Some(&root))
+                .await
+                .unwrap();
+            broker
+                .bind_execution(&token, Some(facts.clone()))
+                .await
+                .unwrap();
+            let exec = Arguments {
+                call_id: "original".into(),
+                name: "functions.exec_command".into(),
+                input: r#"{"cmd":"owned opaque process"}"#.into(),
+                report: String::new(),
+            };
+            let id = accepted(&broker, &token, &exec).await;
+            let original = json!({"output":"Native completion: null\nProcess running with session ID 51\nOutput:\noriginal"});
+            broker
+                .settle(&token, &[(id.clone(), original.clone())])
+                .await
+                .unwrap();
+            let key = digest(&"native-effect-claims-v1");
+            let before = journal.read::<Value>(&key).unwrap();
+            let mut old = facts.clone();
+            old.schema = schema;
+            if schema == 1 {
+                old.hook_free_tools.clear();
+            } else {
+                old.hook_free_tools.retain(|t| t != "write_stdin");
+            }
+            broker
+                .bind_execution(&token, Some(old.clone()))
+                .await
+                .unwrap();
+            let poll = Arguments {
+                call_id: "legacy-poll".into(),
+                name: "functions.write_stdin".into(),
+                input: r#"{"session_id":51,"chars":""}"#.into(),
+                report: String::new(),
+            };
+            broker.enqueue(&token, &poll).await.unwrap();
+            assert!(broker.offer(&token).await.unwrap().is_empty());
+            assert_eq!(
+                broker.retained_result(&token, &poll).unwrap().unwrap()["error"],
+                "native_execution_generation_unsupported"
+            );
+            assert_eq!(
+                broker
+                    .admit_external_tool_with_execution(
+                        "owner",
+                        "external-legacy-poll",
+                        &poll.name,
+                        &poll.input,
+                        &root,
+                        Some(&old)
+                    )
+                    .await,
+                Err(Error("native_execution_generation_unsupported"))
+            );
+            assert_eq!(
+                journal.read::<Value>(&key).unwrap(),
+                before,
+                "refusal cannot mutate an existing Writer claim"
+            );
+            assert_eq!(
+                broker.retained_result(&token, &exec).unwrap(),
+                Some(original)
+            );
+            assert_eq!(
+                broker.effect_status("owner").unwrap()["shared"]["unconfirmed_effects"],
+                1
+            );
+            fs::remove_dir_all(root).unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn process_dispatch_refusal_is_pre_offer_durable_and_preserves_original_replay() {
+        for mode in ["legacy1", "legacy2", "missing", "matching-hook"] {
+            let (root, journal, tools) = fixture();
+            let supported = native_effect::hook_fixture(&root);
+            let mut facts = supported.clone();
+            let expected = match mode {
+                "legacy1" => {
+                    facts.schema = 1;
+                    facts.hook_free_tools.clear();
+                    "native_execution_generation_unsupported"
+                }
+                "legacy2" => {
+                    facts.schema = 2;
+                    facts.hook_free_tools.retain(|tool| tool != "write_stdin");
+                    "native_execution_generation_unsupported"
+                }
+                "matching-hook" => {
+                    facts.hook_free_tools.clear();
+                    "native_execution_completion_unavailable"
+                }
+                _ => "native_execution_completion_unavailable",
+            };
+            let execution = (mode != "missing").then_some(facts);
+            let broker = Broker::new(journal.clone());
+            let token = broker
+                .register_scoped("historical-owner", tools, false, Some(&root))
+                .await
+                .unwrap();
+            broker
+                .bind_execution(&token, execution.clone())
+                .await
+                .unwrap();
+            let call = Arguments {
+                call_id: "original-refusal".into(),
+                name: "functions.exec_command".into(),
+                input: r#"{"cmd":"an opaque owned process"}"#.into(),
+                report: String::new(),
+            };
+            broker.enqueue(&token, &call).await.unwrap();
+            assert!(
+                broker.offer(&token).await.unwrap().is_empty(),
+                "{mode}: unsupported work must never be forwarded"
+            );
+            let result = broker.retained_result(&token, &call).unwrap().unwrap();
+            assert_eq!(result["error"], expected);
+            assert_eq!(result["executed"], false);
+            let saved: Turn = journal
+                .read(&digest(&("mcp-turn-v1", &token)))
+                .unwrap()
+                .unwrap();
+            assert!(!saved.calls[&call.call_id].offered);
+            assert_eq!(saved.calls[&call.call_id].shared_reserved, Some(false));
+            let claims: ActiveEffects = journal
+                .read(&digest(&"native-effect-claims-v1"))
+                .unwrap()
+                .unwrap_or_default();
+            assert!(claims.claims.is_empty());
+            assert_eq!(
+                broker
+                    .admit_external_tool_with_execution(
+                        "historical-owner",
+                        "external-refusal",
+                        &call.name,
+                        &call.input,
+                        &root,
+                        execution.as_ref()
+                    )
+                    .await,
+                Err(Error(expected))
+            );
+            broker
+                .bind_execution(&token, Some(supported.clone()))
+                .await
+                .unwrap();
+            broker.enqueue(&token, &call).await.unwrap();
+            assert!(broker.offer(&token).await.unwrap().is_empty());
+            assert_eq!(broker.retained_result(&token, &call).unwrap(), Some(result));
+            let mut changed = call.clone();
+            changed.input = r#"{"cmd":"changed"}"#.into();
+            assert_eq!(
+                broker.enqueue(&token, &changed).await,
+                Err(Error("mcp_call_changed"))
+            );
+            let mut fresh = call.clone();
+            fresh.call_id = "current-runtime-new-input".into();
+            let id = accepted(&broker, &token, &fresh).await;
+            let claims: ActiveEffects = journal
+                .read(&digest(&"native-effect-claims-v1"))
+                .unwrap()
+                .unwrap();
+            assert_eq!(
+                claims.claims[&id].effect,
+                Effect::Opaque,
+                "hook-free opaque commands remain supported"
+            );
+            let original = waited(&id, None, 7);
+            broker
+                .settle(&token, &[(id.clone(), original.clone())])
+                .await
+                .unwrap();
+            broker.bind_execution(&token, None).await.unwrap();
+            broker.enqueue(&token, &fresh).await.unwrap();
+            assert!(broker.offer(&token).await.unwrap().is_empty());
+            assert_eq!(
+                broker.retained_result(&token, &fresh).unwrap(),
+                Some(original)
+            );
+            assert!(!broker.has_pending_processes(&["historical-owner"]).unwrap());
+            fs::remove_dir_all(root).unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn running_continuation_receipt_replay_keeps_original_process_reserved() {
+        for (external, rejected) in [(false, false), (true, false), (false, true), (true, true)] {
+            let (root, journal, tools) = fixture();
+            let facts = native_effect::compiler_fixture(&root);
+            let broker = Broker::new(journal.clone());
+            let token = broker
+                .register_scoped("owner", tools, false, Some(&root))
+                .await
+                .unwrap();
+            broker
+                .bind_execution(&token, Some(facts.clone()))
+                .await
+                .unwrap();
+            let exec = Arguments {
+                call_id: "start".into(),
+                name: "functions.exec_command".into(),
+                input: r#"{"cmd":"owned interactive process"}"#.into(),
+                report: String::new(),
+            };
+            let id = accepted(&broker, &token, &exec).await;
+            broker.settle(&token,&[(id.clone(),json!({"output":"Native completion: null\nProcess running with session ID 51\nOutput:\n"}))]).await.unwrap();
+            let poll = Arguments {
+                call_id: "poll".into(),
+                name: "functions.write_stdin".into(),
+                input: r#"{"session_id":51,"chars":"input"}"#.into(),
+                report: String::new(),
+            };
+            let poll_id = if external {
+                broker
+                    .admit_external_tool_with_execution(
+                        "owner",
+                        "poll",
+                        &poll.name,
+                        &poll.input,
+                        &root,
+                        Some(&facts),
+                    )
+                    .await
+                    .unwrap();
+                "poll".to_owned()
+            } else {
+                accepted(&broker, &token, &poll).await
+            };
+            let proof = json!({"schema":"codex-native-completion-v1","call_id":poll_id,"session_id":51,
+                "outcome":"session_running","exit_code":null,"hooks":"absent"});
+            let result = if rejected {
+                rejected_before_backend(&poll_id)
+            } else {
+                json!({"call_id":poll_id,"type":"function_call_output",
+                    "output":format!("Native completion: {proof}\nProcess running with session ID 51\nOutput:\n")})
+            };
+            // Model the result commit before shared release, using only this
+            // owned original receipt, then let normal restart reconciliation run.
+            if external {
+                let key = digest(&"native-effect-claims-v1");
+                let mut state: ActiveEffects = journal.read(&key).unwrap().unwrap();
+                state
+                    .external
+                    .get_mut(&external_effect_id("owner", &poll_id))
+                    .unwrap()
+                    .completion = Some(ExternalCompletion::from_result_for(
+                    &poll_id,
+                    Some(51),
+                    &result,
+                ));
+                journal.write(&key, &state).unwrap();
+            } else {
+                let mut saved: Turn = journal
+                    .read(&digest(&("mcp-turn-v1", &token)))
+                    .unwrap()
+                    .unwrap();
+                saved.calls.get_mut("poll").unwrap().result = Some(result.clone());
+                broker.persist(&token, &saved).unwrap();
+            }
+            drop(broker);
+            let recovered = Broker::new(journal.clone());
+            recovered.reconcile_persisted_integrated_receipts().unwrap();
+            let state: ActiveEffects = journal
+                .read(&digest(&"native-effect-claims-v1"))
+                .unwrap()
+                .unwrap();
+            assert_eq!(state.claims.len(), 1);
+            assert_eq!(state.claims[&id].effect, Effect::Opaque);
+            assert_eq!(state.claims[&id].session_id, Some(51));
+            assert_eq!(
+                recovered.effect_status("owner").unwrap()["shared"]["unconfirmed_effects"],
+                1
+            );
+            assert_eq!(
+                recovered
+                    .admit_external_tool(
+                        "other",
+                        "must-wait",
+                        "functions.exec_command",
+                        &exec.input,
+                        &root
+                    )
+                    .await,
+                Err(Error("native_resource_busy"))
+            );
+            fs::remove_dir_all(root).unwrap();
+        }
+    }
+
+    #[test]
+    fn completion_safety_exact_exit_code_survives_but_old_reader_drops_authority() {
+        for code in [0, 7, 137] {
+            let raw = json!({"output":format!("Process exited with code {code}\nOutput:\n")});
+            let saved = ExternalCompletion::from_result("original", &raw);
+            assert_eq!(saved.confirmed_exit(), Some(code));
+            assert_eq!(
+                crate::native_claims::process_result(&saved.marker()),
+                (None, Some(code))
+            );
+            let mut serialized = serde_json::to_value(&saved).unwrap();
+            serialized.as_object_mut().unwrap().remove("native_result");
+            let legacy: ExternalCompletion = serde_json::from_value(serialized).unwrap();
+            assert_eq!(legacy.fingerprint, saved.fingerprint);
+            assert_eq!(legacy.confirmed_exit(), None);
+            assert_eq!(native_process_result(&legacy.marker()), (None, false));
+        }
+        for code in [-1, 124] {
+            let saved = ExternalCompletion::from_result(
+                "original",
+                &json!({"output":format!("Process exited with code {code}\nOutput:\n")}),
+            );
+            assert_eq!(saved.confirmed_exit(), None);
+        }
+    }
+
+    #[test]
+    fn completion_safety_legacy_boolean_cannot_recreate_exit_or_non_dispatch() {
+        for old in [
+            json!({"fingerprint":"original","running":null,"exited":true}),
+            json!({"fingerprint":"original","running":null,"exited":false,"not_spawned":true}),
+        ] {
+            let saved: ExternalCompletion = serde_json::from_value(old.clone()).unwrap();
+            let marker = saved.marker();
+            assert_eq!(
+                native_process_result(&marker),
+                (None, false),
+                "legacy evidence lost the exit code"
+            );
+            assert!(
+                !crate::native_claims::process_observation(&marker, "original", None).not_spawned,
+                "legacy rejection lost dispatch provenance"
+            );
+            assert_eq!(saved.fingerprint, "original");
+        }
+    }
+
+    fn waited(call: &str, session: Option<u64>, exit: i64) -> Value {
+        let proof = json!({"schema":"codex-native-completion-v1","call_id":call,
+            "session_id":session,"outcome":"wait_completed","exit_code":exit,"hooks":"absent"});
+        json!({"type":"function_call_output","call_id":call,
+            "output":format!("Native completion: {proof}\nProcess exited with code {exit}\nOutput:\n")})
+    }
+    fn session_running(call: &str, session: u64) -> Value {
+        let proof = json!({"schema":"codex-native-completion-v1","call_id":call,
+            "session_id":session,"outcome":"session_running","exit_code":null,"hooks":"absent"});
+        json!({"type":"function_call_output","call_id":call,
+            "output":format!("Native completion: {proof}\nProcess running with session ID {session}\nOutput:\n")})
+    }
+    fn rejected_before_backend(call: &str) -> Value {
+        let proof = json!({"schema":"codex-native-completion-v1","call_id":call,
+            "session_id":null,"outcome":"pre_backend_rejected","exit_code":null,"hooks":"absent"});
+        json!({"type":"function_call_output","call_id":call,
+            "output":format!("Native completion: {proof}\nOutput:\ninitial admission rejected")})
+    }
     fn fixture() -> (PathBuf, Arc<Journal>, BTreeMap<String, Tool>) {
         let root = std::env::temp_dir().join(format!("broker-resource-{}", random_id().unwrap()));
         fs::create_dir(&root).unwrap();
@@ -3463,7 +5449,10 @@ mod native_concurrency_tests {
         }
     }
     async fn accepted(broker: &Broker, token: &str, call: &Arguments) -> String {
-        if call.name == "functions.apply_patch" {
+        if matches!(
+            call.name.as_str(),
+            "functions.apply_patch" | "functions.exec_command" | "functions.write_stdin"
+        ) {
             let workspace = {
                 let registry = broker.registry.lock().await;
                 let turn = registry.turns.get(token).unwrap();
@@ -3527,7 +5516,12 @@ mod native_concurrency_tests {
         broker.enqueue(&token, &call).await.unwrap();
         assert!(broker.offer(&token).await.unwrap().is_empty());
         let result = broker.invoke(&token, call.clone()).await.unwrap();
-        assert_eq!(result, busy_effect_reply());
+        assert_eq!(result["error"], "native_execution_completion_unavailable");
+        assert_eq!(result["executed"], false);
+        assert_eq!(
+            broker.effect_status("writer").unwrap()["shared"]["unconfirmed_effects"],
+            1
+        );
         assert_eq!(broker.invoke(&token, call.clone()).await.unwrap(), result);
         assert!(broker.offer(&token).await.unwrap().is_empty());
         let stored: Turn = journal
@@ -3538,16 +5532,19 @@ mod native_concurrency_tests {
         assert_eq!(stored.fingerprint, call.fingerprint());
         assert_eq!(stored.effect, Some(Effect::Read));
         assert!(!stored.offered);
-        assert_eq!(stored.result, Some(result));
+        assert_eq!(stored.result, Some(result.clone()));
+        broker
+            .bind_execution(&token, Some(native_effect::hook_fixture(&root)))
+            .await
+            .unwrap();
+        assert_eq!(
+            broker.invoke(&token, call.clone()).await.unwrap(),
+            result,
+            "new capabilities cannot retroactively execute the same refused call"
+        );
 
         broker
-            .settle_external_tools(
-                "writer",
-                &[(
-                    "held".into(),
-                    json!({"output":"Process exited with code 0"}),
-                )],
-            )
+            .settle_external_tools("writer", &[("held".into(), waited("held", None, 0))])
             .await
             .unwrap();
         let call = Arguments {
@@ -3564,8 +5561,16 @@ mod native_concurrency_tests {
         let offered = broker.offer(&token).await.unwrap();
         assert_eq!(offered.len(), 1);
         let status = broker.effect_status("legacy").unwrap();
-        assert_eq!(status["shared"]["unconfirmed_effects"], 1);
-        assert_eq!(status["shared"]["active"][0]["resource_kind"], "opaque");
+        assert_eq!(
+            status["shared"]["unconfirmed_effects"], 0,
+            "a fresh current-generation hook-free clock read needs no shared reservation"
+        );
+        let current: Turn = journal
+            .read(&digest(&("mcp-turn-v1", &token)))
+            .unwrap()
+            .unwrap();
+        assert_eq!(current.calls[&call.call_id].effect, Some(Effect::Read));
+        assert_eq!(current.calls[&call.call_id].shared_reserved, Some(false));
         let original_result = json!({"output":"original clock response"});
         broker
             .settle(
@@ -3613,7 +5618,7 @@ mod native_concurrency_tests {
                     None,
                 )
                 .await,
-            Err(Error("native_resource_busy"))
+            Err(Error("native_execution_completion_unavailable"))
         );
         let mut facts = native_effect::hook_fixture(&root);
         facts.hook_free_tools = vec!["exec_command".into()];
@@ -3628,7 +5633,7 @@ mod native_concurrency_tests {
                     Some(&facts),
                 )
                 .await,
-            Err(Error("native_resource_busy"))
+            Err(Error("native_execution_completion_unavailable"))
         );
         facts.hook_free_tools.push("apply_patch".into());
         broker
@@ -3865,7 +5870,7 @@ mod native_concurrency_tests {
     }
 
     #[tokio::test]
-    async fn normalized_startup_failure_settles_only_its_original_effect() {
+    async fn normalized_startup_failure_retains_its_original_uncertain_effect() {
         let (root, journal, tools) = fixture();
         let broker = Broker::new(journal.clone());
         let token = broker
@@ -3888,7 +5893,7 @@ mod native_concurrency_tests {
             .unwrap();
         assert_eq!(
             broker.effect_status("startup-work").unwrap()["unconfirmed_effects"],
-            0
+            1
         );
         // Duplicate and late receipt delivery cannot offer the command again.
         broker
@@ -3897,25 +5902,21 @@ mod native_concurrency_tests {
             .unwrap();
         assert_eq!(broker.invoke(&token, exec.clone()).await.unwrap(), failure);
         assert!(broker.offer(&token).await.unwrap().is_empty());
-        let mut next = exec.clone();
-        next.call_id = "next".into();
-        next.input = json!({"cmd":"printf next"}).to_string();
-        let next_id = accepted(&broker, &token, &next).await;
-        // A returned error without the handler's pre-spawn envelope is unknown.
-        let unknown =
-            json!({"id":next_id,"name":exec.name,"output":"connection lost after dispatch"});
-        broker.settle(&token, &[(next_id, unknown)]).await.unwrap();
-        assert_eq!(
-            broker.effect_status("startup-work").unwrap()["unconfirmed_effects"],
-            1
-        );
+        // A generic setup/transport rejection may follow backend effects.
+        // Re-querying the identical original error must not infer non-dispatch.
         broker.settle(&token, &[(id, failure)]).await.unwrap();
         assert_eq!(
             broker.effect_status("startup-work").unwrap()["unconfirmed_effects"],
             1
         );
+        let mut next = exec.clone();
+        next.call_id = "other".into();
         let other = broker
             .register_scoped("other-work", tools, false, Some(&root))
+            .await
+            .unwrap();
+        broker
+            .bind_execution(&other, Some(native_effect::hook_fixture(&root)))
             .await
             .unwrap();
         next.call_id = "other".into();
@@ -4167,7 +6168,7 @@ mod native_concurrency_tests {
         // Simulate a process crash after the minimal completion proof reaches
         // disk, but before the corresponding OS claim has been released.
         claims.external.get_mut(&resource_id).unwrap().completion = Some(
-            ExternalCompletion::from_result(&json!({"output":"patch applied"})),
+            ExternalCompletion::from_result("original", &json!({"output":"patch applied"})),
         );
         journal.write(&key, &claims).unwrap();
         drop(broker);
@@ -4313,14 +6314,13 @@ mod native_concurrency_tests {
             input: json!({"session_id":83,"chars":"","yield_time_ms":1000}).to_string(),
             report: String::new(),
         };
-        let _poll_id = accepted(&broker, &owner, &poll).await;
+        let poll_id = accepted(&broker, &owner, &poll).await;
         // Simulate a crash after the continuation's terminal result was
         // journaled, but before the physical process lease was settled.
         {
             let mut registry = broker.registry.lock().await;
             let turn = registry.turns.get_mut(&owner).unwrap();
-            turn.calls.get_mut(&poll.call_id).unwrap().result =
-                Some(json!({"output":"Process exited with code 0"}));
+            turn.calls.get_mut(&poll.call_id).unwrap().result = Some(waited(&poll_id, Some(83), 0));
             broker.persist(&owner, turn).unwrap();
         }
         drop(broker);
@@ -4373,12 +6373,12 @@ mod native_concurrency_tests {
             input: json!({"session_id":913,"chars":"","yield_time_ms":1000}).to_string(),
             report: String::new(),
         };
-        accepted(&broker, &later_turn, &poll).await;
+        let poll_id = accepted(&broker, &later_turn, &poll).await;
         {
             let mut registry = broker.registry.lock().await;
             let turn = registry.turns.get_mut(&later_turn).unwrap();
             turn.calls.get_mut(&poll.call_id).unwrap().result =
-                Some(json!({"output":"Process exited with code 0"}));
+                Some(waited(&poll_id, Some(913), 0));
             broker.persist(&later_turn, turn).unwrap();
         }
         drop(broker);
@@ -4411,6 +6411,11 @@ mod native_concurrency_tests {
             input: json!({"cmd":"owned uncertain process"}).to_string(),
             report: String::new(),
         };
+        let facts = native_effect::hook_fixture(&root);
+        broker
+            .bind_execution(&token, Some(facts.clone()))
+            .await
+            .unwrap();
         let id = accepted(&broker, &token, &exec).await;
         let original = json!({"output":"Process running with session ID 56351"});
         broker
@@ -4431,7 +6436,7 @@ mod native_concurrency_tests {
             .register_scoped("other", tools, false, Some(&root))
             .await
             .unwrap();
-        let item = json!({"turn_id":"original-native-turn","item":{"id":id,"type":"commandExecution","processId":"56351","status":"failed","exitCode":2}});
+        let item = json!({"turn_id":facts.turn,"item":{"id":id,"type":"commandExecution","processId":"56351","status":"failed","exitCode":2}});
         for fault in [
             "other_owner",
             "other_call",
@@ -4509,21 +6514,19 @@ mod native_concurrency_tests {
             .unwrap());
         let next = accepted(&broker, &other, &exec).await;
         broker
-            .settle(
-                &other,
-                &[(next, json!({"output":"Process exited with code 0"}))],
-            )
+            .settle(&other, &[(next.clone(), waited(&next, None, 0))])
             .await
             .unwrap();
         // LocalFunction reserves the same Native effect without an MCP token.
         // Its Native item carries the original call id, not the reservation id.
         broker
-            .admit_external_tool(
+            .admit_external_tool_with_execution(
                 "local-function",
                 "native-call",
                 &exec.name,
                 &exec.input,
                 &root,
+                Some(&facts),
             )
             .await
             .unwrap();
@@ -4537,7 +6540,7 @@ mod native_concurrency_tests {
             )
             .await
             .unwrap();
-        let local_item = json!({"item":{"id":"native-call","type":"commandExecution","processId":"56351","status":"completed","exitCode":0}});
+        let local_item = json!({"turn_id":facts.turn,"item":{"id":"native-call","type":"commandExecution","processId":"56351","status":"completed","exitCode":0}});
         broker
             .settle_native_processes(&["other"], &root, std::slice::from_ref(&local_item))
             .await
@@ -4557,7 +6560,7 @@ mod native_concurrency_tests {
                 "other",
                 &[(
                     "after-local-exit".into(),
-                    json!({"output":"Process exited with code 0"}),
+                    waited("after-local-exit", None, 0),
                 )],
             )
             .await
@@ -4641,14 +6644,7 @@ mod native_concurrency_tests {
         broker.enqueue(&two, &second).await.unwrap();
         assert!(broker.offer(&two).await.unwrap().is_empty());
         broker
-            .settle(
-                &one,
-                &[(
-                    opaque,
-                    json!({"output":
-                "Chunk ID: terminal\nProcess exited with code 0\nOutput:\ndone"}),
-                )],
-            )
+            .settle(&one, &[(opaque.clone(), waited(&opaque, None, 0))])
             .await
             .unwrap();
         assert!(
@@ -4770,7 +6766,7 @@ mod native_concurrency_tests {
                         facts
                     )
                     .await,
-                Err(Error("native_resource_busy"))
+                Err(Error("native_execution_completion_unavailable"))
             );
         }
         broker
@@ -4881,10 +6877,7 @@ mod native_concurrency_tests {
         broker
             .settle(
                 &owner,
-                &[(
-                    first_poll,
-                    json!({"output":"Process running with session ID 1200"}),
-                )],
+                &[(first_poll.clone(), session_running(&first_poll, 1200))],
             )
             .await
             .unwrap();
@@ -4896,7 +6889,7 @@ mod native_concurrency_tests {
         broker
             .settle(
                 &owner,
-                &[(final_poll, json!({"output":"Process exited with code 0"}))],
+                &[(final_poll.clone(), waited(&final_poll, Some(1200), 0))],
             )
             .await
             .unwrap();
@@ -5109,13 +7102,7 @@ mod native_concurrency_tests {
             .await
             .unwrap();
         broker
-            .settle_external_tools(
-                "owner",
-                &[(
-                    "poll".into(),
-                    json!({"output":"Process exited with code 0"}),
-                )],
-            )
+            .settle_external_tools("owner", &[("poll".into(), waited("poll", Some(2200), 0))])
             .await
             .unwrap();
         broker
@@ -5139,6 +7126,11 @@ mod native_concurrency_tests {
             input: json!({"cmd":"printf ok"}).to_string(),
             report: "run command".into(),
         };
+        let facts = native_effect::hook_fixture(&root);
+        broker
+            .bind_execution(&token, Some(facts.clone()))
+            .await
+            .unwrap();
         broker.enqueue(&token, &command).await.unwrap();
         let offered = broker.offer(&token).await.unwrap();
         let id = offered[0]["id"].as_str().unwrap().to_owned();
@@ -5146,7 +7138,7 @@ mod native_concurrency_tests {
         assert!(broker.has_pending_processes(&["owner"]).unwrap());
         assert!(broker.active_claim_ids(&["owner"]).unwrap().contains(&id));
         let other_token = broker
-            .register_scoped("other", tools, false, Some(&root))
+            .register_scoped("other", tools.clone(), false, Some(&root))
             .await
             .unwrap();
         let write = patch("file", "alpha", "ALPHA");
@@ -5187,8 +7179,46 @@ mod native_concurrency_tests {
             .settle_native_processes(&["owner"], &root, &committed)
             .await
             .unwrap();
+        assert!(
+            broker.has_pending_processes(&["owner"]).unwrap(),
+            "public terminal item without the original result/proof cannot settle"
+        );
+        let (native, _) = gateway_calls(
+            &id,
+            &json!({"name":command.name,"input":command.input,"report":command.report}).to_string(),
+            &tools,
+        )
+        .unwrap();
+        let proof = json!({"schema":"codex-native-completion-v1","call_id":id,"session_id":null,
+            "outcome":"wait_completed","exit_code":0,"hooks":"absent"});
+        let evidence = crate::operator_native::CompletionEvidence::fixture(
+            &facts,
+            vec![
+                json!({"type":"turn_context","payload":{"turn_id":facts.turn}}),
+                json!({"type":"response_item","payload":native[0].output_item().unwrap()}),
+                json!({"type":"event_msg","payload":{"type":"exec_command_end","call_id":id,
+                "turn_id":facts.turn,"process_id":null,"exit_code":0,"status":"completed","native_completion":proof}}),
+            ],
+        );
+        broker
+            .settle_native_processes_with_evidence(&["owner"], &root, &committed, &evidence)
+            .await
+            .unwrap();
         assert!(!broker.has_pending_processes(&["owner"]).unwrap());
         assert!(broker.active_claim_ids(&["owner"]).unwrap().is_empty());
+        assert!(
+            broker.retained_result(&token, &command).unwrap().is_none(),
+            "effect proof does not fabricate the missing original function reply"
+        );
+        let original = waited(&id, None, 0);
+        broker
+            .retire_native_results(&token, "owner", &[(id.clone(), original.clone())])
+            .await
+            .unwrap();
+        assert_eq!(
+            broker.retained_result(&token, &command).unwrap(),
+            Some(original)
+        );
         assert_eq!(
             broker.recorded_calls(&token).unwrap(),
             vec![json!({"id":id,"offered":true,"settled":true})]
@@ -5217,15 +7247,21 @@ mod native_concurrency_tests {
                 input: json!({"cmd":"printf original"}).to_string(),
                 report: "one original effect".into(),
             };
+            broker
+                .bind_execution(&token, Some(native_effect::hook_fixture(&root)))
+                .await
+                .unwrap();
             broker.enqueue(&token, &call).await.unwrap();
             let id = broker.offer(&token).await.unwrap()[0]["id"]
                 .as_str()
                 .unwrap()
                 .to_owned();
+            let proof = json!({"schema":"codex-native-completion-v1","call_id":id,"session_id":null,
+                "outcome":"wait_completed","exit_code":0,"hooks":"absent"});
             let original = json!({"type":"function_call_output","call_id":id,
-                "output":format!("Chunk ID: original\nWall time: 0.03 seconds\nProcess exited with code 0\nOutput:\n{}", "complete output\n".repeat(10000))});
+                "output":format!("Native completion: {proof}\nChunk ID: original\nWall time: 0.03 seconds\nProcess exited with code 0\nOutput:\n{}", "complete output\n".repeat(10000))});
             let projection = json!({"type":"function_call_output","call_id":id,
-                "output":"Process exited with code 0\nOutput:\nmodel-truncated output"});
+                "output":format!("Native completion: {proof}\nProcess exited with code 0\nOutput:\nmodel-truncated output")});
             assert_eq!(
                 broker
                     .admit_external_tool("independent", "blocked", &call.name, &call.input, &root)
@@ -5302,6 +7338,10 @@ mod native_concurrency_tests {
             input: json!({"cmd":"printf original"}).to_string(),
             report: "original".into(),
         };
+        broker
+            .bind_execution(&token, Some(native_effect::hook_fixture(&root)))
+            .await
+            .unwrap();
         broker.enqueue(&token, &call).await.unwrap();
         let id = broker.offer(&token).await.unwrap()[0]["id"]
             .as_str()
@@ -5340,10 +7380,18 @@ mod native_concurrency_tests {
                 .register_scoped("owner", tools, false, Some(&root))
                 .await
                 .unwrap();
+            fs::write(root.join("source.c"), "int main(void){return 0;}\n").unwrap();
+            let facts = native_effect::compiler_fixture(&root);
+            broker
+                .bind_execution(&token, Some(facts.clone()))
+                .await
+                .unwrap();
             let exec = Arguments {
                 call_id: "original-exec".into(),
                 name: "functions.exec_command".into(),
-                input: json!({"cmd":"long-running-command"}).to_string(),
+                input:
+                    json!({"cmd":"clang -O0 source.c -o source.out","workdir":root,"login":false})
+                        .to_string(),
                 report: "original process".into(),
             };
             let exec_id = accepted(&broker, &token, &exec).await;
@@ -5365,7 +7413,7 @@ mod native_concurrency_tests {
             assert_eq!(expected_calls[&poll_id]["arguments"], poll.input);
             assert!(broker.retained_result(&token, &poll).unwrap().is_none());
             if observed_command_first {
-                broker.settle_native_processes(&["owner"], &root, &[json!({"turn_id":"original-turn","item":{
+                broker.settle_native_processes(&["owner"], &root, &[json!({"turn_id":facts.turn,"item":{
                     "id":exec_id,"type":"commandExecution","status":"completed","processId":"42","exitCode":0,"aggregatedOutput":"original prefix\noriginal tail\n"
                 }})]).await.unwrap();
                 assert!(broker.active_claim_ids(&["owner"]).unwrap().is_empty());
@@ -5375,7 +7423,11 @@ mod native_concurrency_tests {
                     "receipt identity does not depend on an already settled process claim"
                 );
             }
-            let original = json!({"type":"function_call_output","call_id":poll_id,"output":"Chunk ID: original-poll\nWall time: 1.00 seconds\nProcess exited with code 0\nOutput:\noriginal tail\n"});
+            let mut original = waited(&poll_id, Some(42), 0);
+            original["output"] = json!(format!(
+                "{}original tail\n",
+                original["output"].as_str().unwrap()
+            ));
             broker
                 .retire_native_results(&token, "owner", &[(poll_id.clone(), original.clone())])
                 .await
@@ -5403,6 +7455,242 @@ mod native_concurrency_tests {
             fs::remove_dir_all(root).unwrap();
         }
     }
+    async fn unproved_continuation_blocks_other_lane(external: bool) {
+        for chars in ["", "input"] {
+            let (root, journal, tools) = fixture();
+            let facts = native_effect::compiler_fixture(&root);
+            for name in ["a.c", "b.c"] {
+                fs::write(root.join(name), "int main(void){return 0;}").unwrap();
+            }
+            let broker = Broker::new(journal.clone());
+            let token = broker
+                .register_scoped("a", tools.clone(), false, Some(&root))
+                .await
+                .unwrap();
+            broker
+                .bind_execution(&token, Some(facts.clone()))
+                .await
+                .unwrap();
+            let exec = Arguments {
+                call_id: "start".into(),
+                name: "functions.exec_command".into(),
+                input: json!({"cmd":"clang -O0 a.c -o a.out","workdir":root,"login":false})
+                    .to_string(),
+                report: String::new(),
+            };
+            let id = accepted(&broker, &token, &exec).await;
+            let original = json!({"output":"Process running with session ID 51\nOutput:\n"});
+            broker
+                .settle(&token, &[(id.clone(), original.clone())])
+                .await
+                .unwrap();
+            let mut unsafe_facts = facts.clone();
+            if chars.is_empty() {
+                unsafe_facts.hook_free_tools.clear();
+            }
+            let poll = Arguments {
+                call_id: "unproved".into(),
+                name: "functions.write_stdin".into(),
+                input: json!({"session_id":51,"chars":chars}).to_string(),
+                report: String::new(),
+            };
+            if chars.is_empty() {
+                if external {
+                    assert_eq!(
+                        broker
+                            .admit_external_tool_with_execution(
+                                "a",
+                                "unproved",
+                                &poll.name,
+                                &poll.input,
+                                &root,
+                                Some(&unsafe_facts)
+                            )
+                            .await,
+                        Err(Error("native_execution_completion_unavailable"))
+                    );
+                } else {
+                    broker
+                        .bind_execution(&token, Some(unsafe_facts))
+                        .await
+                        .unwrap();
+                    broker.enqueue(&token, &poll).await.unwrap();
+                    assert!(broker.offer(&token).await.unwrap().is_empty());
+                    assert_eq!(
+                        broker.retained_result(&token, &poll).unwrap().unwrap()["error"],
+                        "native_execution_completion_unavailable"
+                    );
+                }
+                let state: ActiveEffects = journal
+                    .read(&digest(&"native-effect-claims-v1"))
+                    .unwrap()
+                    .unwrap();
+                assert_eq!(state.claims.len(), 1);
+                assert!(
+                    matches!(state.claims[&id].effect.claim_scope(), Effect::Paths(_)),
+                    "refused hooks never widen the original call"
+                );
+                let other = broker
+                    .register_scoped("b", tools.clone(), false, Some(&root))
+                    .await
+                    .unwrap();
+                broker
+                    .bind_execution(&other, Some(facts.clone()))
+                    .await
+                    .unwrap();
+                let independent = Arguments {
+                    call_id: "unrelated-after-refusal".into(),
+                    input: json!({"cmd":"clang -O0 b.c -o b.out","workdir":root,"login":false})
+                        .to_string(),
+                    ..exec.clone()
+                };
+                let other_id = accepted(&broker, &other, &independent).await;
+                broker
+                    .settle(&other, &[(other_id.clone(), waited(&other_id, None, 0))])
+                    .await
+                    .unwrap();
+                broker
+                    .bind_execution(&token, Some(facts.clone()))
+                    .await
+                    .unwrap();
+                let safe = Arguments {
+                    call_id: "qualified-empty-poll".into(),
+                    ..poll.clone()
+                };
+                let safe_id = accepted(&broker, &token, &safe).await;
+                broker
+                    .settle(&token, &[(safe_id.clone(), waited(&safe_id, Some(51), 0))])
+                    .await
+                    .unwrap();
+                assert_eq!(
+                    broker.retained_result(&token, &exec).unwrap(),
+                    Some(original)
+                );
+                assert!(broker.active_claim_ids(&["a", "b"]).unwrap().is_empty());
+                fs::remove_dir_all(root).unwrap();
+                continue;
+            }
+            if external {
+                broker
+                    .admit_external_tool_with_execution(
+                        "a",
+                        "unproved",
+                        &poll.name,
+                        &poll.input,
+                        &root,
+                        Some(&unsafe_facts),
+                    )
+                    .await
+                    .unwrap();
+            } else {
+                broker
+                    .bind_execution(&token, Some(unsafe_facts))
+                    .await
+                    .unwrap();
+                accepted(&broker, &token, &poll).await;
+            }
+            let state: ActiveEffects = journal
+                .read(&digest(&"native-effect-claims-v1"))
+                .unwrap()
+                .unwrap();
+            assert_eq!(state.claims[&id].effect.claim_scope(), &Effect::Opaque);
+            assert_eq!(
+                broker.retained_result(&token, &exec).unwrap(),
+                Some(original.clone())
+            );
+            let (raw, _) = gateway_calls(
+                &id,
+                &json!({"name":exec.name,"input":exec.input,"report":exec.report}).to_string(),
+                &tools,
+            )
+            .unwrap();
+            let proof = json!({"schema":"codex-native-completion-v1","call_id":id,"session_id":51,
+                "outcome":"wait_completed","exit_code":0,"hooks":"absent"});
+            let evidence = crate::operator_native::CompletionEvidence::fixture(
+                &facts,
+                vec![
+                    json!({"type":"turn_context","payload":{"turn_id":facts.turn}}),
+                    json!({"type":"response_item","payload":raw[0].output_item().unwrap()}),
+                    json!({"type":"event_msg","payload":{"type":"exec_command_end","call_id":id,
+                    "turn_id":facts.turn,"process_id":"51","exit_code":0,"status":"completed",
+                    "native_completion":proof}}),
+                ],
+            );
+            broker
+                .reconcile_stopped_receipts(&["a"], &[&token], &BTreeMap::new(), Some(&evidence))
+                .await
+                .unwrap();
+            // An original late wait cannot clear a distinct pending invocation.
+            assert_eq!(broker.effect_status("a").unwrap()["unconfirmed_effects"], 1);
+            assert_eq!(
+                broker.retained_result(&token, &exec).unwrap(),
+                Some(original.clone())
+            );
+            drop(broker);
+            let recovered = Broker::new(journal.clone());
+            let other = recovered
+                .register_scoped("b", tools.clone(), false, Some(&root))
+                .await
+                .unwrap();
+            recovered
+                .bind_execution(&other, Some(facts.clone()))
+                .await
+                .unwrap();
+            let next = Arguments {
+                call_id: "independent".into(),
+                input: json!({"cmd":"clang -O0 b.c -o b.out","workdir":root,"login":false})
+                    .to_string(),
+                ..exec.clone()
+            };
+            recovered.enqueue(&other, &next).await.unwrap();
+            assert!(recovered.offer(&other).await.unwrap().is_empty());
+            assert_eq!(
+                recovered.invoke(&other, next).await.unwrap()["error"],
+                "native_resource_busy"
+            );
+            let poll_id = if external {
+                "unproved".to_owned()
+            } else {
+                digest(&(&token, &poll.call_id))
+            };
+            let proof = json!({"schema":"codex-native-completion-v1","call_id":poll_id,"session_id":51,
+                "outcome":"wait_completed","exit_code":0,"hooks":"absent"});
+            let result = json!({"type":"function_call_output","call_id":poll_id,
+                "output":format!("Native completion: {proof}\nProcess exited with code 0\nOutput:\n")});
+            if external {
+                recovered
+                    .settle_external_tools("a", &[(poll_id, result)])
+                    .await
+                    .unwrap();
+            } else {
+                recovered
+                    .retire_native_results(&token, "a", &[(poll_id, result)])
+                    .await
+                    .unwrap();
+            }
+            assert!(recovered.active_claim_ids(&["a"]).unwrap().is_empty());
+            let mut final_call = exec.clone();
+            final_call.call_id = "after-exact-poll".into();
+            final_call.input =
+                json!({"cmd":"clang -O0 b.c -o b.out","workdir":root,"login":false}).to_string();
+            accepted(&recovered, &other, &final_call).await;
+            let saved: Turn = journal
+                .read(&digest(&("mcp-turn-v1", &token)))
+                .unwrap()
+                .unwrap();
+            assert_eq!(saved.calls["start"].result, Some(original));
+            fs::remove_dir_all(root).unwrap();
+        }
+    }
+    #[tokio::test]
+    async fn unproved_continuation_widens_mcp_scope_before_next_lane_and_restart() {
+        unproved_continuation_blocks_other_lane(false).await;
+    }
+    #[tokio::test]
+    async fn unproved_continuation_widens_external_scope_before_next_lane_and_restart() {
+        unproved_continuation_blocks_other_lane(true).await;
+    }
+
     #[tokio::test]
     async fn terminal_session_poll_after_observed_completion_does_not_block_on_a_sibling() {
         let (root, journal, tools) = fixture();
@@ -5487,7 +7775,11 @@ mod native_concurrency_tests {
             assert!(broker.offer(&tokens[1]).await.unwrap().is_empty());
             assert_eq!(
                 broker.invoke(&tokens[1], rejected).await.unwrap()["error"],
-                "native_resource_busy"
+                if matches!(id, "changed-hooks" | "missing-facts") {
+                    "native_execution_completion_unavailable"
+                } else {
+                    "native_resource_busy"
+                }
             );
         }
         // A valid follow-up turn of the same Native owner retains the original
@@ -5758,7 +8050,11 @@ mod native_concurrency_tests {
                 assert!(restored.offer(&current).await.unwrap().is_empty());
                 assert_eq!(
                     restored.invoke(&current, rejected).await.unwrap()["error"],
-                    "native_resource_busy"
+                    if matches!(id, "cold-unsafe-hooks" | "cold-missing-facts") {
+                        "native_execution_completion_unavailable"
+                    } else {
+                        "native_resource_busy"
+                    }
                 );
             }
             restored
@@ -6022,7 +8318,7 @@ mod native_concurrency_tests {
                     Some(&unsafe_hooks)
                 )
                 .await,
-            Err(Error("native_resource_busy"))
+            Err(Error("native_execution_completion_unavailable"))
         );
         // External receipt proof survives a Provider instance restart without
         // recreating a claim, command, owner or result.

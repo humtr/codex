@@ -30,10 +30,10 @@ pub trait Bridge: Send + Sync + 'static {
     fn fence_tools(&self, _lane: String) -> BoxFuture<'static, Result<(), Error>> {
         Box::pin(async { Ok(()) })
     }
-    fn clear_unexecuted_stopped_calls(
+    fn clear_settled_stopped_calls(
         &self,
         _lane: String,
-        _committed_native_items: std::collections::BTreeSet<String>,
+        _settled_native_calls: std::collections::BTreeSet<String>,
     ) -> BoxFuture<'static, Result<(), Error>> {
         Box::pin(async { Ok(()) })
     }
@@ -869,15 +869,30 @@ pub(crate) fn lane_marker(journal: &Journal, thread: &str) -> Result<Option<Stri
     }
     Ok(Some(lane.marker))
 }
-pub(crate) fn has_stopped_pending_calls(journal: &Journal, thread: &str) -> Result<bool, Error> {
+/// Only an already-settled source round may support unloaded observation.
+/// It does not admit new input, query the app, or revive a discovery capability.
+pub(crate) fn settled_lane(
+    journal: &Journal,
+    thread: &str,
+    turn: &str,
+) -> Result<Option<(String, String)>, Error> {
     let Some(lane) = journal.read::<Lane>(&context::digest(&thread))? else {
-        return Ok(false);
+        return Ok(None);
     };
     if lane.native_thread != thread {
         return Err(Error("native_thread_identity_conflict"));
     }
-    Ok(lane.phase == Phase::Stopped && !lane.pending.is_empty())
+    Ok((lane.phase == Phase::Idle
+        && lane.turn.as_deref() == Some(turn)
+        && lane.pending.is_empty()
+        && lane.external.is_none()
+        && lane.host_block.is_none()
+        && lane.checkpoint.is_none()
+        && !lane.source_context_owed
+        && matches!(lane.cached.last(), Some(Event::Completed { .. })))
+    .then_some((lane.marker, lane.gateway)))
 }
+
 #[derive(Clone, Serialize, Deserialize)]
 struct External {
     input: crate::bound_chat::Input,
@@ -1733,10 +1748,10 @@ impl AppHost {
         }
         Ok(lane.phase == Phase::Stopped)
     }
-    pub(crate) async fn clear_unexecuted_stopped_calls(
+    pub(crate) async fn clear_settled_stopped_calls(
         &self,
         thread: &str,
-        committed_native_items: &std::collections::BTreeSet<String>,
+        settled_native_calls: &std::collections::BTreeSet<String>,
     ) -> Result<(), Error> {
         let key = context::digest(&thread);
         let Some(mutex) = self.existing_lane(thread).await? else {
@@ -1749,11 +1764,11 @@ impl AppHost {
             return Ok(());
         }
         self.bridge
-            .clear_unexecuted_stopped_calls(lane.marker.clone(), committed_native_items.clone())
+            .clear_settled_stopped_calls(lane.marker.clone(), settled_native_calls.clone())
             .await?;
         let before = lane.pending.len();
         lane.pending
-            .retain(|call| committed_native_items.contains(&call.id));
+            .retain(|call| !settled_native_calls.contains(&call.id));
         if lane.pending.len() != before {
             self.journal.write(&key, &*lane)?;
         }

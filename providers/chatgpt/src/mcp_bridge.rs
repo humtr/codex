@@ -43,6 +43,28 @@ pub(crate) fn lane_token(journal: &Journal, marker: &str) -> Result<Option<Strin
         .read::<Lane>(&digest(&("mcp-lane-v1", marker)))?
         .and_then(|lane| lane.token))
 }
+/// Read the existing settled MCP transport chain; a gateway name is not a
+/// Broker token. No source admission or retired capability is restored here.
+pub(crate) fn settled_lane_chain(
+    journal: &Journal,
+    marker: &str,
+    gateway: &str,
+) -> Result<Option<(String, String)>, Error> {
+    let Some(lane) = journal.read::<Lane>(&digest(&("mcp-lane-v1", marker)))? else {
+        return Ok(None);
+    };
+    if lane.gateway != gateway
+        || !lane.complete
+        || !lane.offered.is_empty()
+        || lane.settlement.is_some()
+        || lane.discovery_from.is_some()
+    {
+        return Ok(None);
+    }
+    Ok(lane
+        .token
+        .map(|last| (lane.discovery_root.unwrap_or_else(|| last.clone()), last)))
+}
 const CATALOG:&str="Native tool catalog. Invoke only these exact keys through the local gateway. Tool results come from native Codex; the app must not execute tools itself.\n";
 #[derive(Clone, Serialize, Deserialize)]
 struct Settlement {
@@ -335,10 +357,10 @@ impl Bridge for McpBridge {
                 .await
         })
     }
-    fn clear_unexecuted_stopped_calls(
+    fn clear_settled_stopped_calls(
         &self,
         marker: String,
-        committed_native_items: std::collections::BTreeSet<String>,
+        settled_native_calls: std::collections::BTreeSet<String>,
     ) -> BoxFuture<'static, Result<(), Error>> {
         let lanes = self.lanes.clone();
         let journal = self.journal.clone();
@@ -351,7 +373,7 @@ impl Bridge for McpBridge {
                 lane.offered.retain(|call| {
                     call["id"]
                         .as_str()
-                        .is_some_and(|id| committed_native_items.contains(id))
+                        .is_none_or(|id| !settled_native_calls.contains(id))
                 });
                 if lane.offered.len() != before {
                     journal.write(&key, &*lane)?;
@@ -361,7 +383,7 @@ impl Bridge for McpBridge {
                 lane.offered.retain(|call| {
                     call["id"]
                         .as_str()
-                        .is_some_and(|id| committed_native_items.contains(id))
+                        .is_none_or(|id| !settled_native_calls.contains(id))
                 });
                 if lane.offered.len() != before {
                     journal.write(&key, &lane)?;
