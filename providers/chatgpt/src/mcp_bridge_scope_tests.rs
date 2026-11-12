@@ -197,7 +197,10 @@ async fn native_scope_missing_legacy_or_foreign_facts_never_narrow_tool_effects(
             assert!(fixture.stored()["execution"].is_null());
         }
         assert_eq!(
-            fixture.broker.effect_status("scope-lane").unwrap()["unconfirmed_effects"],
+            fixture
+                .broker
+                .effect_status_with_owners(&["scope-lane"], &BTreeMap::new())
+                .unwrap()["unconfirmed_effects"],
             0
         );
     }
@@ -269,7 +272,10 @@ async fn native_scope_settlement_preserves_original_receipt_and_updates_only_nex
         "native_execution_completion_unavailable"
     );
     assert_eq!(
-        fixture.broker.effect_status("scope-lane").unwrap()["unconfirmed_effects"],
+        fixture
+            .broker
+            .effect_status_with_owners(&["scope-lane"], &BTreeMap::new())
+            .unwrap()["unconfirmed_effects"],
         0,
         "the original scoped claim was settled independently of a new unavailable invocation"
     );
