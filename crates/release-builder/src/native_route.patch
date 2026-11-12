@@ -1241,10 +1241,10 @@ index 03a1b192d6..63dba6dc3d 100644
      Ok(())
  }
 diff --git a/codex-rs/app-server/tests/suite/v2/thread_settings_update.rs b/codex-rs/app-server/tests/suite/v2/thread_settings_update.rs
-index ab688b12e9..0728321097 100644
+index ab688b12e9..96ddcf9dd9 100644
 --- a/codex-rs/app-server/tests/suite/v2/thread_settings_update.rs
 +++ b/codex-rs/app-server/tests/suite/v2/thread_settings_update.rs
-@@ -774,3 +774,558 @@ async fn thread_settings_update_preserves_session_profiles() -> Result<()> {
+@@ -774,3 +774,559 @@ async fn thread_settings_update_preserves_session_profiles() -> Result<()> {
      }
      Ok(())
  }
@@ -1640,7 +1640,8 @@ index ab688b12e9..0728321097 100644
 +#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 +async fn model_provider_definition_change_refuses_active_turn_and_rebinds_when_settled()
 +-> Result<()> {
-+    use core_test_support::streaming_sse::{StreamingSseChunk, start_streaming_sse_server};
++    use core_test_support::streaming_sse::StreamingSseChunk;
++    use core_test_support::streaming_sse::start_streaming_sse_server;
 +    let (release, gate) = tokio::sync::oneshot::channel();
 +    let (first, _) = start_streaming_sse_server(vec![vec![
 +        StreamingSseChunk {
@@ -2261,6 +2262,42 @@ index 9ba8ef3f2f..ba6406f678 100644
      let mut existing = super::request_budget::estimate_request_tokens(&request)
          .max(usize::try_from(session.get_total_token_usage().await).unwrap_or(usize::MAX));
      // These reminders are appended after the accepted input. Reserve their full
+diff --git a/codex-rs/core/src/guardian/mod.rs b/codex-rs/core/src/guardian/mod.rs
+index 93d612267b..184913f9c2 100644
+--- a/codex-rs/core/src/guardian/mod.rs
++++ b/codex-rs/core/src/guardian/mod.rs
+@@ -92,6 +92,7 @@ pub(crate) use codex_guardian_reviewer::GUARDIAN_MAX_NODE_REPL_TOOL_RESULT_TOKEN
+ /// MCP elicitations use their live invocation's issuing step when available, otherwise turn inputs.
+ #[derive(Clone)]
+ pub(crate) struct GuardianReviewContext {
++    pub(crate) native_hooks: Option<Arc<codex_hooks::Hooks>>,
+     pub(crate) serving_assessment: Option<Arc<ServingAssessment>>,
+     /// The latest response ID and its connection affinity when review was requested.
+     pub(crate) parent_response: Option<Arc<ParentResponse>>,
+@@ -136,6 +137,7 @@ impl GuardianReviewContext {
+         environments: &TurnEnvironmentSnapshot,
+     ) -> Self {
+         Self {
++            native_hooks: None,
+             serving_assessment: None,
+             parent_response: turn.extension_data.get::<ParentResponse>(),
+             environments: environments.clone(),
+@@ -162,6 +164,7 @@ impl GuardianReviewContext {
+ impl From<&Arc<StepContext>> for GuardianReviewContext {
+     fn from(step: &Arc<StepContext>) -> Self {
+         Self {
++            native_hooks: step.native_hooks.admitted().cloned(),
+             serving_assessment: step.serving_assessment.clone(),
+             parent_response: step.turn.extension_data.get::<ParentResponse>(),
+             turn: Arc::clone(&step.turn),
+@@ -180,6 +183,7 @@ impl From<&Arc<StepContext>> for GuardianReviewContext {
+ impl From<Arc<TurnContext>> for GuardianReviewContext {
+     fn from(turn: Arc<TurnContext>) -> Self {
+         Self {
++            native_hooks: None,
+             serving_assessment: None,
+             parent_response: turn.extension_data.get::<ParentResponse>(),
+             environments: turn.initial_environments.clone(),
 diff --git a/codex-rs/core/src/guardian/recorded_tool_call.rs b/codex-rs/core/src/guardian/recorded_tool_call.rs
 index f2a128d0ee..b1c20afc16 100644
 --- a/codex-rs/core/src/guardian/recorded_tool_call.rs
@@ -2629,6 +2666,58 @@ index 239a965fcb..5794cc6193 100644
      let mut config = (*turn.config).clone();
      config.model = Some("stale-parent-model".to_string());
      config.model_context_window = Some(128_000);
+diff --git a/codex-rs/core/src/hook_environment_executor.rs b/codex-rs/core/src/hook_environment_executor.rs
+index fa6b303405..2cd8e4df48 100644
+--- a/codex-rs/core/src/hook_environment_executor.rs
++++ b/codex-rs/core/src/hook_environment_executor.rs
+@@ -41,6 +41,7 @@ pub(crate) fn with_environment_hooks(
+         turn,
+         environments,
+         /*target_environments*/ &[],
++        /*admitted_hooks*/ None,
+     )
+ }
+ 
+@@ -49,8 +50,10 @@ pub(crate) fn with_tool_environment_hooks(
+     turn: &Arc<TurnContext>,
+     environments: &TurnEnvironmentSnapshot,
+     target_environments: &[&str],
++    admitted_hooks: Option<&Arc<Hooks>>,
+ ) -> Hooks {
+-    session.hooks().with_environment_hooks(
++    let hooks = admitted_hooks.cloned().unwrap_or_else(|| session.hooks());
++    hooks.with_environment_hooks(
+         environment_hook_sources(environments, target_environments),
+         Arc::new(EnvironmentCommandExecutor {
+             environments: environments.clone(),
+diff --git a/codex-rs/core/src/hook_runtime.rs b/codex-rs/core/src/hook_runtime.rs
+index 02d7104500..4458d20c96 100644
+--- a/codex-rs/core/src/hook_runtime.rs
++++ b/codex-rs/core/src/hook_runtime.rs
+@@ -222,6 +222,7 @@ pub(crate) async fn run_pre_tool_use_hooks(
+         turn_context,
+         &step_context.environments,
+         target_environments,
++        step_context.native_hooks.admitted(),
+     );
+     let preview_runs = hooks.preview_pre_tool_use(&request);
+     emit_hook_started_events(sess, turn_context, preview_runs).await;
+@@ -298,6 +299,7 @@ pub(crate) async fn run_permission_request_hooks(
+         turn_context,
+         review_context.environments(),
+         &[target_environment],
++        review_context.native_hooks.as_ref(),
+     );
+     let preview_runs = hooks.preview_permission_request(&request);
+     emit_hook_started_events(sess, turn_context, preview_runs).await;
+@@ -343,6 +345,7 @@ pub(crate) async fn run_post_tool_use_hooks(
+         turn_context,
+         &step_context.environments,
+         target_environments,
++        step_context.native_hooks.admitted(),
+     );
+     let preview_runs = hooks.preview_post_tool_use(&request);
+     emit_hook_started_events(sess, turn_context, preview_runs).await;
 diff --git a/codex-rs/core/src/lib.rs b/codex-rs/core/src/lib.rs
 index 51573406cb..afb77f3e79 100644
 --- a/codex-rs/core/src/lib.rs
@@ -2702,10 +2791,10 @@ index c0ac2d401b..a8ac1c080b 100644
              config.model_provider.clone(),
 diff --git a/codex-rs/core/src/native_completion.rs b/codex-rs/core/src/native_completion.rs
 new file mode 100644
-index 0000000000..e077912a7c
+index 0000000000..154eedba95
 --- /dev/null
 +++ b/codex-rs/core/src/native_completion.rs
-@@ -0,0 +1,772 @@
+@@ -0,0 +1,887 @@
 +//! Completion facts produced by Native, never inferred from command text.
 +//! The state belongs to the existing ToolCallState and survives its joined abort.
 +use crate::session::session::Session;
@@ -2732,14 +2821,7 @@ index 0000000000..e077912a7c
 +use tokio::sync::watch;
 +
 +fn hooks_free(hooks: &Hooks, tool: &str) -> bool {
-+    match tool {
-+        "exec_command" => {
-+            hooks.tool_has_no_hook_effects(&["exec_command", "functions.exec_command"], &["Bash"])
-+        }
-+        "write_stdin" => hooks
-+            .tool_has_no_hook_effects(&["write_stdin", "functions.write_stdin"], &["write_stdin"]),
-+        _ => false,
-+    }
++    crate::native_execution::tool_has_no_hook_effects(hooks, tool)
 +}
 +
 +const HEADER: &str = "Native completion: ";
@@ -2752,12 +2834,14 @@ index 0000000000..e077912a7c
 +
 +pub(crate) struct CallCompletion {
 +    origin: OnceLock<Origin>,
++    dispatch_hooks: OnceLock<Arc<Hooks>>,
++    refused_before_hooks: AtomicBool,
 +    call_id: OnceLock<String>,
 +    exec_session: OnceLock<i32>,
 +    running_session: OnceLock<i32>,
-+    attempts: Mutex<Vec<Option<Result<i32, ()>>>>,
++    attempts: Mutex<Vec<Option<Result<Option<i32>, ()>>>>,
 +    rejected: AtomicBool,
-+    waited: Mutex<Option<(i32, i32)>>,
++    waited: Mutex<Option<(i32, Option<i32>)>>,
 +    finished: watch::Sender<Option<bool>>,
 +}
 +
@@ -2765,6 +2849,8 @@ index 0000000000..e077912a7c
 +    fn default() -> Self {
 +        Self {
 +            origin: OnceLock::new(),
++            dispatch_hooks: OnceLock::new(),
++            refused_before_hooks: AtomicBool::new(false),
 +            call_id: OnceLock::new(),
 +            exec_session: OnceLock::new(),
 +            running_session: OnceLock::new(),
@@ -2806,7 +2892,11 @@ index 0000000000..e077912a7c
 +        {
 +            return;
 +        }
-+        let hooks = session.hooks();
++        let hooks = step
++            .native_hooks
++            .advertised_hooks()
++            .cloned()
++            .unwrap_or_else(|| session.hooks());
 +        let actual_tool = match tool.name.as_str() {
 +            "exec_command" => "exec_command",
 +            "write_stdin" => "write_stdin",
@@ -2818,6 +2908,28 @@ index 0000000000..e077912a7c
 +                call_id: call_id.to_owned(),
 +                hooks,
 +            });
++        }
++    }
++
++    pub(crate) fn bind_dispatch_hooks(&self, hooks: Arc<Hooks>) {
++        let _ = self.dispatch_hooks.set(hooks);
++    }
++
++    /// The registry is still before every hook/backend effect. A stale snapshot
++    /// refusal is positive no-dispatch evidence even if the new policy has hooks.
++    pub(crate) fn refuse_before_hooks(&self) {
++        if self
++            .call_id
++            .get()
++            .is_some_and(|id| !id.is_empty() && id.len() <= 256)
++            && self
++                .attempts
++                .lock()
++                .is_ok_and(|attempts| attempts.is_empty())
++            && self.waited.lock().is_ok_and(|waited| waited.is_none())
++            && self.running_session.get().is_none()
++        {
++            self.refused_before_hooks.store(true, Ordering::Release);
 +        }
 +    }
 +
@@ -2902,7 +3014,7 @@ index 0000000000..e077912a7c
 +        }
 +    }
 +
-+    pub(crate) fn observed_wait(&self, session_id: i32, actual_exit_code: i32) {
++    pub(crate) fn observed_wait(&self, session_id: i32, actual_exit_code: Option<i32>) {
 +        if session_id >= 0
 +            && let Ok(mut waited) = self.waited.lock()
 +        {
@@ -2911,13 +3023,22 @@ index 0000000000..e077912a7c
 +    }
 +
 +    pub(crate) fn finish(&self, session: &Session) {
-+        // Hook configuration is replaced only with a newly allocated Arc in
-+        // Session::update_config. Retaining the original Arc prevents address
-+        // reuse: reconfiguration cannot silently restore this snapshot identity.
-+        // Dynamic environment/executor overlays were excluded at admission.
-+        let valid = self.origin.get().is_some_and(|origin| {
-+            Arc::ptr_eq(&origin.hooks, &session.hooks()) && hooks_free(&origin.hooks, origin.tool)
-+        });
++        // Native's admitted Arc is the actual dispatcher, even if configuration
++        // reloads during this call. Other routes retain their previous identity
++        // check. Dynamic environment/executor overlays were excluded at capture.
++        let valid = self.refused_before_hooks.load(Ordering::Acquire)
++            || self.origin.get().is_some_and(|origin| {
++                if let Some(admitted) = self.dispatch_hooks.get() {
++                    // Admission already checked this tool's immutable engine and
++                    // then pinned every actual dispatcher to it. Unrelated async
++                    // work started later shares the runtime tracker, but did not
++                    // become a hook of this invocation and cannot erase its wait.
++                    Arc::ptr_eq(&origin.hooks, admitted)
++                } else {
++                    Arc::ptr_eq(&origin.hooks, &session.hooks())
++                        && hooks_free(&origin.hooks, origin.tool)
++                }
++            });
 +        self.finished.send_replace(Some(valid));
 +    }
 +
@@ -2959,16 +3080,26 @@ index 0000000000..e077912a7c
 +    pub(crate) fn wait_proof(
 +        &self,
 +        session_id: i32,
-+        actual_exit_code: i32,
++        actual_exit_code: Option<i32>,
 +    ) -> Option<NativeEffectCompletion> {
 +        self.make(
 +            NativeCompletionOutcome::WaitCompleted,
 +            Some(session_id),
-+            Some(actual_exit_code),
++            actual_exit_code,
 +        )
 +    }
 +
 +    fn proof(&self) -> Option<NativeEffectCompletion> {
++        if self.refused_before_hooks.load(Ordering::Acquire) && self.hook_free_finished() {
++            return Some(NativeEffectCompletion {
++                schema: NativeCompletionSchema::V1,
++                call_id: self.call_id.get()?.clone(),
++                session_id: None,
++                outcome: NativeCompletionOutcome::PreBackendRejected,
++                exit_code: None,
++                hooks: NativeCompletionHooks::Absent,
++            });
++        }
 +        let waited = *self.waited.lock().ok()?;
 +        let attempts = self.attempts.lock().ok()?;
 +        if !attempts.is_empty() {
@@ -3014,7 +3145,7 @@ index 0000000000..e077912a7c
 +    index: usize,
 +}
 +impl NativeAttempt {
-+    pub(crate) fn observe(&self, code: Option<i32>) {
++    pub(crate) fn observe(&self, code: Option<Option<i32>>) {
 +        if let Ok(mut attempts) = self.state.attempts.lock()
 +            && let Some(attempt) = attempts.get_mut(self.index)
 +        {
@@ -3205,7 +3336,7 @@ index 0000000000..e077912a7c
 +        let state = CallCompletion::default();
 +        state.initial_rejection();
 +        assert!(state.proof().is_none());
-+        state.observed_wait(71, 0);
++        state.observed_wait(71, Some(0));
 +        assert!(state.proof().is_none());
 +        state.finished.send_replace(Some(false));
 +        assert!(state.proof().is_none());
@@ -3306,12 +3437,12 @@ index 0000000000..e077912a7c
 +        let second = state
 +            .begin_attempt()
 +            .ok_or_else(|| anyhow::anyhow!("second attempt"))?;
-+        second.observe(Some(7));
-+        state.observed_wait(71, 7);
++        second.observe(Some(Some(7)));
++        state.observed_wait(71, Some(7));
 +        state.finish(&session);
 +        assert!(!state.attempts_confirmed());
 +        assert!(state.proof().is_none());
-+        first.observe(Some(0));
++        first.observe(Some(Some(0)));
 +        assert!(state.attempts_confirmed());
 +        assert_eq!(
 +            state
@@ -3320,7 +3451,7 @@ index 0000000000..e077912a7c
 +                .exit_code,
 +            Some(7)
 +        );
-+        first.observe(Some(0));
++        first.observe(Some(Some(0)));
 +        assert_eq!(
 +            state
 +                .proof()
@@ -3328,7 +3459,7 @@ index 0000000000..e077912a7c
 +                .exit_code,
 +            Some(7)
 +        );
-+        first.observe(Some(137));
++        first.observe(Some(Some(137)));
 +        assert!(!state.attempts_confirmed());
 +        assert!(state.proof().is_none());
 +        Ok(())
@@ -3342,7 +3473,7 @@ index 0000000000..e077912a7c
 +        let attempt = state
 +            .begin_attempt()
 +            .ok_or_else(|| anyhow::anyhow!("attempt"))?;
-+        attempt.observe(Some(7));
++        attempt.observe(Some(Some(7)));
 +        state.initial_rejection();
 +        state.finish(&session);
 +        assert!(state.waited.lock().is_ok_and(|waited| waited.is_none()));
@@ -3360,7 +3491,7 @@ index 0000000000..e077912a7c
 +    async fn native_completion_continuation_uses_its_own_call_and_original_process_session()
 +    -> anyhow::Result<()> {
 +        let (session, state) = admitted("poll-call", "write_stdin").await;
-+        state.observed_wait(71, 0);
++        state.observed_wait(71, Some(0));
 +        state.finish(&session);
 +        let proof = state
 +            .proof()
@@ -3420,7 +3551,7 @@ index 0000000000..e077912a7c
 +        let guard = FinishGuard(Arc::clone(&state));
 +        drop(guard);
 +        assert!(!state.wait_for_finish().await);
-+        state.observed_wait(71, 0);
++        state.observed_wait(71, Some(0));
 +        assert!(state.proof().is_none());
 +        drop(session);
 +    }
@@ -3477,25 +3608,301 @@ index 0000000000..e077912a7c
 +        );
 +        Ok(())
 +    }
++
++    #[tokio::test]
++    async fn native_completion_admitted_snapshot_preserves_wait_after_later_hook_reload()
++    -> anyhow::Result<()> {
++        let (session, state) = admitted("admitted-wait", "exec_command").await;
++        state.bind_dispatch_hooks(session.hooks());
++        state.bind_exec_session(71);
++        let attempt = state
++            .begin_attempt()
++            .ok_or_else(|| anyhow::anyhow!("attempt"))?;
++        session
++            .services
++            .hooks
++            .store(Arc::new((*session.hooks()).clone()));
++        let unrelated = Arc::new(tokio::sync::Notify::new());
++        let pending = Arc::clone(&unrelated);
++        session
++            .hooks()
++            .schedule_async_task(async move { pending.notified().await });
++        let original = state
++            .origin
++            .get()
++            .ok_or_else(|| anyhow::anyhow!("origin"))?;
++        assert!(
++            !hooks_free(&original.hooks, original.tool),
++            "shared async state must actually be pending"
++        );
++        attempt.observe(Some(Some(7)));
++        state.observed_wait(71, Some(7));
++        state.finish(&session);
++        let proof = state
++            .proof()
++            .ok_or_else(|| anyhow::anyhow!("actual admitted engine remains valid"))?;
++        assert_eq!(proof.call_id, "admitted-wait");
++        assert_eq!(proof.outcome, NativeCompletionOutcome::WaitCompleted);
++        assert_eq!(proof.exit_code, Some(7));
++        unrelated.notify_one();
++        session.hooks().shutdown().await;
++        Ok(())
++    }
++    #[tokio::test]
++    async fn native_completion_successful_wait_without_numeric_exit_is_terminal()
++    -> anyhow::Result<()> {
++        let (session, state) = admitted("signal-wait", "exec_command").await;
++        state.bind_exec_session(71);
++        let attempt = state
++            .begin_attempt()
++            .ok_or_else(|| anyhow::anyhow!("attempt"))?;
++        attempt.observe(Some(None));
++        state.observed_wait(71, None);
++        state.finish(&session);
++        let proof = state
++            .proof()
++            .ok_or_else(|| anyhow::anyhow!("actual wait was observed"))?;
++        assert_eq!(proof.outcome, NativeCompletionOutcome::WaitCompleted);
++        assert_eq!(proof.session_id, Some(71));
++        assert_eq!(proof.exit_code, None);
++        let value = serde_json::to_value(proof)?;
++        assert!(value["exit_code"].is_null());
++        assert_eq!(value["outcome"], "wait_completed");
++        let (session, unknown) = admitted("no-wait", "exec_command").await;
++        unknown.bind_exec_session(72);
++        unknown
++            .begin_attempt()
++            .ok_or_else(|| anyhow::anyhow!("attempt"))?
++            .observe(None);
++        unknown.finish(&session);
++        assert!(
++            unknown.proof().is_none(),
++            "wait error is not a numeric-unknown successful wait"
++        );
++        Ok(())
++    }
 +}
 diff --git a/codex-rs/core/src/native_execution.rs b/codex-rs/core/src/native_execution.rs
 new file mode 100644
-index 0000000000..289d02cfe3
+index 0000000000..ad911167e8
 --- /dev/null
 +++ b/codex-rs/core/src/native_execution.rs
-@@ -0,0 +1,212 @@
+@@ -0,0 +1,1178 @@
 +//! Private execution facts for the local ChatGPT Provider's resource admission.
 +//! Native remains the only executor. No tool arguments or environment values
 +//! are rewritten, and no compiler or shell is run to obtain these facts.
 +use crate::exec_env::create_env;
 +use crate::session::session::Session;
 +use crate::session::step_context::StepContext;
++use crate::tools::context::ToolInvocation;
++use codex_hooks::Hooks;
++use codex_tools::FunctionCallError;
++use codex_tools::ToolName;
 +use serde_json::Value;
 +use serde_json::json;
 +use std::collections::HashMap;
 +use std::path::Path;
++use std::sync::Arc;
++use std::sync::OnceLock;
 +
 +pub(crate) const METADATA_KEY: &str = "termux_native_execution";
++
++/// The request advertises one immutable Hook engine. Each tool compares it with
++/// the current engine at admission, then uses that same Arc for every actual
++/// PreToolUse, PostToolUse and PermissionRequest dispatch. A reload before
++/// admission refuses the call; a reload after it affects only later calls.
++#[derive(Clone, Default)]
++pub(crate) struct HookSnapshot {
++    advertised: Arc<OnceLock<AdvertisedHooks>>,
++    admitted: Option<Arc<Hooks>>,
++}
++
++struct AdvertisedHooks {
++    hooks: Arc<Hooks>,
++    hook_free_tools: Vec<&'static str>,
++}
++
++const HOOK_INPUTS: &[(&str, &[&str], &[&str])] = &[
++    (
++        "exec_command",
++        &["Bash", "exec_command", "functions.exec_command"],
++        &["Bash"],
++    ),
++    (
++        "write_stdin",
++        &["Bash", "write_stdin", "functions.write_stdin"],
++        &["write_stdin"],
++    ),
++    (
++        "apply_patch",
++        &["apply_patch", "functions.apply_patch", "Write", "Edit"],
++        &["apply_patch", "Write", "Edit"],
++    ),
++    // view_image reads through the selected filesystem and has no permission
++    // request handler. Keep a canonical conservative matcher rather than the
++    // empty list, which the shared proof helper correctly treats as unknown.
++    (
++        "view_image",
++        &["view_image", "functions.view_image"],
++        &["view_image"],
++    ),
++    (
++        "clock.curr_time",
++        &["clock.curr_time", "mcp__clock__curr_time"],
++        &["mcp__clock__curr_time"],
++    ),
++    (
++        "clock.sleep",
++        &["clock.sleep", "mcp__clock__sleep"],
++        &["mcp__clock__sleep"],
++    ),
++];
++
++fn qualified_hook_tool(tool: &ToolName) -> Option<&'static str> {
++    if tool.is_default_namespace() {
++        match tool.name.as_str() {
++            "exec_command" => return Some("exec_command"),
++            "write_stdin" => return Some("write_stdin"),
++            "apply_patch" => return Some("apply_patch"),
++            "view_image" => return Some("view_image"),
++            "mcp__clock__curr_time" | "clock.curr_time" => return Some("clock.curr_time"),
++            "mcp__clock__sleep" | "clock.sleep" => return Some("clock.sleep"),
++            _ => {}
++        }
++    }
++    match tool.to_string().as_str() {
++        "clock.curr_time" => Some("clock.curr_time"),
++        "clock.sleep" => Some("clock.sleep"),
++        _ => None,
++    }
++}
++
++/// Canonical per-tool facts shared by advertisement, actual admission and
++/// completion. Bounded file/process scope is a separate Provider decision.
++pub(crate) fn tool_has_no_hook_effects(hooks: &Hooks, tool: &str) -> bool {
++    HOOK_INPUTS.iter().any(|(name, names, permissions)| {
++        *name == tool && hooks.tool_has_no_hook_effects(names, permissions)
++    })
++}
++
++impl HookSnapshot {
++    fn capture(&self, hooks: Arc<Hooks>) -> &AdvertisedHooks {
++        self.advertised.get_or_init(|| AdvertisedHooks {
++            hook_free_tools: HOOK_INPUTS
++                .iter()
++                .filter(|(_, names, permissions)| {
++                    hooks.tool_has_no_hook_effects(names, permissions)
++                })
++                .map(|(tool, _, _)| *tool)
++                .collect(),
++            hooks,
++        })
++    }
++
++    pub(crate) fn advertised_hooks(&self) -> Option<&Arc<Hooks>> {
++        self.advertised.get().map(|value| &value.hooks)
++    }
++
++    pub(crate) fn admitted(&self) -> Option<&Arc<Hooks>> {
++        self.admitted.as_ref()
++    }
++
++    fn admit(&self, current: &Arc<Hooks>, tool: &ToolName) -> Result<Self, &'static str> {
++        let Some(advertised) = self.advertised.get() else {
++            return Ok(self.clone());
++        };
++        if !Arc::ptr_eq(&advertised.hooks, current) {
++            return Err("hook configuration changed before tool admission");
++        }
++        // Async hook state is shared across reconfigurations and is not an
++        // immutable config field. Recheck a previously bounded claim before
++        // effects, using the same engine that will actually dispatch its hooks.
++        let hook_free = match qualified_hook_tool(tool) {
++            Some(tool) => {
++                advertised.hook_free_tools.contains(&tool)
++                    && tool_has_no_hook_effects(current, tool)
++            }
++            // Do not invent matcher aliases for other tools or remove them from
++            // the product. With no admitted hook handlers, their normal result
++            // still settles only their own invocation. A matching synchronous
++            // hook is insufficient: it can leave a detached child alive.
++            None => current.has_no_configured_hook_effects(),
++        };
++        if !hook_free {
++            return Err("applicable hooks cannot provide confirmed completion for this dispatch");
++        }
++        Ok(Self {
++            advertised: Arc::clone(&self.advertised),
++            admitted: Some(Arc::clone(&advertised.hooks)),
++        })
++    }
++}
++
++/// This is called by the existing registry before the environment resolver or
++/// any tool/permission hook. The Arc load is the linearization point: all later
++/// hook consumers use the returned engine, never another session.hooks() load.
++pub(crate) fn admit_hook_dispatch(
++    invocation: &mut ToolInvocation,
++) -> Result<(), FunctionCallError> {
++    if invocation
++        .step_context
++        .native_hooks
++        .advertised_hooks()
++        .is_none()
++    {
++        return Ok(());
++    }
++    // The router's dedicated discovery payload never runs Pre/Post/Permission
++    // hooks. A function call merely named tool_search is not this exception.
++    if invocation.tool_name.is_default_namespace()
++        && invocation.tool_name.name == "tool_search"
++        && matches!(
++            &invocation.payload,
++            codex_tools::ToolPayload::ToolSearch { .. }
++        )
++    {
++        return Ok(());
++    }
++    let admitted = invocation
++        .step_context
++        .native_hooks
++        .admit(&invocation.session.hooks(), &invocation.tool_name);
++    let admitted = match admitted {
++        Ok(admitted) => admitted,
++        Err(reason) => {
++            if let Some(completion) = &invocation.native_completion {
++                completion.refuse_before_hooks();
++            }
++            return Err(FunctionCallError::RespondToModel(format!(
++                "Native {reason}; no hook or backend was executed."
++            )));
++        }
++    };
++    if invocation.tool_name.is_default_namespace()
++        && matches!(
++            invocation.tool_name.name.as_str(),
++            "exec_command" | "write_stdin"
++        )
++        && invocation
++            .native_completion
++            .as_ref()
++            .is_none_or(|state| !state.is_admitted())
++    {
++        if let Some(completion) = &invocation.native_completion {
++            completion.refuse_before_hooks();
++        }
++        return Err(FunctionCallError::RespondToModel(
++            "Native process completion is unavailable in this execution context; no hook or backend was executed.".into(),
++        ));
++    }
++    if let Some(hooks) = admitted.admitted()
++        && let Some(completion) = &invocation.native_completion
++    {
++        completion.bind_dispatch_hooks(Arc::clone(hooks));
++    }
++    Arc::make_mut(&mut invocation.step_context).native_hooks = admitted;
++    Ok(())
++}
 +
 +fn project(
 +    env: &HashMap<String, String>,
@@ -3523,7 +3930,7 @@ index 0000000000..289d02cfe3
 +    let mut variables = env.keys().collect::<Vec<_>>();
 +    variables.sort();
 +    Some(
-+        json!({"schema":2,"hook_free_tools":hook_free_tools,"pid":pid,"start":start,"thread":thread,"turn":turn,
++        json!({"schema":3,"hook_free_tools":hook_free_tools,"pid":pid,"start":start,"thread":thread,"turn":turn,
 +        "cwd":cwd,"shell":shell,"prefix":prefix,"home":home,"path":path,
 +        "variables":variables,"no_default_config":env.get("CLANG_NO_DEFAULT_CONFIG").is_some_and(|s|!s.is_empty())}),
 +    )
@@ -3540,44 +3947,7 @@ index 0000000000..289d02cfe3
 +    {
 +        return None;
 +    }
-+    let hooks = session.hooks();
-+    let mut hook_free_tools = Vec::new();
-+    for (tool, names, permissions) in [
-+        (
-+            "exec_command",
-+            &[
-+                "exec_command",
-+                "functions.exec_command",
-+                "write_stdin",
-+                "functions.write_stdin",
-+            ][..],
-+            &["Bash", "write_stdin"][..],
-+        ),
-+        (
-+            "apply_patch",
-+            &["apply_patch", "functions.apply_patch", "Write", "Edit"][..],
-+            &["apply_patch", "Write", "Edit"][..],
-+        ),
-+        (
-+            "view_image",
-+            &["view_image", "functions.view_image"][..],
-+            &[][..],
-+        ),
-+        (
-+            "clock.curr_time",
-+            &["clock.curr_time", "mcp__clock__curr_time"][..],
-+            &[][..],
-+        ),
-+        (
-+            "clock.sleep",
-+            &["clock.sleep", "mcp__clock__sleep"][..],
-+            &[][..],
-+        ),
-+    ] {
-+        if hooks.tool_has_no_hook_effects(names, permissions) {
-+            hook_free_tools.push(tool);
-+        }
-+    }
++    let advertised = step.native_hooks.capture(session.hooks());
 +    let environment = step.environments.primary()?;
 +    if environment.environment.is_remote()
 +        || !environment.config().environment_hooks.is_empty()
@@ -3611,7 +3981,7 @@ index 0000000000..289d02cfe3
 +        &shell.shell_path,
 +        &session.thread_id.to_string(),
 +        &step.turn.sub_id,
-+        &hook_free_tools,
++        &advertised.hook_free_tools,
 +    )
 +}
 +
@@ -3640,7 +4010,7 @@ index 0000000000..289d02cfe3
 +            &["exec_command", "apply_patch"],
 +        )
 +        .unwrap();
-+        assert_eq!(value["schema"], 2);
++        assert_eq!(value["schema"], 3);
 +        assert_eq!(
 +            value["hook_free_tools"],
 +            json!(["exec_command", "apply_patch"])
@@ -3694,6 +4064,806 @@ index 0000000000..289d02cfe3
 +                .unwrap()
 +                .contains(METADATA_KEY)
 +        );
++    }
++
++    fn refusal_header(
++        error: FunctionCallError,
++        state: &crate::native_completion::CallCompletion,
++    ) -> anyhow::Result<Value> {
++        let error = crate::native_completion::decorate(Err(error), state)
++            .err()
++            .ok_or_else(|| anyhow::anyhow!("original refusal"))?
++            .to_string();
++        serde_json::from_str(
++            error
++                .lines()
++                .next()
++                .and_then(|line| line.strip_prefix("Native completion: "))
++                .ok_or_else(|| anyhow::anyhow!("trusted completion header"))?,
++        )
++        .map_err(Into::into)
++    }
++
++    #[cfg(unix)]
++    struct HookAdmissionProbe {
++        name: ToolName,
++        calls: Arc<std::sync::atomic::AtomicUsize>,
++        reload: Option<Arc<Hooks>>,
++        permission: bool,
++    }
++
++    #[cfg(unix)]
++    impl codex_tools::ToolExecutor<ToolInvocation> for HookAdmissionProbe {
++        fn tool_name(&self) -> ToolName {
++            self.name.clone()
++        }
++        fn spec(&self) -> codex_tools::ToolSpec {
++            codex_tools::ToolSpec::Function(codex_tools::ResponsesApiTool {
++                name: self.name.name.clone(),
++                description: "Hook admission probe".into(),
++                strict: false,
++                defer_loading: None,
++                parameters: Default::default(),
++                output_schema: None,
++            })
++        }
++        fn handle<'a>(&'a self, invocation: ToolInvocation) -> codex_tools::ToolExecutorFuture<'a>
++        where
++            ToolInvocation: 'a,
++        {
++            Box::pin(async move {
++                self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
++                if self.permission {
++                    let review =
++                        crate::guardian::GuardianReviewContext::from(&invocation.step_context);
++                    crate::hook_runtime::run_permission_request_hooks(
++                        &invocation.session,
++                        &review,
++                        &invocation.call_id,
++                        crate::tools::sandboxing::PermissionRequestPayload {
++                            tool_name: crate::tools::hook_names::HookToolName::bash(),
++                            tool_cwd: None,
++                            tool_input: serde_json::json!({}),
++                        },
++                        "local",
++                    )
++                    .await;
++                }
++                Ok(
++                    Box::new(crate::tools::context::FunctionToolOutput::from_text(
++                        "backend completed".into(),
++                        Some(true),
++                    )) as Box<dyn codex_tools::ToolOutput>,
++                )
++            })
++        }
++    }
++    #[cfg(unix)]
++    impl crate::tools::registry::CoreToolRuntime for HookAdmissionProbe {
++        fn environments_for_input(
++            &self,
++            invocation: &ToolInvocation,
++        ) -> Result<crate::tools::context::ToolEnvironments, FunctionCallError> {
++            // The registry has admitted the call, but has not dispatched its
++            // Pre hook yet. A reload here exercises all three hook consumers.
++            if let Some(reload) = &self.reload {
++                invocation.session.services.hooks.store(Arc::clone(reload));
++            }
++            Ok(crate::tools::context::ToolEnvironments::All)
++        }
++    }
++
++    #[cfg(unix)]
++    fn hook_probe_invocation(
++        session: &Arc<Session>,
++        step: Arc<StepContext>,
++        name: ToolName,
++        id: &str,
++    ) -> ToolInvocation {
++        let completion = Arc::new(crate::native_completion::CallCompletion::default());
++        completion.capture(session, &step, id, &name);
++        ToolInvocation {
++            native_completion: Some(completion),
++            session: Arc::clone(session),
++            turn: Arc::clone(&step.turn),
++            step_context: step,
++            cancellation_token: tokio_util::sync::CancellationToken::new(),
++            tracker: Arc::new(tokio::sync::Mutex::new(
++                crate::turn_diff_tracker::TurnDiffTracker::new(),
++            )),
++            call_id: id.into(),
++            tool_name: name,
++            source: crate::tools::context::ToolCallSource::Direct,
++            native_call: None,
++            environments: Default::default(),
++            payload: codex_tools::ToolPayload::Function {
++                arguments: "{}".into(),
++            },
++        }
++    }
++
++    #[cfg(unix)]
++    fn configured_hooks(
++        session: &Session,
++        root: &Path,
++        label: &str,
++        matcher: &str,
++    ) -> anyhow::Result<Arc<Hooks>> {
++        configured_hook_events(
++            session,
++            root,
++            label,
++            matcher,
++            &["pre", "post", "permission"],
++        )
++    }
++
++    #[cfg(unix)]
++    fn configured_hook_events(
++        session: &Session,
++        root: &Path,
++        label: &str,
++        matcher: &str,
++        events: &[&str],
++    ) -> anyhow::Result<Arc<Hooks>> {
++        configured_hook_events_with_mode(session, root, label, matcher, events, false)
++    }
++
++    #[cfg(unix)]
++    fn configured_hook_events_with_mode(
++        session: &Session,
++        root: &Path,
++        label: &str,
++        matcher: &str,
++        events: &[&str],
++        asynchronous: bool,
++    ) -> anyhow::Result<Arc<Hooks>> {
++        let log = root.join("hook-effects");
++        let log = log.to_str().ok_or_else(|| anyhow::anyhow!("test path"))?;
++        anyhow::ensure!(!log.contains('\''), "owned test path is not shell-safe");
++        let group = |event: &str| codex_config::MatcherGroup {
++            matcher: Some(matcher.to_owned()),
++            hooks: vec![codex_config::HookHandlerConfig::Command {
++                command: format!("printf '%s\\n' '{label}-{event}' >> '{log}'"),
++                command_windows: None,
++                timeout_sec: Some(5),
++                r#async: asynchronous,
++                status_message: None,
++                additional_context_limit: None,
++            }],
++        };
++        let plugin_root = codex_config::AbsolutePathBuf::try_from(root.to_path_buf())?;
++        let hooks = session.hooks().reconfigured(codex_hooks::HooksConfig {
++            feature_enabled: true,
++            bypass_hook_trust: true,
++            shell_program: Some(
++                session
++                    .user_shell()
++                    .shell_path
++                    .to_string_lossy()
++                    .into_owned(),
++            ),
++            shell_args: vec!["-c".into()],
++            plugin_hook_sources: vec![codex_plugin::PluginHookSource {
++                plugin_id: codex_plugin::PluginId::parse("native-hook-proof@test")?,
++                plugin_root: plugin_root.clone(),
++                plugin_data_root: plugin_root.clone(),
++                source_path: plugin_root.join("hooks.json"),
++                source_relative_path: "hooks.json".into(),
++                hooks: codex_config::HookEventsToml {
++                    pre_tool_use: events
++                        .contains(&"pre")
++                        .then(|| vec![group("pre")])
++                        .unwrap_or_default(),
++                    post_tool_use: events
++                        .contains(&"post")
++                        .then(|| vec![group("post")])
++                        .unwrap_or_default(),
++                    permission_request: events
++                        .contains(&"permission")
++                        .then(|| vec![group("permission")])
++                        .unwrap_or_default(),
++                    ..Default::default()
++                },
++            }],
++            ..Default::default()
++        });
++        Ok(Arc::new(hooks))
++    }
++
++    #[cfg(unix)]
++    #[tokio::test]
++    async fn native_completion_hook_reload_before_admission_refuses_all_qualified_calls()
++    -> anyhow::Result<()> {
++        let (session, turn) = crate::session::tests::make_session_and_context().await;
++        let session = Arc::new(session);
++        let step = StepContext::for_test(Arc::new(turn));
++        step.native_hooks.capture(session.hooks());
++        let owned = tempfile::tempdir()?;
++        session
++            .services
++            .hooks
++            .store(configured_hooks(&session, owned.path(), "new", ".*")?);
++        let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
++        for (index, name) in [
++            "exec_command",
++            "write_stdin",
++            "apply_patch",
++            "view_image",
++            "mcp__clock__curr_time",
++            "mcp__clock__sleep",
++        ]
++        .into_iter()
++        .enumerate()
++        {
++            let name = ToolName::plain(name);
++            let registry =
++                crate::tools::registry::ToolRegistry::from_tools([Arc::new(HookAdmissionProbe {
++                    name: name.clone(),
++                    calls: Arc::clone(&calls),
++                    reload: None,
++                    permission: true,
++                })
++                    as Arc<dyn crate::tools::registry::CoreToolRuntime>]);
++            let id = format!("stale-{index}");
++            let invocation = hook_probe_invocation(&session, Arc::clone(&step), name.clone(), &id);
++            let completion = invocation
++                .native_completion
++                .clone()
++                .ok_or_else(|| anyhow::anyhow!("completion"))?;
++            let result = registry.dispatch_any_with_state(invocation, None).await;
++            completion.finish(&session);
++            let error = crate::native_completion::decorate(result, &completion)
++                .err()
++                .ok_or_else(|| anyhow::anyhow!("stale invocation must be refused"))?
++                .to_string();
++            assert!(error.contains("no hook or backend was executed"));
++            if matches!(name.name.as_str(), "exec_command" | "write_stdin") {
++                let line = error
++                    .lines()
++                    .next()
++                    .ok_or_else(|| anyhow::anyhow!("proof header"))?;
++                let value: Value = serde_json::from_str(
++                    line.strip_prefix("Native completion: ")
++                        .ok_or_else(|| anyhow::anyhow!("typed refusal"))?,
++                )?;
++                assert_eq!(value["call_id"], id);
++                assert_eq!(value["outcome"], "pre_backend_rejected");
++                assert!(value["session_id"].is_null());
++                assert!(value["exit_code"].is_null());
++            }
++        }
++        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 0);
++        assert!(!owned.path().join("hook-effects").exists());
++        Ok(())
++    }
++
++    #[cfg(unix)]
++    #[tokio::test]
++    async fn native_completion_admitted_hook_arc_drives_pre_post_and_permission_after_reload()
++    -> anyhow::Result<()> {
++        let (session, turn) = crate::session::tests::make_session_and_context().await;
++        let session = Arc::new(session);
++        let turn = Arc::new(turn);
++        let owned = tempfile::tempdir()?;
++        let original = configured_hooks(&session, owned.path(), "old", "unrelated_tool")?;
++        session.services.hooks.store(Arc::clone(&original));
++        let next = configured_hooks(&session, owned.path(), "new", ".*")?;
++        let step = StepContext::for_test(Arc::clone(&turn));
++        step.native_hooks.capture(session.hooks());
++        let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
++        let name = ToolName::plain("apply_patch");
++        let registry =
++            crate::tools::registry::ToolRegistry::from_tools([Arc::new(HookAdmissionProbe {
++                name: name.clone(),
++                calls: Arc::clone(&calls),
++                reload: Some(Arc::clone(&next)),
++                permission: true,
++            })
++                as Arc<dyn crate::tools::registry::CoreToolRuntime>]);
++        registry
++            .dispatch_any_with_state(
++                hook_probe_invocation(&session, Arc::clone(&step), name.clone(), "admitted"),
++                None,
++            )
++            .await?;
++        assert!(
++            !owned.path().join("hook-effects").exists(),
++            "admitted hook-free invocation must not run newly loaded hooks"
++        );
++        assert!(Arc::ptr_eq(&session.hooks(), &next));
++        assert!(
++            step.native_hooks.admitted().is_none(),
++            "call admission must not mutate the shared request"
++        );
++        // A new Native response refuses the now-applicable hooks before any
++        // effects. Ordinary upstream dispatch keeps its live-hook behavior.
++        let fresh = StepContext::for_test(Arc::clone(&turn));
++        fresh.native_hooks.capture(session.hooks());
++        let error = registry
++            .dispatch_any_with_state(
++                hook_probe_invocation(&session, fresh, name.clone(), "fresh"),
++                None,
++            )
++            .await
++            .err()
++            .ok_or_else(|| anyhow::anyhow!("matching hooks must be refused"))?;
++        assert!(
++            error
++                .to_string()
++                .contains("no hook or backend was executed")
++        );
++        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
++        assert!(!owned.path().join("hook-effects").exists());
++        let ordinary = StepContext::for_test(turn);
++        registry
++            .dispatch_any_with_state(
++                hook_probe_invocation(&session, ordinary, name, "ordinary"),
++                None,
++            )
++            .await?;
++        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 2);
++        assert_eq!(
++            std::fs::read_to_string(owned.path().join("hook-effects"))?,
++            "new-pre\nnew-permission\nnew-post\n"
++        );
++        Ok(())
++    }
++
++    #[cfg(unix)]
++    #[tokio::test]
++    async fn native_completion_nonprocess_hook_refusal_preserves_discovery_and_plain_tools()
++    -> anyhow::Result<()> {
++        let (session, turn) = crate::session::tests::make_session_and_context().await;
++        let session = Arc::new(session);
++        let turn = Arc::new(turn);
++        let owned = tempfile::tempdir()?;
++        let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
++        let registry_for = |name: ToolName| {
++            crate::tools::registry::ToolRegistry::from_tools([Arc::new(HookAdmissionProbe {
++                name,
++                calls: Arc::clone(&calls),
++                reload: None,
++                permission: false,
++            })
++                as Arc<dyn crate::tools::registry::CoreToolRuntime>])
++        };
++        // The scope advertisement is not a general tool allowlist. An ordinary
++        // extra tool stays usable when no hook handler can add untracked effects.
++        let clear = StepContext::for_test(Arc::clone(&turn));
++        clear.native_hooks.capture(session.hooks());
++        let extra = ToolName::plain("owned_plain_tool");
++        registry_for(extra.clone())
++            .dispatch_any_with_state(hook_probe_invocation(&session, clear, extra, "plain"), None)
++            .await?;
++        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
++        for (index, asynchronous) in [false, true].into_iter().enumerate() {
++            session
++                .services
++                .hooks
++                .store(configured_hook_events_with_mode(
++                    &session,
++                    owned.path(),
++                    "must-not-run",
++                    ".*",
++                    &["pre", "post", "permission"],
++                    asynchronous,
++                )?);
++            let step = StepContext::for_test(Arc::clone(&turn));
++            step.native_hooks.capture(session.hooks());
++            for name in [
++                "apply_patch",
++                "view_image",
++                "mcp__clock__curr_time",
++                "mcp__clock__sleep",
++                "owned_plain_tool",
++                "tool_search",
++            ] {
++                let name = ToolName::plain(name);
++                let id = format!("refused-{index}-{name}");
++                let invocation =
++                    hook_probe_invocation(&session, Arc::clone(&step), name.clone(), &id);
++                let error = registry_for(name)
++                    .dispatch_any_with_state(invocation, None)
++                    .await
++                    .err()
++                    .ok_or_else(|| anyhow::anyhow!("hook-bearing call must be refused"))?;
++                assert!(
++                    error
++                        .to_string()
++                        .contains("no hook or backend was executed")
++                );
++            }
++            // Only the real dedicated discovery payload is hook-free. A
++            // different named tool cannot acquire this exception by payload.
++            for (name, allowed) in [("other_search", false), ("tool_search", true)] {
++                let name = ToolName::plain(name);
++                let mut invocation = hook_probe_invocation(
++                    &session,
++                    Arc::clone(&step),
++                    name.clone(),
++                    &format!("discovery-{index}-{name}"),
++                );
++                invocation.payload = codex_tools::ToolPayload::ToolSearch {
++                    arguments: serde_json::from_value(json!({"query":"metadata","limit":1}))?,
++                };
++                let result = registry_for(name)
++                    .dispatch_any_with_state(invocation, None)
++                    .await;
++                assert_eq!(result.is_ok(), allowed);
++            }
++            assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), index + 2);
++            assert!(!owned.path().join("hook-effects").exists());
++        }
++        Ok(())
++    }
++
++    #[cfg(unix)]
++    #[tokio::test]
++    async fn native_completion_advertised_scope_includes_actual_bash_hooks() -> anyhow::Result<()> {
++        let (session, turn) = crate::session::tests::make_session_and_context().await;
++        let owned = tempfile::tempdir()?;
++        let clear = HookSnapshot::default();
++        let available = &clear.capture(session.hooks()).hook_free_tools;
++        for tool in [
++            "exec_command",
++            "write_stdin",
++            "view_image",
++            "clock.curr_time",
++            "clock.sleep",
++        ] {
++            assert!(
++                available.contains(&tool),
++                "hook-free {tool} must remain available"
++            );
++        }
++        // MCP uses the same canonical mcp__ name for all three actual hook
++        // events. Test each event separately so a matching Pre hook cannot hide
++        // a missing Permission matcher. view_image has no Permission producer;
++        // its canonical name intentionally remains a conservative exclusion.
++        for (tool, matcher) in [
++            ("view_image", "view_image"),
++            ("clock.curr_time", "mcp__clock__curr_time"),
++            ("clock.sleep", "mcp__clock__sleep"),
++        ] {
++            for event in ["pre", "post", "permission"] {
++                let hooks =
++                    configured_hook_events(&session, owned.path(), "read", matcher, &[event])?;
++                let snapshot = HookSnapshot::default();
++                let scope = &snapshot.capture(hooks).hook_free_tools;
++                assert!(
++                    !scope.contains(&tool),
++                    "matching {event} must exclude {tool}"
++                );
++                assert!(
++                    scope.contains(&"exec_command"),
++                    "unrelated read hooks must not block exec"
++                );
++                for other in ["view_image", "clock.curr_time", "clock.sleep"] {
++                    if other != tool {
++                        assert!(scope.contains(&other), "{tool} hook must not block {other}");
++                    }
++                }
++            }
++        }
++        let stdin_hooks = configured_hook_events(
++            &session,
++            owned.path(),
++            "stdin",
++            "write_stdin",
++            &["permission"],
++        )?;
++        let snapshot = HookSnapshot::default();
++        let available = &snapshot.capture(Arc::clone(&stdin_hooks)).hook_free_tools;
++        assert!(available.contains(&"exec_command"));
++        assert!(!available.contains(&"write_stdin"));
++        assert!(
++            snapshot
++                .admit(&stdin_hooks, &ToolName::plain("exec_command"))
++                .is_ok()
++        );
++        assert!(
++            snapshot
++                .admit(&stdin_hooks, &ToolName::plain("write_stdin"))
++                .is_err()
++        );
++        let hooks = configured_hooks(&session, owned.path(), "bash", "Bash")?;
++        session.services.hooks.store(hooks);
++        let step = StepContext::for_test(Arc::new(turn));
++        assert!(
++            !step
++                .native_hooks
++                .capture(session.hooks())
++                .hook_free_tools
++                .contains(&"exec_command")
++        );
++        for tool in ["exec_command", "write_stdin"] {
++            let state = crate::native_completion::CallCompletion::default();
++            state.capture(&session, &step, tool, &ToolName::plain(tool));
++            assert!(
++                !state.is_admitted(),
++                "actual Bash hooks make {tool} effectful"
++            );
++        }
++        assert!(
++            !owned.path().join("hook-effects").exists(),
++            "proof inspection never runs hooks"
++        );
++        Ok(())
++    }
++    #[cfg(unix)]
++    #[tokio::test]
++    async fn native_completion_process_capability_is_per_tool_and_refuses_before_effects()
++    -> anyhow::Result<()> {
++        let (session, turn) = crate::session::tests::make_session_and_context().await;
++        let session = Arc::new(session);
++        let turn = Arc::new(turn);
++        let owned = tempfile::tempdir()?;
++        let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
++        for mode in ["clear", "stdin", "bash", "async"] {
++            let pending = Arc::new(tokio::sync::Notify::new());
++            match mode {
++                "stdin" => session.services.hooks.store(configured_hook_events(
++                    &session,
++                    owned.path(),
++                    "stdin",
++                    "write_stdin",
++                    &["permission"],
++                )?),
++                "bash" => session.services.hooks.store(configured_hooks(
++                    &session,
++                    owned.path(),
++                    "bash",
++                    "Bash",
++                )?),
++                "async" => {
++                    session
++                        .services
++                        .hooks
++                        .store(Arc::new(session.hooks().reconfigured(Default::default())));
++                    let wait = Arc::clone(&pending);
++                    session
++                        .hooks()
++                        .schedule_async_task(async move { wait.notified().await });
++                }
++                _ => {}
++            }
++            for tool in ["exec_command", "write_stdin"] {
++                let step = StepContext::for_test(Arc::clone(&turn));
++                step.native_hooks.capture(session.hooks());
++                let name = ToolName::plain(tool);
++                let registry =
++                    crate::tools::registry::ToolRegistry::from_tools([
++                        Arc::new(HookAdmissionProbe {
++                            name: name.clone(),
++                            calls: Arc::clone(&calls),
++                            reload: None,
++                            permission: false,
++                        })
++                            as Arc<dyn crate::tools::registry::CoreToolRuntime>,
++                    ]);
++                let id = format!("capability-{mode}-{tool}");
++                let invocation = hook_probe_invocation(&session, step, name, &id);
++                let state = invocation
++                    .native_completion
++                    .clone()
++                    .ok_or_else(|| anyhow::anyhow!("completion"))?;
++                let result = registry.dispatch_any_with_state(invocation, None).await;
++                state.finish(&session);
++                let allowed = mode == "clear" || mode == "stdin" && tool == "exec_command";
++                if allowed {
++                    result?;
++                } else {
++                    assert!(
++                        result.is_err(),
++                        "unsupported completion must fail before dispatch"
++                    );
++                    let proof = refusal_header(
++                        result.err().ok_or_else(|| anyhow::anyhow!("refusal"))?,
++                        &state,
++                    )?;
++                    assert_eq!(proof["call_id"], id);
++                    assert_eq!(proof["outcome"], "pre_backend_rejected");
++                    assert!(proof["session_id"].is_null());
++                    assert!(proof["exit_code"].is_null());
++                }
++            }
++            if mode == "async" {
++                pending.notify_one();
++                session.hooks().shutdown().await;
++            }
++        }
++        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 3);
++        assert!(!owned.path().join("hook-effects").exists());
++        Ok(())
++    }
++
++    #[cfg(unix)]
++    #[tokio::test]
++    async fn native_completion_local_driver_refusal_uses_actual_request_and_preserves_upstream()
++    -> anyhow::Result<()> {
++        use crate::tools::handlers::unified_exec::preparation::ExecCommandLifetime;
++        use crate::tools::handlers::unified_exec::preparation::ParsedExecCommand;
++        use crate::unified_exec::UnifiedExecContext;
++        use crate::unified_exec::UnifiedExecProcessManager;
++        for enabled in [false, true] {
++            let (session, turn, _events) =
++                crate::session::tests::make_session_and_context_with_auth_and_config_and_rx(
++                    codex_login::CodexAuth::from_api_key("fixture-only"),
++                    Vec::new(),
++                    |config| {
++                        let result = if enabled {
++                            config
++                                .features
++                                .enable(codex_features::Feature::ShellSnapshotV2)
++                        } else {
++                            config
++                                .features
++                                .disable(codex_features::Feature::ShellSnapshotV2)
++                        };
++                        assert!(result.is_ok());
++                    },
++                )
++                .await;
++            for login in [false, true] {
++                let step = StepContext::for_test(Arc::clone(&turn));
++                step.native_hooks.capture(session.hooks());
++                let id = format!("driver-{enabled}-{login}");
++                let mut invocation =
++                    hook_probe_invocation(&session, step, ToolName::plain("exec_command"), &id);
++                admit_hook_dispatch(&mut invocation)?;
++                let state = invocation
++                    .native_completion
++                    .clone()
++                    .ok_or_else(|| anyhow::anyhow!("completion"))?;
++                let mut context = UnifiedExecContext::new(
++                    Arc::clone(&session),
++                    invocation.step_context,
++                    tokio_util::sync::CancellationToken::new(),
++                    id.clone(),
++                );
++                context.native_completion = Some(Arc::clone(&state));
++                let mut environment = context
++                    .step_context
++                    .environments
++                    .primary()
++                    .cloned()
++                    .ok_or_else(|| anyhow::anyhow!("environment"))?;
++                environment.shell_snapshot_v2_supported = true;
++                let input =
++                    serde_json::json!({"cmd":"printf original-command","login":login}).to_string();
++                let mut prepared = ParsedExecCommand::parse(
++                    &input,
++                    &session,
++                    &context.step_context,
++                    &environment,
++                )?
++                .prepare(ExecCommandLifetime::Interactive)?;
++                assert_eq!(prepared.resolved.shell.is_posix_login(), login);
++                let command = prepared.resolved.command.clone();
++                let result = UnifiedExecProcessManager::ensure_native_completion_backend(
++                    &prepared, &context,
++                );
++                assert_eq!(result.is_err(), enabled && login);
++                assert_eq!(
++                    prepared.resolved.command, command,
++                    "admission must not rewrite login or command"
++                );
++                state.finish(&session);
++                if enabled && login {
++                    let proof = refusal_header(
++                        result
++                            .err()
++                            .ok_or_else(|| anyhow::anyhow!("driver refusal"))?,
++                        &state,
++                    )?;
++                    assert_eq!(proof["call_id"], id);
++                    assert_eq!(proof["outcome"], "pre_backend_rejected");
++                    assert!(proof["session_id"].is_null());
++                    // Same login request at a non-snapshot cwd uses local spawning.
++                    prepared.turn_environment.selection.cwd =
++                        codex_utils_path_uri::PathUri::parse("file:///different-owned-cwd")?;
++                    assert!(
++                        UnifiedExecProcessManager::ensure_native_completion_backend(
++                            &prepared, &context
++                        )
++                        .is_ok()
++                    );
++                }
++                // A normal upstream path never gains the Native-only restriction.
++                let ordinary = UnifiedExecContext::new(
++                    Arc::clone(&session),
++                    StepContext::for_test(Arc::clone(&turn)),
++                    tokio_util::sync::CancellationToken::new(),
++                    "ordinary".into(),
++                );
++                prepared.turn_environment.selection.cwd = prepared.cwd.clone();
++                assert!(
++                    UnifiedExecProcessManager::ensure_native_completion_backend(
++                        &prepared, &ordinary
++                    )
++                    .is_ok()
++                );
++            }
++        }
++        Ok(())
++    }
++
++    #[cfg(unix)]
++    #[tokio::test]
++    async fn native_completion_intercepted_patch_refuses_before_file_effects() -> anyhow::Result<()>
++    {
++        use crate::tools::handlers::unified_exec::preparation::ExecCommandLifetime;
++        use crate::tools::handlers::unified_exec::preparation::ParsedExecCommand;
++        use crate::unified_exec::UnifiedExecContext;
++        use crate::unified_exec::UnifiedExecProcessManager;
++        let (session, turn) = crate::session::tests::make_session_and_context().await;
++        let session = Arc::new(session);
++        let turn = Arc::new(turn);
++        let owned = tempfile::tempdir()?;
++        let target = owned.path().join("must-not-exist");
++        let step = StepContext::for_test(Arc::clone(&turn));
++        step.native_hooks.capture(session.hooks());
++        let mut invocation = hook_probe_invocation(
++            &session,
++            step,
++            ToolName::plain("exec_command"),
++            "patch-intercept",
++        );
++        admit_hook_dispatch(&mut invocation)?;
++        let state = invocation
++            .native_completion
++            .clone()
++            .ok_or_else(|| anyhow::anyhow!("completion"))?;
++        let mut context = UnifiedExecContext::new(
++            Arc::clone(&session),
++            invocation.step_context,
++            tokio_util::sync::CancellationToken::new(),
++            "patch-intercept".into(),
++        );
++        context.native_completion = Some(Arc::clone(&state));
++        let environment = context
++            .step_context
++            .environments
++            .primary()
++            .ok_or_else(|| anyhow::anyhow!("environment"))?;
++        let cmd = format!(
++            "apply_patch <<'PATCH'\n*** Begin Patch\n*** Add File: {}\n+must not be written\n*** End Patch\nPATCH",
++            target.display()
++        );
++        let input = serde_json::json!({"cmd":cmd,"login":false}).to_string();
++        let prepared =
++            ParsedExecCommand::parse(&input, &session, &context.step_context, environment)?
++                .prepare(ExecCommandLifetime::Interactive)?;
++        assert!(matches!(
++            codex_apply_patch::maybe_parse_apply_patch(&prepared.resolved.command, &prepared.cwd),
++            codex_apply_patch::MaybeApplyPatch::Body(_)
++        ));
++        let error =
++            UnifiedExecProcessManager::ensure_native_completion_backend(&prepared, &context)
++                .err()
++                .ok_or_else(|| anyhow::anyhow!("Native interception must be refused"))?;
++        state.finish(&session);
++        let proof = refusal_header(error, &state)?;
++        assert_eq!(proof["call_id"], "patch-intercept");
++        assert_eq!(proof["outcome"], "pre_backend_rejected");
++        assert!(proof["session_id"].is_null());
++        assert!(!target.exists());
++        let ordinary = UnifiedExecContext::new(
++            Arc::clone(&session),
++            StepContext::for_test(turn),
++            tokio_util::sync::CancellationToken::new(),
++            "ordinary".into(),
++        );
++        assert!(
++            UnifiedExecProcessManager::ensure_native_completion_backend(&prepared, &ordinary)
++                .is_ok()
++        );
++        assert!(
++            !target.exists(),
++            "admission checks themselves perform no file edit"
++        );
++        Ok(())
 +    }
 +}
 diff --git a/codex-rs/core/src/realtime_conversation.rs b/codex-rs/core/src/realtime_conversation.rs
@@ -3919,7 +5089,7 @@ index f4f6dcceb5..405fa03b33 100644
                                  .await;
                              }
 diff --git a/codex-rs/core/src/session/mod.rs b/codex-rs/core/src/session/mod.rs
-index f365c4e2e8..5ec26ba76a 100644
+index f365c4e2e8..b66411ce4a 100644
 --- a/codex-rs/core/src/session/mod.rs
 +++ b/codex-rs/core/src/session/mod.rs
 @@ -1108,6 +1108,7 @@ impl SessionIo {
@@ -4133,7 +5303,15 @@ index f365c4e2e8..5ec26ba76a 100644
      }
  
      /// Adds an execpolicy amendment to both the in-memory and on-disk policies so future
-@@ -4548,7 +4584,12 @@ impl Session {
+@@ -4306,6 +4342,7 @@ impl Session {
+         }
+         let (executor_hook_sources, mcp, tool_router, extension_data) = prepared_tools??;
+         Ok(Arc::new(StepContext {
++            native_hooks: Default::default(),
+             serving_assessment: None,
+             preempt: turn_context
+                 .config
+@@ -4548,7 +4585,12 @@ impl Session {
                      // Validate immediately before slicing and replacing the captured prefix.
                      if state.history.history_version() != prefix.generation
                          || state.history.annotated_items().len() < prefix.len
@@ -4509,6 +5687,19 @@ index 71923d1a15..fb544992e0 100644
              id: id.to_string(),
              turn_extension_init: None,
              op: Op::TurnSettings {
+diff --git a/codex-rs/core/src/session/step_context.rs b/codex-rs/core/src/session/step_context.rs
+index 62d534e87e..b8133a05a9 100644
+--- a/codex-rs/core/src/session/step_context.rs
++++ b/codex-rs/core/src/session/step_context.rs
+@@ -25,6 +25,8 @@ use tokio_util::sync::CancellationToken;
+ /// Request-scoped state that may change between model sampling requests.
+ #[derive(Clone)]
+ pub(crate) struct StepContext {
++    /// Advertised Native hook facts and the exact per-call admitted dispatcher.
++    pub(crate) native_hooks: crate::native_execution::HookSnapshot,
+     /// Final serving value for this invocation; retained by its code cell across waits.
+     pub(crate) serving_assessment: Option<Arc<crate::guardian::ServingAssessment>>,
+     pub(crate) turn: Arc<TurnContext>,
 diff --git a/codex-rs/core/src/session/submission.rs b/codex-rs/core/src/session/submission.rs
 index 01f52556ff..8ef6129137 100644
 --- a/codex-rs/core/src/session/submission.rs
@@ -4552,10 +5743,18 @@ index 01f52556ff..8ef6129137 100644
 +    }
 +}
 diff --git a/codex-rs/core/src/session/tests.rs b/codex-rs/core/src/session/tests.rs
-index 9bb8aa2db3..b007a04264 100644
+index 9bb8aa2db3..91c4c01aed 100644
 --- a/codex-rs/core/src/session/tests.rs
 +++ b/codex-rs/core/src/session/tests.rs
-@@ -595,7 +595,10 @@ async fn world_state_extension_metrics_follow_turn_model_switch() {
+@@ -287,6 +287,7 @@ impl StepContext {
+         });
+         settings.service_tier = turn.config.service_tier.clone();
+         Arc::new(Self {
++            native_hooks: Default::default(),
+             preempt: turn
+                 .config
+                 .features
+@@ -595,7 +596,10 @@ async fn world_state_extension_metrics_follow_turn_model_switch() {
      };
      let turn_context = Arc::new(
          turn_context
@@ -4567,7 +5766,7 @@ index 9bb8aa2db3..b007a04264 100644
              .await,
      );
      let mut builder = codex_extension_api::ExtensionRegistryBuilder::<crate::config::Config>::new();
-@@ -4939,10 +4942,15 @@ async fn turn_context_with_model_updates_model_fields() {
+@@ -4939,10 +4943,15 @@ async fn turn_context_with_model_updates_model_fields() {
      ));
      turn_context.next_step_settings.store(Arc::clone(&current));
      let updated = turn_context
@@ -4584,7 +5783,7 @@ index 9bb8aa2db3..b007a04264 100644
          .models_manager
          .get_model_info(
              "gpt-5.5",
-@@ -6318,6 +6326,7 @@ async fn standalone_settings_invalidate_continuation_before_delivering_acceptanc
+@@ -6318,6 +6327,7 @@ async fn standalone_settings_invalidate_continuation_before_delivering_acceptanc
      let (tx_sub, rx_sub) = async_channel::bounded(1);
      tx_sub
          .send(Submission {
@@ -4592,7 +5791,7 @@ index 9bb8aa2db3..b007a04264 100644
              id: "settings".into(),
              turn_extension_init: None,
              op: Op::ThreadSettings {
-@@ -7075,7 +7084,6 @@ pub(crate) async fn make_session_and_context() -> (Session, TurnContext) {
+@@ -7075,7 +7085,6 @@ pub(crate) async fn make_session_and_context() -> (Session, TurnContext) {
          )
          .with_legacy_custom_ca_fallback(),
          session_telemetry: session_telemetry.clone(),
@@ -4600,7 +5799,7 @@ index 9bb8aa2db3..b007a04264 100644
          git_root_discovery: Arc::default(),
          tool_approvals: Mutex::new(ApprovalStore::default()),
          granted_permissions_by_environment_id: Arc::default(),
-@@ -7107,29 +7115,32 @@ pub(crate) async fn make_session_and_context() -> (Session, TurnContext) {
+@@ -7107,29 +7116,32 @@ pub(crate) async fn make_session_and_context() -> (Session, TurnContext) {
          )),
          attestation_provider: None,
          time_provider: Arc::new(crate::current_time::SystemTimeProvider),
@@ -4656,7 +5855,7 @@ index 9bb8aa2db3..b007a04264 100644
          executed_tool_calls: executed_tool_calls.clone(),
          code_mode_service: crate::tools::code_mode::CodeModeService::new(
              thread_id,
-@@ -7216,7 +7227,7 @@ pub(crate) async fn make_session_and_context() -> (Session, TurnContext) {
+@@ -7216,7 +7228,7 @@ pub(crate) async fn make_session_and_context() -> (Session, TurnContext) {
              Arc::new(model_info),
              &config.features,
          )),
@@ -4665,7 +5864,7 @@ index 9bb8aa2db3..b007a04264 100644
          /*network*/ None,
          resolved_turn_environments,
          session_configuration.cwd().clone(),
-@@ -7984,6 +7995,7 @@ async fn request_permissions_tool_resolves_legacy_paths_against_selected_environ
+@@ -7984,6 +7996,7 @@ async fn request_permissions_tool_resolves_legacy_paths_against_selected_environ
          let call_id = call_id.clone();
          async move {
              let invocation = ToolInvocation {
@@ -4673,7 +5872,7 @@ index 9bb8aa2db3..b007a04264 100644
                  session,
                  step_context,
                  turn: turn_context,
-@@ -8070,6 +8082,7 @@ async fn request_permissions_tool_rejects_invalid_requests(
+@@ -8070,6 +8083,7 @@ async fn request_permissions_tool_rejects_invalid_requests(
      let step_context = StepContext::for_test(Arc::clone(&turn_context));
      let registry = ToolRegistry::with_handler_for_test(Arc::new(RequestPermissionsHandler));
      let invocation = ToolInvocation {
@@ -4681,7 +5880,7 @@ index 9bb8aa2db3..b007a04264 100644
          session: Arc::new(session),
          step_context,
          turn: turn_context,
-@@ -8381,6 +8394,7 @@ fn submission_dispatch_span_prefers_submission_trace_context() {
+@@ -8381,6 +8395,7 @@ fn submission_dispatch_span_prefers_submission_trace_context() {
      };
      let dispatch_span = ambient_span.in_scope(|| {
          submission_dispatch_span(&Submission {
@@ -4689,7 +5888,7 @@ index 9bb8aa2db3..b007a04264 100644
              turn_extension_init: None,
              id: "sub-1".into(),
              op: Op::Interrupt,
-@@ -8404,6 +8418,7 @@ fn submission_dispatch_span_uses_debug_for_realtime_audio() {
+@@ -8404,6 +8419,7 @@ fn submission_dispatch_span_uses_debug_for_realtime_audio() {
      let _trace_test_context = install_test_tracing("codex-core-tests");
  
      let dispatch_span = submission_dispatch_span(&Submission {
@@ -4697,7 +5896,7 @@ index 9bb8aa2db3..b007a04264 100644
          turn_extension_init: None,
          id: "sub-1".into(),
          op: Op::RealtimeConversationAudio(ConversationAudioParams {
-@@ -8775,6 +8790,7 @@ async fn spawn_task_turn_span_inherits_dispatch_trace_context() {
+@@ -8775,6 +8791,7 @@ async fn spawn_task_turn_span_inherits_dispatch_trace_context() {
              .await;
  
      let dispatch_span = submission_dispatch_span(&Submission {
@@ -4705,7 +5904,7 @@ index 9bb8aa2db3..b007a04264 100644
          turn_extension_init: None,
          id: "sub-1".into(),
          op: Op::Interrupt,
-@@ -8914,7 +8930,14 @@ async fn shutdown_complete_does_not_append_to_thread_store_after_shutdown() {
+@@ -8914,7 +8931,14 @@ async fn shutdown_complete_does_not_append_to_thread_store_after_shutdown() {
      assert!(session.async_hook_results.is_empty());
      assert!(result_sender.is_closed());
  
@@ -4721,7 +5920,7 @@ index 9bb8aa2db3..b007a04264 100644
      session
          .schedule_startup_prewarm(super::startup_prewarm::PrewarmInput::Base)
          .await;
-@@ -9398,7 +9421,6 @@ where
+@@ -9398,7 +9422,6 @@ where
          )
          .with_legacy_custom_ca_fallback(),
          session_telemetry: session_telemetry.clone(),
@@ -4729,7 +5928,7 @@ index 9bb8aa2db3..b007a04264 100644
          git_root_discovery: Arc::default(),
          tool_approvals: Mutex::new(ApprovalStore::default()),
          granted_permissions_by_environment_id: Arc::default(),
-@@ -9430,29 +9452,32 @@ where
+@@ -9430,29 +9453,32 @@ where
          )),
          attestation_provider: None,
          time_provider: Arc::new(crate::current_time::SystemTimeProvider),
@@ -4785,7 +5984,7 @@ index 9bb8aa2db3..b007a04264 100644
          executed_tool_calls: executed_tool_calls.clone(),
          code_mode_service: crate::tools::code_mode::CodeModeService::new(
              thread_id,
-@@ -9539,7 +9564,7 @@ where
+@@ -9539,7 +9565,7 @@ where
              Arc::new(model_info),
              &config.features,
          )),
@@ -4794,7 +5993,7 @@ index 9bb8aa2db3..b007a04264 100644
          /*network*/ None,
          resolved_turn_environments,
          session_configuration.cwd().clone(),
-@@ -10550,7 +10575,7 @@ async fn record_context_updates_emits_environment_item_for_network_changes() {
+@@ -10550,7 +10576,7 @@ async fn record_context_updates_emits_environment_item_for_network_changes() {
      let mut current_context = previous_context
          .with_model(
              previous_context.model_info().slug.clone(),
@@ -4803,7 +6002,7 @@ index 9bb8aa2db3..b007a04264 100644
          )
          .await;
  
-@@ -10606,7 +10631,7 @@ async fn record_context_updates_emits_environment_item_for_cwd_changes() {
+@@ -10606,7 +10632,7 @@ async fn record_context_updates_emits_environment_item_for_cwd_changes() {
      let mut current_context = previous_context
          .with_model(
              previous_context.model_info().slug.clone(),
@@ -4812,7 +6011,7 @@ index 9bb8aa2db3..b007a04264 100644
          )
          .await;
      let cwd = test_path_buf("/new-repo").abs();
-@@ -10669,7 +10694,7 @@ async fn record_context_updates_use_environment_permission_profile_and_workspace
+@@ -10669,7 +10695,7 @@ async fn record_context_updates_use_environment_permission_profile_and_workspace
      let mut current_context = previous_context
          .with_model(
              previous_context.model_info().slug.clone(),
@@ -4821,7 +6020,7 @@ index 9bb8aa2db3..b007a04264 100644
          )
          .await;
      let environment = current_context
-@@ -10727,7 +10752,7 @@ async fn record_context_updates_emits_environment_item_for_time_changes() {
+@@ -10727,7 +10753,7 @@ async fn record_context_updates_emits_environment_item_for_time_changes() {
      let mut current_context = previous_context
          .with_model(
              previous_context.model_info().slug.clone(),
@@ -4830,7 +6029,7 @@ index 9bb8aa2db3..b007a04264 100644
          )
          .await;
      current_context.timezone = Some("Europe/Berlin".to_string());
-@@ -10751,7 +10776,7 @@ async fn record_context_updates_omits_environment_item_when_disabled() {
+@@ -10751,7 +10777,7 @@ async fn record_context_updates_omits_environment_item_when_disabled() {
      let mut current_context = previous_context
          .with_model(
              previous_context.model_info().slug.clone(),
@@ -4839,7 +6038,7 @@ index 9bb8aa2db3..b007a04264 100644
          )
          .await;
      let mut config = (*current_context.config).clone();
-@@ -10817,7 +10842,7 @@ async fn record_context_updates_emits_realtime_start_when_session_becomes_live()
+@@ -10817,7 +10843,7 @@ async fn record_context_updates_emits_realtime_start_when_session_becomes_live()
      let mut current_context = previous_context
          .with_model(
              previous_context.model_info().slug.clone(),
@@ -4848,7 +6047,7 @@ index 9bb8aa2db3..b007a04264 100644
          )
          .await;
      current_context.realtime_active = true;
-@@ -10841,7 +10866,7 @@ async fn record_context_updates_emits_realtime_end_when_session_stops_being_live
+@@ -10841,7 +10867,7 @@ async fn record_context_updates_emits_realtime_end_when_session_stops_being_live
      let mut current_context = previous_context
          .with_model(
              previous_context.model_info().slug.clone(),
@@ -4857,7 +6056,7 @@ index 9bb8aa2db3..b007a04264 100644
          )
          .await;
      current_context.realtime_active = false;
-@@ -11791,7 +11816,10 @@ async fn record_context_updates_and_set_reference_context_item_persists_full_rei
+@@ -11791,7 +11817,10 @@ async fn record_context_updates_and_set_reference_context_item_persists_full_rei
          "gpt-5.4"
      };
      let turn_context = previous_context
@@ -4869,7 +6068,7 @@ index 9bb8aa2db3..b007a04264 100644
          .await;
      let rollout_path = attach_thread_persistence(&mut session).await;
  
-@@ -12273,8 +12301,11 @@ async fn remote_compaction_v2_retains_only_the_selected_step(first_attempt: Firs
+@@ -12273,8 +12302,11 @@ async fn remote_compaction_v2_retains_only_the_selected_step(first_attempt: Firs
          )
          .await;
      let primary_turn = Arc::new(
@@ -4883,7 +6082,7 @@ index 9bb8aa2db3..b007a04264 100644
      );
      let primary = session
          .capture_step_context(primary_turn, &CancellationToken::new())
-@@ -12316,7 +12347,7 @@ async fn remote_compaction_v2_retains_only_the_selected_step(first_attempt: Firs
+@@ -12316,7 +12348,7 @@ async fn remote_compaction_v2_retains_only_the_selected_step(first_attempt: Firs
          ],
      };
      let requests = responses::mount_response_sequence(&server, replies).await;
@@ -4892,7 +6091,7 @@ index 9bb8aa2db3..b007a04264 100644
      crate::compact_remote_v2::run_inline_remote_auto_compact_task(
          Arc::clone(&session),
          Arc::clone(&primary),
-@@ -13621,6 +13652,7 @@ async fn unified_exec_rejects_escalated_permissions_when_policy_not_on_request()
+@@ -13621,6 +13653,7 @@ async fn unified_exec_rejects_escalated_permissions_when_policy_not_on_request()
      let handler = ExecCommandHandler::default();
      let resp = handler
          .handle(ToolInvocation {
@@ -5916,7 +7115,7 @@ index ecb5ed51bd..88c76b4752 100644
                  step_context: StepContext::for_test(Arc::clone(&turn)),
                  turn,
 diff --git a/codex-rs/core/src/tools/handlers/unified_exec/exec_command.rs b/codex-rs/core/src/tools/handlers/unified_exec/exec_command.rs
-index 6a81b62602..57f1d30961 100644
+index 6a81b62602..1eff1f7f81 100644
 --- a/codex-rs/core/src/tools/handlers/unified_exec/exec_command.rs
 +++ b/codex-rs/core/src/tools/handlers/unified_exec/exec_command.rs
 @@ -136,6 +136,7 @@ impl ExecCommandHandler {
@@ -5942,6 +7141,30 @@ index 6a81b62602..57f1d30961 100644
          let turn_environment = selected_executor(&environments, &step_context.environments)?;
          let parsed =
              ParsedExecCommand::parse(&arguments, &session, &step_context, turn_environment)?;
+@@ -175,6 +177,7 @@ impl ExecCommandHandler {
+         )
+         .await;
+         let prepared = parsed.prepare(self.lifetime)?;
++        UnifiedExecProcessManager::ensure_native_completion_backend(&prepared, &context)?;
+         let max_output_tokens = prepared.max_output_tokens;
+         let fs = prepared.turn_environment.environment.get_filesystem();
+         let intercepted_patch = intercept_apply_patch(
+@@ -190,6 +193,15 @@ impl ExecCommandHandler {
+             "exec_command",
+         )
+         .await;
++        if intercepted_patch.is_err()
++            && context.step_context.native_hooks.admitted().is_some()
++            && let Some(completion) = &context.native_completion
++        {
++            // The same pure recognizer above already refused every Body before
++            // this call. Only pre-write verification errors (including implicit
++            // patch syntax) can reach this Native branch.
++            completion.initial_rejection();
++        }
+         if let Some(output) = intercepted_patch? {
+             return Ok(boxed_tool_output(ExecCommandToolOutput {
+                 event_call_id: String::new(),
 diff --git a/codex-rs/core/src/tools/handlers/unified_exec/write_stdin.rs b/codex-rs/core/src/tools/handlers/unified_exec/write_stdin.rs
 index ce64c7c004..fbfc142783 100644
 --- a/codex-rs/core/src/tools/handlers/unified_exec/write_stdin.rs
@@ -6061,11 +7284,185 @@ index 8c62cf2394..66843e4046 100644
                  session: Arc::new(session),
                  step_context: StepContext::for_test(Arc::clone(&turn)),
                  turn,
+diff --git a/codex-rs/core/src/tools/network_approval.rs b/codex-rs/core/src/tools/network_approval.rs
+index e24db1a780..56a6ce8863 100644
+--- a/codex-rs/core/src/tools/network_approval.rs
++++ b/codex-rs/core/src/tools/network_approval.rs
+@@ -4,6 +4,8 @@ use crate::guardian::GuardianNetworkAccessTrigger;
+ use crate::guardian::GuardianReviewContext;
+ use crate::network_policy_decision::denied_network_policy_message;
+ use crate::session::session::Session;
++use crate::session::step_context::StepContext;
++use crate::session::step_settings::ResolvedStepSettings;
+ use crate::session::turn_context::TurnContext;
+ use crate::session::turn_context::TurnEnvironment;
+ use crate::tools::approvals::ApprovalAction;
+@@ -244,6 +246,7 @@ impl PendingHostApproval {
+ }
+ 
+ struct ActiveNetworkApprovalCall {
++    native_hooks: Option<Arc<codex_hooks::Hooks>>,
+     registration_id: String,
+     turn_id: String,
+     trigger: GuardianNetworkAccessTrigger,
+@@ -255,6 +258,21 @@ struct ActiveNetworkApprovalCall {
+     cancellation_token: CancellationToken,
+ }
+ 
++impl ActiveNetworkApprovalCall {
++    fn review_context(
++        &self,
++        turn: Arc<TurnContext>,
++        settings: &ResolvedStepSettings,
++    ) -> GuardianReviewContext {
++        // Live authorization still uses current settings; the process retains
++        // the hook dispatcher admitted for its original invocation.
++        let mut review =
++            GuardianReviewContext::from_resolved_settings(turn, settings, &self.environments);
++        review.native_hooks = self.native_hooks.clone();
++        review
++    }
++}
++
+ enum ActiveNetworkApprovalAttribution {
+     None,
+     Single(Arc<ActiveNetworkApprovalCall>),
+@@ -809,10 +827,15 @@ impl NetworkApprovalService {
+             pending_owner.complete(PendingApprovalDecision::Deny);
+             return NetworkDecision::deny(REASON_NOT_ALLOWED);
+         }
+-        let review_context = GuardianReviewContext::from_resolved_settings(
+-            Arc::clone(&turn_context),
+-            &settings,
+-            review_environments,
++        let review_context = owner_call.as_ref().map_or_else(
++            || {
++                GuardianReviewContext::from_resolved_settings(
++                    Arc::clone(&turn_context),
++                    &settings,
++                    review_environments,
++                )
++            },
++            |call| call.review_context(Arc::clone(&turn_context), &settings),
+         );
+         if !allows_network_approval_flow(review_context.approval_policy) {
+             if let Some(owner_call) = owner_call.as_ref() {
+@@ -1184,11 +1207,12 @@ pub(crate) fn build_network_policy_decider(
+ 
+ pub(crate) async fn begin_network_approval(
+     session: &Arc<Session>,
+-    turn: &TurnContext,
+-    environments: &TurnEnvironmentSnapshot,
++    step: &StepContext,
+     managed_network_active: bool,
+     spec: Option<NetworkApprovalSpec>,
+ ) -> Result<Option<ActiveNetworkApproval>, ToolError> {
++    let turn = &step.turn;
++    let environments = &step.environments;
+     let NetworkApprovalSpec {
+         network,
+         trigger,
+@@ -1234,6 +1258,7 @@ pub(crate) async fn begin_network_approval(
+         .services
+         .network_approval
+         .register_call(ActiveNetworkApprovalCall {
++            native_hooks: step.native_hooks.admitted().cloned(),
+             registration_id: registration_id.clone(),
+             turn_id: turn.sub_id.clone(),
+             trigger,
+diff --git a/codex-rs/core/src/tools/network_approval_tests.rs b/codex-rs/core/src/tools/network_approval_tests.rs
+index facc4421d2..fb79ab794b 100644
+--- a/codex-rs/core/src/tools/network_approval_tests.rs
++++ b/codex-rs/core/src/tools/network_approval_tests.rs
+@@ -763,6 +763,7 @@ async fn register_call_with_default_shell_trigger(
+     let cancellation_token = CancellationToken::new();
+     service
+         .register_call(ActiveNetworkApprovalCall {
++            native_hooks: None,
+             registration_id: registration_id.to_string(),
+             turn_id: "turn-1".to_string(),
+             tool_name: ToolName::plain("exec_command"),
+@@ -803,6 +804,7 @@ async fn active_call_preserves_triggering_command_context() {
+ 
+     service
+         .register_call(ActiveNetworkApprovalCall {
++            native_hooks: None,
+             registration_id: "registration-1".to_string(),
+             turn_id: "turn-1".to_string(),
+             trigger: expected.clone(),
+@@ -1038,3 +1040,57 @@ async fn attributed_blocked_request_targets_one_of_multiple_active_calls() {
+         )
+     );
+ }
++
++#[tokio::test]
++async fn native_completion_network_permission_keeps_original_admitted_hooks() -> anyhow::Result<()>
++{
++    let (session, turn) = crate::session::tests::make_session_and_context().await;
++    let original = session.hooks();
++    let turn = Arc::new(turn);
++    let step = StepContext::for_test(Arc::clone(&turn));
++    let service = NetworkApprovalService::default();
++    service
++        .register_call(ActiveNetworkApprovalCall {
++            native_hooks: Some(Arc::clone(&original)),
++            registration_id: "native-owner".into(),
++            turn_id: turn.sub_id.clone(),
++            trigger: GuardianNetworkAccessTrigger {
++                call_id: "original-exec".into(),
++                tool_name: "exec_command".into(),
++                command: vec!["owned-command".into()],
++                cwd: PathUri::from_abs_path(&test_path_buf("/tmp").abs()),
++                sandbox_permissions: SandboxPermissions::UseDefault,
++                additional_permissions: None,
++                justification: None,
++                tty: None,
++            },
++            tool_name: ToolName::plain("exec_command"),
++            command: "owned-command".into(),
++            environment_id: "local".into(),
++            permission_profile: PermissionProfile::workspace_write(),
++            environments: step.environments.clone(),
++            cancellation_token: CancellationToken::new(),
++        })
++        .await;
++    session.services.hooks.store(Arc::new((*original).clone()));
++    let owner = service
++        .resolve_single_active_call()
++        .await
++        .ok_or_else(|| anyhow::anyhow!("original owner"))?;
++    let review = owner.review_context(Arc::clone(&turn), &step.settings);
++    let bound = review
++        .native_hooks
++        .as_ref()
++        .ok_or_else(|| anyhow::anyhow!("admitted hook identity"))?;
++    assert!(Arc::ptr_eq(bound, &original));
++    assert!(!Arc::ptr_eq(bound, &session.hooks()));
++    assert!(Arc::ptr_eq(&review.model_info, &step.settings.model_info));
++    assert_eq!(owner.trigger.call_id, "original-exec");
++    let unowned =
++        GuardianReviewContext::from_resolved_settings(turn, &step.settings, &step.environments);
++    assert!(
++        unowned.native_hooks.is_none(),
++        "unowned/ordinary review retains live hooks"
++    );
++    Ok(())
++}
 diff --git a/codex-rs/core/src/tools/orchestrator.rs b/codex-rs/core/src/tools/orchestrator.rs
-index 809e43bc2e..e6195d6c56 100644
+index 809e43bc2e..4230c4d646 100644
 --- a/codex-rs/core/src/tools/orchestrator.rs
 +++ b/codex-rs/core/src/tools/orchestrator.rs
-@@ -191,7 +191,12 @@ impl ToolOrchestrator {
+@@ -63,8 +63,7 @@ impl ToolOrchestrator {
+     {
+         let network_approval = match begin_network_approval(
+             &tool_ctx.session,
+-            &tool_ctx.step_context.turn,
+-            &tool_ctx.step_context.environments,
++            &tool_ctx.step_context,
+             attempt.enforce_managed_network,
+             network_approval_spec,
+         )
+@@ -191,7 +190,12 @@ impl ToolOrchestrator {
                          .session
                          .request_approval(action, approval_ctx)
                          .await;
@@ -6079,7 +7476,7 @@ index 809e43bc2e..e6195d6c56 100644
                      initial_approval_source = approval.source;
                  } else {
                      otel.tool_decision(
-@@ -203,6 +208,7 @@ impl ToolOrchestrator {
+@@ -203,6 +207,7 @@ impl ToolOrchestrator {
                  }
              }
              ExecApprovalRequirement::Forbidden { reason } => {
@@ -6087,7 +7484,7 @@ index 809e43bc2e..e6195d6c56 100644
                  return Err(ToolError::Rejected(reason.clone()));
              }
              ExecApprovalRequirement::NeedsApproval { reason, .. }
-@@ -227,7 +233,12 @@ impl ToolOrchestrator {
+@@ -227,7 +232,12 @@ impl ToolOrchestrator {
                      .session
                      .request_approval(action, approval_ctx)
                      .await;
@@ -6141,6 +7538,20 @@ index 4361a91aa7..5f58aa7ecc 100644
          }
          .instrument(dispatch_span.or_current());
          Either::Right(completion)
+diff --git a/codex-rs/core/src/tools/registry.rs b/codex-rs/core/src/tools/registry.rs
+index c9c526ac74..d9ad9df8d5 100644
+--- a/codex-rs/core/src/tools/registry.rs
++++ b/codex-rs/core/src/tools/registry.rs
+@@ -844,6 +844,9 @@ impl ToolRegistry {
+             .await;
+             err
+         };
++        if let Err(err) = crate::native_execution::admit_hook_dispatch(&mut invocation) {
++            return Err(fail_before_execution(&invocation, err).await);
++        }
+         let environments = match tool.live_environment_resolver() {
+             Some(resolve) => resolve(&invocation).await,
+             None => tool.environments_for_input(&invocation),
 diff --git a/codex-rs/core/src/tools/registry_tests.rs b/codex-rs/core/src/tools/registry_tests.rs
 index 10f445297f..6d8af3a164 100644
 --- a/codex-rs/core/src/tools/registry_tests.rs
@@ -6445,7 +7856,7 @@ index 78ec3c5d90..31a8ffed45 100644
              step_context,
              cancellation_token,
 diff --git a/codex-rs/core/src/unified_exec/process.rs b/codex-rs/core/src/unified_exec/process.rs
-index f9afaaa41d..ef31f3aa08 100644
+index f9afaaa41d..73b12fc396 100644
 --- a/codex-rs/core/src/unified_exec/process.rs
 +++ b/codex-rs/core/src/unified_exec/process.rs
 @@ -91,13 +91,15 @@ pub(super) enum OutputDrainPolicy {
@@ -6520,7 +7931,7 @@ index f9afaaa41d..ef31f3aa08 100644
 +            return;
 +        }
 +        if let ProcessHandle::Local(handle) = &self.process_handle
-+            && let Some(code) = handle.confirmed_exit_code()
++            && let Some(code) = handle.confirmed_wait()
 +        {
 +            current.observed_wait(session_id, code);
 +        }
@@ -6545,7 +7956,7 @@ index f9afaaa41d..ef31f3aa08 100644
 +                return None;
 +            }
 +        }
-+        let code = handle.confirmed_exit_code()?;
++        let code = handle.confirmed_wait()?;
 +        if !origin.wait_for_finish().await || !origin.wait_for_attempts().await {
 +            return None;
 +        }
@@ -6586,7 +7997,7 @@ index f9afaaa41d..ef31f3aa08 100644
          match exit_rx.try_recv() {
              Ok(exit_code) => {
 +                if let Some(attempt) = &native_attempt {
-+                    attempt.observe(process_handle.confirmed_exit_code());
++                    attempt.observe(process_handle.confirmed_wait());
 +                }
 +                managed.local_wait_observed.store(true, Ordering::Release);
                  managed.signal_exit(Some(exit_code));
@@ -6595,7 +8006,7 @@ index f9afaaa41d..ef31f3aa08 100644
              }
              Err(TryRecvError::Closed) => {
 +                if let Some(attempt) = &native_attempt {
-+                    attempt.observe(process_handle.confirmed_exit_code());
++                    attempt.observe(process_handle.confirmed_wait());
 +                }
 +                managed.local_wait_observed.store(true, Ordering::Release);
                  managed.signal_exit(/*exit_code*/ None);
@@ -6606,7 +8017,7 @@ index f9afaaa41d..ef31f3aa08 100644
  
          if let Ok(exit_result) = tokio::time::timeout(EARLY_EXIT_GRACE_PERIOD, &mut exit_rx).await {
 +            if let Some(attempt) = &native_attempt {
-+                attempt.observe(process_handle.confirmed_exit_code());
++                attempt.observe(process_handle.confirmed_wait());
 +            }
 +            managed.local_wait_observed.store(true, Ordering::Release);
              managed.signal_exit(exit_result.ok());
@@ -6621,17 +8032,62 @@ index f9afaaa41d..ef31f3aa08 100644
              async move {
                  let exit_code = exit_rx.await.ok();
 +                if let Some(attempt) = &native_attempt {
-+                    attempt.observe(process_handle.confirmed_exit_code());
++                    attempt.observe(process_handle.confirmed_wait());
 +                }
 +                wait_observed.store(true, Ordering::Release);
                  let state = state_tx.borrow().clone();
                  let _ = state_tx.send_replace(state.exited(exit_code));
                  cancellation_token.cancel();
 diff --git a/codex-rs/core/src/unified_exec/process_manager.rs b/codex-rs/core/src/unified_exec/process_manager.rs
-index 9715d1b1a8..7d850430b9 100644
+index 9715d1b1a8..34977ffde8 100644
 --- a/codex-rs/core/src/unified_exec/process_manager.rs
 +++ b/codex-rs/core/src/unified_exec/process_manager.rs
-@@ -543,6 +543,9 @@ impl UnifiedExecProcessManager {
+@@ -449,6 +449,44 @@ fn terminate_process_on_network_denial(
+ }
+ 
+ impl UnifiedExecProcessManager {
++    /// Reuse the actual prepared request's backend selector before shell snapshot
++    /// preparation, process reservation or launch. An ordinary upstream call has
++    /// no admitted Native Hook engine and retains its existing driver behavior.
++    pub(crate) fn ensure_native_completion_backend(
++        request: &crate::tools::handlers::unified_exec::preparation::PreparedExecCommand,
++        context: &UnifiedExecContext,
++    ) -> Result<(), codex_tools::FunctionCallError> {
++        if context.step_context.native_hooks.admitted().is_none() {
++            return Ok(());
++        }
++        // Use the same pure recognizer as intercept_apply_patch, before its
++        // filesystem verification or writer. Native file edits use their own
++        // apply_patch invocation/result instead of masquerading as a process.
++        if matches!(
++            codex_apply_patch::maybe_parse_apply_patch(&request.resolved.command, &request.cwd),
++            codex_apply_patch::MaybeApplyPatch::Body(_)
++                | codex_apply_patch::MaybeApplyPatch::PatchParseError(_)
++        ) {
++            if let Some(completion) = &context.native_completion {
++                completion.initial_rejection();
++            }
++            return Err(codex_tools::FunctionCallError::RespondToModel(
++                "Native exec_command cannot intercept an apply_patch request; use the apply_patch tool. No patch or command was executed.".into(),
++            ));
++        }
++        if request.turn_environment.environment.is_remote()
++            || shell_snapshot_request(request, context).is_some()
++        {
++            if let Some(completion) = &context.native_completion {
++                completion.initial_rejection();
++            }
++            return Err(codex_tools::FunctionCallError::RespondToModel(
++                "Native completion is unavailable for the selected exec-server backend; no shell snapshot or command was started.".into(),
++            ));
++        }
++        Ok(())
++    }
++
+     pub(crate) async fn allocate_process_id(&self) -> i32 {
+         loop {
+             let mut store = self.process_store.lock().await;
+@@ -543,6 +581,9 @@ impl UnifiedExecProcessManager {
          let prepared = &request.prepared;
          let command = &prepared.resolved.command;
          let cwd = prepared.cwd.clone();
@@ -6641,7 +8097,7 @@ index 9715d1b1a8..7d850430b9 100644
          let process = self.open_session_with_sandbox(&request, context).await;
  
          let (attempt, mut deferred_network_approval) = match process {
-@@ -558,6 +561,7 @@ impl UnifiedExecProcessManager {
+@@ -558,6 +599,7 @@ impl UnifiedExecProcessManager {
              permissions,
          } = attempt;
          let process = Arc::new(process);
@@ -6649,7 +8105,7 @@ index 9715d1b1a8..7d850430b9 100644
          if let Some(completion) = completion.as_ref() {
              let _ = completion.process.set(Arc::clone(&process));
          }
-@@ -852,6 +856,7 @@ impl UnifiedExecProcessManager {
+@@ -852,6 +894,7 @@ impl UnifiedExecProcessManager {
              (None, exit_code)
          };
  
@@ -6657,7 +8113,7 @@ index 9715d1b1a8..7d850430b9 100644
          let response = ExecCommandToolOutput {
              event_call_id: context.call_id.clone(),
              chunk_id,
-@@ -1119,6 +1124,15 @@ impl UnifiedExecProcessManager {
+@@ -1119,6 +1162,15 @@ impl UnifiedExecProcessManager {
              }
          };
  
@@ -6673,7 +8129,7 @@ index 9715d1b1a8..7d850430b9 100644
          let response = ExecCommandToolOutput {
              event_call_id,
              chunk_id,
-@@ -1322,6 +1336,7 @@ impl UnifiedExecProcessManager {
+@@ -1322,6 +1374,7 @@ impl UnifiedExecProcessManager {
          windows_sandbox_proxy_settings_mode: codex_sandboxing::WindowsSandboxProxySettingsMode,
          tty: bool,
          environment: &codex_exec_server::Environment,
@@ -6681,7 +8137,7 @@ index 9715d1b1a8..7d850430b9 100644
      ) -> Result<UnifiedExecProcess, ToolError> {
          let mut request = if environment.is_remote() || shell_snapshot.is_some() {
              attempt.env_for_exec_server(command, options).await
-@@ -1341,7 +1356,7 @@ impl UnifiedExecProcessManager {
+@@ -1341,7 +1394,7 @@ impl UnifiedExecProcessManager {
          request.exec_server_network_proxy = network_proxy_launch;
          request.exec_server_env_config = exec_server_env_config;
          request.exec_server_shell_snapshot = shell_snapshot;
@@ -6690,7 +8146,7 @@ index 9715d1b1a8..7d850430b9 100644
              process_id,
              &request,
              Some(tool_ctx),
-@@ -1349,6 +1364,7 @@ impl UnifiedExecProcessManager {
+@@ -1349,6 +1402,7 @@ impl UnifiedExecProcessManager {
              network_policy_decider,
              tty,
              environment,
@@ -6698,7 +8154,7 @@ index 9715d1b1a8..7d850430b9 100644
          )
          .await
          .map_err(|err| match err {
-@@ -1372,8 +1388,40 @@ impl UnifiedExecProcessManager {
+@@ -1372,8 +1426,40 @@ impl UnifiedExecProcessManager {
          network_policy_decider: Option<Arc<dyn NetworkPolicyDecider>>,
          tty: bool,
          environment: &codex_exec_server::Environment,
@@ -6739,7 +8195,7 @@ index 9715d1b1a8..7d850430b9 100644
              let backend = environment.get_exec_backend();
              let params = exec_server_params_for_request(
                  process_id,
-@@ -1463,6 +1511,9 @@ impl UnifiedExecProcessManager {
+@@ -1463,6 +1549,9 @@ impl UnifiedExecProcessManager {
              } else {
                  None
              };
@@ -6749,7 +8205,7 @@ index 9715d1b1a8..7d850430b9 100644
          let spawn_result = codex_sandboxing::spawn_process(codex_sandboxing::SpawnRequest {
              command: &request.command,
              cwd: native_cwd.as_path(),
-@@ -1475,9 +1526,18 @@ impl UnifiedExecProcessManager {
+@@ -1475,9 +1564,18 @@ impl UnifiedExecProcessManager {
              inherited_fds: codex_utils_pty::ChildFds::Inherited(&[]),
          })
          .await;
@@ -6771,7 +8227,7 @@ index 9715d1b1a8..7d850430b9 100644
      }
  
      #[tracing::instrument(
-@@ -1516,7 +1576,8 @@ impl UnifiedExecProcessManager {
+@@ -1516,7 +1614,8 @@ impl UnifiedExecProcessManager {
          };
          let shell_snapshot = shell_snapshot_request(prepared, context);
          let mut orchestrator = ToolOrchestrator::new();
@@ -6904,10 +8360,10 @@ index 00cd404713..1d6626ab6d 100644
          let mut state = self.lock_state();
          if state.concurrency_limit.is_closed() {
 diff --git a/codex-rs/hooks/src/engine/mod.rs b/codex-rs/hooks/src/engine/mod.rs
-index 5e3daf53b0..a2872a0d37 100644
+index 5e3daf53b0..4fb28cf5ad 100644
 --- a/codex-rs/hooks/src/engine/mod.rs
 +++ b/codex-rs/hooks/src/engine/mod.rs
-@@ -334,6 +334,42 @@ impl ClaudeHooksEngine {
+@@ -334,6 +334,51 @@ impl ClaudeHooksEngine {
          }
      }
  
@@ -6947,14 +8403,23 @@ index 5e3daf53b0..a2872a0d37 100644
 +        })
 +    }
 +
++    /// Conservative proof for a tool whose matcher aliases are not modeled by
++    /// the caller. Never guess those aliases or infer child exit from hook exit.
++    pub(crate) fn has_no_configured_hook_effects(&self) -> bool {
++        self.handlers.is_empty()
++            && self.warnings.is_empty()
++            && self.required_load_errors.is_empty()
++            && !self.command_runtime.has_pending_async_hooks()
++    }
++
      pub(crate) fn warnings(&self) -> &[String] {
          &self.warnings
      }
 diff --git a/codex-rs/hooks/src/engine/mod_tests.rs b/codex-rs/hooks/src/engine/mod_tests.rs
-index 4e93a0075d..5001906bd8 100644
+index 4e93a0075d..17ce603d5a 100644
 --- a/codex-rs/hooks/src/engine/mod_tests.rs
 +++ b/codex-rs/hooks/src/engine/mod_tests.rs
-@@ -3029,3 +3029,177 @@ async fn mcp_interrupt_hooks_expand_event_input_and_bound_timeout() {
+@@ -3029,3 +3029,182 @@ async fn mcp_interrupt_hooks_expand_event_input_and_bound_timeout() {
          }]
      );
  }
@@ -7117,8 +8582,13 @@ index 4e93a0075d..5001906bd8 100644
 +
 +#[test]
 +fn native_completion_hooks_are_scoped_to_original_exec_or_continuation() {
-+    let exec_names = &["exec_command", "functions.exec_command"];
-+    let poll_names = &["write_stdin", "functions.write_stdin"];
++    let exec_names = &["Bash", "exec_command", "functions.exec_command"];
++    let poll_names = &["Bash", "write_stdin", "functions.write_stdin"];
++    for event in [HookEventName::PreToolUse, HookEventName::PostToolUse] {
++        let bash = native_proof_engine(Some("Bash"), event);
++        assert!(!bash.tool_has_no_hook_effects(exec_names, &["Bash"]));
++        assert!(!bash.tool_has_no_hook_effects(poll_names, &["write_stdin"]));
++    }
 +    for (event, exec_matcher, poll_matcher) in [
 +        (HookEventName::PreToolUse, "exec_command", "write_stdin"),
 +        (HookEventName::PostToolUse, "exec_command", "write_stdin"),
@@ -7133,10 +8603,10 @@ index 4e93a0075d..5001906bd8 100644
 +    }
 +}
 diff --git a/codex-rs/hooks/src/registry.rs b/codex-rs/hooks/src/registry.rs
-index 244ef75431..ba8f9d19fb 100644
+index 244ef75431..b82da1d62a 100644
 --- a/codex-rs/hooks/src/registry.rs
 +++ b/codex-rs/hooks/src/registry.rs
-@@ -129,6 +129,14 @@ impl Hooks {
+@@ -129,6 +129,20 @@ impl Hooks {
          hooks
      }
  
@@ -7146,6 +8616,12 @@ index 244ef75431..ba8f9d19fb 100644
 +    pub fn tool_has_no_hook_effects(&self, tool_names: &[&str], permission_names: &[&str]) -> bool {
 +        self.engine
 +            .tool_has_no_hook_effects(tool_names, permission_names)
++    }
++
++    /// Conservative admission for tools with no known matcher-alias contract.
++    /// This inspects configuration and pending work without running a hook.
++    pub fn has_no_configured_hook_effects(&self) -> bool {
++        self.engine.has_no_configured_hook_effects()
 +    }
 +
      /// List this session's declarations, including hooks that are disabled or not yet trusted.
@@ -7169,7 +8645,7 @@ index 6aa205ba1c..801a0067cf 100644
              plugin_id: self.plugin_id.clone(),
              script_path: self.script_path.clone(),
 diff --git a/codex-rs/protocol/src/protocol.rs b/codex-rs/protocol/src/protocol.rs
-index a0af620c34..f2f05b88e4 100644
+index a0af620c34..972755bfe9 100644
 --- a/codex-rs/protocol/src/protocol.rs
 +++ b/codex-rs/protocol/src/protocol.rs
 @@ -3874,8 +3874,53 @@ pub struct ExecCommandBeginEvent {
@@ -7226,7 +8702,7 @@ index a0af620c34..f2f05b88e4 100644
      /// Identifier for the ExecCommandBegin that finished.
      pub call_id: String,
      /// Trusted first-party plugin attributed to this command, when known.
-@@ -4828,6 +4873,111 @@ mod tests {
+@@ -4828,6 +4873,126 @@ mod tests {
      use tempfile::NamedTempFile;
      use tempfile::TempDir;
  
@@ -7327,6 +8803,21 @@ index a0af620c34..f2f05b88e4 100644
 +        );
 +        assert_eq!(completed["exit_code"], 124);
 +        assert_eq!(completed["native_completion"]["exit_code"], 137);
++        // A portable local waiter may prove termination but lose the numeric
++        // signal. This typed object remains distinct from an unknown whole field.
++        let mut signal_unknown = completed.clone();
++        signal_unknown["native_completion"]["exit_code"] = serde_json::Value::Null;
++        let signal_end: ExecCommandEndEvent = serde_json::from_value(signal_unknown.clone())?;
++        let signal_proof = signal_end
++            .native_completion
++            .clone()
++            .flatten()
++            .ok_or_else(|| anyhow::anyhow!("verified wait object"))?;
++        assert_eq!(signal_proof.outcome, NativeCompletionOutcome::WaitCompleted);
++        assert_eq!(signal_proof.session_id, Some(71));
++        assert!(signal_proof.exit_code.is_none());
++        assert_eq!(serde_json::to_value(signal_end)?, signal_unknown);
++        assert_eq!(signal_unknown["exit_code"], 124);
 +        completed["native_completion"] = serde_json::Value::Null;
 +        assert_eq!(
 +            completed, unknown,
@@ -7569,15 +9060,15 @@ index 87a7cf8e60..30c97c5f81 100644
 +    Ok(())
 +}
 diff --git a/codex-rs/utils/pty/src/pipe.rs b/codex-rs/utils/pty/src/pipe.rs
-index 1088c01fd1..4cdae51019 100644
+index 1088c01fd1..74cb1c851d 100644
 --- a/codex-rs/utils/pty/src/pipe.rs
 +++ b/codex-rs/utils/pty/src/pipe.rs
 @@ -248,13 +248,19 @@ async fn spawn_process_with_stdin_mode(
      let wait_exit_status = Arc::clone(&exit_status);
      let exit_code = Arc::new(StdMutex::new(None));
      let wait_exit_code = Arc::clone(&exit_code);
-+    let confirmed_exit_code = Arc::new(StdMutex::new(None));
-+    let wait_confirmed_exit_code = Arc::clone(&confirmed_exit_code);
++    let confirmed_wait = Arc::new(StdMutex::new(None));
++    let wait_confirmation = Arc::clone(&confirmed_wait);
      #[cfg(windows)]
      let wait_job = match &windows_terminator {
          WindowsChildTerminator::Job(job) => Some(Arc::clone(job)),
@@ -7586,8 +9077,8 @@ index 1088c01fd1..4cdae51019 100644
      let wait_handle: JoinHandle<()> = tokio::spawn(async move {
 -        let code = match child.wait().await {
 +        let status = child.wait().await;
-+        if let Ok(mut guard) = wait_confirmed_exit_code.lock() {
-+            *guard = crate::process::confirmed_exit_code_from_result(&status);
++        if let Ok(mut guard) = wait_confirmation.lock() {
++            *guard = crate::process::confirmed_wait_from_result(&status);
 +        }
 +        let code = match status {
              Ok(status) => {
@@ -7597,34 +9088,34 @@ index 1088c01fd1..4cdae51019 100644
          wait_handle,
          exit_status,
          exit_code,
-+        confirmed_exit_code,
++        confirmed_wait,
          /*pty_handles*/ None,
          /*resizer*/ None,
      );
 diff --git a/codex-rs/utils/pty/src/process.rs b/codex-rs/utils/pty/src/process.rs
-index 4ad710f63f..6704946598 100644
+index 4ad710f63f..90875a2a43 100644
 --- a/codex-rs/utils/pty/src/process.rs
 +++ b/codex-rs/utils/pty/src/process.rs
 @@ -48,6 +48,30 @@ pub(crate) fn exit_code_from_status(status: ExitStatus) -> i32 {
      -1
  }
  
-+/// Only a successful local OS wait supplies numeric termination evidence.
-+/// A failed wait and a synthetic backend status remain unconfirmed.
-+pub(crate) fn confirmed_exit_code_from_result(result: &io::Result<ExitStatus>) -> Option<i32> {
-+    result.as_ref().ok().and_then(|status| {
++/// A successful local OS wait proves termination even when a backend loses
++/// the numeric exit code. Failed waits and synthetic status remain unconfirmed.
++pub(crate) fn confirmed_wait_from_result(result: &io::Result<ExitStatus>) -> Option<Option<i32>> {
++    result.as_ref().ok().map(|status| {
 +        let code = exit_code_from_status(*status);
 +        (code >= 0).then_some(code)
 +    })
 +}
 +
-+pub(crate) fn confirmed_portable_exit_code(
++pub(crate) fn confirmed_portable_wait(
 +    result: &io::Result<portable_pty::ExitStatus>,
-+) -> Option<i32> {
-+    result.as_ref().ok().and_then(|status| {
-+        // portable-pty discards the numeric signal and substitutes code 1.
-+        // Preserve its public result, but do not label that substitution an
-+        // exact OS exit code or recover a number from a localized signal name.
++) -> Option<Option<i32>> {
++    result.as_ref().ok().map(|status| {
++        // portable-pty loses the numeric signal and substitutes public code 1.
++        // The successful waiter still proves termination; never manufacture
++        // a numeric exit code or recover one from a localized signal name.
 +        status
 +            .signal()
 +            .is_none()
@@ -7640,7 +9131,7 @@ index 4ad710f63f..6704946598 100644
      wait_handle: StdMutex<Option<JoinHandle<()>>>,
      exit_status: Arc<AtomicBool>,
      exit_code: Arc<StdMutex<Option<i32>>>,
-+    confirmed_exit_code: Arc<StdMutex<Option<i32>>>,
++    confirmed_wait: Arc<StdMutex<Option<Option<i32>>>>,
      // PtyHandles must be preserved because the process will receive Control+C if the
      // slave is closed
      _pty_handles: StdMutex<Option<PtyHandles>>,
@@ -7648,7 +9139,7 @@ index 4ad710f63f..6704946598 100644
          wait_handle: JoinHandle<()>,
          exit_status: Arc<AtomicBool>,
          exit_code: Arc<StdMutex<Option<i32>>>,
-+        confirmed_exit_code: Arc<StdMutex<Option<i32>>>,
++        confirmed_wait: Arc<StdMutex<Option<Option<i32>>>>,
          pty_handles: Option<PtyHandles>,
          resizer: Option<ResizeFn>,
      ) -> Self {
@@ -7656,28 +9147,32 @@ index 4ad710f63f..6704946598 100644
              wait_handle: StdMutex::new(Some(wait_handle)),
              exit_status,
              exit_code,
-+            confirmed_exit_code,
++            confirmed_wait,
              _pty_handles: StdMutex::new(pty_handles),
              resizer: StdMutex::new(resizer),
          }
-@@ -190,6 +217,16 @@ impl ProcessHandle {
+@@ -190,6 +217,20 @@ impl ProcessHandle {
          self.exit_code.lock().ok().and_then(|guard| *guard)
      }
  
++    /// The original local waiter's completion evidence. `None` is unconfirmed;
++    /// `Some(None)` proves termination without an exact numeric exit code;
++    /// `Some(Some(code))` also preserves that code. Driver ACKs, failed waits and
++    /// termination requests never populate this state.
++    pub fn confirmed_wait(&self) -> Option<Option<i32>> {
++        self.confirmed_wait.lock().ok().and_then(|guard| *guard)
++    }
++
 +    /// The exact exit code observed by this handle's successful local OS waiter.
-+    /// Termination requests, failed waits and driver-provided exit channels do
-+    /// not populate this evidence, even when the legacy status reports exit.
++    /// A successful wait whose backend lost the numeric code remains `None`.
 +    pub fn confirmed_exit_code(&self) -> Option<i32> {
-+        self.confirmed_exit_code
-+            .lock()
-+            .ok()
-+            .and_then(|guard| *guard)
++        self.confirmed_wait().flatten()
 +    }
 +
      /// Resize the PTY in character cells.
      pub fn resize(&self, size: TerminalSize) -> anyhow::Result<()> {
          {
-@@ -469,6 +506,7 @@ pub fn spawn_from_driver(driver: ProcessDriver) -> SpawnedProcess {
+@@ -469,6 +510,7 @@ pub fn spawn_from_driver(driver: ProcessDriver) -> SpawnedProcess {
          wait_handle,
          exit_status,
          exit_code,
@@ -7685,7 +9180,7 @@ index 4ad710f63f..6704946598 100644
          /*pty_handles*/ None,
          resizer,
      );
-@@ -480,3 +518,166 @@ pub fn spawn_from_driver(driver: ProcessDriver) -> SpawnedProcess {
+@@ -480,3 +522,178 @@ pub fn spawn_from_driver(driver: ProcessDriver) -> SpawnedProcess {
          exit_rx: exit_rx_out,
      }
  }
@@ -7711,29 +9206,37 @@ index 4ad710f63f..6704946598 100644
 +    #[test]
 +    fn native_completion_wait_errors_and_lossy_portable_signals_are_unconfirmed() {
 +        let failed = Err(io::Error::other("wait failed"));
-+        assert_eq!(confirmed_exit_code_from_result(&failed), None);
++        assert_eq!(confirmed_wait_from_result(&failed), None);
++        assert_eq!(
++            confirmed_portable_wait(&Err(io::Error::other("wait failed"))),
++            None
++        );
++        assert_eq!(
++            confirmed_portable_wait(&Ok(portable_pty::ExitStatus::with_signal("Killed"))),
++            Some(None)
++        );
++        assert_eq!(confirmed_wait_from_result(&failed).flatten(), None);
 +        for code in [0, 7, 124] {
 +            assert_eq!(
-+                confirmed_exit_code_from_result(&Ok(ExitStatus::from_raw(code << 8))),
++                confirmed_wait_from_result(&Ok(ExitStatus::from_raw(code << 8))).flatten(),
 +                Some(code)
 +            );
 +            assert_eq!(
-+                confirmed_portable_exit_code(&Ok(portable_pty::ExitStatus::with_exit_code(
-+                    code as u32
-+                ))),
++                confirmed_portable_wait(&Ok(portable_pty::ExitStatus::with_exit_code(code as u32)))
++                    .flatten(),
 +                Some(code)
 +            );
 +        }
 +        assert_eq!(
-+            confirmed_exit_code_from_result(&Ok(ExitStatus::from_raw(libc::SIGKILL))),
++            confirmed_wait_from_result(&Ok(ExitStatus::from_raw(libc::SIGKILL))).flatten(),
 +            Some(137)
 +        );
 +        assert_eq!(
-+            confirmed_portable_exit_code(&Err(io::Error::other("wait failed"))),
++            confirmed_portable_wait(&Err(io::Error::other("wait failed"))).flatten(),
 +            None
 +        );
 +        assert_eq!(
-+            confirmed_portable_exit_code(&Ok(portable_pty::ExitStatus::with_signal("Killed"))),
++            confirmed_portable_wait(&Ok(portable_pty::ExitStatus::with_signal("Killed"))).flatten(),
 +            None
 +        );
 +    }
@@ -7758,9 +9261,11 @@ index 4ad710f63f..6704946598 100644
 +                writer_handle: None,
 +                resizer: None,
 +            });
++            assert_eq!(spawned.session.confirmed_wait(), None);
 +            assert_eq!(spawned.session.confirmed_exit_code(), None);
 +            spawned.session.request_terminate();
 +            assert_eq!(requests.load(Ordering::SeqCst), 1);
++            assert_eq!(spawned.session.confirmed_wait(), None);
 +            assert_eq!(spawned.session.confirmed_exit_code(), None);
 +            match result {
 +                Some(code) => exit_tx
@@ -7774,6 +9279,7 @@ index 4ad710f63f..6704946598 100644
 +            );
 +            assert!(spawned.session.has_exited());
 +            assert_eq!(spawned.session.exit_code(), Some(result.unwrap_or(-1)));
++            assert_eq!(spawned.session.confirmed_wait(), None);
 +            assert_eq!(spawned.session.confirmed_exit_code(), None);
 +            drop(stdout_tx);
 +        }
@@ -7849,24 +9355,25 @@ index 4ad710f63f..6704946598 100644
 +            137
 +        );
 +        assert_eq!(spawned.session.confirmed_exit_code(), Some(137));
++        assert_eq!(spawned.session.confirmed_wait(), Some(Some(137)));
 +        Ok(())
 +    }
 +}
 diff --git a/codex-rs/utils/pty/src/pty.rs b/codex-rs/utils/pty/src/pty.rs
-index 7bee13adee..9cdcaae995 100644
+index 7bee13adee..f32bab8642 100644
 --- a/codex-rs/utils/pty/src/pty.rs
 +++ b/codex-rs/utils/pty/src/pty.rs
 @@ -272,8 +272,14 @@ async fn spawn_process_portable(
      let wait_exit_status = Arc::clone(&exit_status);
      let exit_code = Arc::new(StdMutex::new(None));
      let wait_exit_code = Arc::clone(&exit_code);
-+    let confirmed_exit_code = Arc::new(StdMutex::new(None));
-+    let wait_confirmed_exit_code = Arc::clone(&confirmed_exit_code);
++    let confirmed_wait = Arc::new(StdMutex::new(None));
++    let wait_confirmation = Arc::clone(&confirmed_wait);
      let wait_handle: JoinHandle<()> = tokio::task::spawn_blocking(move || {
 -        let code = match child.wait() {
 +        let status = child.wait();
-+        if let Ok(mut guard) = wait_confirmed_exit_code.lock() {
-+            *guard = crate::process::confirmed_portable_exit_code(&status);
++        if let Ok(mut guard) = wait_confirmation.lock() {
++            *guard = crate::process::confirmed_portable_wait(&status);
 +        }
 +        let code = match status {
              Ok(status) => status.exit_code() as i32,
@@ -7876,7 +9383,7 @@ index 7bee13adee..9cdcaae995 100644
          wait_handle,
          exit_status,
          exit_code,
-+        confirmed_exit_code,
++        confirmed_wait,
          Some(handles),
          /*resizer*/ None,
      );
@@ -7884,11 +9391,11 @@ index 7bee13adee..9cdcaae995 100644
      let wait_exit_status = Arc::clone(&exit_status);
      let exit_code = Arc::new(StdMutex::new(None));
      let wait_exit_code = Arc::clone(&exit_code);
-+    let confirmed_exit_code = Arc::new(StdMutex::new(None));
-+    let wait_confirmed_exit_code = Arc::clone(&confirmed_exit_code);
++    let confirmed_wait = Arc::new(StdMutex::new(None));
++    let wait_confirmation = Arc::clone(&confirmed_wait);
      let on_exit = move |status: std::io::Result<std::process::ExitStatus>| {
-+        if let Ok(mut guard) = wait_confirmed_exit_code.lock() {
-+            *guard = crate::process::confirmed_exit_code_from_result(&status);
++        if let Ok(mut guard) = wait_confirmation.lock() {
++            *guard = crate::process::confirmed_wait_from_result(&status);
 +        }
          let code = match status {
              Ok(status) if uses_portable_status => {
@@ -7897,7 +9404,57 @@ index 7bee13adee..9cdcaae995 100644
          wait_handle,
          exit_status,
          exit_code,
-+        confirmed_exit_code,
++        confirmed_wait,
          Some(handles),
          /*resizer*/ None,
      );
+@@ -677,3 +690,49 @@ pub(crate) fn configure_child_terminal() -> std::io::Result<()> {
+ #[cfg(all(test, target_os = "linux"))]
+ #[path = "pty_linux_tests.rs"]
+ mod linux_tests;
++
++#[cfg(all(test, unix))]
++mod native_completion_pty_tests {
++    #[tokio::test]
++    async fn native_completion_portable_pty_signal_proves_wait_without_numeric_exit()
++    -> anyhow::Result<()> {
++        let directory = tempfile::tempdir()?;
++        let shell = if cfg!(target_os = "android") {
++            "/system/bin/sh"
++        } else {
++            "/bin/sh"
++        };
++        // This is Android's ordinary PTY path; forcing the same production
++        // backend also exercises its lossy signal representation on Linux CI.
++        let mut child = super::spawn_process_portable(
++            shell,
++            &["-c".into(), "printf 'ready\n'; read value".into()],
++            directory.path(),
++            &std::collections::HashMap::new(),
++            &None,
++            crate::process::TerminalSize::default(),
++        )
++        .await?;
++        let ready = tokio::time::timeout(std::time::Duration::from_secs(5), child.stdout_rx.recv())
++            .await?
++            .ok_or_else(|| anyhow::anyhow!("child closed before readiness"))?;
++        assert!(ready.starts_with(b"ready"));
++        assert_eq!(child.session.confirmed_wait(), None);
++        child.session.request_terminate();
++        // A request is not evidence. Synchronize on the existing original waiter.
++        let public_code =
++            tokio::time::timeout(std::time::Duration::from_secs(5), child.exit_rx).await??;
++        assert_eq!(
++            public_code, 1,
++            "preserve portable-pty's existing public projection"
++        );
++        assert_eq!(child.session.confirmed_wait(), Some(None));
++        assert_eq!(
++            child.session.confirmed_exit_code(),
++            None,
++            "never promote synthetic 1"
++        );
++        assert!(child.session.has_exited());
++        Ok(())
++    }
++}
