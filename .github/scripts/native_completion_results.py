@@ -35,6 +35,7 @@ SUITES = {
         'native_completion_scope_header_preserves_root_exit_and_child_output',
         'native_completion_root_exit_retains_session_until_tree_stop',
         'native_completion_oneshot_keeps_original_supervised_attempt',
+        'native_completion_pruning_stops_only_selected_scope',
     ),
     'protocol': (
         'native_completion_typescript_keeps_nullable_field_and_real_type_dependencies',
