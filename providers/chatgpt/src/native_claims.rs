@@ -1210,7 +1210,15 @@ mod tests {
             "process_hooks_absent":true
         }}});
         let bytes = serde_json::to_vec(&original).unwrap();
-        fs::write(ledger.directory.join("claims.json"), &bytes).unwrap();
+        // A historical fixture must be private regardless of the CI runner's
+        // umask; the production ledger correctly rejects world-readable state.
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(ledger.directory.join("claims.json"))
+            .unwrap();
+        file.write_all(&bytes).unwrap();
         let snapshot = ledger.read_state().unwrap();
         assert!(snapshot.claims[identity].process_hooks_absent);
         assert_eq!(
