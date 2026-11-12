@@ -40,7 +40,10 @@ struct Entry {
     // by a different call's late wait witness.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     continuation_effect: Option<ContinuationEffect>,
-    #[serde(default)]
+    // Older serialized claims may contain this field. Read conservatively
+    // but never write it into the shared ledger read by legacy Providers.
+    // Original call journals retain authoritative hook evidence.
+    #[serde(default, skip_serializing)]
     process_hooks_absent: bool,
 }
 
@@ -989,11 +992,11 @@ impl Guard {
                         effect: Effect::Opaque,
                         session: None,
                         owner: Some(owner),
-                        process_hooks_absent: hooks_absent,
                         continuation_effect: Some(ContinuationEffect {
                             session: existing_session.unwrap(),
                             hooks_absent,
                         }),
+                        process_hooks_absent: hooks_absent,
                     },
                 );
                 Ok((true, true))
@@ -1113,6 +1116,54 @@ impl Guard {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn default_shared_claim_remains_readable_by_previous_deny_unknown_reader() {
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct OldEntry {
+            thread: String,
+            fingerprint: String,
+            effect: Effect,
+            session: Option<u64>,
+            owner: Option<ProcessOwner>,
+        }
+
+        let current = Entry {
+            thread: "old-reader-compatible".into(),
+            fingerprint: "same-original-call".into(),
+            effect: Effect::Read,
+            session: None,
+            owner: None,
+            continuation_effect: None,
+            process_hooks_absent: false,
+        };
+        let value = serde_json::to_value(&current).unwrap();
+        assert!(value.get("process_hooks_absent").is_none());
+        assert!(value.get("continuation_effect").is_none());
+        let legacy: OldEntry = serde_json::from_value(value.clone()).unwrap();
+        assert_eq!(legacy.thread, current.thread);
+        assert_eq!(legacy.fingerprint, current.fingerprint);
+        assert_eq!(legacy.effect, current.effect);
+        assert_eq!(legacy.session, current.session);
+        assert_eq!(legacy.owner, current.owner);
+        let recovered: Entry = serde_json::from_value(value.clone()).unwrap();
+        assert_eq!(recovered.thread, current.thread);
+        assert_eq!(recovered.fingerprint, current.fingerprint);
+
+        // Historical newer producers wrote an unused boolean here, which
+        // rejected every legacy reader. The original Native call journal
+        // carries authoritative hook evidence; the shared file never reads
+        // this redundant boolean during admission, conflict or settlement.
+        let mut old_incompatible = value;
+        old_incompatible["process_hooks_absent"] = serde_json::Value::Bool(true);
+        assert!(serde_json::from_value::<OldEntry>(old_incompatible.clone()).is_err());
+        let compatible: Entry = serde_json::from_value(old_incompatible).unwrap();
+        assert!(compatible.process_hooks_absent);
+        let rewritten = serde_json::to_value(&compatible).unwrap();
+        assert!(rewritten.get("process_hooks_absent").is_none());
+        assert!(serde_json::from_value::<OldEntry>(rewritten).is_ok());
+    }
     fn waited(call: &str, session: Option<u64>, exit: i64, output: &str) -> serde_json::Value {
         let proof = serde_json::json!({"schema":"codex-native-completion-v1","call_id":call,
             "session_id":session,"outcome":"process_tree_completed","exit_code":exit,"hooks":"absent"});
