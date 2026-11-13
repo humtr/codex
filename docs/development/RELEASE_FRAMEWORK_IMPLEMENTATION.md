@@ -6,6 +6,127 @@ CI and live acceptance are being closed. Stable requirements belong to SPEC
 and the scoped annexes; observed proof belongs to CURRENT. After acceptance,
 Git history preserves the completed plan and its source provenance.
 
+## 2026-11-13 reconciliation: original mandate versus achieved source and proof
+
+**Evidence authority:** [CURRENT](../../CURRENT.md) has the dated exact
+SHA, installed generation, saved-Chat and GitHub run IDs. The single ordered
+unfinished-work plan is [HANDOFF](../../HANDOFF.md). The 2026-11-12
+W0-W20 table and historical Writer ownership below are preserved as a
+development snapshot, **not** as today's still-failing CI list.
+
+### Scope evolution, without discarding any product contract
+
+| Epoch | Original decision / new discovery | Resulting scope/order |
+| --- | --- | --- |
+| Initial W0-W14 | One release source, component fingerprints, Core-only, Manager/Full, version/Doctor, safe signing gate | Implemented as integrated source with CI consumers; original 0.167.1 baseline is historical |
+| W15-W19 | Native claims/Busy, parent process tree, AppHost terminal, independent MCP shell, account-model Provider routing | Substantial source/test work integrated; real live Native/Android/account edges still need their own proof |
+| W20 addition | User-observed `/switch` Owner lookup failure with cross-generation TUI/Core | Verified safe Owner discovery/reentry source fixes and hosted TUI tests; original user PID/thread and live account switch remain distinct |
+| Upstream and operating release | Recipe advanced to upstream **0.167.2**; subsequent separately authorized Full **S167** and Provider **S27** were activated | Old S165 is not the current installed default; exact source 0ba05892 is not identical to S167's source 220cc2e4 |
+| 2026-11-13 user orchestration mandate | First prove real A -> O -> W -> O -> A, then installed 0.167.2 acceptance, then consolidate findings/tasks in one dev branch | Existing W0-W20 obligations retained; runtime orchestration framework, budget change, runit auto sync, CI redesign become *later development* after documented real proof |
+| Branch authority | `rewrite/rust-core` is the one continuing source, `main` separate signed-publication/approval authority | Isolated Writer branches temporary, not alternate long-lived feature truths; imported proposals remain non-normative |
+
+The original plan required single-pass code implementation plus CI and
+envisaged 1,370-3,020 product LoC for W0-W14. Those were **estimates**, not
+today's unfinished workload. From `7b98296a` to `0ba05892` actual Git
+change accounting is **161 commits, 175 files, +41,094/-5,216 lines**,
+including generated/embedded upstream patches, copied sources, tests, CI
+and docs. It is inaccurate to call these 41,094 newly authored product
+lines. No work percentage should be inferred.
+
+### Per-work present disposition
+
+Here **source implemented** means integrated code/tests, **hosted qualified**
+means a matching actual GitHub CI success on `0ba05892`, and **live gap**
+means the indicated user/device path is not independently proven. None of
+these labels is a second acceptance contract.
+
+| Work | Current achieved work | Still unproved / boundary |
+| --- | --- | --- |
+| W0 | Git ancestry corrected; official one dev branch chosen; signed generations distinguished | Reconcile ongoing process and old Writer refs at each new experiment |
+| W1 | Exact component-input fingerprints/producers implemented | Demonstrate digest-based reuse as actually consumed for each successor SHA |
+| W2 | Android Core production path integrated; Core qualification passed | Installed Core-only transition/rollback is not inferred from hosted Core |
+| W3 | Manager independent qualification implemented; `43353147332` SUCCESS | Real Manager terminal/notification on device separate |
+| W4 | Qualified unsigned Full inventory/assembly implemented; prior 220cc Full qualified | **0ba Full 43353147279 failed at early Core-evidence admission**; rerun after all exact-source inputs ready |
+| W5 | Component revision, composition revision, signed sequence separation implemented/tested | New actual signing/reservation not authorized; preserve S167 history |
+| W6 | Upstream Retain contracts/tests integrated; full TUI `43353819723` SUCCESS | Physical UI and original reentry transcript are separate |
+| W7 | Existing current alias is integrated and guarded | No reimplementation; retain rollback/current compatibility |
+| W8 | Actual 0ba full TUI CI SUCCESS; older Clippy errors resolved | New source inputs invalidate proof only when affected |
+| W9 | SPEC/annex/AGENTS hierarchy implemented | Latest orchestration/runit task docs and CURRENT/HANDOFF needed integration/refresh |
+| W10 | Source, Core, Manager, Provider, Android, TUI hosted gates SUCCESS | 0ba Full final gate open; signing/publication remains separate authority |
+| W11 | Core/Full update selection and Core-only source path implemented | Non-destructive actual installed update/no-op and mixed-generation edge coverage |
+| W12 | Core-owned version JSON/details implemented; installed 0.167.2 JSON verified | Distinguish Provider selected pointer, running image and pending service activation |
+| W13 | No-bwrap normal classification and failure differentiation implemented | Real explicitly requested sandbox/reviewer behavior separate |
+| W14 | Signed-generation fixtures and CLI/Doctor regressions included in Core proof | Physical rollback and old user data preservation not inferred |
+| W15 | Claims P0 and execution/Stop/tree/scope safeguards integrated; Core/Provider hosted tests passed | Actual parent/child wait, unknown ACK, sibling real concurrency, Busy recovery and reviewer allow/deny with receipts |
+| W16 | Manager/terminal code and stock Android synthetic fallback `43353147285` PASS | Real foreground/background, locked-screen notification tap and exact terminal bound to AppHost work |
+| W17 | Independent ChatGPT auth/catalog and stable model IDs implemented; Provider CI PASS | Actual S27 valid model/SSE and account-specific no-auth/deny paths |
+| W18 | One independent Termux MCP shell and original call replay; connected shell observed | Native-Busy paired test, restarted tunnel receiver and exact original receipt under current service |
+| W19 | Provider-scoped model list and selection in source, hosted TUI PASS | Real OpenAI/ChatGPT picker/direct/effort and same-thread inference across account changes |
+| W20 | Legacy Owner/PID handling and switch TUI/reentry correction integrated; full TUI PASS | Attribute original user's failing process/thread; live permitted account-switch continuation and negative cases |
+
+This categorization **does not** reopen fixed 2026-11-12 TLS/Clippy
+diagnostics. Source `43353147385`, Core `43353147456`, Manager
+`43353147332`, Provider `43353147336`, stock Android `43353147285`,
+and TUI `43353819723` all succeeded for 0ba. The Full
+`43353147279` was started before Core success and rejected at its
+prerequisite lookup; assembly and real device operation were not executed.
+
+### Newly exposed acceptance versus future implementation
+
+- Prior independent worker saved Chats returned 323 and 667, but no
+  **W -> O consumed/ACKed -> A delivered/ACKed** end-to-end receipt exists.
+  A fresh C1-C8 experiment is the next mandatory *verification*, not a
+  statement that durable orchestration is implemented.
+- The future durable logical-job/queue/recipient/wakeup architecture is
+  proposed in the imported
+  [orchestration contract](orchestration/SESSION_INDEPENDENT_DURABLE_ORCHESTRATION.md)
+  and [bridge options](orchestration/CODEX_CHATGPT_ORCHESTRATION_BRIDGE_DESIGN.md).
+  Its budget ceilings 5/256/1024 and configurable elapsed duration are
+  desired defaults, **not** verified present API support.
+- The selected-vs-running Provider identity and one-time manual runit
+  binding correction motivate the imported
+  [runit generation task](RUNIT_GENERATION_ACTIVATION.md); it remains OPEN.
+- Native busy independence, AppHost stable protocol model roundtrip, true
+  parallel work, physical Android terminal/notification, original account
+  switch, automatic model wakeup, and exact runit restart/rollback each have
+  a separate evidence threshold. A synthetic or prior-generation result
+  cannot satisfy a newer live qualification.
+- **Priority now:** real orchestration chain -> complete installed
+  0.167.2 verification and evidence ledger -> canonical documentation and
+  branch integration -> in a *subsequent development stage* repair proven
+  defects and CI admission ordering -> affected exact-source qualification
+  -> separately authorized release. The single actionable queue/owners
+  live in HANDOFF; do not maintain a parallel competing plan in this file.
+
+### Provenance of adopted development proposals
+
+- `docs/durable-orchestration-contract-20261112`
+  at `6ccafe4889e8b22dc497478a6fb1bbaf1a6e0080`: two exact source
+  documents under `docs/development/orchestration/` imported as non-normative
+  designs; original blob identities verified at transfer.
+- `work/tunnel-termux-v0.0.20-20261113`
+  at `90ddd49d0d141bc764ab7a9730c41c948388f63e`: one focused
+  `docs/development/RUNIT_GENERATION_ACTIVATION.md` document imported;
+  unrelated branch source and stale CURRENT/HANDOFF were not overwritten.
+- Historical `docs/release-framework-handoff-20261111` at `9a236db8`
+  also contains `RELEASE_FRAMEWORK_PHASE1_REVIEW_20261111.md`. Its
+  requirement to wait for a separate phase-2 approval was explicitly
+  superseded by the later one-prompt implementation authorization, and its
+  original 0.167.1/Full163 assumptions are outdated. Its useful W0-W18
+  concerns, proof boundaries and Native P0 receipts are already accounted
+  for in the W0-W20 implementation record/CURRENT, so the dated review
+  brief was not copied as a fourth active development document. Its original
+  branch/worktree remains intact; classification does not authorize deletion.
+- The older documentation contract/Native integration lines have no new
+  active requirements identified in this review beyond the current
+  functional annexes and the finite W0-W20 record. Preserve active
+  worktrees and their unmatched changes until separate ownership checks.
+- Old W0-W20 history stays in this finite record; open work belongs in
+  HANDOFF, verified present facts in CURRENT. Branch retirement is
+  evidence-based and no original branch/old Writer is deleted by importing
+  a document.
+
+
 ## Baseline, authority and ownership
 
 Official input: `7b98296a411a2c435bb9f34ee51f286f33f3491b`, upstream
