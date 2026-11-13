@@ -1,9 +1,9 @@
 {
   "schema": 1,
   "upstream": {
-    "version": "0.167.2",
-    "source": "ce21072c90d32c40af7a55b60b2fb35c84a43a6a",
-    "archive_sha256": "56b08c1214e062a5b61684bacb5033c4372a01062a47c87c49a32be83af70695"
+    "version": "0.169.0",
+    "source": "d32063f96c2dff1dc96af839b3952abb6acfeda4",
+    "archive_sha256": "c8d0b4ab2a97c595b70b10412d36d0d5464dcef1e1d3246b073d48017cdf5a4f"
   },
   "toolchains": {
     "core_rust": "1.98.0",
@@ -13,10 +13,10 @@
   "qualification": {
     "focused_tests": 147,
     "lock_audit": {
-      "external_packages_unchanged": 1308,
-      "normalized_lock_sha256": "5e1781c98407bf0cbf67bb39a2dffffa6d2a259871a47fe99946de22c716a782",
-      "original_lock_sha256": "9e71c74824a7ea114d0a3a4c94e93d81a1ddd13ca8fa6f698cbd1284c2e9ff2f",
-      "workspace_versions_changed": 171
+      "external_packages_unchanged": 1310,
+      "normalized_lock_sha256": "200de438778a44c55d452b8931f5293ec3d7bda66c48717605b202764a4d3f7a",
+      "original_lock_sha256": "56e04c89b25a6efa1fa6f1cf02934e92451933c8ebda57a5153207ba9ea9fb9e",
+      "workspace_versions_changed": 173
     }
   }
 }
