@@ -36,6 +36,15 @@ CI. These are not intermediate approval gates.
    S165 stays0.167.1. Source acceptance does not require operating activation.
    A running or queued job is not a successful gate.
 
+## Follow-on task: runit generation activation persistence
+
+[Persistent runit generation activation](docs/development/RUNIT_GENERATION_ACTIVATION.md)
+tracks the independent, still-unimplemented automatic reconciliation of
+Provider and tunnel service runit bindings after verified install, update and
+rollback. The one-time S27 service repair is not task completion. Preserve
+the existing opted-in runit services and user sessions until their future
+transactional update/rollback path is qualified.
+
 ## Protected operating acceptance
 
 The candidate is not the operating S165 installation. Actual operating App

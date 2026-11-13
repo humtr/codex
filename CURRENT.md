@@ -1,10 +1,48 @@
 # Current product state
 
-Updated: 2026-11-12 UTC. Observed facts and proof limits only.
+Updated: 2026-11-13 13:42 KST. Latest verified operating state below; older source checkpoints remain dated.
 Requirements: [SPEC](SPEC.md) and [functional annexes](docs/spec/INDEX.md).
 Unfinished acceptance: [HANDOFF](HANDOFF.md).
 The [finite integration record](docs/development/RELEASE_FRAMEWORK_IMPLEMENTATION.md)
 owns the W-task DAG, file Writers, provenance and change accounting.
+
+## Latest verified operating and service state (2026-11-13 KST)
+
+The Termux device runs the signed and authenticated Codex 0.167.2 Full
+`full-v0.167.2-220cc2e-s167`. The separate optional signed Provider
+selection is S27 (`provider-chatgpt-v0.167.2-0ba0589-s27`). The opted-in
+`codex-chatgpt-provider` runit service now executes that exact generation
+at PID 21766; the previous stale November 9 qualification service PID 12629
+is gone. Authenticated `GET /v1/native/capabilities` returned HTTP 200
+with protocol major 4; the negotiated stable Native path reaches payload
+validation (intentionally invalid JSON returned HTTP 400, not 404). This was
+no real model turn or same-thread Native-effect acceptance.
+
+The independent `codex-chatgpt-tunnel` runit service now runs official
+OpenAI tunnel-client v0.0.20 (`c2144b0904980bcbae2636cdca4f4167e9818e0b`)
+with the retained Termux patch `0ad5d2db16a9...` for Android/arm64.
+The source-bound Go regression packages and required silent-HTTP/2-poll tests
+passed. Executable SHA-256 is
+`5a766114835604ed01fabcc7c176a9734058a491fa0a8050006064c62e700538`.
+Owned old tunnel PID 13040 exited; runit PID 16304 manages new tunnel
+PID 16316 with the original profile references. The optional Host-keeper
+runit PID 16103 also reads the S27 provider executable. Provider AppHost
+is present and ready with zero active lanes; independent remote tunnel
+control-plane health and live model inference have not been proven here.
+
+The runit environment remains an owned, persistent private configuration
+and signed Core/Provider generations and old tunnel rollback bytes were not
+modified. This was an explicitly authorized *manual* one-time rebinding;
+`codex provider update chatgpt` and future tunnel updates do not yet
+reconcile runit generation paths automatically. The unfinished feature and
+acceptance are tracked by
+[the runit generation activation task](docs/development/RUNIT_GENERATION_ACTIVATION.md).
+
+The official development source remains `0ba058922fd1243f63a7cea2db0653348c64aa1d`
+with Core/Manager/Source/Provider/Android success and its separate Full-TUI
+qualification still running as observed at this checkpoint. The last signed
+Full edition is therefore still #167. The earlier sections below record
+previous frozen source/device checkpoints, not superseding these observations.
 
 ## Source and publication authority
 

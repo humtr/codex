@@ -1,7 +1,7 @@
 {
   "upstream_repository": "https://github.com/openai/tunnel-client.git",
-  "version": "v0.0.18",
-  "commit": "274a5588414819f063d27100a4fb1096aae3830f",
+  "version": "v0.0.20",
+  "commit": "c2144b0904980bcbae2636cdca4f4167e9818e0b",
   "target": {
     "GOOS": "android",
     "GOARCH": "arm64",
