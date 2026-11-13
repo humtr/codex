@@ -77,13 +77,17 @@ not proof of unattended O-to-A transport. No C1-C8 full PASS.
 | Qualification | Run ID | Current observed result |
 | --- | --- | --- |
 | Source Acceptance | 43372399358 | SUCCESS |
-| Core / Runtime | 43372399294 | IN_PROGRESS: Native completion proof unfinished; Core component build and Android executable smoke succeeded internally |
+| Core / Runtime | 43372399294 | **SUCCESS**: run completed 2026-11-13 06:17:55 UTC; Native proof and Android executable smoke completed |
 | Manager | 43372399387 | SUCCESS |
 | ChatGPT Provider source | 43372399261 | SUCCESS |
 | Android fallback synthetic | 43372399238 | SUCCESS |
 | Unsigned Full | 43372399266 | FAILURE at initial prerequisite admission; not proof of assembly defect |
 
-The Full workflow is triggered on development pushes and immediately runs
+At the time of the early Full failure, Core was incomplete; a later
+readback confirmed that Core `43372399294` **finished SUCCESS** at
+06:17:55 UTC, but exact-source full TUI had no matching run at the latest
+check. The Full workflow **at d9c3ed76** was triggered on development
+pushes and immediately runs
 `full_qualification.py acquire`, which requires already completed
 exact-SHA Core, Manager and TUI runs. The above early failure is a
 repeatable workflow dependency-order defect, **D-CI-01**; no Full rerun
@@ -91,6 +95,29 @@ should occur until Core and all other exact inputs are successful.
 Prior `0ba05892` successes are historical, not automatically d9c acceptance.
 The latest full TUI qualification of `d9c3ed76` has not been independently
 verified, so leave it unknown.
+
+**Independent Termux Shell execution proof (not Native):**
+`termux_shell` call `codex1672-v2-r6-independent-clang-20261113-a`
+actually created one C source in the isolated internal scratch, compiled
+and ran it with `assert(2+3==5)` and stdout
+`R6_SHELL_FIRST_1672` (compile/run exit 0), then modified the same
+source to `assert(3+4==7)`, recompiled and ran stdout
+`R6_SHELL_SECOND_1672` (compile/run exit 0). This confirms local
+Clang and the **independent Shell route**, not the required actual
+same-Native-thread tool execution.
+
+**Follow-up development candidate:** after this evidence was reconciled,
+the Full workflow's premature `push` trigger was removed from the
+isolated source candidate, preserving exact-source `acquire/assemble/
+probe/prove` and mandatory manual `workflow_dispatch`. Focused
+regression tests in an isolated **home** worktree outside Termux
+`TMPDIR` passed **28/28**; documentation tests passed **10/10**.
+This is a *bounded mitigation*, not automated producer-completion
+scheduling and not CI success for the new source commit. The initial
+local Full test attempt under `$PREFIX/tmp` failed four intentional
+home/TMPDIR separation checks (3 error, 1 failure); the same full suite
+passed unmodified when run from the correct home test-worktree location.
+No production safety code or test assertion was relaxed.
 
 **Product proof boundaries:** the installed Provider route source advertises
 stable `/v1/native/responses` and compatibility

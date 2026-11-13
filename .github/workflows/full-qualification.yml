@@ -1,8 +1,10 @@
 name: Unsigned Full composition qualification
 on:
+  # Explicit exact-SHA qualification only after Core/Manager/full-TUI producer
+  # runs are completed. Those independent workflows have no same-push
+  # dependency ordering, and the full TUI proof requires a separate manual
+  # full-scope dispatch. Implicit push admission always raced its producer.
   workflow_dispatch:
-  push:
-    branches: [rewrite/rust-core]
 permissions:
   contents: read
   actions: read

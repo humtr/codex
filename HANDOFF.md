@@ -219,6 +219,14 @@ heavy builds when existing proof is legitimately reusable.
   release CI. Require exact-SHA completed producer proofs, bounded
   skip/wait and eventual successful unsigned composition, with
   missing/wrong-SHA negative tests. No relaxation of admission rules.
+  **Bounded CI source mitigation:** Full workflow no longer starts
+  automatically on the same development push as its unsatisfied
+  producer requirements. An authorized explicit `workflow_dispatch`
+  after exact Core/Manager/full-TUI success is now the only Full
+  entry. Admission, byte verification and publication gates remain.
+  This prevents the known predictable early failure, but is **not
+  automatic event-driven producer-completion scheduling**; full
+  D-CI-01 auto-scheduling and an actual successful Full run stay OPEN.
 - **RUNIT-20261113-01 (P1, lifecycle; OPEN):** Selected S27 running
   Provider executable PID 8454 differs from legacy-named S27
   `current` pointer; link intent remains unclear. Automatic opt-in

@@ -37,8 +37,8 @@ lines. No work percentage should be inferred.
 
 Exact development source `d9c3ed76`: Source `43372399358`, Manager
 `43372399387`, Provider `43372399261`, Android fallback
-`43372399238` succeeded. Core `43372399294` still had running
-Native-completion proof though component/Android smoke succeeded.
+`43372399238` succeeded. Core `43372399294` subsequently finished **SUCCESS** after its
+Native-completion proof and Android smoke succeeded.
 Full `43372399266` failed early admission (Core exact SHA not yet
 qualified), **not** Full assembly. A new genuine GPT-6 O created two
 real parent-bound W tasks, but no W model completion or W-to-O

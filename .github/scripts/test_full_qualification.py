@@ -411,7 +411,13 @@ class FullQualificationTests(unittest.TestCase):
 
     def test_full_workflow_has_only_readonly_qualification_authority(self):
         workflow=(ROOT/'.github/workflows/full-qualification.yml').read_text()
-        self.assertIn('branches: [rewrite/rust-core]',workflow)
+        # Full cannot auto-fail immediately on push before independent
+        # exact-SHA Core and the separately dispatched full TUI are qualified.
+        header=workflow.split('permissions:',1)[0]
+        self.assertIn('workflow_dispatch:',header)
+        self.assertNotIn('  push:',header)
+        self.assertIn('test "$GITHUB_REF" = refs/heads/rewrite/rust-core',workflow)
+        self.assertIn('full_qualification.py acquire',workflow)
         self.assertNotIn('    paths:',workflow.split('permissions:',1)[0])
         self.assertIn('contents: read',workflow);self.assertIn('actions: read',workflow)
         for forbidden in ('contents: write','actions: write','secrets:','release_signing','release_reservations','git push','gh release','--publish'):

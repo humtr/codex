@@ -45,11 +45,18 @@ class WorkflowTests(unittest.TestCase):
         self.assertLess(build.index('export CARGO_TARGET_DIR='),build.index('cargo "+$RUST_VERSION" build'))
 
     def test_every_final_development_head_has_readonly_component_receipts(self):
-        for name in ('core-runtime-qualification.yml','manager-qualification.yml','full-qualification.yml','provider-qualification.yml'):
+        for name in ('core-runtime-qualification.yml','manager-qualification.yml','provider-qualification.yml'):
             text=(ROOT/'.github/workflows'/name).read_text()
             header=text.split('permissions:',1)[0]
             self.assertIn('branches: [rewrite/rust-core]',header)
             self.assertNotIn('paths:',header)
+        # Full is a consumer requiring already-completed exact-SHA component
+        # proofs; it must not auto-fail at the same push as its producers.
+        full=(ROOT/'.github/workflows/full-qualification.yml').read_text()
+        full_header=full.split('permissions:',1)[0]
+        self.assertIn('workflow_dispatch:',full_header)
+        self.assertNotIn('  push:',full_header)
+        self.assertIn('test "$GITHUB_REF" = refs/heads/rewrite/rust-core',full)
         text=(ROOT/'.github/workflows/manager-tui-native.yml').read_text()
         step=text.split('      - name: Verify actual hook matching used by Native resource proof',1)[1].split('      - name:',1)[0]
         self.assertIn("if: inputs.scope == 'full'",step)
