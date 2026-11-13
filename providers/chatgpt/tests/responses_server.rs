@@ -346,7 +346,7 @@ async fn stable_native_endpoint_requires_explicit_major_and_every_mandatory_feat
     for (headers, status, code) in [
         ("".to_owned(), 409, "provider_protocol_incompatible"),
         ("X-Codex-Native-Protocol: 5\r\n".to_owned(), 409, "provider_protocol_incompatible"),
-        (format!("X-Codex-Native-Protocol: 4\r\nX-Codex-Native-Required-Capabilities: tool_call_ids_v1\r\n"), 409, "provider_protocol_incompatible"),
+        ("X-Codex-Native-Protocol: 4\r\nX-Codex-Native-Required-Capabilities: tool_call_ids_v1\r\n".to_owned(), 409, "provider_protocol_incompatible"),
         (format!("X-Codex-Native-Protocol: 4\r\nX-Codex-Native-Required-Capabilities: {required},future_effects_v7\r\n"), 409, "provider_protocol_incompatible"),
         (format!("X-Codex-Native-Protocol: 4\r\nX-Codex-Native-Required-Capabilities: {required},tool_call_ids_v1\r\n"), 409, "provider_protocol_incompatible"),
         (format!("X-Codex-Native-Protocol: 4\r\nX-Codex-Native-Required-Capabilities: {required}\r\n"), 200, "response.completed"),
