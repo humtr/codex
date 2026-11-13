@@ -115,3 +115,13 @@ convergence and intentional legacy-link compatibility, not just PID existence.
 - This incident repair is *not* the requested automation. Close this task only
   after real update/reboot/rollback acceptance of the automatic reconciliation,
   not merely a one-off edit of a runit environment variable.
+
+## 2026-11-13 15:17 KST operating readback
+
+Runit Provider PID **8454** was verified through `/proc/8454/exe` to
+run `provider-chatgpt-v0.167.2-0ba0589-s27/codex-chatgpt-provider`,
+not the legacy-named S27 pointer. Tunnel and Host keeper runit
+script processes were PID **8450** and **8457** respectively.
+Read-only observation does not establish automatic service generation
+reconciliation on install/update/rollback or reboot. The task remains
+OPEN; no service or installed generation was modified.

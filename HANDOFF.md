@@ -75,14 +75,24 @@ finite budget. Do not hand a worker a bare 'report back' instruction.
 
 | Gate | Required original proof | Current new-job state |
 | --- | --- | --- |
-| C1 | A creates and starts an actual independent O model | NOT_TESTED |
-| C2 | O (not A) creates and assigns actual independent W1/W2 | NOT_TESTED |
-| C3 | W1/W2 produce verified saved-model results | NOT_TESTED |
-| C4 | each W result is sent to the *bound O* return address | NOT_TESTED |
-| C5 | O's real next model input consumes each distinct report | NOT_TESTED |
-| C6 | O independently verifies and ACKs or revises each report | NOT_TESTED |
-| C7 | O report delivered to the *bound A* destination | NOT_TESTED |
-| C8 | A actually consumes/reports to user with receipt | NOT_TESTED |
+| C1 | A creates and starts an actual independent O model | PASS: independent GPT-6 O in saved Chat 6af6a7d2; completed original model |
+| C2 | O (not A) creates and assigns actual independent W1/W2 | PASS: same O created parent-bound W1 229d2385 and W2 b9228ebe |
+| C3 | W1/W2 produce verified saved-model results | UNKNOWN: W1 admitting, W2 queued; unsettled starts, no model results |
+| C4 | each W result is sent to the *bound O* return address | NOT_TESTED: no Worker result to send |
+| C5 | O's real next model input consumes each distinct report | NOT_TESTED: no received O model input with Worker results |
+| C6 | O independently verifies and ACKs or revises each report | NOT_TESTED: no O calculation ACK |
+| C7 | O report delivered to the *bound A* destination | NOT_TESTED: O result manually observed by A, not automatically delivered |
+| C8 | A actually consumes/reports to user with receipt | NOT_TESTED: no authenticated automatic A receipt |
+
+**New 2026-11-13 15:17 KST original-job checkpoint:** logical job
+`codex1672-e2e-20261113-a`, O work
+`05d5a8d63b45e49edd39d2083ea437bd9f4ac08893a6d437`,
+O thread `01a1d37f-1573-7c12-90ea-86417dda6496`, O saved Chat
+`6af6a7d2-dd14-83ee-bbf1-acfd6b5cf806`. W1 and W2 actual child
+IDs, original calls and proof boundaries are in CURRENT. The O
+manually resumed on the same work/thread; this is not automatic
+queue wakeup. Observe original W start IDs before any further
+effects. Do not replace Workers or clear unrelated opaque claims.
 
 Historical saved W1/W2 finals (323/667) exist, but no proven historical
 C4-C8 chain; see CURRENT. Do not replay those workers to retrofit success.
@@ -184,12 +194,48 @@ Docs-only push triggers some development CI; confirm no signing/publication
 side effects, keep exact input-bound evidence, and avoid unnecessary
 heavy builds when existing proof is legitimately reusable.
 
+### New verified issues and unverified requirements
+
+- **ORCH-20261113-01 (P0, Provider/Native; OPEN):** Actual O successfully
+  allocated the two parent-bound W works but original starts
+  `e2e-a-w1-start-v1`, `e2e-a-w2-start-v1` have not produced terminal
+  receipts or model results. W1 remained `admitting`, W2 `queued`.
+  Expected: bounded admission or precise error without duplicate effects.
+  Confirmed cause: **unknown**; the unrelated held opaque Native effect is
+  only a hypothesis. Owner: Provider/Native; preserve original requests
+  and other Writers. Positive test: source-bound W1/W2 final results and
+  W-to-O transfer; negative: no duplicate start or unrelated effect loss.
+- **ORCH-20261113-02 (P1, Provider/AppHost; OPEN acceptance):** Automatic
+  saved-Chat wakeup and authenticated exact original O-to-A return binding
+  **not yet tested** because no Worker result was produced. Do not call
+  absent acceptance a confirmed runtime failure. Test wrong account,
+  project, actor generation, duplicate receipt, queue/ACK, current-A
+  unsolicited input refusal. Close only with actual C4-C8 proof.
+- **CI-20261113-01 (P1, CI; CONFIRMED):** Full run `43372399266`
+  failed initial prerequisite admission while Core run `43372399294`
+  was in progress on exact source `d9c3ed76`. Full workflow's
+  `push` trigger calls `full_qualification.py acquire` immediately;
+  source proof race is real, but assembly failure not proven. Owner:
+  release CI. Require exact-SHA completed producer proofs, bounded
+  skip/wait and eventual successful unsigned composition, with
+  missing/wrong-SHA negative tests. No relaxation of admission rules.
+- **RUNIT-20261113-01 (P1, lifecycle; OPEN):** Selected S27 running
+  Provider executable PID 8454 differs from legacy-named S27
+  `current` pointer; link intent remains unclear. Automatic opt-in
+  update/rollback/reboot reconciliation not proven; keep existing
+  `docs/development/RUNIT_GENERATION_ACTIVATION.md` as owner.
+- **ENV-20261113-01 (P1, disk; OPEN):** Only about 5.3 GiB free
+  on internal Termux storage; prefer exact CI artifact reuse and
+  do not delete independent caches, rollback or sdcard data.
+
 ## Stage D — subsequent scoped development, after V1-V3 evidence
 
-This stage is **backlog/design only for the present verification-and-doc
-assignment**. User's newest instruction places code repairs, wide CI
-refactoring and runit automation *after* completed chain testing and
-document consolidation; do not smuggle them into V1-V3.
+The latest user instruction authorizes bounded non-destructive code fixes
+after evidence-first V1-V3, focused tests, normal branch integration and
+necessary unsigned CI. This does not make C3-C8 PASS, nor authorize
+operating service changes or signed publication. Independent confirmed
+CI defects can be repaired while the original unsettled Workers remain
+protected.
 
 | Priority | ID and owning W | What remains / completion oracle |
 | --- | --- | --- |

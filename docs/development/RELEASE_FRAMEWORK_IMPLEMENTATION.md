@@ -33,6 +33,21 @@ including generated/embedded upstream patches, copied sources, tests, CI
 and docs. It is inaccurate to call these 41,094 newly authored product
 lines. No work percentage should be inferred.
 
+### 2026-11-13 evidence-only update
+
+Exact development source `d9c3ed76`: Source `43372399358`, Manager
+`43372399387`, Provider `43372399261`, Android fallback
+`43372399238` succeeded. Core `43372399294` still had running
+Native-completion proof though component/Android smoke succeeded.
+Full `43372399266` failed early admission (Core exact SHA not yet
+qualified), **not** Full assembly. A new genuine GPT-6 O created two
+real parent-bound W tasks, but no W model completion or W-to-O
+delivery yet. This advances W0/W2/W3/W4/W10 and W15/W17/W18 proof
+records only; it does not reclassify source as unimplemented.
+Installed S167/S27 was independently read; physical W16 notification
+tap, W20 account switch and reviewer allow/deny remain unproved.
+See [CURRENT](../../CURRENT.md) and [HANDOFF](../../HANDOFF.md).
+
 ### Per-work present disposition
 
 Here **source implemented** means integrated code/tests, **hosted qualified**

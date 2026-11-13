@@ -8,6 +8,101 @@ plan-versus-implementation reconciliation is in
 [the finite integration record](docs/development/RELEASE_FRAMEWORK_IMPLEMENTATION.md).
 The deferred design candidates are linked from HANDOFF.
 
+## New acceptance checkpoint — 2026-11-13 15:17 KST
+
+The following are **new same-day observations**, superseding only explicitly
+dated values below. The exact remote development HEAD remained
+`d9c3ed76a0a03a2fecbac7e46b7aa2e89317e189`, and the separate
+publication `main` remained `fa6a1856866b9944c08cc7511d85180a384c1995`.
+The clean isolated acceptance worktree uses the exact `d9c3ed76` source;
+the older primary checkout and its three untracked files were not modified.
+
+**Operating device, read-only:** `codex --version` returned
+`codex-cli 0.167.2`; `codex termux version --json` reported verified Full
+S167 `full-v0.167.2-220cc2e-s167` with previous Full S165, and verified
+selected ChatGPT Provider S27
+`provider-chatgpt-v0.167.2-0ba0589-s27`. The runit Provider process was
+PID **8454**, with actual `/proc/8454/exe` under that *new* S27 image.
+The Provider filesystem `current` link still targeted the separately named
+`provider-gpt-v0.1.0-df8a8c9-s27` path; this is **not** evidence that
+the old image was running. Tunnel PID **8450** and Host-keeper PID
+**8457** were active runit script processes. Neither service was restarted.
+`codex doctor` also reported three thread-record issues, WebSocket fallback,
+a stale/unreachable background app-server socket and unrestricted filesystem
+sandbox; none was repaired or presumed causal. Only approximately **5.3 GiB**
+free disk remained, so full local rebuilds require capacity preflight.
+
+**New actual independent model experiment:**
+`codex1672-e2e-20261113-a` used a genuine submitted GPT-6 O, saved Chat
+`6af6a7d2-dd14-83ee-bbf1-acfd6b5cf806`, Native work
+`05d5a8d63b45e49edd39d2083ea437bd9f4ac08893a6d437`,
+thread `01a1d37f-1573-7c12-90ea-86417dda6496`. Its first model
+turn completed but correctly reported that W1 allocation failed:
+`assignment_parent_controller_required` without a bound O controller,
+and `native_workspace_identity_invalid` when an absent explicit
+execution-home path was supplied. A separate Native shell command returned
+`native_resource_busy` and `executed=false`, while independent
+TermuxBridge `termux_shell` created the private W1/W2 workspace directories
+successfully. The subsequent manually initiated **same O work/thread**
+model turn then created two genuine parent-bound submitted-inference workers:
+
+| Child | Actual Native work | Actual Native thread | Allocation call |
+| --- | --- | --- | --- |
+| W1 | `229d2385385773dda334a9cca5bce847402c6c18f24fbced` | `01a1d383-e5d7-78e2-b75c-915434e47efa` | `e2e-a-w1-create-v2` |
+| W2 | `b9228ebefee8c2ebd63e407f31321d0e78e59da5b8e958c0` | `01a1d383-f57c-7453-bafb-36285cc96e8b` | `e2e-a-w2-create-v2` |
+
+Worker model start calls `e2e-a-w1-start-v1` and
+`e2e-a-w2-start-v1` did **not** yield settled inference receipts.
+Read-only events/wait and work-list observations continued to report
+W1 `admitting`, W2 `queued`, `source_conversation_id=null`, and
+no `completed_result`. Actual Worker replies, W-to-O return queue,
+O message consumption, receiver ACK and automatic O-to-A delivery
+are **not** proven. Do not create new Workers or redispatch the unknown
+starts under new call IDs. An unrelated original Native work
+`1d3d4bca273ecdc90c096535311475a2f9aebb679efff2a6`
+retained one pending opaque effect; correlation with these admission
+states is a hypothesis, not a proven root cause. That work was not touched.
+
+**User-defined C1-C8:** C1 PASS (A observed real independent O model
+reply); C2 PASS (O itself created two parent-bound worker works); C3
+BLOCKED/UNKNOWN pending actual two completed model replies; C4-C6
+NOT_TESTED without Worker result, queue consumption or ACK; C7
+NOT_TESTED (no authenticated autonomous A return binding); C8
+NOT_TESTED for automatic delivery. A directly inspected the O model
+reply through its original work handle, which is *manual observation*,
+not proof of unattended O-to-A transport. No C1-C8 full PASS.
+
+**Exact-source CI at `d9c3ed76`, rechecked through GitHub Actions:**
+
+| Qualification | Run ID | Current observed result |
+| --- | --- | --- |
+| Source Acceptance | 43372399358 | SUCCESS |
+| Core / Runtime | 43372399294 | IN_PROGRESS: Native completion proof unfinished; Core component build and Android executable smoke succeeded internally |
+| Manager | 43372399387 | SUCCESS |
+| ChatGPT Provider source | 43372399261 | SUCCESS |
+| Android fallback synthetic | 43372399238 | SUCCESS |
+| Unsigned Full | 43372399266 | FAILURE at initial prerequisite admission; not proof of assembly defect |
+
+The Full workflow is triggered on development pushes and immediately runs
+`full_qualification.py acquire`, which requires already completed
+exact-SHA Core, Manager and TUI runs. The above early failure is a
+repeatable workflow dependency-order defect, **D-CI-01**; no Full rerun
+should occur until Core and all other exact inputs are successful.
+Prior `0ba05892` successes are historical, not automatically d9c acceptance.
+The latest full TUI qualification of `d9c3ed76` has not been independently
+verified, so leave it unknown.
+
+**Product proof boundaries:** the installed Provider route source advertises
+stable `/v1/native/responses` and compatibility
+`/v1/native-v4/responses`; actual valid SSE, 400/404/413 classification,
+same Native thread edit/compile/run, real AutoReview allow/deny,
+physical notification click, account switching and automatic runit
+generation reconciliation were **not** qualified in this checkpoint.
+The cached ChatGPT catalog listed GPT-6 models but was not a
+fresh account-entitlement query. No signature, update, rollback,
+runtime activation or operating restart was performed.
+
+
 ## Git authority and development changes
 
 - One continuing development source: [rewrite/rust-core](https://github.com/humtr/codex/tree/rewrite/rust-core).
@@ -62,7 +157,7 @@ in the [runit task](docs/development/RUNIT_GENERATION_ACTIVATION.md).
 and reboot is not verified/implemented.** No services were restarted and no
 credentials changed during this review.
 
-## Latest exact-development-source CI: 0ba05892
+## Earlier exact-development-source CI: 0ba05892
 
 The original 2026-11-12 Source TLS failure and TUI Clippy failures were
 corrected on the development line. Their earlier failing run IDs are historical,
@@ -118,9 +213,10 @@ Accessible saved Chat records were read without starting inference:
   delivery and acknowledgement chain. Queue insertion, Worker saved final
   and O consumption are distinct events.
 
-The new user-prescribed C1-C8 **0.167.2 end-to-end acceptance job** has
-not been executed as part of this documentation reconciliation. Its exact
-actor/generation and report route must be observed, not invented.
+The later **0.167.2 end-to-end acceptance job** was actually executed and
+is recorded above. C1/C2 passed; Worker model completion and the C3-C8
+delivery/acknowledgement chain remain unproved. The historical experiments
+below are not reused as proof of this new job.
 
 ## Evidence boundaries retained
 
@@ -141,12 +237,12 @@ actor/generation and report route must be observed, not invented.
 - Genuine AutoReview invocation/allow/deny, cross-account refusal,
   original account switch, physical notification tap and private candidate
   authenticated execution are not promoted from synthetic/operating evidence.
-- S167 selected/active image, source `0ba05892` and staged Provider S27
-  have separate identities; signing/staging a Provider does not certify Full
+- S167 selected/active image, source `d9c3ed76` (historically `0ba05892`),
+  and staged Provider S27 have separate identities; signing/staging a Provider does not certify Full
   publication or install a new Core.
-- Session records, active Writers, unresolved Native effects, accounts,
-  runit service images, signed generations and Android shared storage
-  were not mutated by this review.
+- Pre-existing user sessions, Writers, unrelated unresolved Native effects,
+  accounts, runit service images, signed generations and Android shared storage
+  were not modified. Only this new O/W acceptance scratch was created.
 
 The full 2026-11-12 evidence snapshot (including unique receipt and hash
 details) remains recoverable at `git show 0ba058922:CURRENT.md`.
