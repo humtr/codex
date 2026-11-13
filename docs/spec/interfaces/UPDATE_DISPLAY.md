@@ -33,6 +33,13 @@ relabel Full as Core. JSON uses `codex-termux-version-v1`. The independently
 selected Provider package is verified through the existing package store; service
 and authentication readiness are explicitly not queried, and no Core selection
 does not prove that an externally managed Provider service is absent.
+The offline version result describes *package verification only*; it must not
+label a selected signed Provider as compatible with a possibly different
+running process. Interactive/native inference uses the actual scoped service
+capability proof before request admission. When an update selects a newer
+package but leaves an existing listener/profile unchanged, the update result
+must preserve that distinction: installed/selected is not activated/ready.
+Core-only and ordinary OpenAI flows do not require this optional readiness.
 
 Optional signed `component-input-v1` metadata is bounded to16KiB, binds the exact
 manifest and per-component artifacts, and carries positive module/composition

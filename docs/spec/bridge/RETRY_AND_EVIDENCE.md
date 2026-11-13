@@ -141,21 +141,42 @@ metadata discovery, including while an unrelated effect is unconfirmed. Both the
 actual ToolSearch payload and the catalog's Search kind must identify it; a
 Function payload merely named tool_search does not acquire that exception.
 
-The Runtime selects the versioned private ChatGPT Native inference ingress
-`/v1/native-v4/responses` from its actual configured Native Provider route,
-including auxiliary, approval-classifier and direct request paths. This Native
-route requires an explicit nonempty configured endpoint before authentication
-or generic API resolution; missing configuration cannot select the ordinary
-OpenAI default destination. The current Provider maps the versioned path to its
-existing authenticated handler. An older Provider rejects that path
-before request admission, app inference or tool effects. An optional execution
-fact is insufficient negotiation because older consumers may ignore it and
-misclassify bare tool aliases. Ordinary Provider/OpenAI response endpoints remain
-unchanged. The path itself creates no Native origin, scope or execution authority;
-the existing verified binding and per-invocation checks remain mandatory. Failure
-preserves the original work and does not trigger a legacy-endpoint fallback,
-new call ID, account change or task resubmission. Historical receipt/history
-reads remain separate from new inference admission.
+For current Native integrations, Runtime and independent Guardian classifier
+must first authenticate a bounded, no-effect `GET /v1/native/capabilities` on
+the *actual running* ChatGPT Provider service with the same scoped auth and
+transport as their subsequent inference requests. They require the declared
+`codex-native-compatibility-v1` descriptor, Native major 4, a nonnegative
+minor revision, the exact stable ingress `/v1/native/responses`, HTTP SSE and
+mandatory capabilities `tool_call_ids_v1`, `tool_result_binding_v1` and
+`native_turn_admission_v4`. A WebSocket request must independently negotiate
+WebSocket support, never silently treat HTTP-only advertisement as WS consent.
+The capability GET is authenticated, bounded, redirect-free, timed, no-cache,
+and occurs before Responses POST, prewarm or tool effects. A running service
+lacking the endpoint, major version, required capability or transport fails with
+`provider_protocol_incompatible`, not a model-generated failure or an HTTP 404
+after submission. Authentication errors retain their distinct identity.
+
+The stable `/v1/native/responses` handler additionally checks the explicit
+major and required capability headers before the existing authenticated
+schema and ownership checks. Neither the URI nor these headers grant execution
+authority. The historical signed S167 Runtime continues to use
+`/v1/native-v4/responses`; that old private route remains implemented with the
+same handler for compatible historical clients and receipts. Native protocol
+major changes follow *incompatible execution/completion semantics*, not every
+Codex release or arbitrary Native schema version; additive minor capabilities
+do not rename the URI. Older Providers with only `/v1/responses` cannot receive
+Native traffic through an automatic fallback. Model/effort labels and optional
+execution metadata cannot replace actual transport, execution or owner proofs.
+
+All Native routes require an explicit nonempty configured Provider endpoint
+before authentication or generic API resolution; no missing configuration may
+select the ordinary OpenAI destination. Ordinary Provider/OpenAI Responses
+requests remain unaffected. An incompatible admission preserves original work,
+call IDs, pending-effect fences, authentication, account state, saved threads
+and historical receipt/history reads. Installed package selection, signed
+Provider generation and *running* service compatibility are distinct facts;
+installing a new Provider without explicit service binding does not upgrade
+an already-running listener.
 
 Generation compatibility is checked after exact original-result replay and before
 reserving or forwarding any new Native effectful invocation, including ordinary

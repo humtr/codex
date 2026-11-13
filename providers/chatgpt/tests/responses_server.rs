@@ -312,6 +312,61 @@ async fn native_v4_endpoint_keeps_auth_exact_calls_and_result_round_trip() {
 }
 
 #[tokio::test]
+async fn capability_discovery_requires_live_auth_and_never_runs_a_model() {
+    let (address, fixture, stop) = start(Config::default()).await;
+    for (extra, status) in [
+        (format!("Authorization: Bearer {TOKEN}\r\n"), 200),
+        ("Authorization: Bearer wrong\r\n".to_owned(), 401),
+        (
+            format!("Authorization: Bearer {TOKEN}\r\nOrigin: https://unowned.invalid\r\n"),
+            401,
+        ),
+    ] {
+        let mut stream = TcpStream::connect(address).await.unwrap();
+        stream.write_all(format!(
+            "GET /v1/native/capabilities HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n{extra}\r\n"
+        ).as_bytes()).await.unwrap();
+        let raw = collect(stream).await;
+        assert!(raw.starts_with(&format!("HTTP/1.1 {status}")), "{raw}");
+        if status == 200 {
+            assert!(raw.contains("codex-native-compatibility-v1"), "{raw}");
+            assert!(raw.contains("native_turn_admission_v4"), "{raw}");
+            assert!(raw.contains("/v1/native/responses"), "{raw}");
+            assert!(raw.contains("no-store"), "{raw}");
+        }
+        assert_eq!(fixture.calls.load(Ordering::SeqCst), 0);
+    }
+    stop.cancel();
+}
+
+#[tokio::test]
+async fn stable_native_endpoint_requires_explicit_major_and_every_mandatory_feature() {
+    let (address, fixture, stop) = start(Config::default()).await;
+    let required = "tool_call_ids_v1,tool_result_binding_v1,native_turn_admission_v4";
+    for (headers, status, code) in [
+        ("".to_owned(), 409, "provider_protocol_incompatible"),
+        ("X-Codex-Native-Protocol: 5\r\n".to_owned(), 409, "provider_protocol_incompatible"),
+        (format!("X-Codex-Native-Protocol: 4\r\nX-Codex-Native-Required-Capabilities: tool_call_ids_v1\r\n"), 409, "provider_protocol_incompatible"),
+        (format!("X-Codex-Native-Protocol: 4\r\nX-Codex-Native-Required-Capabilities: {required},future_effects_v7\r\n"), 409, "provider_protocol_incompatible"),
+        (format!("X-Codex-Native-Protocol: 4\r\nX-Codex-Native-Required-Capabilities: {required},tool_call_ids_v1\r\n"), 409, "provider_protocol_incompatible"),
+        (format!("X-Codex-Native-Protocol: 4\r\nX-Codex-Native-Required-Capabilities: {required}\r\n"), 200, "response.completed"),
+    ] {
+        let raw = collect(send_to(address,"/v1/native/responses",body().to_string().as_bytes(),&headers).await).await;
+        assert!(raw.starts_with(&format!("HTTP/1.1 {status}")), "{raw}");
+        assert!(raw.contains(code), "{raw}");
+        assert_eq!(fixture.calls.load(Ordering::SeqCst), usize::from(status == 200));
+    }
+    // A caller cannot acquire Native execution merely by adding a major
+    // header: the same local bearer and existing Request::parse checks remain.
+    let raw = collect(send_to(address,"/v1/native/responses",body().to_string().as_bytes(),&format!(
+        "Authorization: Bearer wrong\r\nX-Codex-Native-Protocol: 4\r\nX-Codex-Native-Required-Capabilities: {required}\r\n"
+    )).await).await;
+    assert!(raw.starts_with("HTTP/1.1 401"), "{raw}");
+    assert_eq!(fixture.calls.load(Ordering::SeqCst), 1);
+    stop.cancel();
+}
+
+#[tokio::test]
 async fn admission_bounds_and_origin_fail_before_any_host_work() {
     let mut config = Config::default();
     config.transport.max_wire_bytes = 512;

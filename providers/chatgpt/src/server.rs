@@ -208,6 +208,62 @@ impl Service {
     }
 }
 
+// Native protocol major versions describe incompatible execution admission, not
+// Codex release numbers. Minor additions and optional features do not change
+// the path or revoke previous signed Native-v4 receipts.
+const NATIVE_PROTOCOL_MAJOR: &str = "4";
+const NATIVE_REQUIRED_CAPABILITIES: [&str; 3] = [
+    "tool_call_ids_v1",
+    "tool_result_binding_v1",
+    "native_turn_admission_v4",
+];
+const NATIVE_OPTIONAL_CAPABILITIES: [&str; 1] = ["responses_sse_v1"];
+
+fn native_capabilities() -> Value {
+    json!({
+        "schema":"codex-native-compatibility-v1",
+        "protocol_major":4,
+        "protocol_minor":0,
+        "stable_ingress":"/v1/native/responses",
+        "legacy_ingress":"/v1/native-v4/responses",
+        "transports":["http_sse"],
+        "capabilities":[
+            NATIVE_REQUIRED_CAPABILITIES[0],
+            NATIVE_REQUIRED_CAPABILITIES[1],
+            NATIVE_REQUIRED_CAPABILITIES[2],
+            NATIVE_OPTIONAL_CAPABILITIES[0]
+        ]
+    })
+}
+
+/// An unversioned URL is *not* an unversioned execution contract. Only the
+/// fully declared supported major/capability set enters the existing parser.
+fn stable_native_admitted(headers: &HeaderMap) -> bool {
+    if one_header(headers, "x-codex-native-protocol") != Some(NATIVE_PROTOCOL_MAJOR) {
+        return false;
+    }
+    let Some(raw) = one_header(headers, "x-codex-native-required-capabilities") else {
+        return false;
+    };
+    if raw.is_empty() || raw.len() > 512 {
+        return false;
+    }
+    let mut seen = std::collections::BTreeSet::new();
+    for capability in raw.split(',') {
+        if !NATIVE_REQUIRED_CAPABILITIES.contains(&capability)
+            && !NATIVE_OPTIONAL_CAPABILITIES.contains(&capability)
+        {
+            return false;
+        }
+        if !seen.insert(capability) {
+            return false;
+        }
+    }
+    NATIVE_REQUIRED_CAPABILITIES
+        .iter()
+        .all(|capability| seen.contains(capability))
+}
+
 fn failure(status: StatusCode, code: &'static str) -> Response {
     (
         status,
@@ -429,15 +485,28 @@ async fn handler(State(service): State<Arc<Service>>, request: HttpRequest) -> R
         }
         return axum::Json(json!({"object":"list","data":config.catalog.models.iter().filter(|m| !m.hidden).map(|m| json!({"id":m.id,"object":"model","owned_by":"termux-codex"})).collect::<Vec<_>>()})).into_response();
     }
-    // The versioned Native route is a compatibility fence for older consumers,
-    // not execution authority. Both paths retain the same authentication,
-    // parser and independently verified Native admission.
+    // Authentication already ran above. Discover the *running* service's
+    // capability contract without model/tool execution. Package selection is
+    // deliberately not treated as proof of a live service's implementation.
+    if parts.uri.path() == "/v1/native/capabilities" && parts.method == "GET" {
+        return (
+            [("cache-control", "no-store")],
+            axum::Json(native_capabilities()),
+        )
+            .into_response();
+    }
+    // Historical Native-v4 callers remain valid. The stable route is admitted
+    // only with explicit major and mandatory features; no 404 fallback to the
+    // ordinary Responses endpoint is ever permitted.
     if !matches!(
         parts.uri.path(),
-        "/v1/responses" | "/v1/native-v4/responses"
+        "/v1/responses" | "/v1/native-v4/responses" | "/v1/native/responses"
     ) || parts.method != "POST"
     {
         return failure(StatusCode::NOT_FOUND, "not_found");
+    }
+    if parts.uri.path() == "/v1/native/responses" && !stable_native_admitted(&parts.headers) {
+        return failure(StatusCode::CONFLICT, "provider_protocol_incompatible");
     }
     // Reject the fixed standalone profile before model/catalog acquisition.
     // The Host guard also covers direct callers that do not use this HTTP edge.

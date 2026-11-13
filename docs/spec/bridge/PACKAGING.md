@@ -97,6 +97,15 @@ A default manual update advances the selected Provider independently of a Core
 rollback hold. Provider rollback retains its previous/high-water contract; a later
 explicit `codex update` checks its forward channel again. No background Provider
 update or service/profile restart follows from that selection.
+An independently signed Provider payload's release sequence, its Core-selected
+package identity, its legacy `current` pointer, the PID/start/executable of the
+actual responding service and a profile's base URL/token source are separate
+facts. The client must authorize the actual listener and check its advertised
+Native major/capabilities before effectful inference. Signed package selection
+never attests a live process; an active service/Native thread is not replaced
+on package installation, and legacy profiles keep their previous bindings
+until explicit user-authorized preparation. Core-only and ordinary OpenAI
+execution must remain independent of Provider availability and compatibility.
 Authenticated remote delivery/promotion and actual-device activation require their
 separate signed-release and device proofs/authorization; local fixture signing does not establish either.
 Once the Core interface work is admitted, Manager/provider-only changes must leave

@@ -1915,10 +1915,10 @@ index c9504fb56f24f94963cfba3fc68322958c17f305..09a0250fb965f0a370db25e9a942258c
          turn: Arc::clone(&step.turn),
          step_context: step,
 diff --git a/codex-rs/core/src/client.rs b/codex-rs/core/src/client.rs
-index 889a62680f58370efe3518bd72af035ffcd4b3fd..1d5326656277fa61d88c005aca85c0c494c91291 100644
+index 889a62680f58..d00c9a0537c0 100644
 --- a/codex-rs/core/src/client.rs
 +++ b/codex-rs/core/src/client.rs
-@@ -298,6 +298,7 @@ impl RequestRouteTelemetry {
+@@ -298,6 +298,7 @@
  #[derive(Debug, Clone)]
  pub struct ModelClient {
      state: Arc<ModelClientState>,
@@ -1926,7 +1926,7 @@ index 889a62680f58370efe3518bd72af035ffcd4b3fd..1d5326656277fa61d88c005aca85c0c4
      agent_identity_policy: AgentIdentityAuthPolicy,
      prompt_cache_key_policy: PromptCacheKey,
      session_id_override: Option<String>,
-@@ -637,6 +638,7 @@ impl ModelClient {
+@@ -637,6 +638,7 @@
                  cached_websocket_session: StdMutex::new(WebsocketSession::default()),
                  last_inference_tools: StdMutex::new(None),
              }),
@@ -1934,10 +1934,12 @@ index 889a62680f58370efe3518bd72af035ffcd4b3fd..1d5326656277fa61d88c005aca85c0c4
              agent_identity_policy,
              prompt_cache_key_policy: PromptCacheKey::default(),
              session_id_override: None,
-@@ -652,6 +654,15 @@ impl ModelClient {
+@@ -650,6 +652,15 @@
+             api_key_cyber_access_programs:
+                 cyber_access_program::ApiKeyCyberAccessPrograms::UnsupportedProvider,
          }
-     }
- 
++    }
++
 +    /// Bind the private Native ingress to the actual configured provider key.
 +    /// This selects a wire compatibility boundary, not account or tool authority.
 +    /// Ordinary clients keep their configured endpoint; request metadata cannot
@@ -1945,15 +1947,16 @@ index 889a62680f58370efe3518bd72af035ffcd4b3fd..1d5326656277fa61d88c005aca85c0c4
 +    pub fn with_native_provider_route(mut self, provider_id: &str) -> Self {
 +        self.native_responses_route = provider_id == "chatgpt_desktop";
 +        self
-+    }
-+
-     pub(crate) fn with_executed_tool_calls(mut self, recorder: ExecutedToolCalls) -> Self {
-         self.executed_tool_calls = Some(recorder);
-         self
-@@ -739,6 +750,38 @@ impl ModelClient {
-         }
      }
  
+     pub(crate) fn with_executed_tool_calls(mut self, recorder: ExecutedToolCalls) -> Self {
+@@ -736,6 +747,38 @@
+             metadata.session_id.clone()
+         } else {
+             self.session_derived_cache_key(metadata)
++        }
++    }
++
 +    /// Prepare another provider without carrying its predecessor's transport/cache state.
 +    pub(crate) fn with_provider(&self, provider_id: &str, provider: ModelProviderInfo) -> Self {
 +        let state = &self.state;
@@ -1983,13 +1986,10 @@ index 889a62680f58370efe3518bd72af035ffcd4b3fd..1d5326656277fa61d88c005aca85c0c4
 +            native_responses_route: fresh.native_responses_route,
 +            restored_history: true,
 +            ..self.clone()
-+        }
-+    }
-+
-     /// Creates a fresh turn-scoped streaming session.
-     ///
-     /// This constructor does not perform network I/O itself; the session opens a websocket lazily
-@@ -1202,6 +1245,26 @@ impl ModelClient {
+         }
+     }
+ 
+@@ -1202,6 +1245,43 @@
      /// This centralizes setup used by both prewarm and normal request paths so they stay in
      /// lockstep when auth/provider resolution changes.
      async fn current_client_setup(&self, routing: ClientRouting) -> Result<CurrentClientSetup> {
@@ -1998,12 +1998,29 @@ index 889a62680f58370efe3518bd72af035ffcd4b3fd..1d5326656277fa61d88c005aca85c0c4
 +            self.native_responses_route && matches!(&routing, ClientRouting::Workspace);
 +        let mut setup = self.current_client_setup_for_route(routing).await?;
 +        if native_responses {
-+            // One resolved Responses route covers normal, auxiliary, compaction,
-+            // prewarm and WebSocket requests. Never fall back to an old Provider's
-+            // unversioned ingress when optional execution facts are unavailable.
++            // The running service, not the selected signed package or provider
++            // name, must advertise the *exact* execution contract. The GET has
++            // no model/tool effects, never retries through /v1/responses and
++            // runs before HTTP, SSE, prewarm or WebSocket negotiation.
++            codex_model_provider::verify_running_native_provider(
++                &setup.api_provider,
++                &setup.api_auth,
++                &setup.http_client_factory,
++                self.responses_websocket_enabled(),
++            )
++            .await
++            .map_err(|reason| CodexErr::InvalidRequest(reason.into()))?;
 +            setup.api_provider.base_url = format!(
-+                "{}/native-v4",
++                "{}/native",
 +                setup.api_provider.base_url.trim_end_matches('/'),
++            );
++            setup
++                .api_provider
++                .headers
++                .insert("x-codex-native-protocol", HeaderValue::from_static("4"));
++            setup.api_provider.headers.insert(
++                "x-codex-native-required-capabilities",
++                HeaderValue::from_static(codex_model_provider::NATIVE_REQUIRED_CAPABILITIES_HEADER),
 +            );
 +        }
 +        Ok(setup)
@@ -2016,7 +2033,7 @@ index 889a62680f58370efe3518bd72af035ffcd4b3fd..1d5326656277fa61d88c005aca85c0c4
          if let Some((manager, mode)) = &self.runtime_auth {
              let selected = codex_model_provider::select_runtime_auth(
                  manager,
-@@ -1261,8 +1324,26 @@ impl ModelClient {
+@@ -1261,8 +1341,26 @@
              .await
      }
  
@@ -2044,10 +2061,10 @@ index 889a62680f58370efe3518bd72af035ffcd4b3fd..1d5326656277fa61d88c005aca85c0c4
              create_model_provider(
                  self.state.provider.info().clone(),
 diff --git a/codex-rs/core/src/client_tests.rs b/codex-rs/core/src/client_tests.rs
-index b6a539f56ce9c5ed6068b5bc0a7cf6e5111c2401..42b365a6e0c073b3b60a6d45c8bb32a645cbe76d 100644
+index b6a539f56ce9..23b3e0870e06 100644
 --- a/codex-rs/core/src/client_tests.rs
 +++ b/codex-rs/core/src/client_tests.rs
-@@ -152,6 +152,148 @@ fn test_model_provider() -> SharedModelProvider {
+@@ -152,6 +152,208 @@
      test_model_client(SessionSource::Cli).state.provider.clone()
  }
  
@@ -2099,7 +2116,18 @@ index b6a539f56ce9c5ed6068b5bc0a7cf6e5111c2401..42b365a6e0c073b3b60a6d45c8bb32a6
 +            "data: {\"type\":\"response.created\",\"response\":{\"id\":\"route-proof\"}}\n\n",
 +            "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"route-proof\"}}\n\n",
 +        ));
-+    for endpoint in ["/v1/responses", "/v1/native-v4/responses"] {
++    Mock::given(method("GET"))
++        .and(path("/v1/native/capabilities"))
++        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
++            "schema":"codex-native-compatibility-v1",
++            "protocol_major":4,"protocol_minor":1,
++            "stable_ingress":"/v1/native/responses",
++            "transports":["http_sse"],
++            "capabilities":["tool_call_ids_v1","tool_result_binding_v1","native_turn_admission_v4"]
++        })))
++        .mount(&server)
++        .await;
++    for endpoint in ["/v1/responses", "/v1/native/responses"] {
 +        Mock::given(method("POST"))
 +            .and(path(endpoint))
 +            .respond_with(response.clone())
@@ -2120,8 +2148,8 @@ index b6a539f56ce9c5ed6068b5bc0a7cf6e5111c2401..42b365a6e0c073b3b60a6d45c8bb32a6
 +    .with_provider("chatgpt_desktop", info.clone());
 +    for (client, expected) in [
 +        (ordinary, "/v1/responses"),
-+        (native.clone(), "/v1/native-v4/responses"),
-+        (auxiliary, "/v1/native-v4/responses"),
++        (native.clone(), "/v1/native/responses"),
++        (auxiliary, "/v1/native/responses"),
 +        (
 +            native.with_provider("openai", info.clone()),
 +            "/v1/responses",
@@ -2140,6 +2168,14 @@ index b6a539f56ce9c5ed6068b5bc0a7cf6e5111c2401..42b365a6e0c073b3b60a6d45c8bb32a6
 +            requests.last().map(|request| request.url.path()),
 +            Some(expected)
 +        );
++        if expected == "/v1/native/responses" {
++            let request = requests.last().unwrap();
++            assert_eq!(request.headers["x-codex-native-protocol"], "4");
++            assert_eq!(
++                request.headers["x-codex-native-required-capabilities"],
++                codex_model_provider::NATIVE_REQUIRED_CAPABILITIES_HEADER
++            );
++        }
 +        assert_eq!(client.state.provider.info().base_url, info.base_url);
 +    }
 +    let setup = native
@@ -2150,7 +2186,7 @@ index b6a539f56ce9c5ed6068b5bc0a7cf6e5111c2401..42b365a6e0c073b3b60a6d45c8bb32a6
 +            .api_provider
 +            .websocket_url_for_path("/responses")?
 +            .path(),
-+        "/v1/native-v4/responses",
++        "/v1/native/responses",
 +    );
 +    assert_eq!(
 +        native
@@ -2183,13 +2219,54 @@ index b6a539f56ce9c5ed6068b5bc0a7cf6e5111c2401..42b365a6e0c073b3b60a6d45c8bb32a6
 +        .await;
 +    info.base_url = Some(format!("{}/v1", legacy.uri()));
 +    let incompatible = native.with_provider("chatgpt_desktop", info);
-+    assert!(sample(&incompatible).await.is_err());
++    let failure = sample(&incompatible).await.unwrap_err();
++    assert!(
++        failure
++            .to_string()
++            .contains("provider_protocol_incompatible")
++    );
 +    let requests = legacy
 +        .received_requests()
 +        .await
 +        .ok_or_else(|| anyhow::anyhow!("missing captured incompatible request"))?;
 +    assert_eq!(requests.len(), 1);
-+    assert_eq!(requests[0].url.path(), "/v1/native-v4/responses");
++    assert_eq!(requests[0].method.as_str(), "GET");
++    assert_eq!(requests[0].url.path(), "/v1/native/capabilities");
++
++    // A service with a current-looking version but no required tool-result
++    // binding must be rejected before any model/tool submission.
++    let weak = MockServer::start().await;
++    Mock::given(method("GET"))
++        .and(path("/v1/native/capabilities"))
++        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
++            "schema":"codex-native-compatibility-v1",
++            "protocol_major":4,"protocol_minor":9,
++            "stable_ingress":"/v1/native/responses",
++            "transports":["http_sse"],
++            "capabilities":["tool_call_ids_v1"]
++        })))
++        .mount(&weak)
++        .await;
++    Mock::given(method("POST"))
++        .respond_with(ResponseTemplate::new(200))
++        .expect(0)
++        .mount(&weak)
++        .await;
++    let mut weak_info =
++        create_oss_provider_with_base_url(&format!("{}/v1", weak.uri()), WireApi::Responses);
++    weak_info.name = "chatgpt_desktop".into();
++    let weak_client = test_model_client(SessionSource::Cli)
++        .with_provider("chatgpt_desktop", weak_info)
++        .with_native_provider_route("chatgpt_desktop");
++    let failure = sample(&weak_client).await.unwrap_err();
++    assert!(
++        failure
++            .to_string()
++            .contains("provider_protocol_incompatible")
++    );
++    let captured = weak.received_requests().await.unwrap();
++    assert_eq!(captured.len(), 1);
++    assert_eq!(captured[0].url.path(), "/v1/native/capabilities");
 +    Ok(())
 +}
 +
@@ -10160,10 +10237,10 @@ index 2dad92695d59908f684d06df5e2c3720850bb4b6..7516c5c28f98ae604e0cc76688da2366
      pub provider: SharedModelProvider,
      /// Provider and feature policy shared with ordinary model requests.
 diff --git a/codex-rs/ext/guardian-v2/src/async_scorer/sampler/connection_pool.rs b/codex-rs/ext/guardian-v2/src/async_scorer/sampler/connection_pool.rs
-index 23165a419f0b382af8d56edee3076142707be9fe..28feb625f8f992b8e13bfaafef62676b655af306 100644
+index 23165a419f0b..369813778477 100644
 --- a/codex-rs/ext/guardian-v2/src/async_scorer/sampler/connection_pool.rs
 +++ b/codex-rs/ext/guardian-v2/src/async_scorer/sampler/connection_pool.rs
-@@ -353,6 +353,21 @@ impl ConnectionPool {
+@@ -353,6 +353,21 @@
      }
  
      async fn client_setup(&self) -> Result<ClientSetup, LunaSamplerError> {
@@ -10185,7 +10262,7 @@ index 23165a419f0b382af8d56edee3076142707be9fe..28feb625f8f992b8e13bfaafef62676b
          let mut auth_changes = self
              .config
              .provider
-@@ -360,7 +375,7 @@ impl ConnectionPool {
+@@ -360,7 +375,7 @@
              .map(|manager| manager.auth_change_receiver());
          let revision = auth_changes.as_mut().map(|auth| *auth.borrow_and_update());
          let ResolvedResponsesProvider {
@@ -10194,24 +10271,42 @@ index 23165a419f0b382af8d56edee3076142707be9fe..28feb625f8f992b8e13bfaafef62676b
              redirect_policy,
          } = self
              .config
-@@ -387,6 +402,12 @@ impl ConnectionPool {
+@@ -386,6 +401,30 @@
+             return Err(LunaSamplerError::Api(ApiError::Stream(
                  "authentication changed while resolving routing".into(),
              )));
-         }
-+        if self.config.native_responses_route {
-+            // This classifier bypasses ModelClient. Bind its resolved HTTP and
-+            // WebSocket destination to the same private Native compatibility
-+            // ingress before deriving cache identity or opening a connection.
-+            provider.base_url = format!("{}/native-v4", provider.base_url.trim_end_matches('/'));
 +        }
++        if self.config.native_responses_route {
++            // This classifier bypasses ModelClient, so negotiate the same
++            // authenticated major/features before opening either transport.
++            codex_model_provider::verify_running_native_provider(
++                &provider,
++                &auth,
++                &self.config.http_client_factory,
++                self.config.provider.info().supports_websockets,
++            )
++            .await
++            .map_err(|reason| {
++                LunaSamplerError::Provider(codex_protocol::error::CodexErr::InvalidRequest(
++                    reason.into(),
++                ))
++            })?;
++            provider.base_url = format!("{}/native", provider.base_url.trim_end_matches('/'));
++            provider
++                .headers
++                .insert("x-codex-native-protocol", HeaderValue::from_static("4"));
++            provider.headers.insert(
++                "x-codex-native-required-capabilities",
++                HeaderValue::from_static(codex_model_provider::NATIVE_REQUIRED_CAPABILITIES_HEADER),
++            );
+         }
          let key = ResponsesConnectionKey::new(&provider, revision);
          Ok(ClientSetup {
-             provider,
 diff --git a/codex-rs/ext/guardian-v2/src/async_scorer/sampler_routing_tests.rs b/codex-rs/ext/guardian-v2/src/async_scorer/sampler_routing_tests.rs
-index 5a94aed3ed681ce2670f7a3d70c5aa9912355a44..52a1b0f4d6e3119e568b8d1fff5ad12f6838e88e 100644
+index 5a94aed3ed68..657678de4112 100644
 --- a/codex-rs/ext/guardian-v2/src/async_scorer/sampler_routing_tests.rs
 +++ b/codex-rs/ext/guardian-v2/src/async_scorer/sampler_routing_tests.rs
-@@ -305,3 +305,156 @@ async fn account_switch_cancels_request_opening_and_first_token_waits() -> Resul
+@@ -305,3 +305,185 @@
      }
      Ok(())
  }
@@ -10237,10 +10332,21 @@ index 5a94aed3ed681ce2670f7a3d70c5aa9912355a44..52a1b0f4d6e3119e568b8d1fff5ad12f
 +    ] {
 +        let server = responses::start_mock_server().await;
 +        let expected = if provider_id == "chatgpt_desktop" {
-+            "/v1/native-v4/responses"
++            "/v1/native/responses"
 +        } else {
 +            "/v1/responses"
 +        };
++        Mock::given(method("GET"))
++            .and(path("/v1/native/capabilities"))
++            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
++                "schema":"codex-native-compatibility-v1",
++                "protocol_major":4,"protocol_minor":0,
++                "stable_ingress":"/v1/native/responses",
++                "transports":["http_sse"],
++                "capabilities":["tool_call_ids_v1","tool_result_binding_v1","native_turn_admission_v4"]
++            })))
++            .mount(&server)
++            .await;
 +        Mock::given(method("POST"))
 +            .and(path(if current { expected } else { "/v1/responses" }))
 +            .respond_with(
@@ -10314,10 +10420,21 @@ index 5a94aed3ed681ce2670f7a3d70c5aa9912355a44..52a1b0f4d6e3119e568b8d1fff5ad12f
 +            tokio::time::timeout(Duration::from_secs(2), upgrade_mock.wait_until_satisfied())
 +                .await?;
 +        }
-+        let requests = server
++        let received = server
 +            .received_requests()
 +            .await
 +            .ok_or_else(|| anyhow::anyhow!("missing actual classifier request"))?;
++        let (capability_reads, requests): (Vec<_>, Vec<_>) = received
++            .into_iter()
++            .partition(|request| request.url.path() == "/v1/native/capabilities");
++        if current && explicit_base && provider_id == "chatgpt_desktop" {
++            assert!(!capability_reads.is_empty());
++            assert!(
++                capability_reads
++                    .iter()
++                    .all(|request| request.method.as_str() == "GET")
++            );
++        }
 +        if !explicit_base {
 +            assert!(requests.is_empty());
 +            continue;
@@ -10342,6 +10459,13 @@ index 5a94aed3ed681ce2670f7a3d70c5aa9912355a44..52a1b0f4d6e3119e568b8d1fff5ad12f
 +            assert!(upgrade.body.is_empty());
 +        }
 +        assert_eq!(requests[0].url.path(), expected);
++        if expected == "/v1/native/responses" {
++            assert_eq!(requests[0].headers["x-codex-native-protocol"], "4");
++            assert_eq!(
++                requests[0].headers["x-codex-native-required-capabilities"],
++                codex_model_provider::NATIVE_REQUIRED_CAPABILITIES_HEADER
++            );
++        }
 +        let body: serde_json::Value = serde_json::from_slice(&requests[0].body)?;
 +        assert_eq!(body["tool_choice"], "none");
 +        assert!(body.get("tools").is_none_or(serde_json::Value::is_null));
@@ -14208,4 +14332,204 @@ index 0000000000000000000000000000000000000000..76b7a9cf750fc3e08a39662ade49ac57
 +    drop(cleanup);
 +    assert_eq!(finish(&mut spawned).await?.code(), Some(7));
 +    Ok(())
++}
+diff --git a/codex-rs/model-provider/src/lib.rs b/codex-rs/model-provider/src/lib.rs
+index d24b696e6887..04be041d091a 100644
+--- a/codex-rs/model-provider/src/lib.rs
++++ b/codex-rs/model-provider/src/lib.rs
+@@ -7,6 +7,7 @@
+ mod gcp;
+ mod models_endpoint;
+ mod models_identity;
++mod native_compat;
+ mod provider;
+ mod request_preparation;
+ mod runtime_auth;
+@@ -51,6 +52,9 @@
+ pub use provider::provider_uses_first_party_auth_path;
+ pub use provider::resolve_api_provider;
+ 
++pub use native_compat::NATIVE_PROTOCOL_MAJOR;
++pub use native_compat::NATIVE_REQUIRED_CAPABILITIES_HEADER;
++pub use native_compat::verify_running_native_provider;
+ pub use request_preparation::prepare_provider_request;
+ pub use runtime_auth::select_runtime_auth;
+ pub use runtime_auth::validate_runtime_destination;
+diff --git a/codex-rs/model-provider/src/native_compat.rs b/codex-rs/model-provider/src/native_compat.rs
+new file mode 100644
+index 0000000..25a6c4c72e84
+--- /dev/null
++++ b/codex-rs/model-provider/src/native_compat.rs
+@@ -0,0 +1,172 @@
++//! Native execution compatibility is negotiated against the authenticated,
++//! *running* local Provider, not inferred from selected package versions,
++//! account names, model labels or an HTTP 404 after inference began.
++//!
++//! Major versions change only when execution or completion semantics change;
++//! additive features use capabilities without a new `/native-vN` URL.
++use codex_api::Provider;
++use codex_api::SharedAuthProvider;
++use codex_http_client::ClientRouteClass;
++use codex_http_client::HttpClientFactory;
++use codex_login::default_client::ClientRedirectPolicy;
++use codex_login::default_client::create_client_for_route;
++use serde_json::Value;
++use std::time::Duration;
++
++pub const NATIVE_PROTOCOL_MAJOR: u64 = 4;
++pub const NATIVE_REQUIRED_CAPABILITIES: &[&str] = &[
++    "tool_call_ids_v1",
++    "tool_result_binding_v1",
++    "native_turn_admission_v4",
++];
++pub const NATIVE_REQUIRED_CAPABILITIES_HEADER: &str =
++    "tool_call_ids_v1,tool_result_binding_v1,native_turn_admission_v4";
++
++fn incompatible(reason: &str) -> String {
++    format!("provider_protocol_incompatible: {reason}")
++}
++
++fn verify_contract(data: &[u8], websocket_required: bool) -> Result<(), String> {
++    let value: Value =
++        serde_json::from_slice(data).map_err(|_| incompatible("invalid capability descriptor"))?;
++    if value["schema"] != "codex-native-compatibility-v1"
++        || value["protocol_major"] != NATIVE_PROTOCOL_MAJOR
++        || !value["protocol_minor"].is_u64()
++        || value["stable_ingress"] != "/v1/native/responses"
++        || !value["transports"]
++            .as_array()
++            .is_some_and(|transports| transports.iter().any(|v| v == "http_sse"))
++        || value["capabilities"].as_array().is_none_or(|capabilities| {
++            !NATIVE_REQUIRED_CAPABILITIES.iter().all(|required| {
++                capabilities
++                    .iter()
++                    .any(|item| item.as_str() == Some(*required))
++            })
++        })
++    {
++        return Err(incompatible(
++            "mandatory major/version/capabilities unavailable",
++        ));
++    }
++    if websocket_required
++        && !value["transports"]
++            .as_array()
++            .is_some_and(|transports| transports.iter().any(|v| v == "websocket_responses"))
++    {
++        return Err(incompatible("WebSocket transport not advertised"));
++    }
++    Ok(())
++}
++
++/// No inference, tool effect, automatic downgrade or retry can occur before
++/// this bounded GET succeeds. Authentication is the same scoped provider auth
++/// as the subsequent Responses request, and redirects are disallowed.
++pub async fn verify_running_native_provider(
++    provider: &Provider,
++    auth: &SharedAuthProvider,
++    factory: &HttpClientFactory,
++    websocket_required: bool,
++) -> Result<(), String> {
++    let url = url::Url::parse(&provider.base_url)
++        .map_err(|_| incompatible("invalid running service base URL"))?;
++    if url.scheme() != "http"
++        || url.host_str() != Some("127.0.0.1")
++        || url.path().trim_end_matches('/') != "/v1"
++        || url.query().is_some()
++        || url.fragment().is_some()
++        || !url.username().is_empty()
++        || url.password().is_some()
++        || provider
++            .query_params
++            .as_ref()
++            .is_some_and(|params| !params.is_empty())
++    {
++        return Err(incompatible(
++            "service must be an exact loopback Provider endpoint",
++        ));
++    }
++    let target = provider.url_for_path("/native/capabilities");
++    let headers = auth
++        .apply_auth_headers(provider.headers.clone())
++        .await
++        .map_err(|_| "provider_auth_unavailable: capability credentials unavailable".to_string())?;
++    let client = create_client_for_route(
++        factory,
++        &target,
++        ClientRouteClass::Api,
++        ClientRedirectPolicy::Reject,
++    )
++    .map_err(|_| incompatible("capability transport unavailable"))?;
++    let data = tokio::time::timeout(Duration::from_secs(8), async move {
++        let mut response = client
++            .get(target)
++            .headers(headers)
++            .timeout(Duration::from_secs(5))
++            .send()
++            .await
++            .map_err(|_| incompatible("capability read failed before inference"))?;
++        match response.status().as_u16() {
++            200 => (),
++            401 | 403 => {
++                return Err(
++                    "provider_auth_unavailable: active service rejected credentials".to_string(),
++                );
++            }
++            404 => return Err(incompatible("active service has no capability endpoint")),
++            _ => return Err(incompatible("active service failed capability negotiation")),
++        }
++        let mut bytes = Vec::new();
++        while let Some(chunk) = response
++            .chunk()
++            .await
++            .map_err(|_| incompatible("capability response truncated"))?
++        {
++            if chunk.len() > 4096 - bytes.len() {
++                return Err(incompatible("capability descriptor exceeded bound"));
++            }
++            bytes.extend_from_slice(&chunk);
++        }
++        Ok(bytes)
++    })
++    .await
++    .map_err(|_| incompatible("capability read timed out before inference"))??;
++    verify_contract(&data, websocket_required)
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    fn report() -> Value {
++        serde_json::json!({
++            "schema":"codex-native-compatibility-v1",
++            "protocol_major":4,"protocol_minor":6,
++            "stable_ingress":"/v1/native/responses",
++            "legacy_ingress":"/v1/native-v4/responses",
++            "transports":["http_sse"],
++            "capabilities":["tool_call_ids_v1","tool_result_binding_v1", "native_turn_admission_v4", "responses_sse_v1", "future_optional_v9"]
++        })
++    }
++    #[test]
++    fn stable_major_and_additive_minor_are_accepted_but_required_capabilities_are_exact() {
++        let ok = report();
++        assert!(verify_contract(ok.to_string().as_bytes(), false).is_ok());
++        assert!(verify_contract(ok.to_string().as_bytes(), true).is_err());
++        for (key, altered) in [
++            ("protocol_major", serde_json::json!(5)),
++            ("stable_ingress", serde_json::json!("/v1/responses")),
++            ("capabilities", serde_json::json!(["tool_call_ids_v1"])),
++            ("schema", serde_json::json!("not-native")),
++        ] {
++            let mut missing = report();
++            missing[key] = altered;
++            assert!(
++                verify_contract(missing.to_string().as_bytes(), false)
++                    .unwrap_err()
++                    .contains("provider_protocol_incompatible")
++            );
++        }
++        let mut ws = report();
++        ws["transports"] = serde_json::json!(["http_sse", "websocket_responses"]);
++        assert!(verify_contract(ws.to_string().as_bytes(), true).is_ok());
++    }
 +}
