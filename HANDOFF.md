@@ -1,10 +1,64 @@
 # Handoff — remaining acceptance and operating boundaries
 
-Updated: 2026-11-12 UTC. One current unfinished-work record.
+Updated: 2026-11-13 13:54 KST. One current unfinished-work record.
 Read [CURRENT](CURRENT.md), [AGENTS](AGENTS.md) and the
 [finite integration record](docs/development/RELEASE_FRAMEWORK_IMPLEMENTATION.md).
 Continuous authorization covers development, safe branch integration and unsigned
 CI. These are not intermediate approval gates.
+
+## Next execution order and mandatory documentation gate
+
+The installed Full S167, selected/running Provider S27 and runit-hosted
+Termux tunnel v0.0.20 are the current verified operating baseline; see
+[CURRENT](CURRENT.md). The `rewrite/rust-core` source at `0ba058922fd1243f63a7cea2db0653348c64aa1d`
+and the isolated tunnel/docs branch `work/tunnel-termux-v0.0.20-20261113`
+at `5c495538780e9c84e0c87a0a3c623b0ea3b80498` have **not** yet been
+integrated together or signed as a new Full generation. Preserve running
+GitHub Actions and existing operating services while doing isolated development.
+
+1. **Complete actual runtime acceptance:** submit a real selected-model
+   Provider/AppHost response and bounded Native tool + same-thread reentry;
+   inspect old 400/404 behavior on the *actual caller*, not merely malformed
+   HTTP probes. Independently verify remote tunnel readiness, ownership and
+   no duplicate/replayed effects. Record request/run/owner receipts and
+   proof limits in CURRENT. A 200 capability handshake does not prove inference.
+2. **Improve CI in parallel:** implement stage dependency ordering and
+   immutable exact-input artifact reuse, remove premature Full push failures,
+   optimize expensive TUI gates without weakening required upstream/negative
+   tests. Keep any already-running qualification intact. Record the changed
+   job graph, source/ref scope, cache invariants and regression obligations in
+   [the release implementation plan](docs/development/RELEASE_FRAMEWORK_IMPLEMENTATION.md);
+   change [the qualification contract](docs/spec/delivery/QUALIFICATION.md)
+   only if the approved behavior contract itself changes.
+3. **Implement persistent runit generation reconciliation:** follow
+   [the focused task](docs/development/RUNIT_GENERATION_ACTIVATION.md).
+   Update/rollback should reconcile the opted-in Provider, tunnel and Host
+   keeper with the verified selected generations, even after reboot. The
+   one-time manual S27/v0.0.20 runit replacement is only operating evidence.
+4. **Integrate and accept:** review the isolated tunnel, CI and runit commits
+   into the authorized development branch; requalify all required gates for
+   the resulting exact source/input identity. Preserve prior successful proofs
+   where the contract allows reuse, and do not interpret a running/failed gate
+   as success. Only afterward perform authorized official source approval,
+   GitHub-native signing, publication, Android installation and rollback smoke.
+5. **Documentation is a required deliverable at *each* stage, not a final
+   cosmetic step:** before editing, check SPEC and the owning normative annex
+   for required behavior and update the appropriate annex only for an actual
+   contract change; update the finite implementation plan for CI design and
+   implementation ownership; update CURRENT with dated SHA, original CI IDs,
+   binary generations, test outputs and explicit unproven limits; keep only
+   actionable unfinished items in HANDOFF; update README/component operator
+   documentation for supported commands, runit enrollment/update/rollback and
+   troubleshooting when the corresponding behavior actually ships. Add test
+   fixtures/dependency mappings only for affected real contracts. Run the
+   documentation/link check and applicable doc/code consistency tests before
+   each cohesive commit. Source, docs, executable behavior and release
+   manifest must agree on the final signed source, not an old checkpoint.
+
+**Documentation acceptance:** the task is incomplete if implementation passes
+but its owning requirements, operational instructions, actual source/run IDs
+or limitations remain stale. Documentation-only updates are not proof of
+implementation, live model execution, CI qualification or signed release.
 
 ## Remaining source acceptance
 
