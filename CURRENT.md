@@ -35,7 +35,7 @@ Stage 1 decouples `crates/wrapper` (`codex`) and `crates/release-builder` (`code
 ### Decoupled Modules Index & Stage 2 Handoff
 Stage 1 keeps the wrapper standalone so upstream updates never break on addon code. Existing decoupled components remain preserved outside the minimal wrapper for Stage 2 Rust refactoring and generic opt-in attachment:
 - **Reference git baseline (untouched pre-split source & removed wrapper modules):**
-  - Branch: `rewrite/rust-core` (`origin/rewrite/rust-core`) at commit `ebb0b519`.
+  - Local branch `rewrite/rust-core` at commit `ebb0b519` (`origin/rewrite/rust-core` at parent commit `8c223d29`).
   - Modules removed from `crates/wrapper/src/` during Stage 1 (recoverable via `git show rewrite/rust-core:crates/wrapper/src/<file>` or `git diff rewrite/rust-core..rewrite/minimal-wrapper`): `execution_lease.rs`, `local_source.rs`, `manager_config.rs`, `manager_dispatch.rs`, `manager_tui.rs`, `manual_update.rs`, `native_task.rs`, `provider.rs`, `release_display.rs`, `remote_release.rs`, `rollback_guard.rs`, `shared_layout.rs`, `shared_server.rs`, `system_config.rs` (plus manager IPC `__prepare-launch-v1`/`__prepare-runtime-v1`, `requirements.toml` generation, and `--signed` verification).
   - Legacy release-builder/source-patching files removed from `crates/release-builder/` during Stage 1 (likewise recoverable at `ebb0b519`): `build.rs`, `src/fixtures/source-plan*.json`, `src/native_dependencies.rs`, `src/native_route.patch`, `src/native_sdk.rs`, `src/provider.rs`, `src/runtime.rs`, `src/source.rs`, `src/source/patch.rs`, `src/source/syntax.rs`, `src/source/syntax/permissions.rs`.
 - **Sibling workspace / repository directories preserved in checkout for Stage 2:**
