@@ -372,16 +372,14 @@ jobs:
 
           dist="$RUNNER_TEMP/dist"
           sha_line="$(cat "$dist/codex-minimal-wrapper-aarch64-linux-android.tar.gz.sha256")"
-          notes="$(cat <<EOF
-Stage 1 Termux minimal codex wrapper ($tag).
-
-- Source commit: $GITHUB_SHA
-- Target: aarch64-linux-android (Android API 24)
-- Archive SHA-256: $sha_line
-- Install in Termux:
-  curl -fsSL https://github.com/$GITHUB_REPOSITORY/releases/download/$tag/install.sh | sh
-EOF
-)"
+          notes="$(printf '%s\n' \
+            "Stage 1 Termux minimal codex wrapper ($tag)." \
+            "" \
+            "- Source commit: $GITHUB_SHA" \
+            "- Target: aarch64-linux-android (Android API 24)" \
+            "- Archive SHA-256: $sha_line" \
+            "- Install in Termux:" \
+            "  curl -fsSL https://github.com/$GITHUB_REPOSITORY/releases/download/$tag/install.sh | sh")"
 
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
