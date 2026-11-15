@@ -1,3 +1,0 @@
-# Bootstrap selection before a user/workflow or existing destination selects one.
-model = "chatgpt-desktop/gpt-6"
-effort = "none"

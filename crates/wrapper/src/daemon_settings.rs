@@ -1,8 +1,6 @@
-use std::ffi::OsStr;
 use std::fs::{self, DirBuilder, File, OpenOptions};
 use std::io::{self, ErrorKind, Read, Write};
-use std::os::unix::fs::{DirBuilderExt, FileTypeExt, OpenOptionsExt};
-use std::os::unix::net::UnixStream;
+use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -86,132 +84,32 @@ pub(super) fn ensure(codex_home: &Path) -> io::Result<()> {
         Err(err) => return Err(err),
     };
 
-    if let Some(updated) = update_settings_bytes(existing.as_deref())? {
-        let sequence = SETTINGS_TMP_COUNTER.fetch_add(1, Ordering::Relaxed);
-        let temp_path = daemon_dir.join(format!(
-            ".settings.json.{}.{sequence}.tmp",
-            std::process::id()
-        ));
-        let write_result = (|| -> io::Result<()> {
-            let mut temp = OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .mode(0o600)
-                .open(&temp_path)?;
-            temp.write_all(&updated)?;
-            temp.sync_all()?;
-            drop(temp);
-            fs::rename(&temp_path, &settings_path)?;
-            File::open(&daemon_dir)?.sync_all()?;
-            Ok(())
-        })();
-        if write_result.is_err() {
-            let _ = fs::remove_file(&temp_path);
-        }
-        write_result?;
-    }
-
-    cleanup_stale_control_socket(&physical_home)
-}
-
-fn is_ascii_hex_len(name: Option<&OsStr>, len: usize) -> bool {
-    name.and_then(OsStr::to_str)
-        .is_some_and(|raw| raw.len() == len && raw.bytes().all(|b| b.is_ascii_hexdigit()))
-}
-
-fn is_retired_shared_server_target(target: &Path) -> bool {
-    if target.file_name() != Some(OsStr::new("s")) {
-        return false;
-    }
-    let Some(id_dir) = target.parent() else {
-        return false;
-    };
-    if !is_ascii_hex_len(id_dir.file_name(), 16) {
-        return false;
-    }
-    let Some(servers_dir) = id_dir.parent() else {
-        return false;
-    };
-    if servers_dir.file_name() != Some(OsStr::new("servers")) {
-        return false;
-    }
-    let Some(owner_dir) = servers_dir.parent() else {
-        return false;
-    };
-    matches!(
-        owner_dir.file_name().and_then(OsStr::to_str),
-        Some("wrapper" | "core")
-    )
-}
-
-fn is_short_temp_uds_target(target: &Path) -> bool {
-    if !is_ascii_hex_len(target.file_name(), 64) {
-        return false;
-    }
-    let Some(uid_dir) = target.parent() else {
-        return false;
-    };
-    uid_dir
-        .file_name()
-        .and_then(OsStr::to_str)
-        .is_some_and(|uid| !uid.is_empty() && uid.bytes().all(|b| b.is_ascii_digit()))
-}
-
-fn cleanup_stale_control_socket(physical_home: &Path) -> io::Result<()> {
-    let control_dir = physical_home.join("app-server-control");
-    let Ok(dir_meta) = fs::symlink_metadata(&control_dir) else {
+    let Some(updated) = update_settings_bytes(existing.as_deref())? else {
         return Ok(());
     };
-    if !dir_meta.file_type().is_dir() {
-        return Ok(());
-    }
 
-    let sock_path = control_dir.join("app-server-control.sock");
-    let Ok(sock_meta) = fs::symlink_metadata(&sock_path) else {
-        return Ok(());
-    };
-    if !sock_meta.file_type().is_symlink() {
-        return Ok(());
+    let sequence = SETTINGS_TMP_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let temp_path = daemon_dir.join(format!(
+        ".settings.json.{}.{sequence}.tmp",
+        std::process::id()
+    ));
+    let write_result = (|| -> io::Result<()> {
+        let mut temp = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&temp_path)?;
+        temp.write_all(&updated)?;
+        temp.sync_all()?;
+        drop(temp);
+        fs::rename(&temp_path, &settings_path)?;
+        File::open(&daemon_dir)?.sync_all()?;
+        Ok(())
+    })();
+    if write_result.is_err() {
+        let _ = fs::remove_file(&temp_path);
     }
-
-    let Ok(target) = fs::read_link(&sock_path) else {
-        return Ok(());
-    };
-    if !target.is_absolute() {
-        return Ok(());
-    }
-
-    let is_retired = is_retired_shared_server_target(&target);
-    let is_short_tmp = !is_retired && is_short_temp_uds_target(&target);
-    if !is_retired && !is_short_tmp {
-        return Ok(());
-    }
-
-    let should_remove = match fs::metadata(&sock_path) {
-        Err(err) if err.kind() == ErrorKind::NotFound => true,
-        Ok(_) if is_retired => match fs::symlink_metadata(&target) {
-            Ok(meta) if meta.file_type().is_socket() => match UnixStream::connect(&target) {
-                Ok(_) => false,
-                Err(err) => {
-                    matches!(
-                        err.kind(),
-                        ErrorKind::ConnectionRefused | ErrorKind::NotFound
-                    )
-                }
-            },
-            _ => false,
-        },
-        _ => false,
-    };
-
-    if should_remove {
-        match fs::remove_file(&sock_path) {
-            Ok(()) => {}
-            Err(err) if err.kind() == ErrorKind::NotFound => {}
-            Err(err) => return Err(err),
-        }
-    }
-    Ok(())
+    write_result
 }
 
 fn update_settings_bytes(existing: Option<&[u8]>) -> io::Result<Option<Vec<u8>>> {
@@ -654,67 +552,6 @@ mod tests {
         fs::remove_file(daemon.join("settings.json")).unwrap();
         fs::write(daemon.join("settings.json"), b"not-json").unwrap();
         assert!(ensure(&home).is_err());
-        fs::remove_dir_all(&root).unwrap();
-    }
-
-    #[test]
-    fn cleans_stale_wrapper_control_socket_symlinks_without_touching_live_or_foreign() {
-        use std::os::unix::net::UnixListener;
-
-        let root = test_root("cs");
-        let short_root = std::env::temp_dir().join(format!("c-ds-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&short_root);
-        fs::create_dir_all(&short_root).unwrap();
-
-        let home = root.join("codex-home");
-        let control_dir = home.join("app-server-control");
-        fs::create_dir_all(&control_dir).unwrap();
-        let sock_path = control_dir.join("app-server-control.sock");
-
-        // 1. Dangling retired wrapper/servers/<16hex>/s symlink is removed.
-        let retired_dead = short_root.join("wrapper/servers/1c4a405679313194/s");
-        symlink(&retired_dead, &sock_path).unwrap();
-        ensure(&home).unwrap();
-        assert!(fs::symlink_metadata(&sock_path).is_err());
-
-        // 2. Dead existing socket at core/servers/<16hex>/s (ConnectionRefused) is removed.
-        let core_dead_dir = short_root.join("core/servers/0123456789abcdef");
-        fs::create_dir_all(&core_dead_dir).unwrap();
-        let core_dead_sock = core_dead_dir.join("s");
-        {
-            let _listener = UnixListener::bind(&core_dead_sock).unwrap();
-        }
-        symlink(&core_dead_sock, &sock_path).unwrap();
-        ensure(&home).unwrap();
-        assert!(fs::symlink_metadata(&sock_path).is_err());
-
-        // 3. Live listening retired socket symlink is preserved.
-        let live_dir = short_root.join("wrapper/servers/fedcba9876543210");
-        fs::create_dir_all(&live_dir).unwrap();
-        let live_sock = live_dir.join("s");
-        let _live_listener = UnixListener::bind(&live_sock).unwrap();
-        symlink(&live_sock, &sock_path).unwrap();
-        ensure(&home).unwrap();
-        assert!(fs::symlink_metadata(&sock_path).is_ok());
-        fs::remove_file(&sock_path).unwrap();
-
-        // 4. Dangling shortened temp UDS symlink (<uid>/<64hex>) is removed.
-        let missing_tmp_sock = short_root
-            .join("tmp")
-            .join("10593")
-            .join("5528267e35cd46752c85661687aed306bd874354eb51a3016ed425dbcb860219");
-        symlink(&missing_tmp_sock, &sock_path).unwrap();
-        ensure(&home).unwrap();
-        assert!(fs::symlink_metadata(&sock_path).is_err());
-
-        // 5. Foreign unrelated symlink is preserved untouched.
-        let foreign = short_root.join("custom-nonexistent.sock");
-        symlink(&foreign, &sock_path).unwrap();
-        ensure(&home).unwrap();
-        assert_eq!(fs::read_link(&sock_path).unwrap(), foreign);
-
-        drop(_live_listener);
-        fs::remove_dir_all(&short_root).unwrap();
         fs::remove_dir_all(&root).unwrap();
     }
 }
