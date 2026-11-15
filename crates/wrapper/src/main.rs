@@ -2681,7 +2681,8 @@ pub(crate) mod tests {
         let root = temp_root("fd33");
         let prev_home = std::env::var_os("HOME");
         unsafe { std::env::set_var("HOME", &root) };
-        fs::create_dir_all(root.join(".local/share/codex/wrapper")).unwrap();
+        fs::create_dir_all(root.join(".local/share/codex")).unwrap();
+        super::fs_util::private_dir(&root.join(".local/share/codex/wrapper")).unwrap();
 
         let f1 = open_synthesized_resolver(b"nameserver 8.8.8.8\n").unwrap();
         let ino1 = f1.metadata().unwrap().ino();
@@ -2711,7 +2712,7 @@ pub(crate) mod tests {
     fn core_config_writes_minimal_toml_and_cleans_only_marked_requirements() {
         let root = temp_root("fd34");
         let cfg = root.join("config");
-        fs::create_dir_all(&cfg).unwrap();
+        super::fs_util::private_dir(&cfg).unwrap();
         fs::write(
             cfg.join("config.toml"),
             b"# codex-termux-notify-v1\nthread_unload_delay_secs = 0\n",
@@ -2762,7 +2763,12 @@ pub(crate) mod tests {
         let root = temp_root("fd-install");
         let roots = make_test_roots(&root);
         let sources = RuntimeFdSources::open(&roots.resolver_path, &roots.config_dir).unwrap();
-        let mut cmd = Command::new("/system/bin/sh");
+        let sh = if Path::new("/system/bin/sh").is_file() {
+            "/system/bin/sh"
+        } else {
+            "/bin/sh"
+        };
+        let mut cmd = Command::new(sh);
         cmd.args([
             "-c",
             "test -d /proc/$$/fd/34 && test -d /proc/$$/fd/35 && exec cat /proc/$$/fd/33",
@@ -2844,7 +2850,7 @@ pub(crate) mod tests {
             .unwrap_or_else(|| OsString::from("/data/data/com.termux/files/usr"));
         let syn_home = root.join("home");
         fs::create_dir_all(syn_home.join(".local/lib/codex/wrapper/generations")).unwrap();
-        fs::create_dir_all(syn_home.join(".local/share/codex/wrapper/config")).unwrap();
+        fs::create_dir_all(syn_home.join(".local/share/codex")).unwrap();
 
         unsafe {
             std::env::set_var("HOME", &syn_home);
@@ -2855,6 +2861,7 @@ pub(crate) mod tests {
         let roots = LocalCoreRoots::from_environment().unwrap();
         let state_paths = m2_generation_state::CoreStatePaths::new(&roots.state_root).unwrap();
         m2_generation_state::prepare_core_state_paths(&state_paths).unwrap();
+        prepare_core_config(&roots.config_dir).unwrap();
         copy_local_directory_tree(&gen1, &roots.generation_root.join("gen-1")).unwrap();
         copy_local_directory_tree(&gen2, &roots.generation_root.join("gen-2")).unwrap();
         let lock = m2_generation_state::acquire_activation_lock(&state_paths).unwrap();
