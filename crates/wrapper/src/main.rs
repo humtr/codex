@@ -2845,16 +2845,18 @@ pub(crate) mod tests {
         let prev_home = std::env::var_os("HOME");
         let prev_prefix = std::env::var_os("PREFIX");
         let prev_tmpdir = std::env::var_os("TMPDIR");
-        let real_prefix = prev_prefix
-            .clone()
-            .unwrap_or_else(|| OsString::from("/data/data/com.termux/files/usr"));
+        let syn_prefix = root.join("prefix");
+        fs::create_dir_all(syn_prefix.join("bin")).unwrap();
+        fs::create_dir_all(syn_prefix.join("etc/tls/certs")).unwrap();
+        fs::write(syn_prefix.join("etc/resolv.conf"), b"nameserver 1.1.1.1\n").unwrap();
+        fs::write(syn_prefix.join("etc/tls/cert.pem"), b"").unwrap();
         let syn_home = root.join("home");
         fs::create_dir_all(syn_home.join(".local/lib/codex/wrapper/generations")).unwrap();
         fs::create_dir_all(syn_home.join(".local/share/codex")).unwrap();
 
         unsafe {
             std::env::set_var("HOME", &syn_home);
-            std::env::set_var("PREFIX", &real_prefix);
+            std::env::set_var("PREFIX", &syn_prefix);
             std::env::set_var("TMPDIR", &root);
         }
 
