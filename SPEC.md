@@ -748,7 +748,11 @@ Termux compatibility settings (`# codex-termux-notify-v1\nsandbox_mode =
 additional addon overrides or `system_config` dry-run validation. Any stale
 legacy `requirements.toml` bearing the obsolete shared-state ownership marker
 (`# codex-termux-shared-state-v1\n`) is lazily removed without disturbing
-user-authored files. Future opt-in module configuration must attach through a
+user-authored files. Likewise, before non-version/non-help execution,
+`daemon_settings::ensure` lazily removes a dangling or dead
+`$CODEX_HOME/app-server-control/app-server-control.sock` symlink pointing to
+a retired shared-server namespace or missing temporary UDS target, while
+preserving live sockets and user-managed paths. Future opt-in module configuration must attach through a
 generic extension interface without hardcoding Manager-specific IPC into
 minimal Wrapper execution.
 
