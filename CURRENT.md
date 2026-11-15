@@ -43,8 +43,29 @@ Stage 1 decouples `crates/wrapper` (`codex`) and `crates/release-builder` (`code
   - Verified fast `codex --version` skips materializing `app-server-daemon/settings.json` and `config/config.toml`, ordinary launch materializes `# codex-termux-notify-v1` `config.toml`, `settings.json`, `resolv.conf` (`68`B), and `Asia%Seoul.tzif` (`415`B), cleans stale `# codex-termux-shared-state-v1` `requirements.toml` while preserving custom user `requirements.toml`, rejects empty `--rollback` (`RC=1`), rejects `codex sandbox linux true` (`RC=2`), and passes `codex remote-control start/pair/stop --json` local daemon lifecycle (`stop` `RC=0`; `start`/`pair` exit `1` only at unauthenticated remote enrollment in synthetic `HOME`).
 - **Not verified in Stage 1 / deferred:**
   - External remote client pairing redemption / interactive remote session over `codex remote-control` (on real `$HOME`, local daemon `start --json`, remote-control enrollment `status: "connected"`, `pair --json` code issuance, and `stop --json` passed; actually pairing and driving a session from a separate remote device/client remains untested).
-  - Promotion/merge from `rewrite/minimal-wrapper` into `main` (left deferred until explicitly requested).
+  - Promotion/merge from `rewrite/minimal-wrapper` into `main` (left deferred until explicitly requested; uses the `wrapper` naming cutover defined below).
   - `--signed` remote release verification, provider integration, and addon attachment belong to Stage 2 and are disabled in Stage 1.
+
+### Promotion to `main` (`minimal-wrapper` → `wrapper`)
+When promoting Stage 1 from `rewrite/minimal-wrapper` to `main`, drop the `minimal-wrapper` staging label and standardize public/build identifiers on **`wrapper`**:
+- **CI workflow:** rename `.github/workflows/minimal-wrapper.yml` → `.github/workflows/wrapper.yml` (`Wrapper CI`, concurrency group `wrapper-${{ github.ref }}`, artifact `wrapper-android`, triggers on `main` and release tags).
+- **Release & installer (`install.sh`):** replace `minimal-wrapper` / `minimal-v*` tags and `codex-minimal-wrapper-aarch64-linux-android.tar.gz` with `wrapper` / `wrapper-v*` (or `v*`) and `codex-wrapper-aarch64-linux-android.tar.gz` (+ `.sha256`), updating `DEFAULT_RELEASE_TAG`, `ASSET_NAME`, usage text, and `README.md` URLs accordingly.
+- **Metadata & docs:** cut new generation `creation_metadata` on `main` from `codex-minimal-wrapper-v1` to `codex-wrapper-v1` while retaining read compatibility with existing `codex-minimal-wrapper-v1` and `codex-option2-wrapper-v1` generations (`SPEC.md` already uses `Wrapper` throughout).
+
+### Stage 2 Plan (Planned — Not Started on `rewrite/minimal-wrapper`)
+Stage 2 reintroduces optional modular capabilities strictly behind generic opt-in interfaces (`SPEC.md` §§1–4, `USER_INTERFACES.md`, `DELIVERY.md`, `BRIDGE.md`) without compromising Stage 1 bare launch speed, dependency minimalism, or direct `codex update --upstream` resilience:
+1. **`wrapper.toml` & Generic Extension Contract (Phase 2.1):**
+   - Introduce `~/.local/share/codex/wrapper/wrapper.toml` and `codex wrapper setup [show|--bare|--enable <MODULES>|--disable <MODULES>|--signed-update <true|false>]`, `codex wrapper --bare`, and `codex wrapper --with <MODULES>` while keeping bare `codex` and `codex --version` free of addon probing or IPC.
+   - Bind FD 34 system configuration snapshots (`wrapper/config/snapshots/<id>/`) so optional module config fragments attach only when enabled and never mutate active servers in place.
+2. **`--signed` Ed25519 Channel Verification & Publication (Phase 2.2):**
+   - Wire `codex-release-builder`'s existing signed manifest/key structures (`release.manifest`, `release.sig`, `release-authority.sig`, `release-public-key.pem`) into `codex update --signed` and signed channel indices (`update-index-base-v1` / `update-index-v1`), keeping fail-closed signature/digest admission while leaving `codex update --upstream` independent.
+   - Enforce optional-asset separation: missing optional Manager/TUI in an already-installed generation degrades at the addon boundary rather than bricking Core launch/update/rollback (`DELIVERY.md`).
+3. **Optional `codex-manager` Reattachment (Phase 2.3):**
+   - Port/refactor `crates/manager` + `crates/runtime-binding` from `rewrite/rust-core` (`c200e676`) as an optional extension crate/binary behind the versioned `wrapper-api-v1` boundary (`codex wrapper launch|profile|task|notify|usage|rotation`), enforcing Core-only generation mutation, isolated profile `CODEX_HOME`, and zero auth/transcript inspection.
+4. **Optional Enhanced TUI & Android Terminal Consumer (Phase 2.4):**
+   - Restore decoupled opt-in frontend patching (`frontend/manager-tui` / `frontend/tui`) selectable via `wrapper.toml` / `--with tui` (`switch` / permission picker / clipboard write confirmation & image paste / foreground thread FD binding), while ensuring unpatched upstream upgrades and Base runs remain completely decoupled (`codex update` independent of TUI version pins).
+5. **Optional `chatgpt` Provider & Tunnel Reattachment (Phase 2.5):**
+   - Reattach `providers/chatgpt` and `transport/tunnel-client` as an isolated optional module (`codex wrapper provider`, separate provider CI gate) aligned with the single-owner Native/Bridge architecture in `SPEC.md` §§4.5–4.6 and `BRIDGE.md`.
 
 ### Decoupled Modules Index & Stage 2 Handoff
 Stage 1 keeps `rewrite/minimal-wrapper` strictly limited to the standalone wrapper so upstream updates never break on addon code. All decoupled components have been removed from this branch and remain preserved in Git history for Stage 2 Rust refactoring and generic opt-in attachment:

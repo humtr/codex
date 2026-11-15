@@ -66,7 +66,7 @@ This runs `cargo build --release --locked -p codex` and installs
 
 ### Option 3: Install directly from a CI-published GitHub Release
 
-Once a `minimal-wrapper` (or `minimal-v*`) GitHub Release is published:
+Once a `minimal-wrapper` (or `minimal-v*`) GitHub Release is published (on promotion to `main`, this naming simplifies cleanly to `wrapper` / `codex-wrapper-aarch64-linux-android.tar.gz`):
 
 ```sh
 curl -fsSL https://github.com/humtr/codex/releases/download/minimal-wrapper/install.sh | sh
@@ -118,7 +118,7 @@ codex wrapper status --json
 
 # Direct upstream subcommands supported seamlessly under Termux runtime prep
 codex app-server daemon start
-codex app-server daemon status
+codex app-server daemon version
 codex remote-control
 ```
 
@@ -145,7 +145,7 @@ Fast inspection flags (`--version`, `-V`, `--help`, `-h`) bypass settings writes
 
 ### Minimal CI (`.github/workflows/minimal-wrapper.yml`)
 
-Every push or pull request on `rewrite/minimal-wrapper` runs:
+Every push or pull request on `rewrite/minimal-wrapper` runs (on promotion to `main`, this workflow and its `minimal-wrapper*` bundle names cut over cleanly to `.github/workflows/wrapper.yml` and `wrapper`):
 
 1. **`checks` (`ubuntu-24.04`):** YAML syntax check, `sh -n install.sh`, Stage 1 workspace/`Cargo.lock` boundary check (`codex`, `codex-release-builder`, `libc`), markdown link check across all `*.md` files, `cargo fmt --check`, `cargo clippy --workspace --all-targets --locked -- -D warnings`, and `cargo test --workspace --locked`.
 2. **`android-package` (`ubuntu-24.04`):** cross-compiles `codex` and `codex-release-builder` for `aarch64-linux-android` (API 24, Android NDK `27.3.13750724`), verifies `ARM aarch64` ELF headers and `/system/bin/linker64`, bundles `codex-minimal-wrapper-aarch64-linux-android.tar.gz` + `.sha256` + `SHA256SUMS` + `install.sh`, and uploads the workflow artifact.
