@@ -198,7 +198,7 @@ def probe(args):
         if args.without_manager:
             # Installed inventory permits optional Manager loss. Preserve the
             # fixture binary, then require ordinary Core resume to keep working.
-            shutil.move(home/'.local/lib/codex/core/generations/local-permission-fixture/manager',
+            shutil.move(home/'.local/lib/codex/wrapper/generations/local-permission-fixture/manager',
                         root/'inactive-fixture-manager')
         master, slave = pty.openpty()
         fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 80 if display else 44, 160, 0, 0))
@@ -409,7 +409,7 @@ def probe(args):
                         paths=server_paths(home)
                         assert len(paths)==1, 'one completed owned Native server required'
                         retired_owner=int(paths[0].with_name('pid').read_text())
-                        retired=stop_owned_pid(retired_owner,home/'.local/lib/codex/core/generations/local-permission-fixture/runtime')
+                        retired=stop_owned_pid(retired_owner,home/'.local/lib/codex/wrapper/generations/local-permission-fixture/runtime')
                         assert retired['kernel_stop_confirmed']
                         (root/'retired-completed-native-owner.json').write_text(json.dumps(retired,indent=2))
                         assert not server_paths(home), 'old native owner still alive'
@@ -1188,7 +1188,7 @@ def probe(args):
             for path in server_paths(home):
                 try:
                     pid=int(path.with_name('pid').read_text())
-                    expected=home/'.local/lib/codex/core/generations/local-permission-fixture/runtime'
+                    expected=home/'.local/lib/codex/wrapper/generations/local-permission-fixture/runtime'
                     if Path(f'/proc/{pid}/exe').resolve()==expected:
                         if args.active_steer:
                             stopped = stop_owned_pid(pid, expected)

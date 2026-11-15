@@ -26,8 +26,8 @@ def qualify(manager, core, parent):
         env = {
             "HOME": str(home), "PREFIX": prefix, "TMPDIR": str(parent),
             "PATH": f"{prefix}/bin", "LANG": "C.UTF-8",
-            "CODEX_TERMUX_CORE_API": "codex-manager-core-v1",
-            "CODEX_TERMUX_CORE_ENTRYPOINT": str(core),
+            "CODEX_TERMUX_WRAPPER_API": "codex-manager-wrapper-v1",
+            "CODEX_TERMUX_WRAPPER_ENTRYPOINT": str(core),
         }
 
         def run(*args, payload=None):

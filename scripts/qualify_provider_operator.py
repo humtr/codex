@@ -554,13 +554,13 @@ def probe(args):
             assert original['turns'] and all(turn['status']=='completed' for turn in original['turns'])
             (root / 'before-cold-native.json').write_text(json.dumps(original, indent=2) + '\n')
             executable = Path(f'/proc/{terminal.pid}/exe').resolve(strict=True)
-            assert executable.is_relative_to(home / '.local/lib/codex/core/generations/local-permission-fixture') or executable == prefix / 'bin/codex'
+            assert executable.is_relative_to(home / '.local/lib/codex/wrapper/generations/local-permission-fixture') or executable == prefix / 'bin/codex'
             (root / 'before-cold-terminal.txt').write_text(screen)
             owners = [stop_owned_pid(terminal.pid, executable)]
             terminal.wait(timeout=10)
             for path in server_paths(home):
                 owners.append(stop_owned_pid(int(path.with_name('pid').read_text()),
-                    home / '.local/lib/codex/core/generations/local-permission-fixture/runtime'))
+                    home / '.local/lib/codex/wrapper/generations/local-permission-fixture/runtime'))
             assert len(owners)>1, 'cold proof requires an observed backend exit'
             screen = ''
             master, terminal = launch(thread_before)
@@ -1006,7 +1006,7 @@ def probe(args):
             for path in server_paths(home):
                 try:
                     pid = int((path.parent / 'pid').read_text())
-                    expected = home / '.local/lib/codex/core/generations/local-permission-fixture/runtime'
+                    expected = home / '.local/lib/codex/wrapper/generations/local-permission-fixture/runtime'
                     if Path(f'/proc/{pid}/exe').resolve() == expected:
                         os.kill(pid, signal.SIGTERM)
                 except (OSError, ValueError):

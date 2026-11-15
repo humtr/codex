@@ -33,7 +33,7 @@ def provider_display_fixture(args, root, home, prefix, env):
     from release_notes import render
     source = SOURCE
     authority = root / 'fixture-key.pem'
-    installed = home / '.local/lib/codex/core/generations/local-permission-fixture'
+    installed = home / '.local/lib/codex/wrapper/generations/local-permission-fixture'
     sequence = int(next(line.split('\t')[1] for line in (installed / 'release.manifest').read_text().splitlines() if line.startswith('release_sequence\t')))
     full = any(line.startswith('file\tmanager\t') for line in (installed / 'release.manifest').read_text().splitlines())
     component = root / 'component-input-v1'
@@ -86,7 +86,7 @@ def provider_display_fixture(args, root, home, prefix, env):
     ]:
         (root / (name + '.json')).write_text(json.dumps({'tag_name': tag, 'draft': False,
             'published_at': timestamp, 'body': render(source, component)}))
-    return home / '.local/share/codex/core/providers/chatgpt/selection'
+    return home / '.local/share/codex/wrapper/providers/chatgpt/selection'
 
 
 def probe(args):
@@ -112,7 +112,7 @@ def probe(args):
 
     try:
         home, prefix, env = fixture(root, args.core, args.frontend, generation=args.generation)
-        state = home / '.local/share/codex/core/activation-state'
+        state = home / '.local/share/codex/wrapper/activation-state'
         env["CODEX_TERMUX_UPDATE_BUILD_POLICY"] = ("ask" if args.mode.startswith("choose-") else "keep" if args.mode == "keep" else "remote")
         initial = state.read_bytes()
         fields = dict(line.split('\t', 1) for line in
@@ -268,7 +268,7 @@ def probe(args):
             selected=dict(line.split('=',1) for line in initial.decode().splitlines() if '=' in line)
             assert selected['update_key']==prior['update_key']
             assert selected['current_key']!=selected['update_key']
-            current=home/'.local/lib/codex/core/generations'/selected['current']
+            current=home/'.local/lib/codex/wrapper/generations'/selected['current']
             from release_preflight import parse_descriptor
             assert parse_descriptor(current/'generation.meta')['upstream_package_version']==installed
             result['localRefreshPreservedUpstreamAndPublicAuthority']=True
@@ -303,7 +303,7 @@ def probe(args):
                     if sum(url.endswith(('/update-index-v1', '/update-index-base-v1')) for url in transports) < 2:
                         continue
                 # Waiting must not retain the shared generation lease.
-                lease = os.open(home / '.local/lib/codex/core', os.O_RDONLY)
+                lease = os.open(home / '.local/lib/codex/wrapper', os.O_RDONLY)
                 try:
                     fcntl.flock(lease, fcntl.LOCK_EX | fcntl.LOCK_NB)
                     fcntl.flock(lease, fcntl.LOCK_UN)
@@ -348,7 +348,7 @@ def probe(args):
             selected = dict(line.split('=',1) for line in state.read_text().splitlines() if '=' in line)
             assert selected['current'] == next_identity, selected
             assert selected['previous'] == initial_current, selected
-            generation = home/'.local/lib/codex/core/generations'/next_identity
+            generation = home/'.local/lib/codex/wrapper/generations'/next_identity
             from release_preflight import parse_descriptor
             assert parse_descriptor(generation/'generation.meta')['upstream_package_version'] == latest
             assert (home/'.codex/config.toml').read_bytes() == config_before
@@ -429,8 +429,8 @@ def probe(args):
                 plain.write_text('Codex ' + installed + ' is already up to date.\n')
                 check = [sys.executable, str(SOURCE / '.github/scripts/check_update_display.py'),
                     '--plain', str(plain), '--actual', str(actual), '--component', str(root / 'component-input-v1'),
-                    '--current', str(home / '.local/lib/codex/core/generations/local-permission-fixture/release.manifest'),
-                    '--target', str(home / '.local/lib/codex/core/generations/local-permission-fixture/release.manifest'),
+                    '--current', str(home / '.local/lib/codex/wrapper/generations/local-permission-fixture/release.manifest'),
+                    '--target', str(home / '.local/lib/codex/wrapper/generations/local-permission-fixture/release.manifest'),
                     '--publication', str(root / 'core-publication.json')]
                 if (root / 'base-publication.json').exists():
                     check += ['--base-publication', str(root / 'base-publication.json')]

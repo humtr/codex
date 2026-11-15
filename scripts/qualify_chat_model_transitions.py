@@ -48,7 +48,7 @@ def probe(args):
                            env=env, cwd=root / 'w', check=True, capture_output=True)
         if args.without_manager:
             # Verified generated fixture copy only; never the installed Manager.
-            manager=home/'.local/lib/codex/core/generations/local-permission-fixture/manager'
+            manager=home/'.local/lib/codex/wrapper/generations/local-permission-fixture/manager'
             assert manager.is_file() and not manager.is_symlink()
             manager.unlink()
         env['XDG_CONFIG_HOME'] = str(root / 'config')
@@ -226,11 +226,11 @@ def probe(args):
         diagnostics=[]
         for proc in Path('/proc').glob('[0-9]*'):
             try:
-                if Path(os.readlink(proc/'exe'))!=home/'.local/lib/codex/core/generations/local-permission-fixture/helpers/2':
+                if Path(os.readlink(proc/'exe'))!=home/'.local/lib/codex/wrapper/generations/local-permission-fixture/helpers/2':
                     continue
                 values=dict(v.split(b'=',1) for v in (proc/'environ').read_bytes().split(b'\0') if b'=' in v)
                 diagnostics.append({k:values.get(k.encode(),b'').decode(errors='replace')
-                    for k in ['HOME','CODEX_HOME','CODEX_PROFILE_CORE','CODEX_TERMUX_BACKEND_STARTUP']})
+                    for k in ['HOME','CODEX_HOME','CODEX_PROFILE_WRAPPER','CODEX_TERMUX_BACKEND_STARTUP']})
             except (OSError,ValueError):pass
         (root/'safe-runtime.json').write_text(json.dumps(diagnostics,indent=2)+'\n')
         assert len(diagnostics)==1, 'the selected Core did not execute the qualified frontend; use --build-core or verify the artifact source'
@@ -308,7 +308,7 @@ def probe(args):
             print('Warm cross-provider saved-Chat resume and follow-up settled', flush=True)
         if args.cold_chat_resume:
             saved_turns = public(thread)['turns']
-            runtime = home / '.local/lib/codex/core/generations/local-permission-fixture/runtime'
+            runtime = home / '.local/lib/codex/wrapper/generations/local-permission-fixture/runtime'
             for socket in server_paths(home):
                 cold_stops.append(stop_owned_pid(int(socket.with_name('pid').read_text()), runtime))
             try:
@@ -438,7 +438,7 @@ def probe(args):
             process.wait(timeout=10)
             os.close(master)
             master = None
-            runtime = home / '.local/lib/codex/core/generations/local-permission-fixture/runtime'
+            runtime = home / '.local/lib/codex/wrapper/generations/local-permission-fixture/runtime'
             for path in server_paths(home):
                 cold_stops.append(stop_owned_pid(int(path.with_name('pid').read_text()), runtime))
             cold_args = dict(queue_args, text='OWNED_UNLOADED_NATIVE_QUEUE', call_id='owned-unloaded-queue',

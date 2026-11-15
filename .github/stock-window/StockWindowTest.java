@@ -30,7 +30,7 @@ public class StockWindowTest {
     int count(){return activity.getTermuxService().getTermuxSessionsSize();}
     int selected(){final int[] pid={-1};instrumentation.runOnMainSync(()->{if(activity.getCurrentSession()!=null)pid[0]=activity.getCurrentSession().getPid();});return pid[0];}
     int focus(String id) throws Exception {
-        ProcessBuilder builder=new ProcessBuilder(BASE+"/core","termux","__terminal-focus-v1",id);
+        ProcessBuilder builder=new ProcessBuilder(BASE+"/wrapper","termux","__terminal-focus-v1",id);
         builder.environment().put("HOME","/data/data/com.termux/files/home");
         builder.environment().put("PREFIX","/data/data/com.termux/files/usr");
         builder.environment().put("TMPDIR","/data/data/com.termux/files/usr/tmp");
@@ -40,7 +40,7 @@ public class StockWindowTest {
     }
     void launch(String id) {
         Intent intent=new Intent("com.termux.RUN_COMMAND").setClassName("com.termux","com.termux.app.RunCommandService");
-        intent.putExtra("com.termux.RUN_COMMAND_PATH",BASE+"/core");
+        intent.putExtra("com.termux.RUN_COMMAND_PATH",BASE+"/wrapper");
         intent.putExtra("com.termux.RUN_COMMAND_ARGUMENTS",new String[]{"launcher",id});
         intent.putExtra("com.termux.RUN_COMMAND_WORKDIR","/data/data/com.termux/files/home");
         intent.putExtra("com.termux.RUN_COMMAND_RUNNER","terminal-session");

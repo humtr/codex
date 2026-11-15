@@ -502,7 +502,7 @@ async fn synthetic_operator_service() {
     codex_chatgpt_provider::registration::prepare(
         &prepared_config,
         &root.join("provider-state"),
-        &root.join("h/.local/share/codex/core/config/profiles"),
+        &root.join("h/.local/share/codex/wrapper/config/profiles"),
         &root.join("h/.codex"),
         &root.join("fixture-auth"),
         &format!("http://127.0.0.1:{port}/v1"),

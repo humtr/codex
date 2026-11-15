@@ -54,7 +54,7 @@ class RuntimeInstallerContract(unittest.TestCase):
 
     def test_frontend_delegates_persistent_installation_to_existing_boundary(self) -> None:
         self.assertIn(
-            '"$bundle/install.sh" "$release_dir/core" "$release_dir" "$key"',
+            '"$bundle/install.sh" "$release_dir/wrapper" "$release_dir" "$key"',
             self.text,
         )
         for forbidden in [

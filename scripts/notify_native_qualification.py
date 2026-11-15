@@ -49,8 +49,8 @@ def bind(root, label="D3"):
              if r["payload"].get("turn_id") and (r["type"] in ("token_usage_record", "turn_context")
                  or r["type"] == "event_msg" and r["payload"].get("type") == "task_started")]
     assert turns, "current supervisor turn not observed"
-    binary = Path(os.environ["CODEX_PROFILE_CORE"]).resolve(strict=True)
-    keys = ("HOME", "CODEX_HOME", "CODEX_SQLITE_HOME", "CODEX_PROFILE_CORE", "PREFIX", "PATH", "TMPDIR", "LANG", "TERM")
+    binary = Path(os.environ["CODEX_PROFILE_WRAPPER"]).resolve(strict=True)
+    keys = ("HOME", "CODEX_HOME", "CODEX_SQLITE_HOME", "CODEX_PROFILE_WRAPPER", "PREFIX", "PATH", "TMPDIR", "LANG", "TERM")
     value = {"label": label, "thread_id": thread, "rollout": str(paths[0]), "source_turn": turns[-1], "rollout_offset": paths[0].stat().st_size,
              "core": str(binary), "core_sha256": sha(binary),
              "environment": {k: os.environ[k] for k in keys if k in os.environ}, "bound_UTC": stamp()}

@@ -92,21 +92,21 @@ def qualify(core, generation, parent, mode, prepare_preview=None, public_key=Non
         # their source policy/revision; retained binary policies name it separately.
         assert (fields["patch_policy_id"] == "termux-source-v1"
                 or ";permission_policy=" in fields["patch_report"])
-        runtime = home / ".local/lib/codex/core/generations" / identity
+        runtime = home / ".local/lib/codex/wrapper/generations" / identity
         if not private_base:
             materialize_signed_generation(generation, runtime)
         for directory in [prefix / "bin", prefix / "etc/tls", home / ".codex",
-                          home / ".local/share/codex/core/config"]:
+                          home / ".local/share/codex/wrapper/config"]:
             directory.mkdir(parents=True, exist_ok=True, mode=0o700)
         shutil.copy2(core, prefix / "bin/codex")
         (prefix / "etc/resolv.conf").write_text("nameserver 127.0.0.1\n")
         (prefix / "etc/tls/cert.pem").write_text("fixture\n")
-        (home / ".local/share/codex/core/activation-state").write_text(
+        (home / ".local/share/codex/wrapper/activation-state").write_text(
             f"format=codex-activation-state-v3\nupdate_key={'11' * 32}\n"
             f"current={identity}\ncurrent_key={'11' * 32}\n"
             "previous_present=0\nprevious=\nprevious_key=\n")
         if public_key is not None:
-            (home / ".local/share/codex/core/activation-state").write_text(
+            (home / ".local/share/codex/wrapper/activation-state").write_text(
                 fixture_activation_state(identity, public_key))
             if not private_base:
                 os.symlink(shutil.which("openssl"), prefix / "bin/openssl")
@@ -223,7 +223,7 @@ requires_openai_auth = false
                 boot += drain(.5)
             assert "Sign in with ChatGPT" not in boot, "unexpected auth onboarding"
             if mode != "embedded":
-                servers = home / ".local/share/codex/core/servers"
+                servers = home / ".local/share/codex/wrapper/servers"
                 records = list(servers.glob("*/pid"))
                 assert len(records) == 1, "missing or duplicate Core server"
                 pid = int(records[0].read_text())
@@ -276,7 +276,7 @@ requires_openai_auth = false
                   flush=True)
         finally:
             # Discover every own server even if initialization failed before binding.
-            for record in (home / ".local/share/codex/core/servers").glob("*/pid"):
+            for record in (home / ".local/share/codex/wrapper/servers").glob("*/pid"):
                 pid = int(record.read_text())
                 try:
                     if Path(f"/proc/{pid}/exe").resolve() != runtime / "runtime":

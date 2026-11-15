@@ -134,7 +134,7 @@ def probe(args):
         output.close()
         for socket in server_paths(home):
             stop_owned_pid(int(socket.with_name('pid').read_text()),
-                           home / '.local/lib/codex/core/generations/local-permission-fixture/runtime')
+                           home / '.local/lib/codex/wrapper/generations/local-permission-fixture/runtime')
 
 
 if __name__ == '__main__':

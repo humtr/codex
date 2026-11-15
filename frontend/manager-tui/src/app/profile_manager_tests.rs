@@ -292,7 +292,7 @@ async fn profile_manager_bridge_rejects_the_hosted_nonowner_fixture() {
 
 #[tokio::test]
 async fn profile_manager_unavailable_bridge_resumes_follow_up_after_a_queued_picker() {
-    assert_eq!(std::env::var_os("CODEX_PROFILE_CORE"), Some("".into()));
+    assert_eq!(std::env::var_os("CODEX_PROFILE_WRAPPER"), Some("".into()));
     let (mut app, mut events, mut ops) = super::super::tests::make_test_app_with_channels().await;
     let thread = codex_protocol::ThreadId::new();
     let cwd = app.config.cwd.to_path_buf();
@@ -365,7 +365,7 @@ fn profile_manager_reentry_preserves_typed_exit_and_exact_profile_thread_argv() 
 
 #[tokio::test]
 async fn profile_manager_reentry_rejects_busy_queued_side_and_unavailable_without_work() {
-    assert_eq!(std::env::var_os("CODEX_PROFILE_CORE"), Some("".into()));
+    assert_eq!(std::env::var_os("CODEX_PROFILE_WRAPPER"), Some("".into()));
     let (fixture, _events, _ops) = super::super::tests::make_test_app_with_channels().await;
     let (mut server, _, proxy) =
         super::super::tests::session_lifecycle_requests::start_recording_app_server(

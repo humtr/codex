@@ -22,7 +22,7 @@ class BaseQualificationTests(unittest.TestCase):
 
     def fixture(self, root):
         (root / 'helpers').mkdir()
-        assets = {'core': b'core', 'runtime': b'runtime',
+        assets = {'wrapper': b'wrapper', 'runtime': b'runtime',
                   'codex-code-mode-host': b'host', 'helpers/0': b'open', 'helpers/1': b'manual'}
         hashes = {}
         for name, data in assets.items():
@@ -37,8 +37,8 @@ class BaseQualificationTests(unittest.TestCase):
             'expected_platform': 'android', 'expected_architecture': 'aarch64',
             'patch_policy_id': 'termux-fd-remap-v4',
             'patch_report': 'termux-fd-remap-v4;code_mode_host_sha256=' + hashes['codex-code-mode-host'],
-            'runtime_digest': hashes['runtime'], 'core_artifact_digest': hashes['core'],
-            'manager_artifact_digest': '-', 'core_api_identity': 'core-api-v1',
+            'runtime_digest': hashes['runtime'], 'wrapper_artifact_digest': hashes['wrapper'],
+            'manager_artifact_digest': '-', 'wrapper_api_identity': 'wrapper-api-v1',
             'persistent_schema_identity': 'schema-v1', 'qualification': 'qualified',
             'creation_metadata': preflight.R10_METADATA, 'upstream_doctor': 'unsupported',
             'helper_count': '2',
@@ -56,11 +56,11 @@ class BaseQualificationTests(unittest.TestCase):
                 preflight.verify_qualified_candidate(root, '0.161.0')
 
     def test_base_refuses_changed_missing_extended_and_symlinked_assets(self):
-        for fault in ('core', 'runtime', 'codex-code-mode-host', 'helpers/0', 'helpers/1',
+        for fault in ('wrapper', 'runtime', 'codex-code-mode-host', 'helpers/0', 'helpers/1',
                       'missing', 'symlink', 'extra', 'manager', 'deferred', 'mode', 'declaration'):
             with self.subTest(fault=fault), tempfile.TemporaryDirectory() as tmp:
                 root = Path(tmp);self.fixture(root)
-                if fault in ('core','runtime','codex-code-mode-host','helpers/0','helpers/1'):
+                if fault in ('wrapper','runtime','codex-code-mode-host','helpers/0','helpers/1'):
                     (root / fault).write_bytes(b'changed')
                 elif fault == 'missing':(root / 'helpers/1').unlink()
                 elif fault == 'symlink':

@@ -312,9 +312,9 @@ fn verify_guard_binding(
         || held_release.release_sequence != guard.held_release_sequence
         || held_release.release_sequence <= target_release.release_sequence
         || held_loaded.core_path.is_none()
-        || target_release.core_api_identity != held_release.core_api_identity
+        || target_release.wrapper_api_identity != held_release.wrapper_api_identity
         || target_release.persistent_schema_identity != held_release.persistent_schema_identity
-        || held_loaded.manifest.core_artifact_digest != guard.held_core_sha256
+        || held_loaded.manifest.wrapper_artifact_digest != guard.held_core_sha256
     {
         return Err(LocalProductError::UpdateHold(
             "rollback Core guard failed signed generation binding",
@@ -524,9 +524,9 @@ pub(super) fn guard_record_for_rollback(
         || target_loaded.generation_id != after.current
         || current_loaded.core_path.is_none()
         || current_release.release_sequence <= target_release.release_sequence
-        || current_release.core_api_identity != target_release.core_api_identity
+        || current_release.wrapper_api_identity != target_release.wrapper_api_identity
         || current_release.persistent_schema_identity != target_release.persistent_schema_identity
-        || !valid_sha256_hex(&current_loaded.manifest.core_artifact_digest)
+        || !valid_sha256_hex(&current_loaded.manifest.wrapper_artifact_digest)
     {
         return Err(LocalProductError::UpdateHold(
             "rollback Core guard cannot bind the authenticated rollback pair",
@@ -536,7 +536,7 @@ pub(super) fn guard_record_for_rollback(
         target_generation_id: after.current.clone(),
         held_generation_id: before.current.clone(),
         held_release_sequence: current_release.release_sequence,
-        held_core_sha256: current_loaded.manifest.core_artifact_digest.clone(),
+        held_core_sha256: current_loaded.manifest.wrapper_artifact_digest.clone(),
     })
 }
 
@@ -551,7 +551,7 @@ fn guarded_core_binding_for_state(
     };
     let (_, target_loaded, _, held_loaded) = verify_guard_binding(roots, state, &guard)?;
     if active_loaded.generation_id != target_loaded.generation_id
-        || held_loaded.manifest.core_artifact_digest != observed_core_digest
+        || held_loaded.manifest.wrapper_artifact_digest != observed_core_digest
     {
         return Err(LocalProductError::UpdateHold(
             "rollback Core guard failed stable Core provenance binding",

@@ -165,7 +165,7 @@ class PublicTransportTests(unittest.TestCase):
                         release = root / 'site' / generation
                         self.assertTrue((release / 'helpers/0').is_file())
                         self.assertEqual((release / 'helpers/2').is_file(), frontend)
-                        self.assertEqual((release / 'core').stat().st_mode & 0o7777, 0o755)
+                        self.assertEqual((release / 'wrapper').stat().st_mode & 0o7777, 0o755)
                     self.assertEqual({path.name for path in (root / 'site').iterdir()}, {fixtures.GENERATION, CANDIDATE})
                     self.assertIn('current_generation=' + fixtures.GENERATION, result.stdout)
 
@@ -195,7 +195,7 @@ class PublicTransportTests(unittest.TestCase):
                 if fault is None:
                     self.assertEqual((destination / CANDIDATE / 'helpers/2').exists(), frontend)
                 if fault == 'signature':
-                    self.assertFalse((destination / CANDIDATE / 'core').exists())
+                    self.assertFalse((destination / CANDIDATE / 'wrapper').exists())
 
     def test_mapped_readback_uses_github_and_checks_signed_inventory(self):
         block = AUTO.read_text().split('          fetch_generation() {', 1)[1].split('          current_index=', 1)[0]
@@ -242,7 +242,7 @@ class PublicTransportTests(unittest.TestCase):
                     self.assertIn(prior+'helper-0', requests)
                     self.assertEqual((destination/generation/'helpers/0').read_bytes(), (assets/'helper-0').read_bytes())
                 if fault in ('map-digest', 'traversal', 'signature'):
-                    self.assertFalse((destination/generation/'core').exists())
+                    self.assertFalse((destination/generation/'wrapper').exists())
 
 
 if __name__ == '__main__':

@@ -131,7 +131,7 @@ pub(super) async fn open(app: &mut App) {
     if super::quota_switch::open(app, false).await {
         return;
     }
-    let core = std::env::var_os("CODEX_PROFILE_CORE");
+    let core = std::env::var_os("CODEX_PROFILE_WRAPPER");
     let view = match core.as_deref() {
         Some(core) => load(Path::new(core)).await,
         None => None,
@@ -221,7 +221,7 @@ pub(super) async fn prepare(
         );
         return None;
     };
-    let core = std::env::var_os("CODEX_PROFILE_CORE")
+    let core = std::env::var_os("CODEX_PROFILE_WRAPPER")
         .map(PathBuf::from)
         .unwrap_or_default();
     let view = load(&core).await;

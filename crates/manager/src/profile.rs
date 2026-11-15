@@ -337,7 +337,7 @@ fn owned_account_path(path: &Path, home: &Path) -> bool {
 }
 
 fn runtime_in_use(context: &Context, home: &Path) -> Result<bool, ManagerError> {
-    let generations = context.home.join(".local/lib/codex/core/generations");
+    let generations = context.home.join(".local/lib/codex/wrapper/generations");
     for (count, entry) in fs::read_dir("/proc").map_err(|_| ERR_BUSY)?.enumerate() {
         if count >= 32768 {
             return Err(ERR_BUSY);
@@ -364,14 +364,14 @@ fn runtime_in_use(context: &Context, home: &Path) -> Result<bool, ManagerError> 
         let executable = PathBuf::from(OsString::from_vec(
             bytes.strip_suffix(b" (deleted)").unwrap_or(bytes).to_vec(),
         ));
-        let native_runtime = executable.file_name() == Some(OsStr::new("runtime"))
-            && executable.parent().and_then(Path::parent) == Some(generations.as_path());
+        let native_runtime =
+            codex_runtime_binding::is_generation_runtime_program(&generations, &executable);
         if !native_runtime
             && executable != context.core_entrypoint
             && executable
                 != context
                     .home
-                    .join(".local/share/codex/core/core-entrypoint-rollback")
+                    .join(".local/share/codex/wrapper/wrapper-entrypoint-rollback")
         {
             continue;
         }

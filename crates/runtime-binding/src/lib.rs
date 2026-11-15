@@ -74,6 +74,43 @@ pub fn configuration_owner_bytes(
     bytes
 }
 
+/// Returns whether `program` is a direct generation runtime executable (`<id>/runtime`
+/// for legacy/v2 layouts or `<id>/bin/codex` for PackageRootV3).
+pub fn is_generation_runtime_program(generations: &Path, program: &Path) -> bool {
+    if !program.is_absolute() {
+        return false;
+    }
+    let Ok(relative) = program.strip_prefix(generations) else {
+        return false;
+    };
+    let mut parts = relative.components();
+    let Some(std::path::Component::Normal(generation)) = parts.next() else {
+        return false;
+    };
+    if generation.is_empty() {
+        return false;
+    }
+    match (parts.next(), parts.next(), parts.next()) {
+        (Some(std::path::Component::Normal(file)), None, None) => file == OsStr::new("runtime"),
+        (
+            Some(std::path::Component::Normal(dir)),
+            Some(std::path::Component::Normal(file)),
+            None,
+        ) => dir == OsStr::new("bin") && file == OsStr::new("codex"),
+        _ => false,
+    }
+}
+
+/// Returns whether an unprefixed historical binding executable path names a native runtime binary.
+pub fn is_historical_runtime_program(program: &Path) -> bool {
+    if !program.is_absolute() {
+        return false;
+    }
+    program.file_name() == Some(OsStr::new("runtime"))
+        || (program.file_name() == Some(OsStr::new("codex"))
+            && program.parent().and_then(Path::file_name) == Some(OsStr::new("bin")))
+}
+
 /// Only standard configuration arguments can precede the fixed app-server command.
 /// Their values remain opaque; upstream owns TOML/profile interpretation and policy.
 pub fn encode_invocation(args: &[OsString]) -> io::Result<Option<Vec<u8>>> {
@@ -414,6 +451,28 @@ mod tests {
                 }
             })
             .is_err());
+        }
+        let generations = Path::new("/owned/.local/lib/codex/wrapper/generations");
+        assert!(is_generation_runtime_program(
+            generations,
+            Path::new("/owned/.local/lib/codex/wrapper/generations/g1/runtime")
+        ));
+        assert!(is_generation_runtime_program(
+            generations,
+            Path::new("/owned/.local/lib/codex/wrapper/generations/g1/bin/codex")
+        ));
+        for bad_program in [
+            "generations/g1/runtime",
+            "/owned/.local/lib/codex/wrapper/generations/runtime",
+            "/owned/.local/lib/codex/wrapper/generations/bin/codex",
+            "/owned/.local/lib/codex/wrapper/generations/g1/a/runtime",
+            "/owned/.local/lib/codex/wrapper/generations/g1/a/bin/codex",
+            "/owned/.local/lib/codex/wrapper/generations/g1/bin/other",
+        ] {
+            assert!(!is_generation_runtime_program(
+                generations,
+                Path::new(bad_program)
+            ));
         }
     }
 }

@@ -182,7 +182,7 @@ pub(super) fn launch(
         command
             .args(native_args(&startup.socket, original)?)
             .env("CODEX_HOME", profile)
-            .env("CODEX_PROFILE_CORE", core)
+            .env("CODEX_PROFILE_WRAPPER", core)
             .env_remove(STARTUP_ENV);
         if startup.resolved {
             command.env(STARTUP_ENV, "resolved-v1");
@@ -223,9 +223,9 @@ mod tests {
                 digest: "owned".into(),
             })
             .into(),
-            core_artifact_digest: "owned".into(),
+            wrapper_artifact_digest: "owned".into(),
             manager_artifact_digest: Some("owned".into()),
-            core_api_identity: "owned".into(),
+            wrapper_api_identity: "owned".into(),
             persistent_schema_identity: "owned".into(),
             creation_metadata: "owned".into(),
         }

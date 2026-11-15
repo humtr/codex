@@ -78,7 +78,7 @@ pub(crate) async fn reenter_owner(
     else {
         return Ok(());
     };
-    let core = std::env::var_os("CODEX_PROFILE_CORE")
+    let core = std::env::var_os("CODEX_PROFILE_WRAPPER")
         .map(std::path::PathBuf::from)
         .ok_or_else(|| std::io::Error::other("qualified Core is unavailable"))?;
     let owner = read_owner(&core, thread)
@@ -125,7 +125,7 @@ pub(crate) async fn bind(
     if crate::termux_permissions::enabled()
         && matches!(target, crate::AppServerTarget::LocalDaemon { .. })
     {
-        let core = std::env::var_os("CODEX_PROFILE_CORE")
+        let core = std::env::var_os("CODEX_PROFILE_WRAPPER")
             .map(std::path::PathBuf::from)
             .ok_or_else(|| color_eyre::eyre::eyre!("qualified Core is unavailable"))?;
         let owner = match thread {

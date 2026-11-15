@@ -214,7 +214,7 @@ def qualify(args):
                         os.killpg(child.pid, signal.SIGKILL)
                         child.wait()
                 os.close(master)
-                runtime = home / '.local/lib/codex/core/generations/local-permission-fixture/runtime'
+                runtime = home / '.local/lib/codex/wrapper/generations/local-permission-fixture/runtime'
                 result['native_stops'] = [
                     stop_owned_pid(int(path.with_name('pid').read_text()), runtime)
                     for path in server_paths(home)

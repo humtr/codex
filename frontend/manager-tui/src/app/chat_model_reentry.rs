@@ -283,7 +283,7 @@ fn reentry_request(
     effort: &ReasoningEffort,
     restore_saved: bool,
 ) -> Option<ChatModelReentry> {
-    let core = PathBuf::from(std::env::var_os("CODEX_PROFILE_CORE").unwrap_or_default());
+    let core = PathBuf::from(std::env::var_os("CODEX_PROFILE_WRAPPER").unwrap_or_default());
     if !std::fs::symlink_metadata(&core).is_ok_and(|m| {
         core.is_absolute()
             && m.is_file()
@@ -808,7 +808,7 @@ args=["token","--state","/owned/state"]
     #[tokio::test]
     async fn termux_chat_models_provider_reentry_refuses_busy_queued_side_draft_and_pending_tools()
     {
-        assert_eq!(std::env::var_os("CODEX_PROFILE_CORE"), Some("".into()));
+        assert_eq!(std::env::var_os("CODEX_PROFILE_WRAPPER"), Some("".into()));
         let (fixture, _events, _ops) = super::super::tests::make_test_app_with_channels().await;
         let (mut server, _, proxy) =
             super::super::tests::session_lifecycle_requests::start_recording_app_server(

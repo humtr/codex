@@ -14,12 +14,12 @@ SEQUENCE = "11"
 BASE = f"https://humtr.github.io/codex/{GENERATION}/"
 FILES = [
     ("codex-code-mode-host", 0o755),
-    ("core", 0o755),
     ("generation.meta", 0o644),
     ("helpers/0", 0o755),
     ("helpers/1", 0o755),
     ("manager", 0o755),
     ("runtime", 0o755),
+    ("wrapper", 0o755),
 ]
 
 
@@ -67,7 +67,7 @@ class ReleasePublicationTests(unittest.TestCase):
         self.assertTrue(any('Release date: 2026-11-03 (UTC)' in text for text in detailed))
         self.assertTrue(all('changes:' not in text and 'Full notes:' not in text for text in unchanged))
         self.assertTrue(any('Manager change.' in text for text in outputs(details=True, prior_notes=True)))
-        for path, section in [('core', 'Core'), ('runtime', 'Core'), ('manager', 'Manager'), ('helpers/2', 'TUI')]:
+        for path, section in [('wrapper', 'Core'), ('runtime', 'Core'), ('manager', 'Manager'), ('helpers/2', 'TUI')]:
             rows = current.read_text().splitlines()
             rows = ['\t'.join([*row.split('\t')[:2], 'b' * 64, row.split('\t')[3]])
                     if row.startswith('file\t' + path + '\t') else row for row in rows]
@@ -106,9 +106,9 @@ class ReleasePublicationTests(unittest.TestCase):
                 'upstream_package_identity\t'+PACKAGE_IDENTITY, 'upstream_package_version\t0.155.0',
                 'source_artifact_digest\t'+'b'*64, 'expected_platform\tandroid', 'expected_architecture\taarch64',
                 'patch_policy_id\ttermux-fd-remap-v1', 'patch_report\tfixture',
-                'runtime_digest\t'+sha256(release/'runtime'), 'core_artifact_digest\t'+sha256(release/'core'),
+                'runtime_digest\t'+sha256(release/'runtime'), 'wrapper_artifact_digest\t'+sha256(release/'wrapper'),
                 'manager_artifact_digest\t'+sha256(release/'manager'),
-                'core_api_identity\tcore-api-v1', 'persistent_schema_identity\tschema-v1',
+                'wrapper_api_identity\twrapper-api-v1', 'persistent_schema_identity\tschema-v1',
                 'qualification\tqualified', 'creation_metadata\tr10-browser-helper-bridge-v1',
                 'upstream_doctor\tunsupported', 'helper_count\t'+str(3 if frontend else 2),
                 'helper\ttermux-browser-open-v1\t'+sha256(release/'helpers/0'),
@@ -126,7 +126,7 @@ class ReleasePublicationTests(unittest.TestCase):
             "channel\tstable",
             "expected_platform\tandroid",
             "expected_architecture\taarch64",
-            "core_api_identity\tcore-api-v1",
+            "wrapper_api_identity\twrapper-api-v1",
             "persistent_schema_identity\tschema-v1",
             f"release_public_key\t{raw_key}",
             f"file_count\t{len(files)}",
@@ -228,7 +228,7 @@ class ReleasePublicationTests(unittest.TestCase):
                     elif fault == "extra":
                         (assets / "helper-3").write_bytes(b"extra")
                     elif fault == "symlink":
-                        helper.unlink(); helper.symlink_to(assets / "core")
+                        helper.unlink(); helper.symlink_to(assets / "wrapper")
                     elif fault == "manifest":
                         path = assets / "release.manifest"
                         path.write_text(path.read_text().replace("helpers/1", "helpers/9"))
@@ -314,7 +314,6 @@ class ReleasePublicationTests(unittest.TestCase):
                 "candidate-update-index-v1",
                 "candidate-update-index-v1.sig",
                 "codex-code-mode-host",
-                "core",
                 "download-size-v1",
                 "download-size-v1.sig",
                 "generation.meta",
@@ -325,6 +324,7 @@ class ReleasePublicationTests(unittest.TestCase):
                 "release.sig",
                 "runtime",
                 "update-public-key.pem",
+                "wrapper",
             },
         )
         self.assertEqual((output / "helper-0").read_bytes(), (self.signed / "releases" / GENERATION / "helpers/0").read_bytes())

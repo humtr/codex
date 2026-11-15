@@ -27,12 +27,12 @@ def qualify(generation, parent, public_key):
         fields = parse_descriptor(generation / "generation.meta")
         identity = fields["generation_id"]
         expected_version = f"codex-cli {fields['upstream_package_version']}\n".encode()
-        native = home / ".local/lib/codex/core/generations" / identity
+        native = home / ".local/lib/codex/wrapper/generations" / identity
         materialize_signed_generation(generation, native)
-        for path in [home / ".codex", home / ".local/share/codex/core/config", prefix / "bin", prefix / "etc/tls"]:
+        for path in [home / ".codex", home / ".local/share/codex/wrapper/config", prefix / "bin", prefix / "etc/tls"]:
             path.mkdir(parents=True, exist_ok=True, mode=0o700)
         core = prefix / "bin/codex"
-        shutil.copy2(generation / "core", core)
+        shutil.copy2(generation / "wrapper", core)
         # Signed-generation admission uses the fixture PREFIX, not host PATH.
         # Provision the actual verifier without importing host credentials/state.
         openssl = shutil.which("openssl")
@@ -40,7 +40,7 @@ def qualify(generation, parent, public_key):
         (prefix / "bin/openssl").symlink_to(openssl)
         (prefix / "etc/resolv.conf").write_text("nameserver 127.0.0.1\n")
         (prefix / "etc/tls/cert.pem").write_text("owned\n")
-        (home / ".local/share/codex/core/activation-state").write_text(fixture_activation_state(identity, public_key))
+        (home / ".local/share/codex/wrapper/activation-state").write_text(fixture_activation_state(identity, public_key))
         real = Path(shutil.which("python3")).parent
         env = {"HOME": str(home), "PREFIX": str(prefix), "TMPDIR": str(parent), "PATH": f"{prefix / 'bin'}:{real}", "TERM": "xterm-256color", "SSL_CERT_FILE": str(real.parent / "etc/tls/cert.pem")}
         config = '''model = "owned-model"
@@ -55,7 +55,7 @@ wire_api = "responses"
 requires_openai_auth = false
 '''
         (home / ".codex/config.toml").write_text(config)
-        registry = home / ".local/share/codex/core/config/profiles"
+        registry = home / ".local/share/codex/wrapper/config/profiles"
         registry.mkdir(mode=0o700)
         shared_profile = registry / "shared-proof.config.toml"
         shared_profile.write_text('model = "owned-model"\n')
@@ -65,7 +65,7 @@ requires_openai_auth = false
         leased_homes = {home / ".codex"}
 
         def server_directories():
-            state = home / ".local/share/codex/core"
+            state = home / ".local/share/codex/wrapper"
             return [path for family in ["servers", "catalogs"]
                     for path in (state / family).glob("*")]
 

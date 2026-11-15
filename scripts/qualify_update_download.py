@@ -33,7 +33,7 @@ def qualify(args):
         home, prefix, env = fixture(root, args.core, None, generation=args.generation)
         shutil.copy2(shutil.which('curl'), prefix / 'bin/curl')
         (prefix / 'etc/tls/certs').mkdir()
-        initial = home / '.local/lib/codex/core/generations/local-permission-fixture'
+        initial = home / '.local/lib/codex/wrapper/generations/local-permission-fixture'
         candidate = root / 'download-next'
         shutil.copytree(initial, candidate)
         descriptor = candidate / 'generation.meta'
@@ -100,7 +100,7 @@ def qualify(args):
         thread = threading.Thread(target=origin.serve_forever, daemon=True)
         thread.start()
         base = f'https://127.0.0.1:{origin.server_port}/download-next/'
-        state = home/'.local/share/codex/core/activation-state'
+        state = home/'.local/share/codex/wrapper/activation-state'
         before = state.read_bytes()
         protected = {str(path): path.read_bytes() for path in [home/'.codex/config.toml', home/'.codex/auth.json', prefix/'etc/resolv.conf']}
 
@@ -129,7 +129,7 @@ def qualify(args):
         assert first.returncode == 1 and b'remote release transport failed' in first.stderr.lower(), first.stderr
         assert state.read_bytes() == before and not list(initial.parent.glob('.acquire-*'))
         runtime_line = next(line.split('\t') for line in original.splitlines() if line.startswith('file\truntime\t'))
-        part = home/'.local/share/codex/core/downloads-v1'/ (runtime_line[2]+'.part')
+        part = home/'.local/share/codex/wrapper/downloads-v1'/ (runtime_line[2]+'.part')
         assert part.stat().st_size == 1024*1024
         prior_records = len(records)
         second = run('resumed', ['update', '--remote', base])

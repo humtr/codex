@@ -1,7 +1,7 @@
 //! Observe Core-published Native processes and kernel writer ownership.
 //! No account selection, Native execution, approval or history mutation.
 use crate::{Binding, FAMILIES};
-use std::ffi::{OsStr, OsString};
+use std::ffi::OsString;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read};
 use std::os::fd::{AsRawFd, FromRawFd};
@@ -185,7 +185,7 @@ fn server_family(
     family: &str,
     deadline: Instant,
 ) -> Result<Vec<Server>, io::Error> {
-    let root = home_root.join(".local/share/codex/core").join(family);
+    let root = home_root.join(".local/share/codex/wrapper").join(family);
     if inspect_path(&root)? == PathPresence::Missing {
         return Ok(Vec::new());
     }
@@ -228,10 +228,8 @@ fn server_family(
             bounded_record(path, limit).map_err(|_| io::Error::other("unsafe execution record"))
         })
         .map_err(|_| invalid())?;
-        let generations = home_root.join(".local/lib/codex/core/generations");
-        if program.file_name() != Some(OsStr::new("runtime"))
-            || program.parent().and_then(Path::parent) != Some(generations.as_path())
-        {
+        let generations = home_root.join(".local/lib/codex/wrapper/generations");
+        if !crate::is_generation_runtime_program(&generations, &program) {
             return Err(invalid());
         }
         match fs::read_link(format!("/proc/{pid}/exe")) {

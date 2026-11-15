@@ -383,7 +383,7 @@ class ReleaseControlTests(unittest.TestCase):
             self.assertEqual(control.release_lane(source,'b'*40,'c'*40,'d'*40),'full')
         with patch.object(control,'base_fingerprint',side_effect=['a'*64,'e'*64]), \
              patch.object(control,'verified_published_base') as verify, \
-             patch.object(control.subprocess,'check_output',return_value='crates/core/src/main.rs\n'):
+             patch.object(control.subprocess,'check_output',return_value='crates/wrapper/src/main.rs\n'):
             self.assertEqual(control.release_lane(source,'b'*40,'c'*40,'d'*40),'both')
             verify.assert_not_called()
         with patch.object(control,'base_fingerprint',return_value='a'*64), \

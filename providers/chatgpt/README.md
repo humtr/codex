@@ -911,7 +911,7 @@ Core/account/workspace/state; inherited interactive account/profile switches do
 not retarget them. No credential value is stored in a run script. The tunnel
 profile retains its existing credential file reference. Shared private
 `runit/environment` supplies `CODEX_SERVICE_HOME`, `CODEX_SERVICE_PREFIX`,
-`CODEX_SERVICE_CORE`, `CODEX_PROVIDER_STATE`, `CODEX_PROVIDER_BIN`,
+`CODEX_SERVICE_WRAPPER`, `CODEX_PROVIDER_STATE`, `CODEX_PROVIDER_BIN`,
 `TUNNEL_CLIENT_BIN`, `TUNNEL_PROFILE_DIR` and `TUNNEL_PROFILE_NAME`. The observer and stdio wrapper
 uses an explicitly selected admitted immutable Provider image, avoiding repeated
 Core activation-lock contention; rebind it during deliberate package/service

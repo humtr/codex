@@ -23,7 +23,7 @@ pub fn binary_adaptation_available(version: &str) -> bool {
     runtime_patch::required(version).is_ok()
 }
 const ENTRY_MAX_BYTES: u64 = 384 * 1024 * 1024;
-const PAYLOAD_MAX_BYTES: u64 = 512 * 1024 * 1024;
+const PAYLOAD_MAX_BYTES: u64 = 768 * 1024 * 1024;
 const CORE_ARTIFACT_MAX_BYTES: u64 = 64 * 1024 * 1024;
 const MANAGER_ARTIFACT_MAX_BYTES: u64 = 64 * 1024 * 1024;
 const MANAGER_ARTIFACT_PROBE_OUTPUT_MAX_BYTES: usize = 512;
@@ -31,7 +31,7 @@ const MANAGER_ARTIFACT_PROBE_TIMEOUT_SECONDS: u64 = 5;
 const MANAGER_ARTIFACT_PROBE_ARGUMENT: &str = "--artifact-probe";
 const MANAGER_ARTIFACT_PROBE_ENV: &str = "CODEX_MANAGER_ARTIFACT_PROBE";
 const MANAGER_ARTIFACT_PROBE_OUTPUT: &[u8] =
-    b"codex-manager-artifact-v1\ncore_api=codex-manager-core-v1\n";
+    b"codex-manager-artifact-v1\nwrapper_api=codex-manager-wrapper-v1\n";
 const MANAGER_ARTIFACT_DEFERRED_MARKER: &str = ".manager-probe-deferred";
 const MANAGER_ARTIFACT_DEFERRED_MARKER_BYTES: &[u8] = b"codex-manager-probe-deferred-v1\n";
 const PATH_MAX_BYTES: usize = 256;
@@ -43,9 +43,21 @@ const GENERATION_ID_MAX_BYTES: usize = 512;
 const TEXT_VALUE_MAX_BYTES: usize = 512;
 const TAR_BLOCK_BYTES: usize = 512;
 const GENERATION_FORMAT: &str = "codex-local-generation-v2";
+const GENERATION_FORMAT_V3: &str = "codex-local-generation-v3";
+const TERMUX_RG_WRAPPER_SCRIPT: &[u8] = b"#!/system/bin/sh\nif [ -n \"${PREFIX:-}\" ] && [ -x \"${PREFIX}/bin/rg\" ]; then\n  exec \"${PREFIX}/bin/rg\" \"$@\"\nfi\nexec /data/data/com.termux/files/usr/bin/rg \"$@\"\n";
+
+fn generation_format_for_version(version: &str) -> &'static str {
+    if runtime_patch::required(version)
+        .is_ok_and(|opt| opt.is_some_and(|p| p.id == runtime_patch::ADAPTIVE_POLICY))
+    {
+        GENERATION_FORMAT_V3
+    } else {
+        GENERATION_FORMAT
+    }
+}
 const RELEASE_FORMAT_V3: &str = "codex-release-v3";
 const RELEASE_FORMAT_V4: &str = "codex-release-v4";
-const CORE_API_IDENTITY: &str = "core-api-v1";
+const CORE_API_IDENTITY: &str = "wrapper-api-v1";
 const PERSISTENT_SCHEMA_IDENTITY: &str = "schema-v1";
 const PACKAGE_IDENTITY: &str = "openai/codex:codex-package-aarch64-unknown-linux-musl.tar.gz";
 const OFFICIAL_RELEASE_BASE: &str = "https://releases.openai.com/codex/releases";
@@ -1068,7 +1080,7 @@ fn openssl_sha256(openssl: &Path, file: &Path) -> Result<String, BuilderError> {
 
 #[derive(Debug)]
 struct PublishFile {
-    relative_path: &'static str,
+    relative_path: String,
     snapshot_path: PathBuf,
     sha256: String,
     mode: u32,
@@ -1080,6 +1092,7 @@ struct PublishGeneration {
     generation_id: String,
     files: Vec<PublishFile>,
     r10_bridge: bool,
+    v3_package: bool,
 }
 
 fn validate_publish_file_mode(
@@ -1202,7 +1215,169 @@ fn validate_publish_numbered_helper_layout(
     Ok(())
 }
 
-fn validate_publish_generation_layout(root: &Path, r10_bridge: bool) -> Result<(), BuilderError> {
+fn create_dir_mode(path: &Path, mode: u32, operation: &'static str) -> Result<(), BuilderError> {
+    let mut builder = std::fs::DirBuilder::new();
+    builder.mode(mode);
+    builder
+        .create(path)
+        .map_err(|source| io_error(operation, source))
+}
+
+fn ensure_dir_chain_0755(root: &Path, relative_dir: &str) -> Result<(), BuilderError> {
+    let mut current = root.to_path_buf();
+    for component in relative_dir.split('/').filter(|part| !part.is_empty()) {
+        current.push(component);
+        match std::fs::symlink_metadata(&current) {
+            Ok(meta) => {
+                if !meta.file_type().is_dir() {
+                    return Err(BuilderError::Invalid(
+                        "publication generation parent component is not a real directory",
+                    ));
+                }
+            }
+            Err(err) if err.kind() == io::ErrorKind::NotFound => {
+                create_dir_mode(&current, 0o755, "create generation subdirectory")?;
+            }
+            Err(source) => return Err(io_error("inspect generation subdirectory", source)),
+        }
+    }
+    Ok(())
+}
+
+fn collect_v3_tree_files(
+    base_root: &Path,
+    subdir: &str,
+    depth: usize,
+    out: &mut Vec<(String, u64, bool)>,
+) -> Result<(), BuilderError> {
+    if depth > 8 {
+        return Err(BuilderError::Invalid(
+            "v3 package directory nesting exceeds maximum depth",
+        ));
+    }
+    let dir_path = base_root.join(subdir);
+    let metadata = std::fs::symlink_metadata(&dir_path)
+        .map_err(|source| io_error("inspect v3 package directory", source))?;
+    if !metadata.file_type().is_dir() {
+        return Err(BuilderError::Invalid(
+            "v3 package subdirectory is not a real directory",
+        ));
+    }
+    let mut entries = std::fs::read_dir(&dir_path)
+        .map_err(|source| io_error("read v3 package directory", source))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|source| io_error("read v3 package entry", source))?;
+    entries.sort_by_key(|entry| entry.file_name());
+    for entry in entries {
+        let name = entry
+            .file_name()
+            .into_string()
+            .map_err(|_| BuilderError::Invalid("v3 package entry name is not UTF-8"))?;
+        if name.is_empty()
+            || name == "."
+            || name == ".."
+            || name.contains('/')
+            || name.contains('\\')
+        {
+            return Err(BuilderError::Invalid("v3 package entry name is invalid"));
+        }
+        let rel = format!("{subdir}/{name}");
+        let meta = std::fs::symlink_metadata(entry.path())
+            .map_err(|source| io_error("inspect v3 package entry", source))?;
+        if meta.file_type().is_dir() {
+            collect_v3_tree_files(base_root, &rel, depth + 1, out)?;
+        } else if meta.file_type().is_file() {
+            let mode = meta.permissions().mode() & 0o7777;
+            if mode & 0o7000 != 0 || mode & 0o400 == 0 {
+                return Err(BuilderError::Invalid("v3 package file mode is unsafe"));
+            }
+            if out.len() >= LOGICAL_ENTRY_MAX {
+                return Err(BuilderError::Invalid("v3 package file count exceeds bound"));
+            }
+            out.push((rel, RELEASE_FILE_MAX_BYTES, mode & 0o100 != 0));
+        } else {
+            return Err(BuilderError::Invalid(
+                "v3 package contains a non-regular entry",
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn validate_v3_bin_layout(root: &Path) -> Result<(), BuilderError> {
+    let bin = root.join("bin");
+    let meta = std::fs::symlink_metadata(&bin)
+        .map_err(|source| io_error("inspect publication bin directory", source))?;
+    if !meta.file_type().is_dir() {
+        return Err(BuilderError::Invalid(
+            "publication bin root is not a real directory",
+        ));
+    }
+    let mut seen = BTreeSet::new();
+    for entry in std::fs::read_dir(&bin)
+        .map_err(|source| io_error("read publication bin directory", source))?
+    {
+        let entry = entry.map_err(|source| io_error("read publication bin entry", source))?;
+        let name = entry
+            .file_name()
+            .into_string()
+            .map_err(|_| BuilderError::Invalid("publication bin entry is not UTF-8"))?;
+        if !matches!(
+            name.as_str(),
+            "codex" | "codex-code-mode-host" | "codex-exec-server"
+        ) || !seen.insert(name)
+        {
+            return Err(BuilderError::Invalid(
+                "publication bin directory layout is unsupported",
+            ));
+        }
+        let file_meta = ensure_regular_file(
+            &entry.path(),
+            "inspect publication bin file",
+            "publication bin entry is not a regular file",
+        )?;
+        validate_publish_file_mode(&file_meta, true, "publication bin file mode is unsafe")?;
+    }
+    if !seen.contains("codex") || !seen.contains("codex-code-mode-host") {
+        return Err(BuilderError::Invalid(
+            "publication bin directory is missing required binaries",
+        ));
+    }
+    Ok(())
+}
+
+fn detect_publish_generation_v3(root: &Path) -> Result<bool, BuilderError> {
+    let descriptor_path = root.join("generation.meta");
+    let metadata = ensure_regular_file(
+        &descriptor_path,
+        "inspect publication generation descriptor",
+        "publication generation descriptor is not a regular file",
+    )?;
+    if metadata.len() > GENERATION_DESCRIPTOR_MAX_BYTES {
+        return Err(BuilderError::Invalid(
+            "publication generation descriptor exceeds its byte bound",
+        ));
+    }
+    let bytes = std::fs::read(&descriptor_path)
+        .map_err(|source| io_error("read publication generation descriptor", source))?;
+    let first_line = std::str::from_utf8(&bytes)
+        .map_err(|_| BuilderError::Invalid("publication generation descriptor is not UTF-8"))?
+        .lines()
+        .next();
+    match first_line {
+        Some(GENERATION_FORMAT_V3) => Ok(true),
+        Some(GENERATION_FORMAT) => Ok(false),
+        _ => Err(BuilderError::Invalid(
+            "publication generation descriptor format is unsupported",
+        )),
+    }
+}
+
+fn validate_publish_generation_layout(
+    root: &Path,
+    r10_bridge: bool,
+    v3_package: bool,
+) -> Result<(), BuilderError> {
     let metadata = std::fs::symlink_metadata(root)
         .map_err(|source| io_error("inspect publication generation", source))?;
     if !metadata.file_type().is_dir() {
@@ -1211,12 +1386,16 @@ fn validate_publish_generation_layout(root: &Path, r10_bridge: bool) -> Result<(
         ));
     }
     let helper_root = if r10_bridge { "helpers" } else { "browser" };
-    let required = [
-        "generation.meta",
-        "runtime",
-        "codex-code-mode-host",
-        helper_root,
-    ];
+    let required: &[&str] = if v3_package {
+        &["generation.meta", "bin", "codex-package.json", helper_root]
+    } else {
+        &[
+            "generation.meta",
+            "runtime",
+            "codex-code-mode-host",
+            helper_root,
+        ]
+    };
     let mut seen = BTreeSet::new();
     for entry in
         std::fs::read_dir(root).map_err(|source| io_error("read publication generation", source))?
@@ -1227,8 +1406,22 @@ fn validate_publish_generation_layout(root: &Path, r10_bridge: bool) -> Result<(
             .file_name()
             .into_string()
             .map_err(|_| BuilderError::Invalid("publication generation path is not UTF-8"))?;
-        if (!required.contains(&name.as_str())
-            && !matches!(name.as_str(), "core" | "manager")
+        let allowed_v3_dir =
+            v3_package && matches!(name.as_str(), "bin" | "codex-path" | "codex-resources");
+        let allowed_file = if v3_package {
+            matches!(
+                name.as_str(),
+                "generation.meta" | "codex-package.json" | "wrapper" | "manager"
+            )
+        } else {
+            matches!(
+                name.as_str(),
+                "generation.meta" | "wrapper" | "runtime" | "codex-code-mode-host" | "manager"
+            )
+        };
+        if (!allowed_v3_dir
+            && !allowed_file
+            && name != helper_root
             && !(!r10_bridge && name == "helpers"))
             || !seen.insert(name.clone())
         {
@@ -1236,7 +1429,7 @@ fn validate_publish_generation_layout(root: &Path, r10_bridge: bool) -> Result<(
                 "publication generation layout is unsupported",
             ));
         }
-        if name == helper_root || (!r10_bridge && name == "helpers") {
+        if name == helper_root || (!r10_bridge && name == "helpers") || allowed_v3_dir {
             let metadata = std::fs::symlink_metadata(entry.path())
                 .map_err(|source| io_error("inspect publication helper root", source))?;
             if !metadata.file_type().is_dir() {
@@ -1255,7 +1448,7 @@ fn validate_publish_generation_layout(root: &Path, r10_bridge: bool) -> Result<(
             &file_metadata,
             matches!(
                 name.as_str(),
-                "core" | "runtime" | "codex-code-mode-host" | "manager"
+                "wrapper" | "runtime" | "codex-code-mode-host" | "manager"
             ),
             "publication generation file mode is unsafe",
         )?;
@@ -1264,6 +1457,15 @@ fn validate_publish_generation_layout(root: &Path, r10_bridge: bool) -> Result<(
         return Err(BuilderError::Invalid(
             "publication generation layout is incomplete",
         ));
+    }
+    if v3_package {
+        validate_v3_bin_layout(root)?;
+        for tree in ["codex-path", "codex-resources"] {
+            if seen.contains(tree) {
+                let mut ignored = Vec::new();
+                collect_v3_tree_files(root, tree, 0, &mut ignored)?;
+            }
+        }
     }
     if r10_bridge {
         let expected: &[&str] = if std::fs::symlink_metadata(root.join("helpers/2")).is_ok() {
@@ -1422,14 +1624,20 @@ fn validate_publish_patch_report(
     let permission = expected_permission
         .and_then(|_| fields.next())
         .and_then(|field| field.strip_prefix("permission_policy="));
-    let expected_changed = format!(
-        "changed_bytes={}",
-        54 + adaptation.map_or(0, |policy| policy.changed_bytes)
-    );
+    let changed_count = changed_bytes
+        .and_then(|field| field.strip_prefix("changed_bytes="))
+        .and_then(|value| value.parse::<usize>().ok());
+    let expected_changed_ok = match adaptation.and_then(|policy| policy.changed_bytes) {
+        Some(extra) => changed_count == Some(54 + extra),
+        None if adaptation.is_some() => changed_count.is_some_and(|count| count > 54),
+        None => changed_count == Some(54),
+    };
     if fields.next().is_some()
         || adaptation.is_some_and(|policy| {
             uds != Some(policy.uds)
-                || raw_runtime_digest != Some(policy.raw_sha256)
+                || policy
+                    .raw_sha256
+                    .is_some_and(|raw| raw_runtime_digest != Some(raw))
                 || policy
                     .archive_sha256
                     .is_some_and(|digest| archive_digest != Some(digest))
@@ -1439,7 +1647,7 @@ fn validate_publish_patch_report(
         || adapted_runtime_digest != Some(runtime_digest)
         || host_digest != Some(code_mode_host_digest)
         || source_counts != Some("source_counts=2,1,1,1")
-        || changed_bytes != Some(expected_changed.as_str())
+        || !expected_changed_ok
         || permission != expected_permission
     {
         return Err(BuilderError::Invalid(
@@ -1504,11 +1712,13 @@ fn validate_publish_generation_descriptor(
     let text = std::str::from_utf8(&bytes)
         .map_err(|_| BuilderError::Invalid("publication generation descriptor is not UTF-8"))?;
     let mut lines = text.lines();
-    if lines.next() != Some(GENERATION_FORMAT) {
+    let format_line = lines.next();
+    if !matches!(format_line, Some(GENERATION_FORMAT | GENERATION_FORMAT_V3)) {
         return Err(BuilderError::Invalid(
             "publication generation descriptor format is unsupported",
         ));
     }
+    let is_v3 = format_line == Some(GENERATION_FORMAT_V3);
     let generation_id = publish_descriptor_field(&mut lines, "generation_id")?;
     if !valid_publish_generation_id(generation_id) {
         return Err(BuilderError::Invalid(
@@ -1520,6 +1730,11 @@ fn validate_publish_generation_descriptor(
     if package_identity != PACKAGE_IDENTITY || !valid_stable_version(package_version) {
         return Err(BuilderError::Invalid(
             "publication generation upstream binding is invalid",
+        ));
+    }
+    if is_v3 != (generation_format_for_version(package_version) == GENERATION_FORMAT_V3) {
+        return Err(BuilderError::Invalid(
+            "publication generation format does not match upstream version layout",
         ));
     }
     let source_digest = publish_descriptor_field(&mut lines, "source_artifact_digest")?;
@@ -1543,7 +1758,7 @@ fn validate_publish_generation_descriptor(
     }
     let patch_report = publish_descriptor_field(&mut lines, "patch_report")?;
     let runtime_digest = publish_descriptor_field(&mut lines, "runtime_digest")?;
-    let core_artifact_digest = publish_descriptor_field(&mut lines, "core_artifact_digest")?;
+    let core_artifact_digest = publish_descriptor_field(&mut lines, "wrapper_artifact_digest")?;
     let manager_artifact_digest = publish_descriptor_field(&mut lines, "manager_artifact_digest")?;
     if !valid_lower_sha256(runtime_digest) || !valid_lower_sha256(core_artifact_digest) {
         return Err(BuilderError::Invalid(
@@ -1569,7 +1784,7 @@ fn validate_publish_generation_descriptor(
             "publication Manager requires a Core artifact",
         ));
     }
-    if publish_descriptor_field(&mut lines, "core_api_identity")? != CORE_API_IDENTITY
+    if publish_descriptor_field(&mut lines, "wrapper_api_identity")? != CORE_API_IDENTITY
         || publish_descriptor_field(&mut lines, "persistent_schema_identity")?
             != PERSISTENT_SCHEMA_IDENTITY
         || publish_descriptor_field(&mut lines, "qualification")? != "qualified"
@@ -1703,7 +1918,8 @@ fn snapshot_publish_generation(
 ) -> Result<PublishGeneration, BuilderError> {
     let r10_bridge = std::fs::symlink_metadata(source_root.join("helpers")).is_ok()
         && std::fs::symlink_metadata(source_root.join("browser")).is_err();
-    validate_publish_generation_layout(source_root, r10_bridge)?;
+    let v3_package = detect_publish_generation_v3(source_root)?;
+    validate_publish_generation_layout(source_root, r10_bridge, v3_package)?;
     let source_snapshot_root = staging.join(".generation-source");
     create_private_dir(&source_snapshot_root)?;
     if r10_bridge {
@@ -1717,30 +1933,75 @@ fn snapshot_publish_generation(
     let (browser_open_relative, browser_manual_relative) =
         browser_helper_relative_paths(r10_bridge);
     let mut total_size = 0u64;
-    let mut files = Vec::with_capacity(7);
-    let mut entries = vec![
-        ("generation.meta", GENERATION_DESCRIPTOR_MAX_BYTES, false),
-        ("runtime", RELEASE_FILE_MAX_BYTES, true),
-        ("codex-code-mode-host", RELEASE_FILE_MAX_BYTES, true),
-        (browser_open_relative, BROWSER_HELPER_MAX_BYTES, true),
-        (browser_manual_relative, BROWSER_HELPER_MAX_BYTES, true),
+    let mut entries: Vec<(String, u64, bool)> = vec![
+        (
+            "generation.meta".to_owned(),
+            GENERATION_DESCRIPTOR_MAX_BYTES,
+            false,
+        ),
+        (
+            browser_open_relative.to_owned(),
+            BROWSER_HELPER_MAX_BYTES,
+            true,
+        ),
+        (
+            browser_manual_relative.to_owned(),
+            BROWSER_HELPER_MAX_BYTES,
+            true,
+        ),
     ];
-    if std::fs::symlink_metadata(source_root.join("core")).is_ok() {
-        entries.push(("core", CORE_ARTIFACT_MAX_BYTES, true));
+    if v3_package {
+        entries.push(("bin/codex".to_owned(), RELEASE_FILE_MAX_BYTES, true));
+        entries.push((
+            "bin/codex-code-mode-host".to_owned(),
+            RELEASE_FILE_MAX_BYTES,
+            true,
+        ));
+        if std::fs::symlink_metadata(source_root.join("bin/codex-exec-server")).is_ok() {
+            entries.push((
+                "bin/codex-exec-server".to_owned(),
+                RELEASE_FILE_MAX_BYTES,
+                true,
+            ));
+        }
+        entries.push((
+            "codex-package.json".to_owned(),
+            PACKAGE_JSON_MAX_BYTES,
+            false,
+        ));
+        for tree in ["codex-path", "codex-resources"] {
+            if std::fs::symlink_metadata(source_root.join(tree)).is_ok() {
+                collect_v3_tree_files(source_root, tree, 0, &mut entries)?;
+            }
+        }
+    } else {
+        entries.push(("runtime".to_owned(), RELEASE_FILE_MAX_BYTES, true));
+        entries.push((
+            "codex-code-mode-host".to_owned(),
+            RELEASE_FILE_MAX_BYTES,
+            true,
+        ));
+    }
+    if std::fs::symlink_metadata(source_root.join("wrapper")).is_ok() {
+        entries.push(("wrapper".to_owned(), CORE_ARTIFACT_MAX_BYTES, true));
     }
     if std::fs::symlink_metadata(source_root.join("manager")).is_ok() {
-        entries.push(("manager", RELEASE_FILE_MAX_BYTES, true));
+        entries.push(("manager".to_owned(), RELEASE_FILE_MAX_BYTES, true));
     }
     if std::fs::symlink_metadata(source_root.join("helpers/2")).is_ok() {
         if !r10_bridge {
             create_private_dir(&source_snapshot_root.join("helpers"))?;
         }
-        entries.push(("helpers/2", RELEASE_FILE_MAX_BYTES, true));
+        entries.push(("helpers/2".to_owned(), RELEASE_FILE_MAX_BYTES, true));
     }
+    let mut files = Vec::with_capacity(entries.len());
     for (relative_path, max_bytes, executable) in entries {
-        let destination = source_snapshot_root.join(relative_path);
+        if let Some((parent, _)) = relative_path.rsplit_once('/') {
+            ensure_dir_chain_0755(&source_snapshot_root, parent)?;
+        }
+        let destination = source_snapshot_root.join(&relative_path);
         let (sha256, mode, size) = snapshot_publish_file(
-            &source_root.join(relative_path),
+            &source_root.join(&relative_path),
             &destination,
             max_bytes,
             openssl,
@@ -1760,19 +2021,24 @@ fn snapshot_publish_generation(
             size,
         });
     }
-    validate_publish_generation_layout(&source_snapshot_root, r10_bridge)?;
+    validate_publish_generation_layout(&source_snapshot_root, r10_bridge, v3_package)?;
     let manager_path = source_snapshot_root.join("manager");
     let manager_path = std::fs::symlink_metadata(&manager_path)
         .ok()
         .map(|_| manager_path);
-    let core_path = source_snapshot_root.join("core");
+    let core_path = source_snapshot_root.join("wrapper");
     let core_path = std::fs::symlink_metadata(&core_path)
         .ok()
         .map(|_| core_path);
+    let (runtime_rel, host_rel) = if v3_package {
+        ("bin/codex", "bin/codex-code-mode-host")
+    } else {
+        ("runtime", "codex-code-mode-host")
+    };
     let generation_id = validate_publish_generation_descriptor(
         &source_snapshot_root.join("generation.meta"),
-        &source_snapshot_root.join("runtime"),
-        &source_snapshot_root.join("codex-code-mode-host"),
+        &source_snapshot_root.join(runtime_rel),
+        &source_snapshot_root.join(host_rel),
         (
             &source_snapshot_root.join(browser_open_relative),
             &source_snapshot_root.join(browser_manual_relative),
@@ -1781,11 +2047,12 @@ fn snapshot_publish_generation(
         r10_bridge,
         openssl,
     )?;
-    files.sort_by_key(|file| file.relative_path);
+    files.sort_by(|a, b| a.relative_path.cmp(&b.relative_path));
     Ok(PublishGeneration {
         generation_id,
         files,
         r10_bridge,
+        v3_package,
     })
 }
 
@@ -1888,7 +2155,7 @@ fn release_manifest_bytes(
 ) -> Result<Vec<u8>, BuilderError> {
     use std::fmt::Write as _;
 
-    let format = if files.iter().any(|file| file.relative_path == "core") {
+    let format = if files.iter().any(|file| file.relative_path == "wrapper") {
         RELEASE_FORMAT_V4
     } else {
         RELEASE_FORMAT_V3
@@ -1901,7 +2168,7 @@ fn release_manifest_bytes(
             "channel\t{}\n",
             "expected_platform\tandroid\n",
             "expected_architecture\taarch64\n",
-            "core_api_identity\t{}\n",
+            "wrapper_api_identity\t{}\n",
             "persistent_schema_identity\t{}\n",
             "release_public_key\t{}\n",
             "file_count\t{}\n",
@@ -2011,8 +2278,37 @@ fn publish(request: &PublishRequest) -> Result<String, BuilderError> {
             create_private_dir(&helpers)?;
             helper_directories.push(helpers);
         }
+        if generation.v3_package {
+            let mut v3_dirs = BTreeSet::new();
+            for file in &generation.files {
+                if let Some((parent, _)) = file.relative_path.rsplit_once('/') {
+                    ensure_dir_chain_0755(&release_dir, parent)?;
+                    let mut prefix = String::new();
+                    for part in parent.split('/') {
+                        if !prefix.is_empty() {
+                            prefix.push('/');
+                        }
+                        prefix.push_str(part);
+                        v3_dirs.insert(prefix.clone());
+                    }
+                }
+            }
+            let mut sorted_dirs: Vec<String> = v3_dirs.into_iter().collect();
+            sorted_dirs.sort_by(|a, b| {
+                b.matches('/')
+                    .count()
+                    .cmp(&a.matches('/').count())
+                    .then_with(|| a.cmp(b))
+            });
+            for dir in sorted_dirs {
+                let abs = release_dir.join(&dir);
+                if !helper_directories.contains(&abs) {
+                    helper_directories.push(abs);
+                }
+            }
+        }
         for file in &generation.files {
-            rename_noreplace(&file.snapshot_path, &release_dir.join(file.relative_path))?;
+            rename_noreplace(&file.snapshot_path, &release_dir.join(&file.relative_path))?;
         }
         std::fs::remove_dir_all(staging.join(".generation-source"))
             .map_err(|source| io_error("remove publication source staging", source))?;
@@ -2104,7 +2400,7 @@ fn snapshot_core_artifact(
         ));
     }
 
-    let snapshot_path = staging.join(".core-artifact");
+    let snapshot_path = staging.join(".wrapper-artifact");
     let mut snapshot = create_private_file(&snapshot_path)?;
     let mut bounded = source.take(CORE_ARTIFACT_MAX_BYTES.saturating_add(1));
     let copied = io::copy(&mut bounded, &mut snapshot)
@@ -2445,6 +2741,7 @@ fn fetch(request: &FetchRequest) -> Result<String, BuilderError> {
 struct ArchiveSelection {
     raw_runtime: PathBuf,
     code_mode_host: PathBuf,
+    v3_package: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -2458,6 +2755,7 @@ enum EntryKind {
 struct TarHeader {
     path: String,
     size: u64,
+    mode: u64,
     kind: EntryKind,
 }
 
@@ -2556,7 +2854,7 @@ fn parse_tar_header(block: &[u8; TAR_BLOCK_BYTES]) -> Result<TarHeader, BuilderE
     if block[157..257].iter().any(|byte| *byte != 0) {
         return Err(BuilderError::Archive("tar link metadata is unsupported"));
     }
-    parse_octal(&block[100..108])?;
+    let mode = parse_octal(&block[100..108])?;
     parse_octal(&block[108..116])?;
     parse_octal(&block[116..124])?;
     let size = parse_octal(&block[124..136])?;
@@ -2583,7 +2881,12 @@ fn parse_tar_header(block: &[u8; TAR_BLOCK_BYTES]) -> Result<TarHeader, BuilderE
         }
         _ => {}
     }
-    Ok(TarHeader { path, size, kind })
+    Ok(TarHeader {
+        path,
+        size,
+        mode,
+        kind,
+    })
 }
 
 fn read_block<R: Read>(reader: &mut R) -> Result<Option<[u8; TAR_BLOCK_BYTES]>, BuilderError> {
@@ -2983,7 +3286,10 @@ impl<'a> JsonCursor<'a> {
     }
 }
 
-fn validate_package_json(bytes: &[u8], version: &str) -> Result<(), BuilderError> {
+fn parse_package_json_version(
+    bytes: &[u8],
+    expected_version: Option<&str>,
+) -> Result<String, BuilderError> {
     if bytes.len() as u64 > PACKAGE_JSON_MAX_BYTES {
         return Err(package_json_error());
     }
@@ -3023,9 +3329,12 @@ fn validate_package_json(bytes: &[u8], version: &str) -> Result<(), BuilderError
         }
     }
 
+    let Some(version) = package_version.filter(|value| valid_stable_version(value)) else {
+        return Err(package_json_error());
+    };
     if !cursor.finished()
         || layout_version != Some(1)
-        || package_version.as_deref() != Some(version)
+        || expected_version.is_some_and(|expected| version != expected)
         || target.as_deref() != Some("aarch64-unknown-linux-musl")
         || variant.as_deref() != Some("codex")
         || entrypoint.as_deref() != Some("bin/codex")
@@ -3034,7 +3343,11 @@ fn validate_package_json(bytes: &[u8], version: &str) -> Result<(), BuilderError
     {
         return Err(package_json_error());
     }
-    Ok(())
+    Ok(version)
+}
+
+fn validate_package_json(bytes: &[u8], version: &str) -> Result<(), BuilderError> {
+    parse_package_json_version(bytes, Some(version)).map(|_| ())
 }
 
 #[cfg(test)]
@@ -3273,18 +3586,43 @@ fn validate_android_aarch64_manager_elf(path: &Path) -> Result<(), BuilderError>
     Ok(())
 }
 
+fn write_v3_staged_file(
+    destination: &Path,
+    bytes: &[u8],
+    mode: u32,
+    operation: &'static str,
+) -> Result<(), BuilderError> {
+    let mut file = create_private_file(destination)?;
+    file.write_all(bytes)
+        .map_err(|source| io_error(operation, source))?;
+    file.sync_all()
+        .map_err(|source| io_error(operation, source))?;
+    drop(file);
+    set_mode(destination, mode, operation)?;
+    File::open(destination)
+        .and_then(|f| f.sync_all())
+        .map_err(|source| io_error(operation, source))
+}
+
 fn parse_archive<R: Read>(
     reader: &mut R,
     staging: &Path,
     version: &str,
 ) -> Result<ArchiveSelection, BuilderError> {
+    let v3_package = generation_format_for_version(version) == GENERATION_FORMAT_V3;
     let raw_runtime = staging.join(".raw-runtime");
-    let code_mode_host = staging.join("codex-code-mode-host");
+    let code_mode_host = if v3_package {
+        ensure_dir_chain_0755(staging, "bin")?;
+        staging.join("bin/codex-code-mode-host")
+    } else {
+        staging.join("codex-code-mode-host")
+    };
     let mut seen = BTreeSet::new();
     let mut logical_entries = 0usize;
     let mut total_payload = 0u64;
     let mut pending_pax = false;
     let mut package_json = None;
+    let mut rg_extracted = false;
 
     loop {
         let block =
@@ -3338,6 +3676,17 @@ fn parse_archive<R: Read>(
         pending_pax = false;
 
         if header.kind == EntryKind::Directory {
+            if v3_package {
+                let trimmed = header.path.trim_end_matches('/');
+                if trimmed == "bin"
+                    || trimmed == "codex-path"
+                    || trimmed == "codex-resources"
+                    || trimmed.starts_with("codex-path/")
+                    || trimmed.starts_with("codex-resources/")
+                {
+                    ensure_dir_chain_0755(staging, trimmed)?;
+                }
+            }
             continue;
         }
         if header.path == "codex-package.json" && header.size > PACKAGE_JSON_MAX_BYTES {
@@ -3369,6 +3718,51 @@ fn parse_archive<R: Read>(
             "codex-package.json" => {
                 package_json = Some(read_payload(reader, header.size, None, true)?);
             }
+            "bin/codex-exec-server" if v3_package => {
+                let dest = staging.join("bin/codex-exec-server");
+                let mut file = create_private_file(&dest)?;
+                read_payload(reader, header.size, Some(&mut file), false)?;
+                file.sync_all()
+                    .map_err(|source| io_error("sync selected exec server", source))?;
+                drop(file);
+                set_mode(&dest, 0o755, "set exec-server mode")?;
+                File::open(&dest)
+                    .and_then(|f| f.sync_all())
+                    .map_err(|source| io_error("sync exec server mode", source))?;
+            }
+            "codex-path/rg" if v3_package => {
+                read_payload(reader, header.size, None, false)?;
+                ensure_dir_chain_0755(staging, "codex-path")?;
+                write_v3_staged_file(
+                    &staging.join("codex-path/rg"),
+                    TERMUX_RG_WRAPPER_SCRIPT,
+                    0o755,
+                    "write Termux rg wrapper",
+                )?;
+                rg_extracted = true;
+            }
+            rel if v3_package
+                && (rel.starts_with("codex-path/") || rel.starts_with("codex-resources/")) =>
+            {
+                if let Some((parent, _)) = rel.rsplit_once('/') {
+                    ensure_dir_chain_0755(staging, parent)?;
+                }
+                let dest = staging.join(rel);
+                let mut file = create_private_file(&dest)?;
+                read_payload(reader, header.size, Some(&mut file), false)?;
+                file.sync_all()
+                    .map_err(|source| io_error("sync v3 companion resource", source))?;
+                drop(file);
+                let mode = if header.mode & 0o111 != 0 {
+                    0o755
+                } else {
+                    0o644
+                };
+                set_mode(&dest, mode, "set v3 companion resource mode")?;
+                File::open(&dest)
+                    .and_then(|f| f.sync_all())
+                    .map_err(|source| io_error("sync v3 companion resource mode", source))?;
+            }
             _ => {
                 read_payload(reader, header.size, None, false)?;
             }
@@ -3381,17 +3775,33 @@ fn parse_archive<R: Read>(
     {
         return Err(BuilderError::Archive("archive layout is incomplete"));
     }
-    validate_package_json(
-        package_json
-            .as_deref()
-            .ok_or(BuilderError::Archive("archive layout is incomplete"))?,
-        version,
-    )?;
+    let pkg_bytes = package_json
+        .as_deref()
+        .ok_or(BuilderError::Archive("archive layout is incomplete"))?;
+    validate_package_json(pkg_bytes, version)?;
+    if v3_package {
+        write_v3_staged_file(
+            &staging.join("codex-package.json"),
+            pkg_bytes,
+            0o644,
+            "write codex-package.json",
+        )?;
+        if !rg_extracted {
+            ensure_dir_chain_0755(staging, "codex-path")?;
+            write_v3_staged_file(
+                &staging.join("codex-path/rg"),
+                TERMUX_RG_WRAPPER_SCRIPT,
+                0o755,
+                "write Termux rg wrapper",
+            )?;
+        }
+    }
     validate_static_aarch64_elf(&raw_runtime)?;
     validate_static_aarch64_elf(&code_mode_host)?;
     Ok(ArchiveSelection {
         raw_runtime,
         code_mode_host,
+        v3_package,
     })
 }
 
@@ -3646,7 +4056,11 @@ fn adapt_selected_runtime(
             .map_err(BuilderError::Archive)?;
     }
 
-    let runtime_path = staging.join("runtime");
+    let runtime_path = if selected.v3_package {
+        staging.join("bin/codex")
+    } else {
+        staging.join("runtime")
+    };
     let mut runtime_file = create_private_file(&runtime_path)?;
     runtime_file
         .write_all(&runtime)
@@ -3663,6 +4077,9 @@ fn adapt_selected_runtime(
     File::open(&selected.code_mode_host)
         .and_then(|file| file.sync_all())
         .map_err(|source| io_error("sync code-mode host", source))?;
+    if selected.v3_package {
+        sync_directory(&staging.join("bin"), "sync v3 bin directory")?;
+    }
 
     let runtime_sha256 = openssl_sha256(&request.openssl, &runtime_path)?;
     let code_mode_host_sha256 = openssl_sha256(&request.openssl, &selected.code_mode_host)?;
@@ -3726,6 +4143,7 @@ fn write_generation_descriptor(
     } else {
         "supported"
     };
+    let generation_format = generation_format_for_version(&request.version);
     let mut descriptor = format!(
         concat!(
             "{}\n",
@@ -3738,9 +4156,9 @@ fn write_generation_descriptor(
             "patch_policy_id\t{}\n",
             "patch_report\t{}\n",
             "runtime_digest\t{}\n",
-            "core_artifact_digest\t{}\n",
+            "wrapper_artifact_digest\t{}\n",
             "manager_artifact_digest\t{}\n",
-            "core_api_identity\t{}\n",
+            "wrapper_api_identity\t{}\n",
             "persistent_schema_identity\t{}\n",
             "qualification\tqualified\n",
             "creation_metadata\t{}\n",
@@ -3749,7 +4167,7 @@ fn write_generation_descriptor(
             "helper\t{}\t{}\n",
             "helper\t{}\t{}\n"
         ),
-        GENERATION_FORMAT,
+        generation_format,
         request.generation_id,
         PACKAGE_IDENTITY,
         request.version,
@@ -3854,9 +4272,9 @@ fn complete_and_publish(
     frontend_sha256: Option<&str>,
 ) -> Result<(), BuilderError> {
     let adapted = adapt_selected_runtime(request, staging, selected)?;
-    rename_noreplace(&staging.join(".core-artifact"), &staging.join("core"))?;
-    set_mode(&staging.join("core"), 0o755, "set generation Core mode")?;
-    File::open(staging.join("core"))
+    rename_noreplace(&staging.join(".wrapper-artifact"), &staging.join("wrapper"))?;
+    set_mode(&staging.join("wrapper"), 0o755, "set generation Core mode")?;
+    File::open(staging.join("wrapper"))
         .and_then(|file| file.sync_all())
         .map_err(|source| io_error("sync generation Core", source))?;
     if manager_sha256.is_some() {
@@ -3939,6 +4357,140 @@ pub fn build_generation(request: &GenerationRequest) -> Result<(), BuilderError>
         (_, Err(error)) => Err(error),
         (Err(error), Ok(())) => Err(error),
         (Ok(()), Ok(())) => Ok(()),
+    }
+}
+
+fn scan_package_archive_version<R: Read>(reader: &mut R) -> Result<String, BuilderError> {
+    let mut seen = BTreeSet::new();
+    let mut logical_entries = 0usize;
+    let mut total_payload = 0u64;
+    let mut pending_pax = false;
+    let mut package_json = None;
+
+    loop {
+        let block =
+            read_block(reader)?.ok_or(BuilderError::Archive("tar stream has no end marker"))?;
+        if block.iter().all(|byte| *byte == 0) {
+            if pending_pax {
+                return Err(BuilderError::Archive("PAX header has no following entry"));
+            }
+            let second = read_block(reader)?
+                .ok_or(BuilderError::Archive("tar stream has only one zero block"))?;
+            if second.iter().any(|byte| *byte != 0) {
+                return Err(BuilderError::Archive("tar stream has only one zero block"));
+            }
+            while let Some(trailing) = read_block(reader)? {
+                if trailing.iter().any(|byte| *byte != 0) {
+                    return Err(BuilderError::Archive(
+                        "tar stream has nonzero trailing content",
+                    ));
+                }
+            }
+            break;
+        }
+
+        let header = parse_tar_header(&block)?;
+        if header.kind == EntryKind::Pax {
+            if pending_pax || header.size == 0 || header.size > PAX_PAYLOAD_MAX_BYTES {
+                return Err(BuilderError::Archive("PAX header is malformed"));
+            }
+            let payload = read_payload(reader, header.size, None, true)?;
+            parse_pax_payload(&payload)?;
+            pending_pax = true;
+            continue;
+        }
+
+        logical_entries += 1;
+        if logical_entries > LOGICAL_ENTRY_MAX {
+            return Err(BuilderError::Archive(
+                "archive entry count exceeds its bound",
+            ));
+        }
+        if REQUIRED_ARCHIVE_FILES.contains(&header.path.as_str())
+            && header.kind != EntryKind::Regular
+        {
+            return Err(BuilderError::Archive(
+                "required archive entry is not a regular file",
+            ));
+        }
+        if !seen.insert(header.path.clone()) {
+            return Err(BuilderError::Archive("archive path is duplicated"));
+        }
+        pending_pax = false;
+
+        if header.kind == EntryKind::Directory {
+            continue;
+        }
+        if header.path == "codex-package.json" && header.size > PACKAGE_JSON_MAX_BYTES {
+            return Err(package_json_error());
+        }
+        if header.size > ENTRY_MAX_BYTES {
+            return Err(BuilderError::Archive("archive file exceeds its byte bound"));
+        }
+        total_payload = total_payload
+            .checked_add(header.size)
+            .filter(|total| *total <= PAYLOAD_MAX_BYTES)
+            .ok_or(BuilderError::Archive(
+                "archive payload exceeds its byte bound",
+            ))?;
+        if header.path == "codex-package.json" {
+            package_json = Some(read_payload(reader, header.size, None, true)?);
+        } else {
+            read_payload(reader, header.size, None, false)?;
+        }
+    }
+
+    if REQUIRED_ARCHIVE_FILES
+        .iter()
+        .any(|path| !seen.contains(*path))
+    {
+        return Err(BuilderError::Archive("archive layout is incomplete"));
+    }
+    let pkg_bytes = package_json
+        .as_deref()
+        .ok_or(BuilderError::Archive("archive layout is incomplete"))?;
+    parse_package_json_version(pkg_bytes, None)
+}
+
+/// Inspects an upstream `.tar.gz` package archive and returns its validated stable version.
+pub fn inspect_package_archive_version(
+    archive: &Path,
+    gzip: &Path,
+) -> Result<String, BuilderError> {
+    let metadata = ensure_regular_file(
+        archive,
+        "inspect package archive",
+        "package archive must be a regular file",
+    )?;
+    if metadata.len() == 0 || metadata.len() > ARCHIVE_MAX_BYTES {
+        return Err(BuilderError::Invalid("archive exceeds its byte bound"));
+    }
+    ensure_executable(gzip, "gzip is not an executable regular file")?;
+    let mut child = Command::new(gzip)
+        .args(["-dc", "--"])
+        .arg(archive)
+        .env_clear()
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|source| io_error("start gzip", source))?;
+    let mut stdout = child
+        .stdout
+        .take()
+        .ok_or(BuilderError::Tool("gzip stdout is unavailable"))?;
+    let scanned = scan_package_archive_version(&mut stdout);
+    drop(stdout);
+    if scanned.is_err() {
+        let _ = child.kill();
+    }
+    let status = child
+        .wait()
+        .map_err(|source| io_error("wait for gzip", source))?;
+    match scanned {
+        Err(error) => Err(error),
+        Ok(_) if !status.success() => Err(BuilderError::Tool("gzip decompression failed")),
+        Ok(version) => Ok(version),
     }
 }
 
@@ -4309,18 +4861,21 @@ fi
             "termux-fd-remap-v4",
             "termux-fd-remap-v5",
             "termux-fd-remap-v6",
+            runtime_patch::ADAPTIVE_POLICY,
             "unknown",
         ] {
             for version in [
                 "0.159.2", "0.160.0", "0.160.1", "0.161.0", "0.161.1", "0.163.0", "0.163.1",
-                "0.164.0", "0.164.1", "0.165.0", "0.165.1",
+                "0.164.0", "0.164.1", "0.165.0", "0.165.1", "0.169.0",
             ] {
                 let expected = (id == PATCH_POLICY_ID && ["0.159.2", "0.160.0"].contains(&version))
                     || ([runtime_patch::PREVIOUS_POLICY, runtime_patch::POLICY].contains(&id)
                         && version == "0.160.0")
                     || (id == "termux-fd-remap-v4" && version == "0.161.0")
                     || (id == "termux-fd-remap-v5" && version == "0.163.0")
-                    || (id == "termux-fd-remap-v6" && version == "0.164.0");
+                    || (id == "termux-fd-remap-v6" && version == "0.164.0")
+                    || (id == runtime_patch::ADAPTIVE_POLICY
+                        && ["0.165.0", "0.165.1", "0.169.0"].contains(&version));
                 assert_eq!(
                     runtime_patch::supports_version(id, version),
                     expected,
@@ -4336,8 +4891,8 @@ fi
         ] {
             let policy = runtime_patch::policy(id).unwrap();
             let archive = policy.archive_sha256.unwrap_or(&digest);
-            let count = 54 + policy.changed_bytes;
-            let report = format!("{id};archive_sha256={archive};raw_runtime_sha256={};runtime_sha256={digest};code_mode_host_sha256={digest};source_counts=2,1,1,1;changed_bytes={count};uds_policy={};permission_policy={}", policy.raw_sha256, policy.uds, policy.permission.unwrap());
+            let count = 54 + policy.changed_bytes.unwrap();
+            let report = format!("{id};archive_sha256={archive};raw_runtime_sha256={};runtime_sha256={digest};code_mode_host_sha256={digest};source_counts=2,1,1,1;changed_bytes={count};uds_policy={};permission_policy={}", policy.raw_sha256.unwrap(), policy.uds, policy.permission.unwrap());
             let valid = |value: &str, expected: &str| {
                 validate_publish_patch_report(value, archive, &digest, &digest, expected)
             };
@@ -4563,7 +5118,7 @@ fi
         write_manager_probe(
             path,
             "if [ \"$#\" -ne 1 ] || [ \"$1\" != \"--artifact-probe\" ]; then exit 9; fi\n\
-             printf '%s\\n' 'codex-manager-artifact-v1' 'core_api=codex-manager-core-v1'\n",
+             printf '%s\\n' 'codex-manager-artifact-v1' 'wrapper_api=codex-manager-wrapper-v1'\n",
         );
     }
 
@@ -5206,9 +5761,9 @@ fi
                 "patch_policy_id\ttermux-fd-remap-v1\n",
                 "patch_report\ttermux-fd-remap-v1;archive_sha256={};raw_runtime_sha256={};runtime_sha256={};code_mode_host_sha256={};source_counts=2,1,1,1;changed_bytes=54\n",
                 "runtime_digest\t{}\n",
-                "core_artifact_digest\t{}\n",
+                "wrapper_artifact_digest\t{}\n",
                 "manager_artifact_digest\t-\n",
-                "core_api_identity\tcore-api-v1\n",
+                "wrapper_api_identity\twrapper-api-v1\n",
                 "persistent_schema_identity\tschema-v1\n",
                 "qualification\tqualified\n",
                 "creation_metadata\ttest-fixture\n",
@@ -5242,9 +5797,9 @@ fi
             vec![
                 OsString::from("browser"),
                 OsString::from("codex-code-mode-host"),
-                OsString::from("core"),
                 OsString::from("generation.meta"),
-                OsString::from("runtime")
+                OsString::from("runtime"),
+                OsString::from("wrapper")
             ]
         );
         assert!(!fixture.request.output.join("compat").exists());
@@ -5275,7 +5830,7 @@ fi
         let mut expected = raw;
         apply_fd_path_remaps(&mut expected).unwrap();
         assert_eq!(
-            std::fs::read(fixture.request.output.join("runtime")).unwrap(),
+            std::fs::read(fixture.request.output.join("bin/codex")).unwrap(),
             expected
         );
         let metadata =
@@ -5284,7 +5839,7 @@ fi
         assert!(metadata.contains(&format!(";source_revision={}\n", "a".repeat(40))));
         assert!(!fixture.request.output.join(".source-runtime").exists());
         assert_eq!(
-            std::fs::read(fixture.request.output.join("codex-code-mode-host")).unwrap(),
+            std::fs::read(fixture.request.output.join("bin/codex-code-mode-host")).unwrap(),
             fixture.code_mode_host
         );
         let private_key = fixture.root.join("private.pem");
@@ -5545,10 +6100,10 @@ fi
             vec![
                 OsString::from("browser"),
                 OsString::from("codex-code-mode-host"),
-                OsString::from("core"),
                 OsString::from("generation.meta"),
                 OsString::from("manager"),
-                OsString::from("runtime")
+                OsString::from("runtime"),
+                OsString::from("wrapper")
             ]
         );
         assert!(no_builder_staging(&fixture.root));
@@ -5854,11 +6409,11 @@ fi
             ),
             (
                 "probe-stderr",
-                "printf 'probe-noise\\n' >&2\nprintf '%s\\n' 'codex-manager-artifact-v1' 'core_api=codex-manager-core-v1'\n",
+                "printf 'probe-noise\\n' >&2\nprintf '%s\\n' 'codex-manager-artifact-v1' 'wrapper_api=codex-manager-wrapper-v1'\n",
             ),
             (
                 "probe-status",
-                "printf '%s\\n' 'codex-manager-artifact-v1' 'core_api=codex-manager-core-v1'\nexit 7\n",
+                "printf '%s\\n' 'codex-manager-artifact-v1' 'wrapper_api=codex-manager-wrapper-v1'\nexit 7\n",
             ),
             (
                 "probe-oversized",
@@ -5903,11 +6458,11 @@ fi
         let selected_sha256 = snapshot_core_artifact(&fixture.request, &staging).unwrap();
         assert_eq!(selected_sha256, expected_sha256);
         assert_eq!(
-            std::fs::read(staging.join(".core-artifact")).unwrap(),
+            std::fs::read(staging.join(".wrapper-artifact")).unwrap(),
             expected_core
         );
         assert_eq!(
-            std::fs::symlink_metadata(staging.join(".core-artifact"))
+            std::fs::symlink_metadata(staging.join(".wrapper-artifact"))
                 .unwrap()
                 .permissions()
                 .mode()
@@ -5922,13 +6477,13 @@ fi
         );
         std::fs::write(&fixture.request.core, expected_core).unwrap();
         set_mode(&fixture.request.core, 0o700, "restore test Core mode").unwrap();
-        std::fs::remove_file(staging.join(".core-artifact")).unwrap();
+        std::fs::remove_file(staging.join(".wrapper-artifact")).unwrap();
         std::fs::remove_dir(&staging).unwrap();
 
         assert_eq!(run_from_args(request_args(&fixture.request)), 0);
         let descriptor =
             std::fs::read_to_string(fixture.request.output.join("generation.meta")).unwrap();
-        assert!(descriptor.contains(&format!("core_artifact_digest\t{expected_sha256}\n")));
+        assert!(descriptor.contains(&format!("wrapper_artifact_digest\t{expected_sha256}\n")));
         assert!(no_builder_staging(&fixture.root));
         fixture.remove();
     }
@@ -6361,24 +6916,24 @@ fi
                 "channel\tstable\n",
                 "expected_platform\tandroid\n",
                 "expected_architecture\taarch64\n",
-                "core_api_identity\tcore-api-v1\n",
+                "wrapper_api_identity\twrapper-api-v1\n",
                 "persistent_schema_identity\tschema-v1\n",
                 "release_public_key\t{}\n",
                 "file_count\t6\n",
                 "file\tbrowser/manual/curl\t{}\t0755\n",
                 "file\tbrowser/open/curl\t{}\t0755\n",
                 "file\tcodex-code-mode-host\t{}\t0755\n",
-                "file\tcore\t{}\t0755\n",
                 "file\tgeneration.meta\t{}\t0644\n",
-                "file\truntime\t{}\t0755\n"
+                "file\truntime\t{}\t0755\n",
+                "file\twrapper\t{}\t0755\n"
             ),
             public_key_hex(&openssl_public_key(&fixture.request.openssl, &private_key).unwrap()),
             browser_manual_digest,
             browser_open_digest,
             host_digest,
-            openssl_sha256(&fixture.request.openssl, &release.join("core")).unwrap(),
             descriptor_digest,
             runtime_digest,
+            openssl_sha256(&fixture.request.openssl, &release.join("wrapper")).unwrap(),
         );
         assert_eq!(
             std::fs::read_to_string(release.join("release.manifest")).unwrap(),
@@ -6395,18 +6950,18 @@ fi
                 "file\tbrowser/manual/curl\t{}\n",
                 "file\tbrowser/open/curl\t{}\n",
                 "file\tcodex-code-mode-host\t{}\n",
-                "file\tcore\t{}\n",
                 "file\tgeneration.meta\t{}\n",
-                "file\truntime\t{}\n"
+                "file\truntime\t{}\n",
+                "file\twrapper\t{}\n"
             ),
             manifest_sha256,
             [
                 "browser/manual/curl",
                 "browser/open/curl",
                 "codex-code-mode-host",
-                "core",
                 "generation.meta",
                 "runtime",
+                "wrapper",
             ]
             .iter()
             .map(|path| std::fs::metadata(release.join(path)).unwrap().len())
@@ -6420,11 +6975,11 @@ fi
             std::fs::metadata(release.join("codex-code-mode-host"))
                 .unwrap()
                 .len(),
-            std::fs::metadata(release.join("core")).unwrap().len(),
             std::fs::metadata(release.join("generation.meta"))
                 .unwrap()
                 .len(),
             std::fs::metadata(release.join("runtime")).unwrap().len(),
+            std::fs::metadata(release.join("wrapper")).unwrap().len(),
         );
         assert_eq!(
             std::fs::read_to_string(publication.join(DOWNLOAD_SIZE_PATH)).unwrap(),
@@ -6508,6 +7063,151 @@ fi
         assert_eq!(run_from_args(publish_args(&symlink_request)), 1);
         assert!(!symlink_output.exists());
         assert!(no_builder_staging(&fixture.root));
+        fixture.remove();
+    }
+
+    #[test]
+    fn test_v3_package_extraction_99b_and_publish() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let raw_runtime = runtime_patch::tests::build_canonical_synthetic_aarch64_elf();
+        let host = fake_elf(false);
+        let exec_server = fake_elf(false);
+        let entries = vec![
+            TestEntry::directory("bin/"),
+            TestEntry::file("bin/codex", raw_runtime.clone()),
+            TestEntry::file("bin/codex-code-mode-host", host.clone()),
+            TestEntry::file("bin/codex-exec-server", exec_server.clone()),
+            TestEntry::file("codex-package.json", expected_package_json("0.169.0")),
+            TestEntry::directory("codex-path/"),
+            TestEntry::file("codex-path/rg", b"\x7fELF-glibc-rg".to_vec()),
+            TestEntry::directory("codex-resources/"),
+            TestEntry::file("codex-resources/bwrap", b"unused-bwrap".to_vec()),
+            TestEntry::directory("codex-resources/voice/"),
+            TestEntry::file("codex-resources/voice/NOTICE.md", b"notice".to_vec()),
+        ];
+        let mut fixture = fixture("v3-pkg", entries, false);
+        fixture.request.version = "0.169.0".to_owned();
+        fixture.request.generation_id = "test-v3-generation".to_owned();
+        assert_eq!(
+            inspect_package_archive_version(&fixture.request.archive, &fixture.request.gzip)
+                .unwrap(),
+            "0.169.0"
+        );
+        let bad_archive = fixture.root.join("bad-package.tar.gz");
+        std::fs::write(&bad_archive, b"not-a-tar-gz").unwrap();
+        assert!(inspect_package_archive_version(&bad_archive, &fixture.request.gzip).is_err());
+
+        build_generation(&fixture.request).unwrap();
+        assert!(no_builder_staging(&fixture.root));
+
+        let out = &fixture.request.output;
+        assert!(!out.join("runtime").exists());
+        assert!(!out.join("codex-code-mode-host").exists());
+        let descriptor = std::fs::read_to_string(out.join("generation.meta")).unwrap();
+        assert!(descriptor.starts_with("codex-local-generation-v3\n"));
+        assert!(descriptor.contains("patch_policy_id\ttermux-fd-remap-99b-v1\n"));
+        assert!(descriptor.contains("uds_policy=termux-uds-fd35-adaptive-v1"));
+        assert_eq!(
+            std::fs::metadata(out.join("bin/codex"))
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777,
+            0o755
+        );
+        assert_ne!(std::fs::read(out.join("bin/codex")).unwrap(), raw_runtime);
+        assert_eq!(
+            std::fs::read(out.join("bin/codex-code-mode-host")).unwrap(),
+            host
+        );
+        assert_eq!(
+            std::fs::read(out.join("bin/codex-exec-server")).unwrap(),
+            exec_server
+        );
+        assert_eq!(
+            std::fs::read(out.join("codex-package.json")).unwrap(),
+            expected_package_json("0.169.0")
+        );
+        assert_eq!(
+            std::fs::metadata(out.join("codex-package.json"))
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777,
+            0o644
+        );
+        assert_eq!(
+            std::fs::read(out.join("codex-path/rg")).unwrap(),
+            TERMUX_RG_WRAPPER_SCRIPT
+        );
+        assert_eq!(
+            std::fs::metadata(out.join("codex-path/rg"))
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777,
+            0o755
+        );
+        assert_eq!(
+            std::fs::read(out.join("codex-resources/voice/NOTICE.md")).unwrap(),
+            b"notice"
+        );
+
+        let keys_dir = fixture.root.join("keys");
+        std::fs::create_dir(&keys_dir).unwrap();
+        let private_key = keys_dir.join("release.pem");
+        let gen_key = Command::new(&fixture.request.openssl)
+            .args(["genpkey", "-algorithm", "ED25519", "-out"])
+            .arg(&private_key)
+            .env_clear()
+            .status()
+            .unwrap();
+        assert!(gen_key.success());
+        let publication = fixture.root.join("publication-v3");
+        let publish_request = PublishRequest {
+            generation: out.clone(),
+            release_sequence: "169".to_owned(),
+            release_base: "https://releases.example.invalid/codex/releases/test-v3-generation/"
+                .to_owned(),
+            private_key,
+            openssl: fixture.request.openssl.clone(),
+            output: publication.clone(),
+        };
+        assert_eq!(publish(&publish_request).unwrap(), "test-v3-generation");
+        let manifest = std::fs::read_to_string(
+            publication.join("releases/test-v3-generation/release.manifest"),
+        )
+        .unwrap();
+        for expected in [
+            "file\tbin/codex\t",
+            "file\tbin/codex-code-mode-host\t",
+            "file\tbin/codex-exec-server\t",
+            "file\tbrowser/manual/curl\t",
+            "file\tbrowser/open/curl\t",
+            "file\tcodex-package.json\t",
+            "file\tcodex-path/rg\t",
+            "file\tcodex-resources/bwrap\t",
+            "file\tcodex-resources/voice/NOTICE.md\t",
+            "file\tgeneration.meta\t",
+            "file\twrapper\t",
+        ] {
+            assert!(
+                manifest.contains(expected),
+                "missing manifest entry {expected}"
+            );
+        }
+
+        // Symlinks under codex-resources must be rejected by publish.
+        let bwrap = out.join("codex-resources/bwrap");
+        std::fs::remove_file(&bwrap).unwrap();
+        std::os::unix::fs::symlink(out.join("bin/codex"), &bwrap).unwrap();
+        let bad_pub = PublishRequest {
+            output: fixture.root.join("publication-v3-bad"),
+            ..publish_request
+        };
+        assert!(publish(&bad_pub).is_err());
+        assert!(!bad_pub.output.exists());
         fixture.remove();
     }
 }

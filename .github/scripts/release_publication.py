@@ -17,24 +17,24 @@ DOWNLOAD_SIZE_ASSET = "download-size-v1"
 DOWNLOAD_SIZE_SIGNATURE_ASSET = "download-size-v1.sig"
 EXPECTED_FILES = {
     "codex-code-mode-host": "0755",
-    "core": "0755",
     "generation.meta": "0644",
     "helpers/0": "0755",
     "helpers/1": "0755",
     "manager": "0755",
     "runtime": "0755",
+    "wrapper": "0755",
 }
 EXTENDED_FILES = dict(sorted({**EXPECTED_FILES, "helpers/2": "0755"}.items()))
 BASE_FILES = {path: mode for path, mode in EXPECTED_FILES.items() if path != "manager"}
 FLAT_ASSETS = {
     "codex-code-mode-host": "codex-code-mode-host",
-    "core": "core",
     "generation.meta": "generation.meta",
     "helpers/0": "helper-0",
     "helpers/1": "helper-1",
     "helpers/2": "helper-2",
     "manager": "manager",
     "runtime": "runtime",
+    "wrapper": "wrapper",
 }
 
 
@@ -124,7 +124,7 @@ def parse_manifest(path: Path) -> tuple[dict[str, str], list[tuple[str, str, str
         "channel",
         "expected_platform",
         "expected_architecture",
-        "core_api_identity",
+        "wrapper_api_identity",
         "persistent_schema_identity",
         "release_public_key",
         "file_count",
@@ -143,7 +143,7 @@ def parse_manifest(path: Path) -> tuple[dict[str, str], list[tuple[str, str, str
         fail("release manifest channel is not stable")
     if values["expected_platform"] != "android" or values["expected_architecture"] != "aarch64":
         fail("release manifest platform is not Android/AArch64")
-    if values["core_api_identity"] != "core-api-v1" or values["persistent_schema_identity"] != "schema-v1":
+    if values["wrapper_api_identity"] != "wrapper-api-v1" or values["persistent_schema_identity"] != "schema-v1":
         fail("release manifest compatibility identity is invalid")
     if not HEX64_RE.fullmatch(values["release_public_key"]):
         fail("release public key is not canonical")

@@ -74,7 +74,7 @@ pub(super) fn session_off(app: &App) -> bool {
     app.quota_switch.session_off
 }
 fn core() -> PathBuf {
-    std::env::var_os("CODEX_PROFILE_CORE")
+    std::env::var_os("CODEX_PROFILE_WRAPPER")
         .map(PathBuf::from)
         .unwrap_or_default()
 }

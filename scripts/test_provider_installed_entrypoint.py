@@ -13,7 +13,7 @@ class InstalledEntrypointTests(unittest.TestCase):
     def test_installed_runtime_discovery_requires_the_exact_selected_image(self):
         with tempfile.TemporaryDirectory(dir=os.environ['TMPDIR']) as name:
             home=Path(name)
-            directory=home/'.local/share/codex/core/catalogs/owned'
+            directory=home/'.local/share/codex/wrapper/catalogs/owned'
             directory.mkdir(parents=True)
             (directory/'s').touch()
             (directory/'pid').write_text(str(os.getpid()))

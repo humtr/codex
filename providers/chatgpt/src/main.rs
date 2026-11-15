@@ -424,7 +424,7 @@ fn runtime_command(args: &[String]) -> Result<(), String> {
                 .ok_or("Codex home required")?;
             let registry =
                 std::path::PathBuf::from(std::env::var_os("HOME").ok_or("HOME required")?)
-                    .join(".local/share/codex/core/config/profiles");
+                    .join(".local/share/codex/wrapper/config/profiles");
             let path = store::config_path().map_err(|e| e.to_string())?;
             let snapshot = store::Snapshot::open(&path).map_err(|e| e.to_string())?;
             let mut config = snapshot.config().map_err(|e| e.to_string())?;

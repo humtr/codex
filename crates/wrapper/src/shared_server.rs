@@ -343,6 +343,10 @@ pub(super) fn ensure_configured(
         &settings.config,
         settings.requirements.as_deref(),
     ));
+    let socket = directory.join("s");
+    if socket.as_os_str().as_bytes().len() > 107 {
+        return Err(invalid());
+    }
     private_dir(&directory)?;
     let lock = File::open(&directory)?;
     let deadline = Instant::now() + Duration::from_secs(10);
@@ -385,10 +389,6 @@ pub(super) fn ensure_configured(
             Err(e) => return Err(e),
         }
     }
-    let socket = directory.join("s");
-    if socket.as_os_str().as_bytes().len() > 107 {
-        return Err(invalid());
-    }
     let logical_dir = profile.join("app-server-control");
     private_dir(&logical_dir)?;
     let logical = logical_dir.join("app-server-control.sock");
@@ -397,10 +397,35 @@ pub(super) fn ensure_configured(
             Ok(m) if m.file_type().is_symlink() => {
                 let previous = fs::read_link(&logical)?;
                 if previous != socket {
+                    fn retargetable(previous: &Path, state: &Path, servers: &Path) -> bool {
+                        if previous.file_name() != Some(OsStr::new("s")) {
+                            return false;
+                        }
+                        let Some(namespace_dir) = previous.parent() else {
+                            return false;
+                        };
+                        let Some(parent) = namespace_dir.parent() else {
+                            return false;
+                        };
+                        if parent == servers {
+                            return true;
+                        }
+                        // Allow migrating existing profiles from retired `codex/core/servers/<16hex>/s`.
+                        let is_hex16 = namespace_dir
+                            .file_name()
+                            .and_then(OsStr::to_str)
+                            .is_some_and(|id| {
+                                id.len() == 16
+                                    && id.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+                            });
+                        is_hex16
+                            && state.file_name() == Some(OsStr::new("wrapper"))
+                            && state
+                                .parent()
+                                .is_some_and(|root| parent == root.join("core/servers"))
+                    }
                     // Only our bound namespace may be retargeted on generation change.
-                    if previous.parent().and_then(Path::parent) != Some(servers.as_path())
-                        || previous.file_name() != Some(OsStr::new("s"))
-                    {
+                    if !retargetable(&previous, state, &servers) {
                         return Err(invalid());
                     }
                 }
@@ -542,7 +567,25 @@ fn retire_family(
             continue;
         }
         private_dir(&directory)?;
-        let binding = Binding::read(&directory, read_bounded)?;
+        let lock = File::open(&directory)?;
+        if unsafe { super::flock(lock.as_raw_fd(), 2 | 4) } != 0 {
+            continue;
+        }
+        let pid_file = directory.join("pid");
+        let pid_missing = matches!(
+            fs::symlink_metadata(&pid_file),
+            Err(ref e) if e.kind() == io::ErrorKind::NotFound
+        );
+        let binding = match Binding::read(&directory, read_bounded) {
+            Ok(binding) => binding,
+            // Reap aborted setup directories that never recorded a config/PID under flock.
+            Err(e) if e.kind() == io::ErrorKind::NotFound && pid_missing => {
+                fs::remove_dir_all(&directory)?;
+                File::open(servers)?.sync_all()?;
+                continue;
+            }
+            Err(e) => return Err(e),
+        };
         let program = binding.program.as_os_str();
         let path = binding.program.as_path();
         let Some(relative) = path.strip_prefix(generations).ok() else {
@@ -553,20 +596,33 @@ fn retire_family(
             continue;
         };
         let Some(id) = id.to_str() else { continue };
-        if components.next() != Some(std::path::Component::Normal(OsStr::new("runtime")))
-            || components.next().is_some()
+        let valid_runtime_path = match (components.next(), components.next(), components.next()) {
+            (Some(std::path::Component::Normal(a)), None, None) => a == OsStr::new("runtime"),
+            (
+                Some(std::path::Component::Normal(a)),
+                Some(std::path::Component::Normal(b)),
+                None,
+            ) => a == OsStr::new("bin") && b == OsStr::new("codex"),
+            _ => false,
+        };
+        if !valid_runtime_path
             || super::m2_generation_state::validate_generation_identity(id, "server generation")
                 .is_err()
             || keep.contains(id)
         {
             continue;
         }
-        let lock = File::open(&directory)?;
-        if unsafe { super::flock(lock.as_raw_fd(), 2 | 4) } != 0 {
-            continue;
-        }
-        let pid_file = directory.join("pid");
-        let pid = String::from_utf8(read_record(&pid_file)?)
+        let pid_bytes = match read_record(&pid_file) {
+            Ok(bytes) => bytes,
+            // Reap aborted setup directories that never wrote a PID under flock.
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {
+                fs::remove_dir_all(&directory)?;
+                File::open(servers)?.sync_all()?;
+                continue;
+            }
+            Err(e) => return Err(e),
+        };
+        let pid = String::from_utf8(pid_bytes)
             .map_err(|_| invalid())?
             .trim()
             .parse::<u32>()
@@ -1260,6 +1316,137 @@ fn main() {
             namespace(Path::new("/a"), OsStr::new("/runtime")),
             namespace(Path::new("/b"), OsStr::new("/runtime"))
         );
+        crate::tests::remove_temp_root(root);
+    }
+
+    #[test]
+    fn shared_server_retargets_legacy_core_namespace_and_rejects_untrusted_symlinks() {
+        let root = crate::tests::temp_root("srv-rtgt");
+        let generations = root.join("generations");
+        private_dir(&generations).unwrap();
+        let current = generations.join("current");
+        private_dir(&current).unwrap();
+        let program = server_fixture(&current);
+        let state = root.join("wrapper");
+        private_dir(&state).unwrap();
+        let config = root.join("config");
+        private_dir(&config).unwrap();
+        fs::write(config.join("config.toml"), crate::render_core_config(&[])).unwrap();
+        let resolver = root.join("resolver");
+        fs::write(&resolver, b"nameserver 127.0.0.1\n").unwrap();
+        let env = crate::TermuxBaseEnvPlan {
+            assignments: vec![("TMPDIR".into(), root.as_os_str().into())],
+            removals: vec![],
+        };
+
+        let migrated_profile = root.join("migrated");
+        private_dir(&migrated_profile).unwrap();
+        let migrated_control_dir = migrated_profile.join("app-server-control");
+        private_dir(&migrated_control_dir).unwrap();
+        let migrated_logical = migrated_control_dir.join("app-server-control.sock");
+        let legacy_socket = root.join("core/servers/0123456789abcdef/s");
+        std::os::unix::fs::symlink(&legacy_socket, &migrated_logical).unwrap();
+
+        let active_socket = ensure(
+            program.as_os_str(),
+            &migrated_profile,
+            &state,
+            &resolver,
+            &config,
+            &env,
+        )
+        .unwrap();
+        assert_eq!(fs::read_link(&migrated_logical).unwrap(), active_socket);
+        assert_ne!(active_socket, legacy_socket);
+
+        for (index, untrusted_target) in [
+            root.join("core/servers/not-hex-16bytes/s"),
+            root.join("core/servers/0123456789abcde/s"),
+            root.join("core/servers/0123456789ABCDEF/s"),
+            root.join("other/servers/0123456789abcdef/s"),
+            root.join("core/servers/0123456789abcdef/not-s"),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let profile = root.join(format!("rejected-{index}"));
+            private_dir(&profile).unwrap();
+            let control_dir = profile.join("app-server-control");
+            private_dir(&control_dir).unwrap();
+            let logical = control_dir.join("app-server-control.sock");
+            std::os::unix::fs::symlink(&untrusted_target, &logical).unwrap();
+            assert!(
+                ensure(
+                    program.as_os_str(),
+                    &profile,
+                    &state,
+                    &resolver,
+                    &config,
+                    &env,
+                )
+                .is_err(),
+                "unexpectedly retargeted {untrusted_target:?}"
+            );
+            assert_eq!(fs::read_link(&logical).unwrap(), untrusted_target);
+        }
+
+        let v3_generation = generations.join("v3");
+        private_dir(&v3_generation).unwrap();
+        let v3_bin = v3_generation.join("bin");
+        private_dir(&v3_bin).unwrap();
+        let v3_program = v3_bin.join("codex");
+        fs::copy(&program, &v3_program).unwrap();
+        let v3_socket = ensure(
+            v3_program.as_os_str(),
+            &migrated_profile,
+            &state,
+            &resolver,
+            &config,
+            &env,
+        )
+        .unwrap();
+        assert_eq!(fs::read_link(&migrated_logical).unwrap(), v3_socket);
+        assert_ne!(v3_socket, active_socket);
+
+        let pids: Vec<String> = [&active_socket, &v3_socket]
+            .into_iter()
+            .map(|sock| {
+                String::from_utf8(read_record(&sock.parent().unwrap().join("pid")).unwrap())
+                    .unwrap()
+            })
+            .collect();
+        let empty = std::collections::HashSet::new();
+        retire_unused(&state, &generations, &empty).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(3);
+        for pid in &pids {
+            let stat = format!("/proc/{}/stat", pid.trim());
+            loop {
+                match fs::read_to_string(&stat) {
+                    Ok(stat) => {
+                        let fields: Vec<_> = stat
+                            .rsplit_once(')')
+                            .unwrap()
+                            .1
+                            .split_whitespace()
+                            .collect();
+                        if matches!(fields[0], "Z" | "X") && fields[17] == "1" {
+                            break;
+                        }
+                    }
+                    Err(error)
+                        if error.kind() == io::ErrorKind::NotFound
+                            || error.raw_os_error() == Some(3) =>
+                    {
+                        break
+                    }
+                    Err(error) => panic!("cannot observe server exit: {error}"),
+                }
+                assert!(Instant::now() < deadline, "server did not exit");
+                std::thread::sleep(Duration::from_millis(20));
+            }
+        }
+        retire_unused(&state, &generations, &empty).unwrap();
+        assert_eq!(fs::read_dir(state.join("servers")).unwrap().count(), 0);
         crate::tests::remove_temp_root(root);
     }
 }

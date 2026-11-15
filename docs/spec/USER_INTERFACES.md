@@ -349,7 +349,7 @@ precedence, installed-route validation and model admission remain unchanged.
   menu/shortcut behavior: Ask and Approve for me use the no-sandbox profile,
   Full Access remains explicit, unsupported Read Only is omitted, and current
   markers/descriptions follow actual settings. This frontend adaptation is enabled
-  only for the explicit absolute CODEX_PROFILE_CORE bridge; ordinary
+  only for the explicit absolute CODEX_PROFILE_WRAPPER bridge; ordinary
   unselected upstream UI and custom profile definitions retain their semantics.
   Core still rejects explicit unsupported sandbox argv before runtime entry.
   Actual menu selections/shortcuts and native settings require owned proof.
@@ -361,7 +361,7 @@ precedence, installed-route validation and model admission remain unchanged.
   It contains no paths, credentials or conversation data and performs no writes.
   Existing public profile text output and inherited-home precedence stay intact.
 - Native display reads this endpoint using an explicitly provided
-  absolute `CODEX_PROFILE_CORE` bridge. The native client validates
+  absolute `CODEX_PROFILE_WRAPPER` bridge. The native client validates
   regular executable ownership, uses fixed argv without a shell, limits stdout to
   64KiB and elapsed time to3 seconds, and rejects malformed/unknown protocol data.
   Failure is bounded in the current UI; cancellation returns to the current chat.
@@ -950,8 +950,8 @@ Core selects Manager only from the signed, qualified generation and invokes
 the artifact with a versioned handoff environment:
 
 ```text
-CODEX_TERMUX_CORE_API=codex-manager-core-v1
-CODEX_TERMUX_CORE_ENTRYPOINT=<validated stable Core entrypoint>
+CODEX_TERMUX_WRAPPER_API=codex-manager-wrapper-v1
+CODEX_TERMUX_WRAPPER_ENTRYPOINT=<validated stable Wrapper entrypoint>
 ```
 
 The retired `CODEX_TERMUX_CORE_REQUEST` and
@@ -1668,7 +1668,7 @@ UTF-8 bytes on stdout with one final LF, no stderr, and status `0`:
 
 ```text
 codex-manager-artifact-v1
-core_api=codex-manager-core-v1
+wrapper_api=codex-manager-wrapper-v1
 ```
 
 Any other probe argument, nonzero status, stderr output, or byte mismatch is a

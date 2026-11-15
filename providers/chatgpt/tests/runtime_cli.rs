@@ -1030,7 +1030,7 @@ async fn authenticated_stdio_survives_service_replacement_without_desktop_or_cor
     );
     assert!(!state.join("desktop").exists());
     assert!(!root.0.join("not-opened-home").exists());
-    assert!(!root.0.join(".local/share/codex/core").exists());
+    assert!(!root.0.join(".local/share/codex/wrapper").exists());
     drop(replacement);
 }
 

@@ -467,16 +467,16 @@ The complete publication output is:
 The index contains exactly the four records and final newline defined below,
 with the supplied generation identity and release base, and its sibling
 `update-index-v1.sig` signs those exact index bytes with the same key. The
-publication manifest containing `core` uses `codex-release-v4`; v4 keeps the
-v3 control fields and inventory grammar but requires the executable `core`
-asset. A v3 publication without `core` remains readable for already installed
+publication manifest containing `wrapper` uses `codex-release-v4`; v4 keeps the
+v3 control fields and inventory grammar but requires the executable `wrapper`
+asset. A v3 publication without `wrapper` remains readable for already installed
 legacy generations, but it is not a valid new Manager-bearing update. The
 release manifest contains a lexicographically sorted inventory, lowercase
 SHA-256 digest, and four-octal-digit regular-file mode for each present
-generation file: `generation.meta`, `core`, `runtime`, and
+generation file: `generation.meta`, `wrapper`, `runtime`, and
 `codex-code-mode-host`, plus `manager` when the optional Manager artifact was
-supplied. The `core` digest must equal the generation descriptor's
-`core_artifact_digest`; a Manager entry requires `core`. The local
+supplied. The `wrapper` digest must equal the generation descriptor's
+`wrapper_artifact_digest`; a Manager entry requires `wrapper`. The local
 `releases/<id>` tree is the directory to map to the URL represented by
 `release_base`; `publish` performs no network upload and does not assume that
 the URL is hosted by OpenAI.
@@ -853,29 +853,29 @@ The Core state/generation layout is:
 
 ```text
 $PREFIX/bin/codex                                      stable public entrypoint
-~/.local/lib/codex/core/generations/<id>/             immutable complete generation
+~/.local/lib/codex/wrapper/generations/<id>/             immutable complete generation
   generation.meta                                     versioned local descriptor
   release.manifest                                    signed release/integrity inventory + release key
   release.sig                                         candidate-key Ed25519 signature over exact manifest
   release-authority.sig                               rotation-only current-key signature over exact manifest
-  core                                                authenticated Core launcher for v4 bundles
+  wrapper                                             authenticated Wrapper launcher for v4 bundles
   runtime                                             patched upstream executable
   codex-code-mode-host                                first-target companion beside runtime
   manager                                              optional Manager executable
   helpers/<index>                                      optional helper artifacts
-~/.local/lib/codex/core/generations/.acquire-*/        private incomplete remote source; never activatable
-~/.local/lib/codex/core/publications/<id>/             retained old Core publication cache; no official producer authority
-~/.local/lib/codex/core/release-public-key.pem         bootstrap-only initial trust seed; never update fallback
-~/.local/share/codex/core/activation-state            authoritative generation + bounded trust state
-~/.local/share/codex/core/downloads-v1/<sha256>.part    private bounded untrusted/verified payload cache
-~/.local/share/codex/core/activation-journal[.tmp]    crash-recovery transaction state
-~/.local/share/codex/core/activation-state.tmp        atomic state publication temporary
-~/.local/share/codex/core/core-entrypoint-rollback    one retained prior Core launcher
-~/.local/share/codex/core/core-entrypoint-rollback.meta
+~/.local/lib/codex/wrapper/generations/.acquire-*/        private incomplete remote source; never activatable
+~/.local/lib/codex/wrapper/publications/<id>/             retained old Core publication cache; no official producer authority
+~/.local/lib/codex/wrapper/release-public-key.pem         bootstrap-only initial trust seed; never update fallback
+~/.local/share/codex/wrapper/activation-state            authoritative generation + bounded trust state
+~/.local/share/codex/wrapper/downloads-v1/<sha256>.part    private bounded untrusted/verified payload cache
+~/.local/share/codex/wrapper/activation-journal[.tmp]    crash-recovery transaction state
+~/.local/share/codex/wrapper/activation-state.tmp        atomic state publication temporary
+~/.local/share/codex/wrapper/wrapper-entrypoint-rollback    one retained prior Wrapper launcher
+~/.local/share/codex/wrapper/wrapper-entrypoint-rollback.meta
                                                       rollback binding for that launcher
-~/.local/share/codex/core/config/                     Core defaults and shared-profile source directory
-~/.local/share/codex/core/config/snapshots/<id>/      immutable per-launch effective system settings
-~/.local/share/codex/core/{servers,catalogs}/<id>/    bound native server record/socket/config snapshot
+~/.local/share/codex/wrapper/config/                     Wrapper defaults and shared-profile source directory
+~/.local/share/codex/wrapper/config/snapshots/<id>/      immutable per-launch effective system settings
+~/.local/share/codex/wrapper/{servers,catalogs}/<id>/    bound native server record/socket/config snapshot
 ~/.local/share/codex/manager/                         Manager-owned mutable state
 ```
 
@@ -977,7 +977,7 @@ complete old or new trust-and-generation state and must never synthesize a mixed
 state.
 
 A v4 coordinated update also retains one regular executable
-`core-entrypoint-rollback` and its exact `codex-core-entrypoint-rollback-v1`
+`wrapper-entrypoint-rollback` and its exact `codex-wrapper-entrypoint-rollback-v1`
 binding for the launcher active before the forward transition. This cache is
 not a trust source: its digest and associated generation are verified before
 rollback, and it is atomically replaced only while the activation lock is
@@ -985,7 +985,7 @@ held. Existing v3 generations may lack this cache; a v4 forward transition
 must create it before changing the stable entrypoint.
 
 Coordinated activation stages and verifies the complete signed generation and
-its `core` asset first, snapshots the current stable launcher into the bounded
+its `wrapper` asset first, snapshots the current stable launcher into the bounded
 rollback cache, atomically replaces `$PREFIX/bin/codex` with the candidate
 Core, synchronizes its parent, and only then commits the existing generation
 pointer transaction. If the pointer commit fails, the old launcher is restored
@@ -1398,7 +1398,7 @@ generations, searches keys, restores a rotated-away key to forward authority, or
 constructs a fallback ladder.
 
 Initial bootstrap, whether fresh or an explicit legacy handoff, owns the only
-permitted use of `~/.local/lib/codex/core/release-public-key.pem`. Before any v3
+permitted use of `~/.local/lib/codex/wrapper/release-public-key.pem`. Before any v3
 activation state exists, bootstrap may verify one admitted initial v3/v4 release
 only when
 the manifest `release_public_key` exactly equals that pinned key and
@@ -1610,7 +1610,7 @@ envelope rather than concatenated documents:
 {
   "schema_version": 2,
   "upstream": {"status": "healthy", "output": "..."},
-  "termux_core": {
+  "termux_wrapper": {
     "status": "healthy",
     "generation_id": "...",
     "layout": "root-code-mode-host-v2",

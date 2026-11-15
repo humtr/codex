@@ -13,7 +13,7 @@ fn has_bridge(core: Option<&OsStr>) -> bool {
 }
 
 pub(crate) fn enabled() -> bool {
-    has_bridge(std::env::var_os("CODEX_PROFILE_CORE").as_deref())
+    has_bridge(std::env::var_os("CODEX_PROFILE_WRAPPER").as_deref())
 }
 
 fn supported(profile: &PermissionProfile) -> bool {

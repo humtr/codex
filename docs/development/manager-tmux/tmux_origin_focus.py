@@ -16,7 +16,7 @@ uid=os.getuid();sid='01a0fe94-2d11-79f3-8f5b-9c1958465dc2'
 with tempfile.TemporaryDirectory(prefix='co-') as tmp:
     root=Path(tmp);home=root/'h';home.mkdir();prefix=root/'usr';(prefix/'bin').mkdir(parents=True)
     endpoint=root/'apps/com.termux/termux-am/am.sock';endpoint.parent.mkdir(parents=True)
-    native=home/'.local/lib/codex/core/generations/owned/helpers/2';native.parent.mkdir(parents=True)
+    native=home/'.local/lib/codex/wrapper/generations/owned/helpers/2';native.parent.mkdir(parents=True)
     source=root/'native.c'
     source.write_text(r'''
 #define _GNU_SOURCE
@@ -51,7 +51,7 @@ int main(int argc,char **argv) {
                 response={'schema':'termux-terminal-origin-v1','result':'ok' if state['accept'] else 'unavailable','origin':state['origin']}
                 client.sendall(json.dumps(response).encode())
     thread=threading.Thread(target=serve);thread.start()
-    tsock=str(root/'t.sock');ready=root/'ready';env={**os.environ,'SHELL':shutil.which('sh'),'HOME':str(home),'PREFIX':str(prefix),'TMPDIR':str(root),'CODEX_TERMUX_CORE_API':'codex-manager-core-v1','CODEX_TERMUX_CORE_ENTRYPOINT':str(manager),'TMUX':'','TMUX_PANE':''}
+    tsock=str(root/'t.sock');ready=root/'ready';env={**os.environ,'SHELL':shutil.which('sh'),'HOME':str(home),'PREFIX':str(prefix),'TMPDIR':str(root),'CODEX_TERMUX_WRAPPER_API':'codex-manager-wrapper-v1','CODEX_TERMUX_WRAPPER_ENTRYPOINT':str(manager),'TMUX':'','TMUX_PANE':''}
     def tm(*args):return subprocess.check_output(['tmux','-S',tsock,*args],env=env,text=True).strip()
     def focus(value=sid):return subprocess.run([str(manager),'__terminal-focus-v1',value],env=env,capture_output=True,timeout=8)
     try:

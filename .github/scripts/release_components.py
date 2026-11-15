@@ -57,8 +57,8 @@ def base_fingerprint(source, revision='HEAD'):
     recipe = json.loads(read('release/upstream.json'))
     workspace = tomllib.loads(read('Cargo.toml').decode())
     workspace['workspace']['members'] = [name for name in workspace['workspace']['members'] if name != 'crates/manager']
-    selected = cargo_dependencies(read, 'crates/core/Cargo.toml')
-    roots = ['crates/core','crates/release-builder','crates/runtime-binding',
+    selected = cargo_dependencies(read, 'crates/wrapper/Cargo.toml')
+    roots = ['crates/wrapper','crates/release-builder','crates/runtime-binding',
              '.github/workflows/qualify-termux-runtime.yml',
              '.github/workflows/termux-runtime-source.yml',
              '.github/scripts/runtime_inputs.py',
@@ -188,7 +188,7 @@ def acquire_runtime_base(source, heads, authority, destination, fetch=download):
     generation, provenance = admitted
     if provenance.get('runtime_inputs_sha256') != runtime_fingerprint(source,'HEAD',adapted=True):
         return None  # Historical metadata or genuinely changed runtime inputs.
-    acquire_base_files(generation,destination,fetch,exclude={'core'})
+    acquire_base_files(generation,destination,fetch,exclude={'wrapper'})
     from release_preflight import parse_descriptor
     descriptor = parse_descriptor(destination/'generation.meta')
     recipe = json.loads(git(source,'show','HEAD:release/upstream.json'))['upstream']
@@ -386,7 +386,7 @@ def candidate_from_base(base, manager, frontend, builder, generation, version, o
     output.mkdir(mode=0o700)
     try:
         for name,digest,mode in files:
-            if base_only and name == 'core':
+            if base_only and name == 'wrapper':
                 continue
             source=base/name
             if source.is_symlink() or not source.is_file() or sha256(source) != digest:
@@ -396,8 +396,8 @@ def candidate_from_base(base, manager, frontend, builder, generation, version, o
             target=output/name;target.parent.mkdir(exist_ok=True,parents=True)
             shutil.copyfile(source,target);target.chmod(int(mode,8))
         if base_only:
-            shutil.copyfile(core,output/'core');(output/'core').chmod(0o755)
-            replacement={'generation_id':generation,'core_artifact_digest':sha256(output/'core')}
+            shutil.copyfile(core,output/'wrapper');(output/'wrapper').chmod(0o755)
+            replacement={'generation_id':generation,'wrapper_artifact_digest':sha256(output/'wrapper')}
         else:
             shutil.copyfile(manager,output/'manager');(output/'manager').chmod(0o755)
             subprocess.run([str(builder),'adapt-manager-tui','--artifact',str(frontend),'--openssl',shutil.which('openssl'),

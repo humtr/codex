@@ -198,8 +198,8 @@ def parse_descriptor(path: Path) -> dict[str, str]:
     required = {
         "generation_id", "upstream_package_identity", "upstream_package_version",
         "source_artifact_digest", "expected_platform", "expected_architecture",
-        "patch_policy_id", "runtime_digest", "core_artifact_digest",
-        "manager_artifact_digest", "core_api_identity", "persistent_schema_identity",
+        "patch_policy_id", "runtime_digest", "wrapper_artifact_digest",
+        "manager_artifact_digest", "wrapper_api_identity", "persistent_schema_identity",
         "qualification", "creation_metadata", "upstream_doctor", "helper_count",
     }
     if not required.issubset(result):
@@ -227,7 +227,7 @@ def parse_descriptor(path: Path) -> dict[str, str]:
     }
     if policy in archives and result["source_artifact_digest"] != archives[policy]:
         fail("generation descriptor policy archive binding is invalid")
-    for field in ["source_artifact_digest", "runtime_digest", "core_artifact_digest"]:
+    for field in ["source_artifact_digest", "runtime_digest", "wrapper_artifact_digest"]:
         lower_sha256(result[field], field)
     if result["manager_artifact_digest"] != "-":
         lower_sha256(result["manager_artifact_digest"], "manager artifact digest")
@@ -268,7 +268,7 @@ def verify_candidate_payload(
         fail("base candidate must not declare Manager")
     expected_files = {
         "runtime": descriptor["runtime_digest"],
-        "core": descriptor["core_artifact_digest"],
+        "wrapper": descriptor["wrapper_artifact_digest"],
     }
     if require_manager:
         expected_files["manager"] = descriptor["manager_artifact_digest"]
@@ -305,7 +305,7 @@ def verify_base_candidate(root: Path, expected_version: str) -> dict[str, str]:
     if helper_keys != {"helper:" + name for name in names}:
         fail("base candidate helper declarations differ")
     if {p.name for p in root.iterdir()} != {
-        "runtime", "core", "codex-code-mode-host", "generation.meta", "helpers"
+        "runtime", "wrapper", "codex-code-mode-host", "generation.meta", "helpers"
     }:
         fail("base candidate inventory differs")
     helpers = root / "helpers"
@@ -345,7 +345,7 @@ def parse_release_manifest(path: Path, wanted_path: str) -> tuple[str, int, str,
         fail("release manifest format is unsupported")
     headers = [
         "generation_id", "release_sequence", "channel", "expected_platform",
-        "expected_architecture", "core_api_identity", "persistent_schema_identity",
+        "expected_architecture", "wrapper_api_identity", "persistent_schema_identity",
         "release_public_key", "file_count",
     ]
     values: dict[str, str] = {}

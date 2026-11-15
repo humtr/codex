@@ -14,7 +14,7 @@ on:
       - '.github/scripts/release_heads.py'
       - '.github/scripts/upstream_release.py'
       - 'release/upstream.json'
-      - 'crates/core/**'
+      - 'crates/wrapper/**'
       - 'crates/runtime-binding/**'
       - 'crates/release-builder/**'
       - 'Cargo.toml'

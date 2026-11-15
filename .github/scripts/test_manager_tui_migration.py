@@ -34,7 +34,9 @@ patterns=[a[i+1] for i,v in enumerate(a) if v=='--pattern']
 assert sorted(patterns)==sorted(['core','generation.meta','manager','runtime','codex-code-mode-host','helper-0','helper-1','release.manifest','release.sig'])
 dst=Path(a[a.index('--dir')+1]);assert dst.parent==Path(os.environ['TMPDIR'])
 for name in patterns:
- shutil.copyfile(Path(os.environ['ASSETS'])/name,dst/name)
+ # The immutable historical 0.161.0 GitHub release still names its asset 'core',
+ # while current release_publication fixtures emit 'wrapper'.
+ shutil.copyfile(Path(os.environ['ASSETS'])/('wrapper' if name=='core' else name),dst/name)
  if os.environ['FAULT']=='download':sys.exit(1)
 ''')
                 (tools/'codex').write_text('#!'+sys.executable+'\n'+'''import hashlib,json,os,subprocess,sys
@@ -50,7 +52,8 @@ if a[1:2]==['--local']:
  if result.returncode:sys.exit(1)
  paths=set()
  for rel,digest,mode in inventory:
-  p=root/rel;paths.add(rel)
+  mapped='core' if rel=='wrapper' else rel
+  p=root/mapped;paths.add(mapped)
   if hashlib.sha256(p.read_bytes()).hexdigest()!=digest:sys.exit(1)
   assert p.stat().st_mode&0o777==int(mode,8)
  assert {str(p.relative_to(root)) for p in root.rglob('*') if p.is_file()}==paths|{'release.manifest','release.sig'}

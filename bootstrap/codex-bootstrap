@@ -76,7 +76,7 @@ manifest_max=$((128 * 1024))
 signature_max=1024
 descriptor_max=$((64 * 1024))
 
-state=$HOME/.local/share/codex/core/activation-state
+state=$HOME/.local/share/codex/wrapper/activation-state
 if [ "$bootstrap_mode" = fresh ]; then
   if [ -e "$state" ] || [ -L "$state" ]; then
     fail 'fresh bootstrap refuses existing authoritative v3 state'
@@ -179,15 +179,15 @@ case $descriptor_digest in *[!0-9a-f]*) fail 'signed generation.meta digest is n
 core_digest=
 core_digest_count=0
 while IFS="$tab" read -r f1 f2 extra; do
-  if [ "$f1" = core_artifact_digest ]; then
-    [ -z "$extra" ] || fail 'core_artifact_digest record is malformed'
+  if [ "$f1" = wrapper_artifact_digest ]; then
+    [ -z "$extra" ] || fail 'wrapper_artifact_digest record is malformed'
     core_digest_count=$((core_digest_count + 1))
     core_digest=$f2
   fi
 done < "$descriptor"
-[ "$core_digest_count" -eq 1 ] || fail 'generation.meta must contain exactly one core_artifact_digest'
-[ "${#core_digest}" -eq 64 ] || fail 'core_artifact_digest is not canonical'
-case $core_digest in *[!0-9a-f]*) fail 'core_artifact_digest is not canonical' ;; esac
+[ "$core_digest_count" -eq 1 ] || fail 'generation.meta must contain exactly one wrapper_artifact_digest'
+[ "${#core_digest}" -eq 64 ] || fail 'wrapper_artifact_digest is not canonical'
+case $core_digest in *[!0-9a-f]*) fail 'wrapper_artifact_digest is not canonical' ;; esac
 [ "$(sha256_hex "$core_snapshot")" = "$core_digest" ] || fail 'Core artifact does not match signed generation metadata'
 destination=$PREFIX/bin/codex
 validate_existing_entrypoint() {
@@ -212,7 +212,7 @@ else
 fi
 
 publish_bootstrap_pin() {
-  pin=$HOME/.local/lib/codex/core/release-public-key.pem
+  pin=$HOME/.local/lib/codex/wrapper/release-public-key.pem
   pin_parent=${pin%/*}
   mkdir -p "$pin_parent"
   if [ -e "$pin" ] || [ -L "$pin" ]; then
@@ -226,7 +226,7 @@ publish_bootstrap_pin() {
 
 if [ "$bootstrap_mode" = fresh ]; then
   unset CODEX_TERMUX_INTERNAL_BOOTSTRAP_SOURCE \
-    CODEX_TERMUX_INTERNAL_BOOTSTRAP_CORE \
+    CODEX_TERMUX_INTERNAL_BOOTSTRAP_WRAPPER \
     CODEX_TERMUX_INTERNAL_BOOTSTRAP_EXPECTED_LEGACY_ENTRYPOINT_SHA256 || :
   CODEX_TERMUX_INTERNAL_BOOTSTRAP=self-test \
   CODEX_TERMUX_INTERNAL_BOOTSTRAP_KEY="$key_snapshot" \
@@ -236,27 +236,27 @@ if [ "$bootstrap_mode" = fresh ]; then
   mkdir -p "$PREFIX/bin"
   validate_existing_entrypoint
   CODEX_TERMUX_INTERNAL_BOOTSTRAP=publish-fresh-entrypoint \
-  CODEX_TERMUX_INTERNAL_BOOTSTRAP_CORE="$core_snapshot" \
+  CODEX_TERMUX_INTERNAL_BOOTSTRAP_WRAPPER="$core_snapshot" \
     "$core_snapshot" || fail 'fresh Core entrypoint publication failed'
 
   CODEX_TERMUX_INTERNAL_BOOTSTRAP=activate \
   CODEX_TERMUX_INTERNAL_BOOTSTRAP_SOURCE="$release_dir" \
   CODEX_TERMUX_INTERNAL_BOOTSTRAP_KEY="$key_snapshot" \
-  CODEX_TERMUX_INTERNAL_BOOTSTRAP_CORE="$core_snapshot" \
+  CODEX_TERMUX_INTERNAL_BOOTSTRAP_WRAPPER="$core_snapshot" \
     "$destination" || fail 'initial v3 activation failed'
 
   printf '%s\n' 'codex-bootstrap: initial installation complete'
 else
   unset CODEX_TERMUX_INTERNAL_BOOTSTRAP_SOURCE \
-    CODEX_TERMUX_INTERNAL_BOOTSTRAP_CORE \
+    CODEX_TERMUX_INTERNAL_BOOTSTRAP_WRAPPER \
     CODEX_TERMUX_INTERNAL_BOOTSTRAP_EXPECTED_LEGACY_ENTRYPOINT_SHA256 || :
   CODEX_TERMUX_INTERNAL_BOOTSTRAP=handoff-self-test \
   CODEX_TERMUX_INTERNAL_BOOTSTRAP_KEY="$key_snapshot" \
     "$core_snapshot" || fail 'authenticated Core self-test failed'
 
-  journal=$HOME/.local/share/codex/core/activation-journal
-  journal_tmp=$HOME/.local/share/codex/core/activation-journal.tmp
-  state_tmp=$HOME/.local/share/codex/core/activation-state.tmp
+  journal=$HOME/.local/share/codex/wrapper/activation-journal
+  journal_tmp=$HOME/.local/share/codex/wrapper/activation-journal.tmp
+  state_tmp=$HOME/.local/share/codex/wrapper/activation-state.tmp
   if [ ! -e "$state" ] && [ ! -L "$state" ] &&
     [ ! -e "$journal" ] && [ ! -L "$journal" ] &&
     [ ! -e "$journal_tmp" ] && [ ! -L "$journal_tmp" ] &&
@@ -267,7 +267,7 @@ else
   CODEX_TERMUX_INTERNAL_BOOTSTRAP=handoff \
   CODEX_TERMUX_INTERNAL_BOOTSTRAP_SOURCE="$release_dir" \
   CODEX_TERMUX_INTERNAL_BOOTSTRAP_KEY="$key_snapshot" \
-  CODEX_TERMUX_INTERNAL_BOOTSTRAP_CORE="$core_snapshot" \
+  CODEX_TERMUX_INTERNAL_BOOTSTRAP_WRAPPER="$core_snapshot" \
   CODEX_TERMUX_INTERNAL_BOOTSTRAP_EXPECTED_LEGACY_ENTRYPOINT_SHA256="$expected_legacy_digest" \
     "$core_snapshot" || fail 'legacy handoff failed'
 

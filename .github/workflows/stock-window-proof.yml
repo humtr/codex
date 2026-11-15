@@ -61,7 +61,7 @@ jobs:
           cargo +1.98.0 build --release --locked --manifest-path product/Cargo.toml --target x86_64-linux-android -p codex-manager
           mkdir fixture
           cp "$CARGO_TARGET_DIR/x86_64-linux-android/release/codex-manager" fixture/manager
-          "$CARGO_TARGET_X86_64_LINUX_ANDROID_LINKER" -O2 -Wall -Wextra -Werror proof/.github/stock-window/workload.c -o fixture/core
+          "$CARGO_TARGET_X86_64_LINUX_ANDROID_LINKER" -O2 -Wall -Wextra -Werror proof/.github/stock-window/workload.c -o fixture/wrapper
           curl --fail --silent --show-error --location https://github.com/termux/termux-am-socket/archive/refs/tags/1.5.0.tar.gz -o am.tar.gz
           echo '5175023c7fd675492451a72d06b75c772f257685b69fe117227bae5a5e6f5494  am.tar.gz' | sha256sum -c -
           tar -xzf am.tar.gz
@@ -106,8 +106,8 @@ jobs:
             sleep 1
           done
           adb shell run-as com.termux test -x /data/data/com.termux/files/usr/bin/env
-          for file in core manager termux-am-socket; do adb push "fixture/$file" "/data/local/tmp/stock-$file"; done
-          adb shell "run-as com.termux sh -c 'mkdir -p files/home/.stock-proof files/home/.termux files/home/.local/lib/codex/core/generations/stock-proof/helpers; chmod 700 files/home/.stock-proof; cp /data/local/tmp/stock-core files/home/.stock-proof/core; cp /data/local/tmp/stock-manager files/home/.stock-proof/manager; cp /data/local/tmp/stock-core files/home/.local/lib/codex/core/generations/stock-proof/helpers/2; cp /data/local/tmp/stock-termux-am-socket files/usr/bin/termux-am-socket; chmod 755 files/home/.stock-proof/core files/home/.stock-proof/manager files/home/.local/lib/codex/core/generations/stock-proof/helpers/2 files/usr/bin/termux-am-socket; echo allow-external-apps=true > files/home/.termux/termux.properties'"
+          for file in wrapper manager termux-am-socket; do adb push "fixture/$file" "/data/local/tmp/stock-$file"; done
+          adb shell "run-as com.termux sh -c 'mkdir -p files/home/.stock-proof files/home/.termux files/home/.local/lib/codex/wrapper/generations/stock-proof/helpers; chmod 700 files/home/.stock-proof; cp /data/local/tmp/stock-wrapper files/home/.stock-proof/wrapper; cp /data/local/tmp/stock-manager files/home/.stock-proof/manager; cp /data/local/tmp/stock-wrapper files/home/.local/lib/codex/wrapper/generations/stock-proof/helpers/2; cp /data/local/tmp/stock-termux-am-socket files/usr/bin/termux-am-socket; chmod 755 files/home/.stock-proof/wrapper files/home/.stock-proof/manager files/home/.local/lib/codex/wrapper/generations/stock-proof/helpers/2 files/usr/bin/termux-am-socket; echo allow-external-apps=true > files/home/.termux/termux.properties'"
           timeout 25 adb shell "run-as com.termux /data/data/com.termux/files/usr/bin/termux-am-socket 'termux-terminal-v1 capabilities'" > "$RUNNER_TEMP/stock-capability.txt" 2>&1 || true
           grep -F "Error: unknown command 'termux-terminal-v1'" "$RUNNER_TEMP/stock-capability.txt"
           timeout 240 adb shell am instrument -w -r -e class com.termux.app.StockWindowTest com.termux.test/androidx.test.runner.AndroidJUnitRunner > "$RUNNER_TEMP/stock-proof.txt" 2>&1

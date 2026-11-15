@@ -38,8 +38,8 @@ def fixture(root, core, frontend, manager=None, generation=None):
     if generation is None:
         real_home = Path.home()
         activation = dict(line.split('=', 1) for line in
-            (real_home / '.local/share/codex/core/activation-state').read_text().splitlines() if '=' in line)
-        installed = real_home / '.local/lib/codex/core/generations' / activation['current']
+            (real_home / '.local/share/codex/wrapper/activation-state').read_text().splitlines() if '=' in line)
+        installed = real_home / '.local/lib/codex/wrapper/generations' / activation['current']
     else:
         installed = generation.resolve(strict=True)
     fields = parse_descriptor(installed / 'generation.meta')
@@ -53,7 +53,7 @@ def fixture(root, core, frontend, manager=None, generation=None):
         bridge = fields['creation_metadata'] == 'r10-browser-helper-bridge-v1'
         browser_paths = {'helpers/0', 'helpers/1'} if bridge else {
             'browser/open/curl', 'browser/manual/curl'}
-        expected = {'core', 'runtime', 'codex-code-mode-host', 'generation.meta'} | browser_paths
+        expected = {'wrapper', 'runtime', 'codex-code-mode-host', 'generation.meta'} | browser_paths
         assert len(records) == len(expected) and {row[1] for row in records} == expected
         inventory = [(row[1], row[2], row[3]) for row in records]
     else:
@@ -65,9 +65,9 @@ def fixture(root, core, frontend, manager=None, generation=None):
         target = generation / name
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(installed / name, target)
-    core_mode = (generation / 'core').stat().st_mode & 0o777
-    shutil.copy2(core, generation / 'core')
-    (generation / 'core').chmod(core_mode)
+    core_mode = (generation / 'wrapper').stat().st_mode & 0o777
+    shutil.copy2(core, generation / 'wrapper')
+    (generation / 'wrapper').chmod(core_mode)
     if manager is not None:
         manager_mode = (generation / 'manager').stat().st_mode & 0o777
         shutil.copy2(manager, generation / 'manager')
@@ -92,8 +92,8 @@ def fixture(root, core, frontend, manager=None, generation=None):
     text = text.replace(fields['generation_id'], generation.name)
     lines = []
     for line in text.splitlines():
-        if line.startswith('core_artifact_digest\t'):
-            line = 'core_artifact_digest\t' + sha(generation / 'core')
+        if line.startswith('wrapper_artifact_digest\t'):
+            line = 'wrapper_artifact_digest\t' + sha(generation / 'wrapper')
         elif manager is not None and line.startswith('manager_artifact_digest\t'):
             line = 'manager_artifact_digest\t' + sha(generation / 'manager')
         elif line.startswith('helper\ttermux-manager-tui-v1:'):
@@ -113,11 +113,11 @@ def fixture(root, core, frontend, manager=None, generation=None):
     (generation / 'release.manifest').write_text(manifest)
     subprocess.run(['openssl', 'pkeyutl', '-sign', '-inkey', str(key), '-rawin', '-in', str(generation / 'release.manifest'), '-out', str(generation / 'release.sig')], check=True, capture_output=True)
     home, prefix = root / 'h', root / 'p'
-    for path in [home / '.codex', home / '.local/share/codex/core/config', prefix / 'bin', prefix / 'etc/tls', root / 't', root / 'w']:
+    for path in [home / '.codex', home / '.local/share/codex/wrapper/config', prefix / 'bin', prefix / 'etc/tls', root / 't', root / 'w']:
         path.mkdir(parents=True, mode=0o700)
-    shutil.copytree(generation, home / '.local/lib/codex/core/generations' / generation.name)
-    shutil.copy2(generation / 'core', prefix / 'bin/codex')
-    (home / '.local/share/codex/core/activation-state').write_text(fixture_activation_state(generation.name, public))
+    shutil.copytree(generation, home / '.local/lib/codex/wrapper/generations' / generation.name)
+    shutil.copy2(generation / 'wrapper', prefix / 'bin/codex')
+    (home / '.local/share/codex/wrapper/activation-state').write_text(fixture_activation_state(generation.name, public))
     host_prefix = Path(os.environ['PREFIX'])
     shutil.copy2(host_prefix / 'etc/resolv.conf', prefix / 'etc/resolv.conf')
     shutil.copy2(host_prefix / 'etc/tls/cert.pem', prefix / 'etc/tls/cert.pem')
@@ -141,7 +141,7 @@ def fixture(root, core, frontend, manager=None, generation=None):
         TERM='xterm-256color', LANG='C.UTF-8', SHELL=str(host_prefix / 'bin/bash'),
         SSL_CERT_FILE=str(prefix / 'etc/tls/cert.pem'))
     for name in ['OPENAI_API_KEY', 'CODEX_ACCESS_TOKEN', 'ACCESS_TOKEN', 'CODEX_SQLITE_HOME',
-        'CODEX_PROFILE_CORE', 'CODEX_CHAT_RETURN_PROFILE', 'CODEX_EXEC_SERVER_URL', 'CODEX_TERMUX_BACKEND_STARTUP',
+        'CODEX_PROFILE_WRAPPER', 'CODEX_CHAT_RETURN_PROFILE', 'CODEX_EXEC_SERVER_URL', 'CODEX_TERMUX_BACKEND_STARTUP',
         'TERMUX_SESSION_ID', 'CODEX_TERMUX_WINDOW_TOKEN', 'CODEX_TERMUX_WINDOW_READY', 'CODEX_TERMUX_SESSION_ORIGIN']:
         env.pop(name, None)
     # Built-in providers cannot be redefined; upstream supports these env overrides.
@@ -151,10 +151,10 @@ def fixture(root, core, frontend, manager=None, generation=None):
 
 
 def server_paths(home, runtime=None):
-    expected=Path(runtime) if runtime is not None else home/'.local/lib/codex/core/generations/local-permission-fixture/runtime'
+    expected=Path(runtime) if runtime is not None else home/'.local/lib/codex/wrapper/generations/local-permission-fixture/runtime'
     paths=[]
     for family in ['servers','catalogs']:
-        for path in (home/'.local/share/codex/core'/family).glob('*/s'):
+        for path in (home/'.local/share/codex/wrapper'/family).glob('*/s'):
             try:
                 pid=int(path.with_name('pid').read_text())
                 if Path(f'/proc/{pid}/exe').resolve()==expected:paths.append(path)
@@ -345,7 +345,7 @@ def probe(args):
             expected='servers' if args.native_catalog else 'catalogs'
             assert paths[0].parent.parent.name==expected,paths
             other='catalogs' if args.native_catalog else 'servers'
-            assert not list((home/'.local/share/codex/core'/other).glob('*/pid')), 'unexpected backend started'
+            assert not list((home/'.local/share/codex/wrapper'/other).glob('*/pid')), 'unexpected backend started'
 
         def snapshot(thread):
             d=rpc(home,'thread/resume',{'threadId':thread})

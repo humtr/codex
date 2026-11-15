@@ -114,14 +114,14 @@ def materialize_signed_generation(generation, native):
 
 
 def qualify(generation, parent, public_key, observe_owner=None):
-    core = generation / "core"
+    core = generation / "wrapper"
     root = Path(tempfile.mkdtemp(prefix="tq", dir=parent))
     try:
         home, prefix = root / "h", root / "p"
         identity = dict(line.split("\t", 1) for line in (generation / "generation.meta").read_text().splitlines()[1:])["generation_id"]
-        native = home / ".local/lib/codex/core/generations" / identity
+        native = home / ".local/lib/codex/wrapper/generations" / identity
         materialize_signed_generation(generation, native)
-        for path in [home / ".codex", home / ".local/share/codex/core/config", prefix / "bin", prefix / "etc/tls"]:
+        for path in [home / ".codex", home / ".local/share/codex/wrapper/config", prefix / "bin", prefix / "etc/tls"]:
             path.mkdir(parents=True, exist_ok=True, mode=0o700)
         shutil.copy2(core, prefix / "bin/codex")
         openssl = shutil.which("openssl")
@@ -129,7 +129,7 @@ def qualify(generation, parent, public_key, observe_owner=None):
         (prefix / "bin/openssl").symlink_to(openssl)
         (prefix / "etc/resolv.conf").write_text("nameserver 127.0.0.1\n")
         (prefix / "etc/tls/cert.pem").write_text("fixture\n")
-        (home / ".local/share/codex/core/activation-state").write_text(fixture_activation_state(identity, public_key))
+        (home / ".local/share/codex/wrapper/activation-state").write_text(fixture_activation_state(identity, public_key))
         real = Path(shutil.which("python3")).parent
         env = {"HOME": str(home), "PREFIX": str(prefix), "TMPDIR": str(parent), "PATH": f"{prefix / 'bin'}:{real}", "SSL_CERT_FILE": str(real.parent / "etc/tls/cert.pem")}
         release = threading.Event()
@@ -200,7 +200,7 @@ requires_openai_auth = false
         def bind(account):
             deadline = time.monotonic() + 15
             while time.monotonic() < deadline:
-                for path in (home / ".local/share/codex/core/servers").glob("*"):
+                for path in (home / ".local/share/codex/wrapper/servers").glob("*"):
                     if not (path / "owner").exists() or not (path / "pid").exists():
                         continue
                     if (path / "owner").read_bytes().split(b"\0")[0] == os.fsencode(account) and (path / "s").exists():
@@ -243,7 +243,7 @@ requires_openai_auth = false
                     return
                 time.sleep(.05)
             locks = []
-            for record in (home / ".local/share/codex/core/servers").glob("*"):
+            for record in (home / ".local/share/codex/wrapper/servers").glob("*"):
                 pid = int((record / "pid").read_text())
                 try:
                     if Path(f"/proc/{pid}/exe").resolve() != native / "runtime":
@@ -416,7 +416,7 @@ requires_openai_auth = false
             # A restarted daemon may replace the PID after bind() first sees its
             # old rendezvous. Include the final owned records and wait for shutdown
             # before removing its home, so writers cannot recreate cleanup paths.
-            for record in (home / ".local/share/codex/core/servers").glob("*"):
+            for record in (home / ".local/share/codex/wrapper/servers").glob("*"):
                 try:
                     servers.add(int((record / "pid").read_text()))
                 except (OSError, ValueError):

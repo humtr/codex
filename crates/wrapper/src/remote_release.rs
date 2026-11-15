@@ -173,7 +173,7 @@ fn flat_asset(path: &str) -> Option<&str> {
         "update-index-v1" => Some("candidate-update-index-v1"),
         "update-index-v1.sig" => Some("candidate-update-index-v1.sig"),
         "codex-code-mode-host"
-        | "core"
+        | "wrapper"
         | "generation.meta"
         | "manager"
         | "runtime"
@@ -320,10 +320,10 @@ mod tests {
             channel: "stable".into(),
             expected_platform: "android".into(),
             expected_architecture: "aarch64".into(),
-            core_api_identity: "core-api-v1".into(),
+            wrapper_api_identity: "wrapper-api-v1".into(),
             persistent_schema_identity: "schema-v1".into(),
             release_public_key: ReleasePublicKey([0; 32]),
-            files: ["core", "generation.meta", "helpers/0", "runtime"]
+            files: ["generation.meta", "helpers/0", "runtime", "wrapper"]
                 .into_iter()
                 .map(|path| ReleaseFileEntry {
                     relative_path: path.into(),
@@ -336,7 +336,7 @@ mod tests {
             "schema":"codex-asset-map-v1", "generation_id":"@FULL@",
             "base_generation":"@BASE@", "manifest_sha256":"@DIGEST@",
             "files":{
-                "core":{"generation":"@BASE@","asset":"core"},
+                "wrapper":{"generation":"@BASE@","asset":"wrapper"},
                 "generation.meta":{"generation":"@FULL@","asset":"generation.meta"},
                 "helpers/0":{"generation":"@BASE@","asset":"helper-0"},
                 "runtime":{"generation":"@BASE@","asset":"runtime"},
@@ -459,10 +459,10 @@ mod tests {
             channel: "stable".into(),
             expected_platform: "android".into(),
             expected_architecture: "aarch64".into(),
-            core_api_identity: "core-api-v1".into(),
+            wrapper_api_identity: "wrapper-api-v1".into(),
             persistent_schema_identity: "schema-v1".into(),
             release_public_key: ReleasePublicKey([0; 32]),
-            files: ["core", "generation.meta", "helpers/0", "runtime"]
+            files: ["generation.meta", "helpers/0", "runtime", "wrapper"]
                 .into_iter()
                 .map(|path| ReleaseFileEntry {
                     relative_path: path.into(),
@@ -475,7 +475,7 @@ mod tests {
             "schema":"codex-asset-map-v1", "generation_id":"@FULL@",
             "base_generation":"@BASE@", "manifest_sha256":"@DIGEST@",
             "files":{
-                "core":{"generation":"@BASE@","asset":"core"},
+                "wrapper":{"generation":"@BASE@","asset":"wrapper"},
                 "generation.meta":{"generation":"@FULL@","asset":"generation.meta"},
                 "helpers/0":{"generation":"@BASE@","asset":"helper-0"},
                 "runtime":{"generation":"@BASE@","asset":"runtime"},
@@ -493,8 +493,8 @@ mod tests {
 
         let parsed = parse_map(map_str.as_bytes(), new_full, &manifest, &digest).unwrap();
         assert_eq!(
-            resource_url(new_full, Some(&parsed), "core").unwrap(),
-            format!("https://github.com/humtr/codex/releases/download/{new_base}/core")
+            resource_url(new_full, Some(&parsed), "wrapper").unwrap(),
+            format!("https://github.com/humtr/codex/releases/download/{new_base}/wrapper")
         );
     }
 }

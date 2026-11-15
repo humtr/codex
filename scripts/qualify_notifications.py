@@ -80,10 +80,10 @@ def qualify(core, generation, parent, public_key):
         identity = fields["generation_id"]
         # Core admits the signed runtime policy. Check its effective permissions
         # below on the real thread/start result, independently of build strategy.
-        installed = home / ".local/lib/codex/core/generations" / identity
+        installed = home / ".local/lib/codex/wrapper/generations" / identity
         materialize_signed_generation(generation, installed)
         assert (installed / "manager").is_file()
-        for directory in [prefix / "bin", prefix / "etc/tls", home / ".codex", home / ".local/share/codex/core/config"]:
+        for directory in [prefix / "bin", prefix / "etc/tls", home / ".codex", home / ".local/share/codex/wrapper/config"]:
             directory.mkdir(parents=True, exist_ok=True, mode=0o700)
         shutil.copy2(core, prefix / "bin/codex")
         openssl = shutil.which("openssl")
@@ -91,7 +91,7 @@ def qualify(core, generation, parent, public_key):
         (prefix / "bin/openssl").symlink_to(openssl)
         (prefix / "etc/resolv.conf").write_text("nameserver 127.0.0.1\n")
         (prefix / "etc/tls/cert.pem").write_text("fixture\n")
-        (home / ".local/share/codex/core/activation-state").write_text(fixture_activation_state(identity, public_key))
+        (home / ".local/share/codex/wrapper/activation-state").write_text(fixture_activation_state(identity, public_key))
         real_bin = Path(shutil.which("sh")).parent
         calls = root / "calls.jsonl"
         provider = prefix / "bin/termux-notification"

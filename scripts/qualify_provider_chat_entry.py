@@ -74,7 +74,7 @@ def control(info, env, name, args, *, evidence_path=None):
 
 def check_native_socket_budget(home):
     # Core uses a 16-hex namespace and checks the absolute path before spawn.
-    socket = Path(home) / ".local/share/codex/core/catalogs" / ("0" * 16) / "s"
+    socket = Path(home) / ".local/share/codex/wrapper/catalogs" / ("0" * 16) / "s"
     size = len(os.fsencode(socket))
     if size > 107:
         raise ValueError(f"native fixture socket path is {size} bytes; Core permits 107")
@@ -109,7 +109,7 @@ def preflight_native(root, info, env):
     (root / "native-preflight.stderr").write_bytes(prepared.stderr)
     assert prepared.returncode == 0, "native preparation failed; live connection untouched; inspect retained stderr"
     socket = Path(prepared.stdout.decode().strip())
-    assert socket.parent.parent == Path(info["fixture_home"]) / ".local/share/codex/core/catalogs"
+    assert socket.parent.parent == Path(info["fixture_home"]) / ".local/share/codex/wrapper/catalogs"
     paths = server_paths(Path(info["fixture_home"]), info["runtime"]) if info.get("runtime") else server_paths(Path(info["fixture_home"]))
     assert socket in paths, "native backend ownership not verified"
     save(root / "native-preflight.json", {"accepted": True, "socket_bytes": socket_bytes,
@@ -199,8 +199,8 @@ class OriginalTests(unittest.TestCase):
     second = """Genuine follow-up on the previous implementation. Use codex_sessions list to locate THIS work, read codex_history and claim the settled work using its exact cursor/context_cursor. Keep the SAME native thread. Start this new genuine task through codex_sessions start, attach and accept the current receipt. Add apply_batch(balance, changes): exact integer balance and changes (reject bool/non-integer), return the final balance, and reject any intermediate negative balance with ValueError. Do not mutate changes. Add optional --balance INTEGER to the CLI; default array-sum behavior remains compatible. Invalid inputs/overdraft exit 2 without traceback or successful JSON. Preserve all existing tests, add tests covering successful/failed batches and CLI behavior, and run the full suite. Complete with marker CHAT_ENTRY_TURN_2_COMPLETE.\n"""
     for step, task in enumerate([first, second], 1):
         (root / (f"request-{step}.txt")).write_text(task + common)
-    binding = {"thread_id": os.environ["CODEX_THREAD_ID"], "core": os.environ["CODEX_PROFILE_CORE"],
-        "environment": {k: os.environ[k] for k in ["HOME", "CODEX_HOME", "CODEX_SQLITE_HOME", "CODEX_PROFILE_CORE", "PREFIX", "PATH", "TMPDIR", "LANG", "TERM"] if k in os.environ}}
+    binding = {"thread_id": os.environ["CODEX_THREAD_ID"], "core": os.environ["CODEX_PROFILE_WRAPPER"],
+        "environment": {k: os.environ[k] for k in ["HOME", "CODEX_HOME", "CODEX_SQLITE_HOME", "CODEX_PROFILE_WRAPPER", "PREFIX", "PATH", "TMPDIR", "LANG", "TERM"] if k in os.environ}}
     binding["core_sha256"] = sha(binding["core"])
     save(root / "notification-binding.json", binding)
     print(json.dumps({"root": str(root), "prepared": True, "model_requests": 0, "provider_app_host": False}))
@@ -321,7 +321,7 @@ def native_work(root):
 def observer_argv(info, record):
     """Attach the original TUI to the execution owner's exact Core backend."""
     directory = Path(record["execution"]["directory"])
-    assert directory.parent == Path(info["fixture_home"]) / ".local/share/codex/core/catalogs"
+    assert directory.parent == Path(info["fixture_home"]) / ".local/share/codex/wrapper/catalogs"
     socket = directory / "s"
     paths = server_paths(Path(info["fixture_home"]), info["runtime"]) if info.get("runtime") else server_paths(Path(info["fixture_home"]))
     assert socket in paths, "observer backend unavailable"
@@ -653,7 +653,7 @@ def run(root):
             stop_owned_pid(terminal.pid, Path("/proc", str(terminal.pid), "exe").resolve())
             terminal.wait(timeout=15)
         servers = []
-        expected = Path(info["fixture_home"]) / ".local/lib/codex/core/generations/local-permission-fixture/runtime"
+        expected = Path(info["fixture_home"]) / ".local/lib/codex/wrapper/generations/local-permission-fixture/runtime"
         for path in server_paths(Path(info["fixture_home"])):
             pid = int((path.parent / "pid").read_text())
             if pid not in [s["pid"] for s in servers]:

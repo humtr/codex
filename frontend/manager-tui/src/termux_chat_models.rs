@@ -317,7 +317,7 @@ pub(crate) fn installed_routing(config: &Config) -> Option<toml::Value> {
     let local = config.codex_home.join("chatgpt.config.toml");
     let shared = std::env::var_os("HOME").map(|home| {
         std::path::PathBuf::from(home)
-            .join(".local/share/codex/core/config/profiles/chatgpt.config.toml")
+            .join(".local/share/codex/wrapper/config/profiles/chatgpt.config.toml")
     });
     let path = routing_profile_path(&local, shared.as_deref())?;
     let profile = String::from_utf8(private_bytes(&path, 65536)?).ok()?;
@@ -490,7 +490,7 @@ pub(crate) fn augment(config: &Config, mut models: Vec<ModelPreset>) -> Vec<Mode
             .config_layer_stack
             .required_model_provider()
             .is_some()
-        || std::env::var_os("CODEX_PROFILE_CORE").is_none()
+        || std::env::var_os("CODEX_PROFILE_WRAPPER").is_none()
     {
         return models;
     }

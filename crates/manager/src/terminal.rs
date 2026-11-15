@@ -44,12 +44,15 @@ fn native(home: &Path, executable: &Path) -> bool {
     if executable == root.join("profile-tui-preview/direct-selection-v1/native") {
         return true;
     }
-    let Ok(relative) = executable.strip_prefix(root.join("core/generations")) else {
+    let generations = root.join("wrapper/generations");
+    if codex_runtime_binding::is_generation_runtime_program(&generations, executable) {
+        return true;
+    }
+    let Ok(relative) = executable.strip_prefix(&generations) else {
         return false;
     };
     let parts: Vec<_> = relative.components().collect();
-    (parts.len() == 2 && parts[1].as_os_str() == "runtime")
-        || (parts.len() == 3 && parts[1].as_os_str() == "helpers" && parts[2].as_os_str() == "2")
+    parts.len() == 3 && parts[1].as_os_str() == "helpers" && parts[2].as_os_str() == "2"
 }
 
 fn slot(
@@ -365,7 +368,11 @@ mod tests {
         let home = Path::new("/owned");
         assert!(native(
             home,
-            Path::new("/owned/.local/lib/codex/core/generations/a/runtime")
+            Path::new("/owned/.local/lib/codex/wrapper/generations/a/runtime")
+        ));
+        assert!(native(
+            home,
+            Path::new("/owned/.local/lib/codex/wrapper/generations/a/bin/codex")
         ));
         assert!(native(
             home,
@@ -373,16 +380,18 @@ mod tests {
         ));
         assert!(native(
             home,
-            Path::new("/owned/.local/lib/codex/core/generations/a/helpers/2")
+            Path::new("/owned/.local/lib/codex/wrapper/generations/a/helpers/2")
         ));
         for path in [
             "/owned/runtime",
-            "/owned/.local/lib/codex/core/generations/runtime",
-            "/owned/.local/lib/codex/core/generations/a/b/runtime",
-            "/owned/.local/lib/codex/core/generations/a/helpers/0",
-            "/owned/.local/lib/codex/core/generations/a/helpers/1",
-            "/owned/.local/lib/codex/core/generations/a/b/helpers/2",
-            "/owned/.local/lib/codex/core/generations/a/helpers/2/native",
+            "/owned/.local/lib/codex/wrapper/generations/runtime",
+            "/owned/.local/lib/codex/wrapper/generations/bin/codex",
+            "/owned/.local/lib/codex/wrapper/generations/a/b/runtime",
+            "/owned/.local/lib/codex/wrapper/generations/a/b/bin/codex",
+            "/owned/.local/lib/codex/wrapper/generations/a/helpers/0",
+            "/owned/.local/lib/codex/wrapper/generations/a/helpers/1",
+            "/owned/.local/lib/codex/wrapper/generations/a/b/helpers/2",
+            "/owned/.local/lib/codex/wrapper/generations/a/helpers/2/native",
         ] {
             assert!(!native(home, Path::new(path)));
         }

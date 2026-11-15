@@ -776,7 +776,7 @@ mod tests {
             inherited_codex_home: None,
             core_entrypoint: std::env::current_exe().unwrap(),
         };
-        let family = root.join(".local/share/codex/core/servers");
+        let family = root.join(".local/share/codex/wrapper/servers");
         fs::create_dir_all(&family).unwrap();
         set_mode(&family, 0o700).unwrap();
         let mut exited = Command::new("sh").args(["-c", "exit 0"]).spawn().unwrap();
@@ -794,7 +794,7 @@ mod tests {
         let home = root.join("account");
         fs::create_dir(&home).unwrap();
         set_mode(&home, 0o700).unwrap();
-        let program = root.join(".local/lib/codex/core/generations/proof/runtime");
+        let program = root.join(".local/lib/codex/wrapper/generations/proof/runtime");
         fs::create_dir_all(program.parent().unwrap()).unwrap();
         let shell = std::env::split_paths(&std::env::var_os("PATH").unwrap())
             .map(|path| path.join("sh"))

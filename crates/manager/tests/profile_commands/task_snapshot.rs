@@ -43,7 +43,7 @@ fn task_snapshot_rejects_unsafe_server_state_without_partial_data_or_writes() {
     let root = TestRoot::new();
     let core = write_core_probe(&root.0);
     let home = root.0.join("home");
-    let servers = home.join(".local/share/codex/core/servers");
+    let servers = home.join(".local/share/codex/wrapper/servers");
     fs::create_dir_all(&servers).unwrap();
     fs::set_permissions(&servers, fs::Permissions::from_mode(0o777)).unwrap();
     let before = inventory(&home);

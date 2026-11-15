@@ -1,6 +1,8 @@
 use std::ffi::{OsStr, OsString};
 
 #[cfg(unix)]
+mod daemon_settings;
+#[cfg(unix)]
 mod execution_lease;
 #[cfg(unix)]
 mod local_source;
@@ -46,7 +48,7 @@ enum PublicDispatchRoute {
 }
 
 const TERMUX_DAEMON_UNSUPPORTED: &str = "upstream app-server daemon lifecycle is unsupported on Termux because it is bound to standalone installer/update authority; use foreground 'codex remote-control' when remote control is needed";
-const CORE_ONLY_ENV: &str = "CODEX_TERMUX_CORE_ONLY";
+const CORE_ONLY_ENV: &str = "CODEX_TERMUX_WRAPPER_ONLY";
 
 #[cfg(unix)]
 fn core_only_requested() -> bool {
@@ -386,18 +388,155 @@ struct RuntimeFdSources {
 }
 
 #[cfg(unix)]
+const RESOLVER_SYNTHESIS_MAX_BYTES: usize = 64 * 1024;
+#[cfg(unix)]
+const RESOLVER_DEFAULT_OPTIONS: &[u8] = b"options timeout:2 attempts:10\n";
+#[cfg(unix)]
+static RESOLVER_SYNTHESIS_COUNTER: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
+
+#[cfg(unix)]
+fn resolver_has_options_directive(bytes: &[u8]) -> bool {
+    bytes.split(|&byte| byte == b'\n').any(|raw_line| {
+        let trimmed_end = raw_line.strip_suffix(b"\r").unwrap_or(raw_line);
+        let start = trimmed_end
+            .iter()
+            .position(|&byte| !matches!(byte, b' ' | b'\t'))
+            .unwrap_or(trimmed_end.len());
+        let line = &trimmed_end[start..];
+        if line.is_empty() || matches!(line[0], b'#' | b';') {
+            return false;
+        }
+        line.strip_prefix(b"options").is_some_and(|rest| {
+            rest.first()
+                .is_some_and(|&byte| matches!(byte, b' ' | b'\t'))
+        })
+    })
+}
+
+#[cfg(unix)]
+fn open_synthesized_resolver(bytes: &[u8]) -> std::io::Result<std::fs::File> {
+    use std::io::{Read as _, Seek as _, Write as _};
+    use std::os::fd::AsRawFd;
+    use std::os::unix::fs::{MetadataExt as _, OpenOptionsExt as _};
+
+    let mut synthesized = Vec::with_capacity(bytes.len() + RESOLVER_DEFAULT_OPTIONS.len() + 1);
+    synthesized.extend_from_slice(bytes);
+    if !synthesized.is_empty() && !synthesized.ends_with(b"\n") {
+        synthesized.push(b'\n');
+    }
+    synthesized.extend_from_slice(RESOLVER_DEFAULT_OPTIONS);
+
+    if let Some(home) = std::env::var_os("HOME").filter(|value| !value.is_empty()) {
+        let state_dir = std::path::PathBuf::from(home).join(".local/share/codex/wrapper");
+        if std::fs::symlink_metadata(&state_dir).is_ok_and(|meta| meta.file_type().is_dir()) {
+            let cache_path = state_dir.join("resolv.conf");
+            if let Ok(existing_meta) = std::fs::symlink_metadata(&cache_path) {
+                if !existing_meta.file_type().is_file() {
+                    return Err(std::io::Error::other(
+                        "cached resolver path must be a regular non-symlink file",
+                    ));
+                }
+            }
+            let mut rw = std::fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .create(true)
+                .truncate(false)
+                .mode(0o644)
+                .open(&cache_path)?;
+            let rw_meta = rw.metadata()?;
+            let sym_meta = std::fs::symlink_metadata(&cache_path)?;
+            if !sym_meta.file_type().is_file()
+                || sym_meta.dev() != rw_meta.dev()
+                || sym_meta.ino() != rw_meta.ino()
+            {
+                return Err(std::io::Error::other(
+                    "cached resolver file changed during open",
+                ));
+            }
+            if unsafe { flock(rw.as_raw_fd(), FLOCK_EX) } != 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            let mut existing = Vec::new();
+            std::io::Read::by_ref(&mut rw)
+                .take(RESOLVER_SYNTHESIS_MAX_BYTES as u64 + 1)
+                .read_to_end(&mut existing)?;
+            if existing != synthesized {
+                // Rewrite in-place (never rename) so cached resolv.conf preserves its inode.
+                rw.seek(std::io::SeekFrom::Start(0))?;
+                rw.write_all(&synthesized)?;
+                rw.set_len(synthesized.len() as u64)?;
+                rw.sync_all()?;
+            }
+            let ro = std::fs::File::open(&cache_path)?;
+            let ro_meta = ro.metadata()?;
+            if ro_meta.dev() != rw_meta.dev() || ro_meta.ino() != rw_meta.ino() {
+                return Err(std::io::Error::other(
+                    "cached resolver inode changed while syncing",
+                ));
+            }
+            drop(rw);
+            return Ok(ro);
+        }
+    }
+
+    let tmp_root = std::env::temp_dir();
+    for _ in 0..32 {
+        let seq = RESOLVER_SYNTHESIS_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let tmp_path = tmp_root.join(format!(".codex-resolv.{}.{seq}.tmp", std::process::id()));
+        match std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&tmp_path)
+        {
+            Ok(mut file) => {
+                let write_res = (|| -> std::io::Result<()> {
+                    file.write_all(&synthesized)?;
+                    file.seek(std::io::SeekFrom::Start(0))?;
+                    Ok(())
+                })();
+                let _ = std::fs::remove_file(&tmp_path);
+                write_res?;
+                return Ok(file);
+            }
+            Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(err) => return Err(err),
+        }
+    }
+    Err(std::io::Error::other(
+        "could not create temporary resolver file",
+    ))
+}
+
+#[cfg(unix)]
 impl RuntimeFdSources {
     fn open<R, C>(resolver_path: R, config_dir: C) -> std::io::Result<Self>
     where
         R: AsRef<std::path::Path>,
         C: AsRef<std::path::Path>,
     {
+        use std::io::{Read as _, Seek as _};
         use std::os::fd::{AsRawFd, FromRawFd};
 
-        let resolver = std::fs::File::open(resolver_path)?;
-        if resolver.metadata()?.is_dir() {
+        let mut source_resolver = std::fs::File::open(resolver_path)?;
+        if source_resolver.metadata()?.is_dir() {
             return Err(std::io::Error::from_raw_os_error(21));
         }
+        let mut resolver_bytes = Vec::new();
+        std::io::Read::by_ref(&mut source_resolver)
+            .take(RESOLVER_SYNTHESIS_MAX_BYTES as u64 + 1)
+            .read_to_end(&mut resolver_bytes)?;
+        let resolver = if resolver_bytes.len() <= RESOLVER_SYNTHESIS_MAX_BYTES
+            && !resolver_has_options_directive(&resolver_bytes)
+        {
+            open_synthesized_resolver(&resolver_bytes)?
+        } else {
+            source_resolver.seek(std::io::SeekFrom::Start(0))?;
+            source_resolver
+        };
         let config = std::fs::File::open(config_dir)?;
         if !config.metadata()?.is_dir() {
             return Err(std::io::Error::from_raw_os_error(20));
@@ -798,9 +937,9 @@ struct GenerationManifest {
     patch_report: String,
     runtime_digest: String,
     helper_digests: Vec<GenerationHelperDigest>,
-    core_artifact_digest: String,
+    wrapper_artifact_digest: String,
     manager_artifact_digest: Option<String>,
-    core_api_identity: String,
+    wrapper_api_identity: String,
     persistent_schema_identity: String,
     creation_metadata: String,
 }
@@ -809,7 +948,7 @@ struct GenerationManifest {
 struct GenerationManifestRequirements<'a> {
     platform: &'a str,
     architecture: &'a str,
-    core_api_identity: &'a str,
+    wrapper_api_identity: &'a str,
     persistent_schema_identity: &'a str,
 }
 
@@ -927,7 +1066,10 @@ fn qualify_generation_manifest<'a>(
 ) -> Result<QualifiedGenerationManifest<'a>, GenerationManifestError> {
     validate_non_empty_manifest_requirement(requirements.platform, "platform")?;
     validate_non_empty_manifest_requirement(requirements.architecture, "architecture")?;
-    validate_non_empty_manifest_requirement(requirements.core_api_identity, "core_api_identity")?;
+    validate_non_empty_manifest_requirement(
+        requirements.wrapper_api_identity,
+        "wrapper_api_identity",
+    )?;
     validate_non_empty_manifest_requirement(
         requirements.persistent_schema_identity,
         "persistent_schema_identity",
@@ -950,8 +1092,11 @@ fn qualify_generation_manifest<'a>(
     validate_non_empty_manifest_binding(&manifest.patch_policy_id, "patch_policy_id")?;
     validate_non_empty_manifest_binding(&manifest.patch_report, "patch_report")?;
     validate_non_empty_manifest_binding(&manifest.runtime_digest, "runtime_digest")?;
-    validate_non_empty_manifest_binding(&manifest.core_artifact_digest, "core_artifact_digest")?;
-    validate_non_empty_manifest_binding(&manifest.core_api_identity, "core_api_identity")?;
+    validate_non_empty_manifest_binding(
+        &manifest.wrapper_artifact_digest,
+        "wrapper_artifact_digest",
+    )?;
+    validate_non_empty_manifest_binding(&manifest.wrapper_api_identity, "wrapper_api_identity")?;
     validate_non_empty_manifest_binding(
         &manifest.persistent_schema_identity,
         "persistent_schema_identity",
@@ -964,7 +1109,7 @@ fn qualify_generation_manifest<'a>(
     if manifest.expected_architecture != requirements.architecture {
         return Err(GenerationManifestError::ArchitectureMismatch);
     }
-    if manifest.core_api_identity != requirements.core_api_identity {
+    if manifest.wrapper_api_identity != requirements.wrapper_api_identity {
         return Err(GenerationManifestError::CoreApiMismatch);
     }
     if manifest.persistent_schema_identity != requirements.persistent_schema_identity {
@@ -1295,11 +1440,11 @@ fn qualify_manager_artifact<'selection, 'asset>(
 #[cfg(unix)]
 const TERMUX_MANAGER_UNAVAILABLE_MESSAGE: &str = "Codex Termux Manager is unavailable.";
 #[cfg(unix)]
-const MANAGER_CORE_API_ENV: &str = "CODEX_TERMUX_CORE_API";
+const MANAGER_CORE_API_ENV: &str = "CODEX_TERMUX_WRAPPER_API";
 #[cfg(unix)]
-const MANAGER_CORE_ENTRYPOINT_ENV: &str = "CODEX_TERMUX_CORE_ENTRYPOINT";
+const MANAGER_CORE_ENTRYPOINT_ENV: &str = "CODEX_TERMUX_WRAPPER_ENTRYPOINT";
 #[cfg(unix)]
-const MANAGER_CORE_API: &str = "codex-manager-core-v1";
+const MANAGER_CORE_API: &str = "codex-manager-wrapper-v1";
 #[cfg(unix)]
 const MANAGER_ARTIFACT_PROBE_ENV: &str = "CODEX_MANAGER_ARTIFACT_PROBE";
 #[cfg(unix)]
@@ -1434,12 +1579,26 @@ where
             if let Err(err) = shared_layout::guard_registered_home(&home, &execution) {
                 return RuntimeLaunchError::Exec(err);
             }
+            if let Err(err) = daemon_settings::ensure(&execution) {
+                return RuntimeLaunchError::Config(err);
+            }
             match execution_lease::acquire(&execution) {
                 Ok(lease) => lease,
                 Err(err) => return RuntimeLaunchError::Exec(err),
             }
         }
-        None => None,
+        None => {
+            if let Some(execution) = std::env::var("CODEX_HOME")
+                .ok()
+                .filter(|value| !value.is_empty())
+                .map(std::path::PathBuf::from)
+            {
+                if let Err(err) = daemon_settings::ensure(&execution) {
+                    return RuntimeLaunchError::Config(err);
+                }
+            }
+            None
+        }
     };
     if let Err(error) = validate_core_config(config_dir.as_ref()) {
         return RuntimeLaunchError::Config(error);
@@ -1492,7 +1651,7 @@ where
             shared_server::ensure_configured(
                 selection.runtime.program_path,
                 &upstream_execution_home(&home),
-                &home.join(".local/share/codex/core"),
+                &home.join(".local/share/codex/wrapper"),
                 resolver_path.as_ref(),
                 config_dir,
                 &env_plan,
@@ -1519,7 +1678,7 @@ where
         let home = std::env::var_os("HOME").map(std::path::PathBuf::from);
         if let Some(home) = home {
             let profile = upstream_execution_home(&home);
-            let state = home.join(".local/share/codex/core");
+            let state = home.join(".local/share/codex/wrapper");
             let frontend = (options.manager_tui_available
                 && manager_tui::supported(options.planned_args))
             .then(|| {
@@ -2609,7 +2768,7 @@ fn render_doctor_human(report: &DoctorReport, color: bool) -> String {
     }
 
     let code_mode_status = match report.termux_core.generation_layout {
-        GenerationLayout::RootCodeModeHost => "healthy",
+        GenerationLayout::PackageRootV3 | GenerationLayout::RootCodeModeHost => "healthy",
         GenerationLayout::LegacyCompat => "migration_required",
     };
     let core_healthy = report.termux_core.status == CoreDoctorStatus::Healthy;
@@ -2687,7 +2846,7 @@ fn render_doctor_human(report: &DoctorReport, color: bool) -> String {
     output.push('\n');
     doctor_row(
         &mut output,
-        "core",
+        "wrapper",
         "Core API and selected generation are compatible",
         core_healthy,
         color,
@@ -2699,7 +2858,7 @@ fn render_doctor_human(report: &DoctorReport, color: bool) -> String {
     }
     doctor_detail(
         &mut output,
-        "core",
+        "wrapper",
         report.termux_core.status.as_str(),
         color,
     );
@@ -2802,14 +2961,14 @@ fn json_escape(value: &str) -> String {
 
 fn render_doctor_json(report: &DoctorReport) -> String {
     format!(
-        "{{\"schema_version\":2,\"upstream\":{{\"status\":\"{}\",\"output\":\"{}\"}},\"termux_core\":{{\"status\":\"{}\",\"generation_id\":\"{}\",\"layout\":\"{}\",\"runtime\":{{\"status\":\"healthy\"}},\"code_mode_host\":{{\"status\":\"{}\"}},\"sandbox\":{{\"status\":\"unsupported\",\"reason\":\"bwrap is not used\"}}}},\"manager\":{{\"status\":\"{}\"}},\"summary\":{{\"status\":\"{}\"}}}}\n",
+        "{{\"schema_version\":2,\"upstream\":{{\"status\":\"{}\",\"output\":\"{}\"}},\"termux_wrapper\":{{\"status\":\"{}\",\"generation_id\":\"{}\",\"layout\":\"{}\",\"runtime\":{{\"status\":\"healthy\"}},\"code_mode_host\":{{\"status\":\"{}\"}},\"sandbox\":{{\"status\":\"unsupported\",\"reason\":\"bwrap is not used\"}}}},\"manager\":{{\"status\":\"{}\"}},\"summary\":{{\"status\":\"{}\"}}}}\n",
         report.upstream.status.as_str(),
         json_escape(&report.upstream.output),
         report.termux_core.status.as_str(),
         json_escape(&report.termux_core.generation_id),
         report.termux_core.generation_layout.as_str(),
         match report.termux_core.generation_layout {
-            GenerationLayout::RootCodeModeHost => "healthy",
+            GenerationLayout::PackageRootV3 | GenerationLayout::RootCodeModeHost => "healthy",
             GenerationLayout::LegacyCompat => "migration_required",
         },
         report.manager.as_str(),
@@ -4031,11 +4190,16 @@ mod m2_generation_state {
 #[cfg(unix)]
 const LEGACY_GENERATION_FORMAT: &str = "codex-local-generation-v1";
 const LOCAL_GENERATION_FORMAT: &str = "codex-local-generation-v2";
+const LOCAL_GENERATION_FORMAT_V3: &str = "codex-local-generation-v3";
 const CODE_MODE_HOST_FILE: &str = "codex-code-mode-host";
+const V3_RUNTIME_PATH: &str = "bin/codex";
+const V3_CODE_MODE_HOST_PATH: &str = "bin/codex-code-mode-host";
+const V3_EXEC_SERVER_PATH: &str = "bin/codex-exec-server";
+const V3_PACKAGE_JSON_PATH: &str = "codex-package.json";
 #[cfg(unix)]
 const LOCAL_GENERATION_MAX_BYTES: usize = 64 * 1024;
 #[cfg(unix)]
-const CORE_API_IDENTITY: &str = "core-api-v1";
+const CORE_API_IDENTITY: &str = "wrapper-api-v1";
 #[cfg(unix)]
 const PERSISTENT_SCHEMA_IDENTITY: &str = "schema-v1";
 #[cfg(unix)]
@@ -4102,7 +4266,7 @@ const UPDATE_PRIVATE_KEY_MAX_BYTES: u64 = 16 * 1024;
 #[cfg(unix)]
 const BUILD_SIGNER_REFERENCE_MAX_BYTES: usize = 4096;
 #[cfg(test)]
-const LOCAL_PUBLICATION_ROOT_RELATIVE: &str = ".local/lib/codex/core/publications";
+const LOCAL_PUBLICATION_ROOT_RELATIVE: &str = ".local/lib/codex/wrapper/publications";
 #[cfg(unix)]
 const LOCAL_DERIVED_METADATA_FORMAT: &str = "codex-local-derived-v1";
 #[cfg(unix)]
@@ -4112,11 +4276,11 @@ const BOOTSTRAP_PUBLIC_KEY_MAX_BYTES: u64 = 16 * 1024;
 #[cfg(unix)]
 const CORE_ARTIFACT_MAX_BYTES: u64 = 64 * 1024 * 1024;
 #[cfg(unix)]
-const CORE_ROLLBACK_FORMAT: &str = "codex-core-entrypoint-rollback-v1";
+const CORE_ROLLBACK_FORMAT: &str = "codex-wrapper-entrypoint-rollback-v1";
 #[cfg(unix)]
-const CORE_ROLLBACK_FILE: &str = "core-entrypoint-rollback";
+const CORE_ROLLBACK_FILE: &str = "wrapper-entrypoint-rollback";
 #[cfg(unix)]
-const CORE_ROLLBACK_META_FILE: &str = "core-entrypoint-rollback.meta";
+const CORE_ROLLBACK_META_FILE: &str = "wrapper-entrypoint-rollback.meta";
 #[cfg(unix)]
 const CORE_ROLLBACK_META_MAX_BYTES: usize = 4096;
 #[cfg(unix)]
@@ -4138,7 +4302,7 @@ const INTERNAL_BOOTSTRAP_SOURCE_ENV: &str = "CODEX_TERMUX_INTERNAL_BOOTSTRAP_SOU
 #[cfg(unix)]
 const INTERNAL_BOOTSTRAP_KEY_ENV: &str = "CODEX_TERMUX_INTERNAL_BOOTSTRAP_KEY";
 #[cfg(unix)]
-const INTERNAL_BOOTSTRAP_CORE_ENV: &str = "CODEX_TERMUX_INTERNAL_BOOTSTRAP_CORE";
+const INTERNAL_BOOTSTRAP_CORE_ENV: &str = "CODEX_TERMUX_INTERNAL_BOOTSTRAP_WRAPPER";
 #[cfg(unix)]
 const INTERNAL_BOOTSTRAP_EXPECTED_ENTRYPOINT_DIGEST_ENV: &str =
     "CODEX_TERMUX_INTERNAL_BOOTSTRAP_EXPECTED_LEGACY_ENTRYPOINT_SHA256";
@@ -4161,9 +4325,9 @@ impl LocalCoreRoots {
     fn from_environment() -> Result<Self, LocalProductError> {
         let home = required_absolute_env_path("HOME")?;
         let prefix = required_absolute_env_path("PREFIX")?;
-        let state_root = home.join(".local/share/codex/core");
+        let state_root = home.join(".local/share/codex/wrapper");
         Ok(Self {
-            generation_root: home.join(".local/lib/codex/core/generations"),
+            generation_root: home.join(".local/lib/codex/wrapper/generations"),
             config_dir: state_root.join("config"),
             state_root,
             resolver_path: prefix.join("etc/resolv.conf"),
@@ -5651,7 +5815,7 @@ struct LocalReleaseManifest {
     channel: String,
     expected_platform: String,
     expected_architecture: String,
-    core_api_identity: String,
+    wrapper_api_identity: String,
     persistent_schema_identity: String,
     release_public_key: ReleasePublicKey,
     files: Vec<ReleaseFileEntry>,
@@ -5707,10 +5871,14 @@ fn parse_release_file_mode(value: &str, relative_path: &str) -> Result<u32, Loca
     }
     if (matches!(
         relative_path,
-        "core"
+        "wrapper"
             | "runtime"
             | "manager"
             | CODE_MODE_HOST_FILE
+            | V3_RUNTIME_PATH
+            | V3_CODE_MODE_HOST_PATH
+            | V3_EXEC_SERVER_PATH
+            | "codex-path/rg"
             | "browser/open/curl"
             | "browser/manual/curl"
     ) || relative_path.starts_with("helpers/"))
@@ -5740,7 +5908,15 @@ fn valid_release_relative_path(value: &str) -> bool {
     }
     if matches!(
         value,
-        "core" | "generation.meta" | "runtime" | "manager" | CODE_MODE_HOST_FILE
+        "wrapper"
+            | "generation.meta"
+            | "runtime"
+            | "manager"
+            | CODE_MODE_HOST_FILE
+            | V3_RUNTIME_PATH
+            | V3_CODE_MODE_HOST_PATH
+            | V3_EXEC_SERVER_PATH
+            | V3_PACKAGE_JSON_PATH
     ) {
         return true;
     }
@@ -5752,6 +5928,8 @@ fn valid_release_relative_path(value: &str) -> bool {
     }
     value
         .strip_prefix("compat/")
+        .or_else(|| value.strip_prefix("codex-path/"))
+        .or_else(|| value.strip_prefix("codex-resources/"))
         .is_some_and(|rest| !rest.is_empty())
 }
 
@@ -5795,7 +5973,7 @@ fn parse_local_release_manifest(bytes: &[u8]) -> Result<LocalReleaseManifest, Lo
     let channel = descriptor_field(lines.next(), "channel")?;
     let expected_platform = descriptor_field(lines.next(), "expected_platform")?;
     let expected_architecture = descriptor_field(lines.next(), "expected_architecture")?;
-    let core_api_identity = descriptor_field(lines.next(), "core_api_identity")?;
+    let wrapper_api_identity = descriptor_field(lines.next(), "wrapper_api_identity")?;
     let persistent_schema_identity = descriptor_field(lines.next(), "persistent_schema_identity")?;
     let release_public_key = descriptor_field(lines.next(), "release_public_key")?;
     let release_public_key = ReleasePublicKey::parse_hex(release_public_key).ok_or(
@@ -5873,7 +6051,7 @@ fn parse_local_release_manifest(bytes: &[u8]) -> Result<LocalReleaseManifest, Lo
         channel: channel.to_owned(),
         expected_platform: expected_platform.to_owned(),
         expected_architecture: expected_architecture.to_owned(),
-        core_api_identity: core_api_identity.to_owned(),
+        wrapper_api_identity: wrapper_api_identity.to_owned(),
         persistent_schema_identity: persistent_schema_identity.to_owned(),
         release_public_key,
         files,
@@ -6024,7 +6202,7 @@ fn validate_local_release_policy(manifest: &LocalReleaseManifest) -> Result<(), 
             "release architecture does not match this build",
         ));
     }
-    if manifest.core_api_identity != CORE_API_IDENTITY {
+    if manifest.wrapper_api_identity != CORE_API_IDENTITY {
         return Err(LocalProductError::ReleasePolicy(
             "release Core API identity is incompatible",
         ));
@@ -6037,7 +6215,7 @@ fn validate_local_release_policy(manifest: &LocalReleaseManifest) -> Result<(), 
     let has_core = manifest
         .files
         .iter()
-        .any(|file| file.relative_path == "core");
+        .any(|file| file.relative_path == "wrapper");
     match manifest.format {
         LocalReleaseFormat::LegacyV3 if has_core => {
             return Err(LocalProductError::ReleasePolicy(
@@ -6253,6 +6431,7 @@ fn openssl_sha256(
 #[cfg(unix)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum GenerationLayout {
+    PackageRootV3,
     RootCodeModeHost,
     LegacyCompat,
 }
@@ -6261,6 +6440,7 @@ enum GenerationLayout {
 impl GenerationLayout {
     fn as_str(self) -> &'static str {
         match self {
+            GenerationLayout::PackageRootV3 => "package-root-v3",
             GenerationLayout::RootCodeModeHost => "root-code-mode-host-v2",
             GenerationLayout::LegacyCompat => "legacy-compat-v1",
         }
@@ -6330,6 +6510,7 @@ fn load_local_generation(
         .map_err(|_| LocalProductError::Descriptor("generation descriptor is not UTF-8"))?;
     let mut lines = text.lines();
     let generation_layout = match lines.next() {
+        Some(LOCAL_GENERATION_FORMAT_V3) => GenerationLayout::PackageRootV3,
         Some(LOCAL_GENERATION_FORMAT) => GenerationLayout::RootCodeModeHost,
         Some(LEGACY_GENERATION_FORMAT) => GenerationLayout::LegacyCompat,
         _ => {
@@ -6350,9 +6531,9 @@ fn load_local_generation(
     let patch_policy_id = descriptor_field(lines.next(), "patch_policy_id")?;
     let patch_report = descriptor_field(lines.next(), "patch_report")?;
     let runtime_digest = descriptor_field(lines.next(), "runtime_digest")?;
-    let core_artifact_digest = descriptor_field(lines.next(), "core_artifact_digest")?;
+    let wrapper_artifact_digest = descriptor_field(lines.next(), "wrapper_artifact_digest")?;
     let manager_digest = descriptor_field(lines.next(), "manager_artifact_digest")?;
-    let core_api_identity = descriptor_field(lines.next(), "core_api_identity")?;
+    let wrapper_api_identity = descriptor_field(lines.next(), "wrapper_api_identity")?;
     let persistent_schema_identity = descriptor_field(lines.next(), "persistent_schema_identity")?;
     if descriptor_field(lines.next(), "qualification")? != "qualified" {
         return Err(LocalProductError::Descriptor(
@@ -6434,14 +6615,26 @@ fn load_local_generation(
         patch_report: patch_report.to_owned(),
         runtime_digest: runtime_digest.to_owned(),
         helper_digests,
-        core_artifact_digest: core_artifact_digest.to_owned(),
+        wrapper_artifact_digest: wrapper_artifact_digest.to_owned(),
         manager_artifact_digest: (manager_digest != "-").then(|| manager_digest.to_owned()),
-        core_api_identity: core_api_identity.to_owned(),
+        wrapper_api_identity: wrapper_api_identity.to_owned(),
         persistent_schema_identity: persistent_schema_identity.to_owned(),
         creation_metadata: creation_metadata.to_owned(),
     };
 
-    let runtime_path = generation_dir.join("runtime");
+    let runtime_path = match generation_layout {
+        GenerationLayout::PackageRootV3 => {
+            ensure_real_directory(
+                &generation_dir.join("bin"),
+                "inspect activated generation bin directory",
+                "activated generation bin directory must be a real directory",
+            )?;
+            generation_dir.join(V3_RUNTIME_PATH)
+        }
+        GenerationLayout::RootCodeModeHost | GenerationLayout::LegacyCompat => {
+            generation_dir.join("runtime")
+        }
+    };
     if !runtime_path.is_file() {
         return Err(LocalProductError::Descriptor(
             "activated generation runtime is missing",
@@ -6452,14 +6645,14 @@ fn load_local_generation(
         "inspect activated generation runtime",
         "activated generation runtime must be a regular file",
     )?;
-    let core_path = match std::fs::symlink_metadata(generation_dir.join("core")) {
+    let core_path = match std::fs::symlink_metadata(generation_dir.join("wrapper")) {
         Ok(metadata) => {
             if !metadata.file_type().is_file() {
                 return Err(LocalProductError::UnsafeSource(
                     "activated generation Core must be a regular file",
                 ));
             }
-            let path = generation_dir.join("core");
+            let path = generation_dir.join("wrapper");
             ensure_regular_file(
                 &path,
                 "inspect activated generation Core",
@@ -6476,6 +6669,66 @@ fn load_local_generation(
         }
     };
     let (code_mode_host_path, compatibility_dir) = match generation_layout {
+        GenerationLayout::PackageRootV3 => {
+            let code_mode_host_path = generation_dir.join(V3_CODE_MODE_HOST_PATH);
+            ensure_regular_file(
+                &code_mode_host_path,
+                "inspect activated generation code-mode host",
+                "activated generation code-mode host must be a regular file",
+            )?;
+            match std::fs::symlink_metadata(generation_dir.join(V3_EXEC_SERVER_PATH)) {
+                Ok(_) => ensure_regular_file(
+                    &generation_dir.join(V3_EXEC_SERVER_PATH),
+                    "inspect activated generation exec server",
+                    "activated generation exec server must be a regular file",
+                )?,
+                Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+                Err(source) => {
+                    return Err(LocalProductError::Io {
+                        operation: "inspect activated generation exec server",
+                        source,
+                    })
+                }
+            }
+            ensure_regular_file(
+                &generation_dir.join(V3_PACKAGE_JSON_PATH),
+                "inspect activated generation package metadata",
+                "activated generation package metadata must be a regular file",
+            )?;
+            for forbidden in ["compat", "runtime", CODE_MODE_HOST_FILE] {
+                match std::fs::symlink_metadata(generation_dir.join(forbidden)) {
+                    Ok(_) => {
+                        return Err(LocalProductError::UnsafeSource(
+                            "v3 generation contains unexpected legacy path",
+                        ))
+                    }
+                    Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(source) => {
+                        return Err(LocalProductError::Io {
+                            operation: "inspect activated generation layout",
+                            source,
+                        })
+                    }
+                }
+            }
+            for subdir in ["codex-path", "codex-resources"] {
+                match std::fs::symlink_metadata(generation_dir.join(subdir)) {
+                    Ok(_) => ensure_real_directory(
+                        &generation_dir.join(subdir),
+                        "inspect activated generation package directory",
+                        "activated generation package directory must be a real directory",
+                    )?,
+                    Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(source) => {
+                        return Err(LocalProductError::Io {
+                            operation: "inspect activated generation package directory",
+                            source,
+                        })
+                    }
+                }
+            }
+            (code_mode_host_path, generation_dir.to_path_buf())
+        }
         GenerationLayout::RootCodeModeHost => {
             let code_mode_host_path = generation_dir.join(CODE_MODE_HOST_FILE);
             ensure_regular_file(
@@ -6835,18 +7088,65 @@ fn exact_release_file_paths(
         "inspect release code-mode host",
         "release code-mode host must be a regular file",
     )?;
-    let mut files = vec!["generation.meta".to_owned(), "runtime".to_owned()];
+    let mut files = vec!["generation.meta".to_owned()];
     if let Some(core_path) = loaded.core_path.as_ref() {
         ensure_regular_file(
             core_path,
             "inspect release Core",
             "release Core must be a regular file",
         )?;
-        files.push("core".to_owned());
+        files.push("wrapper".to_owned());
     }
     match loaded.generation_layout {
-        GenerationLayout::RootCodeModeHost => files.push(CODE_MODE_HOST_FILE.to_owned()),
-        GenerationLayout::LegacyCompat => {}
+        GenerationLayout::PackageRootV3 => {
+            files.push(V3_RUNTIME_PATH.to_owned());
+            files.push(V3_CODE_MODE_HOST_PATH.to_owned());
+            let exec_server = generation_dir.join(V3_EXEC_SERVER_PATH);
+            match std::fs::symlink_metadata(&exec_server) {
+                Ok(_) => {
+                    ensure_regular_file(
+                        &exec_server,
+                        "inspect release exec server",
+                        "release exec server must be a regular file",
+                    )?;
+                    files.push(V3_EXEC_SERVER_PATH.to_owned());
+                }
+                Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+                Err(source) => {
+                    return Err(LocalProductError::Io {
+                        operation: "inspect release exec server",
+                        source,
+                    })
+                }
+            }
+            let package_json = generation_dir.join(V3_PACKAGE_JSON_PATH);
+            ensure_regular_file(
+                &package_json,
+                "inspect release package metadata",
+                "release package metadata must be a regular file",
+            )?;
+            files.push(V3_PACKAGE_JSON_PATH.to_owned());
+            for subdir in ["codex-path", "codex-resources"] {
+                let path = generation_dir.join(subdir);
+                match std::fs::symlink_metadata(&path) {
+                    Ok(_) => collect_compat_release_files(generation_dir, &path, &mut files)?,
+                    Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(source) => {
+                        return Err(LocalProductError::Io {
+                            operation: "inspect release package directory",
+                            source,
+                        })
+                    }
+                }
+            }
+        }
+        GenerationLayout::RootCodeModeHost => {
+            files.push("runtime".to_owned());
+            files.push(CODE_MODE_HOST_FILE.to_owned());
+        }
+        GenerationLayout::LegacyCompat => {
+            files.push("runtime".to_owned());
+        }
     }
     if loaded.manager_path.is_some() {
         files.push("manager".to_owned());
@@ -6912,7 +7212,7 @@ fn verify_release_inventory(
     let signed_core = manifest
         .files
         .iter()
-        .find(|file| file.relative_path == "core");
+        .find(|file| file.relative_path == "wrapper");
     match (manifest.format, signed_core, loaded.core_path.as_ref()) {
         (LocalReleaseFormat::CoordinatedV4, None, _) => {
             return Err(LocalProductError::Release(
@@ -6937,7 +7237,7 @@ fn verify_release_inventory(
         _ => {}
     }
     if let Some(core) = signed_core {
-        if core.sha256 != loaded.manifest.core_artifact_digest {
+        if core.sha256 != loaded.manifest.wrapper_artifact_digest {
             return Err(LocalProductError::Release(
                 "signed Core entry does not match its generation descriptor",
             ));
@@ -7347,23 +7647,87 @@ fn stage_local_generation_with_io<I: GenerationPublishIo>(
                 "release authority signature must be a regular file",
             )?;
         }
-        copy_local_regular_file(
-            &source.runtime_path,
-            &candidate.join("runtime"),
-            "runtime must be a regular file",
-        )?;
-        if let Some(core) = source.core_path.as_ref() {
-            copy_local_regular_file(core, &candidate.join("core"), "Core must be a regular file")?;
-        }
         match source.generation_layout {
-            GenerationLayout::RootCodeModeHost => copy_local_regular_file(
-                &source.code_mode_host_path,
-                &candidate.join(CODE_MODE_HOST_FILE),
-                "code-mode host must be a regular file",
-            )?,
-            GenerationLayout::LegacyCompat => {
-                copy_local_directory_tree(&source.compatibility_dir, &candidate.join("compat"))?
+            GenerationLayout::PackageRootV3 => {
+                std::fs::create_dir(candidate.join("bin")).map_err(|source| {
+                    LocalProductError::Io {
+                        operation: "create staged v3 bin directory",
+                        source,
+                    }
+                })?;
+                copy_local_regular_file(
+                    &source.runtime_path,
+                    &candidate.join(V3_RUNTIME_PATH),
+                    "runtime must be a regular file",
+                )?;
+                copy_local_regular_file(
+                    &source.code_mode_host_path,
+                    &candidate.join(V3_CODE_MODE_HOST_PATH),
+                    "code-mode host must be a regular file",
+                )?;
+                let exec_server = source_dir.join(V3_EXEC_SERVER_PATH);
+                match std::fs::symlink_metadata(&exec_server) {
+                    Ok(_) => copy_local_regular_file(
+                        &exec_server,
+                        &candidate.join(V3_EXEC_SERVER_PATH),
+                        "exec server must be a regular file",
+                    )?,
+                    Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(source) => {
+                        return Err(LocalProductError::Io {
+                            operation: "inspect exec server",
+                            source,
+                        })
+                    }
+                }
+                copy_local_regular_file(
+                    &source_dir.join(V3_PACKAGE_JSON_PATH),
+                    &candidate.join(V3_PACKAGE_JSON_PATH),
+                    "package metadata must be a regular file",
+                )?;
+                for subdir in ["codex-path", "codex-resources"] {
+                    let subdir_source = source_dir.join(subdir);
+                    match std::fs::symlink_metadata(&subdir_source) {
+                        Ok(_) => {
+                            copy_local_directory_tree(&subdir_source, &candidate.join(subdir))?
+                        }
+                        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+                        Err(source) => {
+                            return Err(LocalProductError::Io {
+                                operation: "inspect package resource directory",
+                                source,
+                            })
+                        }
+                    }
+                }
             }
+            GenerationLayout::RootCodeModeHost => {
+                copy_local_regular_file(
+                    &source.runtime_path,
+                    &candidate.join("runtime"),
+                    "runtime must be a regular file",
+                )?;
+                copy_local_regular_file(
+                    &source.code_mode_host_path,
+                    &candidate.join(CODE_MODE_HOST_FILE),
+                    "code-mode host must be a regular file",
+                )?;
+            }
+            GenerationLayout::LegacyCompat => {
+                copy_local_regular_file(
+                    &source.runtime_path,
+                    &candidate.join("runtime"),
+                    "runtime must be a regular file",
+                )?;
+                copy_local_directory_tree(&source.compatibility_dir, &candidate.join("compat"))?;
+            }
+        }
+        if let Some(core) = source.core_path.as_ref() {
+            copy_local_regular_file(
+                core,
+                &candidate.join("wrapper"),
+                "Core must be a regular file",
+            )?;
         }
         if let Some(manager) = source.manager_path.as_ref() {
             copy_local_regular_file(
@@ -7469,7 +7833,7 @@ fn generation_requirements_for_loaded(
         return GenerationManifestRequirements {
             platform: "android",
             architecture: "aarch64",
-            core_api_identity: CORE_API_IDENTITY,
+            wrapper_api_identity: CORE_API_IDENTITY,
             persistent_schema_identity: PERSISTENT_SCHEMA_IDENTITY,
         };
     }
@@ -7477,7 +7841,7 @@ fn generation_requirements_for_loaded(
     GenerationManifestRequirements {
         platform: std::env::consts::OS,
         architecture: std::env::consts::ARCH,
-        core_api_identity: CORE_API_IDENTITY,
+        wrapper_api_identity: CORE_API_IDENTITY,
         persistent_schema_identity: PERSISTENT_SCHEMA_IDENTITY,
     }
 }
@@ -7581,7 +7945,9 @@ fn execute_activated_route(
             ManagerArtifact::Available(_) => ManagerDoctorStatus::Healthy,
         };
         let core_doctor_status = match loaded.generation_layout {
-            GenerationLayout::RootCodeModeHost => CoreDoctorStatus::Healthy,
+            GenerationLayout::PackageRootV3 | GenerationLayout::RootCodeModeHost => {
+                CoreDoctorStatus::Healthy
+            }
             GenerationLayout::LegacyCompat => CoreDoctorStatus::Unhealthy,
         };
         let context = LocalPublicDispatchContext {
@@ -8132,11 +8498,13 @@ fn prepare_signed_local_release_with_hold_policy(
 }
 
 #[cfg(unix)]
-fn prepare_local_derived_release(
+fn prepare_local_derived_release_with_options(
     source_dir: &std::path::Path,
     roots: &LocalCoreRoots,
     local_key: ReleasePublicKey,
     expected_baseline: &PublicReleaseBaseline,
+    hold_policy: UpdateHoldPolicy,
+    expected_core_digest: Option<&str>,
 ) -> Result<PreparedLocalActivation, LocalProductError> {
     let state_paths = m2_generation_state::CoreStatePaths::new(&roots.state_root)
         .map_err(LocalProductError::StateFormat)?;
@@ -8154,11 +8522,16 @@ fn prepare_local_derived_release(
         "inspect immutable generation root",
         "immutable generation root is not a real directory",
     )?;
-    if rollback_guard::effective_update_hold(roots, None)?.is_some() {
+    let observed_hold = rollback_guard::effective_update_hold(roots, None)?;
+    if hold_policy == UpdateHoldPolicy::Enforce && observed_hold.is_some() {
         return Err(LocalProductError::LocalUpdate(
             "local-derived update is unavailable while a rollback hold is active",
         ));
     }
+    let validated_hold = observed_hold.filter(|hold| {
+        hold_policy == UpdateHoldPolicy::ForceHeld
+            && expected_baseline.release_sequence >= hold.release_sequence
+    });
     let (observed_baseline, _, _) = authenticated_public_baseline(roots, &before)?;
     if &observed_baseline != expected_baseline {
         return Err(LocalProductError::LocalUpdate(
@@ -8172,13 +8545,18 @@ fn prepare_local_derived_release(
             "local-derived release verifier does not match its selected signing authority",
         ));
     }
-    if current_loaded.core_path.is_some()
-        && source_loaded.manifest.core_artifact_digest
-            != current_loaded.manifest.core_artifact_digest
-    {
-        return Err(LocalProductError::LocalUpdate(
-            "local-built Core differs from the authenticated current generation",
-        ));
+    let required_core_digest = expected_core_digest.or_else(|| {
+        current_loaded
+            .core_path
+            .as_ref()
+            .map(|_| current_loaded.manifest.wrapper_artifact_digest.as_str())
+    });
+    if let Some(required_digest) = required_core_digest {
+        if source_loaded.manifest.wrapper_artifact_digest != required_digest {
+            return Err(LocalProductError::LocalUpdate(
+                "local-built Core differs from the authenticated current generation",
+            ));
+        }
     }
     let provenance = parse_local_derived_metadata(&source_release, &source_loaded)?.ok_or(
         LocalProductError::LocalUpdate("local-derived release is missing bound provenance"),
@@ -8228,7 +8606,7 @@ fn prepare_local_derived_release(
         previous_version: current_loaded.manifest.upstream_package_version.clone(),
         candidate_version: staged_loaded.manifest.upstream_package_version.clone(),
         staged_loaded,
-        validated_hold: None,
+        validated_hold,
         preserve_update_key: true,
     })
 }
@@ -8300,7 +8678,7 @@ fn activate_prepared_local_release(
         active_core_entrypoint_binding_with_state(roots, &active_loaded, &prepared.before)?;
 
     let rollback = if let Some(core_path) = prepared.staged_loaded.core_path.as_ref() {
-        let candidate_digest = &prepared.staged_loaded.manifest.core_artifact_digest;
+        let candidate_digest = &prepared.staged_loaded.manifest.wrapper_artifact_digest;
         if active_core_binding
             .as_ref()
             .is_some_and(|binding| binding.digest == *candidate_digest)
@@ -8374,7 +8752,7 @@ fn activate_signed_local_release_outcome_with_hold_policy(
     }
 }
 
-#[cfg(unix)]
+#[cfg(all(unix, test))]
 fn activate_signed_local_release_outcome(
     source_dir: &std::path::Path,
     roots: &LocalCoreRoots,
@@ -8463,6 +8841,292 @@ fn running_core_artifact_for_local_build() -> Result<std::path::PathBuf, LocalPr
 }
 
 #[cfg(unix)]
+enum LocalDerivedArchiveSource<'a> {
+    OfficialDownload,
+    LocalTarball(&'a std::path::Path),
+}
+
+#[cfg(unix)]
+struct LocalDerivedBuildContext<'a> {
+    before: &'a m2_generation_state::GenerationPointerState,
+    baseline: &'a PublicReleaseBaseline,
+    current_loaded: &'a LoadedLocalGeneration,
+    metadata: &'a OfficialReleaseMetadata,
+    core: std::path::PathBuf,
+    expected_core_digest: Option<&'a str>,
+    frontend_index: Option<usize>,
+    hold_policy: UpdateHoldPolicy,
+    archive_source: LocalDerivedArchiveSource<'a>,
+}
+
+#[cfg(unix)]
+fn attach_local_derived_frontend(
+    unsigned_generation: &std::path::Path,
+    current_loaded: &LoadedLocalGeneration,
+    index: usize,
+    openssl: &std::path::Path,
+) -> Result<(), LocalProductError> {
+    use std::io::Write as _;
+    use std::os::unix::fs::{OpenOptionsExt as _, PermissionsExt as _};
+
+    let helpers = unsigned_generation.join("helpers");
+    std::fs::create_dir(&helpers).map_err(|source| LocalProductError::Io {
+        operation: "create local-derived frontend directory",
+        source,
+    })?;
+    let destination = helpers.join("2");
+    let mut input = std::fs::File::open(&current_loaded.helper_paths[index]).map_err(|source| {
+        LocalProductError::Io {
+            operation: "open admitted local-derived frontend",
+            source,
+        }
+    })?;
+    let mut output = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(&destination)
+        .map_err(|source| LocalProductError::Io {
+            operation: "create local-derived frontend",
+            source,
+        })?;
+    copy_bounded_file_contents(
+        &mut input,
+        &mut output,
+        REMOTE_RELEASE_FILE_MAX_BYTES,
+        "copy admitted local-derived frontend",
+        "admitted frontend exceeds its file bound",
+    )?;
+    let helper = &current_loaded.manifest.helper_digests[index];
+    if openssl_sha256(openssl, &destination)? != helper.digest {
+        return Err(LocalProductError::LocalUpdate(
+            "admitted frontend changed during local construction",
+        ));
+    }
+    output
+        .set_permissions(std::fs::Permissions::from_mode(0o755))
+        .and_then(|()| output.sync_all())
+        .map_err(|source| LocalProductError::Io {
+            operation: "sync admitted local-derived frontend",
+            source,
+        })?;
+    sync_directory(&helpers)?;
+    let descriptor_path = unsigned_generation.join("generation.meta");
+    let bytes = read_bounded_regular_file(
+        &descriptor_path,
+        LOCAL_GENERATION_MAX_BYTES,
+        "read local-derived frontend descriptor",
+        LocalProductError::Descriptor("generation descriptor is too large"),
+        LocalProductError::UnsafeSource("generation descriptor must be a regular file"),
+    )?;
+    let mut descriptor = String::from_utf8(bytes)
+        .map_err(|_| LocalProductError::Descriptor("generation descriptor is not UTF-8"))?;
+    descriptor = descriptor.replacen("helper_count\t2\n", "helper_count\t3\n", 1);
+    descriptor.push_str(&format!("helper\t{}\t{}\n", helper.identity, helper.digest));
+    std::fs::File::create(&descriptor_path)
+        .and_then(|mut file| {
+            file.write_all(descriptor.as_bytes())?;
+            file.sync_all()
+        })
+        .map_err(|source| LocalProductError::Io {
+            operation: "bind admitted local-derived frontend",
+            source,
+        })?;
+    sync_directory(unsigned_generation)
+}
+
+#[cfg(unix)]
+fn build_and_activate_local_derived_release(
+    roots: &LocalCoreRoots,
+    process_env: &TermuxProcessEnvSnapshot,
+    mut presentation: Option<&mut UpdatePresentation>,
+    ctx: LocalDerivedBuildContext<'_>,
+) -> Result<ActivatedUpdate, LocalProductError> {
+    let staging_root = create_local_update_staging_root(&roots.state_root)?;
+    let result = (|| {
+        let source_recipe =
+            if codex_release_builder::binary_adaptation_available(&ctx.metadata.version) {
+                None
+            } else {
+                Some(
+                    codex_release_builder::runtime::local_recipe(
+                        &ctx.metadata.version,
+                        &ctx.metadata.package_sha256,
+                    )
+                    .map_err(LocalProductError::SourceBuild)?,
+                )
+            };
+        let signer = prepare_local_build_signer(roots, &staging_root, ctx.before.update_key)?;
+        if !signer.temporary {
+            if let Some(presentation) = presentation.as_deref_mut() {
+                presentation.clear_transient();
+            }
+            println!("Local build signing: configured release authority; no public upload.");
+        }
+        let generation_id = local_update_generation_id();
+        let archive = staging_root.join(UPSTREAM_PACKAGE_ASSET);
+        match ctx.archive_source {
+            LocalDerivedArchiveSource::OfficialDownload => {
+                if let Some(presentation) = presentation.as_deref_mut() {
+                    presentation.transient("⠙", "Downloading official Codex package...");
+                }
+                let archive_entry = ReleaseFileEntry {
+                    relative_path: UPSTREAM_PACKAGE_ASSET.into(),
+                    sha256: ctx.metadata.package_sha256.clone(),
+                    mode: 0o600,
+                };
+                let mut progress = |bytes| {
+                    if let Some(presentation) = presentation.as_deref_mut() {
+                        presentation.transient(
+                            "⠙",
+                            &format!("Downloading official Codex package... {bytes} bytes"),
+                        );
+                    }
+                };
+                remote_download::payload(
+                    roots,
+                    &format!(
+                        "{UPSTREAM_RELEASE_METADATA_BASE}/{}/{UPSTREAM_PACKAGE_ASSET}",
+                        ctx.metadata.version
+                    ),
+                    &archive,
+                    &archive_entry,
+                    remote_download::PayloadOptions {
+                        limit: codex_release_builder::ARCHIVE_MAX_BYTES,
+                        expected_size: None,
+                        timeout: codex_release_builder::RELEASE_TRANSFER_TIMEOUT_SECONDS,
+                        progress: Some(&mut progress),
+                    },
+                )?;
+            }
+            LocalDerivedArchiveSource::LocalTarball(source_tarball) => {
+                use std::os::unix::fs::OpenOptionsExt as _;
+
+                if let Some(presentation) = presentation.as_deref_mut() {
+                    presentation.transient("⠙", "Staging local Codex package...");
+                }
+                let mut input = std::fs::File::open(source_tarball).map_err(|source| {
+                    LocalProductError::Io {
+                        operation: "open local package archive",
+                        source,
+                    }
+                })?;
+                let mut output = std::fs::OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .mode(0o600)
+                    .open(&archive)
+                    .map_err(|source| LocalProductError::Io {
+                        operation: "create staged local package archive",
+                        source,
+                    })?;
+                copy_bounded_file_contents(
+                    &mut input,
+                    &mut output,
+                    codex_release_builder::ARCHIVE_MAX_BYTES,
+                    "copy local package archive",
+                    "local package archive exceeds its byte bound",
+                )?;
+                output.sync_all().map_err(|source| LocalProductError::Io {
+                    operation: "sync staged local package archive",
+                    source,
+                })?;
+                drop(output);
+                if openssl_sha256(&roots.openssl, &archive)? != ctx.metadata.package_sha256 {
+                    return Err(LocalProductError::LocalUpdate(
+                        "local package archive changed while staging",
+                    ));
+                }
+            }
+        }
+        let gzip = roots
+            .curl
+            .parent()
+            .ok_or(LocalProductError::LocalUpdate(
+                "Termux tool directory is unavailable",
+            ))?
+            .join("gzip");
+        let unsigned_generation = staging_root.join("unsigned-generation");
+        if source_recipe.is_some() {
+            if let Some(presentation) = presentation.as_deref_mut() {
+                presentation.clear_transient();
+            }
+        }
+        let source_runtime = local_source::prepare(roots, source_recipe, &staging_root)
+            .map_err(LocalProductError::SourceBuild)?;
+        let creation_metadata = render_local_derived_metadata(ctx.metadata, ctx.baseline);
+        if let Some(presentation) = presentation.as_deref_mut() {
+            presentation.transient("⠹", "Building Termux release...");
+        }
+        codex_release_builder::build_generation(&codex_release_builder::GenerationRequest {
+            version: ctx.metadata.version.clone(),
+            archive,
+            archive_sha256: ctx.metadata.package_sha256.clone(),
+            generation_id: generation_id.clone(),
+            core: ctx.core,
+            manager: ctx.current_loaded.manager_path.clone(),
+            manager_tui: None,
+            source_runtime,
+            defer_manager_probe: false,
+            legacy_activation_doctor_unsupported: false,
+            creation_metadata,
+            gzip,
+            openssl: roots.openssl.clone(),
+            output: unsigned_generation.clone(),
+        })
+        .map_err(LocalProductError::Builder)?;
+        if let Some(index) = ctx.frontend_index {
+            attach_local_derived_frontend(
+                &unsigned_generation,
+                ctx.current_loaded,
+                index,
+                &roots.openssl,
+            )?;
+        }
+        let publication = staging_root.join("local-derived-publication");
+        let release_base = format!("https://local.invalid/codex/{generation_id}/");
+        codex_release_builder::publish_generation(
+            &unsigned_generation,
+            &ctx.baseline.release_sequence.to_string(),
+            &release_base,
+            &signer.private_key,
+            &roots.openssl,
+            &publication,
+        )
+        .map_err(LocalProductError::Builder)?;
+        if signer.temporary {
+            std::fs::remove_file(&signer.private_key).map_err(|source| LocalProductError::Io {
+                operation: "remove ephemeral local-derived signing key",
+                source,
+            })?;
+        }
+        sync_directory(&staging_root)?;
+        let published_generation = publication.join("releases").join(&generation_id);
+        if let Some(presentation) = presentation.as_deref_mut() {
+            presentation.transient("⠼", "Verifying locally built Termux release...");
+        }
+        let prepared = prepare_local_derived_release_with_options(
+            &published_generation,
+            roots,
+            signer.public_key,
+            ctx.baseline,
+            ctx.hold_policy,
+            ctx.expected_core_digest,
+        )?;
+        activate_prepared_local_release(prepared, roots, process_env, presentation)
+    })();
+    let cleanup = std::fs::remove_dir_all(&staging_root).map_err(|source| LocalProductError::Io {
+        operation: "remove private local-derived staging",
+        source,
+    });
+    match (result, cleanup) {
+        (_, Err(error)) => Err(error),
+        (Err(error), Ok(())) => Err(error),
+        (Ok(outcome), Ok(())) => Ok(outcome),
+    }
+}
+
+#[cfg(unix)]
 fn activate_local_built_update(
     roots: &LocalCoreRoots,
     process_env: &TermuxProcessEnvSnapshot,
@@ -8509,210 +9173,122 @@ fn activate_local_built_update(
             "local-derived update requires the admitted same-version Manager frontend; use a qualified paired release",
         ));
     }
-    let staging_root = create_local_update_staging_root(&roots.state_root)?;
-    let result = (|| {
-        let source_recipe = if codex_release_builder::binary_adaptation_available(&metadata.version)
-        {
-            None
-        } else {
-            Some(
-                codex_release_builder::runtime::local_recipe(
-                    &metadata.version,
-                    &metadata.package_sha256,
-                )
-                .map_err(LocalProductError::SourceBuild)?,
-            )
-        };
-        let signer = prepare_local_build_signer(roots, &staging_root, before.update_key)?;
-        if !signer.temporary {
-            if let Some(presentation) = presentation.as_deref_mut() {
-                presentation.clear_transient();
-            }
-            println!("Local build signing: configured release authority; no public upload.");
-        }
-        let generation_id = local_update_generation_id();
-        let archive = staging_root.join(UPSTREAM_PACKAGE_ASSET);
-        if let Some(presentation) = presentation.as_deref_mut() {
-            presentation.transient("⠙", "Downloading official Codex package...");
-        }
-        let archive_entry = ReleaseFileEntry {
-            relative_path: UPSTREAM_PACKAGE_ASSET.into(),
-            sha256: metadata.package_sha256.clone(),
-            mode: 0o600,
-        };
-        let mut progress = |bytes| {
-            if let Some(presentation) = presentation.as_deref_mut() {
-                presentation.transient(
-                    "⠙",
-                    &format!("Downloading official Codex package... {bytes} bytes"),
-                );
-            }
-        };
-        remote_download::payload(
-            roots,
-            &format!(
-                "{UPSTREAM_RELEASE_METADATA_BASE}/{}/{UPSTREAM_PACKAGE_ASSET}",
-                metadata.version
-            ),
-            &archive,
-            &archive_entry,
-            remote_download::PayloadOptions {
-                limit: codex_release_builder::ARCHIVE_MAX_BYTES,
-                expected_size: None,
-                timeout: codex_release_builder::RELEASE_TRANSFER_TIMEOUT_SECONDS,
-                progress: Some(&mut progress),
-            },
-        )?;
-        let archive_digest = metadata.package_sha256.clone();
-        let core = match current_loaded.core_path.as_ref() {
-            Some(path) => path.clone(),
-            None => running_core_artifact_for_local_build()?,
-        };
-        let gzip = roots
-            .curl
-            .parent()
-            .ok_or(LocalProductError::LocalUpdate(
-                "Termux tool directory is unavailable",
-            ))?
-            .join("gzip");
-        let unsigned_generation = staging_root.join("unsigned-generation");
-        if source_recipe.is_some() {
-            if let Some(presentation) = presentation.as_deref_mut() {
-                presentation.clear_transient();
-            }
-        }
-        let source_runtime = local_source::prepare(roots, source_recipe, &staging_root)
-            .map_err(LocalProductError::SourceBuild)?;
-        let creation_metadata = render_local_derived_metadata(&metadata, &baseline);
-        if let Some(presentation) = presentation.as_deref_mut() {
-            presentation.transient("⠹", "Building Termux release...");
-        }
-        codex_release_builder::build_generation(&codex_release_builder::GenerationRequest {
-            version: metadata.version.clone(),
-            archive,
-            archive_sha256: archive_digest,
-            generation_id: generation_id.clone(),
+    let core = match current_loaded.core_path.as_ref() {
+        Some(path) => path.clone(),
+        None => running_core_artifact_for_local_build()?,
+    };
+    build_and_activate_local_derived_release(
+        roots,
+        process_env,
+        presentation,
+        LocalDerivedBuildContext {
+            before: &before,
+            baseline: &baseline,
+            current_loaded: &current_loaded,
+            metadata: &metadata,
             core,
-            manager: current_loaded.manager_path.clone(),
-            manager_tui: None,
-            source_runtime,
-            defer_manager_probe: false,
-            legacy_activation_doctor_unsupported: false,
-            creation_metadata,
-            gzip,
-            openssl: roots.openssl.clone(),
-            output: unsigned_generation.clone(),
-        })
-        .map_err(LocalProductError::Builder)?;
-        if let Some(index) = frontend_index {
-            use std::io::Write as _;
-            use std::os::unix::fs::{OpenOptionsExt as _, PermissionsExt as _};
+            expected_core_digest: None,
+            frontend_index,
+            hold_policy: UpdateHoldPolicy::Enforce,
+            archive_source: LocalDerivedArchiveSource::OfficialDownload,
+        },
+    )
+}
 
-            let helpers = unsigned_generation.join("helpers");
-            std::fs::create_dir(&helpers).map_err(|source| LocalProductError::Io {
-                operation: "create local-derived frontend directory",
-                source,
-            })?;
-            let destination = helpers.join("2");
-            let mut input =
-                std::fs::File::open(&current_loaded.helper_paths[index]).map_err(|source| {
-                    LocalProductError::Io {
-                        operation: "open admitted local-derived frontend",
-                        source,
-                    }
-                })?;
-            let mut output = std::fs::OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .mode(0o600)
-                .open(&destination)
-                .map_err(|source| LocalProductError::Io {
-                    operation: "create local-derived frontend",
-                    source,
-                })?;
-            copy_bounded_file_contents(
-                &mut input,
-                &mut output,
-                REMOTE_RELEASE_FILE_MAX_BYTES,
-                "copy admitted local-derived frontend",
-                "admitted frontend exceeds its file bound",
-            )?;
-            let helper = &current_loaded.manifest.helper_digests[index];
-            if openssl_sha256(&roots.openssl, &destination)? != helper.digest {
+#[cfg(unix)]
+fn activate_local_tarball_update(
+    source_path: &std::path::Path,
+    roots: &LocalCoreRoots,
+    process_env: &TermuxProcessEnvSnapshot,
+    hold_policy: UpdateHoldPolicy,
+    mut presentation: Option<&mut UpdatePresentation>,
+) -> Result<ActivatedUpdate, LocalProductError> {
+    if let Some(presentation) = presentation.as_deref_mut() {
+        presentation.transient("⠋", "Inspecting local Codex package...");
+    }
+    ensure_openssl_available(&roots.openssl)?;
+    let gzip = roots
+        .curl
+        .parent()
+        .ok_or(LocalProductError::LocalUpdate(
+            "Termux tool directory is unavailable",
+        ))?
+        .join("gzip");
+    let source_meta =
+        std::fs::symlink_metadata(source_path).map_err(|source| LocalProductError::Io {
+            operation: "inspect local package archive",
+            source,
+        })?;
+    if !source_meta.file_type().is_file() {
+        return Err(LocalProductError::UnsafeSource(
+            "local package archive must be a regular non-symlink file",
+        ));
+    }
+    if source_meta.len() == 0 || source_meta.len() > codex_release_builder::ARCHIVE_MAX_BYTES {
+        return Err(LocalProductError::LocalUpdate(
+            "local package archive exceeds its byte bound",
+        ));
+    }
+
+    let state_paths = m2_generation_state::CoreStatePaths::new(&roots.state_root)
+        .map_err(LocalProductError::StateFormat)?;
+    let before = m2_generation_state::recover_activation_state(&state_paths)
+        .map_err(LocalProductError::State)?
+        .ok_or(LocalProductError::NoCurrentGeneration)?;
+    if hold_policy == UpdateHoldPolicy::Enforce
+        && rollback_guard::effective_update_hold(roots, None)?.is_some()
+    {
+        return Err(LocalProductError::LocalUpdate(
+            "local-derived update is unavailable while a rollback hold is active",
+        ));
+    }
+    let (baseline, _, current_loaded) = authenticated_public_baseline(roots, &before)?;
+    let version = codex_release_builder::inspect_package_archive_version(source_path, &gzip)
+        .map_err(LocalProductError::Builder)?;
+    if !codex_release_builder::binary_adaptation_available(&version) {
+        return Err(LocalProductError::LocalUpdate(
+            "local package archive version is outside adaptive binary policy support",
+        ));
+    }
+    let package_sha256 = openssl_sha256(&roots.openssl, source_path)?;
+    let metadata = OfficialReleaseMetadata {
+        version,
+        package_sha256,
+        publication: None,
+    };
+    let frontend_index = manager_tui::index(&current_loaded.manifest)?;
+    let preserved_frontend = if let Some(index) = frontend_index {
+        if metadata.version == current_loaded.manifest.upstream_package_version {
+            if !current_loaded.manager_tui_available {
                 return Err(LocalProductError::LocalUpdate(
-                    "admitted frontend changed during local construction",
+                    "local-derived update requires the admitted same-version Manager frontend; use a qualified paired release",
                 ));
             }
-            output
-                .set_permissions(std::fs::Permissions::from_mode(0o755))
-                .and_then(|()| output.sync_all())
-                .map_err(|source| LocalProductError::Io {
-                    operation: "sync admitted local-derived frontend",
-                    source,
-                })?;
-            sync_directory(&helpers)?;
-            let descriptor_path = unsigned_generation.join("generation.meta");
-            let bytes = read_bounded_regular_file(
-                &descriptor_path,
-                LOCAL_GENERATION_MAX_BYTES,
-                "read local-derived frontend descriptor",
-                LocalProductError::Descriptor("generation descriptor is too large"),
-                LocalProductError::UnsafeSource("generation descriptor must be a regular file"),
-            )?;
-            let mut descriptor = String::from_utf8(bytes)
-                .map_err(|_| LocalProductError::Descriptor("generation descriptor is not UTF-8"))?;
-            descriptor = descriptor.replacen("helper_count\t2\n", "helper_count\t3\n", 1);
-            descriptor.push_str(&format!("helper\t{}\t{}\n", helper.identity, helper.digest));
-            std::fs::File::create(&descriptor_path)
-                .and_then(|mut file| {
-                    file.write_all(descriptor.as_bytes())?;
-                    file.sync_all()
-                })
-                .map_err(|source| LocalProductError::Io {
-                    operation: "bind admitted local-derived frontend",
-                    source,
-                })?;
-            sync_directory(&unsigned_generation)?;
+            Some(index)
+        } else {
+            None
         }
-        let publication = staging_root.join("local-derived-publication");
-        let release_base = format!("https://local.invalid/codex/{generation_id}/");
-        codex_release_builder::publish_generation(
-            &unsigned_generation,
-            &baseline.release_sequence.to_string(),
-            &release_base,
-            &signer.private_key,
-            &roots.openssl,
-            &publication,
-        )
-        .map_err(LocalProductError::Builder)?;
-        if signer.temporary {
-            std::fs::remove_file(&signer.private_key).map_err(|source| LocalProductError::Io {
-                operation: "remove ephemeral local-derived signing key",
-                source,
-            })?;
-        }
-        sync_directory(&staging_root)?;
-        let published_generation = publication.join("releases").join(&generation_id);
-        if let Some(presentation) = presentation.as_deref_mut() {
-            presentation.transient("⠼", "Verifying locally built Termux release...");
-        }
-        let prepared = prepare_local_derived_release(
-            &published_generation,
-            roots,
-            signer.public_key,
-            &baseline,
-        )?;
-        activate_prepared_local_release(prepared, roots, process_env, presentation.as_deref_mut())
-    })();
-    let cleanup = std::fs::remove_dir_all(&staging_root).map_err(|source| LocalProductError::Io {
-        operation: "remove private local-derived staging",
-        source,
-    });
-    match (result, cleanup) {
-        (_, Err(error)) => Err(error),
-        (Err(error), Ok(())) => Err(error),
-        (Ok(outcome), Ok(())) => Ok(outcome),
-    }
+    } else {
+        None
+    };
+    let core = running_core_artifact_for_local_build()?;
+    let core_digest = authenticated_core_digest(roots, &core)?;
+    build_and_activate_local_derived_release(
+        roots,
+        process_env,
+        presentation,
+        LocalDerivedBuildContext {
+            before: &before,
+            baseline: &baseline,
+            current_loaded: &current_loaded,
+            metadata: &metadata,
+            core,
+            expected_core_digest: Some(&core_digest),
+            frontend_index: preserved_frontend,
+            hold_policy,
+            archive_source: LocalDerivedArchiveSource::LocalTarball(source_path),
+        },
+    )
 }
 
 #[cfg(unix)]
@@ -9166,7 +9742,7 @@ fn authenticated_remote_generation_version(
         .map_err(|_| LocalProductError::Descriptor("generation descriptor is not UTF-8"))?;
     let mut lines = text.lines();
     match lines.next() {
-        Some(LOCAL_GENERATION_FORMAT | LEGACY_GENERATION_FORMAT) => {}
+        Some(LOCAL_GENERATION_FORMAT_V3 | LOCAL_GENERATION_FORMAT | LEGACY_GENERATION_FORMAT) => {}
         _ => {
             return Err(LocalProductError::Descriptor(
                 "generation descriptor format is unsupported",
@@ -10296,7 +10872,7 @@ fn activate_signed_remote_release_outcome(
 
 #[cfg(unix)]
 fn bootstrap_public_key_path() -> Result<std::path::PathBuf, LocalProductError> {
-    Ok(required_absolute_env_path("HOME")?.join(".local/lib/codex/core/release-public-key.pem"))
+    Ok(required_absolute_env_path("HOME")?.join(".local/lib/codex/wrapper/release-public-key.pem"))
 }
 
 #[cfg(unix)]
@@ -10516,7 +11092,7 @@ fn bootstrap_initial_signed_local_release(
             "bootstrap release key does not match pinned key",
         ));
     }
-    if loaded.manifest.core_artifact_digest != core_digest {
+    if loaded.manifest.wrapper_artifact_digest != core_digest {
         return Err(LocalProductError::Bootstrap(
             "bootstrap release does not match authenticated Core artifact",
         ));
@@ -10729,7 +11305,7 @@ fn verify_handoff_state_matches_candidate(
             "signed handoff release does not match prepared generation state",
         ));
     }
-    if source_loaded.manifest.core_artifact_digest != core_digest {
+    if source_loaded.manifest.wrapper_artifact_digest != core_digest {
         return Err(LocalProductError::LegacyHandoff(
             "signed handoff release does not match authenticated Core artifact",
         ));
@@ -10781,7 +11357,7 @@ fn bootstrap_handoff_prepare_state(
             "bootstrap release key does not match supplied bootstrap key",
         ));
     }
-    if source_loaded.manifest.core_artifact_digest != core_digest {
+    if source_loaded.manifest.wrapper_artifact_digest != core_digest {
         return Err(LocalProductError::LegacyHandoff(
             "signed handoff release does not match authenticated Core artifact",
         ));
@@ -11210,7 +11786,27 @@ fn finalize_validated_update_hold_locked(
             "update hold changed during activation",
         ));
     }
-    if activated_sequence > hold.release_sequence {
+    let superseded_by_local_derived = if activated_sequence == hold.release_sequence {
+        let state_paths = m2_generation_state::CoreStatePaths::new(&roots.state_root)
+            .map_err(LocalProductError::StateFormat)?;
+        match m2_generation_state::read_pointer_state(&state_paths)
+            .map_err(LocalProductError::State)?
+        {
+            Some(state) if state.current != hold.generation_id => {
+                let (release, loaded) = verify_installed_local_release(
+                    roots,
+                    &state.current,
+                    state.current_key,
+                    "active generation descriptor id does not match current",
+                )?;
+                parse_local_derived_metadata(&release, &loaded)?.is_some()
+            }
+            _ => false,
+        }
+    } else {
+        false
+    };
+    if activated_sequence > hold.release_sequence || superseded_by_local_derived {
         if observed.is_some() {
             std::fs::remove_file(update_hold_path(roots)).map_err(|source| {
                 LocalProductError::Io {
@@ -11589,7 +12185,7 @@ fn active_core_entrypoint_binding_with_state(
         ));
     }
     let observed_digest = openssl_sha256(&roots.openssl, &destination)?;
-    if observed_digest == loaded.manifest.core_artifact_digest {
+    if observed_digest == loaded.manifest.wrapper_artifact_digest {
         return Ok(Some(ActiveCoreEntrypointBinding {
             generation_id: loaded.generation_id.clone(),
             digest: observed_digest,
@@ -12014,7 +12610,7 @@ fn rollback_signed_local_release(
             if let Err(error) = install_core_entrypoint(
                 roots,
                 target_core,
-                &target_loaded.manifest.core_artifact_digest,
+                &target_loaded.manifest.wrapper_artifact_digest,
             ) {
                 let _ = install_core_entrypoint(roots, &core_rollback_path(roots), &record.digest);
                 let _ = rollback_guard::remove_guard_if_present(roots);
@@ -12034,7 +12630,7 @@ fn rollback_signed_local_release(
                 if let Err(error) = install_core_entrypoint(
                     roots,
                     target_core,
-                    &target_loaded.manifest.core_artifact_digest,
+                    &target_loaded.manifest.wrapper_artifact_digest,
                 ) {
                     let _ =
                         install_core_entrypoint(roots, &core_rollback_path(roots), &record.digest);
@@ -12116,7 +12712,7 @@ fn rollback_signed_local_release(
 
 #[cfg(unix)]
 const UPDATE_USAGE: &str =
-    "usage: codex update [--details] [--wait | --no-wait] | --help | --force | --build-local | --local <DIRECTORY> | --remote <HTTPS_BASE_URL> | --rollback";
+    "usage: codex update [--details] [--wait | --no-wait] | --help | --force | --build-local | --local <DIRECTORY_OR_TARBALL> [--force] | --remote <HTTPS_BASE_URL> | --rollback";
 #[cfg(unix)]
 fn print_update_usage() {
     println!("{UPDATE_USAGE}");
@@ -12255,16 +12851,40 @@ fn run_core_update_mode(args: Vec<OsString>, manual: bool) -> i32 {
 }
 
 #[cfg(unix)]
+fn parse_local_update_args(args: &[OsString]) -> Option<(OsString, UpdateHoldPolicy)> {
+    match args {
+        [flag, path] if flag == OsStr::new("--local") && !path.is_empty() => {
+            Some((path.clone(), UpdateHoldPolicy::Enforce))
+        }
+        [flag, path, force]
+            if flag == OsStr::new("--local")
+                && !path.is_empty()
+                && force == OsStr::new("--force") =>
+        {
+            Some((path.clone(), UpdateHoldPolicy::ForceHeld))
+        }
+        [force, flag, path]
+            if force == OsStr::new("--force")
+                && flag == OsStr::new("--local")
+                && !path.is_empty() =>
+        {
+            Some((path.clone(), UpdateHoldPolicy::ForceHeld))
+        }
+        _ => None,
+    }
+}
+
+#[cfg(unix)]
 fn run_explicit_core_update(args: Vec<OsString>) -> i32 {
     if args.len() == 1 && args[0] == OsStr::new("--help") {
         print_update_usage();
         return 0;
     }
     let build_local = args.len() == 1 && args[0] == OsStr::new("--build-local");
-    let local = args.len() == 2 && args[0] == OsStr::new("--local") && !args[1].is_empty();
+    let local = parse_local_update_args(&args);
     let remote = args.len() == 2 && args[0] == OsStr::new("--remote") && !args[1].is_empty();
     let rollback = args.len() == 1 && args[0] == OsStr::new("--rollback");
-    if !build_local && !local && !remote && !rollback {
+    if !build_local && local.is_none() && !remote && !rollback {
         eprintln!("{UPDATE_USAGE}");
         return 2;
     }
@@ -12311,14 +12931,25 @@ fn run_explicit_core_update(args: Vec<OsString>) -> i32 {
             }
         };
     }
-    let result = if local {
-        let source = std::path::PathBuf::from(&args[1]);
-        activate_signed_local_release_outcome(
-            &source,
-            &roots,
-            &process_env,
-            Some(&mut presentation),
-        )
+    let result = if let Some((local_arg, hold_policy)) = local {
+        let source = std::path::PathBuf::from(local_arg);
+        match std::fs::symlink_metadata(&source) {
+            Ok(metadata) if metadata.file_type().is_file() => activate_local_tarball_update(
+                &source,
+                &roots,
+                &process_env,
+                hold_policy,
+                Some(&mut presentation),
+            )
+            .map(SignedUpdateOutcome::Activated),
+            _ => activate_signed_local_release_outcome_with_hold_policy(
+                &source,
+                &roots,
+                &process_env,
+                hold_policy,
+                Some(&mut presentation),
+            ),
+        }
     } else {
         activate_signed_remote_release_outcome(
             &args[1],
@@ -12484,9 +13115,9 @@ mod tests {
             } else {
                 vec![]
             },
-            core_artifact_digest: "core-digest".to_string(),
+            wrapper_artifact_digest: "core-digest".to_string(),
             manager_artifact_digest: manager.then(|| "manager-digest".to_string()),
-            core_api_identity: "core-api-v1".to_string(),
+            wrapper_api_identity: "wrapper-api-v1".to_string(),
             persistent_schema_identity: "schema-v1".to_string(),
             creation_metadata: "test-fixture".to_string(),
         }
@@ -12530,7 +13161,7 @@ mod tests {
         GenerationManifestRequirements {
             platform: "android",
             architecture: "aarch64",
-            core_api_identity: "core-api-v1",
+            wrapper_api_identity: "wrapper-api-v1",
             persistent_schema_identity: "schema-v1",
         }
     }
@@ -13488,12 +14119,12 @@ if [ "$1" = "__prepare-runtime-v1" ]; then
   if [ -f "$HOME/manager-fragment" ]; then cat "$HOME/manager-fragment"; fi
   exit 0
 fi
-if [ -n "${CODEX_TERMUX_CORE_ONLY+x}" ]; then printf '%s\n' 'Core-only flag leaked to upstream'; exit 97; fi
+if [ -n "${CODEX_TERMUX_WRAPPER_ONLY+x}" ]; then printf '%s\n' 'Core-only flag leaked to upstream'; exit 97; fi
 if [ -n "${CODEX_TEST_ARGS_FILE:-}" ]; then
   printf '%s\n' "$@" > "$CODEX_TEST_ARGS_FILE"
 fi
 if [ "${CODEX_TEST_REQUIRE_NO_ACQUISITION:-}" = "1" ]; then
-  for acquisition in "$HOME"/.local/lib/codex/core/generations/.acquire-*; do
+  for acquisition in "$HOME"/.local/lib/codex/wrapper/generations/.acquire-*; do
     [ ! -e "$acquisition" ] || exit 96
   done
 fi
@@ -13518,7 +14149,7 @@ if [ "$1" = "tty" ]; then
   [ -t 0 ] && [ -t 1 ] && [ -t 2 ] && exit 0
   exit 88
 fi
-if [ "$CODEX_TERMUX_CORE_API" = "codex-manager-core-v1" ] && [ -n "$CODEX_TERMUX_CORE_ENTRYPOINT" ]; then
+if [ "$CODEX_TERMUX_WRAPPER_API" = "codex-manager-wrapper-v1" ] && [ -n "$CODEX_TERMUX_WRAPPER_ENTRYPOINT" ]; then
   printf 'HANDOFF_OK\n'
 else
   printf 'HANDOFF_BAD\n'
@@ -14508,9 +15139,9 @@ exit 73
                 "patch_policy_id\ttermux-policy-v1\n",
                 "patch_report\tqualified\n",
                 "runtime_digest\truntime-digest\n",
-                "core_artifact_digest\tcore-digest\n",
+                "wrapper_artifact_digest\tcore-digest\n",
                 "manager_artifact_digest\t{}\n",
-                "core_api_identity\t{}\n",
+                "wrapper_api_identity\t{}\n",
                 "persistent_schema_identity\t{}\n",
                 "qualification\tqualified\n",
                 "creation_metadata\ttest-fixture\n",
@@ -14865,8 +15496,8 @@ exit 73
         let root = temp_root(label);
         let home = root.join("home");
         let prefix = root.join("prefix");
-        let generation_root = home.join(".local/lib/codex/core/generations");
-        let state_root = home.join(".local/share/codex/core");
+        let generation_root = home.join(".local/lib/codex/wrapper/generations");
+        let state_root = home.join(".local/share/codex/wrapper");
         let roots = LocalCoreRoots {
             generation_root,
             state_root: state_root.clone(),
@@ -14902,7 +15533,7 @@ exit 73
         let mut script_mode = std::fs::metadata(&script).unwrap().permissions();
         script_mode.set_mode(0o755);
         std::fs::set_permissions(&script, script_mode).unwrap();
-        let generation = root.join("home/.local/lib/codex/core/generations/g1");
+        let generation = root.join("home/.local/lib/codex/wrapper/generations/g1");
         std::fs::rename(
             generation.join("compat").join(CODE_MODE_HOST_FILE),
             generation.join(CODE_MODE_HOST_FILE),
@@ -14973,8 +15604,8 @@ exit 73
             )
             .unwrap();
         }
-        let state = root.join("home/.local/share/codex/core/activation-state");
-        let descriptor = root.join("home/.local/lib/codex/core/generations/g1/generation.meta");
+        let state = root.join("home/.local/share/codex/wrapper/activation-state");
+        let descriptor = root.join("home/.local/lib/codex/wrapper/generations/g1/generation.meta");
         let resolver = root.join("prefix/etc/resolv.conf");
         let snapshots =
             [&state, &descriptor, &resolver].map(|path| protected_snapshot(path).unwrap());
@@ -15010,7 +15641,7 @@ exit 73
             let baseline = invoke(None, None);
             assert_ne!(baseline.status.code(), Some(2), "{scenario}: {baseline:?}");
             if scenario == "doctor" {
-                assert!(String::from_utf8_lossy(&baseline.stdout).contains("\"termux_core\""));
+                assert!(String::from_utf8_lossy(&baseline.stdout).contains("\"termux_wrapper\""));
             }
             if scenario == "update-bare" {
                 assert_eq!(baseline.stderr, b"Update index URL must use HTTPS.\n");
@@ -15126,7 +15757,7 @@ snooze_until	0
             .windows(b"Codex update available".len())
             .any(|w| w == b"Codex update available"));
         assert!(!root
-            .join("home/.local/share/codex/core")
+            .join("home/.local/share/codex/wrapper")
             .join(STARTUP_ADVISORY_FILE)
             .exists());
         remove_temp_root(root);
@@ -15231,7 +15862,7 @@ snooze_until	0
         );
         assert!(output.stdout.ends_with(b"codex-upstream 9.9.9\n"));
         assert!(!manager_calls.exists(), "Core queried optional Manager");
-        let config = home.join(".local/share/codex/core/config/config.toml");
+        let config = home.join(".local/share/codex/wrapper/config/config.toml");
         assert_eq!(std::fs::read(config).unwrap(), render_core_config(&[]));
         remove_temp_root(root);
     }
@@ -15358,7 +15989,7 @@ snooze_until	0
         F: FnOnce(&std::path::Path),
     {
         let root = b2_public_main_fixture(label, manager);
-        let generation_dir = root.join("home/.local/lib/codex/core/generations/g1");
+        let generation_dir = root.join("home/.local/lib/codex/wrapper/generations/g1");
         if helper {
             b2_add_helper(&generation_dir);
         }
@@ -15442,7 +16073,7 @@ snooze_until	0
         for root_layout in [false, true] {
             for defect in ["missing", "symlink", "directory", "non-executable"] {
                 let root = b2_public_main_fixture("core-manager-independence-launch", true);
-                let generation = root.join("home/.local/lib/codex/core/generations/g1");
+                let generation = root.join("home/.local/lib/codex/wrapper/generations/g1");
                 if root_layout {
                     std::fs::rename(
                         generation.join("compat").join(CODE_MODE_HOST_FILE),
@@ -15478,10 +16109,10 @@ snooze_until	0
                     }
                     _ => unreachable!(),
                 }
-                let state_path = root.join("home/.local/share/codex/core/activation-state");
+                let state_path = root.join("home/.local/share/codex/wrapper/activation-state");
                 let state_before = std::fs::read(&state_path).unwrap();
                 let descriptor_before = std::fs::read(generation.join("generation.meta")).unwrap();
-                let config = root.join("home/.local/share/codex/core/config/config.toml");
+                let config = root.join("home/.local/share/codex/wrapper/config/config.toml");
                 std::fs::write(
                     &config,
                     render_core_config(b"# obsolete Manager fragment\n"),
@@ -15574,7 +16205,7 @@ snooze_until	0
             let result = command.output().unwrap();
             assert_eq!(result.status.code(), Some(0), "{:?}", result.stderr);
             assert!(result.stdout.ends_with(b"codex-upstream 9.9.9\n"));
-            let requirements = home.join(".local/share/codex/core/config/requirements.toml");
+            let requirements = home.join(".local/share/codex/wrapper/config/requirements.toml");
             if selected == Some("arbitrary-home") {
                 assert!(!requirements.exists());
                 assert!(!shared.exists());
@@ -15630,7 +16261,7 @@ snooze_until	0
             assert!(result.stdout.ends_with(b"codex-upstream 9.9.9\n"));
             let required = format!("sqlite_home = \"{}\"", home.join(".codex").display());
             assert!(std::fs::read_to_string(
-                home.join(".local/share/codex/core/config/requirements.toml")
+                home.join(".local/share/codex/wrapper/config/requirements.toml")
             )
             .unwrap()
             .contains(&required));
@@ -15725,7 +16356,7 @@ snooze_until	0
         assert_eq!(result.status.code(), Some(1));
         let stdout = String::from_utf8(result.stdout).unwrap();
         assert!(stdout.contains("\"upstream\":{\"status\":\"unhealthy\",\"output\":\"\"}"));
-        assert!(stdout.contains("\"termux_core\":{\"status\":\"healthy\",\"generation_id\":"));
+        assert!(stdout.contains("\"termux_wrapper\":{\"status\":\"healthy\",\"generation_id\":"));
         assert!(stdout.contains("\"summary\":{\"status\":\"unhealthy\"}"));
         assert!(!stdout.contains("resolv.conf"));
         assert!(result.stderr.is_empty(), "stderr: {:?}", result.stderr);
@@ -16284,7 +16915,7 @@ snooze_until	0
             format!(
                 r#"#!{shell}
 if [ "${{CODEX_TEST_REQUIRE_NO_ACQUISITION:-}}" = "1" ]; then
-  for acquisition in "$HOME"/.local/lib/codex/core/generations/.acquire-*; do
+  for acquisition in "$HOME"/.local/lib/codex/wrapper/generations/.acquire-*; do
     [ ! -e "$acquisition" ] || exit 96
   done
 fi
@@ -16439,7 +17070,7 @@ esac
             let root = b2_public_main_fixture("historical-browserless-public", false);
             let home = root.join("home");
             let prefix = root.join("prefix");
-            let generation = home.join(".local/lib/codex/core/generations/g1");
+            let generation = home.join(".local/lib/codex/wrapper/generations/g1");
             let descriptor = generation.join("generation.meta");
             let original = std::fs::read_to_string(&descriptor).unwrap();
             let mut contents = original
@@ -16479,7 +17110,7 @@ esac
             assert!(loaded.helper_paths.is_empty());
             let key = release_public_key_from_pem(&openssl, &public_key).unwrap();
             let state = plan_initial_pointer_state_with_key("g1", key).unwrap();
-            let state_path = home.join(".local/share/codex/core/activation-state");
+            let state_path = home.join(".local/share/codex/wrapper/activation-state");
             std::fs::write(&state_path, encode_pointer_state(&state).unwrap()).unwrap();
             let protected = [
                 state_path,
@@ -16507,7 +17138,7 @@ esac
                     prefix.join("etc/tls/cert.pem").as_os_str(),
                     None,
                     prefix.join("etc/resolv.conf"),
-                    home.join(".local/share/codex/core/config"),
+                    home.join(".local/share/codex/wrapper/config"),
                     &["--version"]
                 )
                 .unwrap());
@@ -16575,7 +17206,7 @@ esac
 
         let loaded = load_local_generation(generation_dir).unwrap();
         let release_public_key = b4_public_key_from_private(openssl, private_key).to_hex();
-        let release_format = if files.iter().any(|file| file.relative_path == "core") {
+        let release_format = if files.iter().any(|file| file.relative_path == "wrapper") {
             LOCAL_RELEASE_FORMAT_V4
         } else {
             LOCAL_RELEASE_FORMAT
@@ -16588,7 +17219,7 @@ esac
                 "channel\t{}\n",
                 "expected_platform\t{}\n",
                 "expected_architecture\t{}\n",
-                "core_api_identity\t{}\n",
+                "wrapper_api_identity\t{}\n",
                 "persistent_schema_identity\t{}\n",
                 "release_public_key\t{}\n",
                 "file_count\t{}\n",
@@ -16904,7 +17535,7 @@ esac
             let output = String::from_utf8(result.stdout).unwrap();
             if args.len() == 2 {
                 assert!(output.contains("\"upstream\":{\"status\":\"healthy\""));
-                assert!(output.contains("\"termux_core\":{\"status\":\"healthy\""));
+                assert!(output.contains("\"termux_wrapper\":{\"status\":\"healthy\""));
                 assert!(output.contains("\"manager\":{\"status\":\"unavailable\"}"));
                 assert!(output.contains("\"summary\":{\"status\":\"degraded\"}"));
             } else {
@@ -16971,7 +17602,7 @@ esac
             verify_local_release_bundle(&generation, openssl, public_key).unwrap();
         assert_eq!(manifest.generation_id, generation_id);
         assert_eq!(manifest.release_sequence, release_sequence);
-        assert_eq!(loaded.manifest.core_artifact_digest, core_sha256);
+        assert_eq!(loaded.manifest.wrapper_artifact_digest, core_sha256);
         assert_eq!(loaded.manifest.source_artifact_digest, archive_sha256);
         generation
     }
@@ -17003,13 +17634,13 @@ esac
         assert_eq!(manifest.generation_id, "b10-offline-g0");
         assert_eq!(manifest.release_sequence, 1);
         assert_eq!(
-            loaded.manifest.core_artifact_digest,
+            loaded.manifest.wrapper_artifact_digest,
             openssl_sha256(&openssl, &core).unwrap()
         );
         assert!(!network_log.exists());
         assert!(!prefix.join("bin/codex").exists());
         assert!(!home
-            .join(".local/share/codex/core/activation-state")
+            .join(".local/share/codex/wrapper/activation-state")
             .exists());
         assert!(tmp.is_dir());
         remove_temp_root(root);
@@ -17085,7 +17716,10 @@ esac
         )
         .unwrap();
         assert_eq!(installed_release, signed_release);
-        assert_eq!(installed_loaded.manifest.core_artifact_digest, core_sha256);
+        assert_eq!(
+            installed_loaded.manifest.wrapper_artifact_digest,
+            core_sha256
+        );
         assert!(std::process::Command::new(&installed_core)
             .arg("--version")
             .env("HOME", &home)
@@ -17302,10 +17936,10 @@ esac
         );
         assert!(!network_log.exists());
         assert!(!home
-            .join(".local/lib/codex/core/release-public-key.pem")
+            .join(".local/lib/codex/wrapper/release-public-key.pem")
             .exists());
         assert!(!home
-            .join(".local/share/codex/core/activation-state")
+            .join(".local/share/codex/wrapper/activation-state")
             .exists());
         assert!(std::fs::read_dir(prefix.join("bin")).unwrap().all(|entry| {
             !entry
@@ -17473,10 +18107,10 @@ esac
             legacy_mode
         );
         assert!(!home
-            .join(".local/lib/codex/core/release-public-key.pem")
+            .join(".local/lib/codex/wrapper/release-public-key.pem")
             .exists());
         assert!(!home
-            .join(".local/share/codex/core/activation-state")
+            .join(".local/share/codex/wrapper/activation-state")
             .exists());
 
         let core_bytes = std::fs::read(&core).unwrap();
@@ -17527,7 +18161,7 @@ esac
             .file_type()
             .is_symlink());
         assert!(home
-            .join(".local/lib/codex/core/release-public-key.pem")
+            .join(".local/lib/codex/wrapper/release-public-key.pem")
             .is_file());
         assert_eq!(
             std::fs::read(&paths.activation_state).unwrap(),
@@ -17596,7 +18230,7 @@ esac
             0o755
         );
         assert!(!home
-            .join(".local/lib/codex/core/release-public-key.pem")
+            .join(".local/lib/codex/wrapper/release-public-key.pem")
             .exists());
         m2_b1_assert_no_transaction_files(&paths);
 
@@ -17797,7 +18431,7 @@ esac
         .unwrap();
         assert_eq!(installed.generation_id, "b11-legacy-g0");
         assert!(home
-            .join(".local/lib/codex/core/release-public-key.pem")
+            .join(".local/lib/codex/wrapper/release-public-key.pem")
             .is_file());
         assert!(
             !std::fs::read_dir(prefix.join("bin")).unwrap().any(|entry| {
@@ -17868,7 +18502,7 @@ esac
         assert_eq!(prepared.current, "b11-interrupt-g0");
         assert_eq!(prepared.previous, None);
         assert!(home
-            .join(".local/lib/codex/core/release-public-key.pem")
+            .join(".local/lib/codex/wrapper/release-public-key.pem")
             .is_file());
         m2_b1_assert_no_transaction_files(&paths);
 
@@ -18084,7 +18718,7 @@ esac
             );
             assert_eq!(std::fs::read(&entrypoint).unwrap(), legacy_bytes);
             assert!(!home
-                .join(".local/lib/codex/core/release-public-key.pem")
+                .join(".local/lib/codex/wrapper/release-public-key.pem")
                 .exists());
             remove_temp_root(root);
         }
@@ -18148,7 +18782,7 @@ esac
             assert_eq!(state.current, "b11-previous-g1");
             assert_eq!(state.previous.as_deref(), Some("b11-previous-g0"));
             assert!(!home
-                .join(".local/lib/codex/core/release-public-key.pem")
+                .join(".local/lib/codex/wrapper/release-public-key.pem")
                 .exists());
             remove_temp_root(root);
         }
@@ -18543,9 +19177,9 @@ esac
                 "browser/manual/curl",
                 "browser/open/curl",
                 "codex-code-mode-host",
-                "core",
                 "generation.meta",
                 "runtime",
+                "wrapper",
             ]
         );
         assert_eq!(loaded.generation_id, "b6-signed-admission");
@@ -18566,7 +19200,7 @@ esac
             loaded.manifest.runtime_digest,
             openssl_sha256(&openssl, &published_generation.join("runtime")).unwrap()
         );
-        assert_eq!(loaded.manifest.core_artifact_digest, core_sha256);
+        assert_eq!(loaded.manifest.wrapper_artifact_digest, core_sha256);
         assert_eq!(
             loaded
                 .manifest
@@ -18827,7 +19461,7 @@ esac
             .unwrap();
             let digest = openssl_sha256(&openssl, &current.join("helpers/2")).unwrap();
             std::fs::write(current.join("manager"), format!(
-                "#!{}\n[ \"$1\" = --artifact-probe ] || exit 9\nprintf 'codex-manager-artifact-v1\\ncore_api=codex-manager-core-v1\\n'\n",
+                "#!{}\n[ \"$1\" = --artifact-probe ] || exit 9\nprintf 'codex-manager-artifact-v1\\nwrapper_api=codex-manager-wrapper-v1\\n'\n",
                 resolve_test_shell().display()
             )).unwrap();
             let descriptor_path = current.join("generation.meta");
@@ -18865,12 +19499,12 @@ esac
                 &current,
                 &home,
                 &prefix,
-                &home.join(".local/lib/codex/core/release-public-key.pem"),
+                &home.join(".local/lib/codex/wrapper/release-public-key.pem"),
             );
             std::fs::copy(
                 installed_core_digest
                     .as_ref()
-                    .map(|_| current.join("core"))
+                    .map(|_| current.join("wrapper"))
                     .unwrap_or_else(|| std::env::current_exe().unwrap()),
                 prefix.join("bin/codex"),
             )
@@ -18934,7 +19568,7 @@ esac
                 std::fs::write(curl_path, script).unwrap();
             }
             if defect == "core-changed-during-build" {
-                let installed_core = installed.join("core");
+                let installed_core = installed.join("wrapper");
                 let saved_core = root.join("saved-admitted-core");
                 std::fs::copy(&installed_core, &saved_core).unwrap();
                 let curl_path = prefix.join("bin/curl");
@@ -18987,7 +19621,7 @@ esac
                 )
                 .unwrap();
                 if let Some(expected) = installed_core_digest.as_ref() {
-                    assert_eq!(&loaded.manifest.core_artifact_digest, expected);
+                    assert_eq!(&loaded.manifest.wrapper_artifact_digest, expected);
                     assert_eq!(
                         openssl_sha256(&openssl, loaded.core_path.as_ref().unwrap()).unwrap(),
                         *expected
@@ -19123,14 +19757,14 @@ esac
             &current,
             &home,
             &prefix,
-            &home.join(".local/lib/codex/core/release-public-key.pem"),
+            &home.join(".local/lib/codex/wrapper/release-public-key.pem"),
         );
         let stable_entrypoint = prefix.join("bin/codex");
         std::fs::copy(std::env::current_exe().unwrap(), &stable_entrypoint).unwrap();
         let mut stable_mode = std::fs::metadata(&stable_entrypoint).unwrap().permissions();
         stable_mode.set_mode(0o755);
         std::fs::set_permissions(&stable_entrypoint, stable_mode).unwrap();
-        std::fs::remove_file(home.join(".local/lib/codex/core/release-public-key.pem")).unwrap();
+        std::fs::remove_file(home.join(".local/lib/codex/wrapper/release-public-key.pem")).unwrap();
 
         let roots = b7_public_roots(&home, &prefix);
         let paths = CoreStatePaths::new(&roots.state_root).unwrap();
@@ -19627,7 +20261,7 @@ esac
         ];
         assert_eq!(codex_release_builder::run_from_args(args), 0);
         let descriptor = std::fs::read_to_string(generation.join("generation.meta")).unwrap();
-        assert!(descriptor.contains(&format!("core_artifact_digest\t{core_sha256}\n")));
+        assert!(descriptor.contains(&format!("wrapper_artifact_digest\t{core_sha256}\n")));
         assert_ne!(
             std::fs::read(generation.join("runtime")).unwrap(),
             raw_runtime
@@ -19650,7 +20284,7 @@ esac
         let (signed_release, loaded) =
             verify_local_release_bundle(&generation, &openssl, &public_key).unwrap();
         assert_eq!(signed_release.generation_id, "b8-release-production");
-        assert_eq!(loaded.manifest.core_artifact_digest, core_sha256);
+        assert_eq!(loaded.manifest.wrapper_artifact_digest, core_sha256);
         assert_eq!(loaded.manifest.source_artifact_digest, archive_sha256);
 
         let (home, prefix, tmp) = b4_prepare_public_environment(&root, &openssl, true);
@@ -19695,7 +20329,10 @@ esac
         )
         .unwrap();
         assert_eq!(installed_release, signed_release);
-        assert_eq!(installed_loaded.manifest.core_artifact_digest, core_sha256);
+        assert_eq!(
+            installed_loaded.manifest.wrapper_artifact_digest,
+            core_sha256
+        );
         assert_eq!(
             openssl_sha256(
                 &openssl,
@@ -20205,16 +20842,16 @@ esac
 
     #[cfg(unix)]
     fn b4_install_trusted_release_key(home: &std::path::Path, public_key: &std::path::Path) {
-        let pinned = home.join(".local/lib/codex/core/release-public-key.pem");
+        let pinned = home.join(".local/lib/codex/wrapper/release-public-key.pem");
         std::fs::create_dir_all(pinned.parent().unwrap()).unwrap();
         std::fs::copy(public_key, pinned).unwrap();
     }
 
     #[cfg(unix)]
     fn b7_public_roots(home: &std::path::Path, prefix: &std::path::Path) -> LocalCoreRoots {
-        let state_root = home.join(".local/share/codex/core");
+        let state_root = home.join(".local/share/codex/wrapper");
         LocalCoreRoots {
-            generation_root: home.join(".local/lib/codex/core/generations"),
+            generation_root: home.join(".local/lib/codex/wrapper/generations"),
             config_dir: state_root.join("config"),
             state_root,
             resolver_path: prefix.join("etc/resolv.conf"),
@@ -20379,12 +21016,12 @@ esac
         let descriptor_path = generation.join("generation.meta");
         let descriptor = std::fs::read_to_string(&descriptor_path).unwrap();
         let digest = openssl_sha256(openssl, core).unwrap();
-        assert!(descriptor.contains("core_artifact_digest\tcore-digest\n"));
+        assert!(descriptor.contains("wrapper_artifact_digest\tcore-digest\n"));
         std::fs::write(
             &descriptor_path,
             descriptor.replace(
-                "core_artifact_digest\tcore-digest\n",
-                &format!("core_artifact_digest\t{digest}\n"),
+                "wrapper_artifact_digest\tcore-digest\n",
+                &format!("wrapper_artifact_digest\t{digest}\n"),
             ),
         )
         .unwrap();
@@ -20417,13 +21054,13 @@ esac
         openssl: &std::path::Path,
         core: &std::path::Path,
     ) {
-        std::fs::copy(core, generation_dir.join("core")).unwrap();
+        std::fs::copy(core, generation_dir.join("wrapper")).unwrap();
         use std::os::unix::fs::PermissionsExt;
-        let mut permissions = std::fs::metadata(generation_dir.join("core"))
+        let mut permissions = std::fs::metadata(generation_dir.join("wrapper"))
             .unwrap()
             .permissions();
         permissions.set_mode(0o755);
-        std::fs::set_permissions(generation_dir.join("core"), permissions).unwrap();
+        std::fs::set_permissions(generation_dir.join("wrapper"), permissions).unwrap();
         b8_bind_core_digest(generation_dir, openssl, core);
     }
 
@@ -20448,7 +21085,7 @@ esac
 
         let roots = b7_public_roots(&home, &prefix);
         let process_env = b8_process_env(&prefix, &tmp);
-        let pin = home.join(".local/lib/codex/core/release-public-key.pem");
+        let pin = home.join(".local/lib/codex/wrapper/release-public-key.pem");
         bootstrap_self_test(&roots, &pin).unwrap();
         assert_eq!(
             bootstrap_initial_signed_local_release(&release, &roots, &pin, &core, &process_env,)
@@ -20497,7 +21134,7 @@ esac
         b4_generate_release_keypair(&live_openssl, &private_key, &public_key);
         b4_write_signed_release(&release, 1, &live_openssl, &private_key);
 
-        let state_root = home.join(".local/share/codex/core");
+        let state_root = home.join(".local/share/codex/wrapper");
         std::fs::create_dir_all(&state_root).unwrap();
         let state_temp = state_root.join("activation-state.tmp");
         std::fs::write(&state_temp, b"orphan").unwrap();
@@ -20521,7 +21158,7 @@ esac
             .windows(b"orphan activation-state temporary exists".len())
             .any(|window| window == b"orphan activation-state temporary exists"));
         assert!(!home
-            .join(".local/lib/codex/core/release-public-key.pem")
+            .join(".local/lib/codex/wrapper/release-public-key.pem")
             .exists());
         assert!(!prefix.join("bin/codex").exists());
         assert!(!state_root.join("activation-state").exists());
@@ -20588,10 +21225,10 @@ esac
             output.stderr
         );
         assert!(!home
-            .join(".local/share/codex/core/activation-state")
+            .join(".local/share/codex/wrapper/activation-state")
             .exists());
         assert!(!home
-            .join(".local/lib/codex/core/generations")
+            .join(".local/lib/codex/wrapper/generations")
             .join("binding-g1")
             .exists());
         remove_temp_root(root);
@@ -20653,7 +21290,7 @@ esac
             b4_install_trusted_release_key(&home, pin_source);
             let roots = b7_public_roots(&home, &prefix);
             let process_env = b8_process_env(&prefix, &tmp);
-            let pin = home.join(".local/lib/codex/core/release-public-key.pem");
+            let pin = home.join(".local/lib/codex/wrapper/release-public-key.pem");
             assert!(
                 bootstrap_initial_signed_local_release(
                     &release,
@@ -20816,10 +21453,10 @@ esac
             );
             assert!(!prefix.join("bin/codex").exists(), "case {case}");
             assert!(!home
-                .join(".local/lib/codex/core/release-public-key.pem")
+                .join(".local/lib/codex/wrapper/release-public-key.pem")
                 .exists());
             assert!(!home
-                .join(".local/share/codex/core/activation-state")
+                .join(".local/share/codex/wrapper/activation-state")
                 .exists());
             remove_temp_root(root);
         }
@@ -20873,7 +21510,7 @@ esac
             openssl_sha256(&live_openssl, &entrypoint).unwrap(),
             openssl_sha256(&live_openssl, &core).unwrap()
         );
-        let paths = CoreStatePaths::new(&home.join(".local/share/codex/core")).unwrap();
+        let paths = CoreStatePaths::new(&home.join(".local/share/codex/wrapper")).unwrap();
         assert_eq!(read_pointer_state(&paths).unwrap(), None);
         assert!(!paths.activation_journal.exists());
         assert!(!paths.activation_journal_temp.exists());
@@ -20947,7 +21584,7 @@ esac
                 .output()
                 .unwrap()
         };
-        let pin_parent = home.join(".local/lib/codex/core");
+        let pin_parent = home.join(".local/lib/codex/wrapper");
         std::fs::create_dir_all(&pin_parent).unwrap();
         let mut pin_permissions = std::fs::metadata(&pin_parent).unwrap().permissions();
         pin_permissions.set_mode(0o300);
@@ -21050,10 +21687,10 @@ esac
             .any(|w| { w == b"Core artifact does not match" }));
         assert!(!prefix.join("bin/codex").exists());
         assert!(!home
-            .join(".local/lib/codex/core/release-public-key.pem")
+            .join(".local/lib/codex/wrapper/release-public-key.pem")
             .exists());
         assert!(!home
-            .join(".local/share/codex/core/activation-state")
+            .join(".local/share/codex/wrapper/activation-state")
             .exists());
         remove_temp_root(root);
     }
@@ -21166,8 +21803,8 @@ esac
 
     #[cfg(unix)]
     fn b4_assert_no_target_generation_or_state(home: &std::path::Path) {
-        assert!(!home.join(".local/lib/codex/core/generations").exists());
-        let state_root = home.join(".local/share/codex/core");
+        assert!(!home.join(".local/lib/codex/wrapper/generations").exists());
+        let state_root = home.join(".local/share/codex/wrapper");
         assert!(!state_root.join("activation-state").exists());
         assert!(!state_root.join("activation-journal").exists());
         assert!(!state_root.join("config").exists());
@@ -21183,7 +21820,7 @@ esac
                 "channel\t{}\n",
                 "expected_platform\t{}\n",
                 "expected_architecture\t{}\n",
-                "core_api_identity\t{}\n",
+                "wrapper_api_identity\t{}\n",
                 "persistent_schema_identity\t{}\n",
                 "release_public_key\t{}\n",
                 "file_count\t1\n",
@@ -21231,9 +21868,10 @@ esac
                         let home = std::path::PathBuf::from(std::env::var_os("HOME").unwrap());
                         let prefix = std::path::PathBuf::from(std::env::var_os("PREFIX").unwrap());
                         let state_paths =
-                            CoreStatePaths::new(&home.join(".local/share/codex/core")).unwrap();
+                            CoreStatePaths::new(&home.join(".local/share/codex/wrapper")).unwrap();
                         if read_pointer_state(&state_paths).unwrap().is_none() {
-                            let pinned = home.join(".local/lib/codex/core/release-public-key.pem");
+                            let pinned =
+                                home.join(".local/lib/codex/wrapper/release-public-key.pem");
                             match b7_bootstrap_initial_release(
                                 std::path::Path::new(&source),
                                 &home,
@@ -21335,14 +21973,14 @@ esac
         let mut coordinated = valid.clone();
         coordinated.format = LocalReleaseFormat::CoordinatedV4;
         coordinated.files.push(ReleaseFileEntry {
-            relative_path: "core".to_owned(),
+            relative_path: "wrapper".to_owned(),
             sha256: "0".repeat(64),
             mode: 0o755,
         });
         validate_local_release_policy(&coordinated).unwrap();
         let mut legacy_with_core = valid.clone();
         legacy_with_core.files.push(ReleaseFileEntry {
-            relative_path: "core".to_owned(),
+            relative_path: "wrapper".to_owned(),
             sha256: "0".repeat(64),
             mode: 0o755,
         });
@@ -21375,7 +22013,7 @@ esac
             },
             {
                 let mut manifest = valid.clone();
-                manifest.core_api_identity = "other".to_string();
+                manifest.wrapper_api_identity = "other".to_string();
                 manifest
             },
             {
@@ -21545,7 +22183,7 @@ esac
             let (home, prefix, tmp) =
                 b4_prepare_public_environment(&target, &openssl, install_openssl);
             if let Some(key) = trusted_key {
-                let pinned = home.join(".local/lib/codex/core/release-public-key.pem");
+                let pinned = home.join(".local/lib/codex/wrapper/release-public-key.pem");
                 std::fs::create_dir_all(pinned.parent().unwrap()).unwrap();
                 std::fs::copy(key, pinned).unwrap();
             }
@@ -22323,7 +22961,7 @@ esac
         b4_install_trusted_release_key(&home, &public_key);
         let outside_generation_root = root.join("outside-generation-root");
         std::fs::create_dir(&outside_generation_root).unwrap();
-        let generation_root = home.join(".local/lib/codex/core/generations");
+        let generation_root = home.join(".local/lib/codex/wrapper/generations");
         std::fs::create_dir_all(generation_root.parent().unwrap()).unwrap();
         symlink(&outside_generation_root, &generation_root).unwrap();
         b4_assert_public_update_rejected(
@@ -22337,7 +22975,7 @@ esac
             std::fs::read_dir(&outside_generation_root).unwrap().count(),
             0
         );
-        let state_root = home.join(".local/share/codex/core");
+        let state_root = home.join(".local/share/codex/wrapper");
         assert!(!state_root.join("activation-state").exists());
         assert!(!state_root.join("activation-journal").exists());
         assert!(!state_root.join("config").exists());
@@ -22370,12 +23008,12 @@ esac
         let outside_generation = outside_generation_root.join("rooted-g0");
         copy_local_directory_tree(&release, &outside_generation).unwrap();
         let descriptor_before = std::fs::read(outside_generation.join("generation.meta")).unwrap();
-        let generation_root = home.join(".local/lib/codex/core/generations");
+        let generation_root = home.join(".local/lib/codex/wrapper/generations");
         std::fs::create_dir_all(generation_root.parent().unwrap()).unwrap();
         symlink(&outside_generation_root, &generation_root).unwrap();
 
         let roots = b7_public_roots(&home, &prefix);
-        let pin = home.join(".local/lib/codex/core/release-public-key.pem");
+        let pin = home.join(".local/lib/codex/wrapper/release-public-key.pem");
         let process_env = b8_process_env(&prefix, &tmp);
         assert!(matches!(
             bootstrap_initial_signed_local_release(&release, &roots, &pin, &core, &process_env),
@@ -22403,9 +23041,9 @@ esac
         let root = temp_root("m2-r1-generation-retry");
         let live_openssl = b4_termux_openssl();
         let (home, prefix, tmp) = b4_prepare_public_environment(&root, &live_openssl, true);
-        let generation_root = home.join(".local/lib/codex/core/generations");
-        let state_root = home.join(".local/share/codex/core");
-        let trusted_public_key = home.join(".local/lib/codex/core/release-public-key.pem");
+        let generation_root = home.join(".local/lib/codex/wrapper/generations");
+        let state_root = home.join(".local/share/codex/wrapper");
+        let trusted_public_key = home.join(".local/lib/codex/wrapper/release-public-key.pem");
         let private_key = root.join("signing-private.pem");
         b4_generate_release_keypair(&live_openssl, &private_key, &trusted_public_key);
 
@@ -22456,9 +23094,9 @@ esac
         let root = temp_root("b4-public-update");
         let live_openssl = b4_termux_openssl();
         let (home, prefix, tmp) = b4_prepare_public_environment(&root, &live_openssl, true);
-        let generation_root = home.join(".local/lib/codex/core/generations");
-        let state_root = home.join(".local/share/codex/core");
-        let trusted_public_key = home.join(".local/lib/codex/core/release-public-key.pem");
+        let generation_root = home.join(".local/lib/codex/wrapper/generations");
+        let state_root = home.join(".local/share/codex/wrapper");
+        let trusted_public_key = home.join(".local/lib/codex/wrapper/release-public-key.pem");
         let private_key = root.join("signing-private.pem");
 
         b4_generate_release_keypair(&live_openssl, &private_key, &trusted_public_key);
@@ -22529,7 +23167,7 @@ esac
         let current = b2_write_generation(&source_roots, "sequence-current", false, "unsupported");
         b4_write_signed_release(&current, 10, &openssl, &private_key);
         b4_assert_public_update_activated(&current, &home, &prefix, &tmp, "sequence-current");
-        let state_paths = CoreStatePaths::new(&home.join(".local/share/codex/core")).unwrap();
+        let state_paths = CoreStatePaths::new(&home.join(".local/share/codex/wrapper")).unwrap();
         let state_before = std::fs::read(&state_paths.activation_state).unwrap();
 
         let rollback =
@@ -22548,7 +23186,7 @@ esac
             state_before
         );
         assert!(!home
-            .join(".local/lib/codex/core/generations/sequence-rollback")
+            .join(".local/lib/codex/wrapper/generations/sequence-rollback")
             .exists());
         assert!(!state_paths.activation_journal.exists());
         assert!(!state_paths.activation_journal_temp.exists());
@@ -22574,7 +23212,7 @@ esac
         b4_write_signed_release(&current, 1, &openssl, &private_key);
         b4_assert_public_update_activated(&current, &home, &prefix, &tmp, "identity-current");
 
-        let generation_root = home.join(".local/lib/codex/core/generations");
+        let generation_root = home.join(".local/lib/codex/wrapper/generations");
         let installed_current = generation_root.join("identity-current");
         let descriptor_path = installed_current.join("generation.meta");
         let descriptor = std::fs::read_to_string(&descriptor_path).unwrap().replace(
@@ -22584,7 +23222,7 @@ esac
         std::fs::write(&descriptor_path, descriptor).unwrap();
         b4_write_signed_release(&installed_current, 1, &openssl, &private_key);
 
-        let state_paths = CoreStatePaths::new(&home.join(".local/share/codex/core")).unwrap();
+        let state_paths = CoreStatePaths::new(&home.join(".local/share/codex/wrapper")).unwrap();
         let state_before = std::fs::read(&state_paths.activation_state).unwrap();
         let next = b2_write_generation(&source_roots, "identity-next", false, "unsupported");
         b4_write_probe_runtime(&next, 77, 77);
@@ -22646,7 +23284,7 @@ esac
         let current = b2_write_generation(&source_roots, "probe-current", false, "unsupported");
         b4_write_signed_release(&current, 1, &openssl, &private_key);
         b4_assert_public_update_activated(&current, &home, &prefix, &tmp, "probe-current");
-        let state_paths = CoreStatePaths::new(&home.join(".local/share/codex/core")).unwrap();
+        let state_paths = CoreStatePaths::new(&home.join(".local/share/codex/wrapper")).unwrap();
         let state_before = std::fs::read(&state_paths.activation_state).unwrap();
 
         let version_failure =
@@ -22665,7 +23303,7 @@ esac
             state_before
         );
 
-        let generation_root = home.join(".local/lib/codex/core/generations");
+        let generation_root = home.join(".local/lib/codex/wrapper/generations");
         let failed_candidate = generation_root.join("version-failure");
         assert!(failed_candidate.is_dir());
         verify_local_release_bundle(&failed_candidate, &openssl, &public_key).unwrap();
@@ -22717,9 +23355,9 @@ esac
             &g0,
             &home,
             &prefix,
-            &home.join(".local/lib/codex/core/release-public-key.pem"),
+            &home.join(".local/lib/codex/wrapper/release-public-key.pem"),
         );
-        std::fs::remove_file(home.join(".local/lib/codex/core/release-public-key.pem")).unwrap();
+        std::fs::remove_file(home.join(".local/lib/codex/wrapper/release-public-key.pem")).unwrap();
 
         let g1 = b2_write_generation(&source_roots, "rotation-g1", false, "unsupported");
         b2_add_tc2_browser_helpers(&g1);
@@ -22734,7 +23372,7 @@ esac
         );
         b4_assert_public_update_activated(&g1, &home, &prefix, &tmp, "rotation-g1");
 
-        let state_paths = CoreStatePaths::new(&home.join(".local/share/codex/core")).unwrap();
+        let state_paths = CoreStatePaths::new(&home.join(".local/share/codex/wrapper")).unwrap();
         let forward = read_pointer_state(&state_paths).unwrap().unwrap();
         assert_eq!(forward.update_key, new_key);
         assert_eq!(forward.current, "rotation-g1");
@@ -22742,7 +23380,7 @@ esac
         assert_eq!(forward.previous.as_deref(), Some("rotation-g0"));
         assert_eq!(forward.previous_key, Some(old_key));
         assert!(!home
-            .join(".local/lib/codex/core/release-public-key.pem")
+            .join(".local/lib/codex/wrapper/release-public-key.pem")
             .exists());
 
         b4_assert_public_rollback_activated(&home, &prefix, &tmp, "rotation-g0");
@@ -22797,7 +23435,7 @@ esac
             Err(LocalProductError::NoCurrentGeneration)
         ));
         assert!(home
-            .join(".local/lib/codex/core/release-public-key.pem")
+            .join(".local/lib/codex/wrapper/release-public-key.pem")
             .is_file());
         assert!(!roots.generation_root.exists());
         let state_paths = CoreStatePaths::new(&roots.state_root).unwrap();
@@ -22830,9 +23468,9 @@ esac
             &g0,
             &home,
             &prefix,
-            &home.join(".local/lib/codex/core/release-public-key.pem"),
+            &home.join(".local/lib/codex/wrapper/release-public-key.pem"),
         );
-        std::fs::remove_file(home.join(".local/lib/codex/core/release-public-key.pem")).unwrap();
+        std::fs::remove_file(home.join(".local/lib/codex/wrapper/release-public-key.pem")).unwrap();
 
         let g1 = b2_write_generation(&source_roots, "remote-rotation-g1", false, "unsupported");
         b2_add_tc2_browser_helpers(&g1);
@@ -22857,7 +23495,7 @@ esac
             output.stderr
         );
 
-        let state_paths = CoreStatePaths::new(&home.join(".local/share/codex/core")).unwrap();
+        let state_paths = CoreStatePaths::new(&home.join(".local/share/codex/wrapper")).unwrap();
         let state = read_pointer_state(&state_paths).unwrap().unwrap();
         assert_eq!(state.update_key, new_key);
         assert_eq!(state.current, "remote-rotation-g1");
@@ -22865,9 +23503,9 @@ esac
         assert_eq!(state.previous.as_deref(), Some("remote-rotation-g0"));
         assert_eq!(state.previous_key, Some(old_key));
         assert!(!home
-            .join(".local/lib/codex/core/release-public-key.pem")
+            .join(".local/lib/codex/wrapper/release-public-key.pem")
             .exists());
-        b5_assert_no_acquisition(&home.join(".local/lib/codex/core/generations"));
+        b5_assert_no_acquisition(&home.join(".local/lib/codex/wrapper/generations"));
         m2_b1_assert_no_transaction_files(&state_paths);
 
         let log = std::fs::read_to_string(curl_log).unwrap();
@@ -22944,7 +23582,7 @@ esac
         b4_assert_public_update_activated(&next, &home, &prefix, &tmp, "rollback-next");
 
         b4_assert_public_rollback_activated(&home, &prefix, &tmp, "rollback-first");
-        let state_paths = CoreStatePaths::new(&home.join(".local/share/codex/core")).unwrap();
+        let state_paths = CoreStatePaths::new(&home.join(".local/share/codex/wrapper")).unwrap();
         assert_eq!(
             read_pointer_state(&state_paths).unwrap(),
             Some(GenerationPointerState {
@@ -22955,7 +23593,7 @@ esac
                 previous_key: Some(release_public_key_from_pem(&openssl, &public_key).unwrap()),
             })
         );
-        let generation_root = home.join(".local/lib/codex/core/generations");
+        let generation_root = home.join(".local/lib/codex/wrapper/generations");
         for generation_id in ["rollback-first", "rollback-next"] {
             let (_, loaded) = verify_local_release_bundle(
                 &generation_root.join(generation_id),
@@ -23018,7 +23656,7 @@ esac
         let first = b2_write_generation(&source_roots, "failure-first", false, "unsupported");
         b4_write_signed_release(&first, 1, &openssl, &private_key);
         b4_assert_public_update_activated(&first, &home, &prefix, &tmp, "failure-first");
-        let state_paths = CoreStatePaths::new(&home.join(".local/share/codex/core")).unwrap();
+        let state_paths = CoreStatePaths::new(&home.join(".local/share/codex/wrapper")).unwrap();
         let initial_state = std::fs::read(&state_paths.activation_state).unwrap();
         b4_assert_public_rollback_rejected(
             &home,
@@ -23030,13 +23668,13 @@ esac
             std::fs::read(&state_paths.activation_state).unwrap(),
             initial_state
         );
-        assert!(!home.join(".local/share/codex/core/update-hold").exists());
+        assert!(!home.join(".local/share/codex/wrapper/update-hold").exists());
 
         let next = b2_write_generation(&source_roots, "failure-next", false, "unsupported");
         b4_write_signed_release(&next, 2, &openssl, &private_key);
         b4_assert_public_update_activated(&next, &home, &prefix, &tmp, "failure-next");
         let update_state = std::fs::read(&state_paths.activation_state).unwrap();
-        let installed_first = home.join(".local/lib/codex/core/generations/failure-first");
+        let installed_first = home.join(".local/lib/codex/wrapper/generations/failure-first");
         let descriptor_path = installed_first.join("generation.meta");
         let descriptor = std::fs::read_to_string(&descriptor_path).unwrap().replace(
             "generation_id\tfailure-first\n",
@@ -23186,7 +23824,7 @@ case "$url" in
   *) exit 99 ;;
 esac
 case "$relative" in
-  release.manifest|release.sig|release-authority.sig|component-input-v1|component-input-v1.sig|generation.meta|core|runtime|manager|helpers/*|browser/open/curl|browser/manual/curl|compat/*) ;;
+  release.manifest|release.sig|release-authority.sig|component-input-v1|component-input-v1.sig|generation.meta|wrapper|runtime|manager|helpers/*|browser/open/curl|browser/manual/curl|compat/*) ;;
   *) exit 100 ;;
 esac
 if [ -n "$fault_relative" ] && [ "$relative" = "$fault_relative" ]; then
@@ -23267,7 +23905,7 @@ case "$url" in
   *) exit 99 ;;
 esac
 case "$relative" in
-  release.manifest|release.sig|release-authority.sig|component-input-v1|component-input-v1.sig|generation.meta|core|runtime|manager|helpers/*|browser/open/curl|browser/manual/curl|codex-code-mode-host|compat/*) ;;
+  release.manifest|release.sig|release-authority.sig|component-input-v1|component-input-v1.sig|generation.meta|wrapper|runtime|manager|helpers/*|browser/open/curl|browser/manual/curl|codex-code-mode-host|compat/*) ;;
   *) exit 100 ;;
 esac
 exec "$cat_path" "$release_root/$relative"
@@ -23524,9 +24162,9 @@ fn main() {{
             &current,
             &home,
             &prefix,
-            &home.join(".local/lib/codex/core/release-public-key.pem"),
+            &home.join(".local/lib/codex/wrapper/release-public-key.pem"),
         );
-        std::fs::remove_file(home.join(".local/lib/codex/core/release-public-key.pem")).unwrap();
+        std::fs::remove_file(home.join(".local/lib/codex/wrapper/release-public-key.pem")).unwrap();
 
         let release = b2_write_root_generation(&source_roots, generation_id, false, "supported");
         if daemon {
@@ -23642,11 +24280,11 @@ fn main() {{
         );
         assert_human_update_error_contains(&output.stderr, expected);
         let state_paths =
-            CoreStatePaths::new(&fixture.home.join(".local/share/codex/core")).unwrap();
+            CoreStatePaths::new(&fixture.home.join(".local/share/codex/wrapper")).unwrap();
         let state = read_pointer_state(&state_paths).unwrap().unwrap();
         assert_eq!(state.current, fixture.current_id);
         assert!(state.previous.is_none());
-        let generation_root = fixture.home.join(".local/lib/codex/core/generations");
+        let generation_root = fixture.home.join(".local/lib/codex/wrapper/generations");
         let entries: Vec<_> = std::fs::read_dir(&generation_root)
             .unwrap()
             .map(|entry| entry.unwrap().file_name())
@@ -23654,9 +24292,9 @@ fn main() {{
         assert_eq!(entries, vec![std::ffi::OsString::from(&fixture.current_id)]);
         assert!(!fixture
             .home
-            .join(".local/share/codex/core/.update-index")
+            .join(".local/share/codex/wrapper/.update-index")
             .exists());
-        let state_root = fixture.home.join(".local/share/codex/core");
+        let state_root = fixture.home.join(".local/share/codex/wrapper");
         assert!(std::fs::read_dir(&state_root).unwrap().all(|entry| {
             !entry
                 .unwrap()
@@ -23901,8 +24539,13 @@ exit 2
         b4_write_signed_release(&current_source, 1, &fixture.openssl, &fixture.private_key);
         let installed_current = fixture
             .home
-            .join(".local/lib/codex/core/generations/channel-current");
-        for relative in ["core", "generation.meta", "release.manifest", "release.sig"] {
+            .join(".local/lib/codex/wrapper/generations/channel-current");
+        for relative in [
+            "wrapper",
+            "generation.meta",
+            "release.manifest",
+            "release.sig",
+        ] {
             std::fs::copy(
                 current_source.join(relative),
                 installed_current.join(relative),
@@ -24317,7 +24960,7 @@ exit 2
                 "channel\tstable\n",
                 "expected_platform\tandroid\n",
                 "expected_architecture\taarch64\n",
-                "core_api_identity\tcore-api-v1\n",
+                "wrapper_api_identity\twrapper-api-v1\n",
                 "persistent_schema_identity\tschema-v1\n",
                 "release_public_key\t{}\n",
                 "file_count\t2\n",
@@ -24411,7 +25054,7 @@ exit 2
             );
             let current = fixture
                 .home
-                .join(".local/lib/codex/core/generations")
+                .join(".local/lib/codex/wrapper/generations")
                 .join(&fixture.current_id);
             let (_, verified_current) = read_local_release_manifest(&current).unwrap();
             let file = current.join("runtime");
@@ -24437,7 +25080,7 @@ exit 2
                 assert!(output.status.success(), "stderr={:?}", output.stderr);
                 fixture
                     .home
-                    .join(".local/lib/codex/core/generations/signed-reuse-next/runtime")
+                    .join(".local/lib/codex/wrapper/generations/signed-reuse-next/runtime")
             } else {
                 // Damage after authenticating the baseline must not poison reuse.
                 // Ordinary pre-existing baseline corruption still fails its original gate.
@@ -24520,7 +25163,7 @@ exit 2
         );
         let installed = fixture
             .home
-            .join(".local/lib/codex/core/generations/download-size-progress-next");
+            .join(".local/lib/codex/wrapper/generations/download-size-progress-next");
         assert!(!installed.join(DOWNLOAD_SIZE_RESOURCE).exists());
         assert!(!installed.join(DOWNLOAD_SIZE_SIGNATURE_RESOURCE).exists());
         remove_temp_root(fixture.root);
@@ -24575,7 +25218,7 @@ exit 2
             b"downloaded release file size does not match authenticated size",
         );
         let state_paths =
-            CoreStatePaths::new(&fixture.home.join(".local/share/codex/core")).unwrap();
+            CoreStatePaths::new(&fixture.home.join(".local/share/codex/wrapper")).unwrap();
         let state = read_pointer_state(&state_paths).unwrap().unwrap();
         assert_eq!(state.current, fixture.current_id);
         assert!(state.previous.is_none());
@@ -24752,7 +25395,7 @@ exit 2
         assert!(
             !fixture
                 .home
-                .join(".local/share/codex/core")
+                .join(".local/share/codex/wrapper")
                 .join(STARTUP_ADVISORY_FILE)
                 .exists(),
             "explicit codex update must not create startup advisory state"
@@ -24821,13 +25464,13 @@ exit 2
             assert!(!output.stdout.windows(2).any(|window| window == b"\x1b["));
 
             let state_paths =
-                CoreStatePaths::new(&fixture.home.join(".local/share/codex/core")).unwrap();
+                CoreStatePaths::new(&fixture.home.join(".local/share/codex/wrapper")).unwrap();
             let state = read_pointer_state(&state_paths).unwrap().unwrap();
             let release_key = b4_public_key_from_private(&fixture.openssl, &fixture.private_key);
             assert_eq!(state.current, "channel-next");
             assert_eq!(state.previous.as_deref(), Some("channel-current"));
             assert_eq!(state.update_key, release_key);
-            let generation_root = fixture.home.join(".local/lib/codex/core/generations");
+            let generation_root = fixture.home.join(".local/lib/codex/wrapper/generations");
             b5_assert_no_acquisition(&generation_root);
             let installed = generation_root.join("channel-next");
             let loaded = load_local_generation(&installed).unwrap();
@@ -24835,9 +25478,9 @@ exit 2
             assert!(installed.join(CODE_MODE_HOST_FILE).is_file());
             assert!(!fixture
                 .home
-                .join(".local/share/codex/core/.update-index")
+                .join(".local/share/codex/wrapper/.update-index")
                 .exists());
-            let state_root = fixture.home.join(".local/share/codex/core");
+            let state_root = fixture.home.join(".local/share/codex/wrapper");
             assert!(std::fs::read_dir(&state_root).unwrap().all(|entry| {
                 !entry
                     .unwrap()
@@ -24897,7 +25540,7 @@ exit 2
                 "release-authority.sig",
                 "generation.meta",
                 "codex-code-mode-host",
-                "core",
+                "wrapper",
                 "runtime",
                 "manager",
                 "helpers/",
@@ -25010,9 +25653,9 @@ exit 0
             &current,
             &home,
             &prefix,
-            &home.join(".local/lib/codex/core/release-public-key.pem"),
+            &home.join(".local/lib/codex/wrapper/release-public-key.pem"),
         );
-        std::fs::remove_file(home.join(".local/lib/codex/core/release-public-key.pem")).unwrap();
+        std::fs::remove_file(home.join(".local/lib/codex/wrapper/release-public-key.pem")).unwrap();
         let release = b2_write_generation(&source_roots, generation_id, false, "unsupported");
         let core = root.join("core-entrypoint");
         b8_write_core_probe_wrapper(&core);
@@ -25057,13 +25700,13 @@ exit 0
 
     #[cfg(unix)]
     fn b5_assert_no_remote_generation_or_state(home: &std::path::Path) {
-        let generation_root = home.join(".local/lib/codex/core/generations");
+        let generation_root = home.join(".local/lib/codex/wrapper/generations");
         let entries: Vec<_> = std::fs::read_dir(&generation_root)
             .unwrap()
             .map(|entry| entry.unwrap().file_name())
             .collect();
         assert_eq!(entries, vec![std::ffi::OsString::from("fixture-current")]);
-        let state_root = home.join(".local/share/codex/core");
+        let state_root = home.join(".local/share/codex/wrapper");
         let state_paths = CoreStatePaths::new(&state_root).unwrap();
         let state = read_pointer_state(&state_paths).unwrap().unwrap();
         assert_eq!(state.current, "fixture-current");
@@ -25101,7 +25744,7 @@ exit 0
             std::fs::copy(&core, fixture.prefix.join("bin/codex")).unwrap();
             let current = fixture
                 .home
-                .join(".local/lib/codex/core/generations")
+                .join(".local/lib/codex/wrapper/generations")
                 .join(&fixture.current_id);
             b2_attach_core(&current, &fixture.openssl, &core);
             b4_write_signed_release(&current, 1, &fixture.openssl, &fixture.private_key);
@@ -25170,7 +25813,7 @@ exit 0
               "schema":"codex-asset-map-v1","generation_id":"@GEN@","base_generation":@BASE@,"manifest_sha256":"@DIGEST@",
               "files":{
                 "codex-code-mode-host":{"generation":"@GEN@","asset":"codex-code-mode-host"},
-                "core":{"generation":"@GEN@","asset":"core"},
+                "wrapper":{"generation":"@GEN@","asset":"wrapper"},
                 "generation.meta":{"generation":"@GEN@","asset":"generation.meta"},
                 "helpers/0":{"generation":"@PRIOR@","asset":"helper-0"},
                 "helpers/1":{"generation":"@GEN@","asset":"helper-1"},
@@ -25222,7 +25865,7 @@ exit 0
                     format!("{github}codex-code-mode-host"),
                     fixture.release.join("codex-code-mode-host"),
                 ),
-                (format!("{github}core"), fixture.release.join("core")),
+                (format!("{github}wrapper"), fixture.release.join("wrapper")),
                 (
                     format!("{github}helper-1"),
                     fixture.release.join("helpers/1"),
@@ -25259,7 +25902,7 @@ exit 0
             .unwrap();
 
             let state_paths =
-                CoreStatePaths::new(&fixture.home.join(".local/share/codex/core")).unwrap();
+                CoreStatePaths::new(&fixture.home.join(".local/share/codex/wrapper")).unwrap();
             let before = std::fs::read(&state_paths.activation_state).unwrap();
             let bad = b5_run_public_channel_update(
                 &fixture.index_url,
@@ -25297,7 +25940,7 @@ exit 0
             );
             let installed = fixture
                 .home
-                .join(".local/lib/codex/core/generations")
+                .join(".local/lib/codex/wrapper/generations")
                 .join(generation);
             assert_eq!(
                 std::fs::read(installed.join("helpers/0")).unwrap(),
@@ -25338,7 +25981,7 @@ exit 0
             std::fs::remove_file(
                 fixture
                     .home
-                    .join(".local/share/codex/core/downloads-v1")
+                    .join(".local/share/codex/wrapper/downloads-v1")
                     .join(format!("{runtime_digest}.part")),
             )
             .unwrap();
@@ -25382,9 +26025,9 @@ exit 0
             &current,
             &home,
             &prefix,
-            &home.join(".local/lib/codex/core/release-public-key.pem"),
+            &home.join(".local/lib/codex/wrapper/release-public-key.pem"),
         );
-        std::fs::remove_file(home.join(".local/lib/codex/core/release-public-key.pem")).unwrap();
+        std::fs::remove_file(home.join(".local/lib/codex/wrapper/release-public-key.pem")).unwrap();
         let release = b2_write_generation(&source_roots, "remote-initial", true, "supported");
         let core = root.join("core-entrypoint");
         b8_write_core_probe_wrapper(&core);
@@ -25443,7 +26086,7 @@ exit 0
             output.stdout
         );
 
-        let state_paths = CoreStatePaths::new(&home.join(".local/share/codex/core")).unwrap();
+        let state_paths = CoreStatePaths::new(&home.join(".local/share/codex/wrapper")).unwrap();
         assert_eq!(
             read_pointer_state(&state_paths).unwrap(),
             Some(GenerationPointerState {
@@ -25454,7 +26097,7 @@ exit 0
                 previous_key: Some(release_public_key_from_pem(&openssl, &public_key).unwrap()),
             })
         );
-        let generation_root = home.join(".local/lib/codex/core/generations");
+        let generation_root = home.join(".local/lib/codex/wrapper/generations");
         let installed = generation_root.join("remote-initial");
         let (manifest, loaded) =
             verify_local_release_bundle(&installed, &openssl, &public_key).unwrap();
@@ -25767,7 +26410,7 @@ exit 0
         use std::os::unix::fs::PermissionsExt;
 
         let fixture = b5_remote_fixture("b5-cleanup-failure", "cleanup-failure");
-        let generation_root = fixture.home.join(".local/lib/codex/core/generations");
+        let generation_root = fixture.home.join(".local/lib/codex/wrapper/generations");
         b5_write_cleanup_blocking_curl(&fixture.prefix.join("bin/curl"), &generation_root);
         b5_assert_public_remote_rejected(
             &fixture,
@@ -25790,7 +26433,7 @@ exit 0
                     .starts_with(b".acquire-")
             })
             .expect("cleanup failure must leave only the private acquisition plus current");
-        let state_root = fixture.home.join(".local/share/codex/core");
+        let state_root = fixture.home.join(".local/share/codex/wrapper");
         let state_paths = CoreStatePaths::new(&state_root).unwrap();
         let state = read_pointer_state(&state_paths).unwrap().unwrap();
         assert_eq!(state.current, "fixture-current");
@@ -25981,7 +26624,7 @@ exit 0
         b4_write_signed_release(&first, 1, &openssl, &private_key);
         b4_assert_public_update_activated(&first, &home, &prefix, &tmp, "local-first");
 
-        let state_paths = CoreStatePaths::new(&home.join(".local/share/codex/core")).unwrap();
+        let state_paths = CoreStatePaths::new(&home.join(".local/share/codex/wrapper")).unwrap();
         assert_eq!(
             read_pointer_state(&state_paths).unwrap(),
             Some(GenerationPointerState {
@@ -26106,7 +26749,7 @@ exit 0
             Some(expected_forward.clone())
         );
 
-        let generation_root = home.join(".local/lib/codex/core/generations");
+        let generation_root = home.join(".local/lib/codex/wrapper/generations");
         assert!(!generation_root.join("remote-not-newer").exists());
         let inactive = generation_root.join("remote-probe-failure");
         let (inactive_release, inactive_loaded) =
@@ -27912,7 +28555,7 @@ exit 0
     #[test]
     fn generation_retention_real_launch_keeps_argv_streams_status_and_busy_roots() {
         let root = b2_public_main_fixture("retention-public-launch", false);
-        let generations = root.join("home/.local/lib/codex/core/generations");
+        let generations = root.join("home/.local/lib/codex/wrapper/generations");
         generation_retention_manifest(&generations.join("g1"), "g1", 1);
         let old = generations.join("obsolete");
         std::fs::create_dir(&old).unwrap();
@@ -27960,7 +28603,7 @@ exit 0
         assert_eq!(text.matches("Termux release:").count(), 1);
         let state = fixture
             .home
-            .join(".local/share/codex/core/activation-state");
+            .join(".local/share/codex/wrapper/activation-state");
         let before = std::fs::read(&state).unwrap();
         for fault in ["valid", "signature", "binding", "missing"] {
             match fault {
@@ -28106,7 +28749,7 @@ exit 0
         use std::os::unix::fs::{DirBuilderExt as _, PermissionsExt as _};
         let provider_store = fixture
             .home
-            .join(".local/share/codex/core/providers/chatgpt");
+            .join(".local/share/codex/wrapper/providers/chatgpt");
         assert!(!provider_store.exists());
         std::fs::DirBuilder::new()
             .recursive(true)
@@ -28278,7 +28921,7 @@ exit 0
         std::fs::write(&fixture.signature_path, &original_signature).unwrap();
         let installed_signature = fixture
             .home
-            .join(".local/lib/codex/core/generations/display-signed-next/release.sig");
+            .join(".local/lib/codex/wrapper/generations/display-signed-next/release.sig");
         let signed_current = std::fs::read(&installed_signature).unwrap();
         std::fs::write(&installed_signature, [0; 64]).unwrap();
         std::fs::write(&fixture.curl_log, "").unwrap();
@@ -28315,5 +28958,549 @@ exit 0
             provider_state.as_bytes()
         );
         remove_temp_root(fixture.root);
+    }
+
+    #[cfg(unix)]
+    fn v3_compile_99b_static_probe_runtime(root: &std::path::Path) -> std::path::PathBuf {
+        let prefix = std::path::PathBuf::from(std::env::var_os("PREFIX").expect("PREFIX"));
+        let clang = prefix.join("bin/clang");
+        assert!(
+            clang.is_file(),
+            "Termux clang is required: {}",
+            clang.display()
+        );
+        let asm_path = root.join("probe-99b.s");
+        let out_path = root.join("probe-99b-runtime");
+        let asm = r#".text
+.globl _start
+_start:
+    mov x0, #0
+    mov x8, #93
+    svc #0
+site1:
+    mov w8, #0x742f
+    movk w8, #0x706d, lsl #16
+    add x0, sp, #0x18
+    mov w1, #5
+    strb wzr, [sp, #0x1c]
+    str w8, [sp, #0x18]
+site2:
+    adrp x0, daemon_fmt
+    add x0, x0, :lo12:daemon_fmt
+    ret
+
+.section .fini,"ax",@progbits
+    nop
+.section .pad_rx,"ax",@progbits
+    .zero 128
+
+.section .rodata
+daemon_fmt:
+    .byte 0x0d
+    .ascii "codex-daemon-"
+    .byte 0xc0, 0x00
+resolv1:
+    .asciz "/etc/resolv.conf"
+resolv2:
+    .asciz "/etc/resolv.conf"
+managed:
+    .asciz "/etc/codex/managed_config.toml"
+cfg:
+    .asciz "/etc/codex/config.toml"
+req:
+    .asciz "/etc/codex/requirements.toml"
+"#;
+        std::fs::write(&asm_path, asm).unwrap();
+        let status = std::process::Command::new(&clang)
+            .args([
+                "-nostdlib",
+                "-static",
+                "-Wl,--no-relax",
+                "-target",
+                "aarch64-linux-android",
+            ])
+            .arg(&asm_path)
+            .arg("-o")
+            .arg(&out_path)
+            .status()
+            .unwrap();
+        assert!(status.success(), "clang failed building 99b probe runtime");
+        out_path
+    }
+
+    #[cfg(unix)]
+    fn v3_write_package_archive(
+        gzip: &std::path::Path,
+        archive: &std::path::Path,
+        version: &str,
+        runtime_bytes: &[u8],
+    ) {
+        let mut tar = Vec::new();
+        b6_append_tar_entry(&mut tar, "bin/", b'5', &[]);
+        b6_append_tar_entry(&mut tar, "bin/codex", b'0', runtime_bytes);
+        b6_append_tar_entry(&mut tar, "bin/codex-code-mode-host", b'0', runtime_bytes);
+        b6_append_tar_entry(&mut tar, "bin/codex-exec-server", b'0', runtime_bytes);
+        let package_json = format!(
+            "{{\n  \"layoutVersion\": 1,\n  \"version\": \"{version}\",\n  \"target\": \"aarch64-unknown-linux-musl\",\n  \"variant\": \"codex\",\n  \"entrypoint\": \"bin/codex\",\n  \"execServer\": \"bin/codex-exec-server\",\n  \"resourcesDir\": \"codex-resources\",\n  \"pathDir\": \"codex-path\"\n}}\n"
+        );
+        b6_append_tar_entry(
+            &mut tar,
+            "codex-package.json",
+            b'0',
+            package_json.as_bytes(),
+        );
+        b6_append_tar_entry(&mut tar, "codex-path/", b'5', &[]);
+        b6_append_tar_entry(&mut tar, "codex-path/rg", b'0', b"#!/bin/sh\necho rg-ok\n");
+        b6_append_tar_entry(&mut tar, "codex-resources/", b'5', &[]);
+        b6_append_tar_entry(&mut tar, "codex-resources/notice.txt", b'0', b"notice\n");
+        tar.resize(tar.len() + 1024, 0);
+
+        let tar_path = archive.with_extension("tar");
+        std::fs::write(&tar_path, &tar).unwrap();
+        let out = std::process::Command::new(gzip)
+            .arg("-n")
+            .arg("-c")
+            .arg(&tar_path)
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "gzip failed: {:?}", out.stderr);
+        std::fs::write(archive, &out.stdout).unwrap();
+        std::fs::remove_file(&tar_path).unwrap();
+    }
+
+    #[cfg(unix)]
+    const FD33_PROBE_ENV: &str = "CODEX_TEST_FD33_PROBE";
+
+    #[cfg(unix)]
+    #[test]
+    fn test_fd33_probe_subprocess() {
+        use std::os::unix::fs::MetadataExt as _;
+
+        if std::env::var(FD33_PROBE_ENV).as_deref() != Ok("1") {
+            return;
+        }
+        let home = std::path::PathBuf::from(std::env::var_os("HOME").unwrap());
+        let tmp = std::path::PathBuf::from(std::env::var_os("TMPDIR").unwrap());
+        let resolver = home.join("etc-resolv.conf");
+        let config_dir = home.join("etc-codex");
+        std::fs::create_dir_all(&config_dir).unwrap();
+        let shell = resolve_test_shell();
+
+        let read_fd33 = |fds: &RuntimeFdSources| -> Vec<u8> {
+            let mut cmd = std::process::Command::new(&shell);
+            cmd.args(["-c", "cat /proc/self/fd/33"]);
+            fds.configure(&mut cmd);
+            let output = cmd.output().unwrap();
+            assert!(output.status.success(), "{output:?}");
+            output.stdout
+        };
+
+        // 1. Without $HOME/.local/share/codex/wrapper: falls back to unlinked temp fd cleanly.
+        std::fs::write(&resolver, b"nameserver 1.1.1.1\n").unwrap();
+        let fds = RuntimeFdSources::open(&resolver, &config_dir).unwrap();
+        assert_eq!(std::fs::read(&resolver).unwrap(), b"nameserver 1.1.1.1\n");
+        assert_eq!(
+            read_fd33(&fds),
+            b"nameserver 1.1.1.1\noptions timeout:2 attempts:10\n"
+        );
+        assert!(std::fs::read_dir(&tmp).unwrap().all(|e| !e
+            .unwrap()
+            .file_name()
+            .to_string_lossy()
+            .starts_with(".codex-resolv.")));
+
+        // 2. With $HOME/.local/share/codex/wrapper: synthesizes in-place and preserves inode.
+        let core_state = home.join(".local/share/codex/wrapper");
+        std::fs::create_dir_all(&core_state).unwrap();
+        let cached = core_state.join("resolv.conf");
+
+        let fds1 = RuntimeFdSources::open(&resolver, &config_dir).unwrap();
+        let ino1 = std::fs::symlink_metadata(&cached).unwrap().ino();
+        assert_eq!(
+            std::fs::read(&cached).unwrap(),
+            b"nameserver 1.1.1.1\noptions timeout:2 attempts:10\n"
+        );
+        assert_eq!(
+            read_fd33(&fds1),
+            b"nameserver 1.1.1.1\noptions timeout:2 attempts:10\n"
+        );
+
+        std::fs::write(&resolver, b"nameserver 8.8.8.8\n").unwrap();
+        let fds2 = RuntimeFdSources::open(&resolver, &config_dir).unwrap();
+        let ino2 = std::fs::symlink_metadata(&cached).unwrap().ino();
+        assert_eq!(ino1, ino2, "in-place synthesis must preserve inode");
+        assert_eq!(std::fs::read(&resolver).unwrap(), b"nameserver 8.8.8.8\n");
+        assert_eq!(
+            read_fd33(&fds2),
+            b"nameserver 8.8.8.8\noptions timeout:2 attempts:10\n"
+        );
+
+        // 3. Resolver already carrying options directive passes through unchanged.
+        std::fs::write(&resolver, b"nameserver 9.9.9.9\noptions ndots:2\n").unwrap();
+        let fds3 = RuntimeFdSources::open(&resolver, &config_dir).unwrap();
+        assert_eq!(read_fd33(&fds3), b"nameserver 9.9.9.9\noptions ndots:2\n");
+        assert_eq!(
+            std::fs::read(&cached).unwrap(),
+            b"nameserver 8.8.8.8\noptions timeout:2 attempts:10\n"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_fd33_synthesizes_options_in_place_and_preserves_inode() {
+        let root = temp_root("fd33-synth");
+        let home = root.join("home");
+        let tmp = root.join("tmp");
+        std::fs::create_dir_all(&home).unwrap();
+        std::fs::create_dir_all(&tmp).unwrap();
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "tests::test_fd33_probe_subprocess",
+                "--exact",
+                "--nocapture",
+            ])
+            .env(FD33_PROBE_ENV, "1")
+            .env("HOME", &home)
+            .env("TMPDIR", &tmp)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "stdout={} stderr={}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        remove_temp_root(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_package_root_v3_load_stage_and_signed_release() {
+        let root = temp_root("v3-package-stage");
+        let openssl = b4_termux_openssl();
+        let gzip = std::path::PathBuf::from(std::env::var_os("PREFIX").unwrap()).join("bin/gzip");
+        let runtime = v3_compile_99b_static_probe_runtime(&root);
+        let runtime_bytes = std::fs::read(&runtime).unwrap();
+        let archive = root.join(UPSTREAM_PACKAGE_ASSET);
+        v3_write_package_archive(&gzip, &archive, "0.169.0", &runtime_bytes);
+        let archive_sha256 = openssl_sha256(&openssl, &archive).unwrap();
+
+        let core = b10_release_core_from_env()
+            .unwrap_or_else(|| std::fs::canonicalize(std::env::current_exe().unwrap()).unwrap());
+        let unsigned = root.join("unsigned-v3");
+        codex_release_builder::build_generation(&codex_release_builder::GenerationRequest {
+            version: "0.169.0".to_owned(),
+            archive: archive.clone(),
+            archive_sha256,
+            generation_id: "v3-pkg-gen".to_owned(),
+            core,
+            manager: None,
+            manager_tui: None,
+            source_runtime: None,
+            defer_manager_probe: false,
+            legacy_activation_doctor_unsupported: false,
+            creation_metadata: "v3-unit-test".to_owned(),
+            gzip,
+            openssl: openssl.clone(),
+            output: unsigned.clone(),
+        })
+        .unwrap();
+
+        let private_key = root.join("keys/private.pem");
+        let public_key = root.join("keys/public.pem");
+        b4_generate_release_keypair(&openssl, &private_key, &public_key);
+        let publication = root.join("publication");
+        codex_release_builder::publish_generation(
+            &unsigned,
+            "1",
+            "https://releases.example.invalid/codex/v3-pkg-gen/",
+            &private_key,
+            &openssl,
+            &publication,
+        )
+        .unwrap();
+
+        let published = publication.join("releases/v3-pkg-gen");
+        let (_release, loaded) =
+            verify_local_release_bundle(&published, &openssl, &public_key).unwrap();
+        assert_eq!(loaded.generation_layout, GenerationLayout::PackageRootV3);
+        assert_eq!(loaded.generation_layout.as_str(), "package-root-v3");
+        assert_eq!(loaded.manifest.patch_policy_id, "termux-fd-remap-99b-v1");
+        assert_eq!(loaded.compatibility_dir, published);
+        assert_eq!(loaded.runtime_path, published.join("bin/codex"));
+        assert_eq!(
+            loaded.code_mode_host_path,
+            published.join("bin/codex-code-mode-host")
+        );
+        assert_eq!(
+            authenticated_remote_generation_version(&published, "v3-pkg-gen").unwrap(),
+            "0.169.0"
+        );
+
+        let stage_root = root.join("staged-generations");
+        std::fs::create_dir_all(&stage_root).unwrap();
+        assert_eq!(
+            stage_local_generation(&published, &stage_root).unwrap(),
+            "v3-pkg-gen"
+        );
+        let staged = stage_root.join("v3-pkg-gen");
+        let staged_loaded = load_local_generation(&staged).unwrap();
+        assert_eq!(
+            staged_loaded.generation_layout,
+            GenerationLayout::PackageRootV3
+        );
+        assert!(staged.join("bin/codex").is_file());
+        assert!(staged.join("bin/codex-code-mode-host").is_file());
+        assert!(staged.join("codex-package.json").is_file());
+        assert!(staged.join("codex-path/rg").is_file());
+        assert!(staged.join("codex-resources/notice.txt").is_file());
+
+        // Negative: missing codex-package.json, symlinked codex-path dir fail load_local_generation;
+        // symlinked codex-path/rg fails stage_local_generation.
+        let missing_pkg = root.join("bad-missing-pkg");
+        copy_local_directory_tree(&staged, &missing_pkg).unwrap();
+        std::fs::remove_file(missing_pkg.join("codex-package.json")).unwrap();
+        assert!(load_local_generation(&missing_pkg).is_err());
+
+        let symlink_codex_path = root.join("bad-symlink-codex-path");
+        copy_local_directory_tree(&staged, &symlink_codex_path).unwrap();
+        std::fs::remove_dir_all(symlink_codex_path.join("codex-path")).unwrap();
+        std::os::unix::fs::symlink(
+            staged.join("codex-path"),
+            symlink_codex_path.join("codex-path"),
+        )
+        .unwrap();
+        assert!(load_local_generation(&symlink_codex_path).is_err());
+
+        let symlink_rg = root.join("bad-symlink-rg");
+        copy_local_directory_tree(&published, &symlink_rg).unwrap();
+        let rg_path = symlink_rg.join("codex-path/rg");
+        std::fs::remove_file(&rg_path).unwrap();
+        std::os::unix::fs::symlink(staged.join("codex-path/rg"), &rg_path).unwrap();
+        let bad_stage_root = root.join("bad-stage-root");
+        std::fs::create_dir_all(&bad_stage_root).unwrap();
+        assert!(stage_local_generation(&symlink_rg, &bad_stage_root).is_err());
+
+        remove_temp_root(root);
+    }
+
+    #[cfg(unix)]
+    const PUBLIC_RUNTIME_PROBE_ENV: &str = "CODEX_TEST_V3_PUBLIC_RUNTIME_PROBE";
+    #[cfg(unix)]
+    const PUBLIC_RUNTIME_PROBE_MODE: &str = "CODEX_TEST_V3_PUBLIC_RUNTIME_MODE";
+
+    #[cfg(unix)]
+    #[test]
+    fn test_v3_public_runtime_probe_subprocess() {
+        if std::env::var(PUBLIC_RUNTIME_PROBE_ENV).as_deref() != Ok("1") {
+            return;
+        }
+        let code = match std::env::var(PUBLIC_RUNTIME_PROBE_MODE).as_deref() {
+            Ok("sandbox") => run_public_main(["-s", "read-only"]),
+            Ok("version") => run_public_main(["--version"]),
+            other => panic!("unexpected probe mode: {other:?}"),
+        };
+        std::process::exit(code);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_local_tarball_update_with_force_and_rollback() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        // 1. CLI guard: --build-local --force exits 2 immediately.
+        assert_eq!(
+            run_core_update(vec![
+                OsString::from("--build-local"),
+                OsString::from("--force")
+            ]),
+            2
+        );
+
+        let root = temp_root("v3-local-tarball-force");
+        let openssl = b4_termux_openssl();
+        let (home, prefix, tmp) = b4_prepare_public_environment(&root, &openssl, true);
+        let prefix_openssl = prefix.join("bin/openssl");
+        std::fs::remove_file(&prefix_openssl).unwrap();
+        std::fs::copy(&openssl, &prefix_openssl).unwrap();
+        let live_gzip =
+            std::path::PathBuf::from(std::env::var_os("PREFIX").unwrap()).join("bin/gzip");
+        let fixture_gzip = prefix.join("bin/gzip");
+        std::fs::copy(&live_gzip, &fixture_gzip).unwrap();
+
+        // 2. -s read-only guard fails pre-I/O with exit 2 and never touches CODEX_HOME settings.
+        let fresh_sandbox_home = root.join("fresh-sandbox-codex-home");
+        let sandbox_out = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "tests::test_v3_public_runtime_probe_subprocess",
+                "--exact",
+                "--nocapture",
+            ])
+            .env(PUBLIC_RUNTIME_PROBE_ENV, "1")
+            .env(PUBLIC_RUNTIME_PROBE_MODE, "sandbox")
+            .env("HOME", &home)
+            .env("PREFIX", &prefix)
+            .env("TMPDIR", &tmp)
+            .env("CODEX_HOME", &fresh_sandbox_home)
+            .output()
+            .unwrap();
+        assert_eq!(sandbox_out.status.code(), Some(2), "{sandbox_out:?}");
+        assert!(!fresh_sandbox_home
+            .join("app-server-daemon/settings.json")
+            .exists());
+
+        // 3. Seed v2 baseline (with manager + attached old Core) and active update-hold.
+        let private_key = root.join("keys/private.pem");
+        let public_key = root.join("keys/public.pem");
+        b4_generate_release_keypair(&openssl, &private_key, &public_key);
+        b4_install_trusted_release_key(&home, &public_key);
+        let source_roots = b4_source_roots(&root.join("source"), &openssl);
+        std::fs::create_dir_all(&source_roots.generation_root).unwrap();
+        let base = b2_write_generation(&source_roots, "r7-base", true, "unsupported");
+        let shell = resolve_test_shell();
+        let manager_script = format!(
+            "#!{}\nif [ \"${{CODEX_MANAGER_ARTIFACT_PROBE:-}}\" = \"1\" ] && [ \"${{1:-}}\" = \"--artifact-probe\" ]; then\n  printf 'codex-manager-artifact-v1\\nwrapper_api=codex-manager-wrapper-v1\\n'\nfi\nexit 0\n",
+            shell.display()
+        );
+        std::fs::write(base.join("manager"), manager_script).unwrap();
+        std::fs::set_permissions(base.join("manager"), std::fs::Permissions::from_mode(0o755))
+            .unwrap();
+        let manager_digest = openssl_sha256(&openssl, &base.join("manager")).unwrap();
+        let meta_path = base.join("generation.meta");
+        let meta_text = std::fs::read_to_string(&meta_path).unwrap().replace(
+            "manager_artifact_digest\tmanager-digest\n",
+            &format!("manager_artifact_digest\t{manager_digest}\n"),
+        );
+        std::fs::write(&meta_path, meta_text).unwrap();
+
+        let old_core = root.join("old-core");
+        b8_write_core_probe_wrapper(&old_core);
+        b2_attach_core(&base, &openssl, &old_core);
+        b4_write_signed_release(&base, 10, &openssl, &private_key);
+        b7_seed_initial_release(
+            &base,
+            &home,
+            &prefix,
+            &home.join(".local/lib/codex/wrapper/release-public-key.pem"),
+        );
+        std::fs::remove_file(home.join(".local/lib/codex/wrapper/release-public-key.pem")).unwrap();
+
+        let stable_entrypoint = prefix.join("bin/codex");
+        std::fs::copy(&old_core, &stable_entrypoint).unwrap();
+        std::fs::set_permissions(&stable_entrypoint, std::fs::Permissions::from_mode(0o755))
+            .unwrap();
+
+        let roots = b7_public_roots(&home, &prefix);
+        let paths = CoreStatePaths::new(&roots.state_root).unwrap();
+        let initial_state = read_pointer_state(&paths).unwrap().unwrap();
+        let process_env = b8_process_env(&prefix, &tmp);
+
+        write_update_hold_locked(
+            &roots,
+            &UpdateHoldRecord {
+                generation_id: "r7-base".to_owned(),
+                release_sequence: 10,
+            },
+        )
+        .unwrap();
+
+        // Build 0.169.0 v3 tarball using 99B probe binary.
+        let runtime_source = v3_compile_99b_static_probe_runtime(&root);
+        let runtime_bytes = std::fs::read(&runtime_source).unwrap();
+        let archive = root.join(UPSTREAM_PACKAGE_ASSET);
+        v3_write_package_archive(&fixture_gzip, &archive, "0.169.0", &runtime_bytes);
+
+        // Non-forced local tarball update must be blocked by active update-hold.
+        let blocked = activate_local_tarball_update(
+            &archive,
+            &roots,
+            &process_env,
+            UpdateHoldPolicy::Enforce,
+            None,
+        );
+        match blocked {
+            Err(LocalProductError::LocalUpdate(msg)) if msg.contains("rollback hold") => {}
+            other => panic!("expected rollback hold block, got: {other:?}"),
+        }
+        assert_eq!(read_pointer_state(&paths).unwrap().unwrap(), initial_state);
+
+        // Forced local tarball update upgrades v2 -> v3, preserves manager, installs running Core.
+        let activated = activate_local_tarball_update(
+            &archive,
+            &roots,
+            &process_env,
+            UpdateHoldPolicy::ForceHeld,
+            None,
+        )
+        .unwrap();
+        assert_eq!(
+            rollback_guard::effective_update_hold(&roots, None).unwrap(),
+            None
+        );
+        let upgraded_state = read_pointer_state(&paths).unwrap().unwrap();
+        assert_eq!(upgraded_state.current, activated.generation_id);
+        assert!(upgraded_state.current.starts_with("local-"));
+        assert_eq!(upgraded_state.previous.as_deref(), Some("r7-base"));
+        assert_eq!(upgraded_state.update_key, initial_state.update_key);
+
+        let installed_v3 = roots.generation_root.join(&upgraded_state.current);
+        let loaded_v3 = load_local_generation(&installed_v3).unwrap();
+        assert_eq!(loaded_v3.generation_layout, GenerationLayout::PackageRootV3);
+        assert_eq!(loaded_v3.manifest.upstream_package_version, "0.169.0");
+        assert_eq!(loaded_v3.manifest.patch_policy_id, "termux-fd-remap-99b-v1");
+        assert!(loaded_v3.manager_path.is_some());
+        assert!(!loaded_v3.manager_tui_available);
+        assert!(!installed_v3.join("helpers/2").exists());
+
+        let expected_new_core =
+            std::fs::read(running_core_artifact_for_local_build().unwrap()).unwrap();
+        assert_eq!(
+            std::fs::read(&stable_entrypoint).unwrap(),
+            expected_new_core
+        );
+
+        // Runtime launch creates $CODEX_HOME/app-server-daemon/settings.json without touching config.toml.
+        let launch_home = root.join("launch-codex-home");
+        let launch_out = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "tests::test_v3_public_runtime_probe_subprocess",
+                "--exact",
+                "--nocapture",
+            ])
+            .env(PUBLIC_RUNTIME_PROBE_ENV, "1")
+            .env(PUBLIC_RUNTIME_PROBE_MODE, "version")
+            .env("HOME", &home)
+            .env("PREFIX", &prefix)
+            .env("TMPDIR", &tmp)
+            .env("CODEX_HOME", &launch_home)
+            .output()
+            .unwrap();
+        assert_eq!(
+            launch_out.status.code(),
+            Some(0),
+            "stdout={} stderr={}",
+            String::from_utf8_lossy(&launch_out.stdout),
+            String::from_utf8_lossy(&launch_out.stderr)
+        );
+        assert_eq!(
+            std::fs::read_to_string(launch_home.join("app-server-daemon/settings.json")).unwrap(),
+            "{\"updater\":{\"autoUpdateEnabled\":false}}\n"
+        );
+        assert!(!launch_home.join("config.toml").exists());
+
+        // Rollback restores baseline generation and old Core entrypoint cleanly.
+        rollback_signed_local_release(&roots).unwrap();
+        let rolled_back = read_pointer_state(&paths).unwrap().unwrap();
+        assert_eq!(rolled_back.current, "r7-base");
+        assert_eq!(
+            rolled_back.previous.as_deref(),
+            Some(upgraded_state.current.as_str())
+        );
+        assert_eq!(
+            std::fs::read(&stable_entrypoint).unwrap(),
+            std::fs::read(&old_core).unwrap()
+        );
+
+        remove_temp_root(root);
     }
 }

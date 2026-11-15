@@ -721,7 +721,7 @@ jobs:
           bootstrap_current="$RUNNER_TEMP/publisher-bootstrap-current"
           test ! -e "$bootstrap_current/compat"
           /bin/sh publication-source/bootstrap/codex-bootstrap \
-            "$bootstrap_current/core" "$bootstrap_current" "$root/update-public-key.pem"
+            "$bootstrap_current/wrapper" "$bootstrap_current" "$root/update-public-key.pem"
           test -x "$PREFIX/bin/codex"
 
           candidate_base="$(python3 publication-source/.github/scripts/release_publication.py release-base --generation "$candidate")"
@@ -754,10 +754,10 @@ jobs:
             --plain "$RUNNER_TEMP/first-update.expected" --actual "$RUNNER_TEMP/first-update.out" \
             --component "$root/display/component-input-v1" --current "$root/$current/release.manifest" \
             --target "$root/$candidate/release.manifest" --allow-legacy "${publication_args[@]}"
-          state="$HOME/.local/share/codex/core/activation-state"
+          state="$HOME/.local/share/codex/wrapper/activation-state"
           test "$(sed -n 's/^current=//p' "$state")" = "$candidate"
           test "$(sed -n 's/^previous=//p' "$state")" = "$current"
-          cmp "$PREFIX/bin/codex" "$root/$candidate/core"
+          cmp "$PREFIX/bin/codex" "$root/$candidate/wrapper"
           "$PREFIX/bin/codex" --version > "$RUNNER_TEMP/version-check.out"
           printf 'codex-cli %s\n' "$version" > "$RUNNER_TEMP/version-check.expected"
           cmp "$RUNNER_TEMP/version-check.expected" "$RUNNER_TEMP/version-check.out"
@@ -779,7 +779,7 @@ jobs:
           if report.get("schema_version") != 2:
               raise SystemExit("doctor schema is not v2")
           upstream = report.get("upstream")
-          core = report.get("termux_core")
+          core = report.get("termux_wrapper")
           manager = report.get("manager")
           summary = report.get("summary")
           if not isinstance(upstream, dict) or not isinstance(core, dict):
@@ -814,11 +814,11 @@ jobs:
           if rc != expected_rc:
               raise SystemExit("doctor exit status is inconsistent with diagnostic report")
           print(f"doctor_upstream_status={upstream_status}")
-          print("doctor_termux_core_status=healthy")
+          print("doctor_termux_wrapper_status=healthy")
           PY
 
           snapshot() {
-            python3 - "$HOME/.local/share/codex/core" "$HOME/.local/lib/codex/core" "$PREFIX/bin/codex" <<'PY'
+            python3 - "$HOME/.local/share/codex/wrapper" "$HOME/.local/lib/codex/wrapper" "$PREFIX/bin/codex" <<'PY'
           import hashlib
           import os
           from pathlib import Path

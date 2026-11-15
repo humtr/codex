@@ -159,7 +159,7 @@ def generations():
             if not (case / 'fixture-key.pem').is_file():
                 continue
             for generation in (case / 'local-permission-fixture',
-                               case / 'h/.local/lib/codex/core/generations/local-permission-fixture'):
+                               case / 'h/.local/lib/codex/wrapper/generations/local-permission-fixture'):
                 if (generation / 'generation.meta').is_file():
                     yield root, generation
 

@@ -430,7 +430,7 @@ def prepare(args):
         mode = "operator" if name.endswith("operator") else "model_adapter"
         info = {"route": name, "mode": mode, "return_path": "mcp", "state": str(case / "state"),
                 "home": str(home / ".codex"), "workspace": str(case / "w"), "core": str(prefix / "bin/codex"),
-                "runtime": str(home / ".local/lib/codex/core/generations/local-permission-fixture/runtime"),
+                "runtime": str(home / ".local/lib/codex/wrapper/generations/local-permission-fixture/runtime"),
                 "fixture_root": str(short), "binary": str(root / "candidate/provider"),
                 "desktop_session": str(desktop_session), "connector_reference": str(connector_reference),
                 "bridge": str(root / "candidate/app_bridge.js"), "sha256": frozen["binary_sha256"]}

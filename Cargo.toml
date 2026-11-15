@@ -1,6 +1,6 @@
 [workspace]
 members = [
-    "crates/core",
+    "crates/wrapper",
     "crates/manager",
     "crates/release-builder",
     "crates/runtime-binding",

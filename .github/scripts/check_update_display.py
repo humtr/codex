@@ -72,7 +72,7 @@ def variants(current, target, component, publication, base_publication, *, detai
                 component = 'Base #' + str(display['base_sequence']) if display.get('base_generation') else 'Full #' + new['release_sequence'] + ' package'
                 full.append(f'Core ({component}) · Published: ' + stamp(core))
             core_url = 'https://github.com/humtr/codex/releases/tag/' + display.get('base_generation', new['generation_id']) if display.get('base_generation') else url
-            if changed('core', 'runtime', 'codex-code-mode-host', 'helpers/0', 'helpers/1'):
+            if changed('wrapper', 'runtime', 'codex-code-mode-host', 'helpers/0', 'helpers/1'):
                 full += notes(core, 'Core', core_url)
             for section, file, label in [('Manager', 'manager', 'Manager'), ('TUI', 'helpers/2', 'Enhanced TUI')]:
                 if any(name == file for name, _, _ in files):

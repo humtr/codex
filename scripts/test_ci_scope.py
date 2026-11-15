@@ -13,7 +13,7 @@ class ScopeTests(unittest.TestCase):
                            (['release/notes.md'],'full'),
                            (['scripts/check.sh','SPEC.md'],'python'),
                            (['.github/scripts/release_signing.py'],'python'),
-                           (['scripts/test_ci_scope.py','crates/core/src/main.rs'],'full'),
+                           (['scripts/test_ci_scope.py','crates/wrapper/src/main.rs'],'full'),
                            (['Cargo.lock'],'full'),(['install.sh'],'full'),
                            (['.github/workflows/auto-release-termux.yml'],'full'),
                            (['providers/chatgpt/desktop_protocol.mjs'],'provider'),
@@ -32,11 +32,11 @@ class ScopeTests(unittest.TestCase):
                            (['scripts/chat_entry_client.mjs','scripts/fixtures/native_trial/fixture.json'],'provider'),
                            (['scripts/chat_entry_client.test.mjs'],'provider'),
                            (['.github/workflows/provider-qualification.yml'],'provider'),
-                           (['.github/workflows/provider-qualification.yml','crates/core/src/main.rs'],'full'),
+                           (['.github/workflows/provider-qualification.yml','crates/wrapper/src/main.rs'],'full'),
                            (['providers/chatgpt/desktop_protocol.mjs','SPEC.md'],'provider'),
                            (['providers/chatgpt/test_desktop_profile.py','scripts/test_check.py'],'python'),
                            (['scripts/test_check.py','providers/chatgpt/desktop_protocol.mjs'],'python'),
-                           (['providers/chatgpt/desktop_protocol.mjs','crates/core/src/main.rs'],'full'),
+                           (['providers/chatgpt/desktop_protocol.mjs','crates/wrapper/src/main.rs'],'full'),
                            (['providers/chatgpt-unknown/file.py'],'full'),
                            (['unknown'], 'full')]:
             with self.subTest(paths=paths):self.assertEqual(scope(paths),want)

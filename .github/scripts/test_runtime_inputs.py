@@ -61,7 +61,7 @@ source="git+https://example.invalid/other#012345"
             root = self.source(Path(temporary))
             baseline = runtime.fingerprint(root)
             self.assertEqual(baseline, runtime.fingerprint(root, 'HEAD'))
-            core = root / 'crates/core/src/main.rs'
+            core = root / 'crates/wrapper/src/main.rs'
             core.parent.mkdir(parents=True)
             core.write_text('new Core source')
             recipe = json.loads((root / 'release/upstream.json').read_text())

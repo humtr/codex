@@ -481,7 +481,7 @@ fn render(
             current,
             target,
             &[
-                "core",
+                "wrapper",
                 "runtime",
                 "codex-code-mode-host",
                 "helpers/0",
@@ -603,7 +603,7 @@ mod tests {
             channel: "stable".into(),
             expected_platform: "android".into(),
             expected_architecture: "aarch64".into(),
-            core_api_identity: "core-api-v1".into(),
+            wrapper_api_identity: "wrapper-api-v1".into(),
             persistent_schema_identity: "schema-v1".into(),
             release_public_key: ReleasePublicKey([1; 32]),
             files: if full {
@@ -673,7 +673,7 @@ mod tests {
         assert_eq!(missing, Publication::default());
         let mut target = manifest(true);
         target.files.push(ReleaseFileEntry {
-            relative_path: "core".into(),
+            relative_path: "wrapper".into(),
             sha256: "b".repeat(64),
             mode: 0o755,
         });
@@ -701,7 +701,7 @@ mod tests {
     fn changelogs_follow_changed_component_inputs_not_full_repack_or_repeat() {
         let info = publication(br###"{"tag_name":"local-display-test","published_at":"2026-10-28T17:04:05Z","body":"## Core\n- Core update.\n## Manager\n- Manager update.\n## TUI\n- TUI update.\n## New Features\n- Upstream update.\n"}"###, "local-display-test").unwrap();
         let mut current = manifest(true);
-        for path in ["core", "runtime", "helpers/2"] {
+        for path in ["wrapper", "runtime", "helpers/2"] {
             current.files.push(ReleaseFileEntry {
                 relative_path: path.into(),
                 sha256: "a".repeat(64),
@@ -721,7 +721,7 @@ mod tests {
             !render(&current, &repack, None, Some(&info), Some(&info), true).contains("changes:")
         );
         for (path, section) in [
-            ("core", "Core"),
+            ("wrapper", "Core"),
             ("runtime", "Core"),
             ("manager", "Manager"),
             ("helpers/2", "TUI"),

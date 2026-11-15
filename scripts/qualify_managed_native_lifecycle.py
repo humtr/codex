@@ -43,7 +43,7 @@ def probe(args):
         assert frontend.count(before) == count and not frontend.count(after), 'supply the original unpatched frontend input'
     del frontend
     root = Path(tempfile.mkdtemp(prefix='ml-', dir=os.environ['TMPDIR']))
-    assert len(str(root / 'h/.local/share/codex/core/catalogs/0000000000000000/s').encode()) <= 107
+    assert len(str(root / 'h/.local/share/codex/wrapper/catalogs/0000000000000000/s').encode()) <= 107
     home = process = service = master = None
     screens, observations, steps = [], [], []
     stop_observer = threading.Event()
@@ -224,7 +224,7 @@ def probe(args):
         for path in server_paths(home):
             pid = int(path.with_name('pid').read_text())
             owners.append(stop_owned_pid(pid,
-                home / '.local/lib/codex/core/generations/local-permission-fixture/runtime'))
+                home / '.local/lib/codex/wrapper/generations/local-permission-fixture/runtime'))
         assert owners, 'cold proof requires an observed backend exit'
         if args.restart_provider:
             # Both the native owner and Provider disappeared in the real crash.
@@ -354,7 +354,7 @@ def probe(args):
             assert not observer.is_alive()
             observer = None
             pid_file = Path(record()['execution']['directory']) / 'pid'
-            assert pid_file.is_relative_to(home / '.local/share/codex/core')
+            assert pid_file.is_relative_to(home / '.local/share/codex/wrapper')
             original_pid = pid_file.read_bytes()
             error_screen_start = len(screen)
             try:
@@ -562,7 +562,7 @@ def probe(args):
             # This fixture owns every backend in server_paths; stop only the
             # exact runtime identity recorded for this completed thread.
             owners.append(stop_owned_pid(int(matching[0].read_text()),
-                home / '.local/lib/codex/core/generations/local-permission-fixture/runtime'))
+                home / '.local/lib/codex/wrapper/generations/local-permission-fixture/runtime'))
             launch(fresh, provider_profile=False)
             resumed = public(fresh)
             (root / 'ordinary-resumed-native.json').write_text(json.dumps(resumed, indent=2) + '\n')

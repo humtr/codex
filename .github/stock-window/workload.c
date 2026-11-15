@@ -11,11 +11,11 @@
 // and Android PTYs are real, inside an empty disposable emulator installation.
 #define BASE "/data/data/com.termux/files/home/.stock-proof"
 #define MANAGER BASE "/manager"
-#define CORE BASE "/core"
-#define NATIVE "/data/data/com.termux/files/home/.local/lib/codex/core/generations/stock-proof/helpers/2"
+#define WRAPPER BASE "/wrapper"
+#define NATIVE "/data/data/com.termux/files/home/.local/lib/codex/wrapper/generations/stock-proof/helpers/2"
 int main(int argc, char **argv) {
-    setenv("CODEX_TERMUX_CORE_API", "codex-manager-core-v1", 1);
-    setenv("CODEX_TERMUX_CORE_ENTRYPOINT", CORE, 1);
+    setenv("CODEX_TERMUX_WRAPPER_API", "codex-manager-wrapper-v1", 1);
+    setenv("CODEX_TERMUX_WRAPPER_ENTRYPOINT", WRAPPER, 1);
     if (argc > 2 && !strcmp(argv[1], "termux")) {
         char **args = calloc(argc, sizeof(char *));
         args[0] = MANAGER;

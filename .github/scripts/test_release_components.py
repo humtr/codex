@@ -23,7 +23,7 @@ class ComponentsTests(unittest.TestCase):
         root.mkdir()
         for name in ['Cargo.toml','Cargo.lock','release/upstream.json']:
             target=root/name;target.parent.mkdir(exist_ok=True,parents=True);shutil.copyfile(ROOT/name,target)
-        for name in ['crates/core','crates/release-builder','crates/runtime-binding','crates/manager']:
+        for name in ['crates/wrapper','crates/release-builder','crates/runtime-binding','crates/manager']:
             target=root/name;target.mkdir(parents=True);shutil.copyfile(ROOT/name/'Cargo.toml',target/'Cargo.toml')
             (target/'lib.rs').write_text('owned fixture')
         target=root/'.github/scripts';target.mkdir(parents=True)
@@ -52,7 +52,7 @@ class ComponentsTests(unittest.TestCase):
             self.assertEqual(component.base_fingerprint(root),before)
             value['toolchains']['frontend_rust']='1.96.0';recipe.write_text(json.dumps(value));self.commit(root)
             after=component.base_fingerprint(root);self.assertNotEqual(after,before);before=after
-            for name in ['crates/core/lib.rs','crates/release-builder/lib.rs','crates/runtime-binding/lib.rs']:
+            for name in ['crates/wrapper/lib.rs','crates/release-builder/lib.rs','crates/runtime-binding/lib.rs']:
                 (root/name).write_text('changed '+name);self.commit(root)
                 after=component.base_fingerprint(root);self.assertNotEqual(after,before);before=after
             value['upstream']['archive_sha256']='f'*64;recipe.write_text(json.dumps(value));self.commit(root)
@@ -100,12 +100,12 @@ class ComponentsTests(unittest.TestCase):
         original={path.name:path.read_bytes() for path in full.iterdir()}
         with self.assertRaisesRegex(ValueError,'requires an authenticated'):
             component.compose(full,None,fixture.public_key)
-        (full/'core').write_bytes(b'tampered')
+        (full/'wrapper').write_bytes(b'tampered')
         with self.assertRaisesRegex(ValueError,'digest differs'):
             component.compose(full,controls,fixture.public_key)
-        (full/'core').write_bytes(original['core'])
+        (full/'wrapper').write_bytes(original['wrapper'])
         mapping=component.compose(full,controls,fixture.public_key)
-        self.assertFalse((full/'runtime').exists());self.assertFalse((full/'core').exists())
+        self.assertFalse((full/'runtime').exists());self.assertFalse((full/'wrapper').exists())
         self.assertTrue((full/'manager').is_file());self.assertTrue((full/'helper-2').is_file())
         self.assertTrue(all(mapping['files'][name]['generation']==BASE for name in component.COMMON))
         # Reconstruct through the real map, then run the same full public validator.
@@ -125,7 +125,7 @@ class ComponentsTests(unittest.TestCase):
             changed=copy.deepcopy(mapping)
             if fault=='foreign':changed['files']['runtime']['generation']='other/repo'
             elif fault=='inheritance':changed['files']['generation.meta']['generation']=BASE
-            elif fault=='omitted':del changed['files']['core']
+            elif fault=='omitted':del changed['files']['wrapper']
             elif fault=='extra':changed['files']['helpers/9']=changed['files']['helpers/0']
             elif fault=='cycle':changed['base_generation']=FULL
             else:changed['generation_id']=BASE
@@ -150,8 +150,8 @@ class ComponentsTests(unittest.TestCase):
             old_full,old_full_controls=self.signed_assets(fixture,repo,old_full_id)
         component.compose(old_full,old_base_controls,fixture.public_key)
         shutil.copyfile(old_full/component.MAP,old_full_controls/component.MAP)
-        (repo/'crates/core/lib.rs').write_text('changed Core input');self.commit(repo)
-        changed={'core':b'changed:core\n'}
+        (repo/'crates/wrapper/lib.rs').write_text('changed Core input');self.commit(repo)
+        changed={'wrapper':b'changed:wrapper\n'}
         with patch.object(fixtures,'SEQUENCE','12'):
             new_base,new_base_controls=self.signed_assets(fixture,repo,new_base_id,True,changed)
         old_transport=old_base_controls/component.MAP;old_mapping=old_transport.read_bytes()
@@ -172,7 +172,7 @@ class ComponentsTests(unittest.TestCase):
         self.assertEqual(protected.read_bytes(),b'preserve this content')
         self.assertFalse((new_base/component.MAP).is_symlink())
         base_map=json.loads((new_base/component.MAP).read_bytes())
-        self.assertEqual(base_map['files']['core']['generation'],new_base_id)
+        self.assertEqual(base_map['files']['wrapper']['generation'],new_base_id)
         self.assertEqual(base_map['files']['runtime']['generation'],old_base_id)
         self.assertFalse((new_base/'runtime').exists())
         shutil.copyfile(new_base/component.MAP,new_base_controls/component.MAP)
@@ -203,7 +203,7 @@ class ComponentsTests(unittest.TestCase):
         self.assertEqual(result.returncode,0,result.stderr.decode())
         mapping=json.loads((new_full/component.MAP).read_bytes())
         self.assertEqual(mapping['files']['runtime']['generation'],old_base_id)
-        self.assertEqual(mapping['files']['core']['generation'],new_base_id)
+        self.assertEqual(mapping['files']['wrapper']['generation'],new_base_id)
         for path in ['manager','helpers/2']:
             self.assertEqual(mapping['files'][path]['generation'],old_full_id)
             self.assertFalse((new_full/publication.FLAT_ASSETS[path]).exists())
@@ -266,7 +266,7 @@ class ComponentsTests(unittest.TestCase):
         self.assertEqual(len(requested),4+len(publication.BASE_FILES))
         # Changing Core invalidates this base. Never silently use the serving
         # full's older base or rebuild an unqualified replacement instead.
-        (repo/'crates/core/lib.rs').write_text('new incompatible Core');self.commit(repo)
+        (repo/'crates/wrapper/lib.rs').write_text('new incompatible Core');self.commit(repo)
         self.assertIsNone(component.acquire_base(repo,heads,fixture.public_key,fixture.root/'incompatible',fetch))
 
     def test_core_only_change_reuses_signed_runtime_without_fetching_old_core(self):
@@ -304,18 +304,18 @@ class ComponentsTests(unittest.TestCase):
             source=published/name if name.startswith('component-input-') else base/name
             self.assertLessEqual(source.stat().st_size,limit)
             target.parent.mkdir(exist_ok=True,parents=True);shutil.copyfile(source,target)
-        (repo/'crates/core/lib.rs').write_text('changed Core, same runtime');self.commit(repo)
+        (repo/'crates/wrapper/lib.rs').write_text('changed Core, same runtime');self.commit(repo)
         reused=fixture.root/'runtime-reused'
         self.assertEqual(component.acquire_runtime_base(repo,heads,fixture.public_key,reused,fetch),BASE)
-        self.assertNotIn('core',requested)
-        self.assertFalse((reused/'core').exists())
+        self.assertNotIn('wrapper',requested)
+        self.assertFalse((reused/'wrapper').exists())
         replacement=fixture.root/'new-core';replacement.write_bytes(b'new executable Core');replacement.chmod(0o755)
         output=fixture.root/'runtime-composed'
         component.candidate_from_base(reused,None,None,None,'base-qualification-reused',
             fields['upstream_package_version'],output,core=replacement)
         actual=verify_base_candidate(output,fields['upstream_package_version'])
-        self.assertEqual(actual['core_artifact_digest'],component.sha256(replacement))
-        for name in set(publication.BASE_FILES)-{'core','generation.meta'}:
+        self.assertEqual(actual['wrapper_artifact_digest'],component.sha256(replacement))
+        for name in set(publication.BASE_FILES)-{'wrapper','generation.meta'}:
             self.assertEqual((output/name).read_bytes(),(base/name).read_bytes(),name)
         # The real executor CLI reauthenticates the transferred subset with its
         # own authority/source context, rather than trusting the prior job's flag.

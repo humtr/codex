@@ -29,12 +29,13 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 
-const CORE_API_ENV: &str = "CODEX_TERMUX_CORE_API";
-const CORE_ENTRYPOINT_ENV: &str = "CODEX_TERMUX_CORE_ENTRYPOINT";
-const CORE_API: &str = "codex-manager-core-v1";
+const CORE_API_ENV: &str = "CODEX_TERMUX_WRAPPER_API";
+const CORE_ENTRYPOINT_ENV: &str = "CODEX_TERMUX_WRAPPER_ENTRYPOINT";
+const CORE_API: &str = "codex-manager-wrapper-v1";
 const ARTIFACT_PROBE_ARGUMENT: &str = "--artifact-probe";
 const ARTIFACT_PROBE_ENV: &str = "CODEX_MANAGER_ARTIFACT_PROBE";
-const ARTIFACT_PROBE_OUTPUT: &str = "codex-manager-artifact-v1\ncore_api=codex-manager-core-v1\n";
+const ARTIFACT_PROBE_OUTPUT: &str =
+    "codex-manager-artifact-v1\nwrapper_api=codex-manager-wrapper-v1\n";
 const CODEX_HOME_ENV: &str = "CODEX_HOME";
 const CODEX_SQLITE_HOME_ENV: &str = "CODEX_SQLITE_HOME";
 const PROFILES_DIR: &str = "profiles";

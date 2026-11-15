@@ -8054,7 +8054,7 @@ mod local_tests {
             crate::journal::private_directory(dir).unwrap();
         }
         let workspace = std::fs::canonicalize(&workspace).unwrap();
-        let program = installation.join(".local/lib/codex/core/generations/f/runtime");
+        let program = installation.join(".local/lib/codex/wrapper/generations/f/runtime");
         crate::journal::private_directory(program.parent().unwrap()).unwrap();
         std::fs::copy(std::env::current_exe().unwrap(), &program).unwrap();
         let invocation = codex_runtime_binding::encode_invocation(&[
@@ -8072,7 +8072,7 @@ mod local_tests {
             None,
         );
         let directory = installation
-            .join(".local/share/codex/core/catalogs")
+            .join(".local/share/codex/wrapper/catalogs")
             .join(name);
         crate::journal::private_directory(&directory.join("config")).unwrap();
         std::os::unix::fs::symlink(directory.join("s"), root.join("socket-path")).unwrap();

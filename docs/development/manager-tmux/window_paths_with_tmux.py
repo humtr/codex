@@ -23,7 +23,7 @@ sid2='11a0fe94-2d11-79f3-8f5b-9c1958465dc2'
 with tempfile.TemporaryDirectory(prefix='codex-window-') as tmp:
     root=Path(tmp);home=root/'h';home.mkdir();prefix=root/'usr';(prefix/'bin').mkdir(parents=True)
     endpoint=root/'apps/com.termux/termux-am/am.sock';endpoint.parent.mkdir(parents=True)
-    native=home/'.local/lib/codex/core/generations/owned/helpers/2';native.parent.mkdir(parents=True)
+    native=home/'.local/lib/codex/wrapper/generations/owned/helpers/2';native.parent.mkdir(parents=True)
     source=root/'native.c';source.write_text(r'''
 #define _GNU_SOURCE
 #include <fcntl.h>
@@ -56,8 +56,8 @@ int main(int argc,char **argv) {
 import json,os,sys
 from pathlib import Path
 manager='''+repr(str(manager))+'''
-os.environ['CODEX_TERMUX_CORE_API']='codex-manager-core-v1'
-os.environ['CODEX_TERMUX_CORE_ENTRYPOINT']=os.path.abspath(sys.argv[0])
+os.environ['CODEX_TERMUX_WRAPPER_API']='codex-manager-wrapper-v1'
+os.environ['CODEX_TERMUX_WRAPPER_ENTRYPOINT']=os.path.abspath(sys.argv[0])
 if sys.argv[1:3] in (['termux','__terminal-start-v1'],['termux','__terminal-exec-v1']):
  os.execv(manager,[manager,*sys.argv[2:]])
 if sys.argv[1:4]==['termux','profile','use']:
@@ -72,7 +72,7 @@ os.execv('''+repr(str(native))+''',['native'])
     text=cli.read_text().replace('o=json.loads(r) if False else None\nsys.stdout.buffer.write(r)', 'import json\no=json.loads(r);sys.stdout.write(o["stdout"]);sys.stderr.write(o["stderr"]);sys.exit(o["status"])');cli.write_text(text)
     (prefix/'bin/true').symlink_to(shutil.which('true'))
     (prefix/'bin/env').symlink_to(shutil.which('env'))
-    env={**os.environ,'HOME':str(home),'PREFIX':str(prefix),'TMPDIR':str(root),'TMUX_TMPDIR':str(root), 'TMUX':'','TMUX_PANE':'','TERM':'xterm-256color','CODEX_TERMUX_CORE_API':'codex-manager-core-v1','CODEX_TERMUX_CORE_ENTRYPOINT':str(core),'FIXTURE_MANAGER':str(manager),'FIXTURE_SID':sid1,'OWNED_PRIVATE_AUTH':'synthetic-auth-retained'}
+    env={**os.environ,'HOME':str(home),'PREFIX':str(prefix),'TMPDIR':str(root),'TMUX_TMPDIR':str(root), 'TMUX':'','TMUX_PANE':'','TERM':'xterm-256color','CODEX_TERMUX_WRAPPER_API':'codex-manager-wrapper-v1','CODEX_TERMUX_WRAPPER_ENTRYPOINT':str(core),'FIXTURE_MANAGER':str(manager),'FIXTURE_SID':sid1,'OWNED_PRIVATE_AUTH':'synthetic-auth-retained'}
     for key in ('CODEX_HOME','NO_COLOR','CODEX_TERMUX_WINDOW_TOKEN','CODEX_TERMUX_WINDOW_READY'):env.pop(key,None)
     server=socket.socket(socket.AF_UNIX);server.bind(str(endpoint));server.listen();server.settimeout(.1)
     state={'mode':'native','operations':'origin,validate,focus,clipboard-read-image,clipboard-write-text,clipboard-release-image','windows':{},'requests':[],'errors':[]};stop=threading.Event();processes=[];fds=[]

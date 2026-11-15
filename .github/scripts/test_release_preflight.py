@@ -54,7 +54,7 @@ class PreflightTests(unittest.TestCase):
     def test_candidate_requires_deferred_marker_and_bound_digests(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            files = {"runtime": b"runtime", "core": b"core", "manager": b"manager"}
+            files = {"runtime": b"runtime", "wrapper": b"wrapper", "manager": b"manager"}
             for name, data in files.items():
                 path = root / name
                 path.write_bytes(data)
@@ -73,9 +73,9 @@ class PreflightTests(unittest.TestCase):
                 "patch_policy_id\ttermux-fd-remap-v1",
                 "patch_report\tx",
                 f"runtime_digest\t{digest(files['runtime'])}",
-                f"core_artifact_digest\t{digest(files['core'])}",
+                f"wrapper_artifact_digest\t{digest(files['wrapper'])}",
                 f"manager_artifact_digest\t{digest(files['manager'])}",
-                "core_api_identity\tcore-api-v1",
+                "wrapper_api_identity\twrapper-api-v1",
                 "persistent_schema_identity\tschema-v1",
                 "qualification\tqualified",
                 f"creation_metadata\t{M.R10_METADATA}",
@@ -147,7 +147,7 @@ class PreflightTests(unittest.TestCase):
                 "channel\tstable",
                 "expected_platform\tandroid",
                 "expected_architecture\taarch64",
-                "core_api_identity\tcore-api-v1",
+                "wrapper_api_identity\twrapper-api-v1",
                 "persistent_schema_identity\tschema-v1",
                 f"release_public_key\t{'e' * 64}",
                 "file_count\t1",

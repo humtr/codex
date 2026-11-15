@@ -115,14 +115,14 @@ def qualify(args, report):
         for mode in ('activate', 'publish-bootstrap-pin', 'publish-fresh-entrypoint'):
             selected = dict(env, CODEX_TERMUX_INTERNAL_BOOTSTRAP=mode,
                 CODEX_TERMUX_INTERNAL_BOOTSTRAP_KEY=str(public),
-                CODEX_TERMUX_INTERNAL_BOOTSTRAP_CORE=str(first / 'core'))
+                CODEX_TERMUX_INTERNAL_BOOTSTRAP_WRAPPER=str(first / 'wrapper'))
             if mode == 'activate':
                 selected['CODEX_TERMUX_INTERNAL_BOOTSTRAP_SOURCE'] = str(first)
             run(f'installer {mode}', [args.core], selected=selected)
 
         launcher = prefix / 'bin/codex'
-        state_path = home / '.local/share/codex/core/activation-state'
-        generations = home / '.local/lib/codex/core/generations'
+        state_path = home / '.local/share/codex/wrapper/activation-state'
+        generations = home / '.local/lib/codex/wrapper/generations'
 
         def state():
             return dict(line.split('=', 1) for line in state_path.read_text().splitlines() if '=' in line)
@@ -172,8 +172,8 @@ def qualify(args, report):
                 [launcher, 'termux', 'profile', 'default', 'core-probe'])
             preference = home / '.local/share/codex/manager/default-profile-v1'
             preference_bytes = preference.read_bytes()
-            core_config = home / '.local/share/codex/core/config/config.toml'
-            direct = dict(env, CODEX_TERMUX_CORE_ONLY='1')
+            core_config = home / '.local/share/codex/wrapper/config/config.toml'
+            direct = dict(env, CODEX_TERMUX_WRAPPER_ONLY='1')
             for label, selected in [('managed before', env), ('direct', direct),
                                     ('managed after', env)]:
                 run(f'{label} real configuration load',
@@ -274,7 +274,7 @@ def qualify(args, report):
             source.write_text(r'''fn main() {
     let args: Vec<_> = std::env::args().skip(1).collect();
     match args.first().map(String::as_str) {
-        Some("--artifact-probe") => print!("codex-manager-artifact-v1\ncore_api=codex-manager-core-v1\n"),
+        Some("--artifact-probe") => print!("codex-manager-artifact-v1\nwrapper_api=codex-manager-wrapper-v1\n"),
         Some("__prepare-launch-v1") => print!("codex-manager-launch-v1\ncurrent\n"),
         Some("__prepare-runtime-v1") => {
             match std::env::var("OWNED_CORE_OPTIONAL_FIXTURE").as_deref() {
@@ -396,7 +396,7 @@ def qualify(args, report):
             (prefix / 'bin/openssl').unlink()
             shutil.copy2(tools['openssl'], prefix / 'bin/openssl')
             shutil.copy2(tools['gzip'], prefix / 'bin/gzip')
-            reference = home / '.local/share/codex/core/config/build-signing-key'
+            reference = home / '.local/share/codex/wrapper/config/build-signing-key'
             reference.parent.mkdir(parents=True, exist_ok=True)
             unapproved = root / 'unapproved-local-key.pem'
             run('create unapproved owned signer', [tools['openssl'], 'genpkey',

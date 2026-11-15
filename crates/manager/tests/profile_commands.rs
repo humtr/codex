@@ -19,9 +19,9 @@ mod task_snapshot;
 #[path = "profile_commands/quota.rs"]
 mod quota;
 
-const CORE_API_ENV: &str = "CODEX_TERMUX_CORE_API";
-const CORE_ENTRYPOINT_ENV: &str = "CODEX_TERMUX_CORE_ENTRYPOINT";
-const CORE_API: &str = "codex-manager-core-v1";
+const CORE_API_ENV: &str = "CODEX_TERMUX_WRAPPER_API";
+const CORE_ENTRYPOINT_ENV: &str = "CODEX_TERMUX_WRAPPER_ENTRYPOINT";
+const CORE_API: &str = "codex-manager-wrapper-v1";
 const CALLER_SENTINEL_ENV: &str = "MGR_CALLER_SENTINEL";
 
 static TEST_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -73,7 +73,7 @@ fn manager_artifact_probe_is_exact_and_state_free() {
     assert_eq!(output.status.code(), Some(0));
     assert_eq!(
         output.stdout,
-        b"codex-manager-artifact-v1\ncore_api=codex-manager-core-v1\n"
+        b"codex-manager-artifact-v1\nwrapper_api=codex-manager-wrapper-v1\n"
     );
     assert!(output.stderr.is_empty());
 }
@@ -291,8 +291,8 @@ if [ \"$1\" = \"tty\" ]; then\n\
   [ -t 0 ] && [ -t 1 ] && [ -t 2 ] && exit 0\n\
   exit 88\n\
 fi\n\
-printf 'API_SET=%s\\n' \"${{CODEX_TERMUX_CORE_API+x}}\"\n\
-printf 'ENTRY_SET=%s\\n' \"${{CODEX_TERMUX_CORE_ENTRYPOINT+x}}\"\n\
+printf 'API_SET=%s\\n' \"${{CODEX_TERMUX_WRAPPER_API+x}}\"\n\
+printf 'ENTRY_SET=%s\\n' \"${{CODEX_TERMUX_WRAPPER_ENTRYPOINT+x}}\"\n\
 printf 'HOME_SET=%s\\n' \"${{CODEX_HOME+x}}\"\n\
 printf 'HOME_VALUE=%s\\n' \"${{CODEX_HOME-}}\"\n\
 printf 'SQLITE_HOME_SET=%s\\n' \"${{CODEX_SQLITE_HOME+x}}\"\n\
@@ -808,7 +808,9 @@ fn profile_prelease_runtime_metadata_rejects_home_cwd_and_open_handles() {
                 .success()
         );
         let home = root.0.join(".local/share/codex/manager/profiles/old/home");
-        let runtime = root.0.join(".local/lib/codex/core/generations/old/runtime");
+        let runtime = root
+            .0
+            .join(".local/lib/codex/wrapper/generations/old/runtime");
         fs::create_dir_all(runtime.parent().unwrap()).unwrap();
         fs::copy(std::env::current_exe().unwrap(), &runtime).unwrap();
         fs::set_permissions(&runtime, fs::Permissions::from_mode(0o755)).unwrap();
@@ -2011,7 +2013,7 @@ fn active_task_native_fixture() {
 
 const TASK_SETTINGS: &[u8] = b"opaque independent configuration\n";
 fn task_binding(root: &Path, home: &Path, runtime: &Path) -> PathBuf {
-    let directory = root.join(".local/share/codex/core/servers").join(
+    let directory = root.join(".local/share/codex/wrapper/servers").join(
         codex_runtime_binding::configuration_namespace(
             home,
             runtime.as_os_str(),
@@ -2060,7 +2062,7 @@ impl TaskFixture {
         let runtime = self
             .root
             .0
-            .join(".local/lib/codex/core/generations/fixture-old/runtime");
+            .join(".local/lib/codex/wrapper/generations/fixture-old/runtime");
         let config = b"opaque independent configuration\n";
         let directory = self.binding.join("config");
         fs::create_dir_all(&directory).unwrap();
@@ -2083,7 +2085,7 @@ impl TaskFixture {
         let family = self
             .root
             .0
-            .join(".local/share/codex/core")
+            .join(".local/share/codex/wrapper")
             .join(if catalog.is_some() {
                 "catalogs"
             } else {
@@ -2121,7 +2123,7 @@ impl TaskFixture {
         fs::set_permissions(&account, fs::Permissions::from_mode(0o700)).unwrap();
         let runtime = root
             .0
-            .join(".local/lib/codex/core/generations/fixture-old/runtime");
+            .join(".local/lib/codex/wrapper/generations/fixture-old/runtime");
         fs::create_dir_all(runtime.parent().unwrap()).unwrap();
         fs::copy(std::env::current_exe().unwrap(), &runtime).unwrap();
         fs::set_permissions(&runtime, fs::Permissions::from_mode(0o755)).unwrap();
@@ -2283,7 +2285,7 @@ fn active_task_exited_records_allow_retired_homes_runtime_and_socket_without_mut
     let runtime = f
         .root
         .0
-        .join(".local/lib/codex/core/generations/retired/runtime");
+        .join(".local/lib/codex/wrapper/generations/retired/runtime");
     let target = f.root.0.join("private-target");
     fs::create_dir(&target).unwrap();
     fs::set_permissions(&target, fs::Permissions::from_mode(0o700)).unwrap();
@@ -2389,7 +2391,7 @@ fn active_task_owner_follows_current_kernel_writer_not_original_loaded_server() 
     let runtime = f
         .root
         .0
-        .join(".local/lib/codex/core/generations/fixture-old/runtime");
+        .join(".local/lib/codex/wrapper/generations/fixture-old/runtime");
     let binding = task_binding(&f.root.0, &account, &runtime);
     let owner = codex_runtime_binding::configuration_owner_bytes(
         &account,

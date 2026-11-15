@@ -82,7 +82,7 @@ def prepare(args):
     home, prefix, env = fixture(native, args.core, args.frontend, generation=args.generation)
     env.update(XDG_CONFIG_HOME=str(root / 'config'), XDG_STATE_HOME=str(root / 'xdg-state'))
     (root / 'source-inputs.json').write_text(json.dumps(dict(base_commit=subprocess.check_output(['git','rev-parse','HEAD'],cwd=SOURCE).decode().strip(),
-        files={str(p.relative_to(SOURCE)):sha(p) for base in ('providers/chatgpt','crates/runtime-binding','crates/core','crates/release-builder')
+        files={str(p.relative_to(SOURCE)):sha(p) for base in ('providers/chatgpt','crates/runtime-binding','crates/wrapper','crates/release-builder')
                for p in (SOURCE/base).rglob('*') if p.is_file() and not {'target','__pycache__','.git'}.intersection(p.parts)}),indent=2)+'\n')
     binary=root/'candidate/provider';builder=root/'candidate/builder';launcher=prefix/'bin/codex'
     subprocess.run([builder,'provider-package','--binary',binary,'--assets',SOURCE/'providers/chatgpt','--source-inputs',root/'source-inputs.json',

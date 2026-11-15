@@ -143,7 +143,7 @@ while IFS="$tab" read -r kind rel digest mode extra; do
   [ "$kind" = file ] || continue
   [ -z "$extra" ] || fail 'release manifest file record is malformed'
   case $rel in
-    generation.meta|core|runtime|codex-code-mode-host|manager|helpers/0|helpers/1|helpers/2|browser/open/curl|browser/manual/curl) ;;
+    generation.meta|wrapper|runtime|codex-code-mode-host|manager|helpers/0|helpers/1|helpers/2|browser/open/curl|browser/manual/curl) ;;
     *) fail 'release manifest contains an unsupported bootstrap path' ;;
   esac
   [ "${#digest}" -eq 64 ] || fail 'release manifest digest is invalid'
@@ -179,7 +179,7 @@ else
   fi
 fi
 
-for required in generation.meta core runtime codex-code-mode-host; do
+for required in generation.meta wrapper runtime codex-code-mode-host; do
   [ -f "$release_dir/$required" ] && [ ! -L "$release_dir/$required" ] ||
     fail 'release manifest is missing a required bootstrap file'
 done
@@ -199,5 +199,5 @@ fetch_bounded "$LOCAL_INSTALL_RAW_BASE/install.sh" "$bundle/install.sh" 16384
 fetch_bounded "$LOCAL_INSTALL_RAW_BASE/bootstrap/codex-bootstrap"   "$bundle/bootstrap/codex-bootstrap" 131072
 chmod 0755 "$bundle/install.sh" "$bundle/bootstrap/codex-bootstrap"
 
-"$bundle/install.sh" "$release_dir/core" "$release_dir" "$key"
+"$bundle/install.sh" "$release_dir/wrapper" "$release_dir" "$key"
 printf 'codex online install: installed signed stable generation %s\n' "$generation"

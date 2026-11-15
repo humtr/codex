@@ -92,7 +92,7 @@ def qualify(args):
                 return result
 
             # Prune only our generated copy, then sign its exact smaller inventory.
-            installed = home / '.local/lib/codex/core/generations/local-permission-fixture'
+            installed = home / '.local/lib/codex/wrapper/generations/local-permission-fixture'
             if composition != 'full':
                 removed = {'helpers/2'}
                 if composition == 'base':
@@ -120,7 +120,7 @@ def qualify(args):
                     case_root / 'fixture-key.pem', '-rawin', '-in', installed / 'release.manifest',
                     '-out', installed / 'release.sig'])
             sentinels = {p: sha(p) for p in (home / '.codex/config.toml', home / '.codex/auth.json',
-                                            home / '.local/share/codex/core/activation-state')}
+                                            home / '.local/share/codex/wrapper/activation-state')}
             endpoint = original_credential = None
             retained_catalogs = {}
             try:
@@ -170,7 +170,7 @@ def qualify(args):
                 previous.rename(unavailable)
                 run('native config load with absent optional Provider', [launcher, 'features', 'list'])
                 run('direct native config with absent optional Provider',
-                    [launcher, 'features', 'list'], selected=dict(env, CODEX_TERMUX_CORE_ONLY='1'))
+                    [launcher, 'features', 'list'], selected=dict(env, CODEX_TERMUX_WRAPPER_ONLY='1'))
                 unavailable.rename(previous)
                 if composition != 'base':
                     run('Manager account creation after Provider registration',

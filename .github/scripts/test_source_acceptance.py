@@ -44,7 +44,7 @@ class SourceAcceptanceTests(unittest.TestCase):
         self.assertEqual(set(re.findall(
             r'CODEX_SOURCE_ACCEPTANCE_CORE="\$SOURCE_ANDROID_CORE" cargo test --locked -p codex tests::([a-z0-9_]+) -- --exact --nocapture --test-threads=1',
             isolated)), android_artifact_tests)
-        core = (ROOT / 'crates/core/src/main.rs').read_text()
+        core = (ROOT / 'crates/wrapper/src/main.rs').read_text()
         for test in android_artifact_tests:
             self.assertRegex(core, rf'\bfn {test}\s*\(')
         self.assertNotIn('sudo cargo', isolated)
@@ -81,7 +81,7 @@ class SourceAcceptanceTests(unittest.TestCase):
             work = root / 'unsigned-candidate'
             candidate = work / 'candidate'
             candidate.mkdir(parents=True)
-            for rel in ['core', 'manager', 'runtime', 'codex-code-mode-host',
+            for rel in ['wrapper', 'manager', 'runtime', 'codex-code-mode-host',
                         'helpers/0', 'helpers/1', 'generation.meta', '.manager-probe-deferred']:
                 path = candidate / rel
                 path.parent.mkdir(parents=True, exist_ok=True)
@@ -89,13 +89,13 @@ class SourceAcceptanceTests(unittest.TestCase):
                 path.chmod(0o644 if rel in ['generation.meta', '.manager-probe-deferred'] else 0o755)
             archive = work / 'candidate.tar'
             subprocess.run(['tar', '-cf', str(archive), '-C', str(work), 'candidate'], check=True)
-            (candidate / 'core').write_bytes(b'final protected Core')
+            (candidate / 'wrapper').write_bytes(b'final protected Core')
             (candidate / 'manager').write_bytes(b'final accepted Manager')
             (candidate / 'generation.meta').write_text('final admitted descriptor\n')
             expected = {str(p.relative_to(work)): (p.read_bytes(), p.stat().st_mode & 0o7777)
                         for p in candidate.rglob('*') if p.is_file()}
             with tarfile.open(archive) as old:
-                self.assertNotEqual(old.extractfile('candidate/core').read(), expected['candidate/core'][0])
+                self.assertNotEqual(old.extractfile('candidate/wrapper').read(), expected['candidate/wrapper'][0])
             result = subprocess.run(['bash', '-c', script], env={**os.environ, 'RUNNER_TEMP': str(root)},
                                     capture_output=True, text=True, timeout=15)
             self.assertEqual(result.returncode, 0, result.stderr)

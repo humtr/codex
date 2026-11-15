@@ -108,9 +108,7 @@ fn binding_for_home(directory: &Path, home: Option<&Path>) -> Result<Option<Bind
         .get(1)
         .map(|value| Path::new(std::ffi::OsStr::from_bytes(value)));
     if matches!(fields.as_slice(), [_, _] | [_, _, b"catalog-v1"])
-        && historical_program.is_some_and(|program| {
-            program.is_absolute() && program.file_name().is_some_and(|name| name == "runtime")
-        })
+        && historical_program.is_some_and(codex_runtime_binding::is_historical_runtime_program)
     {
         let pid = String::from_utf8(
             read(&directory.join("pid"), 128).map_err(|_| Error("native_binding_invalid"))?,
@@ -150,10 +148,9 @@ impl Owner {
         }
         let binding =
             Binding::read(directory, read).map_err(|_| Error("native_binding_invalid"))?;
-        let generations = installation.join(".local/lib/codex/core/generations");
+        let generations = installation.join(".local/lib/codex/wrapper/generations");
         if binding.home != home
-            || binding.program.file_name().is_none_or(|n| n != "runtime")
-            || binding.program.parent().and_then(Path::parent) != Some(generations.as_path())
+            || !codex_runtime_binding::is_generation_runtime_program(&generations, &binding.program)
         {
             return Err(Error("native_execution_home_or_runtime_changed"));
         }
@@ -593,7 +590,7 @@ impl Pool {
     }
     async fn find_thread(&self, thread: &str, home: Option<&Path>) -> Result<Arc<Native>, Error> {
         let mut found = None;
-        let state = self.installation.join(".local/share/codex/core");
+        let state = self.installation.join(".local/share/codex/wrapper");
         for family in codex_runtime_binding::FAMILIES {
             let root = state.join(family);
             if !root.exists() {
@@ -756,7 +753,7 @@ impl Pool {
         if directory.parent().is_none_or(|p| {
             p != self
                 .installation
-                .join(".local/share/codex/core")
+                .join(".local/share/codex/wrapper")
                 .join(family)
         }) {
             return Err(Error("native_binding_invalid"));
@@ -846,7 +843,7 @@ mod reply_tests {
         std::fs::write(root.join("owned"), b"owned native transport fixture").unwrap();
         let installation = root.join("i");
         let home = root.join("h");
-        let program = installation.join(".local/lib/codex/core/generations/f/runtime");
+        let program = installation.join(".local/lib/codex/wrapper/generations/f/runtime");
         crate::journal::private_directory(program.parent().unwrap()).unwrap();
         std::fs::copy(std::env::current_exe().unwrap(), &program).unwrap();
         let invocation = codex_runtime_binding::encode_invocation(&[
@@ -864,7 +861,7 @@ mod reply_tests {
             None,
         );
         let directory = installation
-            .join(".local/share/codex/core/catalogs")
+            .join(".local/share/codex/wrapper/catalogs")
             .join(name);
         crate::journal::private_directory(&directory.join("config")).unwrap();
         std::os::unix::fs::symlink(directory.join("s"), root.join("socket-path")).unwrap();
@@ -1019,7 +1016,7 @@ mod reply_tests {
         for path in [&home, &workspace] {
             crate::journal::private_directory(path).unwrap();
         }
-        let program = installation.join(".local/lib/codex/core/generations/fixture/runtime");
+        let program = installation.join(".local/lib/codex/wrapper/generations/fixture/runtime");
         let config = b"";
         let name = codex_runtime_binding::configuration_namespace(
             &home,
@@ -1030,7 +1027,7 @@ mod reply_tests {
             None,
         );
         let directory = installation
-            .join(".local/share/codex/core/servers")
+            .join(".local/share/codex/wrapper/servers")
             .join(name);
         crate::journal::private_directory(&directory.join("config")).unwrap();
         let owner = codex_runtime_binding::configuration_owner_bytes(

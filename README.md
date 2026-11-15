@@ -107,7 +107,7 @@ Diagnosis and local recovery use `codex doctor` and `codex update --rollback`.
 To run the direct Core path for one invocation while Manager is installed:
 
 ```sh
-CODEX_TERMUX_CORE_ONLY=1 codex
+CODEX_TERMUX_WRAPPER_ONLY=1 codex
 ```
 
 This keeps signed Core execution and its safety preparation while skipping
@@ -460,7 +460,7 @@ Manual update also checks the official stable version. When no qualified release
 is available, Core offers one choice: keep the installed version, build
 locally, or request a remote build. Set `CODEX_TERMUX_UPDATE_BUILD_POLICY` to
 `keep`, `local`, `remote` or `ask`, or put that value in
-`~/.local/share/codex/core/config/update-policy`. Without an explicit policy,
+`~/.local/share/codex/wrapper/config/update-policy`. Without an explicit policy,
 noninteractive missing-artifact updates stop instead of dispatching a build.
 
 `codex update --wait` explicitly requests/reuses a remote build and waits;
@@ -492,7 +492,7 @@ not promised. Ready signed releases need no local compiler.
 
 An explicitly configured local-build signer is supported:
 put one `file:/absolute/path/to/key.pem` reference in
-`~/.local/share/codex/core/config/build-signing-key`. The owner-only Ed25519 key
+`~/.local/share/codex/wrapper/config/build-signing-key`. The owner-only Ed25519 key
 must match the installation's admitted public update key. Invalid configuration
 stops the build before archive download; it does not choose another signer.
 Core preserves the external key. Without this configuration it generates and
@@ -588,7 +588,7 @@ and close its running clients/servers first.
 
 Upstream configuration profiles (`codex --profile NAME`) are separate from these
 login accounts. Optional shared configs live at
-`~/.local/share/codex/core/config/profiles/NAME.config.toml`; Manager registers a
+`~/.local/share/codex/wrapper/config/profiles/NAME.config.toml`; Manager registers a
 missing filename in each owned execution home. Existing local configs take
 priority, and base settings/login files stay unchanged. Existing registrations
 and account-local upstream profiles work without Manager; new shared registration

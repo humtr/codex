@@ -202,7 +202,7 @@ def probe(args):
             for path in server_paths(home):
                 try:
                     pid = int((path.parent / 'pid').read_text())
-                    expected = home / '.local/lib/codex/core/generations/local-permission-fixture/runtime'
+                    expected = home / '.local/lib/codex/wrapper/generations/local-permission-fixture/runtime'
                     if Path(f'/proc/{pid}/exe').resolve() == expected:
                         os.kill(pid, signal.SIGTERM)
                 except (OSError, ValueError):

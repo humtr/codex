@@ -370,15 +370,15 @@ jobs:
           cat > "$work/expected-files" <<'EOF'
           .manager-probe-deferred
           codex-code-mode-host
-          core
           generation.meta
           helpers/0
           helpers/1
           helpers/2
           manager
           runtime
+          wrapper
           EOF
-          executables=(codex-code-mode-host core helpers/0 helpers/1 helpers/2 manager runtime)
+          executables=(codex-code-mode-host helpers/0 helpers/1 helpers/2 manager runtime wrapper)
           LC_ALL=C sort -o "$work/expected-files" "$work/expected-files"
           diff -u "$work/expected-files" "$work/actual-files"
           for executable in "${executables[@]}"; do
@@ -543,7 +543,7 @@ jobs:
             manager_rc=$?
           fi
           env -i LD_LIBRARY_PATH="$libdir" \
-            "$linker" "$candidate/core" update --help \
+            "$linker" "$candidate/wrapper" update --help \
             > "$RUNNER_TEMP/core.out" 2> "$RUNNER_TEMP/core.err"
           core_rc=$?
           env -i "$candidate/runtime" --version \
@@ -562,7 +562,7 @@ jobs:
           fi
 
           verify_failed=0
-          printf 'codex-manager-artifact-v1\ncore_api=codex-manager-core-v1\n' > "$RUNNER_TEMP/manager.expected"
+          printf 'codex-manager-artifact-v1\nwrapper_api=codex-manager-wrapper-v1\n' > "$RUNNER_TEMP/manager.expected"
           cat > "$RUNNER_TEMP/linker.stderr.expected" <<'EOF'
           linker: Warning: failed to find generated linker configuration from "/linkerconfig/ld.config.txt"
           WARNING: linker: Warning: failed to find generated linker configuration from "/linkerconfig/ld.config.txt"

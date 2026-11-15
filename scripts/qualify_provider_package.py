@@ -49,12 +49,12 @@ def qualify(args):
                '.github/scripts/release_publication.py')
     inputs['helpers'] = {}
     # Freeze dirty source explicitly; do not label the binary as a clean HEAD build.
-    paths = sorted({*source.glob('crates/core/src/**/*.rs'),
+    paths = sorted({*source.glob('crates/wrapper/src/**/*.rs'),
                     *source.glob('crates/release-builder/src/**/*.rs'),
                     *source.glob('crates/runtime-binding/src/**/*.rs'),
                     *(source / name for name in source_files(source)),
                     *(source / name for name in ('Cargo.toml', 'Cargo.lock',
-                      'crates/core/Cargo.toml', 'crates/release-builder/Cargo.toml',
+                      'crates/wrapper/Cargo.toml', 'crates/release-builder/Cargo.toml',
                       'crates/runtime-binding/Cargo.toml', 'providers/chatgpt/Cargo.toml',
                       'providers/chatgpt/Cargo.lock', 'providers/chatgpt/NOTICE.md')),
                     *source.glob('providers/chatgpt/licenses/*')})
@@ -87,7 +87,7 @@ def qualify(args):
             env.update(XDG_CONFIG_HOME=str(case_root / 'config'), XDG_STATE_HOME=str(case_root / 'state'))
             launcher = prefix / 'bin/codex'
             key = case_root / 'fixture-key.pem'
-            installed = home / '.local/lib/codex/core/generations/local-permission-fixture'
+            installed = home / '.local/lib/codex/wrapper/generations/local-permission-fixture'
 
             def run(label, command, expected=0, terminal=False):
                 entry = dict(name=label, started_UTC=utc())
@@ -130,7 +130,7 @@ def qualify(args):
                 run('sign isolated Base composition', ['openssl', 'pkeyutl', '-sign', '-inkey', key,
                     '-rawin', '-in', installed / 'release.manifest', '-out', installed / 'release.sig'])
             sentinels = {p: sha(p) for p in (home / '.codex/config.toml', home / '.codex/auth.json')}
-            core_state = home / '.local/share/codex/core/activation-state'
+            core_state = home / '.local/share/codex/wrapper/activation-state'
             core_before = sha(core_state)
             packages = case_root / 'packages'
             packages.mkdir(mode=0o700)
@@ -333,7 +333,7 @@ def qualify(args):
                 stable.update(index=index.read_bytes(), signature=index_sig.read_bytes())
                 try:
                     run('default manual update does not enroll absent Provider', [launcher, 'update'])
-                    assert not (home / '.local/share/codex/core/providers/chatgpt').exists()
+                    assert not (home / '.local/share/codex/wrapper/providers/chatgpt').exists()
                     assert not any(path in remote_requests for path in stable_paths)
                     remote_requests.clear()
                     for bad in ('http://127.0.0.1/not-https/', url + 'one', url + 'one/?query=x', url + '../one/'):
@@ -342,7 +342,7 @@ def qualify(args):
                     for route in ('redirect', 'bad-signature', 'tampered', 'missing'):
                         remote_requests.clear()
                         public('reject remote ' + route, 'install', 'chatgpt', '--remote', url + route + '/', expected=1)
-                        assert not (home / '.local/share/codex/core/providers/chatgpt/selection').exists()
+                        assert not (home / '.local/share/codex/wrapper/providers/chatgpt/selection').exists()
                         if route == 'bad-signature':
                             assert remote_requests == ['/bad-signature/payload.manifest', '/bad-signature/payload.sig']
                     remote_requests.clear()
@@ -353,7 +353,7 @@ def qualify(args):
                     remote_requests.clear()
                     public('real TLS remote exact reinstall', 'install', 'chatgpt', '--remote', url + 'one/')
                     complete_download('/one/', {sha(one / name) for name in declared})
-                    selection_path = home / '.local/share/codex/core/providers/chatgpt/selection'
+                    selection_path = home / '.local/share/codex/wrapper/providers/chatgpt/selection'
                     unchanged_selection = selection_path.read_bytes()
                     for label, action in [('stable index authenticated update over real TLS', 'update'),
                                           ('stable index default install over real TLS', 'install')]:
@@ -376,11 +376,11 @@ def qualify(args):
                     assert selection_path.read_bytes() == unchanged_selection
                     saved_signature = stable['signature']
                     stable['signature'] = b'x' * 64
-                    before = (home / '.local/share/codex/core/providers/chatgpt/selection').read_bytes()
+                    before = (home / '.local/share/codex/wrapper/providers/chatgpt/selection').read_bytes()
                     remote_requests.clear()
                     public('reject unverified stable index before payload', 'update', 'chatgpt', expected=1)
                     assert remote_requests == stable_paths
-                    assert (home / '.local/share/codex/core/providers/chatgpt/selection').read_bytes() == before
+                    assert (home / '.local/share/codex/wrapper/providers/chatgpt/selection').read_bytes() == before
                     remote_requests.clear()
                     stable['official_version'] = '9.999.0'
                     env['CODEX_TERMUX_UPDATE_BUILD_POLICY'] = 'keep'
@@ -409,9 +409,9 @@ def qualify(args):
                     assert b'4096 output bytes' in interrupted.stderr, interrupted.stderr
                     assert selection_path.read_bytes() == selection_before_interrupt
                     assert sha(core_state) == core_before
-                    cached_part = home / '.local/share/codex/core/downloads-v1' / (sha(two / 'NOTICE.md') + '.part')
+                    cached_part = home / '.local/share/codex/wrapper/downloads-v1' / (sha(two / 'NOTICE.md') + '.part')
                     assert cached_part.read_bytes() == (two / 'NOTICE.md').read_bytes()[:4096]
-                    assert not any((home / '.local/share/codex/core/providers/chatgpt').glob('.download-*'))
+                    assert not any((home / '.local/share/codex/wrapper/providers/chatgpt').glob('.download-*'))
                     remote_requests.clear()
                     advanced = run('manual update advances Provider while missing Core build is kept',
                                    [launcher, 'update'], terminal=True)
@@ -489,7 +489,7 @@ def qualify(args):
                     core_state.write_text('\n'.join(k + '=' + v for k, v in values.items()) + '\n')
                     run('actual Core rollback establishes update hold', [launcher, 'update', '--rollback'])
                     held_state = core_state.read_bytes()
-                    hold_path = home / '.local/share/codex/core/update-hold'
+                    hold_path = home / '.local/share/codex/wrapper/update-hold'
                     assert hold_path.exists()
                     stable['held_core'] = held
                     core_index.write_text(core_index.read_text().replace(installed.name, held.name))
@@ -531,9 +531,9 @@ def qualify(args):
                     server.shutdown()
                     server.server_close()
                     thread.join(timeout=5)
-                assert not list((home / '.local/share/codex/core/providers/chatgpt').glob('.download-*'))
+                assert not list((home / '.local/share/codex/wrapper/providers/chatgpt').glob('.download-*'))
             public('install generation 1', 'install', 'chatgpt', '--local', one)
-            selection = home / '.local/share/codex/core/providers/chatgpt/selection'
+            selection = home / '.local/share/codex/wrapper/providers/chatgpt/selection'
             original_selection = selection.read_bytes()
             public('exact reinstall', 'install', 'chatgpt', '--local', one)
             assert selection.read_bytes() == original_selection
@@ -604,7 +604,7 @@ def qualify(args):
                         assert time.monotonic() < deadline, 'foreground owner never became ready'
                         time.sleep(.05)
                     assert json.loads(observed.stdout)['process']['pid'] == foreground.pid
-                    store_root = home / '.local/share/codex/core/providers/chatgpt'
+                    store_root = home / '.local/share/codex/wrapper/providers/chatgpt'
                     guard = os.open(store_root, os.O_RDONLY | os.O_DIRECTORY)
                     try:
                         try:

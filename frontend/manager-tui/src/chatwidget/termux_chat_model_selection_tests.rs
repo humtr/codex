@@ -9,7 +9,7 @@ async fn termux_chat_models_inline_choices_use_the_same_installed_catalog_as_the
                 "chatwidget::model_popups::termux_chat_model_selection_tests::termux_chat_models_inline_choices_use_the_same_installed_catalog_as_the_picker",
                 "--nocapture",
             ])
-            .env("CODEX_PROFILE_CORE", "/owned/core")
+            .env("CODEX_PROFILE_WRAPPER", "/owned/core")
             .output()
             .unwrap();
         assert!(
@@ -70,7 +70,7 @@ async fn termux_chat_models_same_provider_uses_only_changed_session_actions_with
                 "chatwidget::model_popups::termux_chat_model_selection_tests::termux_chat_models_same_provider_uses_only_changed_session_actions_without_persistence",
                 "--nocapture",
             ])
-            .env("CODEX_PROFILE_CORE", "/owned/core")
+            .env("CODEX_PROFILE_WRAPPER", "/owned/core")
             .output()
             .unwrap();
         assert!(

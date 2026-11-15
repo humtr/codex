@@ -1943,7 +1943,7 @@ unsigned runtime launcher. Core may retain a small versioned optional-component
 dispatch contract; it must not inspect Manager's preference filenames or interpret
 account, window, quota or provider policies to make an execution decision.
 
-`CODEX_TERMUX_CORE_ONLY=1 codex ...` selects the direct path when Manager is
+`CODEX_TERMUX_WRAPPER_ONLY=1 codex ...` selects the direct path when Manager is
 installed but not wanted. It skips Manager preparation, launch policy, optional
 TUI and Manager-provided configuration for that invocation. Core still performs
 its signed-runtime, environment, sandbox, shared-state and server preparation.
@@ -2168,7 +2168,7 @@ execution path. Superseded desktop/adapter helpers retire with the experiment;
 reusable qualification tools remain development dependencies and are not added
 to the Rust Provider payload.
 
-The Chat provider source lives under `providers/chatgpt`, outside crates/core,
+The Chat provider source lives under `providers/chatgpt`, outside crates/wrapper,
 Manager and TUI. Its approved implementation target is a native Rust adapter
 process, usable through upstream configuration without Manager or enhanced TUI.
 Rust owns configuration/capabilities, Responses HTTP/SSE and tool mapping,
@@ -2336,7 +2336,7 @@ must not expire a correctly attached request and force another Chat submission.
 The provisioned Linux UI includes Korean-capable CJK fonts; typography is not an
 account-language or personalization change.
 
-Experiment integration targets rewrite/rust-core as a repository, not crates/core
+Experiment integration targets rewrite/rust-core as a repository, not crates/wrapper
 as a code destination. Port exact reviewed provider/runtime sources, dependencies,
 licenses and affected regression drivers onto current authority. Never replace
 current Core, Manager, UI, release workflows or contracts with experiment snapshots.

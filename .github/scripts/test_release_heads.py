@@ -73,9 +73,9 @@ class ReleaseHeadsTests(unittest.TestCase):
             'upstream_package_identity\t'+PACKAGE_IDENTITY, 'upstream_package_version\t0.155.0',
             'source_artifact_digest\t'+'b'*64, 'expected_platform\tandroid', 'expected_architecture\taarch64',
             'patch_policy_id\ttermux-fd-remap-v1', 'patch_report\tfixture',
-            'runtime_digest\t'+digest('runtime'), 'core_artifact_digest\t'+digest('core'),
+            'runtime_digest\t'+digest('runtime'), 'wrapper_artifact_digest\t'+digest('wrapper'),
             'manager_artifact_digest\t'+(digest('manager') if lane == 'full' else '-'),
-            'core_api_identity\tcore-api-v1', 'persistent_schema_identity\tschema-v1',
+            'wrapper_api_identity\twrapper-api-v1', 'persistent_schema_identity\tschema-v1',
             'qualification\tqualified', 'creation_metadata\tr10-browser-helper-bridge-v1',
             'upstream_doctor\tunsupported', 'helper_count\t'+('3' if frontend else '2'),
             'helper\ttermux-browser-open-v1\t'+digest('helpers/0'),
@@ -85,7 +85,7 @@ class ReleaseHeadsTests(unittest.TestCase):
         manifest = ('\n'.join([
             'codex-release-v4', 'generation_id\t'+generation, 'release_sequence\t'+str(sequence),
             'channel\tstable', 'expected_platform\tandroid', 'expected_architecture\taarch64',
-            'core_api_identity\tcore-api-v1', 'persistent_schema_identity\tschema-v1',
+            'wrapper_api_identity\twrapper-api-v1', 'persistent_schema_identity\tschema-v1',
             'release_public_key\t'+self.raw, 'file_count\t'+str(len(inventory)),
             *['file\t'+name+'\t'+digest(name)+'\t'+mode for name, mode in inventory.items()], '',
         ])).encode()
@@ -135,7 +135,7 @@ class ReleaseHeadsTests(unittest.TestCase):
         self.assertFalse((site/'local-base-proof-40/manager').exists())
         self.assertTrue((site/'local-full-proof-11/manager').is_file())
         # A second pass verifies pre-existing LKG rather than blindly trusting it.
-        (site/'local-full-proof-11/core').write_bytes(b'corrupt')
+        (site/'local-full-proof-11/wrapper').write_bytes(b'corrupt')
         with self.assertRaises(ValidationError):
             channel.restore(self.root/'heads', heads, self.public, site, fetch=self.fetch)
 

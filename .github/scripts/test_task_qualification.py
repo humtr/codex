@@ -95,7 +95,7 @@ class MaterializationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="task-inventory-") as temporary:
             root = Path(temporary); source, native = root / "published", root / "installed"
             source.mkdir()
-            headers = [("generation_id", "local-hosted-0-160-0-owned"), ("release_sequence", "38"), ("channel", "stable"), ("expected_platform", "android"), ("expected_architecture", "aarch64"), ("core_api_identity", "core-api-v1"), ("persistent_schema_identity", "schema-v1"), ("release_public_key", "11" * 32), ("file_count", str(len(EXPECTED_FILES)))]
+            headers = [("generation_id", "local-hosted-0-160-0-owned"), ("release_sequence", "38"), ("channel", "stable"), ("expected_platform", "android"), ("expected_architecture", "aarch64"), ("wrapper_api_identity", "wrapper-api-v1"), ("persistent_schema_identity", "schema-v1"), ("release_public_key", "11" * 32), ("file_count", str(len(EXPECTED_FILES)))]
             records = []
             for relative, mode in EXPECTED_FILES.items():
                 path = source / relative; path.parent.mkdir(parents=True, exist_ok=True)

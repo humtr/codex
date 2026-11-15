@@ -228,7 +228,7 @@ def probe(args):
         assert not notification.exists()
         assert not (home / '.codex/auth.json').exists()
         assert not (home / '.codex/native-models.json').exists()
-        assert not list((home / '.local/share/codex/core/catalogs').glob('*/s'))
+        assert not list((home / '.local/share/codex/wrapper/catalogs').glob('*/s'))
         result['standalone'] = {'file_read_write_test': True, 'exact_concurrent_and_settled_retry_once': True,
             'changed_input_rejected': True, 'binary_stderr_preserved': True, 'output_bytes': 2097152,
             'stdin_and_eof': True, 'pty_resize': True, 'stop_kernel_exit': True, 'stop_preserved_sibling': True,
@@ -296,7 +296,7 @@ def probe(args):
         if home:
             for path in server_paths(home):
                 pid = int((path.parent / 'pid').read_text())
-                stop_owned_pid(pid, home / '.local/lib/codex/core/generations/local-permission-fixture/runtime')
+                stop_owned_pid(pid, home / '.local/lib/codex/wrapper/generations/local-permission-fixture/runtime')
         for handle in handles:
             handle.close()
         result['owned_command_pids_exited'] = all(not Path('/proc', str(pid)).exists() for pid in owned_pids)

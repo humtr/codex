@@ -116,7 +116,7 @@ class SigningBoundaryTests(unittest.TestCase):
                 "channel\\tstable\\n"
                 "expected_platform\\tandroid\\n"
                 "expected_architecture\\taarch64\\n"
-                "core_api_identity\\tcore-api-v1\\n"
+                "wrapper_api_identity\\twrapper-api-v1\\n"
                 "persistent_schema_identity\\tschema-v1\\n"
                 f"release_public_key\\t{{raw}}\\n"
                 "file_count\\t1\\n"

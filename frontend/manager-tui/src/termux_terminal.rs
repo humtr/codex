@@ -102,7 +102,7 @@ fn register(core: &Path, file: &File) -> bool {
 }
 
 pub(crate) fn sync(thread_id: Option<String>) {
-    let Some(core) = std::env::var_os("CODEX_PROFILE_CORE") else {
+    let Some(core) = std::env::var_os("CODEX_PROFILE_WRAPPER") else {
         return;
     };
     static SLOT: OnceLock<io::Result<Mutex<Slot>>> = OnceLock::new();
@@ -195,7 +195,7 @@ mod tests {
         let child = Command::new(std::env::current_exe().unwrap())
             .args(["--exact", &test_name, "--nocapture"])
             .env("CODEX_TERMINAL_TEST_ROOT", &root)
-            .env("CODEX_PROFILE_CORE", &core)
+            .env("CODEX_PROFILE_WRAPPER", &core)
             .env_remove("TMUX")
             .env_remove("TMUX_PANE")
             .output()
