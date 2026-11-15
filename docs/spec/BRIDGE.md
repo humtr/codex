@@ -2336,17 +2336,10 @@ must not expire a correctly attached request and force another Chat submission.
 The provisioned Linux UI includes Korean-capable CJK fonts; typography is not an
 account-language or personalization change.
 
-Experiment integration targets rewrite/rust-core as a repository, not crates/wrapper
-as a code destination. Port exact reviewed provider/runtime sources, dependencies,
-licenses and affected regression drivers onto current authority. Never replace
-current Core, Manager, UI, release workflows or contracts with experiment snapshots.
-Preserve source history and user changes; compare intent and current equivalents
-before replaying a commit. Separate runtime modules from qualification/research
-material. Do not ship historical probes, GUI trials or user app/login data as
-runtime dependencies merely because they share an experiment directory.
+Optional provider integration targets the repository as an independent module, not
+minimal `crates/wrapper` as a code destination. Port exact reviewed provider/runtime sources, dependencies, licenses and affected regression drivers into decoupled crates outside minimal Wrapper. Never replace minimal Core or contracts with experiment snapshots. Preserve source history and user changes; compare intent and current equivalents before replaying a commit. Separate runtime modules from qualification/research material. Do not ship historical probes, GUI trials or user app/login data as runtime dependencies merely because they share an experiment directory.
 
-The runtime/tests/license port and standalone Rust implementation are already
-on rewrite/rust-core. Remaining lifecycle/package/activation gates and preservation
+The decoupled Rust implementation and qualification assets live outside minimal Wrapper. Remaining lifecycle/package/activation gates and preservation
 of unique experiment work still precede closure; source existence is not release
 admission. Current implementation and proof status belong in CURRENT. Port useful
 remaining qualification drivers alongside the affected Rust implementation, preserving their

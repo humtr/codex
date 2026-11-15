@@ -1,11 +1,6 @@
 #![cfg(unix)]
 
-pub mod native_dependencies;
-pub mod native_sdk;
-pub mod provider;
-pub mod runtime;
 mod runtime_patch;
-pub mod source;
 
 use std::collections::BTreeSet;
 use std::ffi::{CString, OsStr, OsString};
@@ -25,15 +20,6 @@ pub fn binary_adaptation_available(version: &str) -> bool {
 const ENTRY_MAX_BYTES: u64 = 384 * 1024 * 1024;
 const PAYLOAD_MAX_BYTES: u64 = 768 * 1024 * 1024;
 const CORE_ARTIFACT_MAX_BYTES: u64 = 64 * 1024 * 1024;
-const MANAGER_ARTIFACT_MAX_BYTES: u64 = 64 * 1024 * 1024;
-const MANAGER_ARTIFACT_PROBE_OUTPUT_MAX_BYTES: usize = 512;
-const MANAGER_ARTIFACT_PROBE_TIMEOUT_SECONDS: u64 = 5;
-const MANAGER_ARTIFACT_PROBE_ARGUMENT: &str = "--artifact-probe";
-const MANAGER_ARTIFACT_PROBE_ENV: &str = "CODEX_MANAGER_ARTIFACT_PROBE";
-const MANAGER_ARTIFACT_PROBE_OUTPUT: &[u8] =
-    b"codex-manager-artifact-v1\nwrapper_api=codex-manager-wrapper-v1\n";
-const MANAGER_ARTIFACT_DEFERRED_MARKER: &str = ".manager-probe-deferred";
-const MANAGER_ARTIFACT_DEFERRED_MARKER_BYTES: &[u8] = b"codex-manager-probe-deferred-v1\n";
 const PATH_MAX_BYTES: usize = 256;
 const LOGICAL_ENTRY_MAX: usize = 256;
 const PAX_PAYLOAD_MAX_BYTES: u64 = 512;
@@ -65,7 +51,6 @@ const UPSTREAM_ARCHIVE_NAME: &str = "codex-package-aarch64-unknown-linux-musl.ta
 const RELEASE_CONNECT_TIMEOUT_SECONDS: &str = "15";
 pub const RELEASE_TRANSFER_TIMEOUT_SECONDS: &str = "300";
 const PATCH_POLICY_ID: &str = "termux-fd-remap-v1";
-const SOURCE_RUNTIME_POLICY: &str = "termux-source-v1";
 const RELEASE_INDEX_FORMAT: &str = "codex-update-index-v1";
 const RELEASE_CHANNEL: &str = "stable";
 const RELEASE_URL_MAX_BYTES: usize = 4096;
@@ -154,70 +139,38 @@ exit 0
 "##;
 const ANDROID_AARCH64_INTERPRETER: &[u8] = b"/system/bin/linker64\0";
 
-const PATCHES: [(&[u8], &[u8], usize); 4] = [
-    (b"/etc/resolv.conf", b"/proc/self/fd/33", 2),
-    (b"/etc/codex/config.toml", b"/dev/fd/34/config.toml", 1),
+const FD_REMAP_RULES: [(&[u8], &[u8]); 4] = [
+    (b"/etc/resolv.conf", b"/proc/self/fd/33"),
+    (b"/etc/codex/config.toml", b"/dev/fd/34/config.toml"),
     (
         b"/etc/codex/requirements.toml",
         b"/dev/fd/34/requirements.toml",
-        1,
     ),
     (
         b"/etc/codex/managed_config.toml",
         b"/dev/fd/34/managed_config.toml",
-        1,
     ),
 ];
 
-const REQUIRED_ARCHIVE_FILES: [&str; 3] = [
-    "bin/codex",
-    "bin/codex-code-mode-host",
-    "codex-package.json",
-];
+const REQUIRED_ARCHIVE_FILES: [&str; 2] = ["bin/codex", "codex-package.json"];
 
 const USAGE: &str = concat!(
-    "usage: codex-release-builder prepare-source --source <DISPOSABLE_CHECKOUT> ",
-    "--version <MAJOR.MINOR.PATCH> --source-sha <GIT_COMMIT>\n",
-    "       codex-release-builder patch-base --patch <MAINTAINED_PATCH>\n",
-    "       codex-release-builder apply-source-patch --source <DISPOSABLE_CHECKOUT> --patch <MAINTAINED_PATCH>\n",
-    "       codex-release-builder normalize-lock --source <CARGO_WORKSPACE> ",
-    "--openssl <ABSOLUTE_EXECUTABLE> --audit <ABSENT_FILE>\n",
-    "       codex-release-builder prepare-native-sdk --archives <ADMITTED_ARCHIVES> ",
-    "--output <ABSENT_DIRECTORY> --tools <NATIVE_TOOL_DIRECTORY>\n",
-    "       codex-release-builder native-dependency-inputs --source <OFFICIAL_CHECKOUT> --source-sha <GIT_COMMIT>\n",
-    "       codex-release-builder prepare-native-dependencies --source <OFFICIAL_CHECKOUT> --source-sha <GIT_COMMIT> ",
-    "--archives <ADMITTED_ARCHIVES> --output <ABSENT_PREFIX> --build-dir <ABSENT_BUILD_ROOT> ",
-    "--sdk <PREPARED_SDK> --tools <NATIVE_TOOL_DIRECTORY>\n",
-    "       codex-release-builder build-runtime --source <DISPOSABLE_CHECKOUT> ",
-    "--recipe <RELEASE_INPUT> --output <ABSENT_DIRECTORY> --target-dir <COMPILER_CACHE> ",
-    "--rustc <PREPARED_RUSTC> --cargo <PREPARED_CARGO> --openssl <ABSOLUTE_EXECUTABLE>\n",
-    "       codex-release-builder generate-schema --source <DISPOSABLE_CHECKOUT> ",
-    "--recipe <RELEASE_INPUT> --target-dir <COMPILER_CACHE> --rustc <PREPARED_RUSTC> --cargo <PREPARED_CARGO>\n",
-    "       codex-release-builder verify-runtime --artifact <RAW_DIRECTORY> ",
-    "--recipe <RELEASE_INPUT> --openssl <ABSOLUTE_EXECUTABLE>\n",
-    "       codex-release-builder prepare --version <MAJOR.MINOR.PATCH> ",
+    "usage: codex-release-builder prepare --version <MAJOR.MINOR.PATCH> ",
     "--archive-sha256 <LOWERCASE_SHA256>\n",
-    "usage: codex-release-builder fetch --version <MAJOR.MINOR.PATCH> ",
+    "       codex-release-builder fetch --version <MAJOR.MINOR.PATCH> ",
     "--curl <ABSOLUTE_EXECUTABLE> --openssl <ABSOLUTE_EXECUTABLE> ",
     "--output <ABSENT_ABSOLUTE_FILE>\n",
     "       codex-release-builder build --version <MAJOR.MINOR.PATCH> ",
     "--archive <ABSOLUTE_FILE> --archive-sha256 <LOWERCASE_SHA256> ",
-    "--generation-id <ID> --core <ABSOLUTE_FILE> [--manager <ABSOLUTE_FILE>] ",
-    "[--manager-tui <ABSOLUTE_FILE> --manager-tui-version <MAJOR.MINOR.PATCH>] ",
-    "[--source-runtime <ABSOLUTE_FILE> --source-revision <GIT_COMMIT>] ",
-    "[--defer-manager-probe] [--legacy-activation-doctor-unsupported] ",
+    "--generation-id <ID> --core <ABSOLUTE_FILE> ",
+    "[--legacy-activation-doctor-unsupported] ",
     "--creation-metadata <VALUE> ",
     "--gzip <ABSOLUTE_EXECUTABLE> --openssl <ABSOLUTE_EXECUTABLE> ",
     "--output <ABSENT_ABSOLUTE_DIRECTORY>\n",
     "       codex-release-builder publish --generation <ABSOLUTE_DIRECTORY> ",
     "--release-sequence <POSITIVE_DECIMAL> --release-base <HTTPS_BASE_URL> ",
     "--private-key <ABSOLUTE_FILE> --openssl <ABSOLUTE_EXECUTABLE> ",
-    "--output <ABSENT_ABSOLUTE_DIRECTORY>\n",
-    "       codex-release-builder provider-package --binary <ABSOLUTE_FILE> ",
-    "--assets <ABSOLUTE_DIRECTORY> --source-inputs <ABSOLUTE_FILE> ",
-    "--source-sha <GIT_COMMIT> --generation-id <chatgpt-ID> ",
-    "--release-sequence <POSITIVE_DECIMAL> --private-key <ABSOLUTE_FILE> ",
-    "--openssl <ABSOLUTE_EXECUTABLE> --output <ABSENT_ABSOLUTE_DIRECTORY>"
+    "--output <ABSENT_ABSOLUTE_DIRECTORY>"
 );
 
 static STAGING_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -270,27 +223,11 @@ pub struct GenerationRequest {
     pub archive_sha256: String,
     pub generation_id: String,
     pub core: PathBuf,
-    pub manager: Option<PathBuf>,
-    pub manager_tui: Option<ManagerTuiArtifact>,
-    pub source_runtime: Option<SourceRuntime>,
-    pub defer_manager_probe: bool,
     pub legacy_activation_doctor_unsupported: bool,
     pub creation_metadata: String,
     pub gzip: PathBuf,
     pub openssl: PathBuf,
     pub output: PathBuf,
-}
-
-#[derive(Debug)]
-pub struct ManagerTuiArtifact {
-    pub path: PathBuf,
-    pub version: String,
-}
-
-#[derive(Debug)]
-pub struct SourceRuntime {
-    pub path: PathBuf,
-    pub revision: String,
 }
 
 #[derive(Debug)]
@@ -318,12 +255,6 @@ struct RequestFields {
     archive_sha256: Option<String>,
     generation_id: Option<String>,
     core: Option<PathBuf>,
-    manager: Option<PathBuf>,
-    manager_tui: Option<PathBuf>,
-    manager_tui_version: Option<String>,
-    source_runtime: Option<PathBuf>,
-    source_revision: Option<String>,
-    defer_manager_probe: bool,
     legacy_activation_doctor_unsupported: bool,
     creation_metadata: Option<String>,
     gzip: Option<PathBuf>,
@@ -372,13 +303,6 @@ where
     }
     let mut fields = RequestFields::default();
     while let Some(flag) = args.next() {
-        if flag == OsStr::new("--defer-manager-probe") {
-            if fields.defer_manager_probe {
-                return Err(BuilderError::Usage);
-            }
-            fields.defer_manager_probe = true;
-            continue;
-        }
         if flag == OsStr::new("--legacy-activation-doctor-unsupported") {
             if fields.legacy_activation_doctor_unsupported {
                 return Err(BuilderError::Usage);
@@ -393,13 +317,6 @@ where
             Some("--archive-sha256") => set_once(&mut fields.archive_sha256, text_value(value)?)?,
             Some("--generation-id") => set_once(&mut fields.generation_id, text_value(value)?)?,
             Some("--core") => set_once(&mut fields.core, PathBuf::from(value))?,
-            Some("--manager") => set_once(&mut fields.manager, PathBuf::from(value))?,
-            Some("--manager-tui") => set_once(&mut fields.manager_tui, PathBuf::from(value))?,
-            Some("--manager-tui-version") => {
-                set_once(&mut fields.manager_tui_version, text_value(value)?)?
-            }
-            Some("--source-runtime") => set_once(&mut fields.source_runtime, PathBuf::from(value))?,
-            Some("--source-revision") => set_once(&mut fields.source_revision, text_value(value)?)?,
             Some("--creation-metadata") => {
                 set_once(&mut fields.creation_metadata, text_value(value)?)?
             }
@@ -415,18 +332,6 @@ where
         archive_sha256: fields.archive_sha256.ok_or(BuilderError::Usage)?,
         generation_id: fields.generation_id.ok_or(BuilderError::Usage)?,
         core: fields.core.ok_or(BuilderError::Usage)?,
-        manager: fields.manager,
-        manager_tui: match (fields.manager_tui, fields.manager_tui_version) {
-            (Some(path), Some(version)) => Some(ManagerTuiArtifact { path, version }),
-            (None, None) => None,
-            _ => return Err(BuilderError::Usage),
-        },
-        source_runtime: match (fields.source_runtime, fields.source_revision) {
-            (Some(path), Some(revision)) => Some(SourceRuntime { path, revision }),
-            (None, None) => None,
-            _ => return Err(BuilderError::Usage),
-        },
-        defer_manager_probe: fields.defer_manager_probe,
         legacy_activation_doctor_unsupported: fields.legacy_activation_doctor_unsupported,
         creation_metadata: fields.creation_metadata.ok_or(BuilderError::Usage)?,
         gzip: fields.gzip.ok_or(BuilderError::Usage)?,
@@ -706,24 +611,6 @@ fn ensure_executable(path: &Path, name: &'static str) -> Result<(), BuilderError
 }
 
 fn validate_request(request: &GenerationRequest) -> Result<(), BuilderError> {
-    if let Some(source) = &request.source_runtime {
-        if !canonical_absolute_path(&source.path)
-            || source.revision.len() != 40
-            || !source
-                .revision
-                .bytes()
-                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
-        {
-            return Err(BuilderError::Invalid(
-                "source runtime requires a canonical path and exact source revision",
-            ));
-        }
-    }
-    if request.defer_manager_probe && request.manager.is_none() {
-        return Err(BuilderError::Invalid(
-            "deferred Manager artifact probe requires a Manager artifact",
-        ));
-    }
     if !valid_stable_version(&request.version) {
         return Err(BuilderError::Invalid("release version is invalid"));
     }
@@ -781,35 +668,6 @@ fn validate_request(request: &GenerationRequest) -> Result<(), BuilderError> {
             "Core artifact exceeds its byte bound",
         ));
     }
-    if let Some(manager) = request.manager.as_ref() {
-        if !canonical_absolute_path(manager) {
-            return Err(BuilderError::Invalid(
-                "Manager artifact path must be canonical absolute",
-            ));
-        }
-        let manager_metadata = ensure_regular_file(
-            manager,
-            "inspect Manager artifact",
-            "Manager artifact is not an executable regular file",
-        )?;
-        if manager_metadata.permissions().mode() & 0o111 == 0 {
-            return Err(BuilderError::Invalid(
-                "Manager artifact is not an executable regular file",
-            ));
-        }
-        if manager_metadata.len() > MANAGER_ARTIFACT_MAX_BYTES {
-            return Err(BuilderError::Invalid(
-                "Manager artifact exceeds its byte bound",
-            ));
-        }
-    }
-    if let Some(frontend) = request.manager_tui.as_ref() {
-        if frontend.version != request.version || !canonical_absolute_path(&frontend.path) {
-            return Err(BuilderError::Invalid(
-                "frontend requires matching upstream version",
-            ));
-        }
-    }
     ensure_executable(&request.gzip, "gzip is not an executable regular file")?;
     ensure_executable(
         &request.openssl,
@@ -837,105 +695,6 @@ fn validate_request(request: &GenerationRequest) -> Result<(), BuilderError> {
         return Err(BuilderError::Invalid("output parent contains a symlink"));
     }
     Ok(())
-}
-
-fn spawn_bounded_probe_reader<R>(
-    reader: R,
-    limit: usize,
-) -> std::thread::JoinHandle<io::Result<Vec<u8>>>
-where
-    R: Read + Send + 'static,
-{
-    std::thread::spawn(move || {
-        let mut bytes = Vec::new();
-        reader.take((limit + 1) as u64).read_to_end(&mut bytes)?;
-        Ok(bytes)
-    })
-}
-
-fn qualify_manager_artifact(path: &Path, staging: &Path) -> Result<(), BuilderError> {
-    let mut child = Command::new(path)
-        .arg(MANAGER_ARTIFACT_PROBE_ARGUMENT)
-        .env_clear()
-        .env(MANAGER_ARTIFACT_PROBE_ENV, "1")
-        .current_dir(staging)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|source| io_error("start Manager artifact probe", source))?;
-    let stdout = child.stdout.take().ok_or(BuilderError::Tool(
-        "Manager artifact probe stdout is unavailable",
-    ))?;
-    let stderr = child.stderr.take().ok_or(BuilderError::Tool(
-        "Manager artifact probe stderr is unavailable",
-    ))?;
-    let stdout_reader = spawn_bounded_probe_reader(stdout, MANAGER_ARTIFACT_PROBE_OUTPUT_MAX_BYTES);
-    let stderr_reader = spawn_bounded_probe_reader(stderr, MANAGER_ARTIFACT_PROBE_OUTPUT_MAX_BYTES);
-    let deadline = std::time::Instant::now()
-        + std::time::Duration::from_secs(MANAGER_ARTIFACT_PROBE_TIMEOUT_SECONDS);
-    let mut timed_out = false;
-    let status = loop {
-        match child
-            .try_wait()
-            .map_err(|source| io_error("poll Manager artifact probe", source))?
-        {
-            Some(status) => break Some(status),
-            None if std::time::Instant::now() >= deadline => {
-                timed_out = true;
-                let _ = child.kill();
-                let _ = child.wait();
-                break None;
-            }
-            None => std::thread::sleep(std::time::Duration::from_millis(25)),
-        }
-    };
-    let stdout = stdout_reader
-        .join()
-        .map_err(|_| BuilderError::Tool("Manager artifact probe stdout reader failed"))?
-        .map_err(|source| io_error("read Manager artifact probe stdout", source))?;
-    let stderr = stderr_reader
-        .join()
-        .map_err(|_| BuilderError::Tool("Manager artifact probe stderr reader failed"))?
-        .map_err(|source| io_error("read Manager artifact probe stderr", source))?;
-    if timed_out {
-        return Err(BuilderError::Invalid("Manager artifact probe timed out"));
-    }
-    if stdout.len() > MANAGER_ARTIFACT_PROBE_OUTPUT_MAX_BYTES
-        || stderr.len() > MANAGER_ARTIFACT_PROBE_OUTPUT_MAX_BYTES
-    {
-        return Err(BuilderError::Invalid(
-            "Manager artifact probe output exceeds its byte bound",
-        ));
-    }
-    if !stderr.is_empty() {
-        return Err(BuilderError::Invalid(
-            "Manager artifact probe wrote to stderr",
-        ));
-    }
-    if !status.is_some_and(|status| status.success()) {
-        return Err(BuilderError::Invalid("Manager artifact probe failed"));
-    }
-    if stdout != MANAGER_ARTIFACT_PROBE_OUTPUT {
-        return Err(BuilderError::Invalid(
-            "Manager artifact probe output is incompatible",
-        ));
-    }
-    Ok(())
-}
-
-fn write_deferred_manager_probe_marker(staging: &Path) -> Result<(), BuilderError> {
-    let path = staging.join(MANAGER_ARTIFACT_DEFERRED_MARKER);
-    let mut file = create_private_file(&path)?;
-    file.write_all(MANAGER_ARTIFACT_DEFERRED_MARKER_BYTES)
-        .map_err(|source| io_error("write deferred Manager probe marker", source))?;
-    file.sync_all()
-        .map_err(|source| io_error("sync deferred Manager probe marker", source))?;
-    drop(file);
-    set_mode(&path, 0o644, "set deferred Manager probe marker mode")?;
-    File::open(&path)
-        .and_then(|file| file.sync_all())
-        .map_err(|source| io_error("sync deferred Manager probe marker mode", source))
 }
 
 fn validate_fetch_request(request: &FetchRequest) -> Result<(), BuilderError> {
@@ -1008,15 +767,6 @@ fn validate_publish_request(request: &PublishRequest) -> Result<(), BuilderError
         return Err(BuilderError::Invalid(
             "publication generation contains a symlinked path",
         ));
-    }
-    match std::fs::symlink_metadata(request.generation.join(MANAGER_ARTIFACT_DEFERRED_MARKER)) {
-        Ok(_) => {
-            return Err(BuilderError::Invalid(
-                "Manager artifact probe is still deferred",
-            ));
-        }
-        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-        Err(source) => return Err(io_error("inspect deferred Manager probe marker", source)),
     }
     let private_key = ensure_regular_file(
         &request.private_key,
@@ -1304,7 +1054,16 @@ fn collect_v3_tree_files(
     Ok(())
 }
 
-fn validate_v3_bin_layout(root: &Path) -> Result<(), BuilderError> {
+fn valid_v3_bin_name(name: &str) -> bool {
+    !name.is_empty()
+        && name != "."
+        && name != ".."
+        && !name.contains('/')
+        && !name.contains('\\')
+        && !name.bytes().any(|b| b.is_ascii_control())
+}
+
+fn validate_v3_bin_layout(root: &Path) -> Result<Vec<String>, BuilderError> {
     let bin = root.join("bin");
     let meta = std::fs::symlink_metadata(&bin)
         .map_err(|source| io_error("inspect publication bin directory", source))?;
@@ -1322,11 +1081,7 @@ fn validate_v3_bin_layout(root: &Path) -> Result<(), BuilderError> {
             .file_name()
             .into_string()
             .map_err(|_| BuilderError::Invalid("publication bin entry is not UTF-8"))?;
-        if !matches!(
-            name.as_str(),
-            "codex" | "codex-code-mode-host" | "codex-exec-server"
-        ) || !seen.insert(name)
-        {
+        if !valid_v3_bin_name(&name) || !seen.insert(name) {
             return Err(BuilderError::Invalid(
                 "publication bin directory layout is unsupported",
             ));
@@ -1338,12 +1093,12 @@ fn validate_v3_bin_layout(root: &Path) -> Result<(), BuilderError> {
         )?;
         validate_publish_file_mode(&file_meta, true, "publication bin file mode is unsafe")?;
     }
-    if !seen.contains("codex") || !seen.contains("codex-code-mode-host") {
+    if !seen.contains("codex") {
         return Err(BuilderError::Invalid(
             "publication bin directory is missing required binaries",
         ));
     }
-    Ok(())
+    Ok(seen.into_iter().collect())
 }
 
 fn detect_publish_generation_v3(root: &Path) -> Result<bool, BuilderError> {
@@ -1411,25 +1166,20 @@ fn validate_publish_generation_layout(
         let allowed_file = if v3_package {
             matches!(
                 name.as_str(),
-                "generation.meta" | "codex-package.json" | "wrapper" | "manager"
+                "generation.meta" | "codex-package.json" | "wrapper"
             )
         } else {
             matches!(
                 name.as_str(),
-                "generation.meta" | "wrapper" | "runtime" | "codex-code-mode-host" | "manager"
+                "generation.meta" | "wrapper" | "runtime" | "codex-code-mode-host"
             )
         };
-        if (!allowed_v3_dir
-            && !allowed_file
-            && name != helper_root
-            && !(!r10_bridge && name == "helpers"))
-            || !seen.insert(name.clone())
-        {
+        if (!allowed_v3_dir && !allowed_file && name != helper_root) || !seen.insert(name.clone()) {
             return Err(BuilderError::Invalid(
                 "publication generation layout is unsupported",
             ));
         }
-        if name == helper_root || (!r10_bridge && name == "helpers") || allowed_v3_dir {
+        if name == helper_root || allowed_v3_dir {
             let metadata = std::fs::symlink_metadata(entry.path())
                 .map_err(|source| io_error("inspect publication helper root", source))?;
             if !metadata.file_type().is_dir() {
@@ -1448,7 +1198,7 @@ fn validate_publish_generation_layout(
             &file_metadata,
             matches!(
                 name.as_str(),
-                "wrapper" | "runtime" | "codex-code-mode-host" | "manager"
+                "wrapper" | "runtime" | "codex-code-mode-host"
             ),
             "publication generation file mode is unsafe",
         )?;
@@ -1468,17 +1218,9 @@ fn validate_publish_generation_layout(
         }
     }
     if r10_bridge {
-        let expected: &[&str] = if std::fs::symlink_metadata(root.join("helpers/2")).is_ok() {
-            &["0", "1", "2"]
-        } else {
-            &["0", "1"]
-        };
-        validate_publish_numbered_helper_layout(root, expected)
+        validate_publish_numbered_helper_layout(root, &["0", "1"])
     } else {
         validate_publish_browser_layout(root)?;
-        if seen.contains("helpers") {
-            validate_publish_numbered_helper_layout(root, &["2"])?;
-        }
         Ok(())
     }
 }
@@ -1560,20 +1302,47 @@ fn publish_descriptor_field<'a>(
     Ok(value)
 }
 
+fn expected_fd_changed_bytes(source_counts: &str) -> Option<usize> {
+    let raw_counts = source_counts.strip_prefix("source_counts=")?;
+    let mut iter = raw_counts.split(',');
+    let mut counts = [0usize; 4];
+    for slot in &mut counts {
+        let token = iter.next()?;
+        if token.is_empty() || !token.bytes().all(|b| b.is_ascii_digit()) {
+            return None;
+        }
+        *slot = token.parse::<usize>().ok()?;
+    }
+    if iter.next().is_some() || counts.iter().sum::<usize>() == 0 {
+        return None;
+    }
+    let fd_bytes = counts
+        .iter()
+        .zip(FD_REMAP_RULES)
+        .map(|(count, (source, replacement))| {
+            let per_hit = source
+                .iter()
+                .zip(replacement.iter())
+                .filter(|(a, b)| a != b)
+                .count();
+            count * per_hit
+        })
+        .sum();
+    Some(fd_bytes)
+}
+
 fn validate_publish_patch_report(
     value: &str,
     source_digest: &str,
     runtime_digest: &str,
-    code_mode_host_digest: &str,
+    code_mode_host_digest: Option<&str>,
     expected_policy: &str,
 ) -> Result<(), BuilderError> {
     let mut fields = value.split(';');
     let policy = fields.next();
     let adaptation = runtime_patch::policy(expected_policy);
     if policy != Some(expected_policy)
-        || (expected_policy != PATCH_POLICY_ID
-            && expected_policy != SOURCE_RUNTIME_POLICY
-            && adaptation.is_none())
+        || (expected_policy != PATCH_POLICY_ID && adaptation.is_none())
     {
         return Err(BuilderError::Invalid(
             "generation patch policy report is invalid",
@@ -1591,64 +1360,31 @@ fn validate_publish_patch_report(
     let host_digest = fields
         .next()
         .and_then(|field| field.strip_prefix("code_mode_host_sha256="));
-    let source_counts = fields.next();
-    let changed_bytes = fields.next();
-    if expected_policy == SOURCE_RUNTIME_POLICY {
-        let revision = fields
-            .next()
-            .and_then(|field| field.strip_prefix("source_revision="));
-        if fields.next().is_some()
-            || archive_digest != Some(source_digest)
-            || raw_runtime_digest.is_none_or(|digest| !valid_lower_sha256(digest))
-            || adapted_runtime_digest != Some(runtime_digest)
-            || host_digest != Some(code_mode_host_digest)
-            || source_counts != Some("source_counts=2,1,1,1")
-            || changed_bytes != Some("changed_bytes=54")
-            || revision.is_none_or(|revision| {
-                revision.len() != 40
-                    || !revision
-                        .bytes()
-                        .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
-            })
-        {
-            return Err(BuilderError::Invalid(
-                "source runtime patch report is invalid",
-            ));
-        }
-        return Ok(());
-    }
-    let uds = adaptation
-        .and_then(|_| fields.next())
-        .and_then(|field| field.strip_prefix("uds_policy="));
-    let expected_permission = adaptation.and_then(|policy| policy.permission);
-    let permission = expected_permission
-        .and_then(|_| fields.next())
-        .and_then(|field| field.strip_prefix("permission_policy="));
-    let changed_count = changed_bytes
+    let source_counts = fields.next().and_then(expected_fd_changed_bytes);
+    let changed_count = fields
+        .next()
         .and_then(|field| field.strip_prefix("changed_bytes="))
         .and_then(|value| value.parse::<usize>().ok());
-    let expected_changed_ok = match adaptation.and_then(|policy| policy.changed_bytes) {
-        Some(extra) => changed_count == Some(54 + extra),
-        None if adaptation.is_some() => changed_count.is_some_and(|count| count > 54),
-        None => changed_count == Some(54),
+    let next_field = fields.next();
+    let uds = next_field.and_then(|field| field.strip_prefix("uds_policy="));
+    if next_field.is_some() && uds.is_none() {
+        return Err(BuilderError::Invalid(
+            "generation patch policy report is invalid",
+        ));
+    }
+    let expected_changed_ok = match (source_counts, changed_count, uds) {
+        (Some(fd_bytes), Some(total), Some(_)) => adaptation.is_some() && total > fd_bytes,
+        (Some(fd_bytes), Some(total), None) => total == fd_bytes,
+        _ => false,
     };
+    let expected_host_digest = code_mode_host_digest.unwrap_or("-");
     if fields.next().is_some()
-        || adaptation.is_some_and(|policy| {
-            uds != Some(policy.uds)
-                || policy
-                    .raw_sha256
-                    .is_some_and(|raw| raw_runtime_digest != Some(raw))
-                || policy
-                    .archive_sha256
-                    .is_some_and(|digest| archive_digest != Some(digest))
-        })
+        || uds.is_some_and(|actual| adaptation.is_none_or(|policy| actual != policy.uds))
         || archive_digest != Some(source_digest)
         || raw_runtime_digest.is_none_or(|digest| !valid_lower_sha256(digest))
         || adapted_runtime_digest != Some(runtime_digest)
-        || host_digest != Some(code_mode_host_digest)
-        || source_counts != Some("source_counts=2,1,1,1")
+        || host_digest != Some(expected_host_digest)
         || !expected_changed_ok
-        || permission != expected_permission
     {
         return Err(BuilderError::Invalid(
             "generation patch policy report is invalid",
@@ -1661,11 +1397,31 @@ fn publish_descriptor_helper<'a>(
     lines: &mut std::str::Lines<'a>,
     expected_identity: &str,
 ) -> Result<&'a str, BuilderError> {
+    publish_descriptor_helper_matching(lines, |identity| identity == expected_identity)
+}
+
+fn publish_descriptor_helper_matching<'a, F>(
+    lines: &mut std::str::Lines<'a>,
+    predicate: F,
+) -> Result<&'a str, BuilderError>
+where
+    F: FnOnce(&str) -> bool,
+{
     let line = lines.next().ok_or(BuilderError::Invalid(
         "generation descriptor helper is missing",
     ))?;
     let mut fields = line.split('\t');
-    if fields.next() != Some("helper") || fields.next() != Some(expected_identity) {
+    let Some("helper") = fields.next() else {
+        return Err(BuilderError::Invalid(
+            "generation descriptor helper identity is invalid",
+        ));
+    };
+    let Some(identity) = fields.next() else {
+        return Err(BuilderError::Invalid(
+            "generation descriptor helper identity is invalid",
+        ));
+    };
+    if !predicate(identity) {
         return Err(BuilderError::Invalid(
             "generation descriptor helper identity is invalid",
         ));
@@ -1684,14 +1440,13 @@ fn publish_descriptor_helper<'a>(
 fn validate_publish_generation_descriptor(
     descriptor_path: &Path,
     runtime_path: &Path,
-    code_mode_host_path: &Path,
+    code_mode_host_path: Option<&Path>,
     browser_helper_paths: (&Path, &Path),
-    core_manager_paths: (Option<&Path>, Option<&Path>),
+    core_path: Option<&Path>,
     r10_bridge: bool,
     openssl: &Path,
 ) -> Result<String, BuilderError> {
     let (browser_open_helper_path, browser_manual_helper_path) = browser_helper_paths;
-    let (core_path, manager_path) = core_manager_paths;
     let metadata = ensure_regular_file(
         descriptor_path,
         "inspect publication generation descriptor",
@@ -1749,9 +1504,7 @@ fn validate_publish_generation_descriptor(
         ));
     }
     let patch_policy = publish_descriptor_field(&mut lines, "patch_policy_id")?;
-    if patch_policy != SOURCE_RUNTIME_POLICY
-        && !runtime_patch::supports_version(patch_policy, package_version)
-    {
+    if !runtime_patch::supports_version(patch_policy, package_version) {
         return Err(BuilderError::Invalid(
             "publication generation patch policy is invalid",
         ));
@@ -1759,29 +1512,9 @@ fn validate_publish_generation_descriptor(
     let patch_report = publish_descriptor_field(&mut lines, "patch_report")?;
     let runtime_digest = publish_descriptor_field(&mut lines, "runtime_digest")?;
     let core_artifact_digest = publish_descriptor_field(&mut lines, "wrapper_artifact_digest")?;
-    let manager_artifact_digest = publish_descriptor_field(&mut lines, "manager_artifact_digest")?;
     if !valid_lower_sha256(runtime_digest) || !valid_lower_sha256(core_artifact_digest) {
         return Err(BuilderError::Invalid(
             "publication generation artifact binding is invalid",
-        ));
-    }
-    if manager_artifact_digest == "-" {
-        if manager_path.is_some() {
-            return Err(BuilderError::Invalid(
-                "publication Manager is present but its descriptor binding is absent",
-            ));
-        }
-    } else if !valid_lower_sha256(manager_artifact_digest)
-        || manager_path.is_none()
-        || core_path.is_none()
-    {
-        return Err(BuilderError::Invalid(
-            "publication generation Manager binding requires Core",
-        ));
-    }
-    if manager_path.is_some() && core_path.is_none() {
-        return Err(BuilderError::Invalid(
-            "publication Manager requires a Core artifact",
         ));
     }
     if publish_descriptor_field(&mut lines, "wrapper_api_identity")? != CORE_API_IDENTITY
@@ -1805,7 +1538,7 @@ fn validate_publish_generation_descriptor(
         ));
     }
     let helper_count = publish_descriptor_field(&mut lines, "helper_count")?;
-    if !matches!(helper_count, "2" | "3") {
+    if helper_count != "2" {
         return Err(BuilderError::Invalid(
             "publication frontend helper layout is invalid",
         ));
@@ -1814,40 +1547,15 @@ fn validate_publish_generation_descriptor(
         publish_descriptor_helper(&mut lines, TERMUX_BROWSER_OPEN_HELPER_IDENTITY)?;
     let browser_manual_helper_digest =
         publish_descriptor_helper(&mut lines, TERMUX_BROWSER_MANUAL_HELPER_IDENTITY)?;
-    let frontend_path = descriptor_path
-        .parent()
-        .ok_or(BuilderError::Invalid(
-            "publication descriptor has no parent",
-        ))?
-        .join("helpers/2");
-    if helper_count == "3" {
-        let digest = publish_descriptor_helper(
-            &mut lines,
-            &format!("termux-manager-tui-v1:{package_version}"),
-        )?;
-        let metadata = ensure_regular_file(
-            &frontend_path,
-            "inspect publication frontend",
-            "publication frontend is not a regular file",
-        )?;
-        validate_publish_file_mode(&metadata, true, "publication frontend mode is unsafe")?;
-        if openssl_sha256(openssl, &frontend_path)? != digest {
-            return Err(BuilderError::Invalid(
-                "publication frontend does not match its descriptor",
-            ));
-        }
-    } else if std::fs::symlink_metadata(&frontend_path).is_ok() {
-        return Err(BuilderError::Invalid(
-            "publication frontend is absent from its descriptor",
-        ));
-    }
     if lines.next().is_some() {
         return Err(BuilderError::Invalid(
             "publication generation qualification binding is invalid",
         ));
     }
     let actual_runtime_digest = openssl_sha256(openssl, runtime_path)?;
-    let actual_host_digest = openssl_sha256(openssl, code_mode_host_path)?;
+    let actual_host_digest = code_mode_host_path
+        .map(|path| openssl_sha256(openssl, path))
+        .transpose()?;
     if actual_runtime_digest != runtime_digest {
         return Err(BuilderError::Invalid(
             "publication runtime digest does not match its descriptor",
@@ -1884,28 +1592,11 @@ fn validate_publish_generation_descriptor(
             ));
         }
     }
-    if let (Some(manager_path), Some(expected_digest)) = (
-        manager_path,
-        (!manager_artifact_digest.is_empty()).then_some(manager_artifact_digest),
-    ) {
-        let metadata = ensure_regular_file(
-            manager_path,
-            "inspect publication Manager",
-            "publication Manager is not a regular file",
-        )?;
-        if metadata.permissions().mode() & 0o100 == 0
-            || openssl_sha256(openssl, manager_path)? != expected_digest
-        {
-            return Err(BuilderError::Invalid(
-                "publication Manager does not match its descriptor",
-            ));
-        }
-    }
     validate_publish_patch_report(
         patch_report,
         source_digest,
         runtime_digest,
-        &actual_host_digest,
+        actual_host_digest.as_deref(),
         patch_policy,
     )?;
     Ok(generation_id.to_owned())
@@ -1951,18 +1642,8 @@ fn snapshot_publish_generation(
         ),
     ];
     if v3_package {
-        entries.push(("bin/codex".to_owned(), RELEASE_FILE_MAX_BYTES, true));
-        entries.push((
-            "bin/codex-code-mode-host".to_owned(),
-            RELEASE_FILE_MAX_BYTES,
-            true,
-        ));
-        if std::fs::symlink_metadata(source_root.join("bin/codex-exec-server")).is_ok() {
-            entries.push((
-                "bin/codex-exec-server".to_owned(),
-                RELEASE_FILE_MAX_BYTES,
-                true,
-            ));
+        for name in validate_v3_bin_layout(source_root)? {
+            entries.push((format!("bin/{name}"), RELEASE_FILE_MAX_BYTES, true));
         }
         entries.push((
             "codex-package.json".to_owned(),
@@ -1984,15 +1665,6 @@ fn snapshot_publish_generation(
     }
     if std::fs::symlink_metadata(source_root.join("wrapper")).is_ok() {
         entries.push(("wrapper".to_owned(), CORE_ARTIFACT_MAX_BYTES, true));
-    }
-    if std::fs::symlink_metadata(source_root.join("manager")).is_ok() {
-        entries.push(("manager".to_owned(), RELEASE_FILE_MAX_BYTES, true));
-    }
-    if std::fs::symlink_metadata(source_root.join("helpers/2")).is_ok() {
-        if !r10_bridge {
-            create_private_dir(&source_snapshot_root.join("helpers"))?;
-        }
-        entries.push(("helpers/2".to_owned(), RELEASE_FILE_MAX_BYTES, true));
     }
     let mut files = Vec::with_capacity(entries.len());
     for (relative_path, max_bytes, executable) in entries {
@@ -2022,10 +1694,6 @@ fn snapshot_publish_generation(
         });
     }
     validate_publish_generation_layout(&source_snapshot_root, r10_bridge, v3_package)?;
-    let manager_path = source_snapshot_root.join("manager");
-    let manager_path = std::fs::symlink_metadata(&manager_path)
-        .ok()
-        .map(|_| manager_path);
     let core_path = source_snapshot_root.join("wrapper");
     let core_path = std::fs::symlink_metadata(&core_path)
         .ok()
@@ -2035,15 +1703,18 @@ fn snapshot_publish_generation(
     } else {
         ("runtime", "codex-code-mode-host")
     };
+    let host_path = source_snapshot_root.join(host_rel);
+    let host_path =
+        (!v3_package || std::fs::symlink_metadata(&host_path).is_ok()).then_some(host_path);
     let generation_id = validate_publish_generation_descriptor(
         &source_snapshot_root.join("generation.meta"),
         &source_snapshot_root.join(runtime_rel),
-        &source_snapshot_root.join(host_rel),
+        host_path.as_deref(),
         (
             &source_snapshot_root.join(browser_open_relative),
             &source_snapshot_root.join(browser_manual_relative),
         ),
-        (core_path.as_deref(), manager_path.as_deref()),
+        core_path.as_deref(),
         r10_bridge,
         openssl,
     )?;
@@ -2268,16 +1939,6 @@ fn publish(request: &PublishRequest) -> Result<String, BuilderError> {
                 release_browser,
             ]
         };
-        if !generation.r10_bridge
-            && generation
-                .files
-                .iter()
-                .any(|file| file.relative_path == "helpers/2")
-        {
-            let helpers = release_dir.join("helpers");
-            create_private_dir(&helpers)?;
-            helper_directories.push(helpers);
-        }
         if generation.v3_package {
             let mut v3_dirs = BTreeSet::new();
             for file in &generation.files {
@@ -2418,114 +2079,6 @@ fn snapshot_core_artifact(
     validate_android_aarch64_core_elf(&snapshot_path)?;
     let sha256 = openssl_sha256(&request.openssl, &snapshot_path)?;
     Ok(sha256)
-}
-
-fn snapshot_manager_artifact(
-    request: &GenerationRequest,
-    staging: &Path,
-) -> Result<Option<String>, BuilderError> {
-    let Some(source_path) = request.manager.as_ref() else {
-        return Ok(None);
-    };
-    let source =
-        File::open(source_path).map_err(|source| io_error("open Manager artifact", source))?;
-    let metadata = source
-        .metadata()
-        .map_err(|source| io_error("inspect opened Manager artifact", source))?;
-    if !metadata.file_type().is_file()
-        || metadata.permissions().mode() & 0o111 == 0
-        || metadata.len() > MANAGER_ARTIFACT_MAX_BYTES
-    {
-        return Err(BuilderError::Invalid(
-            "opened Manager artifact is outside its byte or type bound",
-        ));
-    }
-
-    let snapshot_path = staging.join(".manager-artifact");
-    let mut snapshot = create_private_file(&snapshot_path)?;
-    let mut bounded = source.take(MANAGER_ARTIFACT_MAX_BYTES.saturating_add(1));
-    let copied = io::copy(&mut bounded, &mut snapshot)
-        .map_err(|source| io_error("snapshot Manager artifact", source))?;
-    if copied > MANAGER_ARTIFACT_MAX_BYTES || copied != metadata.len() {
-        return Err(BuilderError::Invalid(
-            "Manager artifact changed or exceeds its byte bound",
-        ));
-    }
-    snapshot
-        .sync_all()
-        .map_err(|source| io_error("sync Manager artifact snapshot", source))?;
-    drop(snapshot);
-    set_mode(&snapshot_path, 0o755, "set Manager artifact snapshot mode")?;
-    File::open(&snapshot_path)
-        .and_then(|file| file.sync_all())
-        .map_err(|source| io_error("sync Manager artifact snapshot mode", source))?;
-    let sha256 = openssl_sha256(&request.openssl, &snapshot_path)?;
-    Ok(Some(sha256))
-}
-
-fn snapshot_manager_tui_artifact(
-    request: &GenerationRequest,
-    staging: &Path,
-) -> Result<Option<String>, BuilderError> {
-    let Some(frontend) = request.manager_tui.as_ref() else {
-        return Ok(None);
-    };
-    snapshot_manager_tui_source(&frontend.path, &request.openssl, staging)
-}
-
-fn snapshot_manager_tui_source(
-    artifact: &Path,
-    openssl: &Path,
-    staging: &Path,
-) -> Result<Option<String>, BuilderError> {
-    let source_metadata = ensure_regular_file(
-        artifact,
-        "inspect Manager frontend",
-        "Manager frontend is not a regular file",
-    )?;
-    if source_metadata.permissions().mode() & 0o100 == 0
-        || source_metadata.len() > RELEASE_FILE_MAX_BYTES
-    {
-        return Err(BuilderError::Invalid(
-            "Manager frontend is outside its executable or byte bound",
-        ));
-    }
-    let mut source =
-        File::open(artifact).map_err(|source| io_error("open Manager frontend", source))?;
-    let snapshot_path = staging.join(".manager-tui-artifact");
-    let mut snapshot = create_private_file(&snapshot_path)?;
-    let copied = io::copy(
-        &mut Read::by_ref(&mut source).take(RELEASE_FILE_MAX_BYTES + 1),
-        &mut snapshot,
-    )
-    .map_err(|source| io_error("snapshot Manager frontend", source))?;
-    if copied != source_metadata.len()
-        || copied > RELEASE_FILE_MAX_BYTES
-        || source
-            .metadata()
-            .map_err(|source| io_error("inspect Manager frontend after snapshot", source))?
-            .len()
-            != copied
-    {
-        return Err(BuilderError::Invalid(
-            "Manager frontend changed or exceeds its byte bound",
-        ));
-    }
-    snapshot
-        .sync_all()
-        .map_err(|source| io_error("sync Manager frontend snapshot", source))?;
-    drop(snapshot);
-    validate_static_aarch64_elf(&snapshot_path)?;
-    let mut bytes = std::fs::read(&snapshot_path)
-        .map_err(|source| io_error("read Manager frontend snapshot", source))?;
-    apply_fd_path_remaps(&mut bytes)?;
-    std::fs::write(&snapshot_path, bytes)
-        .map_err(|source| io_error("adapt Manager frontend snapshot", source))?;
-    set_mode(&snapshot_path, 0o755, "set Manager frontend mode")?;
-    File::open(&snapshot_path)
-        .and_then(|file| file.sync_all())
-        .map_err(|source| io_error("sync adapted Manager frontend", source))?;
-    Ok(Some(openssl_sha256(openssl, &snapshot_path)?))
 }
 
 fn create_staging(output: &Path) -> Result<PathBuf, BuilderError> {
@@ -2740,7 +2293,8 @@ fn fetch(request: &FetchRequest) -> Result<String, BuilderError> {
 #[derive(Debug)]
 struct ArchiveSelection {
     raw_runtime: PathBuf,
-    code_mode_host: PathBuf,
+    code_mode_host: Option<PathBuf>,
+    extra_bins: Vec<PathBuf>,
     v3_package: bool,
 }
 
@@ -3509,83 +3063,6 @@ fn validate_android_aarch64_core_elf(path: &Path) -> Result<(), BuilderError> {
     Ok(())
 }
 
-fn validate_android_aarch64_manager_elf(path: &Path) -> Result<(), BuilderError> {
-    let mut file = File::open(path).map_err(|source| io_error("open Manager ELF", source))?;
-    let file_len = file
-        .metadata()
-        .map_err(|source| io_error("inspect Manager ELF", source))?
-        .len();
-    let mut header = [0u8; 64];
-    file.read_exact(&mut header)
-        .map_err(|source| io_error("read Manager ELF header", source))?;
-    if &header[..4] != b"\x7fELF"
-        || header[4] != 2
-        || header[5] != 1
-        || header[6] != 1
-        || little_u16(&header[16..18]) != 3
-        || little_u16(&header[18..20]) != 183
-        || little_u32(&header[20..24]) != 1
-        || little_u16(&header[52..54]) != 64
-        || little_u16(&header[54..56]) != 56
-    {
-        return Err(BuilderError::Invalid(
-            "Manager artifact is not a supported Android AArch64 PIE ELF",
-        ));
-    }
-    let program_offset = little_u64(&header[32..40]);
-    let program_count = u64::from(little_u16(&header[56..58]));
-    if program_count == 0 {
-        return Err(BuilderError::Invalid("Manager ELF has no program headers"));
-    }
-    program_count
-        .checked_mul(56)
-        .and_then(|length| program_offset.checked_add(length))
-        .filter(|end| *end <= file_len)
-        .ok_or(BuilderError::Invalid(
-            "Manager ELF program headers are malformed",
-        ))?;
-
-    let mut interpreter = None;
-    let mut program_header = [0u8; 56];
-    for index in 0..program_count {
-        file.seek(SeekFrom::Start(program_offset + index * 56))
-            .map_err(|source| io_error("seek Manager ELF program header", source))?;
-        file.read_exact(&mut program_header)
-            .map_err(|source| io_error("read Manager ELF program header", source))?;
-        if little_u32(&program_header[..4]) != 3 {
-            continue;
-        }
-        if interpreter.is_some() {
-            return Err(BuilderError::Invalid(
-                "Manager ELF has multiple PT_INTERP program headers",
-            ));
-        }
-        let offset = little_u64(&program_header[8..16]);
-        let size = little_u64(&program_header[32..40]);
-        let end = offset
-            .checked_add(size)
-            .filter(|end| *end <= file_len)
-            .ok_or(BuilderError::Invalid(
-                "Manager ELF interpreter is malformed",
-            ))?;
-        let size = usize::try_from(size)
-            .map_err(|_| BuilderError::Invalid("Manager ELF interpreter is malformed"))?;
-        let mut value = vec![0u8; size];
-        file.seek(SeekFrom::Start(offset))
-            .map_err(|source| io_error("seek Manager ELF interpreter", source))?;
-        file.read_exact(&mut value)
-            .map_err(|source| io_error("read Manager ELF interpreter", source))?;
-        let _ = end;
-        interpreter = Some(value);
-    }
-    if interpreter.as_deref() != Some(ANDROID_AARCH64_INTERPRETER) {
-        return Err(BuilderError::Invalid(
-            "Manager artifact does not use the Android AArch64 dynamic linker",
-        ));
-    }
-    Ok(())
-}
-
 fn write_v3_staged_file(
     destination: &Path,
     bytes: &[u8],
@@ -3611,12 +3088,11 @@ fn parse_archive<R: Read>(
 ) -> Result<ArchiveSelection, BuilderError> {
     let v3_package = generation_format_for_version(version) == GENERATION_FORMAT_V3;
     let raw_runtime = staging.join(".raw-runtime");
-    let code_mode_host = if v3_package {
+    if v3_package {
         ensure_dir_chain_0755(staging, "bin")?;
-        staging.join("bin/codex-code-mode-host")
-    } else {
-        staging.join("codex-code-mode-host")
-    };
+    }
+    let mut code_mode_host = None;
+    let mut extra_bins = Vec::new();
     let mut seen = BTreeSet::new();
     let mut logical_entries = 0usize;
     let mut total_payload = 0u64;
@@ -3663,7 +3139,8 @@ fn parse_archive<R: Read>(
                 "archive entry count exceeds its bound",
             ));
         }
-        if REQUIRED_ARCHIVE_FILES.contains(&header.path.as_str())
+        if (REQUIRED_ARCHIVE_FILES.contains(&header.path.as_str())
+            || header.path == "bin/codex-code-mode-host")
             && header.kind != EntryKind::Regular
         {
             return Err(BuilderError::Archive(
@@ -3710,35 +3187,58 @@ fn parse_archive<R: Read>(
                     .map_err(|source| io_error("sync selected raw runtime", source))?;
             }
             "bin/codex-code-mode-host" => {
-                let mut file = create_private_file(&code_mode_host)?;
+                let dest = if v3_package {
+                    staging.join("bin/codex-code-mode-host")
+                } else {
+                    staging.join("codex-code-mode-host")
+                };
+                let mut file = create_private_file(&dest)?;
                 read_payload(reader, header.size, Some(&mut file), false)?;
                 file.sync_all()
                     .map_err(|source| io_error("sync selected code-mode host", source))?;
+                code_mode_host = Some(dest.clone());
+                if v3_package {
+                    extra_bins.push(dest);
+                }
             }
             "codex-package.json" => {
                 package_json = Some(read_payload(reader, header.size, None, true)?);
             }
-            "bin/codex-exec-server" if v3_package => {
-                let dest = staging.join("bin/codex-exec-server");
+            rel if v3_package && rel.starts_with("bin/") => {
+                let name = &rel["bin/".len()..];
+                if !valid_v3_bin_name(name) {
+                    return Err(BuilderError::Archive("archive bin entry name is invalid"));
+                }
+                let dest = staging.join(rel);
                 let mut file = create_private_file(&dest)?;
                 read_payload(reader, header.size, Some(&mut file), false)?;
                 file.sync_all()
-                    .map_err(|source| io_error("sync selected exec server", source))?;
-                drop(file);
-                set_mode(&dest, 0o755, "set exec-server mode")?;
-                File::open(&dest)
-                    .and_then(|f| f.sync_all())
-                    .map_err(|source| io_error("sync exec server mode", source))?;
+                    .map_err(|source| io_error("sync selected bin entry", source))?;
+                extra_bins.push(dest);
             }
             "codex-path/rg" if v3_package => {
-                read_payload(reader, header.size, None, false)?;
                 ensure_dir_chain_0755(staging, "codex-path")?;
-                write_v3_staged_file(
-                    &staging.join("codex-path/rg"),
-                    TERMUX_RG_WRAPPER_SCRIPT,
-                    0o755,
-                    "write Termux rg wrapper",
-                )?;
+                let dest = staging.join("codex-path/rg");
+                let mut file = create_private_file(&dest)?;
+                read_payload(reader, header.size, Some(&mut file), false)?;
+                file.sync_all()
+                    .map_err(|source| io_error("sync staged rg", source))?;
+                drop(file);
+                if validate_static_aarch64_elf(&dest).is_ok() {
+                    set_mode(&dest, 0o755, "set static rg mode")?;
+                    File::open(&dest)
+                        .and_then(|f| f.sync_all())
+                        .map_err(|source| io_error("sync static rg mode", source))?;
+                } else {
+                    std::fs::remove_file(&dest)
+                        .map_err(|source| io_error("remove non-static rg", source))?;
+                    write_v3_staged_file(
+                        &dest,
+                        TERMUX_RG_WRAPPER_SCRIPT,
+                        0o755,
+                        "write Termux rg wrapper",
+                    )?;
+                }
                 rg_extracted = true;
             }
             rel if v3_package
@@ -3772,6 +3272,7 @@ fn parse_archive<R: Read>(
     if REQUIRED_ARCHIVE_FILES
         .iter()
         .any(|path| !seen.contains(*path))
+        || (!v3_package && code_mode_host.is_none())
     {
         return Err(BuilderError::Archive("archive layout is incomplete"));
     }
@@ -3797,10 +3298,18 @@ fn parse_archive<R: Read>(
         }
     }
     validate_static_aarch64_elf(&raw_runtime)?;
-    validate_static_aarch64_elf(&code_mode_host)?;
+    for bin_path in &extra_bins {
+        validate_static_aarch64_elf(bin_path)?;
+    }
+    if !v3_package {
+        if let Some(host_path) = code_mode_host.as_ref() {
+            validate_static_aarch64_elf(host_path)?;
+        }
+    }
     Ok(ArchiveSelection {
         raw_runtime,
         code_mode_host,
+        extra_bins,
         v3_package,
     })
 }
@@ -3851,11 +3360,13 @@ fn occurrence_offsets(bytes: &[u8], pattern: &[u8]) -> Vec<usize> {
 struct AdaptedGeneration {
     raw_runtime_sha256: String,
     runtime_sha256: String,
-    code_mode_host_sha256: String,
+    code_mode_host_sha256: Option<String>,
     browser_open_helper_sha256: String,
     browser_manual_helper_sha256: String,
+    fd_counts: [usize; 4],
     changed_bytes: usize,
     runtime_policy: Option<runtime_patch::Policy>,
+    uds_applied: bool,
 }
 
 fn set_mode(path: &Path, mode: u32, operation: &'static str) -> Result<(), BuilderError> {
@@ -3943,24 +3454,39 @@ fn create_browser_helpers(
     Ok((open_sha256, manual_sha256))
 }
 
-fn apply_fd_path_remaps(runtime: &mut [u8]) -> Result<usize, BuilderError> {
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct FdRemapSummary {
+    counts: [usize; 4],
+    changed_bytes: usize,
+}
+
+fn apply_fd_path_remaps_with_options(
+    runtime: &mut [u8],
+    require_any: bool,
+) -> Result<FdRemapSummary, BuilderError> {
+    let mut counts = [0usize; 4];
     let mut selected_offsets = Vec::new();
-    for (source, replacement, expected) in PATCHES {
+    for (index, (source, replacement)) in FD_REMAP_RULES.into_iter().enumerate() {
         if source.len() != replacement.len() {
             return Err(BuilderError::Invalid(
                 "patch policy lengths are inconsistent",
             ));
         }
-        let source_offsets = occurrence_offsets(runtime, source);
-        if source_offsets.len() != expected || !occurrence_offsets(runtime, replacement).is_empty()
-        {
+        if !occurrence_offsets(runtime, replacement).is_empty() {
             return Err(BuilderError::Archive(
-                "runtime patch source occurrences do not match policy",
+                "runtime patch replacement is already present",
             ));
         }
+        let source_offsets = occurrence_offsets(runtime, source);
+        counts[index] = source_offsets.len();
         for offset in source_offsets {
             selected_offsets.push((offset, source, replacement));
         }
+    }
+    if require_any && counts.iter().sum::<usize>() == 0 {
+        return Err(BuilderError::Archive(
+            "runtime patch source occurrences do not match policy",
+        ));
     }
     selected_offsets.sort_by_key(|(offset, _, _)| *offset);
     for pair in selected_offsets.windows(2) {
@@ -3977,22 +3503,24 @@ fn apply_fd_path_remaps(runtime: &mut [u8]) -> Result<usize, BuilderError> {
             .count();
         runtime[*offset..*offset + source.len()].copy_from_slice(replacement);
     }
-    for (source, replacement, expected) in PATCHES {
+    for (index, (source, replacement)) in FD_REMAP_RULES.into_iter().enumerate() {
         if !occurrence_offsets(runtime, source).is_empty()
-            || occurrence_offsets(runtime, replacement).len() != expected
+            || occurrence_offsets(runtime, replacement).len() != counts[index]
         {
             return Err(BuilderError::Archive(
                 "adapted runtime does not match patch policy",
             ));
         }
     }
-    if changed_bytes != 54 {
-        return Err(BuilderError::Invalid(
-            "patch policy changed-byte count is inconsistent",
-        ));
-    }
 
-    Ok(changed_bytes)
+    Ok(FdRemapSummary {
+        counts,
+        changed_bytes,
+    })
+}
+
+pub(crate) fn apply_fd_path_remaps(runtime: &mut [u8]) -> Result<usize, BuilderError> {
+    apply_fd_path_remaps_with_options(runtime, true).map(|summary| summary.changed_bytes)
 }
 
 fn adapt_selected_runtime(
@@ -4000,60 +3528,21 @@ fn adapt_selected_runtime(
     staging: &Path,
     selected: ArchiveSelection,
 ) -> Result<AdaptedGeneration, BuilderError> {
-    let raw_path = if let Some(source) = &request.source_runtime {
-        let metadata = ensure_regular_file(
-            &source.path,
-            "inspect source runtime",
-            "source runtime must be a regular file",
-        )?;
-        if metadata.len() == 0 || metadata.len() > ENTRY_MAX_BYTES {
-            return Err(BuilderError::Invalid(
-                "source runtime exceeds its byte bound",
-            ));
-        }
-        let snapshot_path = staging.join(".source-runtime");
-        let mut input =
-            File::open(&source.path).map_err(|source| io_error("open source runtime", source))?;
-        let mut output = create_private_file(&snapshot_path)?;
-        let copied = io::copy(
-            &mut Read::by_ref(&mut input).take(ENTRY_MAX_BYTES + 1),
-            &mut output,
-        )
-        .map_err(|source| io_error("snapshot source runtime", source))?;
-        if copied != metadata.len() {
-            return Err(BuilderError::Invalid(
-                "source runtime changed or exceeds its byte bound",
-            ));
-        }
-        output
-            .sync_all()
-            .map_err(|source| io_error("sync source runtime", source))?;
-        validate_static_aarch64_elf(&snapshot_path)?;
-        snapshot_path
-    } else {
-        selected.raw_runtime.clone()
-    };
-    let raw_runtime_sha256 = openssl_sha256(&request.openssl, &raw_path)?;
-    let mut runtime =
-        std::fs::read(&raw_path).map_err(|source| io_error("read selected raw runtime", source))?;
-    let mut changed_bytes = apply_fd_path_remaps(&mut runtime)?;
+    let raw_runtime_sha256 = openssl_sha256(&request.openssl, &selected.raw_runtime)?;
+    let mut runtime = std::fs::read(&selected.raw_runtime)
+        .map_err(|source| io_error("read selected raw runtime", source))?;
+    let fd = apply_fd_path_remaps_with_options(&mut runtime, true)?;
+    let mut changed_bytes = fd.changed_bytes;
 
-    let runtime_policy = if request.source_runtime.is_some() {
-        None
-    } else {
-        runtime_patch::required(&request.version).map_err(BuilderError::Archive)?
-    };
+    let runtime_policy =
+        runtime_patch::required(&request.version).map_err(BuilderError::Archive)?;
+    let mut uds_applied = false;
     if let Some(policy) = runtime_policy {
-        if policy
-            .archive_sha256
-            .is_some_and(|digest| digest != request.archive_sha256)
-        {
-            return Err(BuilderError::Archive(
-                "upstream archive does not match qualified Termux policy",
-            ));
+        if runtime_patch::contains_daemon_fmt(&runtime) {
+            changed_bytes +=
+                runtime_patch::apply(&mut runtime, policy).map_err(BuilderError::Archive)?;
+            uds_applied = true;
         }
-        changed_bytes += runtime_patch::apply(&mut runtime, &raw_runtime_sha256, policy)
-            .map_err(BuilderError::Archive)?;
     }
 
     let runtime_path = if selected.v3_package {
@@ -4073,16 +3562,50 @@ fn adapt_selected_runtime(
     File::open(&runtime_path)
         .and_then(|file| file.sync_all())
         .map_err(|source| io_error("sync adapted runtime after final mode", source))?;
-    set_mode(&selected.code_mode_host, 0o755, "set code-mode-host mode")?;
-    File::open(&selected.code_mode_host)
-        .and_then(|file| file.sync_all())
-        .map_err(|source| io_error("sync code-mode host", source))?;
+
+    for bin_path in &selected.extra_bins {
+        let mut companion = std::fs::read(bin_path)
+            .map_err(|source| io_error("read companion bin artifact", source))?;
+        let c_fd = apply_fd_path_remaps_with_options(&mut companion, false)?;
+        let c_uds = if runtime_patch::contains_daemon_fmt(&companion) {
+            runtime_patch::apply_adaptive_uds_fd35(&mut companion).map_err(BuilderError::Archive)?
+        } else {
+            0
+        };
+        if c_fd.changed_bytes > 0 || c_uds > 0 {
+            let mut out = OpenOptions::new()
+                .write(true)
+                .truncate(true)
+                .open(bin_path)
+                .map_err(|source| io_error("open adapted companion bin", source))?;
+            out.write_all(&companion)
+                .map_err(|source| io_error("write adapted companion bin", source))?;
+            out.sync_all()
+                .map_err(|source| io_error("sync adapted companion bin", source))?;
+        }
+        set_mode(bin_path, 0o755, "set companion bin mode")?;
+        File::open(bin_path)
+            .and_then(|file| file.sync_all())
+            .map_err(|source| io_error("sync companion bin after mode", source))?;
+    }
+    if !selected.v3_package {
+        if let Some(host_path) = selected.code_mode_host.as_ref() {
+            set_mode(host_path, 0o755, "set code-mode-host mode")?;
+            File::open(host_path)
+                .and_then(|file| file.sync_all())
+                .map_err(|source| io_error("sync code-mode host", source))?;
+        }
+    }
     if selected.v3_package {
         sync_directory(&staging.join("bin"), "sync v3 bin directory")?;
     }
 
     let runtime_sha256 = openssl_sha256(&request.openssl, &runtime_path)?;
-    let code_mode_host_sha256 = openssl_sha256(&request.openssl, &selected.code_mode_host)?;
+    let code_mode_host_sha256 = selected
+        .code_mode_host
+        .as_ref()
+        .map(|host_path| openssl_sha256(&request.openssl, host_path))
+        .transpose()?;
     let (browser_open_helper_sha256, browser_manual_helper_sha256) = create_browser_helpers(
         staging,
         &request.openssl,
@@ -4090,10 +3613,6 @@ fn adapt_selected_runtime(
     )?;
     std::fs::remove_file(&selected.raw_runtime)
         .map_err(|source| io_error("remove selected raw runtime", source))?;
-    if request.source_runtime.is_some() {
-        std::fs::remove_file(&raw_path)
-            .map_err(|source| io_error("remove source runtime snapshot", source))?;
-    }
 
     Ok(AdaptedGeneration {
         raw_runtime_sha256,
@@ -4101,8 +3620,10 @@ fn adapt_selected_runtime(
         code_mode_host_sha256,
         browser_open_helper_sha256,
         browser_manual_helper_sha256,
+        fd_counts: fd.counts,
         changed_bytes,
         runtime_policy,
+        uds_applied,
     })
 }
 
@@ -4111,32 +3632,26 @@ fn write_generation_descriptor(
     staging: &Path,
     adapted: &AdaptedGeneration,
     core_sha256: &str,
-    manager_sha256: Option<&str>,
-    frontend_sha256: Option<&str>,
 ) -> Result<(), BuilderError> {
-    let patch_policy = if request.source_runtime.is_some() {
-        SOURCE_RUNTIME_POLICY
-    } else {
-        adapted
-            .runtime_policy
-            .map_or(PATCH_POLICY_ID, |policy| policy.id)
-    };
+    let patch_policy = adapted
+        .runtime_policy
+        .map_or(PATCH_POLICY_ID, |policy| policy.id);
     let mut patch_report = format!(
-        "{patch_policy};archive_sha256={};raw_runtime_sha256={};runtime_sha256={};code_mode_host_sha256={};source_counts=2,1,1,1;changed_bytes={}",
+        "{patch_policy};archive_sha256={};raw_runtime_sha256={};runtime_sha256={};code_mode_host_sha256={};source_counts={},{},{},{};changed_bytes={}",
         request.archive_sha256,
         adapted.raw_runtime_sha256,
         adapted.runtime_sha256,
-        adapted.code_mode_host_sha256,
+        adapted.code_mode_host_sha256.as_deref().unwrap_or("-"),
+        adapted.fd_counts[0],
+        adapted.fd_counts[1],
+        adapted.fd_counts[2],
+        adapted.fd_counts[3],
         adapted.changed_bytes
     );
-    if let Some(policy) = adapted.runtime_policy {
-        patch_report.push_str(&format!(";uds_policy={}", policy.uds));
-        if let Some(permission) = policy.permission {
-            patch_report.push_str(&format!(";permission_policy={permission}"));
+    if adapted.uds_applied {
+        if let Some(policy) = adapted.runtime_policy {
+            patch_report.push_str(&format!(";uds_policy={}", policy.uds));
         }
-    }
-    if let Some(source) = &request.source_runtime {
-        patch_report.push_str(&format!(";source_revision={}", source.revision));
     }
     let upstream_doctor = if request.legacy_activation_doctor_unsupported {
         "unsupported"
@@ -4144,7 +3659,7 @@ fn write_generation_descriptor(
         "supported"
     };
     let generation_format = generation_format_for_version(&request.version);
-    let mut descriptor = format!(
+    let descriptor = format!(
         concat!(
             "{}\n",
             "generation_id\t{}\n",
@@ -4157,13 +3672,12 @@ fn write_generation_descriptor(
             "patch_report\t{}\n",
             "runtime_digest\t{}\n",
             "wrapper_artifact_digest\t{}\n",
-            "manager_artifact_digest\t{}\n",
             "wrapper_api_identity\t{}\n",
             "persistent_schema_identity\t{}\n",
             "qualification\tqualified\n",
             "creation_metadata\t{}\n",
             "upstream_doctor\t{}\n",
-            "helper_count\t{}\n",
+            "helper_count\t2\n",
             "helper\t{}\t{}\n",
             "helper\t{}\t{}\n"
         ),
@@ -4176,23 +3690,15 @@ fn write_generation_descriptor(
         patch_report,
         adapted.runtime_sha256,
         core_sha256,
-        manager_sha256.unwrap_or("-"),
         CORE_API_IDENTITY,
         PERSISTENT_SCHEMA_IDENTITY,
         request.creation_metadata,
         upstream_doctor,
-        if frontend_sha256.is_some() { 3 } else { 2 },
         TERMUX_BROWSER_OPEN_HELPER_IDENTITY,
         adapted.browser_open_helper_sha256,
         TERMUX_BROWSER_MANUAL_HELPER_IDENTITY,
         adapted.browser_manual_helper_sha256
     );
-    if let Some(digest) = frontend_sha256 {
-        descriptor.push_str(&format!(
-            "helper\ttermux-manager-tui-v1:{}\t{digest}\n",
-            request.version
-        ));
-    }
     let path = staging.join("generation.meta");
     let mut file = create_private_file(&path)?;
     file.write_all(descriptor.as_bytes())
@@ -4268,8 +3774,6 @@ fn complete_and_publish(
     staging: &Path,
     selected: ArchiveSelection,
     core_sha256: &str,
-    manager_sha256: Option<&str>,
-    frontend_sha256: Option<&str>,
 ) -> Result<(), BuilderError> {
     let adapted = adapt_selected_runtime(request, staging, selected)?;
     rename_noreplace(&staging.join(".wrapper-artifact"), &staging.join("wrapper"))?;
@@ -4277,31 +3781,7 @@ fn complete_and_publish(
     File::open(staging.join("wrapper"))
         .and_then(|file| file.sync_all())
         .map_err(|source| io_error("sync generation Core", source))?;
-    if manager_sha256.is_some() {
-        let manager_source = staging.join(".manager-artifact");
-        let manager_destination = staging.join("manager");
-        rename_noreplace(&manager_source, &manager_destination)?;
-        set_mode(&manager_destination, 0o755, "set generation Manager mode")?;
-        File::open(&manager_destination)
-            .and_then(|file| file.sync_all())
-            .map_err(|source| io_error("sync generation Manager", source))?;
-    }
-    if frontend_sha256.is_some() {
-        let helpers = staging.join("helpers");
-        if request.creation_metadata != R10_BROWSER_HELPER_BRIDGE_METADATA {
-            create_private_dir(&helpers)?;
-        }
-        rename_noreplace(&staging.join(".manager-tui-artifact"), &helpers.join("2"))?;
-        sync_directory(&helpers, "sync Manager frontend helper directory")?;
-    }
-    write_generation_descriptor(
-        request,
-        staging,
-        &adapted,
-        core_sha256,
-        manager_sha256,
-        frontend_sha256,
-    )?;
+    write_generation_descriptor(request, staging, &adapted, core_sha256)?;
     sync_directory(staging, "sync complete unsigned generation")?;
     rename_noreplace(staging, &request.output)?;
     sync_directory(
@@ -4329,29 +3809,11 @@ pub fn build_generation(request: &GenerationRequest) -> Result<(), BuilderError>
     let staging = create_staging(&request.output)?;
     let result = (|| {
         let core_sha256 = snapshot_core_artifact(request, &staging)?;
-        let manager_sha256 = snapshot_manager_artifact(request, &staging)?;
-        let frontend_sha256 = snapshot_manager_tui_artifact(request, &staging)?;
-        if manager_sha256.is_some() {
-            let manager_snapshot = staging.join(".manager-artifact");
-            if request.defer_manager_probe {
-                validate_android_aarch64_manager_elf(&manager_snapshot)?;
-                write_deferred_manager_probe_marker(&staging)?;
-            } else {
-                qualify_manager_artifact(&manager_snapshot, &staging)?;
-            }
-        }
         let archive = snapshot_archive(request, &staging)?;
         let selected = select_archive(request, &archive, &staging)?;
         std::fs::remove_file(&archive)
             .map_err(|source| io_error("remove upstream archive snapshot", source))?;
-        complete_and_publish(
-            request,
-            &staging,
-            selected,
-            &core_sha256,
-            manager_sha256.as_deref(),
-            frontend_sha256.as_deref(),
-        )
+        complete_and_publish(request, &staging, selected, &core_sha256)
     })();
     match (result, cleanup_staging(&staging)) {
         (_, Err(error)) => Err(error),
@@ -4513,41 +3975,6 @@ pub fn publish_generation(
     })
 }
 
-fn adapt_frontend(args: &[OsString]) -> Result<(), BuilderError> {
-    if args.len() != 7 {
-        return Err(BuilderError::Usage);
-    }
-    let mut paths = std::collections::BTreeMap::new();
-    for pair in args[1..].as_chunks::<2>().0 {
-        let flag = pair[0].to_str().ok_or(BuilderError::Usage)?;
-        if !matches!(flag, "--artifact" | "--openssl" | "--output")
-            || paths.insert(flag, PathBuf::from(&pair[1])).is_some()
-        {
-            return Err(BuilderError::Usage);
-        }
-    }
-    let artifact = paths.get("--artifact").ok_or(BuilderError::Usage)?;
-    let openssl = paths.get("--openssl").ok_or(BuilderError::Usage)?;
-    let output = paths.get("--output").ok_or(BuilderError::Usage)?;
-    if !paths.values().all(|path| canonical_absolute_path(path)) || output.exists() {
-        return Err(BuilderError::Invalid(
-            "frontend adaptation paths are invalid",
-        ));
-    }
-    ensure_executable(openssl, "OpenSSL is not an executable regular file")?;
-    let staging = create_staging(output)?;
-    let result = (|| {
-        snapshot_manager_tui_source(artifact, openssl, &staging)?;
-        rename_noreplace(&staging.join(".manager-tui-artifact"), output)?;
-        sync_directory(
-            output.parent().ok_or(BuilderError::Usage)?,
-            "sync adapted frontend parent",
-        )
-    })();
-    cleanup_staging(&staging)?;
-    result
-}
-
 pub fn run_from_args<I, S>(args: I) -> i32
 where
     I: IntoIterator<Item = S>,
@@ -4555,22 +3982,6 @@ where
 {
     let args: Vec<OsString> = args.into_iter().map(Into::into).collect();
     match args.first().and_then(|argument| argument.to_str()) {
-        Some("build-runtime" | "verify-runtime" | "generate-schema") => runtime::command(&args),
-        Some("prepare-native-sdk") => native_sdk::command(&args),
-        Some("native-dependency-inputs" | "prepare-native-dependencies") => {
-            native_dependencies::command(&args)
-        }
-        Some("prepare-source" | "normalize-lock" | "patch-base" | "apply-source-patch") => {
-            source::command(&args)
-        }
-        Some("provider-package") => provider::command(&args),
-        Some("adapt-manager-tui") => match adapt_frontend(&args) {
-            Ok(()) => 0,
-            Err(error) => {
-                eprintln!("codex-release-builder: {error}");
-                1
-            }
-        },
         Some("prepare") => match prepare_policy(&args) {
             Ok(policy) => {
                 println!("patch_policy_id\t{policy}");
@@ -4643,7 +4054,7 @@ where
     }
 }
 
-// Read-only early admission before acquiring large archives or compilation.
+// Read-only early admission before acquiring large archives.
 // This chooses only an already implemented transformation, never qualifies it.
 fn prepare_policy(args: &[OsString]) -> Result<&'static str, BuilderError> {
     let values = args
@@ -4658,17 +4069,7 @@ fn prepare_policy(args: &[OsString]) -> Result<&'static str, BuilderError> {
         return Err(BuilderError::Usage);
     }
     match runtime_patch::required(version).map_err(BuilderError::Archive)? {
-        Some(policy) => {
-            if policy
-                .archive_sha256
-                .is_some_and(|expected| expected != *archive)
-            {
-                return Err(BuilderError::Archive(
-                    "official archive differs from implemented Termux transformation",
-                ));
-            }
-            Ok(policy.id)
-        }
+        Some(policy) => Ok(policy.id),
         None => Ok(PATCH_POLICY_ID),
     }
 }
@@ -4683,18 +4084,26 @@ mod tests {
         let args = |version: &str, archive: &str| {
             ["prepare", "--version", version, "--archive-sha256", archive].map(OsString::from)
         };
-        let archive = runtime_patch::policy("termux-fd-remap-v5")
-            .unwrap()
-            .archive_sha256
-            .unwrap();
+        let digest = "a".repeat(64);
         assert_eq!(
-            prepare_policy(&args("0.163.0", archive)).unwrap(),
-            "termux-fd-remap-v5"
+            prepare_policy(&args("0.159.2", &digest)).unwrap(),
+            PATCH_POLICY_ID
         );
-        assert!(prepare_policy(&args("0.164.0", archive)).is_err());
-        assert!(prepare_policy(&args("0.163.0", &"a".repeat(64))).is_err());
-        assert!(prepare_policy(&args("0.0163.0", archive)).is_err());
-        let mut malformed = args("0.163.0", archive).to_vec();
+        assert_eq!(
+            prepare_policy(&args("0.165.0", &digest)).unwrap(),
+            runtime_patch::ADAPTIVE_POLICY
+        );
+        assert_eq!(
+            prepare_policy(&args("0.169.0", &digest)).unwrap(),
+            runtime_patch::ADAPTIVE_POLICY
+        );
+        assert_eq!(
+            prepare_policy(&args("1.2.0", &digest)).unwrap(),
+            runtime_patch::ADAPTIVE_POLICY
+        );
+        assert!(prepare_policy(&args("0.0169.0", &digest)).is_err());
+        assert!(prepare_policy(&args("0.169.0", "not-sha256")).is_err());
+        let mut malformed = args("0.169.0", &digest).to_vec();
         malformed.push("--publish".into());
         assert!(prepare_policy(&malformed).is_err());
     }
@@ -4819,129 +4228,80 @@ fi
     }
 
     #[test]
-    fn uds_publish_report_binds_exact_policy_artifact_and_byte_count() {
+    fn adaptive_publish_report_binds_variable_fd_counts_and_optional_uds_policy() {
         let digest = "a".repeat(64);
-        let report = format!("{};archive_sha256={digest};raw_runtime_sha256={};runtime_sha256={digest};code_mode_host_sha256={digest};source_counts=2,1,1,1;changed_bytes=97;uds_policy=termux-uds-0-160-0-v1", runtime_patch::PREVIOUS_POLICY, runtime_patch::RAW_SHA256);
+        let raw_digest = "b".repeat(64);
+        for (version, id, expected) in [
+            ("0.159.2", PATCH_POLICY_ID, true),
+            ("0.165.0", runtime_patch::ADAPTIVE_POLICY, true),
+            ("0.169.0", runtime_patch::ADAPTIVE_POLICY, true),
+            ("1.2.0", runtime_patch::ADAPTIVE_POLICY, true),
+            ("0.164.0", runtime_patch::ADAPTIVE_POLICY, false),
+            ("0.169.0", PATCH_POLICY_ID, false),
+            ("0.169.0", "unknown", false),
+        ] {
+            assert_eq!(
+                runtime_patch::supports_version(id, version),
+                expected,
+                "{id}/{version}"
+            );
+        }
+
+        // Variable FD count without UDS (e.g., future runtime or pre-adaptive runtime).
+        let fd_3210 = expected_fd_changed_bytes("source_counts=3,2,1,0").unwrap();
+        let report_no_uds = format!(
+            "{};archive_sha256={digest};raw_runtime_sha256={raw_digest};runtime_sha256={digest};code_mode_host_sha256=-;source_counts=3,2,1,0;changed_bytes={fd_3210}",
+            PATCH_POLICY_ID
+        );
         assert!(validate_publish_patch_report(
-            &report,
+            &report_no_uds,
             &digest,
             &digest,
-            &digest,
-            runtime_patch::PREVIOUS_POLICY
+            None,
+            PATCH_POLICY_ID
         )
         .is_ok());
-        assert!(
-            validate_publish_patch_report(&report, &digest, &digest, &digest, PATCH_POLICY_ID)
-                .is_err()
+        assert!(validate_publish_patch_report(
+            &report_no_uds.replace(&format!("changed_bytes={fd_3210}"), "changed_bytes=54"),
+            &digest,
+            &digest,
+            None,
+            PATCH_POLICY_ID
+        )
+        .is_err());
+
+        // Adaptive policy with UDS rewrite.
+        let fd_1000 = expected_fd_changed_bytes("source_counts=1,0,0,0").unwrap();
+        let adaptive_count = fd_1000 + 24;
+        let report_uds = format!(
+            "{};archive_sha256={digest};raw_runtime_sha256={raw_digest};runtime_sha256={digest};code_mode_host_sha256={digest};source_counts=1,0,0,0;changed_bytes={adaptive_count};uds_policy={}",
+            runtime_patch::ADAPTIVE_POLICY,
+            runtime_patch::ADAPTIVE_UDS_POLICY
         );
+        assert!(validate_publish_patch_report(
+            &report_uds,
+            &digest,
+            &digest,
+            Some(&digest),
+            runtime_patch::ADAPTIVE_POLICY
+        )
+        .is_ok());
         for bad in [
-            report.replace("changed_bytes=97", "changed_bytes=54"),
-            report.replace(runtime_patch::RAW_SHA256, &digest),
-            report.replace(";uds_policy=termux-uds-0-160-0-v1", ""),
-            report.clone() + ";extra=1",
+            report_uds.replace(
+                &format!("changed_bytes={adaptive_count}"),
+                &format!("changed_bytes={fd_1000}"),
+            ),
+            report_uds.replace(runtime_patch::ADAPTIVE_UDS_POLICY, "wrong-uds"),
+            report_uds.clone() + ";extra=1",
         ] {
             assert!(validate_publish_patch_report(
                 &bad,
                 &digest,
                 &digest,
-                &digest,
-                runtime_patch::PREVIOUS_POLICY
+                Some(&digest),
+                runtime_patch::ADAPTIVE_POLICY
             )
             .is_err());
-        }
-    }
-
-    #[test]
-    fn permission_publish_report_preserves_legacy_and_binds_every_qualified_field() {
-        let digest = "a".repeat(64);
-        for id in [
-            PATCH_POLICY_ID,
-            runtime_patch::PREVIOUS_POLICY,
-            runtime_patch::POLICY,
-            "termux-fd-remap-v4",
-            "termux-fd-remap-v5",
-            "termux-fd-remap-v6",
-            runtime_patch::ADAPTIVE_POLICY,
-            "unknown",
-        ] {
-            for version in [
-                "0.159.2", "0.160.0", "0.160.1", "0.161.0", "0.161.1", "0.163.0", "0.163.1",
-                "0.164.0", "0.164.1", "0.165.0", "0.165.1", "0.169.0",
-            ] {
-                let expected = (id == PATCH_POLICY_ID && ["0.159.2", "0.160.0"].contains(&version))
-                    || ([runtime_patch::PREVIOUS_POLICY, runtime_patch::POLICY].contains(&id)
-                        && version == "0.160.0")
-                    || (id == "termux-fd-remap-v4" && version == "0.161.0")
-                    || (id == "termux-fd-remap-v5" && version == "0.163.0")
-                    || (id == "termux-fd-remap-v6" && version == "0.164.0")
-                    || (id == runtime_patch::ADAPTIVE_POLICY
-                        && ["0.165.0", "0.165.1", "0.169.0"].contains(&version));
-                assert_eq!(
-                    runtime_patch::supports_version(id, version),
-                    expected,
-                    "{id}/{version}"
-                );
-            }
-        }
-        for id in [
-            runtime_patch::POLICY,
-            "termux-fd-remap-v4",
-            "termux-fd-remap-v5",
-            "termux-fd-remap-v6",
-        ] {
-            let policy = runtime_patch::policy(id).unwrap();
-            let archive = policy.archive_sha256.unwrap_or(&digest);
-            let count = 54 + policy.changed_bytes.unwrap();
-            let report = format!("{id};archive_sha256={archive};raw_runtime_sha256={};runtime_sha256={digest};code_mode_host_sha256={digest};source_counts=2,1,1,1;changed_bytes={count};uds_policy={};permission_policy={}", policy.raw_sha256.unwrap(), policy.uds, policy.permission.unwrap());
-            let valid = |value: &str, expected: &str| {
-                validate_publish_patch_report(value, archive, &digest, &digest, expected)
-            };
-            assert!(valid(&report, id).is_ok());
-            for other in [
-                PATCH_POLICY_ID,
-                runtime_patch::PREVIOUS_POLICY,
-                runtime_patch::POLICY,
-                "termux-fd-remap-v4",
-                "termux-fd-remap-v5",
-                "termux-fd-remap-v6",
-                "unknown",
-            ] {
-                if other != id {
-                    assert!(valid(&report, other).is_err());
-                }
-            }
-            for (index, field) in report.split(';').enumerate() {
-                let mut fields = report.split(';').collect::<Vec<_>>();
-                fields.remove(index);
-                assert!(
-                    valid(&fields.join(";"), id).is_err(),
-                    "{id} missing {field}"
-                );
-                assert!(
-                    valid(&(report.clone() + ";" + field), id).is_err(),
-                    "{id} duplicate {field}"
-                );
-                assert!(
-                    valid(&report.replace(field, &(field.to_owned() + "x")), id).is_err(),
-                    "{id} changed {field}"
-                );
-            }
-            for bad_count in [54, 97, count - 1, count + 1] {
-                assert!(valid(
-                    &report.replace(
-                        &format!("changed_bytes={count}"),
-                        &format!("changed_bytes={bad_count}")
-                    ),
-                    id
-                )
-                .is_err());
-            }
-            if policy.archive_sha256.is_some() {
-                let forged = report.replace(archive, &digest);
-                assert!(
-                    validate_publish_patch_report(&forged, &digest, &digest, &digest, id).is_err()
-                );
-            }
         }
     }
 
@@ -5107,21 +4467,6 @@ fi
         assert!(child.wait().unwrap().success());
     }
 
-    fn write_manager_probe(path: &Path, body: &str) {
-        let shell = find_tool("sh");
-        let script = format!("#!{}\n{}", shell.display(), body);
-        std::fs::write(path, script).unwrap();
-        set_mode(path, 0o755, "set test Manager probe mode").unwrap();
-    }
-
-    fn write_valid_manager_probe(path: &Path) {
-        write_manager_probe(
-            path,
-            "if [ \"$#\" -ne 1 ] || [ \"$1\" != \"--artifact-probe\" ]; then exit 9; fi\n\
-             printf '%s\\n' 'codex-manager-artifact-v1' 'wrapper_api=codex-manager-wrapper-v1'\n",
-        );
-    }
-
     fn fixture(label: &str, entries: Vec<TestEntry>, corrupt_header: bool) -> Fixture {
         let root = test_root(label);
         let gzip = find_tool("gzip");
@@ -5141,9 +4486,8 @@ fi
         let code_mode_host = entries
             .iter()
             .find(|entry| entry.path == "bin/codex-code-mode-host")
-            .unwrap()
-            .data
-            .clone();
+            .map(|entry| entry.data.clone())
+            .unwrap_or_default();
         Fixture {
             request: GenerationRequest {
                 version: "0.150.1".to_owned(),
@@ -5151,10 +4495,6 @@ fi
                 archive_sha256,
                 generation_id: "test-generation".to_owned(),
                 core,
-                manager: None,
-                manager_tui: None,
-                source_runtime: None,
-                defer_manager_probe: false,
                 legacy_activation_doctor_unsupported: false,
                 creation_metadata: "test-fixture".to_owned(),
                 gzip,
@@ -5189,31 +4529,6 @@ fi
             "--output".into(),
             request.output.as_os_str().to_owned(),
         ];
-        if let Some(manager) = request.manager.as_ref() {
-            args.splice(
-                11..11,
-                [OsString::from("--manager"), manager.as_os_str().to_owned()],
-            );
-        }
-        if let Some(frontend) = request.manager_tui.as_ref() {
-            args.extend([
-                OsString::from("--manager-tui"),
-                frontend.path.as_os_str().to_owned(),
-                OsString::from("--manager-tui-version"),
-                frontend.version.clone().into(),
-            ]);
-        }
-        if let Some(source) = &request.source_runtime {
-            args.extend([
-                OsString::from("--source-runtime"),
-                source.path.as_os_str().to_owned(),
-                OsString::from("--source-revision"),
-                source.revision.clone().into(),
-            ]);
-        }
-        if request.defer_manager_probe {
-            args.push(OsString::from("--defer-manager-probe"));
-        }
         if request.legacy_activation_doctor_unsupported {
             args.push(OsString::from("--legacy-activation-doctor-unsupported"));
         }
@@ -5319,8 +4634,8 @@ fi
 
     #[test]
     fn test_m2_b6_slice1_request_boundary_is_strict() {
-        assert!(USAGE
-            .contains("[--manager-tui <ABSOLUTE_FILE> --manager-tui-version <MAJOR.MINOR.PATCH>]"));
+        assert!(!USAGE.contains("--manager"));
+        assert!(!USAGE.contains("provider-package"));
         let grammar_fixture = fixture("request-grammar", happy_entries("0.150.1"), false);
         for mutation in ["missing-value", "duplicate", "unknown"] {
             let mut args = request_args(&grammar_fixture.request);
@@ -5338,15 +4653,6 @@ fi
             }
             assert!(matches!(parse_request(args), Err(BuilderError::Usage)));
         }
-        let mut duplicate_defer = request_args(&grammar_fixture.request);
-        duplicate_defer.extend([
-            OsString::from("--defer-manager-probe"),
-            OsString::from("--defer-manager-probe"),
-        ]);
-        assert!(matches!(
-            parse_request(duplicate_defer),
-            Err(BuilderError::Usage)
-        ));
         grammar_fixture.remove();
 
         for case in [
@@ -5434,10 +4740,6 @@ fi
             archive_sha256: expected_digest.clone(),
             generation_id: "official-fetch-generation".to_owned(),
             core: fixture.request.core.clone(),
-            manager: None,
-            manager_tui: None,
-            source_runtime: None,
-            defer_manager_probe: false,
             legacy_activation_doctor_unsupported: false,
             creation_metadata: "r5-fetch-test".to_owned(),
             gzip: fixture.request.gzip.clone(),
@@ -5525,7 +4827,7 @@ fi
             fixture.raw_runtime
         );
         assert_eq!(
-            std::fs::read(&selected.code_mode_host).unwrap(),
+            std::fs::read(selected.code_mode_host.as_ref().unwrap()).unwrap(),
             fixture.code_mode_host
         );
         let mut top_level: Vec<_> = std::fs::read_dir(&selected_root)
@@ -5693,7 +4995,7 @@ fi
                 .count(),
             54
         );
-        for (source, replacement, expected) in PATCHES {
+        for (expected, (source, replacement)) in [2usize, 1, 1, 1].into_iter().zip(FD_REMAP_RULES) {
             assert_eq!(occurrence_offsets(&runtime, source).len(), 0);
             assert_eq!(occurrence_offsets(&runtime, replacement).len(), expected);
         }
@@ -5762,7 +5064,6 @@ fi
                 "patch_report\ttermux-fd-remap-v1;archive_sha256={};raw_runtime_sha256={};runtime_sha256={};code_mode_host_sha256={};source_counts=2,1,1,1;changed_bytes=54\n",
                 "runtime_digest\t{}\n",
                 "wrapper_artifact_digest\t{}\n",
-                "manager_artifact_digest\t-\n",
                 "wrapper_api_identity\twrapper-api-v1\n",
                 "persistent_schema_identity\tschema-v1\n",
                 "qualification\tqualified\n",
@@ -5810,638 +5111,6 @@ fi
             std::fs::read(&descriptor_path).unwrap(),
             descriptor_before_retry
         );
-        assert!(no_builder_staging(&fixture.root));
-        fixture.remove();
-    }
-
-    #[test]
-    fn source_runtime_is_snapshotted_adapted_and_publish_bound_to_its_revision() {
-        let mut fixture = fixture("source-runtime", happy_entries("0.999.0"), false);
-        fixture.request.version = "0.999.0".into();
-        let source = fixture.root.join("source-runtime");
-        let raw = fake_runtime();
-        std::fs::write(&source, &raw).unwrap();
-        fixture.request.source_runtime = Some(SourceRuntime {
-            path: source.clone(),
-            revision: "a".repeat(40),
-        });
-        assert_eq!(run_from_args(request_args(&fixture.request)), 0);
-        assert_eq!(std::fs::read(&source).unwrap(), raw);
-        let mut expected = raw;
-        apply_fd_path_remaps(&mut expected).unwrap();
-        assert_eq!(
-            std::fs::read(fixture.request.output.join("bin/codex")).unwrap(),
-            expected
-        );
-        let metadata =
-            std::fs::read_to_string(fixture.request.output.join("generation.meta")).unwrap();
-        assert!(metadata.contains("patch_policy_id\ttermux-source-v1\n"));
-        assert!(metadata.contains(&format!(";source_revision={}\n", "a".repeat(40))));
-        assert!(!fixture.request.output.join(".source-runtime").exists());
-        assert_eq!(
-            std::fs::read(fixture.request.output.join("bin/codex-code-mode-host")).unwrap(),
-            fixture.code_mode_host
-        );
-        let private_key = fixture.root.join("private.pem");
-        generate_publish_key(&fixture.request.openssl, &private_key);
-        let mut publication = PublishRequest {
-            generation: fixture.request.output.clone(),
-            release_sequence: "1".into(),
-            release_base: "https://example.invalid/test-generation/".into(),
-            private_key,
-            openssl: fixture.request.openssl.clone(),
-            output: fixture.root.join("publication"),
-        };
-        publish(&publication).unwrap();
-        let path = fixture.request.output.join("generation.meta");
-        std::fs::write(
-            &path,
-            metadata.replace(&"a".repeat(40), "not-a-source-commit"),
-        )
-        .unwrap();
-        publication.output = fixture.root.join("rejected-publication");
-        assert!(publish(&publication).is_err());
-        assert!(!publication.output.exists());
-        fixture.remove();
-    }
-
-    #[test]
-    fn test_manager_tui_build_snapshots_adapts_and_binds_third_helper() {
-        let mut fixture = fixture("manager-tui-build", happy_entries("0.150.1"), false);
-        assert!(fixture.request.manager.is_none());
-        let frontend = fixture.root.join("frontend-source");
-        let raw = fake_runtime();
-        std::fs::write(&frontend, &raw).unwrap();
-        set_mode(&frontend, 0o755, "set frontend fixture mode").unwrap();
-        fixture.request.manager_tui = Some(ManagerTuiArtifact {
-            path: frontend.clone(),
-            version: fixture.request.version.clone(),
-        });
-        assert_eq!(run_from_args(request_args(&fixture.request)), 0);
-        let published = fixture.request.output.join("helpers/2");
-        let bytes = std::fs::read(&published).unwrap();
-        assert_eq!(std::fs::read(&frontend).unwrap(), raw);
-        assert_eq!(bytes.len(), raw.len());
-        assert_eq!(bytes.iter().zip(&raw).filter(|(a, b)| a != b).count(), 54);
-        let mut restored = bytes.clone();
-        for (source, replacement, expected) in PATCHES {
-            assert!(occurrence_offsets(&bytes, source).is_empty());
-            let offsets = occurrence_offsets(&restored, replacement);
-            assert_eq!(offsets.len(), expected);
-            for offset in offsets {
-                restored[offset..offset + source.len()].copy_from_slice(source);
-            }
-        }
-        assert_eq!(
-            restored, raw,
-            "changes must be limited to the shared FD policy"
-        );
-        assert_eq!(
-            std::fs::metadata(&published).unwrap().permissions().mode() & 0o7777,
-            0o755
-        );
-        let descriptor =
-            std::fs::read_to_string(fixture.request.output.join("generation.meta")).unwrap();
-        assert!(descriptor.contains("helper_count\t3\nhelper\ttermux-browser-open-v1\t"));
-        assert!(descriptor.ends_with(&format!(
-            "helper\ttermux-manager-tui-v1:0.150.1\t{}\n",
-            openssl_sha256(&fixture.request.openssl, &published).unwrap()
-        )));
-        assert!(fixture.request.output.join("browser/open/curl").is_file());
-        assert!(fixture.request.output.join("browser/manual/curl").is_file());
-        assert!(!fixture
-            .request
-            .output
-            .join(".manager-tui-artifact")
-            .exists());
-        assert!(no_builder_staging(&fixture.root));
-        fixture.remove();
-    }
-
-    #[test]
-    fn standalone_frontend_adaptation_matches_full_build_and_preserves_inputs() {
-        let mut fixture = fixture("frontend-component", happy_entries("0.150.1"), false);
-        let manager = fixture.root.join("manager-source");
-        write_valid_manager_probe(&manager);
-        fixture.request.manager = Some(manager);
-        let frontend = fixture.root.join("frontend-source");
-        let raw = fake_runtime();
-        std::fs::write(&frontend, &raw).unwrap();
-        set_mode(&frontend, 0o755, "set frontend fixture mode").unwrap();
-        fixture.request.manager_tui = Some(ManagerTuiArtifact {
-            path: frontend.clone(),
-            version: fixture.request.version.clone(),
-        });
-        assert_eq!(run_from_args(request_args(&fixture.request)), 0);
-        let output = fixture.root.join("adapted-frontend");
-        let args = vec![
-            OsString::from("adapt-manager-tui"),
-            OsString::from("--artifact"),
-            frontend.clone().into_os_string(),
-            OsString::from("--openssl"),
-            fixture.request.openssl.clone().into_os_string(),
-            OsString::from("--output"),
-            output.clone().into_os_string(),
-        ];
-        assert_eq!(run_from_args(args.clone()), 0);
-        assert_eq!(
-            std::fs::read(&output).unwrap(),
-            std::fs::read(fixture.request.output.join("helpers/2")).unwrap()
-        );
-        assert_eq!(std::fs::read(&frontend).unwrap(), raw);
-        assert_ne!(run_from_args(args.clone()), 0); // Never replace an occupied destination.
-        std::fs::remove_file(&output).unwrap();
-        std::fs::write(&frontend, b"not a qualified ELF").unwrap();
-        assert_ne!(run_from_args(args), 0);
-        assert!(!output.exists());
-        assert!(no_builder_staging(&fixture.root));
-        fixture.remove();
-    }
-
-    #[test]
-    fn test_manager_tui_request_and_artifact_faults_preserve_sources_and_output() {
-        for defect in [
-            "version",
-            "relative",
-            "missing",
-            "symlink",
-            "directory",
-            "mode",
-            "size",
-            "elf",
-            "dynamic",
-            "missing-remap",
-            "extra-remap",
-            "prepatched",
-        ] {
-            let mut fixture = fixture("manager-tui-fault", happy_entries("0.150.1"), false);
-            let manager = fixture.root.join("manager-source");
-            write_valid_manager_probe(&manager);
-            fixture.request.manager = Some(manager);
-            let frontend = fixture.root.join("frontend-source");
-            let raw = fake_runtime();
-            std::fs::write(&frontend, &raw).unwrap();
-            set_mode(&frontend, 0o755, "set frontend fixture mode").unwrap();
-            fixture.request.manager_tui = Some(ManagerTuiArtifact {
-                path: frontend.clone(),
-                version: fixture.request.version.clone(),
-            });
-            // Paired grammar and duplicate flags fail before touching the source.
-            for flag in ["--manager-tui", "--manager-tui-version"] {
-                let mut args = request_args(&fixture.request);
-                let at = args.iter().position(|arg| arg == flag).unwrap();
-                let mut missing = args.clone();
-                missing.drain(at..at + 2);
-                assert!(matches!(parse_request(missing), Err(BuilderError::Usage)));
-                args.extend([flag.into(), args[at + 1].clone()]);
-                assert!(matches!(parse_request(args), Err(BuilderError::Usage)));
-            }
-            match defect {
-                "version" => {
-                    fixture.request.manager_tui.as_mut().unwrap().version = "0.161.0".into()
-                }
-                "relative" => {
-                    fixture.request.manager_tui.as_mut().unwrap().path = PathBuf::from("relative")
-                }
-                "missing" => std::fs::remove_file(&frontend).unwrap(),
-                "symlink" => {
-                    let outside = fixture.root.join("outside-frontend");
-                    std::fs::rename(&frontend, &outside).unwrap();
-                    std::os::unix::fs::symlink(outside, &frontend).unwrap();
-                }
-                "directory" => {
-                    std::fs::remove_file(&frontend).unwrap();
-                    std::fs::create_dir(&frontend).unwrap();
-                }
-                "mode" => set_mode(&frontend, 0o600, "change frontend mode").unwrap(),
-                "size" => OpenOptions::new()
-                    .write(true)
-                    .open(&frontend)
-                    .unwrap()
-                    .set_len(RELEASE_FILE_MAX_BYTES + 1)
-                    .unwrap(),
-                "elf" => std::fs::write(&frontend, b"not-elf").unwrap(),
-                "dynamic" => {
-                    let mut bytes = raw.clone();
-                    bytes[64..68].copy_from_slice(&3u32.to_le_bytes());
-                    std::fs::write(&frontend, bytes).unwrap();
-                }
-                "missing-remap" => {
-                    let mut bytes = raw.clone();
-                    replace_first(&mut bytes, PATCHES[0].0, b"XXXXXXXXXXXXXXXX");
-                    std::fs::write(&frontend, bytes).unwrap();
-                }
-                "extra-remap" => {
-                    let mut bytes = raw.clone();
-                    bytes.extend_from_slice(PATCHES[0].0);
-                    std::fs::write(&frontend, bytes).unwrap();
-                }
-                "prepatched" => {
-                    let mut bytes = raw.clone();
-                    replace_first(&mut bytes, PATCHES[0].0, PATCHES[0].1);
-                    std::fs::write(&frontend, bytes).unwrap();
-                }
-                _ => unreachable!(),
-            }
-            let before = std::fs::symlink_metadata(&frontend)
-                .ok()
-                .map(|m| (m.len(), m.permissions().mode(), m.file_type()));
-            assert_eq!(run_from_args(request_args(&fixture.request)), 1, "{defect}");
-            assert!(!fixture.request.output.exists(), "{defect}");
-            assert!(no_builder_staging(&fixture.root), "{defect}");
-            assert_eq!(
-                std::fs::symlink_metadata(&frontend).ok().map(|m| (
-                    m.len(),
-                    m.permissions().mode(),
-                    m.file_type()
-                )),
-                before,
-                "{defect}"
-            );
-            if matches!(defect, "version" | "manager" | "relative") {
-                assert_eq!(std::fs::read(&frontend).unwrap(), raw);
-            }
-            fixture.remove();
-        }
-    }
-
-    #[test]
-    fn test_mgr1_slice1_build_carries_optional_manager_artifact_and_digest() {
-        let mut fixture = fixture("mgr1-manager-build", happy_entries("0.150.1"), false);
-        let manager = fixture.root.join("manager-source");
-        write_valid_manager_probe(&manager);
-        fixture.request.manager = Some(manager.clone());
-
-        assert_eq!(run_from_args(request_args(&fixture.request)), 0);
-        let output_manager = fixture.request.output.join("manager");
-        assert_eq!(
-            std::fs::read(&output_manager).unwrap(),
-            std::fs::read(&manager).unwrap()
-        );
-        assert_eq!(
-            std::fs::symlink_metadata(&output_manager)
-                .unwrap()
-                .permissions()
-                .mode()
-                & 0o777,
-            0o755
-        );
-        let manager_digest = openssl_sha256(&fixture.request.openssl, &output_manager).unwrap();
-        let descriptor =
-            std::fs::read_to_string(fixture.request.output.join("generation.meta")).unwrap();
-        assert!(descriptor.contains(&format!("manager_artifact_digest\t{manager_digest}\n")));
-        let mut top_level: Vec<_> = std::fs::read_dir(&fixture.request.output)
-            .unwrap()
-            .map(|entry| entry.unwrap().file_name())
-            .collect();
-        top_level.sort();
-        assert_eq!(
-            top_level,
-            vec![
-                OsString::from("browser"),
-                OsString::from("codex-code-mode-host"),
-                OsString::from("generation.meta"),
-                OsString::from("manager"),
-                OsString::from("runtime"),
-                OsString::from("wrapper")
-            ]
-        );
-        assert!(no_builder_staging(&fixture.root));
-        fixture.remove();
-    }
-
-    #[test]
-    fn test_manager_tui_publication_binds_exact_inventory_and_rejects_layout_drift() {
-        for r10 in [false, true] {
-            for defect in [
-                "healthy",
-                "missing",
-                "extra",
-                "file-symlink",
-                "parent-symlink",
-                "directory",
-                "mode",
-                "digest",
-                "version",
-                "count",
-                "undeclared",
-                "manager",
-                "layout-marker",
-            ] {
-                let mut fixture = fixture("manager-tui-publish", happy_entries("0.150.1"), false);
-                let manager = fixture.root.join("manager-source");
-                write_valid_manager_probe(&manager);
-                fixture.request.manager = Some(manager);
-                if r10 {
-                    fixture.request.creation_metadata = R10_BROWSER_HELPER_BRIDGE_METADATA.into();
-                    fixture.request.legacy_activation_doctor_unsupported = true;
-                }
-                let frontend = fixture.root.join("frontend-source");
-                std::fs::write(&frontend, fake_runtime()).unwrap();
-                set_mode(&frontend, 0o755, "set frontend fixture mode").unwrap();
-                fixture.request.manager_tui = Some(ManagerTuiArtifact {
-                    path: frontend,
-                    version: fixture.request.version.clone(),
-                });
-                assert_eq!(run_from_args(request_args(&fixture.request)), 0);
-                let helper = fixture.request.output.join("helpers/2");
-                let descriptor_path = fixture.request.output.join("generation.meta");
-                let descriptor = std::fs::read_to_string(&descriptor_path).unwrap();
-                match defect {
-                    "healthy" => {}
-                    "missing" => std::fs::remove_file(&helper).unwrap(),
-                    "extra" => {
-                        std::fs::write(fixture.request.output.join("helpers/3"), b"undeclared")
-                            .unwrap()
-                    }
-                    "file-symlink" => {
-                        let outside = fixture.root.join("outside-helper");
-                        std::fs::rename(&helper, &outside).unwrap();
-                        std::os::unix::fs::symlink(outside, &helper).unwrap();
-                    }
-                    "parent-symlink" => {
-                        let outside = fixture.root.join("outside-helpers");
-                        std::fs::rename(fixture.request.output.join("helpers"), &outside).unwrap();
-                        std::os::unix::fs::symlink(outside, fixture.request.output.join("helpers"))
-                            .unwrap();
-                    }
-                    "directory" => {
-                        std::fs::remove_file(&helper).unwrap();
-                        std::fs::create_dir(&helper).unwrap();
-                    }
-                    "mode" => set_mode(&helper, 0o600, "change frontend mode").unwrap(),
-                    "digest" => std::fs::write(&helper, b"changed-frontend").unwrap(),
-                    "version" => std::fs::write(
-                        &descriptor_path,
-                        descriptor.replace(
-                            "termux-manager-tui-v1:0.150.1",
-                            "termux-manager-tui-v1:0.161.0",
-                        ),
-                    )
-                    .unwrap(),
-                    "count" => std::fs::write(
-                        &descriptor_path,
-                        descriptor.replace("helper_count\t3", "helper_count\t4"),
-                    )
-                    .unwrap(),
-                    "undeclared" => {
-                        let line = descriptor
-                            .lines()
-                            .find(|line| line.starts_with("helper\ttermux-manager-tui"))
-                            .unwrap();
-                        std::fs::write(
-                            &descriptor_path,
-                            descriptor
-                                .replace("helper_count\t3", "helper_count\t2")
-                                .replace(&format!("{line}\n"), ""),
-                        )
-                        .unwrap();
-                    }
-                    "manager" => {
-                        std::fs::remove_file(fixture.request.output.join("manager")).unwrap()
-                    }
-                    "layout-marker" => std::fs::write(
-                        &descriptor_path,
-                        descriptor.replace(
-                            &format!("creation_metadata\t{}", fixture.request.creation_metadata),
-                            &format!(
-                                "creation_metadata\t{}",
-                                if r10 {
-                                    "test-fixture"
-                                } else {
-                                    R10_BROWSER_HELPER_BRIDGE_METADATA
-                                }
-                            ),
-                        ),
-                    )
-                    .unwrap(),
-                    _ => unreachable!(),
-                }
-                let before = std::fs::read(&descriptor_path).unwrap();
-                let private_key = fixture.root.join("owned-release-key.pem");
-                generate_publish_key(&fixture.request.openssl, &private_key);
-                let request = PublishRequest {
-                    generation: fixture.request.output.clone(),
-                    release_sequence: "1".into(),
-                    release_base: "https://example.test/releases/test-generation/".into(),
-                    private_key: private_key.clone(),
-                    openssl: fixture.request.openssl.clone(),
-                    output: fixture.root.join("publication"),
-                };
-                let result = publish(&request);
-                if defect == "healthy" {
-                    assert_eq!(result.unwrap(), "test-generation");
-                    let release = request.output.join("releases/test-generation");
-                    let manifest =
-                        std::fs::read_to_string(release.join("release.manifest")).unwrap();
-                    let digest = openssl_sha256(&request.openssl, &helper).unwrap();
-                    assert!(manifest.contains("file_count\t8\n"));
-                    assert!(manifest.contains(&format!("file\thelpers/2\t{digest}\t0755\n")));
-                    if r10 {
-                        assert!(
-                            manifest.contains("file\thelpers/0\t")
-                                && manifest.contains("file\thelpers/1\t")
-                        );
-                        assert!(!manifest.contains("file\tbrowser/"));
-                        assert!(descriptor.contains("upstream_doctor\tunsupported\n"));
-                        assert!(!release.join("browser").exists());
-                    } else {
-                        assert!(
-                            manifest.contains("file\tbrowser/manual/curl\t")
-                                && manifest.contains("file\tbrowser/open/curl\t")
-                        );
-                        assert!(
-                            !manifest.contains("file\thelpers/0\t")
-                                && !manifest.contains("file\thelpers/1\t")
-                        );
-                    }
-                    assert_eq!(
-                        std::fs::read(release.join("helpers/2")).unwrap(),
-                        std::fs::read(&helper).unwrap()
-                    );
-                    let sidecar =
-                        std::fs::read_to_string(request.output.join(DOWNLOAD_SIZE_PATH)).unwrap();
-                    assert!(sidecar.contains("file_count\t8\n"));
-                    assert!(sidecar.contains(&format!(
-                        "file\thelpers/2\t{}\n",
-                        std::fs::metadata(&helper).unwrap().len()
-                    )));
-                    let public_key = fixture.root.join("owned-public-key.der");
-                    verify_publish_signature(
-                        &request.openssl,
-                        &private_key,
-                        &release.join("release.manifest"),
-                        &release.join("release.sig"),
-                        &public_key,
-                    );
-                    verify_publish_signature(
-                        &request.openssl,
-                        &private_key,
-                        &request.output.join(DOWNLOAD_SIZE_PATH),
-                        &request.output.join(DOWNLOAD_SIZE_SIGNATURE_PATH),
-                        &public_key,
-                    );
-                } else {
-                    assert!(result.is_err(), "{defect}");
-                    assert!(!request.output.exists(), "{defect}");
-                }
-                assert_eq!(std::fs::read(&descriptor_path).unwrap(), before, "{defect}");
-                assert!(no_builder_staging(&fixture.root), "{defect}");
-                fixture.remove();
-            }
-        }
-    }
-
-    #[test]
-    fn test_mgr1_slice2_publish_includes_manager_in_signed_inventory() {
-        let mut fixture = fixture("mgr1-manager-publish", happy_entries("0.150.1"), false);
-        let manager = fixture.root.join("manager-source");
-        write_valid_manager_probe(&manager);
-        fixture.request.manager = Some(manager);
-        assert_eq!(run_from_args(request_args(&fixture.request)), 0);
-
-        let private_key = fixture.root.join("release-key.pem");
-        generate_publish_key(&fixture.request.openssl, &private_key);
-        let publication = fixture.root.join("publication");
-        let request = PublishRequest {
-            generation: fixture.request.output.clone(),
-            release_sequence: "1".to_owned(),
-            release_base: "https://example.test/releases/test-generation/".to_owned(),
-            private_key,
-            openssl: fixture.request.openssl.clone(),
-            output: publication.clone(),
-        };
-        assert_eq!(publish(&request).unwrap(), "test-generation");
-        let release = publication.join("releases/test-generation");
-        assert!(release.join("manager").is_file());
-        let manifest = std::fs::read_to_string(release.join("release.manifest")).unwrap();
-        assert!(manifest.contains("file\tmanager\t"));
-        assert!(manifest.contains("file_count\t7\n"));
-        fixture.remove();
-    }
-
-    #[test]
-    fn test_deferred_manager_probe_is_unsigned_and_publish_blocking() {
-        let mut fixture = fixture("deferred-manager-manager", happy_entries("0.150.1"), false);
-        let manager = fixture.root.join("manager-source");
-        std::fs::write(&manager, fake_core_elf(ANDROID_AARCH64_INTERPRETER)).unwrap();
-        set_mode(&manager, 0o755, "set deferred test Manager mode").unwrap();
-        fixture.request.manager = Some(manager.clone());
-        fixture.request.defer_manager_probe = true;
-
-        assert_eq!(run_from_args(request_args(&fixture.request)), 0);
-        let marker = fixture
-            .request
-            .output
-            .join(MANAGER_ARTIFACT_DEFERRED_MARKER);
-        assert_eq!(
-            std::fs::read(&marker).unwrap(),
-            MANAGER_ARTIFACT_DEFERRED_MARKER_BYTES
-        );
-        assert_eq!(
-            std::fs::symlink_metadata(&marker)
-                .unwrap()
-                .permissions()
-                .mode()
-                & 0o777,
-            0o644
-        );
-        assert_eq!(
-            std::fs::read(fixture.request.output.join("manager")).unwrap(),
-            std::fs::read(&manager).unwrap()
-        );
-
-        let private_key = fixture.root.join("release-key.pem");
-        generate_publish_key(&fixture.request.openssl, &private_key);
-        let publication = fixture.root.join("publication");
-        let request = PublishRequest {
-            generation: fixture.request.output.clone(),
-            release_sequence: "1".to_owned(),
-            release_base: "https://example.test/releases/test-generation/".to_owned(),
-            private_key,
-            openssl: fixture.request.openssl.clone(),
-            output: publication.clone(),
-        };
-        let error = publish(&request).unwrap_err();
-        assert_eq!(
-            error.to_string(),
-            "Manager artifact probe is still deferred"
-        );
-        assert!(!publication.exists());
-        fixture.remove();
-    }
-
-    #[test]
-    fn test_deferred_manager_probe_requires_manager_and_android_elf() {
-        let mut missing = fixture("deferred-manager-missing", happy_entries("0.150.1"), false);
-        missing.request.defer_manager_probe = true;
-        let error = build_generation(&missing.request).unwrap_err();
-        assert_eq!(
-            error.to_string(),
-            "deferred Manager artifact probe requires a Manager artifact"
-        );
-        assert!(!missing.request.output.exists());
-        missing.remove();
-
-        let mut invalid = fixture("deferred-manager-invalid", happy_entries("0.150.1"), false);
-        let manager = invalid.root.join("manager-source");
-        write_valid_manager_probe(&manager);
-        invalid.request.manager = Some(manager);
-        invalid.request.defer_manager_probe = true;
-        let error = build_generation(&invalid.request).unwrap_err();
-        assert!(
-            error
-                .to_string()
-                .contains("Manager artifact is not a supported Android AArch64 PIE ELF"),
-            "unexpected error: {error}"
-        );
-        assert!(!invalid.request.output.exists());
-        assert!(no_builder_staging(&invalid.root));
-        invalid.remove();
-    }
-
-    #[test]
-    fn test_mgr5_manager_artifact_probe_is_bounded_and_fail_closed() {
-        let cases = [
-            (
-                "probe-output",
-                "printf '%s\\n' 'wrong-manager-artifact'\n",
-            ),
-            (
-                "probe-stderr",
-                "printf 'probe-noise\\n' >&2\nprintf '%s\\n' 'codex-manager-artifact-v1' 'wrapper_api=codex-manager-wrapper-v1'\n",
-            ),
-            (
-                "probe-status",
-                "printf '%s\\n' 'codex-manager-artifact-v1' 'wrapper_api=codex-manager-wrapper-v1'\nexit 7\n",
-            ),
-            (
-                "probe-oversized",
-                "i=0\nwhile [ \"$i\" -lt 513 ]; do printf x; i=$((i + 1)); done\n",
-            ),
-        ];
-        for (label, body) in cases {
-            let mut fixture = fixture(label, happy_entries("0.150.1"), false);
-            let manager = fixture.root.join("manager-source");
-            write_manager_probe(&manager, body);
-            fixture.request.manager = Some(manager);
-            let error = build_generation(&fixture.request).unwrap_err();
-            assert!(
-                error.to_string().contains("Manager artifact probe"),
-                "unexpected {label} error: {error}"
-            );
-            assert!(!fixture.request.output.exists());
-            assert!(no_builder_staging(&fixture.root));
-            fixture.remove();
-        }
-
-        let mut fixture = fixture("probe-timeout", happy_entries("0.150.1"), false);
-        let manager = fixture.root.join("manager-source");
-        write_manager_probe(&manager, "while :; do :; done\n");
-        fixture.request.manager = Some(manager);
-        let error = build_generation(&fixture.request).unwrap_err();
-        assert!(error.to_string().contains("probe timed out"));
-        assert!(!fixture.request.output.exists());
         assert!(no_builder_staging(&fixture.root));
         fixture.remove();
     }
@@ -6811,7 +5480,7 @@ fi
 
     #[test]
     fn test_m2_b6_slice2_patch_and_publication_fail_closed_matrix() {
-        for case in ["missing-source", "extra-source", "prepatched-source"] {
+        for case in ["all-sources-missing", "prepatched-source"] {
             let mut entries = happy_entries("0.150.1");
             let runtime = &mut entries
                 .iter_mut()
@@ -6819,9 +5488,12 @@ fi
                 .unwrap()
                 .data;
             match case {
-                "missing-source" => replace_first(runtime, PATCHES[0].0, b"XXXXXXXXXXXXXXXX"),
-                "extra-source" => runtime.extend_from_slice(b"/etc/resolv.conf"),
-                "prepatched-source" => replace_first(runtime, PATCHES[0].0, PATCHES[0].1),
+                "all-sources-missing" => {
+                    *runtime = fake_elf(false);
+                }
+                "prepatched-source" => {
+                    replace_first(runtime, FD_REMAP_RULES[0].0, FD_REMAP_RULES[0].1);
+                }
                 _ => unreachable!(),
             }
             let fixture = fixture(case, entries, false);
@@ -6836,6 +5508,38 @@ fi
             assert!(no_builder_staging(&fixture.root));
             fixture.remove();
         }
+
+        // Adaptive variable FD rule counts (3, 2, 1, 0) must patch all present hits cleanly.
+        let mut variable_entries = happy_entries("0.150.1");
+        let variable_runtime = &mut variable_entries
+            .iter_mut()
+            .find(|entry| entry.path == "bin/codex")
+            .unwrap()
+            .data;
+        let mut custom = fake_elf(false);
+        for s in [
+            "/etc/resolv.conf",
+            "/etc/resolv.conf",
+            "/etc/resolv.conf",
+            "/etc/codex/config.toml",
+            "/etc/codex/config.toml",
+            "/etc/codex/requirements.toml",
+        ] {
+            custom.extend_from_slice(s.as_bytes());
+            custom.push(0);
+        }
+        *variable_runtime = custom;
+        let var_fixture = fixture("adaptive-fd-counts", variable_entries, false);
+        assert!(build_generation(&var_fixture.request).is_ok());
+        let patched = std::fs::read(var_fixture.request.output.join("runtime")).unwrap();
+        let meta =
+            std::fs::read_to_string(var_fixture.request.output.join("generation.meta")).unwrap();
+        assert!(meta.contains("source_counts=3,2,1,0;"));
+        for (expected, (source, replacement)) in [3usize, 2, 1, 0].into_iter().zip(FD_REMAP_RULES) {
+            assert!(occurrence_offsets(&patched, source).is_empty());
+            assert_eq!(occurrence_offsets(&patched, replacement).len(), expected);
+        }
+        var_fixture.remove();
 
         let fixture = fixture("output-exists", happy_entries("0.150.1"), false);
         std::fs::create_dir(&fixture.request.output).unwrap();
@@ -7072,13 +5776,18 @@ fi
 
         let raw_runtime = runtime_patch::tests::build_canonical_synthetic_aarch64_elf();
         let host = fake_elf(false);
-        let exec_server = fake_elf(false);
+        let mut exec_server = runtime_patch::tests::build_canonical_synthetic_aarch64_elf();
+        // Inject an extra resolv.conf beyond canonical baseline to ensure adaptive companion patching.
+        exec_server.extend_from_slice(b"/etc/resolv.conf\0");
+        let mut custom_tool = fake_elf(false);
+        custom_tool.extend_from_slice(b"/etc/codex/config.toml\0");
         let entries = vec![
             TestEntry::directory("bin/"),
             TestEntry::file("bin/codex", raw_runtime.clone()),
             TestEntry::file("bin/codex-code-mode-host", host.clone()),
             TestEntry::file("bin/codex-exec-server", exec_server.clone()),
-            TestEntry::file("codex-package.json", expected_package_json("0.169.0")),
+            TestEntry::file("bin/codex-custom-tool", custom_tool.clone()),
+            TestEntry::file("codex-package.json", expected_package_json("1.2.0")),
             TestEntry::directory("codex-path/"),
             TestEntry::file("codex-path/rg", b"\x7fELF-glibc-rg".to_vec()),
             TestEntry::directory("codex-resources/"),
@@ -7087,12 +5796,12 @@ fi
             TestEntry::file("codex-resources/voice/NOTICE.md", b"notice".to_vec()),
         ];
         let mut fixture = fixture("v3-pkg", entries, false);
-        fixture.request.version = "0.169.0".to_owned();
+        fixture.request.version = "1.2.0".to_owned();
         fixture.request.generation_id = "test-v3-generation".to_owned();
         assert_eq!(
             inspect_package_archive_version(&fixture.request.archive, &fixture.request.gzip)
                 .unwrap(),
-            "0.169.0"
+            "1.2.0"
         );
         let bad_archive = fixture.root.join("bad-package.tar.gz");
         std::fs::write(&bad_archive, b"not-a-tar-gz").unwrap();
@@ -7106,6 +5815,7 @@ fi
         assert!(!out.join("codex-code-mode-host").exists());
         let descriptor = std::fs::read_to_string(out.join("generation.meta")).unwrap();
         assert!(descriptor.starts_with("codex-local-generation-v3\n"));
+        assert!(!descriptor.contains("manager_artifact_digest"));
         assert!(descriptor.contains("patch_policy_id\ttermux-fd-remap-99b-v1\n"));
         assert!(descriptor.contains("uds_policy=termux-uds-fd35-adaptive-v1"));
         assert_eq!(
@@ -7121,13 +5831,21 @@ fi
             std::fs::read(out.join("bin/codex-code-mode-host")).unwrap(),
             host
         );
+        let mut patched_exec_server = std::fs::read(out.join("bin/codex-exec-server")).unwrap();
+        assert_ne!(patched_exec_server, exec_server);
+        assert!(occurrence_offsets(&patched_exec_server, b"/etc/resolv.conf").is_empty());
+        assert!(!occurrence_offsets(&patched_exec_server, b"/proc/self/fd/35\0").is_empty());
+        assert!(runtime_patch::apply_adaptive_uds_fd35(&mut patched_exec_server).is_err());
+        let patched_custom_tool = std::fs::read(out.join("bin/codex-custom-tool")).unwrap();
+        assert_ne!(patched_custom_tool, custom_tool);
+        assert!(occurrence_offsets(&patched_custom_tool, b"/etc/codex/config.toml").is_empty());
         assert_eq!(
-            std::fs::read(out.join("bin/codex-exec-server")).unwrap(),
-            exec_server
+            occurrence_offsets(&patched_custom_tool, b"/dev/fd/34/config.toml").len(),
+            1
         );
         assert_eq!(
             std::fs::read(out.join("codex-package.json")).unwrap(),
-            expected_package_json("0.169.0")
+            expected_package_json("1.2.0")
         );
         assert_eq!(
             std::fs::metadata(out.join("codex-package.json"))
@@ -7182,6 +5900,7 @@ fi
         for expected in [
             "file\tbin/codex\t",
             "file\tbin/codex-code-mode-host\t",
+            "file\tbin/codex-custom-tool\t",
             "file\tbin/codex-exec-server\t",
             "file\tbrowser/manual/curl\t",
             "file\tbrowser/open/curl\t",
@@ -7209,5 +5928,26 @@ fi
         assert!(publish(&bad_pub).is_err());
         assert!(!bad_pub.output.exists());
         fixture.remove();
+    }
+
+    #[test]
+    fn test_v3_static_aarch64_rg_is_preserved_intact() {
+        let raw_runtime = runtime_patch::tests::build_canonical_synthetic_aarch64_elf();
+        let static_rg = fake_elf(false);
+        let static_rg_entries = vec![
+            TestEntry::directory("bin/"),
+            TestEntry::file("bin/codex", raw_runtime),
+            TestEntry::file("codex-package.json", expected_package_json("0.169.0")),
+            TestEntry::directory("codex-path/"),
+            TestEntry::file("codex-path/rg", static_rg.clone()),
+        ];
+        let mut static_rg_fixture = fixture("v3-static-rg", static_rg_entries, false);
+        static_rg_fixture.request.version = "0.169.0".to_owned();
+        build_generation(&static_rg_fixture.request).unwrap();
+        assert_eq!(
+            std::fs::read(static_rg_fixture.request.output.join("codex-path/rg")).unwrap(),
+            static_rg
+        );
+        static_rg_fixture.remove();
     }
 }

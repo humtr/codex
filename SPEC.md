@@ -40,100 +40,50 @@ necessary Termux adaptations and remove local replacements made obsolete by
 upstream. Adapt this wrapper to evolving upstream interfaces.
 
 Qualification determines when an update can be activated. A compatibility
-failure is work to repair the adaptation and existing release pipeline, not a
+failure is work to repair the binary adaptation and release pipeline, not a
 reason to freeze development on an older version. Preserve the operating and
 rollback generations during that repair. Extend the existing official-release
-discovery, source adaptation, qualification, signing, promotion and update path;
-do not add another version selector or release controller. The current target
-recorded in CURRENT.md does not limit this ongoing commitment to that version.
+discovery, rule-based binary adaptation, qualification and update path; do not
+add another version selector or release controller. The current target recorded
+in CURRENT.md does not limit this ongoing commitment to that version.
 
-The common release builder owns source adaptation for both hosted and local
-executors. Locate supported operations through Rust syntax and their call/data
-relationships, preserving unrelated source and upstream additions; private
-function names, local binding names, formatting and file relocation alone are
-not compatibility failures. Prefer upstream configuration/APIs and remove
-superseded adaptations. Generated protocol outputs come from the adapted type
-definitions through upstream's generator, not a previous version's binary diff.
-Ambiguous or changed contracts remain explicit failures rather than guessed edits.
-The upstream generator owns `app-server-protocol/schema`; frontend scope admits
-those outputs and captures the compiled-source proof after generation. Format
-and lint compare that same prepared tree, and the existing generator archive
-retains the complete generated payload.
-Native and optional TUI integration patches each bind their original official
-base in the patch itself. Executors acquire that exact base; the common Rust
-producer uses Git's three-way content/rename merge with a temporary index.
-Conflicts leave the checkout and real index unchanged. Frontend assembly owns
-payload collision checks and copying, not an independent patch engine. Do not
-backdate source files to force compiler-cache reuse; preserve Cargo's normal
-freshness checks and reuse qualified artifacts at their existing admission boundary.
+Official upstream archives (`codex-package-aarch64-unknown-linux-musl.tar.gz`)
+supply the prebuilt static Linux musl executables (`bin/codex`,
+`bin/codex-exec-server`, `bin/codex-code-mode-host`) and complete upstream
+resources (`codex-resources/*`, `codex-package.json`). Wrapper and
+`codex-release-builder` adapt all eligible static AArch64 musl executables using
+rule-based equal-length path remaps (FD 33/34) and adaptive UDS cave patching
+(`99b`, FD 35) verified per binary without hardcoded occurrence counts or source
+cross-compilation toolchains.
 
-
-An upgrade candidate binds its official source, wrapper source and component
-build inputs once. Build results and qualification references are outputs;
-registering them must not change source inputs and repeat their qualification.
-Reuse independently admitted artifacts with identical production inputs, and
-rerun changed verification without rebuilding unchanged executables. Keep source
-admission, signing, immutable public readback and non-forced promotion as separate
-authority boundaries. The existing controller implements this flow; do not put
-a second release manager above it.
-
-The controller registers an accepted composition in main's `release-frontend-v1`
-with its exact `release-source-v1` source. The pinned main caller passes that result
-to the existing producer; the producer checks the qualified run, source recipe,
-artifact and proof. This result never rewrites development build inputs or starts
-their qualification again. Base can advance independently while a new frontend
-is still qualifying; Full remains on its previous accepted composition until its
-new frontend result is admitted. Historical embedded frontend references remain
-readable for retained sources; new results use the composition record.
-
-Frontend proof admission checks the nonzero successful summary against unique
-actual PASS records and requires every focus scope declared by the qualified
-workflow. Added upstream tests do not invalidate that proof; missing scopes or
-incomplete execution do. The schema1 focused_tests field remains readable for
-retained input/parser consumers, not as the current artifact's exact test count.
-
-The hosted executor can restore a completed raw build only by its exact existing
-production-input fingerprint. The common verifier checks the complete raw
-inventory, binary digest, official source/version and dependency audit before
-transfer. The candidate builder retains its static AArch64 ELF check when it
-consumes the runtime. A failed cache check fails the job; it does not silently rebuild or
-admit the artifact. Cache reuse skips compilation, not source admission, Android
-qualification, signing or public readback. Public signed Base retention remains
-the durable runtime reuse boundary. Each executor owns its compiler profile;
-the shared schema writer inherits that profile and never substitutes another
-component's code-generation settings.
-
-Cross-workflow delivery uses the raw runtime artifact from a successful owned
-Core qualification of the exact selected source. Branch-scoped caches are only
-an optimization, not the handoff to main publication. Discover the qualified
-run through the shared exact-run admission rules, download its unexpired unique
-runtime artifact and use the common raw verifier before transfer. A missing or
-expired artifact requires normal production; a failed advertised download or
-verification fails the job. Artifact reuse skips native compilation and musl
-dependency preparation; Android, signing and public admission remain required.
-
-Local and hosted builds derive the same official source tuple. Explicit executor
-toolchain profiles retain their own qualification; they must not independently
-pin different upstream versions. Core-only admission and activation never acquire
-Manager, the enhanced TUI or Provider. Configured optional compositions have their
-own integration gates; live connector refresh applies to an installed Bridge,
-not to a Core-only installation with no Provider.
+Bare `codex update` (or `codex update --upstream`) resolves official OpenAI
+release metadata and archives, verifies the official archive SHA-256 digest,
+applies adaptive rule-based binary patching across `bin/*`, preserves static
+`codex-path/rg` (falling back to a Termux wrapper script when absent), validates
+`bin/codex --version`, and activates the new generation using only the upstream
+version boundary — independent of Manager, enhanced TUI, Provider, or signed
+remote release indices. Optional signed release indices and extension module
+updates remain decoupled opt-in capabilities outside minimal Wrapper.
 ## 1. Product definition
 
 The product provides one public `codex` entrypoint that runs the official
-upstream Codex CLI correctly on supported Termux environments.
+upstream Codex CLI cleanly on supported Termux environments.
 
-It has four components in one repository: mandatory **Core** for minimal Termux
-compatibility and signed runtime lifecycle; optional **Manager** behind
-`codex termux` for account/task/window conveniences; optional upstream-based **TUI**
-for UI integration; and optional **Provider** for Chat transport/model capabilities.
-The minimum execution is upstream plus Core. Tools, approvals, native conversation
-records, compaction and writer locks remain upstream-owned. Section4.6 defines the
-boundaries; CURRENT distinguishes current signed composition constraints from
-source qualification of independently optional components.
+In the standalone minimal architecture (**Stage 1**), the Wrapper (`Core`) is
+self-contained with zero hardcoded dependencies on addon crates or external
+modules: it owns only Termux runtime compatibility (FD 33/34/35, minimal `config.toml`,
+clean environment/timezone, TLS certificates, browser helpers, sandbox guard,
+fast `--version`/`--help` passthrough), `codex update` (`--upstream`, `--version`,
+`--path`, `--rollback`, `--help`), `codex doctor`, and `codex wrapper status`.
+Tools, approvals, native conversation records, compaction, writer locks, and
+`app-server daemon` / `remote-control` execution remain upstream-owned.
+Optional addon modules (`Manager`, enhanced `TUI`, `Provider`, signed remote
+release indices) are decoupled outside the minimal Wrapper binary (**Stage 2**)
+and may attach only as generic opt-in extensions without coupling bare execution
+or upstream updates.
 
-Every declared optional artifact must qualify before entering a signed generation.
-A missing optional capability cannot disable independently valid Core execution.
+A missing, removed, or version-drifted optional module must never disable valid
+minimal Wrapper execution or block upstream updates.
 
 This is a clean rewrite. Legacy source is historical evidence, not an
 implementation dependency or migration base.
@@ -147,87 +97,83 @@ In descending order:
    state;
 3. preserve upstream process behavior at the execution boundary;
 4. make installation, update, activation, and rollback crash-safe;
-5. keep Core small, fast to build, and fast to execute;
-6. add Manager conveniences without giving Manager ownership of Core state;
+5. keep Wrapper small, fast to build, and near-zero cold-start overhead;
+6. make Manager, TUI, and Provider conveniences opt-in without coupling bare
+   execution or upstream updates;
 7. optimize implementation velocity without weakening acceptance gates.
 
 ## 3. Public command contract
 
-The launcher classifies only an exact first argument of `update`, `doctor`, or
-`termux`. Every invocation with one or more arguments that is not one of those
-Core/Manager routes is passed to upstream Codex unchanged after the existing
-Termux launch planning. The exact zero-argument bare `codex` invocation has one
-narrow Core preflight exception: only when stdin, stdout, and stderr are all
-terminals may Core perform the bounded signed-stable update discovery described
-below before launching upstream. `update` is a Core-owned safety boundary: the
-installed wrapper must never execute the upstream distribution updater, because
-that updater can install an unadapted runtime on Termux. The wrapper release
-pipeline obtains the official upstream package, applies the accepted Termux
-patch, qualifies it, binds the matching Core artifact, and publishes a signed Core-plus-generation bundle; the
-installed Core obtains and activates only that signed adapted bundle.
+The minimal standalone Wrapper (`Core`) classifies an exact first argument (when
+not preceded by upstream payload delimiters) of `update`, `doctor`, or `wrapper`.
+Every invocation with zero arguments or an upstream argument vector — including
+`app-server daemon` and `remote-control` — passes through to the active adapted
+upstream runtime with FD 33/34/35, Termux environment/timezone compatibility,
+and the sandbox capability guard (without startup update discovery, Manager IPC
+spawning, or retention pruning on interactive/ordinary launches). `update` is a
+Wrapper-owned safety boundary: the installed wrapper must never execute the
+upstream distribution updater, because that updater can install an unadapted
+runtime on Termux.
 
 | Command | Owner | Required behavior |
 | --- | --- | --- |
-| `codex` | Core then upstream | on an all-TTY zero-argument launch, perform only the bounded signed-stable advisory check/prompt below, then execute the active upstream runtime; otherwise execute upstream immediately |
-| `codex [UPSTREAM_ARGS...]` | Core | for every non-empty upstream argument vector, execute upstream with original arguments without startup update discovery or prompting |
-| `codex --version`, `codex -V` | upstream | print exactly the upstream version output |
-| `codex update` | Core | resolve the signed stable wrapper release channel, discover newer official upstream metadata, request its missing hosted build and wait for signed publication; explicit source/transport overrides retain the separately qualified unified acquisition behavior |
-| `codex update --help` | Core | print the wrapper-owned update usage without invoking upstream or changing state |
-| `codex update --force` | Core | retry exactly the authenticated held public release sequence for this invocation while bypassing only the local rollback-hold comparison; a valid matching hold is required and signature, digest, release-sequence, candidate-probe, and activation checks remain unchanged |
-| `codex update --build-local` | Core | resolve the exact official upstream stable metadata/archive, build and probe one local-derived generation, sign with the explicitly configured authorized key or a fresh temporary Ed25519 key, bind to the authenticated public baseline, activate without changing `update_key`, and perform no public upload/promotion |
-| `codex update [INVALID_ARGS...]` | Core | reject unsupported updater options or combined selectors without invoking upstream or changing state |
-| `codex update --local <DIRECTORY>` | Core | verify, stage, probe, and activate one compatible signed official/operator bundle through ordinary public-authority admission; it is not a local-derived import surface |
-| `codex update --remote <HTTPS_BASE_URL>` | Core | acquire one immutable signed Core-plus-generation bundle and activate it through the local coordinated path |
-| `codex update --rollback` | Core | atomically activate the retained previous complete signed generation; record a public update hold only when rolling back from an authenticated public generation, while rollback from a local-derived current creates no public hold or rollback guard |
-| `codex doctor [OPTIONS]` | Core | combine upstream and Termux diagnostics |
-| `codex doctor --color` | Core | explicitly request colored human diagnostics on a TTY, including when an outer Termux wrapper supplied `NO_COLOR` |
-| `codex termux [COMMAND]` | Manager boundary | invoke the Manager artifact or report it unavailable |
+| `codex` / `codex [UPSTREAM_ARGS...]` | Wrapper then upstream | apply FD 33/34/35 and Termux environment/timezone planning and execute upstream directly (including `app-server daemon` and `remote-control`; reject Linux Landlock `--sandbox read-only`/`workspace-write` and `sandbox linux`) |
+| `codex --version`, `codex -V`, `codex --help`, `codex -h` | upstream | execute upstream on the fast minimal path (skipping `daemon_settings::ensure`) and print exact upstream output without extra Wrapper/Manager rows |
+| `codex update` / `codex update --upstream` | Wrapper | resolve the official upstream stable release metadata/archive (`openai/codex`), verify its official archive SHA-256 digest, unpack complete archive resources, preserve/wrap `codex-path/rg`, apply adaptive FD/`99b` adaptation to static AArch64 musl binaries in `bin/*`, validate, and atomically activate |
+| `codex update --version <MAJOR.MINOR.PATCH>` | Wrapper | install and adapt one specific official upstream stable release through the upstream update pipeline |
+| `codex update --path <FILE_OR_DIR>` | Wrapper | adapt an offline official upstream `.tar.gz` archive or stage/validate/activate an already prepared generation directory |
+| `codex update --help` | Wrapper | print Wrapper update usage without invoking upstream or changing state |
+| `codex update --rollback` | Wrapper | atomically activate the retained previous complete generation |
+| `codex update [INVALID_ARGS...]` | Wrapper | reject unsupported or conflicting updater options without invoking upstream or changing state |
+| `codex doctor [--color \| --json]` | Wrapper | combine upstream and Wrapper/Termux diagnostics cleanly without addon/Manager coupling |
+| `codex wrapper status [--json]` | Wrapper | report active generation, previous generation, upstream version, layout, runtime path, patch policy/report, daemon passthrough status, and Wrapper roots |
+| `codex wrapper --help` | Wrapper | print minimal Wrapper usage without invoking upstream or changing state |
 
-`codex version` is not introduced. Wrapper/Core/Manager version rows must not
-be appended to upstream `--version` or `-V` output.
+Optional modular extensions (`Manager`, enhanced `TUI`, `Provider`, and optional
+signed remote release channels) are decoupled outside the minimal standalone
+Wrapper (`Core`) so bare Termux compatibility and upstream upgrades remain fast
+and dependency-free; when reintroduced, they attach only as generic opt-in
+extensions without hardcoding module logic inside the minimal Wrapper.
+
+`codex version` is not introduced. Wrapper/Manager version rows must not
+be appended to upstream `--version` or `-V` output. `codex termux` is
+replaced directly by `codex wrapper`.
 ## 4. Architecture and ownership
 
-### 4.1 Core
+### 4.1 Core (Wrapper)
 
-Core exclusively owns:
+Wrapper exclusively owns:
 
-- public command dispatch;
-- official upstream artifact qualification;
+- public command dispatch and `wrapper.toml` opt-in module routing;
+- official upstream artifact acquisition, validation, and rule-based binary adaptation;
 - Termux runtime adaptation and launch environment;
-- FD 33 and FD 34 preparation;
+- FD 33, FD 34, and FD 35 preparation;
 - final upstream process execution;
 - sandbox capability enforcement;
 - immutable generation construction and integrity metadata;
-- update, activation, last-known-good selection, and rollback;
-- read-only Core diagnosis;
+- bare local update, signed module/channel update, activation, and rollback;
+- read-only Wrapper diagnosis;
 - composition of upstream and Termux doctor results;
-- the typed boundary through which Manager requests Core operations.
+- the typed boundary through which Manager requests Wrapper operations.
 
-Core must remain usable when Node.js, Manager, network access, update services,
-or optional Termux APIs are unavailable.
+Wrapper must remain usable and fast when Node.js, Manager, enhanced TUI,
+Provider, network access, remote update indices, or optional Termux APIs are
+unavailable.
 
-### 4.2 Manager
+### 4.2 Optional extension modules (decoupled Stage 2)
 
-Manager owns:
+Optional Manager, enhanced TUI, and Provider capabilities are decoupled from the
+standalone minimal Wrapper and are not required for Termux Codex operation.
+When enabled as Stage 2 opt-in extensions:
 
-- `codex termux` command UX;
-- profile selection and presentation;
-- notification configuration and delivery;
-- Manager-local state and UI;
-- profile execution handoff to the validated Core entrypoint.
-
-Manager's profile UX and declared profile state are standalone Codex product
-capabilities, assessed through the public `codex termux` path. Their completeness
-is determined by how they support the official upstream runtime and user tasks,
-not by features in a separate convenience product.
-Conversation persistence, discovery, selection and resume belong to upstream,
-as established by the shared-conversation contract below; Manager does not own
-a second session index or picker.
-
-The Manager executable is built separately from Core and is an optional signed
-generation asset. Core does not compile it, discover it from `PATH`, or probe
-it during ordinary launch. Release-builder owns the bounded artifact probe;
-Core consumes only the signed generation and its digest-bound Manager path.
+- `Manager` owns optional profile/task/notify/usage/rotation conveniences
+  exposed through a generic extension boundary;
+- ordinary minimal `codex` execution never compiles in, links against, spawns, or
+  probes Manager/TUI/Provider executables;
+- conversation persistence, discovery, selection, resume, and daemon lifecycle
+  remain upstream-owned;
+- optional artifacts are built and distributed independently of Wrapper's
+  minimal `Cargo.toml` and `release-builder` pipeline.
 
 Manager must not directly write Core generations, pointers, manifests, locks,
 runtime state, resolver data, or activation journals. A Manager request that
@@ -276,7 +222,7 @@ runtime. Unknown incompatible schema versions fail without mutation.
 
 ### 4.4 Product completeness against upstream
 
-The completeness boundary is the public `codex` and `codex termux` product.
+The completeness boundary is the public `codex` and `codex wrapper` product.
 Core supplies the supported official runtime, Termux adaptation, process and
 shared-server execution, generation lifecycle and diagnosis. It must preserve
 accepted upstream command/configuration behavior and account isolation; optional
@@ -785,72 +731,26 @@ New launch/resume uses the newly selected snapshot. Existing threads retain thei
 actual upstream configuration until an upstream-supported transition applies it.
 Do not add CLI overrides or mutate sibling settings to force a policy refresh.
 
-#### Optional Manager configuration preparation
+#### Minimal FD 34 configuration and zero-write fast path
 
-Optional launch policy is queried only from the admitted Manager through
-`__prepare-launch-v1 CAPABILITY -- ORIGINAL_ARGS`. CAPABILITY is `local-frontend`
-only when Core can offer that qualified interactive frontend; otherwise `runtime`.
-The bounded, no-work query returns exactly `codex-manager-launch-v1\n` followed by
-`current\n`, `handoff\n` or `blocked\n`. Manager alone reads account preferences
-and decides whether its convenience launcher is needed. Core reads no Manager
-preference filename or window recursion marker for that decision. `blocked` stops
-without executing another account; unavailable optional preparation falls back
-only before handoff, with the unchanged current execution home and arguments.
-`handoff` replaces Core with the same admitted Manager's `__execute-launch-v1`
-using the original capability/arguments and existing authenticated Core handoff.
-There is no post-handoff retry or alternate-account fallback. Manager's explicit
-launcher revalidates its selected account before requesting Core execution.
+In minimal standalone Wrapper execution, Wrapper performs no Manager IPC
+(`__prepare-launch-v1`, `__prepare-runtime-v1`), no enhanced TUI startup probe,
+no retention pruning on hot launch, and no network update check.
+Shared FD 34 system configuration (`config.toml`), cached `resolv.conf`, and
+daemon settings (`app-server-daemon/settings.json`) are materialized lazily only
+on creation or content mismatch — never rewritten or `fsync`-ed on unchanged
+launches (`daemon_settings::ensure` is also skipped on fast `--version`/`-V`/
+`--help`/`-h` passthrough).
 
-The explicit `__prepare-runtime-v1 CONFIG_DIRECTORY` operation performs best-effort
-shared profile projection and returns the configuration envelope below. Core calls
-this operation before execution. `__runtime-config-v1` remains a read-only lookup:
-it returns the same envelope without creating profile links or changing account
-files. Both require the admitted Core handoff and share the same bounds. Neither
-starts jobs or performs inference. A malformed saved account preference is an
-execution error; it must not fall back to another account. An absent preference
-continues to use the native default.
-
-Before final runtime execution, Core may call the admitted generation's Manager
-with `__prepare-runtime-v1 CONFIG_DIRECTORY`. This private endpoint requires the
-existing Core handoff, never starts a runtime or performs inference/network work,
-and receives no upstream workload arguments. It returns UTF-8 bytes beginning with
-`codex-manager-runtime-config-v1\n`, followed by the Manager-owned upstream TOML
-fragment. The entire response is limited to 8 KiB (inside the existing 16-KiB
-shared-server configuration bound) and the call to two seconds;
-stdin and stderr are not inherited. Core checks the envelope, byte bound, UTF-8
-and absence of NUL, and composes the fragment after its execution defaults into an immutable private
-per-launch snapshot supplied through FD34. The shared base directory contains
-Core defaults only. Equal complete settings reuse a snapshot; different settings
-never rewrite one another. Upstream still owns TOML parsing and configuration
-precedence. No account config.toml or credential is rewritten.
-
-Before dispatch, validate optional combined settings using the exact admitted
-upstream executable with an inert configuration-loading command, empty private
-HOME/CODEX_HOME and working directory, no account credentials, bounded time and
-no inference. Cache success only for that immutable snapshot and runtime identity.
-If combined syntax/types fail, validate Core defaults and continue on those
-defaults only if they pass. Never retry a workload or silently change accounts.
-
-Manager reads its own notification policy and renders the same existing native
-completion callback and hook matchers. Missing configuration enables no automatic
-hooks; malformed configuration does not become default notification enrollment.
-Its system-layer fragment also supplies `approval_policy = "on-request"` and
-`approvals_reviewer = "auto_review"` as convenience defaults. Upstream precedence
-keeps account/project/config-profile/CLI choices authoritative, including explicit
-user review or full access. Core neither selects this reviewer nor interprets
-these fields; without Manager, ordinary upstream approval defaults remain usable.
-The explicit preparation owns optional shared `*.config.toml` projection from the
-private CONFIG_DIRECTORY/profiles registry into the selected upstream home.
-Existing local files and dangling links take precedence, and projection does not
-copy authentication or conversation data. Projection remains best effort.
-
-An absent Manager causes no call. A failed, incompatible, oversized or timed-out
-response is discarded with a concise warning, leaving the Core execution defaults
-usable; it must not replay the workload or run an alternate executor. The legacy
-`# codex-termux-notify-v1` file prefix remains solely as the ownership marker for
-safe replacement of existing Core system configuration. Shared-server snapshots
-consume the same complete immutable bytes without a second policy renderer. Managed-home
-leases and shared conversation preparation remain Core-owned in this slice.
+In minimal standalone mode, FD 34 `config.toml` contains only the minimal
+Termux compatibility settings (`# codex-termux-notify-v1\nsandbox_mode =
+"danger-full-access"\nmcp_oauth_credentials_store = "file"\n`), without
+additional addon overrides or `system_config` dry-run validation. Any stale
+legacy `requirements.toml` bearing the obsolete shared-state ownership marker
+(`# codex-termux-shared-state-v1\n`) is lazily removed without disturbing
+user-authored files. Future opt-in module configuration must attach through a
+generic extension interface without hardcoding Manager-specific IPC into
+minimal Wrapper execution.
 
 ### Termux permission selection
 

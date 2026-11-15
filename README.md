@@ -11,16 +11,17 @@ current working release remains available until the next is qualified. This
 applies to future releases as well as the current target. See the
 [continuous upstream upgrade contract](SPEC.md#continuous-upstream-upgrades).
 
-The product has one public command, `codex`, and four components:
+The product has one public command, `codex`, built in two decoupled stages:
 
-- a minimal native Rust Core that makes the upstream runtime work correctly on
-  Termux and owns installation, update, diagnosis, activation, and rollback;
-- an optional Manager reached through `codex termux` for accounts, quota,
-  notifications, windows and task assistance;
-- an optional TUI, extending the upstream terminal UI and integrating Manager
-  and provider capabilities;
-- an optional Rust Provider for ChatGPT model connection, with a minimal
-  app-side JavaScript bridge.
+- **Stage 1 (active minimal Wrapper):** a standalone Rust Wrapper (`crates/wrapper`)
+  and adaptive builder (`crates/release-builder`) with zero addon dependencies
+  that provides Termux runtime compatibility (FD 33/34/35, minimal `config.toml`,
+  timezone TZif, TLS certs, browser helpers, sandbox guard, `app-server daemon` &
+  `remote-control` passthrough), `codex update [--upstream] [--version <M.m.p>] | --path <FILE_OR_DIR> | --rollback`,
+  `codex doctor`, and `codex wrapper status [--json]`.
+- **Stage 2 (decoupled optional modules, preserved outside minimal Wrapper):**
+  optional Manager (`codex wrapper ...`), enhanced `TUI`, and `Provider` crates,
+  designed to reattach as clean opt-in extensions once Stage 1 is qualified.
 
 Every Termux Codex execution passes through Core. Actual tools, reviewer,
 conversation storage, compaction and resume remain upstream-owned. Optional

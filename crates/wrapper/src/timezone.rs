@@ -298,7 +298,7 @@ fn validate_tzif(bytes: &[u8]) -> io::Result<()> {
 }
 
 fn publish_zone(cache: &Path, zone: &str, bytes: &[u8]) -> io::Result<OsString> {
-    super::shared_server::private_dir(cache)?;
+    super::fs_util::private_dir(cache)?;
     // '/' is the only valid zone-name byte escaped here; '%' cannot occur in a name.
     let path = cache.join(format!("{}.tzif", zone.replace('/', "%")));
     let unchanged = match fs::symlink_metadata(&path) {

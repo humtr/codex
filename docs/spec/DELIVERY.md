@@ -25,7 +25,7 @@ adds no update channel, installed pointer, runtime mode or public CLI command.
 The main publication path still requires the complete qualified backend/frontend
 pair and retains the current generation on an unsupported update.
 
-Base qualification may run from an exact rewrite/rust-core push or manual dispatch
+Base qualification may run from a repository push or manual dispatch
 with read-only repository permissions. Source must equal the event's immutable
 commit. `rebuild_current` selects the version and source archive digest from the
 authenticated stable descriptor independently of TUI pins; otherwise the
@@ -720,18 +720,12 @@ activation-time candidate integrity remains the signed version/runtime probe.
 The official producer must therefore retain this signal on every public stable
 candidate while the R10 compatibility floor remains supported; dropping it is a
 backward-compatibility failure, not a canonicalization cleanup.
-The admitted TUI may extend this exact numbered bridge with helpers/2,
-helper_count=3 and its same-version termux-manager-tui-v1 identity/digest. Manager
-is mandatory for that extension; no other additional helper is admitted. Historical
-two-helper releases retain their exact behavior. Stable publication, staging,
-Pages retention and public readback require either exact legacy7-file inventory or
-exact extended8-file inventory, preserving the legacy activation-doctor signal.
-The retained R10 client must directly consume the extended signed target through
-its real public update/rollback path before any stable promotion. An ordinary
-nested-browser frontend is valid local construction, not a stable floor replacement.
-A newer canonical local generation may continue to use `browser/open/curl` and
-`browser/manual/curl`; canonical nested paths are not an R10-readable public
-stable target.
+The installed Manager/TUI (`manager-tui`, helpers/2) is an independently
+developed optional frontend and is not locked to exact `upstream_package_version`
+equality when enabled by `wrapper.toml` or `--with tui`. Local upstream
+updates (`codex update`) operate exclusively on the upstream package and
+Wrapper compatibility layer without consulting Manager or TUI version markers.
+Historical signed releases retain their existing inventories.
 
 For any later authorized official stable promotion, the small
 `update-index-v1` and `update-index-v1.sig` files are promoted together in one
@@ -789,33 +783,39 @@ members may be ignored only when they are valid bounded JSON values and do not
 duplicate a member name; changing any required semantic field or the layout
 version fails closed.
 
-The archive must contain exactly one regular `bin/codex`, exactly one regular
-`bin/codex-code-mode-host`, and exactly one regular `codex-package.json`.
-Those two binaries are the only selected upstream executables and must be
-little-endian 64-bit static AArch64 ELF files with no `PT_INTERP`. Other bounded
-regular files/directories, including additions or removals below the declared
-resource/path directories and future non-selected package resources, do not
-change the Termux generation and therefore do not by themselves require a
-wrapper release-builder change. Linux-side helpers such as `rg`, `zsh`,
-`bwrap`, voice resources, or later package resources remain excluded unless a
-separate normative contract explicitly selects them.
+The archive must contain at least regular `bin/codex` and `codex-package.json`.
+All extracted regular binaries in `bin/` (`bin/codex`, `bin/codex-exec-server`,
+`bin/codex-code-mode-host`) must be valid little-endian 64-bit static AArch64
+ELF files with no `PT_INTERP`. Package archive entries including `codex-resources`
+(`voice`, `bwrap`, etc.) and `codex-path` (with `codex-path/rg` mapped to the
+Termux `rg` wrapper) are preserved intact in `PackageRootV3` generations so
+upstream resource discovery remains complete; Wrapper still refuses `bwrap`
+Linux namespace sandboxing cleanly at runtime.
 
-Historical binary policy identities and exact instruction/offset digests are
-immutable, source-specific admission records, not a general recipe for new
-upstream releases. An accepted generation retains the exact qualified legacy
-adaptation bound to its signed manifest; unknown inputs fail closed.
-The common FD-33/34 and owner-safe FD-35 runtime invariants remain mandatory,
-and each newly selected official source requires exact preflight, native launch,
-permission and release acceptance. Never apply a known legacy binary offset
-to a new release by version-name guessing.
+Rule-based adaptation applies equal-length non-overlapping FD path remaps
+(`/etc/resolv.conf` -> `/proc/self/fd/33`, `/etc/codex/*.toml` ->
+`/dev/fd/34/*.toml`) and adaptive UDS cave adaptation (`99b`, `codex-daemon-`
+-> `/dev/fd/35/d-`) across every extracted static AArch64 musl executable in
+`bin/` (`bin/codex`, `bin/codex-exec-server`, `bin/codex-code-mode-host`) that
+contains matching unpatched patterns, verifying zero unpatched source
+occurrences remain without hardcoding per-binary occurrence counts or a single
+summed byte delta. Companion ELF executables in `bin/` without matching sites
+remain unmodified valid static AArch64 ELF files.
 
-The minimal upstream adaptation consists of generation metadata, the adapted
-runtime and an unmodified root-level codex-code-mode-host beside it. A current
-Core-bearing builder output additionally contains its bound Core and declared
-browser helpers, plus optional admitted Manager/TUI; exact signed inventories
-above govern complete bundles. Historical zero-helper descriptors remain retained
-compatibility, not the current full output. The companion's root-level placement
-is required because upstream resolves it beside its executable, not through PATH.
+`codex update` in minimal standalone mode defaults to `--upstream`: it fetches
+the selected official `openai/codex` release metadata and archive (`--version`
+or latest), verifies the archive SHA-256 digest, unpacks the complete
+`PackageRootV3` layout, preserves static AArch64 `codex-path/rg` when supplied
+(falling back to a Termux wrapper script when absent), executes adaptive rule
+patching across `bin/*`, carries forward the active Wrapper launcher, validates
+`bin/codex --version` under Termux FDs, and atomically activates the new
+generation without contacting addon release indices or requiring Manager
+artifacts (`manager_artifact_digest` is omitted in minimal descriptors and
+treated as optional on read; `bin/codex-code-mode-host` is likewise optional when
+an upstream package omits it). `codex update --path <FILE_OR_DIR>` adapts an
+offline `.tar.gz` archive or validates/installs a prepared generation directory;
+`codex update --rollback` atomically restores the retained previous generation.
+
 Every output is create-new in private staging and the absent destination is
 published complete-or-absent. Failure never publishes a partial generation,
 changes an existing destination, signs or activates content, or writes outside
@@ -867,6 +867,7 @@ $PREFIX/bin/codex                                      stable public entrypoint
 ~/.local/lib/codex/wrapper/publications/<id>/             retained old Core publication cache; no official producer authority
 ~/.local/lib/codex/wrapper/release-public-key.pem         bootstrap-only initial trust seed; never update fallback
 ~/.local/share/codex/wrapper/activation-state            authoritative generation + bounded trust state
+~/.local/share/codex/wrapper/wrapper.toml                persistent opt-in module & update mode config
 ~/.local/share/codex/wrapper/downloads-v1/<sha256>.part    private bounded untrusted/verified payload cache
 ~/.local/share/codex/wrapper/activation-journal[.tmp]    crash-recovery transaction state
 ~/.local/share/codex/wrapper/activation-state.tmp        atomic state publication temporary
@@ -1776,14 +1777,22 @@ client secrets, authorization codes, and tokens never become test evidence.
 
 ### App-server daemon and remote-control authority
 
-No Termux command may create, select, execute, update, or trust an unmanaged
-Codex installation under `$CODEX_HOME/packages/standalone` or
-`$CODEX_HOME/packages/app-server-daemon`, and no Termux app-server path may
-fetch or execute an upstream installer or self-updater. An upstream runtime may use
-the latter daemon package root with a legacy standalone fallback; both remain
-independent package authorities rather than signed Core generations. Bare
-`codex update` and all runtime replacement remain Core-owned signed-generation
-operations.
+No Termux wrapper update command delegates runtime installation or generation
+replacement to upstream (`$CODEX_HOME/packages/standalone` or upstream
+self-updaters). `codex update`, `codex update --upstream`,
+`codex update --path`, and `codex update --rollback` remain exclusively
+Wrapper-owned.
+
+For execution, minimal standalone Wrapper passes `codex app-server daemon` and
+`codex remote-control` directly through to the active adapted upstream runtime
+with FD 33 (`resolv.conf`), FD 34 (minimal `config.toml`), FD 35 (temporary root
+for Unix domain sockets fitting the 107-byte `sockaddr_un.sun_path` limit),
+clean Termux environment/timezone (`TZ` TZif), and `daemon_settings::ensure`.
+There is no hard block preventing upstream `app-server daemon` or
+`remote-control` dispatch. Note that optional Wrapper-managed shared
+app-server / catalog IPC contracts recorded below apply only if optional
+Manager modules are reintroduced in a later extension layer; minimal Wrapper
+starts no private `__app-server-*` daemon of its own on ordinary launches.
 
 For interactive local upstream TUI/resume/fork launches, Core may start one
 shared app-server directly from the already qualified active generation before
@@ -1884,14 +1893,8 @@ the complete new composition, its install/update/rollback, discovery and retirem
 directly. Compatibility with superseded experimental codecs is not an admission
 requirement.
 
-A daemon-backed app-server command, including `remote-control start`, may run
-only if it is bound to the currently qualified signed generation and cannot
-enter an upstream daemon-package or standalone installation/update loop. If
-that binding is not available, the command must fail closed with a stable Termux-specific
-unsupported result before creating unmanaged package state or performing
-network I/O.
-The foreground `remote-control` form that owns a private temporary socket is a
-separate path and remains usable when otherwise qualified.
+(Upstream `app-server daemon` and `remote-control` run directly via upstream
+passthrough with FD 33/34/35 Termux compatibility as specified above.)
 
 An app-server Unix control socket for a supported Termux path must use a
 private, profile-distinct short runtime namespace. Its encoded pathname must

@@ -66,83 +66,12 @@ impl Drop for UpdateLease<'_> {
     }
 }
 
-fn dependencies(
-    roots: &LocalCoreRoots,
-    state: &m2_generation_state::GenerationPointerState,
-) -> io::Result<HashSet<String>> {
+fn dependencies(state: &m2_generation_state::GenerationPointerState) -> HashSet<String> {
     let mut keep = HashSet::from([state.current.clone()]);
     if let Some(previous) = state.previous.as_ref() {
         keep.insert(previous.clone());
     }
-    // Use the existing descriptor/provenance parsers, not a second state format.
-    for id in keep.clone() {
-        let path = roots.generation_root.join(&id);
-        let loaded = load_local_generation(&path).map_err(|_| invalid())?;
-        if loaded.generation_id != id {
-            return Err(invalid());
-        }
-        if loaded
-            .manifest
-            .creation_metadata
-            .starts_with(LOCAL_DERIVED_METADATA_FORMAT)
-        {
-            let (_, manifest) = read_local_release_manifest(&path).map_err(|_| invalid())?;
-            if let Some(baseline) =
-                parse_local_derived_metadata(&manifest, &loaded).map_err(|_| invalid())?
-            {
-                keep.insert(baseline.generation_component);
-            }
-        }
-    }
-    if let Some(guard) = rollback_guard::read_guard(roots).map_err(|_| invalid())? {
-        keep.insert(guard.target_generation_id);
-        keep.insert(guard.held_generation_id);
-    }
-    if let Some(hold) = read_update_hold(roots).map_err(|_| invalid())? {
-        keep.insert(hold.generation_id);
-    }
-    Ok(keep)
-}
-
-fn pending_candidate(
-    roots: &LocalCoreRoots,
-    state: &m2_generation_state::GenerationPointerState,
-) -> io::Result<Option<String>> {
-    let (_, current) = read_local_release_manifest(&roots.generation_root.join(&state.current))
-        .map_err(|_| invalid())?;
-    if current.generation_id != state.current {
-        return Err(invalid());
-    }
-    let mut latest: Option<(u64, String)> = None;
-    for entry in fs::read_dir(&roots.generation_root)? {
-        let entry = entry?;
-        if !entry.file_type()?.is_dir() {
-            continue;
-        }
-        let Some(id) = entry.file_name().to_str().map(str::to_owned) else {
-            continue;
-        };
-        if m2_generation_state::validate_generation_identity(&id, "pending candidate").is_err() {
-            continue;
-        }
-        let Ok((_, release)) = read_local_release_manifest(&entry.path()) else {
-            continue;
-        };
-        if release.generation_id != id || release.release_sequence <= current.release_sequence {
-            continue;
-        }
-        let Ok(loaded) = load_local_generation(&entry.path()) else {
-            continue;
-        };
-        if loaded.generation_id != id {
-            continue;
-        }
-        let candidate = (release.release_sequence, id);
-        if latest.as_ref().is_none_or(|old| candidate > *old) {
-            latest = Some(candidate);
-        }
-    }
-    Ok(latest.map(|(_, id)| id))
+    keep
 }
 
 fn referenced_generation(path: &Path, root: &Path) -> Option<String> {
@@ -373,12 +302,7 @@ pub(super) fn prune(roots: &LocalCoreRoots) -> io::Result<usize> {
     let state = m2_generation_state::read_pointer_state(&paths)
         .map_err(|_| invalid())?
         .ok_or_else(invalid)?;
-    let mut keep = dependencies(roots, &state)?;
-    if let Some(candidate) = pending_candidate(roots, &state)? {
-        keep.insert(candidate);
-    }
-    shared_server::retire_unused(&roots.state_root, &roots.generation_root, &keep)?;
-    super::system_config::prune(&roots.config_dir)?;
+    let mut keep = dependencies(&state);
     keep.extend(process_references(&roots.generation_root)?);
     // No state mutation can occur under this writer lock, including rollback.
     let mut removed = prune_directory(&roots.generation_root, &keep, false)?;

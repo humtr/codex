@@ -4,7 +4,45 @@ SPEC.md and its linked normative annexes own behavior and component boundaries.
 AGENTS.md owns development principles
 and must be reread after recovery. This file distinguishes source implementation,
 automated proof, actual Android execution, connected-client proof, public signed
-delivery and device activation. None substitutes for the next boundary.
+deployment and device activation. None substitutes for the next boundary.
+
+## Stage 1: Standalone Minimalist Wrapper (`rewrite/minimal-wrapper`, 2026-11-15)
+
+### Status and scope
+Stage 1 decouples `crates/wrapper` (`codex`) and `crates/release-builder` (`codex-release-builder`) into a standalone, zero-addon Termux compatibility wrapper aligned with `SPEC.md` Section 1–5 (`Stage 1` vs `Stage 2` architecture).
+- `crates/wrapper/Cargo.toml` depends only on `codex-release-builder` (zero dependency on `codex-runtime-binding`, `crates/manager`, `providers/chatgpt`, or `frontend/manager-tui`).
+- Active Stage 1 CLI surface: `codex update [--upstream] [--version <MAJOR.MINOR.PATCH>] | --path <FILE_OR_DIR> | --rollback | --help`, `codex wrapper status [--json]`, `codex doctor [--json]`, and direct upstream passthrough including `codex app-server daemon ...` and `codex remote-control`. Removed flags (`--build-local`, `--local`, `--signed`) exit with status `2`.
+- Adaptive Termux binary patching (`crates/release-builder/src/runtime_patch.rs`): scans and rewrites `0..N` FD-remap sites plus adaptive UDS FD 35 across static AArch64 ELFs under `bin/*` (`bin/codex`, optional `bin/codex-code-mode-host`, optional `bin/codex-exec-server`), preserves static AArch64 `codex-path/rg` when present (otherwise installs wrapper script), preserves `codex-resources/*`, and writes `generation.meta` without `manager_artifact_digest` (while `load_local_generation` remains backward-compatible with existing `codex-option2-wrapper-v1` generations).
+- Minimal runtime setup: fast `--version`/`-V`/`--help`/`-h` path bypassing `daemon_settings::ensure`; lock-free FD 33 `resolv.conf` cache hit; lazy FD 34 minimal `config.toml` (`sandbox_mode = "danger-full-access"`, `mcp_oauth_credentials_store = "file"`) plus marker-only cleanup of stale `# codex-termux-shared-state-v1` `requirements.toml`; `timezone::configure` (`TZ` TZif); FD 35 temp root; AArch64 `SYS_renameat2` (`276`) atomic `rename_noreplace`; TLS/TMPDIR/BROWSER/X11-Wayland-WSL environment fence; and `--sandbox` mode guard.
+
+### Verified boundaries (2026-11-15)
+- **Workspace format, lint, tests & release size:**
+  - `cargo fmt --check`, `cargo clippy --workspace --all-targets --locked -- -D warnings`, and `cargo test --workspace --locked` all exited `0`: `167 passed; 0 failed; 0 ignored` (`codex`: `25`, `codex_release_builder`: `20`, `codex_manager` lib: `51`, `profile_commands`: `67`, `window_launch`: `1`, `codex_runtime_binding`: `3`).
+  - `cargo build --release -p codex -p codex-release-builder --locked` produced `target/release/codex` (`1,326,432` bytes, reduced from `6,636,928` bytes) and `target/release/codex-release-builder` (`918,472` bytes).
+- **Live Termux device binary (`/data/data/com.termux/files/usr/bin/codex`, SHA-256 `b6611c3ac791cdc2a907a9d1e18c828a531f58c8dfc3030b2176eb3db684d663`):**
+  - `codex --version` -> `codex-cli 0.169.0`.
+  - `codex wrapper status [--json]` -> `status: active`, `generation_id: full-v0.169.0-opt2-s169`, `layout: package-root-v3`, `daemon_passthrough: supported`, `addons: none`.
+  - `codex doctor --json` -> `schema_version: 2`, `upstream.status: "healthy"`, `termux_wrapper.status: "healthy"`, `summary.status: "healthy"`.
+  - `codex --sandbox read-only --version` -> rejected non-zero.
+  - `codex exec --skip-git-repo-check "Reply only with OK"` -> exited `0` and returned `OK`.
+  - `codex-switch status` confirmed slot `169+` points to `b6611c3a...`; `codex-switch 167`/`169` were not invoked so running `codex-chatgpt-provider`, `codex-chatgpt-host`, and `codex-chatgpt-tunnel` services remained undisturbed.
+- **Isolated synthetic `HOME` lifecycle & live upstream update (`--path`, `--upstream`, `daemon`, `--rollback`):**
+  - Verified `--path` install for real `0.167.0` and `0.169.0` upstream packages, live `codex update --upstream` up-to-date detection on `0.169.0`, live `codex update --upstream` upgrade from `0.167.0 -> 0.169.0` (GitHub API + SHA-256 `c8d0b4ab...` verification + local patching + activation), `codex app-server daemon start`/`version`/`stop`, and `codex update --rollback` (`0.169.0 -> 0.167.0`), all exiting `0`.
+- **Not verified in Stage 1 / deferred:**
+  - Live `codex remote-control` interactive session is unverified on-device beyond passthrough routing.
+  - `--signed` remote release verification, provider integration, and addon attachment belong to Stage 2 and are disabled in Stage 1.
+
+### Decoupled Modules Index & Stage 2 Handoff
+Stage 1 keeps the wrapper standalone so upstream updates never break on addon code. Existing decoupled components remain preserved outside the minimal wrapper for Stage 2 Rust refactoring and generic opt-in attachment:
+- **Reference git baseline (untouched pre-split source & removed wrapper modules):**
+  - Branch: `rewrite/rust-core` (`origin/rewrite/rust-core`) at commit `ebb0b519`.
+  - Modules removed from `crates/wrapper/src/` during Stage 1 (recoverable via `git show rewrite/rust-core:crates/wrapper/src/<file>` or `git diff rewrite/rust-core..rewrite/minimal-wrapper`): `execution_lease.rs`, `local_source.rs`, `manager_config.rs`, `manager_dispatch.rs`, `manager_tui.rs`, `manual_update.rs`, `native_task.rs`, `provider.rs`, `release_display.rs`, `remote_release.rs`, `rollback_guard.rs`, `shared_layout.rs`, `shared_server.rs`, `system_config.rs` (plus manager IPC `__prepare-launch-v1`/`__prepare-runtime-v1`, `requirements.toml` generation, and `--signed` verification).
+  - Legacy release-builder/source-patching files removed from `crates/release-builder/` during Stage 1 (likewise recoverable at `ebb0b519`): `build.rs`, `src/fixtures/source-plan*.json`, `src/native_dependencies.rs`, `src/native_route.patch`, `src/native_sdk.rs`, `src/provider.rs`, `src/runtime.rs`, `src/source.rs`, `src/source/patch.rs`, `src/source/syntax.rs`, `src/source/syntax/permissions.rs`.
+- **Sibling workspace / repository directories preserved in checkout for Stage 2:**
+  - `crates/manager/` (`codex_manager`): session/profile/provider/bridge management and shared host orchestration.
+  - `crates/runtime-binding/` (`codex_runtime_binding`): shared runtime binding types/contracts (removed from `crates/wrapper/Cargo.toml` in Stage 1; candidate boundary for Stage 2 generic opt-in hooks).
+  - `providers/chatgpt/`: ChatGPT provider and host processes.
+  - `frontend/manager-tui/`: terminal UI frontend for manager workflows.
 
 ## Linux app plugin replacement (2026-11-09)
 

@@ -1,10 +1,13 @@
 # User-facing interfaces and optional Manager contracts
 
 **Status:** Normative detail of [SPEC.md](../../SPEC.md).
-These are feature contracts and acceptance requirements, not evidence of
-deployment. Planned means an optional or requested capability still needs
-implementation evidence; it does not create a second executor or bypass
-upstream ownership.
+Stage 1 minimal standalone Wrapper implements the Core user-facing commands
+(`codex` upstream passthrough, `codex update`, `codex doctor`, and
+`codex wrapper status [--json]`). The optional Manager, quota-rotation, notification,
+and profile contracts below describe decoupled Stage 2 modular capabilities (with
+all `codex termux` surfaces cut over cleanly to `codex wrapper`) and are not
+compiled into or required by the minimal standalone Wrapper. These are feature
+contracts and acceptance requirements, not evidence of deployment.
 
 ## Native /switch behavior
 
@@ -575,53 +578,59 @@ original Android terminal registration remain unchanged. Native source/build
 proof precedes admission; consumer-only or seeded fixtures do not establish
 automatic thread-switch integration.
 
-`codex termux` is a Manager boundary and is never passed to upstream. Manager
-v1 has profiles, notifications, and a bounded active-task assistance family.
+`codex wrapper` owns Wrapper configuration (`setup`, `status`, `--bare`,
+`--with`, `update`, `rollback`, `doctor`, `provider`) as well as the optional
+Manager subcommand family when invoked explicitly (`help`, `launch`, `profile`,
+`task`, `notify`, `usage`, `rotation`) and is never passed to upstream.
+Bare `codex` invokes only minimal Wrapper plus patched upstream unless modules
+are enabled in `wrapper.toml` or via `codex wrapper --with <MODULES>`.
 
 ```text
-codex termux
-codex termux help
-codex termux launch [--profile PROFILE_ID] [-- UPSTREAM_ARGS...]
-codex termux profile list
-codex termux profile current
-codex termux profile create <PROFILE_ID>
-codex termux profile delete <PROFILE_ID>
-codex termux profile rename <PROFILE_ID> <NEW_PROFILE_ID>
-codex termux profile default [PROFILE_ID]
-codex termux profile use <PROFILE_ID> [--] [UPSTREAM_ARGS...]
-codex termux task [THREAD_UUID]
-codex termux task status [THREAD_UUID]
-codex termux task reconnect <THREAD_UUID>
-codex termux task stop <THREAD_UUID>
-codex termux task takeover <THREAD_UUID> [--profile PROFILE_ID] [--force-server PID:START]
-codex termux notify show
-codex termux notify set [NOTIFY_OPTIONS...]
-codex termux notify test
+codex wrapper setup [show|--bare|--enable <MODULES>|--disable <MODULES>|--signed-update <true|false>]
+codex wrapper --bare [--] [UPSTREAM_ARGS...]
+codex wrapper --with <MODULES> [--] [UPSTREAM_ARGS...]
+codex wrapper status
+codex wrapper update [ARGS...]
+codex wrapper
+codex wrapper help
+codex wrapper launch [--profile PROFILE_ID] [-- UPSTREAM_ARGS...]
+codex wrapper profile list
+codex wrapper profile current
+codex wrapper profile create <PROFILE_ID>
+codex wrapper profile delete <PROFILE_ID>
+codex wrapper profile rename <PROFILE_ID> <NEW_PROFILE_ID>
+codex wrapper profile default [PROFILE_ID]
+codex wrapper profile use <PROFILE_ID> [--] [UPSTREAM_ARGS...]
+codex wrapper task [THREAD_UUID]
+codex wrapper task status [THREAD_UUID]
+codex wrapper task reconnect <THREAD_UUID>
+codex wrapper task stop <THREAD_UUID>
+codex wrapper task takeover <THREAD_UUID> [--profile PROFILE_ID] [--force-server PID:START]
+codex wrapper notify show
+codex wrapper notify set [NOTIFY_OPTIONS...]
+codex wrapper notify test
 ```
 
-`codex termux` with no command is equivalent to `codex termux help`.
+`codex wrapper` with no command is equivalent to `codex wrapper help`.
 Session browsing and resume belong to upstream Codex; Manager owns profiles,
 active-writer assistance and notifications. An unavailable Manager reports a
-bounded unavailable result; it never forwards an unknown `termux` command.
-Manager does not provide `codex termux install`, `codex termux update`, or a
-second doctor/version authority. Installation, update, rollback, and top-level
-doctor remain Core commands.
+bounded unavailable result; it never forwards an unknown `wrapper` command.
 
 `PROFILE_ID` is one ASCII path-safe identifier of 1--64 bytes beginning with
 an alphanumeric character and containing only alphanumerics, `.`, `_`, or
-`-`. `default`, `home`, `termux`, `.`, and `..` are reserved aliases or
+`-`. `default`, `home`, `wrapper`, `termux`, `.`, and `..` are reserved aliases or
 rejected names. SCS deliberately provides no Manager-owned `SESSION_ID` grammar. Upstream
 `codex resume` is the canonical session picker/resume surface and already owns picker
 mode, `--all`, `--last`, names, and UUIDs. To use that upstream surface with a custom
-Manager execution identity, invoke `codex termux profile use <PROFILE_ID> -- resume
+Manager execution identity, invoke `codex wrapper profile use <PROFILE_ID> -- resume
 [UPSTREAM_ARGS...]`; Manager forwards those upstream arguments byte-for-byte and does
 not inspect conversation storage.
-Arguments after `--` are forwarded byte-for-byte to the Core entrypoint. A
+Arguments after `--` are forwarded byte-for-byte to the Wrapper entrypoint. A
 Manager child launch preserves standard streams, TTY, signals, process exit
-status, and raw argument bytes at the final Core execution boundary.
+status, and raw argument bytes at the final Wrapper execution boundary.
 
 The generated upstream hook command may call the bounded internal Manager
-endpoint `codex termux notify emit <EVENT>`. The native completion callback
+endpoint `codex wrapper notify emit <EVENT>`. The native completion callback
 may append exactly one JSON argument for `Stop`. It is not a configuration or
 upstream passthrough form, is not shown by Manager help, and accepts only one
 canonical event name. Core remains the public-launch owner: Manager never
@@ -641,22 +650,22 @@ a TTY, output remains plain; when it is a TTY, Core removes only the inherited
 capture path. It never changes the caller's environment or enables color in a
 JSON envelope.
 
-The Core-owned update surface accepts no arguments, `--details` optionally
-combined with one of `--wait`/`--no-wait`, either wait option alone, `--help`, `--force`, `--build-local`, `--local <DIRECTORY>`, `--remote <HTTPS_BASE_URL>`, or `--rollback`
-after `update`. No top-level `codex rollback` command is introduced. A malformed
-invocation beginning with one of those Core selectors is a Core usage error. The no-argument
-form is the primary product path: it first tries the signed stable wrapper channel
-and offers an explicit build-policy choice only when official freshness proves
-a required artifact is missing. Transport failure remains a transport failure. An already-current
-signed release remains a no-op; an authenticated rollback hold never triggers a
-local build. `--build-local` is explicit and also refuses an active rollback hold. A
-verified index with an invalid signature, malformed fields, an incompatible
-release, a digest or mode mismatch, a candidate-probe failure, or an activation
-failure is never converted into a local-build fallback. The explicit local,
-remote, and rollback forms remain secondary diagnostic/recovery paths; local and
-rollback remain offline, and the explicit remote form remains an immutable
-signed-generation source. No top-level `codex update` argument is passed to
-upstream, and Core never invokes a package manager or an upstream self-updater.
+The Core-owned update surface accepts no arguments (default upstream update),
+`--upstream` (explicit official upstream update, optionally paired with
+`--version <MAJOR.MINOR.PATCH>`), `--version <MAJOR.MINOR.PATCH>`,
+`--path <FILE_OR_DIR>` (adapt an offline `.tar.gz` or install a prepared
+generation directory), `--rollback`, or `--help` after `update`. (Legacy
+`--build-local` and `--local` flags are superseded by default/`--upstream` and
+`--path`; optional signed remote channel selectors remain deferred to decoupled
+Stage 2 extensions.) No top-level `codex rollback` command is introduced. A
+malformed invocation beginning with `update` is a Core usage error. No top-level
+`codex update` argument is passed to upstream, and Core never invokes a package
+manager or an upstream self-updater.
+
+When using optional signed channels in Stage 2 extensions (historical/deferred
+contract below): the automatic path tries the signed stable channel before
+offering build-policy choices, and never converts signature/digest/probe
+failures into an automatic fallback.
 
 Human `codex update` output distinguishes the upstream version from the Termux
 edition and public release number.
