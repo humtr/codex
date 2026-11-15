@@ -46,7 +46,17 @@ EOF
 
 require_value() {
   flag=$1
-  [ "$#" -ge 2 ] && [ -n "$2" ] || fail "$flag requires a non-empty value"
+  if [ "$#" -lt 2 ] || [ -z "$2" ]; then
+    fail "$flag requires a non-empty value"
+  fi
+}
+
+require_regular_file() {
+  path=$1
+  label=$2
+  if [ ! -f "$path" ] || [ -L "$path" ]; then
+    fail "$label must be a regular non-symlink file: $path"
+  fi
 }
 
 validate_simple_token() {
@@ -91,7 +101,7 @@ verify_sha256_file() {
   target_file=$1
   sum_file=$2
   expected_entry=${3:-}
-  [ -f "$sum_file" ] && [ ! -L "$sum_file" ] || fail "checksum file must be a regular file: $sum_file"
+  require_regular_file "$sum_file" 'checksum file'
   if [ -n "$expected_entry" ]; then
     expected=$(awk -v name="$expected_entry" '
       $2 == name || $2 == "./" name || $2 == "*" name { print $1; count++ }
@@ -116,10 +126,12 @@ fetch_https() {
     --proto '=https' --proto-redir '=https' --tlsv1.2 \
     --connect-timeout 15 --max-time 300 --max-filesize "$max_bytes" \
     --output "$out" "$url" || fail "HTTPS download failed: $url"
-  [ -f "$out" ] && [ ! -L "$out" ] || fail "download did not produce a regular file: $out"
+  require_regular_file "$out" 'downloaded asset'
   size=$(wc -c < "$out" | tr -d '[:space:]')
   case $size in ''|*[!0-9]*) fail "invalid downloaded byte size for $out" ;; esac
-  [ "$size" -gt 0 ] && [ "$size" -le "$max_bytes" ] || fail "downloaded file out of bounds: $out"
+  if [ "$size" -le 0 ] || [ "$size" -gt "$max_bytes" ]; then
+    fail "downloaded file out of bounds: $out"
+  fi
 }
 
 prefix=${PREFIX:-$DEFAULT_PREFIX}
@@ -180,7 +192,9 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
-[ -n "${HOME:-}" ] && [ -d "$HOME" ] || fail 'HOME must point to an existing directory'
+if [ -z "${HOME:-}" ] || [ ! -d "$HOME" ]; then
+  fail 'HOME must point to an existing directory'
+fi
 validate_simple_token 'repository' "$repo"
 case $repo in
   */*) ;;
@@ -249,8 +263,7 @@ case $source_mode in
     fi
     ;;
   binary)
-    [ -f "$binary_path" ] && [ ! -L "$binary_path" ] ||
-      fail "--binary must point to a regular non-symlink file: $binary_path"
+    require_regular_file "$binary_path" '--binary'
     if [ -f "$binary_path.sha256" ]; then
       verify_sha256_file "$binary_path" "$binary_path.sha256"
       note "verified $(basename -- "$binary_path") against .sha256"
@@ -262,7 +275,7 @@ case $source_mode in
     note 'building minimal codex wrapper in release mode'
     "$cargo_bin" build --release --locked --manifest-path "$script_dir/Cargo.toml" -p codex
     binary_path="$script_dir/target/release/codex"
-    [ -f "$binary_path" ] && [ ! -L "$binary_path" ] || fail 'cargo build did not produce target/release/codex'
+    require_regular_file "$binary_path" 'cargo build output'
     ;;
   release)
     validate_simple_token 'release tag' "$release_tag"
@@ -284,7 +297,7 @@ case $source_mode in
     mkdir -p "$extract_dir"
     "$tar_bin" -xzf "$tarball" -C "$extract_dir"
     binary_path="$extract_dir/bin/codex"
-    [ -f "$binary_path" ] && [ ! -L "$binary_path" ] || fail 'release archive is missing bin/codex'
+    require_regular_file "$binary_path" 'release archive bin/codex'
     if [ -f "$extract_dir/SHA256SUMS" ]; then
       verify_sha256_file "$binary_path" "$extract_dir/SHA256SUMS" 'bin/codex'
       note 'verified extracted bin/codex against SHA256SUMS'
