@@ -25,7 +25,7 @@ selected model and entrypoint.
   and the relevant existing implementation before changing files.
 - Read [SPEC.md](SPEC.md) and its linked normative contracts for product behavior;
   read [CURRENT.md](CURRENT.md) for what is actually running, proven and unfinished.
-  Use [PRO_HANDOFF.md](PRO_HANDOFF.md) only for the current handoff/work order.
+  If a `PRO_HANDOFF.md` file is present on a branch, use it only for the current handoff/work order.
   A release record, prior implementation or passing test does not override the
   product contract. [README.md](README.md) is the user-facing guide.
 - After compaction, recovery or handoff, reread this file, then the relevant

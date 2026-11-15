@@ -15,27 +15,36 @@ Stage 1 decouples `crates/wrapper` (`codex`) and `crates/release-builder` (`code
 - Adaptive Termux binary patching (`crates/release-builder/src/runtime_patch.rs`): scans and rewrites `0..N` FD-remap sites plus adaptive UDS FD 35 across static AArch64 ELFs under `bin/*` (`bin/codex`, optional `bin/codex-code-mode-host`, optional `bin/codex-exec-server`), preserves static AArch64 `codex-path/rg` when present (otherwise installs wrapper script), preserves `codex-resources/*`, and writes `generation.meta` without `manager_artifact_digest` (while `load_local_generation` remains backward-compatible with existing `codex-option2-wrapper-v1` generations).
 - Minimal runtime setup: fast `--version`/`-V`/`--help`/`-h` path bypassing `daemon_settings::ensure` (which manages only `$CODEX_HOME/app-server-daemon/settings.json` `autoUpdateEnabled: false`); lock-free FD 33 `resolv.conf` cache hit; lazy FD 34 minimal `config.toml` (`sandbox_mode = "danger-full-access"`, `mcp_oauth_credentials_store = "file"`) plus marker-only cleanup of stale `# codex-termux-shared-state-v1` `requirements.toml`; `timezone::configure` (`TZ` TZif); FD 35 temp root; AArch64 `SYS_renameat2` (`276`) atomic `rename_noreplace`; TLS/TMPDIR/BROWSER/X11-Wayland-WSL environment fence; and `--sandbox` mode guard.
 
-### Verified boundaries (2026-11-15)
-- **Workspace format, lint, tests & release size:**
+### Verified boundaries (2026-11-16)
+- **Workspace format, lint, tests, release binaries & docs checks:**
   - `cargo fmt --check`, `cargo clippy --workspace --all-targets --locked -- -D warnings`, and `cargo test --workspace --locked` all exited `0`: `45 passed; 0 failed; 0 ignored` (`codex`: `25`, `codex_release_builder`: `20`).
-  - `cargo build --release -p codex -p codex-release-builder --locked` produced `target/release/codex` (`1,326,432` bytes, reduced from `6,636,928` bytes) and `target/release/codex-release-builder` (`918,472` bytes).
-- **Live Termux device binary (`/data/data/com.termux/files/usr/bin/codex`, SHA-256 `b6611c3ac791cdc2a907a9d1e18c828a531f58c8dfc3030b2176eb3db684d663`):**
-  - Clean `app-server-control.sock` state verified with bare `codex` PTY TUI launch (`alt_screen=True`, `has_err=False`), `app-server daemon version` (`status: running`, `0.169.0`), `daemon stop`, `codex --version` (`codex-cli 0.169.0`), `codex wrapper status` (`status: active`, `addons: none`, `daemon_passthrough: supported`), `codex doctor --json` (`summary.status: "healthy"`), and `codex-switch status` (`169+` slot). `codex-switch 167`/`169` were not invoked so running `codex-chatgpt-provider`, `codex-chatgpt-host`, and `codex-chatgpt-tunnel` services remained undisturbed.
+  - `cargo build --release --locked -p codex -p codex-release-builder` produced `target/release/codex` (`1,326,432` bytes) and `target/release/codex-release-builder` (`918,472` bytes).
+  - `sh -n install.sh`, `shellcheck install.sh`, `Cargo.toml`/`Cargo.lock` minimal-dependency check (`codex`, `codex-release-builder`, `libc`), and markdown relative-link audit (`9` files, `0` broken links) passed.
+- **Stage 1 installer smoke tests (isolated synthetic `$PREFIX`/`$HOME` on Android AArch64):**
+  - `install.sh` verified bundled `bin/codex` against `SHA256SUMS`, staged and checked `/system/bin/linker64` execution, atomically installed `$PREFIX/bin/codex`, rejected tampered `SHA256SUMS` (`RC=1`), and passed direct `--binary` installation.
+  - Installed `codex` exited `0` on `update --help`, `1` with `"status":"uninitialized"` / `"addons":"none"` on `wrapper status --json`, `2` on `--sandbox read-only --version`, and `2` on `sandbox linux true`.
+- **Live Termux device verification (`/data/data/com.termux/files/usr/bin/codex`, SHA-256 `b6611c3ac791cdc2a907a9d1e18c828a531f58c8dfc3030b2176eb3db684d663`):**
+  - Clean `app-server-control.sock` state verified with bare `codex` PTY TUI launch (`alt_screen=True`, `has_err=False`), `app-server daemon version` (`status: running`, `0.169.0`), `daemon stop`, `codex --version` (`codex-cli 0.169.0`), `codex wrapper status` (`status: active`, `addons: none`, `daemon_passthrough: supported`), `codex doctor --json` (`summary.status: "healthy"`), and `codex-switch status` (`169+` slot) while leaving running `codex-chatgpt-provider`, `codex-chatgpt-host`, and `codex-chatgpt-tunnel` services undisturbed.
+  - Real `$HOME` PTY (`TERM=xterm-256color`) `codex doctor` exited `0` (`upstream` `20 ok · 3 notes · 1 warn · 0 fail degraded`, `[Termux doctor]` `5 ok · 1 warn · 0 fail healthy`, `[Summary] ✓ status healthy`); non-PTY (`TERM=dumb`) reported `✗ terminal TERM=dumb`, `websocket HTTP 101 Switching Protocols`, and `reachability HTTP 405`.
+  - Real `$HOME` CLI/passthrough checks passed: `codex update --help`, `codex wrapper status --json`, `codex app-server --help`, `codex remote-control --help` / `start --help` / `stop --help` / `pair --help`, `codex login status` (`Logged in using ChatGPT`), and `codex debug models`.
+  - Inspected live `app-server --managed-daemon` (`pid 27289`, `0.169.0`): `/proc/27289/environ` (`TZ=:/data/data/com.termux/files/home/.cache/codex/timezones/Asia%Seoul.tzif`, `SSL_CERT_FILE=/data/data/com.termux/files/usr/etc/tls/cert.pem`, `SSL_CERT_DIR=/data/data/com.termux/files/usr/etc/tls/certs`, `TMPDIR=/data/data/com.termux/files/usr/tmp`), `/proc/27289/fd/33 -> .../wrapper/resolv.conf`, `fd/34 -> .../wrapper/config`, `fd/35 -> /data/data/com.termux/files/usr/tmp`, byte-for-byte SHA-256 match across `codex` (`8876b79b...`), `codex-code-mode-host` (`66874c78...`), and `codex-exec-server` (`f8fa7556...`), `~/.codex/app-server-daemon/settings.json` (`{"updater":{"autoUpdateEnabled":false}}`), and clean `daemon.stderr.log` (`733`B).
   - Earlier with the identical `1,326,432`-byte build (`b6611c3a...`): `codex --sandbox read-only --version` rejection and `codex exec --skip-git-repo-check "Reply only with OK"` (`OK`) passed.
 - **Isolated synthetic `HOME` lifecycle & live upstream update (`--path`, `--upstream`, `daemon`, `--rollback`):**
   - Verified `--path` install (`0.167.0` and `0.169.0`), live `codex update --upstream` up-to-date detection and `0.167.0 -> 0.169.0` upgrade (GitHub API + SHA-256 `c8d0b4ab...`), bare `codex` PTY TUI launch (`alt_screen=True`, `err=False`), `codex app-server daemon start`/`version`/`stop`, and `codex update --rollback` (`0.169.0 -> 0.167.0`), all exiting `0`.
+  - Verified fast `codex --version` skips materializing `app-server-daemon/settings.json` and `config/config.toml`, ordinary launch materializes `# codex-termux-notify-v1` `config.toml`, `settings.json`, `resolv.conf` (`68`B), and `Asia%Seoul.tzif` (`415`B), cleans stale `# codex-termux-shared-state-v1` `requirements.toml` while preserving custom user `requirements.toml`, rejects empty `--rollback` (`RC=1`), rejects `codex sandbox linux true` (`RC=2`), and passes `codex remote-control start/pair/stop --json` local daemon lifecycle (`stop` `RC=0`; `start`/`pair` exit `1` only at unauthenticated remote enrollment in synthetic `HOME`).
 - **Not verified in Stage 1 / deferred:**
-  - Live `codex remote-control` interactive session is unverified on-device beyond passthrough routing.
+  - `.github/workflows/minimal-wrapper.yml` remote execution (`checks`, `android-package`, `android-smoke`, `release`) and live `install.sh --release minimal-wrapper` HTTPS fetch await remote GitHub Actions CI & release publication.
+  - Live `codex remote-control` authenticated interactive session is unverified on-device beyond passthrough routing and local daemon lifecycle.
   - `--signed` remote release verification, provider integration, and addon attachment belong to Stage 2 and are disabled in Stage 1.
 
 ### Decoupled Modules Index & Stage 2 Handoff
 Stage 1 keeps `rewrite/minimal-wrapper` strictly limited to the standalone wrapper so upstream updates never break on addon code. All decoupled components have been removed from this branch and remain preserved in Git history for Stage 2 Rust refactoring and generic opt-in attachment:
 - **Reference git baselines (untouched operating & pre-split sources):**
   - `origin/main` at commit `f9c75f55` (accepted qualified `0.167.2` operating source baseline).
-  - Local branch `rewrite/rust-core` at commit `ebb0b519` (`origin/rewrite/rust-core` at parent commit `8c223d29`).
+  - Branch `rewrite/rust-core` aligned with `origin/rewrite/rust-core` (`c200e676`; pre-split `ebb0b519` remains in `rewrite/minimal-wrapper` commit history).
 - **Removed from `rewrite/minimal-wrapper` (recoverable via `git show <ref>:<path>`):**
   - Decoupled workspace crates & addons: `crates/manager/` (`codex_manager`), `crates/runtime-binding/` (`codex_runtime_binding`), `frontend/manager-tui/`, `providers/chatgpt/`, `transport/tunnel-client/`.
-  - Legacy release/installer/script/CI tooling: `bootstrap/`, `install.sh`, `install-online.sh`, `release/`, `scripts/`, `.github/`, `docs/development/`, `AUDIT.md`, `PRO_HANDOFF.md`, `WORK_SCOPE_REVIEW.md`.
+  - Legacy release/installer/script/CI tooling: `bootstrap/`, `install-online.sh`, `release/`, `scripts/`, legacy `.github/` workflows (replaced by minimal Stage 1 `install.sh` and `.github/workflows/minimal-wrapper.yml`), `docs/development/`, `AUDIT.md`, `PRO_HANDOFF.md`, `WORK_SCOPE_REVIEW.md`.
   - Pre-split wrapper/builder modules removed from `crates/wrapper/src/` (`execution_lease.rs`, `local_source.rs`, `manager_config.rs`, `manager_dispatch.rs`, `manager_tui.rs`, `manual_update.rs`, `native_task.rs`, `provider.rs`, `release_display.rs`, `remote_release.rs`, `rollback_guard.rs`, `shared_layout.rs`, `shared_server.rs`, `system_config.rs`, manager IPC, `requirements.toml` generation, `--signed` verification) and `crates/release-builder/` (`build.rs`, `src/fixtures/`, `src/native_*`, `src/provider.rs`, `src/runtime.rs`, `src/source*`).
 
 ## Linux app plugin replacement (2026-11-09)
@@ -57,7 +66,7 @@ earlier successful app-cache refresh remain in its parent directory. This task
 submitted no model request or new Native work and replaced no runtime/service.
 The naming contract and operating steps are in
 [BRIDGE](docs/spec/BRIDGE.md) and the
-[Linux app guide](providers/chatgpt/LINUX_APP.md#플러그인-생성과-교체).
+Linux app guide (`providers/chatgpt/LINUX_APP.md#플러그인-생성과-교체`, preserved on `origin/main` and `rewrite/rust-core`).
 
 ## Local source-only naming cleanup (not deployed)
 
@@ -361,12 +370,12 @@ identity. That binary remains rollback evidence. The current development recover
 is now source-bound and qualified at the boundaries described below.
 
 The attached Native development loop has the bounded proof below. The remaining
-work is reorganized in [PRO_HANDOFF.md section6](PRO_HANDOFF.md#6-우선-정리연구구현할-내용).
+work is reorganized in `PRO_HANDOFF.md#6-우선-정리연구구현할-내용` (preserved on `origin/main` and `rewrite/rust-core`).
 Codex prework now includes common request settlement, TUI continuation and
 same-Provider entrance handoff; Pro may revise that preparation while taking on
 model transitions, compaction and the remaining restructuring. This is the next
 implementation scope, not a claim of completed recovery. Start with
-[PRO_HANDOFF.md](PRO_HANDOFF.md), then reread AGENTS.md and SPEC4.5-4.6.
+`PRO_HANDOFF.md` (when inspecting the Stage 2/Pro handoff branch), then reread AGENTS.md and SPEC4.5-4.6.
 The working-code starting point is fix/attached-native-development-loop-20261106;
 prep/pro-baseline-20261106 is the separate Native-transition candidate. Pro may
 reselect its baseline and reject/rework this preparation when a simpler design is better.
@@ -548,7 +557,7 @@ The current attached-loop artifact is source-bound separately above.
 The later request-settlement implementation, controlled actual TUI recovery and
 normal Stop of the original blocking/steering works are qualified below. Those
 results do not identify the historical first CDP command or qualify real app
-loss/uncertain-delivery recovery. [PRO_HANDOFF.md](PRO_HANDOFF.md#p0-cdp-타임아웃과-같은-작업-재입력-복구)
+loss/uncertain-delivery recovery. `PRO_HANDOFF.md#p0-cdp-타임아웃과-같은-작업-재입력-복구` (preserved on `origin/main` and `rewrite/rust-core`)
 retains the six required cases and their outstanding boundaries; SPEC4.6 owns
 recovery behavior. Completed source/device cases must not be restarted as though
 no repair existed, or expanded into a claim that all old work is reconciled.

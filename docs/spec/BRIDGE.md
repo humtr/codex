@@ -21,7 +21,7 @@ behavior and names incomplete interfaces. Historical audits do not freeze the
 earlier boundary allocation.
 
 Historical architecture reviews inform, but do not determine, the current
-contract; [AUDIT.md](../../AUDIT.md) records past alternatives. Earlier
+contract; `AUDIT.md` (preserved on `origin/main` and `rewrite/rust-core`) records past alternatives. Earlier
 initiative labels are traceability references, not product completion levels.
 [CURRENT.md](../../CURRENT.md) owns implemented, qualified, published and
 activated status. The following
@@ -1455,7 +1455,7 @@ Creation uses the verified current MCP service/tunnel accessible to the intended
 app account, with installation, connection and schema/readiness verified
 separately. A refresh error alone does not establish that a replacement or another
 tunnel will resolve its cause.
-The [Linux app operating guide](../../providers/chatgpt/LINUX_APP.md#플러그인-생성과-교체)
+The Linux app operating guide (`providers/chatgpt/LINUX_APP.md#플러그인-생성과-교체`, preserved on `origin/main` and `rewrite/rust-core`)
 owns the operating steps and partial-failure recovery.
 
 **Management.** Extend the optional Provider binary's existing status/view/reveal/
@@ -1604,7 +1604,7 @@ values remain unchanged.
 
 #### Bridge qualification input and evidence contract
 
-[qualification.schema.json](../../providers/chatgpt/qualification.schema.json) defines
+`providers/chatgpt/qualification.schema.json` (preserved on `origin/main` and `rewrite/rust-core`) defines
 termux-codex-bridge-qualification-v2. It is an input contract, not an executable
 runner or authorization to launch live work. Qualification entrypoints accept an
 explicit --inputs manifest without changing already recorded evidence.

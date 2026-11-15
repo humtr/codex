@@ -453,7 +453,7 @@ requires supporting upstream Codex, not a separate larger Korean-character quota
 ### Prior bridge architecture review provenance
 
 This architecture was independently re-examined against source and original
-saved/native records on 2026-10-26; [AUDIT.md](../../AUDIT.md) records findings, exact
+saved/native records on 2026-10-26; `AUDIT.md` (preserved on `origin/main` and `rewrite/rust-core`) records findings, exact
 inputs, alternatives and the implementation/acceptance plan. Existing E/F/G/H
 labels identify earlier bounded batches, not universal entrance equivalence.
 CURRENT owns implemented, qualified, published and activated status.

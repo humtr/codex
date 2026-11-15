@@ -10,8 +10,7 @@ their **wire compatibility is itself a requirement**; no Codex release number
 or test-run ID determines the meaning of this specification.
 
 The current implementation, release sources, verified evidence and outstanding
-work are reported in [CURRENT.md](CURRENT.md); work priorities and the Pro
-handoff live in [PRO_HANDOFF.md](PRO_HANDOFF.md). Development behavior is
+work are reported in [CURRENT.md](CURRENT.md). Development behavior is
 defined in [AGENTS.md](AGENTS.md). Version-specific prior adaptations and
 historical acceptance are recorded separately in
 [release history](docs/history/GENERATION_ADMISSION.md). This specification
