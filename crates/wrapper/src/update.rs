@@ -731,6 +731,19 @@ fn version_order(a: &str, b: &str) -> Result<std::cmp::Ordering, LocalProductErr
     Ok(tuple(a)?.cmp(&tuple(b)?))
 }
 
+fn reject_changed_archive(
+    version: &str,
+    digest: &str,
+    discovered: &OfficialReleaseMetadata,
+) -> Result<(), LocalProductError> {
+    if version == discovered.version && digest != discovered.package_sha256 {
+        return Err(LocalProductError::LocalUpdate(
+            "official archive digest changed for an already installed version",
+        ));
+    }
+    Ok(())
+}
+
 fn check_release(
     roots: &LocalWrapperRoots,
     version: Option<&str>,
@@ -751,6 +764,13 @@ fn check_release(
         let installed = state
             .map(|state| load_local_generation(&roots.generation_root.join(state.current)))
             .transpose()?;
+        if let Some(old) = installed.as_ref() {
+            reject_changed_archive(
+                &old.manifest.upstream_package_version,
+                &old.manifest.source_artifact_digest,
+                &metadata,
+            )?;
+        }
         let order = installed
             .as_ref()
             .map(|old| version_order(&metadata.version, &old.manifest.upstream_package_version))
@@ -1255,6 +1275,11 @@ fn run_upstream_update(
             resolve_official_release_metadata(roots, &staging_root, requested_version)?;
 
         if let Some(current) = before_loaded.as_ref() {
+            reject_changed_archive(
+                &current.manifest.upstream_package_version,
+                &current.manifest.source_artifact_digest,
+                &metadata,
+            )?;
             if requested_version.is_none()
                 && std::env::var_os(UPDATE_VERSION_ENV).is_none()
                 && version_order(
@@ -1601,6 +1626,13 @@ mod tests {
         assert!(version_order("1.10.0", "1.9.99").unwrap().is_gt());
         assert!(version_order("1.2", "1.2.3").is_err());
         assert!(version_order("1.0.0", "invalid").is_err());
+        let discovered = OfficialReleaseMetadata {
+            version: "1.2.3".into(),
+            package_sha256: "a".repeat(64),
+        };
+        assert!(reject_changed_archive("1.2.3", &"b".repeat(64), &discovered).is_err());
+        assert!(reject_changed_archive("1.2.3", &"a".repeat(64), &discovered).is_ok());
+        assert!(reject_changed_archive("1.2.2", &"b".repeat(64), &discovered).is_ok());
     }
 
     fn metadata(digest: char) -> String {

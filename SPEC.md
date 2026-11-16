@@ -130,6 +130,8 @@ runtime on Termux.
 
 Unpinned official discovery must not silently downgrade an installed upstream
 version. An explicit `--version` or `--rollback` retains its requested semantics.
+Online discovery and updates reject a changed official archive digest for an
+already installed version; an explicit offline `--path` retains its trust boundary.
 | `codex doctor [--color \| --json]` | Wrapper | combine upstream and Wrapper/Termux diagnostics cleanly without addon/Manager coupling |
 | `codex wrapper status [--json]` | Wrapper | report active generation, previous generation, upstream version, layout, runtime path, patch policy/report, daemon passthrough status, and Wrapper roots |
 | `codex wrapper --help` | Wrapper | print Wrapper usage without invoking upstream or changing state |
