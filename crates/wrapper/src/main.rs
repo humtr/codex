@@ -3,9 +3,9 @@ mod daemon_settings;
 #[cfg(unix)]
 mod doctor;
 #[cfg(unix)]
-mod fs_util;
-#[cfg(unix)]
 mod extensions;
+#[cfg(unix)]
+mod fs_util;
 #[cfg(unix)]
 mod maintenance;
 #[cfg(unix)]
@@ -23,7 +23,8 @@ use state::generation_state;
 #[cfg(unix)]
 mod unix_app {
     use super::{
-        daemon_settings, doctor, extensions, fs_util, generation_state, maintenance, timezone, update,
+        daemon_settings, doctor, extensions, fs_util, generation_state, maintenance, timezone,
+        update,
     };
     use std::ffi::{OsStr, OsString};
     use std::fs::{self, File, OpenOptions};
@@ -1770,13 +1771,20 @@ mod unix_app {
         println!("usage: codex wrapper <status [--json] | setup [show|--bare|--enable MODULES|--disable MODULES|--signed-update true|false] | --bare [--] [UPSTREAM_ARGS...] | --with MODULES [--] [UPSTREAM_ARGS...] | --help>");
         println!("  status [--json]   show active generation, paths, and opt-in modules");
         println!("  setup             read or change the persistent optional-module selection");
-        println!("  --bare            launch upstream without optional modules for this invocation");
-        println!("  --with MODULES    opt in only for this invocation (unavailable modules fail closed)");
+        println!(
+            "  --bare            launch upstream without optional modules for this invocation"
+        );
+        println!(
+            "  --with MODULES    opt in only for this invocation (unavailable modules fail closed)"
+        );
         println!("  --help            show this help");
     }
 
     fn run_wrapper_setup(args: Vec<OsString>) -> i32 {
-        let words = args.iter().map(|value| value.to_str()).collect::<Option<Vec<_>>>();
+        let words = args
+            .iter()
+            .map(|value| value.to_str())
+            .collect::<Option<Vec<_>>>();
         let Some(words) = words else {
             eprintln!("codex wrapper setup: arguments must be UTF-8");
             return 2;
@@ -1828,14 +1836,21 @@ mod unix_app {
         };
         match result {
             Ok(settings) => {
-                println!("config: {}", roots.state_root.join("wrapper.toml").display());
+                println!(
+                    "config: {}",
+                    roots.state_root.join("wrapper.toml").display()
+                );
                 println!("addons: {}", settings.addons_label());
                 println!("signed_update: {}", settings.signed_update);
                 0
             }
             Err(err) => {
                 eprintln!("codex wrapper setup: {err}");
-                if err.kind() == io::ErrorKind::InvalidData { 2 } else { 1 }
+                if err.kind() == io::ErrorKind::InvalidData {
+                    2
+                } else {
+                    1
+                }
             }
         }
     }
@@ -1853,7 +1868,8 @@ mod unix_app {
             }
         };
         let env = capture_termux_process_env();
-        if let Err(err) = execute_activated_route(PublicDispatchRoute::Upstream(args), &roots, &env) {
+        if let Err(err) = execute_activated_route(PublicDispatchRoute::Upstream(args), &roots, &env)
+        {
             eprintln!("codex wrapper --bare: {err}");
             return 1;
         }
@@ -1898,7 +1914,10 @@ mod unix_app {
                     eprintln!("codex wrapper --with: {err}");
                     return 2;
                 }
-                eprintln!("codex wrapper --with: optional module(s) {} are not installed", settings.addons_label());
+                eprintln!(
+                    "codex wrapper --with: optional module(s) {} are not installed",
+                    settings.addons_label()
+                );
                 1
             }
             Some("status") => {
@@ -2643,7 +2662,13 @@ pub(crate) mod tests {
         assert_eq!(run_wrapper_command(os_vec(&["--with", "tui,provider"])), 1);
         assert_eq!(run_wrapper_command(os_vec(&["--with", "not-a-module"])), 2);
         assert_eq!(
-            run_wrapper_command(os_vec(&["--with", "manager", "--", "--sandbox", "read-only"])),
+            run_wrapper_command(os_vec(&[
+                "--with",
+                "manager",
+                "--",
+                "--sandbox",
+                "read-only"
+            ])),
             2
         );
     }
