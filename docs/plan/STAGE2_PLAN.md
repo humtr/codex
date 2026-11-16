@@ -180,6 +180,9 @@ and explicit account-free qualification with `qualify_wrapper.py`; the ordinary
 `wrapper.yml` caller retains publication separately. Read-only scheduled callers
 pin an accepted source SHA and invoke this same graph without publication
 permissions, personal-device checks, account names or private paths.
+The caller is registered on main at `c49dcf6f`, runs daily at `06:23 UTC`, and
+selects accepted source `fdcc1bdfeaee7c08cfff4454ec6bd327d4a72ddb`.
+Its manual default-branch execution passed; see [current evidence](../../CURRENT.md#standalone-qualification-and-read-only-upstream-discovery-follow-up-2026-11-16).
 
 The available Termux environment and existing login were exercised once for this
 work. They are not a required recurring phone/account matrix. Optional additional
@@ -187,7 +190,7 @@ Android/page-size or external-client evidence is reported by observed boundary;
 16-KiB ELF geometry is not actual 16-KiB-kernel execution.
 
 **Prerequisites for publication:** close any remaining live/connected-client Stage 1 acceptance items and
-coordinate with signed-channel Phase 2.2 before enabling signed publication. Read-only discovery and isolated base qualification are the next implementation priority and can proceed before optional modules;
+coordinate with signed-channel Phase 2.2 before enabling signed publication. Read-only discovery and isolated base qualification are implemented and running independently of optional modules;
 base upstream **qualification and publication must never wait for TUI, Manager
 or Provider**. The automation is not a license to skip any active gate.
 

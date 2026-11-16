@@ -73,6 +73,11 @@ Once a `wrapper` GitHub Release is published:
 curl -fsSL https://github.com/humtr/codex/releases/download/wrapper/install.sh | sh
 ```
 
+The currently published `wrapper` prerelease predates the daemon `SUN_LEN` and
+installer recovery fixes. Its download/bootstrap was tested, but daemon startup
+still failed. Build the current source until refreshed assets are published;
+see the [verified source and publication status](CURRENT.md#standalone-qualification-and-read-only-upstream-discovery-follow-up-2026-11-16).
+
 Useful installer options (`./install.sh --help`):
 
 - `--prefix <DIR>`: override `$PREFIX` (defaults to `$PREFIX` or `/data/data/com.termux/files/usr`).
@@ -184,6 +189,21 @@ codex app-server daemon start
 codex app-server daemon version
 codex remote-control
 ```
+
+Upstream keeps its selected daemon package separate from the CLI generation.
+After updating or re-adapting the CLI, select its complete adapted package when
+you also want to update an existing daemon:
+
+```sh
+codex app-server daemon update --from-cli
+codex app-server daemon start
+codex app-server daemon version
+```
+
+The upstream confirmation covers replacement and a possible restart of running
+work. Wrapper does not change that selection automatically. Use `--from-cli`
+to retain the Termux adaptation; the plain upstream daemon updater downloads an
+official package without Wrapper adaptation.
 
 Android kernels lack Linux Landlock / unprivileged user namespaces, so the Stage 1
 wrapper sets `sandbox_mode = "danger-full-access"` in its wrapper-owned config and

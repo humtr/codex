@@ -11,7 +11,7 @@ deployment and device activation. None substitutes for the next boundary.
 ### Status and scope
 Stage 1 decouples `crates/wrapper` (`codex`) and `crates/release-builder` (`codex-release-builder`) into a standalone, zero-addon Termux compatibility wrapper aligned with [SPEC.md](SPEC.md) Sections 1–5 (`Stage 1` vs `Stage 2` architecture).
 - `Cargo.toml` contains only `crates/wrapper` and `crates/release-builder`, and `Cargo.lock` locks only `codex`, `codex-release-builder`, and `libc` (`0.2.186`). Zero non-wrapper addon crates, providers, TUI patches, or legacy CI/qualification scripts remain tracked on `rewrite/wrapper`.
-- Active Stage 1 CLI surface: `codex update [--upstream] [--version <MAJOR.MINOR.PATCH>] | --path <FILE_OR_DIR> | --rollback | --help`, `codex wrapper status [--json]`, `codex doctor [--color | --json]`, and direct upstream passthrough including `codex app-server daemon ...` and `codex remote-control`. Removed flags (`--build-local`, `--local`, `--signed`, `--remote`) exit with status `2`; `codex-release-builder` exposes only `build` (`fetch`/`prepare`/`publish` exit `2`).
+- Active Stage 1 CLI surface: `codex update [--upstream] [--version <MAJOR.MINOR.PATCH>] | --path <FILE_OR_DIR> | --rollback | --check [--version <MAJOR.MINOR.PATCH>] [--json] | --help`, `codex wrapper status [--json]`, `codex doctor [--color | --json]`, and direct upstream passthrough including `codex app-server daemon ...` and `codex remote-control`. Removed flags (`--build-local`, `--local`, `--signed`, `--remote`) exit with status `2`; `codex-release-builder` exposes only `build` (`fetch`/`prepare`/`publish` exit `2`).
 - Adaptive Termux binary patching (`crates/release-builder/src/runtime_patch.rs`): applies unified equal-length path remaps (`termux-fd-remap`, FD 33/34) plus adaptive UDS FD 35 relocation (`termux-uds-fd35`, intercepting static musl `realpath` for `/proc/self/fd/35` paths/symlinks as well as `site1`/`site2`, across internal RX alignment gaps and safe trailing RX `PT_LOAD` extension) across `0..N` matching static AArch64 ELFs under `bin/*` (`bin/codex`, optional `bin/codex-code-mode-host`, optional `bin/codex-exec-server`), preserves static AArch64 `codex-path/rg` when present (otherwise installs wrapper script), preserves `codex-resources/*`, and writes a single `codex-local-generation` (`package-root`) `generation.meta` with `wrapper_api_identity = wrapper-api`, `persistent_schema_identity = schema`, `creation_metadata = codex-wrapper`, and `termux-browser-open` / `termux-browser-manual` under `browser/{open,manual}/curl`, without `manager_artifact_digest`, `upstream_doctor`, or legacy fallback readers (`v1`/`v2`/`v3`, `99b`, `R10` helper bridge, or `compat/` layouts).
 - Standalone runtime setup & state: fast `--version`/`-V`/`--help`/`-h` / `help` path bypassing `daemon_settings::ensure` (which manages only `$CODEX_HOME/app-server-daemon/settings.json` `autoUpdateEnabled: false`); lock-free FD 33 `resolv.conf` cache hit; lazy FD 34 `config.toml` (`# codex-termux-wrapper`, `sandbox_mode = "danger-full-access"`, `mcp_oauth_credentials_store = "file"`); `timezone::configure` (`TZ` TZif); FD 35 temp root; `codex-activation-state`, `codex-activation-journal`, and `downloads/` under `$HOME/.local/share/codex/wrapper/` (serialized via directory `flock` on the state root); AArch64 `SYS_renameat2` (`276`) atomic `rename_noreplace`; TLS/TMPDIR/BROWSER/X11-Wayland-WSL environment fence; `codex doctor --json` (`schema_version: 1`, `layout: "package-root"`); and `--sandbox` mode guard.
 
@@ -23,12 +23,12 @@ Stage 1 decouples `crates/wrapper` (`codex`) and `crates/release-builder` (`code
   - `ruby` (`4.0.9` with `libyaml` `0.2.5-5`) YAML validation (`Psych.parse_file` and `YAML.safe_load`) on `.github/workflows/wrapper.yml`, `sh -n install.sh`, `shellcheck -S style install.sh` (plus CI `shellcheck install.sh`), `Cargo.toml`/`Cargo.lock` dependency check (`codex`, `codex-release-builder`, `libc`), and markdown relative-link check passed.
 - **GitHub Actions `Wrapper CI` & `wrapper` GitHub Pre-release (`rewrite/wrapper`):**
   - Push runs (`316d0c09` `43781905741`, `bc816505` `43784796608`, `c0abf7a6` `43786603428`) and manual `workflow_dispatch` release dispatch (`bc816505` `43784904077`, `publish_release=true`, `release_tag=wrapper`, `prerelease=true`) passed all active jobs (`Build and package aarch64-linux-android bundle`, `Workspace lint, tests, and docs`, `Smoke-test Android Bionic binary and install.sh`, and `Publish wrapper GitHub Release`).
-  - Published prerelease `wrapper` (<https://github.com/humtr/codex/releases/tag/wrapper>) containing `codex-wrapper-aarch64-linux-android.tar.gz`, `.sha256`, `install.sh`, and `SHA256SUMS` (refreshed via `workflow_dispatch` so packaged `README.md`/`SPEC.md` match current `rewrite/wrapper`).
+  - Published prerelease `wrapper` (<https://github.com/humtr/codex/releases/tag/wrapper>) containing `codex-wrapper-aarch64-linux-android.tar.gz`, `.sha256`, `install.sh`, and `SHA256SUMS` at that baseline. These assets predate the subsequent fixes below; source CI success does not refresh them.
 - **Isolated synthetic `$HOME`/`$PREFIX` E2E smoke test (disposable temp roots on Android AArch64, with system `curl`/`openssl`/`gzip`/`tar`/`sh` and TLS cert copied into synthetic `$PREFIX`):**
   - `install.sh --binary target/release/codex --prefix "$SYN_PREFIX" --skip-upstream` installed `$SYN_PREFIX/bin/codex`, `codex update --help` and `codex wrapper --help` exited `0`, uninitialized `codex wrapper status --json` exited `1` (`"status":"uninitialized"`, `"addons":"none"`), and `--sandbox read-only --version` and `sandbox linux true` exited `2`.
   - Using minimal static AArch64 mock binaries containing `/etc/resolv.conf` and `/etc/codex/config.toml` sites, `codex update --path pkg-1.0.0.tar.gz` patched and activated generation `local-*` (`generation.meta` `codex-local-generation`, `patch_policy_id: termux-fd-remap`, `wrapper-api`, `schema`, `codex-wrapper`, `termux-browser-open`/`manual`; `activation-state` `format=codex-activation-state`; FD 34 `config.toml` `# codex-termux-wrapper`), `codex --version` printed `codex-cli 1.0.0`, `codex wrapper status --json` reported `"layout":"package-root"`, `codex doctor --json` exited `0` (`"schema_version":1`, `"layout":"package-root"`), upgrade to `2.0.0` + `codex update --rollback` restored `codex-cli 1.0.0`, and `codex-release-builder build` -> `codex update --path <built-gen>` activated `"has_code_mode_host":false` (`codex-cli 3.0.0`).
-- **Not yet completed post-cutover:**
-  - Live remote `curl | sh` smoke test from `https://github.com/humtr/codex/releases/download/wrapper/install.sh` on Termux (only offline synthetic `install.sh --binary` + CI Bionic `install.sh --skip-upstream` tested so far).
+- **Publication and activation boundaries:**
+  - Live public `curl | sh` installation was subsequently tested below. The published binary still predates the fixes; fresh accepted-source release assets have not been published.
   - Live-device `/data/data/com.termux/files/usr/bin/codex` replacement (left untouched on the prior binary during workspace cleanup) and external remote client pairing over `codex remote-control`.
   - Promotion of `rewrite/wrapper` to `main` (explicitly deferred until final sign-off).
 
@@ -80,16 +80,15 @@ services, and production generation pointers were **not** modified.
     - `cargo fmt --check`, `cargo clippy --workspace --all-targets --locked -- -D warnings`, `(umask 0022 && cargo test --workspace --locked)` (`codex`: `40 passed; 0 failed`, `codex-release-builder`: `6 passed; 0 failed`), and `cargo build --release --locked` passed.
     - `install.sh --binary ... --skip-upstream` installed cleanly; `codex update --path` adapted all three `0.169.0` binaries cleanly; `codex --version`, `codex-exec-server --version` (`0.169.0`), and `codex-code-mode-host --help` executed cleanly on the Android kernel.
     - `codex app-server daemon start` (`"status":"started"`), `daemon version` (`"status":"running"`, `0.169.0`), `daemon stop` (`"status":"stopped"`), `timeout 2s codex app-server --listen unix://<118B-TMPDIR>/direct-listen.sock` (listening, exit `124`), and default `codex` PTY (`TERM=xterm-256color`, `671` TUI bytes, zero `SUN_LEN`, with `codex doctor --json` confirming `app_server.status` ok & `termux_wrapper` `healthy`, overall `unhealthy` only for missing auth credentials) all passed cleanly without altering live `/data/data/com.termux/files/usr/bin/codex` or running services.
-  - **Remaining unverified boundaries:** Live `/data/data/com.termux/files/usr/bin/codex` activation, authenticated interactive task completion, live external `codex remote-control` pairing, and live remote `curl | sh` against refreshed GitHub prerelease assets remain deferred.
+  - **Boundaries remaining at that baseline:** live activation, authenticated task completion, external client pairing and refreshed public-asset installation. Later one-time authentication and public installation results are recorded below.
 - `install.sh` failure rollback is caught-exit/signal safe, not a
   cross-power-loss transaction; after SIGKILL/power loss, an owned
   `.codex.previous.<pid>` may remain behind a stale install lock and
   requires inspected manual recovery. This is explicitly documented in
   `README.md` and independently exercised by the new CI test fixture.
 
-The Stage 2 recurring official-upstream adoption controller and CI
-environment comparison are now documented in `docs/plan/STAGE2_PLAN.md`;
-no scheduler, automatic publication or production runtime deployment occurred.
+The later read-only upstream scheduler is recorded below. Automatic publication
+and production runtime deployment remain separate and have not occurred.
 
 ### Independent standalone compatibility review (2026-11-16)
 
@@ -169,6 +168,24 @@ signed channels must not delay that work.
   read-only `.github/workflows/wrapper-verify.yml` retains the three existing
   check/package/Bionic jobs and supports explicit discovery/qualification and
   reuse only of identical completed proof. Publication stays in `wrapper.yml`.
+- **Accepted CI source:** `fdcc1bdfeaee7c08cfff4454ec6bd327d4a72ddb` passed
+  [ordinary CI](https://github.com/humtr/codex/actions/runs/43852129927) and
+  [full official-upstream qualification](https://github.com/humtr/codex/actions/runs/43852762294),
+  including an actual fresh `0.169.0` qualification and exact-input proof check.
+  Both publication jobs were skipped. The first CI attempt exposed an empty
+  `CARGO_ENCODED_RUSTFLAGS` overriding the 16-KiB linker flags; removing that
+  override made the ELF alignment assertion pass. No assertion was weakened.
+- **Read-only automation is active:** main commit `c49dcf6f` adds only
+  `.github/workflows/wrapper-upstream.yml`, pinned to that accepted source,
+  with `contents: read` and daily `06:23 UTC` discovery/qualification.
+  [Manual execution through this default-branch caller](https://github.com/humtr/codex/actions/runs/43854267201)
+  passed all three jobs, fresh qualification and exact-input validation.
+  [A second identical-input execution](https://github.com/humtr/codex/actions/runs/43855791029)
+  passed by restoring the exact proof, checking its complete inputs and skipping
+  the repeated full runtime qualification as intended.
+  The workflow is registered as active; a natural cron invocation has not yet
+  been observed. Product-source merge, signed release inputs and publication
+  authority were not changed.
 - **Actual current-environment one-time proof:** isolated API 37 / 4 KiB Termux
   `0.167.0 -> 0.169.0`, all companion entrypoints, daemon start/version/stop,
   Native `command/exec` with checked file bytes, default 30x100 PTY rendering,
@@ -176,6 +193,12 @@ signed channels must not delay that work.
   Wrapper doctor was healthy; intentionally account-free overall diagnosis was
   unhealthy. All selected ELFs had 16-KiB-compatible load alignment. This is
   geometry proof, not execution on a 16-KiB kernel or an older Android release.
+- **Actual distribution-artifact proof:** the checksum-verified NDK/API-24
+  Android bundle from CI `43852129927` also passed the same available-device
+  installer, official update, all companion entrypoints, daemon/control identity,
+  Native file effect, PTY and exact-generation rollback/restoration checks.
+  Its report is `ndk-device/report.json` in the evidence root below; this closes
+  the difference between a native Termux build and the CI-distributed binary.
 - **Actual authenticated one-time proof:** the existing Codex ChatGPT login was
   used without copying credentials or supplying a Platform API key. An ephemeral
   public-Wrapper `--no-daemon exec` task completed a Native shell command and
@@ -186,6 +209,23 @@ signed channels must not delay that work.
   `authenticated-report.json`). The first harness run's doctor-schema KeyError
   was retained; it was a harness assertion error after healthy Wrapper diagnosis,
   not a runtime failure. The corrected fresh-root run passed.
+- **Public installation boundary:** actual HTTPS `curl | sh` from the `wrapper`
+  release into a fresh owned HOME/PREFIX completed archive/binary checksum checks,
+  default online `0.169.0` bootstrap, `--version` and Wrapper status successfully.
+  The executed installer matched the reviewed SHA-256 `f1fcfa65071c86ce20959084f877594c2d9ff8e766d4d8932f3e131a2f81855a`.
+  Its published old binary then failed daemon startup with `SUN_LEN` (exit 1).
+  This is a public asset lag, not accepted-source runtime proof; receipts remain
+  in `public-remote/report.json` alongside the successful CI-artifact device proof.
+- **Existing daemon selection boundary:** upgrading that public installation to
+  the accepted CI binary and re-adapting the same official version preserved
+  upstream's old daemon selection, so a subsequent start still used the old
+  executable. Upstream `app-server daemon update --from-cli --yes` then selected
+  the complete adapted CLI package; start/version/stop passed, `/proc/<pid>/exe`
+  and executable SHA-256 matched the active adapted generation, and the previous
+  Wrapper generation remained present. No package files or pointers were repaired
+  manually. The first failed upgrade receipt is retained alongside this successful
+  explicit-selection receipt. Wrapper update alone does not replace or restart
+  the independently selected upstream daemon.
 
 The user's requested boundary is a one-time check of the available environment,
 not a hardcoded recurring check of this phone, account, API level or private path.
@@ -216,12 +256,11 @@ See [docs/plan/STAGE2_PLAN.md](docs/plan/STAGE2_PLAN.md) for the verified phase-
 5. **Optional `chatgpt` Provider & Tunnel Reattachment (Phase 2.5):**
    - Port `providers/chatgpt` and `transport/tunnel-client` from `c200e676` to `wrapper` roots / `bin/codex` / `execution.wrapper` behind `codex wrapper provider ...` with an independent Provider CI gate and non-disruptive live `@TermuxBridge` cutover.
 
-6. **Continuous Upstream Adoption (Phase 2.6):** Define scheduled read-only
-   official-stable discovery, immutable digest/source/toolchain inputs,
-   standalone base and physical-device admission, independent optional module
-   evidence, gated signing/publication, safe reuse and rollback. This is a
-   documented Stage 2 work item, not a running scheduler or a dependency
-   of manual `codex update --upstream`.
+6. **Continuous Upstream Adoption (Phase 2.6):** Read-only official-stable
+   discovery and base qualification are running through the pinned main caller;
+   immutable digest/source/toolchain inputs, proof reuse and rollback are checked.
+   Signing/publication, optional module qualification and device activation are
+   separate pending work, independent of manual `codex update --upstream`.
 
 ### Decoupled Modules Index & Stage 2 Baselines
 All decoupled Stage 2 components are absent from `rewrite/wrapper` and preserved in Git history:
