@@ -20,7 +20,7 @@ The product has one public command, `codex`, built in two decoupled stages:
   `remote-control` passthrough), `codex update [--upstream] [--version <M.m.p>] | --path <FILE_OR_DIR> | --rollback`,
   `codex doctor [--color | --json]`, and `codex wrapper status [--json]`.
 - **Stage 2 (decoupled optional modules, deferred):** optional Manager, enhanced `TUI`,
-  `Provider` bridge, and Ed25519 `--signed` generation trust, preserved on
+  `Provider` bridge, and Ed25519 `--signed` Wrapper/addon bundle verification, preserved on
   `rewrite/rust-core` (with `0.167.2` release/index manifests on `origin/main`) for later opt-in reattachment once Stage 1
   is established. See [current status](CURRENT.md) and the [Stage 2 reintegration plan](docs/plan/STAGE2_PLAN.md).
 
@@ -73,10 +73,9 @@ Once a `wrapper` GitHub Release is published:
 curl -fsSL https://github.com/humtr/codex/releases/download/wrapper/install.sh | sh
 ```
 
-The currently published `wrapper` prerelease predates the daemon `SUN_LEN` and
-installer recovery fixes. Its download/bootstrap was tested, but daemon startup
-still failed. Build the current source until refreshed assets are published;
-see the [verified source and publication status](CURRENT.md#standalone-qualification-and-read-only-upstream-discovery-follow-up-2026-11-16).
+This installs the standalone `codex` wrapper binary, verifies its SHA-256
+digest, and bootstraps an active adapted upstream Codex generation; see
+[current release and verification status](CURRENT.md#verified-boundaries--post-cutover-wrapper-naming--suffix-cleanup-2026-11-16).
 
 Useful installer options (`./install.sh --help`):
 
@@ -217,7 +216,7 @@ Before `exec`ing upstream's static musl `codex` binary (plus optional
 time), the wrapper prepares the Android/Termux environment:
 
 1. **DNS (`FD 33`):** materializes `~/.local/share/codex/wrapper/resolv.conf` when needed and redirects `/etc/resolv.conf` reads to `FD 33`.
-2. **Wrapper config (`FD 34`):** lazily ensures `~/.local/share/codex/wrapper/config/config.toml` (`sandbox_mode = "danger-full-access"`, `mcp_oauth_credentials_store = "file"`) and redirects `/etc/codex` reads to `FD 34`.
+2. **Wrapper config (`FD 34`):** lazily ensures `~/.local/share/codex/wrapper/config/config.toml` (`sandbox_mode = "danger-full-access"`, `mcp_oauth_credentials_store = "file"`, `thread_unload_delay_secs = 0`) and redirects `/etc/codex` reads to `FD 34`.
 3. **Temp root & UDS directory (`FD 35` + `TMPDIR`):** requires inherited `PREFIX` and `TMPDIR`, exports `TMPDIR`/`TMP`/`TEMP`/`SQLITE_TMPDIR`, and binds `FD 35` so static musl temp/socket paths do not hit read-only `/tmp`.
 4. **Timezone (`TZ`):** writes/reuses a valid `TZif` under `$XDG_CACHE_HOME/codex/timezones` (or `~/.cache/codex/timezones`) from Android `persist.sys.timezone` / `$TZ`.
 5. **TLS & environment fence:** injects Termux `SSL_CERT_FILE` / `SSL_CERT_DIR`, disables upstream daemon auto-updates (`$CODEX_HOME/app-server-daemon/settings.json` defaulting to `~/.codex/app-server-daemon/settings.json` -> `{"updater":{"autoUpdateEnabled":false}}` on normal launches), and neutralizes unreachable host X11/Wayland/WSL browser env vars.

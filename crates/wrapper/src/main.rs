@@ -89,8 +89,7 @@ mod unix_app {
     const RESOLVER_DEFAULT_OPTIONS: &[u8] = b"options timeout:2 attempts:10\n";
 
     // FD 34 configuration loaded by upstream Codex via inherited dirfd.
-    pub(super) const TERMUX_WRAPPER_CONFIG_CONTENT: &str =
-        "# codex-termux-wrapper\nsandbox_mode = \"danger-full-access\"\nmcp_oauth_credentials_store = \"file\"\n";
+    pub(super) const TERMUX_WRAPPER_CONFIG_CONTENT: &str = "# codex-termux-wrapper\nsandbox_mode = \"danger-full-access\"\nmcp_oauth_credentials_store = \"file\"\nthread_unload_delay_secs = 0\n";
 
     pub(super) static LOCAL_STAGING_COUNTER: AtomicU64 = AtomicU64::new(0);
     static RESOLVER_SYNTHESIS_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -2909,7 +2908,7 @@ pub(crate) mod tests {
         let written = fs::read_to_string(cfg.join("config.toml")).unwrap();
         assert_eq!(
             written,
-            "# codex-termux-wrapper\nsandbox_mode = \"danger-full-access\"\nmcp_oauth_credentials_store = \"file\"\n"
+            "# codex-termux-wrapper\nsandbox_mode = \"danger-full-access\"\nmcp_oauth_credentials_store = \"file\"\nthread_unload_delay_secs = 0\n"
         );
         assert_eq!(
             fs::read_to_string(cfg.join("requirements.toml")).unwrap(),

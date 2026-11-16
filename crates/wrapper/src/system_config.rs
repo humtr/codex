@@ -69,14 +69,14 @@ pub(super) fn render_snapshot_config(fragment: &[u8]) -> io::Result<Vec<u8>> {
             "extension FD 34 config fragment exceeds limit or contains NUL",
         ));
     }
-    let mut bytes = Vec::with_capacity(
-        TERMUX_WRAPPER_CONFIG_CONTENT.len()
-            + "thread_unload_delay_secs = 0\n\n".len()
-            + fragment.len(),
-    );
+    let extra_separator = usize::from(!fragment.is_empty());
+    let mut bytes =
+        Vec::with_capacity(TERMUX_WRAPPER_CONFIG_CONTENT.len() + extra_separator + fragment.len());
     bytes.extend_from_slice(TERMUX_WRAPPER_CONFIG_CONTENT.as_bytes());
-    bytes.extend_from_slice(b"thread_unload_delay_secs = 0\n\n");
-    bytes.extend_from_slice(fragment);
+    if !fragment.is_empty() {
+        bytes.push(b'\n');
+        bytes.extend_from_slice(fragment);
+    }
     if bytes.len() as u64 > CONFIG_LIMIT {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
@@ -494,8 +494,12 @@ mod tests {
         .unwrap();
         assert_eq!(first.path, same.path);
         let cfg_text = fs::read_to_string(first.path.join("config.toml")).unwrap();
-        assert!(cfg_text.contains("thread_unload_delay_secs = 0"));
+        assert_eq!(cfg_text.matches("thread_unload_delay_secs = 0").count(), 1);
         assert!(cfg_text.ends_with("# ext A\n"));
+        assert_eq!(
+            render_snapshot_config(b"").unwrap(),
+            crate::TERMUX_WRAPPER_CONFIG_CONTENT.as_bytes()
+        );
         assert!(first.path.join("requirements.toml").is_file());
 
         // Tampered immutable file must fail closed on reuse.

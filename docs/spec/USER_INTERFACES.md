@@ -1116,10 +1116,10 @@ Manager-owned success output before Wrapper runs. For `default` it explicitly se
 profile home. Manager removes an inherited `CODEX_SQLITE_HOME` override instead
 of producing a parallel shared-store selection signal. Wrapper derives the shared
 root from the supported execution home and supplies canonical shared-state / SQLite
-env and immutable FD 34 overrides (preserving Stage 1's minimal `config.toml`
-snapshot with `sandbox_mode = "danger-full-access"` and
-`mcp_oauth_credentials_store = "file"`, plus Stage 2 opt-in shared-server
-settings such as `thread_unload_delay_secs = 0`). In Stage 2, an optional
+env and immutable FD 34 overrides (preserving Stage 1's global `config.toml`
+with `sandbox_mode = "danger-full-access"`,
+`mcp_oauth_credentials_store = "file"`, and
+`thread_unload_delay_secs = 0` without mutating per-user `config.toml`). In Stage 2, an optional
 Wrapper-owned `requirements.toml` is supplied only if a selected upstream
 execution topology still requires `sqlite_home` or rollout-migration pins, and
 is removed or replaced only through the Wrapper marker contract so a profile

@@ -63,8 +63,9 @@ applies adaptive rule-based binary patching across `bin/*`, preserves static
 `bin/codex --version` and bounded configuration loading in a disposable account-free
 home, and activates the new generation using only the upstream
 version boundary — independent of Manager, enhanced TUI, Provider, or signed
-remote release indices. Optional signed release indices and extension module
-updates remain decoupled opt-in capabilities outside standalone Wrapper.
+Wrapper/addon distribution channels. Optional signed Wrapper/addon bundles and
+extension module updates remain decoupled opt-in capabilities outside standalone
+Wrapper.
 ## 1. Product definition
 
 The product provides one public `codex` entrypoint that runs the official
@@ -78,10 +79,15 @@ fast `--version`/`--help` passthrough), `codex update` (`--upstream`, `--version
 `--path`, `--rollback`, `--help`), `codex doctor`, and `codex wrapper status`.
 Tools, approvals, native conversation records, compaction, writer locks, and
 `app-server daemon` / `remote-control` execution remain upstream-owned.
-Optional addon modules (`Manager`, enhanced `TUI`, `Provider`, signed remote
-release indices) are decoupled outside the standalone Wrapper binary (**Stage 2**)
-and may attach only as generic opt-in extensions without coupling bare execution
-or upstream updates.
+Optional addon modules (`Manager`, enhanced `TUI`, `Provider`, and Ed25519
+signed Wrapper/addon release verification) are decoupled from ordinary upstream
+execution and updates (**Stage 2**) and may attach only as generic opt-in
+extensions without coupling bare execution or upstream updates. Under local
+upstream patching, cryptographic signing protects this repository's distributed
+Wrapper binary and self-built addons (`Manager`, enhanced `TUI`, `Provider`);
+official upstream tarballs remain authenticated by OpenAI release metadata and
+SHA-256, and locally patched `bin/codex` outputs are deterministic on-device
+derivatives that require no remote CI signature.
 
 A missing, removed, or version-drifted optional module must never disable valid
 standalone Wrapper execution or block upstream updates.
@@ -161,7 +167,7 @@ Wrapper exclusively owns:
 - final upstream process execution;
 - sandbox capability enforcement;
 - immutable generation construction and integrity metadata;
-- bare local/`--upstream` update, optional Stage 2 signed module/channel update, activation, and rollback;
+- bare local/`--upstream` update, optional Stage 2 signed Wrapper/addon bundle update, activation, and rollback;
 - read-only Wrapper diagnosis;
 - composition of upstream and Termux doctor results;
 - (Stage 2 opt-in) the typed extension boundary through which optional Manager requests Wrapper operations.
@@ -209,19 +215,23 @@ home. Selection affects only the child invocation; execution readiness and
 shared conversation-path preparation belong to Wrapper before upstream launch.
 Optional shared configuration-profile projection belongs to Manager preparation.
 
-When Stage 2 signed distributions and optional modules are enabled, an installed
-generation's unavailable Manager is reported at the Manager boundary and by doctor;
-it does not invalidate the independently usable Wrapper runtime. Ordinary dispatch
-checks the declared Manager path for a regular, owner-executable file without probing
-it or requiring OpenSSL. On Stage 2 signed generations, verification still
-authenticates the signed inventory, descriptor and all Wrapper/runtime assets; a
-failed optional Manager file check is excluded from that verification result and
-local-build carry forward, without disabling Wrapper update or rollback. (Stage 1
+When Stage 2 signed Wrapper/addon bundles and optional modules are enabled, an
+installed generation's unavailable Manager is reported at the Manager boundary
+and by doctor; it does not invalidate the independently usable Wrapper runtime.
+Ordinary dispatch checks the declared Manager path for a regular,
+owner-executable file without probing it or requiring OpenSSL. On Stage 2 signed
+bundles, Ed25519 verification authenticates the published Wrapper executable,
+installer/update manifest, and any declared self-built addon assets (`Manager`,
+`Provider`, enhanced `TUI`), while locally patched upstream `bin/*` runtimes are
+verified locally via OpenAI SHA-256 provenance and Wrapper descriptors rather
+than remote CI signatures; a failed optional Manager file check degrades only at
+the Manager boundary without disabling Wrapper update or rollback. (Stage 1
 standalone local generations carry zero Manager asset and verify locally without
-remote keys.) This exception applies only to already-installed generations. Fresh
-signed candidate admission, staging and activation retain complete Manager verification
-whenever the candidate declares one. No generation metadata, signed inventory or user
-state is rewritten to express absence.
+remote signing keys.) This exception applies only to already-installed
+installations. Fresh signed Wrapper/addon candidate admission, staging and
+activation retain complete declared-addon verification whenever a candidate
+declares one. No generation metadata, signed inventory or user state is rewritten
+to express absence.
 
 Manager is a separate Rust executable. No Manager runtime or dependency may
 become a prerequisite for ordinary upstream launch, Wrapper doctor, update, or rollback.
@@ -240,9 +250,9 @@ shared-server execution, generation lifecycle and diagnosis. It must preserve
 accepted upstream command/configuration behavior and account isolation; optional
 convenience failures must not become prerequisites for ordinary execution.
 Stage 1 standalone generations require valid local official archive checksums and
-runtime probes; Stage 2 signed candidate publication and activation require the
-complete signed inventory and qualification. Optionality never permits admitting
-an invalid candidate.
+runtime probes; Stage 2 signed Wrapper/addon bundle publication and activation
+require the complete signed bundle inventory and qualification. Optionality
+never permits admitting an invalid candidate.
 
 Manager supplies standalone user-facing configuration and selection conveniences
 above that boundary. A useful convenience must produce a distinct user result,
@@ -719,17 +729,22 @@ silently weakening the request.
 
 Wrapper must preserve the accepted upstream argv byte-for-byte, including an empty
 bare-launch vector. It must not synthesize `-c`, `--enable`, `--disable`, or
-`--search`. The Termux no-sandbox default is supplied through the existing
-Wrapper-owned system `config.toml` on FD 34 as
-`sandbox_mode = "danger-full-access"` (alongside `mcp_oauth_credentials_store = "file"`).
+`--search`. The Termux no-sandbox and cross-home writer-release defaults are
+supplied through the existing Wrapper-owned system `config.toml` on FD 34 as
+`sandbox_mode = "danger-full-access"`, `mcp_oauth_credentials_store = "file"`,
+and `thread_unload_delay_secs = 0`.
 User-supplied upstream options remain unchanged; explicit unsupported sandbox requests still
 fail before runtime I/O. Hiding a shared-server warning or disabling the server does not
 satisfy this contract.
 
-When Stage 2 shared-server or Manager snapshot extensions are active, the generated
-FD 34 snapshot also supplies `thread_unload_delay_secs = 0` so closing an idle TUI
-releases its native writer without the upstream default 60-second cache delay, allowing
-immediate same-ID resume through another account's server. Upstream unloads a thread only
+Including `thread_unload_delay_secs = 0` in the global FD 34 system layer
+ensures every `CODEX_HOME` unloads idle threads immediately when a client/TUI
+disconnects (releasing the native writer lock without the upstream default
+60-second cache delay for immediate cross-home `thread/resume`), without writing
+per-user `$CODEX_HOME/config.toml` files while still allowing explicit user
+`$CODEX_HOME/config.toml` overrides. When Stage 2 Manager snapshot extensions
+are active, the generated FD 34 snapshot preserves those base Wrapper defaults
+and appends optional Manager fragments without duplicating keys. Upstream unloads a thread only
 after its last subscriber disconnects and the thread is inactive; a running turn remains
 protected by native lifecycle checks. Wrapper never removes or steals a writer lock,
 copies a transcript, or overrides explicit higher-layer user configuration or CLI arguments.
@@ -758,8 +773,8 @@ launches (`daemon_settings::ensure` is also skipped on fast `--version`/`-V`/
 
 In standalone mode, FD 34 `config.toml` contains only the Wrapper Termux
 compatibility settings (`# codex-termux-wrapper\nsandbox_mode =
-"danger-full-access"\nmcp_oauth_credentials_store = "file"\n`), without
-additional addon overrides or dry-run snapshot validation. Future opt-in Stage 2
+"danger-full-access"\nmcp_oauth_credentials_store = "file"\nthread_unload_delay_secs =
+0\n`), without additional addon overrides or dry-run snapshot validation. Future opt-in Stage 2
 module configuration must attach through `wrapper.toml` and immutable FD 34 snapshot
 extensions without hardcoding Manager-specific IPC into standalone Wrapper execution.
 

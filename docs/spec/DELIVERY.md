@@ -6,7 +6,7 @@ rollback, device compatibility and qualification behavior. Exact upstream
 release identities and prior patch/admission reports are evidence outside
 this contract, not a condition requiring a new specification on every upgrade.
 
-> **Stage scope:** Active Stage 1 standalone delivery (`install.sh`, `codex update --upstream|--path|--rollback`, `package-root`, adaptive `termux-fd-remap`/`termux-uds-fd35`, and `codex doctor`) is documented alongside deferred Stage 2 optional extensions (`--signed`, `publish`/`fetch`, `asset-map.json`, Manager/TUI composition, and shared-server snapshots). Stages and implementation status live in [CURRENT.md](../../CURRENT.md) and [docs/plan/STAGE2_PLAN.md](../plan/STAGE2_PLAN.md).
+> **Stage scope:** Active Stage 1 standalone delivery (`install.sh`, `codex update --upstream|--path|--rollback`, `package-root`, adaptive `termux-fd-remap`/`termux-uds-fd35`, and `codex doctor`) is documented alongside deferred Stage 2 optional extensions (`--signed` Ed25519 verification for published Wrapper and optional self-built addon bundles, `publish`, Manager/TUI composition, and shared-server snapshots). Under local upstream patching, official OpenAI upstream archives (`codex-package-aarch64-unknown-linux-musl.tar.gz`) remain verified against OpenAI metadata + SHA-256 and locally patched into `bin/codex` on-device without remote CI re-signing; cryptographic signing applies to the Wrapper and optional self-built addon distributions hosted by this repository. Stages and implementation status live in [CURRENT.md](../../CURRENT.md) and [docs/plan/STAGE2_PLAN.md](../plan/STAGE2_PLAN.md).
 
 ## Base qualification
 
@@ -37,25 +37,25 @@ Skipped integrated construction distinguishes a non-newer release from missing
 frontend qualification or an archive mismatch; it must not report all three as
 already up to date. Independent base qualification and feature-preserving public
 promotion are different guarantees; section4.6 defines their final boundary.
-### Automated upstream preparation and base/full publication
+### Optional upstream compatibility canary and base/full lanes
 
-Upstream handling must resolve one exact official version/archive/source tuple,
-prepare its Termux compatibility inputs, and drive separate base and full release
-lanes automatically. A scheduled discovery controller resolves a newly published
-stable upstream version, exact source and official archive digest, updates the
-single input authority without force, and explicitly starts its read-only proofs.
-Qualified base publication must not wait for Manager/enhanced-TUI porting or proof.
-Unsupported transformations stop with actionable evidence and keep the last known
-good head; source edits are never invented by a publishing script. Failed optional
-frontend work cannot block source/Wrapper qualification or basic publication. Device
-activation follows its existing user/update policy, not a forced running-session
-replacement. Base contains Wrapper plus the adapted upstream default UI;
-full adds admitted Manager and enhanced TUI. The opt-in Chat provider remains
-independent. Both lanes require actual Android execution, affected behavior proof,
-signing, immutable assets, complete public readback, disposable update/rollback
-proof and non-forced promotion. Source preparation or a green host build alone
-cannot authorize publication. An unsupported or ambiguous transformation stops
-that candidate with actionable evidence and preserves the accepted installation.
+Under local-patch Stage 1 delivery (`codex update --upstream`), the user's local
+Wrapper resolves official OpenAI releases directly and requires no CI-hosted
+patched runtime. Any CI upstream workflow (manual `workflow_dispatch` or optional
+low-frequency read-only canary) has read-only repository permissions, resolves a
+stable upstream version and official archive digest, and runs standalone
+qualification without auto-deploying, filing issues, or signing/re-hosting
+upstream binaries.
+
+When optional Stage 2 self-built addons (`Manager`, enhanced `TUI`, `Provider`)
+are distributed alongside Wrapper, base and full release lanes remain
+independent: qualified Wrapper/base publication never waits for optional addon
+porting, and failed optional addons leave the installed runtime untouched. Base
+contains Wrapper plus local/adapted upstream default UI; full adds admitted
+self-built `Manager` and enhanced `TUI`. The opt-in Chat provider remains
+independent. Distributed Wrapper/addon artifacts require actual Android
+execution, affected behavior proof, Ed25519 signature verification (Phase 2.2),
+immutable assets, readback proof, and non-forced activation.
 
 Version/source/toolchain and qualified frontend references have one machine-
 readable authority. Preparation must not guess binary offsets or accept an
@@ -223,14 +223,14 @@ must qualify that compiler against the actual protocol inputs; a Linux executabl
 that fails Android's syscall policy cannot be treated as an available build tool.
 The override changes build-tool selection, not the protocol or its runtime behavior.
 
-Remote preparation checks official upstream metadata every two hours and responds
-to owned component-source changes. Only changed build inputs trigger preparation;
-equivalent pending work is reused. Consumers first use authenticated cached or
-published artifacts, without a model login or repository write permission. Local
-and remote executors use the same versioned build/qualification contract. GitHub
-CI is an optional executor/publication adapter, not the update state authority.
-Published artifact authority remains the admitted signing key regardless of
-transport or executor. A request ACK admits no executable.
+Optional upstream compatibility canary runs may be dispatched manually (or on an
+optional schedule) without granting publication secrets or creating a runtime
+dependency for local `codex update --upstream`. Consumers authenticate Wrapper and
+optional self-built addon distributions against the admitted signing key (Phase
+2.2) and authenticate upstream OpenAI archives directly against official OpenAI
+release metadata and SHA-256 digests. GitHub CI is an optional executor/publication
+adapter, not an online prerequisite for upstream updates. A request ACK admits no
+executable.
 
 Explicit `codex update` also checks the official stable release. A current wrapper
 channel alone does not mean the installed upstream version is current. Ready
@@ -412,11 +412,16 @@ without `manager_artifact_digest` or `upstream_doctor`. (Optional Stage 2 `--man
 artifact carrying and signed `publish` remain decoupled Stage 2 extensions.)
 It performs no discovery, signing, activation, or live-state mutation.
 
-Release production in Stage 2 (Phase 2.2) exposes one non-installed `publish` operation with the
-exact form:
+Release production in Stage 2 (Phase 2.2) signs **self-built distributed bundles**
+(Wrapper `codex`, `codex-release-builder`, `install.sh`, and any distributed
+optional self-built addons such as `manager`, enhanced `tui`, or `provider`), rather
+than re-hosting or signing locally patched upstream `bin/codex` binaries. It
+exposes one non-installed `publish` operation over a verified self-built bundle
+directory (and retains manifest/key compatibility rules for legacy whole-generation
+validation only where explicitly invoked):
 
 ```text
-codex-release-builder publish --generation <ABSOLUTE_DIRECTORY> \
+codex-release-builder publish --bundle <ABSOLUTE_DIRECTORY> \
   --release-sequence <POSITIVE_DECIMAL> \
   --release-base <HTTPS_BASE_URL> \
   --private-key <ABSOLUTE_FILE> \
@@ -424,60 +429,49 @@ codex-release-builder publish --generation <ABSOLUTE_DIRECTORY> \
   --output <ABSENT_ABSOLUTE_DIRECTORY>
 ```
 
-When enabled in Stage 2, `publish` accepts a qualified `codex-local-generation` directory
-using the `package-root` layout (`generation.meta`, executable `wrapper`, `bin/codex`,
-optional `bin/*` companions, `codex-package.json`, `codex-path/`, `codex-resources/`,
-and `browser/{open,manual}/curl`), with regular non-symlink files
-matching Android/AArch64, `wrapper-api`, and `schema` bindings. The generation
-identity must be a safe URL path component and the supplied canonical HTTPS
-release base must end in that encoded identity. The release sequence is a
-positive decimal and the base follows the canonical HTTPS URL grammar
-used by `codex update --signed --remote`.
+When enabled in Stage 2, `publish` signs the Wrapper/addon bundle artifacts built by
+this repository (`wrapper`, optional `codex-release-builder`, `install.sh`, and
+optional `manager` / `tui` / `provider` addons as declared), leaving official upstream
+OpenAI tarballs and on-device patched `bin/codex` `package-root` generations verified
+via OpenAI SHA-256 + local Wrapper derivation without requiring remote signatures on
+locally patched binaries. The bundle release identity must be a safe URL path
+component and the supplied canonical HTTPS release base must end in that encoded
+identity. The release sequence is a positive decimal and the base follows the
+canonical HTTPS URL grammar used by Stage 2 signed Wrapper/addon acquisition.
 
 The operation derives one raw Ed25519 public key from the supplied private PEM
 using the explicit OpenSSL executable. It emits a non-rotating publication:
 the derived key is written as `release_public_key`, `release.sig` signs the
 exact `release.manifest` with that key, and no `release-authority.sig` is
-created. Therefore an operator producing an ordinary public/non-rotating signed release
-with this command must supply the current Wrapper `update_key` private key; this
-operation does not implement key rotation. Wrapper's local-derived path (Stage 2) is a
-different in-process authority boundary: it preserves public update authority and
-uses the selected local signer, temporary by default or explicitly authorized
-through `config/build-signing-key`. The `publish` command's supplied
-private key is read only for derivation/signing, is never copied into the output,
-and is never written to repository or device state.
+created unless an explicit authority rotation is issued. Therefore an operator
+producing an ordinary public signed Wrapper/addon release with this command
+supplies the current Wrapper `update_key` private key. The supplied private key
+is read only for derivation/signing, is never copied into the output, and is
+never written to repository or device state.
 
-The complete Stage 2 publication output uses `package-root` relative generation files without legacy
-flat `core`/`runtime`/`helpers/*` naming:
+The Stage 2 signed Wrapper/addon bundle output contains only self-built
+distributed artifacts (no upstream `bin/codex` binary redistribution required):
 
 ```text
 <output>/update-index
 <output>/update-index.sig
-<output>/releases/<generation_id>/release.manifest
-<output>/releases/<generation_id>/release.sig
-<output>/releases/<generation_id>/generation.meta
-<output>/releases/<generation_id>/wrapper
-<output>/releases/<generation_id>/bin/codex
-<output>/releases/<generation_id>/bin/*                    optional companions
-<output>/releases/<generation_id>/codex-package.json
-<output>/releases/<generation_id>/codex-path/              optional
-<output>/releases/<generation_id>/codex-resources/         optional
-<output>/releases/<generation_id>/browser/open/curl
-<output>/releases/<generation_id>/browser/manual/curl
-<output>/releases/<generation_id>/manager                  optional (Stage 2)
+<output>/releases/<bundle_id>/release.manifest
+<output>/releases/<bundle_id>/release.sig
+<output>/releases/<bundle_id>/install.sh              (optional installer payload)
+<output>/releases/<bundle_id>/wrapper
+<output>/releases/<bundle_id>/codex-release-builder   (optional)
+<output>/releases/<bundle_id>/manager                 (optional Stage 2 addon)
+<output>/releases/<bundle_id>/tui                     (optional Stage 2 addon)
 ```
 
 The index contains the four canonical records (`codex-update-index`, `channel`,
-`generation_id`, `release_base`) and final newline, and its sibling
+`bundle_id`, `release_base`) and final newline, and its sibling
 `update-index.sig` signs those exact index bytes with the same key. The
 publication manifest uses `codex-release`, binding control fields, monotonic sequence,
 `wrapper-api`, `schema`, and the SHA-256 + regular-file octal mode inventory of every
-present `package-root` file (requiring `wrapper`, `generation.meta`, `bin/codex`,
-`codex-package.json`, `browser/{open,manual}/curl`, plus optional `bin/*`, `codex-path/`,
-`codex-resources/`, and optional Stage 2 `manager`/TUI assets). The `wrapper` digest must
-equal the generation descriptor's `wrapper_artifact_digest`; a Manager entry requires `wrapper`.
-The local `releases/<id>` tree is the directory to map to the URL represented by
-`release_base`; `publish` performs no network upload and does not assume that
+present distributed bundle file (requiring `wrapper`, plus optional declared
+self-built tools/addons). `publish` performs no network upload and does not assume that
+locally patched upstream `bin/*` assets are hosted alongside the signed Wrapper bundle.
 the URL is hosted by OpenAI.
 
 Ordinary Stage 2 signed acquisition, `--force`, `--rollback`, `--signed --path`, and `--signed --remote`
@@ -504,13 +498,12 @@ to developers and remote executors. Neither build selection nor signing grants
 network publication authority. Any public promotion requires the complete
 source/execution/readback gate, independent of the executor.
 
-The maintained release workflow runs from one exact accepted source selected by
-the main publication caller. Candidate construction and Android/AArch64 smoke
-are read-only and have no signing secret or public mutation authority. Signing,
-immutable Release/Pages staging, public consumer proof and stable CAS are separate
-jobs on the same admitted payload. Upstream preparation is scheduled every two
-hours; manual dispatch remains available for non-publishing qualification or
-explicitly authorized publication. Unchanged preparation inputs cause no build.
+Candidate construction and Android/AArch64 smoke are read-only and have no
+signing secret or public mutation authority. Signing, immutable Release/Pages
+staging, and public consumer readback are separate jobs on the same admitted
+Wrapper/addon bundle. Official upstream canary checks run on manual dispatch (or
+an optional low-frequency schedule) as read-only verification; ordinary local
+`codex update --upstream` never depends on CI schedules.
 
 All candidate/component transformations and corrective bindings must complete
 before the unsigned transfer archive is created. Package the final admitted
@@ -997,7 +990,10 @@ install.sh [--prefix <DIR>] [--binary <PATH>] [--build] [--release <TAG>] \
   1) unpacked bundle `./bin/codex` or `./codex` (verifying `SHA256SUMS` when present),
   2) local `./target/release/codex`, or 3) the GitHub Release asset
   `codex-wrapper-aarch64-linux-android.tar.gz` and `.sha256` from tag `wrapper`
-  of `humtr/codex` over HTTPS (`curl`) + OpenSSL/sha256 verification.
+  of `humtr/codex` over HTTPS (`curl`) + OpenSSL/sha256 verification. (Stage 1
+  verifies `.sha256` / `SHA256SUMS` digests only without an Ed25519 signature;
+  Phase 2.2 adds Ed25519 signature verification of the Wrapper bundle and
+  `install.sh` self-update path.)
 - On Android AArch64, `install.sh` runs a non-mutating `/system/bin/linker64`
   `--version` sanity probe on the staged binary before atomically publishing it to
   `$PREFIX/bin/codex`.
@@ -1043,58 +1039,54 @@ Browser helpers occupy the fixed package-root paths `browser/open/curl` (`termux
 and `browser/manual/curl` (`termux-browser-manual`), with `helper_count = 2`. No indexed
 `helpers/0` / `helpers/1` compatibility bridge is retained.
 
-### Stage 2 optional signed channels and bootstrap trust (Phase 2.2, deferred)
+### Stage 2 optional signed Wrapper/addon channels and bootstrap trust (Phase 2.2, deferred)
 
-When Stage 2 signed bundles (`--signed` or `wrapper.toml` `signed_update = true`) are
-reintroduced in Phase 2.2, signed distribution layers cleanly alongside Stage 1 without
-breaking offline `--path` or bare `--upstream` updates:
+When Stage 2 signed Wrapper/addon distribution (`--signed` or `wrapper.toml`
+`signed_update = true`) is enabled in Phase 2.2, Ed25519 verification protects the
+trusted computing base built and hosted by this repository (`wrapper`,
+`codex-release-builder`, `install.sh`, and optional self-built addons such as
+`manager`, enhanced `tui`, and `provider`) without requiring remote CI signatures
+for OpenAI upstream tarballs or locally patched `bin/codex` `package-root`
+generations (which remain authenticated by OpenAI SHA-256 + local Wrapper derivation):
 
-- **Automatic signed channel index:** fetches bounded `update-index` (or base
+- **`install.sh` & Wrapper self-update Ed25519 verification:** replaces Stage 1's
+  checksum-only (`SHA256SUMS`/`.sha256`) release fetch with Ed25519 signature
+  verification over distributed Wrapper/addon bundles using the pinned verifier key.
+- **Automatic signed Wrapper/addon index:** fetches bounded `update-index` (or base
   `update-index-base`, overridable via `CODEX_TERMUX_UPDATE_INDEX_URL`) and `<URL>.sig`,
-  verifying the exact four-record index (`codex-update-index`, `channel`, `generation_id`,
-  `release_base`) against `update_key` before touching payloads:
-
-```text
-codex-update-index
-channel\tstable
-generation_id\t<ID>
-release_base\thttps://<host>/<path>/<ID>/
-```
-
+  verifying the canonical index (`codex-update-index`, `channel`, `bundle_id`,
+  `release_base`) against `update_key` before touching bundle payloads.
 - **Explicit signed remote/local acquisition (`codex update --signed --remote <HTTPS_BASE_URL>` / `--signed --path <DIR>`):**
   accepts canonical `https://` release bases (up to 4,096 bytes), fetches and verifies
   `<base>release.manifest` (`128 KiB` cap) and `<base>release.sig` (`1 KiB` cap, plus
   `<base>release-authority.sig` on key rotation) against the authoritative Ed25519
-  `update_key` before acquiring any `package-root` inventory file.
+  `update_key` before staging Wrapper or self-built addon files.
 - **Ed25519 verification & key transitions:** `release_public_key` is 64 lowercase hex digits.
   Non-rotating updates require `release_public_key == update_key`; key rotations verify
   `release-authority.sig` under `update_key` first, then `release.sig` under the new candidate
   key. On initial `--signed` trust enrollment (before signed keys exist in `activation-state`),
   Wrapper binds one pinned public key seed (`~/.local/lib/codex/wrapper/release-public-key.pem`,
   `16 KiB` cap); once signed keys exist, this seed file is never used as a recovery fallback.
-  Bare `LOCAL_ZERO` (`00..00`) key slots from Stage 1 remain preserved for `--upstream` /
-  unsigned `--path` updates and must not silently downgrade signed keys or corrupt mixed
-  `current`/`previous` rollback pairs.
+  Bare `LOCAL_ZERO` (`00..00`) verifier slots from Stage 1 remain preserved for local
+  `--upstream` / unsigned `--path` upstream generations without conflicting with signed
+  Wrapper/addon self-updates.
 - **Bounded transfer, staging & cache limits:** uses `$PREFIX/bin/curl` (`--location`,
   `--proto-redir =https`, `NO_PROXY`/`--noproxy` isolated environment, 15 s connect, 30 s
   control timeout, 1800 s idle transfer timeout for release files / 120 s for Provider files),
   `384 MiB` per-file / `768 MiB` total extracted payload bounds (`1 GiB` `state_root/downloads`
-  total cache), staging under `generation_root/.acquire-<pid>-<counter>` / `.candidate-*`
-  (and `64 MiB` Wrapper artifact bound / `64 KiB` `generation.meta` bound).
-- **Local-derived builds (when enabled in Stage 2):** optional explicit local source/archive
-  signing retains baseline `update_key` while binding the ephemeral or `config/build-signing-key`
-  verifier into `current_key` and never runs automatically on network failure.
-- **`codex update --rollback` under signed mode:** verifies `previous` against `previous_key`
-  (when non-zero Ed25519), swaps `(current, current_key)` and `(previous, previous_key)`
-  atomically, and leaves `update_key` unchanged so rotated-out keys never regain forward
-  authority. Missing, malformed, or incompatible rollback state fails closed.
+  total cache), staging under private `.acquire-<pid>-<counter>` / `.candidate-*`
+  (and `64 MiB` Wrapper artifact bound / `64 KiB` descriptor bound).
+- **`--rollback` across Wrapper/addon & upstream boundaries:** swaps retained `previous`
+  state atomically while leaving rotated-out forward `update_key` authorities retired,
+  and missing optional addon assets degrade only at the addon boundary without bricking
+  `codex`, `codex doctor`, or `codex update --upstream`.
 
-In summary, every Stage 2 signed update step must:
-1. recover `activation-state` (and `activation-journal` if interrupted) under the state-root directory `flock`;
+In summary, every Stage 2 signed Wrapper/addon update step must:
+1. recover state/journal under the state-root directory `flock`;
 2. verify index/manifest signatures (`update_key`, optional `release-authority.sig`, `release.sig`) and monotonic sequence anti-rollback before staging;
-3. reuse verified owned cache files (`downloads/`) or acquire payloads inside `.acquire-*` with signed regular-file mode checks (`no special bits`, executable `wrapper`/`bin/*`/`manager`/helpers);
-4. probe `bin/codex --version` under Termux FDs before atomic pointer swap;
-5. commit `activation-state` atomically and retain a single valid `previous` rollback pair without leaving partial destinations on failure.
+3. acquire verified regular files with expected octal modes (`wrapper` and declared addons executable, no special bits);
+4. run non-mutating binary probe(s) before atomic replacement;
+5. commit state atomically without leaving partial destinations on failure, keeping local upstream `codex update --upstream` independent.
 
 ### Bounded installed-artifact retention
 

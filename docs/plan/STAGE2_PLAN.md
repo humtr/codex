@@ -42,7 +42,7 @@
 | Generation layout | Single `package-root`: `bin/codex`, `0..N` companions (`bin/*`), `codex-package.json`, `codex-path/`, `codex-resources/`, `browser/{open,manual}/curl`; rejects root `runtime` / `compat` | Flat files: `core` (or `wrapper`), `runtime`, `codex-code-mode-host`, `helpers/{0,1,2}` | Port all Stage 2 consumers (`release-builder publish`, `remote_release`, `runtime-binding`, `manager`, `providers/chatgpt`, CI scripts) to `package-root` (`bin/codex` + `browser/` + `wrapper` + optional `manager` / `tui`) |
 | Subcommands | Top-level `update`, `doctor`, `wrapper status`; else passthrough | `termux ...` (`core` env vars), `update --core/--full/--signed/--remote/--local/--build-local` | Keep top-level `update` / `doctor` / `wrapper`; attach `setup`, `--bare`, `--with`, `provider`, `launch`, `profile`, `task`, `notify`, `usage`, `rotation` cleanly under `codex wrapper` |
 | Signing & state | `activation-state` (`LOCAL_ZERO` keys); local `--upstream`/`--path`/`--rollback` | Strict Ed25519 non-zero keys (`codex-activation-state-v3`); remote signed indices only | Support **both**: bare `LOCAL_ZERO` `--upstream`/`--path` works with zero keys/network; `--signed` enables Ed25519 chain + rotation without bricking bare generations or cross-mode `--rollback` |
-| FD 34 config | Lazy write only on create/mismatch (`sandbox_mode`, `mcp_oauth_credentials_store`); no `requirements.toml` | Always hashes `config/snapshots/<id>/config.toml` + `thread_unload_delay_secs = 0` + Manager fragment + `requirements.toml`, dry-runs `features list` | Bare mode keeps Stage 1 zero-write fast path (`thread_unload_delay_secs = 0` only when enabled or validated safely); snapshots & fragments activate only when Stage 2 modules/shared servers attach |
+| FD 34 config | Lazy write on create/mismatch (`sandbox_mode`, `mcp_oauth_credentials_store`, `thread_unload_delay_secs = 0`); no `requirements.toml` | Always hashes `config/snapshots/<id>/config.toml` + Manager fragment + `requirements.toml`, dry-runs `features list` | Bare mode keeps Stage 1 zero-write fast path while globally setting `thread_unload_delay_secs = 0` without per-user `config.toml` edits; snapshots & fragments activate only when Stage 2 modules attach without duplicating base keys |
 | FD 36 lease | None (no execution lease / `shared_server` / `shared_layout`) | `execution_lease.rs` duplicates `flock(LOCK_SH)` of physical `CODEX_HOME` onto FD 36 across `exec` | Add only when `manager` / shared-server topology attaches in Phase 2.3 |
 | Enhanced TUI | Unpatched upstream `bin/codex` + adaptive binary ELF patch | `frontend/tui` (`native.patch` pinned to `086ccc8...` / `0.167.0`), `tui.rs` checks exact `upstream_package_version` match! | Rebase `frontend/tui` onto `>= 0.169.0`, decouple TUI capability probe from `upstream_package_version`, and keep `codex update --upstream` independent of TUI |
 
@@ -72,29 +72,28 @@
 
 ---
 
-### Phase 2.2 — Signed Release Channel & `codex-release-builder publish`
-**Goal:** Add Ed25519 signed channel verification (`codex update --signed`), signed publication (`codex-release-builder publish`), rollback guards, and optional-asset separation while keeping default `codex update` (`--upstream`) 100% independent.
+### Phase 2.2 — Signed Wrapper & Addon Distribution (`--signed` / `install.sh` Verification)
+**Goal:** Add Ed25519 signature verification and signed publication for **self-built distributed bundles** (`codex` wrapper, `codex-release-builder`, `install.sh` self-update, and optional self-built addons `manager`, enhanced `tui`, `provider`), while keeping official OpenAI upstream tarballs verified by OpenAI SHA-256 and locally patched into `bin/codex` on-device without remote CI signatures.
 
 1. **Inspect reference code (read-only):**
    - `git show c200e676:crates/core/src/{remote_release.rs,release_display.rs,rollback_guard.rs,component_metadata.rs,maintenance.rs}`
-   - `git show ebb0b519:crates/wrapper/src/remote_release.rs` (`wrapper` vs `core` flat-asset diff)
    - `git show c200e676:crates/release-builder/src/lib.rs` (`publish` command)
-   - `git show c200e676:.github/scripts/{release_signing.py,release_publication.py,release_components.py}`
+   - `git show c200e676:.github/scripts/{release_signing.py,release_publication.py}`
 2. **Design & Implement:**
-   - **Unify signed payload structure onto `package-root`:** Replace legacy flat file lists (`core`/`runtime`/`helpers/{0,1,2}`) in `publish` and `remote_release` with signed `package-root` inventories (`generation.meta`, `wrapper`, `bin/codex`, `0..N` companions in `bin/`, `codex-package.json`, `codex-path/`, `codex-resources/`, `browser/{open,manual}/curl`, plus optional `manager` and optional TUI helper).
-   - **Clean suffix-free names:** Emit/verify `codex-release` (manifest), `update-index` / `update-index-base`, `asset-map.json`, `codex-update-hold`, `codex-rollback-wrapper-guard`, `download-size` without `-v1`/`-v3`/`-v4` or `core`/`held_core_sha256` naming.
+   - **Sign what we build & distribute (TCB + self-built addons), not upstream `bin/codex`:** Replace the legacy whole-generation model (`publish` bundling pre-patched upstream `bin/codex`, `codex-path/`, `codex-resources/`) with signed **Wrapper + Addon bundles** (`release.manifest`, `release.sig`, `wrapper`, optional `codex-release-builder`, `install.sh`, and optional declared `manager` / `tui` / `provider` binaries). Official OpenAI upstream tarballs continue arriving via `codex update --upstream` (OpenAI release metadata + SHA-256 + deterministic local ELF patching into `generations/<id>/bin/codex` without needing a remote private key on CI or on-device).
+   - **Close the `install.sh` / Wrapper self-update trust gap:** Replace Stage 1's `.sha256` / `SHA256SUMS`-only check in `install.sh` and Wrapper self-update with Ed25519 verification against a pinned verifier key (`release-public-key.pem`), alongside `update-index` / `update-index-base` and monotonic sequence anti-rollback.
    - **OpenSSL Ed25519 verification & key state transitions:**
      - Bootstrap trust seed at `$HOME/.local/lib/codex/wrapper/release-public-key.pem` (bound by pinned key SHA-256 on initial `--signed` enrollment).
      - Verify `release.manifest` + `release.sig` + optional `release-authority.sig` rotation via OpenSSL.
-     - Keep Stage 1 `ReleasePublicKey::LOCAL_ZERO` fully supported for `--upstream` and `--path`; prevent silent downgrade from signed keys to unsigned remote channels or corrupting a mixed `current`/`previous` `--rollback` pair (reject or require explicit `--upstream` opt-in).
+     - Keep Stage 1 `ReleasePublicKey::LOCAL_ZERO` fully supported for local `--upstream` and offline `--path` upstream generations; prevent silent downgrade from signed keys or corrupting signed rollback pairs.
    - **CLI additions:**
-     - `codex update --signed [--version ... | --remote <HTTPS_URL> | --path <DIR>]` (requires `--signed` or `wrapper.toml` `signed_update = true`; default `codex update` keeps Stage 1 `--upstream`).
-     - `codex-release-builder publish --generation <DIR> --release-sequence <N> --release-base <HTTPS> --private-key <PEM> --openssl <BIN> --output <DIR>`.
-   - **Optional-asset degradation rule (`SPEC.md` §4.2):**
+     - `codex update --signed [--version ... | --remote <HTTPS_URL> | --path <DIR>]` / `codex wrapper update --signed` (enabled explicitly or via `wrapper.toml` `signed_update = true`; default `codex update` keeps Stage 1 `--upstream`).
+     - `codex-release-builder publish --bundle <DIR> --release-sequence <N> --release-base <HTTPS> --private-key <PEM> --openssl <BIN> --output <DIR>`.
+   - **Optional-addon degradation rule (`SPEC.md` §4.2):**
      - Fresh candidate staging/signing still requires all declared assets in `release.manifest`.
-     - For an **already-installed** generation, a missing/broken optional `manager` or `tui` asset degrades only when Manager/TUI is invoked or reported in `codex doctor`; ordinary bare `codex`, `codex doctor`, `codex update`, and `codex update --rollback` remain fully operational.
+     - On an already-installed host, a missing/broken optional `manager` or `tui` addon degrades only at that addon's boundary and in `codex doctor`; bare `codex`, `codex doctor`, `codex update --upstream`, and `codex update --rollback` stay operational.
 3. **Exit Gate (Must Pass Before Phase 2.3):**
-   - Full `codex-release-builder build` -> `publish` -> `codex update --signed --path` / mock HTTPS `--remote` test covering: initial trust seed, key rotation (`release-authority.sig`), tampered signature/manifest/mode rejection, sequence rollback protection, `LOCAL_ZERO` <-> signed boundary behavior, and missing optional Manager non-bricking recovery.
+   - Full `codex-release-builder` bundle build -> `publish` -> `install.sh` / `codex update --signed --path` / mock HTTPS `--remote` test covering: initial trust seed, key rotation (`release-authority.sig`), tampered signature/manifest/mode rejection, sequence rollback protection, `LOCAL_ZERO` <-> signed boundary behavior, and missing optional addon non-bricking recovery.
    - All Stage 1 `codex update --upstream` / `--path` / `--rollback` tests remain green offline with zero `release-public-key.pem`.
 
 ---
@@ -108,7 +107,7 @@
    - `git show c200e676:crates/core/src/{execution_lease.rs,shared_layout.rs,shared_server.rs,native_task.rs,manager_config.rs,manager_dispatch.rs}`
 2. **Design & Implement:**
    - **Workspace & CI boundary update:** Re-add `crates/runtime-binding` and `crates/manager` to root `Cargo.toml`. Keep `crates/wrapper/Cargo.toml` free of `serde`/`serde_json`/`tungstenite` (depending at most on lightweight `codex-runtime-binding` if/when needed, which depends only on `libc = "=0.2.186"`). Update `.github/workflows/wrapper.yml` dependency check explicitly to distinguish bare `crates/wrapper` (`codex`) deps from optional `crates/manager` deps (`serde`, `serde_json`, `tungstenite`), rather than allowing silent dependency creep into `codex`.
-   - **Runtime-binding unification:** Merge `c200e676`'s `writer_free_until`/`writer_directories`/error-code checks with `package-root` roots (`~/.local/share/codex/wrapper/{servers,catalogs}` and `generations/<id>/bin/codex`); finalize `settings_identity` domain string; keep `thread_unload_delay_secs = 0` enabled for shared-server reuse namespaces.
+   - **Runtime-binding unification:** Merge `c200e676`'s `writer_free_until`/`writer_directories`/error-code checks with `package-root` roots (`~/.local/share/codex/wrapper/{servers,catalogs}` and `generations/<id>/bin/codex`); finalize `settings_identity` domain string (`thread_unload_delay_secs = 0` is already supplied globally by Wrapper FD 34 without duplicating keys in Manager snapshot fragments).
    - **Manager rebrand & clean IPC contracts:**
      - Cut ALL `c200e676` `codex termux` callbacks/help text in `crates/manager` to `codex wrapper`, and `CODEX_TERMUX_CORE_*` -> `CODEX_TERMUX_WRAPPER_*` (`CODEX_TERMUX_WRAPPER_API = "codex-manager-wrapper"`, artifact marker `codex-manager-artifact`, probe `wrapper_api=codex-manager-wrapper`).
      - Clean suffix-free Manager formats & IPC endpoints (`__prepare-runtime`, `__prepare-launch`, `__task-connection`, `__task-reentry`, `__terminal-*`, `codex-manager-profile`, `codex-manager-default-profile`, `notifications/config`, `codex-manager-notify`).
@@ -177,12 +176,14 @@ automation and of every optional module.
 descriptor comparison and immutable archive metadata. It creates no installed
 state. Shared `wrapper-verify.yml` owns the existing check/package/Bionic jobs
 and explicit account-free qualification with `qualify_wrapper.py`; the ordinary
-`wrapper.yml` caller retains publication separately. Read-only scheduled callers
-pin an accepted source SHA and invoke this same graph without publication
-permissions, personal-device checks, account names or private paths.
-The caller is registered on main at `c49dcf6f`, runs daily at `06:23 UTC`, and
-selects accepted source `fdcc1bdfeaee7c08cfff4454ec6bd327d4a72ddb`.
-Its manual default-branch execution passed; see [current evidence](../../CURRENT.md#standalone-qualification-and-read-only-upstream-discovery-follow-up-2026-11-16).
+`wrapper.yml` caller retains publication separately. `.github/workflows/wrapper-upstream.yml`
+on `main` is strictly a read-only compatibility canary (`permissions: contents: read`)
+running in Linux + Bionic emulation (`android_api` is `None`, with no auto-deploy, PR,
+issue filing, or device access): local `codex update --upstream` resolves OpenAI releases
+directly and has zero functional dependency on CI schedules, so keeping
+`wrapper-upstream.yml` manual (`workflow_dispatch`, pointing at the current verified
+`rewrite/wrapper` commit) avoids unnecessary daily pinned-commit cron runs while
+retaining on-demand compatibility checks; see [current evidence](../../CURRENT.md#standalone-qualification-and-read-only-upstream-discovery-follow-up-2026-11-16).
 
 The available Termux environment and existing login were exercised once for this
 work. They are not a required recurring phone/account matrix. Optional additional
@@ -196,8 +197,8 @@ or Provider**. The automation is not a license to skip any active gate.
 
 ### Implementation work order
 
-1. **Discover (read-only):** scheduled (e.g. daily) and manual-dispatch
-   official stable release discovery via the supported OpenAI release metadata.
+1. **Discover (read-only):** manual-dispatch (or optional low-frequency schedule)
+   official stable release compatibility check via the supported OpenAI release metadata.
    Resolve an exact version, metadata/descriptor digest, archive URL, archive
    SHA-256, source SHA, wrapper/release-builder SHA, toolchain/NDK and binary
    patch policy. Reject prereleases, missing official digests, divergent
