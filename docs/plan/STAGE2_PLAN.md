@@ -82,10 +82,12 @@
 2. **Design & Implement:**
    - **Sign what we build & distribute (TCB + self-built addons), not upstream `bin/codex`:** Replace the legacy whole-generation model (`publish` bundling pre-patched upstream `bin/codex`, `codex-path/`, `codex-resources/`) with signed **Wrapper + Addon bundles** (`release.manifest`, `release.sig`, `wrapper`, optional `codex-release-builder`, `install.sh`, and optional declared `manager` / `tui` / `provider` binaries). Official OpenAI upstream tarballs continue arriving via `codex update --upstream` (OpenAI release metadata + SHA-256 + deterministic local ELF patching into `generations/<id>/bin/codex` without needing a remote private key on CI or on-device).
    - **Close the `install.sh` / Wrapper self-update trust gap:** Replace Stage 1's `.sha256` / `SHA256SUMS`-only check in `install.sh` and Wrapper self-update with Ed25519 verification against a pinned verifier key (`release-public-key.pem`), alongside `update-index` / `update-index-base` and monotonic sequence anti-rollback.
+     - Authenticate the initial trust seed and installer origin before relying on them. Verify a downloaded replacement before executing it; an installer checking itself after execution or fetching a key beside the same unauthenticated bundle does not establish initial trust.
+     - Do not reintroduce a device-local signer, `config/build-signing-key`, temporary Ed25519 keys or signed whole-generation provenance for ordinary local upstream patches. Keep bundle verifier/sequence state scoped to distributed Wrapper/addon artifacts and preserve local upstream activation/rollback independently.
    - **OpenSSL Ed25519 verification & key state transitions:**
      - Bootstrap trust seed at `$HOME/.local/lib/codex/wrapper/release-public-key.pem` (bound by pinned key SHA-256 on initial `--signed` enrollment).
      - Verify `release.manifest` + `release.sig` + optional `release-authority.sig` rotation via OpenSSL.
-     - Keep Stage 1 `ReleasePublicKey::LOCAL_ZERO` fully supported for local `--upstream` and offline `--path` upstream generations; prevent silent downgrade from signed keys or corrupting signed rollback pairs.
+     - Keep Stage 1 `ReleasePublicKey::LOCAL_ZERO` supported for local `--upstream` and offline `--path` upstream generations. Enforce signature/sequence anti-rollback for the signed Wrapper/addon artifacts themselves; a local upstream generation must not downgrade their authority or be rejected merely because it has no publication signature.
    - **CLI additions:**
      - `codex update --signed [--version ... | --remote <HTTPS_URL> | --path <DIR>]` / `codex wrapper update --signed` (enabled explicitly or via `wrapper.toml` `signed_update = true`; default `codex update` keeps Stage 1 `--upstream`).
      - `codex-release-builder publish --bundle <DIR> --release-sequence <N> --release-base <HTTPS> --private-key <PEM> --openssl <BIN> --output <DIR>`.
@@ -184,6 +186,14 @@ directly and has zero functional dependency on CI schedules, so keeping
 `wrapper-upstream.yml` manual (`workflow_dispatch`, pointing at the current verified
 `rewrite/wrapper` commit) avoids unnecessary daily pinned-commit cron runs while
 retaining on-demand compatibility checks; see [current evidence](../../CURRENT.md#standalone-qualification-and-read-only-upstream-discovery-follow-up-2026-11-16).
+
+The canary runs the existing adaptation implementation; it does not generate a
+new implementation when upstream changes. A compatible new archive needs no
+Wrapper revision. An unsupported adaptation requires diagnosis and, when the
+rules are insufficient, a qualified Wrapper fix. A failed host-tool, configuration
+or old-server check is not by itself evidence that the patch rules must change.
+Ordinary local update does not wait for a CI-approved runtime or a new Wrapper
+release for each upstream version.
 
 The available Termux environment and existing login were exercised once for this
 work. They are not a required recurring phone/account matrix. Optional additional

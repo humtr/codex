@@ -66,6 +66,22 @@ version boundary — independent of Manager, enhanced TUI, Provider, or signed
 Wrapper/addon distribution channels. Optional signed Wrapper/addon bundles and
 extension module updates remain decoupled opt-in capabilities outside standalone
 Wrapper.
+
+Wrapper distribution and upstream runtime updates are separate operations.
+The installer replaces the Wrapper executable; ordinary `codex update` uses
+the installed Wrapper to acquire, adapt and activate upstream, without replacing
+Wrapper itself. A new upstream version that fits the existing adaptation rules
+requires no Wrapper revision. When a demonstrated incompatibility exceeds those
+rules, repair and qualify the affected Wrapper implementation before adopting
+that input; a failed port must preserve the operating and rollback generations.
+Configuration, host-tool and stale-server failures must be diagnosed separately
+from a defect in the adaptation rules.
+
+A compatibility canary exercises those existing rules and runtime behavior. It
+does not author compatibility fixes, select the user's runtime, or authorize
+publication or activation. Local upstream update must work without a successful
+remote canary, a CI-generated patched runtime, or any optional addon.
+
 ## 1. Product definition
 
 The product provides one public `codex` entrypoint that runs the official

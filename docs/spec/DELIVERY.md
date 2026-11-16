@@ -51,8 +51,8 @@ When optional Stage 2 self-built addons (`Manager`, enhanced `TUI`, `Provider`)
 are distributed alongside Wrapper, base and full release lanes remain
 independent: qualified Wrapper/base publication never waits for optional addon
 porting, and failed optional addons leave the installed runtime untouched. Base
-contains Wrapper plus local/adapted upstream default UI; full adds admitted
-self-built `Manager` and enhanced `TUI`. The opt-in Chat provider remains
+distributes Wrapper for the locally adapted upstream default UI; full adds admitted
+self-built `Manager` and enhanced `TUI` bundles. The opt-in Chat provider remains
 independent. Distributed Wrapper/addon artifacts require actual Android
 execution, affected behavior proof, Ed25519 signature verification (Phase 2.2),
 immutable assets, readback proof, and non-forced activation.
@@ -96,9 +96,10 @@ from Wrapper acceptance and must be required before future signed provider admis
 Base and full (Stage 2 optional lanes) have independent signed public heads: `update-index`
 is the full head and `update-index-base` is the base head (Stage 1 standalone Wrapper
 does not read remote release indices and fetches upstream directly).
-The default signed update head follows the authenticated public baseline of the selected
-generation, including a local-derived generation; an explicit update URL remains
-an operator override. Full users must never be silently downgraded when only base qualifies. Both public
+The default signed update head follows the authenticated baseline of the selected
+Wrapper/addon distribution; an explicit update URL remains an operator override.
+A locally patched upstream generation does not create a signed public baseline.
+Full users must never be silently downgraded when only base qualifies. Both public
 heads and retained last-known-good assets stay available in their immutable
 publication origins; current releases do not replace historical origins.
 Promotion coordinates both heads with non-forced compare-and-swap and increasing
@@ -163,8 +164,14 @@ not an indefinitely pending build; preserve the installed release and report the
 failed version/source/stage and original job URL. A failed pipeline is not repaired
 by retrying identical inputs or compiling the same unsupported tuple on a device.
 
-Wrapper owns the complete update lifecycle: discover installed-component updates,
-resolve compatible dependency groups, reuse unchanged artifacts, acquire or build
+Ordinary Stage 1 upstream adaptation requires no compiler, source checkout,
+remote build or private signing key. Source-build and missing-artifact orchestration
+below applies only to explicitly selected self-built component flows; it must not
+become an implicit fallback or prerequisite for ordinary `codex update --upstream`.
+
+In optional Stage 2 component flows, Wrapper owns the complete update lifecycle:
+discover installed-component updates, resolve compatible dependency groups,
+reuse unchanged artifacts, acquire or build
 missing artifacts, verify and atomically activate each inseparable group. Manager,
 TUI, Provider and tunnel remain selected only when the user selected them. Full is
 the complete selected composition, not a reason to rebuild unchanged components.
@@ -232,17 +239,18 @@ release metadata and SHA-256 digests. GitHub CI is an optional executor/publicat
 adapter, not an online prerequisite for upstream updates. A request ACK admits no
 executable.
 
-Explicit `codex update` also checks the official stable release. A current wrapper
-channel alone does not mean the installed upstream version is current. Ready
-signed releases install through ordinary admission. If the official release is
-newer and a required compatible artifact is unavailable, interactive update offers
-one grouped choice: keep those items, build locally including missing dependency
-installation, or request an immediate remote build. Compatible ready independent
-updates may still proceed; the displayed plan states that scope. Configured build
-policy provides the noninteractive/default choice. No transport error silently
-starts a build; signature/digest/compatibility failures remain failures. A selected
-frontend is not silently removed. Remote requests reuse the same target job and
-report its actual build/qualification/publication state and terminal failures.
+Explicit `codex update` checks the official stable release independently of the
+Wrapper distribution channel. A current Wrapper bundle does not establish that
+the installed upstream version is current. An explicitly selected Stage 2
+Wrapper/addon update may offer a grouped choice for unavailable self-built
+components: keep those items, build locally including missing dependencies, or
+request a remote build. Compatible independent updates may still proceed; the
+displayed plan states that scope. This optional choice must not defer or gate a
+valid standalone upstream update. Configured build policy provides its
+noninteractive/default choice. No transport error silently starts a build;
+signature/digest/compatibility failures remain failures. A selected frontend is
+not silently removed. Remote requests reuse the same target job and report its
+actual build/qualification/publication state and terminal failures.
 
 The local executor checks the recipe's required tool versions, storage and target,
 installs only missing required tools through the appropriate package manager, and
@@ -336,25 +344,21 @@ a qualified hosted artifact may be reused only through exact raw-runtime,
 Android and signed-publication admission. Evidence for one version or executor
 does not automatically qualify another.
 
-Ordinary local results use the existing device-local derived signing authority and
-retain the admitted public update key/baseline. A configured signer whose public
-key is authorized for the release may sign qualified developer output locally.
-Wrapper's optional `config/build-signing-key` contains one `file:/absolute/path`
-reference (at most4096 bytes, with an optional final newline). It is consulted only
-for a selected local build, including the manual updater's local policy. The
-referenced owner-only Ed25519 key must match the installed state's admitted
-`update_key`; malformed, unavailable, insecure or unauthorized configured keys
-fail before archive acquisition, without an ephemeral-key fallback. Wrapper preserves
-the external key and reference. The signed result retains local-derived provenance,
-the authenticated public baseline/sequence and ordinary rollback behavior even
-when its signer equals the public authority; provenance is not inferred from key
-inequality. Without this explicit configuration, keep the fresh temporary signer.
-Model login, GitHub login and checkout presence are not signing authority. Signing
-does not imply public upload; publication follows its configured permission and
-non-forced promotion policy. Public upload reuses already admitted identical
-objects and transfers only absent changed objects plus metadata/signatures.
-Unchanged binaries are never rebuilt merely to resign a composition. Public
-sequence conflicts require renewed metadata admission, not forced overwrite.
+Official upstream archive adaptation produces trusted local derivatives from
+verified OpenAI inputs and the installed Wrapper. It requires no local signing
+authority, configured private-key reference, temporary signer, public release
+sequence, or signed whole-generation descriptor. Record the exact archive digest,
+adaptation policy/report and component digests through the existing local
+generation metadata and atomic activation/rollback path.
+
+Signing authority belongs to the explicit publication of self-built Wrapper/addon
+bundles. An authorized local developer may publish such a qualified bundle using
+the same bounded explicit signing input as another authorized producer; ordinary
+upstream update must not acquire that authority or require a signing key.
+Model login, GitHub login and checkout presence are not signing authority.
+Signing does not imply public upload. Publication follows its configured
+permission and non-forced promotion policy, reuses admitted unchanged objects,
+and requires renewed metadata admission on public sequence conflicts.
 
 Missing-artifact policy is `ask` by default. The owner may configure one value
 (`ask`, `keep`, `local`, or `remote`) in Wrapper's `config/update-policy`; an explicit
@@ -417,8 +421,7 @@ Release production in Stage 2 (Phase 2.2) signs **self-built distributed bundles
 optional self-built addons such as `manager`, enhanced `tui`, or `provider`), rather
 than re-hosting or signing locally patched upstream `bin/codex` binaries. It
 exposes one non-installed `publish` operation over a verified self-built bundle
-directory (and retains manifest/key compatibility rules for legacy whole-generation
-validation only where explicitly invoked):
+directory:
 
 ```text
 codex-release-builder publish --bundle <ABSOLUTE_DIRECTORY> \
@@ -527,30 +530,23 @@ before adaptation. Missing, malformed, non-stable, mismatched, or unavailable
 metadata fails closed; no mirror, package manager, mutable raw runtime, or
 upstream self-updater is accepted.
 
-Without an explicit `config/build-signing-key`, Stage 2 device-local construction never
-reads any legacy maintainer key path, `CODEX_TERMUX_UPDATE_PRIVATE_KEY`, or any
-repository release secret. It generates one fresh Ed25519 key in private
-owner-only temporary storage, derives its public verifier, signs only the local
-immutable candidate and deletes that temporary key before activation can succeed.
-With the explicit configuration it uses the authorized external key described
-above and never removes it. Both routes remove the complete private staging tree
-on success or ordinary failure. They
-never invoke `gh`, create a publication store, dispatch a workflow, or advance a
-public stable pointer. The local-derived generation uses the authenticated public
-baseline release sequence rather than allocating a new public sequence. Its
-signed generation provenance is the semicolon-delimited record
-`codex-local-derived;upstream_version=<VERSION>;archive_sha256=<SHA256>;public_generation=<ENCODED_ID>;public_sequence=<POSITIVE_DECIMAL>`; the signed
-generation descriptor independently binds the exact upstream version, source
-digest, Termux patch report, Wrapper digest, and compatibility identities.
+Local upstream adaptation never reads maintainer keys, `CODEX_TERMUX_UPDATE_PRIVATE_KEY`,
+or repository release secrets, and never generates an ephemeral signing key. It
+does not invoke `gh`, create a publication store, dispatch a workflow or advance
+a public stable pointer. The prior device-local signing authority,
+`config/build-signing-key` and signed `codex-local-derived` generation format are
+retired whole-generation delivery designs, not requirements of this contract.
+Their prior records belong to [release history](../history/GENERATION_ADMISSION.md).
 
-The local-derived special admission is reachable only from this in-process
-official-source construction path. `codex update --signed --path` and `--remote` retain
-ordinary public-authority admission and cannot turn an arbitrary self-signed
-directory into local-derived state. An active authenticated rollback hold blocks
-local-derived construction so the single bounded `previous` slot cannot evict
-the public generation that the hold protects. Temporary archive/build material
-is private, bounded, and removed before success is reported. Local-derived work
-never invokes, installs, selects, or repairs `bwrap`.
+Stage 2 `--signed --path` and `--remote` authenticate distributed Wrapper/addon
+bundles under their admitted publication authority. They cannot admit arbitrary
+self-signed bundles through the unsigned upstream path. Conversely, ordinary
+`--upstream` and explicit upstream `--path` retain local generation admission;
+they require neither a remote re-signature nor a local private key. Preserve
+rollback artifacts and enforce each artifact owner's applicable rollback guard
+without making an optional bundle's signing state a veto of standalone upstream
+updates. Temporary archive/build material is private and bounded. Local upstream
+adaptation never invokes, installs, selects or repairs `bwrap`.
 
 Local-derived construction never invokes `$PREFIX/bin/gh` or official publication.
 The separate manual freshness route may submit an authenticated missing-build
@@ -1090,13 +1086,13 @@ In summary, every Stage 2 signed Wrapper/addon update step must:
 
 ### Bounded installed-artifact retention
 
-Wrapper performs best-effort local artifact maintenance before ordinary execution
-and after an explicit update attempt. Failure or contention in maintenance must
-not change upstream argv, streams, exit status or block an otherwise valid
+Wrapper performs best-effort local artifact maintenance after explicit update
+attempts, without pruning on ordinary execution. Failure or contention in
+maintenance must not change upstream argv, streams, exit status or block an otherwise valid
 launch. The one authoritative activation state and its existing recovery journal
 own all retained pointer roles; malformed or unrecovered state disables pruning.
 Keep the current generation, the one previous rollback generation, any generation
-bound by an effective rollback guard/local-derived public baseline, at most one
+bound by an effective artifact-scoped rollback guard, at most one
 complete higher-sequence staged candidate for the existing crash/retry reuse
 contract (highest sequence, deterministic generation-ID tie-break), and complete
 generations still used by live local executables or open generation files.

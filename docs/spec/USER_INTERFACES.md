@@ -1711,26 +1711,27 @@ not persisted or included in the generation.
 Release-builder validates a regular owner-executable source within the64-MiB
 bound, snapshots it privately and sets/verifies mode0755. It probes that exact
 snapshot (or uses the declared pre-sign cross-build exception), binds its digest
-in manager_artifact_digest and includes that same Manager in the signed inventory.
+in the addon bundle's manager_artifact_digest and includes that same Manager in
+its signed inventory.
 A source-side probe alone cannot qualify different subsequently copied bytes.
 A snapshot/read failure or probe mismatch publishes
 no generation and leaves an existing destination unchanged.
 
 Wrapper does not repeat the artifact probe during ordinary launch or signed-bundle
-acquisition. Explicit local-derived construction uses its producer's bounded
-probe for any carried-forward Manager, under the same construction rules. The
-existing
-qualified-generation path remains responsible for the signed descriptor,
+acquisition. An explicitly selected self-built addon producer uses the bounded
+probe when constructing its Manager bundle. Ordinary local upstream adaptation
+does not carry Manager into the upstream generation. The existing
+qualified addon bundle path remains responsible for the signed descriptor,
 regular-file, mode, and digest binding; it executes the Manager only after
 that admission and preserves the existing Wrapper handoff, streams, TTY,
-signals, raw arguments, and exit status. A generation without a Manager
-artifact remains valid and reports Manager unavailable.
+signals, raw arguments, and exit status. Standalone execution without a Manager
+bundle remains valid and reports Manager unavailable.
 
 ### Manager distribution and disposable qualification
 
 Distribution adds no public command, Manager record, Wrapper trust source, or device
 build path. The qualified optional Manager artifact is
-supplied to release production, carried by a signed generation, and proven in
+supplied to release production, carried by a signed addon bundle, and proven in
 disposable environments before any live cutover. Manager remains optional for
 ordinary upstream launch, Wrapper doctor, update, rollback, and fresh install.
 
@@ -1738,24 +1739,23 @@ The release producer builds `codex-manager` off-device from the exact accepted
 rewrite revision with the locked release toolchain and supplies that one
 regular executable through the existing bounded release-builder input. The
 producer must not discover a Manager from `PATH`, a live installation, a
-Manager state root, or an unpinned build output. The signed generation's
+Manager state root, or an unpinned build output. The signed addon bundle's
 `manager_artifact_digest` and inventory are the on-device content authority;
 source revision and toolchain provenance are release evidence and never a
 second device trust source. The device update path never invokes Cargo, Rust,
 or a Manager build.
 
-A Manager-bearing generation must contain the probe-qualified Manager file at
+A Manager bundle must contain the probe-qualified Manager file at
 the signed `manager` path with its signed digest and owner-executable mode.
 The immutable remote Release asset set must contain that file before the
 signed index is advanced. Missing, extra, mismatched, non-regular, or
-symlinked Manager content fails the existing signed-generation admission and
-must not advance the index. A generation without `manager` remains a valid
-Wrapper-only generation and reports Manager unavailable. Wrapper's local-derived
-construction may carry forward the currently authenticated,
-qualified Manager and same-version admitted frontend under the preservation rules
-above. It never builds or discovers an unrelated Manager on-device. An optional
-component missing from an installed generation does not become a new artifact;
-a frontend-bearing generation cannot silently lose its required paired frontend.
+symlinked Manager content fails the signed-addon admission and must not advance
+the index. Wrapper without a selected Manager bundle remains valid and reports
+Manager unavailable. Local upstream updates leave separately admitted addon
+selections intact and do not copy, discover or build a Manager inside the
+upstream generation. An optional component missing from an installed bundle
+does not become a new artifact; a selected frontend cannot silently lose its
+required paired frontend.
 
 Disposable qualification uses private temporary roots and separate
 fresh-install and legacy-upgrade consumers. For a hosted cross-build carrying the

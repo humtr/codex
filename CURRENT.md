@@ -299,6 +299,13 @@ Implemented beyond initial PR #31 without attaching Manager, enhanced TUI, Provi
 **Verification & open boundary:** PR #31 hardening + `system_config` + Issue #33 fixes are verified by workspace unit tests (`codex`: `40 passed; 0 failed`, `codex-release-builder`: `6 passed; 0 failed`) and isolated Termux API 37 runtime checks (multi-flag setup, `--bare` preserving `signed_update`, `(umask 0022)` `755`/`700` XDG modes, AArch64 `O_NOFOLLOW` symlink rejection, unavailable `--with manager` failure, zero-write bare launch). Actual addon module binaries/producers (`manager`, `tui`, `provider`) are not yet attached in Stage 1/2.1; cross-process shared-server integration of FD 34 snapshots will exercise with a real Manager producer in Phase 2.3. Phases 2.2–2.5 remain unstarted; Phase 2.6 read-only discovery and qualification are implemented separately.
 
 ### Global FD 34 unload policy, trust-boundary alignment, and prerelease refresh (2026-11-17)
+- **Decision reference (non-normative):** `agy --conversation=fca978e5-08f9-420e-8195-44a1a89e05fa`.
+  The public user decisions at steps `4074`, `4085`, `7547`, `7578` and `7592`
+  establish standalone Wrapper first, independently attachable optional modules,
+  on-device upstream patching, the global FD 34 default, and the Wrapper/addon
+  distribution signing boundary. This reference records provenance; SPEC and its
+  annexes own the requirements. Assistant proposals and earlier experiments are
+  not additional acceptance evidence or permanent restrictions on upstream APIs.
 - **Global FD 34 `thread_unload_delay_secs = 0` (`0519fc5c`):** Added `thread_unload_delay_secs = 0` directly to `TERMUX_WRAPPER_CONFIG_CONTENT` in `crates/wrapper/src/main.rs` so `/dev/fd/34/config.toml` applies immediate idle thread unload universally across all `CODEX_HOME` profiles without writing per-user `$CODEX_HOME/config.toml` files, removed duplicate emission in `crates/wrapper/src/system_config.rs`, and preserved user-layer overrides. Verified locally (`cargo fmt --check`, `cargo clippy --workspace --all-targets --locked -- -D warnings`, `cargo test --workspace --locked`: `codex` `47 passed; 0 failed`, `codex-release-builder` `8 passed; 0 failed`, isolated FD 34 `config/read` system-layer vs user-layer override check on `0.169.0`).
 - **Normative & roadmap alignment:** Updated `SPEC.md`, `docs/spec/USER_INTERFACES.md`, `docs/spec/DELIVERY.md`, `docs/plan/STAGE2_PLAN.md`, `README.md`, and `CURRENT.md` so:
   - Phase 2.2 Ed25519 `--signed` verification targets self-built distributed Wrapper + optional addon bundles (`install.sh` + Wrapper self-update + addons), while official OpenAI upstream tarballs remain authenticated via OpenAI metadata + SHA-256 and locally patched into `generations/<id>/bin/codex` without remote CI re-signing;
@@ -306,6 +313,13 @@ Implemented beyond initial PR #31 without attaching Manager, enhanced TUI, Provi
 - **CI, prerelease, and live device cutover (`0519fc5c`):**
   - `Wrapper CI` push (`43903430545`) and release dispatch (`43903649299`, `wrapper` tag, `prerelease=true`, bundle SHA-256 `cccefd20e8affd743cad52b23872aaf47b27e79467a725cbea4161d4ecc6b567`) passed all jobs; manual canary dispatch on `main` (`fcefb8b3`, run `43903798151`) passed all jobs.
   - Installed updated CI binary onto `/data/data/com.termux/files/usr/bin/codex` (`sha256: 715179a4be5518aedb7091dc148d3fe25df8a242338de7fc68780693423fa8c6`) via public `install.sh --skip-upstream`, refreshed `~/.local/share/codex/wrapper/config/config.toml`, removed `thread_unload_delay_secs = 0` from per-user `janmori101` and `szob` `config.toml` files (verified zero remaining per-user copies), and confirmed live read-only `config/read` across `default`, `janmori101`, and `szob` resolves `thread_unload_delay_secs = 0` solely from the FD 34 `system` layer.
+- **Documentation reconciliation against that conversation:** separated installer,
+  upstream updater, manual canary and existing-server lifecycles in the guide and
+  contract. Removed remaining normative requirements for device-local/temporary
+  signing of ordinary upstream generations and scoped optional Manager signatures
+  to addon bundles. The retired signing design is recorded in release history.
+  Phase 2.2 signature implementation remains pending. This reconciliation changes
+  documentation only; it performs no new deployment, account edit or server restart.
 
 ### Stage 2 Plan (Documented — Phases 2.1–2.6 pending qualification)
 See [docs/plan/STAGE2_PLAN.md](docs/plan/STAGE2_PLAN.md) for the verified phase-by-phase reintegration procedure, `c200e676` vs `ebb0b519` regression protections, suffix-removal schema rules, live-device safety checks, and verification gates. Summary sequence:

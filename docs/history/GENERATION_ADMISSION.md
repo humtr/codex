@@ -7,6 +7,14 @@ as the current installed version, required next target, or a standing
 authorization. The full previous spec and paragraph provenance are also
 retained in Git at commit 19067736f1393dfce6009c037f1eee71e2ade4b0 (SPEC.md).
 
+The former whole-generation delivery model also specified a device-local derived
+signer, `config/build-signing-key`, temporary Ed25519 keys and signed
+`codex-local-derived` provenance tied to a public baseline/sequence. These are
+retired designs; their detailed former contract remains in Git (for example,
+`0b62c967`'s `docs/spec/DELIVERY.md`). Current local upstream patches use verified
+OpenAI inputs and local integrity metadata without a private signing key.
+Planned distribution signatures apply to self-built Wrapper/addon bundles.
+
 ## Generation-bound TUI admission (2026-10-10)
 
 The0.163 adaptation is termux-fd-remap-v5, bound to official package SHA256

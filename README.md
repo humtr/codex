@@ -106,6 +106,12 @@ cross-power-loss installer journal.
 
 ## Managing Upstream Codex Generations
 
+`install.sh` replaces the Wrapper executable. `codex update` uses that installed
+Wrapper to download, verify, patch and activate upstream Codex; it does not update
+the Wrapper executable. The same Wrapper can handle new upstream releases while
+its adaptation rules remain sufficient. A compatibility defect beyond those rules
+requires a Wrapper fix and a new Wrapper installation.
+
 After `codex` is installed:
 
 ```sh
@@ -140,6 +146,12 @@ with a `previous` pointer for single-step rollback. State owned by the wrapper
 - Candidate admission checks exact version output and bounded `features list`
   in a fresh temporary home. Full daemon/PTY/tool/rollback qualification is a
   separate reusable test, not an account or personal-device check on every update.
+
+Binary adaptation happens when a generation is prepared; the patched bytes remain
+in that generation. Each launch still prepares process-local FD 33/34/35 and the
+Termux environment. Unchanged Wrapper system config is reused without rewriting
+it. Its `thread_unload_delay_secs = 0` default applies to every `CODEX_HOME`, with
+explicit user settings retaining their upstream precedence.
 
 ## Optional module configuration (Stage 2.1 boundary)
 
@@ -204,6 +216,12 @@ work. Wrapper does not change that selection automatically. Use `--from-cli`
 to retain the Termux adaptation; the plain upstream daemon updater downloads an
 official package without Wrapper adaptation.
 
+Closing a TUI does not necessarily stop its background server. A running server
+keeps its selected executable and startup settings until its normal lifecycle
+applies a replacement. Idle writer release requires the last subscriber to leave
+and the turn to be inactive; the global unload default does not interrupt work or
+merge authentication between homes.
+
 Android kernels lack Linux Landlock / unprivileged user namespaces, so the Stage 1
 wrapper sets `sandbox_mode = "danger-full-access"` in its wrapper-owned config and
 rejects incompatible `--sandbox read-only|workspace-write` or `codex sandbox linux`
@@ -229,10 +247,17 @@ Fast inspection flags (`--version`, `-V`, `--help`, `-h`, and top-level `help`) 
 
 Every push or pull request on `main`, `wrapper`, or `rewrite/wrapper` runs:
 
-1. **`checks` (`ubuntu-24.04`):** YAML syntax check, `sh -n install.sh` (plus `shellcheck install.sh` when available), Stage 1 workspace/`Cargo.lock` boundary check (`codex`, `codex-release-builder`, `libc`), markdown link check across all `*.md` files, `cargo fmt --check`, `cargo clippy --workspace --all-targets --locked -- -D warnings`, and `cargo test --workspace --locked`.
+1. **`checks` (`ubuntu-24.04-arm`):** YAML syntax check, `sh -n install.sh` (plus `shellcheck install.sh` when available), Stage 1 workspace/`Cargo.lock` boundary check (`codex`, `codex-release-builder`, `libc`), markdown link check across all `*.md` files, `cargo fmt --check`, `cargo clippy --workspace --all-targets --locked -- -D warnings`, and `cargo test --workspace --locked`, including execution of the emitted AArch64 `realpath` hook.
 2. **`android-package` (`ubuntu-24.04`):** cross-compiles `codex` and `codex-release-builder` for `aarch64-linux-android` (API 24, Android NDK `27.3.13750724`), verifies `ARM aarch64` ELF headers and `/system/bin/linker64`, bundles `codex-wrapper-aarch64-linux-android.tar.gz` + `.sha256` + `SHA256SUMS` + `install.sh`, and uploads the workflow artifact.
 3. **`android-smoke` (`ubuntu-24.04-arm`):** provisions pinned Android Runtime APEX `linker64` and Bionic libraries, installs the packaged bundle via `install.sh --skip-upstream`, and executes the real Android binary (`codex update --help`, `codex wrapper status --json`, `codex --sandbox read-only --version`, `codex sandbox linux true`).
 4. **`release` (tag `wrapper`, `wrapper-*`, or `v*`, or manual `workflow_dispatch` with `publish_release=true`):** publishes the verified bundle, `.sha256`, `install.sh`, and `SHA256SUMS` to GitHub Releases.
+
+The manual upstream canary tests the installed adaptation logic against exact
+official inputs. It neither repairs that logic automatically nor gates local
+`codex update` through an online CI result. CI with a Bionic loader on Linux and
+actual Android execution remain distinct evidence boundaries. Current releases
+use checksum verification; Ed25519 verification of distributed Wrapper/addon
+bundles is planned in Phase 2.2, not active Stage 1 behavior.
 
 ### Local development checks
 
