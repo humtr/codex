@@ -243,6 +243,17 @@ approved or running.
 | Dedicated physical AArch64 Android device with isolated Termux test installation via controlled ADB/relay | Actual Termux UID, kernel/SELinux/path constraints, PTY/TUI, daemon/remote-control, real official archive upgrades/rollback | Hardware upkeep and trusted runner isolation; ordinary public-PR code cannot be executed on a phone carrying personal accounts | **Preferred release-admission tier**; restricted exact-SHA artifacts and explicitly authorized jobs |
 | Existing personal handset as a manual acceptance target | Highest fidelity to currently deployed environment | Auth, live services, account ownership and state risk; uptime cannot be assumed | Manual acceptance only, never unattended PR runner |
 
+**Actual device gap observed on 2026-11-16:** In a genuinely short
+isolated Termux `CODEX_HOME`, official `0.169.0` upgrades/rollback and
+Wrapper diagnostics passed, but both direct app-server and
+`app-server daemon start` failed with `SUN_LEN`; default `codex` PTY
+also failed, whereas `--no-daemon` entered an unauthenticated PTY screen.
+The existing pre-cutover Wrapper executable reproduced the daemon failure
+under the same isolated conditions. The physical promotion gate therefore
+**must test default PTY and daemon lifecycle**, not treat `--no-daemon`
+fallback, help/status or a passed Linux+Bionic smoke as equivalent. Isolate
+the upstream-vs-FD35/Termux cause before granting operating admission.
+
 **Recommended topology:** keep the present 3 GitHub jobs
 (`checks` + `android-package` + `android-smoke`) for every PR.
 Add a **restricted, dedicated Android/Termux physical-device gate** for
