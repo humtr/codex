@@ -339,6 +339,36 @@ jobs:
           test "$sandbox_rc" -eq 2
           test "$subcmd_sandbox_rc" -eq 2
 
+          # Exercise the real Android/Bionic CLI in a disposable HOME.
+          smoke_codex() {
+            HOME="$smoke_home" PREFIX="$prefix" TMPDIR="$prefix/tmp" "$codex_bin" "$@"
+          }
+          cfg="$smoke_home/.local/share/codex/wrapper/wrapper.toml"
+          test ! -e "$cfg"
+          show="$(smoke_codex wrapper setup show)"
+          printf '%s\n' "$show" | grep -F 'addons: none'
+          test ! -e "$cfg"
+          smoke_codex wrapper setup --enable manager
+          test -f "$cfg"
+          test "$(stat -c '%a' "$cfg")" = 600
+
+          set +e
+          selected="$(smoke_codex wrapper status --json)"
+          selected_rc=$?
+          smoke_codex wrapper --with manager -- --version >/dev/null 2>&1
+          unavailable_rc=$?
+          smoke_codex wrapper --with unknown >/dev/null 2>&1
+          unknown_rc=$?
+          set -e
+          test "$selected_rc" -eq 1
+          printf '%s\n' "$selected" | grep -F '"addons":"manager"'
+          test "$unavailable_rc" -eq 1
+          test "$unknown_rc" -eq 2
+
+          smoke_codex wrapper setup --bare
+          reset="$(smoke_codex wrapper setup show)"
+          printf '%s\n' "$reset" | grep -F 'addons: none'
+
   release:
     name: Publish wrapper GitHub Release
     needs: [checks, android-package, android-smoke]
