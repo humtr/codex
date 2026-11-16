@@ -105,6 +105,31 @@ with a `previous` pointer for single-step rollback. State owned by the wrapper
 - `--signed`, `--remote`, `--build-local`, and `--local` are disabled in Stage 1 and fail explicitly with exit status `2`.
 - Upstream updates in Stage 1 resolve the latest stable release via GitHub Releases (`openai/codex/releases/latest`) or a requested release via `https://releases.openai.com/codex/releases/<version>/release.json`, and verify the official `codex-package-aarch64-unknown-linux-musl.tar.gz` SHA-256 digest over TLS 1.2+.
 
+## Optional module configuration (Stage 2.1 groundwork)
+
+Stage 1 upstream execution remains the default: no Manager, enhanced TUI, or
+ChatGPT Provider binaries are bundled or started by this wrapper. The initial
+Stage 2.1 settings boundary introduces strict `wrapper.toml` at
+`~/.local/share/codex/wrapper/wrapper.toml`, with:
+
+```sh
+codex wrapper setup show
+codex wrapper setup --enable manager
+codex wrapper setup --disable manager
+codex wrapper setup --signed-update false
+codex wrapper setup --bare
+codex wrapper --bare -- --version
+codex wrapper --with tui -- --version
+```
+
+Configured but unavailable modules fail with an explicit error instead of
+silently forwarding into a different implementation. `--bare` bypasses those
+settings for one launch, preserving upstream arguments. Setting
+`signed_update = true` records the opt-in but does **not** activate a signed
+channel until Phase 2.2; ordinary `codex update` remains independent. Module
+FD 34 immutable fragment snapshots and actual addon reattachment are pending.
+The no-addon launch adds no dependency, addon process, lock, or config write.
+
 ## Diagnostics and Upstream Passthrough
 
 ```sh
