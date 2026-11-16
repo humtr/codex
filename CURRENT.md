@@ -85,16 +85,21 @@ services, and production generation pointers were **not** modified.
   archive; that old Wrapper copy reproduced the same failure. Thus this
   is not proven to be caused by the Stage 1 suffix cleanup or new installer.
   `daemon stop` returned `notRunning` without changing an existing
-  service. The exact failed producer path / upstream-vs-adaptation root
-  cause is **not established**. Help passthrough does not qualify daemon
+  service. A final **default `codex` PTY run also failed** (exit `1`)
+  with the same `SUN_LEN` error in the shortest isolated home; explicit
+  `codex --no-daemon` initialized the PTY screen but was deliberately
+  time-limited (exit `124`), **not** an authenticated task-completion or
+  default-launch pass. The exact failed producer path / upstream-vs-adaptation
+  root cause is **not established**. Help passthrough does not qualify daemon
   lifecycle. Actual remote-control start/pair/stop and external client
   pairing on this final source are also unverified; no authorized user
   account was copied into the isolated fixture.
 - **Operating verdict:** standalone installation, official-upstream
   update/rollback, adaptation, and recovery boundaries pass on a physical
   device, but **full Stage 1 operating acceptance is not complete** while
-  managed daemon lifecycle remains broken and connected-client proof
-  remains outstanding. Do not represent a synthetic Bionic CI job or the
+  **default PTY launch and managed daemon lifecycle remain broken**
+  and connected-client proof remains outstanding. Do not represent a synthetic
+  Bionic CI job or the
   auth-free isolated doctor as proof of the missing stages.
 - `install.sh` failure rollback is caught-exit/signal safe, not a
   cross-power-loss transaction; after SIGKILL/power loss, an owned
