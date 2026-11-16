@@ -83,7 +83,9 @@ impl WrapperSettings {
             || meta.permissions().mode() & 0o022 != 0
             || meta.len() > SETTINGS_MAX_BYTES
         {
-            return Err(invalid("wrapper.toml must be a bounded, non-writable regular file"));
+            return Err(invalid(
+                "wrapper.toml must be a bounded, non-writable regular file",
+            ));
         }
         let mut bytes = Vec::new();
         file.by_ref()
@@ -92,8 +94,8 @@ impl WrapperSettings {
         if bytes.len() as u64 > SETTINGS_MAX_BYTES {
             return Err(invalid("wrapper.toml exceeds size limit"));
         }
-        let text = std::str::from_utf8(&bytes)
-            .map_err(|_| invalid("wrapper.toml must be UTF-8"))?;
+        let text =
+            std::str::from_utf8(&bytes).map_err(|_| invalid("wrapper.toml must be UTF-8"))?;
         Self::parse(text)
     }
 
@@ -207,7 +209,10 @@ mod tests {
     #[test]
     fn absent_file_is_read_only_bare_default() {
         let root = test_root();
-        assert_eq!(WrapperSettings::read(&root).unwrap(), WrapperSettings::default());
+        assert_eq!(
+            WrapperSettings::read(&root).unwrap(),
+            WrapperSettings::default()
+        );
         assert!(!root.exists());
     }
 
@@ -224,8 +229,11 @@ mod tests {
         }
         let root = test_root();
         fs::create_dir_all(&root).unwrap();
-        fs::write(root.join("wrapper.toml"), vec![b'x'; SETTINGS_MAX_BYTES as usize + 1])
-            .unwrap();
+        fs::write(
+            root.join("wrapper.toml"),
+            vec![b'x'; SETTINGS_MAX_BYTES as usize + 1],
+        )
+        .unwrap();
         assert!(WrapperSettings::read(&root).is_err());
         fs::remove_dir_all(root).unwrap();
     }
