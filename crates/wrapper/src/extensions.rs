@@ -3,7 +3,7 @@ use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read as _, Write as _};
 use std::os::fd::AsRawFd as _;
 use std::os::raw::c_int;
-use std::os::unix::fs::{OpenOptionsExt as _, PermissionsExt as _};
+use std::os::unix::fs::{DirBuilderExt as _, OpenOptionsExt as _, PermissionsExt as _};
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -151,6 +151,7 @@ impl WrapperSettings {
     where
         F: FnOnce(&mut Self) -> io::Result<()>,
     {
+        prepare_parent_dirs(root)?;
         fs_util::private_dir(root)?;
         // A directory flock serializes read/modify/write with no new lock file.
         let lease = File::open(root)?;
@@ -184,6 +185,50 @@ impl WrapperSettings {
         result?;
         Ok(settings)
     }
+}
+
+// Only the three optional state-root ancestors may be created here
+// ($HOME/.local, share, codex). A missing HOME or a symlinked ancestor fails
+// closed rather than manufacturing a substitute account home.
+fn prepare_parent_dirs(root: &Path) -> io::Result<()> {
+    if !fs_util::wrapper_safe_absolute_path(root) {
+        return Err(invalid("wrapper settings root must be an absolute safe path"));
+    }
+    let mut cursor = root
+        .parent()
+        .ok_or_else(|| invalid("wrapper settings root has no parent"))?;
+    let mut missing = Vec::new();
+    for _ in 0..3 {
+        match fs::symlink_metadata(cursor) {
+            Ok(meta) if meta.file_type().is_dir() && !meta.file_type().is_symlink() => {
+                break;
+            }
+            Ok(_) => return Err(invalid("wrapper settings ancestor is not a real directory")),
+            Err(err) if err.kind() == io::ErrorKind::NotFound => {
+                missing.push(cursor.to_path_buf());
+                cursor = cursor
+                    .parent()
+                    .ok_or_else(|| invalid("wrapper settings ancestor is absent"))?;
+            }
+            Err(err) => return Err(err),
+        }
+    }
+    let anchor = fs::symlink_metadata(cursor)?;
+    if !anchor.file_type().is_dir() || anchor.file_type().is_symlink() {
+        return Err(invalid("wrapper settings ancestor is not a real directory"));
+    }
+    for dir in missing.iter().rev() {
+        match fs::DirBuilder::new().mode(0o700).create(dir) {
+            Ok(()) => (),
+            Err(err) if err.kind() == io::ErrorKind::AlreadyExists => (),
+            Err(err) => return Err(err),
+        }
+        let meta = fs::symlink_metadata(dir)?;
+        if !meta.file_type().is_dir() || meta.file_type().is_symlink() {
+            return Err(invalid("wrapper settings ancestor was substituted"));
+        }
+    }
+    Ok(())
 }
 
 fn invalid(message: &'static str) -> io::Error {
@@ -271,6 +316,36 @@ mod tests {
         assert!(WrapperSettings::update(&root, |_| Ok(())).is_err());
         assert_eq!(fs::read_to_string(&target).unwrap(), "manager = false\n");
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn initializes_missing_settings_ancestors_without_creating_other_roots() {
+        let base = test_root();
+        fs::create_dir_all(&base).unwrap();
+        let state = base.join(".local/share/codex/wrapper");
+        assert!(!state.exists());
+        let new = WrapperSettings::update(&state, |settings| {
+            settings.set_modules("manager", true)
+        })
+        .unwrap();
+        assert_eq!(new.addons_label(), "manager");
+        assert_eq!(WrapperSettings::read(&state).unwrap(), new);
+        assert!(state.join("wrapper.toml").is_file());
+        assert!(!state.join("config/snapshots").exists());
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn rejects_symlinked_settings_ancestor_without_writes() {
+        let base = test_root();
+        fs::create_dir_all(&base).unwrap();
+        let other = base.join("other");
+        fs::create_dir_all(&other).unwrap();
+        symlink(&other, base.join(".local")).unwrap();
+        let state = base.join(".local/share/codex/wrapper");
+        assert!(WrapperSettings::update(&state, |_| Ok(())).is_err());
+        assert!(!other.join("share").exists());
+        fs::remove_dir_all(base).unwrap();
     }
 
     #[test]

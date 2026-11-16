@@ -2658,7 +2658,10 @@ pub(crate) mod tests {
 
     #[test]
     fn optional_module_cli_rejects_unknown_or_unavailable_modules() {
-        assert_eq!(run_public_main(os_vec(&["wrapper", "--with", "manager"])), 1);
+        assert_eq!(
+            run_public_main(os_vec(&["wrapper", "--with", "manager"])),
+            1
+        );
         assert_eq!(
             run_public_main(os_vec(&["wrapper", "--with", "tui,provider"])),
             1

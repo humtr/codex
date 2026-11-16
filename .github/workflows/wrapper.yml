@@ -339,6 +339,33 @@ jobs:
           test "$sandbox_rc" -eq 2
           test "$subcmd_sandbox_rc" -eq 2
 
+          # Exercise real Android/Bionic settings lifecycle in the isolated HOME.
+          cfg="$smoke_home/.local/share/codex/wrapper/wrapper.toml"
+          test ! -e "$cfg"
+          show="$(HOME="$smoke_home" PREFIX="$prefix" TMPDIR="$prefix/tmp"             "$codex_bin" wrapper setup show)"
+          printf '%s\n' "$show" | grep -F 'addons: none'
+          test ! -e "$cfg"
+          HOME="$smoke_home" PREFIX="$prefix" TMPDIR="$prefix/tmp"             "$codex_bin" wrapper setup --enable manager
+          test -f "$cfg"
+          test "$(stat -c '%a' "$cfg")" = 600
+
+          set +e
+          selected="$(HOME="$smoke_home" PREFIX="$prefix" TMPDIR="$prefix/tmp"             "$codex_bin" wrapper status --json)"
+          selected_rc=$?
+          HOME="$smoke_home" PREFIX="$prefix" TMPDIR="$prefix/tmp"             "$codex_bin" wrapper --with manager -- --version >/dev/null 2>&1
+          unavailable_rc=$?
+          HOME="$smoke_home" PREFIX="$prefix" TMPDIR="$prefix/tmp"             "$codex_bin" wrapper --with unknown >/dev/null 2>&1
+          unknown_rc=$?
+          set -e
+          test "$selected_rc" -eq 1
+          printf '%s\n' "$selected" | grep -F '"addons":"manager"'
+          test "$unavailable_rc" -eq 1
+          test "$unknown_rc" -eq 2
+
+          HOME="$smoke_home" PREFIX="$prefix" TMPDIR="$prefix/tmp"             "$codex_bin" wrapper setup --bare
+          reset="$(HOME="$smoke_home" PREFIX="$prefix" TMPDIR="$prefix/tmp"             "$codex_bin" wrapper setup show)"
+          printf '%s\n' "$reset" | grep -F 'addons: none'
+
   release:
     name: Publish wrapper GitHub Release
     needs: [checks, android-package, android-smoke]
