@@ -43,16 +43,29 @@ The unified `wrapper` naming and suffix-free internal formats are now implemente
 - **CI & release artifacts:** `.github/workflows/wrapper.yml` (`Wrapper CI`, concurrency group `wrapper-${{ github.ref }}`, artifact `wrapper-android`, release tags `wrapper`, `wrapper-*`, `v*`), `install.sh` (`DEFAULT_RELEASE_TAG='wrapper'`, `codex-wrapper-aarch64-linux-android.tar.gz` + `.sha256`), and `README.md` URLs are cut over; promotion to `main` remains deferred until merge.
 - **Unified formats:** `codex-local-generation`, `package-root`, `termux-fd-remap`, `termux-uds-fd35`, `wrapper-api`, `schema`, `codex-wrapper`, `termux-browser-open`, `termux-browser-manual`, `codex-activation-state`, `codex-activation-journal`, `downloads/`, `# codex-termux-wrapper`, and `doctor --json` `schema_version: 1`.
 
-### Stage 2.1 — GitHub source work (qualification pending)
+### Stage 2.1 — Optional settings and CLI admission groundwork (2026-11-16)
 
-Optional module configuration and the CLI admission boundary are being added
-on a separately reviewable GitHub development branch:
-bounded/symlink-resistant `wrapper.toml` parsing, serialized atomic
-`codex wrapper setup`, `--bare` escape, `--with` unavailable-module
-rejection, and `wrapper status` addon readback. This is **not** qualified
-device behavior and does not replace any active Termux runtime. Next gates
-are the GitHub CI checks, immutable FD 34 module-fragment snapshots and
-module producer/consumer qualification.
+Implemented via [PR #31](https://github.com/humtr/codex/pull/31), without
+attaching a Manager, enhanced TUI, Provider or additional runtime dependency:
+- Bounded, fail-closed `wrapper.toml` parser under the Wrapper state root;
+  symlink-safe read, atomic serialized setup updates, and safe first-run
+  creation of missing state directories.
+- `codex wrapper setup [show|--bare|--enable|--disable|--signed-update]`,
+  invocation-local `--bare` bypass and `--with` module validation.
+  Configured but unavailable modules fail before upstream execution.
+- `codex wrapper status` reports configured module selection. Bare upstream
+  `--version` / `--help` retain the zero-addon/zero-write fast path.
+  The stored `signed_update` opt-in is not used by Stage 1 update transport.
+
+**GitHub source evidence:** PR #31 HEAD `8ed4703f4d559790b9c0737259500b188705c147`,
+[Wrapper CI run 43789749536](https://github.com/humtr/codex/actions/runs/43789749536):
+workspace format/Clippy/tests/docs, AArch64 Android package build and
+real Android/Bionic installer/CLI smoke passed. No live device installation,
+service restart, signed publication or connected-client proof occurred.
+
+**Remaining Stage 2.1 exit gate:** immutable FD 34 fragment snapshots and
+their bounded `features list` validation, with a qualified module producer
+and lifetime/cleanup tests. Phases 2.2–2.5 remain unstarted.
 
 ### Stage 2 Plan (Documented — Phases 2.1–2.5 pending qualification)
 See [docs/plan/STAGE2_PLAN.md](docs/plan/STAGE2_PLAN.md) for the verified phase-by-phase reintegration procedure, `c200e676` vs `ebb0b519` regression protections, suffix-removal schema rules, live-device safety checks, and verification gates. Summary sequence:
