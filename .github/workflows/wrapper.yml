@@ -382,7 +382,7 @@ jobs:
           printf 'nameserver 1.1.1.1\n' > "$prefix/etc/resolv.conf"
           : > "$prefix/etc/tls/cert.pem"
           for tool in openssl gzip; do
-            ln -s "$(command -v "$tool")" "$prefix/bin/$tool"
+            cp "$(command -v "$tool")" "$prefix/bin/$tool"
           done
           # Bootstrap must reach curl and fail deterministically, offline.
           printf '%s\n' '#!/bin/sh' ': > "$HOME/curl-invoked"' 'exit 57' > "$prefix/bin/curl"
