@@ -553,7 +553,10 @@ mod tests {
             if zone == "KST-9" || zone.is_empty() || zone == "Invalid/Timezone" {
                 assert_eq!(tz, zone);
             } else {
-                let path = Path::new(tz.strip_prefix(':').expect("Core must select a TZif path"));
+                let path = Path::new(
+                    tz.strip_prefix(':')
+                        .expect("wrapper must select a TZif path"),
+                );
                 assert!(path.starts_with(std::env::var_os("XDG_CACHE_HOME").unwrap()));
                 let data = read_database(&DATABASES.map(PathBuf::from)).unwrap();
                 assert_eq!(fs::read(path).unwrap(), extract_zone(&data, &zone).unwrap());

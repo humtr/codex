@@ -14,7 +14,7 @@ Sections4.5–4.6 define the target ownership and user-flow contracts. Provider
 adapts source/transport and external admission; Native owns the conversation,
 effective route/context, execution and committed outcome. Existing work-control
 records are implementation evidence to review, not an independent task authority.
-Core provides runtime trust/lifecycle; frontend and optional Manager consume
+Wrapper provides runtime trust/lifecycle; frontend and optional Manager consume
 Native state and submit intent. No second executor, transcript database, scheduler
 or planning model is introduced. CURRENT distinguishes this design from shipped
 behavior and names incomplete interfaces. Historical audits do not freeze the
@@ -47,7 +47,7 @@ that the installed MCP already exposes a threadless local-tool surface.
 
 - ChatGPT local tools return actual file/command results to the initiating Chat
   without creating Native threads/turns or copying user/assistant messages into
-  Codex conversation history. Reusing the installed Core executable does not
+  Codex conversation history. Reusing the installed Wrapper executable does not
   require a Native conversation, a model catalog or Codex model authentication;
   that API fact alone does not qualify a backend as standalone development.
 - Integrated workflow owns all participation in Codex tasks, Native tools and
@@ -75,7 +75,7 @@ that the installed MCP already exposes a threadless local-tool surface.
   owned until their actual transition/Stop boundary settles.
 
 The Provider owns scope admission, retained selection, authorized access and
-uncertain-delivery reconciliation. Core/upstream own actual file/process I/O;
+uncertain-delivery reconciliation. Wrapper/upstream own actual file/process I/O;
 Native owns conversation execution only for selected Codex work. MCP and renderer
 local functions use those same operation semantics and return to the original
 caller. Keep one implementation per responsibility; two advertised profiles do
@@ -119,9 +119,9 @@ cause-specific pre-effect errors with correction guidance. Reads do not gain an
 unused call_id requirement. An argument rejection does not justify changing the
 user's integrated intent to standalone development.
 
-Already-running ChatGPT inference can attach to Native Core without a separate
+Already-running ChatGPT inference can attach to Native Wrapper without a separate
 Provider-owned ChatGPT AppHost. Host status/ensure concerns that optional app,
-not Core readiness or the validity of work-allocation arguments. Describe this
+not Wrapper readiness or the validity of work-allocation arguments. Describe this
 boundary in the exposed tools. A model-reported fallback is a failed workflow
 qualification even when its standalone file edit/test succeeds.
 
@@ -154,8 +154,8 @@ work-completion event; do not implement this by merely suppressing notifications
 while still creating unwanted conversations.
 
 Standalone local admission uses `execution.standalone_permission_profile`, an
-explicit Core permissions-profile ID chosen by the operator, never a model tool
-argument. Absence disables local execution. Core validates that profile and its
+explicit Wrapper permissions-profile ID chosen by the operator, never a model tool
+argument. Absence disables local execution. Wrapper validates that profile and its
 managed requirements; cwd is a working directory, not an additional path grant.
 Commands, file edits/patches and tests use `command/exec` under that same profile;
 raw fs RPCs are not exposed. This is a standing configured grant, not Native
@@ -170,20 +170,20 @@ commands require that explicit context and stable call_id. Execution captures
 complete stdout/stderr as private operation output, with byte-offset paging and
 base64 for exact bytes. A returned process ID confirms admission, not OS spawn
 or exit. Dedicated connections isolate each command's stdin/PTY/Stop and lifetime
-without starting a separate Core server per command. Deferred Core command replies
+without starting a separate Wrapper server per command. Deferred Wrapper command replies
 are not cut off by the ordinary short RPC observation deadline. Output loss or
 unknown transport delivery is explicit, never successful completion or an
 automatic command replay. Exact retries return the original process/result even
 across service restart; an unsettled old operation cannot restart itself.
 
-Process controls have their own stable call_id and preserve original Core replies.
+Process controls have their own stable call_id and preserve original Wrapper replies.
 A terminate acknowledgement is not exit confirmation; only the original exec
 result confirms completion. Validate the streamed command response shape before
 marking exit; an invalid response remains unknown with its original reply retained. An early control can be explicitly rejected before
-Core has registered the command; this is not a successful Stop. Connection loss
+Wrapper has registered the command; this is not a successful Stop. Connection loss
 fences further controls on that handle and does not borrow a replacement
 connection. Provider shutdown releases its own command connections only, not
-shared Core servers or unrelated Native jobs.
+shared Wrapper servers or unrelated Native jobs.
 
 `execution.workflow_lock=standalone|integrated` optionally fixes the server's
 workflow surface for its whole lifetime. Standalone requires an explicit local
@@ -191,7 +191,7 @@ permission profile, excludes Native work/tools and does not recover/rotate their
 controllers. Integrated excludes local tools. Neutral host/project/Chat inspection
 remains available. The same admission guard rejects calls hidden by the profile;
 model arguments and host correlation cannot lift it. Workflow locks govern Bridge
-tool/inference admission; Core's selected permissions separately govern programs
+tool/inference admission; Wrapper's selected permissions separately govern programs
 and file access inside commands. Commands intentionally starting Native development
 or Codex orchestration belong to integrated work. An unlocked service exposes
 both configured surfaces and retains explicit contexts without global last-work
@@ -445,7 +445,7 @@ owns; this does not promise detection of unknown third-party credentials.
 selected execution home/runtime/system configuration and complete resolved model
 catalog. The original catalog is configuration input, not a projection of UI-known
 model fields. Preserve it through configuration loading and pass that snapshot to
-Core without losing unrecognized fields, renaming fields or inserting UI defaults.
+Wrapper without losing unrecognized fields, renaming fields or inserting UI defaults.
 Native typed model metadata remains the UI consumer's view, not the backend's
 catalog authority. No second executor is created simply for display. Qualify
 create-before-TUI and TUI-before-create separately. A stored thread ID alone does
@@ -453,7 +453,7 @@ not identify its live event stream. Existing recorded owners remain pinned and
 fenced; do not rewrite history or transfer authority implicitly. Observers of an
 existing work use its actual recorded owner.
 
-For a Core-owned local shared backend, verified live-work attachment uses the
+For a Wrapper-owned local shared backend, verified live-work attachment uses the
 admitted Native work's authentication rather than demanding a new local OpenAI
 login. Native still enforces actual credential, model and policy requirements.
 Configured new work follows the invocation's resolved provider requirement;
@@ -762,7 +762,7 @@ last host boundary remain necessary across time/process boundaries. Do not move
 those to asynchronous per-event CDP round trips. Do not put native work selection,
 connection lifecycle or a new scheduler in JS. Full Rust replacement requires a
 proven alternative host interface; JSON encoding alone is not that interface.
-Core stays independent of optional Provider/Manager/TUI. Upstream runtime remains
+Wrapper stays independent of optional Provider/Manager/TUI. Upstream runtime remains
 the canonical executor/history authority; Manager owns optional convenience only.
 
 **Agent extension.** The first implementation/acceptance batch must cover same
@@ -832,7 +832,7 @@ The retained interfaces below coexist with the entrance-equivalence target above
 CURRENT distinguishes their implemented/qualified scope from unfinished connection
 behavior. New binding/join work must preserve these existing control contracts. Retain legacy execution.mode/config/schema names
 and unchanged defaults. A logical interface below is not a new required daemon,
-Core dependency or second execution/history authority.
+Wrapper dependency or second execution/history authority.
 
 **Work and entrances.** A stable work_id selects one native thread and workspace.
 An assignment has its own task identity, role, parent/dependencies and return
@@ -861,7 +861,7 @@ The Provider resolves the native thread/work binding before dispatching each
 Responses request: submitted inference reuses model-adapter/AppHost/McpBridge
 mechanisms; attached-Chat inference reuses the native-control Host without opening
 a primary Chat. Both interfaces are registered in one optional Provider service.
-Codex-origin Responses discover the unique loaded thread across Core's verified
+Codex-origin Responses discover the unique loaded thread across Wrapper's verified
 execution homes and derive the workspace from native thread metadata. Provider
 execution.home/workspace are defaults for explicit work creation, not restrictions
 on the account or workspace of an incoming Codex session. Native account changes,
@@ -902,7 +902,7 @@ observable admission failure, not permission to restart the app or switch paths.
 Native Pool lookup includes qualified runtime binding, execution home, canonical
 workspace and routing configuration. Independent child workspaces must not be
 routed through a fixed-workspace Pool by changing only a displayed cwd. Preserve
-Core's server/config isolation and native child/history semantics.
+Wrapper's server/config isolation and native child/history semantics.
 During Provider discovery, a structurally valid historical record whose PID now
 belongs to a different executable is not a native server candidate. It must not
 block an independently verified current thread. Never connect to that process or
@@ -1269,7 +1269,7 @@ it is not the sole controller of the workspace.
 Upstream owns Native execution, approval, thread history and original results.
 Provider owns resource admission and effect settlement only for integrated
 works and tool calls it actually mediates; Manager offers optional task and
-orchestration conveniences. Core and release-builder own Termux compatibility
+orchestration conveniences. Wrapper and release-builder own Termux compatibility
 and authenticated installation, not Native concurrency policy. A mediated
 tool boundary must enforce actual write scope and safe publication. Provider
 claims do not protect ordinary upstream CLI/TUI or outside editors: those
@@ -1371,7 +1371,7 @@ temporary root; no work claims `$TMPDIR` or the common `codex-native` parent.
 Cleanup only removes proven inactive, owned subtrees. Generated build targets,
 test scratch and temporary Git state must not alias another work's outputs
 merely because they use the same repository. Cache sharing is permitted when
-the cache's actual lock and publication protocol supports it. Existing Core
+the cache's actual lock and publication protocol supports it. Existing Wrapper
 execution-home directory leases,
 host stream ownership, authentication and installer/rollback fences are separate
 and must not be weakened by workspace concurrency.
@@ -1616,7 +1616,7 @@ semantic checks below.
 | --- | --- |
 | run_id, cases, routes | Unique owned run; explicit contract-enumerated cases and Codex/ChatGPT-attached/ChatGPT-submitted route list. Attached uses inference=attached/MCP; Codex/submitted use inference=submitted, with their declared inner return path. Earlier v1 manifests remain original evidence and are not silently accepted as new inputs |
 | candidate | Base Git commit plus complete current source-input manifest/hash, including dirty/untracked build inputs; immutable binary, embedded bridge and effective config hashes. A commit ID alone cannot identify this working tree |
-| native | Exact Core/frontend hashes and qualified upstream version/source; canonical isolated execution home and workspace, never the user's active home/project |
+| native | Exact Wrapper/frontend hashes and qualified upstream version/source; canonical isolated execution home and workspace, never the user's active home/project |
 | fixture | Frozen project/tasks/expected checks/seed manifest, including task ordering and per-role ownership. Preparation creates separate short TMPDIR homes/workspaces, preserves socket path bounds and seals inputs before any model action |
 | environment | Explicit TMPDIR/artifact roots, private host/account/connector descriptor references and app version/binding hashes where needed. Revalidate actual PID/start/image/lease/account and keyed readiness at use; saved ports/URLs/hashes alone are not readiness. Do not include credential values |
 | limits | Offline/synthetic uses zero Chat submissions/responses; live declares finite submission, response/native-call/time/concurrency bounds and references existing authorization. No automatic Pro or GPT-5.6. Reuse prior scope/ownership approval rather than demand a fresh approval artifact |
@@ -1688,7 +1688,7 @@ Transport selection submits no extra primary inference, does not bypass
 approvals and must not silently replay an uncertain request. Neither a
 synthetic integration pass nor a configured mode is proof of safe live app
 delivery. Optional paths remain replaceable only after their actual distinct
-consumers and capabilities are qualified; Core acquires no Provider or operator
+consumers and capabilities are qualified; Wrapper acquires no Provider or operator
 policy dependency.
 
 Model connection, native-work control and shared connection/session management
@@ -1781,7 +1781,7 @@ account/host identity validation, without submitting inference or answering its
 consent. The app's real controls remain the permission boundary.
 
 Session/control operations use the same bound upstream app-server and native
-context tools. Provider may consume the existing Core catalog-server preparation
+context tools. Provider may consume the existing Wrapper catalog-server preparation
 operation and execution-record codec; it validates the exact home, runtime, live
 process and socket peer. It never chooses another execution account after failure.
 The control surface must cover discovery, commands/custom patches/tests, native
@@ -1937,28 +1937,28 @@ new ChatGPT-operated MCP proposal. Reusable execution/identity/history/stop rule
 remain requirements for either path; replacing an adapter policy requires an
 explicit contract update and proof before activation.
 
-All Termux execution continues through Core and the
+All Termux execution continues through Wrapper and the
 same authenticated installation/update authority. Manager is never an alternative
-unsigned runtime launcher. Core may retain a small versioned optional-component
+unsigned runtime launcher. Wrapper may retain a small versioned optional-component
 dispatch contract; it must not inspect Manager's preference filenames or interpret
 account, window, quota or provider policies to make an execution decision.
 
 `CODEX_TERMUX_WRAPPER_ONLY=1 codex ...` selects the direct path when Manager is
 installed but not wanted. It skips Manager preparation, launch policy, optional
-TUI and Manager-provided configuration for that invocation. Core still performs
+TUI and Manager-provided configuration for that invocation. Wrapper still performs
 its signed-runtime, environment, sandbox, shared-state and server preparation.
-Core consumes and removes the switch before starting upstream; it is not an
+Wrapper consumes and removes the switch before starting upstream; it is not an
 upstream setting and does not alter saved Manager preferences.
 
-Manager prepares account/window policy and requests Core execution with the
-resolved home and invocation settings. Core owns signed runtime/frontend selection,
+Manager prepares account/window policy and requests Wrapper execution with the
+resolved home and invocation settings. Wrapper owns signed runtime/frontend selection,
 required environment/FD preparation and opaque execution-configuration isolation.
-A direct Core path must query no Manager and use no Manager fragment or enhanced
+A direct Wrapper path must query no Manager and use no Manager fragment or enhanced
 frontend, while retaining native storage, locks and server identity protections.
 Do not reuse a backend with incompatible effective configuration or rewrite a
 live sibling's defaults. Do not create a second execution or update supervisor.
 
-Optional settings must be isolated from Core's required configuration; their
+Optional settings must be isolated from Wrapper's required configuration; their
 upstream syntax/types and application must be qualified before execution. Manager
 configuration discovery must not also project files into an execution home.
 Account preference validation and explicit profile projection remain Manager
@@ -1970,7 +1970,7 @@ failure may continue only with the confirmed execution home and proof that no wo
 was dispatched. Failure after handoff or uncertain submission never triggers a
 blind task restart. Explicit user configuration errors remain explicit errors.
 
-Core, Manager, TUI and Provider are separate components of one product. Manager
+Wrapper, Manager, TUI and Provider are separate components of one product. Manager
 owns policy and headless commands; TUI owns upstream UI integration and connects
 to Manager only for its optional capabilities. Provider selection/settings must
 not require Manager. Preserve separate executables/builds where upstream TUI
@@ -1978,14 +1978,14 @@ dependencies require them; do not link the upstream execution engine into Manage
 to reduce artifact count. Generic model routing reads the installed provider
 capability/configuration authority rather than duplicating Chat families/efforts
 in Manager or TUI. Optional capability absence removes only the affected extension;
-native UI and basic Core execution remain usable. TUI installation and launch
+native UI and basic Wrapper execution remain usable. TUI installation and launch
 must not require Manager. Without Manager, its profile/quota/window commands
 report that capability unavailable, while native UI and Provider selection work.
 This composition requires its own execution proof before release.
 
 The source candidate may expose `codex-chatgpt-provider serve --descriptor PATH
 --state PATH [--port PORT]`, `status --state PATH` and command-backed `token
---state PATH`. These are Provider-owned operations, not Core dispatch commands.
+--state PATH`. These are Provider-owned operations, not Wrapper dispatch commands.
 Bind only loopback, keep endpoint credentials in private owner-bound state and
 verify a fresh keyed readiness challenge before returning the local token.
 With no explicit port, a restart reuses its private journal's published loopback
@@ -2010,7 +2010,7 @@ startup log; no alternate launcher, Manager dependency or new supervisor is adde
 
 An owner may explicitly opt an already configured Provider and its existing
 OpenAI Secure Tunnel runtime into Termux's runit services. This is device service
-configuration, not implicit Core launch behavior or a bundled provisioning flow.
+configuration, not implicit Wrapper launch behavior or a bundled provisioning flow.
 Provider owns the bridge/MCP service; the tunnel runtime transports its MCP
 traffic. They remain separate processes. Use the existing `termux-services`
 startup/root-recovery mechanism rather than tmux or another daemon manager.
@@ -2062,7 +2062,7 @@ probe alone does not establish platform compatibility. Do not change a system
 resolver to accommodate an incompatible Linux runtime. Keep service-selected
 paths/profile in private common configuration; native execution home/workspace
 remain Provider-config authority. Observation may use the admitted immutable
-Provider image to avoid Core activation-lock contention, with explicit rebinding
+Provider image to avoid Wrapper activation-lock contention, with explicit rebinding
 during package/service maintenance. A failed observation preserves the current
 transport. MCP stdio uses that explicitly admitted Provider image directly and
 verifies the current service endpoint/credential per RPC. Provider PID/start
@@ -2071,11 +2071,11 @@ stdio executable is a separate bounded maintenance action. MCP stdio stdout
 remains reserved for protocol messages, separate from diagnostics.
 
 **Optional component and tunnel distribution target (not yet implemented).**
-Core is mandatory. Manager, enhanced TUI, Provider and the patched Termux tunnel
+Wrapper is mandatory. Manager, enhanced TUI, Provider and the patched Termux tunnel
 client are independently selectable optional capabilities. Full selects all of
 these optional capabilities, including the prebuilt Android tunnel client;
 individual selection must also work without installing Full. Remote MCP setup
-resolves its tunnel dependency; a Core-only or local-function route has no new
+resolves its tunnel dependency; a Wrapper-only or local-function route has no new
 remote-tunnel requirement. Installing binaries does not enable services, log into
 an app, acquire credentials or create remote registrations implicitly.
 
@@ -2084,7 +2084,7 @@ release preparation, with authenticated inventories and independent component
 version/selection/rollback. It requires neither Go/clang nor another source
 checkout on the user's device. Full may carry exact signed component packages
 under the same installation authority; it must not become a second implementation
-of their installers or couple independent tunnel updates to Core/Provider rebuilds.
+of their installers or couple independent tunnel updates to Wrapper/Provider rebuilds.
 Existing Base/Full releases retain their original inventories and interpretation;
 CURRENT distinguishes that installed format from this future composition.
 
@@ -2096,7 +2096,7 @@ storage, checks required Go/clang/build tools and qualifies the result without
 requiring ~/prj/tunnel-client or a separate user-managed repository. Resolve latest
 stable when requested; a source revision outside the validated recipe must fail
 with its actual incompatibility rather than silently use an old build. Build-tool
-setup is scoped to the selected build operation, never ordinary Core startup.
+setup is scoped to the selected build operation, never ordinary Wrapper startup.
 The additional tunnel checkout may remain a development experiment, but cannot
 be the product's patch/build authority or a runtime dependency. Keep one copy of
 each product patch and build rule in this repository. CURRENT records preparation,
@@ -2163,7 +2163,7 @@ are immediate, not queued through the half-second controller loop. Match the
 private desktop's exact app class and controller ancestry, never a window title
 or another desktop/profile. Serialize duplicate launch taps, preserve authentication
 and running work, and do not submit Chat or create a conversation by switching
-windows. This qualification UI is not a Core dependency or a second Provider
+windows. This qualification UI is not a Wrapper dependency or a second Provider
 execution path. Superseded desktop/adapter helpers retire with the experiment;
 reusable qualification tools remain development dependencies and are not added
 to the Rust Provider payload.
@@ -2200,7 +2200,7 @@ not a claim that the entire desktop app is Rust or JavaScript, nor a promise tha
 changing the provider's language bypasses the host's limits.
 
 The optional Rust Provider package is providers/chatgpt/Cargo.toml with runtime code in src/
-and separately inventoried app-side bridge/assets. It must not be a Core, Manager
+and separately inventoried app-side bridge/assets. It must not be a Wrapper, Manager
 or TUI dependency. Workspace membership must not make Base acquire/build the
 provider or desktop app. Replace product-path Bun/Python dependencies only after
 their behavior is qualified in Rust; development/qualification scripts may remain
@@ -2244,7 +2244,7 @@ state. Discovery descriptions state capabilities, not instructions overriding th
 host's approval or retry policy. native_catalog reads the selected native tool
 catalog; native_tool dispatches native tools.
 Exact-call validation and replay protection remain enforced by the Provider.
-Upstream Codex owns tool execution, approvals and canonical history; Termux Core
+Upstream Codex owns tool execution, approvals and canonical history; Termux Wrapper
 only prepares and launches its verified runtime. The same binary's optional
 mcp-stdio command verifies an already running owned Provider for each RPC and
 forwards bounded multiplexed JSON-RPC for an existing tunnel. Each request uses
@@ -2337,9 +2337,9 @@ The provisioned Linux UI includes Korean-capable CJK fonts; typography is not an
 account-language or personalization change.
 
 Optional provider integration targets the repository as an independent module, not
-minimal `crates/wrapper` as a code destination. Port exact reviewed provider/runtime sources, dependencies, licenses and affected regression drivers into decoupled crates outside minimal Wrapper. Never replace minimal Core or contracts with experiment snapshots. Preserve source history and user changes; compare intent and current equivalents before replaying a commit. Separate runtime modules from qualification/research material. Do not ship historical probes, GUI trials or user app/login data as runtime dependencies merely because they share an experiment directory.
+standalone `crates/wrapper` as a code destination. Port exact reviewed provider/runtime sources, dependencies, licenses and affected regression drivers into decoupled crates outside standalone Wrapper. Never replace standalone Wrapper or contracts with experiment snapshots. Preserve source history and user changes; compare intent and current equivalents before replaying a commit. Separate runtime modules from qualification/research material. Do not ship historical probes, GUI trials or user app/login data as runtime dependencies merely because they share an experiment directory.
 
-The decoupled Rust implementation and qualification assets live outside minimal Wrapper. Remaining lifecycle/package/activation gates and preservation
+The decoupled Rust implementation and qualification assets live outside standalone Wrapper. Remaining lifecycle/package/activation gates and preservation
 of unique experiment work still precede closure; source existence is not release
 admission. Current implementation and proof status belong in CURRENT. Port useful
 remaining qualification drivers alongside the affected Rust implementation, preserving their
@@ -2419,13 +2419,13 @@ state; importing provider source does not authorize redistributing third-party
 desktop software. Choose the bounded packaging extension from its real reachable
 payload; do not assume the current eight-file inventory already supports it.
 The optional-component packaging contract selects an independent Provider payload, outside Base/Full generation
-inventories. Core exposes `codex provider install chatgpt --local DIRECTORY` or
+inventories. Wrapper exposes `codex provider install chatgpt --local DIRECTORY` or
 `codex provider install chatgpt --remote HTTPS_DIRECTORY_URL`,
 `codex provider install chatgpt` / `codex provider update chatgpt` (explicit stable
 optional-component discovery),
 `codex provider status chatgpt`, `codex provider rollback chatgpt`, and
 `codex provider chatgpt ARGS...`. These management routes need neither Manager
-nor TUI. Ordinary Core execution never consults or starts an absent Provider.
+nor TUI. Ordinary Wrapper execution never consults or starts an absent Provider.
 Explicit Provider installation may enroll a payload; default manual update may
 acquire only a previously selected Provider. Both consumers use the same verified
 acquisition/selection implementation. Ordinary launches do not enroll or update it.
@@ -2433,7 +2433,7 @@ Remote installation uses a canonical HTTPS directory URL with a trailing slash.
 Remote asset names flatten the manifest’s fixed `licenses/NAME` paths to
 `licenses--NAME`; all other names stay unchanged. This permits immutable GitHub
 Release delivery without a separate mirror or changes to Base/Full public heads.
-Core downloads the bounded manifest/signature first, authenticates them against
+Wrapper downloads the bounded manifest/signature first, authenticates them against
 its admitted authority before fetching payload files, enforces signed file and
 aggregate bounds and reuses the same staging/selection checks as local install.
 Controls have finite transfer deadlines; payload downloads fail after 120 seconds
@@ -2442,21 +2442,21 @@ Failed or uncertain transfers are never retried implicitly and cannot select a
 payload. Stable discovery reads the independent `provider-index-v1` and its
 detached signature from the owned main branch. The bounded ordered stable index
 binds provider/generation/sequence, immutable release directory and manifest digest;
-Core authenticates it with the current admitted update authority and requires
+Wrapper authenticates it with the current admitted update authority and requires
 all bindings to match the downloaded package. Base/Full heads remain independent.
 Only the invocation-owned private acquisition is removed on exit; an
 interrupted acquisition remains unselected for later owned-artifact cleanup.
 
 New Provider payloads contain the Android/AArch64 executable, dependency lock,
 NOTICE, two retained third-party licenses and an opaque source-input inventory.
-New packages use a six-file signed inventory; Core continues to authenticate
+New packages use a six-file signed inventory; Wrapper continues to authenticate
 immutable eight-file packages from earlier releases for existing selection and
-rollback. New six-file packages require this updated Core verifier; existing
-Core versions that accept only eight files must be upgraded first. Neither
+rollback. New six-file packages require this updated Wrapper verifier; existing
+Wrapper versions that accept only eight files must be upgraded first. Neither
 signed layout permits undeclared assets. The ordered manifest
 binds provider identity, generation, monotonically increasing release sequence,
 base source commit, source-input digest, target/API/dependency contract and exact
-file names/hashes/sizes/modes. Detached Ed25519 authentication uses Core's admitted
+file names/hashes/sizes/modes. Detached Ed25519 authentication uses Wrapper's admitted
 update authority, never a public key supplied by the candidate itself. Payloads
 contain no Linux app/rootfs, login, profiles or model/user configuration. External
 PRoot/Xvnc/explicit app rootfs are needed only for managed app work; viewer assets
@@ -2469,16 +2469,16 @@ a high-water release sequence. Rollback revalidates the admitted previous payloa
 and never lowers that high-water sequence. Equal identity/content is observable
 without replacement; changed bytes under an existing identity are rejected.
 Unknown/malformed state fails before mutation. Install/rollback serialize selection
-writes through the existing Core activation lock and change only the atomic
+writes through the existing Wrapper activation lock and change only the atomic
 selection record and absent immutable payload directories. Running services and
 pinned profiles retain their original immutable generation; install/rollback never
 stop services, replay work, rewrite profiles, delete older generations or overwrite
 user data. New ordinary launches use the newly selected generation. Service restart
 or explicit profile preparation is a separate user/configured lifecycle decision.
 
-The shared store lease is retained for installed older Core consumers whose writers
+The shared store lease is retained for installed older Wrapper consumers whose writers
 still use that directory exclusively. New selection writers take the same shared
-lease under the Core activation lock, so old running readers do not block them,
+lease under the Wrapper activation lock, so old running readers do not block them,
 while an in-progress old exclusive writer is still excluded. This compatibility
 exists while installed old Cores remain supported; it introduces no new lock/state
 file. Launch revalidates signature/inventory under that shared lease before exec.
@@ -2490,7 +2490,7 @@ children and detached service children must not retain an incidental parent leas
 a live Provider keeps its immutable executable and does not block new selection.
 Stopping an idle Provider must not require terminating an independent Native
 backend solely to release such an inherited lock. This adds no environment/FD ABI
-and does not change existing Core dispatch, payload verification or work authority.
+and does not change existing Wrapper dispatch, payload verification or work authority.
 
 Package selection and generated native-profile preparation are distinct. Existing
 profiles/catalogs keep their immutable executable binding until explicit
@@ -2498,13 +2498,13 @@ profiles/catalogs keep their immutable executable binding until explicit
 generations referenced by existing profiles and running work through verified retirement.
 This preserves the current direct-executable auth/checkpoint contract and does not
 silently replace the installed JS adapter or any user-selected model route.
-A default manual update advances the selected Provider independently of a Core
+A default manual update advances the selected Provider independently of a Wrapper
 rollback hold. Provider rollback retains its previous/high-water contract; a later
 explicit `codex update` checks its forward channel again. No background Provider
 update or service/profile restart follows from that selection.
 Authenticated remote delivery/promotion and actual-device activation require their
 separate signed-release and device proofs/authorization; local fixture signing does not establish either.
-Once the Core interface work is admitted, Manager/provider-only changes must leave
+Once the Wrapper interface work is admitted, Manager/provider-only changes must leave
 base inputs unchanged. Upstream/backend changes still require the applicable
 frontend and execution-protocol compatibility proof.
 
@@ -2709,7 +2709,7 @@ Validate conflicts and upstream effort representability instead of inventing a
 mapping or advertising inaccessible options as confirmed available. Preserve the
 existing configured catalog when migrating. Cached discovery must identify its
 account and freshness; an unavailable host is reported as such and must not
-prevent ordinary Core launch. Catalog refresh never changes an active request or
+prevent ordinary Wrapper launch. Catalog refresh never changes an active request or
 implicitly selects Pro; new selection is an explicit user/workflow choice.
 
 The existing Provider journal retains the discovered, account-bound offered options
@@ -2918,7 +2918,7 @@ policy and contextual user settings; retain all later input. Never claim to deco
 the old opaque state. Text compaction returns one complete Provider-owned summary frame, with the
 unchanged public model summary followed by a versioned identifier for its issued
 round. Buffer only compaction control output until that frame is complete;
-ordinary public answer/tool streaming retains its original flow. The native Core
+ordinary public answer/tool streaming retains its original flow. The native Wrapper
 owns its additional summary preamble. Provider acknowledgment compares the exact
 issued frame at a message boundary in committed replacement history and requires
 the previous canonical prefix to have changed. It does not bundle, reproduce or

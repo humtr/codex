@@ -42,7 +42,7 @@ fn io(source: std::io::Error) -> LocalProductError {
 }
 
 pub(super) fn fetch(
-    roots: &LocalCoreRoots,
+    roots: &LocalWrapperRoots,
     url: &str,
     output: &File,
     max_bytes: u64,
@@ -242,7 +242,7 @@ pub(super) struct PayloadOptions<'a> {
 }
 
 pub(super) fn payload(
-    roots: &LocalCoreRoots,
+    roots: &LocalWrapperRoots,
     url: &str,
     destination: &Path,
     entry: &ReleaseFileEntry,
@@ -268,7 +268,7 @@ pub(super) fn payload(
         "inspect update state",
         "update state is not a real directory",
     )?;
-    let cache = roots.state_root.join("downloads-v1");
+    let cache = roots.state_root.join("downloads");
     let lease = private_directory(&cache)?;
     if unsafe { flock(lease.as_raw_fd(), FLOCK_EX | FLOCK_NB) } != 0 {
         return Err(LocalProductError::Remote(
@@ -402,7 +402,7 @@ mod tests {
 
     struct Fixture {
         root: std::path::PathBuf,
-        roots: LocalCoreRoots,
+        roots: LocalWrapperRoots,
         server: Option<Child>,
     }
     impl Drop for Fixture {
@@ -424,7 +424,7 @@ mod tests {
         let prefix = std::env::var_os("PREFIX")
             .map(std::path::PathBuf::from)
             .unwrap_or_else(|| "/usr".into());
-        let roots = LocalCoreRoots {
+        let roots = LocalWrapperRoots {
             generation_root: root.clone(),
             state_root: root.clone(),
             config_dir: root.clone(),
@@ -555,7 +555,7 @@ server.socket=context.wrap_socket(server.socket,server_side=True)
         );
         let cached = f
             .root
-            .join("downloads-v1")
+            .join("downloads")
             .join(format!("{}.part", entry.sha256));
         assert_eq!(fs::read(&cached).unwrap(), &data[..data.len() / 2]);
         assert!(!path.exists());
@@ -632,7 +632,7 @@ server.socket=context.wrap_socket(server.socket,server_side=True)
         assert_eq!(requests, format!("\nbytes={}-\n", data.len() / 3));
         let part = f
             .root
-            .join("downloads-v1")
+            .join("downloads")
             .join(format!("{}.part", entry.sha256));
         for mode in ["ignore-range", "changed"] {
             fs::remove_file(&dest).unwrap_or(());
@@ -710,7 +710,7 @@ server.socket=context.wrap_socket(server.socket,server_side=True)
         use std::os::unix::fs::PermissionsExt;
         let mut f = fixture();
         let entry = entry(&f, b"12345678");
-        let cache = f.root.join("downloads-v1");
+        let cache = f.root.join("downloads");
         drop(private_directory(&cache).unwrap());
         let part = cache.join(format!("{}.part", entry.sha256));
         let mut file = cache_file(&part).unwrap();
@@ -789,7 +789,7 @@ server.socket=context.wrap_socket(server.socket,server_side=True)
     fn corrupt_complete_cache_and_symlinks_never_reach_staging() {
         let f = fixture();
         let entry = entry(&f, b"correct");
-        let dir = f.root.join("downloads-v1");
+        let dir = f.root.join("downloads");
         private_directory(&dir).unwrap();
         let part = dir.join(format!("{}.part", entry.sha256));
         let file = cache_file(&part).unwrap();
@@ -853,7 +853,7 @@ server.socket=context.wrap_socket(server.socket,server_side=True)
     fn busy_cache_has_no_writer_or_eviction() {
         let f = fixture();
         let entry = entry(&f, b"correct");
-        let dir = f.root.join("downloads-v1");
+        let dir = f.root.join("downloads");
         let lease = private_directory(&dir).unwrap();
         assert_eq!(unsafe { flock(lease.as_raw_fd(), FLOCK_EX | FLOCK_NB) }, 0);
         let dest = f.root.join("out");

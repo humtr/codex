@@ -34,7 +34,7 @@ impl ReleasePublicKey {
 }
 
 /// Transactional pointer-state persistence for activated Codex generations.
-pub(super) mod m2_generation_state {
+pub(super) mod generation_state {
     use super::ReleasePublicKey;
     use crate::{flock, FLOCK_EX, FLOCK_NB, FLOCK_UN};
     use std::io::{Read, Write};
@@ -42,11 +42,11 @@ pub(super) mod m2_generation_state {
 
     const GENERATION_ID_MAX_BYTES: usize = 512;
     const STATE_FILE_MAX_BYTES: usize = 16 * 1024;
-    const STATE_FORMAT: &str = "codex-activation-state-v3";
-    const JOURNAL_FORMAT: &str = "codex-activation-journal-v3";
+    const STATE_FORMAT: &str = "codex-activation-state";
+    const JOURNAL_FORMAT: &str = "codex-activation-journal";
 
     #[derive(Debug, Clone, PartialEq, Eq)]
-    pub(crate) struct CoreStatePaths {
+    pub(crate) struct WrapperStatePaths {
         pub(crate) root: std::path::PathBuf,
         pub(crate) activation_state: std::path::PathBuf,
         pub(crate) activation_journal: std::path::PathBuf,
@@ -225,7 +225,7 @@ pub(super) mod m2_generation_state {
     }
 
     pub(crate) fn acquire_activation_lock(
-        paths: &CoreStatePaths,
+        paths: &WrapperStatePaths,
     ) -> Result<ActivationLockGuard, ActivationTransactionError> {
         let metadata = match std::fs::symlink_metadata(&paths.root) {
             Ok(metadata) => metadata,
@@ -257,7 +257,7 @@ pub(super) mod m2_generation_state {
         Err(io_error("acquire wrapper state writer lock", source))
     }
 
-    impl CoreStatePaths {
+    impl WrapperStatePaths {
         pub(crate) fn new(root: &std::path::Path) -> Result<Self, StateFormatError> {
             use std::os::unix::ffi::OsStrExt;
 
@@ -280,8 +280,8 @@ pub(super) mod m2_generation_state {
         }
     }
 
-    pub(crate) fn prepare_core_state_paths(
-        paths: &CoreStatePaths,
+    pub(crate) fn prepare_wrapper_state_paths(
+        paths: &WrapperStatePaths,
     ) -> Result<(), ActivationTransactionError> {
         crate::fs_util::private_dir(&paths.root)
             .map_err(|err| io_error("prepare wrapper state root", err))?;
@@ -742,7 +742,7 @@ pub(super) mod m2_generation_state {
     }
 
     pub(crate) fn read_pointer_state(
-        paths: &CoreStatePaths,
+        paths: &WrapperStatePaths,
     ) -> Result<Option<GenerationPointerState>, ActivationTransactionError> {
         read_bounded_regular_file(&paths.activation_state, "activation state")?
             .map(|bytes| parse_pointer_state(&bytes).map_err(ActivationTransactionError::from))
@@ -750,7 +750,7 @@ pub(super) mod m2_generation_state {
     }
 
     fn read_activation_journal(
-        paths: &CoreStatePaths,
+        paths: &WrapperStatePaths,
     ) -> Result<Option<ActivationJournal>, ActivationTransactionError> {
         read_bounded_regular_file(&paths.activation_journal, "activation journal")?
             .map(|bytes| parse_activation_journal(&bytes).map_err(ActivationTransactionError::from))
@@ -758,7 +758,7 @@ pub(super) mod m2_generation_state {
     }
 
     pub(crate) fn activate_pointer_state_locked<I: ActivationIo>(
-        paths: &CoreStatePaths,
+        paths: &WrapperStatePaths,
         before: Option<&GenerationPointerState>,
         after: &GenerationPointerState,
         io: &mut I,
@@ -815,7 +815,7 @@ pub(super) mod m2_generation_state {
     }
 
     pub(crate) fn recover_activation_state_with_io<I: ActivationIo>(
-        paths: &CoreStatePaths,
+        paths: &WrapperStatePaths,
         io: &mut I,
     ) -> Result<Option<GenerationPointerState>, ActivationTransactionError> {
         let _lock = acquire_activation_lock(paths)?;
@@ -868,7 +868,7 @@ pub(super) mod m2_generation_state {
     }
 
     pub(crate) fn recover_activation_state(
-        paths: &CoreStatePaths,
+        paths: &WrapperStatePaths,
     ) -> Result<Option<GenerationPointerState>, ActivationTransactionError> {
         let mut io = FsActivationIo;
         recover_activation_state_with_io(paths, &mut io)

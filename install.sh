@@ -6,8 +6,8 @@ export LC_ALL
 
 DEFAULT_PREFIX='/data/data/com.termux/files/usr'
 DEFAULT_REPO='humtr/codex'
-DEFAULT_RELEASE_TAG='minimal-wrapper'
-ASSET_NAME='codex-minimal-wrapper-aarch64-linux-android.tar.gz'
+DEFAULT_RELEASE_TAG='wrapper'
+ASSET_NAME='codex-wrapper-aarch64-linux-android.tar.gz'
 MAX_TARBALL_BYTES=20971520
 MAX_SHA256_BYTES=4096
 
@@ -24,13 +24,13 @@ usage() {
   cat <<'EOF'
 Usage: install.sh [OPTIONS]
 
-Install the Stage 1 Termux minimal codex wrapper into $PREFIX/bin/codex.
+Install the Termux codex wrapper into $PREFIX/bin/codex.
 
 Options:
   --prefix <DIR>     Install root prefix (default: $PREFIX or /data/data/com.termux/files/usr)
   --binary <PATH>    Install a specific local codex wrapper binary
   --build            Build codex locally with `cargo build --release --locked -p codex`
-  --release <TAG>    Download tarball from GitHub Releases tag (default: minimal-wrapper)
+  --release <TAG>    Download tarball from GitHub Releases tag (default: wrapper)
   --repo <OWNER/REPO>
                      GitHub repository for --release (default: humtr/codex)
   --version <X.Y.Z>  Install a specific upstream Codex version after wrapper install
@@ -40,7 +40,7 @@ Options:
 Source resolution when --binary, --build, and --release are omitted:
   1. ./bin/codex or ./codex beside install.sh (unpacked release bundle)
   2. ./target/release/codex in a built git checkout
-  3. GitHub Release tag 'minimal-wrapper' from humtr/codex
+  3. GitHub Release tag 'wrapper' from humtr/codex
 EOF
 }
 
@@ -220,7 +220,7 @@ if [ ! -d "$work_parent" ]; then
     work_parent="$HOME"
   fi
 fi
-work="$work_parent/.codex-minimal-install.$$"
+work="$work_parent/.codex-wrapper-install.$$"
 mkdir -p "$work"
 chmod 0700 "$work"
 
@@ -272,7 +272,7 @@ case $source_mode in
   build)
     [ -f "$script_dir/Cargo.toml" ] || fail '--build must be run from the codex repository root'
     cargo_bin=$(find_tool cargo) || fail 'cargo is required for --build'
-    note 'building minimal codex wrapper in release mode'
+    note 'building codex wrapper in release mode'
     "$cargo_bin" build --release --locked --manifest-path "$script_dir/Cargo.toml" -p codex
     binary_path="$script_dir/target/release/codex"
     require_regular_file "$binary_path" 'cargo build output'
@@ -332,7 +332,7 @@ fi
 
 mv -f "$staged_tmp" "$dest_bin"
 staged_tmp=''
-note "installed Stage 1 wrapper to $dest_bin"
+note "installed codex wrapper to $dest_bin"
 
 if [ "$skip_upstream" -eq 1 ]; then
   note "skipped upstream bootstrap (--skip-upstream); run '$dest_bin update --upstream' when ready"

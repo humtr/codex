@@ -15,11 +15,11 @@ use std::sync::atomic::{AtomicU64, Ordering};
 pub const ARCHIVE_MAX_BYTES: u64 = 256 * 1024 * 1024;
 
 pub fn binary_adaptation_available(version: &str) -> bool {
-    runtime_patch::required(version).is_ok()
+    valid_stable_version(version)
 }
 const ENTRY_MAX_BYTES: u64 = 384 * 1024 * 1024;
 const PAYLOAD_MAX_BYTES: u64 = 768 * 1024 * 1024;
-const CORE_ARTIFACT_MAX_BYTES: u64 = 64 * 1024 * 1024;
+const WRAPPER_ARTIFACT_MAX_BYTES: u64 = 64 * 1024 * 1024;
 const PATH_MAX_BYTES: usize = 256;
 const LOGICAL_ENTRY_MAX: usize = 256;
 const PAX_PAYLOAD_MAX_BYTES: u64 = 512;
@@ -28,49 +28,18 @@ const JSON_DEPTH_MAX: usize = 16;
 const GENERATION_ID_MAX_BYTES: usize = 512;
 const TEXT_VALUE_MAX_BYTES: usize = 512;
 const TAR_BLOCK_BYTES: usize = 512;
-const GENERATION_FORMAT: &str = "codex-local-generation-v2";
-const GENERATION_FORMAT_V3: &str = "codex-local-generation-v3";
+const GENERATION_FORMAT: &str = "codex-local-generation";
 const TERMUX_RG_WRAPPER_SCRIPT: &[u8] = b"#!/system/bin/sh\nif [ -n \"${PREFIX:-}\" ] && [ -x \"${PREFIX}/bin/rg\" ]; then\n  exec \"${PREFIX}/bin/rg\" \"$@\"\nfi\nexec /data/data/com.termux/files/usr/bin/rg \"$@\"\n";
-
-fn generation_format_for_version(version: &str) -> &'static str {
-    if runtime_patch::required(version)
-        .is_ok_and(|opt| opt.is_some_and(|p| p.id == runtime_patch::ADAPTIVE_POLICY))
-    {
-        GENERATION_FORMAT_V3
-    } else {
-        GENERATION_FORMAT
-    }
-}
-const RELEASE_FORMAT_V3: &str = "codex-release-v3";
-const RELEASE_FORMAT_V4: &str = "codex-release-v4";
-const CORE_API_IDENTITY: &str = "wrapper-api-v1";
-const PERSISTENT_SCHEMA_IDENTITY: &str = "schema-v1";
+const WRAPPER_API_IDENTITY: &str = "wrapper-api";
+const PERSISTENT_SCHEMA_IDENTITY: &str = "schema";
 const PACKAGE_IDENTITY: &str = "openai/codex:codex-package-aarch64-unknown-linux-musl.tar.gz";
-const OFFICIAL_RELEASE_BASE: &str = "https://releases.openai.com/codex/releases";
-const UPSTREAM_ARCHIVE_NAME: &str = "codex-package-aarch64-unknown-linux-musl.tar.gz";
-const RELEASE_CONNECT_TIMEOUT_SECONDS: &str = "15";
 pub const RELEASE_TRANSFER_TIMEOUT_SECONDS: &str = "300";
-const PATCH_POLICY_ID: &str = "termux-fd-remap-v1";
-const RELEASE_INDEX_FORMAT: &str = "codex-update-index-v1";
-const RELEASE_CHANNEL: &str = "stable";
-const RELEASE_URL_MAX_BYTES: usize = 4096;
-const RELEASE_MANIFEST_MAX_BYTES: u64 = 128 * 1024;
-const RELEASE_SIGNATURE_BYTES: u64 = 64;
-const DOWNLOAD_SIZE_FORMAT: &str = "codex-download-size-v1";
-const DOWNLOAD_SIZE_PATH: &str = "download-size-v1";
-const DOWNLOAD_SIZE_SIGNATURE_PATH: &str = "download-size-v1.sig";
-const DOWNLOAD_SIZE_MAX_BYTES: u64 = 128 * 1024;
-const RELEASE_PRIVATE_KEY_MAX_BYTES: u64 = 16 * 1024;
-const RELEASE_FILE_MAX_BYTES: u64 = 512 * 1024 * 1024;
-const RELEASE_TOTAL_FILE_MAX_BYTES: u64 = 1024 * 1024 * 1024;
-const GENERATION_DESCRIPTOR_MAX_BYTES: u64 = 64 * 1024;
 const BROWSER_HELPER_MAX_BYTES: u64 = 4096;
 // webbrowser 1.2.2 treats a command whose basename is `curl` as a text browser,
 // so it waits for the helper exit status before trying the next BROWSER entry.
 // Keep the signed helper basename `curl` unless that dependency contract is requalified.
-const TERMUX_BROWSER_OPEN_HELPER_IDENTITY: &str = "termux-browser-open-v1";
-const TERMUX_BROWSER_MANUAL_HELPER_IDENTITY: &str = "termux-browser-manual-v1";
-const R10_BROWSER_HELPER_BRIDGE_METADATA: &str = "r10-browser-helper-bridge-v1";
+const TERMUX_BROWSER_OPEN_HELPER_IDENTITY: &str = "termux-browser-open";
+const TERMUX_BROWSER_MANUAL_HELPER_IDENTITY: &str = "termux-browser-manual";
 const TERMUX_BROWSER_OPEN_HELPER: &[u8] = br##"#!/system/bin/sh
 if [ "$#" -ne 1 ]; then
     exit 64
@@ -155,21 +124,11 @@ const FD_REMAP_RULES: [(&[u8], &[u8]); 4] = [
 const REQUIRED_ARCHIVE_FILES: [&str; 2] = ["bin/codex", "codex-package.json"];
 
 const USAGE: &str = concat!(
-    "usage: codex-release-builder prepare --version <MAJOR.MINOR.PATCH> ",
-    "--archive-sha256 <LOWERCASE_SHA256>\n",
-    "       codex-release-builder fetch --version <MAJOR.MINOR.PATCH> ",
-    "--curl <ABSOLUTE_EXECUTABLE> --openssl <ABSOLUTE_EXECUTABLE> ",
-    "--output <ABSENT_ABSOLUTE_FILE>\n",
-    "       codex-release-builder build --version <MAJOR.MINOR.PATCH> ",
+    "usage: codex-release-builder build --version <MAJOR.MINOR.PATCH> ",
     "--archive <ABSOLUTE_FILE> --archive-sha256 <LOWERCASE_SHA256> ",
-    "--generation-id <ID> --core <ABSOLUTE_FILE> ",
-    "[--legacy-activation-doctor-unsupported] ",
+    "--generation-id <ID> --wrapper <ABSOLUTE_FILE> ",
     "--creation-metadata <VALUE> ",
     "--gzip <ABSOLUTE_EXECUTABLE> --openssl <ABSOLUTE_EXECUTABLE> ",
-    "--output <ABSENT_ABSOLUTE_DIRECTORY>\n",
-    "       codex-release-builder publish --generation <ABSOLUTE_DIRECTORY> ",
-    "--release-sequence <POSITIVE_DECIMAL> --release-base <HTTPS_BASE_URL> ",
-    "--private-key <ABSOLUTE_FILE> --openssl <ABSOLUTE_EXECUTABLE> ",
     "--output <ABSENT_ABSOLUTE_DIRECTORY>"
 );
 
@@ -222,30 +181,11 @@ pub struct GenerationRequest {
     pub archive: PathBuf,
     pub archive_sha256: String,
     pub generation_id: String,
-    pub core: PathBuf,
-    pub legacy_activation_doctor_unsupported: bool,
+    pub wrapper: PathBuf,
     pub creation_metadata: String,
     pub gzip: PathBuf,
     pub openssl: PathBuf,
     pub output: PathBuf,
-}
-
-#[derive(Debug)]
-struct FetchRequest {
-    version: String,
-    curl: PathBuf,
-    openssl: PathBuf,
-    output: PathBuf,
-}
-
-#[derive(Debug, Clone)]
-struct PublishRequest {
-    generation: PathBuf,
-    release_sequence: String,
-    release_base: String,
-    private_key: PathBuf,
-    openssl: PathBuf,
-    output: PathBuf,
 }
 
 #[derive(Default)]
@@ -254,28 +194,9 @@ struct RequestFields {
     archive: Option<PathBuf>,
     archive_sha256: Option<String>,
     generation_id: Option<String>,
-    core: Option<PathBuf>,
-    legacy_activation_doctor_unsupported: bool,
+    wrapper: Option<PathBuf>,
     creation_metadata: Option<String>,
     gzip: Option<PathBuf>,
-    openssl: Option<PathBuf>,
-    output: Option<PathBuf>,
-}
-
-#[derive(Default)]
-struct FetchFields {
-    version: Option<String>,
-    curl: Option<PathBuf>,
-    openssl: Option<PathBuf>,
-    output: Option<PathBuf>,
-}
-
-#[derive(Default)]
-struct PublishFields {
-    generation: Option<PathBuf>,
-    release_sequence: Option<String>,
-    release_base: Option<String>,
-    private_key: Option<PathBuf>,
     openssl: Option<PathBuf>,
     output: Option<PathBuf>,
 }
@@ -303,20 +224,13 @@ where
     }
     let mut fields = RequestFields::default();
     while let Some(flag) = args.next() {
-        if flag == OsStr::new("--legacy-activation-doctor-unsupported") {
-            if fields.legacy_activation_doctor_unsupported {
-                return Err(BuilderError::Usage);
-            }
-            fields.legacy_activation_doctor_unsupported = true;
-            continue;
-        }
         let value = args.next().ok_or(BuilderError::Usage)?;
         match flag.to_str() {
             Some("--version") => set_once(&mut fields.version, text_value(value)?)?,
             Some("--archive") => set_once(&mut fields.archive, PathBuf::from(value))?,
             Some("--archive-sha256") => set_once(&mut fields.archive_sha256, text_value(value)?)?,
             Some("--generation-id") => set_once(&mut fields.generation_id, text_value(value)?)?,
-            Some("--core") => set_once(&mut fields.core, PathBuf::from(value))?,
+            Some("--wrapper") => set_once(&mut fields.wrapper, PathBuf::from(value))?,
             Some("--creation-metadata") => {
                 set_once(&mut fields.creation_metadata, text_value(value)?)?
             }
@@ -331,72 +245,9 @@ where
         archive: fields.archive.ok_or(BuilderError::Usage)?,
         archive_sha256: fields.archive_sha256.ok_or(BuilderError::Usage)?,
         generation_id: fields.generation_id.ok_or(BuilderError::Usage)?,
-        core: fields.core.ok_or(BuilderError::Usage)?,
-        legacy_activation_doctor_unsupported: fields.legacy_activation_doctor_unsupported,
+        wrapper: fields.wrapper.ok_or(BuilderError::Usage)?,
         creation_metadata: fields.creation_metadata.ok_or(BuilderError::Usage)?,
         gzip: fields.gzip.ok_or(BuilderError::Usage)?,
-        openssl: fields.openssl.ok_or(BuilderError::Usage)?,
-        output: fields.output.ok_or(BuilderError::Usage)?,
-    })
-}
-
-fn parse_fetch_request<I, S>(args: I) -> Result<FetchRequest, BuilderError>
-where
-    I: IntoIterator<Item = S>,
-    S: Into<OsString>,
-{
-    let mut args = args.into_iter().map(Into::into);
-    if args.next().as_deref() != Some(OsStr::new("fetch")) {
-        return Err(BuilderError::Usage);
-    }
-    let mut fields = FetchFields::default();
-    while let Some(flag) = args.next() {
-        let value = args.next().ok_or(BuilderError::Usage)?;
-        match flag.to_str() {
-            Some("--version") => set_once(&mut fields.version, text_value(value)?)?,
-            Some("--curl") => set_once(&mut fields.curl, PathBuf::from(value))?,
-            Some("--openssl") => set_once(&mut fields.openssl, PathBuf::from(value))?,
-            Some("--output") => set_once(&mut fields.output, PathBuf::from(value))?,
-            _ => return Err(BuilderError::Usage),
-        }
-    }
-    Ok(FetchRequest {
-        version: fields.version.ok_or(BuilderError::Usage)?,
-        curl: fields.curl.ok_or(BuilderError::Usage)?,
-        openssl: fields.openssl.ok_or(BuilderError::Usage)?,
-        output: fields.output.ok_or(BuilderError::Usage)?,
-    })
-}
-
-fn parse_publish_request<I, S>(args: I) -> Result<PublishRequest, BuilderError>
-where
-    I: IntoIterator<Item = S>,
-    S: Into<OsString>,
-{
-    let mut args = args.into_iter().map(Into::into);
-    if args.next().as_deref() != Some(OsStr::new("publish")) {
-        return Err(BuilderError::Usage);
-    }
-    let mut fields = PublishFields::default();
-    while let Some(flag) = args.next() {
-        let value = args.next().ok_or(BuilderError::Usage)?;
-        match flag.to_str() {
-            Some("--generation") => set_once(&mut fields.generation, PathBuf::from(value))?,
-            Some("--release-sequence") => {
-                set_once(&mut fields.release_sequence, text_value(value)?)?
-            }
-            Some("--release-base") => set_once(&mut fields.release_base, text_value(value)?)?,
-            Some("--private-key") => set_once(&mut fields.private_key, PathBuf::from(value))?,
-            Some("--openssl") => set_once(&mut fields.openssl, PathBuf::from(value))?,
-            Some("--output") => set_once(&mut fields.output, PathBuf::from(value))?,
-            _ => return Err(BuilderError::Usage),
-        }
-    }
-    Ok(PublishRequest {
-        generation: fields.generation.ok_or(BuilderError::Usage)?,
-        release_sequence: fields.release_sequence.ok_or(BuilderError::Usage)?,
-        release_base: fields.release_base.ok_or(BuilderError::Usage)?,
-        private_key: fields.private_key.ok_or(BuilderError::Usage)?,
         openssl: fields.openssl.ok_or(BuilderError::Usage)?,
         output: fields.output.ok_or(BuilderError::Usage)?,
     })
@@ -421,10 +272,6 @@ fn valid_stable_version(value: &str) -> bool {
     count == 3
 }
 
-fn official_archive_url(version: &str) -> String {
-    format!("{OFFICIAL_RELEASE_BASE}/{version}/{UPSTREAM_ARCHIVE_NAME}")
-}
-
 fn valid_lower_sha256(value: &str) -> bool {
     value.len() == 64
         && value
@@ -443,144 +290,6 @@ fn valid_generation_id(value: &str) -> bool {
         && value != "."
         && value != ".."
         && !value.as_bytes().contains(&b'/')
-}
-
-fn valid_positive_decimal(value: &str) -> bool {
-    let Some(first) = value.as_bytes().first() else {
-        return false;
-    };
-    matches!(*first, b'1'..=b'9') && value.as_bytes()[1..].iter().all(u8::is_ascii_digit)
-}
-
-fn valid_publish_generation_id(value: &str) -> bool {
-    valid_generation_id(value)
-        && value.is_ascii()
-        && value
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~'))
-}
-
-fn publish_remote_port(value: &str) -> bool {
-    !value.is_empty()
-        && value.as_bytes().iter().all(u8::is_ascii_digit)
-        && value.parse::<u16>().is_ok_and(|port| port != 0)
-}
-
-fn publish_remote_authority(value: &str) -> bool {
-    if value.is_empty() || value.contains('@') {
-        return false;
-    }
-    if let Some(ipv6) = value.strip_prefix('[') {
-        let Some((address, suffix)) = ipv6.split_once(']') else {
-            return false;
-        };
-        if address.parse::<std::net::Ipv6Addr>().is_err() {
-            return false;
-        }
-        return suffix.is_empty() || suffix.strip_prefix(':').is_some_and(publish_remote_port);
-    }
-
-    let mut authority = value.split(':');
-    let host = authority.next().unwrap_or_default();
-    let port = authority.next();
-    if authority.next().is_some() || port.is_some_and(|port| !publish_remote_port(port)) {
-        return false;
-    }
-    !host.is_empty()
-        && host.split('.').all(|label| {
-            !label.is_empty()
-                && label.len() <= 63
-                && !label.starts_with('-')
-                && !label.ends_with('-')
-                && label
-                    .bytes()
-                    .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
-        })
-}
-
-fn publish_remote_unreserved(byte: u8) -> bool {
-    byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~')
-}
-
-fn publish_uppercase_hex_value(byte: u8) -> Option<u8> {
-    match byte {
-        b'0'..=b'9' => Some(byte - b'0'),
-        b'A'..=b'F' => Some(byte - b'A' + 10),
-        _ => None,
-    }
-}
-
-fn valid_publish_remote_path_component(value: &str) -> bool {
-    if value.is_empty() || matches!(value, "." | "..") {
-        return false;
-    }
-    let bytes = value.as_bytes();
-    let mut index = 0;
-    while index < bytes.len() {
-        if publish_remote_unreserved(bytes[index]) {
-            index += 1;
-            continue;
-        }
-        if bytes[index] != b'%' || index + 2 >= bytes.len() {
-            return false;
-        }
-        let Some(high) = publish_uppercase_hex_value(bytes[index + 1]) else {
-            return false;
-        };
-        let Some(low) = publish_uppercase_hex_value(bytes[index + 2]) else {
-            return false;
-        };
-        let decoded = (high << 4) | low;
-        if publish_remote_unreserved(decoded)
-            || decoded.is_ascii_control()
-            || matches!(decoded, b'/' | b'\\')
-        {
-            return false;
-        }
-        index += 3;
-    }
-    true
-}
-
-fn publish_percent_encode_path(value: &str) -> String {
-    const HEX: &[u8; 16] = b"0123456789ABCDEF";
-
-    let mut encoded = String::with_capacity(value.len());
-    for byte in value.bytes() {
-        if publish_remote_unreserved(byte) {
-            encoded.push(byte as char);
-        } else {
-            encoded.push('%');
-            encoded.push(HEX[(byte >> 4) as usize] as char);
-            encoded.push(HEX[(byte & 0x0f) as usize] as char);
-        }
-    }
-    encoded
-}
-
-fn valid_publish_release_base(value: &str, generation_id: &str) -> bool {
-    if value.is_empty()
-        || value.len() > RELEASE_URL_MAX_BYTES
-        || !value.is_ascii()
-        || value
-            .bytes()
-            .any(|byte| byte.is_ascii_whitespace() || byte.is_ascii_control())
-        || value.contains(['?', '#', '\\'])
-        || !value.ends_with('/')
-    {
-        return false;
-    }
-    let Some(remainder) = value.strip_prefix("https://") else {
-        return false;
-    };
-    let Some((authority, path)) = remainder.split_once('/') else {
-        return false;
-    };
-    let path = path.strip_suffix('/').unwrap_or_default();
-    path.split('/').next_back() == Some(publish_percent_encode_path(generation_id).as_str())
-        && publish_remote_authority(authority)
-        && !path.is_empty()
-        && path.split('/').all(valid_publish_remote_path_component)
 }
 
 fn canonical_absolute_path(path: &Path) -> bool {
@@ -623,16 +332,9 @@ fn validate_request(request: &GenerationRequest) -> Result<(), BuilderError> {
     if !valid_line_value(&request.creation_metadata, TEXT_VALUE_MAX_BYTES) {
         return Err(BuilderError::Invalid("creation metadata is invalid"));
     }
-    if request.legacy_activation_doctor_unsupported
-        && request.creation_metadata != R10_BROWSER_HELPER_BRIDGE_METADATA
-    {
-        return Err(BuilderError::Invalid(
-            "legacy activation doctor transition requires the exact R10 helper layout",
-        ));
-    }
     for path in [
         &request.archive,
-        &request.core,
+        &request.wrapper,
         &request.gzip,
         &request.openssl,
         &request.output,
@@ -653,19 +355,19 @@ fn validate_request(request: &GenerationRequest) -> Result<(), BuilderError> {
             "upstream archive exceeds its byte bound",
         ));
     }
-    let core = ensure_regular_file(
-        &request.core,
-        "inspect Core artifact",
-        "Core artifact is not an executable regular file",
+    let wrapper = ensure_regular_file(
+        &request.wrapper,
+        "inspect wrapper artifact",
+        "wrapper artifact is not an executable regular file",
     )?;
-    if core.permissions().mode() & 0o111 == 0 {
+    if wrapper.permissions().mode() & 0o111 == 0 {
         return Err(BuilderError::Invalid(
-            "Core artifact is not an executable regular file",
+            "wrapper artifact is not an executable regular file",
         ));
     }
-    if core.len() > CORE_ARTIFACT_MAX_BYTES {
+    if wrapper.len() > WRAPPER_ARTIFACT_MAX_BYTES {
         return Err(BuilderError::Invalid(
-            "Core artifact exceeds its byte bound",
+            "wrapper artifact exceeds its byte bound",
         ));
     }
     ensure_executable(&request.gzip, "gzip is not an executable regular file")?;
@@ -697,117 +399,6 @@ fn validate_request(request: &GenerationRequest) -> Result<(), BuilderError> {
     Ok(())
 }
 
-fn validate_fetch_request(request: &FetchRequest) -> Result<(), BuilderError> {
-    if !valid_stable_version(&request.version) {
-        return Err(BuilderError::Invalid("release version is invalid"));
-    }
-    for path in [&request.curl, &request.openssl, &request.output] {
-        if !canonical_absolute_path(path) {
-            return Err(BuilderError::Invalid(
-                "fetch paths must be canonical absolute paths",
-            ));
-        }
-    }
-    ensure_executable(&request.curl, "curl is not an executable regular file")?;
-    ensure_executable(
-        &request.openssl,
-        "OpenSSL is not an executable regular file",
-    )?;
-    match std::fs::symlink_metadata(&request.output) {
-        Ok(_) => return Err(BuilderError::Invalid("fetch output already exists")),
-        Err(err) if err.kind() == io::ErrorKind::NotFound => {}
-        Err(source) => return Err(io_error("inspect fetch output", source)),
-    }
-    let parent = request
-        .output
-        .parent()
-        .ok_or(BuilderError::Invalid("fetch output has no parent"))?;
-    let metadata = std::fs::symlink_metadata(parent)
-        .map_err(|source| io_error("inspect fetch output parent", source))?;
-    if !metadata.file_type().is_dir() {
-        return Err(BuilderError::Invalid(
-            "fetch output parent is not a real directory",
-        ));
-    }
-    let canonical = std::fs::canonicalize(parent)
-        .map_err(|source| io_error("resolve fetch output parent", source))?;
-    if canonical != parent {
-        return Err(BuilderError::Invalid(
-            "fetch output parent contains a symlink",
-        ));
-    }
-    Ok(())
-}
-
-fn validate_publish_request(request: &PublishRequest) -> Result<(), BuilderError> {
-    if !valid_positive_decimal(&request.release_sequence)
-        || request.release_sequence.parse::<u64>().is_err()
-    {
-        return Err(BuilderError::Invalid("release sequence is invalid"));
-    }
-    if !canonical_absolute_path(&request.generation)
-        || !canonical_absolute_path(&request.private_key)
-        || !canonical_absolute_path(&request.openssl)
-        || !canonical_absolute_path(&request.output)
-    {
-        return Err(BuilderError::Invalid(
-            "publish paths must be canonical absolute paths",
-        ));
-    }
-    let generation_metadata = std::fs::symlink_metadata(&request.generation)
-        .map_err(|source| io_error("inspect publication generation", source))?;
-    if !generation_metadata.file_type().is_dir() {
-        return Err(BuilderError::Invalid(
-            "publication generation is not a real directory",
-        ));
-    }
-    let generation_canonical = std::fs::canonicalize(&request.generation)
-        .map_err(|source| io_error("resolve publication generation", source))?;
-    if generation_canonical != request.generation {
-        return Err(BuilderError::Invalid(
-            "publication generation contains a symlinked path",
-        ));
-    }
-    let private_key = ensure_regular_file(
-        &request.private_key,
-        "inspect release private key",
-        "release private key is not a regular file",
-    )?;
-    if private_key.len() == 0 || private_key.len() > RELEASE_PRIVATE_KEY_MAX_BYTES {
-        return Err(BuilderError::Invalid(
-            "release private key exceeds its byte bound",
-        ));
-    }
-    ensure_executable(
-        &request.openssl,
-        "OpenSSL is not an executable regular file",
-    )?;
-    match std::fs::symlink_metadata(&request.output) {
-        Ok(_) => return Err(BuilderError::Invalid("publication output already exists")),
-        Err(err) if err.kind() == io::ErrorKind::NotFound => {}
-        Err(source) => return Err(io_error("inspect publication output", source)),
-    }
-    let parent = request
-        .output
-        .parent()
-        .ok_or(BuilderError::Invalid("publication output has no parent"))?;
-    let metadata = std::fs::symlink_metadata(parent)
-        .map_err(|source| io_error("inspect publication output parent", source))?;
-    if !metadata.file_type().is_dir() {
-        return Err(BuilderError::Invalid(
-            "publication output parent is not a real directory",
-        ));
-    }
-    let canonical = std::fs::canonicalize(parent)
-        .map_err(|source| io_error("resolve publication output parent", source))?;
-    if canonical != parent {
-        return Err(BuilderError::Invalid(
-            "publication output parent contains a symlink",
-        ));
-    }
-    Ok(())
-}
-
 fn openssl_sha256(openssl: &Path, file: &Path) -> Result<String, BuilderError> {
     let output = Command::new(openssl)
         .args(["dgst", "-sha256", "-binary"])
@@ -828,143 +419,6 @@ fn openssl_sha256(openssl: &Path, file: &Path) -> Result<String, BuilderError> {
     Ok(hex)
 }
 
-#[derive(Debug)]
-struct PublishFile {
-    relative_path: String,
-    snapshot_path: PathBuf,
-    sha256: String,
-    mode: u32,
-    size: u64,
-}
-
-#[derive(Debug)]
-struct PublishGeneration {
-    generation_id: String,
-    files: Vec<PublishFile>,
-    r10_bridge: bool,
-    v3_package: bool,
-}
-
-fn validate_publish_file_mode(
-    metadata: &std::fs::Metadata,
-    executable: bool,
-    message: &'static str,
-) -> Result<u32, BuilderError> {
-    let mode = metadata.permissions().mode() & 0o7777;
-    if mode & 0o7000 != 0 || mode & 0o400 == 0 || (executable && mode & 0o100 == 0) {
-        return Err(BuilderError::Invalid(message));
-    }
-    Ok(mode)
-}
-
-fn validate_publish_browser_layout(root: &Path) -> Result<(), BuilderError> {
-    let browser = root.join("browser");
-    let browser_metadata = std::fs::symlink_metadata(&browser)
-        .map_err(|source| io_error("inspect publication browser helper root", source))?;
-    if !browser_metadata.file_type().is_dir() {
-        return Err(BuilderError::Invalid(
-            "publication browser helper root is not a real directory",
-        ));
-    }
-    let mut seen = BTreeSet::new();
-    for entry in std::fs::read_dir(&browser)
-        .map_err(|source| io_error("read publication browser helper root", source))?
-    {
-        let entry =
-            entry.map_err(|source| io_error("read publication browser helper entry", source))?;
-        let name = entry
-            .file_name()
-            .into_string()
-            .map_err(|_| BuilderError::Invalid("publication browser helper path is not UTF-8"))?;
-        if !matches!(name.as_str(), "open" | "manual") || !seen.insert(name.clone()) {
-            return Err(BuilderError::Invalid(
-                "publication browser helper layout is unsupported",
-            ));
-        }
-        let metadata = std::fs::symlink_metadata(entry.path())
-            .map_err(|source| io_error("inspect publication browser helper directory", source))?;
-        if !metadata.file_type().is_dir() {
-            return Err(BuilderError::Invalid(
-                "publication browser helper directory is not a real directory",
-            ));
-        }
-        let mut leaf_entries = std::fs::read_dir(entry.path())
-            .map_err(|source| io_error("read publication browser helper directory", source))?;
-        let helper = leaf_entries
-            .next()
-            .ok_or(BuilderError::Invalid(
-                "publication browser helper is missing",
-            ))?
-            .map_err(|source| io_error("read publication browser helper", source))?;
-        if helper.file_name() != OsStr::new("curl") || leaf_entries.next().is_some() {
-            return Err(BuilderError::Invalid(
-                "publication browser helper directory is not exact",
-            ));
-        }
-        let helper_metadata = ensure_regular_file(
-            &helper.path(),
-            "inspect publication browser helper",
-            "publication browser helper is not a regular file",
-        )?;
-        validate_publish_file_mode(
-            &helper_metadata,
-            true,
-            "publication browser helper mode is unsafe",
-        )?;
-    }
-    if seen.len() != 2 {
-        return Err(BuilderError::Invalid(
-            "publication browser helper layout is incomplete",
-        ));
-    }
-    Ok(())
-}
-
-fn validate_publish_numbered_helper_layout(
-    root: &Path,
-    expected: &[&str],
-) -> Result<(), BuilderError> {
-    let helpers = root.join("helpers");
-    let metadata = std::fs::symlink_metadata(&helpers)
-        .map_err(|source| io_error("inspect R10 bridge helper root", source))?;
-    if !metadata.file_type().is_dir() {
-        return Err(BuilderError::Invalid(
-            "numbered publication helper root is not a real directory",
-        ));
-    }
-    let mut seen = BTreeSet::new();
-    for entry in std::fs::read_dir(&helpers)
-        .map_err(|source| io_error("read R10 bridge helper directory", source))?
-    {
-        let entry = entry.map_err(|source| io_error("read R10 bridge helper entry", source))?;
-        let name = entry
-            .file_name()
-            .into_string()
-            .map_err(|_| BuilderError::Invalid("numbered publication helper path is not UTF-8"))?;
-        if !expected.contains(&name.as_str()) || !seen.insert(name) {
-            return Err(BuilderError::Invalid(
-                "numbered publication helper layout is not exact",
-            ));
-        }
-        let helper_metadata = ensure_regular_file(
-            &entry.path(),
-            "inspect R10 bridge helper",
-            "numbered publication helper is not a regular file",
-        )?;
-        validate_publish_file_mode(
-            &helper_metadata,
-            true,
-            "numbered publication helper mode is unsafe",
-        )?;
-    }
-    if seen.len() != expected.len() {
-        return Err(BuilderError::Invalid(
-            "numbered publication helper layout is incomplete",
-        ));
-    }
-    Ok(())
-}
-
 fn create_dir_mode(path: &Path, mode: u32, operation: &'static str) -> Result<(), BuilderError> {
     let mut builder = std::fs::DirBuilder::new();
     builder.mode(mode);
@@ -981,7 +435,7 @@ fn ensure_dir_chain_0755(root: &Path, relative_dir: &str) -> Result<(), BuilderE
             Ok(meta) => {
                 if !meta.file_type().is_dir() {
                     return Err(BuilderError::Invalid(
-                        "publication generation parent component is not a real directory",
+                        "generation parent component is not a real directory",
                     ));
                 }
             }
@@ -994,67 +448,7 @@ fn ensure_dir_chain_0755(root: &Path, relative_dir: &str) -> Result<(), BuilderE
     Ok(())
 }
 
-fn collect_v3_tree_files(
-    base_root: &Path,
-    subdir: &str,
-    depth: usize,
-    out: &mut Vec<(String, u64, bool)>,
-) -> Result<(), BuilderError> {
-    if depth > 8 {
-        return Err(BuilderError::Invalid(
-            "v3 package directory nesting exceeds maximum depth",
-        ));
-    }
-    let dir_path = base_root.join(subdir);
-    let metadata = std::fs::symlink_metadata(&dir_path)
-        .map_err(|source| io_error("inspect v3 package directory", source))?;
-    if !metadata.file_type().is_dir() {
-        return Err(BuilderError::Invalid(
-            "v3 package subdirectory is not a real directory",
-        ));
-    }
-    let mut entries = std::fs::read_dir(&dir_path)
-        .map_err(|source| io_error("read v3 package directory", source))?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|source| io_error("read v3 package entry", source))?;
-    entries.sort_by_key(|entry| entry.file_name());
-    for entry in entries {
-        let name = entry
-            .file_name()
-            .into_string()
-            .map_err(|_| BuilderError::Invalid("v3 package entry name is not UTF-8"))?;
-        if name.is_empty()
-            || name == "."
-            || name == ".."
-            || name.contains('/')
-            || name.contains('\\')
-        {
-            return Err(BuilderError::Invalid("v3 package entry name is invalid"));
-        }
-        let rel = format!("{subdir}/{name}");
-        let meta = std::fs::symlink_metadata(entry.path())
-            .map_err(|source| io_error("inspect v3 package entry", source))?;
-        if meta.file_type().is_dir() {
-            collect_v3_tree_files(base_root, &rel, depth + 1, out)?;
-        } else if meta.file_type().is_file() {
-            let mode = meta.permissions().mode() & 0o7777;
-            if mode & 0o7000 != 0 || mode & 0o400 == 0 {
-                return Err(BuilderError::Invalid("v3 package file mode is unsafe"));
-            }
-            if out.len() >= LOGICAL_ENTRY_MAX {
-                return Err(BuilderError::Invalid("v3 package file count exceeds bound"));
-            }
-            out.push((rel, RELEASE_FILE_MAX_BYTES, mode & 0o100 != 0));
-        } else {
-            return Err(BuilderError::Invalid(
-                "v3 package contains a non-regular entry",
-            ));
-        }
-    }
-    Ok(())
-}
-
-fn valid_v3_bin_name(name: &str) -> bool {
+fn valid_package_bin_name(name: &str) -> bool {
     !name.is_empty()
         && name != "."
         && name != ".."
@@ -1063,1020 +457,42 @@ fn valid_v3_bin_name(name: &str) -> bool {
         && !name.bytes().any(|b| b.is_ascii_control())
 }
 
-fn validate_v3_bin_layout(root: &Path) -> Result<Vec<String>, BuilderError> {
-    let bin = root.join("bin");
-    let meta = std::fs::symlink_metadata(&bin)
-        .map_err(|source| io_error("inspect publication bin directory", source))?;
-    if !meta.file_type().is_dir() {
-        return Err(BuilderError::Invalid(
-            "publication bin root is not a real directory",
-        ));
-    }
-    let mut seen = BTreeSet::new();
-    for entry in std::fs::read_dir(&bin)
-        .map_err(|source| io_error("read publication bin directory", source))?
-    {
-        let entry = entry.map_err(|source| io_error("read publication bin entry", source))?;
-        let name = entry
-            .file_name()
-            .into_string()
-            .map_err(|_| BuilderError::Invalid("publication bin entry is not UTF-8"))?;
-        if !valid_v3_bin_name(&name) || !seen.insert(name) {
-            return Err(BuilderError::Invalid(
-                "publication bin directory layout is unsupported",
-            ));
-        }
-        let file_meta = ensure_regular_file(
-            &entry.path(),
-            "inspect publication bin file",
-            "publication bin entry is not a regular file",
-        )?;
-        validate_publish_file_mode(&file_meta, true, "publication bin file mode is unsafe")?;
-    }
-    if !seen.contains("codex") {
-        return Err(BuilderError::Invalid(
-            "publication bin directory is missing required binaries",
-        ));
-    }
-    Ok(seen.into_iter().collect())
-}
-
-fn detect_publish_generation_v3(root: &Path) -> Result<bool, BuilderError> {
-    let descriptor_path = root.join("generation.meta");
-    let metadata = ensure_regular_file(
-        &descriptor_path,
-        "inspect publication generation descriptor",
-        "publication generation descriptor is not a regular file",
-    )?;
-    if metadata.len() > GENERATION_DESCRIPTOR_MAX_BYTES {
-        return Err(BuilderError::Invalid(
-            "publication generation descriptor exceeds its byte bound",
-        ));
-    }
-    let bytes = std::fs::read(&descriptor_path)
-        .map_err(|source| io_error("read publication generation descriptor", source))?;
-    let first_line = std::str::from_utf8(&bytes)
-        .map_err(|_| BuilderError::Invalid("publication generation descriptor is not UTF-8"))?
-        .lines()
-        .next();
-    match first_line {
-        Some(GENERATION_FORMAT_V3) => Ok(true),
-        Some(GENERATION_FORMAT) => Ok(false),
-        _ => Err(BuilderError::Invalid(
-            "publication generation descriptor format is unsupported",
-        )),
-    }
-}
-
-fn validate_publish_generation_layout(
-    root: &Path,
-    r10_bridge: bool,
-    v3_package: bool,
-) -> Result<(), BuilderError> {
-    let metadata = std::fs::symlink_metadata(root)
-        .map_err(|source| io_error("inspect publication generation", source))?;
-    if !metadata.file_type().is_dir() {
-        return Err(BuilderError::Invalid(
-            "publication generation is not a real directory",
-        ));
-    }
-    let helper_root = if r10_bridge { "helpers" } else { "browser" };
-    let required: &[&str] = if v3_package {
-        &["generation.meta", "bin", "codex-package.json", helper_root]
-    } else {
-        &[
-            "generation.meta",
-            "runtime",
-            "codex-code-mode-host",
-            helper_root,
-        ]
-    };
-    let mut seen = BTreeSet::new();
-    for entry in
-        std::fs::read_dir(root).map_err(|source| io_error("read publication generation", source))?
-    {
-        let entry =
-            entry.map_err(|source| io_error("read publication generation entry", source))?;
-        let name = entry
-            .file_name()
-            .into_string()
-            .map_err(|_| BuilderError::Invalid("publication generation path is not UTF-8"))?;
-        let allowed_v3_dir =
-            v3_package && matches!(name.as_str(), "bin" | "codex-path" | "codex-resources");
-        let allowed_file = if v3_package {
-            matches!(
-                name.as_str(),
-                "generation.meta" | "codex-package.json" | "wrapper"
-            )
-        } else {
-            matches!(
-                name.as_str(),
-                "generation.meta" | "wrapper" | "runtime" | "codex-code-mode-host"
-            )
-        };
-        if (!allowed_v3_dir && !allowed_file && name != helper_root) || !seen.insert(name.clone()) {
-            return Err(BuilderError::Invalid(
-                "publication generation layout is unsupported",
-            ));
-        }
-        if name == helper_root || allowed_v3_dir {
-            let metadata = std::fs::symlink_metadata(entry.path())
-                .map_err(|source| io_error("inspect publication helper root", source))?;
-            if !metadata.file_type().is_dir() {
-                return Err(BuilderError::Invalid(
-                    "publication helper root is not a real directory",
-                ));
-            }
-            continue;
-        }
-        let file_metadata = ensure_regular_file(
-            &entry.path(),
-            "inspect publication generation file",
-            "publication generation contains a non-regular file",
-        )?;
-        validate_publish_file_mode(
-            &file_metadata,
-            matches!(
-                name.as_str(),
-                "wrapper" | "runtime" | "codex-code-mode-host"
-            ),
-            "publication generation file mode is unsafe",
-        )?;
-    }
-    if required.iter().any(|name| !seen.contains(*name)) {
-        return Err(BuilderError::Invalid(
-            "publication generation layout is incomplete",
-        ));
-    }
-    if v3_package {
-        validate_v3_bin_layout(root)?;
-        for tree in ["codex-path", "codex-resources"] {
-            if seen.contains(tree) {
-                let mut ignored = Vec::new();
-                collect_v3_tree_files(root, tree, 0, &mut ignored)?;
-            }
-        }
-    }
-    if r10_bridge {
-        validate_publish_numbered_helper_layout(root, &["0", "1"])
-    } else {
-        validate_publish_browser_layout(root)?;
-        Ok(())
-    }
-}
-
-fn snapshot_publish_file(
-    source: &Path,
-    destination: &Path,
-    max_bytes: u64,
-    openssl: &Path,
-    executable: bool,
-) -> Result<(String, u32, u64), BuilderError> {
-    let source_metadata = ensure_regular_file(
-        source,
-        "inspect publication source file",
-        "publication source file is not a regular file",
-    )?;
-    let source_file =
-        File::open(source).map_err(|source| io_error("open publication source file", source))?;
-    let opened_metadata = source_file
-        .metadata()
-        .map_err(|source| io_error("inspect opened publication source file", source))?;
-    if !opened_metadata.file_type().is_file() || opened_metadata.len() > max_bytes {
-        return Err(BuilderError::Invalid(
-            "publication source file exceeds its byte bound",
-        ));
-    }
-    let mode = validate_publish_file_mode(
-        &source_metadata,
-        executable,
-        "publication source file mode is unsafe",
-    )?;
-    let mut output = create_private_file(destination)?;
-    let mut source_file = source_file;
-    let mut bounded = Read::by_ref(&mut source_file).take(max_bytes.saturating_add(1));
-    let copied = io::copy(&mut bounded, &mut output)
-        .map_err(|source| io_error("snapshot publication source file", source))?;
-    if copied > max_bytes || copied != opened_metadata.len() {
-        return Err(BuilderError::Invalid(
-            "publication source file changed during snapshot",
-        ));
-    }
-    let final_source_metadata = source_file
-        .metadata()
-        .map_err(|source| io_error("inspect publication source after snapshot", source))?;
-    if final_source_metadata.len() != copied {
-        return Err(BuilderError::Invalid(
-            "publication source file changed during snapshot",
-        ));
-    }
-    output
-        .sync_all()
-        .map_err(|source| io_error("sync publication source snapshot", source))?;
-    drop(output);
-    set_mode(destination, mode, "set publication source snapshot mode")?;
-    File::open(destination)
-        .and_then(|file| file.sync_all())
-        .map_err(|source| io_error("sync publication source snapshot mode", source))?;
-    let sha256 = openssl_sha256(openssl, destination)?;
-    Ok((sha256, mode, copied))
-}
-
-fn publish_descriptor_field<'a>(
-    lines: &mut std::str::Lines<'a>,
-    expected: &'static str,
-) -> Result<&'a str, BuilderError> {
-    let line = lines
-        .next()
-        .ok_or(BuilderError::Invalid("generation descriptor is incomplete"))?;
-    let Some((name, value)) = line.split_once('\t') else {
-        return Err(BuilderError::Invalid(
-            "generation descriptor field is malformed",
-        ));
-    };
-    if name != expected || !valid_line_value(value, TEXT_VALUE_MAX_BYTES) {
-        return Err(BuilderError::Invalid(
-            "generation descriptor field is invalid",
-        ));
-    }
-    Ok(value)
-}
-
-fn expected_fd_changed_bytes(source_counts: &str) -> Option<usize> {
-    let raw_counts = source_counts.strip_prefix("source_counts=")?;
-    let mut iter = raw_counts.split(',');
-    let mut counts = [0usize; 4];
-    for slot in &mut counts {
-        let token = iter.next()?;
-        if token.is_empty() || !token.bytes().all(|b| b.is_ascii_digit()) {
-            return None;
-        }
-        *slot = token.parse::<usize>().ok()?;
-    }
-    if iter.next().is_some() || counts.iter().sum::<usize>() == 0 {
-        return None;
-    }
-    let fd_bytes = counts
-        .iter()
-        .zip(FD_REMAP_RULES)
-        .map(|(count, (source, replacement))| {
-            let per_hit = source
-                .iter()
-                .zip(replacement.iter())
-                .filter(|(a, b)| a != b)
-                .count();
-            count * per_hit
-        })
-        .sum();
-    Some(fd_bytes)
-}
-
-fn validate_publish_patch_report(
-    value: &str,
-    source_digest: &str,
-    runtime_digest: &str,
-    code_mode_host_digest: Option<&str>,
-    expected_policy: &str,
-) -> Result<(), BuilderError> {
-    let mut fields = value.split(';');
-    let policy = fields.next();
-    let adaptation = runtime_patch::policy(expected_policy);
-    if policy != Some(expected_policy)
-        || (expected_policy != PATCH_POLICY_ID && adaptation.is_none())
-    {
-        return Err(BuilderError::Invalid(
-            "generation patch policy report is invalid",
-        ));
-    }
-    let archive_digest = fields
-        .next()
-        .and_then(|field| field.strip_prefix("archive_sha256="));
-    let raw_runtime_digest = fields
-        .next()
-        .and_then(|field| field.strip_prefix("raw_runtime_sha256="));
-    let adapted_runtime_digest = fields
-        .next()
-        .and_then(|field| field.strip_prefix("runtime_sha256="));
-    let host_digest = fields
-        .next()
-        .and_then(|field| field.strip_prefix("code_mode_host_sha256="));
-    let source_counts = fields.next().and_then(expected_fd_changed_bytes);
-    let changed_count = fields
-        .next()
-        .and_then(|field| field.strip_prefix("changed_bytes="))
-        .and_then(|value| value.parse::<usize>().ok());
-    let next_field = fields.next();
-    let uds = next_field.and_then(|field| field.strip_prefix("uds_policy="));
-    if next_field.is_some() && uds.is_none() {
-        return Err(BuilderError::Invalid(
-            "generation patch policy report is invalid",
-        ));
-    }
-    let expected_changed_ok = match (source_counts, changed_count, uds) {
-        (Some(fd_bytes), Some(total), Some(_)) => adaptation.is_some() && total > fd_bytes,
-        (Some(fd_bytes), Some(total), None) => total == fd_bytes,
-        _ => false,
-    };
-    let expected_host_digest = code_mode_host_digest.unwrap_or("-");
-    if fields.next().is_some()
-        || uds.is_some_and(|actual| adaptation.is_none_or(|policy| actual != policy.uds))
-        || archive_digest != Some(source_digest)
-        || raw_runtime_digest.is_none_or(|digest| !valid_lower_sha256(digest))
-        || adapted_runtime_digest != Some(runtime_digest)
-        || host_digest != Some(expected_host_digest)
-        || !expected_changed_ok
-    {
-        return Err(BuilderError::Invalid(
-            "generation patch policy report is invalid",
-        ));
-    }
-    Ok(())
-}
-
-fn publish_descriptor_helper<'a>(
-    lines: &mut std::str::Lines<'a>,
-    expected_identity: &str,
-) -> Result<&'a str, BuilderError> {
-    publish_descriptor_helper_matching(lines, |identity| identity == expected_identity)
-}
-
-fn publish_descriptor_helper_matching<'a, F>(
-    lines: &mut std::str::Lines<'a>,
-    predicate: F,
-) -> Result<&'a str, BuilderError>
-where
-    F: FnOnce(&str) -> bool,
-{
-    let line = lines.next().ok_or(BuilderError::Invalid(
-        "generation descriptor helper is missing",
-    ))?;
-    let mut fields = line.split('\t');
-    let Some("helper") = fields.next() else {
-        return Err(BuilderError::Invalid(
-            "generation descriptor helper identity is invalid",
-        ));
-    };
-    let Some(identity) = fields.next() else {
-        return Err(BuilderError::Invalid(
-            "generation descriptor helper identity is invalid",
-        ));
-    };
-    if !predicate(identity) {
-        return Err(BuilderError::Invalid(
-            "generation descriptor helper identity is invalid",
-        ));
-    }
-    let digest = fields.next().ok_or(BuilderError::Invalid(
-        "generation descriptor helper digest is missing",
-    ))?;
-    if fields.next().is_some() || !valid_lower_sha256(digest) {
-        return Err(BuilderError::Invalid(
-            "generation descriptor helper digest is invalid",
-        ));
-    }
-    Ok(digest)
-}
-
-fn validate_publish_generation_descriptor(
-    descriptor_path: &Path,
-    runtime_path: &Path,
-    code_mode_host_path: Option<&Path>,
-    browser_helper_paths: (&Path, &Path),
-    core_path: Option<&Path>,
-    r10_bridge: bool,
-    openssl: &Path,
-) -> Result<String, BuilderError> {
-    let (browser_open_helper_path, browser_manual_helper_path) = browser_helper_paths;
-    let metadata = ensure_regular_file(
-        descriptor_path,
-        "inspect publication generation descriptor",
-        "publication generation descriptor is not a regular file",
-    )?;
-    if metadata.len() > GENERATION_DESCRIPTOR_MAX_BYTES {
-        return Err(BuilderError::Invalid(
-            "publication generation descriptor exceeds its byte bound",
-        ));
-    }
-    let bytes = std::fs::read(descriptor_path)
-        .map_err(|source| io_error("read publication generation descriptor", source))?;
-    if !bytes.ends_with(b"\n") || bytes.contains(&b'\r') {
-        return Err(BuilderError::Invalid(
-            "publication generation descriptor line ending is invalid",
-        ));
-    }
-    let text = std::str::from_utf8(&bytes)
-        .map_err(|_| BuilderError::Invalid("publication generation descriptor is not UTF-8"))?;
-    let mut lines = text.lines();
-    let format_line = lines.next();
-    if !matches!(format_line, Some(GENERATION_FORMAT | GENERATION_FORMAT_V3)) {
-        return Err(BuilderError::Invalid(
-            "publication generation descriptor format is unsupported",
-        ));
-    }
-    let is_v3 = format_line == Some(GENERATION_FORMAT_V3);
-    let generation_id = publish_descriptor_field(&mut lines, "generation_id")?;
-    if !valid_publish_generation_id(generation_id) {
-        return Err(BuilderError::Invalid(
-            "publication generation identity is not a safe URL component",
-        ));
-    }
-    let package_identity = publish_descriptor_field(&mut lines, "upstream_package_identity")?;
-    let package_version = publish_descriptor_field(&mut lines, "upstream_package_version")?;
-    if package_identity != PACKAGE_IDENTITY || !valid_stable_version(package_version) {
-        return Err(BuilderError::Invalid(
-            "publication generation upstream binding is invalid",
-        ));
-    }
-    if is_v3 != (generation_format_for_version(package_version) == GENERATION_FORMAT_V3) {
-        return Err(BuilderError::Invalid(
-            "publication generation format does not match upstream version layout",
-        ));
-    }
-    let source_digest = publish_descriptor_field(&mut lines, "source_artifact_digest")?;
-    let expected_platform = publish_descriptor_field(&mut lines, "expected_platform")?;
-    let expected_architecture = publish_descriptor_field(&mut lines, "expected_architecture")?;
-    if !valid_lower_sha256(source_digest)
-        || expected_platform != "android"
-        || expected_architecture != "aarch64"
-    {
-        return Err(BuilderError::Invalid(
-            "publication generation platform binding is invalid",
-        ));
-    }
-    let patch_policy = publish_descriptor_field(&mut lines, "patch_policy_id")?;
-    if !runtime_patch::supports_version(patch_policy, package_version) {
-        return Err(BuilderError::Invalid(
-            "publication generation patch policy is invalid",
-        ));
-    }
-    let patch_report = publish_descriptor_field(&mut lines, "patch_report")?;
-    let runtime_digest = publish_descriptor_field(&mut lines, "runtime_digest")?;
-    let core_artifact_digest = publish_descriptor_field(&mut lines, "wrapper_artifact_digest")?;
-    if !valid_lower_sha256(runtime_digest) || !valid_lower_sha256(core_artifact_digest) {
-        return Err(BuilderError::Invalid(
-            "publication generation artifact binding is invalid",
-        ));
-    }
-    if publish_descriptor_field(&mut lines, "wrapper_api_identity")? != CORE_API_IDENTITY
-        || publish_descriptor_field(&mut lines, "persistent_schema_identity")?
-            != PERSISTENT_SCHEMA_IDENTITY
-        || publish_descriptor_field(&mut lines, "qualification")? != "qualified"
-    {
-        return Err(BuilderError::Invalid(
-            "publication generation qualification binding is invalid",
-        ));
-    }
-    let creation_metadata = publish_descriptor_field(&mut lines, "creation_metadata")?;
-    let upstream_doctor = publish_descriptor_field(&mut lines, "upstream_doctor")?;
-    let transition_doctor =
-        creation_metadata == R10_BROWSER_HELPER_BRIDGE_METADATA && upstream_doctor == "unsupported";
-    if (creation_metadata == R10_BROWSER_HELPER_BRIDGE_METADATA) != r10_bridge
-        || (upstream_doctor != "supported" && !transition_doctor)
-    {
-        return Err(BuilderError::Invalid(
-            "publication generation browser helper layout binding is invalid",
-        ));
-    }
-    let helper_count = publish_descriptor_field(&mut lines, "helper_count")?;
-    if helper_count != "2" {
-        return Err(BuilderError::Invalid(
-            "publication frontend helper layout is invalid",
-        ));
-    }
-    let browser_open_helper_digest =
-        publish_descriptor_helper(&mut lines, TERMUX_BROWSER_OPEN_HELPER_IDENTITY)?;
-    let browser_manual_helper_digest =
-        publish_descriptor_helper(&mut lines, TERMUX_BROWSER_MANUAL_HELPER_IDENTITY)?;
-    if lines.next().is_some() {
-        return Err(BuilderError::Invalid(
-            "publication generation qualification binding is invalid",
-        ));
-    }
-    let actual_runtime_digest = openssl_sha256(openssl, runtime_path)?;
-    let actual_host_digest = code_mode_host_path
-        .map(|path| openssl_sha256(openssl, path))
-        .transpose()?;
-    if actual_runtime_digest != runtime_digest {
-        return Err(BuilderError::Invalid(
-            "publication runtime digest does not match its descriptor",
-        ));
-    }
-    for (path, expected_digest) in [
-        (browser_open_helper_path, browser_open_helper_digest),
-        (browser_manual_helper_path, browser_manual_helper_digest),
-    ] {
-        let metadata = ensure_regular_file(
-            path,
-            "inspect publication browser helper",
-            "publication browser helper is not a regular file",
-        )?;
-        if metadata.permissions().mode() & 0o100 == 0
-            || openssl_sha256(openssl, path)? != expected_digest
-        {
-            return Err(BuilderError::Invalid(
-                "publication browser helper does not match its descriptor",
-            ));
-        }
-    }
-    if let Some(core_path) = core_path {
-        let core_metadata = ensure_regular_file(
-            core_path,
-            "inspect publication Core artifact",
-            "publication Core artifact is not a regular file",
-        )?;
-        if core_metadata.permissions().mode() & 0o100 == 0
-            || openssl_sha256(openssl, core_path)? != core_artifact_digest
-        {
-            return Err(BuilderError::Invalid(
-                "publication Core artifact does not match its descriptor",
-            ));
-        }
-    }
-    validate_publish_patch_report(
-        patch_report,
-        source_digest,
-        runtime_digest,
-        actual_host_digest.as_deref(),
-        patch_policy,
-    )?;
-    Ok(generation_id.to_owned())
-}
-
-fn snapshot_publish_generation(
-    source_root: &Path,
-    staging: &Path,
-    openssl: &Path,
-) -> Result<PublishGeneration, BuilderError> {
-    let r10_bridge = std::fs::symlink_metadata(source_root.join("helpers")).is_ok()
-        && std::fs::symlink_metadata(source_root.join("browser")).is_err();
-    let v3_package = detect_publish_generation_v3(source_root)?;
-    validate_publish_generation_layout(source_root, r10_bridge, v3_package)?;
-    let source_snapshot_root = staging.join(".generation-source");
-    create_private_dir(&source_snapshot_root)?;
-    if r10_bridge {
-        create_private_dir(&source_snapshot_root.join("helpers"))?;
-    } else {
-        let browser_snapshot_root = source_snapshot_root.join("browser");
-        create_private_dir(&browser_snapshot_root)?;
-        create_private_dir(&browser_snapshot_root.join("open"))?;
-        create_private_dir(&browser_snapshot_root.join("manual"))?;
-    }
-    let (browser_open_relative, browser_manual_relative) =
-        browser_helper_relative_paths(r10_bridge);
-    let mut total_size = 0u64;
-    let mut entries: Vec<(String, u64, bool)> = vec![
-        (
-            "generation.meta".to_owned(),
-            GENERATION_DESCRIPTOR_MAX_BYTES,
-            false,
-        ),
-        (
-            browser_open_relative.to_owned(),
-            BROWSER_HELPER_MAX_BYTES,
-            true,
-        ),
-        (
-            browser_manual_relative.to_owned(),
-            BROWSER_HELPER_MAX_BYTES,
-            true,
-        ),
-    ];
-    if v3_package {
-        for name in validate_v3_bin_layout(source_root)? {
-            entries.push((format!("bin/{name}"), RELEASE_FILE_MAX_BYTES, true));
-        }
-        entries.push((
-            "codex-package.json".to_owned(),
-            PACKAGE_JSON_MAX_BYTES,
-            false,
-        ));
-        for tree in ["codex-path", "codex-resources"] {
-            if std::fs::symlink_metadata(source_root.join(tree)).is_ok() {
-                collect_v3_tree_files(source_root, tree, 0, &mut entries)?;
-            }
-        }
-    } else {
-        entries.push(("runtime".to_owned(), RELEASE_FILE_MAX_BYTES, true));
-        entries.push((
-            "codex-code-mode-host".to_owned(),
-            RELEASE_FILE_MAX_BYTES,
-            true,
-        ));
-    }
-    if std::fs::symlink_metadata(source_root.join("wrapper")).is_ok() {
-        entries.push(("wrapper".to_owned(), CORE_ARTIFACT_MAX_BYTES, true));
-    }
-    let mut files = Vec::with_capacity(entries.len());
-    for (relative_path, max_bytes, executable) in entries {
-        if let Some((parent, _)) = relative_path.rsplit_once('/') {
-            ensure_dir_chain_0755(&source_snapshot_root, parent)?;
-        }
-        let destination = source_snapshot_root.join(&relative_path);
-        let (sha256, mode, size) = snapshot_publish_file(
-            &source_root.join(&relative_path),
-            &destination,
-            max_bytes,
-            openssl,
-            executable,
-        )?;
-        total_size = total_size
-            .checked_add(size)
-            .filter(|total| *total <= RELEASE_TOTAL_FILE_MAX_BYTES)
-            .ok_or(BuilderError::Invalid(
-                "publication generation exceeds its total byte bound",
-            ))?;
-        files.push(PublishFile {
-            relative_path,
-            snapshot_path: destination,
-            sha256,
-            mode,
-            size,
-        });
-    }
-    validate_publish_generation_layout(&source_snapshot_root, r10_bridge, v3_package)?;
-    let core_path = source_snapshot_root.join("wrapper");
-    let core_path = std::fs::symlink_metadata(&core_path)
-        .ok()
-        .map(|_| core_path);
-    let (runtime_rel, host_rel) = if v3_package {
-        ("bin/codex", "bin/codex-code-mode-host")
-    } else {
-        ("runtime", "codex-code-mode-host")
-    };
-    let host_path = source_snapshot_root.join(host_rel);
-    let host_path =
-        (!v3_package || std::fs::symlink_metadata(&host_path).is_ok()).then_some(host_path);
-    let generation_id = validate_publish_generation_descriptor(
-        &source_snapshot_root.join("generation.meta"),
-        &source_snapshot_root.join(runtime_rel),
-        host_path.as_deref(),
-        (
-            &source_snapshot_root.join(browser_open_relative),
-            &source_snapshot_root.join(browser_manual_relative),
-        ),
-        core_path.as_deref(),
-        r10_bridge,
-        openssl,
-    )?;
-    files.sort_by(|a, b| a.relative_path.cmp(&b.relative_path));
-    Ok(PublishGeneration {
-        generation_id,
-        files,
-        r10_bridge,
-        v3_package,
-    })
-}
-
-fn openssl_public_key(openssl: &Path, private_key: &Path) -> Result<[u8; 32], BuilderError> {
-    let output = Command::new(openssl)
-        .args(["pkey", "-in"])
-        .arg(private_key)
-        .args(["-pubout", "-outform", "DER"])
-        .env_clear()
-        .stdin(Stdio::null())
-        .stderr(Stdio::null())
-        .output()
-        .map_err(|source| io_error("derive release public key", source))?;
-    const PREFIX: [u8; 12] = [
-        0x30, 0x2a, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, 0x03, 0x21, 0x00,
-    ];
-    if !output.status.success()
-        || output.stdout.len() != 44
-        || output.stdout[..PREFIX.len()] != PREFIX
-    {
-        return Err(BuilderError::Tool(
-            "release private key is not an Ed25519 private key",
-        ));
-    }
-    let mut public_key = [0u8; 32];
-    public_key.copy_from_slice(&output.stdout[PREFIX.len()..]);
-    Ok(public_key)
-}
-
-fn public_key_hex(public_key: &[u8; 32]) -> String {
-    let mut hex = String::with_capacity(64);
-    for byte in public_key {
-        use std::fmt::Write as _;
-        write!(&mut hex, "{byte:02x}").expect("writing into a String cannot fail");
-    }
-    hex
-}
-
-fn write_published_file(
-    path: &Path,
-    bytes: &[u8],
-    mode: u32,
-    operation: &'static str,
-) -> Result<(), BuilderError> {
-    let mut file = create_private_file(path)?;
-    file.write_all(bytes)
-        .map_err(|source| io_error(operation, source))?;
-    drop(file);
-    set_mode(path, mode, operation)?;
-    File::open(path)
-        .and_then(|file| file.sync_all())
-        .map_err(|source| io_error(operation, source))
-}
-
-fn sign_published_file(
-    openssl: &Path,
-    private_key: &Path,
-    input: &Path,
-    signature: &Path,
-) -> Result<(), BuilderError> {
-    let placeholder = create_private_file(signature)?;
-    drop(placeholder);
-    let status = Command::new(openssl)
-        .args(["pkeyutl", "-sign", "-rawin", "-inkey"])
-        .arg(private_key)
-        .arg("-in")
-        .arg(input)
-        .arg("-out")
-        .arg(signature)
-        .env_clear()
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .map_err(|source| io_error("sign publication file", source))?;
-    if !status.success() {
-        return Err(BuilderError::Tool("OpenSSL release signature failed"));
-    }
-    let metadata = ensure_regular_file(
-        signature,
-        "inspect publication signature",
-        "publication signature is not a regular file",
-    )?;
-    if metadata.len() != RELEASE_SIGNATURE_BYTES {
-        return Err(BuilderError::Tool(
-            "OpenSSL release signature has invalid size",
-        ));
-    }
-    set_mode(signature, 0o644, "set publication signature mode")?;
-    File::open(signature)
-        .and_then(|file| file.sync_all())
-        .map_err(|source| io_error("sync publication signature", source))
-}
-
-fn release_manifest_bytes(
-    generation_id: &str,
-    release_sequence: &str,
-    public_key: &[u8; 32],
-    files: &[PublishFile],
-) -> Result<Vec<u8>, BuilderError> {
-    use std::fmt::Write as _;
-
-    let format = if files.iter().any(|file| file.relative_path == "wrapper") {
-        RELEASE_FORMAT_V4
-    } else {
-        RELEASE_FORMAT_V3
-    };
-    let mut manifest = format!(
-        concat!(
-            "{}\n",
-            "generation_id\t{}\n",
-            "release_sequence\t{}\n",
-            "channel\t{}\n",
-            "expected_platform\tandroid\n",
-            "expected_architecture\taarch64\n",
-            "wrapper_api_identity\t{}\n",
-            "persistent_schema_identity\t{}\n",
-            "release_public_key\t{}\n",
-            "file_count\t{}\n",
-        ),
-        format,
-        generation_id,
-        release_sequence,
-        RELEASE_CHANNEL,
-        CORE_API_IDENTITY,
-        PERSISTENT_SCHEMA_IDENTITY,
-        public_key_hex(public_key),
-        files.len(),
-    );
-    for file in files {
-        writeln!(
-            &mut manifest,
-            "file\t{}\t{}\t{:04o}",
-            file.relative_path, file.sha256, file.mode
-        )
-        .expect("writing into String cannot fail");
-    }
-    if manifest.len() as u64 > RELEASE_MANIFEST_MAX_BYTES {
-        return Err(BuilderError::Invalid(
-            "release manifest exceeds its byte bound",
-        ));
-    }
-    Ok(manifest.into_bytes())
-}
-
-fn download_size_sidecar_bytes(
-    manifest_sha256: &str,
-    files: &[PublishFile],
-) -> Result<Vec<u8>, BuilderError> {
-    use std::fmt::Write as _;
-
-    let total_bytes = files.iter().try_fold(0u64, |total, file| {
-        total
-            .checked_add(file.size)
-            .filter(|value| *value <= RELEASE_TOTAL_FILE_MAX_BYTES)
-            .ok_or(BuilderError::Invalid(
-                "publication generation exceeds its total byte bound",
-            ))
-    })?;
-    let mut sidecar = format!(
-        "{DOWNLOAD_SIZE_FORMAT}\nmanifest_sha256\t{manifest_sha256}\nfile_count\t{}\ntotal_bytes\t{total_bytes}\n",
-        files.len(),
-    );
-    for file in files {
-        writeln!(&mut sidecar, "file\t{}\t{}", file.relative_path, file.size)
-            .expect("writing into String cannot fail");
-    }
-    if sidecar.len() as u64 > DOWNLOAD_SIZE_MAX_BYTES {
-        return Err(BuilderError::Invalid(
-            "download-size sidecar exceeds its byte bound",
-        ));
-    }
-    Ok(sidecar.into_bytes())
-}
-
-fn update_index_bytes(generation_id: &str, release_base: &str) -> Vec<u8> {
-    format!(
-        "{RELEASE_INDEX_FORMAT}\nchannel\t{RELEASE_CHANNEL}\ngeneration_id\t{generation_id}\nrelease_base\t{release_base}\n"
-    )
-    .into_bytes()
-}
-
-fn publish(request: &PublishRequest) -> Result<String, BuilderError> {
-    validate_publish_request(request)?;
-    let staging = create_staging(&request.output)?;
-    let result = (|| {
-        let generation =
-            snapshot_publish_generation(&request.generation, &staging, &request.openssl)?;
-        if !valid_publish_release_base(&request.release_base, &generation.generation_id) {
-            return Err(BuilderError::Invalid(
-                "release base is not canonical or does not match generation identity",
-            ));
-        }
-        let public_key = openssl_public_key(&request.openssl, &request.private_key)?;
-        let releases = staging.join("releases");
-        let release_dir = releases.join(&generation.generation_id);
-        create_private_dir(&releases)?;
-        create_private_dir(&release_dir)?;
-        let mut helper_directories = if generation.r10_bridge {
-            let release_helpers = release_dir.join("helpers");
-            create_private_dir(&release_helpers)?;
-            vec![release_helpers]
-        } else {
-            let release_browser = release_dir.join("browser");
-            let release_browser_open = release_browser.join("open");
-            let release_browser_manual = release_browser.join("manual");
-            create_private_dir(&release_browser)?;
-            create_private_dir(&release_browser_open)?;
-            create_private_dir(&release_browser_manual)?;
-            vec![
-                release_browser_open,
-                release_browser_manual,
-                release_browser,
-            ]
-        };
-        if generation.v3_package {
-            let mut v3_dirs = BTreeSet::new();
-            for file in &generation.files {
-                if let Some((parent, _)) = file.relative_path.rsplit_once('/') {
-                    ensure_dir_chain_0755(&release_dir, parent)?;
-                    let mut prefix = String::new();
-                    for part in parent.split('/') {
-                        if !prefix.is_empty() {
-                            prefix.push('/');
-                        }
-                        prefix.push_str(part);
-                        v3_dirs.insert(prefix.clone());
-                    }
-                }
-            }
-            let mut sorted_dirs: Vec<String> = v3_dirs.into_iter().collect();
-            sorted_dirs.sort_by(|a, b| {
-                b.matches('/')
-                    .count()
-                    .cmp(&a.matches('/').count())
-                    .then_with(|| a.cmp(b))
-            });
-            for dir in sorted_dirs {
-                let abs = release_dir.join(&dir);
-                if !helper_directories.contains(&abs) {
-                    helper_directories.push(abs);
-                }
-            }
-        }
-        for file in &generation.files {
-            rename_noreplace(&file.snapshot_path, &release_dir.join(&file.relative_path))?;
-        }
-        std::fs::remove_dir_all(staging.join(".generation-source"))
-            .map_err(|source| io_error("remove publication source staging", source))?;
-
-        for directory in &helper_directories {
-            set_mode(directory, 0o755, "set release helper directory mode")?;
-            sync_directory(directory, "sync release helper directory")?;
-        }
-
-        let manifest = release_manifest_bytes(
-            &generation.generation_id,
-            &request.release_sequence,
-            &public_key,
-            &generation.files,
-        )?;
-        let manifest_path = release_dir.join("release.manifest");
-        write_published_file(&manifest_path, &manifest, 0o644, "write release manifest")?;
-        sign_published_file(
-            &request.openssl,
-            &request.private_key,
-            &manifest_path,
-            &release_dir.join("release.sig"),
-        )?;
-        let manifest_sha256 = openssl_sha256(&request.openssl, &manifest_path)?;
-        let download_size = download_size_sidecar_bytes(&manifest_sha256, &generation.files)?;
-        let download_size_path = staging.join(DOWNLOAD_SIZE_PATH);
-        write_published_file(
-            &download_size_path,
-            &download_size,
-            0o644,
-            "write download-size sidecar",
-        )?;
-        sign_published_file(
-            &request.openssl,
-            &request.private_key,
-            &download_size_path,
-            &staging.join(DOWNLOAD_SIZE_SIGNATURE_PATH),
-        )?;
-        let index = update_index_bytes(&generation.generation_id, &request.release_base);
-        let index_path = staging.join("update-index-v1");
-        write_published_file(&index_path, &index, 0o644, "write update index")?;
-        sign_published_file(
-            &request.openssl,
-            &request.private_key,
-            &index_path,
-            &staging.join("update-index-v1.sig"),
-        )?;
-
-        set_mode(&release_dir, 0o755, "set release directory mode")?;
-        sync_directory(&release_dir, "sync published release directory")?;
-        set_mode(&releases, 0o755, "set releases directory mode")?;
-        sync_directory(&releases, "sync published releases directory")?;
-        set_mode(&staging, 0o755, "set publication root mode")?;
-        sync_directory(&staging, "sync complete signed publication")?;
-        rename_noreplace(&staging, &request.output)?;
-        sync_directory(
-            request
-                .output
-                .parent()
-                .ok_or(BuilderError::Invalid("publication output has no parent"))?,
-            "sync published output parent",
-        )?;
-        Ok(generation.generation_id)
-    })();
-    match (result, cleanup_staging(&staging)) {
-        (_, Err(error)) => Err(error),
-        (Err(error), Ok(())) => Err(error),
-        (Ok(generation_id), Ok(())) => Ok(generation_id),
-    }
-}
-
-fn snapshot_core_artifact(
+fn snapshot_wrapper_artifact(
     request: &GenerationRequest,
     staging: &Path,
 ) -> Result<String, BuilderError> {
     let source =
-        File::open(&request.core).map_err(|source| io_error("open Core artifact", source))?;
+        File::open(&request.wrapper).map_err(|source| io_error("open wrapper artifact", source))?;
     let metadata = source
         .metadata()
-        .map_err(|source| io_error("inspect opened Core artifact", source))?;
+        .map_err(|source| io_error("inspect opened wrapper artifact", source))?;
     if !metadata.file_type().is_file() || metadata.permissions().mode() & 0o111 == 0 {
         return Err(BuilderError::Invalid(
-            "opened Core artifact is not an executable regular file",
+            "opened wrapper artifact is not an executable regular file",
         ));
     }
-    if metadata.len() > CORE_ARTIFACT_MAX_BYTES {
+    if metadata.len() > WRAPPER_ARTIFACT_MAX_BYTES {
         return Err(BuilderError::Invalid(
-            "opened Core artifact exceeds its byte bound",
+            "opened wrapper artifact exceeds its byte bound",
         ));
     }
 
     let snapshot_path = staging.join(".wrapper-artifact");
     let mut snapshot = create_private_file(&snapshot_path)?;
-    let mut bounded = source.take(CORE_ARTIFACT_MAX_BYTES.saturating_add(1));
+    let mut bounded = source.take(WRAPPER_ARTIFACT_MAX_BYTES.saturating_add(1));
     let copied = io::copy(&mut bounded, &mut snapshot)
-        .map_err(|source| io_error("snapshot Core artifact", source))?;
-    if copied > CORE_ARTIFACT_MAX_BYTES {
+        .map_err(|source| io_error("snapshot wrapper artifact", source))?;
+    if copied > WRAPPER_ARTIFACT_MAX_BYTES {
         return Err(BuilderError::Invalid(
-            "Core artifact exceeds its byte bound",
+            "wrapper artifact exceeds its byte bound",
         ));
     }
     snapshot
         .sync_all()
-        .map_err(|source| io_error("sync Core artifact snapshot", source))?;
+        .map_err(|source| io_error("sync wrapper artifact snapshot", source))?;
     drop(snapshot);
 
-    validate_android_aarch64_core_elf(&snapshot_path)?;
+    validate_android_aarch64_wrapper_elf(&snapshot_path)?;
     let sha256 = openssl_sha256(&request.openssl, &snapshot_path)?;
     Ok(sha256)
 }
@@ -2187,115 +603,11 @@ fn snapshot_archive(request: &GenerationRequest, staging: &Path) -> Result<PathB
     Ok(snapshot_path)
 }
 
-fn create_fetch_staging(output: &Path) -> Result<PathBuf, BuilderError> {
-    let parent = output
-        .parent()
-        .ok_or(BuilderError::Invalid("fetch output has no parent"))?;
-    let sequence = STAGING_COUNTER.fetch_add(1, Ordering::Relaxed);
-    let staging = parent.join(format!(
-        ".codex-release-fetch-{}-{sequence}",
-        std::process::id()
-    ));
-    let mut builder = std::fs::DirBuilder::new();
-    builder.mode(0o700);
-    builder
-        .create(&staging)
-        .map_err(|source| io_error("create private fetch staging", source))?;
-    Ok(staging)
-}
-
-fn cleanup_fetch_staging(staging: &Path) -> Result<(), BuilderError> {
-    match std::fs::symlink_metadata(staging) {
-        Ok(_) => std::fs::remove_dir_all(staging)
-            .map_err(|source| io_error("remove private fetch staging", source)),
-        Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(()),
-        Err(source) => Err(io_error("inspect private fetch staging", source)),
-    }
-}
-
-fn fetch(request: &FetchRequest) -> Result<String, BuilderError> {
-    validate_fetch_request(request)?;
-    let staging = create_fetch_staging(&request.output)?;
-    let result = (|| {
-        let archive = staging.join(UPSTREAM_ARCHIVE_NAME);
-        let output = create_private_file(&archive)?;
-        let child_output = output
-            .try_clone()
-            .map_err(|source| io_error("duplicate fetch archive output", source))?;
-        let url = official_archive_url(&request.version);
-        let status = Command::new(&request.curl)
-            .args([
-                "--disable",
-                "--fail",
-                "--silent",
-                "--show-error",
-                "--proto",
-                "=https",
-                "--connect-timeout",
-                RELEASE_CONNECT_TIMEOUT_SECONDS,
-                "--max-time",
-                RELEASE_TRANSFER_TIMEOUT_SECONDS,
-                "--max-filesize",
-            ])
-            .arg(ARCHIVE_MAX_BYTES.to_string())
-            .args(["--url", url.as_str()])
-            .env_clear()
-            .stdin(Stdio::null())
-            .stdout(Stdio::from(child_output))
-            .stderr(Stdio::null())
-            .status()
-            .map_err(|source| io_error("start official upstream archive download", source))?;
-        if !status.success() {
-            return Err(BuilderError::Tool(
-                "official upstream archive download failed",
-            ));
-        }
-        output
-            .sync_all()
-            .map_err(|source| io_error("sync downloaded upstream archive", source))?;
-        let metadata = output
-            .metadata()
-            .map_err(|source| io_error("inspect downloaded upstream archive", source))?;
-        if !metadata.file_type().is_file() {
-            return Err(BuilderError::Invalid(
-                "downloaded upstream archive is not a regular file",
-            ));
-        }
-        if metadata.len() == 0 {
-            return Err(BuilderError::Invalid(
-                "downloaded upstream archive is empty",
-            ));
-        }
-        if metadata.len() > ARCHIVE_MAX_BYTES {
-            return Err(BuilderError::Invalid(
-                "downloaded upstream archive exceeds its byte bound",
-            ));
-        }
-        drop(output);
-        let digest = openssl_sha256(&request.openssl, &archive)?;
-        rename_noreplace(&archive, &request.output)?;
-        sync_directory(
-            request
-                .output
-                .parent()
-                .ok_or(BuilderError::Invalid("fetch output has no parent"))?,
-            "sync fetched archive parent",
-        )?;
-        Ok(digest)
-    })();
-    match (result, cleanup_fetch_staging(&staging)) {
-        (_, Err(error)) => Err(error),
-        (Err(error), Ok(())) => Err(error),
-        (Ok(digest), Ok(())) => Ok(digest),
-    }
-}
-
 #[derive(Debug)]
 struct ArchiveSelection {
     raw_runtime: PathBuf,
     code_mode_host: Option<PathBuf>,
     extra_bins: Vec<PathBuf>,
-    v3_package: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -2988,15 +1300,15 @@ fn validate_static_aarch64_elf(path: &Path) -> Result<(), BuilderError> {
     Ok(())
 }
 
-fn validate_android_aarch64_core_elf(path: &Path) -> Result<(), BuilderError> {
-    let mut file = File::open(path).map_err(|source| io_error("open Core ELF", source))?;
+fn validate_android_aarch64_wrapper_elf(path: &Path) -> Result<(), BuilderError> {
+    let mut file = File::open(path).map_err(|source| io_error("open wrapper ELF", source))?;
     let file_len = file
         .metadata()
-        .map_err(|source| io_error("inspect Core ELF", source))?
+        .map_err(|source| io_error("inspect wrapper ELF", source))?
         .len();
     let mut header = [0u8; 64];
     file.read_exact(&mut header)
-        .map_err(|source| io_error("read Core ELF header", source))?;
+        .map_err(|source| io_error("read wrapper ELF header", source))?;
     if &header[..4] != b"\x7fELF"
         || header[4] != 2
         || header[5] != 1
@@ -3008,35 +1320,35 @@ fn validate_android_aarch64_core_elf(path: &Path) -> Result<(), BuilderError> {
         || little_u16(&header[54..56]) != 56
     {
         return Err(BuilderError::Invalid(
-            "Core artifact is not a supported Android AArch64 PIE ELF",
+            "wrapper artifact is not a supported Android AArch64 PIE ELF",
         ));
     }
     let program_offset = little_u64(&header[32..40]);
     let program_count = u64::from(little_u16(&header[56..58]));
     if program_count == 0 {
-        return Err(BuilderError::Invalid("Core ELF has no program headers"));
+        return Err(BuilderError::Invalid("wrapper ELF has no program headers"));
     }
     program_count
         .checked_mul(56)
         .and_then(|length| program_offset.checked_add(length))
         .filter(|end| *end <= file_len)
         .ok_or(BuilderError::Invalid(
-            "Core ELF program headers are malformed",
+            "wrapper ELF program headers are malformed",
         ))?;
 
     let mut interpreter = None;
     let mut program_header = [0u8; 56];
     for index in 0..program_count {
         file.seek(SeekFrom::Start(program_offset + index * 56))
-            .map_err(|source| io_error("seek Core ELF program header", source))?;
+            .map_err(|source| io_error("seek wrapper ELF program header", source))?;
         file.read_exact(&mut program_header)
-            .map_err(|source| io_error("read Core ELF program header", source))?;
+            .map_err(|source| io_error("read wrapper ELF program header", source))?;
         if little_u32(&program_header[..4]) != 3 {
             continue;
         }
         if interpreter.is_some() {
             return Err(BuilderError::Invalid(
-                "Core ELF has multiple PT_INTERP program headers",
+                "wrapper ELF has multiple PT_INTERP program headers",
             ));
         }
         let offset = little_u64(&program_header[8..16]);
@@ -3044,26 +1356,28 @@ fn validate_android_aarch64_core_elf(path: &Path) -> Result<(), BuilderError> {
         let end = offset
             .checked_add(size)
             .filter(|end| *end <= file_len)
-            .ok_or(BuilderError::Invalid("Core ELF interpreter is malformed"))?;
+            .ok_or(BuilderError::Invalid(
+                "wrapper ELF interpreter is malformed",
+            ))?;
         let size = usize::try_from(size)
-            .map_err(|_| BuilderError::Invalid("Core ELF interpreter is malformed"))?;
+            .map_err(|_| BuilderError::Invalid("wrapper ELF interpreter is malformed"))?;
         let mut value = vec![0u8; size];
         file.seek(SeekFrom::Start(offset))
-            .map_err(|source| io_error("seek Core ELF interpreter", source))?;
+            .map_err(|source| io_error("seek wrapper ELF interpreter", source))?;
         file.read_exact(&mut value)
-            .map_err(|source| io_error("read Core ELF interpreter", source))?;
+            .map_err(|source| io_error("read wrapper ELF interpreter", source))?;
         let _ = end;
         interpreter = Some(value);
     }
     if interpreter.as_deref() != Some(ANDROID_AARCH64_INTERPRETER) {
         return Err(BuilderError::Invalid(
-            "Core artifact does not use the Android AArch64 dynamic linker",
+            "wrapper artifact does not use the Android AArch64 dynamic linker",
         ));
     }
     Ok(())
 }
 
-fn write_v3_staged_file(
+fn write_staged_file(
     destination: &Path,
     bytes: &[u8],
     mode: u32,
@@ -3086,11 +1400,8 @@ fn parse_archive<R: Read>(
     staging: &Path,
     version: &str,
 ) -> Result<ArchiveSelection, BuilderError> {
-    let v3_package = generation_format_for_version(version) == GENERATION_FORMAT_V3;
     let raw_runtime = staging.join(".raw-runtime");
-    if v3_package {
-        ensure_dir_chain_0755(staging, "bin")?;
-    }
+    ensure_dir_chain_0755(staging, "bin")?;
     let mut code_mode_host = None;
     let mut extra_bins = Vec::new();
     let mut seen = BTreeSet::new();
@@ -3153,16 +1464,14 @@ fn parse_archive<R: Read>(
         pending_pax = false;
 
         if header.kind == EntryKind::Directory {
-            if v3_package {
-                let trimmed = header.path.trim_end_matches('/');
-                if trimmed == "bin"
-                    || trimmed == "codex-path"
-                    || trimmed == "codex-resources"
-                    || trimmed.starts_with("codex-path/")
-                    || trimmed.starts_with("codex-resources/")
-                {
-                    ensure_dir_chain_0755(staging, trimmed)?;
-                }
+            let trimmed = header.path.trim_end_matches('/');
+            if trimmed == "bin"
+                || trimmed == "codex-path"
+                || trimmed == "codex-resources"
+                || trimmed.starts_with("codex-path/")
+                || trimmed.starts_with("codex-resources/")
+            {
+                ensure_dir_chain_0755(staging, trimmed)?;
             }
             continue;
         }
@@ -3187,26 +1496,20 @@ fn parse_archive<R: Read>(
                     .map_err(|source| io_error("sync selected raw runtime", source))?;
             }
             "bin/codex-code-mode-host" => {
-                let dest = if v3_package {
-                    staging.join("bin/codex-code-mode-host")
-                } else {
-                    staging.join("codex-code-mode-host")
-                };
+                let dest = staging.join("bin/codex-code-mode-host");
                 let mut file = create_private_file(&dest)?;
                 read_payload(reader, header.size, Some(&mut file), false)?;
                 file.sync_all()
                     .map_err(|source| io_error("sync selected code-mode host", source))?;
                 code_mode_host = Some(dest.clone());
-                if v3_package {
-                    extra_bins.push(dest);
-                }
+                extra_bins.push(dest);
             }
             "codex-package.json" => {
                 package_json = Some(read_payload(reader, header.size, None, true)?);
             }
-            rel if v3_package && rel.starts_with("bin/") => {
+            rel if rel.starts_with("bin/") => {
                 let name = &rel["bin/".len()..];
-                if !valid_v3_bin_name(name) {
+                if !valid_package_bin_name(name) {
                     return Err(BuilderError::Archive("archive bin entry name is invalid"));
                 }
                 let dest = staging.join(rel);
@@ -3216,7 +1519,7 @@ fn parse_archive<R: Read>(
                     .map_err(|source| io_error("sync selected bin entry", source))?;
                 extra_bins.push(dest);
             }
-            "codex-path/rg" if v3_package => {
+            "codex-path/rg" => {
                 ensure_dir_chain_0755(staging, "codex-path")?;
                 let dest = staging.join("codex-path/rg");
                 let mut file = create_private_file(&dest)?;
@@ -3232,7 +1535,7 @@ fn parse_archive<R: Read>(
                 } else {
                     std::fs::remove_file(&dest)
                         .map_err(|source| io_error("remove non-static rg", source))?;
-                    write_v3_staged_file(
+                    write_staged_file(
                         &dest,
                         TERMUX_RG_WRAPPER_SCRIPT,
                         0o755,
@@ -3241,9 +1544,7 @@ fn parse_archive<R: Read>(
                 }
                 rg_extracted = true;
             }
-            rel if v3_package
-                && (rel.starts_with("codex-path/") || rel.starts_with("codex-resources/")) =>
-            {
+            rel if rel.starts_with("codex-path/") || rel.starts_with("codex-resources/") => {
                 if let Some((parent, _)) = rel.rsplit_once('/') {
                     ensure_dir_chain_0755(staging, parent)?;
                 }
@@ -3251,17 +1552,17 @@ fn parse_archive<R: Read>(
                 let mut file = create_private_file(&dest)?;
                 read_payload(reader, header.size, Some(&mut file), false)?;
                 file.sync_all()
-                    .map_err(|source| io_error("sync v3 companion resource", source))?;
+                    .map_err(|source| io_error("sync companion resource", source))?;
                 drop(file);
                 let mode = if header.mode & 0o111 != 0 {
                     0o755
                 } else {
                     0o644
                 };
-                set_mode(&dest, mode, "set v3 companion resource mode")?;
+                set_mode(&dest, mode, "set companion resource mode")?;
                 File::open(&dest)
                     .and_then(|f| f.sync_all())
-                    .map_err(|source| io_error("sync v3 companion resource mode", source))?;
+                    .map_err(|source| io_error("sync companion resource mode", source))?;
             }
             _ => {
                 read_payload(reader, header.size, None, false)?;
@@ -3272,7 +1573,6 @@ fn parse_archive<R: Read>(
     if REQUIRED_ARCHIVE_FILES
         .iter()
         .any(|path| !seen.contains(*path))
-        || (!v3_package && code_mode_host.is_none())
     {
         return Err(BuilderError::Archive("archive layout is incomplete"));
     }
@@ -3280,37 +1580,29 @@ fn parse_archive<R: Read>(
         .as_deref()
         .ok_or(BuilderError::Archive("archive layout is incomplete"))?;
     validate_package_json(pkg_bytes, version)?;
-    if v3_package {
-        write_v3_staged_file(
-            &staging.join("codex-package.json"),
-            pkg_bytes,
-            0o644,
-            "write codex-package.json",
+    write_staged_file(
+        &staging.join("codex-package.json"),
+        pkg_bytes,
+        0o644,
+        "write codex-package.json",
+    )?;
+    if !rg_extracted {
+        ensure_dir_chain_0755(staging, "codex-path")?;
+        write_staged_file(
+            &staging.join("codex-path/rg"),
+            TERMUX_RG_WRAPPER_SCRIPT,
+            0o755,
+            "write Termux rg wrapper",
         )?;
-        if !rg_extracted {
-            ensure_dir_chain_0755(staging, "codex-path")?;
-            write_v3_staged_file(
-                &staging.join("codex-path/rg"),
-                TERMUX_RG_WRAPPER_SCRIPT,
-                0o755,
-                "write Termux rg wrapper",
-            )?;
-        }
     }
     validate_static_aarch64_elf(&raw_runtime)?;
     for bin_path in &extra_bins {
         validate_static_aarch64_elf(bin_path)?;
     }
-    if !v3_package {
-        if let Some(host_path) = code_mode_host.as_ref() {
-            validate_static_aarch64_elf(host_path)?;
-        }
-    }
     Ok(ArchiveSelection {
         raw_runtime,
         code_mode_host,
         extra_bins,
-        v3_package,
     })
 }
 
@@ -3365,7 +1657,6 @@ struct AdaptedGeneration {
     browser_manual_helper_sha256: String,
     fd_counts: [usize; 4],
     changed_bytes: usize,
-    runtime_policy: Option<runtime_patch::Policy>,
     uds_applied: bool,
 }
 
@@ -3406,51 +1697,33 @@ fn write_browser_helper(
     openssl_sha256(openssl, path)
 }
 
-fn browser_helper_relative_paths(r10_bridge: bool) -> (&'static str, &'static str) {
-    if r10_bridge {
-        ("helpers/0", "helpers/1")
-    } else {
-        ("browser/open/curl", "browser/manual/curl")
-    }
-}
-
 fn create_browser_helpers(
     staging: &Path,
     openssl: &Path,
-    r10_bridge: bool,
 ) -> Result<(String, String), BuilderError> {
-    let (open_relative, manual_relative) = browser_helper_relative_paths(r10_bridge);
-    if r10_bridge {
-        create_private_dir(&staging.join("helpers"))?;
-    } else {
-        let browser = staging.join("browser");
-        create_private_dir(&browser)?;
-        create_private_dir(&browser.join("open"))?;
-        create_private_dir(&browser.join("manual"))?;
-    }
+    let browser = staging.join("browser");
+    create_private_dir(&browser)?;
+    create_private_dir(&browser.join("open"))?;
+    create_private_dir(&browser.join("manual"))?;
     let open_sha256 = write_browser_helper(
-        &staging.join(open_relative),
+        &staging.join("browser/open/curl"),
         TERMUX_BROWSER_OPEN_HELPER,
         openssl,
     )?;
     let manual_sha256 = write_browser_helper(
-        &staging.join(manual_relative),
+        &staging.join("browser/manual/curl"),
         TERMUX_BROWSER_MANUAL_HELPER,
         openssl,
     )?;
-    if r10_bridge {
-        sync_directory(&staging.join("helpers"), "sync R10 bridge helper directory")?;
-    } else {
-        sync_directory(
-            &staging.join("browser/open"),
-            "sync browser open helper directory",
-        )?;
-        sync_directory(
-            &staging.join("browser/manual"),
-            "sync browser manual helper directory",
-        )?;
-        sync_directory(&staging.join("browser"), "sync browser helper root")?;
-    }
+    sync_directory(
+        &staging.join("browser/open"),
+        "sync browser open helper directory",
+    )?;
+    sync_directory(
+        &staging.join("browser/manual"),
+        "sync browser manual helper directory",
+    )?;
+    sync_directory(&staging.join("browser"), "sync browser helper root")?;
     Ok((open_sha256, manual_sha256))
 }
 
@@ -3519,6 +1792,7 @@ fn apply_fd_path_remaps_with_options(
     })
 }
 
+#[cfg(test)]
 pub(crate) fn apply_fd_path_remaps(runtime: &mut [u8]) -> Result<usize, BuilderError> {
     apply_fd_path_remaps_with_options(runtime, true).map(|summary| summary.changed_bytes)
 }
@@ -3534,22 +1808,15 @@ fn adapt_selected_runtime(
     let fd = apply_fd_path_remaps_with_options(&mut runtime, true)?;
     let mut changed_bytes = fd.changed_bytes;
 
-    let runtime_policy =
-        runtime_patch::required(&request.version).map_err(BuilderError::Archive)?;
-    let mut uds_applied = false;
-    if let Some(policy) = runtime_policy {
-        if runtime_patch::contains_daemon_fmt(&runtime) {
-            changed_bytes +=
-                runtime_patch::apply(&mut runtime, policy).map_err(BuilderError::Archive)?;
-            uds_applied = true;
-        }
-    }
-
-    let runtime_path = if selected.v3_package {
-        staging.join("bin/codex")
+    let uds_applied = if runtime_patch::contains_daemon_fmt(&runtime) {
+        changed_bytes +=
+            runtime_patch::apply_uds_fd35(&mut runtime).map_err(BuilderError::Archive)?;
+        true
     } else {
-        staging.join("runtime")
+        false
     };
+
+    let runtime_path = staging.join("bin/codex");
     let mut runtime_file = create_private_file(&runtime_path)?;
     runtime_file
         .write_all(&runtime)
@@ -3568,7 +1835,7 @@ fn adapt_selected_runtime(
             .map_err(|source| io_error("read companion bin artifact", source))?;
         let c_fd = apply_fd_path_remaps_with_options(&mut companion, false)?;
         let c_uds = if runtime_patch::contains_daemon_fmt(&companion) {
-            runtime_patch::apply_adaptive_uds_fd35(&mut companion).map_err(BuilderError::Archive)?
+            runtime_patch::apply_uds_fd35(&mut companion).map_err(BuilderError::Archive)?
         } else {
             0
         };
@@ -3588,17 +1855,7 @@ fn adapt_selected_runtime(
             .and_then(|file| file.sync_all())
             .map_err(|source| io_error("sync companion bin after mode", source))?;
     }
-    if !selected.v3_package {
-        if let Some(host_path) = selected.code_mode_host.as_ref() {
-            set_mode(host_path, 0o755, "set code-mode-host mode")?;
-            File::open(host_path)
-                .and_then(|file| file.sync_all())
-                .map_err(|source| io_error("sync code-mode host", source))?;
-        }
-    }
-    if selected.v3_package {
-        sync_directory(&staging.join("bin"), "sync v3 bin directory")?;
-    }
+    sync_directory(&staging.join("bin"), "sync bin directory")?;
 
     let runtime_sha256 = openssl_sha256(&request.openssl, &runtime_path)?;
     let code_mode_host_sha256 = selected
@@ -3606,11 +1863,8 @@ fn adapt_selected_runtime(
         .as_ref()
         .map(|host_path| openssl_sha256(&request.openssl, host_path))
         .transpose()?;
-    let (browser_open_helper_sha256, browser_manual_helper_sha256) = create_browser_helpers(
-        staging,
-        &request.openssl,
-        request.creation_metadata == R10_BROWSER_HELPER_BRIDGE_METADATA,
-    )?;
+    let (browser_open_helper_sha256, browser_manual_helper_sha256) =
+        create_browser_helpers(staging, &request.openssl)?;
     std::fs::remove_file(&selected.raw_runtime)
         .map_err(|source| io_error("remove selected raw runtime", source))?;
 
@@ -3622,7 +1876,6 @@ fn adapt_selected_runtime(
         browser_manual_helper_sha256,
         fd_counts: fd.counts,
         changed_bytes,
-        runtime_policy,
         uds_applied,
     })
 }
@@ -3631,13 +1884,11 @@ fn write_generation_descriptor(
     request: &GenerationRequest,
     staging: &Path,
     adapted: &AdaptedGeneration,
-    core_sha256: &str,
+    wrapper_sha256: &str,
 ) -> Result<(), BuilderError> {
-    let patch_policy = adapted
-        .runtime_policy
-        .map_or(PATCH_POLICY_ID, |policy| policy.id);
     let mut patch_report = format!(
-        "{patch_policy};archive_sha256={};raw_runtime_sha256={};runtime_sha256={};code_mode_host_sha256={};source_counts={},{},{},{};changed_bytes={}",
+        "{};archive_sha256={};raw_runtime_sha256={};runtime_sha256={};code_mode_host_sha256={};source_counts={},{},{},{};changed_bytes={}",
+        runtime_patch::PATCH_POLICY_ID,
         request.archive_sha256,
         adapted.raw_runtime_sha256,
         adapted.runtime_sha256,
@@ -3649,16 +1900,8 @@ fn write_generation_descriptor(
         adapted.changed_bytes
     );
     if adapted.uds_applied {
-        if let Some(policy) = adapted.runtime_policy {
-            patch_report.push_str(&format!(";uds_policy={}", policy.uds));
-        }
+        patch_report.push_str(&format!(";uds_policy={}", runtime_patch::UDS_POLICY_ID));
     }
-    let upstream_doctor = if request.legacy_activation_doctor_unsupported {
-        "unsupported"
-    } else {
-        "supported"
-    };
-    let generation_format = generation_format_for_version(&request.version);
     let descriptor = format!(
         concat!(
             "{}\n",
@@ -3676,24 +1919,22 @@ fn write_generation_descriptor(
             "persistent_schema_identity\t{}\n",
             "qualification\tqualified\n",
             "creation_metadata\t{}\n",
-            "upstream_doctor\t{}\n",
             "helper_count\t2\n",
             "helper\t{}\t{}\n",
             "helper\t{}\t{}\n"
         ),
-        generation_format,
+        GENERATION_FORMAT,
         request.generation_id,
         PACKAGE_IDENTITY,
         request.version,
         request.archive_sha256,
-        patch_policy,
+        runtime_patch::PATCH_POLICY_ID,
         patch_report,
         adapted.runtime_sha256,
-        core_sha256,
-        CORE_API_IDENTITY,
+        wrapper_sha256,
+        WRAPPER_API_IDENTITY,
         PERSISTENT_SCHEMA_IDENTITY,
         request.creation_metadata,
-        upstream_doctor,
         TERMUX_BROWSER_OPEN_HELPER_IDENTITY,
         adapted.browser_open_helper_sha256,
         TERMUX_BROWSER_MANUAL_HELPER_IDENTITY,
@@ -3773,15 +2014,19 @@ fn complete_and_publish(
     request: &GenerationRequest,
     staging: &Path,
     selected: ArchiveSelection,
-    core_sha256: &str,
+    wrapper_sha256: &str,
 ) -> Result<(), BuilderError> {
     let adapted = adapt_selected_runtime(request, staging, selected)?;
     rename_noreplace(&staging.join(".wrapper-artifact"), &staging.join("wrapper"))?;
-    set_mode(&staging.join("wrapper"), 0o755, "set generation Core mode")?;
+    set_mode(
+        &staging.join("wrapper"),
+        0o755,
+        "set generation wrapper mode",
+    )?;
     File::open(staging.join("wrapper"))
         .and_then(|file| file.sync_all())
-        .map_err(|source| io_error("sync generation Core", source))?;
-    write_generation_descriptor(request, staging, &adapted, core_sha256)?;
+        .map_err(|source| io_error("sync generation wrapper", source))?;
+    write_generation_descriptor(request, staging, &adapted, wrapper_sha256)?;
     sync_directory(staging, "sync complete unsigned generation")?;
     rename_noreplace(staging, &request.output)?;
     sync_directory(
@@ -3808,12 +2053,12 @@ pub fn build_generation(request: &GenerationRequest) -> Result<(), BuilderError>
     validate_request(request)?;
     let staging = create_staging(&request.output)?;
     let result = (|| {
-        let core_sha256 = snapshot_core_artifact(request, &staging)?;
+        let wrapper_sha256 = snapshot_wrapper_artifact(request, &staging)?;
         let archive = snapshot_archive(request, &staging)?;
         let selected = select_archive(request, &archive, &staging)?;
         std::fs::remove_file(&archive)
             .map_err(|source| io_error("remove upstream archive snapshot", source))?;
-        complete_and_publish(request, &staging, selected, &core_sha256)
+        complete_and_publish(request, &staging, selected, &wrapper_sha256)
     })();
     match (result, cleanup_staging(&staging)) {
         (_, Err(error)) => Err(error),
@@ -3956,25 +2201,6 @@ pub fn inspect_package_archive_version(
     }
 }
 
-/// Signs one qualified generation into a complete local publication tree.
-pub fn publish_generation(
-    generation: &Path,
-    release_sequence: &str,
-    release_base: &str,
-    private_key: &Path,
-    openssl: &Path,
-    output: &Path,
-) -> Result<String, BuilderError> {
-    publish(&PublishRequest {
-        generation: generation.to_owned(),
-        release_sequence: release_sequence.to_owned(),
-        release_base: release_base.to_owned(),
-        private_key: private_key.to_owned(),
-        openssl: openssl.to_owned(),
-        output: output.to_owned(),
-    })
-}
-
 pub fn run_from_args<I, S>(args: I) -> i32
 where
     I: IntoIterator<Item = S>,
@@ -3982,36 +2208,6 @@ where
 {
     let args: Vec<OsString> = args.into_iter().map(Into::into).collect();
     match args.first().and_then(|argument| argument.to_str()) {
-        Some("prepare") => match prepare_policy(&args) {
-            Ok(policy) => {
-                println!("patch_policy_id\t{policy}");
-                println!("qualification\trequired");
-                0
-            }
-            Err(error) => {
-                eprintln!("codex-release-builder: {error}");
-                2
-            }
-        },
-        Some("fetch") => {
-            let request = match parse_fetch_request(args) {
-                Ok(request) => request,
-                Err(error) => {
-                    eprintln!("codex-release-builder: {error}");
-                    return 2;
-                }
-            };
-            match fetch(&request) {
-                Ok(digest) => {
-                    println!("archive_sha256\t{digest}");
-                    0
-                }
-                Err(error) => {
-                    eprintln!("codex-release-builder: {error}");
-                    1
-                }
-            }
-        }
         Some("build") => {
             let request = match parse_request(args) {
                 Ok(request) => request,
@@ -4028,25 +2224,6 @@ where
                 }
             }
         }
-        Some("publish") => {
-            let request = match parse_publish_request(args) {
-                Ok(request) => request,
-                Err(error) => {
-                    eprintln!("codex-release-builder: {error}");
-                    return 2;
-                }
-            };
-            match publish(&request) {
-                Ok(generation_id) => {
-                    println!("generation_id\t{generation_id}");
-                    0
-                }
-                Err(error) => {
-                    eprintln!("codex-release-builder: {error}");
-                    1
-                }
-            }
-        }
         _ => {
             eprintln!("codex-release-builder: {USAGE}");
             2
@@ -4054,1900 +2231,533 @@ where
     }
 }
 
-// Read-only early admission before acquiring large archives.
-// This chooses only an already implemented transformation, never qualifies it.
-fn prepare_policy(args: &[OsString]) -> Result<&'static str, BuilderError> {
-    let values = args
-        .iter()
-        .map(|arg| arg.to_str())
-        .collect::<Option<Vec<_>>>()
-        .ok_or(BuilderError::Usage)?;
-    let ["prepare", "--version", version, "--archive-sha256", archive] = values.as_slice() else {
-        return Err(BuilderError::Usage);
-    };
-    if !valid_stable_version(version) || !valid_lower_sha256(archive) {
-        return Err(BuilderError::Usage);
-    }
-    match runtime_patch::required(version).map_err(BuilderError::Archive)? {
-        Some(policy) => Ok(policy.id),
-        None => Ok(PATCH_POLICY_ID),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
 
-    #[test]
-    fn preparation_is_exact_read_only_and_does_not_imply_qualification() {
-        let args = |version: &str, archive: &str| {
-            ["prepare", "--version", version, "--archive-sha256", archive].map(OsString::from)
-        };
-        let digest = "a".repeat(64);
-        assert_eq!(
-            prepare_policy(&args("0.159.2", &digest)).unwrap(),
-            PATCH_POLICY_ID
-        );
-        assert_eq!(
-            prepare_policy(&args("0.165.0", &digest)).unwrap(),
-            runtime_patch::ADAPTIVE_POLICY
-        );
-        assert_eq!(
-            prepare_policy(&args("0.169.0", &digest)).unwrap(),
-            runtime_patch::ADAPTIVE_POLICY
-        );
-        assert_eq!(
-            prepare_policy(&args("1.2.0", &digest)).unwrap(),
-            runtime_patch::ADAPTIVE_POLICY
-        );
-        assert!(prepare_policy(&args("0.0169.0", &digest)).is_err());
-        assert!(prepare_policy(&args("0.169.0", "not-sha256")).is_err());
-        let mut malformed = args("0.169.0", &digest).to_vec();
-        malformed.push("--publish".into());
-        assert!(prepare_policy(&malformed).is_err());
-    }
+    static TEST_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
-    static TEST_COUNTER: AtomicU64 = AtomicU64::new(0);
-
-    #[derive(Clone)]
-    struct TestEntry {
-        path: String,
-        kind: u8,
-        data: Vec<u8>,
-        pax_key: Option<&'static str>,
-        declared_size: Option<u64>,
-    }
-
-    impl TestEntry {
-        fn directory(path: &str) -> Self {
-            Self {
-                path: path.to_owned(),
-                kind: b'5',
-                data: Vec::new(),
-                pax_key: Some("mtime"),
-                declared_size: None,
-            }
-        }
-
-        fn file(path: &str, data: Vec<u8>) -> Self {
-            Self {
-                path: path.to_owned(),
-                kind: b'0',
-                data,
-                pax_key: Some("mtime"),
-                declared_size: None,
-            }
-        }
-    }
-
-    struct Fixture {
-        root: PathBuf,
-        request: GenerationRequest,
-        raw_runtime: Vec<u8>,
-        code_mode_host: Vec<u8>,
-    }
-
-    impl Fixture {
-        fn remove(self) {
-            std::fs::remove_dir_all(self.root).unwrap();
-        }
-    }
-
-    fn test_root(label: &str) -> PathBuf {
-        let sequence = TEST_COUNTER.fetch_add(1, Ordering::Relaxed);
-        let root = std::env::temp_dir().join(format!(
-            "codex-release-builder-{}-{sequence}-{label}",
+    fn temp_dir(label: &str) -> PathBuf {
+        let id = TEST_COUNTER.fetch_add(1, AtomicOrdering::Relaxed);
+        let dir = std::env::temp_dir().join(format!(
+            "codex-release-builder-test-{label}-{}-{id}",
             std::process::id()
         ));
-        let mut builder = std::fs::DirBuilder::new();
-        builder.mode(0o700);
-        builder.create(&root).unwrap();
-        root
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
     }
 
     fn find_tool(name: &str) -> PathBuf {
-        std::env::var_os("PATH")
+        let mut candidates = Vec::new();
+        if let Some(prefix) = std::env::var_os("PREFIX") {
+            candidates.push(PathBuf::from(prefix).join("bin").join(name));
+        }
+        candidates.push(PathBuf::from("/data/data/com.termux/files/usr/bin").join(name));
+        candidates.push(PathBuf::from("/usr/bin").join(name));
+        candidates.push(PathBuf::from("/bin").join(name));
+        candidates
             .into_iter()
-            .flat_map(|path| std::env::split_paths(&path).collect::<Vec<_>>())
-            .map(|directory| directory.join(name))
-            .find(|path| {
-                std::fs::metadata(path).is_ok_and(|metadata| {
-                    metadata.file_type().is_file() && metadata.permissions().mode() & 0o111 != 0
-                })
-            })
-            .unwrap_or_else(|| panic!("required test tool is unavailable: {name}"))
+            .find(|path| path.is_file())
+            .unwrap_or_else(|| panic!("required test tool '{name}' not found"))
     }
 
-    fn shell_quote(value: &str) -> String {
-        format!("'{}'", value.replace('\'', "'\"'\"'"))
-    }
-
-    fn write_fetch_curl(path: &Path, log: &Path, source: &Path, exit_code: i32) {
-        use std::os::unix::fs::PermissionsExt;
-
-        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-        let shell = find_tool("sh");
-        let cat = find_tool("cat");
-        let shell = shell.to_str().expect("test shell path must be UTF-8");
-        let cat = cat.to_str().expect("test cat path must be UTF-8");
-        let log = shell_quote(log.to_str().expect("test log path must be UTF-8"));
-        let source = shell_quote(source.to_str().expect("test source path must be UTF-8"));
-        std::fs::write(
-            path,
-            format!(
-                r#"#!{shell}
-if [ "${{HOME+x}}" = x ] || [ "${{CURL_HOME+x}}" = x ] || [ "${{HTTP_PROXY+x}}" = x ] || [ "${{HTTPS_PROXY+x}}" = x ]; then
-  exit 97
-fi
-: > {log}
-for argument in "$@"; do
-  printf '%s\n' "$argument" >> {log}
-done
-if [ {exit_code} -ne 0 ]; then
-  exit {exit_code}
-fi
-{cat} {source}
-"#
-            ),
-        )
-        .unwrap();
-        let mut permissions = std::fs::metadata(path).unwrap().permissions();
-        permissions.set_mode(0o755);
-        std::fs::set_permissions(path, permissions).unwrap();
-    }
-
-    fn no_fetch_staging(root: &Path) -> bool {
-        std::fs::read_dir(root).unwrap().all(|entry| {
-            !entry
-                .unwrap()
-                .file_name()
-                .to_string_lossy()
-                .starts_with(".codex-release-fetch-")
-        })
-    }
-
-    #[test]
-    fn adaptive_publish_report_binds_variable_fd_counts_and_optional_uds_policy() {
-        let digest = "a".repeat(64);
-        let raw_digest = "b".repeat(64);
-        for (version, id, expected) in [
-            ("0.159.2", PATCH_POLICY_ID, true),
-            ("0.165.0", runtime_patch::ADAPTIVE_POLICY, true),
-            ("0.169.0", runtime_patch::ADAPTIVE_POLICY, true),
-            ("1.2.0", runtime_patch::ADAPTIVE_POLICY, true),
-            ("0.164.0", runtime_patch::ADAPTIVE_POLICY, false),
-            ("0.169.0", PATCH_POLICY_ID, false),
-            ("0.169.0", "unknown", false),
-        ] {
-            assert_eq!(
-                runtime_patch::supports_version(id, version),
-                expected,
-                "{id}/{version}"
-            );
-        }
-
-        // Variable FD count without UDS (e.g., future runtime or pre-adaptive runtime).
-        let fd_3210 = expected_fd_changed_bytes("source_counts=3,2,1,0").unwrap();
-        let report_no_uds = format!(
-            "{};archive_sha256={digest};raw_runtime_sha256={raw_digest};runtime_sha256={digest};code_mode_host_sha256=-;source_counts=3,2,1,0;changed_bytes={fd_3210}",
-            PATCH_POLICY_ID
-        );
-        assert!(validate_publish_patch_report(
-            &report_no_uds,
-            &digest,
-            &digest,
-            None,
-            PATCH_POLICY_ID
-        )
-        .is_ok());
-        assert!(validate_publish_patch_report(
-            &report_no_uds.replace(&format!("changed_bytes={fd_3210}"), "changed_bytes=54"),
-            &digest,
-            &digest,
-            None,
-            PATCH_POLICY_ID
-        )
-        .is_err());
-
-        // Adaptive policy with UDS rewrite.
-        let fd_1000 = expected_fd_changed_bytes("source_counts=1,0,0,0").unwrap();
-        let adaptive_count = fd_1000 + 24;
-        let report_uds = format!(
-            "{};archive_sha256={digest};raw_runtime_sha256={raw_digest};runtime_sha256={digest};code_mode_host_sha256={digest};source_counts=1,0,0,0;changed_bytes={adaptive_count};uds_policy={}",
-            runtime_patch::ADAPTIVE_POLICY,
-            runtime_patch::ADAPTIVE_UDS_POLICY
-        );
-        assert!(validate_publish_patch_report(
-            &report_uds,
-            &digest,
-            &digest,
-            Some(&digest),
-            runtime_patch::ADAPTIVE_POLICY
-        )
-        .is_ok());
-        for bad in [
-            report_uds.replace(
-                &format!("changed_bytes={adaptive_count}"),
-                &format!("changed_bytes={fd_1000}"),
-            ),
-            report_uds.replace(runtime_patch::ADAPTIVE_UDS_POLICY, "wrong-uds"),
-            report_uds.clone() + ";extra=1",
-        ] {
-            assert!(validate_publish_patch_report(
-                &bad,
-                &digest,
-                &digest,
-                Some(&digest),
-                runtime_patch::ADAPTIVE_POLICY
-            )
-            .is_err());
+    fn shell_executable() -> &'static str {
+        if Path::new("/system/bin/sh").is_file() {
+            "/system/bin/sh"
+        } else {
+            "/bin/sh"
         }
     }
 
-    fn fake_elf(interpreter: bool) -> Vec<u8> {
-        let mut bytes = vec![0u8; 120];
-        bytes[..4].copy_from_slice(b"\x7fELF");
-        bytes[4] = 2;
-        bytes[5] = 1;
-        bytes[6] = 1;
-        bytes[16..18].copy_from_slice(&2u16.to_le_bytes());
-        bytes[18..20].copy_from_slice(&183u16.to_le_bytes());
-        bytes[20..24].copy_from_slice(&1u32.to_le_bytes());
-        bytes[32..40].copy_from_slice(&64u64.to_le_bytes());
-        bytes[52..54].copy_from_slice(&64u16.to_le_bytes());
-        bytes[54..56].copy_from_slice(&56u16.to_le_bytes());
-        bytes[56..58].copy_from_slice(&1u16.to_le_bytes());
-        bytes[64..68].copy_from_slice(&(if interpreter { 3u32 } else { 1u32 }).to_le_bytes());
-        bytes
+    fn write_u16(buf: &mut [u8], off: usize, val: u16) {
+        buf[off..off + 2].copy_from_slice(&val.to_le_bytes());
     }
 
-    fn fake_core_elf(interpreter: &[u8]) -> Vec<u8> {
-        let interpreter_offset = 120usize;
-        let mut bytes = vec![0u8; interpreter_offset + interpreter.len()];
-        bytes[..4].copy_from_slice(b"\x7fELF");
-        bytes[4] = 2;
-        bytes[5] = 1;
-        bytes[6] = 1;
-        bytes[16..18].copy_from_slice(&3u16.to_le_bytes());
-        bytes[18..20].copy_from_slice(&183u16.to_le_bytes());
-        bytes[20..24].copy_from_slice(&1u32.to_le_bytes());
-        bytes[32..40].copy_from_slice(&64u64.to_le_bytes());
-        bytes[52..54].copy_from_slice(&64u16.to_le_bytes());
-        bytes[54..56].copy_from_slice(&56u16.to_le_bytes());
-        bytes[56..58].copy_from_slice(&1u16.to_le_bytes());
-        bytes[64..68].copy_from_slice(&3u32.to_le_bytes());
-        bytes[72..80].copy_from_slice(&(interpreter_offset as u64).to_le_bytes());
-        bytes[96..104].copy_from_slice(&(interpreter.len() as u64).to_le_bytes());
-        bytes[104..112].copy_from_slice(&(interpreter.len() as u64).to_le_bytes());
-        bytes[interpreter_offset..].copy_from_slice(interpreter);
-        bytes
+    fn write_u32(buf: &mut [u8], off: usize, val: u32) {
+        buf[off..off + 4].copy_from_slice(&val.to_le_bytes());
     }
 
-    fn fake_runtime() -> Vec<u8> {
-        let mut bytes = fake_elf(false);
-        for value in [
-            "/etc/resolv.conf",
-            "/etc/codex/managed_config.toml",
-            "/etc/codex/config.toml",
-            "/etc/codex/requirements.toml",
-            "/etc/resolv.conf",
-        ] {
-            bytes.extend_from_slice(value.as_bytes());
-            bytes.push(0);
+    fn write_u64(buf: &mut [u8], off: usize, val: u64) {
+        buf[off..off + 8].copy_from_slice(&val.to_le_bytes());
+    }
+
+    fn build_wrapper_pie_elf(interp: Option<&[u8]>, e_type: u16) -> Vec<u8> {
+        let interp_bytes = interp.unwrap_or(&[]);
+        let ph_count: u16 = 1;
+        let ph_off = 64usize;
+        let payload_off = 128usize;
+        let mut buf = vec![0u8; payload_off + interp_bytes.len().max(16)];
+        buf[..4].copy_from_slice(b"\x7fELF");
+        buf[4] = 2; // ELFCLASS64
+        buf[5] = 1; // ELFDATA2LSB
+        buf[6] = 1; // EV_CURRENT
+        write_u16(&mut buf, 16, e_type);
+        write_u16(&mut buf, 18, 183); // EM_AARCH64
+        write_u32(&mut buf, 20, 1);
+        write_u64(&mut buf, 32, ph_off as u64);
+        write_u16(&mut buf, 52, 64);
+        write_u16(&mut buf, 54, 56);
+        write_u16(&mut buf, 56, ph_count);
+
+        if let Some(bytes) = interp {
+            write_u32(&mut buf, ph_off, 3); // PT_INTERP
+            write_u64(&mut buf, ph_off + 8, payload_off as u64);
+            write_u64(&mut buf, ph_off + 32, bytes.len() as u64);
+            write_u64(&mut buf, ph_off + 40, bytes.len() as u64);
+            buf[payload_off..payload_off + bytes.len()].copy_from_slice(bytes);
+        } else {
+            let file_len = buf.len() as u64;
+            write_u32(&mut buf, ph_off, 1); // PT_LOAD
+            write_u64(&mut buf, ph_off + 8, 0);
+            write_u64(&mut buf, ph_off + 32, file_len);
         }
-        bytes
+        buf
     }
 
-    fn happy_entries(version: &str) -> Vec<TestEntry> {
-        let runtime = fake_runtime();
-        let host = fake_elf(false);
-        vec![
-            TestEntry::directory("bin/"),
-            TestEntry::file("bin/codex", runtime),
-            TestEntry::file("bin/codex-code-mode-host", host),
-            TestEntry::file("codex-package.json", expected_package_json(version)),
-            TestEntry::directory("codex-path/"),
-            TestEntry::file("codex-path/rg", b"unused-rg".to_vec()),
-            TestEntry::directory("codex-resources/"),
-            TestEntry::file("codex-resources/bwrap", b"unused-bwrap".to_vec()),
-            TestEntry::directory("codex-resources/zsh/"),
-            TestEntry::directory("codex-resources/zsh/bin/"),
-            TestEntry::file("codex-resources/zsh/bin/zsh", b"unused-zsh".to_vec()),
-        ]
+    fn build_static_aarch64_elf(include_fd_sources: bool, include_daemon_uds: bool) -> Vec<u8> {
+        let ph_off = 64usize;
+        let rx_va = 0x400_000u64;
+        let rx_off = 0usize;
+        let rx_sz = 0x2000usize;
+        let text_off = 0x1000usize;
+        let text_sz = 0x400usize;
+        let fini_off = 0x1400usize;
+        let fini_sz = 0x20usize;
+        let ro_off = 0x2000usize;
+        let ro_va = 0x402_000u64;
+        let ro_sz = 0x400usize;
+        let shstr_off = 0x2400usize;
+        let shstr = b"\0.text\0.fini\0.rodata\0.shstrtab\0";
+        let sh_off = 0x2800usize;
+        let sh_count = 5usize;
+        let total = sh_off + sh_count * 64;
+        let mut buf = vec![0u8; total];
+
+        buf[..4].copy_from_slice(b"\x7fELF");
+        buf[4] = 2;
+        buf[5] = 1;
+        buf[6] = 1;
+        write_u16(&mut buf, 16, 2); // ET_EXEC
+        write_u16(&mut buf, 18, 183); // EM_AARCH64
+        write_u32(&mut buf, 20, 1);
+        write_u64(&mut buf, 32, ph_off as u64);
+        write_u64(&mut buf, 40, sh_off as u64);
+        write_u16(&mut buf, 52, 64);
+        write_u16(&mut buf, 54, 56);
+        write_u16(&mut buf, 56, 2);
+        write_u16(&mut buf, 58, 64);
+        write_u16(&mut buf, 60, sh_count as u16);
+        write_u16(&mut buf, 62, 4);
+
+        // PT_LOAD 0: RX covering .text and .fini plus alignment cave before .rodata
+        write_u32(&mut buf, ph_off, 1);
+        write_u32(&mut buf, ph_off + 4, 5);
+        write_u64(&mut buf, ph_off + 8, rx_off as u64);
+        write_u64(&mut buf, ph_off + 16, rx_va);
+        write_u64(&mut buf, ph_off + 32, rx_sz as u64);
+        write_u64(&mut buf, ph_off + 40, rx_sz as u64);
+
+        // PT_LOAD 1: RO covering .rodata
+        let ph1 = ph_off + 56;
+        write_u32(&mut buf, ph1, 1);
+        write_u32(&mut buf, ph1 + 4, 4);
+        write_u64(&mut buf, ph1 + 8, ro_off as u64);
+        write_u64(&mut buf, ph1 + 16, ro_va);
+        write_u64(&mut buf, ph1 + 32, 0x800);
+        write_u64(&mut buf, ph1 + 40, 0x800);
+
+        buf[shstr_off..shstr_off + shstr.len()].copy_from_slice(shstr);
+        let write_sh =
+            |b: &mut [u8], idx: usize, name_off: u32, sh_type: u32, off: usize, sz: usize| {
+                let base = sh_off + idx * 64;
+                write_u32(b, base, name_off);
+                write_u32(b, base + 4, sh_type);
+                write_u64(b, base + 24, off as u64);
+                write_u64(b, base + 32, sz as u64);
+            };
+        write_sh(&mut buf, 1, 1, 1, text_off, text_sz);
+        write_sh(&mut buf, 2, 7, 1, fini_off, fini_sz);
+        write_sh(&mut buf, 3, 13, 1, ro_off, ro_sz);
+        write_sh(&mut buf, 4, 21, 3, shstr_off, shstr.len());
+
+        let mut ro_cursor = ro_off;
+        if include_daemon_uds {
+            let fmt = b"\x0dcodex-daemon-\xc0\0";
+            buf[ro_cursor..ro_cursor + fmt.len()].copy_from_slice(fmt);
+            ro_cursor += 0x20;
+
+            let site1_off = text_off + 0x80;
+            let site1_insns = [
+                0x528e_85e8u32, // movz w8, #0x742f ("/t")
+                0x9100_63e0u32, // add x0, sp, #0x18
+                0x72ae_0da8u32, // movk w8, #0x706d, lsl #16 ("mp")
+                0x5280_00a1u32, // mov w1, #5
+                0x3900_73ffu32, // strb wzr, [sp, #0x1c]
+                0xb900_1be8u32, // str w8, [sp, #0x18]
+            ];
+            for (i, insn) in site1_insns.into_iter().enumerate() {
+                write_u32(&mut buf, site1_off + i * 4, insn);
+            }
+
+            let site2_off = text_off + 0x140;
+            // PC page is 0x401_000, fmt VA is 0x402_000 => page delta = +1, lo12 = 0.
+            write_u32(&mut buf, site2_off, 0xb000_0000);
+            write_u32(&mut buf, site2_off + 4, 0x9100_0000);
+        }
+
+        if include_fd_sources {
+            for (source, _) in FD_REMAP_RULES {
+                buf[ro_cursor..ro_cursor + source.len()].copy_from_slice(source);
+                ro_cursor += source.len() + 1;
+            }
+        }
+        buf
     }
 
-    fn write_octal(field: &mut [u8], value: u64) {
-        field.fill(b'0');
-        let value = format!("{value:o}");
-        assert!(value.len() < field.len());
-        let start = field.len() - 1 - value.len();
-        field[start..start + value.len()].copy_from_slice(value.as_bytes());
-        field[field.len() - 1] = 0;
-    }
-
-    fn tar_header(path: &str, kind: u8, size: u64) -> [u8; TAR_BLOCK_BYTES] {
-        assert!(path.len() <= 100);
-        let mut header = [0u8; TAR_BLOCK_BYTES];
-        header[..path.len()].copy_from_slice(path.as_bytes());
-        write_octal(
-            &mut header[100..108],
-            if kind == b'5' { 0o755 } else { 0o644 },
-        );
-        write_octal(&mut header[108..116], 1001);
-        write_octal(&mut header[116..124], 1001);
-        write_octal(&mut header[124..136], size);
-        write_octal(&mut header[136..148], 1_787_793_845);
+    fn append_tar_entry(tar: &mut Vec<u8>, path: &str, typeflag: u8, mode: u32, body: &[u8]) {
+        let mut header = [0u8; 512];
+        if path.len() <= 100 {
+            header[..path.len()].copy_from_slice(path.as_bytes());
+        } else {
+            let (prefix, name) = path.rsplit_once('/').unwrap();
+            header[..name.len()].copy_from_slice(name.as_bytes());
+            header[345..345 + prefix.len()].copy_from_slice(prefix.as_bytes());
+        }
+        header[100..108].copy_from_slice(format!("{mode:07o}\0").as_bytes());
+        header[108..116].copy_from_slice(b"0000000\0");
+        header[116..124].copy_from_slice(b"0000000\0");
+        header[124..136].copy_from_slice(format!("{:011o}\0", body.len()).as_bytes());
+        header[136..148].copy_from_slice(b"00000000000\0");
         header[148..156].fill(b' ');
-        header[156] = kind;
+        header[156] = typeflag;
         header[257..263].copy_from_slice(b"ustar\0");
         header[263..265].copy_from_slice(b"00");
-        header[265..271].copy_from_slice(b"runner");
-        header[297..303].copy_from_slice(b"runner");
-        let checksum: u64 = header.iter().map(|byte| u64::from(*byte)).sum();
-        let checksum = format!("{checksum:06o}");
-        header[148..154].copy_from_slice(checksum.as_bytes());
-        header[154] = 0;
-        header[155] = b' ';
-        header
+        let sum: u32 = header.iter().map(|b| u32::from(*b)).sum();
+        header[148..156].copy_from_slice(format!("{sum:06o}\0 ").as_bytes());
+        tar.extend_from_slice(&header);
+        tar.extend_from_slice(body);
+        let pad = (512 - (body.len() % 512)) % 512;
+        tar.resize(tar.len() + pad, 0);
     }
 
-    fn pax_record(key: &str) -> Vec<u8> {
-        let body = format!("{key}=1787793845.2340834\n");
-        let mut length = body.len() + 2;
-        loop {
-            let next = body.len() + length.to_string().len() + 1;
-            if next == length {
-                break;
-            }
-            length = next;
-        }
-        format!("{length} {body}").into_bytes()
+    fn write_tar_gz(tar_bytes: &[u8], out_gz: &Path, gzip: &Path) {
+        let raw_tar = out_gz.with_extension("tar");
+        std::fs::write(&raw_tar, tar_bytes).unwrap();
+        let compressed = Command::new(gzip)
+            .args(["-cn", "--"])
+            .arg(&raw_tar)
+            .output()
+            .unwrap();
+        assert!(compressed.status.success());
+        std::fs::write(out_gz, &compressed.stdout).unwrap();
+        let _ = std::fs::remove_file(&raw_tar);
     }
 
-    fn append_payload(tar: &mut Vec<u8>, data: &[u8]) {
-        tar.extend_from_slice(data);
-        let padding = (TAR_BLOCK_BYTES - data.len() % TAR_BLOCK_BYTES) % TAR_BLOCK_BYTES;
-        tar.resize(tar.len() + padding, 0);
-    }
-
-    fn make_tar(entries: &[TestEntry], corrupt_header: bool) -> Vec<u8> {
+    fn package_tar_bytes(entries: &[(&str, u8, u32, &[u8])]) -> Vec<u8> {
         let mut tar = Vec::new();
-        for entry in entries {
-            if let Some(key) = entry.pax_key {
-                let pax = pax_record(key);
-                tar.extend_from_slice(&tar_header("././@PaxHeader", b'x', pax.len() as u64));
-                append_payload(&mut tar, &pax);
-            }
-            tar.extend_from_slice(&tar_header(
-                &entry.path,
-                entry.kind,
-                entry.declared_size.unwrap_or(entry.data.len() as u64),
-            ));
-            append_payload(&mut tar, &entry.data);
+        for &(path, typeflag, mode, body) in entries {
+            append_tar_entry(&mut tar, path, typeflag, mode, body);
         }
-        tar.resize(tar.len() + TAR_BLOCK_BYTES * 2, 0);
-        if corrupt_header {
-            tar[TAR_BLOCK_BYTES * 2] ^= 1;
-        }
+        tar.resize(tar.len() + 1024, 0);
         tar
     }
 
-    fn gzip_tar(gzip: &Path, tar: &[u8], archive: &Path) {
-        let output = File::create(archive).unwrap();
-        let mut child = Command::new(gzip)
-            .args(["-cn"])
-            .env_clear()
-            .stdin(Stdio::piped())
-            .stdout(output)
-            .stderr(Stdio::null())
-            .spawn()
-            .unwrap();
-        child.stdin.take().unwrap().write_all(tar).unwrap();
-        assert!(child.wait().unwrap().success());
-    }
+    #[test]
+    fn cli_parses_build_and_rejects_invalid_or_retired_subcommands() {
+        let parsed = parse_request([
+            "build",
+            "--version",
+            "1.2.3",
+            "--archive",
+            "/tmp/a.tar.gz",
+            "--archive-sha256",
+            &"a".repeat(64),
+            "--generation-id",
+            "gen-1",
+            "--wrapper",
+            "/tmp/wrapper",
+            "--creation-metadata",
+            "codex-wrapper",
+            "--gzip",
+            "/usr/bin/gzip",
+            "--openssl",
+            "/usr/bin/openssl",
+            "--output",
+            "/tmp/out",
+        ])
+        .unwrap();
+        assert_eq!(parsed.version, "1.2.3");
+        assert_eq!(parsed.creation_metadata, "codex-wrapper");
 
-    fn fixture(label: &str, entries: Vec<TestEntry>, corrupt_header: bool) -> Fixture {
-        let root = test_root(label);
-        let gzip = find_tool("gzip");
-        let openssl = find_tool("openssl");
-        let archive = root.join("codex-package-aarch64-unknown-linux-musl.tar.gz");
-        gzip_tar(&gzip, &make_tar(&entries, corrupt_header), &archive);
-        let core = root.join("codex-core");
-        std::fs::write(&core, fake_core_elf(ANDROID_AARCH64_INTERPRETER)).unwrap();
-        set_mode(&core, 0o700, "set test Core mode").unwrap();
-        let archive_sha256 = openssl_sha256(&openssl, &archive).unwrap();
-        let raw_runtime = entries
-            .iter()
-            .find(|entry| entry.path == "bin/codex")
-            .unwrap()
-            .data
-            .clone();
-        let code_mode_host = entries
-            .iter()
-            .find(|entry| entry.path == "bin/codex-code-mode-host")
-            .map(|entry| entry.data.clone())
-            .unwrap_or_default();
-        Fixture {
-            request: GenerationRequest {
-                version: "0.150.1".to_owned(),
-                archive,
-                archive_sha256,
-                generation_id: "test-generation".to_owned(),
-                core,
-                legacy_activation_doctor_unsupported: false,
-                creation_metadata: "test-fixture".to_owned(),
-                gzip,
-                openssl,
-                output: root.join("unsigned-generation"),
-            },
-            root,
-            raw_runtime,
-            code_mode_host,
-        }
-    }
-
-    fn request_args(request: &GenerationRequest) -> Vec<OsString> {
-        let mut args = vec![
-            "build".into(),
-            "--version".into(),
-            request.version.clone().into(),
-            "--archive".into(),
-            request.archive.as_os_str().to_owned(),
-            "--archive-sha256".into(),
-            request.archive_sha256.clone().into(),
-            "--generation-id".into(),
-            request.generation_id.clone().into(),
-            "--core".into(),
-            request.core.as_os_str().to_owned(),
-            "--creation-metadata".into(),
-            request.creation_metadata.clone().into(),
-            "--gzip".into(),
-            request.gzip.as_os_str().to_owned(),
-            "--openssl".into(),
-            request.openssl.as_os_str().to_owned(),
-            "--output".into(),
-            request.output.as_os_str().to_owned(),
-        ];
-        if request.legacy_activation_doctor_unsupported {
-            args.push(OsString::from("--legacy-activation-doctor-unsupported"));
-        }
-        args
-    }
-
-    fn fetch_args(request: &FetchRequest) -> Vec<OsString> {
-        vec![
-            "fetch".into(),
-            "--version".into(),
-            request.version.clone().into(),
-            "--curl".into(),
-            request.curl.as_os_str().to_owned(),
-            "--openssl".into(),
-            request.openssl.as_os_str().to_owned(),
-            "--output".into(),
-            request.output.as_os_str().to_owned(),
-        ]
-    }
-
-    fn publish_args(request: &PublishRequest) -> Vec<OsString> {
-        vec![
-            "publish".into(),
-            "--generation".into(),
-            request.generation.as_os_str().to_owned(),
-            "--release-sequence".into(),
-            request.release_sequence.clone().into(),
-            "--release-base".into(),
-            request.release_base.clone().into(),
-            "--private-key".into(),
-            request.private_key.as_os_str().to_owned(),
-            "--openssl".into(),
-            request.openssl.as_os_str().to_owned(),
-            "--output".into(),
-            request.output.as_os_str().to_owned(),
-        ]
-    }
-
-    fn generate_publish_key(openssl: &Path, private_key: &Path) {
-        let generated = Command::new(openssl)
-            .args(["genpkey", "-algorithm", "ED25519", "-out"])
-            .arg(private_key)
-            .env_clear()
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status()
-            .unwrap();
-        assert!(generated.success(), "generate test release key");
-        set_mode(private_key, 0o600, "set test release key mode").unwrap();
-    }
-
-    fn verify_publish_signature(
-        openssl: &Path,
-        private_key: &Path,
-        input: &Path,
-        signature: &Path,
-        public_key: &Path,
-    ) {
-        let exported = Command::new(openssl)
-            .args(["pkey", "-in"])
-            .arg(private_key)
-            .args(["-pubout", "-out"])
-            .arg(public_key)
-            .env_clear()
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status()
-            .unwrap();
-        assert!(exported.success(), "export test release public key");
-        let verified = Command::new(openssl)
-            .args(["pkeyutl", "-verify", "-rawin", "-pubin", "-inkey"])
-            .arg(public_key)
-            .arg("-in")
-            .arg(input)
-            .arg("-sigfile")
-            .arg(signature)
-            .env_clear()
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status()
-            .unwrap();
-        assert!(verified.success(), "verify publication signature");
-    }
-
-    fn no_builder_staging(root: &Path) -> bool {
-        std::fs::read_dir(root).unwrap().all(|entry| {
-            !entry
-                .unwrap()
-                .file_name()
-                .to_string_lossy()
-                .starts_with(".codex-release-builder-")
-        })
-    }
-
-    fn replace_first(bytes: &mut [u8], source: &[u8], replacement: &[u8]) {
-        assert_eq!(source.len(), replacement.len());
-        let offset = occurrence_offsets(bytes, source)[0];
-        bytes[offset..offset + source.len()].copy_from_slice(replacement);
+        // Duplicate flag rejected.
+        assert!(matches!(
+            parse_request(["build", "--version", "1.2.3", "--version", "1.2.4",]),
+            Err(BuilderError::Usage)
+        ));
+        // Removed subcommands fail with usage code 2.
+        assert_eq!(run_from_args(["prepare", "--version", "1.2.3"]), 2);
+        assert_eq!(run_from_args(["fetch"]), 2);
+        assert_eq!(run_from_args(["publish"]), 2);
     }
 
     #[test]
-    fn test_m2_b6_slice1_request_boundary_is_strict() {
-        assert!(!USAGE.contains("--manager"));
-        assert!(!USAGE.contains("provider-package"));
-        let grammar_fixture = fixture("request-grammar", happy_entries("0.150.1"), false);
-        for mutation in ["missing-value", "duplicate", "unknown"] {
-            let mut args = request_args(&grammar_fixture.request);
-            match mutation {
-                "missing-value" => {
-                    args.pop();
-                }
-                "duplicate" => {
-                    args.extend([OsString::from("--version"), OsString::from("0.150.1")]);
-                }
-                "unknown" => {
-                    args.extend([OsString::from("--channel"), OsString::from("stable")]);
-                }
-                _ => unreachable!(),
-            }
-            assert!(matches!(parse_request(args), Err(BuilderError::Usage)));
-        }
-        grammar_fixture.remove();
+    fn version_and_package_json_validation_are_structural() {
+        assert!(binary_adaptation_available("0.1.0"));
+        assert!(binary_adaptation_available("12.34.56"));
+        assert!(!binary_adaptation_available("01.2.3"));
+        assert!(!binary_adaptation_available("1.2"));
+        assert!(!binary_adaptation_available("1.2.3-alpha.1"));
 
-        for case in [
-            "version",
-            "digest-format",
-            "generation-id",
-            "metadata",
-            "relative-path",
-            "non-executable-tool",
-        ] {
-            let mut case_fixture = fixture(case, happy_entries("0.150.1"), false);
-            match case {
-                "version" => case_fixture.request.version = "0.150.1-beta.1".to_owned(),
-                "digest-format" => {
-                    case_fixture.request.archive_sha256 =
-                        case_fixture.request.archive_sha256.to_uppercase()
-                }
-                "generation-id" => case_fixture.request.generation_id = "../escape".to_owned(),
-                "metadata" => case_fixture.request.creation_metadata = "line\nbreak".to_owned(),
-                "relative-path" => case_fixture.request.output = PathBuf::from("relative-output"),
-                "non-executable-tool" => {
-                    case_fixture.request.gzip = case_fixture.request.archive.clone()
-                }
-                _ => unreachable!(),
-            }
-            assert!(
-                validate_request(&case_fixture.request).is_err(),
-                "case {case} passed request validation"
-            );
-            assert!(!case_fixture.request.output.exists());
-            case_fixture.remove();
-        }
+        let valid = expected_package_json("1.2.3");
+        assert_eq!(parse_package_json_version(&valid, None).unwrap(), "1.2.3");
+        assert!(validate_package_json(&valid, "1.2.4").is_err());
+
+        let dup_key = b"{\"layoutVersion\":1,\"version\":\"1.2.3\",\"version\":\"1.2.3\",\"target\":\"aarch64-unknown-linux-musl\",\"variant\":\"codex\",\"entrypoint\":\"bin/codex\",\"resourcesDir\":\"codex-resources\",\"pathDir\":\"codex-path\"}";
+        assert!(parse_package_json_version(dup_key, None).is_err());
+
+        let wrong_layout = b"{\"layoutVersion\":2,\"version\":\"1.2.3\",\"target\":\"aarch64-unknown-linux-musl\",\"variant\":\"codex\",\"entrypoint\":\"bin/codex\",\"resourcesDir\":\"codex-resources\",\"pathDir\":\"codex-path\"}";
+        assert!(parse_package_json_version(wrong_layout, None).is_err());
     }
 
     #[test]
-    fn test_r5_official_fetch_uses_pinned_source_and_fail_closed_output() {
-        let fixture = fixture("official-fetch", happy_entries("0.153.3"), false);
-        let curl = fixture.root.join("bin/fetch-curl");
-        let log = fixture.root.join("curl-arguments");
-        write_fetch_curl(&curl, &log, &fixture.request.archive, 0);
-        let output = fixture.root.join("downloaded-archive.tar.gz");
-        let request = FetchRequest {
-            version: "0.153.3".to_owned(),
-            curl: curl.clone(),
-            openssl: fixture.request.openssl.clone(),
-            output: output.clone(),
-        };
+    fn elf_validators_enforce_android_wrapper_pie_and_static_upstream_formats() {
+        let dir = temp_dir("elf");
+        let good_wrapper = dir.join("wrapper-good");
+        let wrong_interp = dir.join("wrapper-wrong-interp");
+        let exec_wrapper = dir.join("wrapper-et-exec");
+        let static_bin = dir.join("upstream-static");
 
-        let valid_args = fetch_args(&request);
-        assert!(parse_fetch_request(valid_args.clone()).is_ok());
-        for mutation in ["missing-value", "duplicate", "unknown"] {
-            let mut args = valid_args.clone();
-            match mutation {
-                "missing-value" => {
-                    args.pop();
-                }
-                "duplicate" => {
-                    args.extend([OsString::from("--version"), OsString::from("0.153.3")]);
-                }
-                "unknown" => {
-                    args.extend([OsString::from("--channel"), OsString::from("stable")]);
-                }
-                _ => unreachable!(),
-            }
-            assert!(matches!(
-                parse_fetch_request(args),
-                Err(BuilderError::Usage)
-            ));
-        }
-
-        let expected_digest = openssl_sha256(&request.openssl, &fixture.request.archive).unwrap();
-        assert_eq!(run_from_args(valid_args), 0);
-        assert_eq!(
-            std::fs::read(&output).unwrap(),
-            std::fs::read(&fixture.request.archive).unwrap()
-        );
-        assert_eq!(
-            openssl_sha256(&request.openssl, &output).unwrap(),
-            expected_digest
-        );
-        let generated = fixture.root.join("generation-from-official");
-        let build_request = GenerationRequest {
-            version: request.version.clone(),
-            archive: output.clone(),
-            archive_sha256: expected_digest.clone(),
-            generation_id: "official-fetch-generation".to_owned(),
-            core: fixture.request.core.clone(),
-            legacy_activation_doctor_unsupported: false,
-            creation_metadata: "r5-fetch-test".to_owned(),
-            gzip: fixture.request.gzip.clone(),
-            openssl: request.openssl.clone(),
-            output: generated.clone(),
-        };
-        assert_eq!(run_from_args(request_args(&build_request)), 0);
-        assert!(generated.join("runtime").is_file());
-        assert!(generated.join("codex-code-mode-host").is_file());
-        assert_eq!(
-            std::fs::metadata(&output).unwrap().permissions().mode() & 0o777,
-            0o600
-        );
-        assert!(no_fetch_staging(&fixture.root));
-
-        let arguments: Vec<_> = std::fs::read_to_string(&log)
-            .unwrap()
-            .lines()
-            .map(str::to_owned)
-            .collect();
-        assert_eq!(
-            arguments,
-            vec![
-                "--disable",
-                "--fail",
-                "--silent",
-                "--show-error",
-                "--proto",
-                "=https",
-                "--connect-timeout",
-                RELEASE_CONNECT_TIMEOUT_SECONDS,
-                "--max-time",
-                RELEASE_TRANSFER_TIMEOUT_SECONDS,
-                "--max-filesize",
-                &ARCHIVE_MAX_BYTES.to_string(),
-                "--url",
-                official_archive_url("0.153.3").as_str(),
-            ]
-        );
-
-        let collision = fixture.root.join("collision.tar.gz");
-        std::fs::write(&collision, b"preserve").unwrap();
-        let collision_request = FetchRequest {
-            output: collision.clone(),
-            ..request
-        };
-        assert!(fetch(&collision_request).is_err());
-        assert_eq!(std::fs::read(&collision).unwrap(), b"preserve");
-        assert!(no_fetch_staging(&fixture.root));
-
-        let failure_curl = fixture.root.join("bin/failure-curl");
-        let failure_log = fixture.root.join("failure-arguments");
-        write_fetch_curl(&failure_curl, &failure_log, &fixture.request.archive, 22);
-        let failed_output = fixture.root.join("failed-archive.tar.gz");
-        let failed_request = FetchRequest {
-            version: "0.153.3".to_owned(),
-            curl: failure_curl,
-            openssl: fixture.request.openssl.clone(),
-            output: failed_output.clone(),
-        };
-        assert!(fetch(&failed_request).is_err());
-        assert!(!failed_output.exists());
-        assert!(no_fetch_staging(&fixture.root));
-        fixture.remove();
-    }
-
-    #[test]
-    fn test_m2_b6_slice1_real_builder_reaches_validated_selected_archive() {
-        let fixture = fixture("slice1-happy", happy_entries("0.150.1"), false);
-        validate_request(&fixture.request).unwrap();
-        assert_eq!(run_from_args(request_args(&fixture.request)), 0);
-
-        let selected_root = fixture.root.join("selected");
-        create_private_dir(&selected_root).unwrap();
-        let archive = snapshot_archive(&fixture.request, &selected_root).unwrap();
         std::fs::write(
-            &fixture.request.archive,
-            b"changed after the pinned snapshot",
+            &good_wrapper,
+            build_wrapper_pie_elf(Some(b"/system/bin/linker64\0"), 3),
         )
         .unwrap();
-        let selected = select_archive(&fixture.request, &archive, &selected_root).unwrap();
-        std::fs::remove_file(archive).unwrap();
-        assert_eq!(
-            std::fs::read(&selected.raw_runtime).unwrap(),
-            fixture.raw_runtime
-        );
-        assert_eq!(
-            std::fs::read(selected.code_mode_host.as_ref().unwrap()).unwrap(),
-            fixture.code_mode_host
-        );
-        let mut top_level: Vec<_> = std::fs::read_dir(&selected_root)
-            .unwrap()
-            .map(|entry| entry.unwrap().file_name())
-            .collect();
-        top_level.sort();
-        assert_eq!(
-            top_level,
-            vec![
-                OsString::from(".raw-runtime"),
-                OsString::from("codex-code-mode-host")
-            ]
-        );
-        std::fs::remove_dir_all(&selected_root).unwrap();
+        std::fs::write(
+            &wrong_interp,
+            build_wrapper_pie_elf(Some(b"/lib/ld-musl-aarch64.so.1\0"), 3),
+        )
+        .unwrap();
+        std::fs::write(
+            &exec_wrapper,
+            build_wrapper_pie_elf(Some(b"/system/bin/linker64\0"), 2),
+        )
+        .unwrap();
+        std::fs::write(&static_bin, build_static_aarch64_elf(true, false)).unwrap();
 
-        assert!(fixture.request.output.is_dir());
-        assert!(no_builder_staging(&fixture.root));
-        fixture.remove();
+        assert!(validate_android_aarch64_wrapper_elf(&good_wrapper).is_ok());
+        assert!(validate_android_aarch64_wrapper_elf(&wrong_interp).is_err());
+        assert!(validate_android_aarch64_wrapper_elf(&exec_wrapper).is_err());
+        assert!(validate_static_aarch64_elf(&static_bin).is_ok());
+        assert!(validate_static_aarch64_elf(&good_wrapper).is_err());
+
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]
-    fn test_layout_v1_resource_evolution_is_semantic() {
-        let mut entries = happy_entries("0.155.0");
-        entries[3].data = br#"{
-  "pathDir": "codex-path",
-  "variant": "codex",
-  "extension": {"voice": true, "levels": [1, 2, 3]},
-  "entrypoint": "bin/codex",
-  "layoutVersion": 1,
-  "resourcesDir": "codex-resources",
-  "target": "aarch64-unknown-linux-musl",
-  "version": "0.155.0"
-}
-"#
-        .to_vec();
-        entries.push(TestEntry::directory("codex-resources/voice/"));
-        entries.push(TestEntry::directory("codex-resources/voice/bin/"));
-        entries.push(TestEntry::file(
-            "codex-resources/voice/bin/codex-voice-host",
-            b"unselected-voice-host".to_vec(),
-        ));
-        entries.push(TestEntry::file(
-            "codex-resources/voice/manifest.json",
-            br#"{"version":1}"#.to_vec(),
-        ));
-        entries.push(TestEntry::file(
-            "future-unselected-resource",
-            b"ignored-by-termux-generation".to_vec(),
-        ));
+    fn build_generation_remaps_fds_relocates_uds_builds_helpers_and_guards_failures() {
+        let dir = temp_dir("build-gen");
+        let gzip = find_tool("gzip");
+        let openssl = find_tool("openssl");
+        let wrapper = dir.join("codex-wrapper");
+        std::fs::write(
+            &wrapper,
+            build_wrapper_pie_elf(Some(b"/system/bin/linker64\0"), 3),
+        )
+        .unwrap();
+        set_mode(&wrapper, 0o755, "mode test wrapper").unwrap();
 
-        let mut fixture = fixture("layout-v1-evolution", entries, false);
-        fixture.request.version = "0.155.0".to_owned();
-        assert_eq!(run_from_args(request_args(&fixture.request)), 0);
+        let pkg_json = expected_package_json("1.2.3");
+        let main_elf = build_static_aarch64_elf(true, true);
+        let companion_elf = build_static_aarch64_elf(true, false);
+        let static_rg = build_static_aarch64_elf(false, false);
+
+        // Case 1: Full package with daemon UDS, companion exec-server, and non-ELF rg wrapper fallback.
+        let tar1 = package_tar_bytes(&[
+            ("bin/codex", b'0', 0o755, &main_elf),
+            ("bin/codex-exec-server", b'0', 0o755, &companion_elf),
+            ("codex-package.json", b'0', 0o644, &pkg_json),
+            ("codex-resources/notice.txt", b'0', 0o644, b"ok\n"),
+            ("codex-path/rg", b'0', 0o755, b"#!/bin/sh\n"),
+        ]);
+        let archive1 = dir.join("pkg1.tar.gz");
+        write_tar_gz(&tar1, &archive1, &gzip);
         assert_eq!(
-            std::fs::read(fixture.request.output.join("runtime"))
-                .unwrap()
-                .len(),
-            fixture.raw_runtime.len()
+            inspect_package_archive_version(&archive1, &gzip).unwrap(),
+            "1.2.3"
         );
-        assert_eq!(
-            std::fs::read(fixture.request.output.join("codex-code-mode-host")).unwrap(),
-            fixture.code_mode_host
-        );
-        assert!(!fixture.request.output.join("codex-resources").exists());
-        assert!(!fixture
-            .request
-            .output
-            .join("future-unselected-resource")
-            .exists());
-        fixture.remove();
-    }
-
-    #[test]
-    fn test_m2_b6_slice1_archive_rejection_matrix_is_fail_closed() {
-        for case in [
-            "digest",
-            "duplicate",
-            "traversal",
-            "symlink",
-            "unknown-pax",
-            "metadata",
-            "layout-version",
-            "duplicate-metadata",
-            "interp",
-            "oversized",
-            "checksum",
-        ] {
-            let mut entries = happy_entries("0.150.1");
-            let corrupt_header = case == "checksum";
-            match case {
-                "duplicate" => entries.push(entries[1].clone()),
-                "traversal" => entries[5].path = "../escaped".to_owned(),
-                "symlink" => entries[5].kind = b'2',
-                "unknown-pax" => entries[0].pax_key = Some("path"),
-                "metadata" => entries[3].data = b"{}\n".to_vec(),
-                "layout-version" => {
-                    entries[3].data = expected_package_json("0.150.1");
-                    let text = String::from_utf8(entries[3].data.clone()).unwrap();
-                    entries[3].data = text
-                        .replacen("\"layoutVersion\": 1", "\"layoutVersion\": 2", 1)
-                        .into_bytes();
-                }
-                "duplicate-metadata" => {
-                    entries[3].data = br#"{
-  "layoutVersion": 1,
-  "layoutVersion": 1,
-  "version": "0.150.1",
-  "target": "aarch64-unknown-linux-musl",
-  "variant": "codex",
-  "entrypoint": "bin/codex",
-  "resourcesDir": "codex-resources",
-  "pathDir": "codex-path"
-}
-"#
-                    .to_vec();
-                }
-                "interp" => entries[2].data = fake_elf(true),
-                "oversized" => entries[5].declared_size = Some(ENTRY_MAX_BYTES + 1),
-                "digest" | "checksum" => {}
-                _ => unreachable!(),
-            }
-            let mut fixture = fixture(case, entries, corrupt_header);
-            if case == "digest" {
-                fixture.request.archive_sha256 = "0".repeat(64);
-            }
-            let error = build_generation(&fixture.request).unwrap_err();
-            assert!(!error.to_string().is_empty(), "case {case} had no error");
-            assert!(
-                !fixture.request.output.exists(),
-                "case {case} published output"
-            );
-            assert!(
-                !fixture.root.join("escaped").exists(),
-                "case {case} escaped"
-            );
-            assert!(no_builder_staging(&fixture.root));
-            fixture.remove();
-        }
-    }
-
-    #[test]
-    fn test_m2_b6_slice2_exact_adaptation_and_complete_publication() {
-        let fixture = fixture("slice2-happy", happy_entries("0.150.1"), false);
-        let raw_runtime_sha256 = openssl_sha256(&fixture.request.openssl, &{
-            let path = fixture.root.join("raw-runtime-for-hash");
-            std::fs::write(&path, &fixture.raw_runtime).unwrap();
-            path
+        let sha1 = openssl_sha256(&openssl, &archive1).unwrap();
+        let out1 = dir.join("gen-with-uds");
+        build_generation(&GenerationRequest {
+            version: "1.2.3".to_owned(),
+            archive: archive1.clone(),
+            archive_sha256: sha1.clone(),
+            generation_id: "gen-uds".to_owned(),
+            wrapper: wrapper.clone(),
+            creation_metadata: "codex-wrapper".to_owned(),
+            gzip: gzip.clone(),
+            openssl: openssl.clone(),
+            output: out1.clone(),
         })
         .unwrap();
-        let core_sha256 = openssl_sha256(&fixture.request.openssl, &fixture.request.core).unwrap();
 
-        assert_eq!(run_from_args(request_args(&fixture.request)), 0);
+        let meta1 = std::fs::read_to_string(out1.join("generation.meta")).unwrap();
+        assert!(meta1.starts_with("codex-local-generation\n"));
+        assert!(meta1.contains("patch_policy_id\ttermux-fd-remap\n"));
+        assert!(meta1.contains(";uds_policy=termux-uds-fd35\n"));
+        assert!(meta1.contains("wrapper_api_identity\twrapper-api\n"));
+        assert!(meta1.contains("persistent_schema_identity\tschema\n"));
+        assert!(meta1.contains("helper_count\t2\n"));
+        assert!(meta1.contains("helper\ttermux-browser-open\t"));
+        assert!(meta1.contains("helper\ttermux-browser-manual\t"));
+        assert!(!meta1.contains("manager_artifact_digest"));
+        assert!(!meta1.contains("upstream_doctor"));
 
-        let runtime_path = fixture.request.output.join("runtime");
-        let host_path = fixture.request.output.join("codex-code-mode-host");
-        let descriptor_path = fixture.request.output.join("generation.meta");
-        let runtime = std::fs::read(&runtime_path).unwrap();
-        assert_eq!(runtime.len(), fixture.raw_runtime.len());
+        let patched_main = std::fs::read(out1.join("bin/codex")).unwrap();
+        let patched_companion = std::fs::read(out1.join("bin/codex-exec-server")).unwrap();
+        assert!(occurrence_offsets(&patched_main, b"/etc/resolv.conf").is_empty());
+        assert!(!occurrence_offsets(&patched_main, b"/proc/self/fd/33").is_empty());
+        assert!(!occurrence_offsets(&patched_main, b"/proc/self/fd/35\0").is_empty());
+        assert!(!occurrence_offsets(&patched_companion, b"/proc/self/fd/33").is_empty());
         assert_eq!(
-            runtime
-                .iter()
-                .zip(&fixture.raw_runtime)
-                .filter(|(after, before)| after != before)
-                .count(),
-            54
-        );
-        for (expected, (source, replacement)) in [2usize, 1, 1, 1].into_iter().zip(FD_REMAP_RULES) {
-            assert_eq!(occurrence_offsets(&runtime, source).len(), 0);
-            assert_eq!(occurrence_offsets(&runtime, replacement).len(), expected);
-        }
-        assert_eq!(std::fs::read(&host_path).unwrap(), fixture.code_mode_host);
-        assert_eq!(
-            std::fs::symlink_metadata(&runtime_path)
-                .unwrap()
-                .permissions()
-                .mode()
-                & 0o777,
-            0o755
-        );
-        assert_eq!(
-            std::fs::symlink_metadata(&host_path)
-                .unwrap()
-                .permissions()
-                .mode()
-                & 0o777,
-            0o755
-        );
-        assert_eq!(
-            std::fs::symlink_metadata(&descriptor_path)
-                .unwrap()
-                .permissions()
-                .mode()
-                & 0o777,
-            0o644
+            std::fs::read(out1.join("codex-path/rg")).unwrap(),
+            TERMUX_RG_WRAPPER_SCRIPT
         );
 
-        let runtime_sha256 = openssl_sha256(&fixture.request.openssl, &runtime_path).unwrap();
-        let host_sha256 = openssl_sha256(&fixture.request.openssl, &host_path).unwrap();
-        let browser_open_path = fixture.request.output.join("browser/open/curl");
-        let browser_manual_path = fixture.request.output.join("browser/manual/curl");
-        let browser_open_sha256 =
-            openssl_sha256(&fixture.request.openssl, &browser_open_path).unwrap();
-        let browser_manual_sha256 =
-            openssl_sha256(&fixture.request.openssl, &browser_manual_path).unwrap();
-        assert_eq!(
-            std::fs::read(&browser_open_path).unwrap(),
-            TERMUX_BROWSER_OPEN_HELPER
-        );
-        assert_eq!(
-            std::fs::read(&browser_manual_path).unwrap(),
-            TERMUX_BROWSER_MANUAL_HELPER
-        );
-        for helper in [&browser_open_path, &browser_manual_path] {
-            assert_eq!(
-                std::fs::symlink_metadata(helper)
-                    .unwrap()
-                    .permissions()
-                    .mode()
-                    & 0o777,
-                0o755
-            );
-        }
-        let expected_descriptor = format!(
-            concat!(
-                "codex-local-generation-v2\n",
-                "generation_id\ttest-generation\n",
-                "upstream_package_identity\topenai/codex:codex-package-aarch64-unknown-linux-musl.tar.gz\n",
-                "upstream_package_version\t0.150.1\n",
-                "source_artifact_digest\t{}\n",
-                "expected_platform\tandroid\n",
-                "expected_architecture\taarch64\n",
-                "patch_policy_id\ttermux-fd-remap-v1\n",
-                "patch_report\ttermux-fd-remap-v1;archive_sha256={};raw_runtime_sha256={};runtime_sha256={};code_mode_host_sha256={};source_counts=2,1,1,1;changed_bytes=54\n",
-                "runtime_digest\t{}\n",
-                "wrapper_artifact_digest\t{}\n",
-                "wrapper_api_identity\twrapper-api-v1\n",
-                "persistent_schema_identity\tschema-v1\n",
-                "qualification\tqualified\n",
-                "creation_metadata\ttest-fixture\n",
-                "upstream_doctor\tsupported\n",
-                "helper_count\t2\n",
-                "helper\ttermux-browser-open-v1\t{}\n",
-                "helper\ttermux-browser-manual-v1\t{}\n"
-            ),
-            fixture.request.archive_sha256,
-            fixture.request.archive_sha256,
-            raw_runtime_sha256,
-            runtime_sha256,
-            host_sha256,
-            runtime_sha256,
-            core_sha256,
-            browser_open_sha256,
-            browser_manual_sha256
-        );
-        assert_eq!(
-            std::fs::read_to_string(&descriptor_path).unwrap(),
-            expected_descriptor
-        );
-
-        let mut top_level: Vec<_> = std::fs::read_dir(&fixture.request.output)
-            .unwrap()
-            .map(|entry| entry.unwrap().file_name())
-            .collect();
-        top_level.sort();
-        assert_eq!(
-            top_level,
-            vec![
-                OsString::from("browser"),
-                OsString::from("codex-code-mode-host"),
-                OsString::from("generation.meta"),
-                OsString::from("runtime"),
-                OsString::from("wrapper")
-            ]
-        );
-        assert!(!fixture.request.output.join("compat").exists());
-
-        let descriptor_before_retry = std::fs::read(&descriptor_path).unwrap();
-        assert_eq!(run_from_args(request_args(&fixture.request)), 1);
-        assert_eq!(
-            std::fs::read(&descriptor_path).unwrap(),
-            descriptor_before_retry
-        );
-        assert!(no_builder_staging(&fixture.root));
-        fixture.remove();
-    }
-
-    #[test]
-    fn test_m2_b8_slice1_core_artifact_identity_and_digest_are_exact() {
-        let fixture = fixture("b8-core-exact", happy_entries("0.150.1"), false);
-        let expected_core = std::fs::read(&fixture.request.core).unwrap();
-        let expected_sha256 =
-            openssl_sha256(&fixture.request.openssl, &fixture.request.core).unwrap();
-
-        let staging = fixture.root.join("core-snapshot-stage");
-        create_private_dir(&staging).unwrap();
-        let selected_sha256 = snapshot_core_artifact(&fixture.request, &staging).unwrap();
-        assert_eq!(selected_sha256, expected_sha256);
-        assert_eq!(
-            std::fs::read(staging.join(".wrapper-artifact")).unwrap(),
-            expected_core
-        );
-        assert_eq!(
-            std::fs::symlink_metadata(staging.join(".wrapper-artifact"))
-                .unwrap()
-                .permissions()
-                .mode()
-                & 0o777,
-            0o600
-        );
-        std::fs::write(&fixture.request.core, b"mutated after selection").unwrap();
-        assert_eq!(selected_sha256, expected_sha256);
-        assert_ne!(
-            openssl_sha256(&fixture.request.openssl, &fixture.request.core).unwrap(),
-            selected_sha256
-        );
-        std::fs::write(&fixture.request.core, expected_core).unwrap();
-        set_mode(&fixture.request.core, 0o700, "restore test Core mode").unwrap();
-        std::fs::remove_file(staging.join(".wrapper-artifact")).unwrap();
-        std::fs::remove_dir(&staging).unwrap();
-
-        assert_eq!(run_from_args(request_args(&fixture.request)), 0);
-        let descriptor =
-            std::fs::read_to_string(fixture.request.output.join("generation.meta")).unwrap();
-        assert!(descriptor.contains(&format!("wrapper_artifact_digest\t{expected_sha256}\n")));
-        assert!(no_builder_staging(&fixture.root));
-        fixture.remove();
-    }
-
-    #[test]
-    fn test_m2_b8_slice1_core_artifact_rejection_matrix_is_fail_closed() {
-        for case in [
-            "not-executable",
-            "not-elf",
-            "wrong-type",
-            "wrong-machine",
-            "no-interp",
-            "wrong-interp",
-            "oversized",
-        ] {
-            let fixture = fixture(case, happy_entries("0.150.1"), false);
-            match case {
-                "not-executable" => {
-                    set_mode(&fixture.request.core, 0o600, "clear test Core execute mode").unwrap()
-                }
-                "not-elf" => std::fs::write(&fixture.request.core, b"not an ELF").unwrap(),
-                "wrong-type" => {
-                    let mut core = fake_core_elf(ANDROID_AARCH64_INTERPRETER);
-                    core[16..18].copy_from_slice(&2u16.to_le_bytes());
-                    std::fs::write(&fixture.request.core, core).unwrap();
-                }
-                "wrong-machine" => {
-                    let mut core = fake_core_elf(ANDROID_AARCH64_INTERPRETER);
-                    core[18..20].copy_from_slice(&62u16.to_le_bytes());
-                    std::fs::write(&fixture.request.core, core).unwrap();
-                }
-                "no-interp" => {
-                    let mut core = fake_core_elf(ANDROID_AARCH64_INTERPRETER);
-                    core[64..68].copy_from_slice(&1u32.to_le_bytes());
-                    std::fs::write(&fixture.request.core, core).unwrap();
-                }
-                "wrong-interp" => std::fs::write(
-                    &fixture.request.core,
-                    fake_core_elf(b"/lib/ld-linux-aarch64.so.1\0"),
-                )
-                .unwrap(),
-                "oversized" => {
-                    let core = OpenOptions::new()
-                        .write(true)
-                        .open(&fixture.request.core)
-                        .unwrap();
-                    core.set_len(CORE_ARTIFACT_MAX_BYTES + 1).unwrap();
-                }
-                _ => unreachable!(),
-            }
-            if case != "not-executable" {
-                set_mode(&fixture.request.core, 0o700, "set mutated test Core mode").unwrap();
-            }
-            assert!(
-                build_generation(&fixture.request).is_err(),
-                "case {case} succeeded"
-            );
-            assert!(
-                !fixture.request.output.exists(),
-                "case {case} published output"
-            );
-            assert!(no_builder_staging(&fixture.root));
-            fixture.remove();
-        }
-    }
-
-    #[test]
-    fn test_legacy_transition_flag_is_exact_and_legacy_bounded() {
-        let mut fixture = fixture("legacy-transition-flag", happy_entries("0.150.1"), false);
-        fixture.request.creation_metadata = R10_BROWSER_HELPER_BRIDGE_METADATA.to_owned();
-        fixture.request.legacy_activation_doctor_unsupported = true;
-        let parsed = parse_request(request_args(&fixture.request)).unwrap();
-        assert!(parsed.legacy_activation_doctor_unsupported);
-        assert_eq!(parsed.creation_metadata, R10_BROWSER_HELPER_BRIDGE_METADATA);
-
-        fixture.request.creation_metadata = "test-fixture".to_owned();
-        assert!(matches!(
-            validate_request(&fixture.request),
-            Err(BuilderError::Invalid(
-                "legacy activation doctor transition requires the exact R10 helper layout"
-            ))
-        ));
-    }
-
-    #[test]
-    fn test_tc_live_bridge_build_and_publish_are_marker_bound_and_r10_readable() {
-        {
-            let mut fixture = fixture("tc-live-bridge", happy_entries("0.150.1"), false);
-            fixture.request.creation_metadata = R10_BROWSER_HELPER_BRIDGE_METADATA.to_owned();
-            assert_eq!(run_from_args(request_args(&fixture.request)), 0);
-            let open_helper = fixture.request.output.join("helpers/0");
-            let manual_helper = fixture.request.output.join("helpers/1");
-            assert_eq!(
-                std::fs::read(&open_helper).unwrap(),
-                TERMUX_BROWSER_OPEN_HELPER
-            );
-            assert_eq!(
-                std::fs::read(&manual_helper).unwrap(),
-                TERMUX_BROWSER_MANUAL_HELPER
-            );
-            assert!(!fixture.request.output.join("browser").exists());
-            let descriptor =
-                std::fs::read_to_string(fixture.request.output.join("generation.meta")).unwrap();
-            assert!(descriptor.contains(&format!(
-                "creation_metadata\t{R10_BROWSER_HELPER_BRIDGE_METADATA}\n"
-            )));
-            assert!(
-                descriptor.contains(&format!("helper\t{TERMUX_BROWSER_OPEN_HELPER_IDENTITY}\t"))
-            );
-            assert!(descriptor.contains(&format!(
-                "helper\t{TERMUX_BROWSER_MANUAL_HELPER_IDENTITY}\t"
-            )));
-
-            let private_key = fixture.root.join("bridge-release-key.pem");
-            generate_publish_key(&fixture.request.openssl, &private_key);
-            let request = PublishRequest {
-                generation: fixture.request.output.clone(),
-                release_sequence: "8".to_owned(),
-                release_base: "https://example.test/releases/test-generation/".to_owned(),
-                private_key: private_key.clone(),
-                openssl: fixture.request.openssl.clone(),
-                output: fixture.root.join("bridge-publication"),
-            };
-            assert_eq!(publish(&request).unwrap(), "test-generation");
-            let release = request.output.join("releases/test-generation");
-            let manifest = std::fs::read_to_string(release.join("release.manifest")).unwrap();
-            assert!(manifest.contains("file\thelpers/0\t"));
-            assert!(manifest.contains("file\thelpers/1\t"));
-            assert!(!manifest.contains("file\tbrowser/"));
-            assert_eq!(
-                std::fs::read(release.join("helpers/0")).unwrap(),
-                TERMUX_BROWSER_OPEN_HELPER
-            );
-            assert_eq!(
-                std::fs::read(release.join("helpers/1")).unwrap(),
-                TERMUX_BROWSER_MANUAL_HELPER
-            );
-            fixture.remove();
-        }
-
-        let mut mismatch = fixture("tc-live-bridge-mismatch", happy_entries("0.150.1"), false);
-        mismatch.request.creation_metadata = R10_BROWSER_HELPER_BRIDGE_METADATA.to_owned();
-        assert_eq!(run_from_args(request_args(&mismatch.request)), 0);
-        let descriptor_path = mismatch.request.output.join("generation.meta");
-        let descriptor = std::fs::read_to_string(&descriptor_path).unwrap().replace(
-            &format!("creation_metadata\t{R10_BROWSER_HELPER_BRIDGE_METADATA}\n"),
-            "creation_metadata\ttest-fixture\n",
-        );
-        std::fs::write(&descriptor_path, descriptor).unwrap();
-        let mismatch_key = mismatch.root.join("mismatch-release-key.pem");
-        generate_publish_key(&mismatch.request.openssl, &mismatch_key);
-        let mismatch_request = PublishRequest {
-            generation: mismatch.request.output.clone(),
-            release_sequence: "8".to_owned(),
-            release_base: "https://example.test/releases/test-generation/".to_owned(),
-            private_key: mismatch_key,
-            openssl: mismatch.request.openssl.clone(),
-            output: mismatch.root.join("mismatch-publication"),
-        };
-        let error = publish(&mismatch_request).unwrap_err();
-        assert!(
-            error.to_string().contains("browser helper layout binding"),
-            "unexpected mismatch error: {error}"
-        );
-        assert!(!mismatch_request.output.exists());
-        mismatch.remove();
-    }
-
-    #[test]
-    fn test_tc2_browser_helpers_are_exact_single_arg_and_fail_closed() {
-        use std::os::unix::fs::PermissionsExt;
-
-        let fixture = fixture("tc2-browser-helper", happy_entries("0.150.1"), false);
-        assert_eq!(run_from_args(request_args(&fixture.request)), 0);
-        let open_helper = fixture.request.output.join("browser/open/curl");
-        let manual_helper = fixture.request.output.join("browser/manual/curl");
-        assert_eq!(
-            std::fs::read(&open_helper).unwrap(),
-            TERMUX_BROWSER_OPEN_HELPER
-        );
-        assert_eq!(
-            std::fs::read(&manual_helper).unwrap(),
-            TERMUX_BROWSER_MANUAL_HELPER
-        );
-
-        let prefix = fixture.root.join("prefix");
-        let bin = prefix.join("bin");
-        std::fs::create_dir_all(&bin).unwrap();
-        let opener = bin.join("termux-open-url");
-        let log = fixture.root.join("opener-log");
-        let shell = find_tool("sh");
+        // Verify browser helpers enforce single HTTP/HTTPS URL contract.
+        let mock_prefix = dir.join("prefix");
+        std::fs::create_dir_all(mock_prefix.join("bin")).unwrap();
+        let captured_url = dir.join("opened-url");
+        let opener = mock_prefix.join("bin/termux-open-url");
         std::fs::write(
             &opener,
             format!(
-                "#!{}\nprintf '%s\\n' \"$#\" \"$1\" > \"$CODEX_TC2_LOG\"\n",
-                shell.display()
+                "#!/bin/sh\nprintf '%s' \"$1\" > '{}'\n",
+                captured_url.display()
             ),
         )
         .unwrap();
-        std::fs::set_permissions(&opener, std::fs::Permissions::from_mode(0o755)).unwrap();
+        set_mode(&opener, 0o755, "mode mock opener").unwrap();
 
-        let valid = "https://example.test/oauth/callback?x=$(id)&semi=one;two#fragment";
-        let output = Command::new(&shell)
-            .arg(&open_helper)
-            .arg(valid)
-            .env_clear()
-            .env("PREFIX", &prefix)
+        let sh = shell_executable();
+        let open_ok = Command::new(sh)
+            .arg(out1.join("browser/open/curl"))
+            .arg("https://example.com/auth?code=1")
+            .env("PREFIX", &mock_prefix)
             .env("CODEX_TERMUX_URL_OPENER", &opener)
-            .env("CODEX_TC2_LOG", &log)
-            .output()
-            .unwrap();
-        assert!(output.status.success(), "stderr={:?}", output.stderr);
-        assert_eq!(
-            std::fs::read_to_string(&log).unwrap(),
-            format!("1\n{valid}\n")
-        );
-
-        let manual = Command::new(&shell)
-            .arg(&manual_helper)
-            .arg(valid)
-            .env_clear()
-            .output()
-            .unwrap();
-        assert!(manual.status.success());
-        assert!(String::from_utf8_lossy(&manual.stderr).contains(valid));
-
-        for invalid in [
-            "file:///etc/passwd",
-            "https:///missing-host",
-            "https://?missing-host",
-            "https://:443/missing-host",
-            "https://example.test/has space",
-            "https://example.test/line\nbreak",
-            "https://example.test/back\\slash",
-        ] {
-            let _ = std::fs::remove_file(&log);
-            let blocked = Command::new(&shell)
-                .arg(&open_helper)
-                .arg(invalid)
-                .env_clear()
-                .env("PREFIX", &prefix)
-                .env("CODEX_TERMUX_URL_OPENER", &opener)
-                .env("CODEX_TC2_LOG", &log)
-                .output()
-                .unwrap();
-            assert_eq!(blocked.status.code(), Some(64), "invalid={invalid:?}");
-            assert!(!log.exists(), "invalid URL reached opener: {invalid:?}");
-            let fallback = Command::new(&shell)
-                .arg(&manual_helper)
-                .arg(invalid)
-                .env_clear()
-                .output()
-                .unwrap();
-            assert!(fallback.status.success());
-            let stderr = String::from_utf8_lossy(&fallback.stderr);
-            assert!(stderr.contains("Browser launch blocked"));
-            assert!(!stderr.contains(invalid));
-        }
-
-        for args in [vec![], vec!["https://example.test", "https://other.test"]] {
-            let status = Command::new(&shell)
-                .arg(&open_helper)
-                .args(args)
-                .env_clear()
-                .env("PREFIX", &prefix)
-                .env("CODEX_TERMUX_URL_OPENER", &opener)
-                .env("CODEX_TC2_LOG", &log)
-                .status()
-                .unwrap();
-            assert_eq!(status.code(), Some(64));
-        }
-
-        let unqualified = Command::new(&shell)
-            .arg(&open_helper)
-            .arg(valid)
-            .env_clear()
-            .env("PREFIX", &prefix)
-            .env("CODEX_TERMUX_URL_OPENER", prefix.join("bin/not-the-opener"))
-            .output()
-            .unwrap();
-        assert_eq!(unqualified.status.code(), Some(64));
-
-        std::fs::remove_file(&opener).unwrap();
-        let unavailable = Command::new(&shell)
-            .arg(&open_helper)
-            .arg(valid)
-            .env_clear()
-            .env("PREFIX", &prefix)
-            .env("CODEX_TERMUX_URL_OPENER", &opener)
-            .output()
-            .unwrap();
-        assert_eq!(unavailable.status.code(), Some(127));
-        let fallback = Command::new(&shell)
-            .arg(&manual_helper)
-            .arg(valid)
-            .env_clear()
-            .output()
-            .unwrap();
-        assert!(fallback.status.success());
-        assert!(String::from_utf8_lossy(&fallback.stderr).contains(valid));
-
-        fixture.remove();
-    }
-
-    #[test]
-    fn test_tc3_upstream_rg_is_explicitly_not_published_as_termux_helper() {
-        let fixture = fixture(
-            "tc3-upstream-rg-disposition",
-            happy_entries("0.150.1"),
-            false,
-        );
-        assert_eq!(run_from_args(request_args(&fixture.request)), 0);
-        assert!(!fixture.request.output.join("rg").exists());
-        let descriptor =
-            std::fs::read_to_string(fixture.request.output.join("generation.meta")).unwrap();
-        assert!(!descriptor.contains("termux-rg"));
-        assert_eq!(
-            descriptor
-                .lines()
-                .find_map(|line| line.strip_prefix("helper_count\t")),
-            Some("2")
-        );
-        fixture.remove();
-    }
-
-    #[test]
-    fn test_m2_b6_slice2_patch_and_publication_fail_closed_matrix() {
-        for case in ["all-sources-missing", "prepatched-source"] {
-            let mut entries = happy_entries("0.150.1");
-            let runtime = &mut entries
-                .iter_mut()
-                .find(|entry| entry.path == "bin/codex")
-                .unwrap()
-                .data;
-            match case {
-                "all-sources-missing" => {
-                    *runtime = fake_elf(false);
-                }
-                "prepatched-source" => {
-                    replace_first(runtime, FD_REMAP_RULES[0].0, FD_REMAP_RULES[0].1);
-                }
-                _ => unreachable!(),
-            }
-            let fixture = fixture(case, entries, false);
-            assert!(
-                build_generation(&fixture.request).is_err(),
-                "case {case} succeeded"
-            );
-            assert!(
-                !fixture.request.output.exists(),
-                "case {case} published output"
-            );
-            assert!(no_builder_staging(&fixture.root));
-            fixture.remove();
-        }
-
-        // Adaptive variable FD rule counts (3, 2, 1, 0) must patch all present hits cleanly.
-        let mut variable_entries = happy_entries("0.150.1");
-        let variable_runtime = &mut variable_entries
-            .iter_mut()
-            .find(|entry| entry.path == "bin/codex")
-            .unwrap()
-            .data;
-        let mut custom = fake_elf(false);
-        for s in [
-            "/etc/resolv.conf",
-            "/etc/resolv.conf",
-            "/etc/resolv.conf",
-            "/etc/codex/config.toml",
-            "/etc/codex/config.toml",
-            "/etc/codex/requirements.toml",
-        ] {
-            custom.extend_from_slice(s.as_bytes());
-            custom.push(0);
-        }
-        *variable_runtime = custom;
-        let var_fixture = fixture("adaptive-fd-counts", variable_entries, false);
-        assert!(build_generation(&var_fixture.request).is_ok());
-        let patched = std::fs::read(var_fixture.request.output.join("runtime")).unwrap();
-        let meta =
-            std::fs::read_to_string(var_fixture.request.output.join("generation.meta")).unwrap();
-        assert!(meta.contains("source_counts=3,2,1,0;"));
-        for (expected, (source, replacement)) in [3usize, 2, 1, 0].into_iter().zip(FD_REMAP_RULES) {
-            assert!(occurrence_offsets(&patched, source).is_empty());
-            assert_eq!(occurrence_offsets(&patched, replacement).len(), expected);
-        }
-        var_fixture.remove();
-
-        let fixture = fixture("output-exists", happy_entries("0.150.1"), false);
-        std::fs::create_dir(&fixture.request.output).unwrap();
-        let sentinel = fixture.request.output.join("sentinel");
-        std::fs::write(&sentinel, b"preserve").unwrap();
-        assert!(build_generation(&fixture.request).is_err());
-        assert_eq!(std::fs::read(&sentinel).unwrap(), b"preserve");
-        assert!(no_builder_staging(&fixture.root));
-        fixture.remove();
-
-        let root = test_root("rename-noreplace");
-        let source = root.join("source");
-        let destination = root.join("destination");
-        std::fs::create_dir(&source).unwrap();
-        std::fs::create_dir(&destination).unwrap();
-        std::fs::write(source.join("source-marker"), b"source").unwrap();
-        std::fs::write(destination.join("destination-marker"), b"destination").unwrap();
-        assert!(rename_noreplace(&source, &destination).is_err());
-        assert_eq!(
-            std::fs::read(source.join("source-marker")).unwrap(),
-            b"source"
-        );
-        assert_eq!(
-            std::fs::read(destination.join("destination-marker")).unwrap(),
-            b"destination"
-        );
-        std::fs::remove_dir_all(root).unwrap();
-    }
-
-    #[test]
-    fn test_r6_publish_emits_core_compatible_signed_tree_and_fails_closed() {
-        let fixture = fixture("r6-publish", happy_entries("0.150.1"), false);
-        assert_eq!(run_from_args(request_args(&fixture.request)), 0);
-        let private_key = fixture.root.join("release-private.pem");
-        let public_key = fixture.root.join("release-public.pem");
-        generate_publish_key(&fixture.request.openssl, &private_key);
-        let request = PublishRequest {
-            generation: fixture.request.output.clone(),
-            release_sequence: "7".to_owned(),
-            release_base: "https://releases.example.invalid/codex/releases/test-generation/"
-                .to_owned(),
-            private_key: private_key.clone(),
-            openssl: fixture.request.openssl.clone(),
-            output: fixture.root.join("publication"),
-        };
-
-        let mut missing_value = publish_args(&request);
-        missing_value.pop();
-        assert_eq!(run_from_args(missing_value), 2);
-        let mut unknown_flag = publish_args(&request);
-        unknown_flag.extend([OsString::from("--channel"), OsString::from("stable")]);
-        assert_eq!(run_from_args(unknown_flag), 2);
-
-        assert_eq!(run_from_args(publish_args(&request)), 0);
-        let publication = &request.output;
-        let release = publication.join("releases/test-generation");
-        let runtime_digest =
-            openssl_sha256(&fixture.request.openssl, &release.join("runtime")).unwrap();
-        let host_digest = openssl_sha256(
-            &fixture.request.openssl,
-            &release.join("codex-code-mode-host"),
-        )
-        .unwrap();
-        let descriptor_digest =
-            openssl_sha256(&fixture.request.openssl, &release.join("generation.meta")).unwrap();
-        let browser_manual_digest = openssl_sha256(
-            &fixture.request.openssl,
-            &release.join("browser/manual/curl"),
-        )
-        .unwrap();
-        let browser_open_digest =
-            openssl_sha256(&fixture.request.openssl, &release.join("browser/open/curl")).unwrap();
-        let expected_manifest = format!(
-            concat!(
-                "codex-release-v4\n",
-                "generation_id\ttest-generation\n",
-                "release_sequence\t7\n",
-                "channel\tstable\n",
-                "expected_platform\tandroid\n",
-                "expected_architecture\taarch64\n",
-                "wrapper_api_identity\twrapper-api-v1\n",
-                "persistent_schema_identity\tschema-v1\n",
-                "release_public_key\t{}\n",
-                "file_count\t6\n",
-                "file\tbrowser/manual/curl\t{}\t0755\n",
-                "file\tbrowser/open/curl\t{}\t0755\n",
-                "file\tcodex-code-mode-host\t{}\t0755\n",
-                "file\tgeneration.meta\t{}\t0644\n",
-                "file\truntime\t{}\t0755\n",
-                "file\twrapper\t{}\t0755\n"
-            ),
-            public_key_hex(&openssl_public_key(&fixture.request.openssl, &private_key).unwrap()),
-            browser_manual_digest,
-            browser_open_digest,
-            host_digest,
-            descriptor_digest,
-            runtime_digest,
-            openssl_sha256(&fixture.request.openssl, &release.join("wrapper")).unwrap(),
-        );
-        assert_eq!(
-            std::fs::read_to_string(release.join("release.manifest")).unwrap(),
-            expected_manifest
-        );
-        let manifest_sha256 =
-            openssl_sha256(&fixture.request.openssl, &release.join("release.manifest")).unwrap();
-        let expected_download_size = format!(
-            concat!(
-                "codex-download-size-v1\n",
-                "manifest_sha256\t{}\n",
-                "file_count\t6\n",
-                "total_bytes\t{}\n",
-                "file\tbrowser/manual/curl\t{}\n",
-                "file\tbrowser/open/curl\t{}\n",
-                "file\tcodex-code-mode-host\t{}\n",
-                "file\tgeneration.meta\t{}\n",
-                "file\truntime\t{}\n",
-                "file\twrapper\t{}\n"
-            ),
-            manifest_sha256,
-            [
-                "browser/manual/curl",
-                "browser/open/curl",
-                "codex-code-mode-host",
-                "generation.meta",
-                "runtime",
-                "wrapper",
-            ]
-            .iter()
-            .map(|path| std::fs::metadata(release.join(path)).unwrap().len())
-            .sum::<u64>(),
-            std::fs::metadata(release.join("browser/manual/curl"))
-                .unwrap()
-                .len(),
-            std::fs::metadata(release.join("browser/open/curl"))
-                .unwrap()
-                .len(),
-            std::fs::metadata(release.join("codex-code-mode-host"))
-                .unwrap()
-                .len(),
-            std::fs::metadata(release.join("generation.meta"))
-                .unwrap()
-                .len(),
-            std::fs::metadata(release.join("runtime")).unwrap().len(),
-            std::fs::metadata(release.join("wrapper")).unwrap().len(),
-        );
-        assert_eq!(
-            std::fs::read_to_string(publication.join(DOWNLOAD_SIZE_PATH)).unwrap(),
-            expected_download_size
-        );
-        verify_publish_signature(
-            &fixture.request.openssl,
-            &private_key,
-            &publication.join(DOWNLOAD_SIZE_PATH),
-            &publication.join(DOWNLOAD_SIZE_SIGNATURE_PATH),
-            &public_key,
-        );
-        assert_eq!(
-            std::fs::read_to_string(publication.join("update-index-v1")).unwrap(),
-            "codex-update-index-v1\nchannel\tstable\ngeneration_id\ttest-generation\nrelease_base\thttps://releases.example.invalid/codex/releases/test-generation/\n"
-        );
-        assert!(!release.join("release-authority.sig").exists());
-        verify_publish_signature(
-            &fixture.request.openssl,
-            &private_key,
-            &release.join("release.manifest"),
-            &release.join("release.sig"),
-            &public_key,
-        );
-        verify_publish_signature(
-            &fixture.request.openssl,
-            &private_key,
-            &publication.join("update-index-v1"),
-            &publication.join("update-index-v1.sig"),
-            &public_key,
-        );
-        assert_eq!(
-            std::fs::read(release.join("runtime")).unwrap(),
-            std::fs::read(fixture.request.output.join("runtime")).unwrap()
-        );
-        assert_eq!(
-            std::fs::read(release.join("codex-code-mode-host")).unwrap(),
-            std::fs::read(fixture.request.output.join("codex-code-mode-host")).unwrap()
-        );
-        assert!(!publication.join("release-private.pem").exists());
-        assert!(no_builder_staging(&fixture.root));
-
-        for (label, mutation) in [
-            ("bad-base", "base"),
-            ("bad-sequence", "sequence"),
-            ("missing-key", "key"),
-        ] {
-            let mut invalid = request.clone();
-            invalid.output = fixture.root.join(format!("publication-{label}"));
-            match mutation {
-                "base" => invalid.release_base = "http://example.invalid/test-generation/".into(),
-                "sequence" => invalid.release_sequence = "0".into(),
-                "key" => invalid.private_key = fixture.root.join("missing-key.pem"),
-                _ => unreachable!(),
-            }
-            assert_eq!(run_from_args(publish_args(&invalid)), 1, "case {label}");
-            assert!(!invalid.output.exists(), "case {label} published output");
-            assert!(no_builder_staging(&fixture.root));
-        }
-
-        let collision_output = fixture.root.join("publication-collision");
-        create_private_dir(&collision_output).unwrap();
-        let sentinel = collision_output.join("sentinel");
-        std::fs::write(&sentinel, b"preserve").unwrap();
-        let collision_request = PublishRequest {
-            output: collision_output,
-            ..request.clone()
-        };
-        assert_eq!(run_from_args(publish_args(&collision_request)), 1);
-        assert_eq!(std::fs::read(sentinel).unwrap(), b"preserve");
-        assert!(no_builder_staging(&fixture.root));
-
-        let symlink_output = fixture.root.join("publication-symlink");
-        let host = fixture.request.output.join("codex-code-mode-host");
-        std::fs::remove_file(&host).unwrap();
-        std::os::unix::fs::symlink(fixture.request.output.join("runtime"), &host).unwrap();
-        let symlink_request = PublishRequest {
-            output: symlink_output.clone(),
-            ..collision_request
-        };
-        assert_eq!(run_from_args(publish_args(&symlink_request)), 1);
-        assert!(!symlink_output.exists());
-        assert!(no_builder_staging(&fixture.root));
-        fixture.remove();
-    }
-
-    #[test]
-    fn test_v3_package_extraction_99b_and_publish() {
-        use std::os::unix::fs::PermissionsExt;
-
-        let raw_runtime = runtime_patch::tests::build_canonical_synthetic_aarch64_elf();
-        let host = fake_elf(false);
-        let mut exec_server = runtime_patch::tests::build_canonical_synthetic_aarch64_elf();
-        // Inject an extra resolv.conf beyond canonical baseline to ensure adaptive companion patching.
-        exec_server.extend_from_slice(b"/etc/resolv.conf\0");
-        let mut custom_tool = fake_elf(false);
-        custom_tool.extend_from_slice(b"/etc/codex/config.toml\0");
-        let entries = vec![
-            TestEntry::directory("bin/"),
-            TestEntry::file("bin/codex", raw_runtime.clone()),
-            TestEntry::file("bin/codex-code-mode-host", host.clone()),
-            TestEntry::file("bin/codex-exec-server", exec_server.clone()),
-            TestEntry::file("bin/codex-custom-tool", custom_tool.clone()),
-            TestEntry::file("codex-package.json", expected_package_json("1.2.0")),
-            TestEntry::directory("codex-path/"),
-            TestEntry::file("codex-path/rg", b"\x7fELF-glibc-rg".to_vec()),
-            TestEntry::directory("codex-resources/"),
-            TestEntry::file("codex-resources/bwrap", b"unused-bwrap".to_vec()),
-            TestEntry::directory("codex-resources/voice/"),
-            TestEntry::file("codex-resources/voice/NOTICE.md", b"notice".to_vec()),
-        ];
-        let mut fixture = fixture("v3-pkg", entries, false);
-        fixture.request.version = "1.2.0".to_owned();
-        fixture.request.generation_id = "test-v3-generation".to_owned();
-        assert_eq!(
-            inspect_package_archive_version(&fixture.request.archive, &fixture.request.gzip)
-                .unwrap(),
-            "1.2.0"
-        );
-        let bad_archive = fixture.root.join("bad-package.tar.gz");
-        std::fs::write(&bad_archive, b"not-a-tar-gz").unwrap();
-        assert!(inspect_package_archive_version(&bad_archive, &fixture.request.gzip).is_err());
-
-        build_generation(&fixture.request).unwrap();
-        assert!(no_builder_staging(&fixture.root));
-
-        let out = &fixture.request.output;
-        assert!(!out.join("runtime").exists());
-        assert!(!out.join("codex-code-mode-host").exists());
-        let descriptor = std::fs::read_to_string(out.join("generation.meta")).unwrap();
-        assert!(descriptor.starts_with("codex-local-generation-v3\n"));
-        assert!(!descriptor.contains("manager_artifact_digest"));
-        assert!(descriptor.contains("patch_policy_id\ttermux-fd-remap-99b-v1\n"));
-        assert!(descriptor.contains("uds_policy=termux-uds-fd35-adaptive-v1"));
-        assert_eq!(
-            std::fs::metadata(out.join("bin/codex"))
-                .unwrap()
-                .permissions()
-                .mode()
-                & 0o777,
-            0o755
-        );
-        assert_ne!(std::fs::read(out.join("bin/codex")).unwrap(), raw_runtime);
-        assert_eq!(
-            std::fs::read(out.join("bin/codex-code-mode-host")).unwrap(),
-            host
-        );
-        let mut patched_exec_server = std::fs::read(out.join("bin/codex-exec-server")).unwrap();
-        assert_ne!(patched_exec_server, exec_server);
-        assert!(occurrence_offsets(&patched_exec_server, b"/etc/resolv.conf").is_empty());
-        assert!(!occurrence_offsets(&patched_exec_server, b"/proc/self/fd/35\0").is_empty());
-        assert!(runtime_patch::apply_adaptive_uds_fd35(&mut patched_exec_server).is_err());
-        let patched_custom_tool = std::fs::read(out.join("bin/codex-custom-tool")).unwrap();
-        assert_ne!(patched_custom_tool, custom_tool);
-        assert!(occurrence_offsets(&patched_custom_tool, b"/etc/codex/config.toml").is_empty());
-        assert_eq!(
-            occurrence_offsets(&patched_custom_tool, b"/dev/fd/34/config.toml").len(),
-            1
-        );
-        assert_eq!(
-            std::fs::read(out.join("codex-package.json")).unwrap(),
-            expected_package_json("1.2.0")
-        );
-        assert_eq!(
-            std::fs::metadata(out.join("codex-package.json"))
-                .unwrap()
-                .permissions()
-                .mode()
-                & 0o777,
-            0o644
-        );
-        assert_eq!(
-            std::fs::read(out.join("codex-path/rg")).unwrap(),
-            TERMUX_RG_WRAPPER_SCRIPT
-        );
-        assert_eq!(
-            std::fs::metadata(out.join("codex-path/rg"))
-                .unwrap()
-                .permissions()
-                .mode()
-                & 0o777,
-            0o755
-        );
-        assert_eq!(
-            std::fs::read(out.join("codex-resources/voice/NOTICE.md")).unwrap(),
-            b"notice"
-        );
-
-        let keys_dir = fixture.root.join("keys");
-        std::fs::create_dir(&keys_dir).unwrap();
-        let private_key = keys_dir.join("release.pem");
-        let gen_key = Command::new(&fixture.request.openssl)
-            .args(["genpkey", "-algorithm", "ED25519", "-out"])
-            .arg(&private_key)
-            .env_clear()
             .status()
             .unwrap();
-        assert!(gen_key.success());
-        let publication = fixture.root.join("publication-v3");
-        let publish_request = PublishRequest {
-            generation: out.clone(),
-            release_sequence: "169".to_owned(),
-            release_base: "https://releases.example.invalid/codex/releases/test-v3-generation/"
-                .to_owned(),
-            private_key,
-            openssl: fixture.request.openssl.clone(),
-            output: publication.clone(),
-        };
-        assert_eq!(publish(&publish_request).unwrap(), "test-v3-generation");
-        let manifest = std::fs::read_to_string(
-            publication.join("releases/test-v3-generation/release.manifest"),
-        )
-        .unwrap();
-        for expected in [
-            "file\tbin/codex\t",
-            "file\tbin/codex-code-mode-host\t",
-            "file\tbin/codex-custom-tool\t",
-            "file\tbin/codex-exec-server\t",
-            "file\tbrowser/manual/curl\t",
-            "file\tbrowser/open/curl\t",
-            "file\tcodex-package.json\t",
-            "file\tcodex-path/rg\t",
-            "file\tcodex-resources/bwrap\t",
-            "file\tcodex-resources/voice/NOTICE.md\t",
-            "file\tgeneration.meta\t",
-            "file\twrapper\t",
-        ] {
-            assert!(
-                manifest.contains(expected),
-                "missing manifest entry {expected}"
-            );
-        }
+        assert!(open_ok.success());
+        assert_eq!(
+            std::fs::read_to_string(&captured_url).unwrap(),
+            "https://example.com/auth?code=1"
+        );
+        let open_bad = Command::new(sh)
+            .arg(out1.join("browser/open/curl"))
+            .arg("file:///etc/passwd")
+            .env("PREFIX", &mock_prefix)
+            .env("CODEX_TERMUX_URL_OPENER", &opener)
+            .status()
+            .unwrap();
+        assert_eq!(open_bad.code(), Some(64));
 
-        // Symlinks under codex-resources must be rejected by publish.
-        let bwrap = out.join("codex-resources/bwrap");
-        std::fs::remove_file(&bwrap).unwrap();
-        std::os::unix::fs::symlink(out.join("bin/codex"), &bwrap).unwrap();
-        let bad_pub = PublishRequest {
-            output: fixture.root.join("publication-v3-bad"),
-            ..publish_request
-        };
-        assert!(publish(&bad_pub).is_err());
-        assert!(!bad_pub.output.exists());
-        fixture.remove();
+        // Case 2: Runtime without daemon UDS omits uds_policy; static AArch64 rg is preserved.
+        let no_uds_elf = build_static_aarch64_elf(true, false);
+        let tar2 = package_tar_bytes(&[
+            ("bin/codex", b'0', 0o755, &no_uds_elf),
+            ("codex-package.json", b'0', 0o644, &pkg_json),
+            ("codex-path/rg", b'0', 0o755, &static_rg),
+        ]);
+        let archive2 = dir.join("pkg2.tar.gz");
+        write_tar_gz(&tar2, &archive2, &gzip);
+        let sha2 = openssl_sha256(&openssl, &archive2).unwrap();
+        let out2 = dir.join("gen-no-uds");
+        build_generation(&GenerationRequest {
+            version: "1.2.3".to_owned(),
+            archive: archive2,
+            archive_sha256: sha2,
+            generation_id: "gen-plain".to_owned(),
+            wrapper: wrapper.clone(),
+            creation_metadata: "codex-wrapper".to_owned(),
+            gzip: gzip.clone(),
+            openssl: openssl.clone(),
+            output: out2.clone(),
+        })
+        .unwrap();
+        let meta2 = std::fs::read_to_string(out2.join("generation.meta")).unwrap();
+        assert!(!meta2.contains("uds_policy="));
+        assert_eq!(
+            std::fs::read(out2.join("codex-path/rg")).unwrap(),
+            static_rg
+        );
+
+        // Case 3: Existing output is not overwritten and wrong digest fails cleanly.
+        assert!(build_generation(&GenerationRequest {
+            version: "1.2.3".to_owned(),
+            archive: archive1.clone(),
+            archive_sha256: sha1,
+            generation_id: "gen-uds".to_owned(),
+            wrapper: wrapper.clone(),
+            creation_metadata: "codex-wrapper".to_owned(),
+            gzip: gzip.clone(),
+            openssl: openssl.clone(),
+            output: out1.clone(),
+        })
+        .is_err());
+
+        let out_bad_sha = dir.join("gen-bad-sha");
+        assert!(matches!(
+            build_generation(&GenerationRequest {
+                version: "1.2.3".to_owned(),
+                archive: archive1,
+                archive_sha256: "b".repeat(64),
+                generation_id: "gen-bad".to_owned(),
+                wrapper,
+                creation_metadata: "codex-wrapper".to_owned(),
+                gzip,
+                openssl,
+                output: out_bad_sha.clone(),
+            }),
+            Err(BuilderError::ArchiveDigestMismatch)
+        ));
+        assert!(!out_bad_sha.exists());
+
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]
-    fn test_v3_static_aarch64_rg_is_preserved_intact() {
-        let raw_runtime = runtime_patch::tests::build_canonical_synthetic_aarch64_elf();
-        let static_rg = fake_elf(false);
-        let static_rg_entries = vec![
-            TestEntry::directory("bin/"),
-            TestEntry::file("bin/codex", raw_runtime),
-            TestEntry::file("codex-package.json", expected_package_json("0.169.0")),
-            TestEntry::directory("codex-path/"),
-            TestEntry::file("codex-path/rg", static_rg.clone()),
-        ];
-        let mut static_rg_fixture = fixture("v3-static-rg", static_rg_entries, false);
-        static_rg_fixture.request.version = "0.169.0".to_owned();
-        build_generation(&static_rg_fixture.request).unwrap();
+    fn tar_parser_rejects_traversal_pax_abuse_and_missing_required_entries() {
+        let dir = temp_dir("tar-errors");
+        let gzip = find_tool("gzip");
+        let pkg_json = expected_package_json("1.2.3");
+
+        let traversal = package_tar_bytes(&[
+            ("../escape", b'0', 0o644, b"x"),
+            ("codex-package.json", b'0', 0o644, &pkg_json),
+        ]);
+        let trav_gz = dir.join("trav.tar.gz");
+        write_tar_gz(&traversal, &trav_gz, &gzip);
+        assert!(inspect_package_archive_version(&trav_gz, &gzip).is_err());
+
+        let missing_bin = package_tar_bytes(&[("codex-package.json", b'0', 0o644, &pkg_json)]);
+        let miss_gz = dir.join("missing-bin.tar.gz");
+        write_tar_gz(&missing_bin, &miss_gz, &gzip);
+        assert!(inspect_package_archive_version(&miss_gz, &gzip).is_err());
+
+        // PAX extended header followed by regular entry works.
+        let pax_payload = b"20 mtime=1700000000\n";
+        let mut with_pax = Vec::new();
+        append_tar_entry(&mut with_pax, "././@PaxHeader", b'x', 0o644, pax_payload);
+        append_tar_entry(&mut with_pax, "bin/codex", b'0', 0o755, b"placeholder");
+        append_tar_entry(&mut with_pax, "codex-package.json", b'0', 0o644, &pkg_json);
+        with_pax.resize(with_pax.len() + 1024, 0);
+        let pax_gz = dir.join("pax.tar.gz");
+        write_tar_gz(&with_pax, &pax_gz, &gzip);
         assert_eq!(
-            std::fs::read(static_rg_fixture.request.output.join("codex-path/rg")).unwrap(),
-            static_rg
+            inspect_package_archive_version(&pax_gz, &gzip).unwrap(),
+            "1.2.3"
         );
-        static_rg_fixture.remove();
+
+        let _ = std::fs::remove_dir_all(dir);
     }
 }

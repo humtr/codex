@@ -53,7 +53,7 @@ where
         .map_err(QualifiedUpstreamDoctorProbeError::Environment)?;
     let env_plan = plan_termux_env(
         process_env,
-        selection.compatibility_dir,
+        selection.generation_dir,
         browser_helpers,
         cert_file,
         cert_dir,
@@ -509,7 +509,7 @@ where
         .map_err(QualifiedUpstreamDoctorProbeError::Environment)?;
     let env_plan = plan_termux_env(
         process_env,
-        selection.compatibility_dir,
+        selection.generation_dir,
         browser_helpers,
         cert_file,
         cert_dir,
@@ -573,16 +573,9 @@ where
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum UpstreamDoctorCapability {
-    Supported,
-    Unsupported,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum UpstreamDoctorStatus {
     Healthy,
     Unhealthy,
-    Unsupported,
 }
 
 impl UpstreamDoctorStatus {
@@ -590,22 +583,22 @@ impl UpstreamDoctorStatus {
         match self {
             UpstreamDoctorStatus::Healthy => "healthy",
             UpstreamDoctorStatus::Unhealthy => "unhealthy",
-            UpstreamDoctorStatus::Unsupported => "unsupported",
         }
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum CoreDoctorStatus {
+pub(super) enum WrapperDoctorStatus {
     Healthy,
+    #[allow(dead_code)]
     Unhealthy,
 }
 
-impl CoreDoctorStatus {
+impl WrapperDoctorStatus {
     pub(super) fn as_str(self) -> &'static str {
         match self {
-            CoreDoctorStatus::Healthy => "healthy",
-            CoreDoctorStatus::Unhealthy => "unhealthy",
+            WrapperDoctorStatus::Healthy => "healthy",
+            WrapperDoctorStatus::Unhealthy => "unhealthy",
         }
     }
 }
@@ -613,7 +606,6 @@ impl CoreDoctorStatus {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum DoctorSummaryStatus {
     Healthy,
-    Degraded,
     Unhealthy,
 }
 
@@ -621,7 +613,6 @@ impl DoctorSummaryStatus {
     pub(super) fn as_str(self) -> &'static str {
         match self {
             DoctorSummaryStatus::Healthy => "healthy",
-            DoctorSummaryStatus::Degraded => "degraded",
             DoctorSummaryStatus::Unhealthy => "unhealthy",
         }
     }
@@ -642,7 +633,7 @@ pub(super) fn doctor_exit_code(class: DoctorExitClass) -> i32 {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct TermuxWrapperDoctorReport {
-    status: CoreDoctorStatus,
+    status: WrapperDoctorStatus,
     generation_id: String,
     generation_layout: GenerationLayout,
     has_code_mode_host: bool,
@@ -660,11 +651,9 @@ fn compose_doctor_report(
     termux_wrapper: TermuxWrapperDoctorReport,
 ) -> DoctorReport {
     let summary = if upstream.status == UpstreamDoctorStatus::Unhealthy
-        || termux_wrapper.status == CoreDoctorStatus::Unhealthy
+        || termux_wrapper.status == WrapperDoctorStatus::Unhealthy
     {
         DoctorSummaryStatus::Unhealthy
-    } else if upstream.status == UpstreamDoctorStatus::Unsupported {
-        DoctorSummaryStatus::Degraded
     } else {
         DoctorSummaryStatus::Healthy
     };
@@ -678,9 +667,7 @@ fn compose_doctor_report(
 fn doctor_exit_class(report: &DoctorReport) -> DoctorExitClass {
     match report.summary {
         DoctorSummaryStatus::Healthy => DoctorExitClass::Success,
-        DoctorSummaryStatus::Degraded | DoctorSummaryStatus::Unhealthy => {
-            DoctorExitClass::HealthFailure
-        }
+        DoctorSummaryStatus::Unhealthy => DoctorExitClass::HealthFailure,
     }
 }
 
@@ -732,16 +719,11 @@ fn doctor_detail(output: &mut String, name: &str, value: &str, color: bool) {
 }
 
 fn code_mode_status(termux_wrapper: &TermuxWrapperDoctorReport) -> (&'static str, bool) {
-    match termux_wrapper.generation_layout {
-        GenerationLayout::PackageRootV3 => {
-            if termux_wrapper.has_code_mode_host {
-                ("healthy", true)
-            } else {
-                ("not_packaged", true)
-            }
-        }
-        GenerationLayout::RootCodeModeHost => ("healthy", true),
-        GenerationLayout::LegacyCompat => ("migration_required", false),
+    let _ = termux_wrapper.generation_layout;
+    if termux_wrapper.has_code_mode_host {
+        ("healthy", true)
+    } else {
+        ("not_packaged", true)
     }
 }
 
@@ -762,7 +744,7 @@ fn render_doctor_human(report: &DoctorReport, color: bool) -> String {
     }
 
     let (code_mode_status, code_mode_healthy) = code_mode_status(&report.termux_wrapper);
-    let core_healthy = report.termux_wrapper.status == CoreDoctorStatus::Healthy;
+    let wrapper_healthy = report.termux_wrapper.status == WrapperDoctorStatus::Healthy;
     let summary_healthy = report.summary == DoctorSummaryStatus::Healthy;
     let mut ok_count = 0;
     let warning_count = 1;
@@ -837,10 +819,10 @@ fn render_doctor_human(report: &DoctorReport, color: bool) -> String {
         &mut output,
         "wrapper",
         "wrapper API and selected generation are compatible",
-        core_healthy,
+        wrapper_healthy,
         color,
     );
-    if core_healthy {
+    if wrapper_healthy {
         ok_count += 1;
     } else {
         failure_count += 1;
@@ -926,7 +908,7 @@ pub(super) fn json_escape(value: &str) -> String {
 fn render_doctor_json(report: &DoctorReport) -> String {
     let (code_mode_status, _) = code_mode_status(&report.termux_wrapper);
     format!(
-        "{{\"schema_version\":2,\"upstream\":{{\"status\":\"{}\",\"output\":\"{}\"}},\"termux_wrapper\":{{\"status\":\"{}\",\"generation_id\":\"{}\",\"layout\":\"{}\",\"runtime\":{{\"status\":\"healthy\"}},\"code_mode_host\":{{\"status\":\"{}\"}},\"sandbox\":{{\"status\":\"unsupported\",\"reason\":\"bwrap is not used\"}}}},\"summary\":{{\"status\":\"{}\"}}}}\n",
+        "{{\"schema_version\":1,\"upstream\":{{\"status\":\"{}\",\"output\":\"{}\"}},\"termux_wrapper\":{{\"status\":\"{}\",\"generation_id\":\"{}\",\"layout\":\"{}\",\"runtime\":{{\"status\":\"healthy\"}},\"code_mode_host\":{{\"status\":\"{}\"}},\"sandbox\":{{\"status\":\"unsupported\",\"reason\":\"bwrap is not used\"}}}},\"summary\":{{\"status\":\"{}\"}}}}\n",
         report.upstream.status.as_str(),
         json_escape(&report.upstream.output),
         report.termux_wrapper.status.as_str(),
@@ -990,7 +972,7 @@ where
     S: Into<OsString>,
 {
     let mode = doctor_output_mode(args)?;
-    let _ = crate::prepare_core_config(context.config_dir);
+    let _ = crate::prepare_wrapper_config(context.config_dir);
     let color = match mode {
         DoctorOutputMode::Human => doctor_color_enabled(false),
         DoctorOutputMode::Color => doctor_color_enabled(true),
@@ -998,35 +980,29 @@ where
     };
     let json = mode == DoctorOutputMode::Json;
     let force_color = mode == DoctorOutputMode::Color;
-    let upstream = match context.doctor_capability {
-        UpstreamDoctorCapability::Supported => match capture_qualified_upstream_doctor(
-            context.runtime_assets,
-            context.process_env,
-            context.cert_file,
-            context.cert_dir,
-            context.resolver_path,
-            context.config_dir,
-            DoctorCaptureOptions {
-                json,
-                use_color: color,
-                force_color,
-            },
-        ) {
-            Ok(result) => result,
-            Err(_) => QualifiedUpstreamDoctorResult {
-                status: UpstreamDoctorStatus::Unhealthy,
-                output: String::new(),
-            },
+    let upstream = match capture_qualified_upstream_doctor(
+        context.runtime_assets,
+        context.process_env,
+        context.cert_file,
+        context.cert_dir,
+        context.resolver_path,
+        context.config_dir,
+        DoctorCaptureOptions {
+            json,
+            use_color: color,
+            force_color,
         },
-        UpstreamDoctorCapability::Unsupported => QualifiedUpstreamDoctorResult {
-            status: UpstreamDoctorStatus::Unsupported,
+    ) {
+        Ok(result) => result,
+        Err(_) => QualifiedUpstreamDoctorResult {
+            status: UpstreamDoctorStatus::Unhealthy,
             output: String::new(),
         },
     };
     let report = compose_doctor_report(
         upstream,
         TermuxWrapperDoctorReport {
-            status: context.core_doctor_status,
+            status: context.wrapper_doctor_status,
             generation_id: context.generation_id.to_owned(),
             generation_layout: context.generation_layout,
             has_code_mode_host: context.has_code_mode_host,

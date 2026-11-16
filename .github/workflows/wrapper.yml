@@ -1,25 +1,30 @@
-name: Minimal wrapper CI
+name: Wrapper CI
 
 on:
   push:
     branches:
-      - rewrite/minimal-wrapper
+      - main
+      - wrapper
+      - rewrite/wrapper
     tags:
-      - 'minimal-v*'
-      - 'minimal-wrapper*'
+      - 'wrapper'
+      - 'wrapper-*'
+      - 'v*'
   pull_request:
     branches:
-      - rewrite/minimal-wrapper
+      - main
+      - wrapper
+      - rewrite/wrapper
   workflow_dispatch:
     inputs:
       publish_release:
-        description: Publish minimal-wrapper GitHub Release assets
+        description: Publish wrapper GitHub Release assets
         type: boolean
         default: false
       release_tag:
         description: Target GitHub Release tag when publish_release is true
         type: string
-        default: minimal-wrapper
+        default: wrapper
       prerelease:
         description: Mark published GitHub Release as prerelease (keeps /releases/latest untouched)
         type: boolean
@@ -29,8 +34,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: minimal-wrapper-${{ github.ref }}
-  cancel-in-progress: ${{ github.ref == 'refs/heads/rewrite/minimal-wrapper' || github.event_name == 'pull_request' }}
+  group: wrapper-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/wrapper' || github.ref == 'refs/heads/rewrite/wrapper' || github.event_name == 'pull_request' }}
 
 env:
   RUST_VERSION: '1.99.1'
@@ -103,7 +108,7 @@ jobs:
                       if not (md.parent / rel).resolve().exists():
                           broken.append(f'{md.relative_to(root)}:{lineno}: {target}')
           assert not broken, 'Broken markdown links:\n' + '\n'.join(broken)
-          print('Stage 1 workspace scope and markdown links verified.')
+          print('Wrapper workspace scope and markdown links verified.')
           PYCHECK
           if git rev-parse HEAD^ >/dev/null 2>&1; then
             git diff --check HEAD^ HEAD
@@ -123,9 +128,9 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: minimal-host-${{ runner.os }}-${{ runner.arch }}-rust${{ env.RUST_VERSION }}-${{ hashFiles('Cargo.toml', 'Cargo.lock') }}
+          key: wrapper-host-${{ runner.os }}-${{ runner.arch }}-rust${{ env.RUST_VERSION }}-${{ hashFiles('Cargo.toml', 'Cargo.lock') }}
           restore-keys: |
-            minimal-host-${{ runner.os }}-${{ runner.arch }}-rust${{ env.RUST_VERSION }}-
+            wrapper-host-${{ runner.os }}-${{ runner.arch }}-rust${{ env.RUST_VERSION }}-
 
       - name: Format, clippy, and unit tests
         shell: bash
@@ -170,11 +175,11 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: minimal-android-${{ runner.os }}-rust${{ env.RUST_VERSION }}-api${{ env.ANDROID_API }}-${{ hashFiles('Cargo.toml', 'Cargo.lock') }}
+          key: wrapper-android-${{ runner.os }}-rust${{ env.RUST_VERSION }}-api${{ env.ANDROID_API }}-${{ hashFiles('Cargo.toml', 'Cargo.lock') }}
           restore-keys: |
-            minimal-android-${{ runner.os }}-rust${{ env.RUST_VERSION }}-api${{ env.ANDROID_API }}-
+            wrapper-android-${{ runner.os }}-rust${{ env.RUST_VERSION }}-api${{ env.ANDROID_API }}-
 
-      - name: Cross-compile Stage 1 wrapper binaries
+      - name: Cross-compile wrapper binaries
         shell: bash
         run: |
           set -euo pipefail
@@ -197,11 +202,11 @@ jobs:
             readelf -l "$elf" | grep -F '/system/bin/linker64'
           done
 
-      - name: Package minimal-wrapper release bundle
+      - name: Package wrapper release bundle
         shell: bash
         run: |
           set -euo pipefail
-          bundle="$RUNNER_TEMP/codex-minimal-wrapper-aarch64-linux-android"
+          bundle="$RUNNER_TEMP/codex-wrapper-aarch64-linux-android"
           dist="$RUNNER_TEMP/dist"
           rm -rf "$bundle" "$dist"
           mkdir -p "$bundle/bin" "$dist"
@@ -218,7 +223,7 @@ jobs:
             sha256sum -c SHA256SUMS
           )
 
-          tarball="codex-minimal-wrapper-aarch64-linux-android.tar.gz"
+          tarball="codex-wrapper-aarch64-linux-android.tar.gz"
           tar --sort=name --mtime='UTC 2026-01-01' --owner=0 --group=0 --numeric-owner \
             -cf - -C "$bundle" . | gzip -n -9 > "$dist/$tarball"
           (
@@ -233,7 +238,7 @@ jobs:
       - name: Upload packaged release artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: minimal-wrapper-android
+          name: wrapper-android
           path: ${{ runner.temp }}/dist/*
           if-no-files-found: error
           retention-days: 30
@@ -249,7 +254,7 @@ jobs:
       - name: Download packaged release artifact
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
-          name: minimal-wrapper-android
+          name: wrapper-android
           path: ${{ runner.temp }}/dist
 
       - name: Provision Android Runtime Bionic linker64 and Termux test layout
@@ -299,7 +304,7 @@ jobs:
           bundle="$RUNNER_TEMP/unpacked"
           smoke_home="$RUNNER_TEMP/smoke-home"
           prefix="/data/data/com.termux/files/usr"
-          tarball="codex-minimal-wrapper-aarch64-linux-android.tar.gz"
+          tarball="codex-wrapper-aarch64-linux-android.tar.gz"
 
           (
             cd "$dist"
@@ -335,9 +340,9 @@ jobs:
           test "$subcmd_sandbox_rc" -eq 2
 
   release:
-    name: Publish minimal-wrapper GitHub Release
+    name: Publish wrapper GitHub Release
     needs: [checks, android-package, android-smoke]
-    if: startsWith(github.ref, 'refs/tags/minimal-') || (github.event_name == 'workflow_dispatch' && inputs.publish_release == true)
+    if: github.ref == 'refs/tags/wrapper' || startsWith(github.ref, 'refs/tags/wrapper-') || startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.publish_release == true)
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -346,7 +351,7 @@ jobs:
       - name: Download packaged release artifact
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
-          name: minimal-wrapper-android
+          name: wrapper-android
           path: ${{ runner.temp }}/dist
 
       - name: Create or update GitHub Release
@@ -371,9 +376,9 @@ jobs:
           esac
 
           dist="$RUNNER_TEMP/dist"
-          sha_line="$(cat "$dist/codex-minimal-wrapper-aarch64-linux-android.tar.gz.sha256")"
+          sha_line="$(cat "$dist/codex-wrapper-aarch64-linux-android.tar.gz.sha256")"
           notes="$(printf '%s\n' \
-            "Stage 1 Termux minimal codex wrapper ($tag)." \
+            "Termux codex wrapper ($tag)." \
             "" \
             "- Source commit: $GITHUB_SHA" \
             "- Target: aarch64-linux-android (Android API 24)" \
@@ -389,7 +394,7 @@ jobs:
             gh release upload "$tag" "$dist"/* --repo "$GITHUB_REPOSITORY" --clobber
             gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --notes "$notes"
           else
-            flags=(--repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "Stage 1 Minimal Wrapper ($tag)" --notes "$notes")
+            flags=(--repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "Termux Codex Wrapper ($tag)" --notes "$notes")
             if [ "$EVENT_NAME" = "workflow_dispatch" ] && [ "$INPUT_PRERELEASE" = "true" ]; then
               flags+=(--prerelease)
             elif [ "$EVENT_NAME" != "workflow_dispatch" ] && [[ "$tag" == *-* ]]; then

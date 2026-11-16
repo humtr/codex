@@ -46,11 +46,11 @@ pub(super) fn launch_lease(root: &Path) -> io::Result<Option<File>> {
 }
 
 pub(super) struct UpdateLease<'a> {
-    roots: &'a LocalCoreRoots,
+    roots: &'a LocalWrapperRoots,
     file: Option<File>,
 }
 impl<'a> UpdateLease<'a> {
-    pub(super) fn acquire(roots: &'a LocalCoreRoots) -> Result<Self, LocalProductError> {
+    pub(super) fn acquire(roots: &'a LocalWrapperRoots) -> Result<Self, LocalProductError> {
         let file =
             launch_lease(&roots.generation_root).map_err(|source| LocalProductError::Io {
                 operation: "lease installed generations during update",
@@ -66,7 +66,7 @@ impl Drop for UpdateLease<'_> {
     }
 }
 
-fn dependencies(state: &m2_generation_state::GenerationPointerState) -> HashSet<String> {
+fn dependencies(state: &generation_state::GenerationPointerState) -> HashSet<String> {
     let mut keep = HashSet::from([state.current.clone()]);
     if let Some(previous) = state.previous.as_ref() {
         keep.insert(previous.clone());
@@ -80,7 +80,7 @@ fn referenced_generation(path: &Path, root: &Path) -> Option<String> {
         return None;
     };
     let id = id.to_str()?;
-    if m2_generation_state::validate_generation_identity(id, "retained generation").is_err()
+    if generation_state::validate_generation_identity(id, "retained generation").is_err()
         && !staging_name(id, ".acquire-")
         && !staging_name(id, ".candidate-")
         && !staging_name(id, ".local-update-")
@@ -255,7 +255,7 @@ fn prune_directory(root: &Path, keep: &HashSet<String>, staging_only: bool) -> i
             || staging_name(name, ".candidate-")
             || staging_name(name, ".local-update-");
         let generation = !staging_only
-            && m2_generation_state::validate_generation_identity(name, "disposable generation")
+            && generation_state::validate_generation_identity(name, "disposable generation")
                 .is_ok();
         if !staging && !generation {
             continue;
@@ -276,7 +276,7 @@ fn prune_directory(root: &Path, keep: &HashSet<String>, staging_only: bool) -> i
     Ok(removed)
 }
 
-pub(super) fn prune(roots: &LocalCoreRoots) -> io::Result<usize> {
+pub(super) fn prune(roots: &LocalWrapperRoots) -> io::Result<usize> {
     owned_directory(&roots.generation_root)?;
     let parent = roots.generation_root.parent().ok_or_else(invalid)?;
     owned_directory(parent)?;
@@ -286,8 +286,8 @@ pub(super) fn prune(roots: &LocalCoreRoots) -> io::Result<usize> {
     }
     owned_directory(&roots.state_root)?;
     let paths =
-        m2_generation_state::CoreStatePaths::new(&roots.state_root).map_err(|_| invalid())?;
-    let _writer = m2_generation_state::acquire_activation_lock(&paths).map_err(|_| invalid())?;
+        generation_state::WrapperStatePaths::new(&roots.state_root).map_err(|_| invalid())?;
+    let _writer = generation_state::acquire_activation_lock(&paths).map_err(|_| invalid())?;
     for name in [
         "activation-journal",
         "activation-journal.tmp",
@@ -299,7 +299,7 @@ pub(super) fn prune(roots: &LocalCoreRoots) -> io::Result<usize> {
             Err(e) => return Err(e),
         }
     }
-    let state = m2_generation_state::read_pointer_state(&paths)
+    let state = generation_state::read_pointer_state(&paths)
         .map_err(|_| invalid())?
         .ok_or_else(invalid)?;
     let mut keep = dependencies(&state);

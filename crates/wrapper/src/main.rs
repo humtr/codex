@@ -16,12 +16,12 @@ mod timezone;
 mod update;
 
 #[cfg(unix)]
-use state::m2_generation_state;
+use state::generation_state;
 
 #[cfg(unix)]
 mod unix_app {
     use super::{
-        daemon_settings, doctor, fs_util, m2_generation_state, maintenance, timezone, update,
+        daemon_settings, doctor, fs_util, generation_state, maintenance, timezone, update,
     };
     use std::ffi::{OsStr, OsString};
     use std::fs::{self, File, OpenOptions};
@@ -62,34 +62,28 @@ mod unix_app {
     pub(super) const REMOTE_CONTROL_TRANSFER_TIMEOUT_SECONDS: &str = "30";
     pub(super) const REMOTE_TRANSFER_TIMEOUT_SECONDS: &str = "1800";
 
-    const LOCAL_GENERATION_FORMAT_V3: &str = "codex-local-generation-v3";
-    const LOCAL_GENERATION_FORMAT_V2: &str = "codex-local-generation-v2";
-    const LEGACY_GENERATION_FORMAT_V1: &str = "codex-local-generation-v1";
-    const V3_RUNTIME_PATH: &str = "bin/codex";
-    const V3_CODE_MODE_HOST_PATH: &str = "bin/codex-code-mode-host";
-    const V3_EXEC_SERVER_PATH: &str = "bin/codex-exec-server";
-    const V3_PACKAGE_JSON_PATH: &str = "codex-package.json";
-    const CODE_MODE_HOST_FILE: &str = "codex-code-mode-host";
+    const LOCAL_GENERATION_FORMAT: &str = "codex-local-generation";
+    const WRAPPER_RUNTIME_PATH: &str = "bin/codex";
+    const WRAPPER_CODE_MODE_HOST_PATH: &str = "bin/codex-code-mode-host";
+    const WRAPPER_EXEC_SERVER_PATH: &str = "bin/codex-exec-server";
+    const WRAPPER_PACKAGE_JSON_PATH: &str = "codex-package.json";
 
-    const CORE_API_IDENTITY: &str = "wrapper-api-v1";
-    const PERSISTENT_SCHEMA_IDENTITY: &str = "schema-v1";
+    const WRAPPER_API_IDENTITY: &str = "wrapper-api";
+    const PERSISTENT_SCHEMA_IDENTITY: &str = "schema";
     const EXPECTED_PLATFORM: &str = "android";
     const EXPECTED_ARCHITECTURE: &str = "aarch64";
-    const R10_BROWSER_HELPER_BRIDGE_METADATA: &str = "codex-r10-browser-helper-bridge-v1";
 
-    const TERMUX_BROWSER_OPEN_HELPER_IDENTITY: &str = "termux-browser-open-v1";
-    const TERMUX_BROWSER_MANUAL_HELPER_IDENTITY: &str = "termux-browser-manual-v1";
+    const TERMUX_BROWSER_OPEN_HELPER_IDENTITY: &str = "termux-browser-open";
+    const TERMUX_BROWSER_MANUAL_HELPER_IDENTITY: &str = "termux-browser-manual";
 
     const LOCAL_GENERATION_MAX_BYTES: usize = 256 * 1024;
     const LOCAL_RELEASE_MAX_FILES: usize = 64;
     const RESOLVER_SYNTHESIS_MAX_BYTES: usize = 64 * 1024;
     const RESOLVER_DEFAULT_OPTIONS: &[u8] = b"options timeout:2 attempts:10\n";
 
-    // Minimal FD 34 configuration loaded by upstream Codex via --config / inherited dirfd.
-    const TERMUX_CORE_CONFIG_CONTENT: &str =
-        "# codex-termux-notify-v1\nsandbox_mode = \"danger-full-access\"\nmcp_oauth_credentials_store = \"file\"\n";
-    // Legacy marker from removed addon shared-state layout; removed safely only when exact prefix matches.
-    const STALE_REQUIREMENTS_MARKER: &str = "# codex-termux-shared-state-v1\n";
+    // FD 34 configuration loaded by upstream Codex via inherited dirfd.
+    const TERMUX_WRAPPER_CONFIG_CONTENT: &str =
+        "# codex-termux-wrapper\nsandbox_mode = \"danger-full-access\"\nmcp_oauth_credentials_store = \"file\"\n";
 
     pub(super) static LOCAL_STAGING_COUNTER: AtomicU64 = AtomicU64::new(0);
     static RESOLVER_SYNTHESIS_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -502,11 +496,11 @@ mod unix_app {
         }
     }
 
-    pub(super) fn prepare_core_config(config_dir: &Path) -> io::Result<()> {
+    pub(super) fn prepare_wrapper_config(config_dir: &Path) -> io::Result<()> {
         fs_util::private_dir(config_dir)?;
 
         let config_path = config_dir.join("config.toml");
-        let expected = TERMUX_CORE_CONFIG_CONTENT.as_bytes();
+        let expected = TERMUX_WRAPPER_CONFIG_CONTENT.as_bytes();
         let up_to_date = match fs::symlink_metadata(&config_path) {
             Ok(meta) => {
                 if !meta.file_type().is_file() {
@@ -544,21 +538,6 @@ mod unix_app {
             }
             if let Ok(dir) = File::open(config_dir) {
                 let _ = dir.sync_all();
-            }
-        }
-
-        // Remove stale wrapper-managed requirements.toml left by pre-minimal addon releases.
-        let req_path = config_dir.join("requirements.toml");
-        if let Ok(meta) = fs::symlink_metadata(&req_path) {
-            if meta.file_type().is_file() {
-                if let Ok(mut file) = File::open(&req_path) {
-                    let mut prefix = vec![0u8; STALE_REQUIREMENTS_MARKER.len()];
-                    if io::Read::read_exact(&mut file, &mut prefix).is_ok()
-                        && prefix == STALE_REQUIREMENTS_MARKER.as_bytes()
-                    {
-                        let _ = fs::remove_file(&req_path);
-                    }
-                }
             }
         }
         Ok(())
@@ -668,7 +647,7 @@ mod unix_app {
 
     pub(super) fn plan_termux_env(
         snapshot: &TermuxProcessEnvSnapshot,
-        compat_dir: &OsStr,
+        generation_dir: &OsStr,
         browser_helpers: Option<(&OsStr, &OsStr)>,
         cert_file: &OsStr,
         cert_dir: Option<&OsStr>,
@@ -679,8 +658,10 @@ mod unix_app {
         let prefix = required_process_env(&snapshot.prefix, "PREFIX")?;
         let temp_dir = required_process_env(&snapshot.tmpdir, "TMPDIR")?;
         let prefix_bin = PathBuf::from(prefix).join("bin");
-        if !valid_path_component(compat_dir) {
-            return Err(TermuxProcessEnvError::InvalidPathComponent("compat_dir"));
+        if !valid_path_component(generation_dir) {
+            return Err(TermuxProcessEnvError::InvalidPathComponent(
+                "generation_dir",
+            ));
         }
         if !valid_path_component(prefix_bin.as_os_str()) {
             return Err(TermuxProcessEnvError::InvalidPathComponent("prefix_bin"));
@@ -700,12 +681,12 @@ mod unix_app {
 
         let inherited_path = snapshot.inherited_path.as_deref().unwrap_or_default();
         let mut path = Vec::with_capacity(
-            compat_dir.as_bytes().len()
+            generation_dir.as_bytes().len()
                 + prefix_bin.as_os_str().as_bytes().len()
                 + inherited_path.as_bytes().len()
                 + 2,
         );
-        path.extend_from_slice(compat_dir.as_bytes());
+        path.extend_from_slice(generation_dir.as_bytes());
         path.push(b':');
         path.extend_from_slice(prefix_bin.as_os_str().as_bytes());
         if !inherited_path.is_empty() {
@@ -803,17 +784,13 @@ mod unix_app {
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub(super) enum GenerationLayout {
-        PackageRootV3,
-        RootCodeModeHost,
-        LegacyCompat,
+        PackageRoot,
     }
 
     impl GenerationLayout {
         pub(super) fn as_str(self) -> &'static str {
             match self {
-                GenerationLayout::PackageRootV3 => "package-root-v3",
-                GenerationLayout::RootCodeModeHost => "root-code-mode-host",
-                GenerationLayout::LegacyCompat => "legacy-compat",
+                GenerationLayout::PackageRoot => "package-root",
             }
         }
     }
@@ -836,7 +813,6 @@ mod unix_app {
         pub(super) runtime_digest: String,
         pub(super) helper_digests: Vec<GenerationHelperDigest>,
         pub(super) wrapper_artifact_digest: String,
-        pub(super) manager_artifact_digest: Option<String>,
         pub(super) wrapper_api_identity: String,
         pub(super) persistent_schema_identity: String,
         pub(super) creation_metadata: String,
@@ -847,7 +823,7 @@ mod unix_app {
         EmptyRequired(&'static str),
         PlatformMismatch,
         ArchitectureMismatch,
-        CoreApiMismatch,
+        WrapperApiMismatch,
         PersistentSchemaMismatch,
         DuplicateHelperIdentity { first: usize, duplicate: usize },
     }
@@ -864,7 +840,7 @@ mod unix_app {
                 GenerationManifestError::ArchitectureMismatch => {
                     f.write_str("generation manifest architecture is not aarch64")
                 }
-                GenerationManifestError::CoreApiMismatch => {
+                GenerationManifestError::WrapperApiMismatch => {
                     f.write_str("generation manifest wrapper API identity is incompatible")
                 }
                 GenerationManifestError::PersistentSchemaMismatch => {
@@ -897,6 +873,7 @@ mod unix_app {
             ("patch_report", &manifest.patch_report),
             ("runtime_digest", &manifest.runtime_digest),
             ("wrapper_artifact_digest", &manifest.wrapper_artifact_digest),
+            ("creation_metadata", &manifest.creation_metadata),
         ] {
             if value.is_empty() {
                 return Err(GenerationManifestError::EmptyRequired(name));
@@ -908,8 +885,8 @@ mod unix_app {
         if manifest.expected_architecture != EXPECTED_ARCHITECTURE {
             return Err(GenerationManifestError::ArchitectureMismatch);
         }
-        if manifest.wrapper_api_identity != CORE_API_IDENTITY {
-            return Err(GenerationManifestError::CoreApiMismatch);
+        if manifest.wrapper_api_identity != WRAPPER_API_IDENTITY {
+            return Err(GenerationManifestError::WrapperApiMismatch);
         }
         if manifest.persistent_schema_identity != PERSISTENT_SCHEMA_IDENTITY {
             return Err(GenerationManifestError::PersistentSchemaMismatch);
@@ -943,7 +920,7 @@ mod unix_app {
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub(super) struct RuntimeAssetSelection<'a> {
         pub(super) runtime: RuntimeAssetBinding<'a>,
-        pub(super) compatibility_dir: &'a OsStr,
+        pub(super) generation_dir: &'a OsStr,
         pub(super) helpers: &'a [HelperAssetBinding<'a>],
     }
 
@@ -952,7 +929,7 @@ mod unix_app {
         EmptyPath(&'static str),
         RelativePath(&'static str),
         NulPath(&'static str),
-        InvalidCompatibilityDir,
+        InvalidGenerationDir,
         EmptyRuntimeDigest,
         DuplicateHelperIdentity { first: usize, duplicate: usize },
     }
@@ -969,8 +946,8 @@ mod unix_app {
                 RuntimeAssetError::NulPath(name) => {
                     write!(f, "runtime asset path '{name}' must not contain NUL")
                 }
-                RuntimeAssetError::InvalidCompatibilityDir => {
-                    f.write_str("compatibility directory is not a valid PATH component")
+                RuntimeAssetError::InvalidGenerationDir => {
+                    f.write_str("generation directory is not a valid PATH component")
                 }
                 RuntimeAssetError::EmptyRuntimeDigest => {
                     f.write_str("runtime asset digest is empty")
@@ -1041,9 +1018,9 @@ mod unix_app {
         selection: &'selection RuntimeAssetSelection<'asset>,
     ) -> Result<QualifiedRuntimeAssets<'selection, 'asset>, RuntimeAssetError> {
         validate_absolute_runtime_asset_path(selection.runtime.program_path, "runtime_program")?;
-        validate_absolute_runtime_asset_path(selection.compatibility_dir, "compatibility_dir")?;
-        if !valid_path_component(selection.compatibility_dir) {
-            return Err(RuntimeAssetError::InvalidCompatibilityDir);
+        validate_absolute_runtime_asset_path(selection.generation_dir, "generation_dir")?;
+        if !valid_path_component(selection.generation_dir) {
+            return Err(RuntimeAssetError::InvalidGenerationDir);
         }
         if selection.runtime.observed_digest.is_empty() {
             return Err(RuntimeAssetError::EmptyRuntimeDigest);
@@ -1075,7 +1052,7 @@ mod unix_app {
     }
 
     #[derive(Debug, Clone)]
-    pub(super) struct LocalCoreRoots {
+    pub(super) struct LocalWrapperRoots {
         pub(super) generation_root: PathBuf,
         pub(super) state_root: PathBuf,
         pub(super) config_dir: PathBuf,
@@ -1091,13 +1068,13 @@ mod unix_app {
             .filter(|v| !v.is_empty())
             .ok_or(LocalProductError::MissingEnvironment(name))?;
         let path = PathBuf::from(value);
-        if !fs_util::core_safe_absolute_path(&path) {
+        if !fs_util::wrapper_safe_absolute_path(&path) {
             return Err(LocalProductError::InvalidEnvironmentPath(name));
         }
         Ok(path)
     }
 
-    impl LocalCoreRoots {
+    impl LocalWrapperRoots {
         pub(super) fn from_environment() -> Result<Self, LocalProductError> {
             let home = required_absolute_env_path("HOME")?;
             let prefix = required_absolute_env_path("PREFIX")?;
@@ -1119,8 +1096,8 @@ mod unix_app {
     pub(super) enum LocalProductError {
         MissingEnvironment(&'static str),
         InvalidEnvironmentPath(&'static str),
-        StateFormat(m2_generation_state::StateFormatError),
-        State(m2_generation_state::ActivationTransactionError),
+        StateFormat(generation_state::StateFormatError),
+        State(generation_state::ActivationTransactionError),
         NoCurrentGeneration,
         Io {
             operation: &'static str,
@@ -1264,15 +1241,14 @@ mod unix_app {
         pub(super) cert_dir: Option<&'context OsStr>,
         pub(super) resolver_path: &'context Path,
         pub(super) config_dir: &'context Path,
-        pub(super) doctor_capability: doctor::UpstreamDoctorCapability,
-        pub(super) core_doctor_status: doctor::CoreDoctorStatus,
+        pub(super) wrapper_doctor_status: doctor::WrapperDoctorStatus,
         pub(super) generation_id: &'context str,
         pub(super) generation_layout: GenerationLayout,
         pub(super) has_code_mode_host: bool,
     }
 
     #[derive(Debug, Clone, PartialEq, Eq)]
-    enum PublicDispatchCompletion {
+    pub(super) enum PublicDispatchCompletion {
         Doctor(doctor::DoctorCommandOutcome),
     }
 
@@ -1280,11 +1256,10 @@ mod unix_app {
     pub(super) struct LoadedLocalGeneration {
         pub(super) generation_id: String,
         pub(super) manifest: GenerationManifest,
-        pub(super) doctor_capability: doctor::UpstreamDoctorCapability,
         pub(super) generation_layout: GenerationLayout,
         pub(super) runtime_path: PathBuf,
         pub(super) code_mode_host_path: Option<PathBuf>,
-        pub(super) compatibility_dir: PathBuf,
+        pub(super) generation_dir: PathBuf,
         pub(super) helper_paths: Vec<PathBuf>,
     }
 
@@ -1310,21 +1285,10 @@ mod unix_app {
         Ok(value)
     }
 
-    fn parse_generation_helper_path(
-        identity: &str,
-        r10_browser_helper_bridge: bool,
-    ) -> Option<&'static str> {
+    fn parse_generation_helper_path(identity: &str) -> Option<&'static str> {
         match identity {
-            TERMUX_BROWSER_OPEN_HELPER_IDENTITY => Some(if r10_browser_helper_bridge {
-                "helpers/browser-open"
-            } else {
-                "browser/open/curl"
-            }),
-            TERMUX_BROWSER_MANUAL_HELPER_IDENTITY => Some(if r10_browser_helper_bridge {
-                "helpers/browser-manual"
-            } else {
-                "browser/manual/curl"
-            }),
+            TERMUX_BROWSER_OPEN_HELPER_IDENTITY => Some("browser/open/curl"),
+            TERMUX_BROWSER_MANUAL_HELPER_IDENTITY => Some("browser/manual/curl"),
             _ => None,
         }
     }
@@ -1352,11 +1316,9 @@ mod unix_app {
         }
         let text = std::str::from_utf8(&bytes)
             .map_err(|_| LocalProductError::Descriptor("generation descriptor is not UTF-8"))?;
-        let mut lines = text.lines().peekable();
+        let mut lines = text.lines();
         let generation_layout = match lines.next() {
-            Some(LOCAL_GENERATION_FORMAT_V3) => GenerationLayout::PackageRootV3,
-            Some(LOCAL_GENERATION_FORMAT_V2) => GenerationLayout::RootCodeModeHost,
-            Some(LEGACY_GENERATION_FORMAT_V1) => GenerationLayout::LegacyCompat,
+            Some(LOCAL_GENERATION_FORMAT) => GenerationLayout::PackageRoot,
             _ => {
                 return Err(LocalProductError::Descriptor(
                     "generation descriptor format is unsupported",
@@ -1365,7 +1327,7 @@ mod unix_app {
         };
 
         let generation_id = descriptor_field(lines.next(), "generation_id")?;
-        m2_generation_state::validate_generation_identity(generation_id, "generation_id")
+        generation_state::validate_generation_identity(generation_id, "generation_id")
             .map_err(LocalProductError::StateFormat)?;
         let upstream_package_identity =
             descriptor_field(lines.next(), "upstream_package_identity")?;
@@ -1377,18 +1339,6 @@ mod unix_app {
         let patch_report = descriptor_field(lines.next(), "patch_report")?;
         let runtime_digest = descriptor_field(lines.next(), "runtime_digest")?;
         let wrapper_artifact_digest = descriptor_field(lines.next(), "wrapper_artifact_digest")?;
-
-        // Accept both minimal Stage 1 descriptors (no manager_artifact_digest) and pre-existing v3 descriptors.
-        let manager_artifact_digest = if lines
-            .peek()
-            .is_some_and(|line| line.starts_with("manager_artifact_digest\t"))
-        {
-            let value = descriptor_field(lines.next(), "manager_artifact_digest")?;
-            (value != "-").then(|| value.to_owned())
-        } else {
-            None
-        };
-
         let wrapper_api_identity = descriptor_field(lines.next(), "wrapper_api_identity")?;
         let persistent_schema_identity =
             descriptor_field(lines.next(), "persistent_schema_identity")?;
@@ -1398,15 +1348,6 @@ mod unix_app {
             ));
         }
         let creation_metadata = descriptor_field(lines.next(), "creation_metadata")?;
-        let doctor_capability = match descriptor_field(lines.next(), "upstream_doctor")? {
-            "supported" => doctor::UpstreamDoctorCapability::Supported,
-            "unsupported" => doctor::UpstreamDoctorCapability::Unsupported,
-            _ => {
-                return Err(LocalProductError::Descriptor(
-                    "generation descriptor doctor capability is invalid",
-                ))
-            }
-        };
         let helper_count_str = descriptor_field(lines.next(), "helper_count")?;
         if !valid_nonnegative_decimal(helper_count_str) {
             return Err(LocalProductError::Descriptor(
@@ -1422,7 +1363,6 @@ mod unix_app {
             ));
         }
 
-        let r10_bridge = creation_metadata == R10_BROWSER_HELPER_BRIDGE_METADATA;
         let mut helper_digests = Vec::with_capacity(helper_count);
         let mut helper_paths = Vec::with_capacity(helper_count);
         for _ in 0..helper_count {
@@ -1454,7 +1394,7 @@ mod unix_app {
                     "generation helper entry is invalid",
                 ));
             }
-            if let Some(rel) = parse_generation_helper_path(identity, r10_bridge) {
+            if let Some(rel) = parse_generation_helper_path(identity) {
                 helper_digests.push(GenerationHelperDigest {
                     identity: identity.to_owned(),
                     digest: digest.to_owned(),
@@ -1479,25 +1419,17 @@ mod unix_app {
             runtime_digest: runtime_digest.to_owned(),
             helper_digests,
             wrapper_artifact_digest: wrapper_artifact_digest.to_owned(),
-            manager_artifact_digest,
             wrapper_api_identity: wrapper_api_identity.to_owned(),
             persistent_schema_identity: persistent_schema_identity.to_owned(),
             creation_metadata: creation_metadata.to_owned(),
         };
 
-        let runtime_path = match generation_layout {
-            GenerationLayout::PackageRootV3 => {
-                ensure_real_directory(
-                    &generation_dir.join("bin"),
-                    "inspect activated generation bin directory",
-                    "activated generation bin directory must be a real directory",
-                )?;
-                generation_dir.join(V3_RUNTIME_PATH)
-            }
-            GenerationLayout::RootCodeModeHost | GenerationLayout::LegacyCompat => {
-                generation_dir.join("runtime")
-            }
-        };
+        ensure_real_directory(
+            &generation_dir.join("bin"),
+            "inspect activated generation bin directory",
+            "activated generation bin directory must be a real directory",
+        )?;
+        let runtime_path = generation_dir.join(WRAPPER_RUNTIME_PATH);
         if !runtime_path.is_file() {
             return Err(LocalProductError::Descriptor(
                 "activated generation runtime is missing",
@@ -1509,114 +1441,66 @@ mod unix_app {
             "activated generation runtime must be a regular file",
         )?;
 
-        let (code_mode_host_path, compatibility_dir) = match generation_layout {
-            GenerationLayout::PackageRootV3 => {
-                let code_mode_host = generation_dir.join(V3_CODE_MODE_HOST_PATH);
-                let code_mode_host_path = match fs::symlink_metadata(&code_mode_host) {
-                    Ok(_) => {
-                        ensure_regular_file(
-                            &code_mode_host,
-                            "inspect activated generation code-mode host",
-                            "activated generation code-mode host must be a regular file",
-                        )?;
-                        Some(code_mode_host)
-                    }
-                    Err(err) if err.kind() == io::ErrorKind::NotFound => None,
-                    Err(source) => {
-                        return Err(LocalProductError::Io {
-                            operation: "inspect activated generation code-mode host",
-                            source,
-                        })
-                    }
-                };
-                match fs::symlink_metadata(generation_dir.join(V3_EXEC_SERVER_PATH)) {
-                    Ok(_) => ensure_regular_file(
-                        &generation_dir.join(V3_EXEC_SERVER_PATH),
-                        "inspect activated generation exec server",
-                        "activated generation exec server must be a regular file",
-                    )?,
-                    Err(err) if err.kind() == io::ErrorKind::NotFound => {}
-                    Err(source) => {
-                        return Err(LocalProductError::Io {
-                            operation: "inspect activated generation exec server",
-                            source,
-                        })
-                    }
-                }
-                ensure_regular_file(
-                    &generation_dir.join(V3_PACKAGE_JSON_PATH),
-                    "inspect activated generation package metadata",
-                    "activated generation package metadata must be a regular file",
-                )?;
-                for forbidden in ["compat", "runtime", CODE_MODE_HOST_FILE] {
-                    match fs::symlink_metadata(generation_dir.join(forbidden)) {
-                        Ok(_) => {
-                            return Err(LocalProductError::UnsafeSource(
-                                "v3 generation contains unexpected legacy path",
-                            ))
-                        }
-                        Err(err) if err.kind() == io::ErrorKind::NotFound => {}
-                        Err(source) => {
-                            return Err(LocalProductError::Io {
-                                operation: "inspect activated generation layout",
-                                source,
-                            })
-                        }
-                    }
-                }
-                for subdir in ["codex-path", "codex-resources"] {
-                    ensure_real_directory_if_present(
-                        &generation_dir.join(subdir),
-                        "inspect activated generation package directory",
-                        "activated generation package directory must be a real directory",
-                    )?;
-                }
-                (code_mode_host_path, generation_dir.to_path_buf())
-            }
-            GenerationLayout::RootCodeModeHost => {
-                let code_mode_host = generation_dir.join(CODE_MODE_HOST_FILE);
+        let code_mode_host = generation_dir.join(WRAPPER_CODE_MODE_HOST_PATH);
+        let code_mode_host_path = match fs::symlink_metadata(&code_mode_host) {
+            Ok(_) => {
                 ensure_regular_file(
                     &code_mode_host,
                     "inspect activated generation code-mode host",
                     "activated generation code-mode host must be a regular file",
                 )?;
-                match fs::symlink_metadata(generation_dir.join("compat")) {
-                    Ok(_) => {
-                        return Err(LocalProductError::UnsafeSource(
-                            "v2 generation must not contain a compatibility directory",
-                        ))
-                    }
-                    Err(err) if err.kind() == io::ErrorKind::NotFound => {}
-                    Err(source) => {
-                        return Err(LocalProductError::Io {
-                            operation: "inspect activated generation compatibility directory",
-                            source,
-                        })
-                    }
-                }
-                (Some(code_mode_host), generation_dir.to_path_buf())
+                Some(code_mode_host)
             }
-            GenerationLayout::LegacyCompat => {
-                let compat = generation_dir.join("compat");
-                if !compat.is_dir() {
-                    return Err(LocalProductError::Descriptor(
-                        "activated generation compatibility directory is missing",
-                    ));
-                }
-                ensure_real_directory(
-                    &compat,
-                    "inspect activated generation compatibility directory",
-                    "activated generation compatibility directory must be a real directory",
-                )?;
-                let code_mode_host = compat.join(CODE_MODE_HOST_FILE);
-                ensure_regular_file(
-                    &code_mode_host,
-                    "inspect legacy generation code-mode host",
-                    "legacy generation code-mode host must be a regular file",
-                )?;
-                (Some(code_mode_host), compat)
+            Err(err) if err.kind() == io::ErrorKind::NotFound => None,
+            Err(source) => {
+                return Err(LocalProductError::Io {
+                    operation: "inspect activated generation code-mode host",
+                    source,
+                })
             }
         };
+        match fs::symlink_metadata(generation_dir.join(WRAPPER_EXEC_SERVER_PATH)) {
+            Ok(_) => ensure_regular_file(
+                &generation_dir.join(WRAPPER_EXEC_SERVER_PATH),
+                "inspect activated generation exec server",
+                "activated generation exec server must be a regular file",
+            )?,
+            Err(err) if err.kind() == io::ErrorKind::NotFound => {}
+            Err(source) => {
+                return Err(LocalProductError::Io {
+                    operation: "inspect activated generation exec server",
+                    source,
+                })
+            }
+        }
+        ensure_regular_file(
+            &generation_dir.join(WRAPPER_PACKAGE_JSON_PATH),
+            "inspect activated generation package metadata",
+            "activated generation package metadata must be a regular file",
+        )?;
+        for forbidden in ["compat", "runtime", "codex-code-mode-host"] {
+            match fs::symlink_metadata(generation_dir.join(forbidden)) {
+                Ok(_) => {
+                    return Err(LocalProductError::UnsafeSource(
+                        "generation contains unexpected legacy path",
+                    ))
+                }
+                Err(err) if err.kind() == io::ErrorKind::NotFound => {}
+                Err(source) => {
+                    return Err(LocalProductError::Io {
+                        operation: "inspect activated generation layout",
+                        source,
+                    })
+                }
+            }
+        }
+        for subdir in ["codex-path", "codex-resources"] {
+            ensure_real_directory_if_present(
+                &generation_dir.join(subdir),
+                "inspect activated generation package directory",
+                "activated generation package directory must be a real directory",
+            )?;
+        }
 
         for (index, helper_path) in helper_paths.iter().enumerate() {
             if !helper_path.is_file() {
@@ -1625,34 +1509,25 @@ mod unix_app {
                 ));
             }
             let identity = manifest.helper_digests[index].identity.as_str();
-            match identity {
+            if matches!(
+                identity,
                 TERMUX_BROWSER_OPEN_HELPER_IDENTITY | TERMUX_BROWSER_MANUAL_HELPER_IDENTITY
-                    if r10_bridge =>
-                {
-                    ensure_real_directory(
-                        &generation_dir.join("helpers"),
-                        "inspect bridge browser helper directory",
-                        "bridge browser helper directory must be a real directory",
-                    )?;
-                }
-                TERMUX_BROWSER_OPEN_HELPER_IDENTITY | TERMUX_BROWSER_MANUAL_HELPER_IDENTITY => {
-                    ensure_real_directory(
-                        &generation_dir.join("browser"),
-                        "inspect activated generation browser helper root",
-                        "activated generation browser helper root must be a real directory",
-                    )?;
-                    let leaf = if identity == TERMUX_BROWSER_OPEN_HELPER_IDENTITY {
-                        "open"
-                    } else {
-                        "manual"
-                    };
-                    ensure_real_directory(
-                        &generation_dir.join("browser").join(leaf),
-                        "inspect activated generation browser helper directory",
-                        "activated generation browser helper directory must be a real directory",
-                    )?;
-                }
-                _ => {}
+            ) {
+                ensure_real_directory(
+                    &generation_dir.join("browser"),
+                    "inspect activated generation browser helper root",
+                    "activated generation browser helper root must be a real directory",
+                )?;
+                let leaf = if identity == TERMUX_BROWSER_OPEN_HELPER_IDENTITY {
+                    "open"
+                } else {
+                    "manual"
+                };
+                ensure_real_directory(
+                    &generation_dir.join("browser").join(leaf),
+                    "inspect activated generation browser helper directory",
+                    "activated generation browser helper directory must be a real directory",
+                )?;
             }
             ensure_regular_file(
                 helper_path,
@@ -1664,28 +1539,27 @@ mod unix_app {
         Ok(LoadedLocalGeneration {
             generation_id: generation_id.to_owned(),
             manifest,
-            doctor_capability,
             generation_layout,
             runtime_path,
             code_mode_host_path,
-            compatibility_dir,
+            generation_dir: generation_dir.to_path_buf(),
             helper_paths,
         })
     }
 
     fn load_activated_generation(
-        roots: &LocalCoreRoots,
+        roots: &LocalWrapperRoots,
     ) -> Result<
         (
-            m2_generation_state::GenerationPointerState,
+            generation_state::GenerationPointerState,
             LoadedLocalGeneration,
         ),
         LocalProductError,
     > {
-        let state_paths = m2_generation_state::CoreStatePaths::new(&roots.state_root)
+        let state_paths = generation_state::WrapperStatePaths::new(&roots.state_root)
             .map_err(LocalProductError::StateFormat)?;
         let pointer_state = match fs::symlink_metadata(&state_paths.activation_state) {
-            Ok(_) => m2_generation_state::recover_activation_state(&state_paths)
+            Ok(_) => generation_state::recover_activation_state(&state_paths)
                 .map_err(LocalProductError::State)?
                 .ok_or(LocalProductError::NoCurrentGeneration)?,
             Err(err) if err.kind() == io::ErrorKind::NotFound => {
@@ -1707,7 +1581,7 @@ mod unix_app {
         Ok((pointer_state, loaded))
     }
 
-    fn with_qualified_loaded_runtime<'loaded, T, F>(
+    pub(super) fn with_qualified_loaded_runtime<'loaded, T, F>(
         loaded: &'loaded LoadedLocalGeneration,
         operation: F,
     ) -> Result<T, LocalProductError>
@@ -1733,7 +1607,7 @@ mod unix_app {
                 program_path: loaded.runtime_path.as_os_str(),
                 observed_digest: &loaded.manifest.runtime_digest,
             },
-            compatibility_dir: loaded.compatibility_dir.as_os_str(),
+            generation_dir: loaded.generation_dir.as_os_str(),
             helpers: &helper_bindings,
         };
         let runtime_assets =
@@ -1743,7 +1617,7 @@ mod unix_app {
 
     pub(super) fn probe_release_candidate(
         loaded: &LoadedLocalGeneration,
-        roots: &LocalCoreRoots,
+        roots: &LocalWrapperRoots,
         process_env: &TermuxProcessEnvSnapshot,
     ) -> Result<(), LocalProductError> {
         with_qualified_loaded_runtime(loaded, |assets| {
@@ -1807,7 +1681,7 @@ mod unix_app {
         };
         let env_plan = match plan_termux_env(
             process_env,
-            selection.compatibility_dir,
+            selection.generation_dir,
             browser_helpers,
             cert_file,
             cert_dir,
@@ -1823,7 +1697,7 @@ mod unix_app {
                 }
             }
         }
-        if let Err(err) = prepare_core_config(config_dir) {
+        if let Err(err) = prepare_wrapper_config(config_dir) {
             return RuntimeLaunchError::Config(err);
         }
 
@@ -1837,9 +1711,9 @@ mod unix_app {
         RuntimeLaunchError::Exec(exec_err)
     }
 
-    fn execute_activated_route(
+    pub(super) fn execute_activated_route(
         route: PublicDispatchRoute,
-        roots: &LocalCoreRoots,
+        roots: &LocalWrapperRoots,
         process_env: &TermuxProcessEnvSnapshot,
     ) -> Result<PublicDispatchCompletion, LocalProductError> {
         let _lease = maintenance::launch_lease(&roots.generation_root).map_err(|source| {
@@ -1850,12 +1724,6 @@ mod unix_app {
         })?;
         let (_, loaded) = load_activated_generation(roots)?;
         with_qualified_loaded_runtime(&loaded, |runtime_assets| {
-            let core_doctor_status = match loaded.generation_layout {
-                GenerationLayout::PackageRootV3 | GenerationLayout::RootCodeModeHost => {
-                    doctor::CoreDoctorStatus::Healthy
-                }
-                GenerationLayout::LegacyCompat => doctor::CoreDoctorStatus::Unhealthy,
-            };
             let context = LocalPublicDispatchContext {
                 runtime_assets,
                 process_env,
@@ -1863,8 +1731,7 @@ mod unix_app {
                 cert_dir: Some(roots.cert_dir.as_os_str()),
                 resolver_path: &roots.resolver_path,
                 config_dir: &roots.config_dir,
-                doctor_capability: loaded.doctor_capability,
-                core_doctor_status,
+                wrapper_doctor_status: doctor::WrapperDoctorStatus::Healthy,
                 generation_id: &loaded.generation_id,
                 generation_layout: loaded.generation_layout,
                 has_code_mode_host: loaded.code_mode_host_path.is_some(),
@@ -1943,7 +1810,7 @@ mod unix_app {
     }
 
     fn run_wrapper_status(json: bool) -> i32 {
-        let roots = match LocalCoreRoots::from_environment() {
+        let roots = match LocalWrapperRoots::from_environment() {
             Ok(roots) => roots,
             Err(err) => {
                 eprintln!("codex wrapper status: {err}");
@@ -2144,7 +2011,7 @@ mod unix_app {
         operation: &'static str,
         message: &'static str,
     ) -> Result<(), LocalProductError> {
-        if !fs_util::core_safe_absolute_path(path) {
+        if !fs_util::wrapper_safe_absolute_path(path) {
             return Err(LocalProductError::UnsafeSource(message));
         }
         let mut cursor = PathBuf::new();
@@ -2437,7 +2304,7 @@ mod unix_app {
                     .any(|a| matches!(a.to_str(), Some("-h" | "--help")));
                 let code = update::run_update_command(args);
                 if code == 0 && !is_help {
-                    if let Ok(roots) = LocalCoreRoots::from_environment() {
+                    if let Ok(roots) = LocalWrapperRoots::from_environment() {
                         let _ = maintenance::prune(&roots);
                     }
                 }
@@ -2445,7 +2312,7 @@ mod unix_app {
             }
             PublicDispatchRoute::Wrapper(args) => run_wrapper_command(args),
             route @ (PublicDispatchRoute::Doctor(_) | PublicDispatchRoute::Upstream(_)) => {
-                let roots = match LocalCoreRoots::from_environment() {
+                let roots = match LocalWrapperRoots::from_environment() {
                     Ok(roots) => roots,
                     Err(err) => {
                         eprintln!("codex: {err}");
@@ -2490,7 +2357,7 @@ fn main() {
 
 #[cfg(all(test, unix))]
 pub(crate) mod tests {
-    use super::m2_generation_state;
+    use super::generation_state;
     use super::unix_app::*;
     use std::ffi::{OsStr, OsString};
     use std::fs;
@@ -2522,7 +2389,7 @@ pub(crate) mod tests {
         items.iter().map(OsString::from).collect()
     }
 
-    fn make_test_roots(root: &Path) -> LocalCoreRoots {
+    fn make_test_roots(root: &Path) -> LocalWrapperRoots {
         let prefix = std::env::var_os("PREFIX")
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from("/usr"));
@@ -2533,7 +2400,7 @@ pub(crate) mod tests {
         fs::create_dir_all(&generation_root).unwrap();
         let resolver_path = root.join("resolv.conf");
         fs::write(&resolver_path, b"nameserver 1.1.1.1\n").unwrap();
-        LocalCoreRoots {
+        LocalWrapperRoots {
             generation_root,
             state_root,
             config_dir,
@@ -2545,17 +2412,12 @@ pub(crate) mod tests {
         }
     }
 
-    fn write_sample_v3_generation(
-        dir: &Path,
-        generation_id: &str,
-        with_manager_digest: bool,
-        with_code_mode_host: bool,
-    ) {
+    fn write_sample_generation(dir: &Path, generation_id: &str, with_code_mode_host: bool) {
         fs::create_dir_all(dir.join("bin")).unwrap();
         fs::create_dir_all(dir.join("browser/open")).unwrap();
         fs::create_dir_all(dir.join("browser/manual")).unwrap();
         fs::create_dir_all(dir.join("codex-resources/sub")).unwrap();
-        fs::write(dir.join("bin/codex"), b"#!/bin/sh\necho codex 0.169.0\n").unwrap();
+        fs::write(dir.join("bin/codex"), b"#!/bin/sh\necho codex 1.2.3\n").unwrap();
         fs::set_permissions(dir.join("bin/codex"), fs::Permissions::from_mode(0o755)).unwrap();
         if with_code_mode_host {
             fs::write(dir.join("bin/codex-code-mode-host"), b"#!/bin/sh\nexit 0\n").unwrap();
@@ -2565,11 +2427,7 @@ pub(crate) mod tests {
             )
             .unwrap();
         }
-        fs::write(
-            dir.join("codex-package.json"),
-            b"{\"version\":\"0.169.0\"}\n",
-        )
-        .unwrap();
+        fs::write(dir.join("codex-package.json"), b"{\"version\":\"1.2.3\"}\n").unwrap();
         fs::write(dir.join("browser/open/curl"), b"#!/bin/sh\nexit 0\n").unwrap();
         fs::set_permissions(
             dir.join("browser/open/curl"),
@@ -2584,37 +2442,31 @@ pub(crate) mod tests {
         .unwrap();
 
         let digest = "a".repeat(64);
-        let mut meta = format!(
-            "codex-local-generation-v3\n\
+        let meta = format!(
+            "codex-local-generation\n\
              generation_id\t{generation_id}\n\
              upstream_package_identity\topenai/codex:codex-package-aarch64-unknown-linux-musl.tar.gz\n\
-             upstream_package_version\t0.169.0\n\
+             upstream_package_version\t1.2.3\n\
              source_artifact_digest\t{digest}\n\
              expected_platform\tandroid\n\
              expected_architecture\taarch64\n\
-             patch_policy_id\ttermux-fd-remap-adaptive-v1\n\
-             patch_report\tadaptive-0\n\
+             patch_policy_id\ttermux-fd-remap\n\
+             patch_report\ttermux-fd-remap;changed_bytes=0\n\
              runtime_digest\t{digest}\n\
-             wrapper_artifact_digest\t{digest}\n"
-        );
-        if with_manager_digest {
-            meta.push_str(&format!("manager_artifact_digest\t{digest}\n"));
-        }
-        meta.push_str(&format!(
-            "wrapper_api_identity\twrapper-api-v1\n\
-             persistent_schema_identity\tschema-v1\n\
+             wrapper_artifact_digest\t{digest}\n\
+             wrapper_api_identity\twrapper-api\n\
+             persistent_schema_identity\tschema\n\
              qualification\tqualified\n\
-             creation_metadata\tcodex-minimal-wrapper-v1\n\
-             upstream_doctor\tsupported\n\
+             creation_metadata\tcodex-wrapper\n\
              helper_count\t2\n\
-             helper\ttermux-browser-open-v1\t{digest}\n\
-             helper\ttermux-browser-manual-v1\t{digest}\n"
-        ));
+             helper\ttermux-browser-open\t{digest}\n\
+             helper\ttermux-browser-manual\t{digest}\n"
+        );
         fs::write(dir.join("generation.meta"), meta).unwrap();
     }
 
     #[test]
-    fn public_dispatch_routes_minimal_wrapper_and_unlocks_daemon() {
+    fn public_dispatch_routes_wrapper_commands_and_passes_daemon_and_remote_control() {
         assert_eq!(
             plan_public_dispatch(os_vec(&["update", "--upstream"])).unwrap(),
             PublicDispatchRoute::Update(os_vec(&["--upstream"]))
@@ -2627,7 +2479,6 @@ pub(crate) mod tests {
             plan_public_dispatch(os_vec(&["wrapper", "status", "--json"])).unwrap(),
             PublicDispatchRoute::Wrapper(os_vec(&["status", "--json"]))
         );
-        // app-server daemon, remote-control, and unknown 'termux'/'provider' pass cleanly to Upstream.
         assert_eq!(
             plan_public_dispatch(os_vec(&["app-server", "daemon", "--listen", "stdio://"]))
                 .unwrap(),
@@ -2709,51 +2560,58 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn core_config_writes_minimal_toml_and_cleans_only_marked_requirements() {
+    fn wrapper_config_writes_managed_toml_and_preserves_other_files() {
         let root = temp_root("fd34");
         let cfg = root.join("config");
         super::fs_util::private_dir(&cfg).unwrap();
-        fs::write(
-            cfg.join("config.toml"),
-            b"# codex-termux-notify-v1\nthread_unload_delay_secs = 0\n",
-        )
-        .unwrap();
-        fs::write(
-            cfg.join("requirements.toml"),
-            b"# codex-termux-shared-state-v1\nfoo = 1\n",
-        )
-        .unwrap();
+        fs::write(cfg.join("config.toml"), b"# stale\nfoo = 1\n").unwrap();
+        fs::write(cfg.join("requirements.toml"), b"user_setting = true\n").unwrap();
 
-        prepare_core_config(&cfg).unwrap();
+        prepare_wrapper_config(&cfg).unwrap();
         let written = fs::read_to_string(cfg.join("config.toml")).unwrap();
         assert_eq!(
             written,
-            "# codex-termux-notify-v1\nsandbox_mode = \"danger-full-access\"\nmcp_oauth_credentials_store = \"file\"\n"
+            "# codex-termux-wrapper\nsandbox_mode = \"danger-full-access\"\nmcp_oauth_credentials_store = \"file\"\n"
         );
-        assert!(!cfg.join("requirements.toml").exists());
-
-        // Non-marker user requirements.toml is never deleted.
-        fs::write(cfg.join("requirements.toml"), b"user_setting = true\n").unwrap();
-        prepare_core_config(&cfg).unwrap();
-        assert!(cfg.join("requirements.toml").exists());
+        assert_eq!(
+            fs::read_to_string(cfg.join("requirements.toml")).unwrap(),
+            "user_setting = true\n"
+        );
         remove_temp_root(root);
     }
 
     #[test]
-    fn load_generation_accepts_optional_manager_digest_and_optional_code_mode_host() {
+    fn load_generation_validates_package_root_layout_and_rejects_legacy_or_bad_metadata() {
         let root = temp_root("gen-load");
-        let g1 = root.join("gen-with-mgr");
-        let g2 = root.join("gen-minimal-no-cmh");
-        write_sample_v3_generation(&g1, "gen-with-mgr", true, true);
-        write_sample_v3_generation(&g2, "gen-minimal-no-cmh", false, false);
+        let g1 = root.join("gen-with-cmh");
+        let g2 = root.join("gen-without-cmh");
+        write_sample_generation(&g1, "gen-with-cmh", true);
+        write_sample_generation(&g2, "gen-without-cmh", false);
 
         let l1 = load_local_generation(&g1).unwrap();
-        assert!(l1.manifest.manager_artifact_digest.is_some());
         assert!(l1.code_mode_host_path.is_some());
+        assert_eq!(l1.generation_layout.as_str(), "package-root");
+        with_qualified_loaded_runtime(&l1, |_| Ok(())).unwrap();
 
         let l2 = load_local_generation(&g2).unwrap();
-        assert!(l2.manifest.manager_artifact_digest.is_none());
         assert!(l2.code_mode_host_path.is_none());
+
+        // Unexpected legacy files inside a package-root generation are rejected.
+        fs::create_dir_all(g2.join("compat")).unwrap();
+        assert!(load_local_generation(&g2).is_err());
+
+        // Incompatible wrapper API identity is rejected at qualification time.
+        let bad_api = root.join("gen-bad-api");
+        write_sample_generation(&bad_api, "gen-bad-api", false);
+        let original = fs::read_to_string(bad_api.join("generation.meta")).unwrap();
+        fs::write(
+            bad_api.join("generation.meta"),
+            original.replace("wrapper-api\n", "wrapper-api-old\n"),
+        )
+        .unwrap();
+        let loaded_bad = load_local_generation(&bad_api).unwrap();
+        assert!(with_qualified_loaded_runtime(&loaded_bad, |_| Ok(())).is_err());
+
         remove_temp_root(root);
     }
 
@@ -2834,13 +2692,13 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn e2e_update_path_dir_doctor_and_rollback_in_isolated_roots() {
+    fn e2e_activation_doctor_status_and_rollback_in_isolated_roots() {
         let _guard = ENV_LOCK.lock().unwrap();
         let root = temp_root("e2e-update");
         let gen1 = root.join("src-g1");
         let gen2 = root.join("src-g2");
-        write_sample_v3_generation(&gen1, "gen-1", false, false);
-        write_sample_v3_generation(&gen2, "gen-2", false, true);
+        write_sample_generation(&gen1, "gen-1", false);
+        write_sample_generation(&gen2, "gen-2", true);
 
         let prev_home = std::env::var_os("HOME");
         let prev_prefix = std::env::var_os("PREFIX");
@@ -2860,19 +2718,19 @@ pub(crate) mod tests {
             std::env::set_var("TMPDIR", &root);
         }
 
-        let roots = LocalCoreRoots::from_environment().unwrap();
-        let state_paths = m2_generation_state::CoreStatePaths::new(&roots.state_root).unwrap();
-        m2_generation_state::prepare_core_state_paths(&state_paths).unwrap();
-        prepare_core_config(&roots.config_dir).unwrap();
+        let roots = LocalWrapperRoots::from_environment().unwrap();
+        let state_paths = generation_state::WrapperStatePaths::new(&roots.state_root).unwrap();
+        generation_state::prepare_wrapper_state_paths(&state_paths).unwrap();
+        prepare_wrapper_config(&roots.config_dir).unwrap();
         copy_local_directory_tree(&gen1, &roots.generation_root.join("gen-1")).unwrap();
         copy_local_directory_tree(&gen2, &roots.generation_root.join("gen-2")).unwrap();
-        let lock = m2_generation_state::acquire_activation_lock(&state_paths).unwrap();
-        let mut io = m2_generation_state::FsActivationIo;
-        let s1 = m2_generation_state::plan_initial_pointer_state("gen-1").unwrap();
-        m2_generation_state::activate_pointer_state_locked(&state_paths, None, &s1, &mut io, &lock)
+        let lock = generation_state::acquire_activation_lock(&state_paths).unwrap();
+        let mut io = generation_state::FsActivationIo;
+        let s1 = generation_state::plan_initial_pointer_state("gen-1").unwrap();
+        generation_state::activate_pointer_state_locked(&state_paths, None, &s1, &mut io, &lock)
             .unwrap();
-        let s2 = m2_generation_state::plan_activation_pointer_state(&s1, "gen-2").unwrap();
-        m2_generation_state::activate_pointer_state_locked(
+        let s2 = generation_state::plan_activation_pointer_state(&s1, "gen-2").unwrap();
+        generation_state::activate_pointer_state_locked(
             &state_paths,
             Some(&s1),
             &s2,
@@ -2887,12 +2745,23 @@ pub(crate) mod tests {
         probe_release_candidate(&loaded, &roots, &snap).unwrap();
 
         assert_eq!(run_public_main(os_vec(&["wrapper", "status", "--json"])), 0);
+        let outcome = execute_activated_route(
+            PublicDispatchRoute::Doctor(os_vec(&["--json"])),
+            &roots,
+            &snap,
+        )
+        .unwrap();
+        let PublicDispatchCompletion::Doctor(doc) = outcome;
+        assert!(doc.output.contains("\"schema_version\":1"));
+        assert!(doc.output.contains("\"layout\":\"package-root\""));
+        assert!(doc.output.contains("\"status\":\"healthy\""));
+
         assert_eq!(run_public_main(os_vec(&["update", "--rollback"])), 0);
-        let recovered = m2_generation_state::recover_activation_state(&state_paths)
+        let recovered = generation_state::recover_activation_state(&state_paths)
             .unwrap()
             .unwrap();
         assert_eq!(recovered.current, "gen-1");
-        let _ = run_public_main(os_vec(&["doctor", "--json"]));
+        assert_eq!(run_public_main(os_vec(&["doctor", "--json"])), 0);
 
         match prev_home {
             Some(v) => unsafe { std::env::set_var("HOME", v) },

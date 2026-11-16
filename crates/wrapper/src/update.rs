@@ -1,14 +1,14 @@
-use crate::m2_generation_state;
+use crate::generation_state;
 use crate::maintenance;
 use crate::remote_download;
 use crate::{
     capture_termux_process_env, copy_local_directory_tree, ensure_openssl_available,
     ensure_real_directory_tree, ensure_regular_file, load_local_generation, openssl_sha256,
-    prepare_core_config, probe_release_candidate, rename_noreplace, sync_directory,
-    valid_sha256_hex, LoadedLocalGeneration, LocalCoreRoots, LocalProductError, ReleaseFileEntry,
-    TermuxProcessEnvSnapshot, DEFAULT_UPSTREAM_LATEST_URL, REMOTE_RELEASE_URL_MAX_BYTES,
-    REMOTE_TRANSFER_TIMEOUT_SECONDS, UPSTREAM_PACKAGE_ASSET, UPSTREAM_RELEASE_METADATA_BASE,
-    UPSTREAM_RELEASE_METADATA_MAX_BYTES,
+    prepare_wrapper_config, probe_release_candidate, rename_noreplace, sync_directory,
+    valid_sha256_hex, LoadedLocalGeneration, LocalProductError, LocalWrapperRoots,
+    ReleaseFileEntry, TermuxProcessEnvSnapshot, DEFAULT_UPSTREAM_LATEST_URL,
+    REMOTE_RELEASE_URL_MAX_BYTES, REMOTE_TRANSFER_TIMEOUT_SECONDS, UPSTREAM_PACKAGE_ASSET,
+    UPSTREAM_RELEASE_METADATA_BASE, UPSTREAM_RELEASE_METADATA_MAX_BYTES,
 };
 use std::ffi::OsStr;
 use std::ffi::OsString;
@@ -18,7 +18,7 @@ use std::sync::atomic::Ordering;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const UPDATE_VERSION_ENV: &str = "CODEX_TERMUX_UPDATE_VERSION";
-const WRAPPER_CREATION_METADATA: &str = "codex-minimal-wrapper-v1";
+const WRAPPER_CREATION_METADATA: &str = "codex-wrapper";
 const UPDATE_USAGE: &str = "usage: codex update [--upstream] [--version <MAJOR.MINOR.PATCH>] | --path <FILE_OR_DIR> | --rollback | --help";
 const UPDATE_SPINNER_FRAMES: [&str; 10] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
@@ -617,7 +617,7 @@ fn validate_https_url(value: &str) -> Result<(), LocalProductError> {
 }
 
 fn resolve_official_release_metadata(
-    roots: &LocalCoreRoots,
+    roots: &LocalWrapperRoots,
     staging_root: &Path,
     cli_version: Option<&str>,
 ) -> Result<OfficialReleaseMetadata, LocalProductError> {
@@ -909,7 +909,7 @@ struct ActivatedOutcome {
     current_version: String,
 }
 
-fn ensure_writable_roots(roots: &LocalCoreRoots) -> Result<(), LocalProductError> {
+fn ensure_writable_roots(roots: &LocalWrapperRoots) -> Result<(), LocalProductError> {
     ensure_real_directory_tree(
         &roots.state_root,
         "prepare wrapper state directory",
@@ -929,17 +929,17 @@ fn ensure_writable_roots(roots: &LocalCoreRoots) -> Result<(), LocalProductError
 }
 
 fn current_loaded_generation(
-    roots: &LocalCoreRoots,
+    roots: &LocalWrapperRoots,
 ) -> Result<
     (
-        Option<m2_generation_state::GenerationPointerState>,
+        Option<generation_state::GenerationPointerState>,
         Option<LoadedLocalGeneration>,
     ),
     LocalProductError,
 > {
-    let state_paths = m2_generation_state::CoreStatePaths::new(&roots.state_root)
+    let state_paths = generation_state::WrapperStatePaths::new(&roots.state_root)
         .map_err(LocalProductError::StateFormat)?;
-    let before = m2_generation_state::recover_activation_state(&state_paths)
+    let before = generation_state::recover_activation_state(&state_paths)
         .map_err(LocalProductError::State)?;
     let loaded = match before.as_ref() {
         Some(state) => Some(load_local_generation(
@@ -952,9 +952,9 @@ fn current_loaded_generation(
 
 fn install_built_generation_dir(
     built_dir: &Path,
-    roots: &LocalCoreRoots,
+    roots: &LocalWrapperRoots,
     process_env: &TermuxProcessEnvSnapshot,
-    before: Option<&m2_generation_state::GenerationPointerState>,
+    before: Option<&generation_state::GenerationPointerState>,
     before_loaded: Option<&LoadedLocalGeneration>,
     presentation: &mut UpdatePresentation,
 ) -> Result<ActivatedOutcome, LocalProductError> {
@@ -986,7 +986,7 @@ fn install_built_generation_dir(
 
         let staged_loaded = load_local_generation(&candidate_dir)?;
         presentation.transient(&format!("Checking Codex {version} candidate runtime..."));
-        prepare_core_config(&roots.config_dir).map_err(|source| LocalProductError::Io {
+        prepare_wrapper_config(&roots.config_dir).map_err(|source| LocalProductError::Io {
             operation: "prepare wrapper config.toml",
             source,
         })?;
@@ -1005,26 +1005,26 @@ fn install_built_generation_dir(
         })?;
         sync_directory(&roots.generation_root)?;
 
-        let state_paths = m2_generation_state::CoreStatePaths::new(&roots.state_root)
+        let state_paths = generation_state::WrapperStatePaths::new(&roots.state_root)
             .map_err(LocalProductError::StateFormat)?;
-        m2_generation_state::prepare_core_state_paths(&state_paths)
+        generation_state::prepare_wrapper_state_paths(&state_paths)
             .map_err(LocalProductError::State)?;
-        let lock = m2_generation_state::acquire_activation_lock(&state_paths)
+        let lock = generation_state::acquire_activation_lock(&state_paths)
             .map_err(LocalProductError::State)?;
-        let authoritative = m2_generation_state::read_pointer_state(&state_paths)
-            .map_err(LocalProductError::State)?;
+        let authoritative =
+            generation_state::read_pointer_state(&state_paths).map_err(LocalProductError::State)?;
         if authoritative.as_ref() != before {
             return Err(LocalProductError::State(
-                m2_generation_state::ActivationTransactionError::StaleAuthoritativeState,
+                generation_state::ActivationTransactionError::StaleAuthoritativeState,
             ));
         }
         let after = match authoritative.as_ref() {
-            Some(prev) => m2_generation_state::plan_activation_pointer_state(prev, &generation_id),
-            None => m2_generation_state::plan_initial_pointer_state(&generation_id),
+            Some(prev) => generation_state::plan_activation_pointer_state(prev, &generation_id),
+            None => generation_state::plan_initial_pointer_state(&generation_id),
         }
         .map_err(LocalProductError::StateFormat)?;
-        let mut io = m2_generation_state::FsActivationIo;
-        m2_generation_state::activate_pointer_state_locked(
+        let mut io = generation_state::FsActivationIo;
+        generation_state::activate_pointer_state_locked(
             &state_paths,
             authoritative.as_ref(),
             &after,
@@ -1046,7 +1046,7 @@ fn install_built_generation_dir(
     result
 }
 
-fn gzip_tool_path(roots: &LocalCoreRoots) -> Result<PathBuf, LocalProductError> {
+fn gzip_tool_path(roots: &LocalWrapperRoots) -> Result<PathBuf, LocalProductError> {
     roots
         .curl
         .parent()
@@ -1065,18 +1065,18 @@ struct ArchiveBuildInputs<'a> {
 
 fn build_from_archive_and_activate(
     inputs: ArchiveBuildInputs<'_>,
-    roots: &LocalCoreRoots,
+    roots: &LocalWrapperRoots,
     process_env: &TermuxProcessEnvSnapshot,
-    before: Option<&m2_generation_state::GenerationPointerState>,
+    before: Option<&generation_state::GenerationPointerState>,
     before_loaded: Option<&LoadedLocalGeneration>,
     presentation: &mut UpdatePresentation,
 ) -> Result<ActivatedOutcome, LocalProductError> {
     if !codex_release_builder::binary_adaptation_available(inputs.version) {
         return Err(LocalProductError::LocalUpdate(
-            "upstream Codex version is outside adaptive binary patch policy support",
+            "upstream Codex version format is invalid",
         ));
     }
-    let core = running_wrapper_artifact()?;
+    let wrapper = running_wrapper_artifact()?;
     let generation_id = local_update_generation_id();
     let built_dir = inputs.staging_root.join("built-generation");
     let gzip = gzip_tool_path(roots)?;
@@ -1089,8 +1089,7 @@ fn build_from_archive_and_activate(
         archive: inputs.archive_path.to_path_buf(),
         archive_sha256: inputs.archive_sha256.to_owned(),
         generation_id,
-        core,
-        legacy_activation_doctor_unsupported: false,
+        wrapper,
         creation_metadata: WRAPPER_CREATION_METADATA.to_owned(),
         gzip,
         openssl: roots.openssl.clone(),
@@ -1114,7 +1113,7 @@ enum UpstreamOutcome {
 
 fn run_upstream_update(
     requested_version: Option<&str>,
-    roots: &LocalCoreRoots,
+    roots: &LocalWrapperRoots,
     process_env: &TermuxProcessEnvSnapshot,
     presentation: &mut UpdatePresentation,
 ) -> Result<UpstreamOutcome, LocalProductError> {
@@ -1205,7 +1204,7 @@ fn resolve_cli_path(input: &Path) -> Result<PathBuf, LocalProductError> {
 
 fn run_path_update(
     input_path: &Path,
-    roots: &LocalCoreRoots,
+    roots: &LocalWrapperRoots,
     process_env: &TermuxProcessEnvSnapshot,
     presentation: &mut UpdatePresentation,
 ) -> Result<ActivatedOutcome, LocalProductError> {
@@ -1254,7 +1253,7 @@ fn run_path_update(
         .map_err(LocalProductError::Builder)?;
     if !codex_release_builder::binary_adaptation_available(&version) {
         return Err(LocalProductError::LocalUpdate(
-            "local package archive version is outside adaptive binary patch policy support",
+            "local package archive version format is invalid",
         ));
     }
 
@@ -1284,13 +1283,13 @@ fn run_path_update(
     result
 }
 
-fn run_rollback(roots: &LocalCoreRoots) -> Result<ActivatedOutcome, LocalProductError> {
-    let state_paths = m2_generation_state::CoreStatePaths::new(&roots.state_root)
+fn run_rollback(roots: &LocalWrapperRoots) -> Result<ActivatedOutcome, LocalProductError> {
+    let state_paths = generation_state::WrapperStatePaths::new(&roots.state_root)
         .map_err(LocalProductError::StateFormat)?;
-    let before = m2_generation_state::recover_activation_state(&state_paths)
+    let before = generation_state::recover_activation_state(&state_paths)
         .map_err(LocalProductError::State)?
         .ok_or(LocalProductError::NoCurrentGeneration)?;
-    let after = m2_generation_state::plan_rollback_pointer_state(&before)
+    let after = generation_state::plan_rollback_pointer_state(&before)
         .map_err(LocalProductError::StateFormat)?;
 
     let current_loaded = load_local_generation(&roots.generation_root.join(&before.current))?;
@@ -1306,17 +1305,17 @@ fn run_rollback(roots: &LocalCoreRoots) -> Result<ActivatedOutcome, LocalProduct
         "rollback target runtime must be a regular file",
     )?;
 
-    let lock = m2_generation_state::acquire_activation_lock(&state_paths)
+    let lock = generation_state::acquire_activation_lock(&state_paths)
         .map_err(LocalProductError::State)?;
     let authoritative =
-        m2_generation_state::read_pointer_state(&state_paths).map_err(LocalProductError::State)?;
+        generation_state::read_pointer_state(&state_paths).map_err(LocalProductError::State)?;
     if authoritative.as_ref() != Some(&before) {
         return Err(LocalProductError::State(
-            m2_generation_state::ActivationTransactionError::StaleAuthoritativeState,
+            generation_state::ActivationTransactionError::StaleAuthoritativeState,
         ));
     }
-    let mut io = m2_generation_state::FsActivationIo;
-    m2_generation_state::activate_pointer_state_locked(
+    let mut io = generation_state::FsActivationIo;
+    generation_state::activate_pointer_state_locked(
         &state_paths,
         Some(&before),
         &after,
@@ -1345,7 +1344,7 @@ pub(super) fn run_update_command(args: Vec<OsString>) -> i32 {
     }
 
     let mut presentation = UpdatePresentation::new();
-    let roots = match LocalCoreRoots::from_environment() {
+    let roots = match LocalWrapperRoots::from_environment() {
         Ok(roots) => roots,
         Err(err) => {
             presentation.fail(&err);

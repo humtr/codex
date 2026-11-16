@@ -1,50 +1,10 @@
 //! Rule-based Termux adaptation of the protected UDS root.
-pub(super) const ADAPTIVE_POLICY: &str = "termux-fd-remap-99b-v1";
-pub(super) const ADAPTIVE_UDS_POLICY: &str = "termux-uds-fd35-adaptive-v1";
+pub(super) const PATCH_POLICY_ID: &str = "termux-fd-remap";
+pub(super) const UDS_POLICY_ID: &str = "termux-uds-fd35";
 const FD35_BYTES: &[u8] = b"/proc/self/fd/35\0";
 const FMT_UID_ONLY: &[u8] = b"\xc0\0";
 const DAEMON_FMT_NEEDLE: &[u8] = b"\x0dcodex-daemon-\xc0\0";
 const NOP_INSN: u32 = 0xd503_201f;
-
-// Publication metadata is shared by adaptation, descriptor writing and admission.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) struct Policy {
-    pub id: &'static str,
-    pub uds: &'static str,
-}
-
-pub(super) fn policy(id: &str) -> Option<Policy> {
-    (id == ADAPTIVE_POLICY).then_some(Policy {
-        id: ADAPTIVE_POLICY,
-        uds: ADAPTIVE_UDS_POLICY,
-    })
-}
-
-pub(super) fn required(version: &str) -> Result<Option<Policy>, &'static str> {
-    let parts = version
-        .split('.')
-        .map(str::parse::<u64>)
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|_| "unqualified upstream UDS version")?;
-    if parts.len() != 3 {
-        return Err("upstream UDS version requires fresh Termux qualification");
-    }
-    match parts.as_slice() {
-        [0, minor, _] if *minor >= 165 => Ok(policy(ADAPTIVE_POLICY)),
-        [major, _, _] if *major >= 1 => Ok(policy(ADAPTIVE_POLICY)),
-        _ => Ok(None),
-    }
-}
-
-pub(super) fn supports_version(id: &str, version: &str) -> bool {
-    if id == super::PATCH_POLICY_ID {
-        required(version).is_ok_and(|opt| opt.is_none())
-    } else if id == ADAPTIVE_POLICY {
-        required(version).is_ok_and(|opt| opt.is_some())
-    } else {
-        false
-    }
-}
 
 pub(super) fn contains_daemon_fmt(bytes: &[u8]) -> bool {
     parse_elf(bytes).is_ok_and(|elf| {
@@ -52,13 +12,6 @@ pub(super) fn contains_daemon_fmt(bytes: &[u8]) -> bool {
             .windows(DAEMON_FMT_NEEDLE.len())
             .any(|w| w == DAEMON_FMT_NEEDLE)
     })
-}
-
-pub(super) fn apply(bytes: &mut [u8], policy: Policy) -> Result<usize, &'static str> {
-    if policy.id != ADAPTIVE_POLICY {
-        return Err("unsupported Termux runtime patch policy");
-    }
-    apply_adaptive_uds_fd35(bytes)
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -630,7 +583,7 @@ fn locate_site1(
     Ok(matches.pop().unwrap())
 }
 
-pub(super) fn apply_adaptive_uds_fd35(bytes: &mut [u8]) -> Result<usize, &'static str> {
+pub(super) fn apply_uds_fd35(bytes: &mut [u8]) -> Result<usize, &'static str> {
     let elf = parse_elf(bytes)?;
     let cave = locate_rx_cave(bytes, &elf)?;
     let site2 = locate_site2(bytes, &elf)?;
@@ -668,7 +621,7 @@ pub(super) fn apply_adaptive_uds_fd35(bytes: &mut [u8]) -> Result<usize, &'stati
     edits.sort_by_key(|(off, _)| *off);
     for pair in edits.windows(2) {
         if pair[0].0 + pair[0].1.len() > pair[1].0 {
-            return Err("adaptive UDS patch regions overlap");
+            return Err("FD 35 UDS patch regions overlap");
         }
     }
 
@@ -683,27 +636,14 @@ pub(super) fn apply_adaptive_uds_fd35(bytes: &mut [u8]) -> Result<usize, &'stati
         bytes[off..off + after.len()].copy_from_slice(after);
     }
     if changed == 0 {
-        return Err("adaptive UDS patch made no modifications");
+        return Err("FD 35 UDS patch made no modifications");
     }
     Ok(changed)
 }
 
-#[cfg_attr(not(test), allow(dead_code))]
-pub(super) fn apply_adaptive_99b(bytes: &mut [u8]) -> Result<usize, &'static str> {
-    let fd_changed = crate::apply_fd_path_remaps(bytes).map_err(|_| {
-        "runtime does not contain expected upstream /etc/resolv.conf or /etc/codex paths"
-    })?;
-    let uds_changed = apply_adaptive_uds_fd35(bytes)?;
-    Ok(fd_changed + uds_changed)
-}
-
 #[cfg(test)]
-pub(super) mod tests {
+mod tests {
     use super::*;
-
-    pub(crate) fn build_canonical_synthetic_aarch64_elf() -> Vec<u8> {
-        build_synthetic_aarch64_elf(0x400_000, false, false, Site1Variant::Canonical).0
-    }
 
     #[derive(Clone, Copy)]
     enum Site1Variant {
@@ -879,32 +819,26 @@ pub(super) mod tests {
     }
 
     #[test]
-    fn runtime_artifact_patch_policy_tracks_adaptive_versions_without_hardcoded_hashes() {
-        assert_eq!(required("0.159.2"), Ok(None));
-        assert_eq!(required("0.164.0"), Ok(None));
-        assert!(supports_version(crate::PATCH_POLICY_ID, "0.164.0"));
-        assert!(!supports_version(ADAPTIVE_POLICY, "0.164.0"));
-        assert!(required("invalid").is_err());
-        assert!(required("0.169").is_err());
-        for adaptive in ["0.165.0", "0.167.2", "0.169.0", "0.200.1", "1.0.0"] {
-            let p = required(adaptive).unwrap().unwrap();
-            assert_eq!(p.id, ADAPTIVE_POLICY);
-            assert!(supports_version(ADAPTIVE_POLICY, adaptive));
-            assert!(!supports_version(crate::PATCH_POLICY_ID, adaptive));
-        }
-        assert!(!supports_version("termux-fd-remap-v5", "0.163.0"));
-        assert!(!supports_version("unknown", "0.169.0"));
-    }
-
-    #[test]
-    fn adaptive_99b_handles_relocation_reordering_va_shifts_and_rejects_invalid() {
-        let policy = required("0.169.0").unwrap().unwrap();
+    fn uds_fd35_and_fd_remaps_handle_relocation_reordering_va_shifts_and_rejects_invalid() {
         let (mut canonical, site1_off, site2_off, fini_end) =
             build_synthetic_aarch64_elf(0x400_000, false, false, Site1Variant::Canonical);
+        let before_canonical = canonical.clone();
         let fd_changed = crate::apply_fd_path_remaps(&mut canonical).unwrap();
-        let uds_changed = apply(&mut canonical, policy).unwrap();
-        assert_eq!(fd_changed, 54);
+        let uds_changed = apply_uds_fd35(&mut canonical).unwrap();
+        let canonical_diffs = before_canonical
+            .iter()
+            .zip(canonical.iter())
+            .filter(|(a, b)| a != b)
+            .count();
+        assert!(fd_changed > 0);
         assert!(uds_changed > 0);
+        assert_eq!(canonical_diffs, fd_changed + uds_changed);
+        assert!(canonical
+            .windows(b"/proc/self/fd/33".len())
+            .any(|w| w == b"/proc/self/fd/33"));
+        assert!(!canonical
+            .windows(b"/etc/resolv.conf".len())
+            .any(|w| w == b"/etc/resolv.conf"));
         let cave0_fd35 = (fini_end + 16 + 15) & !15;
         assert_eq!(
             &canonical[cave0_fd35..cave0_fd35 + FD35_BYTES.len()],
@@ -919,7 +853,7 @@ pub(super) mod tests {
             Some(encode_movz_w(1, FD35_BYTES.len() as u16))
         );
         // Re-applying fails closed after site2 and site1 are already patched.
-        assert!(apply(&mut canonical, policy).is_err());
+        assert!(apply_uds_fd35(&mut canonical).is_err());
         assert_ne!(site2_off, 0);
 
         // Relocated cave + reordered site1 with safe interleaved `sub x8, x29, #0x18` + shifted VA base.
@@ -935,14 +869,18 @@ pub(super) mod tests {
             },
         );
         let before_shifted = shifted.clone();
-        let shifted_changed = apply_adaptive_99b(&mut shifted).unwrap();
+        let shifted_fd_changed = crate::apply_fd_path_remaps(&mut shifted).unwrap();
+        let shifted_uds_changed = apply_uds_fd35(&mut shifted).unwrap();
         let actual_shifted_diffs = before_shifted
             .iter()
             .zip(shifted.iter())
             .filter(|(a, b)| a != b)
             .count();
-        assert_eq!(shifted_changed, actual_shifted_diffs);
-        assert!(shifted_changed > fd_changed);
+        assert_eq!(
+            shifted_fd_changed + shifted_uds_changed,
+            actual_shifted_diffs
+        );
+        assert!(shifted_uds_changed > 0);
         assert_eq!(le_u32(&shifted, sh_site1 + 12), Some(sub_x8_x29_18));
         assert_eq!(le_u32(&shifted, sh_site1 + 16), Some(NOP_INSN));
         assert_eq!(le_u32(&shifted, sh_site1 + 20), Some(NOP_INSN));
@@ -956,21 +894,21 @@ pub(super) mod tests {
         // Negative cases fail closed before mutation:
         let (mut no_cave, _, _, _) =
             build_synthetic_aarch64_elf(0x400_000, false, true, Site1Variant::Canonical);
-        assert!(apply_adaptive_uds_fd35(&mut no_cave).is_err());
+        assert!(apply_uds_fd35(&mut no_cave).is_err());
 
         let (mut with_interp, _, _, _) =
             build_synthetic_aarch64_elf(0x400_000, false, false, Site1Variant::Canonical);
         write_u32(&mut with_interp, 64, 3); // PT_INTERP in phdr0
-        assert!(apply_adaptive_uds_fd35(&mut with_interp).is_err());
+        assert!(apply_uds_fd35(&mut with_interp).is_err());
 
         let (mut bad_arch, _, _, _) =
             build_synthetic_aarch64_elf(0x400_000, false, false, Site1Variant::Canonical);
         write_u16(&mut bad_arch, 18, 62); // x86_64
-        assert!(apply_adaptive_uds_fd35(&mut bad_arch).is_err());
+        assert!(apply_uds_fd35(&mut bad_arch).is_err());
 
         let (mut dup_site1, _, _, _) =
             build_synthetic_aarch64_elf(0x400_000, false, false, Site1Variant::DuplicateSite1);
-        assert!(apply_adaptive_uds_fd35(&mut dup_site1).is_err());
+        assert!(apply_uds_fd35(&mut dup_site1).is_err());
 
         // Unsafe interleaved instruction touching X0 (`add x0, x19, #8` = 0x91002260) must reject.
         let (mut unsafe_interleaved, _, _, _) = build_synthetic_aarch64_elf(
@@ -983,6 +921,6 @@ pub(super) mod tests {
                 interleaved: Some(0x9100_2260),
             },
         );
-        assert!(apply_adaptive_uds_fd35(&mut unsafe_interleaved).is_err());
+        assert!(apply_uds_fd35(&mut unsafe_interleaved).is_err());
     }
 }

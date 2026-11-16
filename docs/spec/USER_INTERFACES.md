@@ -1,12 +1,12 @@
 # User-facing interfaces and optional Manager contracts
 
 **Status:** Normative detail of [SPEC.md](../../SPEC.md).
-Stage 1 minimal standalone Wrapper implements the Core user-facing commands
+Stage 1 standalone Wrapper implements the Wrapper user-facing commands
 (`codex` upstream passthrough, `codex update`, `codex doctor`, and
 `codex wrapper status [--json]`). The optional Manager, quota-rotation, notification,
 and profile contracts below describe decoupled Stage 2 modular capabilities (with
 all `codex termux` surfaces cut over cleanly to `codex wrapper`) and are not
-compiled into or required by the minimal standalone Wrapper. These are feature
+compiled into or required by the standalone Wrapper. These are feature
 contracts and acceptance requirements, not evidence of deployment.
 
 ## Native /switch behavior
@@ -20,7 +20,7 @@ account enrollment, custom ranking and session override accessible. Clipping mus
 preserve the selected action/value and must not change the underlying account ID.
 Verify actual rendering and navigation, not only the generated labels.
 
-Quota-aware selection is an optional Manager/TUI capability. Core and the base
+Quota-aware selection is an optional Manager/TUI capability. Wrapper and the base
 edition acquire no quota policy, account registry, polling or Manager dependency.
 `codex termux usage [--refresh] [--json]` reads cached registered-account usage;
 refresh uses each account's qualified native app-server account/model read methods
@@ -77,7 +77,7 @@ an enabled account's renewed five-hour allowance has an actually started window.
 A temporary chat, a literal `hi`, and even an additional inference are mechanisms
 to minimize, not required product behavior. Existing usage refresh remains a
 read-only account/model operation; it must never silently create a model turn.
-Core/Base acquire no quota scheduling, account policy or Manager dependency.
+Wrapper/Base acquire no quota scheduling, account policy or Manager dependency.
 
 - A separate /switch setting controls window-start maintenance independently of
   automatic account switching. The owner selects account identities; multiple
@@ -151,7 +151,7 @@ product-path qualification.
 Preserve upstream /copy, its available copy-picker targets, Ctrl+O, selection
 copy and /config copy/paste preferences. Upstream owns the logical content and
 composer; a Termux clipboard adapter is justified only by an actually missing
-platform operation. A clipboard feature must not move conversation UI into Core
+platform operation. A clipboard feature must not move conversation UI into Wrapper
 or make ordinary upstream launch depend on Manager.
 
 Preserve the distinction between the /copy picker (whole response, available
@@ -194,7 +194,7 @@ The TUI owns source/format selection, asynchronous operation ownership and
 feedback. Reuse the existing worker and
 native outcomes, including cancellation before delivery, busy state and stale
 completion handling. No extra daemon, global clipboard polling, X11 dependency,
-Core clipboard UI or duplicate text-copy path is justified by this feature.
+Wrapper clipboard UI or duplicate text-copy path is justified by this feature.
 Validate actual required operations at capability discovery rather than an
 exact historical aggregate operations string: the clipboard extension must not
 disable existing origin/validate/focus consumers. Preserve schema, peer identity,
@@ -271,7 +271,7 @@ an owned source file. Qualification binds both inputs, the assembler and tests
 to the exact successful source. Final build inputs and artifact proof still
 include the complete assembled TUI diff; no source is downloaded or modified at
 device launch. This source organization does not change public behavior or relax
-the upstream-Core/dependency, executable, lint or native behavior gates.
+the upstream-Wrapper/dependency, executable, lint or native behavior gates.
 Common Native source preparation belongs to release-builder and is consumed by
 both runtime and frontend builds. The enhanced frontend requests
 `prepare-source --frontend provided` so the common implementation is applied
@@ -296,11 +296,11 @@ precedence, installed-route validation and model admission remain unchanged.
   frontend build. A future collision requires an explicit contract decision;
   silently replacing an upstream command or choosing another name is forbidden.
 - Upstream owns history, authentication, thread ancestry and kernel writer locks;
-  Manager owns execution-profile selection and task policy. Core gains no UI,
+  Manager owns execution-profile selection and task policy. Wrapper gains no UI,
   transcript parser, second session index or account-switch controller.
 - Same-terminal transition must explicitly detach the old native client, preserve
   or stop work according to the selected action, confirm writer release before
-  same-thread account takeover, and re-enter Core with the selected child home.
+  same-thread account takeover, and re-enter Wrapper with the selected child home.
   Selecting a profile must never silently stop work, remove locks, share auth
   between agents or create additional Android terminals.
 - The profile-selection slice makes arrow selection followed by Enter directly
@@ -309,13 +309,13 @@ precedence, installed-route validation and model admission remain unchanged.
   profile closes the picker without re-entry; Esc/Ctrl-C likewise cancels.
   Re-entry requires an idle primary session with no queued input, pending steers
   or running local commands, unsent composer input or pending native tool calls.
-  A failed profile/Core revalidation leaves the picker and current chat usable. After ordinary native client cleanup and terminal
-  restoration, the frontend execs Core with fixed private Manager argv
+  A failed profile/Wrapper revalidation leaves the picker and current chat usable. After ordinary native client cleanup and terminal
+  restoration, the frontend execs Wrapper with fixed private Manager argv
   `termux __profile-resume-v1 PROFILE_ID THREAD_UUID`. This exact command validates
   the registered destination and canonical UUID, holds the existing Manager
   registry shared lock against rename/delete during handoff, waits at most3 seconds
   for the existing kernel coordination/writer locks to become free, then execs ordinary
-  Core resume in the selected home and same terminal/CWD. It never interrupts,
+  Wrapper resume in the selected home and same terminal/CWD. It never interrupts,
   pauses goals, cleans background terminals, signals an owner or removes locks.
   Before cleanup, the frontend verifies the current native rollout exists as a
   regular file. For an unmaterialized blank conversation it requests upstream
@@ -340,11 +340,11 @@ precedence, installed-route validation and model admission remain unchanged.
   are terminals and a valid explicit inherited CODEX_HOME identifies that source.
   Manager binds the source directory's open physical identity before attempting
   the destination, then revalidates identity and private ownership/mode immediately
-  before ordinary same-thread Core resume. No saved-default lookup or destination
+  before ordinary same-thread Wrapper resume. No saved-default lookup or destination
   substitution determines the return account. Missing, unsafe or replaced source
   refuses; noninteractive/invalid-grammar invocations retain prior status/output.
   Successful switching never prompts. Return preserves current CWD, UUID, TTY,
-  original Core exit behavior and existing writer authority; it never cancels work,
+  original Wrapper exit behavior and existing writer authority; it never cancels work,
   forces takeover, removes a lock or recreates a profile. Input is bounded to128
   bytes, only an actual empty newline confirms return, and EOF never confirms.
   Exit/cancel has status130.
@@ -354,7 +354,7 @@ precedence, installed-route validation and model admission remain unchanged.
   markers/descriptions follow actual settings. This frontend adaptation is enabled
   only for the explicit absolute CODEX_PROFILE_WRAPPER bridge; ordinary
   unselected upstream UI and custom profile definitions retain their semantics.
-  Core still rejects explicit unsupported sandbox argv before runtime entry.
+  Wrapper still rejects explicit unsupported sandbox argv before runtime entry.
   Actual menu selections/shortcuts and native settings require owned proof.
 - The native frontend reads profile data through exact no-argument
   `codex termux __profile-snapshot-v1`. Manager alone resolves registered profiles,
@@ -378,7 +378,7 @@ precedence, installed-route validation and model admission remain unchanged.
   a creator, history author, selected profile or loaded read-only copy is not an
   owner. Output is bounded to256KiB and has no paths, credentials or transcripts;
   this command performs no writes and never stops or starts work.
-- Native task reads use the same qualified explicit Core bridge, fixed argv,
+- Native task reads use the same qualified explicit Wrapper bridge, fixed argv,
   256KiB stdout and12-second total bound (existing Manager scan deadline10 seconds).
   Execution-profile context is distinct from a confirmed writer's profile.
   A null owner_profile means a confirmed external writer; missing task data or a
@@ -388,7 +388,7 @@ precedence, installed-route validation and model admission remain unchanged.
   without a second history index or new persistent state. Cancellation/error must
   leave the current chat usable.
 - Before the integrated frontend prepares a backend for resume/fork, the private
-  `codex termux __task-connection-v1 THREAD_UUID` is owned by Core and uses the
+  `codex termux __task-connection-v1 THREAD_UUID` is owned by Wrapper and uses the
   shared runtime-binding Native process/socket/writer observation implementation.
   Manager task views consume that same observation; their profile labels, Native
   RPC presentation and explicit task actions remain optional. This discovery and
@@ -413,10 +413,10 @@ precedence, installed-route validation and model admission remain unchanged.
   boundary, not a permanent requirement that the user manually choose profiles.
   For a canonical resume/fork identity known before UI startup, the private
   `codex termux __task-reentry-v1 THREAD_UUID -- UPSTREAM_ARGV...` uses that same
-  Core-owned verified connection and qualified execution context. It reexecutes the same
-  qualified Core in that owner's home with the original opaque upstream arguments,
+  Wrapper-owned verified connection and qualified execution context. It reexecutes the same
+  qualified Wrapper in that owner's home with the original opaque upstream arguments,
   before any editable startup draft. It starts no separate writer and changes no
-  default, permission or inference selection. The frontend removes only Core's
+  default, permission or inference selection. The frontend removes only Wrapper's
   verified injected rendezvous argument, not user arguments. Picker/alias flows
   must also preserve already collected drafts when their later identity requires
   a context rebind; canonical startup proof alone does not qualify those flows.
@@ -434,13 +434,13 @@ precedence, installed-route validation and model admission remain unchanged.
   work; TUI login controls remain available. Configured new work keeps its selected
   provider's onboarding policy. No credentials or account defaults are replaced.
   Native still admits attachment/writes and detects races after this observation.
-  This is an optional integrated-frontend contract; Core's ordinary independent
+  This is an optional integrated-frontend contract; Wrapper's ordinary independent
   runtime launch does not acquire a Manager dependency.
 ### Independent terminal return (Manager)
 
 Codex Manager owns profile selection, launch convenience, notifications and
-foreground conversation binding. Core remains independently usable. The
-Core-to-Manager handoff strips inherited LD_PRELOAD and LD_LIBRARY_PATH as
+foreground conversation binding. Wrapper remains independently usable. The
+Wrapper-to-Manager handoff strips inherited LD_PRELOAD and LD_LIBRARY_PATH as
 ordinary upstream launch does. Caller preferences and workload authentication
 remain intact. Manager routing must not reinterpret upstream argv or make
 ordinary execution depend on Android connectivity. AI owns its separate
@@ -512,7 +512,7 @@ Manager owns `notify set --focus window|termux`. Default is window;
 contains `window\n` or `termux\n`. The removed `tmux` setting
 is invalid in both stored records and command-line input. Absent state uses
 window; malformed/insecure state uses Activity-only return. For a canonical hook
-session_id in window mode, Manager uses installed Core's safely quoted
+session_id in window mode, Manager uses installed Wrapper's safely quoted
 private `__terminal-focus-v1 UUID` action; no AI executable is needed.
 Malformed or ambiguous IDs preserve the ordinary notification and cannot
 become shell input. Activity-only mode brings Termux forward without
@@ -521,7 +521,7 @@ selecting a terminal.
 #### Optional terminal launch capability
 
 The read-only private command `codex termux __terminal-capabilities-v1 -- ARGV...`
-queries this generation's actual launch capability. Core supplies only a qualified
+queries this generation's actual launch capability. Wrapper supplies only a qualified
 frontend availability bit and its existing supported-argv decision to the same-
 generation Manager; Manager emits exactly `codex-terminal-capabilities-v1` and
 `identity=native` or `identity=title`. No authentication, profile/session scan,
@@ -550,9 +550,9 @@ new persistent session index. It calls the private
 exact command `codex termux __terminal-bind-v1 FD` once to register this descriptor.
 This registration applies to native frontends in directly bound terminal PTYs;
 there is no Manager tmux socket, pane or process-tree discovery.
-Core forwards only that exact three-argument shape to its same-generation Manager.
+Wrapper forwards only that exact three-argument shape to its same-generation Manager.
 FD grammar and caller/TTY authority remain Manager responsibilities. Ordinary
-Core dispatch and installed signed generations gain no terminal controller.
+Wrapper dispatch and installed signed generations gain no terminal controller.
 Manager verifies its direct parent is a same-UID installed native frontend and its
 private unlinked foreground descriptor. Registration publishes one bounded private
 process-binding record with stable PID/start, FD inode, TTY and qualified Android
@@ -573,7 +573,7 @@ With a binding present, malformed, stale or mismatching native-process/descripto
 identity refuses focus; it never falls back to the title. Unbridged installed
 frontends retain the previous title qualification
 until the native producer is admitted. The bridge is independent of upstream
-`/title` selections and OSC display text. Core's ordinary launch and the current
+`/title` selections and OSC display text. Wrapper's ordinary launch and the current
 original Android terminal registration remain unchanged. Native source/build
 proof precedes admission; consumer-only or seeded fixtures do not establish
 automatic thread-switch integration.
@@ -582,7 +582,7 @@ automatic thread-switch integration.
 `--with`, `update`, `rollback`, `doctor`, `provider`) as well as the optional
 Manager subcommand family when invoked explicitly (`help`, `launch`, `profile`,
 `task`, `notify`, `usage`, `rotation`) and is never passed to upstream.
-Bare `codex` invokes only minimal Wrapper plus patched upstream unless modules
+Bare `codex` invokes only standalone Wrapper plus patched upstream unless modules
 are enabled in `wrapper.toml` or via `codex wrapper --with <MODULES>`.
 
 ```text
@@ -633,8 +633,8 @@ The generated upstream hook command may call the bounded internal Manager
 endpoint `codex wrapper notify emit <EVENT>`. The native completion callback
 may append exactly one JSON argument for `Stop`. It is not a configuration or
 upstream passthrough form, is not shown by Manager help, and accepts only one
-canonical event name. Core remains the public-launch owner: Manager never
-writes Core's config directory or asks Core to execute an arbitrary command.
+canonical event name. Wrapper remains the public-launch owner: Manager never
+writes Wrapper's config directory or asks Wrapper to execute an arbitrary command.
 
 Manager command failures use the shared public classes: `0` for success, `1`
 for an operational or child failure, `2` for usage/validation/policy failure,
@@ -642,15 +642,15 @@ and `130` for an interactive cancellation or interrupt. A Manager must not
 echo invalid raw arguments, credentials, session content, or arbitrary
 environment values in an error.
 
-The Core-owned doctor surface accepts exactly no arguments, `--json`, or
+The Wrapper-owned doctor surface accepts exactly no arguments, `--json`, or
 `--color`. `--json` and `--color` are mutually exclusive. `--color` is an
 explicit human-output override for interactive diagnostics: when stdout is not
-a TTY, output remains plain; when it is a TTY, Core removes only the inherited
+a TTY, output remains plain; when it is a TTY, Wrapper removes only the inherited
 `NO_COLOR` value from the bounded upstream-doctor child and uses the Termux PTY
 capture path. It never changes the caller's environment or enables color in a
 JSON envelope.
 
-The Core-owned update surface accepts no arguments (default upstream update),
+The Wrapper-owned update surface accepts no arguments (default upstream update),
 `--upstream` (explicit official upstream update, optionally paired with
 `--version <MAJOR.MINOR.PATCH>`), `--version <MAJOR.MINOR.PATCH>`,
 `--path <FILE_OR_DIR>` (adapt an offline `.tar.gz` or install a prepared
@@ -658,8 +658,8 @@ generation directory), `--rollback`, or `--help` after `update`. (Legacy
 `--build-local` and `--local` flags are superseded by default/`--upstream` and
 `--path`; optional signed remote channel selectors remain deferred to decoupled
 Stage 2 extensions.) No top-level `codex rollback` command is introduced. A
-malformed invocation beginning with `update` is a Core usage error. No top-level
-`codex update` argument is passed to upstream, and Core never invokes a package
+malformed invocation beginning with `update` is a Wrapper usage error. No top-level
+`codex update` argument is passed to upstream, and Wrapper never invokes a package
 manager or an upstream self-updater.
 
 When using optional signed channels in Stage 2 extensions (historical/deferred
@@ -675,18 +675,18 @@ an untrusted candidate merely to discover presentation data. Before the candidat
 version is authenticated, an interactive update may show only a transient
 `Checking for updates...` status.
 
-When both stdout and stderr are attached to terminals, Core may use exactly one
+When both stdout and stderr are attached to terminals, Wrapper may use exactly one
 transient stderr progress line. It replaces that line in place with bounded
 carriage-return/erase-line terminal control and flushes each phase immediately.
 The transient line is always cleared before a permanent success or failure
 result. The ordinary signed-channel phases are concise user-facing states such as
 `Checking for updates...`, `Downloading signed Termux release...`,
 `Verifying release signature and contents...`, `Checking candidate runtime...`,
-and `Activating Codex <VERSION>...`. If either stream is not a terminal, Core
+and `Activating Codex <VERSION>...`. If either stream is not a terminal, Wrapper
 emits no transient progress line and no cursor-control bytes.
 
 For signed releases that publish the optional authenticated
-`compat/download-size-v1` control resource, Core may enrich only the
+`compat/download-size-v1` control resource, Wrapper may enrich only the
 `Downloading signed Termux release...` transient state with actual downloaded
 bytes and the authenticated total payload size. The sidecar is not part of the
 installed generation inventory and therefore does not change release-manifest
@@ -694,12 +694,12 @@ format or legacy-consumer compatibility. It is signed by the release key and
 binds itself to the exact signed `release.manifest` SHA-256; its ordered file
 list and file count must match the signed manifest inventory one-for-one, and
 its declared total must equal the checked sum of those file sizes. If the
-sidecar body is unavailable, Core falls back to the existing phase-only
+sidecar body is unavailable, Wrapper falls back to the existing phase-only
 presentation. Once a sidecar body is fetched, an unavailable or invalid
 signature, manifest-digest mismatch, malformed/duplicate/missing file entry, or
 actual GET byte count that differs from the authenticated file size fails the
 update closed. Progress is derived only from bytes actually written by the GET
-transfer; Core does not issue per-file HEAD requests. Non-TTY output contains
+transfer; Wrapper does not issue per-file HEAD requests. Non-TTY output contains
 neither progress counters nor terminal-control bytes.
 
 After both versions are authenticated, a genuinely version-changing signed
@@ -730,20 +730,20 @@ alone produces no duplicate upstream row. A short
 changelog is shown only for a component whose authenticated executable inputs
 change in this update; unchanged components retain their concise package identity
 without repeating notes or full-note links. A Full repack alone does not count
-as a Core, Manager or TUI change when that component's signed bytes and modes
+as a Wrapper, Manager or TUI change when that component's signed bytes and modes
 are unchanged. Upstream notes are shown when a newer official version is
 available or this invocation changed the installed upstream version. Exact-current
 updates repeat neither component nor upstream changelogs. Installed and latest/available versions are distinct;
 a default manual `codex update` updates an already selected Provider as a
-separate dependency group after the Core attempt and before any missing-upstream
+separate dependency group after the Wrapper attempt and before any missing-upstream
 build choice or wait. Each group admits against its own authenticated current
-state: a Core candidate/transport/hold failure retains its failing result while a
-ready Provider may still advance under the valid installed Core authority. An
-invalid installed Core authority cannot authorize Provider effects. Provider
-operations reauthenticate the installed Core envelope/inventory with its admitted
+state: a Wrapper candidate/transport/hold failure retains its failing result while a
+ready Provider may still advance under the valid installed Wrapper authority. An
+invalid installed Wrapper authority cannot authorize Provider effects. Provider
+operations reauthenticate the installed Wrapper envelope/inventory with its admitted
 current key under the activation lock, including Base without an enhanced TUI;
 ordinary-launch assumptions about immutable files are insufficient at this update
-authority boundary. A Provider failure likewise does not suppress Core freshness,
+authority boundary. A Provider failure likewise does not suppress Wrapper freshness,
 keep/local/remote choice or publication waiting. The updater retains both group
 results and returns failure for an incomplete update. Manual waiting returns an
 explicit completion/continue decision to the updater; it does not replace the
@@ -752,13 +752,13 @@ transition reports an earlier module failure before launching the admitted clien
 that client's later exit belongs to the requested client run.
 An absent/unselected Provider causes no
 installation, store creation or Provider request. Startup discovery and explicit
-Core source/force/local-build/rollback commands retain their bounded Core scope.
+Wrapper source/force/local-build/rollback commands retain their bounded Wrapper scope.
 A Provider group failure returns failure with its actual cause; an independently
-activated Core remains active and is reported as such. Missing Core artifacts do
+activated Wrapper remains active and is reported as such. Missing Wrapper artifacts do
 not prevent a ready independent Provider update. When a Full
-release declares its authenticated Base, Core uses that Base release's own
+release declares its authenticated Base, Wrapper uses that Base release's own
 publication time and notes. Full package time must not replace the Base time.
-Without a Base identity, Core is explicitly labelled as part of the Full package. Manager and
+Without a Base identity, Wrapper is explicitly labelled as part of the Full package. Manager and
 enhanced TUI identify the Full package that supplies them, including its package
 publication time, rather than inventing independent module release dates.
 Use full date/time in KST (UTC+09:00) when the source supplies a timestamp.
@@ -766,7 +766,7 @@ Date-only historical metadata retains its actual UTC date and precision; never
 invent midnight, use installation time or infer publication from file timestamps.
 
 Official upstream metadata already acquired by manual update supplies its
-published_at and release body. For the exact admitted Core generation and the
+published_at and release body. For the exact admitted Wrapper generation and the
 latest signed Provider index, bounded explicit-update requests may read the
 corresponding public GitHub release tag's published_at/body. These are informational
 publication records, not signature/admission authority or executable instructions.
@@ -782,7 +782,7 @@ input must not become an unchanged result. Default manual update additionally
 shows the authenticated selected Provider's publication identity/date when
 unchanged, without its changelog; that optional publication read is not
 package acquisition or selection authority. Explicit Provider update retains its
-unchanged fast path without publication requests. The Core release display no
+unchanged fast path without publication requests. The Wrapper release display no
 longer performs a separate informational Provider index lookup: the Provider update
 operation owns its one index admission, payload reuse/acquisition and result.
 A changed stable Provider release authenticates its new envelope before reusing
@@ -791,19 +791,19 @@ installer if its signed envelope, inventory and sequence match the new index;
 corrupt or conflicting retained generations fail without overwriting them.
 Otherwise an entry with the same signed path, digest, byte count and mode in the
 verified current selection may be copied into private acquisition through the
-same target-bound file copier as Core. The copier rejects aliases/special files,
+same target-bound file copier as Wrapper. The copier rejects aliases/special files,
 checks actual ownership/size/mode and rehashes the private copy; it never hardlinks
 installed files. Changed entries or rejected reuse candidates are downloaded and
 verified against the new signed inventory. The final installed/current payload
 checks and artifact probe remain required. Corrupt admitted selection is still
 an error, not an implicit repair or unchanged success. Explicit --remote
 installation/reinstallation retains acquisition of every entry; local installation
-retains its existing path. All remote Provider payloads use Core's existing private,
+retains its existing path. All remote Provider payloads use Wrapper's existing private,
 digest-keyed download cache. Interrupted bytes remain untrusted and may resume only
 on the next explicit request after the new signed envelope is admitted. A complete
 cached entry is rehashed before staging; invalid complete bytes or rejected ranges
 are discarded with an error, without an automatic restart. Provider controls have
-finite transfer deadlines, and payload downloads use Core's progress-aware idle
+finite transfer deadlines, and payload downloads use Wrapper's progress-aware idle
 bound for cache misses and resumes. Terminal progress identifies the Provider file
 and authenticated byte total; redirects, signatures, sequence floors and final installation admission keep
 their existing authority. No new cache format, public switch or release format is
@@ -816,7 +816,7 @@ publication queries; they retain their explicitly supplied signed display metada
 
 New release producers publish brief component sections from release/notes.md
 (at most16KiB of UTF-8 source text);
-Core, Manager, enhanced TUI and Provider sections describe their actual package
+Wrapper, Manager, enhanced TUI and Provider sections describe their actual package
 scope. Display at most three brief entries per component and link the complete
 original release notes. Upstream uses the official release body's public entries.
 Missing notes remain unavailable, not a fabricated claim of no changes.
@@ -856,7 +856,7 @@ fail-closed update semantics.
 
 A successful startup discovery is cached for six hours. Transport or discovery
 failure suppresses another startup network attempt for thirty minutes. When a
-different signed generation is available, Core may show one transient all-TTY
+different signed generation is available, Wrapper may show one transient all-TTY
 prompt:
 
 ```text
@@ -864,17 +864,17 @@ Codex update available. Update now? [y/N] 5s
 ```
 
 The prompt names no candidate version before authenticated generation metadata
-is available through the normal update path. On Linux/Android TTYs, Core enters
+is available through the normal update path. On Linux/Android TTYs, Wrapper enters
 a bounded non-canonical, no-echo prompt mode only for this advisory: a single
 `y` or `Y` key selects update immediately without Enter, while `n`/`N`, Enter,
 or any other single input byte keeps the current runtime immediately. Five
-seconds with no input also keeps the current runtime. Core restores the exact
+seconds with no input also keeps the current runtime. Wrapper restores the exact
 prior terminal mode before update execution or upstream launch, consumes the
 prompt byte so it cannot leak into upstream Codex input, and clears the
 countdown line in place on every normal exit. A keep/timeout decision snoozes
 that exact signed generation identity for six hours; a different signed
 generation is not suppressed by the old snooze. An effective rollback hold or
-rollback-Core guard suppresses the startup prompt entirely; explicit
+rollback-Wrapper guard suppresses the startup prompt entirely; explicit
 `codex update` / `--force` remains the recovery authority.
 
 Selecting update re-enters the ordinary no-argument `codex update` path from
@@ -884,16 +884,16 @@ and rollback protections. On success, bare launch then loads and executes the
 newly active upstream runtime. If that explicit-in-response-to-the-prompt update
 fails, its ordinary concise failure remains visible but bare launch still
 continues with the unchanged active runtime. Startup advisory cache/snooze state
-is Core-owned convenience state only and is never trusted as release,
+is Wrapper-owned convenience state only and is never trusted as release,
 activation, rollback, or signing authority.
 
-Rollback is an explicit Core operation, not an ordinary-launch fallback and not
+Rollback is an explicit Wrapper operation, not an ordinary-launch fallback and not
 a search through generation history. It selects the one retained previous complete
 generation, including explicit reactivation of a newer previous generation.
-After an authenticated public rollback to a lower release sequence commits, Core
+After an authenticated public rollback to a lower release sequence commits, Wrapper
 atomically records a separate bounded exact-format `update-hold` file containing
 only the authenticated generation identity and signed release sequence that were
-current before rollback. Activation-state v3 is not extended. The hold file must
+current before rollback. Activation-state is not extended. The hold file must
 be a regular file, must reject malformed/oversized/symlink state, and must use
 temporary-create, file sync, atomic rename, and parent-directory sync semantics.
 A failed rollback must not create or change the hold. Explicit selection of an
@@ -902,27 +902,27 @@ clears obsolete hold/guard controls only after the existing activation transacti
 commits; an existing hold for that selected sequence remains authenticated while
 its rollback guard is removed. It never weakens qualification of that retained target.
 
-The first rollback from a hold-aware Core to an older Core that does not advertise
-exact `codex-update-hold-v1` capability must not lose hold enforcement. Core may
-therefore retain the rolled-back-from signed Core launcher as a bounded rollback
+The first rollback from a hold-aware Wrapper to an older Wrapper that does not advertise
+exact `codex-update-hold-v1` capability must not lose hold enforcement. Wrapper may
+therefore retain the rolled-back-from signed Wrapper launcher as a bounded rollback
 control-plane guard while the runtime, Manager, helpers, and authoritative current
 pointer roll back to the retained previous signed generation. The guard is a
-separate exact-format Core-owned state record; it must bind the rollback target
+separate exact-format Wrapper-owned state record; it must bind the rollback target
 generation, the held generation, the held signed release sequence, and the held
-generation's signed Core digest. The stable launcher is accepted under this
+generation's signed Wrapper digest. The stable launcher is accepted under this
 exception only when the authoritative pointer pair matches the guard, the held
 previous generation verifies under its retained verifier key, and the launcher
-digest exactly equals that held signed Core digest. No unsigned or arbitrary Core
-path is authorized. A target Core that advertises `codex-update-hold-v1` uses the
-normal full Core rollback instead and does not retain the guard.
+digest exactly equals that held signed Wrapper digest. No unsigned or arbitrary Wrapper
+path is authorized. A target Wrapper that advertises `codex-update-hold-v1` uses the
+normal full Wrapper rollback instead and does not retain the guard.
 
-Core writes the guard intent durably before the pointer swap but treats it as an
+Wrapper writes the guard intent durably before the pointer swap but treats it as an
 effective hold only after the authoritative pointer becomes the exact guarded
 rollback pair. This closes the commit-to-hold crash window without treating a
-failed rollback as held. After the committed rollback, Core writes the normal
+failed rollback as held. After the committed rollback, Wrapper writes the normal
 `update-hold`; a hold-aware target then removes the temporary guard, while a
 legacy target retains it until a force retry or greater-sequence activation
-restores a normal Core/generation pairing. Malformed, mismatched, stale, or
+restores a normal Wrapper/generation pairing. Malformed, mismatched, stale, or
 unverifiable guard state fails closed whenever it is needed to justify a launcher
 mismatch.
 
@@ -932,12 +932,12 @@ held signed release sequence must not stage, probe, or activate; the hold theref
 prevents both the exact bad sequence and any intermediate sequence from displacing
 the retained evidence. A differently named same-sequence repack cannot bypass it.
 A greater release sequence is eligible normally. After a greater-sequence
-activation commits, Core removes the now-obsolete hold and guard while still
+activation commits, Wrapper removes the now-obsolete hold and guard while still
 inside the activation writer boundary; a failed activation must not clear them.
 `codex update --force` requires a valid authenticated hold and may retry exactly
 that held sequence for that invocation. It bypasses only the hold comparison; a
 same-held-sequence force retry retains the normal hold while removing any now-stale
-rollback-Core guard after the normal Core/generation pairing is restored. Force
+rollback-Wrapper guard after the normal Wrapper/generation pairing is restored. Force
 never enters the transport-unavailable local-build fallback and cannot target an
 unheld or greater sequence. Neither path weakens signature, digest, anti-rollback,
 candidate-probe, or atomic-activation rules.
@@ -948,14 +948,14 @@ clearly Termux-specific status or redacted machine-diagnostic surface.
 ## Manager contracts
 
 This section defines the optional Manager. It does not weaken or
-extend the Core completion threshold, and it does not make Manager a
-prerequisite for ordinary upstream launch, Core doctor, update, rollback, or
+extend the Wrapper completion threshold, and it does not make Manager a
+prerequisite for ordinary upstream launch, Wrapper doctor, update, rollback, or
 fresh installation. Manager is an optional, separately qualified artifact
 behind the existing `codex termux` boundary.
 
 ### Process and ownership boundary
 
-Core selects Manager only from the signed, qualified generation and invokes
+Wrapper selects Manager only from the signed, qualified generation and invokes
 the artifact with a versioned handoff environment:
 
 ```text
@@ -965,20 +965,20 @@ CODEX_TERMUX_WRAPPER_ENTRYPOINT=<validated stable Wrapper entrypoint>
 
 The retired `CODEX_TERMUX_CORE_REQUEST` and
 `CODEX_TERMUX_CORE_OPERATION` environment values have no dispatch meaning.
-Core does not parse or consume a repair request, even if those retired values
+Wrapper does not parse or consume a repair request, even if those retired values
 are inherited. Ordinary doctor/update/rollback/upstream argv retain their
 normal behavior. There is no replacement repair request or hidden recovery API.
 
-Manager validates the versioned API and Core entrypoint before doing work.
-Its return path to Core is an `exec` of that entrypoint with ordinary upstream
+Manager validates the versioned API and Wrapper entrypoint before doing work.
+Its return path to Wrapper is an `exec` of that entrypoint with ordinary upstream
 argv whose first token is not the exact selector `termux`, `doctor`, or
-`update`. Recovery uses the public Core commands directly. Manager cannot
+`update`. Recovery uses the public Wrapper commands directly. Manager cannot
 address a generation path, activation state,
-trust key, resolver, or journal directly. Core remains the final validator of
+trust key, resolver, or journal directly. Wrapper remains the final validator of
 every requested route. There is no callback socket, network protocol, or
 second state authority.
 
-Manager receives no credential or session-content payload from Core. It may
+Manager receives no credential or session-content payload from Wrapper. It may
 inherit ordinary process environment needed for a child launch, but it must
 not print or persist that environment. A missing, malformed, or incompatible
 handoff fails before any Manager state mutation.
@@ -1008,7 +1008,7 @@ user-global beneath the canonical shared-state root `$HOME/.codex`.
 account home and Manager metadata. It never creates canonical conversation
 directories or copies/parses credentials or transcript bytes. Registration is
 valid before the first launch; list/use validate the private home and exact
-metadata rather than requiring prepared shared links. Core alone prepares and
+metadata rather than requiring prepared shared links. Wrapper alone prepares and
 validates execution topology before upstream runs, including direct supported
 CODEX_HOME launches without Manager. Existing complete homes remain supported.
 The compatibility topology links these profile-home names to their exact
@@ -1018,10 +1018,10 @@ canonical siblings beneath `$HOME/.codex`: `sessions`, `archived_sessions`,
 `tui-thread-reference-capabilities`. Directory targets are real private
 directories beneath the shared root; file links may initially be dangling only
 to the exact canonical sibling so upstream can create the target atomically.
-Core accepts missing entries or empty real directories for preparation and
+Wrapper accepts missing entries or empty real directories for preparation and
 rejects substituted, relative, chained or otherwise unexpected shared-state
 links and nonempty conflicting entries rather than repairing/importing them.
-Manager's accepted dotted profile IDs are also recognized by Core; declared
+Manager's accepted dotted profile IDs are also recognized by Wrapper; declared
 external homes retain their already-supported underscore/hyphen identifiers.
 Existing legacy profile directories are not imported implicitly. Legacy
 consolidation is a separate, one-time bounded compatibility migration with a
@@ -1039,7 +1039,7 @@ REPLACE`, and persistent generic legacy-merger behavior are prohibited.
 Non-selected legacy conversations remain unchanged in the verified backup or
 source profile and are outside canonical import scope.
 
-The bounded migration implementation must remain outside steady-state Manager/Core
+The bounded migration implementation must remain outside steady-state Manager/Wrapper
 session semantics. Its planning phase may read legacy SQLite read-only only to select
 the bounded recoverable set, preserve explicit names, and reject unsupported
 thread-scoped dependencies. It must not merge or write SQLite. The migration payload is
@@ -1062,7 +1062,7 @@ exception. Manager profiles are execution identities; conversation persistence
 and thread/session schema semantics belong to the official upstream runtime.
 Manager's normal responsibility is profile registration/selection, bounded
 profile-local environment/configuration and `exec` through the validated stable
-Core entrypoint. Core owns physical shared execution-path preparation; upstream
+Wrapper entrypoint. Wrapper owns physical shared execution-path preparation; upstream
 owns the conversation store. Once
 migration is complete, ordinary Manager operation must not routinely parse
 SQLite or transcript contents, infer conversation ownership, or maintain a
@@ -1089,31 +1089,31 @@ homes are reported as `external`, without treating them as Manager registrations
 token state, session bodies, paths, or arbitrary environment values.
 
 `profile use` requires an existing profile, validates its private registration,
-then `exec`s Core without selection-history writes and emits no
-Manager-owned success output before Core runs. For `default` it explicitly sets
+then `exec`s Wrapper without selection-history writes and emits no
+Manager-owned success output before Wrapper runs. For `default` it explicitly sets
 `CODEX_HOME` to `$HOME/.codex`, bypassing any persistent custom default; for a custom profile it sets `CODEX_HOME` to the validated
 profile home. Manager removes an inherited `CODEX_SQLITE_HOME` override instead
-of producing a parallel shared-store selection signal. Core derives the shared
+of producing a parallel shared-store selection signal. Wrapper derives the shared
 root from the supported execution home and supplies a system `requirements.toml`
 requirement that fixes `sqlite_home` to the same
 canonical shared root and requires `local_thread_store_compression=false` and
 `background_paginated_rollout_migration=false` where the selected
 upstream execution topology still relies on incompatible profile-local
 rollout maintenance locks. The requirements
-file is Core-owned, is removed or replaced only through the Core marker
+file is Wrapper-owned, is removed or replaced only through the Wrapper marker
 contract, and prevents a profile `config.toml` from silently splitting SQLite
 or enabling those incompatible background writers. The original upstream argv
 after the profile selector is preserved exactly. If registration validation fails,
-Core is not launched. If execution topology is unsafe or conflicting, Core rejects
+Wrapper is not launched. If execution topology is unsafe or conflicting, Wrapper rejects
 before upstream execution. A selection changes neither later ordinary launches nor
-the caller's environment. Core uses the same native-equivalent home interpretation
+the caller's environment. Wrapper uses the same native-equivalent home interpretation
 for shared preparation and server startup, preserving the supplied environment.
 
 The profile lifecycle contract below applies. Interactive selection is the
 existing launch/TUI convenience, not an auth-migration or conversation-copy feature.
 Cross-profile session copying is deliberately absent
 because conversations are shared objects rather than profile-owned objects. A
-missing/invalid registration is a non-mutating Manager validation failure. Core
+missing/invalid registration is a non-mutating Manager validation failure. Wrapper
 prepares only the declared missing/empty compatibility entries during launch;
 conflicting nonempty state is never migrated or repaired as a launch side effect.
 
@@ -1132,12 +1132,12 @@ launch preparation returns blocked instead of silently choosing native default.
 
 A nonempty UTF-8 inherited CODEX_HOME always wins. Otherwise Manager resolves its
 saved preference through the bounded `__prepare-launch-v1`/`__execute-launch-v1`
-contract. Core never reads the preference filename or profile metadata. Manager
-validates registration, sets CODEX_HOME for this child and execs stable Core with
+contract. Wrapper never reads the preference filename or profile metadata. Manager
+validates registration, sets CODEX_HOME for this child and execs stable Wrapper with
 original argv/TTY/streams/signals/exit behavior. `__profile-launch` remains an
-internal Manager endpoint, not Core's preference-discovery mechanism. Unavailable
-optional preparation leaves normal Core launch usable in its unchanged confirmed
-home; there is no post-handoff retry. Core-only/update/doctor/termux and unsupported
+internal Manager endpoint, not Wrapper's preference-discovery mechanism. Unavailable
+optional preparation leaves normal Wrapper launch usable in its unchanged confirmed
+home; there is no post-handoff retry. Wrapper-only/update/doctor/termux and unsupported
 daemon routes keep their defined behavior. No selector may be smuggled through
 an internal endpoint. Bare startup discovery
 still runs at most once, after selection. `profile current` adds source `saved`
@@ -1158,8 +1158,8 @@ first choose another default. No two-record default/rename transaction is needed
 
 Profile creation, preference writes and lifecycle mutations serialize with an
 exclusive kernel lock on the existing Manager profiles directory. Manager owns
-that registry coordination; Core execution does not lock or parse the registry.
-For every existing owned upstream execution home, Core opens the actual directory
+that registry coordination; Wrapper execution does not lock or parse the registry.
+For every existing owned upstream execution home, Wrapper opens the actual directory
 and holds a shared kernel lock on its inode across native runtime and shared-server
 execution using FD36. The lease primitive knows no account ID, Manager path or
 registration format. At the lease boundary, aliases/relative paths bind the same
@@ -1172,18 +1172,18 @@ The existing declared Manager-home path contract still requires a real private
 owned home and safe ancestors before the generic lease is acquired; missing,
 replaced or unsafe declared homes fail, never become fresh isolated identities.
 The compatibility topology/SQLite binding for the three already-supported shared
-home layouts remains Core-owned so direct launches still see canonical history
+home layouts remains Wrapper-owned so direct launches still see canonical history
 without Manager. This is a retained data-integrity contract, not account selection
-or a reason for Core to parse Manager metadata. No new binding registry, state
+or a reason for Wrapper to parse Manager metadata. No new binding registry, state
 marker, user-data migration or second conversation store is introduced.
 
 The home lease closes the mutation race: lifecycle requires its exclusive lock;
 launch takes the shared lock and revalidates the opened inode against the selected
 path before use. A registry-only mutation for another account cannot block an
-otherwise safe existing-home launch. Core provides this execution lease only;
+otherwise safe existing-home launch. Wrapper provides this execution lease only;
 it does not implement deletion, rename or default policy. Manager
 requires the exclusive home lease before any rename/delete and additionally
-rejects existing old-generation live Core server bindings for that home. No user
+rejects existing old-generation live Wrapper server bindings for that home. No user
 server is stopped automatically. For pre-lease runtime processes, bounded same-UID
 process metadata identifies CODEX_HOME/cwd/open account handles; only the execution
 home field may be retained transiently, never unrelated environment values,
@@ -1194,7 +1194,7 @@ work runs; existing work retains its account and authentication.
 An execution-home lease proves directory use, not conversation writer ownership;
 it never authorizes takeover, writer-lock removal or stopping another turn.
 
-Core's generation-retention lease must occupy a descriptor above the reserved
+Wrapper's generation-retention lease must occupy a descriptor above the reserved
 33–36 range. Installing an execution-home lease under descriptor pressure must
 not release generation protection before the final kernel exec.
 
@@ -1212,19 +1212,19 @@ hidden private residue; it is not a profile, never used for launch, and a failur
 is reported without pretending deletion of shared state or other profiles.
 Version rollback never reverses explicit profile lifecycle actions. Managers
 predating this extension ignore the preference and do not list v2 registrations;
-account bytes and Core direct CODEX_HOME execution remain independent of metadata.
+account bytes and Wrapper direct CODEX_HOME execution remain independent of metadata.
 
 ### Installation-wide upstream resume visibility
 
-Core extends the upstream-owned shared
+Wrapper extends the upstream-owned shared
 conversation architecture to known external execution homes directly beneath
-`$HOME/.codex-profiles/<PROFILE_ID>`. Core must apply the same canonical SQLite
+`$HOME/.codex-profiles/<PROFILE_ID>`. Wrapper must apply the same canonical SQLite
 requirement even when those launches lack a Manager-provided
 `CODEX_SQLITE_HOME`. Canonical/default, registered Manager, and declared external
 execution identities discover the installation's one upstream conversation
 store under `$HOME/.codex`; credentials, user/provider configuration, logs and
 runtime snapshots remain profile-local. An arbitrary external `CODEX_HOME`
-remains isolated rather than becoming an implicit import source. Core validates
+remains isolated rather than becoming an implicit import source. Wrapper validates
 the declared topology and never routinely reads SQLite, parses transcripts,
 merges sessions, or maintains another discovery index. Empty declared homes
 may receive only the exact compatibility links; nonempty legacy roots require
@@ -1256,7 +1256,7 @@ path opens use the shared store. Immediately before handoff, inspect every
 upstream writer's open retained rollout inode: multiple active differing copies,
 an active nonmaximal copy, or an active excluded rollout reject apply. Existing
 private SQLite projections used by pretransition writers must remain untouched
-until those writers exit; all new Core launches enforce canonical SQLite.
+until those writers exit; all new Wrapper launches enforce canonical SQLite.
 Per-profile upstream writer coordination locks serialize the handoff; per-thread
 lock inodes move into the canonical namespace with their active owners. This
 avoids Android-denied hardlinks while retaining the writer FD. Inactive legacy
@@ -1282,7 +1282,7 @@ UUID restricts the view. `task status [THREAD_UUID]` is noninteractive and repor
 only UUID, owner execution home/account label, runtime-bound server PID/start,
 native state and force-server identity. No transcript, preview, goal objective,
 credential or tool output is printed or persisted. External supported CODEX_HOME
-identities are included, not just Manager-registered profiles. All retained Core
+identities are included, not just Manager-registered profiles. All retained Wrapper
 server rendezvous records are considered, including old-generation active servers.
 This helper adds no permanent task registry, watcher, supervisor or automatic
 account switch. Quota rotation is the separate Manager/TUI contract above.
@@ -1312,10 +1312,10 @@ no current owner, even when its old server still reports the thread loaded. Afte
 each handoff subsequent discovery must follow the new holder. Reconnect/stop
 revalidate ownership immediately before acting; uncertain ownership fails closed.
 
-Manager may read existing private Core server binding metadata and connect only
+Manager may read existing private Wrapper server binding metadata and connect only
 to same-UID kernel-peer-verified exact runtime processes. This is read-only
 consumption of execution metadata, not generation selection/preparation/activation
-ownership. Core gains no task, cancellation or transfer controller. Native
+ownership. Wrapper gains no task, cancellation or transfer controller. Native
 WebSocket JSON-RPC owns discovery/status, cancellation and history. Connections,
 messages, server/task counts and scans are bounded; incomplete/ambiguous discovery
 never authorizes cancellation, force termination or successful takeover.
@@ -1365,7 +1365,7 @@ explicit noninteractive actions retain original TTY/streams/signals/exit at exec
 The interactive helper is the convenience route for a cross-account writer conflict;
 bare upstream launch/resume remains independent when Manager is absent. Manager
 help and README explain this route rather than intercept upstream argv or add a
-Core process supervisor. Qualification must reproduce running-disconnect,
+Wrapper process supervisor. Qualification must reproduce running-disconnect,
 interrupt/disconnect race, same-owner reconnect, goal cancellation, retained writer,
 old-runtime owner, profile takeover, stale token, malformed protocol/substituted
 records and whole-server force scope in owned roots; native runtime proof is
@@ -1377,7 +1377,7 @@ required beyond simulated RPC.
 
 Preserve upstream /config notification preferences, TUI event filtering/
 conditions and OSC9/BEL delivery wherever supplied by the selected runtime.
-Core-only operation retains official notification controls. Optional Manager's
+Wrapper-only operation retains official notification controls. Optional Manager's
 Android notification/toast/window-return path is a distinct capability. Its
 absence is a verified break in that path, not a sufficient diagnosis of every
 missing terminal or Android notification.
@@ -1401,7 +1401,7 @@ native backend hook with a TUI-only event must not lose alerts when no TUI exist
 Prefer upstream settings/UI, event semantics and delivery wherever they actually
 cover the required behavior. Keep only demonstrated Android/Termux or profile/
 window adaptation and uncovered required events in the optional device/Manager
-boundary. Whole or partial retirement is determined by that comparison; Core
+boundary. Whole or partial retirement is determined by that comparison; Wrapper
 does not acquire notification policy. A settings migration must define one owner
 for each equivalent preference/event/delivery effect, preserve existing user
 choices and current/rollback compatibility, and remove replaced producers,
@@ -1493,21 +1493,21 @@ implicitly. `notify set`
 merges validated values and publishes the complete record with a private
 same-directory create-new temporary, file synchronization, atomic replacement,
 and parent synchronization. A successful `notify set` emits exactly `saved\n`.
-It never writes an upstream profile, Core generation, activation state, or
+It never writes an upstream profile, Wrapper generation, activation state, or
 notification payload.
 
 For an ordinary upstream launch, the admitted Manager reads this exact bounded
 record and validates its path, mode, bound, version and complete shape. Manager
 renders the selected native callbacks and hooks through the bounded private
-configuration preparation endpoint above. Core neither reads the record nor
+configuration preparation endpoint above. Wrapper neither reads the record nor
 recognizes notification events. No persistent projection record/schema is
-introduced, and Manager never writes Core's system configuration. Core combines
+introduced, and Manager never writes Wrapper's system configuration. Wrapper combines
 its execution defaults with the returned fragment in the immutable per-launch
-snapshot before runtime exec. The shared base directory contains Core defaults
-only; a live server's snapshot is not rewritten. The Core-owned base configuration
-retains its `codex-termux-notify-v1` marker. A missing/owned-marker base file may be
+snapshot before runtime exec. The shared base directory contains Wrapper defaults
+only; a live server's snapshot is not rewritten. The Wrapper-owned base configuration
+retains its `# codex-termux-wrapper` marker. A missing/owned-marker base file may be
 prepared; conflicting foreign state is preserved and rejected before execution.
-This Core-owned configuration conflict is distinct from invalid optional
+This Wrapper-owned configuration conflict is distinct from invalid optional
 Manager state. Each enabled event is mapped
 to `codex termux notify emit <EVENT>`. Selected `Stop` uses upstream's native
 `notify` argv callback, with no generated `hooks.Stop` command. Upstream excludes
@@ -1601,7 +1601,7 @@ Existing notifications are not rewritten by a source or setting change.
 Each provider attempt has a five-second bound; timeout terminates its owned
 process group, including API-helper descendants, and reaps the direct provider
 child. Generated command hooks
-allow fifteen seconds for two attempts and Core/Manager handoff overhead.
+allow fifteen seconds for two attempts and Wrapper/Manager handoff overhead.
 `notify test` is an explicit operator delivery test, accepts no arguments, uses
 the effective selected channels and presentation settings, and sends only fixed
 non-sensitive test text. It works even when automatic hooks are disabled and
@@ -1622,15 +1622,15 @@ authority. Independent window launches do not share workloads or migrate
 live work to a different terminal. Caller color preferences remain
 per-launch.
 
-### Core recovery authority
+### Wrapper recovery authority
 
 `codex termux repair`, including the former `plan` and `apply` forms, is a
-non-mutating Manager usage failure (status 2). It does not launch Core, inspect
+non-mutating Manager usage failure (status 2). It does not launch Wrapper, inspect
 or modify generations, access the network, or produce a repair plan. Help does
 not advertise it. Existing Manager notification/profile state is unchanged.
 
 The former facade offered only generation-layout classification and an optional
-call to Core update. It has no distinct recovery outcome. Core retains ordinary
+call to Wrapper update. It has no distinct recovery outcome. Wrapper retains ordinary
 `codex doctor`, signed `codex update`, activation recovery, update-failure
 retention and explicit `codex update --rollback`; Manager owns no recovery
 planner, updater, fallback, automatic rollback or hidden request dispatch.
@@ -1653,7 +1653,7 @@ Manager snapshot is an ELF64 little-endian Android/AArch64 PIE using exactly one
 `/system/bin/linker64` interpreter, then emits the unsigned generation with the
 exact regular mode-0644 marker `.manager-probe-deferred` containing
 `codex-manager-probe-deferred-v1` plus one LF. The default CLI path and the
-library API used by Core never select this exception.
+library API used by Wrapper never select this exception.
 
 A generation carrying `.manager-probe-deferred` is not publishable:
 `codex-release-builder publish` must fail closed before release signing. The
@@ -1663,7 +1663,7 @@ returns the exact accepted result. No deferred candidate may enter official
 signing or signed release inventory.
 
 The artifact has one reserved build-time probe form, invoked only by the
-release builder and never forwarded through Core's `codex termux` boundary:
+release builder and never forwarded through Wrapper's `codex termux` boundary:
 
 ```text
 codex-manager --artifact-probe
@@ -1671,7 +1671,7 @@ codex-manager --artifact-probe
 
 The release builder supplies the exact private marker
 `CODEX_MANAGER_ARTIFACT_PROBE=1` only in that child. The probe accepts exactly
-that one argument and marker pair, requires no `HOME`, `PREFIX`, Core handoff,
+that one argument and marker pair, requires no `HOME`, `PREFIX`, Wrapper handoff,
 profile state, auth state, or network, and emits exactly these
 UTF-8 bytes on stdout with one final LF, no stderr, and status `0`:
 
@@ -1695,23 +1695,23 @@ A source-side probe alone cannot qualify different subsequently copied bytes.
 A snapshot/read failure or probe mismatch publishes
 no generation and leaves an existing destination unchanged.
 
-Core does not repeat the artifact probe during ordinary launch or signed-bundle
+Wrapper does not repeat the artifact probe during ordinary launch or signed-bundle
 acquisition. Explicit local-derived construction uses its producer's bounded
 probe for any carried-forward Manager, under the same construction rules. The
 existing
 qualified-generation path remains responsible for the signed descriptor,
 regular-file, mode, and digest binding; it executes the Manager only after
-that admission and preserves the existing Core handoff, streams, TTY,
+that admission and preserves the existing Wrapper handoff, streams, TTY,
 signals, raw arguments, and exit status. A generation without a Manager
 artifact remains valid and reports Manager unavailable.
 
 ### Manager distribution and disposable qualification
 
-Distribution adds no public command, Manager record, Core trust source, or device
+Distribution adds no public command, Manager record, Wrapper trust source, or device
 build path. The qualified optional Manager artifact is
 supplied to release production, carried by a signed generation, and proven in
 disposable environments before any live cutover. Manager remains optional for
-ordinary upstream launch, Core doctor, update, rollback, and fresh install.
+ordinary upstream launch, Wrapper doctor, update, rollback, and fresh install.
 
 The release producer builds `codex-manager` off-device from the exact accepted
 rewrite revision with the locked release toolchain and supplies that one
@@ -1729,7 +1729,7 @@ The immutable remote Release asset set must contain that file before the
 signed index is advanced. Missing, extra, mismatched, non-regular, or
 symlinked Manager content fails the existing signed-generation admission and
 must not advance the index. A generation without `manager` remains a valid
-Core-only generation and reports Manager unavailable. Core's local-derived
+Wrapper-only generation and reports Manager unavailable. Wrapper's local-derived
 construction may carry forward the currently authenticated,
 qualified Manager and same-version admitted frontend under the preservation rules
 above. It never builds or discovers an unrelated Manager on-device. An optional
@@ -1741,9 +1741,9 @@ fresh-install and legacy-upgrade consumers. For a hosted cross-build carrying th
 deferred probe marker, the Termux-compatible Android/AArch64 smoke must first
 execute the exact Manager artifact probe successfully and remove the marker before
 any later signing step. It then installs or selects a release-built
-Manager-bearing generation through the existing Core admission,
+Manager-bearing generation through the existing Wrapper admission,
 then proves `codex termux help`, one read-only profile query, and one isolated
-Manager-to-Core launch with the existing raw-argv, stream, TTY, signal, exit,
+Manager-to-Wrapper launch with the existing raw-argv, stream, TTY, signal, exit,
 and child-only `CODEX_HOME` contracts. The qualification must observe the
 Manager probe marker absent at the public handoff, a successful signed
 Manager digest binding, and no Manager-unavailable result for a Manager-bearing

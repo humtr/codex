@@ -7,7 +7,7 @@ fn invalid() -> io::Error {
     io::Error::other("private directory path is unavailable")
 }
 
-pub(super) fn core_safe_absolute_path(path: &Path) -> bool {
+pub(super) fn wrapper_safe_absolute_path(path: &Path) -> bool {
     path.is_absolute()
         && path.components().all(|component| {
             matches!(
@@ -18,7 +18,7 @@ pub(super) fn core_safe_absolute_path(path: &Path) -> bool {
 }
 
 pub(super) fn private_dir(path: &Path) -> io::Result<()> {
-    if !core_safe_absolute_path(path) {
+    if !wrapper_safe_absolute_path(path) {
         return Err(invalid());
     }
     // Reject substituted parents as well as the final directory.

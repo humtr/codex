@@ -51,9 +51,9 @@ supply the prebuilt static Linux musl executables (`bin/codex`,
 `bin/codex-exec-server`, `bin/codex-code-mode-host`) and complete upstream
 resources (`codex-resources/*`, `codex-package.json`). Wrapper and
 `codex-release-builder` adapt all eligible static AArch64 musl executables using
-rule-based equal-length path remaps (FD 33/34) and adaptive UDS cave patching
-(`99b`, FD 35) verified per binary without hardcoded occurrence counts or source
-cross-compilation toolchains.
+rule-based equal-length path remaps (`termux-fd-remap`, FD 33/34) and adaptive UDS
+cave relocation (`termux-uds-fd35`, FD 35) verified per binary without hardcoded
+occurrence counts or source cross-compilation toolchains.
 
 Bare `codex update` (or `codex update --upstream`) resolves official OpenAI
 release metadata and archives, verifies the official archive SHA-256 digest,
@@ -62,27 +62,27 @@ applies adaptive rule-based binary patching across `bin/*`, preserves static
 `bin/codex --version`, and activates the new generation using only the upstream
 version boundary — independent of Manager, enhanced TUI, Provider, or signed
 remote release indices. Optional signed release indices and extension module
-updates remain decoupled opt-in capabilities outside minimal Wrapper.
+updates remain decoupled opt-in capabilities outside standalone Wrapper.
 ## 1. Product definition
 
 The product provides one public `codex` entrypoint that runs the official
 upstream Codex CLI cleanly on supported Termux environments.
 
-In the standalone minimal architecture (**Stage 1**), the Wrapper (`Core`) is
+In the standalone architecture (**Stage 1**), the Wrapper is
 self-contained with zero hardcoded dependencies on addon crates or external
-modules: it owns only Termux runtime compatibility (FD 33/34/35, minimal `config.toml`,
+modules: it owns only Termux runtime compatibility (FD 33/34/35, wrapper `config.toml`,
 clean environment/timezone, TLS certificates, browser helpers, sandbox guard,
 fast `--version`/`--help` passthrough), `codex update` (`--upstream`, `--version`,
 `--path`, `--rollback`, `--help`), `codex doctor`, and `codex wrapper status`.
 Tools, approvals, native conversation records, compaction, writer locks, and
 `app-server daemon` / `remote-control` execution remain upstream-owned.
 Optional addon modules (`Manager`, enhanced `TUI`, `Provider`, signed remote
-release indices) are decoupled outside the minimal Wrapper binary (**Stage 2**)
+release indices) are decoupled outside the standalone Wrapper binary (**Stage 2**)
 and may attach only as generic opt-in extensions without coupling bare execution
 or upstream updates.
 
 A missing, removed, or version-drifted optional module must never disable valid
-minimal Wrapper execution or block upstream updates.
+standalone Wrapper execution or block upstream updates.
 
 This is a clean rewrite. Legacy source is historical evidence, not an
 implementation dependency or migration base.
@@ -103,7 +103,7 @@ In descending order:
 
 ## 3. Public command contract
 
-The minimal standalone Wrapper (`Core`) classifies an exact first argument (when
+The standalone Wrapper classifies an exact first argument (when
 not preceded by upstream payload delimiters) of `update`, `doctor`, or `wrapper`.
 Every invocation with zero arguments or an upstream argument vector — including
 `app-server daemon` and `remote-control` — passes through to the active adapted
@@ -117,8 +117,8 @@ runtime on Termux.
 | Command | Owner | Required behavior |
 | --- | --- | --- |
 | `codex` / `codex [UPSTREAM_ARGS...]` | Wrapper then upstream | apply FD 33/34/35 and Termux environment/timezone planning and execute upstream directly (including `app-server daemon` and `remote-control`; reject Linux Landlock `--sandbox read-only`/`workspace-write` and `sandbox linux`) |
-| `codex --version`, `codex -V`, `codex --help`, `codex -h` | upstream | execute upstream on the fast minimal path (skipping `daemon_settings::ensure`) and print exact upstream output without extra Wrapper/Manager rows |
-| `codex update` / `codex update --upstream` | Wrapper | resolve the official upstream stable release metadata/archive (`openai/codex`), verify its official archive SHA-256 digest, unpack complete archive resources, preserve/wrap `codex-path/rg`, apply adaptive FD/`99b` adaptation to static AArch64 musl binaries in `bin/*`, validate, and atomically activate |
+| `codex --version`, `codex -V`, `codex --help`, `codex -h` | upstream | execute upstream on the fast passthrough path (skipping `daemon_settings::ensure`) and print exact upstream output without extra Wrapper/Manager rows |
+| `codex update` / `codex update --upstream` | Wrapper | resolve the official upstream stable release metadata/archive (`openai/codex`), verify its official archive SHA-256 digest, unpack complete archive resources, preserve/wrap `codex-path/rg`, apply adaptive `termux-fd-remap` / `termux-uds-fd35` adaptation to static AArch64 musl binaries in `bin/*`, validate, and atomically activate |
 | `codex update --version <MAJOR.MINOR.PATCH>` | Wrapper | install and adapt one specific official upstream stable release through the upstream update pipeline |
 | `codex update --path <FILE_OR_DIR>` | Wrapper | adapt an offline official upstream `.tar.gz` archive or stage/validate/activate an already prepared generation directory |
 | `codex update --help` | Wrapper | print Wrapper update usage without invoking upstream or changing state |
@@ -126,20 +126,20 @@ runtime on Termux.
 | `codex update [INVALID_ARGS...]` | Wrapper | reject unsupported or conflicting updater options without invoking upstream or changing state |
 | `codex doctor [--color \| --json]` | Wrapper | combine upstream and Wrapper/Termux diagnostics cleanly without addon/Manager coupling |
 | `codex wrapper status [--json]` | Wrapper | report active generation, previous generation, upstream version, layout, runtime path, patch policy/report, daemon passthrough status, and Wrapper roots |
-| `codex wrapper --help` | Wrapper | print minimal Wrapper usage without invoking upstream or changing state |
+| `codex wrapper --help` | Wrapper | print Wrapper usage without invoking upstream or changing state |
 
 Optional modular extensions (`Manager`, enhanced `TUI`, `Provider`, and optional
-signed remote release channels) are decoupled outside the minimal standalone
-Wrapper (`Core`) so bare Termux compatibility and upstream upgrades remain fast
-and dependency-free; when reintroduced, they attach only as generic opt-in
-extensions without hardcoding module logic inside the minimal Wrapper.
+signed remote release channels) are decoupled outside the standalone Wrapper
+so bare Termux compatibility and upstream upgrades remain fast and
+dependency-free; when reintroduced, they attach only as generic opt-in
+extensions without hardcoding module logic inside the standalone Wrapper.
 
 `codex version` is not introduced. Wrapper/Manager version rows must not
 be appended to upstream `--version` or `-V` output. `codex termux` is
 replaced directly by `codex wrapper`.
 ## 4. Architecture and ownership
 
-### 4.1 Core (Wrapper)
+### 4.1 Wrapper
 
 Wrapper exclusively owns:
 
@@ -162,67 +162,67 @@ unavailable.
 ### 4.2 Optional extension modules (decoupled Stage 2)
 
 Optional Manager, enhanced TUI, and Provider capabilities are decoupled from the
-standalone minimal Wrapper and are not required for Termux Codex operation.
+standalone Wrapper and are not required for Termux Codex operation.
 When enabled as Stage 2 opt-in extensions:
 
 - `Manager` owns optional profile/task/notify/usage/rotation conveniences
   exposed through a generic extension boundary;
-- ordinary minimal `codex` execution never compiles in, links against, spawns, or
+- ordinary standalone `codex` execution never compiles in, links against, spawns, or
   probes Manager/TUI/Provider executables;
 - conversation persistence, discovery, selection, resume, and daemon lifecycle
   remain upstream-owned;
 - optional artifacts are built and distributed independently of Wrapper's
-  minimal `Cargo.toml` and `release-builder` pipeline.
+  standalone `Cargo.toml` and `release-builder` pipeline.
 
-Manager must not directly write Core generations, pointers, manifests, locks,
+Manager must not directly write Wrapper generations, pointers, manifests, locks,
 runtime state, resolver data, or activation journals. A Manager request that
-would mutate Core state must use a versioned, runtime-validated Core contract.
+would mutate Wrapper state must use a versioned, runtime-validated Wrapper contract.
 The Manager may create and update only its declared state and an explicitly
 created profile-home directory, plus the no-replace shared configuration-profile
 links in a validated selected upstream home described below. It must not copy,
 parse, summarize, or rewrite
 authentication files, cookies, OAuth material, arbitrary upstream state, or
 session transcript content. Profile execution changes `CODEX_HOME` only in the
-child environment and returns through the stable Core entrypoint; it never
-changes the caller's environment or persistent Core state. Manager commands
-that need an update, rollback, doctor, or other Core operation must request the
-corresponding Core-owned command through that entrypoint and must not
+child environment and returns through the stable Wrapper entrypoint; it never
+changes the caller's environment or persistent Wrapper state. Manager commands
+that need an update, rollback, doctor, or other Wrapper operation must request the
+corresponding Wrapper-owned command through that entrypoint and must not
 reimplement the operation.
 
 The Manager artifact is optional and independently qualified. Its absence,
-incompatibility, or failure must not make ordinary upstream launch, Core
-doctor, Core update, or Core rollback unavailable. Manager v1 has no external network,
+incompatibility, or failure must not make ordinary upstream launch, Wrapper
+doctor, Wrapper update, or Wrapper rollback unavailable. Manager v1 has no external network,
 package-manager, OpenSSL, bwrap, resolver, or generation-discovery authority.
 Profile registration creates only Manager metadata and a private new account
 home. Selection affects only the child invocation; execution readiness and
-shared conversation-path preparation belong to Core before upstream launch.
+shared conversation-path preparation belong to Wrapper before upstream launch.
 Optional shared configuration-profile projection belongs to Manager preparation.
 
 An installed generation's unavailable Manager is reported at the Manager
-boundary and by doctor; it does not invalidate the independently usable Core
+boundary and by doctor; it does not invalidate the independently usable Wrapper
 runtime. Ordinary dispatch checks the declared Manager path for a regular,
 owner-executable file without probing it or requiring OpenSSL. Installed-release
 verification still authenticates the signed inventory, descriptor and all
-Core/runtime assets; a failed optional Manager file check is excluded from that
-verification result and local-build carry forward, without disabling Core update
+Wrapper/runtime assets; a failed optional Manager file check is excluded from that
+verification result and local-build carry forward, without disabling Wrapper update
 or rollback. This exception applies only to already-installed generations.
 Fresh candidate admission, staging and activation
 retain complete Manager verification whenever the candidate declares one. No
 generation metadata, signed inventory or user state is rewritten to express absence.
 
 Manager is a separate Rust executable. No Manager runtime or dependency may
-become a prerequisite for ordinary upstream launch, Core doctor, update, or rollback.
+become a prerequisite for ordinary upstream launch, Wrapper doctor, update, or rollback.
 
 ### 4.3 Shared contracts
 
-Core and Manager may share only explicit versioned data contracts. Compile-time
+Wrapper and Manager may share only explicit versioned data contracts. Compile-time
 types are insufficient; every external or cross-layer payload is validated at
 runtime. Unknown incompatible schema versions fail without mutation.
 
 ### 4.4 Product completeness against upstream
 
 The completeness boundary is the public `codex` and `codex wrapper` product.
-Core supplies the supported official runtime, Termux adaptation, process and
+Wrapper supplies the supported official runtime, Termux adaptation, process and
 shared-server execution, generation lifecycle and diagnosis. It must preserve
 accepted upstream command/configuration behavior and account isolation; optional
 convenience failures must not become prerequisites for ordinary execution.
@@ -231,7 +231,7 @@ and qualification; optionality does not permit admitting an invalid candidate.
 
 Manager supplies standalone user-facing configuration and selection conveniences
 above that boundary. A useful convenience must produce a distinct user result,
-not another implementation of a Core command. Profile selection must clearly
+not another implementation of a Wrapper command. Profile selection must clearly
 distinguish the identity supplied to the upstream child from saved selection
 history; history alone is not evidence of the identity used by a later ordinary
 launch. Authentication, conversation persistence and thread lifecycle remain
@@ -239,7 +239,7 @@ upstream-owned. Session conveniences, if selected in a later contract, must use
 upstream-supported discovery/resume rather than a second transcript index.
 
 Notification policy, upstream hook rendering and Termux delivery belong to Manager.
-Core combines its execution defaults with a bounded configuration fragment from
+Wrapper combines its execution defaults with a bounded configuration fragment from
 the admitted Manager; it does not parse Manager notification records or event names.
 Delivery failure must
 not fail an upstream turn. Public-path proof must establish the intended event
@@ -272,11 +272,11 @@ including failure and recovery, before implementing another local fix.
    supplies discovered/configured routes and capabilities. Frontend, Manager
    and Provider do not independently persist conflicting selections or model
    a route change as their own conversation restart.
-4. **Minimal Core.** Core supplies qualified runtime/environment binding and
+4. **Standalone Wrapper.** Wrapper supplies qualified runtime/environment binding and
    generation/update authority. It does not interpret model catalogs, select an
    inference account or acquire an optional host for ordinary Native execution.
    Optional-component interaction occurs only on an explicitly used component
-   path and must not make ordinary Core launch depend on that component.
+   path and must not make ordinary Wrapper launch depend on that component.
 5. **Derived state and real boundaries.** Consumers derive Native execution and
    completion from Native events/receipts and verified live ownership. Provider
    may persist cross-process authorization, exact retry admission, source
@@ -317,7 +317,7 @@ table; its feasibility, exact scope and affected callers require qualification.
 
 | Responsibility | Decision and mutation owner | Producers/consumers and required boundary |
 | --- | --- | --- |
-| Qualified runtime and generations | Core/release-builder | Verify, launch, retain, update and roll back admitted artifacts; ordinary Native execution is independent of optional components |
+| Qualified runtime and generations | Wrapper/release-builder | Verify, launch, retain, update and roll back admitted artifacts; ordinary Native execution is independent of optional components |
 | Conversation, turns, tools, approvals and writer control | Native | Both entrances use the same authoritative execution/history path; real Native effects and original returns remain bound |
 | Effective model/inference route and committed context | Native | Provider produces route/capability metadata; entrances request selection; Native commits and exposes settings to all consumers |
 | Chat transport, account session and owned app | Provider | Bind the configured source/account, deliver input/results and observe the owned app; no Native execution or second transcript |
@@ -605,7 +605,7 @@ identity. TUI consumes a draft only according to confirmed Native admission;
 its retained text is not proof that the server never accepted that input. Decide
 whether an input can be resubmitted from that admission contract and original
 delivery evidence, not from the error label. TUI has no parallel recovery state
-machine and Core has no Provider repair executor. Approval-review target failure
+machine and Wrapper has no Provider repair executor. Approval-review target failure
 does not grant approval or prove general Native execution failure.
 
 One source adapter owns the qualified app interface and its supported app build;
@@ -628,7 +628,7 @@ nor acquires a missing app. Descriptor generation changes invalidate the borrow.
 
 The route's catalog producer owns conversion to the qualified Native schema.
 Validate generated catalogs against their actual Native consumer before publishing
-them; preserve complete input metadata through frontend/Core. Do not repair a
+them; preserve complete input metadata through frontend/Wrapper. Do not repair a
 missing required field with UI defaults, weaken Native parsing, or overwrite an
 unrelated catalog. Live model discovery determines available choices; prompt
 wording, a hardcoded account/model list or guessed effort must not select a route.
@@ -673,13 +673,13 @@ work; do not mark that flow complete or quietly weaken the acceptance target.
 ## 5. Termux runtime contract
 
 The first supported release target is `aarch64-linux-android` on a supported
-Termux installation. Release users must receive a prebuilt Core and must not be
+Termux installation. Release users must receive a prebuilt Wrapper and must not be
 required to install Rust, Clang, or Cargo.
 
-Core must derive runtime paths from the actual environment and must not embed a
+Wrapper must derive runtime paths from the actual environment and must not embed a
 single app data path as product authority.
 
-Before final upstream execution Core must:
+Before final upstream execution Wrapper must:
 
 - construct the qualified runtime environment without leaking package-manager
   or preload variables;
@@ -692,30 +692,30 @@ Before final upstream execution Core must:
 - use the selected official runtime and compatibility tool paths;
 - report unsupported Linux sandbox requests clearly.
 
-Core must never create, rewrite, chmod, repair, or delete
+Wrapper must never create, rewrite, chmod, repair, or delete
 `$PREFIX/etc/resolv.conf`. Resolver diagnosis is read-only.
 
 Linux namespace/bwrap sandboxing is not a Termux capability of this product.
-Core must not claim that `read-only` or `workspace-write` Linux sandbox modes
+Wrapper must not claim that `read-only` or `workspace-write` Linux sandbox modes
 are enforced. Ordinary supported launch uses the explicitly selected upstream
 no-sandbox policy; unsupported sandbox requests fail clearly rather than
 silently weakening the request.
 
-Core must preserve the accepted upstream argv byte-for-byte, including an empty
+Wrapper must preserve the accepted upstream argv byte-for-byte, including an empty
 bare-launch vector. It must not synthesize `-c`, `--enable`, `--disable`, or
 `--search`. The Termux no-sandbox default is supplied through the existing
-Core-owned system `config.toml` on FD 34 as
+Wrapper-owned system `config.toml` on FD 34 as
 `sandbox_mode = "danger-full-access"`, which is also visible to a qualified
 shared background server. User-supplied upstream options remain unchanged;
 explicit unsupported sandbox requests still fail before runtime I/O. Hiding a
 shared-server warning or disabling the server does not satisfy this contract.
 
-The same Core-owned system configuration supplies the Termux default
+The same Wrapper-owned system configuration supplies the Termux default
 `thread_unload_delay_secs = 0`. Upstream unloads a thread only after its last
 subscriber disconnects and the thread is inactive; a running turn remains
 protected by native lifecycle checks. Closing an idle TUI must therefore release
 its native writer without the upstream default 60-second cache delay, allowing
-immediate same-ID resume through another account's server. Core never removes
+immediate same-ID resume through another account's server. Wrapper never removes
 or steals a writer lock, copies a transcript, or overrides explicit higher-layer
 user configuration or CLI arguments. Authentication remains per account.
 This native setting is read when a shared server starts. Already-running servers
@@ -730,9 +730,9 @@ New launch/resume uses the newly selected snapshot. Existing threads retain thei
 actual upstream configuration until an upstream-supported transition applies it.
 Do not add CLI overrides or mutate sibling settings to force a policy refresh.
 
-#### Minimal FD 34 configuration and zero-write fast path
+#### Wrapper FD 34 configuration and zero-write fast path
 
-In minimal standalone Wrapper execution, Wrapper performs no Manager IPC
+In standalone Wrapper execution, Wrapper performs no Manager IPC
 (`__prepare-launch-v1`, `__prepare-runtime-v1`), no enhanced TUI startup probe,
 no retention pruning on hot launch, and no network update check.
 Shared FD 34 system configuration (`config.toml`), cached `resolv.conf`, and
@@ -741,15 +741,12 @@ on creation or content mismatch — never rewritten or `fsync`-ed on unchanged
 launches (`daemon_settings::ensure` is also skipped on fast `--version`/`-V`/
 `--help`/`-h` passthrough).
 
-In minimal standalone mode, FD 34 `config.toml` contains only the minimal
-Termux compatibility settings (`# codex-termux-notify-v1\nsandbox_mode =
+In standalone mode, FD 34 `config.toml` contains only the Wrapper Termux
+compatibility settings (`# codex-termux-wrapper\nsandbox_mode =
 "danger-full-access"\nmcp_oauth_credentials_store = "file"\n`), without
-additional addon overrides or `system_config` dry-run validation. Any stale
-legacy `requirements.toml` bearing the obsolete shared-state ownership marker
-(`# codex-termux-shared-state-v1\n`) is lazily removed without disturbing
-user-authored files. Future opt-in module configuration must attach through a
-generic extension interface without hardcoding Manager-specific IPC into
-minimal Wrapper execution.
+additional addon overrides or `system_config` dry-run validation. Future opt-in
+module configuration must attach through a generic extension interface without
+hardcoding Manager-specific IPC into standalone Wrapper execution.
 
 ### Termux permission selection
 
@@ -766,14 +763,14 @@ reviewer. `Approve for me` selects `danger-full-access`, `on-request` and
 `auto_review`. `Full Access` selects `danger-full-access` and `never`. Changing
 reviewer must not select Linux workspace sandboxing or restart a shared server.
 Qualified local frontend resume must explicitly carry the effective supported
-Termux permission selection even when it came from Core's system defaults, so
+Termux permission selection even when it came from Wrapper's system defaults, so
 saved Linux sandbox settings cannot override that selection. Preserve saved
 approval policy and reviewer unless the user supplied a current replacement.
 Fork and side conversations inherit the resulting actual parent selection.
 Reject an effective explicitly restricted/custom policy before a new local
 thread/turn request; never silently reinterpret it as unrestricted execution.
 The Termux picker and shortcuts exclude the unsupported Read Only choice;
-explicit CLI sandbox requests remain Core usage failures. User-supplied
+explicit CLI sandbox requests remain Wrapper usage failures. User-supplied
 named/custom profiles retain upstream semantics. This adaptation
 must not impose a profile allowlist that silently falls back from an explicit
 restricted request to unrestricted execution.
@@ -781,7 +778,7 @@ The UI must describe the actual no-sandbox permissions; auto review evaluates
 only approval requests and does not imply that every unrestricted command is
 reviewed. Read-only and explicitly requested workspace sandbox policies remain
 unsupported; a compatibility adaptation must not reinterpret such explicit
-requests as full access. Core does not own approval decisions or add synthetic
+requests as full access. Wrapper does not own approval decisions or add synthetic
 CLI overrides. Manager is not required for this capability.
 
 A release-specific UI adaptation requires exact official source and artifact
@@ -791,8 +788,8 @@ request alone does not close the picker requirement. Existing installed
 runtimes remain unchanged until signed publication and ordinary activation are
 separately accepted.
 
-Core never invokes, installs, downloads, or repairs `bwrap`. An explicit Linux
-sandbox-policy rejection is a Core usage/policy failure with process status 2
+Wrapper never invokes, installs, downloads, or repairs `bwrap`. An explicit Linux
+sandbox-policy rejection is a Wrapper usage/policy failure with process status 2
 and must occur before resolver/configuration descriptor setup, upstream
 execution, generation construction, bootstrap publication, or activation-state
 mutation. A failure of a development runner's own sandbox is infrastructure
