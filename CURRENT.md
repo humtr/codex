@@ -78,6 +78,12 @@ services, and production generation pointers were **not** modified.
   `path must be shorter than SUN_LEN` from the managed daemon. This
   reproduced with a short physical `CODEX_HOME` (42 bytes; advertised
   control socket 85 bytes), short TMPDIR, and real Termux PREFIX;
+  an additional independent fixture with `CODEX_HOME` **39 bytes**
+  failed likewise, as did a direct `app-server --listen unix://<short-path>`
+  socket test. The pre-cutover installed Wrapper binary was **copied** to
+  an isolated prefix and independently adapted the official `0.169.0`
+  archive; that old Wrapper copy reproduced the same failure. Thus this
+  is not proven to be caused by the Stage 1 suffix cleanup or new installer.
   `daemon stop` returned `notRunning` without changing an existing
   service. The exact failed producer path / upstream-vs-adaptation root
   cause is **not established**. Help passthrough does not qualify daemon
@@ -124,7 +130,7 @@ service restart, signed publication or connected-client proof occurred.
 their bounded `features list` validation, with a qualified module producer
 and lifetime/cleanup tests. Phases 2.2–2.5 remain unstarted.
 
-### Stage 2 Plan (Documented — Phases 2.1–2.5 pending qualification)
+### Stage 2 Plan (Documented — Phases 2.1–2.6 pending qualification)
 See [docs/plan/STAGE2_PLAN.md](docs/plan/STAGE2_PLAN.md) for the verified phase-by-phase reintegration procedure, `c200e676` vs `ebb0b519` regression protections, suffix-removal schema rules, live-device safety checks, and verification gates. Summary sequence:
 1. **`wrapper.toml` & Generic Extension Contract (Phase 2.1):**
    - Introduce `~/.local/share/codex/wrapper/wrapper.toml`, `codex wrapper setup`, `codex wrapper --bare`, and `codex wrapper --with <MODULES>`, plus conditional FD 34 system configuration snapshots (`config/snapshots/<id>/`) while keeping bare `codex` / `codex --version` zero-write and free of addon crates or IPC.
@@ -136,6 +142,13 @@ See [docs/plan/STAGE2_PLAN.md](docs/plan/STAGE2_PLAN.md) for the verified phase-
    - Rebase `frontend/tui` from `c200e676` (`086ccc8...` / `0.167.0`) onto current upstream (`>= 0.169.0`), decouple capability probing from `upstream_package_version`, apply adaptive `runtime_patch`, and attach opt-in via `wrapper.toml` / `--with tui`.
 5. **Optional `chatgpt` Provider & Tunnel Reattachment (Phase 2.5):**
    - Port `providers/chatgpt` and `transport/tunnel-client` from `c200e676` to `wrapper` roots / `bin/codex` / `execution.wrapper` behind `codex wrapper provider ...` with an independent Provider CI gate and non-disruptive live `@TermuxBridge` cutover.
+
+6. **Continuous Upstream Adoption (Phase 2.6):** Define scheduled read-only
+   official-stable discovery, immutable digest/source/toolchain inputs,
+   standalone base and physical-device admission, independent optional module
+   evidence, gated signing/publication, safe reuse and rollback. This is a
+   documented Stage 2 work item, not a running scheduler or a dependency
+   of manual `codex update --upstream`.
 
 ### Decoupled Modules Index & Stage 2 Baselines
 All decoupled Stage 2 components are absent from `rewrite/wrapper` and preserved in Git history:
