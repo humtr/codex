@@ -225,8 +225,8 @@ mkdir -p "$work"
 chmod 0700 "$work"
 
 # Do not consider a binary replacement committed until the requested upstream
-# bootstrap has also succeeded. An in-directory hard link preserves the exact
-# previous executable inode while the new executable is being tried.
+# bootstrap has also succeeded. A same-directory copy preserves the exact
+# previous executable bytes while the new executable is being tried.
 staged_tmp=''
 backup_bin=''
 install_lock=''
@@ -386,8 +386,13 @@ fi
 
 if [ -f "$dest_bin" ]; then
   backup_bin="$dest_dir/.codex.previous.$"
-  ln "$dest_bin" "$backup_bin" ||
+  # Android/Termux filesystems may deny hard-link creation. Copy the
+  # original bytes before swapping, and reject incomplete/corrupt backups.
+  before_sha=$(sha256_hex "$dest_bin")
+  cp -p "$dest_bin" "$backup_bin" ||
     fail "cannot preserve previous codex binary in $dest_dir"
+  [ "$(sha256_hex "$backup_bin")" = "$before_sha" ] ||
+    fail "previous codex backup failed integrity verification"
   had_previous=1
 fi
 
