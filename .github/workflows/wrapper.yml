@@ -385,7 +385,7 @@ jobs:
             cp "$(command -v "$tool")" "$prefix/bin/$tool"
           done
           # Bootstrap must reach curl and fail deterministically, offline.
-          printf '#!/bin/sh\\n: > "%s"\\nexit 57\\n' "$recovery/curl-invoked" > "$prefix/bin/curl"
+          printf '#!/bin/sh\n: > "%s"\nexit 57\n' "$recovery/curl-invoked" > "$prefix/bin/curl"
           chmod 0755 "$prefix/bin/curl"
           printf '%s\n' '#!/bin/sh' 'echo ORIGINAL_WRAPPER' > "$prefix/bin/codex"
           chmod 0755 "$prefix/bin/codex"
