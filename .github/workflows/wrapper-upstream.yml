@@ -1,0 +1,32 @@
+name: Standalone upstream verification
+
+on:
+  schedule:
+    - cron: '23 6 * * *'
+  workflow_dispatch:
+    inputs:
+      upstream_version:
+        description: Optional exact stable version; empty checks official latest
+        type: string
+        default: ''
+
+# This caller qualifies disposable artifacts only. It cannot publish, sign,
+# advance release inputs, activate a device, or access user accounts.
+permissions:
+  contents: read
+
+concurrency:
+  group: wrapper-upstream-readonly
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Qualify official upstream through standalone Wrapper
+    permissions:
+      contents: read
+    uses: humtr/codex/.github/workflows/wrapper-verify.yml@fdcc1bdfeaee7c08cfff4454ec6bd327d4a72ddb
+    with:
+      source_sha: fdcc1bdfeaee7c08cfff4454ec6bd327d4a72ddb
+      check_upstream: true
+      qualify_upstream: true
+      upstream_version: ${{ inputs.upstream_version || '' }}
