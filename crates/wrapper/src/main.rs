@@ -5,6 +5,8 @@ mod doctor;
 #[cfg(unix)]
 mod fs_util;
 #[cfg(unix)]
+mod extensions;
+#[cfg(unix)]
 mod maintenance;
 #[cfg(unix)]
 mod remote_download;
@@ -21,7 +23,7 @@ use state::generation_state;
 #[cfg(unix)]
 mod unix_app {
     use super::{
-        daemon_settings, doctor, fs_util, generation_state, maintenance, timezone, update,
+        daemon_settings, doctor, extensions, fs_util, generation_state, maintenance, timezone, update,
     };
     use std::ffi::{OsStr, OsString};
     use std::fs::{self, File, OpenOptions};
@@ -1765,11 +1767,97 @@ mod unix_app {
     }
 
     fn print_wrapper_usage() {
-        println!("usage: codex wrapper <status [--json] | --help>");
-        println!(
-            "  status [--json]   show active generation, paths, and Termux compatibility state"
-        );
+        println!("usage: codex wrapper <status [--json] | setup [show|--bare|--enable MODULES|--disable MODULES|--signed-update true|false] | --bare [--] [UPSTREAM_ARGS...] | --with MODULES [--] [UPSTREAM_ARGS...] | --help>");
+        println!("  status [--json]   show active generation, paths, and opt-in modules");
+        println!("  setup             read or change the persistent optional-module selection");
+        println!("  --bare            launch upstream without optional modules for this invocation");
+        println!("  --with MODULES    opt in only for this invocation (unavailable modules fail closed)");
         println!("  --help            show this help");
+    }
+
+    fn run_wrapper_setup(args: Vec<OsString>) -> i32 {
+        let words = args.iter().map(|value| value.to_str()).collect::<Option<Vec<_>>>();
+        let Some(words) = words else {
+            eprintln!("codex wrapper setup: arguments must be UTF-8");
+            return 2;
+        };
+        let roots = match LocalWrapperRoots::from_environment() {
+            Ok(roots) => roots,
+            Err(err) => {
+                eprintln!("codex wrapper setup: {err}");
+                return 1;
+            }
+        };
+        let result = match words.as_slice() {
+            [] | ["show"] => extensions::WrapperSettings::read(&roots.state_root),
+            ["--bare"] => extensions::WrapperSettings::update(&roots.state_root, |settings| {
+                *settings = extensions::WrapperSettings::default();
+                Ok(())
+            }),
+            ["--enable", modules] => {
+                extensions::WrapperSettings::update(&roots.state_root, |settings| {
+                    settings.set_modules(modules, true)
+                })
+            }
+            ["--disable", modules] => {
+                extensions::WrapperSettings::update(&roots.state_root, |settings| {
+                    settings.set_modules(modules, false)
+                })
+            }
+            ["--signed-update", "true"] => {
+                extensions::WrapperSettings::update(&roots.state_root, |settings| {
+                    settings.signed_update = true;
+                    Ok(())
+                })
+            }
+            ["--signed-update", "false"] => {
+                extensions::WrapperSettings::update(&roots.state_root, |settings| {
+                    settings.signed_update = false;
+                    Ok(())
+                })
+            }
+            ["-h" | "--help"] => {
+                print_wrapper_usage();
+                return 0;
+            }
+            _ => {
+                eprintln!("codex wrapper setup: invalid arguments");
+                print_wrapper_usage();
+                return 2;
+            }
+        };
+        match result {
+            Ok(settings) => {
+                println!("config: {}", roots.state_root.join("wrapper.toml").display());
+                println!("addons: {}", settings.addons_label());
+                println!("signed_update: {}", settings.signed_update);
+                0
+            }
+            Err(err) => {
+                eprintln!("codex wrapper setup: {err}");
+                if err.kind() == io::ErrorKind::InvalidData { 2 } else { 1 }
+            }
+        }
+    }
+
+    fn run_bare_upstream(args: Vec<OsString>) -> i32 {
+        if let Err(err) = plan_passthrough_args(&args) {
+            eprintln!("codex wrapper --bare: {err}");
+            return 2;
+        }
+        let roots = match LocalWrapperRoots::from_environment() {
+            Ok(roots) => roots,
+            Err(err) => {
+                eprintln!("codex wrapper --bare: {err}");
+                return 1;
+            }
+        };
+        let env = capture_termux_process_env();
+        if let Err(err) = execute_activated_route(PublicDispatchRoute::Upstream(args), &roots, &env) {
+            eprintln!("codex wrapper --bare: {err}");
+            return 1;
+        }
+        0
     }
 
     fn run_wrapper_command(args: Vec<OsString>) -> i32 {
@@ -1783,6 +1871,35 @@ mod unix_app {
             Some("-h" | "--help" | "help") if rest.is_empty() => {
                 print_wrapper_usage();
                 0
+            }
+            Some("setup") => run_wrapper_setup(rest),
+            Some("--bare") => {
+                let mut args = rest;
+                if args.first().is_some_and(|value| value == "--") {
+                    args.remove(0);
+                }
+                run_bare_upstream(args)
+            }
+            Some("--with") => {
+                let Some(names) = rest.first().and_then(|value| value.to_str()) else {
+                    eprintln!("codex wrapper --with: expected module list");
+                    return 2;
+                };
+                let mut settings = extensions::WrapperSettings::default();
+                if let Err(err) = settings.set_modules(names, true) {
+                    eprintln!("codex wrapper --with: {err}");
+                    return 2;
+                }
+                let mut args = rest[1..].to_vec();
+                if args.first().is_some_and(|value| value == "--") {
+                    args.remove(0);
+                }
+                if let Err(err) = plan_passthrough_args(&args) {
+                    eprintln!("codex wrapper --with: {err}");
+                    return 2;
+                }
+                eprintln!("codex wrapper --with: optional module(s) {} are not installed", settings.addons_label());
+                1
             }
             Some("status") => {
                 let mut json = false;
@@ -1817,6 +1934,13 @@ mod unix_app {
                 return 1;
             }
         };
+        let addons = match extensions::WrapperSettings::read(&roots.state_root) {
+            Ok(settings) => settings.addons_label(),
+            Err(err) => {
+                eprintln!("codex wrapper status: invalid wrapper.toml: {err}");
+                return 1;
+            }
+        };
         let codex_home = resolve_codex_home();
         let loaded = load_activated_generation(&roots);
         if json {
@@ -1832,7 +1956,7 @@ mod unix_app {
                         .map(|p| format!("\"{}\"", doctor::json_escape(&p.to_string_lossy())))
                         .unwrap_or_else(|| "null".to_owned());
                     format!(
-                        "{{\"status\":\"active\",\"generation_id\":\"{}\",\"previous_generation_id\":{},\"upstream_version\":\"{}\",\"layout\":\"{}\",\"runtime_path\":\"{}\",\"has_code_mode_host\":{},\"patch_policy_id\":\"{}\",\"patch_report\":\"{}\",\"creation_metadata\":\"{}\",\"daemon_passthrough\":\"supported\",\"addons\":\"none\",\"generation_root\":\"{}\",\"state_root\":\"{}\",\"config_dir\":\"{}\",\"codex_home\":{}}}\n",
+                        "{{\"status\":\"active\",\"generation_id\":\"{}\",\"previous_generation_id\":{},\"upstream_version\":\"{}\",\"layout\":\"{}\",\"runtime_path\":\"{}\",\"has_code_mode_host\":{},\"patch_policy_id\":\"{}\",\"patch_report\":\"{}\",\"creation_metadata\":\"{}\",\"daemon_passthrough\":\"supported\",\"addons\":\"{}\",\"generation_root\":\"{}\",\"state_root\":\"{}\",\"config_dir\":\"{}\",\"codex_home\":{}}}\n",
                         doctor::json_escape(&gen.generation_id),
                         prev_json,
                         doctor::json_escape(&gen.manifest.upstream_package_version),
@@ -1842,6 +1966,7 @@ mod unix_app {
                         doctor::json_escape(&gen.manifest.patch_policy_id),
                         doctor::json_escape(&gen.manifest.patch_report),
                         doctor::json_escape(&gen.manifest.creation_metadata),
+                        doctor::json_escape(&addons),
                         doctor::json_escape(&roots.generation_root.to_string_lossy()),
                         doctor::json_escape(&roots.state_root.to_string_lossy()),
                         doctor::json_escape(&roots.config_dir.to_string_lossy()),
@@ -1854,7 +1979,8 @@ mod unix_app {
                         .map(|p| format!("\"{}\"", doctor::json_escape(&p.to_string_lossy())))
                         .unwrap_or_else(|| "null".to_owned());
                     format!(
-                        "{{\"status\":\"uninitialized\",\"generation_id\":null,\"previous_generation_id\":null,\"daemon_passthrough\":\"supported\",\"addons\":\"none\",\"generation_root\":\"{}\",\"state_root\":\"{}\",\"config_dir\":\"{}\",\"codex_home\":{}}}\n",
+                        "{{\"status\":\"uninitialized\",\"generation_id\":null,\"previous_generation_id\":null,\"daemon_passthrough\":\"supported\",\"addons\":\"{}\",\"generation_root\":\"{}\",\"state_root\":\"{}\",\"config_dir\":\"{}\",\"codex_home\":{}}}\n",
+                        doctor::json_escape(&addons),
                         doctor::json_escape(&roots.generation_root.to_string_lossy()),
                         doctor::json_escape(&roots.state_root.to_string_lossy()),
                         doctor::json_escape(&roots.config_dir.to_string_lossy()),
@@ -1889,7 +2015,7 @@ mod unix_app {
                 println!("patch_report: {}", gen.manifest.patch_report);
                 println!("creation_metadata: {}", gen.manifest.creation_metadata);
                 println!("daemon_passthrough: supported");
-                println!("addons: none");
+                println!("addons: {addons}");
                 println!("generation_root: {}", roots.generation_root.display());
                 println!("state_root: {}", roots.state_root.display());
                 println!("config_dir: {}", roots.config_dir.display());
@@ -1907,7 +2033,7 @@ mod unix_app {
                 println!("generation_root: {}", roots.generation_root.display());
                 println!("state_root: {}", roots.state_root.display());
                 println!("config_dir: {}", roots.config_dir.display());
-                println!("addons: none");
+                println!("addons: {addons}");
                 println!("Run 'codex update' or 'codex update --path <FILE_OR_DIR>' to install a generation.");
                 1
             }
@@ -2319,6 +2445,22 @@ mod unix_app {
                         return 1;
                     }
                 };
+                if let PublicDispatchRoute::Upstream(ref args) = route {
+                    // Direct help/version remains a zero-write, zero-addon fast path.
+                    if !is_help_or_version_invocation(args) {
+                        let settings = match extensions::WrapperSettings::read(&roots.state_root) {
+                            Ok(settings) => settings,
+                            Err(err) => {
+                                eprintln!("codex: invalid wrapper.toml: {err}");
+                                return 1;
+                            }
+                        };
+                        if let Some(modules) = settings.unavailable_addons() {
+                            eprintln!("codex: enabled optional module(s) {modules} are unavailable; use 'codex wrapper --bare -- ...' or disable them with 'codex wrapper setup --disable {modules}'");
+                            return 1;
+                        }
+                    }
+                }
                 let process_env = capture_termux_process_env();
                 match execute_activated_route(route, &roots, &process_env) {
                     Ok(PublicDispatchCompletion::Doctor(outcome)) => {
@@ -2492,6 +2634,17 @@ pub(crate) mod tests {
         assert_eq!(
             plan_public_dispatch(os_vec(&["remote-control"])).unwrap(),
             PublicDispatchRoute::Upstream(os_vec(&["remote-control"]))
+        );
+    }
+
+    #[test]
+    fn optional_module_cli_rejects_unknown_or_unavailable_modules() {
+        assert_eq!(run_wrapper_command(os_vec(&["--with", "manager"])), 1);
+        assert_eq!(run_wrapper_command(os_vec(&["--with", "tui,provider"])), 1);
+        assert_eq!(run_wrapper_command(os_vec(&["--with", "not-a-module"])), 2);
+        assert_eq!(
+            run_wrapper_command(os_vec(&["--with", "manager", "--", "--sandbox", "read-only"])),
+            2
         );
     }
 
