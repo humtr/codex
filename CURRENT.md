@@ -29,7 +29,7 @@ Stage 1 decouples `crates/wrapper` (`codex`) and `crates/release-builder` (`code
   - Using minimal static AArch64 mock binaries containing `/etc/resolv.conf` and `/etc/codex/config.toml` sites, `codex update --path pkg-1.0.0.tar.gz` patched and activated generation `local-*` (`generation.meta` `codex-local-generation`, `patch_policy_id: termux-fd-remap`, `wrapper-api`, `schema`, `codex-wrapper`, `termux-browser-open`/`manual`; `activation-state` `format=codex-activation-state`; FD 34 `config.toml` `# codex-termux-wrapper`), `codex --version` printed `codex-cli 1.0.0`, `codex wrapper status --json` reported `"layout":"package-root"`, `codex doctor --json` exited `0` (`"schema_version":1`, `"layout":"package-root"`), upgrade to `2.0.0` + `codex update --rollback` restored `codex-cli 1.0.0`, and `codex-release-builder build` -> `codex update --path <built-gen>` activated `"has_code_mode_host":false` (`codex-cli 3.0.0`).
 - **Publication and activation boundaries:**
   - Live public `curl | sh` installation was subsequently tested below. The published binary still predates the fixes; fresh accepted-source release assets have not been published.
-  - Live-device `/data/data/com.termux/files/usr/bin/codex` replacement (left untouched on the prior binary during workspace cleanup) and external remote client pairing over `codex remote-control`.
+  - Local executable/generation activation was subsequently authorized and completed below. External remote client pairing over `codex remote-control` remains unverified.
   - Promotion of `rewrite/wrapper` to `main` (explicitly deferred until final sign-off).
 
 ### Pre-cutover baseline evidence (before `minimal-wrapper` -> `wrapper` cleanup, 2026-11-16)
@@ -230,9 +230,47 @@ signed channels must not delay that work.
 The user's requested boundary is a one-time check of the available environment,
 not a hardcoded recurring check of this phone, account, API level or private path.
 No other Android/page-size environment or real external remote-control client
-has been exercised here. Public release refresh and production activation remain
-separate from source qualification. Existing credentials, sessions, services,
-signed release inputs and the installed Wrapper remain preserved.
+has been exercised here. These qualification runs preserved the installed Wrapper;
+the later authorized local activation is recorded below. Public release refresh
+remains separate from source qualification and local activation.
+
+### Authorized local activation and profile handover (2026-11-16)
+
+- The same thread was observed moving from the `janmori101` shared server to
+  the `szob` shared server: the former stopped holding its kernel writer lock,
+  and the latter acquired it. The prepared archive/unarchive helper reached
+  read-only preflight only and was retired without either mutation. No lock file
+  was deleted, and no shared server was killed to force the handover.
+- After explicit authorization, `$PREFIX/bin/codex` was replaced through
+  `install.sh --binary ... --skip-upstream` with the device-qualified NDK binary
+  from source `fdcc1bdfeaee7c08cfff4454ec6bd327d4a72ddb`, SHA-256
+  `df970540acb9560add8540fd629ee3df8a176b50a48161b97aec8c9f7f5fdbea`.
+  The old signed `codex-activation-state-v3` installation was transitioned under
+  the existing directory lock to the exact qualified standalone state and two
+  byte-verified generation copies: active `local-1794826650-14364-2`, previous
+  `local-1794826619-14075-2`, both official upstream `0.169.0`.
+- All 15 pre-existing runtime directories, the previous executable and pointer
+  state, Wrapper system config and public verification key were copied and
+  verified in `$HOME/.local/share/codex/wrapper-recovery/20261116T121328Z-qualified-cutover/`.
+  `receipt.json` and `RECOVERY.txt` describe the cutover and recovery boundary.
+  Restoring the former full Wrapper requires its executable and state format
+  together; ordinary standalone `codex update --rollback` selects the retained
+  standalone generation. No account home, credential or conversation was copied.
+- The installed entrypoint passed version/help/status and read-only official
+  update inspection (`current`, `0.169.0`). Actual production-root Native
+  initialize/config-read/command-exec wrote independently verified nonce bytes;
+  selected authentication-file metadata remained unchanged. The first Native
+  probe incorrectly removed the existing `CODEX_SQLITE_HOME` routing and timed
+  out during local DB backfill initialization; its failed receipt is preserved.
+  The corrected probe retained the real environment and passed without changing
+  the timeout or starting another model task. Preparation-only directory-sync
+  errors also remain recorded; no live binary/state had changed at those errors.
+- Existing shared-server processes, their control socket bindings and active
+  work were retained. In particular, the currently connected conversation still
+  runs in the previously started `szob` server. New CLI/stdio execution uses the
+  activated candidate; existing shared-server connections and reconnect bindings
+  were not hot-migrated. Signed publication inputs, release assets, profile
+  configuration, and the system resolver were not changed.
 
 ### Stage 2.1 — Optional settings, CLI hooks, and FD 34 snapshot engine (2026-11-16)
 
