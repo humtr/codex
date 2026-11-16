@@ -224,14 +224,58 @@ work="$work_parent/.codex-wrapper-install.$$"
 mkdir -p "$work"
 chmod 0700 "$work"
 
+# Do not consider a binary replacement committed until the requested upstream
+# bootstrap has also succeeded. An in-directory hard link preserves the exact
+# previous executable inode while the new executable is being tried.
 staged_tmp=''
-cleanup() {
+backup_bin=''
+install_lock=''
+lock_owned=0
+swap_pending=0
+install_committed=0
+had_previous=0
+
+finish_install() {
+  result=$1
+  trap - EXIT HUP INT TERM
+  set +e
+
+  if [ "$swap_pending" -eq 1 ] && [ "$install_committed" -eq 0 ]; then
+    if [ "$had_previous" -eq 1 ]; then
+      if mv -f "$backup_bin" "$dest_bin"; then
+        note 'restored previous codex executable after failed install'
+      else
+        printf '%s\n' "codex install: FAILED to restore previous binary; recover from $backup_bin" >&2
+        result=1
+      fi
+    elif ! rm -f "$dest_bin"; then
+      printf '%s\n' "codex install: FAILED to remove unsuccessful new binary: $dest_bin" >&2
+      result=1
+    fi
+  fi
+
+  # Never erase the only recoverable copy if restoration itself failed.
+  if [ -n "$backup_bin" ] && [ -e "$backup_bin" ] &&
+     { [ "$swap_pending" -eq 0 ] || [ "$install_committed" -eq 1 ]; }; then
+    if ! rm -f "$backup_bin"; then
+      printf '%s\n' "codex install: backup cleanup failed: $backup_bin" >&2
+      result=1
+    fi
+  fi
   if [ -n "$staged_tmp" ] && [ -e "$staged_tmp" ]; then
     rm -f "$staged_tmp"
   fi
   rm -rf "$work"
+  if [ "$lock_owned" -eq 1 ] && ! rmdir "$install_lock"; then
+    printf '%s\n' "codex install: install lock cleanup failed: $install_lock" >&2
+    result=1
+  fi
+  exit "$result"
 }
-trap cleanup EXIT HUP INT TERM
+trap 'finish_install "$?"' EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 if [ -z "$source_mode" ]; then
   if [ -f "$script_dir/bin/codex" ] && [ ! -L "$script_dir/bin/codex" ] && [ -f "$script_dir/SHA256SUMS" ]; then
@@ -317,11 +361,21 @@ fi
 dest_dir="$prefix/bin"
 dest_bin="$dest_dir/codex"
 mkdir -p "$dest_dir"
-if [ -d "$dest_bin" ]; then
-  fail "install destination is a directory: $dest_bin"
+
+# A same-directory mkdir lock serializes competing installers without requiring
+# util-linux flock. A stale lock after SIGKILL/power loss deliberately fails
+# closed; the saved .codex.previous.* file permits operator recovery.
+install_lock="$dest_dir/.codex-install.lock"
+if ! mkdir "$install_lock" 2>/dev/null; then
+  fail "installation already in progress or stale lock: $install_lock (inspect before removing)"
+fi
+lock_owned=1
+
+if [ -L "$dest_bin" ] || { [ -e "$dest_bin" ] && [ ! -f "$dest_bin" ]; }; then
+  fail "install destination must be absent or a regular non-symlink file: $dest_bin"
 fi
 
-staged_tmp="$dest_dir/.codex.tmp.$$"
+staged_tmp="$dest_dir/.codex.tmp.$"
 cp "$binary_path" "$staged_tmp"
 chmod 0755 "$staged_tmp"
 
@@ -330,12 +384,23 @@ if [ -x /system/bin/linker64 ]; then
     fail 'staged codex wrapper failed execution check under /system/bin/linker64'
 fi
 
+if [ -f "$dest_bin" ]; then
+  backup_bin="$dest_dir/.codex.previous.$"
+  ln "$dest_bin" "$backup_bin" ||
+    fail "cannot preserve previous codex binary in $dest_dir"
+  had_previous=1
+fi
+
+# Arm recovery before the atomic replacement so failure or a caught signal at
+# the rename boundary also restores the original (or removes the new install).
+swap_pending=1
 mv -f "$staged_tmp" "$dest_bin"
 staged_tmp=''
 note "installed codex wrapper to $dest_bin"
 
 if [ "$skip_upstream" -eq 1 ]; then
   note "skipped upstream bootstrap (--skip-upstream); run '$dest_bin update --upstream' when ready"
+  install_committed=1
   exit 0
 fi
 
@@ -353,3 +418,4 @@ if [ -x /system/bin/linker64 ]; then
 else
   note "non-Android host detected; skipping on-device upstream bootstrap"
 fi
+install_committed=1
