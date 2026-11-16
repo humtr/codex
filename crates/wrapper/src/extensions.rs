@@ -192,7 +192,9 @@ impl WrapperSettings {
 // closed rather than manufacturing a substitute account home.
 fn prepare_parent_dirs(root: &Path) -> io::Result<()> {
     if !fs_util::wrapper_safe_absolute_path(root) {
-        return Err(invalid("wrapper settings root must be an absolute safe path"));
+        return Err(invalid(
+            "wrapper settings root must be an absolute safe path",
+        ));
     }
     let mut cursor = root
         .parent()
@@ -324,10 +326,8 @@ mod tests {
         fs::create_dir_all(&base).unwrap();
         let state = base.join(".local/share/codex/wrapper");
         assert!(!state.exists());
-        let new = WrapperSettings::update(&state, |settings| {
-            settings.set_modules("manager", true)
-        })
-        .unwrap();
+        let new = WrapperSettings::update(&state, |settings| settings.set_modules("manager", true))
+            .unwrap();
         assert_eq!(new.addons_label(), "manager");
         assert_eq!(WrapperSettings::read(&state).unwrap(), new);
         assert!(state.join("wrapper.toml").is_file());
