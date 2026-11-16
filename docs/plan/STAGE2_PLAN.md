@@ -157,7 +157,7 @@
      - Expose `codex wrapper provider install|update|status|rollback|chatgpt ...` behind Phase 2.1/2.2/2.3 modules (using suffix-free `codex-provider-payload`, `codex-provider-state`, `provider-index`, `termux-codex-operator-work`, `operator-work`, `work-route-transfer`, `codex-chatgpt-catalog`, `app-model-catalog`, and `config`/`catalog` records without retaining `v1`/`v2`/`v3`/`provider14`/`provider21`/`migrate-inference` backward compatibility).
    - **Independent Provider CI:** Restore a dedicated Provider + `tunnel-client` CI workflow/job (Go + NDK Clang + Rust `1.98+` + Node) triggered only on `providers/chatgpt/**`, `transport/tunnel-client/**`, or `crates/runtime-binding/**`, keeping `Wrapper CI` isolated.
    - **Live service migration checklist (explicit operator step, never automatic):** Verify disposable `$HOME` PRoot/CDP/MCP readback first, prepare `~/.config/codex/providers/chatgpt.toml` (`execution.wrapper`) and a clean Provider state directory for the suffix-free schema, then restart `codex-chatgpt-*` services intentionally without disturbing live `@TermuxBridge` tunnel identity.
-3. **Exit Gate (Stage 2 Complete):**
+3. **Exit Gate (Phase 2.5 Complete; see Phase 2.6 below):**
    - `cargo test` in `providers/chatgpt/` + `codex-release-builder` provider packaging + Ed25519 sign/verify readback + `qualification.schema.json` validation pass in disposable roots.
    - Go `tunnel-client` cross-compile (`android/arm64`) succeeds cleanly.
    - Live `@TermuxBridge` / existing running services remain untouched until explicit post-qualification cutover.
