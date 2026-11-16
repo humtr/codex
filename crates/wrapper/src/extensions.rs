@@ -196,6 +196,16 @@ fn prepare_parent_dirs(root: &Path) -> io::Result<()> {
             "wrapper settings root must be an absolute safe path",
         ));
     }
+    // Validate the *entire* ancestor chain before creating any missing
+    // directory, not just the nearest existing parent.
+    for ancestor in root.ancestors() {
+        match fs::symlink_metadata(ancestor) {
+            Ok(meta) if meta.file_type().is_dir() && !meta.file_type().is_symlink() => (),
+            Ok(_) => return Err(invalid("wrapper settings path is not a real directory")),
+            Err(err) if err.kind() == io::ErrorKind::NotFound => (),
+            Err(err) => return Err(err),
+        }
+    }
     let mut cursor = root
         .parent()
         .ok_or_else(|| invalid("wrapper settings root has no parent"))?;
@@ -345,6 +355,19 @@ mod tests {
         let state = base.join(".local/share/codex/wrapper");
         assert!(WrapperSettings::update(&state, |_| Ok(())).is_err());
         assert!(!other.join("share").exists());
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn rejects_symlinked_home_before_creating_any_settings_parent() {
+        let base = test_root();
+        fs::create_dir_all(&base).unwrap();
+        let real_home = base.join("real-home");
+        fs::create_dir_all(&real_home).unwrap();
+        symlink(&real_home, base.join("home")).unwrap();
+        let settings = base.join("home/.local/share/codex/wrapper");
+        assert!(WrapperSettings::update(&settings, |_| Ok(())).is_err());
+        assert!(!real_home.join(".local").exists());
         fs::remove_dir_all(base).unwrap();
     }
 
