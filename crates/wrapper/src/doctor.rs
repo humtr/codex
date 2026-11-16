@@ -35,44 +35,6 @@ impl std::error::Error for QualifiedUpstreamDoctorProbeError {
     }
 }
 
-pub(super) fn probe_qualified_upstream_command<'selection, 'asset, R, C>(
-    assets: QualifiedRuntimeAssets<'selection, 'asset>,
-    process_env: &TermuxProcessEnvSnapshot,
-    cert_file: &OsStr,
-    cert_dir: Option<&OsStr>,
-    resolver_path: R,
-    config_dir: C,
-    args: &[&str],
-) -> Result<bool, QualifiedUpstreamDoctorProbeError>
-where
-    R: AsRef<std::path::Path>,
-    C: AsRef<std::path::Path>,
-{
-    let selection = assets.selection();
-    let browser_helpers = termux_browser_helper_paths(selection)
-        .map_err(QualifiedUpstreamDoctorProbeError::Environment)?;
-    let env_plan = plan_termux_env(
-        process_env,
-        selection.generation_dir,
-        browser_helpers,
-        cert_file,
-        cert_dir,
-    )
-    .map_err(QualifiedUpstreamDoctorProbeError::Environment)?;
-    let runtime_fds = RuntimeFdSources::open(resolver_path, config_dir)
-        .map_err(QualifiedUpstreamDoctorProbeError::Io)?;
-    let mut cmd = std::process::Command::new(selection.runtime.program_path);
-    cmd.args(args)
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null());
-    apply_child_env_plan_and_fence(&mut cmd, Some(&env_plan));
-    runtime_fds.configure(&mut cmd);
-    Ok(cmd
-        .status()
-        .map_err(QualifiedUpstreamDoctorProbeError::Io)?
-        .success())
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct QualifiedUpstreamDoctorResult {
     pub(super) status: UpstreamDoctorStatus,

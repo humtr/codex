@@ -116,6 +116,9 @@ codex update --path /path/to/codex-package-aarch64-unknown-linux-musl.tar.gz
 
 # Roll back to the immediately preceding activated generation
 codex update --rollback
+
+# Inspect official release inputs without downloading or changing installed state
+codex update --check --json
 ```
 
 Every generation is isolated under `~/.local/lib/codex/wrapper/generations/<id>/`
@@ -125,6 +128,14 @@ with a `previous` pointer for single-step rollback. State owned by the wrapper
 
 - `--signed`, `--remote`, `--build-local`, and `--local` are disabled in Stage 1 and fail explicitly with exit status `2`.
 - Upstream updates in Stage 1 resolve the latest stable release via GitHub Releases (`openai/codex/releases/latest`) or a requested release via `https://releases.openai.com/codex/releases/<version>/release.json`, and verify the official `codex-package-aarch64-unknown-linux-musl.tar.gz` SHA-256 digest over TLS 1.2+.
+- Latest discovery is cross-checked against the exact-version official descriptor.
+  `--check --json` reports the version, canonical archive/descriptor URLs and
+  SHA-256 digests without installing, recovering journals or pruning. Ordinary
+  unpinned discovery rejects an unintended downgrade; explicit `--version` and
+  rollback remain available.
+- Candidate admission checks exact version output and bounded `features list`
+  in a fresh temporary home. Full daemon/PTY/tool/rollback qualification is a
+  separate reusable test, not an account or personal-device check on every update.
 
 ## Optional module configuration (Stage 2.1 boundary)
 

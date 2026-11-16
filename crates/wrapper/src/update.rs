@@ -19,7 +19,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 const UPDATE_VERSION_ENV: &str = "CODEX_TERMUX_UPDATE_VERSION";
 const WRAPPER_CREATION_METADATA: &str = "codex-wrapper";
-const UPDATE_USAGE: &str = "usage: codex update [--upstream] [--version <MAJOR.MINOR.PATCH>] | --path <FILE_OR_DIR> | --rollback | --help";
+const UPDATE_USAGE: &str = "usage: codex update [--upstream] [--version <MAJOR.MINOR.PATCH>] | --check [--version <MAJOR.MINOR.PATCH>] [--json] | --path <FILE_OR_DIR> | --rollback | --help";
 const UPDATE_SPINNER_FRAMES: [&str; 10] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
 pub(super) fn print_update_usage() {
@@ -28,6 +28,7 @@ pub(super) fn print_update_usage() {
     println!("  --version <M.m.p>         target a specific official release version (with default/--upstream)");
     println!("  --path <FILE_OR_DIR>      adapt an offline official package .tar.gz or stage a prepared generation directory");
     println!("  --rollback                atomically switch back to the previous generation");
+    println!("  --check [--json]          inspect exact official release inputs without installing or changing state");
     println!("  --help                    show this help");
 }
 
@@ -35,6 +36,7 @@ pub(super) fn print_update_usage() {
 pub(super) enum UpdateAction {
     Help,
     Upstream { version: Option<String> },
+    Check { version: Option<String>, json: bool },
     Path(PathBuf),
     Rollback,
 }
@@ -87,6 +89,8 @@ pub(super) fn parse_update_args(args: &[OsString]) -> Result<UpdateAction, Updat
     }
 
     let mut upstream_flag = false;
+    let mut check = false;
+    let mut json = false;
     let mut version: Option<String> = None;
     let mut local_path: Option<PathBuf> = None;
     let mut idx = 0;
@@ -96,7 +100,13 @@ pub(super) fn parse_update_args(args: &[OsString]) -> Result<UpdateAction, Updat
                 "codex update: unsupported non-UTF-8 argument",
             ));
         };
-        if flag == "--upstream" {
+        if flag == "--check" && !check {
+            check = true;
+            idx += 1;
+        } else if flag == "--json" && !json {
+            json = true;
+            idx += 1;
+        } else if flag == "--upstream" {
             if upstream_flag {
                 return Err(UpdateCliError::Usage(
                     "codex update: duplicate --upstream flag",
@@ -158,12 +168,21 @@ pub(super) fn parse_update_args(args: &[OsString]) -> Result<UpdateAction, Updat
     }
 
     if let Some(path) = local_path {
-        if upstream_flag || version.is_some() {
+        if upstream_flag || version.is_some() || check || json {
             return Err(UpdateCliError::Usage(
                 "codex update: --path cannot be combined with --upstream or --version",
             ));
         }
         return Ok(UpdateAction::Path(path));
+    }
+
+    if json && !check {
+        return Err(UpdateCliError::Usage(
+            "codex update: --json requires --check",
+        ));
+    }
+    if check {
+        return Ok(UpdateAction::Check { version, json });
     }
 
     Ok(UpdateAction::Upstream { version })
@@ -512,6 +531,7 @@ pub(super) fn parse_official_release_metadata(
     let mut tag_name = None;
     let mut package_digest = None;
     let mut assets_seen = false;
+    let mut release_flags_seen = 0u8;
     cursor.skip_whitespace();
     if cursor.bytes.get(cursor.index) == Some(&b'}') {
         return Err(LocalProductError::LocalUpdate(
@@ -522,6 +542,14 @@ pub(super) fn parse_official_release_metadata(
         let key = cursor.string()?;
         cursor.expect(b':')?;
         match key.as_str() {
+            "draft" | "prerelease" => {
+                let bit = if key == "draft" { 1 } else { 2 };
+                if release_flags_seen & bit != 0 {
+                    return cursor.error();
+                }
+                release_flags_seen |= bit;
+                cursor.literal(b"false")?;
+            }
             "tag_name" => {
                 if tag_name.is_some() {
                     return cursor.error();
@@ -620,7 +648,7 @@ fn resolve_official_release_metadata(
     roots: &LocalWrapperRoots,
     staging_root: &Path,
     cli_version: Option<&str>,
-) -> Result<OfficialReleaseMetadata, LocalProductError> {
+) -> Result<(OfficialReleaseMetadata, String), LocalProductError> {
     let env_requested = std::env::var_os(UPDATE_VERSION_ENV);
     let env_version = if let Some(raw) = env_requested.as_ref() {
         let s = raw.to_str().ok_or(LocalProductError::LocalUpdate(
@@ -636,15 +664,40 @@ fn resolve_official_release_metadata(
         None
     };
     let requested_version = cli_version.or(env_version);
-    let url = requested_version
-        .map(|version| format!("{UPSTREAM_RELEASE_METADATA_BASE}/{version}/release.json"))
-        .unwrap_or_else(|| DEFAULT_UPSTREAM_LATEST_URL.to_owned());
-    validate_https_url(&url)?;
-    let path = staging_root.join("upstream-release.json");
+    let fetch = |url: &str, name: &str, expected: Option<&str>| {
+        fetch_official_metadata(roots, staging_root, url, name, expected)
+    };
+    if let Some(version) = requested_version {
+        let url = format!("{UPSTREAM_RELEASE_METADATA_BASE}/{version}/release.json");
+        return Ok((fetch(&url, "upstream-release.json", Some(version))?, url));
+    }
+    let latest = fetch(DEFAULT_UPSTREAM_LATEST_URL, "upstream-latest.json", None)?;
+    let url = format!(
+        "{UPSTREAM_RELEASE_METADATA_BASE}/{}/release.json",
+        latest.version
+    );
+    let pinned = fetch(&url, "upstream-release.json", Some(&latest.version))?;
+    if pinned != latest {
+        return Err(LocalProductError::LocalUpdate(
+            "official latest and exact-version descriptors disagree",
+        ));
+    }
+    Ok((pinned, url))
+}
+
+fn fetch_official_metadata(
+    roots: &LocalWrapperRoots,
+    staging_root: &Path,
+    url: &str,
+    name: &str,
+    requested_version: Option<&str>,
+) -> Result<OfficialReleaseMetadata, LocalProductError> {
+    validate_https_url(url)?;
+    let path = staging_root.join(name);
     let output = crate::create_remote_output(&path)?;
     remote_download::fetch(
         roots,
-        &url,
+        url,
         &output,
         UPSTREAM_RELEASE_METADATA_MAX_BYTES as u64,
         remote_download::TransferTimeout::Fixed(REMOTE_TRANSFER_TIMEOUT_SECONDS),
@@ -659,6 +712,81 @@ fn resolve_official_release_metadata(
         LocalProductError::LocalUpdate("upstream release metadata is not a regular file"),
     )?;
     parse_official_release_metadata(&bytes, requested_version)
+}
+
+fn version_order(a: &str, b: &str) -> Result<std::cmp::Ordering, LocalProductError> {
+    let tuple = |s: &str| {
+        if !valid_update_version(s) {
+            return Err(LocalProductError::LocalUpdate(
+                "release comparison requires stable versions",
+            ));
+        }
+        s.split('.')
+            .map(|n| {
+                n.parse::<u64>()
+                    .map_err(|_| LocalProductError::LocalUpdate("release version overflow"))
+            })
+            .collect::<Result<Vec<_>, _>>()
+    };
+    Ok(tuple(a)?.cmp(&tuple(b)?))
+}
+
+fn check_release(
+    roots: &LocalWrapperRoots,
+    version: Option<&str>,
+    json: bool,
+) -> Result<String, LocalProductError> {
+    ensure_openssl_available(&roots.openssl)?;
+    let staging = create_staging_root(&std::env::temp_dir(), ".codex-check-")?;
+    let result = (|| {
+        let (metadata, url) = resolve_official_release_metadata(roots, &staging, version)?;
+        let descriptor_sha =
+            openssl_sha256(&roots.openssl, &staging.join("upstream-release.json"))?;
+        let wrapper_sha = openssl_sha256(&roots.openssl, &running_wrapper_artifact()?)?;
+        // Inspection never recovers a journal or takes an update/pruning lease.
+        let paths = generation_state::WrapperStatePaths::new(&roots.state_root)
+            .map_err(LocalProductError::StateFormat)?;
+        let state =
+            generation_state::read_pointer_state(&paths).map_err(LocalProductError::State)?;
+        let installed = state
+            .map(|state| load_local_generation(&roots.generation_root.join(state.current)))
+            .transpose()?;
+        let order = installed
+            .as_ref()
+            .map(|old| version_order(&metadata.version, &old.manifest.upstream_package_version))
+            .transpose()?;
+        let status = match installed.as_ref() {
+            Some(_) if order.is_some_and(|order| order.is_lt()) => "older",
+            Some(old)
+                if old.manifest.upstream_package_version == metadata.version
+                    && old.manifest.source_artifact_digest == metadata.package_sha256
+                    && old.manifest.wrapper_artifact_digest == wrapper_sha =>
+            {
+                "current"
+            }
+            _ => "available",
+        };
+        let archive_url = format!(
+            "{UPSTREAM_RELEASE_METADATA_BASE}/{}/{UPSTREAM_PACKAGE_ASSET}",
+            metadata.version
+        );
+        if json {
+            let installed_version = installed.as_ref().map_or("null".to_owned(), |old| {
+                format!("\"{}\"", old.manifest.upstream_package_version)
+            });
+            Ok(format!("{{\"schema_version\":1,\"status\":\"{status}\",\"upstream_version\":\"{}\",\"archive_url\":\"{archive_url}\",\"archive_sha256\":\"{}\",\"metadata_url\":\"{url}\",\"metadata_sha256\":\"{descriptor_sha}\",\"wrapper_sha256\":\"{wrapper_sha}\",\"installed_version\":{installed_version}}}\n", metadata.version, metadata.package_sha256))
+        } else {
+            Ok(format!(
+                "Codex {}: {status}\narchive: {archive_url}\nsha256: {}\n",
+                metadata.version, metadata.package_sha256
+            ))
+        }
+    })();
+    std::fs::remove_dir_all(staging).map_err(|source| LocalProductError::Io {
+        operation: "remove release inspection temporary directory",
+        source,
+    })?;
+    result
 }
 
 fn update_progress_enabled(stdout_is_terminal: bool, stderr_is_terminal: bool) -> bool {
@@ -1123,9 +1251,20 @@ fn run_upstream_update(
     let staging_root = create_staging_root(&roots.state_root, ".local-update-")?;
     let result = (|| -> Result<UpstreamOutcome, LocalProductError> {
         presentation.transient("Checking official Codex release...");
-        let metadata = resolve_official_release_metadata(roots, &staging_root, requested_version)?;
+        let (metadata, _) =
+            resolve_official_release_metadata(roots, &staging_root, requested_version)?;
 
         if let Some(current) = before_loaded.as_ref() {
+            if requested_version.is_none()
+                && std::env::var_os(UPDATE_VERSION_ENV).is_none()
+                && version_order(
+                    &metadata.version,
+                    &current.manifest.upstream_package_version,
+                )?
+                .is_lt()
+            {
+                return Err(LocalProductError::LocalUpdate("official discovery would downgrade the installed version; use an explicit --version if intended"));
+            }
             let core = running_wrapper_artifact()?;
             let core_sha256 = openssl_sha256(&roots.openssl, &core)?;
             if current.manifest.upstream_package_version == metadata.version
@@ -1351,6 +1490,18 @@ pub(super) fn run_update_command(args: Vec<OsString>) -> i32 {
             return 1;
         }
     };
+    if let UpdateAction::Check { version, json } = action {
+        return match check_release(&roots, version.as_deref(), json) {
+            Ok(output) => {
+                print!("{output}");
+                0
+            }
+            Err(err) => {
+                presentation.fail(&err);
+                1
+            }
+        };
+    }
     let _lease = match maintenance::UpdateLease::acquire(&roots) {
         Ok(lease) => lease,
         Err(err) => {
@@ -1362,6 +1513,9 @@ pub(super) fn run_update_command(args: Vec<OsString>) -> i32 {
 
     match action {
         UpdateAction::Help => 0,
+        UpdateAction::Check { .. } => {
+            unreachable!("read-only inspection handled before update lease")
+        }
         UpdateAction::Rollback => match run_rollback(&roots) {
             Ok(outcome) => {
                 presentation.finish_rollback(
@@ -1415,5 +1569,102 @@ pub(super) fn run_update_command(args: Vec<OsString>) -> i32 {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tests::{remove_temp_root, temp_root};
+    use std::fs;
+    use std::os::unix::fs::PermissionsExt as _;
+
+    #[test]
+    fn inspection_cli_is_read_only_and_conflicting_flags_are_rejected() {
+        let args = |items: &[&str]| items.iter().map(OsString::from).collect::<Vec<_>>();
+        assert_eq!(
+            parse_update_args(&args(&["--check", "--json", "--version", "1.2.3"])).unwrap(),
+            UpdateAction::Check {
+                version: Some("1.2.3".into()),
+                json: true
+            }
+        );
+        for words in [
+            vec!["--json"],
+            vec!["--check", "--check"],
+            vec!["--check", "--rollback"],
+            vec!["--check", "--path", "/tmp/archive"],
+            vec!["--check", "--json", "--json"],
+        ] {
+            assert!(parse_update_args(&args(&words)).is_err(), "{words:?}");
+        }
+        assert!(version_order("1.10.0", "1.9.99").unwrap().is_gt());
+        assert!(version_order("1.2", "1.2.3").is_err());
+        assert!(version_order("1.0.0", "invalid").is_err());
+    }
+
+    fn metadata(digest: char) -> String {
+        format!("{{\"tag_name\":\"rust-v1.2.3\",\"assets\":[{{\"name\":\"{UPSTREAM_PACKAGE_ASSET}\",\"digest\":\"sha256:{}\"}}]}}", digest.to_string().repeat(64))
+    }
+
+    #[test]
+    fn official_metadata_rejects_prerelease_draft_and_duplicate_flags() {
+        for extra in [
+            "\"draft\":true,",
+            "\"prerelease\":true,",
+            "\"draft\":false,\"draft\":false,",
+        ] {
+            let raw = metadata('a').replacen('{', &format!("{{{extra}"), 1);
+            assert!(
+                parse_official_release_metadata(raw.as_bytes(), None).is_err(),
+                "{extra}"
+            );
+        }
+    }
+
+    #[test]
+    fn inspection_cross_checks_descriptors_without_installed_state_or_artifact_downloads() {
+        let root = temp_root("release-check");
+        let shell = if Path::new("/system/bin/sh").is_file() {
+            "/system/bin/sh"
+        } else {
+            "/bin/sh"
+        };
+        let cat = if Path::new("/system/bin/cat").is_file() {
+            "/system/bin/cat"
+        } else {
+            "/bin/cat"
+        };
+        let latest = root.join("latest.json");
+        let exact = root.join("exact.json");
+        fs::write(&latest, metadata('a')).unwrap();
+        fs::write(&exact, metadata('a')).unwrap();
+        let curl = root.join("curl");
+        fs::write(&curl, format!("#!{shell}\nurl=\nwhile [ $# -gt 0 ]; do\n if [ \"$1\" = --url ]; then shift; url=$1; fi\n shift\ndone\ncase \"$url\" in\n *releases/latest) exec {cat} '{}' ;;\n */release.json) exec {cat} '{}' ;;\n '') exit 0 ;;\n *) exit 57 ;;\nesac\n", latest.display(), exact.display())).unwrap();
+        fs::set_permissions(&curl, fs::Permissions::from_mode(0o700)).unwrap();
+        let prefix = std::env::var_os("PREFIX")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from("/usr"));
+        let state = root.join("state");
+        let roots = LocalWrapperRoots {
+            generation_root: root.join("generations"),
+            state_root: state.clone(),
+            config_dir: state.join("config"),
+            resolver_path: state.join("resolv.conf"),
+            openssl: prefix.join("bin/openssl"),
+            curl,
+            cert_file: root.join("cert.pem"),
+            cert_dir: root.join("certs"),
+        };
+        let output = check_release(&roots, None, true).unwrap();
+        assert!(output.contains("\"upstream_version\":\"1.2.3\""));
+        assert!(output.contains("\"installed_version\":null"));
+        assert!(!state.exists());
+        assert!(!roots.generation_root.exists());
+        fs::write(&exact, metadata('b')).unwrap();
+        assert!(check_release(&roots, None, true).is_err());
+        assert!(!state.exists());
+        assert!(!roots.generation_root.exists());
+        remove_temp_root(root);
     }
 }

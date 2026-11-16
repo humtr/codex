@@ -60,7 +60,8 @@ Bare `codex update` (or `codex update --upstream`) resolves official OpenAI
 release metadata and archives, verifies the official archive SHA-256 digest,
 applies adaptive rule-based binary patching across `bin/*`, preserves static
 `codex-path/rg` (falling back to a Termux wrapper script when absent), validates
-`bin/codex --version`, and activates the new generation using only the upstream
+`bin/codex --version` and bounded configuration loading in a disposable account-free
+home, and activates the new generation using only the upstream
 version boundary — independent of Manager, enhanced TUI, Provider, or signed
 remote release indices. Optional signed release indices and extension module
 updates remain decoupled opt-in capabilities outside standalone Wrapper.
@@ -123,8 +124,12 @@ runtime on Termux.
 | `codex update --version <MAJOR.MINOR.PATCH>` | Wrapper | install and adapt one specific official upstream stable release through the upstream update pipeline |
 | `codex update --path <FILE_OR_DIR>` | Wrapper | adapt an offline official upstream `.tar.gz` archive or stage/validate/activate an already prepared generation directory |
 | `codex update --help` | Wrapper | print Wrapper update usage without invoking upstream or changing state |
+| `codex update --check [--version <MAJOR.MINOR.PATCH>] [--json]` | Wrapper | resolve and cross-check exact official stable metadata, report immutable archive/metadata digests and installed-version comparison, without downloading a runtime, activating, pruning or creating installed state |
 | `codex update --rollback` | Wrapper | atomically activate the retained previous complete generation |
 | `codex update [INVALID_ARGS...]` | Wrapper | reject unsupported or conflicting updater options without invoking upstream or changing state |
+
+Unpinned official discovery must not silently downgrade an installed upstream
+version. An explicit `--version` or `--rollback` retains its requested semantics.
 | `codex doctor [--color \| --json]` | Wrapper | combine upstream and Wrapper/Termux diagnostics cleanly without addon/Manager coupling |
 | `codex wrapper status [--json]` | Wrapper | report active generation, previous generation, upstream version, layout, runtime path, patch policy/report, daemon passthrough status, and Wrapper roots |
 | `codex wrapper --help` | Wrapper | print Wrapper usage without invoking upstream or changing state |

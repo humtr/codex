@@ -1018,7 +1018,9 @@ After installation, Wrapper exclusively owns `codex update`:
   `downloads/` via `$PREFIX/bin/curl` (15 s connect, 300 s idle transfer timeout, up to
   `256 MiB` compressed archive, `1 GiB` download cache cap), verifies the official SHA-256
   with `$PREFIX/bin/openssl`, unpacks and adaptively patches `bin/*` (`termux-fd-remap`,
-  `termux-uds-fd35`) in `.candidate-*`, probes `bin/codex --version` under Termux FDs,
+  `termux-uds-fd35`) in `.candidate-*`, probes the exact `bin/codex --version`
+  and `features list` under Termux FDs in a fresh account-free temporary home
+  (bounded time and output; no personal-device allowlist or account test),
   and atomically activates (`codex-activation-state`, `LOCAL_ZERO` verifier slots).
 - `codex update --path <FILE_OR_DIR>`: adapts an offline official `.tar.gz` package archive
   or validates/activates a prepared `package-root` generation directory (`generation.meta`).
@@ -1026,6 +1028,13 @@ After installation, Wrapper exclusively owns `codex update`:
 - `codex update --rollback`: acquires the state-root directory lock, recovers any incomplete
   journal, revalidates the single retained `previous` complete generation, and atomically
   swaps `current` and `previous`.
+- `codex update --check [--version <MAJOR.MINOR.PATCH>] [--json]`: uses the same
+  official resolver and bounded HTTPS transport in an owned disposable temporary
+  directory. Latest-release discovery is cross-checked against the exact-version
+  official descriptor. Output binds the version, canonical archive URL/SHA-256,
+  exact descriptor URL/SHA-256 and current Wrapper SHA-256. It reports current,
+  available or older relative to an installed generation without activation,
+  retention, artifact download, journal recovery or installed-state writes.
 - Removed/Stage 2 flags (`--signed`, `--remote`, `--local`, `--build-local`) fail
   explicitly in Stage 1 with exit status `2` and zero state mutation. No compiler toolchain,
   signing key, or upstream self-updater is ever invoked in Stage 1.
@@ -1156,7 +1165,8 @@ Candidate activation integrity is narrower than public diagnostic health. After
 signed descriptor/manifest/index admission, exact signature/digest/mode checks,
 qualified Termux environment construction, release-sequence/anti-rollback
 checks, and staging, Wrapper must execute the exact candidate upstream
-`--version` probe in that qualified Termux environment. A failed version probe,
+`--version` probe and bounded `features list` configuration probe in that qualified
+Termux environment with disposable HOME/CODEX_HOME. A failed probe,
 qualification failure, admission failure, or transaction failure rejects the
 candidate before the new launcher/pointer pair is committed. Activation must
 not require the full upstream `codex doctor` command to exit zero: credential,

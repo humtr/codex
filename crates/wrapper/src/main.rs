@@ -9,6 +9,8 @@ mod fs_util;
 #[cfg(unix)]
 mod maintenance;
 #[cfg(unix)]
+mod qualification;
+#[cfg(unix)]
 mod remote_download;
 #[cfg(unix)]
 mod state;
@@ -1633,22 +1635,12 @@ mod unix_app {
         process_env: &TermuxProcessEnvSnapshot,
     ) -> Result<(), LocalProductError> {
         with_qualified_loaded_runtime(loaded, |assets| {
-            if !doctor::probe_qualified_upstream_command(
+            crate::qualification::probe(
                 assets,
                 process_env,
-                roots.cert_file.as_os_str(),
-                Some(roots.cert_dir.as_os_str()),
-                &roots.resolver_path,
-                &roots.config_dir,
-                &["--version"],
+                roots,
+                &loaded.manifest.upstream_package_version,
             )
-            .map_err(|_| LocalProductError::CandidateProbe("candidate version probe failed"))?
-            {
-                return Err(LocalProductError::CandidateProbe(
-                    "candidate version probe was unhealthy",
-                ));
-            }
-            Ok(())
         })
     }
 
@@ -2602,11 +2594,12 @@ mod unix_app {
         };
         match route {
             PublicDispatchRoute::Update(args) => {
-                let is_help = args
-                    .iter()
-                    .any(|a| matches!(a.to_str(), Some("-h" | "--help")));
+                let read_only = matches!(
+                    update::parse_update_args(&args),
+                    Ok(update::UpdateAction::Help | update::UpdateAction::Check { .. })
+                );
                 let code = update::run_update_command(args);
-                if code == 0 && !is_help {
+                if code == 0 && !read_only {
                     if let Ok(roots) = LocalWrapperRoots::from_environment() {
                         let _ = maintenance::prune(&roots);
                     }
@@ -2735,7 +2728,7 @@ pub(crate) mod tests {
         fs::create_dir_all(dir.join("browser/open")).unwrap();
         fs::create_dir_all(dir.join("browser/manual")).unwrap();
         fs::create_dir_all(dir.join("codex-resources/sub")).unwrap();
-        fs::write(dir.join("bin/codex"), b"#!/bin/sh\necho codex 1.2.3\n").unwrap();
+        fs::write(dir.join("bin/codex"), b"#!/bin/sh\nif [ \"$1\" = --version ]; then echo codex-cli 1.2.3; else echo codex 1.2.3; fi\n").unwrap();
         fs::set_permissions(dir.join("bin/codex"), fs::Permissions::from_mode(0o755)).unwrap();
         if with_code_mode_host {
             fs::write(dir.join("bin/codex-code-mode-host"), b"#!/bin/sh\nexit 0\n").unwrap();
