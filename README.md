@@ -83,7 +83,7 @@ Useful installer options (`./install.sh --help`):
 
 `install.sh` serializes only the **final executable swap** with
 `$PREFIX/bin/.codex-install.lock`. After validating the new binary it keeps
-a same-directory hard-link backup (`.codex.previous.<pid>`) of an existing
+a same-directory SHA-256-verified copy (`.codex.previous.<pid>`) of an existing
 regular `$PREFIX/bin/codex` until the requested upstream bootstrap finishes.
 A failed bootstrap or a caught HUP/INT/TERM restores that executable; a failed
 first install removes the unsuccessful new executable. A successful
