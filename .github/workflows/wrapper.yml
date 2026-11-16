@@ -385,7 +385,7 @@ jobs:
             cp "$(command -v "$tool")" "$prefix/bin/$tool"
           done
           # Bootstrap must reach curl and fail deterministically, offline.
-          printf '%s\n' '#!/bin/sh' ': > "$HOME/curl-invoked"' 'exit 57' > "$prefix/bin/curl"
+          printf '#!/bin/sh\\n: > "%s"\\nexit 57\\n' "$recovery/curl-invoked" > "$prefix/bin/curl"
           chmod 0755 "$prefix/bin/curl"
           printf '%s\n' '#!/bin/sh' 'echo ORIGINAL_WRAPPER' > "$prefix/bin/codex"
           chmod 0755 "$prefix/bin/codex"
@@ -412,7 +412,7 @@ jobs:
             echo 'offline bootstrap unexpectedly succeeded' >&2
             exit 1
           fi
-          test -f "$home/curl-invoked"
+          test -f "$recovery/curl-invoked"
           grep -F 'restored previous codex executable' "$recovery/failed-bootstrap.log"
           cmp "$recovery/original" "$prefix/bin/codex"
           test ! -e "$prefix/bin/.codex-install.lock"
@@ -420,12 +420,12 @@ jobs:
 
           # A failed first install returns to 'not installed', not half-installed.
           rm "$prefix/bin/codex"
-          rm "$home/curl-invoked"
+          rm "$recovery/curl-invoked"
           if run_install --version 0.169.0 > "$recovery/failed-first.log" 2>&1; then
             echo 'offline first install unexpectedly succeeded' >&2
             exit 1
           fi
-          test -f "$home/curl-invoked"
+          test -f "$recovery/curl-invoked"
           test ! -e "$prefix/bin/codex"
           test ! -e "$prefix/bin/.codex-install.lock"
 
