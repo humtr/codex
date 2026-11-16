@@ -145,8 +145,10 @@ codex wrapper --bare -- --version
 codex wrapper --with tui -- --version
 ```
 
-Configured but unavailable modules fail with an explicit error instead of
-silently forwarding into a different implementation. `--bare` bypasses enabled
+An explicit `--with` request fails if its module is unavailable. An unavailable
+module selected in persistent settings emits a warning and ordinary `codex`
+continues with standalone upstream, so optional modules cannot disable the base
+runtime. `--bare` bypasses enabled
 addon modules for one launch while preserving upstream arguments (`wrapper setup
 --bare` disables addon modules while retaining `signed_update`). Setting
 `signed_update = true` records the opt-in but does **not** activate a signed

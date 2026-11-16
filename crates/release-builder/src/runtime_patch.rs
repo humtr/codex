@@ -10,11 +10,11 @@ const REALPATH_STUB_MAX_BYTES: usize = 0x140;
 const RX_CAVE_MIN_BYTES: usize = FD35_CAVE_PREFIX + REALPATH_STUB_MAX_BYTES;
 
 pub(super) fn contains_daemon_fmt(bytes: &[u8]) -> bool {
-    parse_elf(bytes).is_ok_and(|elf| {
-        bytes[elf.rodata.off..elf.rodata.off + elf.rodata.sz]
-            .windows(DAEMON_FMT_NEEDLE.len())
-            .any(|w| w == DAEMON_FMT_NEEDLE)
-    })
+    // Detection must not depend on the layout parser used to apply the patch.
+    // Otherwise section/layout drift silently admits an unadapted UDS runtime.
+    bytes
+        .windows(DAEMON_FMT_NEEDLE.len())
+        .any(|w| w == DAEMON_FMT_NEEDLE)
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -1671,6 +1671,160 @@ mod tests {
             matches!(variant, Site1Variant::BadRealpathEntry),
         );
         (buf, site1_off, site2_off, fini_off + fini_sz)
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    #[test]
+    fn emitted_realpath_hook_preserves_fd35_aliases_and_libc_failures() {
+        use std::ffi::{CStr, CString};
+        use std::os::fd::AsRawFd;
+        use std::os::unix::{ffi::OsStrExt, fs::symlink, process::CommandExt};
+
+        const CHILD_ROOT: &str = "CODEX_TEST_REALPATH_HOOK_ROOT";
+        if let Some(root) = std::env::var_os(CHILD_ROOT) {
+            let root = std::path::PathBuf::from(root);
+            let size = unsafe { libc::sysconf(libc::_SC_PAGESIZE) } as usize;
+            let mapping = unsafe {
+                libc::mmap(
+                    std::ptr::null_mut(),
+                    size,
+                    libc::PROT_READ | libc::PROT_WRITE,
+                    libc::MAP_PRIVATE | libc::MAP_ANONYMOUS,
+                    -1,
+                    0,
+                )
+            };
+            assert_ne!(mapping, libc::MAP_FAILED);
+            let base = mapping as u64;
+            let mut image = vec![0u8; size];
+            image[..FD35_BYTES.len()].copy_from_slice(FD35_BYTES);
+            // Local absolute trampolines keep ADRP targets within the same page,
+            // while fallback and allocation use the platform's real libc.
+            let jump = |target: u64| -> Vec<u8> {
+                let mut words = vec![0xd280_0010 | (((target & 0xffff) as u32) << 5)];
+                for shift in 1..=3 {
+                    words.push(
+                        0xf280_0010
+                            | (shift << 21)
+                            | ((((target >> (shift * 16)) & 0xffff) as u32) << 5),
+                    );
+                }
+                words.push(0xd61f_0200); // br x16
+                words.into_iter().flat_map(u32::to_le_bytes).collect()
+            };
+            image[0x200..0x204].copy_from_slice(&NOP_INSN.to_le_bytes());
+            let original = jump(libc::realpath as *const () as u64);
+            image[0x204..0x204 + original.len()].copy_from_slice(&original);
+            let strdup = jump(libc::strdup as *const () as u64);
+            image[0x240..0x240 + strdup.len()].copy_from_slice(&strdup);
+            let stub = build_realpath_stub(base + 0x40, base, base + 0x200, NOP_INSN, base + 0x240)
+                .unwrap();
+            assert!(stub.len() <= REALPATH_STUB_MAX_BYTES);
+            image[0x40..0x40 + stub.len()].copy_from_slice(&stub);
+            unsafe {
+                std::ptr::copy_nonoverlapping(image.as_ptr(), mapping.cast(), size);
+                // Synchronize generated instructions without a toolchain-specific
+                // __clear_cache library dependency. CTR_EL0 reports line sizes.
+                let ctr: u64;
+                std::arch::asm!("mrs {ctr}, ctr_el0", ctr = out(reg) ctr, options(nostack));
+                let start = mapping as usize;
+                let end = start + size;
+                let data_line = 4usize << ((ctr >> 16) & 15);
+                let instruction_line = 4usize << (ctr & 15);
+                for address in (start & !(data_line - 1)..end).step_by(data_line) {
+                    std::arch::asm!("dc cvau, {address}", address = in(reg) address, options(nostack));
+                }
+                std::arch::asm!("dsb ish", options(nostack));
+                for address in (start & !(instruction_line - 1)..end).step_by(instruction_line) {
+                    std::arch::asm!("ic ivau, {address}", address = in(reg) address, options(nostack));
+                }
+                std::arch::asm!("dsb ish", "isb", options(nostack));
+                assert_eq!(
+                    libc::mprotect(mapping, size, libc::PROT_READ | libc::PROT_EXEC),
+                    0
+                );
+            }
+            type Realpath =
+                unsafe extern "C" fn(*const libc::c_char, *mut libc::c_char) -> *mut libc::c_char;
+            let hook: Realpath = unsafe { std::mem::transmute((base + 0x40) as usize) };
+            let path_bytes = |path: &std::path::Path| path.as_os_str().as_bytes().to_vec();
+            let plain = path_bytes(&root.join("plain"));
+            let cases = [
+                (
+                    b"/proc/self/fd/35".to_vec(),
+                    Some(b"/proc/self/fd/35".to_vec()),
+                ),
+                (
+                    b"/proc/self/fd/35/plain".to_vec(),
+                    Some(b"/proc/self/fd/35/plain".to_vec()),
+                ),
+                (
+                    path_bytes(&root.join("alias")),
+                    Some(b"/proc/self/fd/35/plain".to_vec()),
+                ),
+                (path_bytes(&root.join("ordinary")), Some(plain.clone())),
+                (plain, Some(path_bytes(&root.join("plain")))),
+                (b"/proc/self/fd/35/missing".to_vec(), None),
+                (b"/proc/self/fd/35suffix".to_vec(), None),
+                (path_bytes(&root.join("dangling")), None),
+            ];
+            for (path, expected) in cases {
+                let path = CString::new(path).unwrap();
+                for allocate in [false, true] {
+                    let mut buffer = vec![0 as libc::c_char; 4096];
+                    let destination = if allocate {
+                        std::ptr::null_mut()
+                    } else {
+                        buffer.as_mut_ptr()
+                    };
+                    let result = unsafe { hook(path.as_ptr(), destination) };
+                    match &expected {
+                        Some(expected) => {
+                            assert!(!result.is_null(), "{path:?}");
+                            assert_eq!(unsafe { CStr::from_ptr(result) }.to_bytes(), expected);
+                            if allocate {
+                                unsafe { libc::free(result.cast()) };
+                            } else {
+                                assert_eq!(result, destination);
+                            }
+                        }
+                        None => assert!(result.is_null(), "{path:?}"),
+                    }
+                }
+            }
+            assert!(unsafe { hook(std::ptr::null(), std::ptr::null_mut()) }.is_null());
+            assert_eq!(unsafe { libc::close(35) }, 0);
+            let absent = CString::new("/proc/self/fd/35").unwrap();
+            assert!(unsafe { hook(absent.as_ptr(), std::ptr::null_mut()) }.is_null());
+            assert_eq!(unsafe { libc::munmap(mapping, size) }, 0);
+            return;
+        }
+
+        // FD 35 changes only in a dedicated exec child, never in the test runner.
+        let root = crate::tests::temp_dir("native-realpath");
+        std::fs::write(root.join("plain"), b"ok").unwrap();
+        symlink("/proc/self/fd/35/plain", root.join("alias")).unwrap();
+        symlink(root.join("plain"), root.join("ordinary")).unwrap();
+        symlink("/proc/self/fd/35/missing", root.join("dangling")).unwrap();
+        let fd = std::fs::File::open(&root).unwrap();
+        let source = fd.as_raw_fd();
+        let mut command = std::process::Command::new(std::env::current_exe().unwrap());
+        command.args(["--exact", "runtime_patch::tests::emitted_realpath_hook_preserves_fd35_aliases_and_libc_failures", "--nocapture"])
+            .env(CHILD_ROOT, &root);
+        unsafe {
+            command.pre_exec(move || {
+                if libc::dup2(source, 35) < 0 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                if libc::fcntl(35, libc::F_SETFD, 0) < 0 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                Ok(())
+            });
+        }
+        let status = command.status().unwrap();
+        std::fs::remove_dir_all(root).unwrap();
+        assert!(status.success(), "native realpath hook child: {status}");
     }
 
     #[test]

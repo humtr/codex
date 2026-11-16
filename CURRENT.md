@@ -91,12 +91,65 @@ The Stage 2 recurring official-upstream adoption controller and CI
 environment comparison are now documented in `docs/plan/STAGE2_PLAN.md`;
 no scheduler, automatic publication or production runtime deployment occurred.
 
+### Independent standalone compatibility review (2026-11-16)
+
+The priority is the minimal Wrapper's independent Termux execution and continued
+official-upstream adoption, before addon attachment. Baseline `51f69a69` and
+[Wrapper CI 43817848999](https://github.com/humtr/codex/actions/runs/43817848999)
+were independently checked: all three checks succeeded; release publication was
+skipped. This establishes neither refreshed public assets nor device activation.
+
+- **Adaptive admission defect repaired:** UDS detection previously called the
+  same ELF layout parser as patch application and converted parse failure to
+  “UDS absent.” A valid static ELF with its section table stripped still
+  contained the daemon UDS implementation but was successfully published without
+  that adaptation. Detection now searches the input independently; an unsupported
+  matching layout fails before publication for both main and companion binaries.
+- **Standalone independence repaired:** a persistently enabled unavailable addon
+  previously blocked ordinary upstream execution, contrary to SPEC Sections 1
+  and 4.2. It now warns and continues standalone without changing the selection;
+  explicit `--with` still rejects unavailable modules. A subprocess regression
+  exercises actual upstream exec, not just dispatch classification.
+- **Generated-code proof added:** AArch64 tests execute the emitted `realpath`
+  hook with actual libc fallback/allocation in a disposable child. Both output
+  buffer forms, FD 35 aliases, socket-style symlinks, ordinary symlink resolution,
+  nonexistent paths, prefix collisions, null input and a closed FD 35 are tested.
+  Workspace checks now run on `ubuntu-24.04-arm` to execute this gate in CI.
+- **Local verification:** workspace format/Clippy/tests passed (`codex`: 40;
+  release-builder: 8; zero failures), and native release builds passed. A fresh
+  isolated API 37 / 4 KiB-page Termux fixture verified the official `0.169.0`
+  archive against current official release metadata SHA-256 `c8d0b4ab...`:
+  install/update, all three executables, daemon start/version/stop, actual Native
+  `initialize`/`config/read`/`command/exec` with independently checked file contents,
+  persisted-missing-addon standalone launch and explicit-addon refusal passed.
+  TMPDIR/CODEX_HOME/control socket were 134/146/189 encoded bytes. A sized 30x100
+  PTY with terminal-query replies rendered `OpenAI Codex` and stayed alive for
+  eight seconds (4,669 output bytes, no `SUN_LEN`); this is startup rendering,
+  not an authenticated task or physical UI proof.
+- **Negative device proof:** a section-table-stripped official main ELF was
+  rejected by `codex update --path`; activation-state bytes and active runtime
+  SHA-256 stayed equal, and `--version` still ran. The initial fixture attempt
+  omitted the copied resolver; it failed before activation and its failed receipt
+  was retained, then the fixture was corrected. Evidence and reproducer remain
+  in `$PREFIX/tmp/wrapper-base-review-20261116.rl4paotf/`. No fixture executables
+  remain running. Installed `$PREFIX/bin/codex` stayed at SHA-256 `b6611c3a...`.
+
+**Remaining base qualification:** update-time automatic runtime admission still
+probes `--version`, not the full daemon/PTY/tool boundary. New musl code generation
+or UDS markers can require adaptation work; this is not proof of arbitrary future
+release compatibility. API 24/other Android versions and 16 KiB pages, authenticated
+model/Code Mode completion, external remote-control pairing and refreshed release
+asset installation remain unverified here. Next implement read-only official
+release discovery and reusable isolated base qualification through the existing
+updater/builder, with physical-device promotion evidence; optional modules and
+signed channels must not delay that work.
+
 ### Stage 2.1 — Optional settings, CLI hooks, and FD 34 snapshot engine (2026-11-16)
 
 Implemented beyond initial PR #31 without attaching Manager, enhanced TUI, Provider, or external crates beyond `libc`:
 - Bounded, fail-closed `wrapper.toml` parser under the Wrapper state root (`crates/wrapper/src/extensions.rs` + `fs_util.rs`): target-correct AArch64 `O_NOFOLLOW` (`0o100000` on ARM/AArch64, `0o400000` elsewhere), `uid`/`dev`/`ino` validation in `read_bounded_regular`, dedicated `.wrapper-settings.lock` separate from state-root activation `flock`, and XDG-compatible `0o755` (umask-respecting) creation of missing `.local`/`.local/share` while enforcing `0o700` on `codex` and `wrapper`.
 - `codex wrapper setup [show|--bare|--enable|--disable|--signed-update]` supports multi-flag updates in one invocation, `--bare` preserves `signed_update`, `codex wrapper status [--json]` reports `signed_update` and `addons`, invocation-local `--bare` and `--with` enforce fail-closed validation on missing modules, and bare `--version`/`--help` retain the zero-write fast path (zero `wrapper.toml`, `config/snapshots/`, or `app-server-daemon/settings.json` writes).
-- Conditional FD 34 immutable snapshot engine (`crates/wrapper/src/system_config.rs` + `UpstreamRuntimeHost` in `main.rs`): enforces `FRAGMENT_LIMIT` (`8192` B) and `CONFIG_LIMIT` (`16384` B), derives FNV-1a `"config-v1"` `settings_identity`, materializes immutable `config/snapshots/<settings_id>/config.toml` (`thread_unload_delay_secs = 0`) + optional `requirements.toml` atomically via `rename_noreplace`, validates via cached `validated-<key>` 5s bounded `features list` probe, holds `flock(LOCK_SH)` across FD 34 child execution, and prunes unheld snapshots cleanly after setup/launch changes.
+- Conditional FD 34 snapshot engine (`crates/wrapper/src/system_config.rs` + `UpstreamRuntimeHost` in `main.rs`): enforces `FRAGMENT_LIMIT` (`8192` B) and `CONFIG_LIMIT` (`16384` B), derives FNV-1a `"config-v1"` `settings_identity`, publishes individual `config.toml`/optional `requirements.toml` records through `rename_noreplace`, validates via cached `validated-<key>` 5s bounded `features list` probe, holds `flock(LOCK_SH)` across FD 34 child execution, and attempts unheld pruning after successful setup changes. Whole-snapshot concurrent publication/pruning is not qualified: the coordinator is released before snapshot creation/leasing and is not taken by pruning. Close these source-review findings before attaching a producer; bare execution bypasses this engine.
 
 **Verification & open boundary:** PR #31 hardening + `system_config` + Issue #33 fixes are verified by workspace unit tests (`codex`: `40 passed; 0 failed`, `codex-release-builder`: `6 passed; 0 failed`) and isolated Termux API 37 runtime checks (multi-flag setup, `--bare` preserving `signed_update`, `(umask 0022)` `755`/`700` XDG modes, AArch64 `O_NOFOLLOW` symlink rejection, unavailable `--with manager` failure, zero-write bare launch). Actual addon module binaries/producers (`manager`, `tui`, `provider`) are not yet attached in Stage 1/2.1; cross-process shared-server integration of FD 34 snapshots will exercise with a real Manager producer in Phase 2.3. Phases 2.2–2.6 remain unstarted.
 

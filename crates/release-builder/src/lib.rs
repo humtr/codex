@@ -2238,7 +2238,7 @@ mod tests {
 
     static TEST_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
-    fn temp_dir(label: &str) -> PathBuf {
+    pub(crate) fn temp_dir(label: &str) -> PathBuf {
         let id = TEST_COUNTER.fetch_add(1, AtomicOrdering::Relaxed);
         let dir = std::env::temp_dir().join(format!(
             "codex-release-builder-test-{label}-{}-{id}",
@@ -2733,6 +2733,59 @@ mod tests {
         assert!(!out_bad_sha.exists());
 
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn build_rejects_uds_layout_drift_in_main_and_companions_without_publication() {
+        let dir = temp_dir("uds-layout-drift");
+        let gzip = find_tool("gzip");
+        let openssl = find_tool("openssl");
+        let wrapper = dir.join("wrapper");
+        std::fs::write(
+            &wrapper,
+            build_wrapper_pie_elf(Some(b"/system/bin/linker64\0"), 3),
+        )
+        .unwrap();
+        set_mode(&wrapper, 0o755, "mode test wrapper").unwrap();
+        let package = expected_package_json("1.2.3");
+        let plain = build_static_aarch64_elf(true, false);
+        let mut drifted = build_static_aarch64_elf(true, true);
+        // Still a valid static executable, but its section table was stripped.
+        // The UDS implementation is present and must not be mistaken for absence.
+        write_u64(&mut drifted, 40, 0);
+        write_u16(&mut drifted, 60, 0);
+        write_u16(&mut drifted, 62, 0);
+        for (name, main, companion) in [("main", &drifted, &plain), ("companion", &plain, &drifted)]
+        {
+            let archive = dir.join(format!("{name}.tar.gz"));
+            write_tar_gz(
+                &package_tar_bytes(&[
+                    ("bin/codex", b'0', 0o755, main),
+                    ("bin/codex-exec-server", b'0', 0o755, companion),
+                    ("codex-package.json", b'0', 0o644, &package),
+                ]),
+                &archive,
+                &gzip,
+            );
+            let output = dir.join(format!("gen-{name}"));
+            let result = build_generation(&GenerationRequest {
+                version: "1.2.3".to_owned(),
+                archive_sha256: openssl_sha256(&openssl, &archive).unwrap(),
+                archive,
+                generation_id: format!("gen-{name}"),
+                wrapper: wrapper.clone(),
+                creation_metadata: "codex-wrapper".to_owned(),
+                gzip: gzip.clone(),
+                openssl: openssl.clone(),
+                output: output.clone(),
+            });
+            assert!(
+                matches!(result, Err(BuilderError::Archive(_))),
+                "{name}: {result:?}"
+            );
+            assert!(!output.exists(), "failed candidate must not be published");
+        }
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

@@ -1,7 +1,7 @@
 # Stage 2 Reintegration Procedure and Implementation Plan
 
 > **Status:** Implementation execution guide & architecture transition plan (derived from [SPEC.md](../../SPEC.md), [DELIVERY.md](../spec/DELIVERY.md), [USER_INTERFACES.md](../spec/USER_INTERFACES.md), [BRIDGE.md](../spec/BRIDGE.md), and inspected preserved sources).
-> **Current implementation state:** **Stage 1** (including adaptive Issue #33 FD 35 `realpath` + multi-gap/trailing RX relocation) and **Phase 2.1** (`wrapper.toml`, `codex wrapper setup`/`--bare`/`--with`, and the conditional FD 34 immutable snapshot engine in `crates/wrapper`) are implemented and verified by workspace tests and isolated API 37 Termux checks; no addon binaries (`manager`, `tui`, `provider`) are attached yet, so cross-process shared-server integration exercises in Phase 2.3. Phases 2.2–2.6 remain pending. Complete the phase exit gates in order, preserving standalone Wrapper independence.
+> **Current implementation state:** **Stage 1** (including adaptive Issue #33 FD 35 `realpath` + multi-gap/trailing RX relocation) and **Phase 2.1** (`wrapper.toml`, `codex wrapper setup`/`--bare`/`--with`, and the conditional FD 34 snapshot engine in `crates/wrapper`) have source implementation and scoped workspace/API 37 Termux evidence; no addon binaries (`manager`, `tui`, `provider`) are attached. Snapshot concurrency and actual producer integration remain unqualified. Phases 2.2–2.6 remain pending. The current priority is standalone compatibility and recurring upstream adoption before optional module attachment; base discovery and qualification in Phase 2.6 need not wait for Phases 2.2–2.5.
 
 ---
 
@@ -67,7 +67,8 @@
      - When enabled modules supply bounded config fragments (`<= 8 KiB`), materialize immutable `config/snapshots/<settings_id>/config.toml` (+ optional bounded `requirements.toml` only when a module requires shared topology constraints), validate with bounded `features list`, bind FD 34 + `flock(LOCK_SH)` over child lifetime, and prune unheld expired snapshots safely.
      - Keep `codex wrapper status --json` accurately reporting active config (`"addons":"none"` when bare, listing enabled modules when active).
 3. **Exit Gate Status (Engine Implemented; Producer Attachment in Phase 2.3):**
-   - `cargo fmt --check`, `cargo clippy --workspace --all-targets --locked -- -D warnings`, `cargo test --workspace --locked` (`system_config::tests::*`, `extensions::tests::*`), and isolated API 37 Termux checks verify: absent `wrapper.toml` performs **zero** snapshot writes or subprocess probes on bare `--version`/`--help`/launch; malformed or symlinked `wrapper.toml` fails closed safely; `--bare` ignores configured modules and `setup --bare` preserves `signed_update`; `--with manager` fails cleanly when no Manager binary exists; FD 34 snapshot preparation, `features list` caching, `flock(LOCK_SH)` retention, and unheld pruning behave deterministically in `crates/wrapper`. Live cross-process producer attachment awaits Phase 2.3 (`codex-manager`).
+   - `cargo fmt --check`, `cargo clippy --workspace --all-targets --locked -- -D warnings`, `cargo test --workspace --locked` (`system_config::tests::*`, `extensions::tests::*`), and isolated API 37 Termux checks verify: absent `wrapper.toml` performs **zero** snapshot writes or subprocess probes on bare `--version`/`--help`/launch; malformed or symlinked `wrapper.toml` fails closed safely; `--bare` ignores configured modules and `setup --bare` preserves `signed_update`; `--with manager` fails cleanly when no Manager binary exists. Persisted unavailable selections warn and retain standalone execution, as required by SPEC. FD 34 tests cover serial preparation, `features list` caching, child-inherited `flock(LOCK_SH)` retention and unheld pruning.
+   - **Open source-review findings before producer attachment:** `prepare` drops its configuration-directory coordinator before creating/leasing a snapshot; `prune` does not acquire that coordinator. Concurrent prepare/prune can therefore remove a directory before its shared lease is acquired, and concurrent first writers can race on `rename_noreplace`. Individual records are atomically published, but whole-directory publication and crash/concurrency recovery are not established. Serialize publication and pruning through the same existing coordinator and test concurrent creators/pruners and interrupted multi-file publication before Phase 2.3. Bare execution does not enter this engine.
 
 ---
 
@@ -173,7 +174,7 @@ The ordinary standalone update and rollback remain usable independently of this
 automation and of every optional module.
 
 **Prerequisites:** close any remaining live/connected-client Stage 1 acceptance items and
-coordinate with signed-channel Phase 2.2 before enabling publication. Design can proceed alongside optional modules;
+coordinate with signed-channel Phase 2.2 before enabling signed publication. Read-only discovery and isolated base qualification are the next implementation priority and can proceed before optional modules;
 base upstream **qualification and publication must never wait for TUI, Manager
 or Provider**. The automation is not a license to skip any active gate.
 
@@ -232,6 +233,12 @@ approved or running.
 ---
 
 ## 5. CI Verification Environment — Reviewed Options (2026-11-16)
+
+The workspace checks now run on `ubuntu-24.04-arm` so the emitted AArch64
+`realpath` machine code is executed against real libc in a disposable child,
+in addition to structural ELF tests. Native Termux runs exercise that same test
+against Android libc. This does not establish musl/Android lifecycle acceptance
+for a new official archive; the restricted physical-device gate below still does.
 
 | Environment | What it truly proves | Gap / cost | Decision |
 | --- | --- | --- | --- |

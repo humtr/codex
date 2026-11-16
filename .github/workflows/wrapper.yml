@@ -49,7 +49,8 @@ env:
 jobs:
   checks:
     name: Workspace lint, tests, and docs
-    runs-on: ubuntu-24.04
+    # Execute the emitted AArch64 realpath hook in addition to structural tests.
+    runs-on: ubuntu-24.04-arm
     permissions:
       contents: read
     timeout-minutes: 20

@@ -2633,8 +2633,7 @@ mod unix_app {
                             }
                         };
                         if let Some(modules) = settings.unavailable_addons() {
-                            eprintln!("codex: enabled optional module(s) {modules} are unavailable; use 'codex wrapper --bare -- ...' or disable them with 'codex wrapper setup --disable {modules}'");
-                            return 1;
+                            eprintln!("codex: optional module(s) {modules} are unavailable; continuing with standalone upstream");
                         }
                     }
                 }
@@ -3039,6 +3038,10 @@ pub(crate) mod tests {
 
     #[test]
     fn e2e_activation_doctor_status_and_rollback_in_isolated_roots() {
+        const LAUNCH_CHILD: &str = "CODEX_TEST_MISSING_ADDON_LAUNCH";
+        if std::env::var_os(LAUNCH_CHILD).is_some() {
+            std::process::exit(run_public_main(os_vec(&["exec", "hi"])));
+        }
         let _guard = ENV_LOCK.lock().unwrap();
         let root = temp_root("e2e-update");
         let gen1 = root.join("src-g1");
@@ -3130,8 +3133,26 @@ pub(crate) mod tests {
             ])),
             0
         );
-        // Enabled unavailable modules fail closed on normal launch.
-        assert_eq!(run_public_main(os_vec(&["exec", "hi"])), 1);
+        // Persisted optional selection cannot brick standalone execution.
+        // Run the actual exec boundary in a child, preserving this test runner.
+        let launch = Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "tests::e2e_activation_doctor_status_and_rollback_in_isolated_roots",
+                "--nocapture",
+            ])
+            .env(LAUNCH_CHILD, "1")
+            .output()
+            .unwrap();
+        assert!(launch.status.success(), "{launch:?}");
+        assert!(String::from_utf8_lossy(&launch.stdout).contains("codex 1.2.3"));
+        assert!(
+            String::from_utf8_lossy(&launch.stderr).contains("continuing with standalone upstream")
+        );
+        assert_eq!(
+            run_public_main(os_vec(&["wrapper", "--with", "manager"])),
+            1
+        );
         // Mixing show with mutating flags fails with exit code 2 cleanly.
         assert_eq!(
             run_public_main(os_vec(&["wrapper", "setup", "show", "--bare"])),

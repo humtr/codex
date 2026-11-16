@@ -589,6 +589,10 @@ family when enabled explicitly (`help`, `launch`, `profile`, `task`, `notify`,
 `usage`, `rotation`) and is likewise never passed to upstream. Bare `codex`
 invokes only standalone Wrapper plus patched upstream unless modules are enabled
 in `wrapper.toml` or via `codex wrapper --with <MODULES>`.
+If a persistently selected module is missing or incompatible, ordinary upstream
+execution remains available with a clear warning; the stored selection is not
+rewritten. An explicit `--with` request fails when its requested module cannot
+be admitted. Module absence never blocks standalone update, doctor or rollback.
 
 ```text
 # Stage 1 active wrapper commands
