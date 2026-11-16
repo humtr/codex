@@ -6,6 +6,8 @@ rollback, device compatibility and qualification behavior. Exact upstream
 release identities and prior patch/admission reports are evidence outside
 this contract, not a condition requiring a new specification on every upgrade.
 
+> **Stage scope:** Active Stage 1 standalone delivery (`install.sh`, `codex update --upstream|--path|--rollback`, `package-root`, adaptive `termux-fd-remap`/`termux-uds-fd35`, and `codex doctor`) is documented alongside deferred Stage 2 optional extensions (`--signed`, `publish`/`fetch`, `asset-map.json`, Manager/TUI composition, and shared-server snapshots). Stages and implementation status live in [CURRENT.md](../../CURRENT.md) and [docs/STAGE2_PLAN.md](../STAGE2_PLAN.md).
+
 ## Base qualification
 
 ### Independent unsigned base qualification
@@ -91,24 +93,28 @@ otherwise the conservative full Wrapper gate runs. Changes to Wrapper/shared bui
 or mixed unknown paths retain full qualification. Provider qualification is separate
 from Wrapper acceptance and must be required before future signed provider admission.
 
-Base and full have independent signed public heads. The existing update-index-v1
-remains the full head for compatibility; the base head is update-index-base-v1.
-The default update head follows the authenticated public baseline of the selected
+Base and full (Stage 2 optional lanes) have independent signed public heads: `update-index`
+is the full head and `update-index-base` is the base head (Stage 1 standalone Wrapper
+does not read remote release indices and fetches upstream directly).
+The default signed update head follows the authenticated public baseline of the selected
 generation, including a local-derived generation; an explicit update URL remains
 an operator override. Full users must never be silently downgraded when only base qualifies. Both public
 heads and retained last-known-good assets stay available in their immutable
-publication origins; current releases do not replace the legacy Pages site.
+publication origins; current releases do not replace historical origins.
 Promotion coordinates both heads with non-forced compare-and-swap and increasing
 release sequence; a stale concurrent run re-evaluates rather than overwriting
 another lane. No device activation or user-profile/provider mutation is implied
 by public publication. Qualification-only workflows remain non-publishing.
 
-codex-runtime-binding is dependency-free shared **source**, statically compiled
-into its callers, for the existing bounded execution-record codec. Wrapper depends
-on release-builder and this primitive, not on Manager, frontend or provider.
-It creates no installed shared library, service, registry or optional-component
-runtime prerequisite. Wrapper configuration queries remain bounded and optional;
-failure skips conveniences while preserving independent execution.
+In **Stage 1**, Wrapper (`crates/wrapper`) depends **only** on `crates/release-builder`
+and `libc`, with zero dependency on `Manager`, enhanced `TUI`, `Provider`, or
+`codex-runtime-binding`. When reintroduced in **Stage 2** (`Phase 2.3`),
+`codex-runtime-binding` is dependency-free shared **source**, statically compiled
+into its callers, for the bounded shared-server execution-record codec. Wrapper still
+never imports `Manager`, frontend, or `Provider`, and creates no installed shared
+library, service, registry, or optional-component runtime prerequisite. Wrapper
+configuration queries remain bounded and optional; failure skips conveniences while
+preserving independent execution.
 
 Independence has distinct observable levels:
 
@@ -132,14 +138,15 @@ Independence has distinct observable levels:
   There is no automatic downgrade from full to base; each edition follows its
   own signed public head.
 
-The retained TUI patch contains only upstream call sites/types, supported-permission
+The optional Stage 2 TUI patch contains only upstream call sites/types, supported-permission
 integration, startup compatibility and actual test access; standalone policy lives
-under frontend/manager-tui/src. Upstream lacks a qualified general extension API
+under `frontend/tui/src`. Upstream lacks a qualified general extension API
 for these UI hooks. Moving them into Wrapper or a separate launcher would not remove
-revision maintenance. The official-runtime binary adaptation remains exact-digest
-and version-bound for FD/socket/config paths and no-sandbox permission choices;
-the source-built frontend's FD remap is separately qualified. Never remove either
-gate merely to admit a newer upstream version.
+revision maintenance. Official-runtime binary adaptation (`crates/release-builder/src/runtime_patch.rs`)
+uses adaptive rule-based path and UDS cave remapping (`termux-fd-remap`, `termux-uds-fd35`)
+verified per binary in `bin/*` (no hardcoded version offsets); a Stage 2 source-built
+optional frontend's permission hooks and FD remap are separately qualified. Never weaken
+adaptive verification merely to admit a broken or unverified binary layout.
 
 Responsibility realignment is complete when these ownership and independent
 execution/lifecycle guarantees pass. It does not claim that future upstream
@@ -190,7 +197,8 @@ local execution and remote runners call the same Rust producer. Recipe fingerpri
 bind its source/preparation/normalization code, exact upstream tuple, lock audit,
 toolchain and build settings; a Wrapper-only commit cannot invalidate that raw
 runtime recipe. Signed component metadata's `runtime_inputs_sha256` additionally
-binds the Rust release-builder/runtime-binding adaptation sources and builder
+binds (when Stage 2 signed builds and `runtime-binding` are active) the Rust
+release-builder/`runtime-binding` adaptation sources and builder
 Rust toolchain when reusing already-adapted published runtime bytes. Legacy metadata
 without that field remains admissible for installation but does not authorize
 this producer reuse. Cached subsets are reauthenticated after executor transfer
@@ -392,11 +400,10 @@ the verified complete archive reaches generation assembly. The builder owns the
 the raw runtime, qualifies the result and signs only that local
 candidate with the selected local-build signer while preserving the official
 forward update_key. Local build never accepts a raw archive as an activation
-candidate and never bypasses signed local admission. The builder's
-`fetch` operation
-accepts one explicit stable `MAJOR.MINOR.PATCH` version, constructs only the
+candidate and never bypasses signed local admission. The builder's optional Stage 2 `fetch` operation (not exposed in Stage 1 where `codex-release-builder`
+exposes only `build`) accepts one explicit stable `MAJOR.MINOR.PATCH` version, constructs only the
 canonical official archive URL above, and downloads that archive with bounded
-HTTPS transport into one absent local regular-file output. It prints the exact
+HTTPS transport into one absent local regular-file output.
 `fetch` performs no channel discovery, mirror selection, source fallback, signing, generation
 activation, or live-state mutation. In Stage 1 standalone builds, `codex-release-builder build` accepts the
 version, upstream archive, SHA-256 digest, generation identity, Wrapper artifact, creation
@@ -405,7 +412,7 @@ without `manager_artifact_digest` or `upstream_doctor`. (Optional Stage 2 `--man
 artifact carrying and signed `publish` remain decoupled Stage 2 extensions.)
 It performs no discovery, signing, activation, or live-state mutation.
 
-Release production in Stage 2 exposes one non-installed `publish` operation with the
+Release production in Stage 2 (Phase 2.2) exposes one non-installed `publish` operation with the
 exact form:
 
 ```text
@@ -419,13 +426,13 @@ codex-release-builder publish --generation <ABSOLUTE_DIRECTORY> \
 
 When enabled in Stage 2, `publish` accepts a qualified `codex-local-generation` directory
 using the `package-root` layout (`generation.meta`, executable `wrapper`, `bin/codex`,
-optional `bin/codex-code-mode-host`/`bin/codex-exec-server`/`codex-path/`/`codex-resources/`,
-`codex-package.json`, and `browser/{open,manual}/curl`), with regular non-symlink files
+optional `bin/*` companions, `codex-package.json`, `codex-path/`, `codex-resources/`,
+and `browser/{open,manual}/curl`), with regular non-symlink files
 matching Android/AArch64, `wrapper-api`, and `schema` bindings. The generation
 identity must be a safe URL path component and the supplied canonical HTTPS
 release base must end in that encoded identity. The release sequence is a
-positive decimal and the base follows the same bounded canonical URL grammar
-as `codex update --remote`.
+positive decimal and the base follows the canonical HTTPS URL grammar
+used by `codex update --signed --remote`.
 
 The operation derives one raw Ed25519 public key from the supplied private PEM
 using the explicit OpenSSL executable. It emits a non-rotating publication:
@@ -433,45 +440,47 @@ the derived key is written as `release_public_key`, `release.sig` signs the
 exact `release.manifest` with that key, and no `release-authority.sig` is
 created. Therefore an operator producing an ordinary public/non-rotating signed release
 with this command must supply the current Wrapper `update_key` private key; this
-operation does not implement key rotation. Wrapper's local-derived path is a
+operation does not implement key rotation. Wrapper's local-derived path (Stage 2) is a
 different in-process authority boundary: it preserves public update authority and
 uses the selected local signer, temporary by default or explicitly authorized
 through `config/build-signing-key`. The `publish` command's supplied
 private key is read only for derivation/signing, is never copied into the output,
 and is never written to repository or device state.
 
-The complete publication output is:
+The complete Stage 2 publication output uses `package-root` relative generation files without legacy
+flat `core`/`runtime`/`helpers/*` naming:
 
 ```text
-<output>/update-index-v1
-<output>/update-index-v1.sig
+<output>/update-index
+<output>/update-index.sig
 <output>/releases/<generation_id>/release.manifest
 <output>/releases/<generation_id>/release.sig
 <output>/releases/<generation_id>/generation.meta
-<output>/releases/<generation_id>/core
-<output>/releases/<generation_id>/runtime
-<output>/releases/<generation_id>/codex-code-mode-host
-<output>/releases/<generation_id>/manager                  optional
+<output>/releases/<generation_id>/wrapper
+<output>/releases/<generation_id>/bin/codex
+<output>/releases/<generation_id>/bin/*                    optional companions
+<output>/releases/<generation_id>/codex-package.json
+<output>/releases/<generation_id>/codex-path/              optional
+<output>/releases/<generation_id>/codex-resources/         optional
+<output>/releases/<generation_id>/browser/open/curl
+<output>/releases/<generation_id>/browser/manual/curl
+<output>/releases/<generation_id>/manager                  optional (Stage 2)
 ```
 
-The index contains exactly the four records and final newline defined below,
-with the supplied generation identity and release base, and its sibling
-`update-index-v1.sig` signs those exact index bytes with the same key. The
-publication manifest containing `wrapper` uses `codex-release-v4`; v4 keeps the
-v3 control fields and inventory grammar but requires the executable `wrapper`
-asset. A v3 publication without `wrapper` remains readable for already installed
-legacy generations, but it is not a valid new Manager-bearing update. The
-release manifest contains a lexicographically sorted inventory, lowercase
-SHA-256 digest, and four-octal-digit regular-file mode for each present
-generation file: `generation.meta`, `wrapper`, `runtime`, and
-`codex-code-mode-host`, plus `manager` when the optional Manager artifact was
-supplied. The `wrapper` digest must equal the generation descriptor's
-`wrapper_artifact_digest`; a Manager entry requires `wrapper`. The local
-`releases/<id>` tree is the directory to map to the URL represented by
+The index contains the four canonical records (`codex-update-index`, `channel`,
+`generation_id`, `release_base`) and final newline, and its sibling
+`update-index.sig` signs those exact index bytes with the same key. The
+publication manifest uses `codex-release`, binding control fields, monotonic sequence,
+`wrapper-api`, `schema`, and the SHA-256 + regular-file octal mode inventory of every
+present `package-root` file (requiring `wrapper`, `generation.meta`, `bin/codex`,
+`codex-package.json`, `browser/{open,manual}/curl`, plus optional `bin/*`, `codex-path/`,
+`codex-resources/`, and optional Stage 2 `manager`/TUI assets). The `wrapper` digest must
+equal the generation descriptor's `wrapper_artifact_digest`; a Manager entry requires `wrapper`.
+The local `releases/<id>` tree is the directory to map to the URL represented by
 `release_base`; `publish` performs no network upload and does not assume that
 the URL is hosted by OpenAI.
 
-Ordinary signed acquisition, `--force`, `--rollback`, `--local`, and `--remote`
+Ordinary Stage 2 signed acquisition, `--force`, `--rollback`, `--signed --path`, and `--signed --remote`
 never build or sign a release or read a release private key. The manual updater's
 explicit missing-artifact phase may select local construction or the remote
 request adapter as specified above; local construction alone may read its explicitly
@@ -514,9 +523,10 @@ This invariant applies equally to ordinary, Wrapper-only and Manager-only releas
 a successful directory check cannot qualify stale exported bytes.
 
 For any authorized official producer, an explicit version selector must be one
-stable `MAJOR.MINOR.PATCH` value; otherwise the bounded official
-`https://releases.openai.com/codex/channels/latest` metadata selects the
-`rust-v<version>` tag and digest for the exact
+stable `MAJOR.MINOR.PATCH` value; otherwise official discovery resolves
+`https://api.github.com/repos/openai/codex/releases/latest` (or explicit release metadata
+at `https://releases.openai.com/codex/releases/<version>/release.json`), binding the
+`rust-v<version>` tag and SHA-256 digest for the exact
 `codex-package-aarch64-unknown-linux-musl.tar.gz` asset. The metadata is a
 version/digest selector, not an activation authority. The producer must download
 the exact versioned archive and compare its digest to the metadata-bound digest
@@ -524,8 +534,8 @@ before adaptation. Missing, malformed, non-stable, mismatched, or unavailable
 metadata fails closed; no mirror, package manager, mutable raw runtime, or
 upstream self-updater is accepted.
 
-Without an explicit `config/build-signing-key`, device-local construction never
-reads the former maintainer key path, `CODEX_TERMUX_UPDATE_PRIVATE_KEY`, or any
+Without an explicit `config/build-signing-key`, Stage 2 device-local construction never
+reads any legacy maintainer key path, `CODEX_TERMUX_UPDATE_PRIVATE_KEY`, or any
 repository release secret. It generates one fresh Ed25519 key in private
 owner-only temporary storage, derives its public verifier, signs only the local
 immutable candidate and deletes that temporary key before activation can succeed.
@@ -535,13 +545,13 @@ on success or ordinary failure. They
 never invoke `gh`, create a publication store, dispatch a workflow, or advance a
 public stable pointer. The local-derived generation uses the authenticated public
 baseline release sequence rather than allocating a new public sequence. Its
-signed generation provenance is exactly the semicolon-delimited record
-`codex-local-derived-v1;upstream_version=<VERSION>;archive_sha256=<SHA256>;public_generation=<ENCODED_ID>;public_sequence=<POSITIVE_DECIMAL>`; the signed
+signed generation provenance is the semicolon-delimited record
+`codex-local-derived;upstream_version=<VERSION>;archive_sha256=<SHA256>;public_generation=<ENCODED_ID>;public_sequence=<POSITIVE_DECIMAL>`; the signed
 generation descriptor independently binds the exact upstream version, source
 digest, Termux patch report, Wrapper digest, and compatibility identities.
 
 The local-derived special admission is reachable only from this in-process
-official-source construction path. `codex update --local` and `--remote` retain
+official-source construction path. `codex update --signed --path` and `--remote` retain
 ordinary public-authority admission and cannot turn an arbitrary self-signed
 directory into local-derived state. An active authenticated rollback hold blocks
 local-derived construction so the single bounded `previous` slot cannot evict
@@ -569,31 +579,17 @@ disposable update/runtime/doctor/no-op proof and non-forced exact-parent CAS.
 
 When such a producer is authorized to publish, its complete official candidate
 targets the fixed wrapper repository `humtr/codex` and the selected stable
-publication ref. A release whose
-complete signed file inventory is flat may use
-immutable GitHub Release assets under a tag equal to the validated generation
-identity; the signed index's `release_base` is then the matching
-`https://github.com/humtr/codex/releases/download/<generation_id>/` asset base.
-GitHub Release asset names are not authority to rename signed relative paths: if
-any authenticated release file contains a `/` path component, the automated
-Release-asset publisher must fail closed before creating a release or advancing
-the index.
+publication ref. For Stage 2 signed bundles packaged as flat GitHub Release assets
+under `<generation_id>`, `release_base` uses the matching
+`https://github.com/humtr/codex/releases/download/<generation_id>/` asset base,
+while `asset-map.json` maps nested `package-root` relative generation paths to
+canonical physical Release asset names without altering verified relative file layouts.
 
-New nested-path publication uses immutable GitHub Release assets and retains the
-fixed `https://codex-releases.humtr.workers.dev/<generation_id>/` logical identity
-in signed records for `wrapper-v*` (Base), `full-v*` (Full), as well as legacy
-`local-relay-hosted-*` and `local-base-relay-hosted-*`
-generations. Wrapper resolves that identity to the direct GitHub routes described
-below; the Worker remains available to supported older clients. Historical
-signed Pages URLs and existing assets remain unchanged. The publication validator
-chooses canonical identity by namespace. New publication never redeploys the legacy
-Pages site, raises its size guard, or evicts a retained public generation.
-
-Base (`wrapper-v*`) owns Wrapper, adapted upstream runtime/default UI, code-mode host and the two
-browser helpers. Full (`full-v*`) pins one exact authenticated base and adds Manager/enhanced
+Base (`wrapper-*`) owns Wrapper, adapted upstream runtime/default UI, code-mode host,
+and browser helpers. Full (`full-*`) pins one exact authenticated base and adds Manager/enhanced
 TUI plus its own descriptor and signatures. Optional Provider generations follow
-`provider-gpt-v*` (with legacy `chatgpt-*` dual acceptance). Each full result retains one complete
-signed v4 inventory and one atomic current/previous activation lifecycle. There
+`provider-gpt-*` (or configured provider naming). Each full result retains one complete
+signed inventory and one atomic current/previous activation lifecycle. There
 is no device overlay, second updater, mutable latest-base dependency or component
 selection policy in Wrapper. Manager/TUI-only changes must not advance the base head
 or rebuild unchanged base executables; full-combination Android/runtime proof is
@@ -620,16 +616,15 @@ lock dependencies, upstream/archive and Wrapper toolchain, not Manager/TUI polic
 The producer verifies both the sidecar and base file inventory before reuse;
 version equality or a successful unowned workflow alone never permits reuse.
 
-#### GitHub-native transport and legacy compatibility
+#### GitHub-native transport and reuse compatibility
 
-This is the contract for the new Wrapper, not a claim that the installed Wrapper already
-implements it. The Worker-backed logical origin remains the existing-consumer
-boundary until migration is qualified. GitHub Release storage and GitHub Actions
+This is the contract for Stage 2 signed distribution, not a claim that standalone Stage 1
+uses signed release indices. GitHub Release storage and GitHub Actions
 execution are independent choices; neither ordinary download nor local construction
 requires a second hosting service or gh/model login.
 
-The native acquisition path reads the existing bounded physical asset map
-from GitHub and stages files under the unchanged signed logical paths. Admit the
+The native acquisition path reads the bounded physical asset map
+from GitHub Releases and stages files under their exact `package-root` relative paths. Admit the
 selected index/manifest and generation/high-water first; controls remain in the
 selected generation. Validate map identity, requested inventory, manifest binding,
 flat asset spelling and allowed repository/generation routes. Maps supply locations,
@@ -639,26 +634,21 @@ origins. Reuse one cohesive native transport responsibility and existing publica
 map/target consumers rather than introducing another updater, server or changed
 installed layout.
 
-New-client acceptance must pass real GitHub acquisition with Worker access denied,
-including Base/Full nested helpers, reuse from previous physical releases,
-interruption/Range refusal, bad maps/signatures/digests, rollback and unchanged
-custom origins. Historical signed identities and immutable assets are preserved.
+New-client acceptance must pass real GitHub acquisition including `package-root`
+nested helpers, reuse from previous physical releases, interruption/Range refusal,
+bad maps/signatures/digests, rollback, and custom HTTPS origins.
 After admitting fresh signed controls and sizes, Wrapper reuses matching files from
 the retained target generation or current selection before downloading payloads.
 Retained bytes must pass the same ownership, file type, size, mode and copied-byte
 digest checks. Reuse never skips complete candidate admission or repairs a corrupt
 immutable generation. A rollback followed by an authenticated force retry must
 work with the retained target's runtime origin unavailable.
-Existing Wrapper clients still using the logical Worker origin require a proved
-signed Wrapper upgrade/bootstrap route; retain that real compatibility consumer
-until the supported-client floor and explicit retirement policy permit removal.
-Worker source readback alone proves neither new direct delivery nor legacy
-migration. Implementation, qualification, publication and device activation remain
-separate states. CURRENT's consolidated plan owns sequence and proof status.
+Implementation, qualification, publication and device activation remain
+separate states. [CURRENT.md](../../CURRENT.md) and [docs/STAGE2_PLAN.md](../STAGE2_PLAN.md) record sequence and proof status.
 
 #### Signed composition and public qualification
 
-Each Release contains its changed payloads and a bounded `asset-map-v1.json`.
+Each Stage 2 Release contains its changed payloads and a bounded `asset-map.json`.
 Composition may reuse any same-path payload from an earlier authenticated public
 head when its signed digest and mode match the new inventory. Controls and
 generation.meta always belong to the new Release. Full still requires the exact
@@ -670,7 +660,7 @@ Inherited routes to the candidate itself are rejected before removing copies.
 Every staged payload is checked before omitting any generated copy. The transport
 map is not trust authority; the complete new signed inventory authenticates every
 logical file. The redirect adapter accepts only GET/HEAD, canonical bounded local
-generations, fixed humtr/codex Release assets and exact admitted paths. It rejects
+generations, fixed `humtr/codex` Release assets and exact admitted paths. It rejects
 encoded/unsafe paths, queries, missing/foreign maps and indirect routing. It never proxies
 payloads, chooses stable, handles credentials or controls device state. It needs
 no secret/binding/storage or per-generation deployment. Administrative deployment
@@ -678,45 +668,39 @@ uses existing account credentials locally, never grants CI another credential.
 Verify deployed source identity and public negative/positive requests before use.
 
 Release CI stages immutable assets, verifies exact composition and complete public
-HTTPS readback of their physical GitHub routes, separately maintains the supported
-legacy logical-origin consumer, and runs disposable Android fresh install/
-update/no-op/rollback proof, then non-forced stable promotion. Old clients retain
-their ordinary HTTPS fetch and signature validation; they may download common
-files again. Wrapper's generic acquisition may instead copy a hash/size/mode-verified
-owned retained file into private staging without hardlinks, then apply unchanged
-complete-candidate admission. Unavailable/corrupt files fall back to authenticated
-download. This optimization never interprets account, UI or rotation policy.
+HTTPS readback of their physical GitHub routes, and runs disposable Android fresh install/
+update/no-op/rollback proof, then non-forced stable promotion. Generic acquisition
+may copy a hash/size/mode-verified owned retained file into private staging without
+hardlinks, then apply unchanged complete-candidate admission. Unavailable/corrupt
+files fall back to authenticated download. This optimization never interprets
+account, UI or rotation policy.
 
 Both current lane heads, rollback/compatibility targets, every Base pinned by a
 retained Full and every physical generation named by retained asset maps must be
 preserved. Physical origins can be earlier Base or Full releases, independently
 of the current logical Base. Deleting an unreferenced retired
 release requires explicit retention scope and a reference check; no date-only
-cleanup, published-asset overwrite or silent deletion is authorized. Immutable
-Release delivery avoids the Pages aggregate-image cap, not all hosting limits.
+cleanup, published-asset overwrite or silent deletion is authorized.
 
-The installed Manager/TUI (`manager-tui`, when enabled in Stage 2) is an independently
+The installed optional Stage 2 TUI (`frontend/tui`, when enabled in Stage 2) is an independently
 developed optional frontend and is not locked to exact `upstream_package_version`
 equality when enabled by `wrapper.toml` or `--with tui`. Local upstream
 updates (`codex update`) operate exclusively on the upstream package and
 Wrapper compatibility layer without consulting Manager or TUI version markers.
 
-For any later authorized official stable promotion, the small
-`update-index-v1` and `update-index-v1.sig` files are promoted together in one
+For any later authorized official stable promotion in Stage 2, the small
+`update-index` and `update-index.sig` files are promoted together in one
 Git tree and one commit on the selected stable publication branch only after the
 selected release transport, complete readback, and disposable public-update smoke
 are verified. Wrapper runtime does not perform this promotion. The branch update is non-forced
 and is based on the exact previously verified head, so a concurrent publisher
-cannot be overwritten. Historical explicit publication procedures may retain
-their previously accepted ordering, but automatic promotion must not expose a
-new index with an old signature or vice versa. A failed, timed-out, incomplete,
-path-renaming, Pages-deployment, readback, or pre-commit promotion never advances
+cannot be overwritten. Automatic promotion must never expose a new index with an
+old signature or vice versa. A failed, timed-out, incomplete,
+path-renaming, readback, or pre-commit promotion never advances
 the automatic stable pointer. An indeterminate final ref result is reported as
-indeterminate rather than assuming either state. The optional best-effort flat
-Release-asset publisher remains separate, uses bounded child waits, never uploads
-the private key, and does not weaken this automatic promotion boundary. The
-account credential and the release `update_key` private key are separate
-authorities; account authentication alone cannot authorize a release for Wrapper.
+indeterminate rather than assuming either state. The account credential and the
+release `update_key` private key are separate authorities; account authentication alone
+cannot authorize a release for Wrapper.
 
 All source files are snapshotted into private staging, revalidated as regular
 files, and copied without following symlinks. Final modes are applied before
@@ -735,7 +719,7 @@ header is optional and may contain only `mtime`; all other extended semantics
 are rejected. There are at most 256 logical entries, paths are canonical relative
 UTF-8 of at most 256 bytes, the compressed archive is at most 256 MiB, each
 regular file is at most 384 MiB, and total regular-file payload is at most
-512 MiB. Duplicate paths, absolute or dot/dot-dot paths, links, special files,
+768 MiB. Duplicate paths, absolute or dot/dot-dot paths, links, special files,
 unknown entry types, malformed headers, and nonzero trailing content are
 rejected. Archive ownership and modes are not output authority.
 
@@ -769,7 +753,8 @@ Linux namespace sandboxing cleanly at runtime.
 Rule-based adaptation applies equal-length non-overlapping FD path remaps
 (`termux-fd-remap`: `/etc/resolv.conf` -> `/proc/self/fd/33`,
 `/etc/codex/*.toml` -> `/dev/fd/34/*.toml`) and adaptive UDS cave relocation
-(`termux-uds-fd35`: `codex-daemon-` -> `/dev/fd/35/d-`) across every extracted
+(`termux-uds-fd35`: relocating `/tmp` socket base setup to `/proc/self/fd/35\0`
+and shortening `\x0dcodex-daemon-\xc0\0` to `\xc0\0` UID-only naming) across every extracted
 static AArch64 musl executable in `bin/` (`bin/codex`, `bin/codex-exec-server`,
 `bin/codex-code-mode-host`) that contains matching unpatched patterns, verifying
 zero unpatched source occurrences remain without hardcoding per-binary
@@ -808,7 +793,7 @@ bound in a generation manifest:
 - expected platform and architecture;
 - exact patch-policy identifier and patch report;
 - resulting runtime and helper digests;
-- Wrapper and optional Manager artifact digests;
+- Wrapper (and optional Stage 2 Manager) artifact digests;
 - Wrapper API and persistent schema compatibility;
 - qualification result and creation metadata.
 
@@ -838,36 +823,36 @@ $PREFIX/bin/codex                                      stable public entrypoint
   codex-resources/                                    optional upstream resource tree
   browser/open/curl                                   Termux browser open helper (`termux-browser-open`)
   browser/manual/curl                                 Termux browser manual helper (`termux-browser-manual`)
-~/.local/lib/codex/wrapper/generations/.acquire-*/        private incomplete staging directory; never activatable
-~/.local/share/codex/wrapper/activation-state            authoritative generation state (`codex-activation-state`)
-~/.local/share/codex/wrapper/config/config.toml            Wrapper-owned FD 34 compatibility config (`# codex-termux-wrapper`)
-~/.local/share/codex/wrapper/resolv.conf                  Wrapper-owned FD 33 DNS resolver file
-~/.local/share/codex/wrapper/downloads/<sha256>.part       private bounded untrusted/verified payload cache
-~/.local/share/codex/wrapper/activation-journal[.tmp]    crash-recovery transaction state (`codex-activation-journal`)
-~/.local/share/codex/wrapper/activation-state.tmp        atomic state publication temporary
-~/.local/share/codex/wrapper/activation.lock               writer lock
-~/.local/share/codex/wrapper/wrapper.toml                  optional Stage 2 module & update mode config
-~/.local/share/codex/wrapper/wrapper-entrypoint-rollback    Stage 2 retained prior Wrapper launcher (when signed bundles enabled)
-~/.local/share/codex/wrapper/wrapper-entrypoint-rollback.meta
-```
-                                                      rollback binding for that launcher
-~/.local/share/codex/wrapper/config/                     Wrapper defaults and shared-profile source directory
-~/.local/share/codex/wrapper/config/snapshots/<id>/      immutable per-launch effective system settings
-~/.local/share/codex/wrapper/{servers,catalogs}/<id>/    bound native server record/socket/config snapshot
-~/.local/share/codex/manager/                         Manager-owned mutable state
+~/.local/lib/codex/wrapper/generations/.acquire-*/        private incomplete remote acquisition staging; never activatable
+~/.local/lib/codex/wrapper/generations/.candidate-*/      private candidate build staging; never activatable
+~/.local/share/codex/wrapper/                             state root (directory flock writer lock when writing activation files)
+  activation-state                                        authoritative generation state (`codex-activation-state`)
+  activation-state.tmp                                    atomic state publication temporary
+  activation-journal[.tmp]                                crash-recovery transaction state (`codex-activation-journal`)
+  .local-update-*/                                        private offline/upstream archive staging workspace
+  config/config.toml                                      Wrapper-owned FD 34 compatibility config (`# codex-termux-wrapper`)
+  config/snapshots/<id>/                                  Stage 2 immutable per-launch effective system settings
+  resolv.conf                                             Wrapper-owned FD 33 DNS resolver file
+  downloads/<sha256>.part                                 private bounded untrusted/verified payload cache (1 GiB total cap)
+  publications/                                           optional staged/pruned local publication artifacts
+  wrapper.toml                                            Stage 2 optional module & update mode config
+  wrapper-entrypoint-rollback                             Stage 2 retained prior Wrapper launcher (when signed bundles enabled)
+  wrapper-entrypoint-rollback.meta                        Stage 2 rollback binding (`codex-wrapper-entrypoint-rollback`)
+  {servers,catalogs}/<id>/                                Stage 2 bound native server record/socket/config snapshot
+~/.local/share/codex/manager/                             Stage 2 Manager-owned mutable state (absent in Stage 1)
 ```
 
-The Manager v1 state root is independent of the Wrapper root:
+The optional Stage 2 Manager state root is independent of the Wrapper root:
 
 ```text
 ~/.local/share/codex/manager/
-  profiles/<PROFILE_ID>/profile.meta                 Manager profile record
-  default-profile-v1                                 explicit default account preference
-  profiles/<PROFILE_ID>/home/                        selected upstream CODEX_HOME
-  notifications/config-v1                            notification configuration
+  profiles/<PROFILE_ID>/profile.meta                      Manager profile record (`codex-manager-profile`)
+  default-profile                                         explicit default account preference
+  profiles/<PROFILE_ID>/home/                             selected upstream CODEX_HOME
+  notifications/config                                    notification configuration (`codex-manager-notify`)
 ```
 
-`profile.meta`, `default-profile-v1` and `config-v1` are versioned Manager records and
+`profile.meta`, `default-profile`, and `notifications/config` are Manager records and
 contain no tokens, cookies, OAuth values, private keys, or session bodies.
 Manager creates profile directories with mode `0700` and record files with
 mode `0600`. It publishes a new profile tree with create-new atomic rename;
@@ -881,29 +866,22 @@ The default profile is the existing upstream default home and is never copied
 into this tree.
 
 Manager does not persist or consume an implicit last-selected execution account.
-Only explicit `profile default` owns the new default-profile-v1 preference. Existing
-`state-v1` selection-history records are retired: they are ignored and left
-unchanged, including malformed or symlinked remnants. They never select an
-account or block execution. No migration or automatic deletion is introduced.
+Only explicit `profile default` owns the `default-profile` preference. Any
+legacy `state-v1` selection-history files from pre-cutover environments are
+ignored and left untouched, never selecting an account or blocking execution.
 
 Manager profile records use exact UTF-8 text formats with a final newline.
-New `profiles/<PROFILE_ID>/profile.meta` contains exactly:
+`profiles/<PROFILE_ID>/profile.meta` contains:
 
 ```text
-codex-manager-profile-v2
+codex-manager-profile
 ```
 
-The existing exact private v1 form remains readable:
-
-```text
-codex-manager-profile-v1
-id\t<PROFILE_ID>
-```
-
+(Or, when inspecting legacy Stage 2 transition files if present, `id\t<PROFILE_ID>`.)
 The derived profile-home path is not duplicated inside metadata. Unknown
 records, duplicate records, invalid UTF-8, or a mismatched ID invalidate that
 record and never cause a path to be followed. Notification commands alone write
-`notifications/config-v1`.
+`notifications/config`.
 
 Manager does not persist a session transcript, a second session database or a
 parallel discovery index. Upstream owns discovery/resume and conversation state;
@@ -911,12 +889,12 @@ the declared compatibility links above do not transfer that ownership. Auth-stat
 migration is outside ordinary Manager operation.
 
 The authoritative state format is `codex-activation-state`. In Stage 1 standalone
-mode it tracks `current` and optional `previous` generation identities (plus
-Stage 2 optional verifier key fields when signed releases are enabled). Ed25519 public
-keys in state, when present, are the canonical 32 raw key bytes encoded as exactly 64 lowercase
-hex digits. The `previous` generation and `previous_key` are present or absent as
-one pair. There is no separate `verified` pointer, keyring, discovered-key set,
-or unbounded key history.
+mode it tracks `current` and optional `previous` generation identities alongside
+placeholder `LOCAL_ZERO` (`00..00`) verifier key slots; when Stage 2 `--signed`
+releases are active, those key slots hold canonical 32-byte Ed25519 public keys
+encoded as 64 lowercase hexadecimal digits. The `previous` generation and
+`previous_key` are present or absent as one pair. There is no separate `verified`
+pointer, keyring, discovered-key set, or unbounded key history.
 
 Only content that has already passed release admission and candidate probes may
 become `current`. Ordinary runtime selection uses only current; it does not
@@ -954,15 +932,14 @@ permission failure, or a stale journal, recovery must resolve to exactly one
 complete old or new trust-and-generation state and must never synthesize a mixed
 state.
 
-A v4 coordinated update also retains one regular executable
-`wrapper-entrypoint-rollback` and its exact `codex-wrapper-entrypoint-rollback-v1`
+Stage 2 coordinated signed updates also retain one regular executable
+`wrapper-entrypoint-rollback` and its `codex-wrapper-entrypoint-rollback`
 binding for the launcher active before the forward transition. This cache is
 not a trust source: its digest and associated generation are verified before
 rollback, and it is atomically replaced only while the activation lock is
-held. Existing v3 generations may lack this cache; a v4 forward transition
-must create it before changing the stable entrypoint.
+held.
 
-Coordinated activation stages and verifies the complete signed generation and
+Coordinated signed activation stages and verifies the complete signed generation and
 its `wrapper` asset first, snapshots the current stable launcher into the bounded
 rollback cache, atomically replaces `$PREFIX/bin/codex` with the candidate
 Wrapper, synchronizes its parent, and only then commits the existing generation
@@ -1007,460 +984,110 @@ runtime generation.
 
 ## 8. Installation and update
 
-The release bundle keeps one audited local `install.sh` delivery frontend and
-adds one separate network-acquisition frontend, `install-online.sh`.
-`install.sh` remains local-only and accepts exactly the two bootstrap forms
-below, forwarding their original arguments without compiling, downloading,
-signing, discovering releases, or implementing a second installation protocol:
+### Stage 1 standalone installation (`install.sh`)
+
+Fresh installation uses one self-contained POSIX shell installer ([install.sh](../../install.sh))
+with zero reliance on legacy `install-online.sh`, `bootstrap/codex-bootstrap`, or
+`<CORE_ARTIFACT>` positional arguments:
 
 ```text
-install.sh <CORE_ARTIFACT> <SIGNED_RELEASE_DIR> <BOOTSTRAP_PUBLIC_KEY>
-install.sh upgrade-legacy <CORE_ARTIFACT> <SIGNED_RELEASE_DIR> <BOOTSTRAP_PUBLIC_KEY> <EXPECTED_LEGACY_ENTRYPOINT_SHA256>
+install.sh [--prefix <DIR>] [--binary <PATH>] [--build] [--release <TAG>] \
+  [--repo <OWNER/REPO>] [--version <X.Y.Z>] [--skip-upstream] [--help]
 ```
 
-`install.sh` must locate a sibling `bootstrap/codex-bootstrap` that is a
-regular non-symlink executable and then `exec` it with the exact original
-argv. A missing, symlinked, or non-executable sibling fails before any target
-mutation. The frontend owns no trust, generation, entrypoint, or recovery
-state; all validation and writes remain behind the audited bootstrap boundary.
-The fresh form keeps the existing no-clobber rule, while the
-`upgrade-legacy` form is the sole explicit legacy entrypoint handoff.
+- When `--binary`, `--build`, and `--release` are omitted, `install.sh` resolves
+  1) unpacked bundle `./bin/codex` or `./codex` (verifying `SHA256SUMS` when present),
+  2) local `./target/release/codex`, or 3) the GitHub Release asset
+  `codex-wrapper-aarch64-linux-android.tar.gz` and `.sha256` from tag `wrapper`
+  of `humtr/codex` over HTTPS (`curl`) + OpenSSL/sha256 verification.
+- On Android AArch64, `install.sh` runs a non-mutating `/system/bin/linker64`
+  `--version` sanity probe on the staged binary before atomically publishing it to
+  `$PREFIX/bin/codex`.
+- Unless `--skip-upstream` was passed (or an initial generation already exists),
+  `install.sh` invokes `$PREFIX/bin/codex update --upstream` (or `--upstream --version <X.Y.Z>`)
+  so the newly installed Wrapper itself acquires, verifies, patches, and activates the
+  initial `package-root` generation (`codex-local-generation`). Failure in `install.sh`
+  cleans its temporary staging workspace without leaving a broken `$PREFIX/bin/codex`.
 
-`install-online.sh [--variant base|full]` defaults to full and selects only the
-fixed project head for that lane. It is only a bootstrap transport
-frontend for a fresh target; it is not an update command, alternate trust
-authority, package-manager installer, release producer, or legacy handoff. It
-requires the existing Termux shell, `$PREFIX/bin/curl`, and
-`$PREFIX/bin/openssl`; it never installs or discovers replacements for them.
-Its production locators are fixed project HTTPS URLs, not caller-selected
-mirrors.
+### Stage 1 standalone update lifecycle (`codex update`)
 
-Before trusting any network-selected generation, the online frontend retrieves
-the bootstrap public key from the fixed project release locator and requires
-the exact repository-pinned SHA-256 of those key bytes. It then retrieves the
-canonical stable `update-index-v1` (full) or `update-index-base-v1` (base)
-and sibling signature and verifies that
-signature with the pinned bootstrap key before parsing the generation identity
-or `release_base`. HTTPS transport alone is never release authority. The
-verified index must have the exact stable four-record grammar already consumed
-by Wrapper, and the release base must be canonical HTTPS ending in the signed
-generation identity.
+After installation, Wrapper exclusively owns `codex update`:
 
-The online frontend retrieves that generation's `release.manifest` and
-`release.sig`, verifies the manifest with the same bootstrap key before using
-its inventory, and accepts only the existing bounded v4 bootstrap inventory:
-`generation.meta`, `wrapper`, `runtime`, `codex-code-mode-host`, optional
-`manager`, exactly one supported two-helper layout, and an admitted optional
-`helpers/2` enhanced TUI in the full lane. Base requires its signed `local-base-`
-identity and exact six-file inventory; full requires Manager and seven or eight
-files. Selecting a lane cannot cross into another signed lane. It downloads only
-those signed relative paths into a private `$TMPDIR` workspace with the Wrapper
-remote-acquisition per-file and total byte ceilings and applies only the
-signed regular-file modes needed by the existing bootstrap admission. It does
-not make downloaded file digests authoritative; the audited bootstrap/Wrapper
-admission re-verifies the signed manifest, descriptor, digests, modes, Wrapper
-binding, candidate probes, and activation transaction.
-
-The network frontend obtains the audited local `install.sh` and
-`bootstrap/codex-bootstrap` only from one immutable accepted repository commit
-chosen by the immutable installer, recreates their sibling layout in the private
-workspace, and invokes local `install.sh <CORE_ARTIFACT>
-<SIGNED_RELEASE_DIR> <BOOTSTRAP_PUBLIC_KEY>`. It never writes
-`$PREFIX/bin/codex`, the bootstrap trust pin, a generation, activation state,
-or recovery state directly. All persistent writes remain owned by the existing
-bootstrap/Wrapper boundary. Failure removes only the private acquisition
-workspace.
-
-Fresh installation uses a small audited bootstrap because Wrapper cannot install
-itself before it exists. The bootstrap may only detect the environment,
-retrieve or accept a local immutable release, verify it, stage Wrapper, run a
-self-test, and activate the initial generation.
-
-The bootstrap command surface has exactly two local-only forms:
-
-```text
-codex-bootstrap <CORE_ARTIFACT> <SIGNED_RELEASE_DIR> <BOOTSTRAP_PUBLIC_KEY>
-codex-bootstrap upgrade-legacy <CORE_ARTIFACT> <SIGNED_RELEASE_DIR> <BOOTSTRAP_PUBLIC_KEY> <EXPECTED_LEGACY_ENTRYPOINT_SHA256>
-```
-
-The first form is fresh bootstrap and never replaces a differing existing
-`$PREFIX/bin/codex`. The second form is the sole supported legacy handoff. It is
-not a `codex update` mode, Manager operation, package-manager action, or legacy
-state migration. `EXPECTED_LEGACY_ENTRYPOINT_SHA256` is exactly 64 lowercase
-hexadecimal digits. It identifies the one entrypoint the user has explicitly
-authorized bootstrap to replace; it is not release authority, is not persisted,
-and does not alter `codex-release-v3`. Candidate trust continues to come only
-from the bootstrap public key and the exact signed release.
-
-Fresh bootstrap uses the same authenticated Wrapper publication boundary for its stable entrypoint: after self-test, Wrapper creates a private same-directory temporary, writes the exact authenticated bytes, sets and verifies mode `0755`, synchronizes the file after its final mode, atomically publishes without replacing a differing existing target, and synchronizes `$PREFIX/bin` before invoking the stable entrypoint. If publication is interrupted after rename or its parent synchronization fails, activation has not been invoked; a same-Wrapper retry must revalidate the target and re-establish parent durability before activation.
-
-Bootstrap trust-seed publication is also owned by the authenticated Wrapper. The shell bootstrap may snapshot and validate the supplied key, but it must not directly publish the persistent pin. Wrapper writes the exact key bytes to a private temporary in the pin directory, sets final mode `0644` before synchronizing the file, verifies the parsed key, atomically publishes without replacing a differing existing pin, and synchronizes the pin parent before continuing. An existing matching pin is revalidated, repaired to mode `0644` when necessary, and re-synchronized; a differing, symlink, or special-file pin fails without replacement. A failure after rename but before parent synchronization leaves no activation state and is retryable only after the same-key verification and parent synchronization complete.
-
-Before any bootstrap snapshot is consumed, each bounded input is checked and
-copied through a bounded path: the bootstrap public-key PEM is at most 16 KiB,
-the authenticated Wrapper artifact is at most 64 MiB, `release.manifest` is at
-most 128 KiB, `release.sig` is at most 1 KiB, and `generation.meta` is at most
-64 KiB. A bound failure occurs before trust-seed, entrypoint, generation, or
-activation publication. Wrapper uses the same bounds for direct authenticated
-inputs and for persistent descriptor loading.
-
-Bootstrap classifies the target after resolving any recoverable activation
-transaction:
-
-- a **fresh target** has no authoritative activation state or transaction residue and
-  has no `$PREFIX/bin/codex`;
-- a **same-Wrapper bootstrap retry** has no authoritative activation state or transaction
-  residue and has one regular non-symlink entrypoint whose digest equals the
-  authenticated Wrapper artifact digest;
-- a **legacy handoff target** has no authoritative activation state or transaction
-  residue and has one regular non-symlink entrypoint whose digest equals the
-  explicit expected legacy digest and differs from the authenticated Wrapper
-  artifact digest;
-- a **prepared legacy handoff** has that same legacy entrypoint and one complete
-  recovered initial activation state whose `update_key` and `current_key` equal the
-  candidate release key, whose `current` equals the candidate generation, and
-  whose `previous` pair is absent, and whose installed current generation
-  verifies with `current_key`; and
-- a **completed legacy handoff retry** has that exact initial state and an
-  entrypoint whose digest equals the authenticated Wrapper artifact digest.
-
-On a prepared or completed handoff retry, the recovered v3 keys and the signed
-installed generation are the authority. The supplied bootstrap key and release
-must match that state exactly, but bootstrap must not use them to reinitialize,
-reconstruct, replace, or weaken the authoritative state.
-
-Any symlink or non-regular entrypoint, digest mismatch, incompatible bootstrap
-key, other activation state, mismatched prepared generation/key, retained previous pair,
-or other transaction residue is a conflicting target and fails without
-changing it. Bootstrap must not classify every non-Wrapper file as legacy, scan for
-another launcher, execute the legacy entrypoint, infer a legacy version from its
-output, or inspect/import a legacy internal schema. It may inspect only the
-entrypoint type, mode, and bytes needed to bind the explicit digest.
-
-Legacy handoff is activation-first and entrypoint-last. Before modifying Wrapper
-state or the public entrypoint, bootstrap snapshots and verifies the same Wrapper,
-key, manifest, signature, descriptor, and Wrapper-artifact binding required for
-fresh bootstrap and completes the authenticated Wrapper self-test. It then uses the
-existing initial v3 admission, complete-generation staging, candidate probes,
-installed-generation verification, and activation transaction to establish the
-candidate as `current` with no `previous` pair. Only after that complete state is
-recoverable may bootstrap create a same-directory private Wrapper entrypoint
-temporary, set and verify mode `0755` and the authenticated Wrapper digest,
-revalidate the legacy entrypoint against the explicit expected digest, atomically
-replace `$PREFIX/bin/codex`, and durably synchronize its parent directory. That
-completed parent-directory durability boundary is the handoff commit.
-
-A completed handoff retry is successful only after it revalidates the authenticated Wrapper target and synchronizes the entrypoint parent directory; an already-Wrapper target does not bypass that synchronization. If the synchronization fails, bootstrap reports failure and remains retryable without changing authoritative state.
-
-If interruption or failure occurs before the entrypoint commit, the legacy
-entrypoint remains the public executable. A complete prepared initial Wrapper state
-may remain and is resumable only with the same authenticated release, bootstrap
-key, Wrapper artifact, and expected legacy digest. If interruption occurs after the
-entrypoint commit, the new Wrapper sees the already complete initial activation state. A
-completed handoff retry is idempotent. This ordering is the recovery invariant;
-legacy handoff adds no second journal, backup launcher, trust source, generation
-type, fallback path, or persistent-schema field.
-
-Successful legacy handoff is one-way. It does not retain or automatically run
-the old entrypoint, and ordinary launch never falls back to it. The initial v3
-state has no `previous` pair, so `codex update --rollback` fails clearly until a
-later successful Wrapper update establishes one previous Wrapper generation. Rollback
-then remains exclusively a swap between signed Wrapper generations and never
-restores legacy code.
-
-Legacy handoff may create or change only the stable Wrapper entrypoint and the Wrapper
-roots declared in Section 7, plus private temporary files needed for that
-operation. It must leave the resolver, auth, profile, session, Manager, package,
-and all other non-Wrapper state untouched. Except for the explicitly replaced
-entrypoint, legacy-owned user/state files remain in place and are neither read as
-migration input nor copied into Wrapper state. Qualification compares protected-
-state identities before and after the handoff rather than adopting a legacy
-schema.
-
-Installation from ready signed artifacts requires no on-device compiler. Only
-explicit local-build selection may prepare missing compiler dependencies;
-ordinary launch and download failures never start compilation or install tools.
-
-After bootstrap, the Wrapper owns every top-level `codex update` form. `install.sh`
-is not an update dispatcher and must not bypass the authenticated local
-admission, staging, probe, activation, or rollback path. The local, explicit
-remote, and automatic channel forms use the same forward activation
-transaction, and rollback remains the explicit swap of the one retained
-complete previous generation. A bare `codex update` resolves the wrapper-owned
-signed channel and public upstream freshness path. A missing newer release uses the
-selected keep/local-build/remote-request policy. All channel and explicit transport
-selectors preserve acquisition failures without starting a different operation. No path may install an
-unpatched runtime or turn transport failure into official publication.
-
-The automatic stable channel is represented by a bounded signed index. Its
-default control URL is
-`https://raw.githubusercontent.com/humtr/codex/main/update-index-v1`; a
-deployment or test may supply the same canonical HTTPS URL through
-`CODEX_TERMUX_UPDATE_INDEX_URL`. The URL is only a location hint: the index
-bytes and its sibling `<URL>.sig` are verified with the recovered v3
-`update_key` before Wrapper trusts any field. The exact index format is:
-
-```text
-codex-update-index-v1
-channel\tstable
-generation_id\t<ID>
-release_base\thttps://<host>/<path>/<ID>/
-```
-
-It has exactly these four records and a final newline. The generation identity
-is a safe path component, the release base is the canonical immutable
-generation base already defined below, and its final path component must match
-the signed identity. After index signature verification, Wrapper invokes the
-existing signed remote-generation acquisition path. Index transport failure,
-signature failure, malformed discovery, or release qualification failure is a
-hard failure for that attempt; there is no fallback to upstream, a package
-manager, an alternate mirror, or a raw package.
-
-The signed index is a pointer to an already-adapted wrapper generation, not an
-upstream source authority. The admitted upstream identity is the exact official
-source commit and versioned official release archive tuple in release/upstream.json.
-The hosted source producer compiles that source; the archive supplies the original
-companion, and retained binary adaptations bind their original raw CLI. All paths
-require qualification before signing. When the user selects local build, Wrapper performs the exact official fetch/build/adapt
-steps locally, signs the immutable candidate with the explicitly configured
-authorized key or a fresh ephemeral device-local key, binds it to the
-authenticated public baseline, and feeds it only to the
-dedicated local-derived admission path. That path performs no official
-publish/signing action. Wrapper never downloads a raw upstream archive directly
-into the active generation and never runs an upstream self-updater.
-
-`codex update --build-local` is an explicit selector owned by Wrapper. It is valid
-only by itself. It resolves the same exact official stable metadata and versioned
-archive used by the qualified release builder, verifies the metadata-bound
-archive digest, builds/adapts in private staging, signs with the configured
-authorized key or the default fresh ephemeral Ed25519 key, runs the normal
-candidate probes, and atomically activates the result. A private-key environment
-variable alone grants no signing authority; configured signing follows the
-`config/build-signing-key` contract. No transport failure selects this route
-automatically.
-
-Local construction reuses the authenticated current generation's immutable Wrapper
-artifact when that generation declares one. The running updater may be an older
-image whose stable pathname was atomically replaced; its process image is not
-the selected build input. Historical generations without a bundled Wrapper retain
-their existing running-Wrapper input until a coordinated generation is admitted.
-Admission compares the constructed Wrapper digest with the reauthenticated current
-generation's declared Wrapper; a file changed during construction cannot silently
-be admitted as a new Wrapper under the local-build authority.
-
-A local-derived candidate records the authenticated public baseline generation
-and sequence in its signed provenance and uses that same sequence in its signed
-release manifest. This is not a new public sequence and grants no public signing
-authority. Public anti-rollback after local-derived activation therefore compares
-against the recorded baseline: a later authenticated public release must advance
-that public sequence to supersede local-derived current. The dedicated
-local-derived admission may install a different local generation at the baseline
-sequence only because it is reached directly from the in-process qualified
-official-source build; ordinary `--local`, `--remote`, and signed-channel
-admission keep the equal-sequence/different-release rejection rule.
-
-`codex update` must:
-
-1. recover the authoritative activation state and resolve one immutable signed wrapper
-   release against its `update_key` (automatic update first verifies the signed
-   channel index, while explicit remote update starts from its supplied base;
-   explicit local build instead resolves and digest-binds one exact official
-   upstream version before building);
-2. enforce architecture, API, channel, and the release-sequence anti-rollback
-   policy: a lower sequence is rejected; an equal sequence is a no-op success
-   only when the authenticated candidate generation identity and signed release
-   manifest exactly equal the installed current release, while an equal
-   sequence with any different authenticated identity or manifest is rejected;
-   only a greater sequence may enter candidate staging, probing, and activation;
-3. download into a private staging location or accept an explicit local
-   artifact;
-4. verify the required current-authority and candidate-key signatures, exact
-   digest/mode inventory, archive safety where applicable, and compatibility
-   metadata;
-5. resolve the exact official upstream version and package digest, then build,
-   sign, and probe a complete candidate generation when local build is
-   selected;
-6. atomically publish the new trust-and-generation state;
-7. retain one complete previous generation with its exact verifier key as
-   rollback state;
-8. report failure without damaging the active trust-and-generation state.
+- `codex update` / `codex update --upstream [--version <MAJOR.MINOR.PATCH>]`: resolves
+  official `openai/codex` release metadata (`api.github.com/repos/openai/codex/releases/latest`
+  or `https://releases.openai.com/codex/releases/<version>/release.json`), downloads
+  `codex-package-aarch64-unknown-linux-musl.tar.gz` into private `$state_root/.local-update-*` /
+  `downloads/` via `$PREFIX/bin/curl` (15 s connect, 300 s idle transfer timeout, up to
+  `256 MiB` compressed archive, `1 GiB` download cache cap), verifies the official SHA-256
+  with `$PREFIX/bin/openssl`, unpacks and adaptively patches `bin/*` (`termux-fd-remap`,
+  `termux-uds-fd35`) in `.candidate-*`, probes `bin/codex --version` under Termux FDs,
+  and atomically activates (`codex-activation-state`, `LOCAL_ZERO` verifier slots).
+- `codex update --path <FILE_OR_DIR>`: adapts an offline official `.tar.gz` package archive
+  or validates/activates a prepared `package-root` generation directory (`generation.meta`).
+  Raw standalone ELF files without `codex-package.json` or `generation.meta` are rejected.
+- `codex update --rollback`: acquires the state-root directory lock, recovers any incomplete
+  journal, revalidates the single retained `previous` complete generation, and atomically
+  swaps `current` and `previous`.
+- Removed/Stage 2 flags (`--signed`, `--remote`, `--local`, `--build-local`) fail
+  explicitly in Stage 1 with exit status `2` and zero state mutation. No compiler toolchain,
+  signing key, or upstream self-updater is ever invoked in Stage 1.
 
 Browser helpers occupy the fixed package-root paths `browser/open/curl` (`termux-browser-open`)
 and `browser/manual/curl` (`termux-browser-manual`), with `helper_count = 2`. No indexed
 `helpers/0` / `helpers/1` compatibility bridge is retained.
 
-The shared key/rotation contract below applies to optional Stage 2 signed bundles (`codex-release-v3` /
-`codex-release-v4`). In addition to generation identity, monotonic
-release sequence, supported channel, platform, architecture, Wrapper API,
-persistent schema, and the exact SHA-256 plus regular-file permission-mode
-inventory of every load-bearing generation file, the manifest binds exactly one
-`release_public_key`. That value is exactly 64 lowercase hexadecimal digits
-encoding the 32 raw bytes of the candidate Ed25519 public key. Each canonical
-inventory record continues to contain path, lowercase SHA-256, and four octal
-permission digits. Special permission bits are rejected; every file must be
-owner-readable and runtime/Manager/helper files must be owner-executable.
+### Stage 2 optional signed channels and bootstrap trust (Phase 2.2, deferred)
 
-`release.sig` is always an Ed25519 signature by the manifest's
-`release_public_key` over the exact manifest bytes. For an ordinary non-rotating
-public update, `release_public_key` must equal the recovered authoritative
-`update_key`; `release.sig` is then the only release signature and no
-`release-authority.sig` is accepted. For a public key rotation,
-`release_public_key` differs from `update_key`; `release-authority.sig` is then
-mandatory and must verify over the same exact manifest bytes with the current
-`update_key` before Wrapper treats the candidate key as trusted, after which
-`release.sig` must verify with the candidate key. A rotation is rejected if
-either proof is missing or invalid. The dedicated local-derived path is not a
-rotation: its manifest key is the fresh ephemeral local verifier, its signed
-provenance must match the independently authenticated public baseline, and
-activation stores that verifier only as `current_key` while preserving
-`update_key`. No generic local/remote candidate receives this exception. Wrapper
-never accepts an adjacent key file, alternate-key search, network key lookup,
-CA/PKI chain, key server, or unbounded keyring as authority.
+When Stage 2 signed bundles (`--signed` or `wrapper.toml` `signed_update = true`) are
+reintroduced in Phase 2.2, signed distribution layers cleanly alongside Stage 1 without
+breaking offline `--path` or bare `--upstream` updates:
 
-Before forward admission, Wrapper recovers the activation state. Installed-generation
-verification requires the signed manifest `release_public_key` to equal the
-selected state verifier key before `release.sig` is verified with that key. Wrapper
-applies that rule to the installed current generation with `current_key` and uses
-that signed current release for the release-sequence anti-rollback comparison.
-An authenticated candidate below that sequence is rejected. An equal-sequence
-candidate is returned as an already-current no-op only when its generation
-identity and signed release manifest exactly equal the installed current
-release; any other equal-sequence candidate is rejected before staging or
-candidate execution. After staging and probing a greater-sequence public candidate, successful
-public activation sets `update_key` and `current_key` to the candidate release
-key, sets `current` to the candidate generation, and moves the former
-`(current, current_key)` pair to `(previous, previous_key)` in the same atomic
-transaction. When current is local-derived, its signed release sequence is the
-integrity-bound public baseline sequence, so this comparison is still a public
-anti-rollback comparison rather than a local sequence allocation. Dedicated
-local-derived activation instead preserves `update_key` and stores only its
-selected local signer's verifier in `current_key` as defined above.
+- **Automatic signed channel index:** fetches bounded `update-index` (or base
+  `update-index-base`, overridable via `CODEX_TERMUX_UPDATE_INDEX_URL`) and `<URL>.sig`,
+  verifying the exact four-record index (`codex-update-index`, `channel`, `generation_id`,
+  `release_base`) against `update_key` before touching payloads:
 
-`codex update --rollback` must recover any pending activation transaction,
-require the one retained `(previous, previous_key)` pair, verify exactly that
-previous generation with `previous_key`, and atomically swap the current and
-previous generation/verifier pairs. It deliberately does not apply forward
-release-sequence anti-rollback policy and deliberately leaves `update_key`
-unchanged. When the generation rolled back from is authenticated local-derived,
-rollback creates neither a public `update-hold` nor a rollback Wrapper guard. When
-the generation rolled back from is an ordinary authenticated public generation,
-the accepted hold/guard rules are unchanged even if the retained previous
-generation is local-derived. `--force` continues to require and target only that
-authenticated public hold. Missing, malformed, mismatched, or unverifiable
-rollback state fails without changing authoritative state; rollback never scans
-generations, searches keys, restores a rotated-away key to forward authority, or
-constructs a fallback ladder.
+```text
+codex-update-index
+channel\tstable
+generation_id\t<ID>
+release_base\thttps://<host>/<path>/<ID>/
+```
 
-Initial bootstrap, whether fresh or an explicit legacy handoff, owns the only
-permitted use of `~/.local/lib/codex/wrapper/release-public-key.pem`. Before any v3
-activation state exists, bootstrap may verify one admitted initial v3/v4 release
-only when
-the manifest `release_public_key` exactly equals that pinned key and
-`release.sig` verifies with it; successful initial activation initializes
-`update_key`, `current_key`, and `current` from that release with no previous
-pair. Once activation state has been established, Wrapper update and recovery never treat
-the bootstrap key file as a fallback or reconstruction source. Absence or
-corruption of authoritative trust state after initialization fails closed rather
-than re-authorizing an old bootstrap key. The two bootstrap forms share this one
-initial trust rule and create no second bootstrap or update authority.
+- **Explicit signed remote/local acquisition (`codex update --signed --remote <HTTPS_BASE_URL>` / `--signed --path <DIR>`):**
+  accepts canonical `https://` release bases (up to 4,096 bytes), fetches and verifies
+  `<base>release.manifest` (`128 KiB` cap) and `<base>release.sig` (`1 KiB` cap, plus
+  `<base>release-authority.sig` on key rotation) against the authoritative Ed25519
+  `update_key` before acquiring any `package-root` inventory file.
+- **Ed25519 verification & key transitions:** `release_public_key` is 64 lowercase hex digits.
+  Non-rotating updates require `release_public_key == update_key`; key rotations verify
+  `release-authority.sig` under `update_key` first, then `release.sig` under the new candidate
+  key. On initial `--signed` trust enrollment (before signed keys exist in `activation-state`),
+  Wrapper binds one pinned public key seed (`~/.local/lib/codex/wrapper/release-public-key.pem`,
+  `16 KiB` cap); once signed keys exist, this seed file is never used as a recovery fallback.
+  Bare `LOCAL_ZERO` (`00..00`) key slots from Stage 1 remain preserved for `--upstream` /
+  unsigned `--path` updates and must not silently downgrade signed keys or corrupt mixed
+  `current`/`previous` rollback pairs.
+- **Bounded transfer, staging & cache limits:** uses `$PREFIX/bin/curl` (`--location`,
+  `--proto-redir =https`, `NO_PROXY`/`--noproxy` isolated environment, 15 s connect, 30 s
+  control timeout, 1800 s idle transfer timeout for release files / 120 s for Provider files),
+  `384 MiB` per-file / `768 MiB` total extracted payload bounds (`1 GiB` `state_root/downloads`
+  total cache), staging under `generation_root/.acquire-<pid>-<counter>` / `.candidate-*`
+  (and `64 MiB` Wrapper artifact bound / `64 KiB` `generation.meta` bound).
+- **Local-derived builds (when enabled in Stage 2):** optional explicit local source/archive
+  signing retains baseline `update_key` while binding the ephemeral or `config/build-signing-key`
+  verifier into `current_key` and never runs automatically on network failure.
+- **`codex update --rollback` under signed mode:** verifies `previous` against `previous_key`
+  (when non-zero Ed25519), swaps `(current, current_key)` and `(previous, previous_key)`
+  atomically, and leaves `update_key` unchanged so rotated-out keys never regain forward
+  authority. Missing, malformed, or incompatible rollback state fails closed.
 
-Automatic update checks must be bounded and fail open when a verified runtime
-already exists. Ordinary `codex` launch must not depend on network success,
-OpenSSL availability, key rotation, or silently run a package manager.
-
-The updater must not depend on the same resolver implementation as the patched
-upstream runtime without an explicit qualification proving that dependency.
-Offline local-artifact installation and recovery are required before release.
-On Termux, update and explicit rollback may use the already-present
-`$PREFIX/bin/openssl` for Ed25519 verification and SHA-256; they must fail
-clearly if it is unavailable and must never install a crypto package themselves.
-
-`codex update --remote <HTTPS_BASE_URL>` adds only acquisition in front of the
-same local admission/staging/probe/activation path. Wrapper first recovers the
-activation state, so the authoritative `update_key` is known before any candidate trust
-transition. The base is at most 4,096 ASCII bytes, begins exactly with
-`https://`, ends in `/`, and contains no credentials, query, fragment,
-whitespace/control byte, or backslash. It names one generation directory: after
-signature admission, its final path component must equal the manifest generation
-identity encoded as canonical UTF-8 URL-path bytes. Wrapper may follow only HTTPS
-redirects required by the selected release transport and never tries another
-URL or permits a non-HTTPS redirect.
-
-The remote control resources are `<base>release.manifest` and
-`<base>release.sig`, plus `<base>release-authority.sig` exactly when the parsed
-manifest key differs from the recovered `update_key`. Wrapper may parse the bounded
-manifest to select that fixed signature set, but the candidate key is not trusted
-by parsing. For a non-rotation it verifies `release.sig` with `update_key`. For a
-rotation it verifies `release-authority.sig` with `update_key` first and only then
-verifies `release.sig` with the manifest candidate key. No generation content is
-acquired before this control admission succeeds. The remaining remote resources
-are the files named by the signed inventory. For the fixed mapped public identity,
-Wrapper also acquires the bounded GitHub asset map and resolves those files to physical
-Release assets as specified above. Custom HTTPS origins retain the ordinary
-logical-path transport.
-
-For ordinary custom origins, inventory URLs are derived only by preserving `/`
-separators and percent-encoding every UTF-8 path byte outside the RFC 3986
-unreserved set. Every resulting resource URL is also at most 4,096 ASCII bytes.
-After signed control
-admission, Wrapper reconstructs the exact inventory, verifies the assembled bundle
-again through the same local v3/v4 admission, and feeds the existing staging,
-probe, activation, and recovery path. This file-addressed release transport is
-not an archive and does not weaken the archive-safety requirements for later
-upstream-artifact work.
-
-Remote acquisition creates directories with owner-only access, creates response
-files owner-readable, and after each content digest succeeds applies the exact
-signed permission mode before whole-bundle verification. Local admission checks
-the same mode inventory before and after staging. Mode reconstruction therefore
-does not depend on HTTP metadata, curl defaults, or a blanket executable bit.
-
-Remote transport is exactly the existing `$PREFIX/bin/curl`, independent of the
-patched upstream runtime and compatibility resolver. Before network I/O, Wrapper
-requires curl, `$PREFIX/bin/openssl`, and a valid recovered v3 trust state; Wrapper
-remote update never falls back to the bootstrap key file. The curl child loads no
-user config, inherits no environment/proxy settings, permits HTTPS only, uses
-the Termux certificate file/directory, applies a 15-second connect timeout and a
-30-second control transfer deadline. For payloads, the former whole-transfer
-deadline instead bounds time without additional response bytes: 300 seconds for
-official and local-build inputs, 1800 seconds for release files, and 120 seconds
-for Provider files. A transfer does not expire merely because its total duration
-is long while bytes continue arriving. Curl payload output is unbuffered so that
-Wrapper observes received bytes before deciding whether a transfer is idle. It follows
-redirects only with `--location` and
-`--proto-redir =https`, and writes response bytes only to a caller-created
-regular file. The manifest limit remains 128 KiB and each signature file is
-limited to 1 KiB; each generation-file response is limited to 512 MiB and the
-sum of all response bytes is limited to 1 GiB. Curl and Wrapper both enforce the
-applicable remaining byte bound. A transport or bound failure is terminal for
-that explicit attempt and reports its cause and observed bytes; curl failures also
-report exit status, HTTP status when available and elapsed time.
-There is no automatic build or retry. Authenticated payload identities permit
-a private `state_root/downloads` content-addressed cache outside activation
-staging. It reserves the selected object's authenticated size (or file limit),
-evicts only recognized inactive private objects under its directory lease and
-retains at most the protocol's 1 GiB total bound. Unknown files are preserved.
-Verified objects are reused and partial objects resume on the next explicit attempt.
-Partial bytes never authorize execution: final authenticated size/digest checks
-precede staging. Control documents are always freshly acquired and authenticated.
-A server rejecting Range produces an explicit error; corrupt completed objects
-are discarded and never admitted. Cache contention never permits concurrent writes.
-An ignored resume can fail as curl's Range error or, when its full200 response
-exceeds the remaining-byte limit first, as filesize-exceeded. Both invalidate the
-partial object for the next explicit attempt. Preserve the actual curl/HTTP cause;
-do not relax byte limits or retry automatically to hide it.
-
-Acquisition uses one create-new `.acquire-<pid>-<counter>` directory beneath the
-generation root and create-new output files beneath that directory. Wrapper attempts
-cleanup after every acquisition outcome, and remote success is impossible until
-that cleanup succeeds. A cleanup error is terminal and preserves the authoritative
-activation pointers. An uncatchable process kill or a filesystem cleanup failure
-may leave a dot-prefixed partial directory; Wrapper never scans, launches, verifies
-as a generation, or activates such a path. Bounded installation maintenance may
-remove an abandoned partial directory under the retention contract below;
-it must not add a retry, fallback, or registry merely for it. Remote success reports
-`activated remote generation <id>`; every failure preserves the authoritative
-activation pointers.
+In summary, every Stage 2 signed update step must:
+1. recover `activation-state` (and `activation-journal` if interrupted) under the state-root directory `flock`;
+2. verify index/manifest signatures (`update_key`, optional `release-authority.sig`, `release.sig`) and monotonic sequence anti-rollback before staging;
+3. reuse verified owned cache files (`downloads/`) or acquire payloads inside `.acquire-*` with signed regular-file mode checks (`no special bits`, executable `wrapper`/`bin/*`/`manager`/helpers);
+4. probe `bin/codex --version` under Termux FDs before atomic pointer swap;
+5. commit `activation-state` atomically and retain a single valid `previous` rollback pair without leaving partial destinations on failure.
 
 ### Bounded installed-artifact retention
 
@@ -1540,13 +1167,14 @@ release-runtime integrity.
 
 ## 9. Doctor contract
 
-`codex doctor` is read-only. It runs the raw upstream doctor when supported and
-adds a Termux Wrapper/Manager diagnosis without recursively invoking the public
-launcher. Human output begins with the bounded, sanitized upstream doctor
+`codex doctor` (`codex doctor [--color | --json]`) is read-only. It runs the raw
+upstream doctor when supported and adds a Termux Wrapper diagnosis (plus optional
+Stage 2 Manager status only when Stage 2 modules are active) without recursively invoking
+the public launcher. Human output begins with the bounded, sanitized upstream doctor
 output itself, preserving the upstream doctor's own header, layout, and safe
-ANSI SGR sequences; Wrapper does not prepend an `[Upstream Codex doctor]` wrapper
-heading or a duplicate synthetic status line. `--json` emits one redacted
-envelope rather than concatenated documents:
+ANSI SGR sequences (or emits `"Upstream doctor output unavailable: <status>"` when
+unsupported/failed), followed by `\n[Termux doctor]\n`, the `Codex Termux Wrapper Doctor`
+header, and grouped diagnostics. `--json` emits one redacted envelope:
 
 ```json
 {
@@ -1560,10 +1188,12 @@ envelope rather than concatenated documents:
     "code_mode_host": {"status": "healthy"},
     "sandbox": {"status": "unsupported", "reason": "bwrap is not used"}
   },
-  "manager": {},
-  "summary": {}
+  "summary": {"status": "healthy"}
 }
 ```
+
+(When optional Stage 2 Manager diagnostics attach, an optional `"manager"` object may
+also be included; standalone Stage 1 omits `"manager"`.)
 
 When human output is connected to a TTY and `NO_COLOR` is absent, Wrapper gives the
 upstream doctor a bounded pseudo-terminal so its own headings, progress
@@ -1574,14 +1204,12 @@ and enables the same bounded PTY path. Non-TTY output remains plain, and
 explicit `NO_COLOR` remains plain unless `--color` was requested. Wrapper
 normalizes carriage-return/erase controls and preserves only safe SGR sequences
 before composition. If the upstream doctor is unsupported or produces no
-output, Wrapper emits only a concise status diagnostic for that missing upstream
-portion before the Termux section.
-The Termux doctor section follows the legacy wrapper presentation: a `Codex
-Termux Wrapper Doctor` status header,
-`Runtime`, `Support`, `Wrapper`, `State`, and `Store` groups, colored health
-rows when enabled, and a bounded summary. It reports the selected generation,
-root-level code-mode companion or migration state, and the explicit reason that
-Linux bwrap sandboxing is not used.
+output, Wrapper emits the concise unavailable status line before `[Termux doctor]`.
+The Termux doctor section emits `Codex Termux Wrapper Doctor · generation <id> · status <status>`,
+the `Runtime`, `Support`, `Wrapper`, and `State` groups, and the `[Summary]` section,
+with colored health rows when enabled. It reports the selected generation,
+`bin/codex-code-mode-host` companion status (`Support`/`Runtime`), and the explicit
+reason that Linux bwrap sandboxing is not used.
 
 Unsupported upstream or Manager diagnostics are represented explicitly and do
 not fabricate success. Diagnostic failure returns nonzero while preserving a
@@ -1757,23 +1385,23 @@ record, directory or runtime is rejected. Startup is bounded; failure does not
 invoke an installer or execute any package outside signed generations. Explicit
 user embedded/remote/configuration selections retain their upstream semantics.
 
-A same-generation, signed optional frontend may advertise deferred native
+A same-generation Stage 2 optional frontend may advertise deferred native
 startup through its non-mutating `--termux-backend-capabilities` query, which
-must return exactly `codex-termux-resolved-startup-v1` before configuration,
+must return `codex-termux-resolved-startup` before configuration,
 terminal initialization or a server connection. Only a bounded, successful
-probe enables `CODEX_TERMUX_BACKEND_STARTUP=resolved-v1` with Wrapper's planned
+probe enables `CODEX_TERMUX_BACKEND_STARTUP=resolved` with Wrapper's planned
 socket; no server or secondary installer starts merely for this probe. The
 frontend then resolves its upstream settings and asks Wrapper for the qualified
 local backend. Unknown or older helpers retain their supported eager path.
-The helper and Manager must belong to the selected signed generation, not a
+The helper and Manager must belong to the selected qualified installation, not a
 stale preview. Wrapper does not interpret model policy or override user-supplied
 upstream profile/CLI options; an incomplete optional frontend leaves the
 independently qualified Wrapper available.
 
-A qualified local TUI may submit its upstream-resolved model catalog
-to Wrapper's private `__app-server-catalog-v1` operation on stdin (at most4 MiB).
+A qualified Stage 2 local TUI may submit its upstream-resolved model catalog
+to Wrapper's private `__app-server-catalog` operation on stdin (at most 4 MiB).
 For deferred startup without a resolved catalog, the frontend requests the same
-native server through private `__app-server-default-v1`. Both private commands
+native server through private `__app-server-default`. Both private commands
 also accept bounded --config VALUE/--profile VALUE pairs for the invocation;
 their existing no-argument callers remain unchanged. The default command does
 not consume stdin. Wrapper validates the argument transport but delegates the
@@ -1817,11 +1445,11 @@ second runtime authority.
 Wrapper launches no upstream daemon updater and never creates a packages tree.
 The historical public daemon/remote-control lifecycle fence remains in force.
 
-Configuration-bound execution records add the `config-v1` owner marker after
-home/runtime, followed only by an optional `catalog-v1` marker. They retain the
+Configuration-bound Stage 2 execution records add the `config` owner marker after
+home/runtime, followed only by an optional `catalog` marker. They retain the
 existing `servers`/`catalogs` families. Their namespace also binds the exact
 opaque `config/config.toml` and optional `config/requirements.toml` bytes, with
-absence distinct from an empty file. Each config file retains the16-KiB bound.
+absence distinct from an empty file. Each config file retains the 16-KiB bound.
 Wrapper and optional consumers share this codec; it interprets no Manager/provider
 policy. Reuse compares the complete requested snapshot, not only its short routing
 hash. A live snapshot is immutable. Use one current codec, without historical
@@ -1881,11 +1509,12 @@ input even though the shipped binary is Linux-target.
 
 ### Host-tool and credential fallback discipline
 
-Because the accepted package adaptation excludes upstream `codex-path/rg`, a
-fresh Termux installation must not silently assume that system `rg` exists for
-ordinary product correctness. A feature that still requires it must either
-have a qualified signed helper/fallback or degrade explicitly with bounded
-doctor/user-facing evidence. The bootstrap and Wrapper recovery paths must not install a
+Official archives preserve static AArch64 `codex-path/rg` when supplied and fall back
+to a thin Termux wrapper script delegating to `${PREFIX}/bin/rg` when absent; a
+fresh Termux installation must still handle a missing host `rg` gracefully without
+silently failing unrelated workflows. A feature that requires host tools must either
+have a qualified helper/fallback or degrade explicitly with bounded
+doctor/user-facing evidence. Wrapper installers and recovery paths must not install a
 package manager dependency automatically. Bundled zsh remains excluded unless
 a later accepted feature makes it an explicit requirement.
 

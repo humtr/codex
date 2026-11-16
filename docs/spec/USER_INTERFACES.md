@@ -20,21 +20,21 @@ account enrollment, custom ranking and session override accessible. Clipping mus
 preserve the selected action/value and must not change the underlying account ID.
 Verify actual rendering and navigation, not only the generated labels.
 
-Quota-aware selection is an optional Manager/TUI capability. Wrapper and the base
+Quota-aware selection is an optional Stage 2 Manager/TUI capability. Wrapper and the base
 edition acquire no quota policy, account registry, polling or Manager dependency.
-`codex termux usage [--refresh] [--json]` reads cached registered-account usage;
+`codex wrapper usage [--refresh] [--json]` reads cached registered-account usage;
 refresh uses each account's qualified native app-server account/model read methods
-only, never a thread or inference request. A separate bounded profiles-v2 view
-adds rows, freshness, selection reasons and rotation settings; v1 stays unchanged.
+only, never a thread or inference request. An extended profiles view
+adds rows, freshness, selection reasons and rotation settings alongside the base profile list.
 Usage caches are private XDG cache data, not authentication authority. Unknown,
 stale, unavailable, API-key and changed account identities cannot be automatic
 destinations. Two profiles for the same metered account are one allowance pool.
 Windows are labelled by actual duration; reset timestamps do not prove recovery.
-Ordinary automatic Codex destinations need both advertised5h and weekly windows;
+Ordinary automatic Codex destinations need both advertised 5h and weekly windows;
 an absent window stays unknown rather than implying unlimited usage. Manual
 selection remains available. Model-specific buckets stay distinct from codex.
 
-`codex termux rotation show|preview MODEL|set JSON|exclude PROFILE SECONDS` and /switch settings share Manager's
+`codex wrapper rotation show|preview MODEL|set JSON|exclude PROFILE SECONDS` and /switch settings share Manager's
 policy: off by default, explicitly enrolled account identities, a deterministic
 5h/weekly/combined/remaining/custom ordering, reserves, proactive safe-boundary
 threshold and cooldown. Custom values are data, never executable commands.
@@ -58,12 +58,12 @@ checkpoint; pending tools/questions/reviews or uncertain partial work pause with
 an explicit reason. Switching accounts and successfully continuing work are
 distinct visible outcomes. Attempts and per-thread handoffs are bounded and
 serialized; exhausted destinations cool down and never ping-pong in a retry loop.
-The new frontend uses private __profile-resume-v2 with bounded serialized native
+The Stage 2 frontend uses private `__profile-resume` with bounded serialized native
 session flags to preserve model/effort, configuration profile, permissions/reviewer
 and explicit session options. A PID-bound comparison of the native resolved
 permissions rejects incompatible destination definitions before a continuation;
 account configuration and managed requirements are never copied or weakened.
-Retained v1 callers remain supported unchanged.
+Pre-continuation direct callers remain supported unchanged.
 Quota-failed continuation is one explicitly consented checkpoint-continuation
 turn, not resubmission of the original prompt or retry of completed tools.
 Proactive idle switches submit no prompt. A durable attempt claim precedes exec;
@@ -241,7 +241,7 @@ Do not assume rebuilding Full alone supplies Android clipboard images.
 
 There is already an unqualified app-side candidate in humtr/termux:
 the clipboard-read-image, clipboard-write-text and clipboard-release-image
-operations of termux-terminal-v1 over its existing authenticated AM socket.
+operations of `termux-terminal` over its existing authenticated AM socket.
 It provides image content-URI snapshots and confirmed
 text writes; Codex consumer integration remains missing. Audit/reuse that source
 instead of inventing another bridge. A clipboard-read-image snapshot is not yet
@@ -265,7 +265,7 @@ hold the urgent restoration release after the supported text-copy path passes.
 
 The native frontend source has two owners: pristine upstream files receive only
 the maintained integration patch; standalone TUI implementations live as
-ordinary source under frontend/manager-tui/src. The single maintained source
+ordinary source under frontend/tui/src. The single maintained source
 assembler preflights the patch and refuses to overwrite any upstream file with
 an owned source file. Qualification binds both inputs, the assembler and tests
 to the exact successful source. Final build inputs and artifact proof still
@@ -311,9 +311,9 @@ precedence, installed-route validation and model admission remain unchanged.
   or running local commands, unsent composer input or pending native tool calls.
   A failed profile/Wrapper revalidation leaves the picker and current chat usable. After ordinary native client cleanup and terminal
   restoration, the frontend execs Wrapper with fixed private Manager argv
-  `termux __profile-resume-v1 PROFILE_ID THREAD_UUID`. This exact command validates
+  `wrapper __profile-resume PROFILE_ID THREAD_UUID`. This exact command validates
   the registered destination and canonical UUID, holds the existing Manager
-  registry shared lock against rename/delete during handoff, waits at most3 seconds
+  registry shared lock against rename/delete during handoff, waits at most 3 seconds
   for the existing kernel coordination/writer locks to become free, then execs ordinary
   Wrapper resume in the selected home and same terminal/CWD. It never interrupts,
   pauses goals, cleans background terminals, signals an owner or removes locks.
@@ -324,7 +324,7 @@ precedence, installed-route validation and model admission remain unchanged.
   failure is the qualified backend's exact -32601 list_turns-not-supported response
   after persistence; transport, decoding and other server failures refuse re-entry. No synthetic turn, transcript write,
   archive/unarchive or metadata rewrite is permitted. Metadata lookup or failure
-  to materialize within3 seconds leaves the current picker/chat alive. Existing
+  to materialize within 3 seconds leaves the current picker/chat alive. Existing
   stored history uses metadata-only lookup and is never loaded by this check.
   Re-entry sets the child working directory to the current App workspace, including
   an upstream /cd change, rather than inheriting the original process directory.
@@ -335,7 +335,7 @@ precedence, installed-route validation and model admission remain unchanged.
   proof uses disposable owned accounts.
 - The independent idle-profile admission preparation adds explicit source return
   after frontend cleanup: on an operational re-entry refusal, the private
-  __profile-resume-v1 Manager path may offer Enter to return to the original
+  `__profile-resume` Manager path may offer Enter to return to the original
   execution home and q/other input/EOF to exit only when all three standard streams
   are terminals and a valid explicit inherited CODEX_HOME identifies that source.
   Manager binds the source directory's open physical identity before attempting
@@ -345,9 +345,9 @@ precedence, installed-route validation and model admission remain unchanged.
   refuses; noninteractive/invalid-grammar invocations retain prior status/output.
   Successful switching never prompts. Return preserves current CWD, UUID, TTY,
   original Wrapper exit behavior and existing writer authority; it never cancels work,
-  forces takeover, removes a lock or recreates a profile. Input is bounded to128
+  forces takeover, removes a lock or recreates a profile. Input is bounded to 128
   bytes, only an actual empty newline confirms return, and EOF never confirms.
-  Exit/cancel has status130.
+  Exit/cancel has status 130.
 - The generation frontend reproduces the accepted Termux built-in permission
   menu/shortcut behavior: Ask and Approve for me use the no-sandbox profile,
   Full Access remains explicit, unsupported Read Only is omitted, and current
@@ -357,29 +357,29 @@ precedence, installed-route validation and model admission remain unchanged.
   Wrapper still rejects explicit unsupported sandbox argv before runtime entry.
   Actual menu selections/shortcuts and native settings require owned proof.
 - The native frontend reads profile data through exact no-argument
-  `codex termux __profile-snapshot-v1`. Manager alone resolves registered profiles,
-  inherited/current selection and saved default. Output is one bounded JSON v1
-  record with schema, profiles (default first, at most256), current (registered ID
+  `codex wrapper __profile-snapshot`. Manager alone resolves registered profiles,
+  inherited/current selection and saved default. Output is one bounded JSON
+  record with schema, profiles (default first, at most 256), current (registered ID
   or null for an external inherited home), current_source and saved_default.
   It contains no paths, credentials or conversation data and performs no writes.
   Existing public profile text output and inherited-home precedence stay intact.
 - Native display reads this endpoint using an explicitly provided
   absolute `CODEX_PROFILE_WRAPPER` bridge. The native client validates
   regular executable ownership, uses fixed argv without a shell, limits stdout to
-  64KiB and elapsed time to3 seconds, and rejects malformed/unknown protocol data.
+  64KiB and elapsed time to 3 seconds, and rejects malformed/unknown protocol data.
   Failure is bounded in the current UI; cancellation returns to the current chat.
 - Integrated native views read observed current writers through exact no-argument
-  `codex termux __task-snapshot-v1`. Its one JSON record uses schema
-  codex-manager-tasks-v1 and tasks sorted by canonical thread UUID, at most1024.
+  `codex wrapper __task-snapshot`. Its one JSON record uses schema
+  `codex-manager-tasks` and tasks sorted by canonical thread UUID, at most 1024.
   Each record contains id, owner_profile (registered ID or null for a qualified
   external execution home), state (active/idle/systemError/notLoaded), and
   server_token (the qualified current server's PID:start identity). Existing
   server qualification and kernel writer-lock discovery alone determine ownership;
   a creator, history author, selected profile or loaded read-only copy is not an
-  owner. Output is bounded to256KiB and has no paths, credentials or transcripts;
+  owner. Output is bounded to 256KiB and has no paths, credentials or transcripts;
   this command performs no writes and never stops or starts work.
 - Native task reads use the same qualified explicit Wrapper bridge, fixed argv,
-  256KiB stdout and12-second total bound (existing Manager scan deadline10 seconds).
+  256KiB stdout and 12-second total bound (existing Manager scan deadline 10 seconds).
   Execution-profile context is distinct from a confirmed writer's profile.
   A null owner_profile means a confirmed external writer; missing task data or a
   failed query is unconfirmed/unavailable, never evidence of an unlocked thread.
@@ -388,14 +388,13 @@ precedence, installed-route validation and model admission remain unchanged.
   without a second history index or new persistent state. Cancellation/error must
   leave the current chat usable.
 - Before the integrated frontend prepares a backend for resume/fork, the private
-  `codex termux __task-connection-v1 THREAD_UUID` is owned by Wrapper and uses the
+  `codex wrapper __task-connection THREAD_UUID` is owned by Wrapper and uses the
   shared runtime-binding Native process/socket/writer observation implementation.
   Manager task views consume that same observation; their profile labels, Native
   RPC presentation and explicit task actions remain optional. This discovery and
   canonical execution-home handoff must work when Manager is unavailable. They
   observe Native ownership and never authorize or transfer a writer. Its bounded JSON record has schema
-  `codex-manager-task-connection-v1` (retained for the already built frontend
-  consumer) and connection=null only when the writer is
+  `codex-manager-task-connection` and connection=null only when the writer is
   confirmed free; otherwise connection contains execution_home and socket for
   the qualified owner. This local connection metadata is not a public task list,
   credential, new writer registry or execution capability. Unsafe, ambiguous or
@@ -412,7 +411,7 @@ precedence, installed-route validation and model admission remain unchanged.
   configuration. An unqualified context rebind remains an explicit incomplete
   boundary, not a permanent requirement that the user manually choose profiles.
   For a canonical resume/fork identity known before UI startup, the private
-  `codex termux __task-reentry-v1 THREAD_UUID -- UPSTREAM_ARGV...` uses that same
+  `codex wrapper __task-reentry THREAD_UUID -- UPSTREAM_ARGV...` uses that same
   Wrapper-owned verified connection and qualified execution context. It reexecutes the same
   qualified Wrapper in that owner's home with the original opaque upstream arguments,
   before any editable startup draft. It starts no separate writer and changes no
@@ -447,18 +446,18 @@ ordinary execution depend on Android connectivity. AI owns its separate
 provider conveniences. No additional daemon, watcher, PTY manager or
 conversation execution authority is introduced.
 
-The private `__terminal-launch-command-v1 off -- PROGRAM ARGV...` adapter routes
+The private `__terminal-launch-command off -- PROGRAM ARGV...` adapter routes
 an explicitly selected same-UID local executable through the same one-shot
 window path, without interpreting its authentication or profile semantics.
-`__terminal-launch-capabilities-v1` reports exactly
-`codex-terminal-launch-v1\ncontainer=off\n`. Unsupported containers,
+`__terminal-launch-capabilities` reports exactly
+`codex-terminal-launch\ncontainer=off\n`. Unsupported containers,
 including `hidden` and `status`, fail as usage errors before starting work.
 AI passes its existing authentication supervisor intact. The Manager build
 does not include tmux session creation, attach, pane scanning or pane
-selection. Historical code and tests are retained only under
-`docs/development/manager-tmux/`, outside active Cargo sources and tests.
+selection. Historical tmux code and tests remain archived only in Git history,
+outside active Cargo sources and tests.
 
-`codex termux launch [--profile PROFILE_ID] [-- UPSTREAM_ARGS...]` presents
+`codex wrapper launch [--profile PROFILE_ID] [-- UPSTREAM_ARGS...]` presents
 the existing profile inventory when no profile is explicitly selected.
 Up/down and Enter select; Esc/Ctrl-C cancel without work. An inherited external
 CODEX_HOME remains a distinct current-home choice. Explicit profiles use
@@ -466,8 +465,9 @@ the existing profile contract. CWD, raw upstream argv and caller color
 preferences (including absence) are preserved. Ordinary interactive Codex
 launches use optional window routing without showing a profile picker.
 Noninteractive and maintenance commands retain ordinary execution behavior.
-`codex termux attach`, `codex termux tmux` and `--tmux=...` are unavailable
-in this build; they do not start or attach a session.
+`codex wrapper attach`, `codex wrapper tmux` (along with retired `codex termux`
+spellings), and `--tmux=...` are unavailable in this build; they do not start
+or attach a session.
 
 For native Android origin/validate/focus support, run in the invoking
 terminal and return to that exact live terminal. For confirmed unsupported
@@ -508,22 +508,22 @@ targets refuse return. /new, /resume, /switch, profile changes and /title
 cannot replace the originating terminal. Visible titles remain presentation.
 
 Manager owns `notify set --focus window|termux`. Default is window;
-`termux` selects Activity-only return. The private notifications/focus-v1
+`termux` selects Activity-only return. The private `notifications/focus`
 contains `window\n` or `termux\n`. The removed `tmux` setting
 is invalid in both stored records and command-line input. Absent state uses
 window; malformed/insecure state uses Activity-only return. For a canonical hook
 session_id in window mode, Manager uses installed Wrapper's safely quoted
-private `__terminal-focus-v1 UUID` action; no AI executable is needed.
+private `__terminal-focus UUID` action; no AI executable is needed.
 Malformed or ambiguous IDs preserve the ordinary notification and cannot
 become shell input. Activity-only mode brings Termux forward without
 selecting a terminal.
 
 #### Optional terminal launch capability
 
-The read-only private command `codex termux __terminal-capabilities-v1 -- ARGV...`
+The read-only private command `codex wrapper __terminal-capabilities -- ARGV...`
 queries this generation's actual launch capability. Wrapper supplies only a qualified
 frontend availability bit and its existing supported-argv decision to the same-
-generation Manager; Manager emits exactly `codex-terminal-capabilities-v1` and
+generation Manager; Manager emits exactly `codex-terminal-capabilities` and
 `identity=native` or `identity=title`. No authentication, profile/session scan,
 configuration mutation or runtime launch occurs. AI never parses a generation
 manifest or adds an independent qualification authority. Missing Manager/query or
@@ -540,14 +540,14 @@ or introduce a competing Codex profile/window authority.
 
 The optional qualified native frontend maintains one same-UID private temporary
 file descriptor, created exclusively
-with mode0600 and close-on-exec and immediately unlinked. Its former basename
-is `.codex-terminal-thread-v1-PID-NONCE`.
+with mode 0600 and close-on-exec and immediately unlinked. Its former basename
+is `.codex-terminal-thread-PID-NONCE`.
 Its entire content is the canonical full UUID of the displayed thread, or empty
 when no thread is displayed. It updates this slot before rendering a changed
 foreground thread, independently of title configuration. Native identity remains
 in the open unlinked file, automatically reclaimed on process exit; there is no
 new persistent session index. It calls the private
-exact command `codex termux __terminal-bind-v1 FD` once to register this descriptor.
+exact command `codex wrapper __terminal-bind FD` once to register this descriptor.
 This registration applies to native frontends in directly bound terminal PTYs;
 there is no Manager tmux socket, pane or process-tree discovery.
 Wrapper forwards only that exact three-argument shape to its same-generation Manager.
@@ -578,21 +578,29 @@ original Android terminal registration remain unchanged. Native source/build
 proof precedes admission; consumer-only or seeded fixtures do not establish
 automatic thread-switch integration.
 
-`codex wrapper` owns Wrapper configuration (`setup`, `status`, `--bare`,
-`--with`, `update`, `rollback`, `doctor`, `provider`) as well as the optional
-Manager subcommand family when invoked explicitly (`help`, `launch`, `profile`,
-`task`, `notify`, `usage`, `rotation`) and is never passed to upstream.
-Bare `codex` invokes only standalone Wrapper plus patched upstream unless modules
-are enabled in `wrapper.toml` or via `codex wrapper --with <MODULES>`.
+In Stage 1 standalone Wrapper, top-level `codex update ...`,
+`codex doctor [--color | --json]`, and `codex help` are active alongside
+`codex wrapper status [--json]` and `codex wrapper [--help]`; any other
+`codex wrapper <SUBCOMMAND>` fails closed with usage status `2` and never passes
+through to upstream. In Stage 2 (`docs/STAGE2_PLAN.md`), `codex wrapper` expands
+to own Wrapper configuration (`setup`, `status`, `--bare`, `--with`, `update`,
+`rollback`, `doctor`, `provider`) as well as the optional Manager subcommand
+family when enabled explicitly (`help`, `launch`, `profile`, `task`, `notify`,
+`usage`, `rotation`) and is likewise never passed to upstream. Bare `codex`
+invokes only standalone Wrapper plus patched upstream unless modules are enabled
+in `wrapper.toml` or via `codex wrapper --with <MODULES>`.
 
 ```text
+# Stage 1 active wrapper commands
+codex wrapper status [--json]
+codex wrapper [help|--help]
+
+# Stage 2 configuration & modular surface (planned)
 codex wrapper setup [show|--bare|--enable <MODULES>|--disable <MODULES>|--signed-update <true|false>]
 codex wrapper --bare [--] [UPSTREAM_ARGS...]
 codex wrapper --with <MODULES> [--] [UPSTREAM_ARGS...]
-codex wrapper status
 codex wrapper update [ARGS...]
-codex wrapper
-codex wrapper help
+codex wrapper provider <ACTION> chatgpt [ARGS...]
 codex wrapper launch [--profile PROFILE_ID] [-- UPSTREAM_ARGS...]
 codex wrapper profile list
 codex wrapper profile current
@@ -611,7 +619,8 @@ codex wrapper notify set [NOTIFY_OPTIONS...]
 codex wrapper notify test
 ```
 
-`codex wrapper` with no command is equivalent to `codex wrapper help`.
+In Stage 2, `codex wrapper` with no command is equivalent to `codex wrapper help`
+(in Stage 1, `codex wrapper` with no arguments prints Wrapper usage help).
 Session browsing and resume belong to upstream Codex; Manager owns profiles,
 active-writer assistance and notifications. An unavailable Manager reports a
 bounded unavailable result; it never forwards an unknown `wrapper` command.
@@ -657,10 +666,14 @@ The Wrapper-owned update surface accepts no arguments (default upstream update),
 generation directory), `--rollback`, or `--help` after `update`. (Legacy
 `--build-local` and `--local` flags are superseded by default/`--upstream` and
 `--path`; optional signed remote channel selectors remain deferred to decoupled
-Stage 2 extensions.) No top-level `codex rollback` command is introduced. A
-malformed invocation beginning with `update` is a Wrapper usage error. No top-level
-`codex update` argument is passed to upstream, and Wrapper never invokes a package
-manager or an upstream self-updater.
+Stage 2 extensions.) On an interactive TTY, Stage 1 official updates emit concise
+transient status lines (`Checking official Codex release...`,
+`Downloading official Codex <VERSION> package...`) before printing permanent result
+output (`Updated Codex ...` / `Codex <VERSION> is now active...`). No top-level
+`codex rollback` command is introduced. A malformed invocation beginning with
+`update` is a Wrapper usage error. No top-level `codex update` argument is passed
+to upstream, and Wrapper never invokes a package manager or an upstream
+self-updater.
 
 When using optional signed channels in Stage 2 extensions (historical/deferred
 contract below): the automatic path tries the signed stable channel before
@@ -678,15 +691,17 @@ version is authenticated, an interactive update may show only a transient
 When both stdout and stderr are attached to terminals, Wrapper may use exactly one
 transient stderr progress line. It replaces that line in place with bounded
 carriage-return/erase-line terminal control and flushes each phase immediately.
-The transient line is always cleared before a permanent success or failure
-result. The ordinary signed-channel phases are concise user-facing states such as
-`Checking for updates...`, `Downloading signed Termux release...`,
-`Verifying release signature and contents...`, `Checking candidate runtime...`,
-and `Activating Codex <VERSION>...`. If either stream is not a terminal, Wrapper
-emits no transient progress line and no cursor-control bytes.
+In the Stage 2 optional signed-release channel (distinct from Stage 1's official
+`codex update` progress text above), the transient line is always cleared
+before a permanent success or failure result. The ordinary signed-channel phases
+are concise user-facing states such as `Checking for updates...`,
+`Downloading signed Termux release...`, `Verifying release signature and contents...`,
+`Checking candidate runtime...`, and `Activating Codex <VERSION>...`. If
+either stream is not a terminal, Wrapper emits no transient progress line and
+no cursor-control bytes.
 
-For signed releases that publish the optional authenticated
-`compat/download-size-v1` control resource, Wrapper may enrich only the
+For Stage 2 signed releases that publish the optional authenticated
+`compat/download-size` control resource, Wrapper may enrich only the
 `Downloading signed Termux release...` transient state with actual downloaded
 bytes and the authenticated total payload size. The sidecar is not part of the
 installed generation inventory and therefore does not change release-manifest
@@ -823,8 +838,8 @@ Missing notes remain unavailable, not a fabricated claim of no changes.
 
 The historical signed release date is the publisher-declared UTC date of
 signing/preparing that immutable release.
-It is carried as optional `display` fields in the existing signed
-`component-input-v1`, bound to the exact manifest digest/generation. Older sidecars
+It is carried as optional `display` fields in the existing signed Stage 2
+`component-input` sidecar, bound to the exact manifest digest/generation. Older sidecars
 without display fields remain valid. Missing/unavailable/invalid optional display
 information is reported as unavailable; it cannot select a release, change
 activation eligibility, trigger local building, or fail an otherwise valid update.
@@ -833,11 +848,14 @@ exact-current result; it adds no ordinary-launch query, cache authority or daemo
 Local/offline lifecycle does not acquire remote display data. Raw generation IDs,
 digests and API/schema identities remain diagnostic details.
 
-### Bare interactive launch update discovery
+### Bare interactive launch update discovery (Stage 2 signed-channel opt-in; disabled in Stage 1)
 
-The exact zero-argument bare `codex` launch may perform update discovery only
-when stdin, stdout, and stderr are all terminals. Any non-empty argument vector,
-including `update`, `doctor`, `termux`, `exec`, `--version`, `-V`, and
+Stage 1 standalone Wrapper performs **no** network update check on bare `codex`
+startup (`SPEC.md` §4.1). Only when Stage 2 explicitly enables signed-channel
+startup discovery in `wrapper.toml` (`codex wrapper setup --signed-update true`)
+may the exact zero-argument bare `codex` launch perform update discovery when
+stdin, stdout, and stderr are all terminals. Any non-empty argument vector,
+including `update`, `doctor`, `wrapper`, `help`, `exec`, `--version`, `-V`, and
 all other upstream commands/options, bypasses this discovery path completely.
 A bare launch with any non-terminal standard stream also bypasses it completely.
 Those bypasses perform no startup-update network request, prompt, or advisory
@@ -903,7 +921,7 @@ commits; an existing hold for that selected sequence remains authenticated while
 its rollback guard is removed. It never weakens qualification of that retained target.
 
 The first rollback from a hold-aware Wrapper to an older Wrapper that does not advertise
-exact `codex-update-hold-v1` capability must not lose hold enforcement. Wrapper may
+exact `codex-update-hold` capability must not lose hold enforcement. Wrapper may
 therefore retain the rolled-back-from signed Wrapper launcher as a bounded rollback
 control-plane guard while the runtime, Manager, helpers, and authoritative current
 pointer roll back to the retained previous signed generation. The guard is a
@@ -913,7 +931,7 @@ generation's signed Wrapper digest. The stable launcher is accepted under this
 exception only when the authoritative pointer pair matches the guard, the held
 previous generation verifies under its retained verifier key, and the launcher
 digest exactly equals that held signed Wrapper digest. No unsigned or arbitrary Wrapper
-path is authorized. A target Wrapper that advertises `codex-update-hold-v1` uses the
+path is authorized. A target Wrapper that advertises `codex-update-hold` uses the
 normal full Wrapper rollback instead and does not retain the guard.
 
 Wrapper writes the guard intent durably before the pointer swap but treats it as an
@@ -942,36 +960,35 @@ never enters the transport-unavailable local-build fallback and cannot target an
 unheld or greater sequence. Neither path weakens signature, digest, anti-rollback,
 candidate-probe, or atomic-activation rules.
 
-Internal release IDs, component digests, API versions, and schema versions are
+Internal release IDs, component digests, API identities, and schema versions are
 still mandatory for update, diagnosis, and rollback. They may appear only on a
 clearly Termux-specific status or redacted machine-diagnostic surface.
-## Manager contracts
+## Manager contracts (Stage 2 modular opt-in)
 
 This section defines the optional Manager. It does not weaken or
 extend the Wrapper completion threshold, and it does not make Manager a
 prerequisite for ordinary upstream launch, Wrapper doctor, update, rollback, or
 fresh installation. Manager is an optional, separately qualified artifact
-behind the existing `codex termux` boundary.
+behind the Stage 2 opt-in `codex wrapper` boundary (absent from Stage 1 standalone Wrapper).
 
 ### Process and ownership boundary
 
 Wrapper selects Manager only from the signed, qualified generation and invokes
-the artifact with a versioned handoff environment:
+the artifact with a bounded handoff environment:
 
 ```text
-CODEX_TERMUX_WRAPPER_API=codex-manager-wrapper-v1
+CODEX_TERMUX_WRAPPER_API=codex-manager-wrapper
 CODEX_TERMUX_WRAPPER_ENTRYPOINT=<validated stable Wrapper entrypoint>
 ```
 
-The retired `CODEX_TERMUX_CORE_REQUEST` and
-`CODEX_TERMUX_CORE_OPERATION` environment values have no dispatch meaning.
-Wrapper does not parse or consume a repair request, even if those retired values
-are inherited. Ordinary doctor/update/rollback/upstream argv retain their
-normal behavior. There is no replacement repair request or hidden recovery API.
+Retired pre-rewrite repair environment variables have no dispatch meaning; Wrapper
+does not parse or consume a hidden repair request even if inherited. Ordinary
+doctor/update/rollback/upstream argv retain their normal behavior, and there is
+no replacement repair request or hidden recovery API.
 
-Manager validates the versioned API and Wrapper entrypoint before doing work.
+Manager validates the Wrapper API identity and Wrapper entrypoint before doing work.
 Its return path to Wrapper is an `exec` of that entrypoint with ordinary upstream
-argv whose first token is not the exact selector `termux`, `doctor`, or
+argv whose first token is not the exact selector `wrapper`, `help`, `doctor`, or
 `update`. Recovery uses the public Wrapper commands directly. Manager cannot
 address a generation path, activation state,
 trust key, resolver, or journal directly. Wrapper remains the final validator of
@@ -988,13 +1005,13 @@ handoff fails before any Manager state mutation.
 Profile commands use this public grammar:
 
 ```text
-codex termux profile list
-codex termux profile current
-codex termux profile create <PROFILE_ID>
-codex termux profile delete <PROFILE_ID>
-codex termux profile rename <PROFILE_ID> <NEW_PROFILE_ID>
-codex termux profile default [PROFILE_ID]
-codex termux profile use <PROFILE_ID> [--] [UPSTREAM_ARGS...]
+codex wrapper profile list
+codex wrapper profile current
+codex wrapper profile create <PROFILE_ID>
+codex wrapper profile delete <PROFILE_ID>
+codex wrapper profile rename <PROFILE_ID> <NEW_PROFILE_ID>
+codex wrapper profile default [PROFILE_ID]
+codex wrapper profile use <PROFILE_ID> [--] [UPSTREAM_ARGS...]
 ```
 
 `default` is the existing upstream default identity home. A custom profile uses
@@ -1094,15 +1111,16 @@ Manager-owned success output before Wrapper runs. For `default` it explicitly se
 `CODEX_HOME` to `$HOME/.codex`, bypassing any persistent custom default; for a custom profile it sets `CODEX_HOME` to the validated
 profile home. Manager removes an inherited `CODEX_SQLITE_HOME` override instead
 of producing a parallel shared-store selection signal. Wrapper derives the shared
-root from the supported execution home and supplies a system `requirements.toml`
-requirement that fixes `sqlite_home` to the same
-canonical shared root and requires `local_thread_store_compression=false` and
-`background_paginated_rollout_migration=false` where the selected
-upstream execution topology still relies on incompatible profile-local
-rollout maintenance locks. The requirements
-file is Wrapper-owned, is removed or replaced only through the Wrapper marker
-contract, and prevents a profile `config.toml` from silently splitting SQLite
-or enabling those incompatible background writers. The original upstream argv
+root from the supported execution home and supplies canonical shared-state / SQLite
+env and immutable FD 34 overrides (preserving Stage 1's minimal `config.toml`
+snapshot with `sandbox_mode = "danger-full-access"` and
+`mcp_oauth_credentials_store = "file"`, plus Stage 2 opt-in shared-server
+settings such as `thread_unload_delay_secs = 0`). In Stage 2, an optional
+Wrapper-owned `requirements.toml` is supplied only if a selected upstream
+execution topology still requires `sqlite_home` or rollout-migration pins, and
+is removed or replaced only through the Wrapper marker contract so a profile
+`config.toml` cannot silently split SQLite or enable incompatible background
+writers. The original upstream argv
 after the profile selector is preserved exactly. If registration validation fails,
 Wrapper is not launched. If execution topology is unsafe or conflicting, Wrapper rejects
 before upstream execution. A selection changes neither later ordinary launches nor
@@ -1124,25 +1142,25 @@ remove installation-wide conversation history. `profile default` prints exactly
 `default: <TARGET>\n`. With a target it validates an existing registration (or
 native `default`), atomically saves the explicit preference and prints the same
 line. This is not selection history: `profile use` never writes it. Preference
-format is exactly `codex-manager-default-profile-v1\nprofile\t<TARGET>\n`,
-private mode0600 under Manager's private state root. Missing preference means
+format is exactly `codex-manager-default-profile\nprofile\t<TARGET>\n`,
+private mode 0600 under Manager's private state root. Missing preference means
 native default. Invalid/missing-target preferences never follow an untrusted path:
 explicit default/current queries and lifecycle mutations fail; Manager's ordinary
 launch preparation returns blocked instead of silently choosing native default.
 
 A nonempty UTF-8 inherited CODEX_HOME always wins. Otherwise Manager resolves its
-saved preference through the bounded `__prepare-launch-v1`/`__execute-launch-v1`
+saved preference through the bounded `__prepare-launch`/`__execute-launch`
 contract. Wrapper never reads the preference filename or profile metadata. Manager
 validates registration, sets CODEX_HOME for this child and execs stable Wrapper with
 original argv/TTY/streams/signals/exit behavior. `__profile-launch` remains an
 internal Manager endpoint, not Wrapper's preference-discovery mechanism. Unavailable
 optional preparation leaves normal Wrapper launch usable in its unchanged confirmed
-home; there is no post-handoff retry. Wrapper-only/update/doctor/termux and unsupported
+home; there is no post-handoff retry. Wrapper-only/update/doctor/wrapper and unsupported
 daemon routes keep their defined behavior. No selector may be smuggled through
 an internal endpoint. Bare startup discovery
 still runs at most once, after selection. `profile current` adds source `saved`
 when the explicit preference selects a fresh launch; inherited source remains
-inherited. The retired state-v1 record stays ignored and unchanged.
+inherited. The retired pre-rewrite state record stays ignored and unchanged.
 
 `profile delete ID` deletes that validated custom profile's local login/config/
 cache files and registration; `default` is never deletable. Exact output is
@@ -1198,10 +1216,12 @@ Wrapper's generation-retention lease must occupy a descriptor above the reserved
 33–36 range. Installing an execution-home lease under descriptor pressure must
 not release generation protection before the final kernel exec.
 
-New registration metadata is exactly `codex-manager-profile-v2\n`, without an ID
-already owned by the directory name. Existing exact private v1 metadata remains
-valid; rename first atomically replaces v1 by v2 while OLD is still valid, then
-uses create-new directory rename and synchronizes the parent. Either observable
+New registration metadata is exactly `codex-manager-profile\n`, without an ID
+already owned by the directory name (during Stage 2 reintegration, internal
+suffix-stripped `codex-manager-profile` replaces prior `v1`/`v2` headers; if any
+pre-rewrite `v1`/`v2` metadata exists on a Stage 2 custom profile root, Phase
+2.2/2.3 rename/migration handles it atomically without silent fallback). Rename
+uses create-new directory rename and synchronizes the parent so the observable
 registration remains usable after interruption. No duplicated ID or journal is
 introduced. Delete first atomically moves the validated account into one private
 hidden `.delete-*` sibling under the held locks, synchronizes the directory, then
@@ -1210,9 +1230,8 @@ preflight rejects more than 65,536 entries or a directory depth above 128; an
 unreadable tree fails before unregistering the account. Interrupted cleanup may leave
 hidden private residue; it is not a profile, never used for launch, and a failure
 is reported without pretending deletion of shared state or other profiles.
-Version rollback never reverses explicit profile lifecycle actions. Managers
-predating this extension ignore the preference and do not list v2 registrations;
-account bytes and Wrapper direct CODEX_HOME execution remain independent of metadata.
+Version rollback never reverses explicit profile lifecycle actions.
+Account bytes and Wrapper direct CODEX_HOME execution remain independent of metadata.
 
 ### Installation-wide upstream resume visibility
 
@@ -1269,14 +1288,14 @@ steady-state migration service or a second thread/schema authority.
 
 The historical `codex termux session list/resume` family is retired. Upstream
 owns discovery, filtering, selection and resume through ordinary `codex resume`
-or `codex termux profile use <PROFILE_ID> -- resume [UPSTREAM_ARGS...]`.
+or `codex wrapper profile use <PROFILE_ID> -- resume [UPSTREAM_ARGS...]`.
 Manager must not restore the former directory scanner, session index, saved
 selection dependency or alternate resume grammar. Retired helper history is
 retained in Git and is not a current command contract.
 
 ### Active-task account assistance
 
-`codex termux task` presents only currently loaded upstream work, not conversation
+`codex wrapper task` presents only currently loaded upstream work, not conversation
 history or a second session picker/index. A supplied canonical lowercase thread
 UUID restricts the view. `task status [THREAD_UUID]` is noninteractive and reports
 only UUID, owner execution home/account label, runtime-bound server PID/start,
@@ -1423,9 +1442,9 @@ remain operative until a qualified replacement is delivered.
 Notification commands use these user-facing forms:
 
 ```text
-codex termux notify show
-codex termux notify test
-codex termux notify set [--channel <notification|toast|both>]
+codex wrapper notify show
+codex wrapper notify test
+codex wrapper notify set [--channel <notification|toast|both>]
     [--hooks <none|all|EVENT[,EVENT...]>]
     [--content-chars <0|1..4096>] [--preserve-newlines <0|1>]
     [--toast-gravity <top|middle|bottom>] [--toast-short <0|1>]
@@ -1465,12 +1484,12 @@ alphanumeric byte and containing only alphanumerics, `.`, `_`, and `-`.
 Colors are empty or exactly `#` followed by six ASCII hexadecimal digits and
 are stored canonically in lowercase.
 
-The Manager record at `notifications/config-v1` is mode `0600` beneath a
+The Manager record at `notifications/config` is mode `0600` beneath a
 mode-`0700` `notifications` directory and contains exactly these final-newline
 UTF-8 lines, in order:
 
 ```text
-codex-manager-notify-v1
+codex-manager-notify
 channel\t<CHANNEL>
 hooks\t<none|all|EVENT[,EVENT...]>
 content_chars\t<DECIMAL>
@@ -1509,7 +1528,7 @@ retains its `# codex-termux-wrapper` marker. A missing/owned-marker base file ma
 prepared; conflicting foreign state is preserved and rejected before execution.
 This Wrapper-owned configuration conflict is distinct from invalid optional
 Manager state. Each enabled event is mapped
-to `codex termux notify emit <EVENT>`. Selected `Stop` uses upstream's native
+to `codex wrapper notify emit <EVENT>`. Selected `Stop` uses upstream's native
 `notify` argv callback, with no generated `hooks.Stop` command. Upstream excludes
 internal memory consolidation from that callback; memory generation and use
 remain enabled according to operator configuration. Other selected events retain
@@ -1570,7 +1589,7 @@ delivery is unavailable. `notification`, `toast`, and `both` select the
 corresponding capability-aware provider attempts; `both` attempts each
 independently. Manager emits no success text for the endpoint.
 
-Default window focus uses the admitted Manager's `__terminal-focus-v1 UUID`
+Default window focus uses the admitted Manager's `__terminal-focus UUID`
 action for a canonical session identity. It resolves the live registered workload
 and revalidates its native terminal or stock dedicated-window route as defined in
 Section3; it never starts/resumes Codex or creates a replacement workload.
@@ -1624,21 +1643,21 @@ per-launch.
 
 ### Wrapper recovery authority
 
-`codex termux repair`, including the former `plan` and `apply` forms, is a
+`codex wrapper repair` (and retired `codex termux repair`, including the former `plan` and `apply` forms) is a
 non-mutating Manager usage failure (status 2). It does not launch Wrapper, inspect
 or modify generations, access the network, or produce a repair plan. Help does
 not advertise it. Existing Manager notification/profile state is unchanged.
 
 The former facade offered only generation-layout classification and an optional
 call to Wrapper update. It has no distinct recovery outcome. Wrapper retains ordinary
-`codex doctor`, signed `codex update`, activation recovery, update-failure
-retention and explicit `codex update --rollback`; Manager owns no recovery
+`codex doctor`, `codex update`, activation recovery, update-failure
+retention and `codex update --rollback`; Manager owns no recovery
 planner, updater, fallback, automatic rollback or hidden request dispatch.
 Retirement requires no persistent-state migration.
 
 ### Manager artifact build and qualification
 
-Artifact qualification adds no user-facing `codex termux` command and no Manager persistent
+Artifact qualification adds no user-facing `codex wrapper` command and no Manager persistent
 record. A release qualification supplies one separately built executable
 Manager artifact; the release builder must snapshot and qualify that exact
 private copy before publishing it into a generation. The normal on-device
@@ -1652,7 +1671,7 @@ cross-target binary on the build host. Instead it first proves that the private
 Manager snapshot is an ELF64 little-endian Android/AArch64 PIE using exactly one
 `/system/bin/linker64` interpreter, then emits the unsigned generation with the
 exact regular mode-0644 marker `.manager-probe-deferred` containing
-`codex-manager-probe-deferred-v1` plus one LF. The default CLI path and the
+`codex-manager-probe-deferred` plus one LF. The default CLI path and the
 library API used by Wrapper never select this exception.
 
 A generation carrying `.manager-probe-deferred` is not publishable:
@@ -1663,7 +1682,7 @@ returns the exact accepted result. No deferred candidate may enter official
 signing or signed release inventory.
 
 The artifact has one reserved build-time probe form, invoked only by the
-release builder and never forwarded through Wrapper's `codex termux` boundary:
+release builder and never forwarded through Wrapper's `codex wrapper` boundary:
 
 ```text
 codex-manager --artifact-probe
@@ -1676,8 +1695,8 @@ profile state, auth state, or network, and emits exactly these
 UTF-8 bytes on stdout with one final LF, no stderr, and status `0`:
 
 ```text
-codex-manager-artifact-v1
-wrapper_api=codex-manager-wrapper-v1
+codex-manager-artifact
+wrapper_api=codex-manager-wrapper
 ```
 
 Any other probe argument, nonzero status, stderr output, or byte mismatch is a
@@ -1742,7 +1761,7 @@ deferred probe marker, the Termux-compatible Android/AArch64 smoke must first
 execute the exact Manager artifact probe successfully and remove the marker before
 any later signing step. It then installs or selects a release-built
 Manager-bearing generation through the existing Wrapper admission,
-then proves `codex termux help`, one read-only profile query, and one isolated
+then proves `codex wrapper help`, one read-only profile query, and one isolated
 Manager-to-Wrapper launch with the existing raw-argv, stream, TTY, signal, exit,
 and child-only `CODEX_HOME` contracts. The qualification must observe the
 Manager probe marker absent at the public handoff, a successful signed
@@ -1791,7 +1810,7 @@ mutable tag metadata, or an unsigned asset as evidence.
 The disposable device qualification uses separate private fresh-install and
 legacy-upgrade roots. Each root snapshots protected host identities before
 and after, installs or selects only the read-back signed generation, runs
-`codex doctor` and `codex termux` read-only/isolated checks, and verifies raw
+`codex doctor` and `codex wrapper` read-only/isolated checks, and verifies raw
 argv, streams, TTY, signal, exit status, child-only `CODEX_HOME`, ANSI doctor
 presentation, and absence of bwrap invocation. Any readback, admission,
 Manager handoff, doctor, or protected-surface failure rejects the candidate

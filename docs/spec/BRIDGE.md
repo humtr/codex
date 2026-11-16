@@ -1,6 +1,8 @@
 # Native sessions, model transport, and ChatGPT Bridge contracts
 
 **Status:** Normative detail of [SPEC.md](../../SPEC.md).
+> **Stage scope:** Bridge (`providers/chatgpt`, `transport/tunnel-client`), `@TermuxBridge` tool schemas, and Manager/TUI coordination are **Stage 2 Phase 2.5 modular opt-in components** (absent from Stage 1 standalone Wrapper; see [docs/STAGE2_PLAN.md](../STAGE2_PLAN.md)). Public CLI management routes unify under `codex wrapper provider ...`. Internal references below to persisted Bridge work-record/owner versions (`v1`/`v2`/`v3` + `migrate-inference`, `config-v1`, historical `catalog-v1`) describe our own `providers/chatgpt` local state/journal codec for live-data and `@TermuxBridge` compatibility across reintegration rather than external ChatGPT schemas or Wrapper API version suffixes.
+
 The platform's Native runtime owns execution, approvals, history and writer
 authority. This document defines feature-specific interactions and acceptance
 criteria; observed implementation status belongs to
@@ -21,7 +23,7 @@ behavior and names incomplete interfaces. Historical audits do not freeze the
 earlier boundary allocation.
 
 Historical architecture reviews inform, but do not determine, the current
-contract; `AUDIT.md` (preserved on `origin/main` and `rewrite/rust-core`) records past alternatives. Earlier
+contract; earlier `AUDIT.md` reviews in pre-rewrite Git history record past alternatives. Earlier
 initiative labels are traceability references, not product completion levels.
 [CURRENT.md](../../CURRENT.md) owns implemented, qualified, published and
 activated status. The following
@@ -1455,7 +1457,7 @@ Creation uses the verified current MCP service/tunnel accessible to the intended
 app account, with installation, connection and schema/readiness verified
 separately. A refresh error alone does not establish that a replacement or another
 tunnel will resolve its cause.
-The Linux app operating guide (`providers/chatgpt/LINUX_APP.md#플러그인-생성과-교체`, preserved on `origin/main` and `rewrite/rust-core`)
+The Linux app operating guide (`providers/chatgpt/LINUX_APP.md#플러그인-생성과-교체`, preserved on `rewrite/rust-core` for Stage 2 reintegration)
 owns the operating steps and partial-failure recovery.
 
 **Management.** Extend the optional Provider binary's existing status/view/reveal/
@@ -1604,8 +1606,8 @@ values remain unchanged.
 
 #### Bridge qualification input and evidence contract
 
-`providers/chatgpt/qualification.schema.json` (preserved on `origin/main` and `rewrite/rust-core`) defines
-termux-codex-bridge-qualification-v2. It is an input contract, not an executable
+`providers/chatgpt/qualification.schema.json` (preserved on `rewrite/rust-core` for Stage 2 reintegration) defines
+`termux-codex-bridge-qualification` (suffix-free Stage 2 target, replacing pre-rewrite `-v2`). It is an input contract, not an executable
 runner or authorization to launch live work. Qualification entrypoints accept an
 explicit --inputs manifest without changing already recorded evidence.
 No implicit historical root/TMPDIR/tunnel/previous-frontend path is a valid
@@ -1748,7 +1750,7 @@ escape hatches for Native tool admission/recording. Threadless local tools are
 a separate intentional execution scope, not a fallback for broken Native work.
 
 The candidate configuration adds `execution.mode=model_adapter|operator`, plus
-`execution.core`, `execution.home` and `execution.workspace`. Operator requires
+`execution.wrapper`, `execution.home` and `execution.workspace`. Operator requires
 all three absolute paths. `transport.return_path=mcp|local_function` selects the
 Chat-side control/result transport; local functions call the same Operator Host
 and do not require a Chat-side MCP connector or tunnel. The authenticated local
@@ -1943,7 +1945,7 @@ unsigned runtime launcher. Wrapper may retain a small versioned optional-compone
 dispatch contract; it must not inspect Manager's preference filenames or interpret
 account, window, quota or provider policies to make an execution decision.
 
-`CODEX_TERMUX_WRAPPER_ONLY=1 codex ...` selects the direct path when Manager is
+`codex wrapper --bare -- ...` (or `wrapper.toml`) selects the direct path when Manager is
 installed but not wanted. It skips Manager preparation, launch policy, optional
 TUI and Manager-provided configuration for that invocation. Wrapper still performs
 its signed-runtime, environment, sandbox, shared-state and server preparation.
@@ -2419,12 +2421,12 @@ state; importing provider source does not authorize redistributing third-party
 desktop software. Choose the bounded packaging extension from its real reachable
 payload; do not assume the current eight-file inventory already supports it.
 The optional-component packaging contract selects an independent Provider payload, outside Base/Full generation
-inventories. Wrapper exposes `codex provider install chatgpt --local DIRECTORY` or
-`codex provider install chatgpt --remote HTTPS_DIRECTORY_URL`,
-`codex provider install chatgpt` / `codex provider update chatgpt` (explicit stable
+inventories. Wrapper exposes `codex wrapper provider install chatgpt --local DIRECTORY` or
+`codex wrapper provider install chatgpt --remote HTTPS_DIRECTORY_URL`,
+`codex wrapper provider install chatgpt` / `codex wrapper provider update chatgpt` (explicit stable
 optional-component discovery),
-`codex provider status chatgpt`, `codex provider rollback chatgpt`, and
-`codex provider chatgpt ARGS...`. These management routes need neither Manager
+`codex wrapper provider status chatgpt`, `codex wrapper provider rollback chatgpt`, and
+`codex wrapper provider chatgpt ARGS...`. These management routes need neither Manager
 nor TUI. Ordinary Wrapper execution never consults or starts an absent Provider.
 Explicit Provider installation may enroll a payload; default manual update may
 acquire only a previously selected Provider. Both consumers use the same verified
@@ -2439,7 +2441,7 @@ aggregate bounds and reuses the same staging/selection checks as local install.
 Controls have finite transfer deadlines; payload downloads fail after 120 seconds
 without new bytes and continue while bytes are arriving, subject to signed size ceilings.
 Failed or uncertain transfers are never retried implicitly and cannot select a
-payload. Stable discovery reads the independent `provider-index-v1` and its
+payload. Stable discovery reads the independent `provider-index` control object (replacing the pre-rewrite `provider-index-v1` suffix) and its
 detached signature from the owned main branch. The bounded ordered stable index
 binds provider/generation/sequence, immutable release directory and manifest digest;
 Wrapper authenticates it with the current admitted update authority and requires
@@ -2480,7 +2482,7 @@ The shared store lease is retained for installed older Wrapper consumers whose w
 still use that directory exclusively. New selection writers take the same shared
 lease under the Wrapper activation lock, so old running readers do not block them,
 while an in-progress old exclusive writer is still excluded. This compatibility
-exists while installed old Cores remain supported; it introduces no new lock/state
+exists while installed old Wrapper generations remain supported; it introduces no new lock/state
 file. Launch revalidates signature/inventory under that shared lease before exec.
 The Provider keeps inherited non-stdio descriptors, including the store lease, in
 its own process
@@ -2494,7 +2496,7 @@ and does not change existing Wrapper dispatch, payload verification or work auth
 
 Package selection and generated native-profile preparation are distinct. Existing
 profiles/catalogs keep their immutable executable binding until explicit
-`codex provider chatgpt prepare`; install/rollback report selection only. Retain
+`codex wrapper provider chatgpt prepare`; install/rollback report selection only. Retain
 generations referenced by existing profiles and running work through verified retirement.
 This preserves the current direct-executable auth/checkpoint contract and does not
 silently replace the installed JS adapter or any user-selected model route.
@@ -2981,7 +2983,7 @@ new provider-owned conversations. Existing conversations are not moved/deleted
 implicitly. A project/retention change applies to new lanes at a safe boundary;
 model/effort changes should reuse an existing owned conversation when supported.
 
-`codex provider chatgpt projects list` and `projects use --name NAME` expose
+`codex wrapper provider chatgpt projects list` and `projects use --name NAME` expose
 authenticated project discovery and create-or-reuse without inference. The same
 `codex_projects` MCP control lets an explicit request to create/use a project
 complete both operations: verify its exact owned destination, then atomically

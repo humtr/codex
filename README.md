@@ -18,11 +18,11 @@ The product has one public command, `codex`, built in two decoupled stages:
   beyond `libc` that provides Termux runtime compatibility (FD 33/34/35, wrapper `config.toml`,
   timezone TZif, TLS certs, browser helpers, sandbox guard, `app-server daemon` &
   `remote-control` passthrough), `codex update [--upstream] [--version <M.m.p>] | --path <FILE_OR_DIR> | --rollback`,
-  `codex doctor [--json]`, and `codex wrapper status [--json]`.
+  `codex doctor [--color | --json]`, and `codex wrapper status [--json]`.
 - **Stage 2 (decoupled optional modules, deferred):** optional Manager, enhanced `TUI`,
   `Provider` bridge, and Ed25519 `--signed` generation trust, preserved on
-  `origin/main` and `rewrite/rust-core` for later opt-in reattachment once Stage 1
-  is established. See [current status](CURRENT.md).
+  `rewrite/rust-core` (with `0.167.2` release/index manifests on `origin/main`) for later opt-in reattachment once Stage 1
+  is established. See [current status](CURRENT.md) and the [Stage 2 reintegration plan](docs/STAGE2_PLAN.md).
 
 ## Requirements on Termux
 
@@ -84,14 +84,14 @@ Useful installer options (`./install.sh --help`):
 After `codex` is installed:
 
 ```sh
-# Fetch, verify (HTTPS + OpenAI npm SHA-256), patch adaptively, and activate latest upstream Codex
+# Fetch, verify (HTTPS + official OpenAI release SHA-256), patch adaptively, and activate latest upstream Codex
 codex update --upstream
 
 # Install a specific upstream version
 codex update --upstream --version <X.Y.Z>
 
-# Install from a local upstream tarball or raw AArch64 codex binary
-codex update --path /path/to/codex-aarch64-unknown-linux-musl.tar.gz
+# Install from an official upstream package .tar.gz or a prepared generation directory
+codex update --path /path/to/codex-package-aarch64-unknown-linux-musl.tar.gz
 
 # Roll back to the immediately preceding activated generation
 codex update --rollback
@@ -102,14 +102,15 @@ with a `previous` pointer for single-step rollback. State owned by the wrapper
 (`resolv.conf`, wrapper `config.toml`, timezone TZif cache) lives under
 `~/.local/share/codex/wrapper/` and `~/.cache/codex/timezones/`.
 
-- `--signed`, `--build-local`, and `--local` are disabled in Stage 1 and fail explicitly with exit status `2`.
-- Upstream updates in Stage 1 fetch directly from OpenAI GitHub Releases + npm registry SHA-256 metadata over TLS 1.2+.
+- `--signed`, `--remote`, `--build-local`, and `--local` are disabled in Stage 1 and fail explicitly with exit status `2`.
+- Upstream updates in Stage 1 resolve the latest stable release via GitHub Releases (`openai/codex/releases/latest`) or a requested release via `https://releases.openai.com/codex/releases/<version>/release.json`, and verify the official `codex-package-aarch64-unknown-linux-musl.tar.gz` SHA-256 digest over TLS 1.2+.
 
 ## Diagnostics and Upstream Passthrough
 
 ```sh
 # Check both upstream health checks and Termux wrapper checks (FDs 33/34/35, TLS, TZif, generation)
 codex doctor
+codex doctor --color
 codex doctor --json
 
 # Inspect active wrapper generation and layout
@@ -135,11 +136,11 @@ time), the wrapper prepares the Android/Termux environment:
 
 1. **DNS (`FD 33`):** materializes `~/.local/share/codex/wrapper/resolv.conf` when needed and redirects `/etc/resolv.conf` reads to `FD 33`.
 2. **Wrapper config (`FD 34`):** lazily ensures `~/.local/share/codex/wrapper/config/config.toml` (`sandbox_mode = "danger-full-access"`, `mcp_oauth_credentials_store = "file"`) and redirects `/etc/codex` reads to `FD 34`.
-3. **Temp root & UDS directory (`FD 35` + `TMPDIR`):** exports `TMPDIR` (`$PREFIX/tmp`) and binds `FD 35` so static musl temp/socket paths do not hit read-only `/tmp`.
+3. **Temp root & UDS directory (`FD 35` + `TMPDIR`):** requires inherited `PREFIX` and `TMPDIR`, exports `TMPDIR`/`TMP`/`TEMP`/`SQLITE_TMPDIR`, and binds `FD 35` so static musl temp/socket paths do not hit read-only `/tmp`.
 4. **Timezone (`TZ`):** writes/reuses a valid `TZif` under `$XDG_CACHE_HOME/codex/timezones` (or `~/.cache/codex/timezones`) from Android `persist.sys.timezone` / `$TZ`.
-5. **TLS & environment fence:** injects Termux `SSL_CERT_FILE` / `SSL_CERT_DIR`, disables upstream daemon auto-updates (`~/.codex/app-server-daemon/settings.json` -> `{"updater":{"autoUpdateEnabled":false}}` on normal launches), and neutralizes unreachable host X11/Wayland/WSL browser env vars.
+5. **TLS & environment fence:** injects Termux `SSL_CERT_FILE` / `SSL_CERT_DIR`, disables upstream daemon auto-updates (`$CODEX_HOME/app-server-daemon/settings.json` defaulting to `~/.codex/app-server-daemon/settings.json` -> `{"updater":{"autoUpdateEnabled":false}}` on normal launches), and neutralizes unreachable host X11/Wayland/WSL browser env vars.
 
-Fast inspection flags (`--version`, `-V`, `--help`, `-h`) bypass settings writes cleanly.
+Fast inspection flags (`--version`, `-V`, `--help`, `-h`, and top-level `help`) bypass settings writes cleanly.
 
 ## CI and Building From Source
 
@@ -147,7 +148,7 @@ Fast inspection flags (`--version`, `-V`, `--help`, `-h`) bypass settings writes
 
 Every push or pull request on `main`, `wrapper`, or `rewrite/wrapper` runs:
 
-1. **`checks` (`ubuntu-24.04`):** YAML syntax check, `sh -n install.sh`, Stage 1 workspace/`Cargo.lock` boundary check (`codex`, `codex-release-builder`, `libc`), markdown link check across all `*.md` files, `cargo fmt --check`, `cargo clippy --workspace --all-targets --locked -- -D warnings`, and `cargo test --workspace --locked`.
+1. **`checks` (`ubuntu-24.04`):** YAML syntax check, `sh -n install.sh` (plus `shellcheck install.sh` when available), Stage 1 workspace/`Cargo.lock` boundary check (`codex`, `codex-release-builder`, `libc`), markdown link check across all `*.md` files, `cargo fmt --check`, `cargo clippy --workspace --all-targets --locked -- -D warnings`, and `cargo test --workspace --locked`.
 2. **`android-package` (`ubuntu-24.04`):** cross-compiles `codex` and `codex-release-builder` for `aarch64-linux-android` (API 24, Android NDK `27.3.13750724`), verifies `ARM aarch64` ELF headers and `/system/bin/linker64`, bundles `codex-wrapper-aarch64-linux-android.tar.gz` + `.sha256` + `SHA256SUMS` + `install.sh`, and uploads the workflow artifact.
 3. **`android-smoke` (`ubuntu-24.04-arm`):** provisions pinned Android Runtime APEX `linker64` and Bionic libraries, installs the packaged bundle via `install.sh --skip-upstream`, and executes the real Android binary (`codex update --help`, `codex wrapper status --json`, `codex --sandbox read-only --version`, `codex sandbox linux true`).
 4. **`release` (tag `wrapper`, `wrapper-*`, or `v*`, or manual `workflow_dispatch` with `publish_release=true`):** publishes the verified bundle, `.sha256`, `install.sh`, and `SHA256SUMS` to GitHub Releases.
@@ -165,7 +166,9 @@ cargo build --release --locked -p codex -p codex-release-builder
 
 - [SPEC.md](SPEC.md) — Normative product contract and Stage 1 / Stage 2 boundaries.
 - [CURRENT.md](CURRENT.md) — Verified build, live-device, and isolated runtime evidence.
+- [docs/STAGE2_PLAN.md](docs/STAGE2_PLAN.md) — Stage 2 detailed reintegration procedure, lineage warnings, and verification gates.
 - [AGENTS.md](AGENTS.md) — Agent and engineering working principles.
 - [docs/spec/USER_INTERFACES.md](docs/spec/USER_INTERFACES.md) and [docs/spec/DELIVERY.md](docs/spec/DELIVERY.md) — CLI routing and delivery contracts.
-- [docs/spec/BRIDGE.md](docs/spec/BRIDGE.md) — Stage 2 optional ChatGPT bridge architecture (preserved on `origin/main` and `rewrite/rust-core`).
+- [docs/spec/BRIDGE.md](docs/spec/BRIDGE.md) — Stage 2 optional ChatGPT bridge architecture (source preserved on `rewrite/rust-core`).
 - [docs/history/GENERATION_ADMISSION.md](docs/history/GENERATION_ADMISSION.md) — Historical generation admission architecture record.
+- [docs/history/LEGACY_RUST_CORE.md](docs/history/LEGACY_RUST_CORE.md) — Archived pre-rewrite `rewrite/rust-core` (`0.167.0`) development evidence.

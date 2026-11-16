@@ -10,7 +10,8 @@ their **wire compatibility is itself a requirement**; no Codex release number
 or test-run ID determines the meaning of this specification.
 
 The current implementation, release sources, verified evidence and outstanding
-work are reported in [CURRENT.md](CURRENT.md). Development behavior is
+work are reported in [CURRENT.md](CURRENT.md), and the detailed Stage 2
+reintegration procedure lives in [docs/STAGE2_PLAN.md](docs/STAGE2_PLAN.md). Development behavior is
 defined in [AGENTS.md](AGENTS.md). Version-specific prior adaptations and
 historical acceptance are recorded separately in
 [release history](docs/history/GENERATION_ADMISSION.md). This specification
@@ -117,7 +118,7 @@ runtime on Termux.
 | Command | Owner | Required behavior |
 | --- | --- | --- |
 | `codex` / `codex [UPSTREAM_ARGS...]` | Wrapper then upstream | apply FD 33/34/35 and Termux environment/timezone planning and execute upstream directly (including `app-server daemon` and `remote-control`; reject Linux Landlock `--sandbox read-only`/`workspace-write` and `sandbox linux`) |
-| `codex --version`, `codex -V`, `codex --help`, `codex -h` | upstream | execute upstream on the fast passthrough path (skipping `daemon_settings::ensure`) and print exact upstream output without extra Wrapper/Manager rows |
+| `codex --version`, `codex -V`, `codex --help`, `codex -h`, `codex help` | upstream | execute upstream on the fast passthrough path (skipping `daemon_settings::ensure`) and print exact upstream output without extra Wrapper/Manager rows |
 | `codex update` / `codex update --upstream` | Wrapper | resolve the official upstream stable release metadata/archive (`openai/codex`), verify its official archive SHA-256 digest, unpack complete archive resources, preserve/wrap `codex-path/rg`, apply adaptive `termux-fd-remap` / `termux-uds-fd35` adaptation to static AArch64 musl binaries in `bin/*`, validate, and atomically activate |
 | `codex update --version <MAJOR.MINOR.PATCH>` | Wrapper | install and adapt one specific official upstream stable release through the upstream update pipeline |
 | `codex update --path <FILE_OR_DIR>` | Wrapper | adapt an offline official upstream `.tar.gz` archive or stage/validate/activate an already prepared generation directory |
@@ -131,29 +132,32 @@ runtime on Termux.
 Optional modular extensions (`Manager`, enhanced `TUI`, `Provider`, and optional
 signed remote release channels) are decoupled outside the standalone Wrapper
 so bare Termux compatibility and upstream upgrades remain fast and
-dependency-free; when reintroduced, they attach only as generic opt-in
-extensions without hardcoding module logic inside the standalone Wrapper.
+dependency-free; when reintroduced in Stage 2, they attach only as generic opt-in
+extensions under `codex wrapper` (`setup`, `--bare`, `--with`, `provider`, and
+optional Manager subcommands) without hardcoding module logic inside bare
+Wrapper execution.
 
 `codex version` is not introduced. Wrapper/Manager version rows must not
 be appended to upstream `--version` or `-V` output. `codex termux` is
-replaced directly by `codex wrapper`.
+replaced directly by `codex wrapper` (`codex wrapper provider` for Provider
+operations).
 ## 4. Architecture and ownership
 
 ### 4.1 Wrapper
 
 Wrapper exclusively owns:
 
-- public command dispatch and `wrapper.toml` opt-in module routing;
+- public command dispatch (and `wrapper.toml` opt-in module routing when Stage 2 extensions are enabled);
 - official upstream artifact acquisition, validation, and rule-based binary adaptation;
 - Termux runtime adaptation and launch environment;
 - FD 33, FD 34, and FD 35 preparation;
 - final upstream process execution;
 - sandbox capability enforcement;
 - immutable generation construction and integrity metadata;
-- bare local update, signed module/channel update, activation, and rollback;
+- bare local/`--upstream` update, optional Stage 2 signed module/channel update, activation, and rollback;
 - read-only Wrapper diagnosis;
 - composition of upstream and Termux doctor results;
-- the typed boundary through which Manager requests Wrapper operations.
+- (Stage 2 opt-in) the typed extension boundary through which optional Manager requests Wrapper operations.
 
 Wrapper must remain usable and fast when Node.js, Manager, enhanced TUI,
 Provider, network access, remote update indices, or optional Termux APIs are
@@ -191,24 +195,26 @@ reimplement the operation.
 
 The Manager artifact is optional and independently qualified. Its absence,
 incompatibility, or failure must not make ordinary upstream launch, Wrapper
-doctor, Wrapper update, or Wrapper rollback unavailable. Manager v1 has no external network,
+doctor, Wrapper update, or Wrapper rollback unavailable. Manager has no external network,
 package-manager, OpenSSL, bwrap, resolver, or generation-discovery authority.
 Profile registration creates only Manager metadata and a private new account
 home. Selection affects only the child invocation; execution readiness and
 shared conversation-path preparation belong to Wrapper before upstream launch.
 Optional shared configuration-profile projection belongs to Manager preparation.
 
-An installed generation's unavailable Manager is reported at the Manager
-boundary and by doctor; it does not invalidate the independently usable Wrapper
-runtime. Ordinary dispatch checks the declared Manager path for a regular,
-owner-executable file without probing it or requiring OpenSSL. Installed-release
-verification still authenticates the signed inventory, descriptor and all
-Wrapper/runtime assets; a failed optional Manager file check is excluded from that
-verification result and local-build carry forward, without disabling Wrapper update
-or rollback. This exception applies only to already-installed generations.
-Fresh candidate admission, staging and activation
-retain complete Manager verification whenever the candidate declares one. No
-generation metadata, signed inventory or user state is rewritten to express absence.
+When Stage 2 signed distributions and optional modules are enabled, an installed
+generation's unavailable Manager is reported at the Manager boundary and by doctor;
+it does not invalidate the independently usable Wrapper runtime. Ordinary dispatch
+checks the declared Manager path for a regular, owner-executable file without probing
+it or requiring OpenSSL. On Stage 2 signed generations, verification still
+authenticates the signed inventory, descriptor and all Wrapper/runtime assets; a
+failed optional Manager file check is excluded from that verification result and
+local-build carry forward, without disabling Wrapper update or rollback. (Stage 1
+standalone local generations carry zero Manager asset and verify locally without
+remote keys.) This exception applies only to already-installed generations. Fresh
+signed candidate admission, staging and activation retain complete Manager verification
+whenever the candidate declares one. No generation metadata, signed inventory or user
+state is rewritten to express absence.
 
 Manager is a separate Rust executable. No Manager runtime or dependency may
 become a prerequisite for ordinary upstream launch, Wrapper doctor, update, or rollback.
@@ -226,8 +232,10 @@ Wrapper supplies the supported official runtime, Termux adaptation, process and
 shared-server execution, generation lifecycle and diagnosis. It must preserve
 accepted upstream command/configuration behavior and account isolation; optional
 convenience failures must not become prerequisites for ordinary execution.
-Candidate publication and activation still require the complete signed inventory
-and qualification; optionality does not permit admitting an invalid candidate.
+Stage 1 standalone generations require valid local official archive checksums and
+runtime probes; Stage 2 signed candidate publication and activation require the
+complete signed inventory and qualification. Optionality never permits admitting
+an invalid candidate.
 
 Manager supplies standalone user-facing configuration and selection conveniences
 above that boundary. A useful convenience must produce a distinct user result,
@@ -249,8 +257,9 @@ these user results and ownership boundaries, not as an automatic feature backlog
 
 ### 4.5 Responsibility and compatibility admission criteria
 
-These are target architecture contracts. CURRENT.md owns implemented and proven
-scope. An existing file, service, guard or boundary does not acquire authority by
+> **Stage 2 target architecture:** Sections 4.5–4.6 define target contracts when optional Stage 2 extensions (`Manager`, enhanced `TUI`, and `Provider`/Bridge) are enabled. Standalone Stage 1 Wrapper runs upstream passthrough directly without bundling or requiring those modules; [CURRENT.md](CURRENT.md) owns implemented and proven scope.
+
+An existing file, service, guard or boundary does not acquire authority by
 surviving earlier work. Reassess ownership against the complete requested flow,
 including failure and recovery, before implementing another local fix.
 
@@ -705,26 +714,26 @@ Wrapper must preserve the accepted upstream argv byte-for-byte, including an emp
 bare-launch vector. It must not synthesize `-c`, `--enable`, `--disable`, or
 `--search`. The Termux no-sandbox default is supplied through the existing
 Wrapper-owned system `config.toml` on FD 34 as
-`sandbox_mode = "danger-full-access"`, which is also visible to a qualified
-shared background server. User-supplied upstream options remain unchanged;
-explicit unsupported sandbox requests still fail before runtime I/O. Hiding a
-shared-server warning or disabling the server does not satisfy this contract.
+`sandbox_mode = "danger-full-access"` (alongside `mcp_oauth_credentials_store = "file"`).
+User-supplied upstream options remain unchanged; explicit unsupported sandbox requests still
+fail before runtime I/O. Hiding a shared-server warning or disabling the server does not
+satisfy this contract.
 
-The same Wrapper-owned system configuration supplies the Termux default
-`thread_unload_delay_secs = 0`. Upstream unloads a thread only after its last
-subscriber disconnects and the thread is inactive; a running turn remains
-protected by native lifecycle checks. Closing an idle TUI must therefore release
-its native writer without the upstream default 60-second cache delay, allowing
-immediate same-ID resume through another account's server. Wrapper never removes
-or steals a writer lock, copies a transcript, or overrides explicit higher-layer
-user configuration or CLI arguments. Authentication remains per account.
-This native setting is read when a shared server starts. Already-running servers
-retain their previous delay until normal restart; generation activation starts
-the new runtime's server without terminating other active clients or work.
+When Stage 2 shared-server or Manager snapshot extensions are active, the generated
+FD 34 snapshot also supplies `thread_unload_delay_secs = 0` so closing an idle TUI
+releases its native writer without the upstream default 60-second cache delay, allowing
+immediate same-ID resume through another account's server. Upstream unloads a thread only
+after its last subscriber disconnects and the thread is inactive; a running turn remains
+protected by native lifecycle checks. Wrapper never removes or steals a writer lock,
+copies a transcript, or overrides explicit higher-layer user configuration or CLI arguments.
+Authentication remains per account. This native setting is read when a shared server
+starts; already-running servers retain their previous delay until normal restart, and
+generation activation starts the new runtime's server without terminating other active
+clients or work.
 
-Shared-server reuse binds the complete immutable FD-34 settings snapshot under
-the existing namespace coordinator lock. Equal settings may reuse the server;
-changed Manager hooks or other effective bytes select a matching configuration
+In that Stage 2 shared-server topology, reuse binds the complete immutable FD-34 settings
+snapshot under the existing namespace coordinator lock. Equal settings may reuse the
+server; changed Manager fragments or other effective bytes select a matching configuration
 namespace without rewriting a live server's files or restarting its active work.
 New launch/resume uses the newly selected snapshot. Existing threads retain their
 actual upstream configuration until an upstream-supported transition applies it.
@@ -732,23 +741,24 @@ Do not add CLI overrides or mutate sibling settings to force a policy refresh.
 
 #### Wrapper FD 34 configuration and zero-write fast path
 
-In standalone Wrapper execution, Wrapper performs no Manager IPC
-(`__prepare-launch-v1`, `__prepare-runtime-v1`), no enhanced TUI startup probe,
-no retention pruning on hot launch, and no network update check.
+In standalone Wrapper execution, Wrapper performs no Manager IPC, no enhanced TUI
+startup probe, no retention pruning on hot launch, and no network update check.
 Shared FD 34 system configuration (`config.toml`), cached `resolv.conf`, and
 daemon settings (`app-server-daemon/settings.json`) are materialized lazily only
 on creation or content mismatch — never rewritten or `fsync`-ed on unchanged
 launches (`daemon_settings::ensure` is also skipped on fast `--version`/`-V`/
-`--help`/`-h` passthrough).
+`--help`/`-h`/`help` passthrough).
 
 In standalone mode, FD 34 `config.toml` contains only the Wrapper Termux
 compatibility settings (`# codex-termux-wrapper\nsandbox_mode =
 "danger-full-access"\nmcp_oauth_credentials_store = "file"\n`), without
-additional addon overrides or `system_config` dry-run validation. Future opt-in
-module configuration must attach through a generic extension interface without
-hardcoding Manager-specific IPC into standalone Wrapper execution.
+additional addon overrides or dry-run snapshot validation. Future opt-in Stage 2
+module configuration must attach through `wrapper.toml` and immutable FD 34 snapshot
+extensions without hardcoding Manager-specific IPC into standalone Wrapper execution.
 
-### Termux permission selection
+### Termux permission selection (Stage 2 enhanced TUI or upstream-adopted UI)
+
+> **Stage boundary:** Standalone Stage 1 ships the unpatched official upstream TUI binary with FD 34 `sandbox_mode = "danger-full-access"` and CLI `--sandbox` rejection; source-level picker adaptations below apply when Stage 2 opt-in `TUI` (`frontend/tui`) is enabled or upstream adopts the picker changes directly.
 
 Approve for me selects the upstream automatic reviewer for native approval
 requests. It does not promise a model review for every command. Preserve
@@ -785,7 +795,7 @@ A release-specific UI adaptation requires exact official source and artifact
 qualification, bounded byte changes, actual TUI selection and effective native
 thread-setting proof before release. A default-setting test or a direct API
 request alone does not close the picker requirement. Existing installed
-runtimes remain unchanged until signed publication and ordinary activation are
+runtimes remain unchanged until Stage 2 publication and ordinary activation are
 separately accepted.
 
 Wrapper never invokes, installs, downloads, or repairs `bwrap`. An explicit Linux
