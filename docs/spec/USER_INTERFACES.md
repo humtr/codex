@@ -582,7 +582,7 @@ In Stage 1 standalone Wrapper, top-level `codex update ...`,
 `codex doctor [--color | --json]`, and `codex help` are active alongside
 `codex wrapper status [--json]` and `codex wrapper [--help]`; any other
 `codex wrapper <SUBCOMMAND>` fails closed with usage status `2` and never passes
-through to upstream. In Stage 2 (`docs/STAGE2_PLAN.md`), `codex wrapper` expands
+through to upstream. In Stage 2 ([docs/plan/STAGE2_PLAN.md](../plan/STAGE2_PLAN.md)), `codex wrapper` expands
 to own Wrapper configuration (`setup`, `status`, `--bare`, `--with`, `update`,
 `rollback`, `doctor`, `provider`) as well as the optional Manager subcommand
 family when enabled explicitly (`help`, `launch`, `profile`, `task`, `notify`,

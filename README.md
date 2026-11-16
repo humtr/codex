@@ -22,7 +22,7 @@ The product has one public command, `codex`, built in two decoupled stages:
 - **Stage 2 (decoupled optional modules, deferred):** optional Manager, enhanced `TUI`,
   `Provider` bridge, and Ed25519 `--signed` generation trust, preserved on
   `rewrite/rust-core` (with `0.167.2` release/index manifests on `origin/main`) for later opt-in reattachment once Stage 1
-  is established. See [current status](CURRENT.md) and the [Stage 2 reintegration plan](docs/STAGE2_PLAN.md).
+  is established. See [current status](CURRENT.md) and the [Stage 2 reintegration plan](docs/plan/STAGE2_PLAN.md).
 
 ## Requirements on Termux
 
@@ -166,7 +166,7 @@ cargo build --release --locked -p codex -p codex-release-builder
 
 - [SPEC.md](SPEC.md) — Normative product contract and Stage 1 / Stage 2 boundaries.
 - [CURRENT.md](CURRENT.md) — Verified build, live-device, and isolated runtime evidence.
-- [docs/STAGE2_PLAN.md](docs/STAGE2_PLAN.md) — Stage 2 detailed reintegration procedure, lineage warnings, and verification gates.
+- [docs/plan/STAGE2_PLAN.md](docs/plan/STAGE2_PLAN.md) — Stage 2 detailed reintegration procedure, lineage warnings, and verification gates.
 - [AGENTS.md](AGENTS.md) — Agent and engineering working principles.
 - [docs/spec/USER_INTERFACES.md](docs/spec/USER_INTERFACES.md) and [docs/spec/DELIVERY.md](docs/spec/DELIVERY.md) — CLI routing and delivery contracts.
 - [docs/spec/BRIDGE.md](docs/spec/BRIDGE.md) — Stage 2 optional ChatGPT bridge architecture (source preserved on `rewrite/rust-core`).

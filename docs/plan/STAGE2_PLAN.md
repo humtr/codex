@@ -1,6 +1,6 @@
 # Stage 2 Reintegration Procedure and Implementation Plan
 
-> **Status:** Implementation execution guide & architecture transition plan (derived from [SPEC.md](../SPEC.md), [DELIVERY.md](spec/DELIVERY.md), [USER_INTERFACES.md](spec/USER_INTERFACES.md), [BRIDGE.md](spec/BRIDGE.md), and inspected preserved sources).
+> **Status:** Implementation execution guide & architecture transition plan (derived from [SPEC.md](../../SPEC.md), [DELIVERY.md](../spec/DELIVERY.md), [USER_INTERFACES.md](../spec/USER_INTERFACES.md), [BRIDGE.md](../spec/BRIDGE.md), and inspected preserved sources).
 > **Current implementation state:** Only **Stage 1** (`crates/wrapper` + `crates/release-builder`, standalone Termux wrapper) is implemented on `rewrite/wrapper`. Do **not** begin coding Stage 2 Phases 2.1–2.5 out of order; each phase has explicit prerequisites and exit gates below.
 
 ---
@@ -10,7 +10,7 @@
 1. **Preserve Stage 1 independence at every phase:**
    - Bare `codex` (and `codex --version`, `-V`, `--help`, `-h`, `help`, `codex update --upstream`, `codex doctor`, `codex wrapper status`) must remain runnable with **zero** dependency on Node.js, Manager, enhanced TUI, Provider, network indices, or Termux:API apps.
    - `crates/wrapper` (`codex` CLI binary) keeps bare runtime fast path: zero addon probes, zero Manager IPC spawns, and zero extra writes/locks/`fsync` calls on unchanged launches when no optional module is enabled.
-   - `Cargo.lock` for bare Stage 1 Wrapper currently locks only `codex`, `codex-release-builder`, and `libc` (`=0.2.186`), enforced by [`.github/workflows/wrapper.yml`](../.github/workflows/wrapper.yml). Any Stage 2 workspace additions (`crates/manager`, `crates/runtime-binding`, TOML/JSON/WS dependencies) must keep bare `crates/wrapper` dependency-isolated or intentionally update the CI workspace check alongside separate package boundaries so Manager/source-builder crates never become runtime or build prerequisites for bare execution.
+   - `Cargo.lock` for bare Stage 1 Wrapper currently locks only `codex`, `codex-release-builder`, and `libc` (`=0.2.186`), enforced by [`.github/workflows/wrapper.yml`](../../.github/workflows/wrapper.yml). Any Stage 2 workspace additions (`crates/manager`, `crates/runtime-binding`, TOML/JSON/WS dependencies) must keep bare `crates/wrapper` dependency-isolated or intentionally update the CI workspace check alongside separate package boundaries so Manager/source-builder crates never become runtime or build prerequisites for bare execution.
 2. **Authoritative Source Lineage — Do NOT Wholesale-Restore `ebb0b519`:**
    - `origin/main` (`f9c75f55`) tracks only 19 release/index/config files (`release-source-v1`, `release-intent-v1`, `release-frontend-v1`, `provider-source-v1`, `provider-index-v1(.sig)`, `update-index-v1(.sig)`, `update-index-base-v1(.sig)`, `.github/`, `AGENTS.md`, `README.md`) — it has **zero** Rust/frontend/provider source crates.
    - **`rewrite/rust-core` (`c200e676`)** is the authoritative preserved Stage 2 source tree (`crates/core`, `crates/runtime-binding`, `crates/manager`, `crates/release-builder`, `frontend/tui`, `providers/chatgpt`, `transport/tunnel-client`, `.github/scripts`).
@@ -166,6 +166,6 @@
 
 ## 4. Pre-Stage-2 Checklist (Already Completed on `rewrite/wrapper`)
 
-- Unified naming (`wrapper`, `codex-wrapper`, `codex-local-generation`, `codex-activation-state`, `package-root`, `termux-fd-remap`, `termux-uds-fd35`) across code, tests, [`install.sh`](../install.sh), [`.github/workflows/wrapper.yml`](../.github/workflows/wrapper.yml), and documentation.
+- Unified naming (`wrapper`, `codex-wrapper`, `codex-local-generation`, `codex-activation-state`, `package-root`, `termux-fd-remap`, `termux-uds-fd35`) across code, tests, [`install.sh`](../../install.sh), [`.github/workflows/wrapper.yml`](../../.github/workflows/wrapper.yml), and documentation.
 - Removed legacy `99b` / `R10` / `helpers/{0,1}` / `RootCodeModeHost` / `upstream_doctor` / version-pinned tests.
 - Passed local checks (`ruby` Psych YAML, `sh -n` / `shellcheck`, `cargo fmt`, `clippy`, `cargo test --workspace --locked`, isolated AArch64 mock-ELF E2E) and GitHub Actions `Wrapper CI` (`checks`, `android-package`, `android-smoke`).

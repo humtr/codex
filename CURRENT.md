@@ -44,7 +44,7 @@ The unified `wrapper` naming and suffix-free internal formats are now implemente
 - **Unified formats:** `codex-local-generation`, `package-root`, `termux-fd-remap`, `termux-uds-fd35`, `wrapper-api`, `schema`, `codex-wrapper`, `termux-browser-open`, `termux-browser-manual`, `codex-activation-state`, `codex-activation-journal`, `downloads/`, `# codex-termux-wrapper`, and `doctor --json` `schema_version: 1`.
 
 ### Stage 2 Plan (Documented — Not Started on `rewrite/wrapper`)
-See [docs/STAGE2_PLAN.md](docs/STAGE2_PLAN.md) for the verified phase-by-phase reintegration procedure, `c200e676` vs `ebb0b519` regression protections, suffix-removal schema rules, live-device safety checks, and verification gates. Summary sequence:
+See [docs/plan/STAGE2_PLAN.md](docs/plan/STAGE2_PLAN.md) for the verified phase-by-phase reintegration procedure, `c200e676` vs `ebb0b519` regression protections, suffix-removal schema rules, live-device safety checks, and verification gates. Summary sequence:
 1. **`wrapper.toml` & Generic Extension Contract (Phase 2.1):**
    - Introduce `~/.local/share/codex/wrapper/wrapper.toml`, `codex wrapper setup`, `codex wrapper --bare`, and `codex wrapper --with <MODULES>`, plus conditional FD 34 system configuration snapshots (`config/snapshots/<id>/`) while keeping bare `codex` / `codex --version` zero-write and free of addon crates or IPC.
 2. **`--signed` Ed25519 Channel Verification & Publication (Phase 2.2):**
@@ -60,7 +60,7 @@ See [docs/STAGE2_PLAN.md](docs/STAGE2_PLAN.md) for the verified phase-by-phase r
 All decoupled Stage 2 components are absent from `rewrite/wrapper` and preserved in Git history:
 - **Reference git baselines:**
   - `rewrite/rust-core` (`c200e676`): **authoritative preserved Stage 2 source tree** (`crates/{core,manager,release-builder,runtime-binding}`, `frontend/tui/`, `providers/chatgpt/`, `transport/tunnel-client/`, `.github/scripts/`).
-  - Pre-split `ebb0b519` (in `rewrite/wrapper` history): contains useful `core -> wrapper` transition adapters (`window.rs --ei`, `PackageRoot` `bin/codex` acceptance, `CODEX_PROFILE_WRAPPER`), but **silently reverts ~70+ `c200e676` security/completeness fixes** — never restore wholesale (see [docs/STAGE2_PLAN.md](docs/STAGE2_PLAN.md)).
+  - Pre-split `ebb0b519` (in `rewrite/wrapper` history): contains useful `core -> wrapper` transition adapters (`window.rs --ei`, `PackageRoot` `bin/codex` acceptance, `CODEX_PROFILE_WRAPPER`), but **silently reverts ~70+ `c200e676` security/completeness fixes** — never restore wholesale (see [docs/plan/STAGE2_PLAN.md](docs/plan/STAGE2_PLAN.md)).
   - `origin/main` (`f9c75f55`): 19 release-index/caller/workflow files for the `0.167.2` public lane (`release-source-v1`, `release-intent-v1`, `release-frontend-v1`, `provider-source-v1`, `provider-index-v1(.sig)`, `update-index-v1(.sig)`, `update-index-base-v1(.sig)`, `.github/`, `AGENTS.md`, `README.md`); contains no source crates.
 - **Removed from `rewrite/wrapper` (recoverable via `git show c200e676:<path>`):**
   - Workspace & addon trees: `crates/manager/`, `crates/runtime-binding/`, `frontend/tui/`, `providers/chatgpt/`, `transport/tunnel-client/`, `bootstrap/`, `install-online.sh`, `release/`, `scripts/`, legacy `.github/` workflows/scripts, `docs/development/`, `AUDIT.md`, `PRO_HANDOFF.md`, `WORK_SCOPE_REVIEW.md`.

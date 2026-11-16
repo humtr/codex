@@ -11,7 +11,7 @@ or test-run ID determines the meaning of this specification.
 
 The current implementation, release sources, verified evidence and outstanding
 work are reported in [CURRENT.md](CURRENT.md), and the detailed Stage 2
-reintegration procedure lives in [docs/STAGE2_PLAN.md](docs/STAGE2_PLAN.md). Development behavior is
+reintegration procedure lives in [docs/plan/STAGE2_PLAN.md](docs/plan/STAGE2_PLAN.md). Development behavior is
 defined in [AGENTS.md](AGENTS.md). Version-specific prior adaptations and
 historical acceptance are recorded separately in
 [release history](docs/history/GENERATION_ADMISSION.md). This specification

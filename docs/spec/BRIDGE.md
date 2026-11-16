@@ -1,7 +1,7 @@
 # Native sessions, model transport, and ChatGPT Bridge contracts
 
 **Status:** Normative detail of [SPEC.md](../../SPEC.md).
-> **Stage scope:** Bridge (`providers/chatgpt`, `transport/tunnel-client`), `@TermuxBridge` tool schemas, and Manager/TUI coordination are **Stage 2 Phase 2.5 modular opt-in components** (absent from Stage 1 standalone Wrapper; see [docs/STAGE2_PLAN.md](../STAGE2_PLAN.md)). Public CLI management routes unify under `codex wrapper provider ...`. Internal references below to persisted Bridge work-record/owner versions (`v1`/`v2`/`v3` + `migrate-inference`, `config-v1`, historical `catalog-v1`) describe our own `providers/chatgpt` local state/journal codec for live-data and `@TermuxBridge` compatibility across reintegration rather than external ChatGPT schemas or Wrapper API version suffixes.
+> **Stage scope:** Bridge (`providers/chatgpt`, `transport/tunnel-client`), `@TermuxBridge` tool schemas, and Manager/TUI coordination are **Stage 2 Phase 2.5 modular opt-in components** (absent from Stage 1 standalone Wrapper; see [docs/plan/STAGE2_PLAN.md](../plan/STAGE2_PLAN.md)). Public CLI management routes unify under `codex wrapper provider ...`. Internal references below to persisted Bridge work-record/owner versions (`v1`/`v2`/`v3` + `migrate-inference`, `config-v1`, historical `catalog-v1`) describe our own `providers/chatgpt` local state/journal codec for live-data and `@TermuxBridge` compatibility across reintegration rather than external ChatGPT schemas or Wrapper API version suffixes.
 
 The platform's Native runtime owns execution, approvals, history and writer
 authority. This document defines feature-specific interactions and acceptance

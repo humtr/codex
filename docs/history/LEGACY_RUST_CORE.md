@@ -4,7 +4,7 @@
 >
 > - Current operational status and evidence: [CURRENT.md](../../CURRENT.md)
 > - Normative product contract: [SPEC.md](../../SPEC.md)
-> - Stage 2 reintegration procedure and plan: [STAGE2_PLAN.md](../STAGE2_PLAN.md)
+> - Stage 2 reintegration procedure and plan: [STAGE2_PLAN.md](../plan/STAGE2_PLAN.md)
 > - Preserved source baseline referenced below: Git branch `rewrite/rust-core` (`c200e676`) and operating index baseline `origin/main` (`f9c75f55`)
 
 ---

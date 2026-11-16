@@ -6,7 +6,7 @@ rollback, device compatibility and qualification behavior. Exact upstream
 release identities and prior patch/admission reports are evidence outside
 this contract, not a condition requiring a new specification on every upgrade.
 
-> **Stage scope:** Active Stage 1 standalone delivery (`install.sh`, `codex update --upstream|--path|--rollback`, `package-root`, adaptive `termux-fd-remap`/`termux-uds-fd35`, and `codex doctor`) is documented alongside deferred Stage 2 optional extensions (`--signed`, `publish`/`fetch`, `asset-map.json`, Manager/TUI composition, and shared-server snapshots). Stages and implementation status live in [CURRENT.md](../../CURRENT.md) and [docs/STAGE2_PLAN.md](../STAGE2_PLAN.md).
+> **Stage scope:** Active Stage 1 standalone delivery (`install.sh`, `codex update --upstream|--path|--rollback`, `package-root`, adaptive `termux-fd-remap`/`termux-uds-fd35`, and `codex doctor`) is documented alongside deferred Stage 2 optional extensions (`--signed`, `publish`/`fetch`, `asset-map.json`, Manager/TUI composition, and shared-server snapshots). Stages and implementation status live in [CURRENT.md](../../CURRENT.md) and [docs/plan/STAGE2_PLAN.md](../plan/STAGE2_PLAN.md).
 
 ## Base qualification
 
@@ -644,7 +644,7 @@ digest checks. Reuse never skips complete candidate admission or repairs a corru
 immutable generation. A rollback followed by an authenticated force retry must
 work with the retained target's runtime origin unavailable.
 Implementation, qualification, publication and device activation remain
-separate states. [CURRENT.md](../../CURRENT.md) and [docs/STAGE2_PLAN.md](../STAGE2_PLAN.md) record sequence and proof status.
+separate states. [CURRENT.md](../../CURRENT.md) and [docs/plan/STAGE2_PLAN.md](../plan/STAGE2_PLAN.md) record sequence and proof status.
 
 #### Signed composition and public qualification
 
