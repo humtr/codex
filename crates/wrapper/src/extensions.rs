@@ -88,7 +88,7 @@ impl WrapperSettings {
             ));
         }
         let mut bytes = Vec::new();
-        file.by_ref()
+        std::io::Read::by_ref(&mut file)
             .take(SETTINGS_MAX_BYTES + 1)
             .read_to_end(&mut bytes)?;
         if bytes.len() as u64 > SETTINGS_MAX_BYTES {
