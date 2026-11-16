@@ -43,6 +43,74 @@ The unified `wrapper` naming and suffix-free internal formats are now implemente
 - **CI & release artifacts:** `.github/workflows/wrapper.yml` (`Wrapper CI`, concurrency group `wrapper-${{ github.ref }}`, artifact `wrapper-android`, release tags `wrapper`, `wrapper-*`, `v*`), `install.sh` (`DEFAULT_RELEASE_TAG='wrapper'`, `codex-wrapper-aarch64-linux-android.tar.gz` + `.sha256`), and `README.md` URLs are cut over; promotion to `main` remains deferred until merge.
 - **Unified formats:** `codex-local-generation`, `package-root`, `termux-fd-remap`, `termux-uds-fd35`, `wrapper-api`, `schema`, `codex-wrapper`, `termux-browser-open`, `termux-browser-manual`, `codex-activation-state`, `codex-activation-journal`, `downloads/`, `# codex-termux-wrapper`, and `doctor --json` `schema_version: 1`.
 
+### Stage 1 operational requalification (2026-11-16, actual Termux device)
+
+A **separate owned disposable** checkout and HOME/PREFIX/CODEX_HOME/TMPDIR
+were used on an actual Android AArch64 Termux device (Android API 37); the
+installed `$PREFIX/bin/codex`, credentials, profiles, existing Provider/Bridge
+services, and production generation pointers were **not** modified.
+
+- Checked out `work/wrapper-stage1-operational-20261116` at
+  `a224f223` for the native release build: `cargo build --release --locked`
+  compiled `codex` and `codex-release-builder`; `install.sh --binary
+  ... --skip-upstream` installed the binary into an isolated PREFIX. Upstream
+  **real official archives** were verified and adapted by the candidate
+  Wrapper: `0.167.0 -> 0.169.0`, `codex --version` showed both exact
+  versions, `codex update --rollback` returned to `0.167.0`, and a repeat
+  `0.169.0` update succeeded. The generation layout was `package-root`.
+- Physical device CLI evidence: bare help and `exec --help`,
+  `app-server daemon --help`, `remote-control --help` passed;
+  unsupported Linux `--sandbox read-only` / `sandbox linux` returned
+  exit `2`; `codex wrapper status --json` reported active `0.169.0`
+  and `addons=none`. Wrapper section of `codex doctor --json` was
+  `healthy` with both runtime and Code Mode host healthy; *combined*
+  doctor was `unhealthy` because the intentionally empty isolated
+  `CODEX_HOME` has **no authentication**, not because Wrapper generation
+  failed.
+- Installer negative proof ran on the same actual Termux device using the
+  **GitHub-updated installer** (after SHA-256 checked-copy backup replaced
+  hard-link backup): offline forced failure **after binary swap** restored
+  the previous bytes exactly (`cmp`), the failed *first install* removed
+  the candidate, and successful `--skip-upstream` committed cleanly.
+  Rejected symlink/stale-lock tests are included in the Android Bionic CI job.
+- **Open release gate:** an isolated `codex app-server daemon start`
+  against the adapted `0.169.0` returned `1`:
+  `path must be shorter than SUN_LEN` from the managed daemon. This
+  reproduced with a short physical `CODEX_HOME` (42 bytes; advertised
+  control socket 85 bytes), short TMPDIR, and real Termux PREFIX;
+  an additional independent fixture with `CODEX_HOME` **39 bytes**
+  failed likewise, as did a direct `app-server --listen unix://<short-path>`
+  socket test. The pre-cutover installed Wrapper binary was **copied** to
+  an isolated prefix and independently adapted the official `0.169.0`
+  archive; that old Wrapper copy reproduced the same failure. Thus this
+  is not proven to be caused by the Stage 1 suffix cleanup or new installer.
+  `daemon stop` returned `notRunning` without changing an existing
+  service. A final **default `codex` PTY run also failed** (exit `1`)
+  with the same `SUN_LEN` error in the shortest isolated home; explicit
+  `codex --no-daemon` initialized the PTY screen but was deliberately
+  time-limited (exit `124`), **not** an authenticated task-completion or
+  default-launch pass. The exact failed producer path / upstream-vs-adaptation
+  root cause is **not established**. Help passthrough does not qualify daemon
+  lifecycle. Actual remote-control start/pair/stop and external client
+  pairing on this final source are also unverified; no authorized user
+  account was copied into the isolated fixture.
+- **Operating verdict:** standalone installation, official-upstream
+  update/rollback, adaptation, and recovery boundaries pass on a physical
+  device, but **full Stage 1 operating acceptance is not complete** while
+  **default PTY launch and managed daemon lifecycle remain broken**
+  and connected-client proof remains outstanding. Do not represent a synthetic
+  Bionic CI job or the
+  auth-free isolated doctor as proof of the missing stages.
+- `install.sh` failure rollback is caught-exit/signal safe, not a
+  cross-power-loss transaction; after SIGKILL/power loss, an owned
+  `.codex.previous.<pid>` may remain behind a stale install lock and
+  requires inspected manual recovery. This is explicitly documented in
+  `README.md` and independently exercised by the new CI test fixture.
+
+The Stage 2 recurring official-upstream adoption controller and CI
+environment comparison are now documented in `docs/plan/STAGE2_PLAN.md`;
+no scheduler, automatic publication or production runtime deployment occurred.
+
 ### Stage 2.1 — Optional settings and CLI admission groundwork (2026-11-16)
 
 Implemented via [PR #31](https://github.com/humtr/codex/pull/31), without
@@ -67,7 +135,7 @@ service restart, signed publication or connected-client proof occurred.
 their bounded `features list` validation, with a qualified module producer
 and lifetime/cleanup tests. Phases 2.2–2.5 remain unstarted.
 
-### Stage 2 Plan (Documented — Phases 2.1–2.5 pending qualification)
+### Stage 2 Plan (Documented — Phases 2.1–2.6 pending qualification)
 See [docs/plan/STAGE2_PLAN.md](docs/plan/STAGE2_PLAN.md) for the verified phase-by-phase reintegration procedure, `c200e676` vs `ebb0b519` regression protections, suffix-removal schema rules, live-device safety checks, and verification gates. Summary sequence:
 1. **`wrapper.toml` & Generic Extension Contract (Phase 2.1):**
    - Introduce `~/.local/share/codex/wrapper/wrapper.toml`, `codex wrapper setup`, `codex wrapper --bare`, and `codex wrapper --with <MODULES>`, plus conditional FD 34 system configuration snapshots (`config/snapshots/<id>/`) while keeping bare `codex` / `codex --version` zero-write and free of addon crates or IPC.
@@ -79,6 +147,13 @@ See [docs/plan/STAGE2_PLAN.md](docs/plan/STAGE2_PLAN.md) for the verified phase-
    - Rebase `frontend/tui` from `c200e676` (`086ccc8...` / `0.167.0`) onto current upstream (`>= 0.169.0`), decouple capability probing from `upstream_package_version`, apply adaptive `runtime_patch`, and attach opt-in via `wrapper.toml` / `--with tui`.
 5. **Optional `chatgpt` Provider & Tunnel Reattachment (Phase 2.5):**
    - Port `providers/chatgpt` and `transport/tunnel-client` from `c200e676` to `wrapper` roots / `bin/codex` / `execution.wrapper` behind `codex wrapper provider ...` with an independent Provider CI gate and non-disruptive live `@TermuxBridge` cutover.
+
+6. **Continuous Upstream Adoption (Phase 2.6):** Define scheduled read-only
+   official-stable discovery, immutable digest/source/toolchain inputs,
+   standalone base and physical-device admission, independent optional module
+   evidence, gated signing/publication, safe reuse and rollback. This is a
+   documented Stage 2 work item, not a running scheduler or a dependency
+   of manual `codex update --upstream`.
 
 ### Decoupled Modules Index & Stage 2 Baselines
 All decoupled Stage 2 components are absent from `rewrite/wrapper` and preserved in Git history:

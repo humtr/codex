@@ -79,6 +79,26 @@ Useful installer options (`./install.sh --help`):
 - `--version <X.Y.Z>`: bootstrap a specific upstream Codex release version during install.
 - `--skip-upstream`: install `$PREFIX/bin/codex` without running `codex update --upstream` immediately.
 
+## Installer failure recovery
+
+`install.sh` serializes only the **final executable swap** with
+`$PREFIX/bin/.codex-install.lock`. After validating the new binary it keeps
+a same-directory SHA-256-verified copy (`.codex.previous.<pid>`) of an existing
+regular `$PREFIX/bin/codex` until the requested upstream bootstrap finishes.
+A failed bootstrap or a caught HUP/INT/TERM restores that executable; a failed
+first install removes the unsuccessful new executable. A successful
+`--skip-upstream` install commits immediately. Symlink destinations and
+competing installers are rejected rather than overwritten; the independent
+upstream-generation update/rollback remains managed by `codex update`.
+
+A forced SIGKILL, kernel crash or power loss **cannot run the shell recovery
+trap**. In that event inspect the lock and any retained
+`.codex.previous.*` inside `$PREFIX/bin`, verify the old/new executables
+and active generation first, and deliberately restore the saved file when
+needed. Do **not** blindly remove a stale lock/backup or assume a new binary
+is qualified. This is recoverable failure handling, not yet a full persistent
+cross-power-loss installer journal.
+
 ## Managing Upstream Codex Generations
 
 After `codex` is installed:
