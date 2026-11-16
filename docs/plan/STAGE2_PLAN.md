@@ -1,7 +1,7 @@
 # Stage 2 Reintegration Procedure and Implementation Plan
 
 > **Status:** Implementation execution guide & architecture transition plan (derived from [SPEC.md](../../SPEC.md), [DELIVERY.md](../spec/DELIVERY.md), [USER_INTERFACES.md](../spec/USER_INTERFACES.md), [BRIDGE.md](../spec/BRIDGE.md), and inspected preserved sources).
-> **Current implementation state:** **Stage 1** (including adaptive Issue #33 FD 35 `realpath` + multi-gap/trailing RX relocation) and **Phase 2.1** (`wrapper.toml`, `codex wrapper setup`/`--bare`/`--with`, and the conditional FD 34 snapshot engine in `crates/wrapper`) have source implementation and scoped workspace/API 37 Termux evidence; no addon binaries (`manager`, `tui`, `provider`) are attached. FD 34 concurrent publication/pruning is repaired and covered by process tests; actual producer integration remains unqualified. Phases 2.2–2.6 remain pending. The current priority is standalone compatibility and recurring upstream adoption before optional module attachment; base discovery and qualification in Phase 2.6 need not wait for Phases 2.2–2.5.
+> **Current implementation state:** **Stage 1** (including adaptive Issue #33 FD 35 `realpath` + multi-gap/trailing RX relocation) and **Phase 2.1** (`wrapper.toml`, `codex wrapper setup`/`--bare`/`--with`, and the conditional FD 34 snapshot engine in `crates/wrapper`) have source implementation and scoped workspace/API 37 Termux evidence; no addon binaries (`manager`, `tui`, `provider`) are attached. FD 34 concurrent publication/pruning is repaired and covered by process tests; actual producer integration remains unqualified. Phases 2.2–2.5 remain pending; Phase 2.6 has read-only discovery and qualification support. The current priority is standalone compatibility and recurring upstream adoption before optional module attachment; base discovery and qualification in Phase 2.6 need not wait for Phases 2.2–2.5.
 
 ---
 
@@ -164,7 +164,7 @@
 
 ---
 
-## 4. Phase 2.6 — Continuous Upstream Adoption Controller (Planned, Not Implemented)
+## 4. Phase 2.6 — Read-only Upstream Discovery and Qualification
 
 **User request, 2026-11-16:** Treat recurring official-upstream adoption as a
 Stage 2 delivery work item. It must **extend** the single Stage 1
@@ -173,7 +173,20 @@ version selector, updater, daemon, account dependency, or signature authority.
 The ordinary standalone update and rollback remain usable independently of this
 automation and of every optional module.
 
-**Prerequisites:** close any remaining live/connected-client Stage 1 acceptance items and
+**Implemented base path:** `codex update --check --json` owns official latest/exact
+descriptor comparison and immutable archive metadata. It creates no installed
+state. Shared `wrapper-verify.yml` owns the existing check/package/Bionic jobs
+and explicit account-free qualification with `qualify_wrapper.py`; the ordinary
+`wrapper.yml` caller retains publication separately. Read-only scheduled callers
+pin an accepted source SHA and invoke this same graph without publication
+permissions, personal-device checks, account names or private paths.
+
+The available Termux environment and existing login were exercised once for this
+work. They are not a required recurring phone/account matrix. Optional additional
+Android/page-size or external-client evidence is reported by observed boundary;
+16-KiB ELF geometry is not actual 16-KiB-kernel execution.
+
+**Prerequisites for publication:** close any remaining live/connected-client Stage 1 acceptance items and
 coordinate with signed-channel Phase 2.2 before enabling signed publication. Read-only discovery and isolated base qualification are the next implementation priority and can proceed before optional modules;
 base upstream **qualification and publication must never wait for TUI, Manager
 or Provider**. The automation is not a license to skip any active gate.
@@ -228,7 +241,8 @@ failed readback and successful newer release. The workflow must publish a
 traceable accepted tuple, and a failed candidate must not change an active
 device or existing release pointer. Record exact CI run IDs and physical
 device receipts in `CURRENT.md`. No scheduled publication is currently
-approved or running.
+approved or running. Read-only discovery/qualification is separate and does not
+write a release, signature, accepted-input pointer or live device.
 
 ---
 

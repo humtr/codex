@@ -134,8 +134,9 @@ skipped. This establishes neither refreshed public assets nor device activation.
   in `$PREFIX/tmp/wrapper-base-review-20261116.rl4paotf/`. No fixture executables
   remain running. Installed `$PREFIX/bin/codex` stayed at SHA-256 `b6611c3a...`.
 
-**Remaining base qualification:** update-time automatic runtime admission still
-probes `--version`, not the full daemon/PTY/tool boundary. New musl code generation
+**Remaining base qualification at that review:** update-time automatic admission
+then probed only `--version`; the follow-up below adds bounded configuration
+admission and completes the requested one-time full current-environment tests. New musl code generation
 or UDS markers can require adaptation work; this is not proof of arbitrary future
 release compatibility. API 24/other Android versions and 16 KiB pages, authenticated
 model/Code Mode completion, external remote-control pairing and refreshed release
@@ -144,6 +145,55 @@ release discovery and reusable isolated base qualification through the existing
 updater/builder, with physical-device promotion evidence; optional modules and
 signed channels must not delay that work.
 
+### Standalone qualification and read-only upstream discovery follow-up (2026-11-16)
+
+- The reported FD 34 race is repaired (details below), with the original failure
+  reproduced before the fix and concurrent process/lifetime/recovery tests passing.
+- `codex update --check [--version ...] [--json]` reuses the existing official
+  resolver/transport, cross-checks latest against an exact descriptor, and emits
+  exact archive/metadata/wrapper SHA-256 inputs without creating installed state,
+  recovering activation journals, downloading a runtime or invoking retention.
+  Draft/prerelease and divergent descriptors fail. Unpinned updates reject an
+  unintended downgrade. A real official-latest check resolved `0.169.0` and left
+  the owned HOME without `.local/`.
+- Local format/Clippy/workspace tests passed (`codex`: 47; release-builder: 8; zero failures).
+- Update admission now checks exact upstream version output and `features list`
+  in a fresh account-free HOME/CODEX_HOME, with 10-second and 64-KiB stream bounds.
+  The obsolete unbounded doctor probe was removed. This adds no ordinary-launch
+  probes, account requirement, device allowlist or addon dependency.
+- `.github/scripts/qualify_wrapper.py` is a reusable fresh-root test through the
+  public installer/updater/launcher, not a second release resolver or adaptor.
+  It records observed OS/page size, immutable source/artifact inputs, Native RPC
+  file effects, daemon PID/executable identity, actual control connection, sized
+  PTY rendering, diagnosis and exact-generation rollback/restoration. Shared
+  read-only `.github/workflows/wrapper-verify.yml` retains the three existing
+  check/package/Bionic jobs and supports explicit discovery/qualification and
+  reuse only of identical completed proof. Publication stays in `wrapper.yml`.
+- **Actual current-environment one-time proof:** isolated API 37 / 4 KiB Termux
+  `0.167.0 -> 0.169.0`, all companion entrypoints, daemon start/version/stop,
+  Native `command/exec` with checked file bytes, default 30x100 PTY rendering,
+  rollback to the exact `0.167.0` generation and restoration of `0.169.0` passed.
+  Wrapper doctor was healthy; intentionally account-free overall diagnosis was
+  unhealthy. All selected ELFs had 16-KiB-compatible load alignment. This is
+  geometry proof, not execution on a 16-KiB kernel or an older Android release.
+- **Actual authenticated one-time proof:** the existing Codex ChatGPT login was
+  used without copying credentials or supplying a Platform API key. An ephemeral
+  public-Wrapper `--no-daemon exec` task completed a Native shell command and
+  wrote the exact requested nonce file in an owned workspace. Exit was 0;
+  authentication-file size/mtime and existing daemon-settings SHA-256 were
+  unchanged. Evidence is in Termux's original
+  `$PREFIX/tmp/wrapper-qualify-20261116.zfwbz818/` (`base-final/report.json` and
+  `authenticated-report.json`). The first harness run's doctor-schema KeyError
+  was retained; it was a harness assertion error after healthy Wrapper diagnosis,
+  not a runtime failure. The corrected fresh-root run passed.
+
+The user's requested boundary is a one-time check of the available environment,
+not a hardcoded recurring check of this phone, account, API level or private path.
+No other Android/page-size environment or real external remote-control client
+has been exercised here. Public release refresh and production activation remain
+separate from source qualification. Existing credentials, sessions, services,
+signed release inputs and the installed Wrapper remain preserved.
+
 ### Stage 2.1 — Optional settings, CLI hooks, and FD 34 snapshot engine (2026-11-16)
 
 Implemented beyond initial PR #31 without attaching Manager, enhanced TUI, Provider, or external crates beyond `libc`:
@@ -151,7 +201,7 @@ Implemented beyond initial PR #31 without attaching Manager, enhanced TUI, Provi
 - `codex wrapper setup [show|--bare|--enable|--disable|--signed-update]` supports multi-flag updates in one invocation, `--bare` preserves `signed_update`, `codex wrapper status [--json]` reports `signed_update` and `addons`, invocation-local `--bare` and `--with` enforce fail-closed validation on missing modules, and bare `--version`/`--help` retain the zero-write fast path (zero `wrapper.toml`, `config/snapshots/`, or `app-server-daemon/settings.json` writes).
 - Conditional FD 34 snapshot engine (`crates/wrapper/src/system_config.rs` + `UpstreamRuntimeHost` in `main.rs`): enforces `FRAGMENT_LIMIT` (`8192` B) and `CONFIG_LIMIT` (`16384` B), derives FNV-1a `"config-v1"` `settings_identity`, validates via cached `validated-<key>` 5s bounded `features list` probe, and holds `flock(LOCK_SH)` across FD 34 child execution. The reported concurrency defect is now repaired: prepare and prune hold the same configuration-directory coordinator, complete new records in unpublished staging, atomically publish the directory with its shared lease already held, and reject/preserve incomplete published state. A regression first failed on the old pruning path; all seven snapshot tests then passed on actual API 37 Termux, including four concurrent creator/pruner processes, interrupted publication and child-inherited FD 34 retention. Actual Manager producer attachment remains unqualified; bare execution bypasses this engine.
 
-**Verification & open boundary:** PR #31 hardening + `system_config` + Issue #33 fixes are verified by workspace unit tests (`codex`: `40 passed; 0 failed`, `codex-release-builder`: `6 passed; 0 failed`) and isolated Termux API 37 runtime checks (multi-flag setup, `--bare` preserving `signed_update`, `(umask 0022)` `755`/`700` XDG modes, AArch64 `O_NOFOLLOW` symlink rejection, unavailable `--with manager` failure, zero-write bare launch). Actual addon module binaries/producers (`manager`, `tui`, `provider`) are not yet attached in Stage 1/2.1; cross-process shared-server integration of FD 34 snapshots will exercise with a real Manager producer in Phase 2.3. Phases 2.2–2.6 remain unstarted.
+**Verification & open boundary:** PR #31 hardening + `system_config` + Issue #33 fixes are verified by workspace unit tests (`codex`: `40 passed; 0 failed`, `codex-release-builder`: `6 passed; 0 failed`) and isolated Termux API 37 runtime checks (multi-flag setup, `--bare` preserving `signed_update`, `(umask 0022)` `755`/`700` XDG modes, AArch64 `O_NOFOLLOW` symlink rejection, unavailable `--with manager` failure, zero-write bare launch). Actual addon module binaries/producers (`manager`, `tui`, `provider`) are not yet attached in Stage 1/2.1; cross-process shared-server integration of FD 34 snapshots will exercise with a real Manager producer in Phase 2.3. Phases 2.2–2.5 remain unstarted; Phase 2.6 read-only discovery and qualification are implemented separately.
 
 ### Stage 2 Plan (Documented — Phases 2.1–2.6 pending qualification)
 See [docs/plan/STAGE2_PLAN.md](docs/plan/STAGE2_PLAN.md) for the verified phase-by-phase reintegration procedure, `c200e676` vs `ebb0b519` regression protections, suffix-removal schema rules, live-device safety checks, and verification gates. Summary sequence:
