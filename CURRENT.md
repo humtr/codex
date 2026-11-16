@@ -265,12 +265,29 @@ remains separate from source qualification and local activation.
   The corrected probe retained the real environment and passed without changing
   the timeout or starting another model task. Preparation-only directory-sync
   errors also remain recorded; no live binary/state had changed at those errors.
-- Existing shared-server processes, their control socket bindings and active
-  work were retained. In particular, the currently connected conversation still
-  runs in the previously started `szob` server. New CLI/stdio execution uses the
-  activated candidate; existing shared-server connections and reconnect bindings
-  were not hot-migrated. Signed publication inputs, release assets, profile
-  configuration, and the system resolver were not changed.
+- Existing shared-server connections and active work were retained while the
+  two participating profiles' default endpoints were moved to upstream-managed
+  daemons launched through the newly installed Wrapper. New `janmori101` PID
+  `17578` and `szob` PID `17776` both executed the complete adapted package at
+  SHA-256 `69892b8420314c92c1119450887166dbcf6ac562fab0fe665c567409f990aac0`,
+  matching the activated generation. Public daemon version/control connections
+  and independent WebSocket peer-PID checks verified the new endpoints. The old
+  servers remained alive for their existing clients; the current conversation
+  still runs in its earlier `szob` server until that client closes. A subsequent
+  connection uses the new default endpoint.
+- The upstream config API persisted `thread_unload_delay_secs = 0` in these two
+  profiles, retaining the immediate-idle-unload behavior previously supplied by
+  Wrapper shared-server configuration. All other parsed configuration values
+  were checked equal. No credential was copied or edited. The previous endpoint
+  symlinks and their targets are recorded in the recovery root. Signed publication
+  inputs, release assets, and the system resolver were not changed.
+- A separate owned test thread, with **no model inference**, was started on the
+  new first-profile server, unsubscribed, and observed releasing its kernel
+  writer lock. The same thread ID resumed on the new second-profile server and
+  acquired that server's writer ownership. Both servers reported an effective
+  unload delay of zero. The upstream API then deleted only this owned test thread;
+  its rollout and writer lock were confirmed absent. `server-handover.json`
+  records the successful server and profile-handover verification.
 
 ### Stage 2.1 — Optional settings, CLI hooks, and FD 34 snapshot engine (2026-11-16)
 
