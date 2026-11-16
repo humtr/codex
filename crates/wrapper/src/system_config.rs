@@ -4,7 +4,7 @@ use std::ffi::OsStr;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Write as _};
 use std::os::unix::ffi::OsStrExt as _;
-use std::os::unix::fs::OpenOptionsExt as _;
+use std::os::unix::fs::{DirBuilderExt as _, OpenOptionsExt as _};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::Ordering;
@@ -157,23 +157,80 @@ pub(super) fn prepare(
     )?;
     let snapshots = config_root.join("snapshots");
     fs_util::private_dir(&snapshots)?;
-    drop(parent);
-
     let settings_id = settings_identity(&config, requirements);
     let path = snapshots.join(&settings_id);
-    fs_util::private_dir(&path)?;
-    let lease = File::open(&path)?;
-    fs_util::flock_with_timeout(
-        &lease,
-        fs_util::LOCK_SH,
-        LOCK_TIMEOUT,
-        "wrapper FD 34 snapshot lock busy",
-    )?;
-
-    immutable_record(&path.join("config.toml"), Some(&config), CONFIG_LIMIT)?;
-    immutable_record(&path.join("requirements.toml"), requirements, CONFIG_LIMIT)?;
-
-    Ok(PreparedSnapshot { path, lease })
+    match fs::symlink_metadata(&path) {
+        Ok(_) => {
+            fs_util::private_dir(&path)?;
+            let lease = File::open(&path)?;
+            fs_util::flock_with_timeout(
+                &lease,
+                fs_util::LOCK_SH,
+                LOCK_TIMEOUT,
+                "wrapper FD 34 snapshot lock busy",
+            )?;
+            // A published directory must already contain the complete snapshot.
+            // Never repair partial or foreign state in place.
+            for (name, expected) in [
+                ("config.toml", Some(config.as_slice())),
+                ("requirements.toml", requirements),
+            ] {
+                match (
+                    fs_util::read_bounded_regular(
+                        &path.join(name),
+                        CONFIG_LIMIT,
+                        true,
+                        "immutable FD 34 snapshot file is unsafe",
+                    ),
+                    expected,
+                ) {
+                    (Ok(old), Some(bytes)) if old == bytes => (),
+                    (Err(err), None) if err.kind() == io::ErrorKind::NotFound => (),
+                    _ => return Err(invalid()),
+                }
+            }
+            // Release the coordinator only after the shared lifetime lease exists.
+            Ok(PreparedSnapshot { path, lease })
+        }
+        Err(err) if err.kind() == io::ErrorKind::NotFound => {
+            let staging = (0..32)
+                .find_map(|_| {
+                    let seq = LOCAL_STAGING_COUNTER.fetch_add(1, Ordering::Relaxed);
+                    let temporary =
+                        snapshots.join(format!(".snapshot-{}-{seq}.tmp", std::process::id()));
+                    match fs::DirBuilder::new().mode(0o700).create(&temporary) {
+                        Ok(()) => Some(Ok(temporary)),
+                        Err(err) if err.kind() == io::ErrorKind::AlreadyExists => None,
+                        Err(err) => Some(Err(err)),
+                    }
+                })
+                .unwrap_or_else(|| {
+                    Err(io::Error::other(
+                        "could not allocate snapshot staging directory",
+                    ))
+                })?;
+            let published = (|| {
+                let lease = File::open(&staging)?;
+                fs_util::flock_fd(&lease, fs_util::LOCK_SH)?;
+                immutable_record(&staging.join("config.toml"), Some(&config), CONFIG_LIMIT)?;
+                immutable_record(
+                    &staging.join("requirements.toml"),
+                    requirements,
+                    CONFIG_LIMIT,
+                )?;
+                File::open(&staging)?.sync_all()?;
+                rename_noreplace(&staging, &path)?;
+                File::open(&snapshots)?.sync_all()?;
+                Ok(PreparedSnapshot { path, lease })
+            })();
+            if published.is_err() {
+                // Only this invocation's unpublished staging directory is owned here.
+                let _ = fs::remove_dir_all(&staging);
+            }
+            published
+        }
+        Err(err) => Err(err),
+    }
 }
 
 pub(super) fn validate(
@@ -264,6 +321,19 @@ fn validate_with_timeout(
 }
 
 pub(super) fn prune(config_root: &Path) -> io::Result<()> {
+    match fs::symlink_metadata(config_root) {
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(()),
+        Err(e) => return Err(e),
+        Ok(_) => (),
+    }
+    fs_util::private_dir(config_root)?;
+    let coordinator = File::open(config_root)?;
+    fs_util::flock_with_timeout(
+        &coordinator,
+        fs_util::LOCK_EX,
+        LOCK_TIMEOUT,
+        "wrapper FD 34 configuration directory lock busy",
+    )?;
     let snapshots = config_root.join("snapshots");
     match fs::symlink_metadata(&snapshots) {
         Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(()),
@@ -503,6 +573,147 @@ mod tests {
             Duration::from_millis(120)
         )
         .unwrap());
+        remove_temp_root(root);
+    }
+
+    #[test]
+    fn concurrent_snapshot_creators_and_pruners_keep_complete_leased_directories() {
+        const ROOT: &str = "CODEX_TEST_SNAPSHOT_ROOT";
+        const ROLE: &str = "CODEX_TEST_SNAPSHOT_ROLE";
+        if let Some(root) = std::env::var_os(ROOT) {
+            use std::os::fd::AsRawFd as _;
+            use std::os::unix::fs::MetadataExt as _;
+            let config = PathBuf::from(root).join("config");
+            for _ in 0..40 {
+                if std::env::var_os(ROLE).as_deref() == Some(OsStr::new("prune")) {
+                    prune(&config).unwrap();
+                } else {
+                    let snap = prepare(
+                        &config,
+                        ExtensionFd34Input {
+                            fragment: Some(b"# concurrent\n"),
+                            requirements: Some(b"# complete requirements\n"),
+                        },
+                    )
+                    .unwrap();
+                    let fd_path =
+                        PathBuf::from(format!("/proc/self/fd/{}", snap.lease.as_raw_fd()));
+                    assert_eq!(
+                        fs::read(fd_path.join("config.toml")).unwrap(),
+                        render_snapshot_config(b"# concurrent\n").unwrap()
+                    );
+                    assert_eq!(
+                        fs::read(fd_path.join("requirements.toml")).unwrap(),
+                        b"# complete requirements\n"
+                    );
+                    assert_eq!(
+                        snap.lease.metadata().unwrap().ino(),
+                        fs::metadata(&snap.path).unwrap().ino()
+                    );
+                }
+                std::thread::yield_now();
+            }
+            return;
+        }
+        let root = temp_root("sys-cfg-processes");
+        fs_util::private_dir(&root.join("config")).unwrap();
+        let mut children = Vec::new();
+        for role in ["create", "create", "prune", "prune"] {
+            children.push(Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", "system_config::tests::concurrent_snapshot_creators_and_pruners_keep_complete_leased_directories"])
+                .env(ROOT, &root).env(ROLE, role)
+                .stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap());
+        }
+        let outputs: Vec<_> = children
+            .into_iter()
+            .map(|child| child.wait_with_output().unwrap())
+            .collect();
+        for output in outputs {
+            assert!(output.status.success(), "{output:?}");
+        }
+        prune(&root.join("config")).unwrap();
+        remove_temp_root(root);
+    }
+
+    #[test]
+    fn interrupted_staging_is_not_published_and_partial_published_state_is_preserved() {
+        let root = temp_root("sys-cfg-interrupted");
+        let config = root.join("config");
+        fs_util::private_dir(&config).unwrap();
+        let snapshots = config.join("snapshots");
+        fs_util::private_dir(&snapshots).unwrap();
+        let interrupted = snapshots.join(".snapshot-interrupted.tmp");
+        fs_util::private_dir(&interrupted).unwrap();
+        immutable_record(
+            &interrupted.join("config.toml"),
+            Some(b"# incomplete\n"),
+            CONFIG_LIMIT,
+        )
+        .unwrap();
+        let input = ExtensionFd34Input {
+            fragment: Some(b"# recovered\n"),
+            requirements: Some(b"# requirements\n"),
+        };
+        let prepared = prepare(&config, input).unwrap();
+        assert_ne!(prepared.path, interrupted);
+        assert_eq!(
+            fs::read(prepared.path.join("requirements.toml")).unwrap(),
+            b"# requirements\n"
+        );
+        let path = prepared.path.clone();
+        drop(prepared);
+        fs::remove_file(path.join("requirements.toml")).unwrap();
+        let before = fs::read(path.join("config.toml")).unwrap();
+        assert!(prepare(&config, input).is_err());
+        assert!(!path.join("requirements.toml").exists());
+        assert_eq!(fs::read(path.join("config.toml")).unwrap(), before);
+        assert_eq!(
+            fs::read(interrupted.join("config.toml")).unwrap(),
+            b"# incomplete\n"
+        );
+        remove_temp_root(root);
+    }
+
+    #[test]
+    fn pruning_waits_for_the_snapshot_publication_coordinator() {
+        let root = temp_root("sys-cfg-coordinator");
+        let config = root.join("config");
+        let snapshot = prepare(
+            &config,
+            ExtensionFd34Input {
+                fragment: Some(b"# coordinator\n"),
+                requirements: None,
+            },
+        )
+        .unwrap();
+        let path = snapshot.path.clone();
+        drop(snapshot);
+        let coordinator = File::open(&config).unwrap();
+        fs_util::flock_fd(&coordinator, fs_util::LOCK_EX).unwrap();
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let (done_tx, done_rx) = std::sync::mpsc::channel();
+        let pruning_root = config.clone();
+        let worker = std::thread::spawn(move || {
+            started_tx.send(()).unwrap();
+            done_tx.send(prune(&pruning_root)).unwrap();
+        });
+        started_rx.recv().unwrap();
+        let early = done_rx.recv_timeout(Duration::from_millis(150));
+        let preserved_while_publishing = path.exists();
+        drop(coordinator);
+        if early.is_err() {
+            done_rx
+                .recv_timeout(Duration::from_secs(5))
+                .unwrap()
+                .unwrap();
+        }
+        worker.join().unwrap();
+        assert!(
+            early.is_err(),
+            "pruning ignored the publication coordinator"
+        );
+        assert!(preserved_while_publishing);
+        assert!(!path.exists());
         remove_temp_root(root);
     }
 
