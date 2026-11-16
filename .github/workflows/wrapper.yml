@@ -369,6 +369,87 @@ jobs:
           reset="$(smoke_codex wrapper setup show)"
           printf '%s\n' "$reset" | grep -F 'addons: none'
 
+      - name: Exercise installer rollback and concurrency guards on Android Bionic
+        shell: bash
+        run: |
+          set -euo pipefail
+          dist="$RUNNER_TEMP/dist"
+          bundle="$RUNNER_TEMP/unpacked"
+          recovery="$RUNNER_TEMP/install-recovery"
+          home="$recovery/home"
+          prefix="$recovery/prefix"
+          mkdir -p "$home" "$prefix/bin" "$prefix/tmp" "$prefix/etc/tls"
+          printf 'nameserver 1.1.1.1\n' > "$prefix/etc/resolv.conf"
+          : > "$prefix/etc/tls/cert.pem"
+          for tool in openssl gzip; do
+            ln -s "$(command -v "$tool")" "$prefix/bin/$tool"
+          done
+          # Bootstrap must reach curl and fail deterministically, offline.
+          printf '%s\n' '#!/bin/sh' ': > "$HOME/curl-invoked"' 'exit 57' > "$prefix/bin/curl"
+          chmod 0755 "$prefix/bin/curl"
+          printf '%s\n' '#!/bin/sh' 'echo ORIGINAL_WRAPPER' > "$prefix/bin/codex"
+          chmod 0755 "$prefix/bin/codex"
+          cp "$prefix/bin/codex" "$recovery/original"
+          run_install() {
+            HOME="$home" PREFIX="$prefix" TMPDIR="$prefix/tmp" PATH="$prefix/bin:$PATH" \
+              "$bundle/install.sh" --binary "$bundle/bin/codex" --prefix "$prefix" "$@"
+          }
+
+          # Pre-swap validation failure must keep the old executable intact.
+          printf '%s\n' '#!/bin/sh' 'exit 41' > "$recovery/invalid"
+          chmod 0755 "$recovery/invalid"
+          if HOME="$home" PREFIX="$prefix" TMPDIR="$prefix/tmp" PATH="$prefix/bin:$PATH" \
+              "$bundle/install.sh" --binary "$recovery/invalid" --prefix "$prefix" --skip-upstream \
+              > "$recovery/pre-swap.log" 2>&1; then
+            echo 'invalid staged binary unexpectedly admitted' >&2
+            exit 1
+          fi
+          cmp "$recovery/original" "$prefix/bin/codex"
+          test ! -e "$prefix/bin/.codex-install.lock"
+
+          # Post-swap bootstrap failure must restore the exact old binary.
+          if run_install --version 0.169.0 > "$recovery/failed-bootstrap.log" 2>&1; then
+            echo 'offline bootstrap unexpectedly succeeded' >&2
+            exit 1
+          fi
+          test -f "$home/curl-invoked"
+          grep -F 'restored previous codex executable' "$recovery/failed-bootstrap.log"
+          cmp "$recovery/original" "$prefix/bin/codex"
+          test ! -e "$prefix/bin/.codex-install.lock"
+          test -z "$(find "$prefix/bin" -maxdepth 1 -name '.codex.previous.*' -print)"
+
+          # A failed first install returns to 'not installed', not half-installed.
+          rm "$prefix/bin/codex"
+          rm "$home/curl-invoked"
+          if run_install --version 0.169.0 > "$recovery/failed-first.log" 2>&1; then
+            echo 'offline first install unexpectedly succeeded' >&2
+            exit 1
+          fi
+          test -f "$home/curl-invoked"
+          test ! -e "$prefix/bin/codex"
+          test ! -e "$prefix/bin/.codex-install.lock"
+
+          # Successful skip-upstream install commits cleanly.
+          run_install --skip-upstream
+          "$prefix/bin/codex" update --help | grep -F -- '--upstream'
+          test ! -e "$prefix/bin/.codex-install.lock"
+          test -z "$(find "$prefix/bin" -maxdepth 1 -name '.codex.previous.*' -print)"
+
+          # Refuse unsafe destination and stale lock without mutating either.
+          rm "$prefix/bin/codex"
+          printf '%s\n' 'DO_NOT_TOUCH' > "$recovery/protected"
+          ln -s "$recovery/protected" "$prefix/bin/codex"
+          if run_install --skip-upstream > "$recovery/symlink.log" 2>&1; then exit 1; fi
+          test "$(cat "$recovery/protected")" = 'DO_NOT_TOUCH'
+          test -L "$prefix/bin/codex"
+          test ! -e "$prefix/bin/.codex-install.lock"
+          rm "$prefix/bin/codex"
+          mkdir "$prefix/bin/.codex-install.lock"
+          if run_install --skip-upstream > "$recovery/lock.log" 2>&1; then exit 1; fi
+          test -d "$prefix/bin/.codex-install.lock"
+          test ! -e "$prefix/bin/codex"
+          rmdir "$prefix/bin/.codex-install.lock"
+
   release:
     name: Publish wrapper GitHub Release
     needs: [checks, android-package, android-smoke]
