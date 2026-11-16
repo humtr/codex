@@ -1217,10 +1217,8 @@ Wrapper's generation-retention lease must occupy a descriptor above the reserved
 not release generation protection before the final kernel exec.
 
 New registration metadata is exactly `codex-manager-profile\n`, without an ID
-already owned by the directory name (during Stage 2 reintegration, internal
-suffix-stripped `codex-manager-profile` replaces prior `v1`/`v2` headers; if any
-pre-rewrite `v1`/`v2` metadata exists on a Stage 2 custom profile root, Phase
-2.2/2.3 rename/migration handles it atomically without silent fallback). Rename
+already owned by the directory name; malformed, legacy-suffixed, or mismatched
+metadata fails closed without fallback readers. Rename
 uses create-new directory rename and synchronizes the parent so the observable
 registration remains usable after interruption. No duplicated ID or journal is
 introduced. Delete first atomically moves the validated account into one private

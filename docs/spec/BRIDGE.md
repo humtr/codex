@@ -1,7 +1,7 @@
 # Native sessions, model transport, and ChatGPT Bridge contracts
 
 **Status:** Normative detail of [SPEC.md](../../SPEC.md).
-> **Stage scope:** Bridge (`providers/chatgpt`, `transport/tunnel-client`), `@TermuxBridge` tool schemas, and Manager/TUI coordination are **Stage 2 Phase 2.5 modular opt-in components** (absent from Stage 1 standalone Wrapper; see [docs/plan/STAGE2_PLAN.md](../plan/STAGE2_PLAN.md)). Public CLI management routes unify under `codex wrapper provider ...`. Internal references below to persisted Bridge work-record/owner versions (`v1`/`v2`/`v3` + `migrate-inference`, `config-v1`, historical `catalog-v1`) describe our own `providers/chatgpt` local state/journal codec for live-data and `@TermuxBridge` compatibility across reintegration rather than external ChatGPT schemas or Wrapper API version suffixes.
+> **Stage scope:** Bridge (`providers/chatgpt`, `transport/tunnel-client`), `@TermuxBridge` tool schemas, and Manager/TUI coordination are **Stage 2 Phase 2.5 modular opt-in components** (absent from Stage 1 standalone Wrapper; see [docs/plan/STAGE2_PLAN.md](../plan/STAGE2_PLAN.md)). Public CLI management routes unify under `codex wrapper provider ...`, and internal `providers/chatgpt` work-record/catalog/owner records (`termux-codex-operator-work`, `operator-work`, `work-route-transfer`, `codex-chatgpt-catalog`, `app-model-catalog`, `config`) adopt single suffix-free formats with no legacy `v1`/`v2`/`v3`, `provider14`/`provider21`, `config-v1`, or `catalog-v1` backward compatibility retained.
 
 The platform's Native runtime owns execution, approvals, history and writer
 authority. This document defines feature-specific interactions and acceptance
@@ -256,21 +256,17 @@ classifier. Keep absent/false auxiliary metadata out of existing request digests
 original primary/reviewer replay identities must remain valid. Qualify the actual
 TUI-generated title response/name and absence of extra Operator work, including
 cold server shutdown with all owned Native turns settled.
-New work records use v3 with `selection.inference`; the runtime accepts no old
-reasoning field or value aliases. Change declarations, callers and offline
-migration together. `migrate-inference --target attached-submitted` converts
-v1/v2 work, pending-index and transfer selections while preserving original
-transcripts/receipts. Explicit targets provider21/provider14 prepare matched old
-code/state rollback; this does not add old runtime parsers.
+Work records use the single suffix-free `termux-codex-operator-work` schema with
+`selection.inference` (`attached` or `submitted`); the runtime accepts no old
+reasoning field, value aliases, multi-version `v1`/`v2`/`v3` codecs, or
+pre-rewrite `provider21`/`provider14` downgrade/migration paths (`migrate-inference`
+and legacy `v1`/`v2` parsers are retired).
 Delivery must pair the new executable/state with generated clients and refreshed
 registered MCP declarations. Compare actual local/server/host schemas before
 activation; stale hosts must not be concealed by accepting old inference aliases.
 Do not change model `reasoning.effort` / `model_reasoning_effort`, which are a
-different public upstream contract. Migration uses the existing journal owner
-lease, immutable backup, whole-input prevalidation and restartable exact writes;
-never reinterpret an old `reasoning=direct` Native record as standalone work or
-retain aliases as a substitute for completing migration. Preserve original work,
-history and matched code/state rollback artifacts.
+different public upstream contract. Work and source records preserve canonical
+work history and verified provenance directly without heuristic aliasing.
 
 Within integrated workflow, an already-active response can be admitted without a
 second primary inference, and a genuine new CLI input can submit a new model
@@ -304,9 +300,10 @@ MCP or explicitly selected app-local functions. Both Native paths are integrated
 workflow. Local functions need no remote Chat-side tunnel;
 external ChatGPT-to-MCP does. Native Responses rounds, host tool continuations,
 new primary user requests and independent child runs are counted separately.
-Existing execution.mode=model_adapter|operator remains unchanged. Work schema v3
-requires the explicit matched-code/state migration described above; transport
-selection does not justify retaining duplicate responsibility.
+Existing `execution.mode=model_adapter|operator` remains unchanged. The unified
+`termux-codex-operator-work` schema pairs code, client declarations, and MCP
+schemas cleanly without retaining legacy codec adapters; transport selection
+does not justify retaining duplicate responsibility.
 
 **Identity and connection lifetime.** A work_id selects one existing native
 thread and execution scope. Development responsibility, native thread/turn,
@@ -333,16 +330,13 @@ Titles and repository paths alone never select ownership.
 A logical source request is keyed by account, conversation and user message ID.
 A changing branch leaf is not part of that deduplication key. Reserve the queue
 call ID with its verified original account once, persist it before enqueue, then
-use that exact ID through consumption/recovery. Offline control-state migration
-preserves already-reserved pre-account queue IDs; runtime never guesses a legacy
-ID or submits a second queue item to repair a mismatch. A pending source with
-missing reservation metadata requires explicit migration. Active new account-scoped
-source execution must settle before a Provider14 format downgrade. Verify branch
+use that exact ID through consumption/recovery; runtime never guesses an ID or
+submits a second queue item to repair a mismatch. Verify branch
 ancestry/prefix separately; preserve observed branch and source-parent references.
 Equal text with different original IDs remains two inputs. Store source-to-native
 client/turn/item mappings and original transport-call bindings, not a duplicate
 conversation. Native IDs and controller generations cannot replace source IDs.
-Do not assign guessed source IDs to old records that lack this provenance.
+Do not assign guessed source IDs to records that lack this provenance.
 The immutable per-work/native-turn source admission stores the verified account,
 original user ID/fingerprint and ancestry anchor, queue client ID and actual
 native home/workspace. `codex_history.source_admissions` returns correlations for
@@ -798,23 +792,15 @@ inputs, lost effect replies, account/model changes, approval/Stop and compaction
 Count primary submissions, continuation requests and tool effects independently.
 No new primary inference for importing/reading the original source is permitted.
 Unknown IDs/content/capabilities remain unfinished, not weakened PASS results.
-Old work/selection/history/rollback artifacts and user auth/profiles remain usable.
-Existing active work records use the v2 codec and the old direct/provider
-inference-selection field; migrate this separately from public workflow mode. The
-normal runtime does not read v1 work records or old selection aliases. Explicit
-offline migration preserves originals; rollback to Provider14 requires inverse
-format conversion before the old process starts. Lane control state additionally
-persists the source queue reservation; offline migration preserves old reserved
-IDs without changing user text, native records or historical MCP receipts. New connection
-metadata uses versioned work-keyed records in the same Journal/owner lease, found
-from the existing work index without repeated whole-receipt scans or a second
-persistent index. Do not append unknown fields to deny_unknown_fields records.
-Use existing operation intent/per-work admission for cross-record/native
-reconciliation and advance source anchors only after confirmed native commits.
-Qualify rollback startup/readback with the retained Provider on disposable new
-idle state; it may lack new connection capability but must still read old work.
-Fence/reconcile active or unknown new execution before downgrade. Legacy absence
-never permits guessed migration, auto takeover or replay of reconciliation-required work.
+Work records, connection metadata, and source queue reservations use the single
+suffix-free `termux-codex-operator-work` / `operator-work` journal codec within
+the Journal/owner lease, found from the existing work index without repeated
+whole-receipt scans or a second persistent index. No legacy `v1`/`v2`/`v3` work
+codec, `provider14` downgrade conversion, or offline multi-version migration
+shim is retained; do not append unknown fields to `deny_unknown_fields` records.
+User auth/profiles remain isolated and intact. Use existing operation
+intent/per-work admission for cross-record/native reconciliation and advance
+source anchors only after confirmed native commits.
 An explicitly admitted start/join or claim may reload an unloaded persisted thread
 on its verified Native owner before querying live jobs or starting a turn. Preserve
 its public history/context across resume and revalidate scope and the work/controller
@@ -912,14 +898,13 @@ repair/delete its record. Selected execution bindings still require exact
 PID/start/image and peer/socket validation; malformed records and ambiguous live
 native writers remain errors. A discovery exclusion does not authorize takeover,
 model/tool replay or acceptance of a changed selected owner.
-The same exclusion applies before namespace decoding to the two known historical
-owner shapes (home/runtime, optionally followed by `catalog-v1`) only when private
-owner/PID reads and the kernel prove the recorded process is absent or now has a
-different executable. Preserve those records without interpreting their old codec.
-A matching live owner, unreadable/unsafe owner or PID, unknown owner shape and any
-malformed current config-v1 record remain errors. A bounded explicit device repair
-may separately archive a verified inactive historical record, preserving its
-complete contents and restore path; ordinary discovery performs no such mutation.
+Dead or foreign-executable owner records proven inactive by private owner/PID reads
+and kernel process checks are excluded safely without interpreting stale
+payloads; a matching live owner, unreadable/unsafe owner or PID, unknown owner
+shape, and any malformed current `config` owner record remain errors. A bounded
+explicit device repair may separately archive a verified inactive stale record,
+preserving its complete contents and restore path; ordinary discovery performs
+no such mutation.
 
 The work owner may inspect, stop and supply genuine follow-up input. Its managed
 worker holds the current native execution controller; a coordinator cannot issue
@@ -1592,10 +1577,9 @@ Broker validation and lane-intent preparation share the same commit admission
 section: a new rejected proposal leaves the previous lane authoritative, while a
 failed/uncertain intent or Broker commit keeps the prepared lane fenced. A later
 same-operation observer can settle confirmed results without replay. Existing
-receipts preserve their context when result acknowledgment is committed. The v2
-work index retains pending registration, repairs v1 omissions on first migration
-and maintains a settled v1 mirror for controlled downgrade. Neither journal
-format nor controller capability is permission to reactivate a live old writer.
+receipts preserve their context when result acknowledgment is committed. The
+unified work index retains pending registration cleanly without legacy omission
+repairs, downgrade mirrors, or reactivation of old writers.
 
 The expected benefit is fewer duplicate effects, duplicate waits, avoidable
 retries and unsettled completion errors, with less related load. This is an
@@ -1616,7 +1600,7 @@ semantic checks below.
 
 | Input | Required semantics |
 | --- | --- |
-| run_id, cases, routes | Unique owned run; explicit contract-enumerated cases and Codex/ChatGPT-attached/ChatGPT-submitted route list. Attached uses inference=attached/MCP; Codex/submitted use inference=submitted, with their declared inner return path. Earlier v1 manifests remain original evidence and are not silently accepted as new inputs |
+| run_id, cases, routes | Unique owned run; explicit contract-enumerated cases and Codex/ChatGPT-attached/ChatGPT-submitted route list. Attached uses inference=attached/MCP; Codex/submitted use inference=submitted, with their declared inner return path. Legacy pre-cutover manifests remain historical evidence only and are not accepted as new candidate inputs |
 | candidate | Base Git commit plus complete current source-input manifest/hash, including dirty/untracked build inputs; immutable binary, embedded bridge and effective config hashes. A commit ID alone cannot identify this working tree |
 | native | Exact Wrapper/frontend hashes and qualified upstream version/source; canonical isolated execution home and workspace, never the user's active home/project |
 | fixture | Frozen project/tasks/expected checks/seed manifest, including task ordering and per-role ownership. Preparation creates separate short TMPDIR homes/workspaces, preserves socket path bounds and seals inputs before any model action |

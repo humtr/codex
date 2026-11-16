@@ -876,8 +876,6 @@ Manager profile records use exact UTF-8 text formats with a final newline.
 ```text
 codex-manager-profile
 ```
-
-(Or, when inspecting legacy Stage 2 transition files if present, `id\t<PROFILE_ID>`.)
 The derived profile-home path is not duplicated inside metadata. Unknown
 records, duplicate records, invalid UTF-8, or a mismatched ID invalidate that
 record and never cause a path to be followed. Notification commands alone write
