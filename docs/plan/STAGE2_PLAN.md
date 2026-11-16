@@ -1,7 +1,7 @@
 # Stage 2 Reintegration Procedure and Implementation Plan
 
 > **Status:** Implementation execution guide & architecture transition plan (derived from [SPEC.md](../../SPEC.md), [DELIVERY.md](../spec/DELIVERY.md), [USER_INTERFACES.md](../spec/USER_INTERFACES.md), [BRIDGE.md](../spec/BRIDGE.md), and inspected preserved sources).
-> **Current implementation state:** Only **Stage 1** (`crates/wrapper` + `crates/release-builder`, standalone Termux wrapper) is implemented on `rewrite/wrapper`. Do **not** begin coding Stage 2 Phases 2.1–2.5 out of order; each phase has explicit prerequisites and exit gates below.
+> **Current implementation state:** **Stage 1** is implemented; **Phase 2.1 configuration/CLI groundwork** is implemented but the FD 34 snapshot exit gate is open. Other Stage 2 phases are not qualified. Complete the phase exit gates in order, preserving standalone Wrapper independence.
 
 ---
 
@@ -164,7 +164,105 @@
 
 ---
 
-## 4. Pre-Stage-2 Checklist (Already Completed on `rewrite/wrapper`)
+## 4. Phase 2.6 — Continuous Upstream Adoption Controller (Planned, Not Implemented)
+
+**User request, 2026-11-16:** Treat recurring official-upstream adoption as a
+Stage 2 delivery work item. It must **extend** the single Stage 1
+`codex update --upstream` / release-builder owner, not create another CLI,
+version selector, updater, daemon, account dependency, or signature authority.
+The ordinary standalone update and rollback remain usable independently of this
+automation and of every optional module.
+
+**Prerequisites:** close the actual-device Stage 1 operating-acceptance gaps and
+the Phase 2.1 FD 34 snapshot gate; coordinate with signed-channel Phase 2.2
+before enabling publication. Design can proceed alongside optional modules;
+base upstream **qualification and publication must never wait for TUI, Manager
+or Provider**. The automation is not a license to skip any active gate.
+
+### Implementation work order
+
+1. **Discover (read-only):** scheduled (e.g. daily) and manual-dispatch
+   official stable release discovery via the supported OpenAI release metadata.
+   Resolve an exact version, metadata/descriptor digest, archive URL, archive
+   SHA-256, source SHA, wrapper/release-builder SHA, toolchain/NDK and binary
+   patch policy. Reject prereleases, missing official digests, divergent
+   descriptors, unknown schema, downgrades and changed inputs; deduplicate
+   on the complete immutable input tuple. Never infer a target from a CI job
+   title, cached tag, mutable `latest` alias or a previous failed run.
+2. **Prepare (least privilege):** fetch and digest-check the *complete official*
+   `codex-package-aarch64-unknown-linux-musl.tar.gz` including companions and
+   resources; invoke the existing rule-based `termux-fd-remap` /
+   `termux-uds-fd35` builder, rejecting unsupported site layout with
+   actionable evidence. Use pinned toolchains and prepared exact commit; no
+   automatic source patching, blind ELF offset heuristics, or fallback to an
+   unadapted official binary.
+3. **Qualify (read-only):** test the standalone base lane before any optional
+   composition: unit/negative tests, Android AArch64 packaging, Ubuntu ARM+Bionic
+   smoke, installer rollback faults, real Android/Termux isolated HOME/PREFIX/
+   CODEX_HOME/TMPDIR execution with the new official archive, doctor, fast
+   help/version, app-server/remote-control boundaries, upgrade and rollback.
+   Fail closed when the physical-device gate is required but unavailable.
+   Additional TUI/Manager/Provider lanes qualify their own exact artifacts;
+   their failure is not a veto of a valid independently usable base.
+4. **Publish/promote (isolated authority):** separate unprivileged discovery
+   and validation from the signer/publisher. Give PR and scheduler jobs
+   `contents: read`; grant content-write and signing keys only to an
+   environment-gated immutable-input promotion job, not to pull requests,
+   arbitrary uploaded fixtures or self-hosted device smoke. Verify published
+   archive bytes, manifest/index signatures (when enabled), SHA-256 and
+   canonical download URLs by readback. Use distinct base/full qualification
+   provenance and never mistake a skipped release step for a published product.
+5. **Update/recovery:** leave the installed generation, sessions, original
+   service identities, auth homes and previous/rollback pointers untouched by
+   CI. Activation is a separate controlled device operation. On discovery,
+   patch, qualification, download or publication failure retain the last
+   admitted version, report the exact failed input/stage and retry only with a
+   reconciled original receipt. Reuse unchanged successful expensive proofs
+   only when source/input/toolchain/test contract are identical; never reuse a
+   failed or incomplete gate.
+
+**Exit criteria:** exercise no-new-release, same-input duplicate schedule,
+changed official digest, malformed descriptor, absent companion, unexpected
+ELF relocation, failed download, interrupted installation, stale proof,
+signed-index verification failure, optional-module unavailable, device offline,
+failed readback and successful newer release. The workflow must publish a
+traceable accepted tuple, and a failed candidate must not change an active
+device or existing release pointer. Record exact CI run IDs and physical
+device receipts in `CURRENT.md`. No scheduled publication is currently
+approved or running.
+
+---
+
+## 5. CI Verification Environment — Reviewed Options (2026-11-16)
+
+| Environment | What it truly proves | Gap / cost | Decision |
+| --- | --- | --- | --- |
+| Current `ubuntu-24.04-arm` with pinned Android `linker64` + Bionic libs | Native AArch64 Bionic ELF loading, installer/bootstrap boundaries, isolated file and config behavior, deterministic faults | Linux kernel and synthetic Termux `/data/data` layout; not Android kernel, SELinux, Termux app lifecycle or genuine UI | **Retain as fast, mandatory PR gate** |
+| Android emulator on x86 GitHub runners (e.g. AVD with hardware acceleration) | Real Android OS, package installation, selected app and UI paths | AArch64 upstream binaries require a matching guest architecture; default fast x86_64 emulator is not an AArch64 runtime, ARM translation support is not guaranteed. Higher setup/time cost; must prove Termux APK + shell route before reliance | Optional exploratory lane, never sole ARM64 admission |
+| Managed physical-device testing service (e.g. Firebase Test Lab) | Android/SELinux/real device signals, UI and APK instrumentation | Expects app APK + instrumentation/Robo harness; not a drop-in generic shell or Termux CLI runner. Service quotas, credentials and packaging work | Feasibility prototype only |
+| Dedicated physical AArch64 Android device with isolated Termux test installation via controlled ADB/relay | Actual Termux UID, kernel/SELinux/path constraints, PTY/TUI, daemon/remote-control, real official archive upgrades/rollback | Hardware upkeep and trusted runner isolation; ordinary public-PR code cannot be executed on a phone carrying personal accounts | **Preferred release-admission tier**; restricted exact-SHA artifacts and explicitly authorized jobs |
+| Existing personal handset as a manual acceptance target | Highest fidelity to currently deployed environment | Auth, live services, account ownership and state risk; uptime cannot be assumed | Manual acceptance only, never unattended PR runner |
+
+**Recommended topology:** keep the present 3 GitHub jobs
+(`checks` + `android-package` + `android-smoke`) for every PR.
+Add a **restricted, dedicated Android/Termux physical-device gate** for
+pre-release / promotion: pull only checksum-pinned artifacts from a passed
+exact-source build into owned isolated directories, run deterministic smoke,
+record OS API, architecture, candidate SHA, archive digest, exit codes,
+timeout, stderr, and rollback equality. No workflow secrets or ChatGPT
+accounts on the test device; no arbitrary fork PR code, no implicit activation
+of the user's installed `codex`, and no dependence on device availability
+for ordinary source PR CI. If a physical device is unavailable, the promotion
+gate remains **unverified**, not automatically green.
+
+Investigate emulator/device-farm options only against the same acceptance
+matrix; do not add an expensive duplicate CI job merely to report another
+`aarch64` cross-compile. The existing Ubuntu/Bionic test is an excellent
+ABI compatibility layer, not the real-device operating acceptance by itself.
+
+---
+
+## 6. Pre-Stage-2 Checklist (Already Completed on `rewrite/wrapper`)
 
 - Unified naming (`wrapper`, `codex-wrapper`, `codex-local-generation`, `codex-activation-state`, `package-root`, `termux-fd-remap`, `termux-uds-fd35`) across code, tests, [`install.sh`](../../install.sh), [`.github/workflows/wrapper.yml`](../../.github/workflows/wrapper.yml), and documentation.
 - Removed legacy `99b` / `R10` / `helpers/{0,1}` / `RootCodeModeHost` / `upstream_doctor` / version-pinned tests.
