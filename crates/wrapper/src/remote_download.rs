@@ -10,10 +10,7 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
-#[cfg(target_arch = "aarch64")]
-const NOFOLLOW: i32 = 0x8000;
-#[cfg(not(target_arch = "aarch64"))]
-const NOFOLLOW: i32 = 0x20000;
+use crate::fs_util::O_NOFOLLOW as NOFOLLOW;
 
 extern "C" {
     fn geteuid() -> u32;

@@ -2404,6 +2404,16 @@ mod tests {
             // PC page is 0x401_000, fmt VA is 0x402_000 => page delta = +1, lo12 = 0.
             write_u32(&mut buf, site2_off, 0xb000_0000);
             write_u32(&mut buf, site2_off + 4, 0x9100_0000);
+
+            crate::runtime_patch::write_synthetic_realpath_fixture(
+                &mut buf,
+                rx_va,
+                text_off,
+                Some(text_off + 0x110),
+                false,
+                false,
+                false,
+            );
         }
 
         if include_fd_sources {

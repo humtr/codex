@@ -27,7 +27,8 @@ The product has one public command, `codex`, built in two decoupled stages:
 ## Requirements on Termux
 
 Stage 1 targets Android AArch64 (`aarch64-linux-android`, Android API 24+) inside
-Termux and relies only on base Termux packages:
+Termux and relies only on base Termux packages (plus base `Essential` `procps` `ps`
+needed by upstream `app-server daemon` PID tracking):
 
 ```sh
 pkg install curl openssl-tool gzip
@@ -125,12 +126,14 @@ with a `previous` pointer for single-step rollback. State owned by the wrapper
 - `--signed`, `--remote`, `--build-local`, and `--local` are disabled in Stage 1 and fail explicitly with exit status `2`.
 - Upstream updates in Stage 1 resolve the latest stable release via GitHub Releases (`openai/codex/releases/latest`) or a requested release via `https://releases.openai.com/codex/releases/<version>/release.json`, and verify the official `codex-package-aarch64-unknown-linux-musl.tar.gz` SHA-256 digest over TLS 1.2+.
 
-## Optional module configuration (Stage 2.1 groundwork)
+## Optional module configuration (Stage 2.1 boundary)
 
 Stage 1 upstream execution remains the default: no Manager, enhanced TUI, or
-ChatGPT Provider binaries are bundled or started by this wrapper. The initial
-Stage 2.1 settings boundary introduces strict `wrapper.toml` at
-`~/.local/share/codex/wrapper/wrapper.toml`, with:
+ChatGPT Provider binaries are bundled or started by this wrapper. The Stage 2.1
+extension boundary implements strict `wrapper.toml` at
+`~/.local/share/codex/wrapper/wrapper.toml`, multi-flag `codex wrapper setup`,
+and conditional FD 34 immutable fragment snapshots (`config/snapshots/<settings_id>/`
+with `flock(LOCK_SH)` and `features list` validation when modules supply fragments), with:
 
 ```sh
 codex wrapper setup show
@@ -143,12 +146,13 @@ codex wrapper --with tui -- --version
 ```
 
 Configured but unavailable modules fail with an explicit error instead of
-silently forwarding into a different implementation. `--bare` bypasses those
-settings for one launch, preserving upstream arguments. Setting
+silently forwarding into a different implementation. `--bare` bypasses enabled
+addon modules for one launch while preserving upstream arguments (`wrapper setup
+--bare` disables addon modules while retaining `signed_update`). Setting
 `signed_update = true` records the opt-in but does **not** activate a signed
-channel until Phase 2.2; ordinary `codex update` remains independent. Module
-FD 34 immutable fragment snapshots and actual addon reattachment are pending.
-The no-addon launch adds no dependency, addon process, lock, or config write.
+channel until Phase 2.2; ordinary `codex update` remains independent, and
+actual Manager/TUI/Provider addon reattachment remains deferred to Phases 2.3–2.5.
+The no-addon launch adds no dependency, addon process, lock, snapshot write, or extra config probe.
 
 ## Diagnostics and Upstream Passthrough
 

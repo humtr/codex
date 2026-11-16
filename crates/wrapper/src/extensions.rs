@@ -1,22 +1,16 @@
 //! Opt-in Wrapper settings; bare Codex retains its upstream-owned execution path.
 use std::fs::{self, File, OpenOptions};
-use std::io::{self, Read as _, Write as _};
-use std::os::fd::AsRawFd as _;
-use std::os::raw::c_int;
-use std::os::unix::fs::{DirBuilderExt as _, OpenOptionsExt as _, PermissionsExt as _};
+use std::io::{self, Write as _};
+use std::os::unix::fs::{
+    DirBuilderExt as _, MetadataExt as _, OpenOptionsExt as _, PermissionsExt as _,
+};
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::fs_util;
 
 const SETTINGS_MAX_BYTES: u64 = 16 * 1024;
-const O_NOFOLLOW: c_int = 0o400000;
-const LOCK_EX: c_int = 2;
 static WRITE_SEQUENCE: AtomicU64 = AtomicU64::new(0);
-
-unsafe extern "C" {
-    fn flock(fd: c_int, operation: c_int) -> c_int;
-}
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(super) struct WrapperSettings {
@@ -61,42 +55,57 @@ impl WrapperSettings {
     }
 
     pub(super) fn read(root: &Path) -> io::Result<Self> {
+        if !fs_util::wrapper_safe_absolute_path(root) {
+            return Err(invalid("wrapper state root must be a safe absolute path"));
+        }
         // Missing configuration is the zero-write, no-addon default.
+        let expected_uid = fs_util::current_uid()?;
+        for ancestor in root.ancestors() {
+            match fs::symlink_metadata(ancestor) {
+                Ok(meta) if meta.file_type().is_dir() && !meta.file_type().is_symlink() => {}
+                Ok(_) => {
+                    return Err(invalid(
+                        "wrapper state root ancestor must be a real directory",
+                    ))
+                }
+                Err(err) if err.kind() == io::ErrorKind::NotFound => {}
+                Err(err) => return Err(err),
+            }
+        }
         match fs::symlink_metadata(root) {
             Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(Self::default()),
             Err(err) => return Err(err),
-            Ok(meta) if meta.file_type().is_dir() && !meta.file_type().is_symlink() => {}
-            Ok(_) => return Err(invalid("wrapper state root must be a real directory")),
+            Ok(meta)
+                if meta.file_type().is_dir()
+                    && !meta.file_type().is_symlink()
+                    && meta.uid() == expected_uid
+                    && meta.permissions().mode() & 0o022 == 0 => {}
+            Ok(_) => {
+                return Err(invalid(
+                    "wrapper state root must be an owned, non-writable real directory",
+                ))
+            }
         }
         let path = root.join("wrapper.toml");
-        let mut file = match OpenOptions::new()
-            .read(true)
-            .custom_flags(O_NOFOLLOW)
-            .open(&path)
-        {
-            Ok(file) => file,
+        let bytes = match fs_util::read_bounded_regular(
+            &path,
+            SETTINGS_MAX_BYTES,
+            true,
+            "wrapper.toml must be a bounded, owned, non-writable regular file",
+        ) {
+            Ok(bytes) => bytes,
             Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(Self::default()),
             Err(err) => return Err(err),
         };
-        let meta = file.metadata()?;
-        if !meta.file_type().is_file()
-            || meta.permissions().mode() & 0o022 != 0
-            || meta.len() > SETTINGS_MAX_BYTES
-        {
-            return Err(invalid(
-                "wrapper.toml must be a bounded, non-writable regular file",
-            ));
-        }
-        let mut bytes = Vec::new();
-        std::io::Read::by_ref(&mut file)
-            .take(SETTINGS_MAX_BYTES + 1)
-            .read_to_end(&mut bytes)?;
-        if bytes.len() as u64 > SETTINGS_MAX_BYTES {
-            return Err(invalid("wrapper.toml exceeds size limit"));
-        }
         let text =
             std::str::from_utf8(&bytes).map_err(|_| invalid("wrapper.toml must be UTF-8"))?;
         Self::parse(text)
+    }
+
+    pub(super) fn clear_addons(&mut self) {
+        self.manager = false;
+        self.tui = false;
+        self.provider = false;
     }
 
     pub(super) fn set_modules(&mut self, names: &str, enabled: bool) -> io::Result<()> {
@@ -153,11 +162,37 @@ impl WrapperSettings {
     {
         prepare_parent_dirs(root)?;
         fs_util::private_dir(root)?;
-        // A directory flock serializes read/modify/write with no new lock file.
-        let lease = File::open(root)?;
-        if unsafe { flock(lease.as_raw_fd(), LOCK_EX) } != 0 {
-            return Err(io::Error::last_os_error());
+        // Dedicated settings lock avoids blocking on state_root generation activation locks.
+        let expected_uid = fs_util::current_uid()?;
+        let lock_path = root.join(".wrapper-settings.lock");
+        match fs::symlink_metadata(&lock_path) {
+            Ok(meta)
+                if meta.file_type().is_file()
+                    && !meta.file_type().is_symlink()
+                    && meta.uid() == expected_uid => {}
+            Ok(_) => {
+                return Err(invalid(
+                    "wrapper settings lock path must be an owned regular file",
+                ))
+            }
+            Err(err) if err.kind() == io::ErrorKind::NotFound => {}
+            Err(err) => return Err(err),
         }
+        let lease = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .mode(0o600)
+            .custom_flags(fs_util::O_NOFOLLOW)
+            .open(&lock_path)?;
+        let lease_meta = lease.metadata()?;
+        if !lease_meta.file_type().is_file() || lease_meta.uid() != expected_uid {
+            return Err(invalid(
+                "wrapper settings lock must be an owned regular file",
+            ));
+        }
+        fs_util::flock_fd(&lease, fs_util::LOCK_EX)?;
+
         let mut settings = Self::read(root)?;
         modify(&mut settings)?;
         let dest = root.join("wrapper.toml");
@@ -170,13 +205,13 @@ impl WrapperSettings {
             .write(true)
             .create_new(true)
             .mode(0o600)
-            .custom_flags(O_NOFOLLOW)
+            .custom_flags(fs_util::O_NOFOLLOW)
             .open(&tmp_path)?;
         let result = (|| -> io::Result<()> {
             file.write_all(settings.serialize().as_bytes())?;
             file.sync_all()?;
             fs::rename(&tmp_path, &dest)?;
-            lease.sync_all()?;
+            File::open(root)?.sync_all()?;
             Ok(())
         })();
         if result.is_err() {
@@ -196,6 +231,7 @@ fn prepare_parent_dirs(root: &Path) -> io::Result<()> {
             "wrapper settings root must be an absolute safe path",
         ));
     }
+    let expected_uid = fs_util::current_uid()?;
     // Validate the *entire* ancestor chain before creating any missing
     // directory, not just the nearest existing parent.
     for ancestor in root.ancestors() {
@@ -229,15 +265,29 @@ fn prepare_parent_dirs(root: &Path) -> io::Result<()> {
     if !anchor.file_type().is_dir() || anchor.file_type().is_symlink() {
         return Err(invalid("wrapper settings ancestor is not a real directory"));
     }
+    let codex_dir = root.parent();
     for dir in missing.iter().rev() {
-        match fs::DirBuilder::new().mode(0o700).create(dir) {
+        let mode = if Some(dir.as_path()) == codex_dir {
+            0o700
+        } else {
+            // Shared XDG parents (~/.local, ~/.local/share) keep standard 0o755 rather than 0o700.
+            0o755
+        };
+        match fs::DirBuilder::new().mode(mode).create(dir) {
             Ok(()) => (),
             Err(err) if err.kind() == io::ErrorKind::AlreadyExists => (),
             Err(err) => return Err(err),
         }
         let meta = fs::symlink_metadata(dir)?;
-        if !meta.file_type().is_dir() || meta.file_type().is_symlink() {
+        if !meta.file_type().is_dir()
+            || meta.file_type().is_symlink()
+            || meta.uid() != expected_uid
+            || meta.permissions().mode() & 0o022 != 0
+        {
             return Err(invalid("wrapper settings ancestor was substituted"));
+        }
+        if Some(dir.as_path()) == codex_dir && meta.permissions().mode() & 0o777 != 0o700 {
+            return Err(invalid("wrapper private parent directory mode is unsafe"));
         }
     }
     Ok(())
@@ -320,7 +370,7 @@ mod tests {
     #[test]
     fn symlink_config_is_rejected_without_following_or_overwriting_it() {
         let root = test_root();
-        fs::create_dir_all(&root).unwrap();
+        fs_util::private_dir(&root).unwrap();
         let target = root.join("target");
         fs::write(&target, "manager = false\n").unwrap();
         symlink(&target, root.join("wrapper.toml")).unwrap();
@@ -342,7 +392,45 @@ mod tests {
         assert_eq!(WrapperSettings::read(&state).unwrap(), new);
         assert!(state.join("wrapper.toml").is_file());
         assert!(!state.join("config/snapshots").exists());
+        let codex_mode = fs::metadata(base.join(".local/share/codex"))
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777;
+        assert_eq!(codex_mode, 0o700);
+        let share_mode = fs::metadata(base.join(".local/share"))
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o022;
+        assert_eq!(share_mode, 0);
         fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn settings_update_does_not_collide_with_state_root_activation_flock() {
+        let root = test_root();
+        fs_util::private_dir(&root).unwrap();
+        let dir_handle = File::open(&root).unwrap();
+        fs_util::flock_fd(&dir_handle, fs_util::LOCK_EX | fs_util::LOCK_NB).unwrap();
+        let updated = WrapperSettings::update(&root, |s| {
+            s.signed_update = true;
+            Ok(())
+        })
+        .unwrap();
+        assert!(updated.signed_update);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn rejects_group_or_world_writable_config() {
+        let root = test_root();
+        fs_util::private_dir(&root).unwrap();
+        let path = root.join("wrapper.toml");
+        fs::write(&path, "manager = false\n").unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o664)).unwrap();
+        assert!(WrapperSettings::read(&root).is_err());
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

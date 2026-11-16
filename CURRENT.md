@@ -12,7 +12,7 @@ deployment and device activation. None substitutes for the next boundary.
 Stage 1 decouples `crates/wrapper` (`codex`) and `crates/release-builder` (`codex-release-builder`) into a standalone, zero-addon Termux compatibility wrapper aligned with [SPEC.md](SPEC.md) Sections 1–5 (`Stage 1` vs `Stage 2` architecture).
 - `Cargo.toml` contains only `crates/wrapper` and `crates/release-builder`, and `Cargo.lock` locks only `codex`, `codex-release-builder`, and `libc` (`0.2.186`). Zero non-wrapper addon crates, providers, TUI patches, or legacy CI/qualification scripts remain tracked on `rewrite/wrapper`.
 - Active Stage 1 CLI surface: `codex update [--upstream] [--version <MAJOR.MINOR.PATCH>] | --path <FILE_OR_DIR> | --rollback | --help`, `codex wrapper status [--json]`, `codex doctor [--color | --json]`, and direct upstream passthrough including `codex app-server daemon ...` and `codex remote-control`. Removed flags (`--build-local`, `--local`, `--signed`, `--remote`) exit with status `2`; `codex-release-builder` exposes only `build` (`fetch`/`prepare`/`publish` exit `2`).
-- Adaptive Termux binary patching (`crates/release-builder/src/runtime_patch.rs`): applies unified equal-length path remaps (`termux-fd-remap`, FD 33/34) plus adaptive UDS FD 35 relocation (`termux-uds-fd35`) across `0..N` matching static AArch64 ELFs under `bin/*` (`bin/codex`, optional `bin/codex-code-mode-host`, optional `bin/codex-exec-server`), preserves static AArch64 `codex-path/rg` when present (otherwise installs wrapper script), preserves `codex-resources/*`, and writes a single `codex-local-generation` (`package-root`) `generation.meta` with `wrapper_api_identity = wrapper-api`, `persistent_schema_identity = schema`, `creation_metadata = codex-wrapper`, and `termux-browser-open` / `termux-browser-manual` under `browser/{open,manual}/curl`, without `manager_artifact_digest`, `upstream_doctor`, or legacy fallback readers (`v1`/`v2`/`v3`, `99b`, `R10` helper bridge, or `compat/` layouts).
+- Adaptive Termux binary patching (`crates/release-builder/src/runtime_patch.rs`): applies unified equal-length path remaps (`termux-fd-remap`, FD 33/34) plus adaptive UDS FD 35 relocation (`termux-uds-fd35`, intercepting static musl `realpath` for `/proc/self/fd/35` paths/symlinks as well as `site1`/`site2`, across internal RX alignment gaps and safe trailing RX `PT_LOAD` extension) across `0..N` matching static AArch64 ELFs under `bin/*` (`bin/codex`, optional `bin/codex-code-mode-host`, optional `bin/codex-exec-server`), preserves static AArch64 `codex-path/rg` when present (otherwise installs wrapper script), preserves `codex-resources/*`, and writes a single `codex-local-generation` (`package-root`) `generation.meta` with `wrapper_api_identity = wrapper-api`, `persistent_schema_identity = schema`, `creation_metadata = codex-wrapper`, and `termux-browser-open` / `termux-browser-manual` under `browser/{open,manual}/curl`, without `manager_artifact_digest`, `upstream_doctor`, or legacy fallback readers (`v1`/`v2`/`v3`, `99b`, `R10` helper bridge, or `compat/` layouts).
 - Standalone runtime setup & state: fast `--version`/`-V`/`--help`/`-h` / `help` path bypassing `daemon_settings::ensure` (which manages only `$CODEX_HOME/app-server-daemon/settings.json` `autoUpdateEnabled: false`); lock-free FD 33 `resolv.conf` cache hit; lazy FD 34 `config.toml` (`# codex-termux-wrapper`, `sandbox_mode = "danger-full-access"`, `mcp_oauth_credentials_store = "file"`); `timezone::configure` (`TZ` TZif); FD 35 temp root; `codex-activation-state`, `codex-activation-journal`, and `downloads/` under `$HOME/.local/share/codex/wrapper/` (serialized via directory `flock` on the state root); AArch64 `SYS_renameat2` (`276`) atomic `rename_noreplace`; TLS/TMPDIR/BROWSER/X11-Wayland-WSL environment fence; `codex doctor --json` (`schema_version: 1`, `layout: "package-root"`); and `--sandbox` mode guard.
 
 ### Verified boundaries — post-cutover (`wrapper` naming & suffix cleanup, 2026-11-16)
@@ -73,34 +73,14 @@ services, and production generation pointers were **not** modified.
   the previous bytes exactly (`cmp`), the failed *first install* removed
   the candidate, and successful `--skip-upstream` committed cleanly.
   Rejected symlink/stale-lock tests are included in the Android Bionic CI job.
-- **Open release gate:** an isolated `codex app-server daemon start`
-  against the adapted `0.169.0` returned `1`:
-  `path must be shorter than SUN_LEN` from the managed daemon. This
-  reproduced with a short physical `CODEX_HOME` (42 bytes; advertised
-  control socket 85 bytes), short TMPDIR, and real Termux PREFIX;
-  an additional independent fixture with `CODEX_HOME` **39 bytes**
-  failed likewise, as did a direct `app-server --listen unix://<short-path>`
-  socket test. The pre-cutover installed Wrapper binary was **copied** to
-  an isolated prefix and independently adapted the official `0.169.0`
-  archive; that old Wrapper copy reproduced the same failure. Thus this
-  is not proven to be caused by the Stage 1 suffix cleanup or new installer.
-  `daemon stop` returned `notRunning` without changing an existing
-  service. A final **default `codex` PTY run also failed** (exit `1`)
-  with the same `SUN_LEN` error in the shortest isolated home; explicit
-  `codex --no-daemon` initialized the PTY screen but was deliberately
-  time-limited (exit `124`), **not** an authenticated task-completion or
-  default-launch pass. The exact failed producer path / upstream-vs-adaptation
-  root cause is **not established**. Help passthrough does not qualify daemon
-  lifecycle. Actual remote-control start/pair/stop and external client
-  pairing on this final source are also unverified; no authorized user
-  account was copied into the isolated fixture.
-- **Operating verdict:** standalone installation, official-upstream
-  update/rollback, adaptation, and recovery boundaries pass on a physical
-  device, but **full Stage 1 operating acceptance is not complete** while
-  **default PTY launch and managed daemon lifecycle remain broken**
-  and connected-client proof remains outstanding. Do not represent a synthetic
-  Bionic CI job or the
-  auth-free isolated doctor as proof of the missing stages.
+- **Open baseline record before Issue #33 fix (preserved):** Earlier isolated acceptance tests on `a224f223` / `f8284261` failed `app-server daemon start`, `app-server --listen unix://`, and default `codex` PTY with `SUN_LEN` (tracked in Issue #33).
+- **Root-cause fix & isolated Android API 37 Termux requalification (2026-11-16, current source):**
+  - **Root cause:** In upstream `0.169.0`, BOTH server bind (`short_socket_dir` calling `realpath("/proc/self/fd/35")`) AND daemon client connect (`std::fs::canonicalize(".../app-server-control.sock")`) invoked static musl `realpath`, expanding `/proc/self/fd/35` through procfs back to long physical `$TMPDIR`. In addition, `codex-exec-server` and `codex-code-mode-host` had smaller `.fini`–`.rodata` gaps (`192` and `332` bytes) than `codex` (`1,120` bytes), requiring multi-gap RX search and safe same-page trailing `RX PT_LOAD` extension. Additionally, upstream `0.169.0` daemon startup invokes `ps -p <pid> -o stat= -o lstart=`, which requires Termux base `procps` (`/usr/bin/ps`), whereas `/system/bin/ps` (`toybox`) fails on `/proc/sys/kernel/pid_max` (`EACCES`).
+  - **Isolated Termux verification against cached official `Codex 0.169.0`:** Using owned isolated `$HOME`/`$PREFIX` (with base Termux tools including `procps` `ps`), `TMPDIR` of `118` bytes, `CODEX_HOME` of `130` bytes, and control socket path of `173` bytes:
+    - `cargo fmt --check`, `cargo clippy --workspace --all-targets --locked -- -D warnings`, `(umask 0022 && cargo test --workspace --locked)` (`codex`: `40 passed; 0 failed`, `codex-release-builder`: `6 passed; 0 failed`), and `cargo build --release --locked` passed.
+    - `install.sh --binary ... --skip-upstream` installed cleanly; `codex update --path` adapted all three `0.169.0` binaries cleanly; `codex --version`, `codex-exec-server --version` (`0.169.0`), and `codex-code-mode-host --help` executed cleanly on the Android kernel.
+    - `codex app-server daemon start` (`"status":"started"`), `daemon version` (`"status":"running"`, `0.169.0`), `daemon stop` (`"status":"stopped"`), `timeout 2s codex app-server --listen unix://<118B-TMPDIR>/direct-listen.sock` (listening, exit `124`), and default `codex` PTY (`TERM=xterm-256color`, `671` TUI bytes, zero `SUN_LEN`, with `codex doctor --json` confirming `app_server.status` ok & `termux_wrapper` `healthy`, overall `unhealthy` only for missing auth credentials) all passed cleanly without altering live `/data/data/com.termux/files/usr/bin/codex` or running services.
+  - **Remaining unverified boundaries:** Live `/data/data/com.termux/files/usr/bin/codex` activation, authenticated interactive task completion, live external `codex remote-control` pairing, and live remote `curl | sh` against refreshed GitHub prerelease assets remain deferred.
 - `install.sh` failure rollback is caught-exit/signal safe, not a
   cross-power-loss transaction; after SIGKILL/power loss, an owned
   `.codex.previous.<pid>` may remain behind a stale install lock and
@@ -111,34 +91,19 @@ The Stage 2 recurring official-upstream adoption controller and CI
 environment comparison are now documented in `docs/plan/STAGE2_PLAN.md`;
 no scheduler, automatic publication or production runtime deployment occurred.
 
-### Stage 2.1 — Optional settings and CLI admission groundwork (2026-11-16)
+### Stage 2.1 — Optional settings, CLI hooks, and FD 34 snapshot engine (2026-11-16)
 
-Implemented via [PR #31](https://github.com/humtr/codex/pull/31), without
-attaching a Manager, enhanced TUI, Provider or additional runtime dependency:
-- Bounded, fail-closed `wrapper.toml` parser under the Wrapper state root;
-  symlink-safe read, atomic serialized setup updates, and safe first-run
-  creation of missing state directories.
-- `codex wrapper setup [show|--bare|--enable|--disable|--signed-update]`,
-  invocation-local `--bare` bypass and `--with` module validation.
-  Configured but unavailable modules fail before upstream execution.
-- `codex wrapper status` reports configured module selection. Bare upstream
-  `--version` / `--help` retain the zero-addon/zero-write fast path.
-  The stored `signed_update` opt-in is not used by Stage 1 update transport.
+Implemented beyond initial PR #31 without attaching Manager, enhanced TUI, Provider, or external crates beyond `libc`:
+- Bounded, fail-closed `wrapper.toml` parser under the Wrapper state root (`crates/wrapper/src/extensions.rs` + `fs_util.rs`): target-correct AArch64 `O_NOFOLLOW` (`0o100000` on ARM/AArch64, `0o400000` elsewhere), `uid`/`dev`/`ino` validation in `read_bounded_regular`, dedicated `.wrapper-settings.lock` separate from state-root activation `flock`, and XDG-compatible `0o755` (umask-respecting) creation of missing `.local`/`.local/share` while enforcing `0o700` on `codex` and `wrapper`.
+- `codex wrapper setup [show|--bare|--enable|--disable|--signed-update]` supports multi-flag updates in one invocation, `--bare` preserves `signed_update`, `codex wrapper status [--json]` reports `signed_update` and `addons`, invocation-local `--bare` and `--with` enforce fail-closed validation on missing modules, and bare `--version`/`--help` retain the zero-write fast path (zero `wrapper.toml`, `config/snapshots/`, or `app-server-daemon/settings.json` writes).
+- Conditional FD 34 immutable snapshot engine (`crates/wrapper/src/system_config.rs` + `UpstreamRuntimeHost` in `main.rs`): enforces `FRAGMENT_LIMIT` (`8192` B) and `CONFIG_LIMIT` (`16384` B), derives FNV-1a `"config-v1"` `settings_identity`, materializes immutable `config/snapshots/<settings_id>/config.toml` (`thread_unload_delay_secs = 0`) + optional `requirements.toml` atomically via `rename_noreplace`, validates via cached `validated-<key>` 5s bounded `features list` probe, holds `flock(LOCK_SH)` across FD 34 child execution, and prunes unheld snapshots cleanly after setup/launch changes.
 
-**GitHub source evidence:** PR #31 HEAD `8ed4703f4d559790b9c0737259500b188705c147`,
-[Wrapper CI run 43789749536](https://github.com/humtr/codex/actions/runs/43789749536):
-workspace format/Clippy/tests/docs, AArch64 Android package build and
-real Android/Bionic installer/CLI smoke passed. No live device installation,
-service restart, signed publication or connected-client proof occurred.
-
-**Remaining Stage 2.1 exit gate:** immutable FD 34 fragment snapshots and
-their bounded `features list` validation, with a qualified module producer
-and lifetime/cleanup tests. Phases 2.2–2.5 remain unstarted.
+**Verification & open boundary:** PR #31 hardening + `system_config` + Issue #33 fixes are verified by workspace unit tests (`codex`: `40 passed; 0 failed`, `codex-release-builder`: `6 passed; 0 failed`) and isolated Termux API 37 runtime checks (multi-flag setup, `--bare` preserving `signed_update`, `(umask 0022)` `755`/`700` XDG modes, AArch64 `O_NOFOLLOW` symlink rejection, unavailable `--with manager` failure, zero-write bare launch). Actual addon module binaries/producers (`manager`, `tui`, `provider`) are not yet attached in Stage 1/2.1; cross-process shared-server integration of FD 34 snapshots will exercise with a real Manager producer in Phase 2.3. Phases 2.2–2.6 remain unstarted.
 
 ### Stage 2 Plan (Documented — Phases 2.1–2.6 pending qualification)
 See [docs/plan/STAGE2_PLAN.md](docs/plan/STAGE2_PLAN.md) for the verified phase-by-phase reintegration procedure, `c200e676` vs `ebb0b519` regression protections, suffix-removal schema rules, live-device safety checks, and verification gates. Summary sequence:
-1. **`wrapper.toml` & Generic Extension Contract (Phase 2.1):**
-   - Introduce `~/.local/share/codex/wrapper/wrapper.toml`, `codex wrapper setup`, `codex wrapper --bare`, and `codex wrapper --with <MODULES>`, plus conditional FD 34 system configuration snapshots (`config/snapshots/<id>/`) while keeping bare `codex` / `codex --version` zero-write and free of addon crates or IPC.
+1. **`wrapper.toml` & Generic Extension Contract (Phase 2.1 — implemented in `crates/wrapper`; module producers in Phases 2.3–2.5):**
+   - Implemented `~/.local/share/codex/wrapper/wrapper.toml`, `codex wrapper setup`, `codex wrapper --bare`, and `codex wrapper --with <MODULES>`, plus the conditional FD 34 system configuration snapshot engine (`config/snapshots/<settings_id>/`) while keeping bare `codex` / `codex --version` zero-write and free of addon crates or IPC.
 2. **`--signed` Ed25519 Channel Verification & Publication (Phase 2.2):**
    - Wire Ed25519 signed manifest/key verification (`release.manifest`, `release.sig`, `release-authority.sig`, `release-public-key.pem`) and `publish` over unified `package-root` trees into `codex-release-builder` and `codex update --signed` (`update-index-base` / `update-index` / `codex-release`), preserving bare `LOCAL_ZERO` `--upstream` updates and degrading missing optional assets at the addon boundary.
 3. **Optional `codex-manager` & `runtime-binding` Reattachment (Phase 2.3):**

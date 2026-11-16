@@ -5,6 +5,9 @@ const FD35_BYTES: &[u8] = b"/proc/self/fd/35\0";
 const FMT_UID_ONLY: &[u8] = b"\xc0\0";
 const DAEMON_FMT_NEEDLE: &[u8] = b"\x0dcodex-daemon-\xc0\0";
 const NOP_INSN: u32 = 0xd503_201f;
+const FD35_CAVE_PREFIX: usize = 0x30;
+const REALPATH_STUB_MAX_BYTES: usize = 0x140;
+const RX_CAVE_MIN_BYTES: usize = FD35_CAVE_PREFIX + REALPATH_STUB_MAX_BYTES;
 
 pub(super) fn contains_daemon_fmt(bytes: &[u8]) -> bool {
     parse_elf(bytes).is_ok_and(|elf| {
@@ -22,18 +25,25 @@ struct ElfSection {
 
 #[derive(Clone, Copy, Debug)]
 struct ElfLoad {
+    phdr_off: usize,
     flags: u32,
     off: usize,
+    va: u64,
     filesz: usize,
+    memsz: usize,
+    align: u64,
     delta: i128,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 struct ParsedElf {
-    text: ElfSection,
     fini: ElfSection,
     rodata: ElfSection,
+    text: ElfSection,
     rx_load: ElfLoad,
+    rx_sections: Vec<ElfSection>,
+    internal_tail_end: usize,
+    max_rx_extend_end: usize,
     ro_delta: i128,
 }
 
@@ -41,6 +51,16 @@ struct ParsedElf {
 struct RxCave {
     fd35_off: usize,
     fmt_off: usize,
+    stub_off: usize,
+    stub_cap: usize,
+    extend_rx_to: Option<usize>,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct RealpathMatch {
+    realpath_off: usize,
+    orig_insn0: u32,
+    strdup_off: usize,
 }
 
 #[derive(Clone, Debug)]
@@ -103,6 +123,91 @@ fn encode_add_imm12(rd: u8, rn: u8, imm12: u16) -> Result<u32, &'static str> {
 
 fn encode_movz_w(rd: u8, imm16: u16) -> u32 {
     0x5280_0000 | (u32::from(imm16) << 5) | u32::from(rd & 0x1f)
+}
+
+fn va_to_off(va: u64, seg: ElfLoad) -> Result<usize, &'static str> {
+    let rel = i128::from(va) - seg.delta;
+    let off = usize::try_from(rel).map_err(|_| "ELF virtual address precedes segment")?;
+    if off < seg.off || off >= seg.off + seg.filesz {
+        return Err("ELF virtual address outside RX segment");
+    }
+    Ok(off)
+}
+
+fn decode_b_or_bl_target(insn: u32, pc_va: u64) -> Option<(bool, u64)> {
+    if (insn & 0x7c00_0000) != 0x1400_0000 {
+        return None;
+    }
+    let is_link = (insn >> 31) != 0;
+    let mut imm26 = (insn & 0x03ff_ffff) as i32;
+    if (imm26 & (1 << 25)) != 0 {
+        imm26 -= 1 << 26;
+    }
+    let target = i128::from(pc_va) + i128::from(imm26) * 4;
+    let va = u64::try_from(target).ok()?;
+    Some((is_link, va))
+}
+
+fn decode_cond_or_cbz_target(insn: u32, pc_va: u64) -> Option<u64> {
+    let diff = if (insn & 0xff00_0010) == 0x5400_0000 || (insn & 0x7e00_0000) == 0x3400_0000 {
+        let mut imm19 = ((insn >> 5) & 0x7_ffff) as i32;
+        if (imm19 & (1 << 18)) != 0 {
+            imm19 -= 1 << 19;
+        }
+        i128::from(imm19) * 4
+    } else if (insn & 0x7e00_0000) == 0x3600_0000 {
+        let mut imm14 = ((insn >> 5) & 0x3fff) as i32;
+        if (imm14 & (1 << 13)) != 0 {
+            imm14 -= 1 << 14;
+        }
+        i128::from(imm14) * 4
+    } else {
+        return None;
+    };
+    u64::try_from(i128::from(pc_va) + diff).ok()
+}
+
+fn branch_target_va(insn: u32, pc_va: u64) -> Option<u64> {
+    decode_b_or_bl_target(insn, pc_va)
+        .map(|(_, va)| va)
+        .or_else(|| decode_cond_or_cbz_target(insn, pc_va))
+}
+
+fn encode_b(pc_va: u64, target_va: u64, link: bool) -> Result<u32, &'static str> {
+    let diff = (i128::from(target_va) - i128::from(pc_va)) >> 2;
+    if !(-(1 << 25)..(1 << 25)).contains(&diff) {
+        return Err("AArch64 B/BL target out of +/-128MiB range");
+    }
+    let op = if link { 0x9400_0000 } else { 0x1400_0000 };
+    Ok(op | ((diff as u32) & 0x03ff_ffff))
+}
+
+fn encode_b_cond(pc_va: u64, target_va: u64, cond: u32) -> Result<u32, &'static str> {
+    let diff = (i128::from(target_va) - i128::from(pc_va)) >> 2;
+    if !(-(1 << 18)..(1 << 18)).contains(&diff) {
+        return Err("AArch64 B.cond target out of range");
+    }
+    Ok(0x5400_0000 | (((diff as u32) & 0x7_ffff) << 5) | (cond & 0xf))
+}
+
+fn encode_cbz(
+    pc_va: u64,
+    target_va: u64,
+    rt: u8,
+    nz: bool,
+    is64: bool,
+) -> Result<u32, &'static str> {
+    let diff = (i128::from(target_va) - i128::from(pc_va)) >> 2;
+    if !(-(1 << 18)..(1 << 18)).contains(&diff) {
+        return Err("AArch64 CBZ/CBNZ target out of range");
+    }
+    let op = match (is64, nz) {
+        (true, true) => 0xb500_0000,
+        (true, false) => 0xb400_0000,
+        (false, true) => 0x3500_0000,
+        (false, false) => 0x3400_0000,
+    };
+    Ok(op | (((diff as u32) & 0x7_ffff) << 5) | u32::from(rt & 0x1f))
 }
 
 fn is_pc_relative(insn: u32) -> bool {
@@ -212,28 +317,38 @@ fn parse_elf(data: &[u8]) -> Result<ParsedElf, &'static str> {
     let _ = sh_end;
 
     let mut loads = Vec::new();
+    let mut non_load_min_after = Vec::new();
     for i in 0..e_phnum {
         let ph = e_phoff + i * 56;
         let p_type = le_u32(data, ph).ok_or("corrupt ELF phdr")?;
         if p_type == 3 {
             return Err("executable has PT_INTERP");
         }
+        let off = usize::try_from(le_u64(data, ph + 8).ok_or("corrupt ELF phdr")?)
+            .map_err(|_| "ELF phdr offset overflow")?;
+        let filesz = usize::try_from(le_u64(data, ph + 32).ok_or("corrupt ELF phdr")?)
+            .map_err(|_| "ELF phdr size overflow")?;
         if p_type == 1 {
             let flags = le_u32(data, ph + 4).ok_or("corrupt ELF phdr")?;
-            let off = usize::try_from(le_u64(data, ph + 8).ok_or("corrupt ELF phdr")?)
-                .map_err(|_| "ELF phdr offset overflow")?;
             let va = le_u64(data, ph + 16).ok_or("corrupt ELF phdr")?;
-            let filesz = usize::try_from(le_u64(data, ph + 32).ok_or("corrupt ELF phdr")?)
-                .map_err(|_| "ELF phdr size overflow")?;
-            if off.checked_add(filesz).is_none_or(|end| end > data.len()) {
+            let memsz = usize::try_from(le_u64(data, ph + 40).ok_or("corrupt ELF phdr")?)
+                .map_err(|_| "ELF phdr memsz overflow")?;
+            let align = le_u64(data, ph + 48).ok_or("corrupt ELF phdr")?;
+            if filesz > memsz || off.checked_add(filesz).is_none_or(|end| end > data.len()) {
                 return Err("ELF PT_LOAD exceeds file bounds");
             }
             loads.push(ElfLoad {
+                phdr_off: ph,
                 flags,
                 off,
+                va,
                 filesz,
+                memsz,
+                align,
                 delta: i128::from(va) - off as i128,
             });
+        } else if filesz > 0 {
+            non_load_min_after.push(off);
         }
     }
 
@@ -251,11 +366,14 @@ fn parse_elf(data: &[u8]) -> Result<ParsedElf, &'static str> {
     let mut text = None;
     let mut fini = None;
     let mut rodata = None;
+    let mut alloc_or_rx_sections = Vec::new();
+    let mut file_section_starts = Vec::new();
     for i in 0..e_shnum {
         let sh = e_shoff + i * e_shentsize;
         let sh_name = usize::try_from(le_u32(data, sh).ok_or("corrupt shdr")?)
             .map_err(|_| "section name overflow")?;
         let sh_type = le_u32(data, sh + 4).ok_or("corrupt shdr")?;
+        let sh_flags = le_u64(data, sh + 8).ok_or("corrupt shdr")?;
         let off = usize::try_from(le_u64(data, sh + 24).ok_or("corrupt shdr")?)
             .map_err(|_| "section offset overflow")?;
         let sz = usize::try_from(le_u64(data, sh + 32).ok_or("corrupt shdr")?)
@@ -269,6 +387,9 @@ fn parse_elf(data: &[u8]) -> Result<ParsedElf, &'static str> {
             .map(|rel| sh_name + rel)
             .unwrap_or(shstr.len());
         let name = &shstr[sh_name..name_end];
+        if sh_type != 8 && sz > 0 {
+            file_section_starts.push(off);
+        }
         if matches!(name, b".text" | b".fini" | b".rodata") {
             if sh_type == 8 || off.checked_add(sz).is_none_or(|end| end > data.len()) {
                 return Err("required ELF section is SHT_NOBITS or out of bounds");
@@ -280,6 +401,12 @@ fn parse_elf(data: &[u8]) -> Result<ParsedElf, &'static str> {
                 b".rodata" => rodata = Some(sec),
                 _ => {}
             }
+        }
+        if sh_type != 8
+            && sz > 0
+            && ((sh_flags & 2) != 0 || matches!(name, b".init" | b".text" | b".fini" | b".rodata"))
+        {
+            alloc_or_rx_sections.push(ElfSection { off, sz });
         }
     }
 
@@ -303,6 +430,7 @@ fn parse_elf(data: &[u8]) -> Result<ParsedElf, &'static str> {
     if rx_matches.len() != 1 {
         return Err("failed to identify unique RX PT_LOAD segment");
     }
+    let rx_load = rx_matches[0];
     let ro_matches: Vec<_> = loads
         .iter()
         .copied()
@@ -314,37 +442,241 @@ fn parse_elf(data: &[u8]) -> Result<ParsedElf, &'static str> {
         return Err("failed to identify unique readable PT_LOAD segment for .rodata");
     }
 
+    let rx_end = rx_load
+        .off
+        .checked_add(rx_load.filesz)
+        .ok_or("ELF RX PT_LOAD overflow")?;
+    let mut rx_sections: Vec<ElfSection> = alloc_or_rx_sections
+        .into_iter()
+        .filter(|s| {
+            s.off >= rx_load.off && s.off.checked_add(s.sz).is_some_and(|end| end <= rx_end)
+        })
+        .collect();
+    rx_sections.sort_by_key(|s| (s.off, s.sz));
+    let rx_last_end = rx_sections
+        .iter()
+        .map(|s| s.off + s.sz)
+        .max()
+        .unwrap_or(rx_load.off);
+
+    let mut internal_tail_end = rx_end;
+    if e_phoff >= rx_last_end {
+        internal_tail_end = internal_tail_end.min(e_phoff);
+    }
+    if e_shoff >= rx_last_end {
+        internal_tail_end = internal_tail_end.min(e_shoff);
+    }
+    if rodata.off >= rx_last_end {
+        internal_tail_end = internal_tail_end.min(rodata.off);
+    }
+    for &off in file_section_starts.iter().chain(non_load_min_after.iter()) {
+        if off >= rx_last_end {
+            internal_tail_end = internal_tail_end.min(off);
+        }
+    }
+
+    let max_rx_extend_end = if rx_load.filesz != rx_load.memsz {
+        rx_end
+    } else {
+        let mut limit = data.len();
+        if e_phoff >= rx_end {
+            limit = limit.min(e_phoff);
+        }
+        if e_shoff >= rx_end {
+            limit = limit.min(e_shoff);
+        }
+        for off in file_section_starts.into_iter().chain(non_load_min_after) {
+            if off >= rx_end {
+                limit = limit.min(off);
+            }
+        }
+        for l in &loads {
+            if l.phdr_off == rx_load.phdr_off {
+                continue;
+            }
+            if l.off >= rx_end {
+                limit = limit.min(l.off);
+            }
+            if l.va > rx_load.va {
+                let page_align = if l.align >= 0x1000 && l.align.is_power_of_two() {
+                    l.align.min(0x10000)
+                } else {
+                    0x1000
+                };
+                let page_va = l.va & !(page_align - 1);
+                if let Ok(va_limit_off) = usize::try_from(i128::from(page_va) - rx_load.delta) {
+                    limit = limit.min(va_limit_off);
+                }
+            }
+        }
+        limit.max(rx_end)
+    };
+
     Ok(ParsedElf {
         text,
         fini,
         rodata,
-        rx_load: rx_matches[0],
+        rx_load,
+        rx_sections,
+        internal_tail_end,
+        max_rx_extend_end,
         ro_delta: ro_matches[0].delta,
     })
 }
 
-fn locate_rx_cave(data: &[u8], elf: &ParsedElf) -> Result<RxCave, &'static str> {
+fn find_zero_slot(
+    data: &[u8],
+    gap_start: usize,
+    gap_end: usize,
+    needed: usize,
+    require_contiguous_zero_prefix: bool,
+) -> Option<usize> {
+    let mut cand = (gap_start.checked_add(16)? + 15) & !15;
+    if require_contiguous_zero_prefix
+        && data
+            .get(gap_start..cand)
+            .is_none_or(|prefix| prefix.iter().any(|&b| b != 0))
+    {
+        return None;
+    }
+    while cand.checked_add(needed).is_some_and(|end| end <= gap_end) {
+        if data[cand..cand + needed].iter().all(|&b| b == 0) {
+            return Some(cand);
+        }
+        if require_contiguous_zero_prefix {
+            break;
+        }
+        cand += 16;
+    }
+    None
+}
+
+fn locate_rx_cave(
+    data: &[u8],
+    elf: &ParsedElf,
+    realpath_off: usize,
+) -> Result<RxCave, &'static str> {
     let fini_end = elf
         .fini
         .off
         .checked_add(elf.fini.sz)
         .ok_or("ELF .fini overflow")?;
-    let mut rx_end = elf.rx_load.off + elf.rx_load.filesz;
-    if elf.rodata.off >= fini_end {
-        rx_end = rx_end.min(elf.rodata.off);
-    }
-    let start_cand = (fini_end.checked_add(16).ok_or("cave overflow")? + 15) & !15;
-    let mut cand = start_cand;
-    while cand.checked_add(64).is_some_and(|end| end <= rx_end) {
-        if data[cand..cand + 64].iter().all(|&b| b == 0) {
-            return Ok(RxCave {
-                fd35_off: cand,
-                fmt_off: cand + 0x20,
-            });
+    let rx_end = elf.rx_load.off + elf.rx_load.filesz;
+    let realpath_va = off_to_va(realpath_off, elf.rx_load.delta)?;
+
+    let mut internal_gaps: Vec<(usize, usize, bool)> = Vec::new();
+    if let Some(first) = elf.rx_sections.first() {
+        let mut prev_end = first.off + first.sz;
+        for sec in &elf.rx_sections[1..] {
+            if sec.off > prev_end {
+                let is_fini_rodata = prev_end == fini_end && sec.off == elf.rodata.off;
+                internal_gaps.push((prev_end, sec.off, is_fini_rodata));
+            }
+            prev_end = prev_end.max(sec.off + sec.sz);
         }
-        cand += 16;
+        if elf.internal_tail_end > prev_end {
+            let is_fini_rodata = prev_end == fini_end && elf.rodata.off >= fini_end;
+            internal_gaps.push((prev_end, elf.internal_tail_end, is_fini_rodata));
+        }
     }
-    Err("insufficient 64-byte all-zero RX alignment cave between .fini and .rodata")
+    internal_gaps
+        .sort_by_key(|&(start, _, is_fini_rodata)| (!is_fini_rodata, start.abs_diff(realpath_off)));
+
+    // Pass 1: single contiguous internal RX alignment gap (no PHDR mutation).
+    for &(g_start, g_end, _) in &internal_gaps {
+        if let Some(cand) = find_zero_slot(data, g_start, g_end, RX_CAVE_MIN_BYTES, false) {
+            let stub_off = cand + FD35_CAVE_PREFIX;
+            let stub_va = off_to_va(stub_off, elf.rx_load.delta)?;
+            if encode_b(realpath_va, stub_va, false).is_ok() {
+                return Ok(RxCave {
+                    fd35_off: cand,
+                    fmt_off: cand + 0x20,
+                    stub_off,
+                    stub_cap: REALPATH_STUB_MAX_BYTES,
+                    extend_rx_to: None,
+                });
+            }
+        }
+    }
+
+    // Pass 2: contiguous all-zero padding immediately following RX PT_LOAD (extends p_filesz/p_memsz).
+    if elf.max_rx_extend_end > rx_end {
+        if let Some(cand) =
+            find_zero_slot(data, rx_end, elf.max_rx_extend_end, RX_CAVE_MIN_BYTES, true)
+        {
+            let stub_off = cand + FD35_CAVE_PREFIX;
+            let stub_va = off_to_va(stub_off, elf.rx_load.delta)?;
+            if encode_b(realpath_va, stub_va, false).is_ok() {
+                return Ok(RxCave {
+                    fd35_off: cand,
+                    fmt_off: cand + 0x20,
+                    stub_off,
+                    stub_cap: REALPATH_STUB_MAX_BYTES,
+                    extend_rx_to: Some(cand + RX_CAVE_MIN_BYTES),
+                });
+            }
+        }
+    }
+
+    // Pass 3: split strings (0x30B) and stub (0x140B) across two separate RX gaps/extension.
+    let mut string_slots: Vec<(usize, Option<usize>)> = Vec::new();
+    for &(g_start, g_end, _) in &internal_gaps {
+        if let Some(cand) = find_zero_slot(data, g_start, g_end, FD35_CAVE_PREFIX, false) {
+            string_slots.push((cand, None));
+        }
+    }
+    if elf.max_rx_extend_end > rx_end {
+        if let Some(cand) =
+            find_zero_slot(data, rx_end, elf.max_rx_extend_end, FD35_CAVE_PREFIX, true)
+        {
+            string_slots.push((cand, Some(cand + FD35_CAVE_PREFIX)));
+        }
+    }
+
+    let mut stub_slots: Vec<(usize, Option<usize>)> = Vec::new();
+    for &(g_start, g_end, _) in &internal_gaps {
+        if let Some(cand) = find_zero_slot(data, g_start, g_end, REALPATH_STUB_MAX_BYTES, false) {
+            stub_slots.push((cand, None));
+        }
+    }
+    if elf.max_rx_extend_end > rx_end {
+        if let Some(cand) = find_zero_slot(
+            data,
+            rx_end,
+            elf.max_rx_extend_end,
+            REALPATH_STUB_MAX_BYTES,
+            true,
+        ) {
+            stub_slots.push((cand, Some(cand + REALPATH_STUB_MAX_BYTES)));
+        }
+    }
+
+    for &(str_off, str_ext) in &string_slots {
+        for &(stub_off, stub_ext) in &stub_slots {
+            let overlaps = !(str_off + FD35_CAVE_PREFIX <= stub_off
+                || stub_off + REALPATH_STUB_MAX_BYTES <= str_off);
+            if overlaps {
+                continue;
+            }
+            let stub_va = off_to_va(stub_off, elf.rx_load.delta)?;
+            if encode_b(realpath_va, stub_va, false).is_ok() {
+                let extend_rx_to = match (str_ext, stub_ext) {
+                    (Some(a), Some(b)) => Some(a.max(b)),
+                    (Some(a), None) | (None, Some(a)) => Some(a),
+                    (None, None) => None,
+                };
+                return Ok(RxCave {
+                    fd35_off: str_off,
+                    fmt_off: str_off + 0x20,
+                    stub_off,
+                    stub_cap: REALPATH_STUB_MAX_BYTES,
+                    extend_rx_to,
+                });
+            }
+        }
+    }
+
+    Err("insufficient all-zero RX alignment or trailing PT_LOAD cave for FD 35 hook")
 }
 
 fn find_adrp_add_xrefs(
@@ -583,17 +915,397 @@ fn locate_site1(
     Ok(matches.pop().unwrap())
 }
 
+fn decode_adrp_page(insn: u32, pc_va: u64, expected_rd: u8) -> Option<u64> {
+    if (insn & 0x9f00_001f) != (0x9000_0000 | u32::from(expected_rd & 0x1f)) {
+        return None;
+    }
+    let immlo = i128::from((insn >> 29) & 0x3);
+    let immhi = i128::from((insn >> 5) & 0x7_ffff);
+    let mut imm = (immhi << 2) | immlo;
+    if (imm & (1 << 20)) != 0 {
+        imm -= 1 << 21;
+    }
+    let pc_page = i128::from(pc_va & !0xfff);
+    u64::try_from(pc_page + (imm << 12)).ok()
+}
+
+fn resolve_bl_target(data: &[u8], elf: &ParsedElf, bl_off: usize) -> Result<usize, &'static str> {
+    let insn = le_u32(data, bl_off).ok_or("truncated BL instruction")?;
+    let pc_va = off_to_va(bl_off, elf.rx_load.delta)?;
+    let (is_link, target_va) =
+        decode_b_or_bl_target(insn, pc_va).ok_or("expected BL instruction")?;
+    if !is_link {
+        return Err("expected BL instruction");
+    }
+    let target_off = va_to_off(target_va, elf.rx_load)?;
+    if target_off + 12 <= elf.text.off + elf.text.sz {
+        let w0 = le_u32(data, target_off).unwrap();
+        let w1 = le_u32(data, target_off + 4).unwrap();
+        let w2 = le_u32(data, target_off + 8).unwrap();
+        if let Some(page) = decode_adrp_page(w0, target_va, 16) {
+            if (w1 & 0xffc0_03ff) == 0x9100_0210 && w2 == 0xd61f_0200 {
+                let lo12 = u64::from((w1 >> 10) & 0xfff);
+                return va_to_off(page + lo12, elf.rx_load);
+            }
+        }
+    }
+    Ok(target_off)
+}
+
+fn is_memcpy_sequence_with_plus1(data: &[u8], start_off: usize, limit_off: usize) -> bool {
+    let mut found_add_plus1 = false;
+    let end = limit_off.min(start_off + 24);
+    let mut off = start_off;
+    while off + 4 <= end {
+        let Some(w) = le_u32(data, off) else {
+            return false;
+        };
+        if (w & 0xffff_fc1f) == 0x9100_0402 {
+            found_add_plus1 = true;
+        } else if let Some((is_link, _)) = decode_b_or_bl_target(w, (off as u64).wrapping_mul(1)) {
+            return is_link && found_add_plus1;
+        } else if is_branch_or_call(w) {
+            return false;
+        }
+        off += 4;
+    }
+    false
+}
+
+fn extract_strdup_bl(
+    data: &[u8],
+    elf: &ParsedElf,
+    block_off: usize,
+    limit_off: usize,
+) -> Option<usize> {
+    let end = limit_off.min(block_off + 20);
+    let mut saw_mov_x0 = false;
+    let mut off = block_off;
+    while off + 4 <= end {
+        let w = le_u32(data, off)?;
+        if (w & 0xffe0_ffff) == 0xaa00_03e0 {
+            saw_mov_x0 = true;
+        } else if let Some((true, _)) = decode_b_or_bl_target(w, 0) {
+            if !saw_mov_x0 {
+                return None;
+            }
+            let next_w = le_u32(data, off + 4)?;
+            if (next_w & 0xfc00_0000) == 0x1400_0000 || next_w == 0xd65f_03c0 {
+                return resolve_bl_target(data, elf, off).ok();
+            }
+            return None;
+        } else if is_branch_or_call(w) {
+            return None;
+        }
+        off += 4;
+    }
+    None
+}
+
+fn locate_realpath_and_strdup(
+    data: &[u8],
+    elf: &ParsedElf,
+    site1_end: usize,
+    site2_off: usize,
+) -> Result<RealpathMatch, &'static str> {
+    let text_end = elf.text.off + elf.text.sz;
+    let search_end = site2_off.min(text_end);
+    let mut rp_bl_offs = Vec::new();
+    let mut off = site1_end;
+    while off + 16 <= search_end {
+        let w = le_u32(data, off).ok_or("truncated .text scan for realpath call")?;
+        if matches!(w, 0xaa1f_03e1 | 0xd280_0001 | 0x5280_0001 | 0x2a1f_03e1) {
+            for k in 1usize..=3 {
+                let Some(bl_off) = off.checked_add(k * 4).filter(|&p| p + 8 <= search_end) else {
+                    break;
+                };
+                let wk = le_u32(data, bl_off).unwrap();
+                if let Some((true, _)) = decode_b_or_bl_target(wk, 0) {
+                    let has_cbz_x0 = (1usize..=3).any(|m| {
+                        bl_off
+                            .checked_add(m * 4)
+                            .and_then(|p| le_u32(data, p))
+                            .is_some_and(|wm| (wm & 0xfe00_001f) == 0xb400_0000)
+                    });
+                    if has_cbz_x0 {
+                        rp_bl_offs.push(bl_off);
+                    }
+                    break;
+                }
+                if is_branch_or_call(wk) {
+                    break;
+                }
+            }
+        }
+        off += 4;
+    }
+    if rp_bl_offs.len() != 1 {
+        return Err("expected unique realpath(..., NULL) call after /tmp UDS setup");
+    }
+    let realpath_off = resolve_bl_target(data, elf, rp_bl_offs[0])?;
+    if realpath_off < elf.text.off || realpath_off + 0x40 > text_end {
+        return Err("resolved realpath function falls outside .text bounds");
+    }
+    let orig_insn0 = le_u32(data, realpath_off).ok_or("truncated realpath prologue")?;
+    if is_pc_relative(orig_insn0) || is_branch_or_call(orig_insn0) {
+        return Err("realpath entry instruction is PC-relative or a branch");
+    }
+
+    let realpath_va = off_to_va(realpath_off, elf.rx_load.delta)?;
+    let scan_end = text_end.min(realpath_off + 0x700);
+    let mut saw_einval_cmp = false;
+    let mut strdup_candidates = Vec::new();
+    let mut pos = realpath_off + 4;
+    while pos + 4 <= scan_end {
+        let w = le_u32(data, pos).unwrap();
+        let pc_va = off_to_va(pos, elf.rx_load.delta)?;
+        if branch_target_va(w, pc_va) == Some(realpath_va) {
+            return Err("realpath contains an internal branch to its entry instruction");
+        }
+        if (w & 0xffff_fc1f) == 0x7100_581f {
+            saw_einval_cmp = true;
+        }
+        if (w & 0xff00_0000) == 0xb400_0000 {
+            if let Some(target_va) = decode_cond_or_cbz_target(w, pc_va) {
+                if let Ok(target_off) = va_to_off(target_va, elf.rx_load) {
+                    if target_off >= realpath_off
+                        && target_off < scan_end
+                        && is_memcpy_sequence_with_plus1(data, pos + 4, scan_end)
+                    {
+                        if let Some(strdup_off) = extract_strdup_bl(data, elf, target_off, scan_end)
+                        {
+                            strdup_candidates.push(strdup_off);
+                        }
+                    }
+                }
+            }
+        } else if (w & 0xff00_0000) == 0xb500_0000 {
+            if let Some(target_va) = decode_cond_or_cbz_target(w, pc_va) {
+                if let Ok(target_off) = va_to_off(target_va, elf.rx_load) {
+                    if target_off >= realpath_off
+                        && target_off < scan_end
+                        && is_memcpy_sequence_with_plus1(data, target_off, scan_end)
+                    {
+                        if let Some(strdup_off) = extract_strdup_bl(data, elf, pos + 4, scan_end) {
+                            strdup_candidates.push(strdup_off);
+                        }
+                    }
+                }
+            }
+        }
+        pos += 4;
+    }
+
+    if !saw_einval_cmp {
+        return Err("resolved realpath candidate lacks EINVAL symlink termination check");
+    }
+    strdup_candidates.sort_unstable();
+    strdup_candidates.dedup();
+    if strdup_candidates.len() != 1 {
+        return Err("expected unique strdup fallback inside realpath");
+    }
+    Ok(RealpathMatch {
+        realpath_off,
+        orig_insn0,
+        strdup_off: strdup_candidates[0],
+    })
+}
+
+fn build_realpath_stub(
+    stub_va: u64,
+    fd35_va: u64,
+    realpath_va: u64,
+    orig_insn0: u32,
+    strdup_va: u64,
+) -> Result<Vec<u8>, &'static str> {
+    enum StubItem {
+        Raw(u32),
+        B(&'static str),
+        BCond(&'static str, u32),
+        Cbz(&'static str, u8, bool, bool),
+        Adrp(u8, u64),
+    }
+
+    let mut items: Vec<StubItem> = Vec::with_capacity(80);
+    let mut labels: std::collections::HashMap<&'static str, usize> =
+        std::collections::HashMap::new();
+    let label_va = |lbl: &'static str, map: &std::collections::HashMap<&'static str, usize>| {
+        stub_va + (*map.get(lbl).expect("label defined") as u64) * 4
+    };
+
+    labels.insert("entry", items.len());
+    items.push(StubItem::Raw(0xd108_83ff)); // sub sp, sp, #0x220
+    items.push(StubItem::Raw(0xa900_7bfd)); // stp x29, x30, [sp]
+    items.push(StubItem::Raw(0xa901_53f3)); // stp x19, x20, [sp, #0x10]
+    items.push(StubItem::Cbz("call_orig_raw", 0, false, true));
+    items.push(StubItem::Raw(0xaa00_03f3)); // mov x19, x0 (path)
+    items.push(StubItem::Raw(0xaa01_03f4)); // mov x20, x1 (resolved)
+    items.push(StubItem::Adrp(2, fd35_va));
+    items.push(StubItem::Raw(encode_add_imm12(
+        2,
+        2,
+        (fd35_va & 0xfff) as u16,
+    )?));
+    items.push(StubItem::Raw(0xaa13_03e3)); // mov x3, x19
+
+    labels.insert("cmp1", items.len());
+    items.push(StubItem::Raw(0x3840_1444)); // ldrb w4, [x2], #1
+    items.push(StubItem::Cbz("cmp1_end", 4, false, false));
+    items.push(StubItem::Raw(0x3840_1465)); // ldrb w5, [x3], #1
+    items.push(StubItem::Raw(0x6b05_009f)); // cmp w4, w5
+    items.push(StubItem::BCond("cmp1", 0));
+    items.push(StubItem::B("try_readlink"));
+
+    labels.insert("cmp1_end", items.len());
+    items.push(StubItem::Raw(0x3940_0065)); // ldrb w5, [x3]
+    items.push(StubItem::Cbz("use_x19", 5, false, false));
+    items.push(StubItem::Raw(0x7100_bcbf)); // cmp w5, #0x2f ('/')
+    items.push(StubItem::BCond("use_x19", 0));
+
+    labels.insert("try_readlink", items.len());
+    items.push(StubItem::Raw(0x9280_0c60)); // mov x0, #-100 (AT_FDCWD)
+    items.push(StubItem::Raw(0xaa13_03e1)); // mov x1, x19
+    items.push(StubItem::Raw(0x9100_83e2)); // add x2, sp, #0x20
+    items.push(StubItem::Raw(0xd280_3fe3)); // mov x3, #511
+    items.push(StubItem::Raw(0xd280_09c8)); // mov x8, #78 (__NR_readlinkat)
+    items.push(StubItem::Raw(0xd400_0001)); // svc #0
+    items.push(StubItem::Raw(0xf100_041f)); // cmp x0, #1
+    items.push(StubItem::BCond("call_orig", 0xb)); // b.lt
+    items.push(StubItem::Raw(0xf107_fc1f)); // cmp x0, #511
+    items.push(StubItem::BCond("call_orig", 0xa)); // b.ge
+    items.push(StubItem::Raw(0x9100_83e3)); // add x3, sp, #0x20
+    items.push(StubItem::Raw(0x3820_687f)); // strb wzr, [x3, x0]
+    items.push(StubItem::Adrp(2, fd35_va));
+    items.push(StubItem::Raw(encode_add_imm12(
+        2,
+        2,
+        (fd35_va & 0xfff) as u16,
+    )?));
+
+    labels.insert("cmp2", items.len());
+    items.push(StubItem::Raw(0x3840_1444)); // ldrb w4, [x2], #1
+    items.push(StubItem::Cbz("cmp2_end", 4, false, false));
+    items.push(StubItem::Raw(0x3840_1465)); // ldrb w5, [x3], #1
+    items.push(StubItem::Raw(0x6b05_009f)); // cmp w4, w5
+    items.push(StubItem::BCond("cmp2", 0));
+    items.push(StubItem::B("call_orig"));
+
+    labels.insert("cmp2_end", items.len());
+    items.push(StubItem::Raw(0x3940_0065)); // ldrb w5, [x3]
+    items.push(StubItem::Cbz("use_buf", 5, false, false));
+    items.push(StubItem::Raw(0x7100_bcbf)); // cmp w5, #0x2f
+    items.push(StubItem::BCond("call_orig", 1)); // b.ne
+
+    labels.insert("use_buf", items.len());
+    items.push(StubItem::Raw(0x9100_83e9)); // add x9, sp, #0x20
+    items.push(StubItem::B("check_exists"));
+
+    labels.insert("use_x19", items.len());
+    items.push(StubItem::Raw(0xaa13_03e9)); // mov x9, x19
+
+    labels.insert("check_exists", items.len());
+    items.push(StubItem::Raw(0xaa09_03e1)); // mov x1, x9
+    items.push(StubItem::Raw(0x9280_0c60)); // mov x0, #-100
+    items.push(StubItem::Raw(0xd280_0002)); // mov x2, #0
+    items.push(StubItem::Raw(0xd280_0003)); // mov x3, #0
+    items.push(StubItem::Raw(0xd280_0608)); // mov x8, #48 (__NR_faccessat)
+    items.push(StubItem::Raw(0xd400_0001)); // svc #0
+    items.push(StubItem::Cbz("accessible", 0, false, true));
+
+    labels.insert("call_orig", items.len());
+    items.push(StubItem::Raw(0xaa13_03e0)); // mov x0, x19
+    items.push(StubItem::Raw(0xaa14_03e1)); // mov x1, x20
+
+    labels.insert("call_orig_raw", items.len());
+    items.push(StubItem::Raw(0xa941_53f3)); // ldp x19, x20, [sp, #0x10]
+    items.push(StubItem::Raw(0xa940_7bfd)); // ldp x29, x30, [sp]
+    items.push(StubItem::Raw(0x9108_83ff)); // add sp, sp, #0x220
+    items.push(StubItem::Raw(orig_insn0));
+    let realpath_resume = realpath_va + 4;
+    items.push(StubItem::Adrp(16, realpath_resume));
+    items.push(StubItem::Raw(encode_add_imm12(
+        16,
+        16,
+        (realpath_resume & 0xfff) as u16,
+    )?));
+    items.push(StubItem::Raw(0xd61f_0200)); // br x16
+
+    labels.insert("accessible", items.len());
+    items.push(StubItem::Cbz("do_strdup", 20, false, true));
+    items.push(StubItem::Raw(0xaa14_03e2)); // mov x2, x20
+
+    labels.insert("strcpy_loop", items.len());
+    items.push(StubItem::Raw(0x3840_1524)); // ldrb w4, [x9], #1
+    items.push(StubItem::Raw(0x3800_1444)); // strb w4, [x2], #1
+    items.push(StubItem::Cbz("strcpy_loop", 4, true, false));
+    items.push(StubItem::Raw(0xaa14_03e0)); // mov x0, x20
+    items.push(StubItem::B("ret_clean"));
+
+    labels.insert("do_strdup", items.len());
+    items.push(StubItem::Raw(0xaa09_03e0)); // mov x0, x9
+    items.push(StubItem::Adrp(16, strdup_va));
+    items.push(StubItem::Raw(encode_add_imm12(
+        16,
+        16,
+        (strdup_va & 0xfff) as u16,
+    )?));
+    items.push(StubItem::Raw(0xd63f_0200)); // blr x16
+
+    labels.insert("ret_clean", items.len());
+    items.push(StubItem::Raw(0xa941_53f3)); // ldp x19, x20, [sp, #0x10]
+    items.push(StubItem::Raw(0xa940_7bfd)); // ldp x29, x30, [sp]
+    items.push(StubItem::Raw(0x9108_83ff)); // add sp, sp, #0x220
+    items.push(StubItem::Raw(0xd65f_03c0)); // ret
+
+    let mut out = Vec::with_capacity(items.len() * 4);
+    for (idx, item) in items.iter().enumerate() {
+        let pc = stub_va + (idx as u64) * 4;
+        let w = match *item {
+            StubItem::Raw(raw) => raw,
+            StubItem::B(lbl) => encode_b(pc, label_va(lbl, &labels), false)?,
+            StubItem::BCond(lbl, cond) => encode_b_cond(pc, label_va(lbl, &labels), cond)?,
+            StubItem::Cbz(lbl, rt, nz, is64) => {
+                encode_cbz(pc, label_va(lbl, &labels), rt, nz, is64)?
+            }
+            StubItem::Adrp(rd, target) => encode_adrp(rd, pc, target)?,
+        };
+        out.extend_from_slice(&w.to_le_bytes());
+    }
+    Ok(out)
+}
+
 pub(super) fn apply_uds_fd35(bytes: &mut [u8]) -> Result<usize, &'static str> {
     let elf = parse_elf(bytes)?;
-    let cave = locate_rx_cave(bytes, &elf)?;
     let site2 = locate_site2(bytes, &elf)?;
     let site1 = locate_site1(bytes, &elf, site2.adrp_off)?;
+    let realpath = locate_realpath_and_strdup(
+        bytes,
+        &elf,
+        site1.start_off + site1.span_insns * 4,
+        site2.adrp_off,
+    )?;
+    let cave = locate_rx_cave(bytes, &elf, realpath.realpath_off)?;
 
     let va_delta = elf.rx_load.delta;
     let fd35_va = off_to_va(cave.fd35_off, va_delta)?;
     let fmt_va = off_to_va(cave.fmt_off, va_delta)?;
+    let stub_va = off_to_va(cave.stub_off, va_delta)?;
     let site1_va = off_to_va(site1.start_off, va_delta)?;
     let site2_va = off_to_va(site2.adrp_off, va_delta)?;
+    let realpath_va = off_to_va(realpath.realpath_off, va_delta)?;
+    let strdup_va = off_to_va(realpath.strdup_off, va_delta)?;
+
+    let stub_bytes = build_realpath_stub(
+        stub_va,
+        fd35_va,
+        realpath_va,
+        realpath.orig_insn0,
+        strdup_va,
+    )?;
+    if stub_bytes.len() > cave.stub_cap {
+        return Err("realpath FD35 wrapper stub exceeds RX cave capacity");
+    }
+    let realpath_hook = encode_b(realpath_va, stub_va, false)?.to_le_bytes();
 
     let mut site1_seq = Vec::with_capacity(site1.span_insns);
     site1_seq.push(encode_adrp(site1.ptr_reg, site1_va, fd35_va)?);
@@ -611,13 +1323,23 @@ pub(super) fn apply_uds_fd35(bytes: &mut [u8]) -> Result<usize, &'static str> {
     let add2 =
         encode_add_imm12(site2.fmt_reg, site2.fmt_reg, (fmt_va & 0xfff) as u16)?.to_le_bytes();
 
-    let mut edits: Vec<(usize, &[u8])> = vec![
-        (site1.start_off, &site1_bytes),
-        (site2.adrp_off, &adrp2),
-        (site2.add_off, &add2),
-        (cave.fd35_off, FD35_BYTES),
-        (cave.fmt_off, FMT_UID_ONLY),
+    let mut edits: Vec<(usize, Vec<u8>)> = vec![
+        (site1.start_off, site1_bytes),
+        (site2.adrp_off, adrp2.to_vec()),
+        (site2.add_off, add2.to_vec()),
+        (cave.fd35_off, FD35_BYTES.to_vec()),
+        (cave.fmt_off, FMT_UID_ONLY.to_vec()),
+        (cave.stub_off, stub_bytes),
+        (realpath.realpath_off, realpath_hook.to_vec()),
     ];
+    if let Some(new_rx_end) = cave.extend_rx_to {
+        let new_rx_sz = u64::try_from(new_rx_end - elf.rx_load.off)
+            .map_err(|_| "extended RX PT_LOAD size overflow")?;
+        let mut sz_pair = [0u8; 16];
+        sz_pair[..8].copy_from_slice(&new_rx_sz.to_le_bytes());
+        sz_pair[8..16].copy_from_slice(&new_rx_sz.to_le_bytes());
+        edits.push((elf.rx_load.phdr_off + 32, sz_pair.to_vec()));
+    }
     edits.sort_by_key(|(off, _)| *off);
     for pair in edits.windows(2) {
         if pair[0].0 + pair[0].1.len() > pair[1].0 {
@@ -633,12 +1355,128 @@ pub(super) fn apply_uds_fd35(bytes: &mut [u8]) -> Result<usize, &'static str> {
             .zip(after.iter())
             .filter(|(a, b)| a != b)
             .count();
-        bytes[off..off + after.len()].copy_from_slice(after);
+        bytes[off..off + after.len()].copy_from_slice(&after);
     }
     if changed == 0 {
         return Err("FD 35 UDS patch made no modifications");
     }
     Ok(changed)
+}
+
+#[cfg(test)]
+pub(crate) fn write_synthetic_realpath_fixture(
+    buf: &mut [u8],
+    rx_va_base: u64,
+    text_off: usize,
+    call_off: Option<usize>,
+    use_thunk: bool,
+    inverted: bool,
+    bad_entry: bool,
+) {
+    let write_w = |b: &mut [u8], off: usize, v: u32| {
+        b[off..off + 4].copy_from_slice(&v.to_le_bytes());
+    };
+    let realpath_off = text_off + 0x180;
+    let thunk_off = text_off + 0x280;
+    let memcpy_off = text_off + 0x2c0;
+    let strdup_off = text_off + 0x300;
+
+    let realpath_va = rx_va_base + realpath_off as u64;
+    let thunk_va = rx_va_base + thunk_off as u64;
+    let memcpy_va = rx_va_base + memcpy_off as u64;
+    let strdup_va = rx_va_base + strdup_off as u64;
+
+    if let Some(call_off) = call_off {
+        let call_va = rx_va_base + call_off as u64;
+        write_w(buf, call_off, 0xaa1f_03e1); // mov x1, xzr
+        write_w(
+            buf,
+            call_off + 4,
+            encode_b(
+                call_va + 4,
+                if use_thunk { thunk_va } else { realpath_va },
+                true,
+            )
+            .unwrap(),
+        );
+        write_w(
+            buf,
+            call_off + 8,
+            encode_cbz(call_va + 8, call_va + 0x14, 0, inverted, true).unwrap(),
+        );
+    }
+
+    write_w(
+        buf,
+        thunk_off,
+        encode_adrp(16, thunk_va, realpath_va).unwrap(),
+    );
+    write_w(
+        buf,
+        thunk_off + 4,
+        encode_add_imm12(16, 16, (realpath_va & 0xfff) as u16).unwrap(),
+    );
+    write_w(buf, thunk_off + 8, 0xd61f_0200); // br x16
+    write_w(buf, memcpy_off, 0xd65f_03c0);
+    write_w(buf, strdup_off, 0xd65f_03c0);
+
+    let entry_insn = if bad_entry {
+        encode_b(realpath_va, realpath_va + 8, false).unwrap()
+    } else {
+        0xd284_140c // mov x12, #0x20a0
+    };
+    write_w(buf, realpath_off, entry_insn);
+    write_w(buf, realpath_off + 4, 0xcb2c_63ff); // sub sp, sp, x12
+    write_w(buf, realpath_off + 8, 0x7100_581f); // cmp w0, #0x16 (EINVAL check)
+    if inverted {
+        let memcpy_blk_off = realpath_off + 0x24;
+        let memcpy_blk_va = rx_va_base + memcpy_blk_off as u64;
+        let cbnz_off = realpath_off + 12;
+        write_w(
+            buf,
+            cbnz_off,
+            encode_cbz(rx_va_base + cbnz_off as u64, memcpy_blk_va, 0, true, true).unwrap(),
+        );
+        write_w(buf, realpath_off + 16, 0xaa15_03e0); // mov x0, x21
+        write_w(
+            buf,
+            realpath_off + 20,
+            encode_b(rx_va_base + (realpath_off + 20) as u64, strdup_va, true).unwrap(),
+        );
+        write_w(buf, realpath_off + 24, 0xd65f_03c0);
+        write_w(buf, memcpy_blk_off, 0x9100_0662); // add x2, x19, #1
+        write_w(buf, memcpy_blk_off + 4, 0xaa15_03e1); // mov x1, x21
+        write_w(
+            buf,
+            memcpy_blk_off + 8,
+            encode_b(rx_va_base + (memcpy_blk_off + 8) as u64, memcpy_va, true).unwrap(),
+        );
+        write_w(buf, memcpy_blk_off + 12, 0xd65f_03c0);
+    } else {
+        let dup_blk_off = realpath_off + 0x28;
+        let dup_blk_va = rx_va_base + dup_blk_off as u64;
+        let cbz_off = realpath_off + 12;
+        write_w(
+            buf,
+            cbz_off,
+            encode_cbz(rx_va_base + cbz_off as u64, dup_blk_va, 0, false, true).unwrap(),
+        );
+        write_w(buf, realpath_off + 16, 0x9100_0662); // add x2, x19, #1
+        write_w(buf, realpath_off + 20, 0xaa15_03e1); // mov x1, x21
+        write_w(
+            buf,
+            realpath_off + 24,
+            encode_b(rx_va_base + (realpath_off + 24) as u64, memcpy_va, true).unwrap(),
+        );
+        write_w(buf, realpath_off + 28, 0xd65f_03c0);
+        write_w(buf, dup_blk_off, 0xaa15_03e0); // mov x0, x21
+        write_w(
+            buf,
+            dup_blk_off + 4,
+            encode_b(rx_va_base + (dup_blk_off + 4) as u64, strdup_va, true).unwrap(),
+        );
+        write_w(buf, dup_blk_off + 8, 0xd65f_03c0);
+    }
 }
 
 #[cfg(test)]
@@ -654,6 +1492,8 @@ mod tests {
             interleaved: Option<u32>,
         },
         DuplicateSite1,
+        BadRealpathEntry,
+        MissingRealpathCall,
     }
 
     fn write_u16(buf: &mut [u8], off: usize, v: u16) {
@@ -738,17 +1578,19 @@ mod tests {
         }
 
         buf[shstr_off..shstr_off + shstr.len()].copy_from_slice(shstr);
-        let mut write_shdr = |idx: usize, name_off: u32, sh_type: u32, off: usize, sz: usize| {
-            let s = sh_off + idx * 64;
-            write_u32(&mut buf, s, name_off);
-            write_u32(&mut buf, s + 4, sh_type);
-            write_u64(&mut buf, s + 24, off as u64);
-            write_u64(&mut buf, s + 32, sz as u64);
-        };
-        write_shdr(1, 1, 1, text_off, text_sz);
-        write_shdr(2, 7, 1, fini_off, fini_sz);
-        write_shdr(3, 13, 1, ro_off, ro_sz);
-        write_shdr(4, 21, 3, shstr_off, shstr.len());
+        let mut write_shdr =
+            |idx: usize, name_off: u32, sh_type: u32, sh_flags: u64, off: usize, sz: usize| {
+                let s = sh_off + idx * 64;
+                write_u32(&mut buf, s, name_off);
+                write_u32(&mut buf, s + 4, sh_type);
+                write_u64(&mut buf, s + 8, sh_flags);
+                write_u64(&mut buf, s + 24, off as u64);
+                write_u64(&mut buf, s + 32, sz as u64);
+            };
+        write_shdr(1, 1, 1, 6, text_off, text_sz);
+        write_shdr(2, 7, 1, 6, fini_off, fini_sz);
+        write_shdr(3, 13, 1, 2, ro_off, ro_sz);
+        write_shdr(4, 21, 3, 0, shstr_off, shstr.len());
 
         // Cave occupancy
         if occupy_cave_head {
@@ -786,7 +1628,9 @@ mod tests {
             }
         };
         match variant {
-            Site1Variant::Canonical => {
+            Site1Variant::Canonical
+            | Site1Variant::BadRealpathEntry
+            | Site1Variant::MissingRealpathCall => {
                 emit_site1(&mut buf, site1_off, 8, 0x18, None, false);
             }
             Site1Variant::RelocatedCaveAndReordered {
@@ -814,6 +1658,17 @@ mod tests {
             &mut buf,
             site2_off + 4,
             encode_add_imm12(0, 0, (fmt_va & 0xfff) as u16).unwrap(),
+        );
+
+        let is_inverted = matches!(variant, Site1Variant::RelocatedCaveAndReordered { .. });
+        write_synthetic_realpath_fixture(
+            &mut buf,
+            rx_va_base,
+            text_off,
+            (!matches!(variant, Site1Variant::MissingRealpathCall)).then_some(text_off + 0x110),
+            is_inverted,
+            is_inverted,
+            matches!(variant, Site1Variant::BadRealpathEntry),
         );
         (buf, site1_off, site2_off, fini_off + fini_sz)
     }
@@ -852,11 +1707,19 @@ mod tests {
             le_u32(&canonical, site1_off + 8),
             Some(encode_movz_w(1, FD35_BYTES.len() as u16))
         );
+        let can_rp_off = 0x1180usize;
+        let can_rp_va = 0x400_000u64 + can_rp_off as u64;
+        let can_stub_off = cave0_fd35 + FD35_CAVE_PREFIX;
+        let can_stub_va = 0x400_000u64 + can_stub_off as u64;
+        assert_eq!(
+            le_u32(&canonical, can_rp_off),
+            Some(encode_b(can_rp_va, can_stub_va, false).unwrap())
+        );
         // Re-applying fails closed after site2 and site1 are already patched.
         assert!(apply_uds_fd35(&mut canonical).is_err());
         assert_ne!(site2_off, 0);
 
-        // Relocated cave + reordered site1 with safe interleaved `sub x8, x29, #0x18` + shifted VA base.
+        // Relocated cave + reordered site1 with safe interleaved `sub x8, x29, #0x18` + shifted VA base + thunk/inverted realpath.
         let sub_x8_x29_18 = 0xd100_63a8u32;
         let (mut shifted, sh_site1, _, _) = build_synthetic_aarch64_elf(
             0x410_000,
@@ -891,10 +1754,23 @@ mod tests {
             FD35_BYTES
         );
         assert_eq!(&shifted[moved_cave + 0x20..moved_cave + 0x22], FMT_UID_ONLY);
+        let sh_rp_va = 0x410_000u64 + 0x1180;
+        let sh_stub_va = 0x410_000u64 + (moved_cave + FD35_CAVE_PREFIX) as u64;
+        assert_eq!(
+            le_u32(&shifted, 0x1180),
+            Some(encode_b(sh_rp_va, sh_stub_va, false).unwrap())
+        );
+
         // Negative cases fail closed before mutation:
         let (mut no_cave, _, _, _) =
             build_synthetic_aarch64_elf(0x400_000, false, true, Site1Variant::Canonical);
         assert!(apply_uds_fd35(&mut no_cave).is_err());
+
+        // Cave large enough for strings (64B) but too small for stub must also fail.
+        let (mut tiny_cave, _, _, _) =
+            build_synthetic_aarch64_elf(0x400_000, false, false, Site1Variant::Canonical);
+        tiny_cave[cave0_fd35 + 64..0x2000].fill(0x55);
+        assert!(apply_uds_fd35(&mut tiny_cave).is_err());
 
         let (mut with_interp, _, _, _) =
             build_synthetic_aarch64_elf(0x400_000, false, false, Site1Variant::Canonical);
@@ -910,6 +1786,14 @@ mod tests {
             build_synthetic_aarch64_elf(0x400_000, false, false, Site1Variant::DuplicateSite1);
         assert!(apply_uds_fd35(&mut dup_site1).is_err());
 
+        let (mut missing_rp, _, _, _) =
+            build_synthetic_aarch64_elf(0x400_000, false, false, Site1Variant::MissingRealpathCall);
+        assert!(apply_uds_fd35(&mut missing_rp).is_err());
+
+        let (mut bad_rp_entry, _, _, _) =
+            build_synthetic_aarch64_elf(0x400_000, false, false, Site1Variant::BadRealpathEntry);
+        assert!(apply_uds_fd35(&mut bad_rp_entry).is_err());
+
         // Unsafe interleaved instruction touching X0 (`add x0, x19, #8` = 0x91002260) must reject.
         let (mut unsafe_interleaved, _, _, _) = build_synthetic_aarch64_elf(
             0x400_000,
@@ -922,5 +1806,148 @@ mod tests {
             },
         );
         assert!(apply_uds_fd35(&mut unsafe_interleaved).is_err());
+
+        // Multi-section ELF with tiny .fini..rodata gap falls back to .init..text without PHDR edits,
+        // or extends RX PT_LOAD into safe trailing zeros when no internal gap suffices.
+        #[allow(clippy::too_many_arguments)]
+        fn build_extended_rx_elf(
+            init_gap: usize,
+            fini_gap: usize,
+            trailing_zeros: usize,
+            rw_page_gap: u64,
+        ) -> Vec<u8> {
+            let va_base = 0x400_000u64;
+            let init_off = 0x200usize;
+            let init_sz = 0x10usize;
+            let text_off = (init_off + init_sz + init_gap + 15) & !15;
+            let text_sz = 0x400usize;
+            let fini_off = text_off + text_sz;
+            let fini_sz = 0x10usize;
+            let ro_off = fini_off + fini_sz + fini_gap;
+            let ro_sz = 0x200usize;
+            let rx_filesz = ro_off + ro_sz;
+            let rw_off = rx_filesz + trailing_zeros;
+            let rw_va = va_base + rx_filesz as u64 + rw_page_gap;
+            let rw_sz = 0x40usize;
+            let shstr_off = rw_off + rw_sz;
+            let shstr = b"\0.init\0.text\0.fini\0.rodata\0.tdata\0.shstrtab\0";
+            let sh_off = (shstr_off + shstr.len() + 7) & !7;
+            let total = sh_off + 7 * 64;
+            let mut buf = vec![0u8; total];
+
+            buf[..4].copy_from_slice(b"\x7fELF");
+            buf[4] = 2;
+            buf[5] = 1;
+            buf[6] = 1;
+            write_u16(&mut buf, 16, 2);
+            write_u16(&mut buf, 18, 183);
+            write_u32(&mut buf, 20, 1);
+            write_u64(&mut buf, 32, 64);
+            write_u64(&mut buf, 40, sh_off as u64);
+            write_u16(&mut buf, 52, 64);
+            write_u16(&mut buf, 54, 56);
+            write_u16(&mut buf, 56, 2);
+            write_u16(&mut buf, 58, 64);
+            write_u16(&mut buf, 60, 7);
+            write_u16(&mut buf, 62, 6);
+
+            // PT_LOAD[0] RX
+            write_u32(&mut buf, 64, 1);
+            write_u32(&mut buf, 68, 5);
+            write_u64(&mut buf, 72, 0);
+            write_u64(&mut buf, 80, va_base);
+            write_u64(&mut buf, 88, va_base);
+            write_u64(&mut buf, 96, rx_filesz as u64);
+            write_u64(&mut buf, 104, rx_filesz as u64);
+            write_u64(&mut buf, 112, 0x1000);
+
+            // PT_LOAD[1] RW
+            let ph1 = 64 + 56;
+            write_u32(&mut buf, ph1, 1);
+            write_u32(&mut buf, ph1 + 4, 6);
+            write_u64(&mut buf, ph1 + 8, rw_off as u64);
+            write_u64(&mut buf, ph1 + 16, rw_va);
+            write_u64(&mut buf, ph1 + 24, rw_va);
+            write_u64(&mut buf, ph1 + 32, rw_sz as u64);
+            write_u64(&mut buf, ph1 + 40, rw_sz as u64);
+            write_u64(&mut buf, ph1 + 48, 0x1000);
+
+            let fmt_str_off = ro_off + 0x10;
+            buf[fmt_str_off..fmt_str_off + DAEMON_FMT_NEEDLE.len()]
+                .copy_from_slice(DAEMON_FMT_NEEDLE);
+            buf[rw_off..rw_off + 4].copy_from_slice(&[1, 2, 3, 4]);
+            buf[shstr_off..shstr_off + shstr.len()].copy_from_slice(shstr);
+
+            let mut write_shdr =
+                |idx: usize, name_off: u32, sh_type: u32, sh_flags: u64, off: usize, sz: usize| {
+                    let s = sh_off + idx * 64;
+                    write_u32(&mut buf, s, name_off);
+                    write_u32(&mut buf, s + 4, sh_type);
+                    write_u64(&mut buf, s + 8, sh_flags);
+                    write_u64(&mut buf, s + 24, off as u64);
+                    write_u64(&mut buf, s + 32, sz as u64);
+                };
+            write_shdr(1, 1, 1, 6, init_off, init_sz);
+            write_shdr(2, 7, 1, 6, text_off, text_sz);
+            write_shdr(3, 13, 1, 6, fini_off, fini_sz);
+            write_shdr(4, 19, 1, 2, ro_off, ro_sz);
+            write_shdr(5, 27, 1, 3, rw_off, rw_sz);
+            write_shdr(6, 34, 3, 0, shstr_off, shstr.len());
+
+            let site1_off = text_off + 0x40;
+            let site2_off = text_off + 0x200;
+            let site1_insns = [
+                0x528e_85e9u32,
+                0x9100_83e0,
+                0x72ae_0da9,
+                0x5280_00a1,
+                0x3900_93ff,
+                0xb900_23e9,
+            ];
+            for (i, w) in site1_insns.iter().enumerate() {
+                write_u32(&mut buf, site1_off + i * 4, *w);
+            }
+            let fmt_va = va_base + fmt_str_off as u64;
+            write_u32(
+                &mut buf,
+                site2_off,
+                encode_adrp(8, va_base + site2_off as u64, fmt_va).unwrap(),
+            );
+            write_u32(
+                &mut buf,
+                site2_off + 4,
+                encode_add_imm12(8, 8, (fmt_va & 0xfff) as u16).unwrap(),
+            );
+            write_synthetic_realpath_fixture(
+                &mut buf,
+                va_base,
+                text_off,
+                Some(text_off + 0x100),
+                false,
+                false,
+                false,
+            );
+            buf
+        }
+
+        // Case A: `.init..text` has >= 0x170+32 zeros, `.fini..rodata` only 0x40 -> uses `.init..text`, PHDR untouched.
+        let mut init_gap_elf = build_extended_rx_elf(0x300, 0x40, 0x100, 0x10000);
+        let orig_rx_filesz = le_u64(&init_gap_elf, 96).unwrap();
+        assert!(apply_uds_fd35(&mut init_gap_elf).is_ok());
+        assert_eq!(le_u64(&init_gap_elf, 96), Some(orig_rx_filesz));
+
+        // Case B: small `.init..text` (0x60) & tiny `.fini..rodata` (0x40) -> extends RX PT_LOAD into 0x400 trailing zeros.
+        let mut trail_elf = build_extended_rx_elf(0x60, 0x40, 0x400, 0x10000);
+        let trail_orig_filesz = le_u64(&trail_elf, 96).unwrap();
+        assert!(apply_uds_fd35(&mut trail_elf).is_ok());
+        let trail_new_filesz = le_u64(&trail_elf, 96).unwrap();
+        assert!(trail_new_filesz > trail_orig_filesz);
+        assert_eq!(le_u64(&trail_elf, 104), Some(trail_new_filesz));
+
+        // Case C: trailing zeros would collide with RW PT_LOAD's VA page -> fails closed without mutating bytes.
+        let mut page_blocked = build_extended_rx_elf(0x60, 0x40, 0x400, 0x80);
+        let page_blocked_before = page_blocked.clone();
+        assert!(apply_uds_fd35(&mut page_blocked).is_err());
+        assert_eq!(page_blocked, page_blocked_before);
     }
 }

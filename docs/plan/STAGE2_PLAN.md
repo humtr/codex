@@ -1,7 +1,7 @@
 # Stage 2 Reintegration Procedure and Implementation Plan
 
 > **Status:** Implementation execution guide & architecture transition plan (derived from [SPEC.md](../../SPEC.md), [DELIVERY.md](../spec/DELIVERY.md), [USER_INTERFACES.md](../spec/USER_INTERFACES.md), [BRIDGE.md](../spec/BRIDGE.md), and inspected preserved sources).
-> **Current implementation state:** **Stage 1** is implemented; **Phase 2.1 configuration/CLI groundwork** is implemented but the FD 34 snapshot exit gate is open. Other Stage 2 phases are not qualified. Complete the phase exit gates in order, preserving standalone Wrapper independence.
+> **Current implementation state:** **Stage 1** (including adaptive Issue #33 FD 35 `realpath` + multi-gap/trailing RX relocation) and **Phase 2.1** (`wrapper.toml`, `codex wrapper setup`/`--bare`/`--with`, and the conditional FD 34 immutable snapshot engine in `crates/wrapper`) are implemented and verified by workspace tests and isolated API 37 Termux checks; no addon binaries (`manager`, `tui`, `provider`) are attached yet, so cross-process shared-server integration exercises in Phase 2.3. Phases 2.2–2.6 remain pending. Complete the phase exit gates in order, preserving standalone Wrapper independence.
 
 ---
 
@@ -66,9 +66,8 @@
      - When no module overrides exist (default Stage 1 / `--bare` / empty `wrapper.toml`), retain the exact Stage 1 zero-write lazy `config/config.toml` path (zero dry-run `features list` spawns, zero snapshot dirs).
      - When enabled modules supply bounded config fragments (`<= 8 KiB`), materialize immutable `config/snapshots/<settings_id>/config.toml` (+ optional bounded `requirements.toml` only when a module requires shared topology constraints), validate with bounded `features list`, bind FD 34 + `flock(LOCK_SH)` over child lifetime, and prune unheld expired snapshots safely.
      - Keep `codex wrapper status --json` accurately reporting active config (`"addons":"none"` when bare, listing enabled modules when active).
-3. **Exit Gate (Must Pass Before Phase 2.2):**
-   - `cargo fmt --check`, `cargo clippy --workspace --all-targets --locked -- -D warnings`, `cargo test --workspace --locked`, and `.github/workflows/wrapper.yml` Android Bionic smoke pass.
-   - New unit/E2E tests verify: absent/empty `wrapper.toml` performs **zero** snapshot writes or subprocess probes on `--version` and ordinary launch; malformed `wrapper.toml` fails closed safely; `--bare` ignores configured modules; `--with manager` fails cleanly when no Manager binary exists rather than running unguarded or crashing bare launch.
+3. **Exit Gate Status (Engine Implemented; Producer Attachment in Phase 2.3):**
+   - `cargo fmt --check`, `cargo clippy --workspace --all-targets --locked -- -D warnings`, `cargo test --workspace --locked` (`system_config::tests::*`, `extensions::tests::*`), and isolated API 37 Termux checks verify: absent `wrapper.toml` performs **zero** snapshot writes or subprocess probes on bare `--version`/`--help`/launch; malformed or symlinked `wrapper.toml` fails closed safely; `--bare` ignores configured modules and `setup --bare` preserves `signed_update`; `--with manager` fails cleanly when no Manager binary exists; FD 34 snapshot preparation, `features list` caching, `flock(LOCK_SH)` retention, and unheld pruning behave deterministically in `crates/wrapper`. Live cross-process producer attachment awaits Phase 2.3 (`codex-manager`).
 
 ---
 
@@ -173,9 +172,8 @@ version selector, updater, daemon, account dependency, or signature authority.
 The ordinary standalone update and rollback remain usable independently of this
 automation and of every optional module.
 
-**Prerequisites:** close the actual-device Stage 1 operating-acceptance gaps and
-the Phase 2.1 FD 34 snapshot gate; coordinate with signed-channel Phase 2.2
-before enabling publication. Design can proceed alongside optional modules;
+**Prerequisites:** close any remaining live/connected-client Stage 1 acceptance items and
+coordinate with signed-channel Phase 2.2 before enabling publication. Design can proceed alongside optional modules;
 base upstream **qualification and publication must never wait for TUI, Manager
 or Provider**. The automation is not a license to skip any active gate.
 
@@ -243,16 +241,7 @@ approved or running.
 | Dedicated physical AArch64 Android device with isolated Termux test installation via controlled ADB/relay | Actual Termux UID, kernel/SELinux/path constraints, PTY/TUI, daemon/remote-control, real official archive upgrades/rollback | Hardware upkeep and trusted runner isolation; ordinary public-PR code cannot be executed on a phone carrying personal accounts | **Preferred release-admission tier**; restricted exact-SHA artifacts and explicitly authorized jobs |
 | Existing personal handset as a manual acceptance target | Highest fidelity to currently deployed environment | Auth, live services, account ownership and state risk; uptime cannot be assumed | Manual acceptance only, never unattended PR runner |
 
-**Actual device gap observed on 2026-11-16:** In a genuinely short
-isolated Termux `CODEX_HOME`, official `0.169.0` upgrades/rollback and
-Wrapper diagnostics passed, but both direct app-server and
-`app-server daemon start` failed with `SUN_LEN`; default `codex` PTY
-also failed, whereas `--no-daemon` entered an unauthenticated PTY screen.
-The existing pre-cutover Wrapper executable reproduced the daemon failure
-under the same isolated conditions. The physical promotion gate therefore
-**must test default PTY and daemon lifecycle**, not treat `--no-daemon`
-fallback, help/status or a passed Linux+Bionic smoke as equivalent. Isolate
-the upstream-vs-FD35/Termux cause before granting operating admission.
+**Actual device Issue #33 diagnosis & resolution (2026-11-16):** Earlier isolated checks on `a224f223`/`f8284261` failed `app-server daemon start`, `app-server --listen`, and default `codex` PTY with `SUN_LEN`. Root-cause inspection traced this to static musl `realpath` dereferencing `/proc/self/fd/35` and `std::fs::canonicalize` on client control sockets back to full physical paths, compounded by companion ELFs lacking `0x170`-byte `.fini`–`.rodata` alignment caves. After adding adaptive `realpath` interception and multi-gap / trailing-`PT_LOAD` cave allocation in `crates/release-builder/src/runtime_patch.rs`, isolated physical API 37 Termux verification against `0.169.0` (`118`B `TMPDIR`, `130`B `CODEX_HOME`, `173`B `socketPath`, with Termux `Essential` `procps` `ps`) passed `daemon start`/`version`/`stop`, `--listen unix://`, `codex-exec-server --version`, and default `codex` PTY (`doctor --json` confirmed `app_server.status` ok). The physical promotion gate therefore **continues to require default PTY and daemon lifecycle tests**, never treating `--no-daemon` fallback, help/status, or Linux+Bionic smoke alone as sufficient.
 
 **Recommended topology:** keep the present 3 GitHub jobs
 (`checks` + `android-package` + `android-smoke`) for every PR.
