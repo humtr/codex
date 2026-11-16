@@ -1,8 +1,6 @@
 name: Standalone upstream verification
 
 on:
-  schedule:
-    - cron: '23 6 * * *'
   workflow_dispatch:
     inputs:
       upstream_version:
@@ -10,8 +8,9 @@ on:
         type: string
         default: ''
 
-# This caller qualifies disposable artifacts only. It cannot publish, sign,
-# advance release inputs, activate a device, or access user accounts.
+# Manual read-only compatibility canary over disposable artifacts.
+# Local `codex update --upstream` works independently without this workflow.
+# It cannot publish, sign, advance release inputs, activate a device, or access user accounts.
 permissions:
   contents: read
 
@@ -24,9 +23,9 @@ jobs:
     name: Qualify official upstream through standalone Wrapper
     permissions:
       contents: read
-    uses: humtr/codex/.github/workflows/wrapper-verify.yml@fdcc1bdfeaee7c08cfff4454ec6bd327d4a72ddb
+    uses: humtr/codex/.github/workflows/wrapper-verify.yml@0519fc5c18f7f330f1391775afd6442f5513094d
     with:
-      source_sha: fdcc1bdfeaee7c08cfff4454ec6bd327d4a72ddb
+      source_sha: 0519fc5c18f7f330f1391775afd6442f5513094d
       check_upstream: true
       qualify_upstream: true
       upstream_version: ${{ inputs.upstream_version || '' }}
