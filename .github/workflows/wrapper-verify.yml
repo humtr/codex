@@ -181,7 +181,7 @@ jobs:
           export CC_aarch64_linux_android="$linker"
           export AR_aarch64_linux_android="$ar"
           export RUSTFLAGS="-C link-arg=-Wl,-z,max-page-size=16384 -C link-arg=-Wl,-z,common-page-size=16384"
-          export CARGO_ENCODED_RUSTFLAGS=""
+          unset CARGO_ENCODED_RUSTFLAGS
           cargo build --release --locked --target "$ANDROID_TARGET" -p codex -p codex-release-builder
 
           for bin in codex codex-release-builder; do
@@ -583,5 +583,3 @@ jobs:
             ${{ runner.temp }}/upstream-proof/report.json
           if-no-files-found: warn
           retention-days: 30
-
-
