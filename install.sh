@@ -375,7 +375,7 @@ if [ -L "$dest_bin" ] || { [ -e "$dest_bin" ] && [ ! -f "$dest_bin" ]; }; then
   fail "install destination must be absent or a regular non-symlink file: $dest_bin"
 fi
 
-staged_tmp="$dest_dir/.codex.tmp.$"
+staged_tmp="$dest_dir/.codex.tmp.$$"
 cp "$binary_path" "$staged_tmp"
 chmod 0755 "$staged_tmp"
 
@@ -385,7 +385,7 @@ if [ -x /system/bin/linker64 ]; then
 fi
 
 if [ -f "$dest_bin" ]; then
-  backup_bin="$dest_dir/.codex.previous.$"
+  backup_bin="$dest_dir/.codex.previous.$$"
   # Android/Termux filesystems may deny hard-link creation. Copy the
   # original bytes before swapping, and reject incomplete/corrupt backups.
   before_sha=$(sha256_hex "$dest_bin")
