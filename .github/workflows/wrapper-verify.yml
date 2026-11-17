@@ -318,7 +318,7 @@ jobs:
           done
           sudo chown -R "$(id -u):$(id -g)" /data/data/com.termux
 
-      - name: Checkout exact verification source for explicit or scheduled discovery
+      - name: Verify exact source for explicit or scheduled discovery
         if: github.event_name == 'schedule' || inputs.check_upstream == true || inputs.qualify_upstream == true
         shell: bash
         env:
@@ -326,10 +326,9 @@ jobs:
         run: |
           set -euo pipefail
           [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
-          git init .
-          git remote add origin "https://github.com/$GITHUB_REPOSITORY.git"
-          git fetch --no-tags --depth=1 origin "$SOURCE_SHA"
-          git checkout --detach FETCH_HEAD
+          # The unconditional installer-fault checkout already fetched and
+          # verified this commit. Reinitializing .git or adding origin again
+          # would fail on manual upstream qualification.
           test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
 
       - name: Verify checksum, install.sh, and Bionic ELF behavior
