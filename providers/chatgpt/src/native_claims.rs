@@ -422,15 +422,28 @@ pub(crate) fn process_observation(
     call_id: &str,
     session: Option<u64>,
 ) -> ProcessObservation {
-    // These fields are present on some canonical projections and absent on
-    // other already authenticated transport envelopes. Never accept a
-    // conflicting explicit identity/type/name merely because its text parses.
+    // A Native function_call_output can have TWO unrelated identifiers:
+    // call_id binds the execution, while id is its fco_ message item ID.
+    // Never confuse that item identity with a second Native call identity.
+    // An id-only legacy projection still requires the exact original call ID.
+    let canonical_item_id = value
+        .get("id")
+        .and_then(serde_json::Value::as_str)
+        .is_some_and(|item| {
+            value["type"] == "function_call_output"
+                && value["call_id"].as_str() == Some(call_id)
+                && item.starts_with("fco_")
+                && (5..=128).contains(&item.len())
+                && item
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-')
+        });
     if value
         .get("call_id")
         .is_some_and(|id| id.as_str() != Some(call_id))
         || value
             .get("id")
-            .is_some_and(|id| id.as_str() != Some(call_id))
+            .is_some_and(|id| id.as_str() != Some(call_id) && !canonical_item_id)
         || value
             .get("type")
             .is_some_and(|kind| kind != "function_call_output")
@@ -1543,6 +1556,65 @@ mod tests {
         serde_json::json!({"type":"function_call_output","call_id":call,
             "output":format!("Native completion: {proof}\nProcess exited with code {exit}\nOutput:\n{output}")})
     }
+    #[test]
+    fn native_function_call_output_item_id_does_not_shadow_bound_call_id() {
+        let cwd = root();
+        let home = root();
+        let ledger = Ledger::at(&cwd, &home).unwrap();
+        let call = "native-exec-original";
+        let input = r#"{"cmd":"printf RESULT"}"#;
+        let mut guard = Guard::begin_with(
+            &cwd,
+            "owner",
+            call,
+            "functions.exec_command",
+            input,
+            ledger.clone(),
+        )
+        .unwrap();
+        let mut result = waited(call, Some(4224), 0, "RESULT");
+        // Real Native receipts use a distinct fco_ item ID as well as the
+        // correct call_id. The typed completion binds only the latter.
+        result["id"] = serde_json::json!("fco_01a1e866-e7bb-71e2-80c6-019f5224d235");
+        let observed = process_observation(&result, call, None);
+        assert!(observed.terminal);
+        assert_eq!(observed.exit_code, Some(0));
+
+        let mut unrelated_item = result.clone();
+        unrelated_item["id"] = serde_json::json!("foreign-call");
+        assert!(!process_observation(&unrelated_item, call, None).terminal);
+        guard.observed(Some(&unrelated_item)).unwrap();
+        assert_eq!(ledger.read_state().unwrap().claims.len(), 1);
+
+        let mut wrong_call = result.clone();
+        wrong_call["call_id"] = serde_json::json!("foreign");
+        assert!(!process_observation(&wrong_call, call, None).terminal);
+        let mut wrong_type = result.clone();
+        wrong_type["type"] = serde_json::json!("message");
+        assert!(!process_observation(&wrong_type, call, None).terminal);
+        let mut missing_call = result.clone();
+        missing_call.as_object_mut().unwrap().remove("call_id");
+        assert!(!process_observation(&missing_call, call, None).terminal);
+
+        // The Provider may commit the original tool result before its lease
+        // settlement. Reconstruct from that exact durable response, not the
+        // live Guard object, and release only the original opaque claim.
+        drop(guard);
+        Guard::settle_external(
+            &cwd,
+            Some(&home),
+            "owner",
+            call,
+            "functions.exec_command",
+            input,
+            &result,
+        )
+        .unwrap();
+        assert!(ledger.read_state().unwrap().claims.is_empty());
+        fs::remove_dir_all(cwd).unwrap();
+        fs::remove_dir_all(home).unwrap();
+    }
+
     #[test]
     fn parent_wait_never_releases_bounded_or_opaque_process_scope() {
         for tool in ["exec_command", "functions.exec_command"] {
