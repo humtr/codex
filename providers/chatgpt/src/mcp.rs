@@ -6699,6 +6699,107 @@ mod native_concurrency_tests {
     }
 
     #[tokio::test]
+    async fn native_fco_item_id_settles_durable_offer_before_next_worker_dispatch() {
+        // Two real Provider lifecycle boundaries: ordinary delivery and
+        // recovery after result-journal commit but before lease settlement.
+        for crash_after_commit in [false, true] {
+            let (root, journal, tools) = fixture();
+            let broker = Broker::new(journal.clone());
+            let owner = broker
+                .register_scoped("owner", tools.clone(), false, Some(&root))
+                .await
+                .unwrap();
+            let call = Arguments {
+                call_id: "original-exec".into(),
+                name: "functions.exec_command".into(),
+                input: r#"{"cmd":"printf ORIGINAL"}"#.into(),
+                report: String::new(),
+            };
+            let id = accepted(&broker, &owner, &call).await;
+            assert_eq!(
+                broker.effect_status("owner").unwrap()["shared"]["unconfirmed_effects"],
+                1,
+                "the original offer must reserve the shared Native resource"
+            );
+            let mut completed = waited(&id, Some(4224), 0);
+            completed["id"] = json!("fco_01a1e866-e7bb-71e2-80c6-019f5224d235");
+            assert!(crate::native_claims::process_observation(&completed, &id, None).terminal);
+            let conflict = Arguments {
+                call_id: "worker-exec".into(),
+                ..call.clone()
+            };
+            if crash_after_commit {
+                // The durable original result has been persisted, but the
+                // process died before settling its own Provider/shared claims.
+                {
+                    let mut registry = broker.registry.lock().await;
+                    let turn = registry.turns.get_mut(&owner).unwrap();
+                    turn.calls.get_mut(&call.call_id).unwrap().result = Some(completed.clone());
+                    broker.persist(&owner, turn).unwrap();
+                }
+                drop(broker);
+                let replacement = Broker::new(journal.clone());
+                // Do not replay the original tool. Recover its exact journal
+                // evidence and admit only a new, distinct worker call.
+                let consumer = replacement
+                    .register_scoped("worker", tools.clone(), false, Some(&root))
+                    .await
+                    .unwrap();
+                let accepted_new = accepted(&replacement, &consumer, &conflict).await;
+                assert!(!accepted_new.is_empty());
+                assert!(replacement.active_claim_ids(&["owner"]).unwrap().is_empty());
+                assert_eq!(
+                    replacement.effect_status("owner").unwrap()["shared"]["unconfirmed_effects"],
+                    1,
+                    "only the newly offered worker may remain reserved"
+                );
+                replacement
+                    .settle(
+                        &consumer,
+                        &[(accepted_new.clone(), waited(&accepted_new, None, 0))],
+                    )
+                    .await
+                    .unwrap();
+                assert_eq!(
+                    replacement.effect_status("owner").unwrap()["shared"]["unconfirmed_effects"],
+                    0
+                );
+                assert_eq!(
+                    replacement.retained_result(&owner, &call).unwrap(),
+                    Some(completed)
+                );
+            } else {
+                broker
+                    .settle(&owner, &[(id.clone(), completed.clone())])
+                    .await
+                    .unwrap();
+                assert!(broker.active_claim_ids(&["owner"]).unwrap().is_empty());
+                assert_eq!(
+                    broker.effect_status("owner").unwrap()["shared"]["unconfirmed_effects"],
+                    0
+                );
+                let consumer = broker
+                    .register_scoped("worker", tools, false, Some(&root))
+                    .await
+                    .unwrap();
+                let accepted_new = accepted(&broker, &consumer, &conflict).await;
+                broker
+                    .settle(
+                        &consumer,
+                        &[(accepted_new.clone(), waited(&accepted_new, None, 0))],
+                    )
+                    .await
+                    .unwrap();
+                assert_eq!(
+                    broker.effect_status("owner").unwrap()["shared"]["unconfirmed_effects"],
+                    0
+                );
+            }
+            fs::remove_dir_all(root).unwrap();
+        }
+    }
+
+    #[tokio::test]
     async fn nc_persisted_continuation_exit_reconciles_after_restart() {
         let (root, journal, tools) = fixture();
         fs::write(root.join("file"), "alpha\n").unwrap();
