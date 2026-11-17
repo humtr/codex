@@ -201,7 +201,9 @@ write_install_phase() {
 install_record_owner() {
   start=$(proc_start_ticks "$$") || fail 'cannot identify installer process start time'
   boot=$(boot_identity) || fail 'cannot identify kernel boot for install ownership'
-  [ -n "$start" ] && [ -n "$boot" ] || fail 'incomplete installer process identity'
+  if [ -z "$start" ] || [ -z "$boot" ]; then
+    fail 'incomplete installer process identity'
+  fi
   printf 'pid=%s\nstart=%s\nboot=%s\n' "$$" "$start" "$boot" > "$install_lock/owner.next"
   install_sync "$install_lock/owner.next"
   mv -f "$install_lock/owner.next" "$install_lock/owner"
@@ -255,8 +257,9 @@ owner_is_quiescent() {
 
 updater_is_quiescent() {
   updater_file="$install_lock/updater"
-  [ -f "$updater_file" ] && [ ! -L "$updater_file" ] ||
+  if [ ! -f "$updater_file" ] || [ -L "$updater_file" ]; then
     fail 'updater launch receipt missing; cannot safely settle this install'
+  fi
   update_pid=$(record_value pid "$updater_file") || fail 'invalid updater PID receipt'
   update_start=$(record_value start "$updater_file") || fail 'invalid updater start receipt'
   update_group=$(record_value pgid "$updater_file") || fail 'invalid updater process-group receipt'
@@ -299,11 +302,13 @@ recover_install_lock() {
     fail "another install recovery is active or left an uncertain gate: $recovery_gate"
   fi
   recovery_gate_owned=1
-  [ -d "$install_lock" ] && [ ! -L "$install_lock" ] ||
+  if [ ! -d "$install_lock" ] || [ -L "$install_lock" ]; then
     fail 'install lock is not a real directory'
+  fi
   for name in owner transaction; do
-    [ -f "$install_lock/$name" ] && [ ! -L "$install_lock/$name" ] ||
+    if [ ! -f "$install_lock/$name" ] || [ -L "$install_lock/$name" ]; then
       fail "install lock missing valid $name; manual inspection required"
+    fi
   done
   owner_is_quiescent
   [ "$(record_value format "$install_lock/transaction")" = codex-install-v1 ] ||
@@ -314,9 +319,10 @@ recover_install_lock() {
   state_before_sha=$(record_value state_before "$install_lock/transaction")
   skip_upstream=$(record_value skip_upstream "$install_lock/transaction")
   upstream_version=$(record_value requested_version "$install_lock/transaction")
-  valid_sha_or_none "$before_sha" && valid_sha_or_none "$candidate_sha" &&
-    valid_sha_or_none "$state_before_sha" && [ "$candidate_sha" != none ] ||
+  if ! { valid_sha_or_none "$before_sha" && valid_sha_or_none "$candidate_sha" &&
+         valid_sha_or_none "$state_before_sha" && [ "$candidate_sha" != none ]; }; then
     fail 'invalid digest in install transaction'
+  fi
   case $skip_upstream in 0|1) ;; *) fail 'invalid install transaction mode' ;; esac
   case $upstream_version in
     *[!A-Za-z0-9._-]*|'') fail 'invalid requested version in transaction' ;;
@@ -564,8 +570,9 @@ dest_bin="$dest_dir/codex"
 install_lock="$dest_dir/.codex-install.lock"
 recovery_gate="$dest_dir/.codex-install.recovering"
 if [ "$recover_only" -eq 1 ]; then
-  [ -z "$source_mode" ] && [ -z "$upstream_version" ] && [ "$skip_upstream" -eq 0 ] ||
+  if [ -n "$source_mode" ] || [ -n "$upstream_version" ] || [ "$skip_upstream" -ne 0 ]; then
     fail '--recover may only be combined with --prefix'
+  fi
   [ -d "$dest_dir" ] || fail "install directory does not exist: $dest_dir"
   if [ -e "$install_lock" ] || [ -L "$install_lock" ]; then
     recover_install_lock
@@ -693,8 +700,9 @@ state_before_sha=$(activation_snapshot)
 write_install_phase preparing
 
 staged_tmp="$dest_dir/.codex.tmp.$$"
-[ ! -e "$staged_tmp" ] && [ ! -L "$staged_tmp" ] ||
+if [ -e "$staged_tmp" ] || [ -L "$staged_tmp" ]; then
   fail "staging collision: $staged_tmp"
+fi
 cp "$binary_path" "$staged_tmp"
 chmod 0755 "$staged_tmp"
 [ "$(sha256_hex "$staged_tmp")" = "$candidate_sha" ] ||
@@ -709,8 +717,9 @@ fi
 
 if [ "$before_sha" != none ]; then
   backup_bin="$dest_dir/.codex.previous.$$"
-  [ ! -e "$backup_bin" ] && [ ! -L "$backup_bin" ] ||
+  if [ -e "$backup_bin" ] || [ -L "$backup_bin" ]; then
     fail "backup collision: $backup_bin"
+  fi
   cp -p "$dest_bin" "$backup_bin" || fail "cannot preserve previous codex binary in $dest_dir"
   [ "$(sha256_hex "$backup_bin")" = "$before_sha" ] ||
     fail 'previous executable backup failed integrity verification'
