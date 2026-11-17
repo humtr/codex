@@ -491,7 +491,7 @@ jobs:
             exit 1
           fi
           test -f "$recovery/curl-invoked"
-          grep -F 'restored previous codex executable' "$recovery/failed-bootstrap.log"
+          grep -F 'restored verified previous executable after failed install' "$recovery/failed-bootstrap.log"
           cmp "$recovery/original" "$prefix/bin/codex"
           test ! -e "$prefix/bin/.codex-install.lock"
           test -z "$(find "$prefix/bin" -maxdepth 1 -name '.codex.previous.*' -print)"
