@@ -437,6 +437,23 @@ jobs:
           dist="$RUNNER_TEMP/dist"
           bundle="$RUNNER_TEMP/unpacked"
           recovery="$RUNNER_TEMP/install-recovery"
+          # Capture only disposable fixture logs if this smoke step fails.
+          report_installer_failure() {
+            rc=$?
+            if [ "$rc" -ne 0 ]; then
+              echo "Android installer recovery fixture failed (exit=$rc)" >&2
+              for log in "$recovery"/*.log; do
+                if [ -f "$log" ]; then
+                  echo "--- $log ---" >&2
+                  tail -n 45 "$log" >&2
+                fi
+              done
+              if [ -d "$recovery/prefix/bin" ]; then
+                ls -la "$recovery/prefix/bin" >&2
+              fi
+            fi
+          }
+          trap report_installer_failure EXIT
           home="$recovery/home"
           prefix="$recovery/prefix"
           mkdir -p "$home" "$prefix/bin" "$prefix/tmp" "$prefix/etc/tls"
