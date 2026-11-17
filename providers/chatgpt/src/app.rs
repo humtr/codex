@@ -2181,6 +2181,80 @@ fn with_native_scope(mut command: Value, request: &Request) -> Value {
     command
 }
 
+/// After a Provider process replacement, the current App renderer can lose
+/// the old lane while the original saved conversation remains intact.
+/// This is an explicit *new Native turn* boundary, never the old request's
+/// retry or a declaration that the previous remote inference completed.
+fn orphaned_lane_reentry_candidate(lane: &Lane, request: &Request, digest: &str) -> bool {
+    lane.phase == Phase::CancelRequested
+        && lane.last_error.as_deref() == Some("app_lane_missing")
+        && lane.pending.is_empty()
+        && lane.external.is_none()
+        && !lane.source_context_owed
+        && lane.identity.is_some()
+        && lane.conversation_id.is_some()
+        && digest != lane.request
+        && new_turn(lane, request)
+}
+
+/// Quarantine a missing, tool-free App lane only after the *current* exact
+/// account reports that the marker is absent and has no active inference.
+/// The previous conversation is retained as unresolved, with a durable
+/// receipt; a successor is opened only for a genuine new Native input.
+async fn quarantine_orphaned_lane_for_new_turn(
+    bridge: &dyn Bridge,
+    journal: &Journal,
+    key: &str,
+    lane: &mut Lane,
+    request: &Request,
+    digest: &str,
+) -> Result<bool, Error> {
+    if !orphaned_lane_reentry_candidate(lane, request, digest) {
+        return Ok(false);
+    }
+    let host = bridge.operation(json!({"op":"host_status"})).await?;
+    if host["ready"] != true
+        || !host["active_lanes"]
+            .as_array()
+            .is_some_and(|lanes| lanes.is_empty())
+    {
+        return Ok(false);
+    }
+    let observed = bridge
+        .operation(json!({"op":"identity","lane":lane.marker}))
+        .await?;
+    let current = Identity::parse(&observed)?;
+    if observed["present"] != false
+        || !lane
+            .identity
+            .as_ref()
+            .is_some_and(|old| old.account_matches(&current))
+    {
+        return Ok(false);
+    }
+    bridge.fence_tools(lane.marker.clone()).await?;
+    let old = lane.clone();
+    let receipt_key =
+        context::digest(&("app-unconfirmed-orphan-v1", &old.native_thread, &old.marker));
+    journal.write(
+        &receipt_key,
+        &json!({"schema":"app-unconfirmed-orphan-v1",
+            "native_thread":old.native_thread,
+            "old_lane":old.marker,
+            "original_turn":old.turn,
+            "conversation_id":old.conversation_id,
+            "original_request_digest":old.request,
+            "last_error":old.last_error,
+            "remote_inference_settled":false,
+            "original_native_effects_replayed":false}),
+    )?;
+    let mut successor = old.successor(&request.thread)?;
+    successor.identity = Some(current);
+    *lane = successor;
+    journal.write(key, lane)?;
+    Ok(true)
+}
+
 async fn exchange(
     services: LaneServices<'_>,
     key: &str,
@@ -2214,6 +2288,12 @@ async fn exchange(
             _ => Ok(()),
         };
     }
+    // A lost renderer lane cannot prove Stop. Preserve the unresolved old
+    // Chat and instead fence its tools before a separate new Native input.
+    // No recovery is allowed for the identical input or uncertain effects.
+    let _orphan_reentry =
+        quarantine_orphaned_lane_for_new_turn(bridge, journal, key, lane, request, &request_digest)
+            .await?;
     if lane.phase == Phase::CancelRequested {
         match stop_lane(bridge, journal, key, lane).await {
             Err(Error("app_stop_acknowledged"))
@@ -3109,6 +3189,59 @@ async fn stop_lane(
 #[cfg(test)]
 mod approval_tests {
     use super::*;
+
+    #[test]
+    fn stale_app_lane_requires_new_turn_and_no_pending_native_effects() {
+        let mut lane = Lane::new("original-thread").unwrap();
+        lane.phase = Phase::CancelRequested;
+        lane.last_error = Some("app_lane_missing".into());
+        lane.conversation_id = Some("prior-saved-chat".into());
+        lane.turn = Some("prior-turn".into());
+        lane.request = "prior-digest".into();
+        lane.identity = Some(
+            Identity::parse(&json!({"generation":"g1","account":"a",
+                "user":"u","structure":"workspace"}))
+            .unwrap(),
+        );
+        let mut request = Request::parse(
+            json!({"stream":true,"model":"chatgpt-desktop/gpt-6",
+                "input":[{"role":"user","content":"New independent input"}]}),
+            &crate::config::Config::default(),
+            Some("original-thread"),
+        )
+        .unwrap();
+        request.turn = Some("new-turn".into());
+        assert!(orphaned_lane_reentry_candidate(
+            &lane,
+            &request,
+            "new-digest"
+        ));
+        assert!(!orphaned_lane_reentry_candidate(
+            &lane,
+            &request,
+            "prior-digest"
+        ));
+        request.turn = Some("prior-turn".into());
+        assert!(!orphaned_lane_reentry_candidate(
+            &lane,
+            &request,
+            "new-digest"
+        ));
+        request.turn = Some("new-turn".into());
+        lane.source_context_owed = true;
+        assert!(!orphaned_lane_reentry_candidate(
+            &lane,
+            &request,
+            "new-digest"
+        ));
+        lane.source_context_owed = false;
+        lane.conversation_id = None;
+        assert!(!orphaned_lane_reentry_candidate(
+            &lane,
+            &request,
+            "new-digest"
+        ));
+    }
 
     #[test]
     fn replay_owned_public_failure_trace_when_supplied() {
