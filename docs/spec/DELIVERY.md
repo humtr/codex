@@ -961,6 +961,16 @@ released by the kernel when the owning process exits. A contending writer
 fails or retries before touching journal/state files. Launch must never observe
 a mixed or partially constructed generation.
 
+Normal execution, `wrapper status`, `doctor`, updater recovery and rollback
+must evaluate a published activation journal even when the authoritative
+`activation-state` file is missing (initial activation `before=None`). Before
+the state rename this is a recoverable uninitialized state; after rename the
+qualified new pointer is authoritative. Any unmatched pointer, simultaneous
+published and temporary journals, or orphan state temporary without journal
+remains fail-closed. Repeated recovery preserves the same authoritative
+pointer; recovery I/O is synchronized under the existing state-root writer
+lock, not a second installer journal.
+
 `previous` is the only rollback pointer and is not permission to build a
 fallback ladder. Rollback is an explicit bounded activation-state transition;
 ordinary launch never consults `previous` automatically. Rollback swaps only the
@@ -980,6 +990,7 @@ with zero reliance on legacy `install-online.sh`, `bootstrap/codex-bootstrap`, o
 ```text
 install.sh [--prefix <DIR>] [--binary <PATH>] [--build] [--release <TAG>] \
   [--repo <OWNER/REPO>] [--version <X.Y.Z>] [--skip-upstream] [--help]
+install.sh --prefix <DIR> --recover
 ```
 
 - When `--binary`, `--build`, and `--release` are omitted, `install.sh` resolves

@@ -1560,7 +1560,7 @@ mod unix_app {
         })
     }
 
-    fn load_activated_generation(
+    pub(super) fn load_activated_generation(
         roots: &LocalWrapperRoots,
     ) -> Result<
         (
@@ -1571,20 +1571,13 @@ mod unix_app {
     > {
         let state_paths = generation_state::WrapperStatePaths::new(&roots.state_root)
             .map_err(LocalProductError::StateFormat)?;
-        let pointer_state = match fs::symlink_metadata(&state_paths.activation_state) {
-            Ok(_) => generation_state::recover_activation_state(&state_paths)
-                .map_err(LocalProductError::State)?
-                .ok_or(LocalProductError::NoCurrentGeneration)?,
-            Err(err) if err.kind() == io::ErrorKind::NotFound => {
-                return Err(LocalProductError::NoCurrentGeneration)
-            }
-            Err(source) => {
-                return Err(LocalProductError::Io {
-                    operation: "inspect activation state",
-                    source,
-                })
-            }
-        };
+        // The very first activation may have a durable journal while its
+        // authoritative pointer is still absent. Recovery must inspect that
+        // journal, too; otherwise reads report a misleading clean uninstalled
+        // state and the next updater is blocked by a dangling transaction.
+        let pointer_state = generation_state::recover_activation_state(&state_paths)
+            .map_err(LocalProductError::State)?
+            .ok_or(LocalProductError::NoCurrentGeneration)?;
         let loaded = load_local_generation(&roots.generation_root.join(&pointer_state.current))?;
         if loaded.generation_id != pointer_state.current {
             return Err(LocalProductError::Descriptor(
@@ -3026,6 +3019,30 @@ pub(crate) mod tests {
             .unwrap()
             .contains("/gen/browser/open/curl %s:"));
         assert!(plan.removals.contains(&OsString::from("WSL_DISTRO_NAME")));
+    }
+
+    #[test]
+    fn absent_initial_pointer_still_recovers_a_published_journal() {
+        let root = temp_root("initial-journal");
+        let roots = make_test_roots(&root);
+        let paths = generation_state::WrapperStatePaths::new(&roots.state_root).unwrap();
+        let after = generation_state::plan_initial_pointer_state("first").unwrap();
+        let journal = generation_state::ActivationJournal {
+            before: None,
+            after,
+        };
+        fs::write(
+            &paths.activation_journal,
+            generation_state::encode_activation_journal(&journal).unwrap(),
+        )
+        .unwrap();
+        let first = load_activated_generation(&roots).unwrap_err();
+        assert!(matches!(first, LocalProductError::NoCurrentGeneration));
+        assert!(!paths.activation_journal.exists());
+        assert!(!paths.activation_state.exists());
+        let second = load_activated_generation(&roots).unwrap_err();
+        assert!(matches!(second, LocalProductError::NoCurrentGeneration));
+        remove_temp_root(root);
     }
 
     #[test]

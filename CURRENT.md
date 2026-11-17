@@ -32,6 +32,30 @@ remained `715179a4be5518aedb7091dc148d3fe25df8a242338de7fc68780693423fa8c6`.
 This is **not** a physical power-loss result or a complete P0 release
 acceptance. Generation-journal and public Release checks remain separate gates.
 
+### P0 activation journal fault qualification (2026-11-17; isolated worktree)
+
+The existing `ActivationIo` state transition and `FsActivationIo` were retained.
+Actual POSIX filesystem operations were interrupted **before and after** each of
+8 activation I/O steps for 3 transitions (initial `before=None`, update and
+rollback): **48 independent isolated state transitions**, each verified for
+file combination, authoritative pointer, single and repeated recovery. Another
+**10 recovery-I/O interruption points**, orphan combinations, conflict rejection
+and a second writer lock check also passed. A real defect was identified in
+`load_activated_generation`: it skipped recovery entirely when `activation-state`
+was missing, even with a published initial journal. The loader now always invokes
+the existing recovery routine; an isolated regression proves a published initial
+journal is cleaned and then reports `NoCurrentGeneration` without guessing a
+committed generation. A freshly built candidate Wrapper (`8265b72fbf15ea90e80ef7fa1bb53848ae91df01d37767a89c383b16e10de447`)
+ran on actual Android in a completely isolated HOME/PREFIX/CODEX_HOME/TMPDIR:
+a published initial journal with no pointer was recovered as uninitialized,
+then official `0.169.0` installed and `codex --version` succeeded; an explicit
+official `0.167.0` update followed by `codex update --rollback` restored exact
+`0.169.0`. At this boundary, `cargo clippy --workspace --all-targets --locked
+-- -D warnings` exited 0 and `cargo test --workspace --locked` passed 53
+Wrapper + 8 release-builder tests with no failures. The faults are deterministic
+userspace I/O interruptions, not a physical power-cut proof; GitHub CI checks
+remain separate acceptance gates.
+
 ### Status and scope
 Stage 1 decouples `crates/wrapper` (`codex`) and `crates/release-builder` (`codex-release-builder`) into a standalone, zero-addon Termux compatibility wrapper aligned with [SPEC.md](SPEC.md) Sections 1–5 (`Stage 1` vs `Stage 2` architecture).
 - `Cargo.toml` contains only `crates/wrapper` and `crates/release-builder`, and `Cargo.lock` locks only `codex`, `codex-release-builder`, and `libc` (`0.2.186`). Zero non-wrapper addon crates, providers, TUI patches, or legacy CI/qualification scripts remain tracked on `rewrite/wrapper`.

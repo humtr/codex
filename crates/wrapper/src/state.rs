@@ -874,3 +874,346 @@ pub(super) mod generation_state {
         recover_activation_state_with_io(paths, &mut io)
     }
 }
+
+#[cfg(test)]
+mod activation_interruption_tests {
+    use super::generation_state::*;
+    use std::fs;
+    use std::io;
+    use std::path::Path;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    static NEXT_ROOT: AtomicUsize = AtomicUsize::new(0);
+
+    fn isolated_paths() -> WrapperStatePaths {
+        let sequence = NEXT_ROOT.fetch_add(1, Ordering::Relaxed);
+        let root = std::env::temp_dir().join(format!(
+            "wrapper-activation-fault-{}-{sequence}",
+            std::process::id()
+        ));
+        assert!(!root.exists());
+        fs::create_dir(&root).unwrap();
+        WrapperStatePaths::new(&root).unwrap()
+    }
+
+    fn only_expected_files(
+        paths: &WrapperStatePaths,
+        journal_tmp: bool,
+        journal: bool,
+        state_tmp: bool,
+        state: bool,
+    ) {
+        assert_eq!(
+            paths.activation_journal_temp.exists(),
+            journal_tmp,
+            "{paths:?}"
+        );
+        assert_eq!(paths.activation_journal.exists(), journal, "{paths:?}");
+        assert_eq!(paths.activation_state_temp.exists(), state_tmp, "{paths:?}");
+        assert_eq!(paths.activation_state.exists(), state, "{paths:?}");
+    }
+
+    // Real filesystem I/O occurs on every step except the deliberately failed
+    // operation; failures are injected immediately before/after each of 8
+    // ActivationIo calls and recovery executes through FsActivationIo.
+    struct InterruptedIo {
+        target: usize,
+        after: bool,
+        observed: usize,
+        disk: FsActivationIo,
+    }
+
+    impl InterruptedIo {
+        fn operation(
+            &mut self,
+            action: impl FnOnce(&mut FsActivationIo) -> io::Result<()>,
+        ) -> io::Result<()> {
+            let index = self.observed;
+            self.observed += 1;
+            if index == self.target && !self.after {
+                return Err(io::Error::new(
+                    io::ErrorKind::Interrupted,
+                    "fault before I/O",
+                ));
+            }
+            action(&mut self.disk)?;
+            if index == self.target {
+                return Err(io::Error::new(
+                    io::ErrorKind::Interrupted,
+                    "fault after I/O",
+                ));
+            }
+            Ok(())
+        }
+    }
+
+    impl ActivationIo for InterruptedIo {
+        fn write_new_synced(&mut self, path: &Path, data: &[u8]) -> io::Result<()> {
+            self.operation(|disk| disk.write_new_synced(path, data))
+        }
+
+        fn sync_dir(&mut self, path: &Path) -> io::Result<()> {
+            self.operation(|disk| disk.sync_dir(path))
+        }
+
+        fn rename(&mut self, from: &Path, to: &Path) -> io::Result<()> {
+            self.operation(|disk| disk.rename(from, to))
+        }
+
+        fn remove_file(&mut self, path: &Path) -> io::Result<()> {
+            self.operation(|disk| disk.remove_file(path))
+        }
+    }
+
+    fn fixture(
+        mode: usize,
+    ) -> (
+        WrapperStatePaths,
+        Option<GenerationPointerState>,
+        GenerationPointerState,
+    ) {
+        let paths = isolated_paths();
+        let one = plan_initial_pointer_state("generation-one").unwrap();
+        let two = plan_activation_pointer_state(&one, "generation-two").unwrap();
+        let (before, after) = match mode {
+            0 => (None, one),
+            1 => (Some(one), two),
+            2 => (
+                Some(two.clone()),
+                plan_rollback_pointer_state(&two).unwrap(),
+            ),
+            _ => panic!("unsupported test mode"),
+        };
+        if let Some(before) = before.as_ref() {
+            fs::write(
+                &paths.activation_state,
+                encode_pointer_state(before).unwrap(),
+            )
+            .unwrap();
+            fs::File::open(&paths.activation_state)
+                .unwrap()
+                .sync_all()
+                .unwrap();
+            fs::File::open(&paths.root).unwrap().sync_all().unwrap();
+        }
+        (paths, before, after)
+    }
+
+    #[test]
+    fn each_real_io_interruption_recovers_initial_update_and_rollback() {
+        for mode in 0..3 {
+            for step in 0..8 {
+                for after_io in [false, true] {
+                    let (paths, before, after) = fixture(mode);
+                    let lock = acquire_activation_lock(&paths).unwrap();
+                    let mut io = InterruptedIo {
+                        target: step,
+                        after: after_io,
+                        observed: 0,
+                        disk: FsActivationIo,
+                    };
+                    let result = activate_pointer_state_locked(
+                        &paths,
+                        before.as_ref(),
+                        &after,
+                        &mut io,
+                        &lock,
+                    );
+                    assert!(
+                        matches!(result, Err(ActivationTransactionError::Io { .. })),
+                        "mode={mode} step={step} after={after_io}: {result:?}"
+                    );
+                    assert_eq!(io.observed, step + 1);
+                    drop(lock);
+
+                    let (journal_tmp, journal, state_tmp) = match (step, after_io) {
+                        (0, false) => (false, false, false),
+                        (0, true) | (1, false) => (true, false, false),
+                        (1, true) | (2, _) | (3, false) => (false, true, false),
+                        (3, true) | (4, false) => (false, true, true),
+                        (4, true) | (5, _) | (6, false) => (false, true, false),
+                        (6, true) | (7, _) => (false, false, false),
+                        _ => unreachable!(),
+                    };
+                    let committed = step > 4 || (step == 4 && after_io);
+                    only_expected_files(
+                        &paths,
+                        journal_tmp,
+                        journal,
+                        state_tmp,
+                        committed || before.is_some(),
+                    );
+
+                    let expected = if committed {
+                        Some(after.clone())
+                    } else {
+                        before.clone()
+                    };
+                    assert_eq!(
+                        read_pointer_state(&paths).unwrap(),
+                        expected,
+                        "before recovery mode={mode} step={step} after={after_io}"
+                    );
+                    let recovered = recover_activation_state(&paths).unwrap();
+                    assert_eq!(
+                        recovered, expected,
+                        "recover mode={mode} step={step} after={after_io}"
+                    );
+                    let second = recover_activation_state(&paths).unwrap();
+                    assert_eq!(second, expected, "idempotence failed");
+                    only_expected_files(&paths, false, false, false, expected.is_some());
+                    fs::remove_dir_all(&paths.root).unwrap();
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn orphan_temporaries_and_conflicts_fail_closed() {
+        // An incomplete temporary journal before publication is discardable,
+        // but an isolated state temp has no authoritative journal owner.
+        for case in 0..4 {
+            let (paths, before, after) = fixture(1);
+            let journal = ActivationJournal {
+                before: before.clone(),
+                after,
+            };
+            let encoded = encode_activation_journal(&journal).unwrap();
+            match case {
+                0 => fs::write(&paths.activation_journal_temp, &encoded).unwrap(),
+                1 => fs::write(&paths.activation_state_temp, b"unowned").unwrap(),
+                2 => {
+                    fs::write(&paths.activation_journal, &encoded).unwrap();
+                    fs::write(&paths.activation_journal_temp, &encoded).unwrap();
+                }
+                3 => {
+                    fs::write(&paths.activation_journal, &encoded).unwrap();
+                    let other = plan_initial_pointer_state("other").unwrap();
+                    fs::write(
+                        &paths.activation_state,
+                        encode_pointer_state(&other).unwrap(),
+                    )
+                    .unwrap();
+                }
+                _ => unreachable!(),
+            };
+            let result = recover_activation_state(&paths);
+            match case {
+                0 => {
+                    assert_eq!(result.unwrap(), before);
+                    only_expected_files(&paths, false, false, false, true);
+                }
+                1 => assert!(matches!(
+                    result,
+                    Err(ActivationTransactionError::OrphanTemporaryState)
+                )),
+                2 => assert!(matches!(
+                    result,
+                    Err(ActivationTransactionError::OrphanJournalTemporary)
+                )),
+                3 => assert!(matches!(
+                    result,
+                    Err(ActivationTransactionError::RecoveryConflict)
+                )),
+                _ => unreachable!(),
+            }
+            if case != 0 {
+                assert!(
+                    paths.activation_journal_temp.exists()
+                        || paths.activation_state_temp.exists()
+                        || paths.activation_journal.exists()
+                );
+            }
+            fs::remove_dir_all(&paths.root).unwrap();
+        }
+    }
+
+    #[test]
+    fn recovery_io_interruption_is_repeatable_without_state_loss() {
+        // Crash recovery itself can be interrupted at each cleanup I/O.
+        // Re-entry must choose the same authoritative before/after pointer.
+        for step in 0..3 {
+            for after_io in [false, true] {
+                let (paths, before, after) = fixture(1);
+                let journal = ActivationJournal {
+                    before: before.clone(),
+                    after,
+                };
+                fs::write(
+                    &paths.activation_journal,
+                    encode_activation_journal(&journal).unwrap(),
+                )
+                .unwrap();
+                fs::write(&paths.activation_state_temp, b"orphaned in-progress state").unwrap();
+                let mut io = InterruptedIo {
+                    target: step,
+                    after: after_io,
+                    observed: 0,
+                    disk: FsActivationIo,
+                };
+                let failure = recover_activation_state_with_io(&paths, &mut io);
+                assert!(matches!(
+                    failure,
+                    Err(ActivationTransactionError::Io { .. })
+                ));
+                assert_eq!(io.observed, step + 1);
+                assert_eq!(recover_activation_state(&paths).unwrap(), before);
+                assert_eq!(recover_activation_state(&paths).unwrap(), before);
+                only_expected_files(&paths, false, false, false, true);
+                fs::remove_dir_all(&paths.root).unwrap();
+            }
+        }
+        for step in 0..2 {
+            for after_io in [false, true] {
+                let (paths, before, _) = fixture(1);
+                fs::write(&paths.activation_journal_temp, b"not yet published").unwrap();
+                let mut io = InterruptedIo {
+                    target: step,
+                    after: after_io,
+                    observed: 0,
+                    disk: FsActivationIo,
+                };
+                assert!(matches!(
+                    recover_activation_state_with_io(&paths, &mut io),
+                    Err(ActivationTransactionError::Io { .. })
+                ));
+                assert_eq!(recover_activation_state(&paths).unwrap(), before);
+                only_expected_files(&paths, false, false, false, true);
+                fs::remove_dir_all(&paths.root).unwrap();
+            }
+        }
+    }
+
+    #[test]
+    fn independent_activation_writer_is_serialized() {
+        let (paths, before, after) = fixture(1);
+        let first = acquire_activation_lock(&paths).unwrap();
+        assert!(matches!(
+            acquire_activation_lock(&paths),
+            Err(ActivationTransactionError::WriterBusy)
+        ));
+        // Do not release the lock to mask race errors.
+        let mut disk = FsActivationIo;
+        activate_pointer_state_locked(&paths, before.as_ref(), &after, &mut disk, &first).unwrap();
+        drop(first);
+        assert_eq!(recover_activation_state(&paths).unwrap(), Some(after));
+        fs::remove_dir_all(&paths.root).unwrap();
+    }
+
+    #[test]
+    fn initial_journal_without_pointer_is_recognized_and_cleared() {
+        let (paths, _before, after) = fixture(0);
+        let journal = ActivationJournal {
+            before: None,
+            after,
+        };
+        fs::write(
+            &paths.activation_journal,
+            encode_activation_journal(&journal).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(recover_activation_state(&paths).unwrap(), None);
+        only_expected_files(&paths, false, false, false, false);
+        fs::remove_dir_all(&paths.root).unwrap();
+    }
+}
