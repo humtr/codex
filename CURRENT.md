@@ -72,9 +72,73 @@ and byte readback, note validation and final tag recheck. The publisher is
 serialized per target tag and no error is ignored. The offline fake-GitHub
 suite `.github/scripts/test_publish_wrapper_release.py` passed 16/16,
 including tag/API failures, incorrect tags/sources/notes/bytes, partial upload,
-annotated tags and concurrent tag drift. **No new public release** and no real
-publication-mode mutation has been accepted here; GitHub CI remains a separate
-gate.
+annotated tags and concurrent tag drift. **At this earlier isolated checkpoint**,
+no live public release had yet been published. The later authorized
+source-bound publication and independent consumer acceptance are recorded below.
+
+### Stage 1 P0 operational cutover and public Release acceptance (2026-11-17; actual Termux)
+
+- **Accepted source and CI:** `rewrite/wrapper` commit
+  `990ac6036ac7995c297b9c88103bffd3d28269a6` passed ordinary
+  [Wrapper CI run 44002875118](https://github.com/humtr/codex/actions/runs/44002875118),
+  explicit official `0.169.0` qualification
+  [44002563425](https://github.com/humtr/codex/actions/runs/44002563425),
+  and publication with repeat official qualification
+  [44006439993](https://github.com/humtr/codex/actions/runs/44006439993).
+  The last run passed all lint/unit, NDK packaging, Android Bionic smoke,
+  official-upstream qualification and GitHub Release publication jobs.
+- **Actual operating entrypoint replacement:** `install.sh --binary <CI-verified
+  aarch64-linux-android bin/codex> --skip-upstream` returned `0` on the
+  real `$PREFIX/bin/codex` at 11:49 KST. Old executable SHA-256
+  `715179a4be5518aedb7091dc148d3fe25df8a242338de7fc68780693423fa8c6`
+  was preserved; new installed SHA-256
+  `f5739302eff9b39a6883eca94f0ab4acfb8a79133f7493d392d8277828adeb3b`
+  matches the exact CI artifact. The real `activation-state` SHA-256 remained
+  `8c69ee4a3eae79b7ee8a4a357fb35d588717f036a56cba3f3891c71a58bc0515`;
+  active `local-1794826650-14364-2` and previous `local-1794826619-14075-2`
+  both remain unchanged on upstream `0.169.0`. No installer lock remains,
+  live daemon/Provider processes were preserved, live `doctor` is `healthy`,
+  and two existing untracked user profile links were preserved during the
+  source-checkout fast-forward. Verified byte backups, both status snapshots,
+  the installer stdout/exit proof and rollback instructions are under
+  `$HOME/.local/share/codex/wrapper-recovery/20261117T0249Z-stage1-p0/`.
+  **No active upstream generation, account, credential, service or profile
+  was replaced or restarted by the cutover.**
+- **Physical-device independent regression:** the owned-prefix installer
+  interrupted-state suite passed `14/14`, and the mock-GitHub source/tag/byte
+  failure suite `16/16`. The same now-installed Wrapper binary passed the
+  fresh account-free `qualify_wrapper.py` run at
+  `$PREFIX/tmp/codex-stage1-activation-20261117/qualified-e2e/report.json`:
+  official `0.167.0` to `0.169.0` update, exact-generation rollback and
+  restoration, all three adapted upstream executables, daemon start/control/stop,
+  Native `initialize`/`config/read`/`command/exec` with independent file SHA,
+  and an eight-second interactive PTY startup (`7,993` rendered bytes) passed.
+  The device is Android API `37`/AArch64 with **4 KiB kernel pages**; the
+  Wrapper and all three runtime ELFs separately passed 16 KiB geometry checks.
+  An account-free test `doctor` reports healthy Wrapper/app-server but fails
+  the intentionally absent credentials check; production `doctor` is healthy.
+- **Actual public Release and consumer:** the authorized `wrapper` prerelease
+  tag now peels to exact `990ac603` and `targetCommitish` matches it.
+  The public archive SHA-256 is
+  `37f2bfacfc4708370c3b88fd0279f1bad8f6930e54a8a600b863b6f37e4ace11`
+  (890,307 bytes). All **four** real downloaded assets exactly matched CI
+  bytes, including `install.sh` SHA-256
+  `3ab6a9edcd0deae34572c7adf8d17f220e5ca881256e1bc12741c8679c98113e`.
+  A **second** account-free device root actually executed the published
+  `curl -fsSL <Release install.sh URL> | sh -s -- --prefix ... --version 0.169.0`
+  consumer path. It installed the
+  same Wrapper SHA, activated the official upstream `0.169.0`, started and
+  stopped its own managed daemon, completed local Native RPC/file proof,
+  and rendered the eight-second PTY (`8,038` bytes). Result `passed` at
+  `$PREFIX/tmp/codex-stage1-activation-20261117/public-consumer/report.json`.
+  No actual personal account was used for this publication-consumer probe.
+- **Remaining distinct qualification boundaries:** physical power removal
+  (as opposed to userspace SIGKILL and I/O faults), execution on a real 16 KiB
+  kernel or other Android API/hardware, authenticated model inference *after*
+  the new Wrapper replacement (a previous one-time Stage 1 inference proof
+  exists above), and external remote-control pairing from a separate client.
+  Neither test exercised a public signed Stage 2 addon, nor does this evidence
+  authorize `main` merging or automatic operational daemon replacement.
 
 ### Status and scope
 Stage 1 decouples `crates/wrapper` (`codex`) and `crates/release-builder` (`codex-release-builder`) into a standalone, zero-addon Termux compatibility wrapper aligned with [SPEC.md](SPEC.md) Sections 1–5 (`Stage 1` vs `Stage 2` architecture).
