@@ -9,8 +9,10 @@ version. Named upstream/Termux protocol identifiers may be versioned because
 their **wire compatibility is itself a requirement**; no Codex release number
 or test-run ID determines the meaning of this specification.
 
-The current implementation, release sources, verified evidence and outstanding
-work are reported in [CURRENT.md](CURRENT.md), and the detailed Stage 2
+The active source routes and ownership are indexed in the
+[implementation map](docs/architecture/STAGE1_BOUNDARIES.md); dated release
+sources, verified evidence and outstanding work belong in [CURRENT.md](CURRENT.md).
+The [documentation map](docs/INDEX.md) explains authority. The detailed Stage 2
 reintegration procedure lives in [docs/plan/STAGE2_PLAN.md](docs/plan/STAGE2_PLAN.md). Development behavior is
 defined in [AGENTS.md](AGENTS.md). Version-specific prior adaptations and
 historical acceptance are recorded separately in
@@ -106,7 +108,11 @@ SHA-256, and locally patched `bin/codex` outputs are deterministic on-device
 derivatives that require no remote CI signature.
 
 A missing, removed, or version-drifted optional module must never disable valid
-standalone Wrapper execution or block upstream updates.
+standalone Wrapper execution or block upstream updates. The Stage 2.1
+`wrapper.toml` and `codex wrapper setup` configuration boundary may exist
+before any optional module executable: a saved selection or `signed_update = true`
+must not be mistaken for installed/qualified Manager, TUI, Provider or a signed
+publication channel.
 
 This is a clean rewrite. Legacy source is historical evidence, not an
 implementation dependency or migration base.
@@ -152,6 +158,9 @@ runtime on Termux.
 | `codex doctor [--color \| --json]` | Wrapper | combine upstream and Wrapper/Termux diagnostics cleanly without addon/Manager coupling |
 | `codex wrapper status [--json]` | Wrapper | report active generation, previous generation, upstream version, layout, runtime path, patch policy/report, daemon passthrough status, and Wrapper roots |
 | `codex wrapper --help` | Wrapper | print Wrapper usage without invoking upstream or changing state |
+| `codex wrapper setup [OPTIONS]` | Wrapper (Stage 2.1 interface) | strictly parse and atomically update optional `manager`/`tui`/`provider`/`signed_update` settings; `show` is inspection only; saved flags neither install modules nor enable signing |
+| `codex wrapper --bare [--] [UPSTREAM_ARGS...]` | Wrapper (Stage 2.1 interface) then upstream | bypass saved optional selections for this invocation and preserve upstream behavior |
+| `codex wrapper --with MODULES [--] [UPSTREAM_ARGS...]` | Wrapper (Stage 2.1 admission interface) | validate explicit module selection and fail if no admitted module exists; no standalone assumption that Provider, Manager, or enhanced TUI is runnable |
 
 Unpinned official discovery must not silently downgrade an installed upstream
 version. An explicit `--version` or `--rollback` retains its requested semantics.
@@ -161,10 +170,11 @@ already installed version; an explicit offline `--path` retains its trust bounda
 Optional modular extensions (`Manager`, enhanced `TUI`, `Provider`, and optional
 signed remote release channels) are decoupled outside the standalone Wrapper
 so bare Termux compatibility and upstream upgrades remain fast and
-dependency-free; when reintroduced in Stage 2, they attach only as generic opt-in
-extensions under `codex wrapper` (`setup`, `--bare`, `--with`, `provider`, and
-optional Manager subcommands) without hardcoding module logic inside bare
-Wrapper execution.
+dependency-free; when reintroduced beyond the implemented Stage 2.1
+configuration/admission surface, they attach only as generic opt-in extensions
+under `codex wrapper`
+(`provider` and optional Manager subcommands) without hardcoding module
+logic inside bare Wrapper execution.
 
 `codex version` is not introduced. Wrapper/Manager version rows must not
 be appended to upstream `--version` or `-V` output. `codex termux` is
@@ -176,7 +186,9 @@ operations).
 
 Wrapper exclusively owns:
 
-- public command dispatch (and `wrapper.toml` opt-in module routing when Stage 2 extensions are enabled);
+- public command dispatch; the existing `wrapper.toml` settings and
+  module-admission boundary, with actual executable routing only when Stage 2
+  artifacts are independently admitted;
 - official upstream artifact acquisition, validation, and rule-based binary adaptation;
 - Termux runtime adaptation and launch environment;
 - FD 33, FD 34, and FD 35 preparation;
@@ -184,13 +196,27 @@ Wrapper exclusively owns:
 - sandbox capability enforcement;
 - immutable generation construction and integrity metadata;
 - bare local/`--upstream` update, optional Stage 2 signed Wrapper/addon bundle update, activation, and rollback;
-- read-only Wrapper diagnosis;
-- composition of upstream and Termux doctor results;
+- bounded Wrapper diagnostics and composition of upstream and Termux doctor
+  results; Wrapper must not write upstream conversation/rollout databases to
+  "fix" an upstream diagnostic. Wrapper-owned configuration preparation and
+  activation-journal recovery are distinct from upstream DB mutation;
 - (Stage 2 opt-in) the typed extension boundary through which optional Manager requests Wrapper operations.
 
 Wrapper must remain usable and fast when Node.js, Manager, enhanced TUI,
 Provider, network access, remote update indices, or optional Termux APIs are
-unavailable.
+unavailable. The POSIX installer alone may change `$PREFIX/bin/codex` and
+its install receipt; the Wrapper updater alone changes official upstream
+generations and their activation journal. The two transitions must be
+reconciled independently after interruption, never treated as one atomic
+transaction or as authorization to replay an uncertain updater.
+
+The official upstream runtime owns authentication, `CODEX_HOME` history/rollout
+and state DB, model/route decisions, approvals, Native execution, and its
+app-server daemon/remote-control lifecycle. Wrapper's narrowly scoped
+`autoUpdateEnabled = false` daemon settings default is not a daemon
+selection/restart operation. Existing external AppHost/Provider processes on
+the device are not made Wrapper-owned by their presence, nor by Stage 2
+contracts in annexes.
 
 ### 4.2 Optional extension modules (decoupled Stage 2)
 

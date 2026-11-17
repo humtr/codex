@@ -5,10 +5,20 @@ This document defines release-independent artifact, installation, update,
 rollback, device compatibility and qualification behavior. Exact upstream
 release identities and prior patch/admission reports are evidence outside
 this contract, not a condition requiring a new specification on every upgrade.
+**Implementation status is not implied by a normative subheading:** the
+[implementation/ownership map](../architecture/STAGE1_BOUNDARIES.md) names
+what the current binary implements, while [CURRENT](../../CURRENT.md)
+records its separate CI, device, published-asset and operating proofs.
 
 > **Stage scope:** Active Stage 1 standalone delivery (`install.sh`, `codex update --upstream|--path|--rollback`, `package-root`, adaptive `termux-fd-remap`/`termux-uds-fd35`, and `codex doctor`) is documented alongside deferred Stage 2 optional extensions (`--signed` Ed25519 verification for published Wrapper and optional self-built addon bundles, `publish`, Manager/TUI composition, and shared-server snapshots). Under local upstream patching, official OpenAI upstream archives (`codex-package-aarch64-unknown-linux-musl.tar.gz`) remain verified against OpenAI metadata + SHA-256 and locally patched into `bin/codex` on-device without remote CI re-signing; cryptographic signing applies to the Wrapper and optional self-built addon distributions hosted by this repository. Stages and implementation status live in [CURRENT.md](../../CURRENT.md) and [docs/plan/STAGE2_PLAN.md](../plan/STAGE2_PLAN.md).
 
 ## Base qualification
+
+The active standalone path uses the actual Stage 1 local builder and account-free
+CI harness. References below to a `base_only` producer, integrated Full
+composition, signed update lanes or a Manager/TUI frontend are **conditional
+Stage 2 contracts retained for later integration**, not shipped commands or
+evidence that a second Stage 1 publisher exists.
 
 ### Independent unsigned base qualification
 
@@ -1009,6 +1019,9 @@ install.sh --prefix <DIR> --recover
   `activation-state`, and a verified same-directory previous executable before
   renaming the candidate into place. The standalone executable commit and the
   updater's activation-state commit are distinct, not one atomic rename.
+  Installer owns the binary and install receipt; the Wrapper updater owns the
+  generation pointer and its separate activation journal. Neither may guess
+  the other's commit status or replay an uncertain updater.
 - Unless `--skip-upstream` was requested, a Wrapper with no matching qualified
   generation digest performs the upstream bootstrap/requalification (an explicit
   `--version` always requests it). Existing matching generations are retained.
@@ -1053,6 +1066,11 @@ After installation, Wrapper exclusively owns `codex update`:
 - Removed/Stage 2 flags (`--signed`, `--remote`, `--local`, `--build-local`) fail
   explicitly in Stage 1 with exit status `2` and zero state mutation. No compiler toolchain,
   signing key, or upstream self-updater is ever invoked in Stage 1.
+- `codex update` does not replace the independently selected upstream daemon
+  package or restart its process. `codex doctor` combines its upstream and
+  Wrapper checks; it is not an upstream `state_*.db` or rollout inventory
+  repair API. A healthy Wrapper diagnosis does not imply that every upstream
+  check reports no warnings.
 
 Browser helpers occupy the fixed package-root paths `browser/open/curl` (`termux-browser-open`)
 and `browser/manual/curl` (`termux-browser-manual`), with `helper_count = 2`. No indexed

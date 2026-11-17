@@ -68,7 +68,6 @@ jobs:
           fi
           python3 - <<'PYCHECK'
           from pathlib import Path
-          import re
           import tomllib
 
           cargo = tomllib.loads(Path('Cargo.toml').read_text())
@@ -78,24 +77,10 @@ jobs:
           names = sorted(pkg['name'] for pkg in lock['package'])
           assert names == ['codex', 'codex-release-builder', 'libc'], names
 
-          root = Path('.').resolve()
-          broken = []
-          for md in sorted(root.rglob('*.md')):
-              if '.git' in md.parts:
-                  continue
-              text = md.read_text()
-              for lineno, line in enumerate(text.splitlines(), 1):
-                  for target in re.findall(r'\[[^\]]+\]\(([^)]+)\)', line):
-                      if target.startswith(('http://', 'https://', 'mailto:', '#')):
-                          continue
-                      rel = target.split('#', 1)[0]
-                      if not rel:
-                          continue
-                      if not (md.parent / rel).resolve().exists():
-                          broken.append(f'{md.relative_to(root)}:{lineno}: {target}')
-          assert not broken, 'Broken markdown links:\n' + '\n'.join(broken)
-          print('Wrapper workspace scope and markdown links verified.')
+          print('Wrapper workspace scope verified.')
           PYCHECK
+          python3 .github/scripts/test_check_doc_links.py
+          python3 .github/scripts/check_doc_links.py
           if git rev-parse HEAD^ >/dev/null 2>&1; then
             git diff --check HEAD^ HEAD
           fi

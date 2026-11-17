@@ -4,9 +4,15 @@
 > **Stage scope:** Bridge (`providers/chatgpt`, `transport/tunnel-client`), `@TermuxBridge` tool schemas, and Manager/TUI coordination are **Stage 2 Phase 2.5 modular opt-in components** (absent from Stage 1 standalone Wrapper; see [docs/plan/STAGE2_PLAN.md](../plan/STAGE2_PLAN.md)). Public CLI management routes unify under `codex wrapper provider ...`, and internal `providers/chatgpt` work-record/catalog/owner records (`termux-codex-operator-work`, `operator-work`, `work-route-transfer`, `codex-chatgpt-catalog`, `app-model-catalog`, `config`) adopt single suffix-free formats with no legacy `v1`/`v2`/`v3`, `provider14`/`provider21`, `config-v1`, or `catalog-v1` backward compatibility retained.
 
 The platform's Native runtime owns execution, approvals, history and writer
-authority. This document defines feature-specific interactions and acceptance
-criteria; observed implementation status belongs to
-[CURRENT.md](../../CURRENT.md).
+authority. This document defines **conditional Stage 2** interactions and
+acceptance criteria; observed implementation status belongs to
+[CURRENT.md](../../CURRENT.md). The current Wrapper's only related implementation
+is the Stage 2.1 settings/admission boundary: it has **no** `codex wrapper provider`
+route, bundled `providers/chatgpt`, independent Native orchestrator,
+account selector or Linux AppHost lifecycle manager. Existing external
+Provider/AppHost/TermuxBridge services on a device remain independently owned;
+their presence is not integration proof. See the
+[implementation map](../architecture/STAGE1_BOUNDARIES.md).
 
 ## Bridge lifecycle and interoperability
 
@@ -26,10 +32,11 @@ Historical architecture reviews inform, but do not determine, the current
 contract; earlier `AUDIT.md` reviews in pre-rewrite Git history record past alternatives. Earlier
 initiative labels are traceability references, not product completion levels.
 [CURRENT.md](../../CURRENT.md) owns implemented, qualified, published and
-activated status. The following
-contracts include the delivered bind/unbind/join foundation and the broader
-entrance-equivalence target; API delivery alone does not qualify every target
-scenario. See CURRENT's acceptance matrix and work order for the remaining scope.
+activated status. In preserved pre-rewrite implementations, bind/unbind/join had separate
+acceptance evidence; these routines are **not bundled into the active
+standalone Wrapper**. This annex also defines a broader entrance-equivalence
+target, and historical API delivery does not qualify that target on the
+current source. See CURRENT for actual active acceptance scope.
 
 #### Work recording scope and entry selection
 

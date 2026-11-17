@@ -1,6 +1,12 @@
 # Stage 2 Reintegration Procedure and Implementation Plan
 
-> **Status:** Implementation execution guide & architecture transition plan (derived from [SPEC.md](../../SPEC.md), [DELIVERY.md](../spec/DELIVERY.md), [USER_INTERFACES.md](../spec/USER_INTERFACES.md), [BRIDGE.md](../spec/BRIDGE.md), and inspected preserved sources).
+> **Status:** **Remaining optional integration plan, not the active Wrapper feature list.**
+> Follow [documentation authority](../INDEX.md) and the
+> [current implementation/owner map](../architecture/STAGE1_BOUNDARIES.md).
+> Normative contracts: [SPEC.md](../../SPEC.md), [DELIVERY.md](../spec/DELIVERY.md),
+> [USER_INTERFACES.md](../spec/USER_INTERFACES.md), [BRIDGE.md](../spec/BRIDGE.md).
+> Historical lineage and example source paths below are porting references, not
+> instructions to replace the accepted Stage 1 implementation wholesale.
 > **Current implementation state:** **Stage 1** (including adaptive Issue #33 FD 35 `realpath` + multi-gap/trailing RX relocation) and **Phase 2.1** (`wrapper.toml`, `codex wrapper setup`/`--bare`/`--with`, and the conditional FD 34 snapshot engine in `crates/wrapper`) have source implementation and scoped workspace/API 37 Termux evidence; no addon binaries (`manager`, `tui`, `provider`) are attached. FD 34 concurrent publication/pruning is repaired and covered by process tests; actual producer integration remains unqualified. Phases 2.2–2.5 remain pending; Phase 2.6 has read-only discovery and qualification support. The current priority is standalone compatibility and recurring upstream adoption before optional module attachment; base discovery and qualification in Phase 2.6 need not wait for Phases 2.2–2.5.
 
 ---
@@ -9,10 +15,10 @@
 
 1. **Preserve Stage 1 independence at every phase:**
    - Bare `codex` (and `codex --version`, `-V`, `--help`, `-h`, `help`, `codex update --upstream`, `codex doctor`, `codex wrapper status`) must remain runnable with **zero** dependency on Node.js, Manager, enhanced TUI, Provider, network indices, or Termux:API apps.
-   - `crates/wrapper` (`codex` CLI binary) keeps bare runtime fast path: zero addon probes, zero Manager IPC spawns, and zero extra writes/locks/`fsync` calls on unchanged launches when no optional module is enabled.
+   - `crates/wrapper` (`codex` CLI binary) keeps bare runtime fast path: zero addon probes, zero Manager IPC spawns, and zero **addon** writes/locks/`fsync` calls on unchanged launches when no optional module is enabled. Existing generation leases, qualified runtime checks and recovery of a pending activation journal are **not** skipped.
    - `Cargo.lock` for bare Stage 1 Wrapper currently locks only `codex`, `codex-release-builder`, and `libc` (`=0.2.186`), enforced by [`.github/workflows/wrapper.yml`](../../.github/workflows/wrapper.yml). Any Stage 2 workspace additions (`crates/manager`, `crates/runtime-binding`, TOML/JSON/WS dependencies) must keep bare `crates/wrapper` dependency-isolated or intentionally update the CI workspace check alongside separate package boundaries so Manager/source-builder crates never become runtime or build prerequisites for bare execution.
 2. **Authoritative Source Lineage — Do NOT Wholesale-Restore `ebb0b519`:**
-   - `origin/main` (`f9c75f55`) tracks only 19 release/index/config files (`release-source-v1`, `release-intent-v1`, `release-frontend-v1`, `provider-source-v1`, `provider-index-v1(.sig)`, `update-index-v1(.sig)`, `update-index-base-v1(.sig)`, `.github/`, `AGENTS.md`, `README.md`) — it has **zero** Rust/frontend/provider source crates.
+   - As inspected on **2026-11-17**, `origin/main` at `fcefb8b3` contains **20 tracked files** (release/index/config inputs, `.github/`, `AGENTS.md`, `README.md`), with **zero** Rust/frontend/provider source crates. `f9c75f55` was an earlier main checkpoint, not its current HEAD. `main` is a separate publication/source-pointer branch, **not** the Stage 1 implementation branch; never merge it into `rewrite/wrapper` merely to obtain implementation files.
    - **`rewrite/rust-core` (`c200e676`)** is the authoritative preserved Stage 2 source tree (`crates/core`, `crates/runtime-binding`, `crates/manager`, `crates/release-builder`, `frontend/tui`, `providers/chatgpt`, `transport/tunnel-client`, `.github/scripts`).
    - **Pre-split `ebb0b519` (`rewrite/wrapper` history) trap:** `ebb0b519` branched near `merge-base = 27103ec0` while `c200e676` continued receiving ~70+ commits of security, concurrency, locking, and completeness fixes. Blindly resurrecting files from `ebb0b519` **silently reverts** critical fixes in:
      - `crates/runtime-binding/src/native.rs` (`writer_free_until`, `writer_directories`, structured error codes, retired-record safety checks);
@@ -40,9 +46,9 @@
 | Area | Stage 1 `HEAD` (`rewrite/wrapper`) | `c200e676` (`rewrite/rust-core`) | Required Stage 2 Reconciliation |
 | --- | --- | --- | --- |
 | Generation layout | Single `package-root`: `bin/codex`, `0..N` companions (`bin/*`), `codex-package.json`, `codex-path/`, `codex-resources/`, `browser/{open,manual}/curl`; rejects root `runtime` / `compat` | Flat files: `core` (or `wrapper`), `runtime`, `codex-code-mode-host`, `helpers/{0,1,2}` | Port all Stage 2 consumers (`release-builder publish`, `remote_release`, `runtime-binding`, `manager`, `providers/chatgpt`, CI scripts) to `package-root` (`bin/codex` + `browser/` + `wrapper` + optional `manager` / `tui`) |
-| Subcommands | Top-level `update`, `doctor`, `wrapper status`; else passthrough | `termux ...` (`core` env vars), `update --core/--full/--signed/--remote/--local/--build-local` | Keep top-level `update` / `doctor` / `wrapper`; attach `setup`, `--bare`, `--with`, `provider`, `launch`, `profile`, `task`, `notify`, `usage`, `rotation` cleanly under `codex wrapper` |
+| Subcommands | Top-level `update`, `doctor`; `wrapper status`, `setup`, `--bare`, `--with` admission and help; otherwise upstream passthrough | `termux ...` (`core` env vars), `update --core/--full/--signed/--remote/--local/--build-local` | **Retain implemented 2.1 routes**; attach only deferred `provider`, `launch`, `profile`, `task`, `notify`, `usage`, `rotation` after actual module qualification. `--with` currently fails unavailable |
 | Signing & state | `activation-state` (`LOCAL_ZERO` keys); local `--upstream`/`--path`/`--rollback` | Strict Ed25519 non-zero keys (`codex-activation-state-v3`); remote signed indices only | Support **both**: bare `LOCAL_ZERO` `--upstream`/`--path` works with zero keys/network; `--signed` enables Ed25519 chain + rotation without bricking bare generations or cross-mode `--rollback` |
-| FD 34 config | Lazy write on create/mismatch (`sandbox_mode`, `mcp_oauth_credentials_store`, `thread_unload_delay_secs = 0`); no `requirements.toml` | Always hashes `config/snapshots/<id>/config.toml` + Manager fragment + `requirements.toml`, dry-runs `features list` | Bare mode keeps Stage 1 zero-write fast path while globally setting `thread_unload_delay_secs = 0` without per-user `config.toml` edits; snapshots & fragments activate only when Stage 2 modules attach without duplicating base keys |
+| FD 34 config | Bare launch lazily maintains base config (including `thread_unload_delay_secs = 0`). **2.1 conditional snapshot engine exists and is tested** but receives no live extension fragment or `requirements.toml` from Manager | Always hashes `config/snapshots/<id>/config.toml` + Manager fragment + `requirements.toml`, dry-runs `features list` | Keep bare config independent; connect a qualified Manager producer through the existing conditional snapshot engine in Phase 2.3, without changing zero-addon default or duplicating base keys |
 | FD 36 lease | None (no execution lease / `shared_server` / `shared_layout`) | `execution_lease.rs` duplicates `flock(LOCK_SH)` of physical `CODEX_HOME` onto FD 36 across `exec` | Add only when `manager` / shared-server topology attaches in Phase 2.3 |
 | Enhanced TUI | Unpatched upstream `bin/codex` + adaptive binary ELF patch | `frontend/tui` (`native.patch` pinned to `086ccc8...` / `0.167.0`), `tui.rs` checks exact `upstream_package_version` match! | Rebase `frontend/tui` onto `>= 0.169.0`, decouple TUI capability probe from `upstream_package_version`, and keep `codex update --upstream` independent of TUI |
 
@@ -51,13 +57,16 @@
 ## 3. Phased Execution Procedure
 
 ### Phase 2.1 — Generic Extension Boundary (`wrapper.toml`, CLI Hooks, FD 34 Snapshots)
+**Status: implemented interface and snapshot engine, not an attached addon.**
+The steps below preserve the implementation and qualification rationale; they
+are **not** instructions to reimplement a finished command surface.
 **Goal:** Establish the clean configuration, opt-in routing, and FD 34 snapshot extension point inside `crates/wrapper` **without** adding external crate bloat or connecting any Manager/TUI/Provider binaries yet.
 
 1. **Inspect reference code (read-only):**
    - `git show c200e676:crates/core/src/system_config.rs` (snapshot hashing, `flock(LOCK_SH)`, fragment bounds, pruning)
    - `git show c200e676:crates/runtime-binding/src/host_config.rs` & `lib.rs` (`CONFIG_LIMIT = 16384`, `settings_identity`)
-2. **Design & Implement:**
-   - **Config schema (`~/.local/share/codex/wrapper/wrapper.toml`):** minimal schema storing enabled optional modules (`manager`, `tui`, `provider` booleans or list) and `signed_update = false`. Implement a tiny strict parser directly in `crates/wrapper` (avoiding adding `toml`/`serde` crates to bare `codex` so `Cargo.lock` and startup latency remain minimal).
+2. **Implemented design (retain when attaching producers):**
+   - **Config schema (`~/.local/share/codex/wrapper/wrapper.toml`):** implemented minimal schema storing enabled optional modules (`manager`, `tui`, `provider` booleans) and `signed_update = false`. The strict parser lives in `crates/wrapper` without adding `toml`/`serde` dependencies to bare `codex`; no addon executable is installed by changing these values.
    - **CLI additions under `codex wrapper`:**
      - `codex wrapper setup [show|--bare|--enable <MODULES>|--disable <MODULES>|--signed-update <true|false>]`
      - `codex wrapper --bare [--] [UPSTREAM_ARGS...]` (session-only bypass of enabled Stage 2 modules)
@@ -200,10 +209,17 @@ work. They are not a required recurring phone/account matrix. Optional additiona
 Android/page-size or external-client evidence is reported by observed boundary;
 16-KiB ELF geometry is not actual 16-KiB-kernel execution.
 
-**Prerequisites for publication:** close any remaining live/connected-client Stage 1 acceptance items and
-coordinate with signed-channel Phase 2.2 before enabling signed publication. Read-only discovery and isolated base qualification are implemented and running independently of optional modules;
-base upstream **qualification and publication must never wait for TUI, Manager
-or Provider**. The automation is not a license to skip any active gate.
+**Publication scope:** The **checksum-verified standalone Stage 1 prerelease**
+and actual public consumer test were accepted on 2026-11-17 (CURRENT). This
+does **not** mean Phase 2.2 Ed25519 signed distribution or automatic runtime
+deployment is implemented. Before **signed** publication, close its own
+signature/key/bootstrap/connected-client gates; read-only discovery and isolated
+base qualification are already implemented independently of optional modules.
+Base upstream **qualification and any separately authorized Stage 1 publication
+must never wait for TUI, Manager or Provider**. Scheduling is not permission
+to publish or activate. Physical-device checks and authenticated/remote
+integration are different evidence gates, not retroactive failures of the
+already accepted standalone release.
 
 ### Implementation work order
 
@@ -298,6 +314,14 @@ ABI compatibility layer, not the real-device operating acceptance by itself.
 ---
 
 ## 6. Pre-Stage-2 Checklist (Already Completed on `rewrite/wrapper`)
+
+The 2026-11-17 P0 installer/recovery, public `wrapper` prerelease source and
+asset readback, isolated actual Android qualification and authorized device
+Wrapper cutover are recorded in [CURRENT](../../CURRENT.md). This closes
+standalone publication/operation for that qualified source, **not** the
+post-cutover authenticated inference, external remote client or physical
+power/16-KiB-kernel/other-device boundaries. The Stage 2.1 interface/FD 34
+engine is code-complete; a real Manager fragment producer is **not**.
 
 - Unified naming (`wrapper`, `codex-wrapper`, `codex-local-generation`, `codex-activation-state`, `package-root`, `termux-fd-remap`, `termux-uds-fd35`) across code, tests, [`install.sh`](../../install.sh), [`.github/workflows/wrapper.yml`](../../.github/workflows/wrapper.yml), and documentation.
 - Removed legacy `99b` / `R10` / `helpers/{0,1}` / `RootCodeModeHost` / `upstream_doctor` / version-pinned tests.

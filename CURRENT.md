@@ -2,11 +2,27 @@
 
 SPEC.md and its linked normative annexes own behavior and component boundaries.
 AGENTS.md owns development principles
-and must be reread after recovery. This file distinguishes source implementation,
-automated proof, actual Android execution, connected-client proof, public signed
-deployment and device activation. None substitutes for the next boundary.
+and must be reread after recovery. The [documentation map](docs/INDEX.md)
+identifies the contract/evidence boundary; the
+[active implementation and responsibility map](docs/architecture/STAGE1_BOUNDARIES.md)
+tracks code-level reachability rather than treating every planned interface as
+shipped. This file distinguishes source implementation,
+automated proof, actual Android execution, connected-client proof, public
+checksum-verified distribution, future signed-channel acceptance, and device
+activation. None substitutes for the next boundary.
 
 ## Stage 1: Standalone Wrapper (`rewrite/wrapper`, 2026-11-16)
+
+**Current operating snapshot (2026-11-17):** Stage 1 P0 Wrapper executable
+replacement, official upstream `0.169.0` CLI and public `wrapper` prerelease
+source/byte readback are accepted **at their documented boundaries** below.
+The Stage 2.1 `wrapper.toml` / `setup` / `--bare` / `--with` surface and
+FD 34 snapshot **engine** are implemented, but no Manager/TUI/Provider module
+or real fragment producer is attached. Signed self-built bundles remain
+Phase 2.2. The upstream `state.rollout_db_parity` warning is not resolved
+by the healthy Wrapper diagnosis. The implementation and authority mapping
+lives in [STAGE1_BOUNDARIES](docs/architecture/STAGE1_BOUNDARIES.md);
+dated CI and device evidence follows.
 
 ### Stage 1 P0 installer safety qualification (2026-11-17; isolated worktree)
 
@@ -479,7 +495,7 @@ Implemented beyond initial PR #31 without attaching Manager, enhanced TUI, Provi
   Phase 2.2 signature implementation remains pending. This reconciliation changes
   documentation only; it performs no new deployment, account edit or server restart.
 
-### Stage 2 Plan (Documented — Phases 2.1–2.6 pending qualification)
+### Stage 2 Plan (Phase 2.1 engine implemented; 2.2–2.5 not attached)
 See [docs/plan/STAGE2_PLAN.md](docs/plan/STAGE2_PLAN.md) for the verified phase-by-phase reintegration procedure, `c200e676` vs `ebb0b519` regression protections, suffix-removal schema rules, live-device safety checks, and verification gates. Summary sequence:
 1. **`wrapper.toml` & Generic Extension Contract (Phase 2.1 — implemented in `crates/wrapper`; module producers in Phases 2.3–2.5):**
    - Implemented `~/.local/share/codex/wrapper/wrapper.toml`, `codex wrapper setup`, `codex wrapper --bare`, and `codex wrapper --with <MODULES>`, plus the conditional FD 34 system configuration snapshot engine (`config/snapshots/<settings_id>/`) while keeping bare `codex` / `codex --version` zero-write and free of addon crates or IPC.

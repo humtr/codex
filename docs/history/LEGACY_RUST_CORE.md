@@ -1,5 +1,13 @@
 # Historical Pre-Rewrite Development Evidence (`rewrite/rust-core` / `0.167.x`, Archived)
 
+**Non-normative and not active Wrapper implementation.** This retains earlier
+Rust Core/Manager/TUI/Provider evidence for selective future porting. The
+current standalone binary on `rewrite/wrapper` does not include those optional
+modules or their documented external flows. See the
+[source/owner map](../architecture/STAGE1_BOUNDARIES.md), [CURRENT](../../CURRENT.md)
+and [Stage 2 porting plan](../plan/STAGE2_PLAN.md). A historical `PASS` is not
+proof of integration into the current source.
+
 > **Non-normative historical archive (archived 2026-11-16):** This document preserves the pre-rewrite `rewrite/rust-core` (`0.167.0` `Full153`/`Base152`) evidence and `PRO_HANDOFF` records migrated out of [CURRENT.md](../../CURRENT.md) during the `rewrite/wrapper` clean documentation cutover. It does **not** describe the active `rewrite/wrapper` codebase, active workflows, or current CLI/release targets.
 >
 > - Current operational status and evidence: [CURRENT.md](../../CURRENT.md)

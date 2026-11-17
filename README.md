@@ -19,10 +19,16 @@ The product has one public command, `codex`, built in two decoupled stages:
   timezone TZif, TLS certs, browser helpers, sandbox guard, `app-server daemon` &
   `remote-control` passthrough), `codex update [--upstream] [--version <M.m.p>] | --path <FILE_OR_DIR> | --rollback`,
   `codex doctor [--color | --json]`, and `codex wrapper status [--json]`.
-- **Stage 2 (decoupled optional modules, deferred):** optional Manager, enhanced `TUI`,
-  `Provider` bridge, and Ed25519 `--signed` Wrapper/addon bundle verification, preserved on
-  `rewrite/rust-core` (with `0.167.2` release/index manifests on `origin/main`) for later opt-in reattachment once Stage 1
-  is established. See [current status](CURRENT.md) and the [Stage 2 reintegration plan](docs/plan/STAGE2_PLAN.md).
+- **Stage 2.1 extension interface (implemented, not attached):** `wrapper.toml`,
+  `codex wrapper setup`, `--bare`, unavailable-module `--with` admission,
+  and conditional FD 34 snapshot preparation. These do **not** launch optional
+  modules; the production empty-fragment path bypasses the snapshot engine.
+- **Stage 2.2–2.5 (deferred):** Ed25519 `--signed` Wrapper/addon
+  verification, Manager, enhanced `TUI`, and Wrapper-managed `Provider` bridge.
+  Earlier source is preserved on `rewrite/rust-core` for selective integration,
+  not included in the Stage 1 binary. See the
+  [implementation/ownership map](docs/architecture/STAGE1_BOUNDARIES.md),
+  [current evidence](CURRENT.md) and [Stage 2 plan](docs/plan/STAGE2_PLAN.md).
 
 ## Requirements on Termux
 
@@ -67,7 +73,8 @@ This runs `cargo build --release --locked -p codex` and installs
 
 ### Option 3: Install directly from a CI-published GitHub Release
 
-Once a `wrapper` GitHub Release is published:
+The currently published `wrapper` **prerelease** contains the accepted
+standalone Stage 1 P0 binary (the public asset is already verified in CURRENT):
 
 ```sh
 curl -fsSL https://github.com/humtr/codex/releases/download/wrapper/install.sh | sh
@@ -75,7 +82,9 @@ curl -fsSL https://github.com/humtr/codex/releases/download/wrapper/install.sh |
 
 This installs the standalone `codex` wrapper binary, verifies its SHA-256
 digest, and bootstraps an active adapted upstream Codex generation; see
-[current release and verification status](CURRENT.md#verified-boundaries--post-cutover-wrapper-naming--suffix-cleanup-2026-11-16).
+[current public-release and installed-device acceptance](CURRENT.md#stage-1-p0-operational-cutover-and-public-release-acceptance-2026-11-17-actual-termux).
+The standalone release uses HTTPS plus SHA-256 checksum verification, **not
+Stage 2.2 Ed25519-signed addon distribution**.
 
 Useful installer options (`./install.sh --help`):
 
@@ -180,16 +189,20 @@ codex wrapper --bare -- --version
 codex wrapper --with tui -- --version
 ```
 
-An explicit `--with` request fails if its module is unavailable. An unavailable
-module selected in persistent settings emits a warning and ordinary `codex`
-continues with standalone upstream, so optional modules cannot disable the base
-runtime. `--bare` bypasses enabled
+`--with` currently validates the module names then **always fails with
+unavailable status (exit 1)**: no Manager/TUI/Provider executables are admitted
+or dispatched by this source. An enabled but unavailable module stored in
+persistent settings emits a warning and ordinary `codex` continues with
+standalone upstream, so a saved opt-in is **not** evidence of running integration.
+`--bare` bypasses enabled
 addon modules for one launch while preserving upstream arguments (`wrapper setup
 --bare` disables addon modules while retaining `signed_update`). Setting
 `signed_update = true` records the opt-in but does **not** activate a signed
 channel until Phase 2.2; ordinary `codex update` remains independent, and
 actual Manager/TUI/Provider addon reattachment remains deferred to Phases 2.3–2.5.
-The no-addon launch adds no dependency, addon process, lock, snapshot write, or extra config probe.
+The no-addon launch adds no *addon* dependency, process, lock, snapshot write,
+or extra config probe. Existing Wrapper generation retention and activation
+recovery remain in force.
 
 ## Diagnostics and Upstream Passthrough
 
@@ -208,6 +221,11 @@ codex app-server daemon start
 codex app-server daemon version
 codex remote-control
 ```
+
+The Wrapper doctor reports its own health and embeds the upstream doctor
+output; an overall `healthy` result may still contain upstream warnings
+(e.g. `state.rollout_db_parity`). The Wrapper does not edit upstream thread
+inventory or reconcile an upstream session database.
 
 Upstream keeps its selected daemon package separate from the CLI generation.
 After updating or re-adapting the CLI, select its complete adapted package when
@@ -277,6 +295,11 @@ cargo build --release --locked -p codex -p codex-release-builder
 ```
 
 ## Repository Documentation
+
+Start at the [documentation map](docs/INDEX.md) for document authority,
+scope and status vocabulary; the
+[Stage 1 implementation and responsibility map](docs/architecture/STAGE1_BOUNDARIES.md)
+ties active commands to code and distinguishes integrated from deferred modules.
 
 - [SPEC.md](SPEC.md) — Normative product contract and Stage 1 / Stage 2 boundaries.
 - [CURRENT.md](CURRENT.md) — Verified build, live-device, and isolated runtime evidence.

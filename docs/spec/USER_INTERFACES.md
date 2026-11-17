@@ -1,9 +1,11 @@
 # User-facing interfaces and optional Manager contracts
 
 **Status:** Normative detail of [SPEC.md](../../SPEC.md).
-Stage 1 standalone Wrapper implements the Wrapper user-facing commands
-(`codex` upstream passthrough, `codex update`, `codex doctor`, and
-`codex wrapper status [--json]`). The optional Manager, quota-rotation, notification,
+Stage 1 standalone Wrapper implements upstream passthrough, `codex update`,
+`codex doctor`, and `codex wrapper status`. The already implemented Stage 2.1
+configuration surface adds `codex wrapper setup`, `--bare` and `--with`
+**admission**, but not executable addon routing. The optional Manager,
+quota-rotation, notification,
 and profile contracts below describe decoupled Stage 2 modular capabilities (with
 all `codex termux` surfaces cut over cleanly to `codex wrapper`) and are not
 compiled into or required by the standalone Wrapper. These are feature
@@ -578,31 +580,34 @@ original Android terminal registration remain unchanged. Native source/build
 proof precedes admission; consumer-only or seeded fixtures do not establish
 automatic thread-switch integration.
 
-In Stage 1 standalone Wrapper, top-level `codex update ...`,
-`codex doctor [--color | --json]`, and `codex help` are active alongside
-`codex wrapper status [--json]` and `codex wrapper [--help]`; any other
-`codex wrapper <SUBCOMMAND>` fails closed with usage status `2` and never passes
-through to upstream. In Stage 2 ([docs/plan/STAGE2_PLAN.md](../plan/STAGE2_PLAN.md)), `codex wrapper` expands
-to own Wrapper configuration (`setup`, `status`, `--bare`, `--with`, `update`,
-`rollback`, `doctor`, `provider`) as well as the optional Manager subcommand
-family when enabled explicitly (`help`, `launch`, `profile`, `task`, `notify`,
-`usage`, `rotation`) and is likewise never passed to upstream. Bare `codex`
-invokes only standalone Wrapper plus patched upstream unless modules are enabled
-in `wrapper.toml` or via `codex wrapper --with <MODULES>`.
-If a persistently selected module is missing or incompatible, ordinary upstream
-execution remains available with a clear warning; the stored selection is not
-rewritten. An explicit `--with` request fails when its requested module cannot
-be admitted. Module absence never blocks standalone update, doctor or rollback.
+In the active Stage 1 + 2.1 Wrapper, top-level `codex update ...`,
+`codex doctor [--color | --json]`, and upstream `codex help` are active.
+The Wrapper-owned `codex wrapper` route currently accepts `status`,
+`setup`, `--bare`, `--with`, or help. An unknown `wrapper` subcommand
+returns usage status `2`; it is **never** forwarded to upstream.
+`codex wrapper setup` saves optional settings; it installs and authenticates
+nothing. `codex wrapper --bare` executes upstream independently of saved
+module selection. **Current `--with` implementation always returns an
+unavailable error (exit `1`) after validating the selection**, because no
+optional module executable has yet been attached. A persistently selected
+unavailable module produces a warning while normal upstream execution proceeds.
+`signed_update=true` is a stored preference, not a signed update channel.
+
+In deferred Stage 2.2–2.5 ([plan](../plan/STAGE2_PLAN.md)), admitted modules
+will attach additional `codex wrapper provider`, Manager and related routes;
+none is a current command. Bare Wrapper remains independently usable and
+upstream conversation/daemon state remains upstream-owned. The source and
+authority crosswalk is the [implementation map](../architecture/STAGE1_BOUNDARIES.md).
 
 ```text
-# Stage 1 active wrapper commands
-codex wrapper status [--json]
+# Stage 1 + Stage 2.1 implemented commands
 codex wrapper [help|--help]
-
-# Stage 2 configuration & modular surface (planned)
+codex wrapper status [--json]
 codex wrapper setup [show|--bare|--enable <MODULES>|--disable <MODULES>|--signed-update <true|false>]
 codex wrapper --bare [--] [UPSTREAM_ARGS...]
-codex wrapper --with <MODULES> [--] [UPSTREAM_ARGS...]
+codex wrapper --with <MODULES> [--] [UPSTREAM_ARGS...] # currently unavailable, exits 1
+
+# Stage 2.2–2.5 optional routing (not implemented)
 codex wrapper update [ARGS...]
 codex wrapper provider <ACTION> chatgpt [ARGS...]
 codex wrapper launch [--profile PROFILE_ID] [-- UPSTREAM_ARGS...]

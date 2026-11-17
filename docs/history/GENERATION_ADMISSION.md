@@ -1,5 +1,13 @@
 # Earlier generation admission and implementation evidence
 
+**Non-normative archive.** This file describes previous generations,
+rejected/retired designs and historical evidence, **not** currently installed
+Wrapper code. For present behavior and ownership use the
+[implementation map](../architecture/STAGE1_BOUNDARIES.md); for proven
+live/public status use [CURRENT](../../CURRENT.md); for binding contracts
+use [SPEC](../../SPEC.md). Never infer current Manager/Provider support
+from a historical test.
+
 **Status:** Non-normative historical reference moved from
 [SPEC.md](../../SPEC.md). This material explains past compatibility choices,
 identified executable inputs and bounded proof; it must not be interpreted

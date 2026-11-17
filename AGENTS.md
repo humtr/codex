@@ -23,8 +23,11 @@ selected model and entrypoint.
 
 - Check the actual checkout, branch, HEAD, user changes, current work ownership
   and the relevant existing implementation before changing files.
-- Read [SPEC.md](SPEC.md) and its linked normative contracts for product behavior;
-  read [CURRENT.md](CURRENT.md) for what is actually running, proven and unfinished.
+- Start at the [documentation map](docs/INDEX.md) when a request touches product
+  boundaries. Read [SPEC.md](SPEC.md) and its linked normative contracts for required
+  behavior, the [source/owner implementation map](docs/architecture/STAGE1_BOUNDARIES.md)
+  for what is actually implemented here, and [CURRENT.md](CURRENT.md) for what is
+  running, proven and unfinished.
   If a `PRO_HANDOFF.md` file is present on a branch, use it only for the current handoff/work order.
   A release record, prior implementation or passing test does not override the
   product contract. [README.md](README.md) is the user-facing guide.
@@ -87,8 +90,14 @@ selected model and entrypoint.
   unsupported claims, skipped mandatory gates and conclusions drawn only from
   counters, request acknowledgments or historical receipts.
 - Keep contract and documentation changes precise: stable requirements in
-  SPEC.md and its normative annexes, present fact/evidence in CURRENT.md,
-  completed history in Git or explicitly non-normative records.
+  SPEC.md and its normative annexes; current command/owner/source traceability
+  in docs/architecture/STAGE1_BOUNDARIES.md; dated actual evidence in CURRENT.md;
+  Stage 2 work order in docs/plan/STAGE2_PLAN.md; completed history in Git
+  or explicitly non-normative records. Review and update the affected documents
+  together when a source feature becomes reachable, a route is removed, or a
+  responsibility moves. A Phase 2.1 interface is not proof of attached addons.
+  Never relabel an upstream/Provider service as a Wrapper implementation because
+  it is running on the same device.
 
 ## Report and hand off responsibly
 
