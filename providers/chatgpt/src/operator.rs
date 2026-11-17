@@ -826,6 +826,29 @@ fn same_assignment_parent(left: Option<&str>, right: Option<&str>) -> bool {
     left.is_some() && left == right
 }
 
+/// A confirmed failed/interrupted Native turn cannot hold a parent's
+/// sibling admission slot indefinitely. Native effect leases independently
+/// fence uncertain command execution until their original receipts settle.
+fn sibling_slot_active(phase: &str, has_native_turn: bool) -> bool {
+    (has_native_turn || phase == "admitting")
+        && !matches!(phase, "completed" | "interrupted" | "stopped" | "queued")
+}
+
+/// Explicit recovery is allowed after a real terminal failed turn. The claim
+/// path must still verify the original history/context cursors, terminal
+/// Native state, and the absence of unresolved effects before changing owner.
+fn explicit_claim_phase(phase: &str) -> bool {
+    matches!(
+        phase,
+        "reconciliation_required"
+            | "stop_requested"
+            | "completed"
+            | "stopped"
+            | "interrupted"
+            | "native_summary_offered"
+    )
+}
+
 /// The worker's limit controls its own descendants; the parent's limit
 /// controls competing siblings. Preserve parent availability as an admission
 /// invariant so lost ownership cannot silently broaden concurrency.
@@ -1088,10 +1111,9 @@ impl Operator {
                                 assignment.parent.as_deref(),
                             )
                         })
-                        && (work.record.native_turn.is_some() || work.record.phase == "admitting")
-                        && !matches!(
-                            work.record.phase.as_str(),
-                            "completed" | "stopped" | "queued"
+                        && sibling_slot_active(
+                            &work.record.phase,
+                            work.record.native_turn.is_some(),
                         )
                 })
                 .count();
@@ -4213,14 +4235,7 @@ impl Operator {
             }
             Some("claim") => {
                 let (record, native) = self.binding(&args, false).await?;
-                if !matches!(
-                    record.phase.as_str(),
-                    "reconciliation_required"
-                        | "stop_requested"
-                        | "completed"
-                        | "stopped"
-                        | "native_summary_offered"
-                ) {
+                if !explicit_claim_phase(&record.phase) {
                     return Err(Error("operator_explicit_handoff_required"));
                 }
                 let history = Self::history(&native, &record.thread).await?;
@@ -8385,6 +8400,20 @@ mod local_tests {
         ] {
             assert_eq!(recovered_phase(phase), "reconciliation_required");
         }
+    }
+
+    #[test]
+    fn interrupted_native_worker_releases_sibling_slot_and_allows_explicit_claim() {
+        assert!(sibling_slot_active("running", true));
+        assert!(sibling_slot_active("admitting", false));
+        assert!(!sibling_slot_active("queued", false));
+        assert!(!sibling_slot_active("interrupted", true));
+        assert!(!sibling_slot_active("completed", true));
+        assert!(!sibling_slot_active("stopped", true));
+        assert!(sibling_slot_active("reconciliation_required", true));
+        assert!(explicit_claim_phase("interrupted"));
+        assert!(!explicit_claim_phase("running"));
+        assert!(!explicit_claim_phase("queued"));
     }
 
     #[test]
