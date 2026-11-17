@@ -236,7 +236,13 @@ fn control_command(args: &[String]) -> Result<(), String> {
         _ => return Err("unsupported control surface".into()),
     };
     if args[0] == "work" {
-        if !values.contains_key("controller") {
+        // An authenticated PARENT may change its child's budget without
+        // holding the child's private controller. Supplying an implicit
+        // child controller here would bypass the parent-only authorization
+        // branch and falsely reject valid cross-session budget adjustments.
+        if !values.contains_key("controller")
+            && !(action == "budget" && values.contains_key("parent_work_id"))
+        {
             if let Some(work) = values.get("work_id").and_then(serde_json::Value::as_str) {
                 if !matches!(tool, "codex_history" | "codex_status" | "codex_stop")
                     && values.get("action").is_none_or(|value| {
