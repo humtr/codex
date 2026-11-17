@@ -256,6 +256,23 @@ jobs:
           name: wrapper-android
           path: ${{ runner.temp }}/dist
 
+      - name: Checkout exact source for installer fault injection
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          git init .
+          git remote add origin "https://github.com/$GITHUB_REPOSITORY.git"
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+            git fetch --no-tags --depth=2 origin "$GITHUB_REF"
+          else
+            git fetch --no-tags --depth=2 origin "$SOURCE_SHA"
+          fi
+          git checkout --detach FETCH_HEAD
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+
       - name: Provision Android Runtime Bionic linker64 and Termux test layout
         shell: bash
         run: |
@@ -487,6 +504,12 @@ jobs:
           test -d "$prefix/bin/.codex-install.lock"
           test ! -e "$prefix/bin/codex"
           rmdir "$prefix/bin/.codex-install.lock"
+
+      - name: SIGKILL installer fault matrix (isolated Android/Bionic roots)
+        shell: bash
+        run: |
+          set -euo pipefail
+          PYTHONDONTWRITEBYTECODE=1 python3 .github/scripts/test_install_recovery.py
 
       - name: Discover immutable official inputs without deployment
         id: upstream

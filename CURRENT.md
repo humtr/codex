@@ -8,6 +8,30 @@ deployment and device activation. None substitutes for the next boundary.
 
 ## Stage 1: Standalone Wrapper (`rewrite/wrapper`, 2026-11-16)
 
+### Stage 1 P0 installer safety qualification (2026-11-17; isolated worktree)
+
+Work branch `work/wrapper-p0-recovery-20261117` began at
+`e484e833a6e733917b12318999ebe4e2938a8cca`, with only two preexisting
+untracked user TOML files in the original repository. No live service, account,
+installed Wrapper or activation generation was modified. In an isolated Termux
+PREFIX, the original installer was SIGKILLed while its spawned updater remained
+alive (parent PID 28456, child PID 28487); the staged executable replaced the old
+SHA while the previous executable and empty install lock remained. The updated
+installer uses synced installer transaction receipts and conservative recovery.
+The owned-PREFIX synthetic process/filesystem fault suite
+`.github/scripts/test_install_recovery.py` passed 13/13 on actual Termux with
+Android linker present, including I1-I15 coverage (I6/I9 combined and I12/I13
+combined). In a **second isolated** `HOME`, `CODEX_HOME`, `TMPDIR`, and copied
+`PREFIX`, the already-installed 0.169.0 Wrapper acquired and verified the official
+0.169.0 archive and activated `local-1794879214-17073-2` (exit 0); `codex
+--version` returned `codex-cli 0.169.0` and a subsequent install without
+`--skip-upstream` recognized the qualified matching active generation without
+redownloading. `doctor --json` reported no isolated credentials as expected;
+`daemon --help` and `remote-control --help` worked. Operational binary SHA
+remained `715179a4be5518aedb7091dc148d3fe25df8a242338de7fc68780693423fa8c6`.
+This is **not** a physical power-loss result or a complete P0 release
+acceptance. Generation-journal and public Release checks remain separate gates.
+
 ### Status and scope
 Stage 1 decouples `crates/wrapper` (`codex`) and `crates/release-builder` (`codex-release-builder`) into a standalone, zero-addon Termux compatibility wrapper aligned with [SPEC.md](SPEC.md) Sections 1–5 (`Stage 1` vs `Stage 2` architecture).
 - `Cargo.toml` contains only `crates/wrapper` and `crates/release-builder`, and `Cargo.lock` locks only `codex`, `codex-release-builder`, and `libc` (`0.2.186`). Zero non-wrapper addon crates, providers, TUI patches, or legacy CI/qualification scripts remain tracked on `rewrite/wrapper`.

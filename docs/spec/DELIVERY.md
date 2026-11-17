@@ -993,11 +993,23 @@ install.sh [--prefix <DIR>] [--binary <PATH>] [--build] [--release <TAG>] \
 - On Android AArch64, `install.sh` runs a non-mutating `/system/bin/linker64`
   `--version` sanity probe on the staged binary before atomically publishing it to
   `$PREFIX/bin/codex`.
-- Unless `--skip-upstream` was passed (or an initial generation already exists),
-  `install.sh` invokes `$PREFIX/bin/codex update --upstream` (or `--upstream --version <X.Y.Z>`)
-  so the newly installed Wrapper itself acquires, verifies, patches, and activates the
-  initial `package-root` generation (`codex-local-generation`). Failure in `install.sh`
-  cleans its temporary staging workspace without leaving a broken `$PREFIX/bin/codex`.
+- A single exclusive installer writer stores a synced owner identity plus
+  a phased SHA-256 receipt for the prior/new executable and the original
+  `activation-state`, and a verified same-directory previous executable before
+  renaming the candidate into place. The standalone executable commit and the
+  updater's activation-state commit are distinct, not one atomic rename.
+- Unless `--skip-upstream` was requested, a Wrapper with no matching qualified
+  generation digest performs the upstream bootstrap/requalification (an explicit
+  `--version` always requests it). Existing matching generations are retained.
+- A caught bootstrap failure restores the previous executable only when the
+  activation state has not changed; otherwise the executable, backup and receipt
+  are preserved and installation returns failure. An interrupted install may
+  resume after proving that the old writer is gone and any recorded updater and
+  its process group cannot mutate state. Partial ownership or contradictory
+  byte/activation state always fails closed. `install.sh --recover` performs
+  reconciliation without launching a new updater, and ordinary installs recover
+  only the provably safe states before continuing. Activation-journal recovery
+  is separate and is not bypassed by the installer.
 
 ### Stage 1 standalone update lifecycle (`codex update`)
 

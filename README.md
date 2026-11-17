@@ -84,25 +84,33 @@ Useful installer options (`./install.sh --help`):
 - `--version <X.Y.Z>`: bootstrap a specific upstream Codex release version during install.
 - `--skip-upstream`: install `$PREFIX/bin/codex` without running `codex update --upstream` immediately.
 
-## Installer failure recovery
+## Installer interruption and recovery
 
-`install.sh` serializes only the **final executable swap** with
-`$PREFIX/bin/.codex-install.lock`. After validating the new binary it keeps
-a same-directory SHA-256-verified copy (`.codex.previous.<pid>`) of an existing
-regular `$PREFIX/bin/codex` until the requested upstream bootstrap finishes.
-A failed bootstrap or a caught HUP/INT/TERM restores that executable; a failed
-first install removes the unsuccessful new executable. A successful
-`--skip-upstream` install commits immediately. Symlink destinations and
-competing installers are rejected rather than overwritten; the independent
-upstream-generation update/rollback remains managed by `codex update`.
+`install.sh` creates an exclusive `$PREFIX/bin/.codex-install.lock` containing a
+synced owner identity (PID, process start ticks, boot ID) and a durable
+`codex-install-v1` receipt with the previous/new executable SHA-256, the
+pre-install activation-state digest and the commit phase. The exact previous
+executable is separately SHA-256-verified and synchronized **before** the
+atomic executable rename. The upstream activation journal remains independent.
 
-A forced SIGKILL, kernel crash or power loss **cannot run the shell recovery
-trap**. In that event inspect the lock and any retained
-`.codex.previous.*` inside `$PREFIX/bin`, verify the old/new executables
-and active generation first, and deliberately restore the saved file when
-needed. Do **not** blindly remove a stale lock/backup or assume a new binary
-is qualified. This is recoverable failure handling, not yet a full persistent
-cross-power-loss installer journal.
+A caught failure before generation activation restores the exact prior executable
+(or removes an unsuccessful first install). A failed updater that has already
+changed the authoritative generation is **not** rolled back over that generation:
+the installer retains its transaction, candidate and backup for reconciliation.
+`--skip-upstream` commits the executable without triggering the updater.
+
+After SIGKILL or a crash, a new install can automatically settle only a
+verified pre-updater transaction. For explicit recovery without attempting a
+new install, run `install.sh --prefix <PREFIX> --recover`. A completed activation
+can be adopted without repeating the updater **only** when the child/group are
+proved quiescent and the active generation's metadata and running Wrapper match
+the recorded SHA-256. Live jobs, PID reuse, absent ownership records, partial
+or conflicting metadata, and uncertain activation fail closed with a specific
+diagnostic. Inspect the retained lock/backup and owned updater before any manual
+intervention; never remove a lock merely because `kill -0` failed. An
+uninspectable transaction requires operator-led reconciliation, not an automatic
+second updater. This protocol synchronizes files and directories but cannot
+claim testing of an actual physical power cut or firmware storage guarantees.
 
 ## Managing Upstream Codex Generations
 
