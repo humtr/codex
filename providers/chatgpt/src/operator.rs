@@ -826,6 +826,20 @@ fn same_assignment_parent(left: Option<&str>, right: Option<&str>) -> bool {
     left.is_some() && left == right
 }
 
+/// The worker's limit controls its own descendants; the parent's limit
+/// controls competing siblings. Preserve parent availability as an admission
+/// invariant so lost ownership cannot silently broaden concurrency.
+fn sibling_parallel_limit(
+    assignment: &Assignment,
+    parent_budget: Option<&Budget>,
+) -> Result<usize, Error> {
+    match (&assignment.parent, parent_budget) {
+        (Some(_), Some(parent)) => Ok(parent.max_parallel),
+        (Some(_), None) => Err(Error("assignment_parent_unavailable")),
+        (None, _) => Ok(assignment.budget.max_parallel),
+    }
+}
+
 impl Operator {
     pub fn new(
         pool: Arc<Pool>,
@@ -1081,7 +1095,22 @@ impl Operator {
                         )
                 })
                 .count();
-            if dependencies_ready && active < assignment.budget.max_parallel {
+            // Sibling admission is governed by the parent's concurrency
+            // allowance. A child's max_parallel applies only to its children;
+            // using it here serialized W1/W2 despite a parallel-capable O.
+            let parent_budget = match assignment.parent.as_deref() {
+                Some(parent) => Some(
+                    &works
+                        .values()
+                        .find(|work| work.record.id == parent)
+                        .and_then(|work| work.record.assignment.as_ref())
+                        .ok_or(Error("assignment_parent_unavailable"))?
+                        .budget,
+                ),
+                None => None,
+            };
+            let sibling_limit = sibling_parallel_limit(assignment, parent_budget)?;
+            if dependencies_ready && active < sibling_limit {
                 let work = works.get_mut(&record.thread).unwrap();
                 work.record.phase = "admitting".into();
                 work.record
@@ -8356,6 +8385,32 @@ mod local_tests {
         ] {
             assert_eq!(recovered_phase(phase), "reconciliation_required");
         }
+    }
+
+    #[test]
+    fn siblings_use_parent_concurrency_not_child_descendant_budget() {
+        let budget = |max_parallel| Budget {
+            max_parallel,
+            max_app_starts: 6,
+            max_native_calls: 40,
+            max_elapsed_seconds: 900,
+        };
+        let a = Assignment {
+            role: "worker".into(),
+            parent: Some("parent".into()),
+            dependencies: vec![],
+            budget: budget(1),
+            admitted_calls: Default::default(),
+            evaluation: None,
+            started_at_unix_ms: None,
+        };
+        assert_eq!(sibling_parallel_limit(&a, Some(&budget(4))).unwrap(), 4);
+        assert_eq!(
+            sibling_parallel_limit(&a, None).unwrap_err(),
+            Error("assignment_parent_unavailable")
+        );
+        let root = Assignment { parent: None, ..a };
+        assert_eq!(sibling_parallel_limit(&root, None).unwrap(), 1);
     }
 
     #[test]
