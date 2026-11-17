@@ -81,13 +81,43 @@ async function termuxCodexBridge(command) {
     if(status>=400&&status<500)return 'app_http_rejected';
     return fallback;
   };
+  // The saved Chat is assigned a server ID after its first model request.
+  // Rename only that exact account/project-owned conversation after it settles.
+  // The PUT/PATCH is idempotent for the same deterministic title; failures
+  // cannot interrupt Native completion or cause a second model submission.
+  const scheduleTitle=lane=>{
+    if(lane.titleAttempted||typeof lane.preferredTitle!=='string'
+      ||!lane.preferredTitle.startsWith('[코덱스 오케스트레이션] ')
+      ||!lane.project||!lane.serverId)return;
+    lane.titleAttempted=true;
+    lane.titlePromise=Promise.resolve().then(async()=>{
+      await new Promise(resolve=>setTimeout(resolve,650));
+      const owner=identity();
+      if(['account','user','structure'].some(k=>owner[k]!==lane.accountIdentity[k]))return 'identity_changed';
+      const path={conversation_id:lane.serverId};
+      const raw=await state.wire.safeGet('/conversation/{conversation_id}',{parameters:{path}});
+      if(raw.gizmo_id!==lane.project)return 'project_mismatch';
+      if(raw.title===lane.preferredTitle)return 'already_named';
+      // Conversation writes belong to the authenticated wire client.
+      // The app-local module may not expose safePatch at all.
+      const patch=typeof state.wire.safePatch==='function'
+        ? state.wire.safePatch.bind(state.wire)
+        : typeof state.api.safePatch==='function'
+        ? state.api.safePatch.bind(state.api) : null;
+      if(!patch)return 'safe_patch_unavailable';
+      await patch('/conversation/{conversation_id}',{parameters:{path},requestBody:{title:lane.preferredTitle}});
+      if(['account','user','structure'].some(k=>identity()[k]!==owner[k]))return 'identity_changed';
+      const result=await state.wire.safeGet('/conversation/{conversation_id}',{parameters:{path}});
+      return result.gizmo_id===lane.project&&result.title===lane.preferredTitle?'saved_chat_renamed':'title_confirmation_pending';
+    }).then(status=>{lane.titleStatus=status},()=>{lane.titleStatus='title_update_failed'});
+  };
   const completion=lane=>{
     const epoch=lane.epoch,serial=(lane.streamSerial??0)+1;
     return status=>{
       if(lane.epoch!==epoch||lane.stopRequested||(lane.streamSerial??0)>serial)return;
       // SDK polling recovery can finish without a raw stream terminal. A later
       // host-reply stream owns its own completion, even within the same epoch.
-      if(status==='completed'){lane.terminals=['done'];lane.streamActive=false;}
+      if(status==='completed'){lane.terminals=['done'];lane.streamActive=false;scheduleTitle(lane);}
       else if(['failed','interrupted'].includes(status)){
         // A superseded local observer cannot undo a successful reattachment.
         // While reobserving the exact response, the old SDK failure is not
@@ -500,6 +530,19 @@ async function termuxCodexBridge(command) {
     delete globalThis[slot];
     return {disposed:true};
   }
+  if (command.op === 'budget_update') {
+    // Rust authorizes target work/controller before this call. Keep the
+    // already-reserved dispatch count, so changing limits never refunds calls.
+    if(typeof command.nativeThread!=='string'||!command.nativeThread||
+       !Number.isSafeInteger(command.maxDispatches)||command.maxDispatches<1||
+       command.deadlineUnixMs!=null&&(!Number.isSafeInteger(command.deadlineUnixMs)||command.deadlineUnixMs<1))
+       fail('assignment_budget_invalid');
+    const budget=state.workBudgets.get(command.nativeThread);
+    if(!budget)return {updated:false,reason:'no_live_host_budget',next_open_uses_persisted_budget:true};
+    budget.maxDispatches=command.maxDispatches;
+    budget.deadlineUnixMs=command.deadlineUnixMs??null;
+    return {updated:true,reserved:budget.reserved,maxDispatches:budget.maxDispatches,deadlineUnixMs:budget.deadlineUnixMs};
+  }
   if (command.op === 'identity') {
     // Return identifiers only; never tokens, email or the complete auth state.
     return {...identity(),present:state.lanes.has(command.lane)};
@@ -527,7 +570,11 @@ async function termuxCodexBridge(command) {
       writer_state:!writer?'unclaimed':writer.owner!==command.owner?'owned_elsewhere':writer.revision!==command.bridgeRevision?'revision_conflict':'same_owner',owned_lanes_only:true,
       saved_read_failure:writer?.owner===command.owner?writer.lastReadFailure??null:null,
       saved_read_backoff:retryStatus(),
-      capabilities:{saved_read:typeof state.wire.safeGet==='function',saved_input:['uCn','yRt','pzn'].every(key=>typeof state.api[key]==='function')&&!!state.api.ozn,
+      capabilities:{chat_title_wire_patch:typeof state.wire.safePatch==='function',
+        chat_title_api_patch:typeof state.api.safePatch==='function',
+        chat_title_wire_put:typeof state.wire.safePut==='function',
+        chat_title_api_put:typeof state.api.safePut==='function',
+        saved_read:typeof state.wire.safeGet==='function',saved_input:['uCn','yRt','pzn'].every(key=>typeof state.api[key]==='function')&&!!state.api.ozn,
         managed_stream:['prepareCompletionStream','startCompletionStream'].every(key=>typeof state.client?.[key]==='function'),
         local_functions:typeof state.api.bRt==='function'&&state.scope.get(state.shared.HAt)===true},
       active_lanes:[...state.lanes.values()].filter(l=>l.pending||l.streamActive||l.approvalPending).map(l=>({lane:l.marker,transport:l.mode})),
@@ -660,7 +707,15 @@ async function termuxCodexBridge(command) {
       // A missing shared assignment ledger cannot be reconstructed from one
       // lane's counters; preserve the original cap rather than resetting usage.
       if(counters&&!budget)fail('assignment_app_ledger_unavailable');
-      if(budget&&(budget.maxDispatches!==maxDispatches||budget.deadlineUnixMs!==deadlineUnixMs))fail('assignment_budget_changed');
+      if(budget&&(budget.maxDispatches!==maxDispatches||budget.deadlineUnixMs!==deadlineUnixMs)) {
+        // A change cannot erase already-consumed dispatches; only Rust's
+        // controller-authenticated work budget operation can update a live
+        // ledger. A future owner generation may supply a newer persisted
+        // budget after this lane is fully settled.
+        const active=[...state.lanes.values()].some(l=>l.budget===budget&&(l.pending||l.streamActive||l.approvalPending));
+        if(active)fail('assignment_budget_changed');
+        budget.maxDispatches=maxDispatches;budget.deadlineUnixMs=deadlineUnixMs;
+      }
       if(!budget){budget={maxDispatches,deadlineUnixMs,reserved:0};state.workBudgets.set(command.nativeThread,budget);}
     }
     // A released final lane restores app methods; retain the owned session so
@@ -672,7 +727,7 @@ async function termuxCodexBridge(command) {
     if (state.wire.streamPost !== state.saved.streamPost && state.wire.streamPost !== state.hooks.streamPost) fail('app_hooks_changed');
     state.wire.streamPost = state.hooks.streamPost;
     const localId = adopted?.id??state.api.aCn(state.scope);
-    state.lanes.set(command.lane,{localId,serverId:adopted?.id,selectedParent:adopted?.parent,selection,sourceHead,mode,budget,accountIdentity:identity(),marker:command.lane,project:command.project??null,signature: command.signature,messages: new Map(),sent: new Set(),starts: new Set(),older: new Set(),epoch: 0,previousDispatches:counters?.dispatches??0,userMessages:counters?.userMessages??0,toolMessages:counters?.toolMessages??0,hostReplyMessages:counters?.hostReplyMessages??0,roundHostReplies:0,hostReplies:new Set(),terminals: []});
+    state.lanes.set(command.lane,{localId,serverId:adopted?.id,selectedParent:adopted?.parent,selection,sourceHead,mode,budget,preferredTitle:command.preferredTitle??null,accountIdentity:identity(),marker:command.lane,project:command.project??null,signature: command.signature,messages: new Map(),sent: new Set(),starts: new Set(),older: new Set(),epoch: 0,previousDispatches:counters?.dispatches??0,userMessages:counters?.userMessages??0,toolMessages:counters?.toolMessages??0,hostReplyMessages:counters?.hostReplyMessages??0,roundHostReplies:0,hostReplies:new Set(),terminals: []});
     return selection?{localId,selection}:{localId};
   }
   const lane = state.lanes.get(command.lane);
@@ -838,7 +893,33 @@ async function termuxCodexBridge(command) {
     const conversation=await state.wire.safeGet('/conversation/{conversation_id}',{parameters:{path:{conversation_id:lane.serverId}}});
     if (JSON.stringify(identity())!==JSON.stringify(before)) fail('app_account_changed');
     if (conversation.gizmo_id!==lane.project) fail('project_membership_unconfirmed');
-    return {verified:true};
+    // Only rename a conversation whose actual saved project membership and
+    // authenticated account were verified above. A title API failure must not
+    // discard a successfully completed model turn or Native result.
+    let titleStatus='skipped';
+    if(typeof lane.preferredTitle==='string'&&lane.preferredTitle.startsWith('[코덱스 오케스트레이션] ')) {
+      if(conversation.title===lane.preferredTitle) titleStatus='already_set';
+      else if(typeof state.wire.safePatch!=='function'&&typeof state.api.safePatch!=='function') titleStatus='unsupported_by_app';
+      else {
+        try {
+          const patch=typeof state.wire.safePatch==='function'
+            ? state.wire.safePatch.bind(state.wire)
+            : state.api.safePatch.bind(state.api);
+          await patch('/conversation/{conversation_id}', {
+            parameters:{path:{conversation_id:lane.serverId}},
+            requestBody:{title:lane.preferredTitle}
+          });
+          if(JSON.stringify(identity())!==JSON.stringify(before))fail('app_account_changed');
+          const verified=await state.wire.safeGet('/conversation/{conversation_id}',{
+            parameters:{path:{conversation_id:lane.serverId}}
+          });
+          titleStatus=verified.gizmo_id===lane.project&&verified.title===lane.preferredTitle?'updated':'unconfirmed';
+        } catch(error) {
+          titleStatus=['app_account_changed'].includes(error?.message)?'identity_changed':'update_failed';
+        }
+      }
+    }
+    return {verified:true,title_status:titleStatus};
   }
   if (command.op === 'stop') {
     lane.savedSource=null;
@@ -930,6 +1011,7 @@ async function termuxCodexBridge(command) {
       onServerThreadIdChange: id => {
         if(typeof id!=='string'||!id||id.length>256||!/^[-a-zA-Z0-9_]+$/.test(id))fail('app_conversation_identity_invalid');
         if(lane.serverId!=null&&lane.serverId!==id)fail('app_conversation_identity_changed');
+        if(lane.terminals.includes('done'))scheduleTitle(lane);
         lane.serverId=id;
       },requireResponseAcceptance: true,startupSignal: lane.controller.signal};
     let pending;

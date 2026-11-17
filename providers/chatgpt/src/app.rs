@@ -517,6 +517,24 @@ fn preparation_observation(
             "error":error.map(|error|error.0)})
     );
 }
+// Only these operations are pure observations. After an AppHost renderer
+// reattachment, a lost receipt for one of them may be replaced without
+// dispatching model input or duplicating any external effect.
+fn recoverable_read_only_preparation(command: &Value) -> bool {
+    matches!(
+        command["op"].as_str(),
+        Some(
+            "identity"
+                | "host_status"
+                | "model_catalog"
+                | "chat_list"
+                | "chat_read"
+                | "chat_page"
+                | "project_list"
+                | "project_read"
+        )
+    )
+}
 async fn evaluate_bridge(
     app: &App,
     command: &Value,
@@ -587,6 +605,7 @@ async fn evaluate_bridge(
     if beginning {
         preparation_observation(command, &preparation, "begin", None);
     }
+    let mut safe_read_receipt_resets = 0usize;
     while preparation.result.is_none() {
         let result = tokio::select! {
             biased;
@@ -648,7 +667,41 @@ async fn evaluate_bridge(
                     }
                     Some("unknown") => {
                         preparation_observation(command, &preparation, "unknown", None);
-                        return Err(Error("app_operation_unavailable"));
+                        if !recoverable_read_only_preparation(command)
+                            || safe_read_receipt_resets >= 2
+                            || tokio::time::Instant::now() >= until
+                        {
+                            // A non-read operation's missing receipt remains
+                            // an unknown effect and must never be re-executed.
+                            return Err(Error("app_operation_unavailable"));
+                        }
+                        // The initial App renderer context was replaced after
+                        // begin, so its receipt no longer exists. The original
+                        // operation was a pure read: create a fresh receipt ID,
+                        // preserving the same content and caller's deadline.
+                        safe_read_receipt_resets += 1;
+                        preparation.id = random_id()?;
+                        preparation.started = tokio::time::Instant::now();
+                        preparation.begun = true;
+                        envelope["operation"]["id"] = json!(preparation.id);
+                        envelope["operation"]["action"] = json!("begin");
+                        envelope["operation"]["observationBudgetMs"] = json!(until
+                            .saturating_duration_since(tokio::time::Instant::now())
+                            .as_millis()
+                            .max(1));
+                        if observer.envelope.is_some() {
+                            observer.envelope = Some(envelope.clone());
+                        }
+                        preparation_observation(
+                            command,
+                            &preparation,
+                            "read_receipt_restarted",
+                            None,
+                        );
+                        tokio::time::sleep(Duration::from_millis(
+                            300 * safe_read_receipt_resets as u64,
+                        ))
+                        .await;
                     }
                     _ => return Err(Error("invalid_app_bridge_result")),
                 }
@@ -691,6 +744,45 @@ async fn evaluate_bridge(
         pending.remove(&fingerprint);
     }
     result
+}
+
+#[cfg(test)]
+mod app_read_recovery_tests {
+    use super::recoverable_read_only_preparation;
+    use serde_json::json;
+    #[test]
+    fn renderer_reset_replays_only_safe_reads_not_model_or_writes() {
+        for op in [
+            "identity",
+            "host_status",
+            "model_catalog",
+            "chat_list",
+            "chat_read",
+            "chat_page",
+            "project_list",
+            "project_read",
+        ] {
+            assert!(recoverable_read_only_preparation(&json!({"op":op})), "{op}");
+        }
+        for op in [
+            "project_create",
+            "chat_adopt",
+            "follow_settle",
+            "submit",
+            "stop",
+            "release",
+            "budget_update",
+            "project_membership",
+            "approve",
+            "queue",
+            "title_patch",
+        ] {
+            assert!(
+                !recoverable_read_only_preparation(&json!({"op":op})),
+                "{op}"
+            );
+        }
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]

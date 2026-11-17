@@ -119,21 +119,97 @@ struct Budget {
     max_app_starts: usize,
     max_native_calls: usize,
     max_elapsed_seconds: u64,
+    #[serde(default = "default_max_turns")]
+    max_turns: usize,
+}
+const fn default_max_turns() -> usize {
+    100
+}
+fn orchestration_thread_title(
+    workspace: Option<&std::path::Path>,
+    role: Option<&str>,
+    work_id: &str,
+) -> String {
+    let actor = workspace
+        .and_then(|p| p.file_name())
+        .and_then(|s| s.to_str())
+        .filter(|s| !s.is_empty())
+        .unwrap_or("session");
+    let job = workspace
+        .and_then(|p| p.parent())
+        .and_then(|p| p.file_name())
+        .and_then(|s| s.to_str())
+        .filter(|s| !s.is_empty())
+        .unwrap_or("task");
+    let actor_upper = actor.to_ascii_uppercase();
+    let part = match role.unwrap_or("") {
+        "orchestrator" => format!("{} · 총괄", actor_upper),
+        "worker" => format!("{} · 워커", actor_upper),
+        _ => format!("{} · 독립 세션", actor_upper),
+    };
+    let suffix: String = work_id.chars().take(8).collect();
+    format!("[코덱스 오케스트레이션] {job} · {part} · {suffix}")
 }
 impl Budget {
+    const fn orchestration_default() -> Self {
+        Self {
+            max_parallel: 5,
+            max_app_starts: 2000,
+            max_native_calls: 2000,
+            max_elapsed_seconds: 21600,
+            max_turns: 100,
+        }
+    }
+    fn validate(&self) -> Result<(), Error> {
+        if self.max_parallel == 0
+            || self.max_parallel > 32
+            || self.max_app_starts == 0
+            || self.max_app_starts > 100000
+            || self.max_native_calls == 0
+            || self.max_native_calls > 100000
+            || self.max_elapsed_seconds == 0
+            || self.max_elapsed_seconds > 604800
+            || self.max_turns == 0
+            || self.max_turns > 10000
+        {
+            return Err(Error("assignment_budget_invalid"));
+        }
+        Ok(())
+    }
+
     fn extend_budget(&self, proposed: Self) -> Result<Self, Error> {
         if proposed.max_parallel != self.max_parallel
             || proposed.max_app_starts != self.max_app_starts
             || proposed.max_native_calls < self.max_native_calls
             || proposed.max_elapsed_seconds < self.max_elapsed_seconds
             || proposed.max_elapsed_seconds == 0
-            || proposed.max_elapsed_seconds > 7200
-            || proposed.max_native_calls > 1024
+            || proposed.max_elapsed_seconds > 604800
+            || proposed.max_native_calls > 100000
+            || proposed.max_turns < self.max_turns
+            || proposed.max_turns > 10000
         {
             return Err(Error("assignment_budget_extension_invalid"));
         }
         Ok(proposed)
     }
+}
+/// Native queues can wake a submitted model turn immediately. A fresh enqueue
+/// must not consume a worker message when its finite elapsed allowance has
+/// already expired: the Provider cancels inference before model dispatch.
+/// Recovery of previously journaled call IDs bypasses this admission gate.
+fn queued_input_budget(assignment: Option<&Assignment>, now_unix_ms: u64) -> Result<(), Error> {
+    let Some(assignment) = assignment else {
+        return Ok(());
+    };
+    let Some(started) = assignment.started_at_unix_ms else {
+        return Ok(());
+    };
+    if now_unix_ms.saturating_sub(started)
+        >= assignment.budget.max_elapsed_seconds.saturating_mul(1000)
+    {
+        return Err(Error("assignment_time_budget_exhausted"));
+    }
+    Ok(())
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -148,6 +224,23 @@ struct Assignment {
     evaluation: Option<Value>,
     #[serde(default)]
     started_at_unix_ms: Option<u64>,
+    #[serde(default)]
+    turns_started: u64,
+    #[serde(default)]
+    last_admitted_turn: Option<String>,
+}
+impl Assignment {
+    fn admit_turn(&mut self, native_turn: &str) -> Result<(), Error> {
+        if self.last_admitted_turn.as_deref() == Some(native_turn) {
+            return Ok(());
+        }
+        if self.turns_started >= self.budget.max_turns as u64 {
+            return Err(Error("assignment_turn_budget_exhausted"));
+        }
+        self.turns_started += 1;
+        self.last_admitted_turn = Some(native_turn.to_owned());
+        Ok(())
+    }
 }
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -593,6 +686,11 @@ impl Bridge for LimitedBridge {
                         command["limits"] = json!({"maxDispatches":assignment.budget.max_app_starts,"deadlineUnixMs":assignment.started_at_unix_ms.map(|start|start.saturating_add(assignment.budget.max_elapsed_seconds.saturating_mul(1000)))});
                         command["nativeThread"] = json!(work.record.thread);
                     }
+                    command["preferredTitle"] = json!(orchestration_thread_title(
+                        work.record.workspace.as_deref(),
+                        work.record.assignment.as_ref().map(|a| a.role.as_str()),
+                        &work.record.id,
+                    ));
                 }
             }
             remote.operation(command).await
@@ -1335,9 +1433,16 @@ impl Operator {
             Err(Error("native_thread_owner_unavailable"))
                 if matches!(
                     record.phase.as_str(),
-                    "reconciliation_required" | "completed" | "stop_requested" | "stopped"
+                    "reconciliation_required"
+                        | "completed"
+                        | "stop_requested"
+                        | "stopped"
+                        | "interrupted"
                 ) =>
             {
+                // A failed Native turn can be unloaded after Provider restart.
+                // Preparation cannot rerun model input. Explicit claim still
+                // requires original cursors, terminal status and zero effects.
                 pool.prepare_thread(&record.thread).await?
             }
             Err(error) => return Err(error),
@@ -3102,6 +3207,25 @@ impl Operator {
                 return Ok(result.clone());
             }
         }
+        // A new queue message can auto-start a Native turn. Reject expired
+        // work BEFORE recording an enqueue intent, so a caller can extend the
+        // original finite budget and send exactly the same logical message.
+        // Previously admitted call IDs still reconcile their original receipt.
+        if previous.is_none() {
+            let assignment = self
+                .works
+                .lock()
+                .await
+                .get(thread)
+                .and_then(|work| work.record.assignment.clone());
+            queued_input_budget(assignment.as_ref(), unix_ms())?;
+            if assignment
+                .as_ref()
+                .is_some_and(|a| a.turns_started >= a.budget.max_turns as u64)
+            {
+                return Err(Error("assignment_turn_budget_exhausted"));
+            }
+        }
         // Only observation transport is recoverable. An outstanding enqueue
         // intent never authorizes another add, even when its queue item is absent.
         let native = if let Some(home) = args.get("execution_home") {
@@ -3161,13 +3285,64 @@ impl Operator {
             }
             return Err(Error("native_queue_delivery_unknown"));
         }
-        // Establish the saved target exists before recording any mutation intent.
-        native
+        // A queued message to a saved-but-unloaded Core thread is durable but
+        // will not auto-start a model turn until that Native thread is loaded.
+        // Wake only the exact authenticated, settled Submitted work BEFORE
+        // enqueue admission; a subsequent uncertain retry sees the loaded
+        // thread and does not repeat thread/resume or queue/add.
+        let pre = native
             .call(
                 "thread/read",
                 json!({"threadId":thread,"includeTurns":false}),
             )
             .await?;
+        if pre["thread"]["status"]["type"] == "notLoaded" {
+            let record = {
+                let works = self.works.lock().await;
+                let work = works
+                    .get(thread)
+                    .ok_or(Error("operator_work_unavailable"))?;
+                if work.stops_in_progress != 0
+                    || !matches!(work.record.phase.as_str(), "completed" | "waiting_native")
+                    || work
+                        .record
+                        .selection
+                        .as_ref()
+                        .is_none_or(|selection| selection.inference != Inference::Submitted)
+                    || !work.record.pending.is_empty()
+                {
+                    return Err(Error("operator_reconciliation_required"));
+                }
+                work.record.clone()
+            };
+            // The completed turn has a retired in-memory Broker token after
+            // Provider restart. The live unsettled query returns
+            // mcp_turn_unavailable; use durable journal receipts instead.
+            let calls = self.broker.recorded_calls(&record.token)?;
+            if calls.iter().any(|call| call["settled"] != true)
+                || !self
+                    .broker
+                    .active_claim_ids(&[record.id.as_str()])?
+                    .is_empty()
+            {
+                return Err(Error("native_writer_unsettled"));
+            }
+            let pool = self.work_pool(&record).await?;
+            native.verify_scope(thread, &pool.workspace).await?;
+            // Terminal background-job inspection requires a loaded Native
+            // thread, and returns native_thread_not_loaded before resume.
+            // Durable Broker calls/claims were validated above, so reload
+            // the same thread, then verify terminal jobs before enqueue.
+            native
+                .call(
+                    "thread/resume",
+                    json!({"threadId":thread,"cwd":pool.workspace,"config":pool.routing()?}),
+                )
+                .await?;
+            self.recovery_receipts(&native, &record).await?;
+            // Queued input is submitted exactly once by the queue/add below.
+            // A prior saved queued input may begin on resume; that is valid.
+        }
         operation::intent(&self.journal, &key, &fingerprint)?;
         let response = native.call("thread/queue/add", json!({"threadId":thread,"input":[{"type":"text","text":message}],"clientUserMessageId":client_id})).await?;
         let item = &response["queuedSubmission"];
@@ -3188,6 +3363,7 @@ impl Operator {
                     | "claim"
                     | "takeover"
                     | "evaluate"
+                    | "budget"
                     | "transfer"
                     | "transfer_accept"
                     | "bind"
@@ -3332,6 +3508,7 @@ impl Operator {
                     | "claim"
                     | "takeover"
                     | "evaluate"
+                    | "budget"
                     | "transfer"
                     | "transfer_accept"
                     | "bind"
@@ -3343,6 +3520,72 @@ impl Operator {
             None
         };
         match args["action"].as_str() {
+            Some("budget") => {
+                let (record, _) = self.binding(&args, false).await?;
+                let updated: Budget = serde_json::from_value(args["budget"].clone())
+                    .map_err(|_| Error("assignment_budget_invalid"))?;
+                updated.validate()?;
+                let authorized = if args["controller"].as_str() == Some(&record.capability) {
+                    true
+                } else if let Some(parent) =
+                    record.assignment.as_ref().and_then(|a| a.parent.as_deref())
+                {
+                    let works = self.works.lock().await;
+                    works.values().any(|work| {
+                        work.record.id == parent
+                            && args["parent_controller"].as_str() == Some(&work.record.capability)
+                    })
+                } else {
+                    false
+                };
+                if !authorized {
+                    return Err(Error("operator_controller_fenced"));
+                }
+                {
+                    let mut works = self.works.lock().await;
+                    let work = works
+                        .get_mut(&record.thread)
+                        .ok_or(Error("operator_work_unavailable"))?;
+                    if work.record.generation != record.generation
+                        || work.record.capability != record.capability
+                    {
+                        return Err(Error("operator_controller_fenced"));
+                    }
+                    let assignment = work
+                        .record
+                        .assignment
+                        .as_mut()
+                        .ok_or(Error("assignment_unavailable"))?;
+                    self.mutation_intent(receipt)?;
+                    assignment.budget = updated.clone();
+                    self.persist(&work.record)?;
+                }
+                let deadline = record
+                    .assignment
+                    .as_ref()
+                    .and_then(|a| a.started_at_unix_ms)
+                    .map(|start| {
+                        start.saturating_add(updated.max_elapsed_seconds.saturating_mul(1000))
+                    });
+                let host_update = if record
+                    .selection
+                    .as_ref()
+                    .is_some_and(|selection| selection.inference == Inference::Submitted)
+                {
+                    self.bridge
+                        .operation(json!({"op":"budget_update","nativeThread":record.thread,
+                        "maxDispatches":updated.max_app_starts,"deadlineUnixMs":deadline}))
+                        .await
+                } else {
+                    Ok(json!({"updated":false,"reason":"no_submitted_host"}))
+                };
+                Ok(json!({"work_id":record.id,"thread_id":record.thread,
+                    "budget":updated,"phase_unchanged":record.phase,
+                    "host_update":match host_update {
+                        Ok(value) => value,
+                        Err(error) => json!({"updated":false,"error":error.0,"next_round_uses_new_budget":true}),
+                    },"inference_submitted":false}))
+            }
             Some("queue") => self.queue_input(args).await,
             Some("synchronize") => self.synchronize_native(args).await,
             Some("source_sync") => self.synchronize_source(args).await,
@@ -3600,16 +3843,12 @@ impl Operator {
                         return Err(Error("inference_selection_required"));
                     }
                     let role = text(&args, "role", 64)?.to_owned();
-                    let budget: Budget = serde_json::from_value(args["budget"].clone())
-                        .map_err(|_| Error("assignment_budget_required"))?;
-                    if budget.max_parallel == 0
-                        || budget.max_parallel > 32
-                        || budget.max_app_starts == 0
-                        || budget.max_native_calls == 0
-                        || budget.max_elapsed_seconds == 0
-                    {
-                        return Err(Error("assignment_budget_invalid"));
-                    }
+                    let budget: Budget = match args.get("budget") {
+                        Some(value) => serde_json::from_value(value.clone())
+                            .map_err(|_| Error("assignment_budget_invalid"))?,
+                        None => Budget::orchestration_default(),
+                    };
+                    budget.validate()?;
                     let parent = args
                         .get("parent_work_id")
                         .map(|_| text(&args, "parent_work_id", 48).map(str::to_owned))
@@ -3677,6 +3916,8 @@ impl Operator {
                         admitted_calls: Default::default(),
                         evaluation: None,
                         started_at_unix_ms: None,
+                        turns_started: 0,
+                        last_admitted_turn: None,
                     })
                 } else {
                     None
@@ -3810,7 +4051,24 @@ impl Operator {
                 let record = self
                     .register_in(thread, "chatgpt", None, pool, selection, assignment)
                     .await?;
-                let result = json!({"work_id":record.id,"thread_id":thread,"controller":record.capability,"selection":record.selection,"workspace":record.workspace,"assignment":record.assignment,"ready":false,
+                let native_title = orchestration_thread_title(
+                    record.workspace.as_deref(),
+                    record.assignment.as_ref().map(|a| a.role.as_str()),
+                    &record.id,
+                );
+                // Set the actual Core thread name, not merely a dashboard
+                // label. A failure is independently surfaced in the create
+                // receipt rather than losing the already-created work/thread.
+                let title_set = native
+                    .call(
+                        "thread/name/set",
+                        json!({"threadId":thread,"name":native_title}),
+                    )
+                    .await
+                    .is_ok();
+                let result = json!({"native_thread_title":native_title,
+                    "native_thread_title_set":title_set,
+                    "work_id":record.id,"thread_id":thread,"controller":record.capability,"selection":record.selection,"workspace":record.workspace,"assignment":record.assignment,"ready":false,
                     "native_permissions":{"approval_policy":response["approvalPolicy"],"approvals_reviewer":response["approvalsReviewer"],"sandbox":response["sandbox"]}});
                 operation::settle(&self.journal, &key, &fingerprint, &result)?;
                 Ok(result)
@@ -6950,6 +7208,11 @@ impl Host for Operator {
                             *record = work.record.clone();
                         }
                     }
+                    if let (Some(assignment), Some(turn_id)) =
+                        (work.record.assignment.as_mut(), request.turn.as_deref())
+                    {
+                        assignment.admit_turn(turn_id)?;
+                    }
                     admit_app_round(work, record, request.turn.as_deref())?;
                     work.app_round = Some(AppRound {
                         cancel: cancel.clone(),
@@ -6971,26 +7234,48 @@ impl Host for Operator {
                 if let Some(record) = &record {
                     this.watch_completion(record.clone(), Some(native.clone()), completion_cancel);
                 }
-                let deadline = record
+                let timer = record
                     .as_ref()
                     .and_then(|record| record.assignment.as_ref())
-                    .and_then(|assignment| {
-                        assignment.started_at_unix_ms.map(|start| {
-                            start.saturating_add(
-                                assignment.budget.max_elapsed_seconds.saturating_mul(1000),
-                            )
+                    .map(|_| {
+                        let cancel = cancel.clone();
+                        let works = this.works.clone();
+                        let thread = thread.clone();
+                        let admitted_turn = request.turn.clone();
+                        tokio::spawn(async move {
+                            loop {
+                                let remaining = {
+                                    let works = works.lock().await;
+                                    let Some(work) = works.get(&thread) else {
+                                        return;
+                                    };
+                                    if work.record.native_turn != admitted_turn {
+                                        return;
+                                    }
+                                    let Some(assignment) = &work.record.assignment else {
+                                        return;
+                                    };
+                                    let Some(start) = assignment.started_at_unix_ms else {
+                                        return;
+                                    };
+                                    start
+                                        .saturating_add(
+                                            assignment
+                                                .budget
+                                                .max_elapsed_seconds
+                                                .saturating_mul(1000),
+                                        )
+                                        .saturating_sub(unix_ms())
+                                };
+                                if remaining == 0 {
+                                    cancel.cancel();
+                                    return;
+                                }
+                                tokio::time::sleep(Duration::from_millis(remaining.min(1000)))
+                                    .await;
+                            }
                         })
                     });
-                let timer = deadline.map(|deadline| {
-                    let cancel = cancel.clone();
-                    tokio::spawn(async move {
-                        tokio::time::sleep(Duration::from_millis(
-                            deadline.saturating_sub(unix_ms()),
-                        ))
-                        .await;
-                        cancel.cancel();
-                    })
-                });
                 let (sender, mut receiver) = mpsc::channel(64);
                 let child_cancel = cancel.clone();
                 let effect_workspace = pool.workspace.clone();
@@ -7231,7 +7516,7 @@ struct SessionArguments {
 }
 const SESSION_ARGUMENTS: &[SessionArguments] = &[
     SessionArguments {
-        actions: &["create", "resume", "fork", "join", "queue", "chat_input", "source_join"],
+        actions: &["create", "resume", "fork", "join", "queue", "chat_input", "source_join", "budget"],
         except_actions: false,
         when_present: &[], required: &["call_id"], forbidden: &[],
         error: Error("session_call_id_required"),
@@ -7380,13 +7665,13 @@ pub(crate) fn tools() -> Vec<Value> {
             json!({"type":"array","items":{"type":"string"},"maxItems":256,"uniqueItems":true})
         }
         "budget" => {
-            json!({"type":"object","description":"Explicit assignment budget, requiring role. Omit for ordinary integrated work.","properties":{"max_parallel":{"type":"integer","minimum":1,"maximum":32},"max_app_starts":{"type":"integer","minimum":1},"max_native_calls":{"type":"integer","minimum":1},"max_elapsed_seconds":{"type":"integer","minimum":1}},"required":["max_parallel","max_app_starts","max_native_calls","max_elapsed_seconds"],"additionalProperties":false})
+            json!({"type":"object","description":"Explicit finite orchestration budget. Defaults for assigned sessions: 5 parallel, 2000 AppHost dispatches, 2000 Native tool calls, 6-hour total elapsed, 100 native turns; an authorized work budget action may adjust all fields even after expiration.","properties":{"max_parallel":{"type":"integer","minimum":1,"maximum":32},"max_app_starts":{"type":"integer","minimum":1,"maximum":100000},"max_native_calls":{"type":"integer","minimum":1,"maximum":100000},"max_elapsed_seconds":{"type":"integer","minimum":1,"maximum":604800},"max_turns":{"type":"integer","minimum":1,"maximum":10000}},"required":["max_parallel","max_app_starts","max_native_calls","max_elapsed_seconds"],"additionalProperties":false})
         }
         "answers" => {
             json!({"type":"object","additionalProperties":{"type":"object","properties":{"answers":{"type":"array","items":{"type":"string"}}},"required":["answers"],"additionalProperties":false}})
         }
         "action" => {
-            json!({"type":"string","enum":["list","create","resume","fork","start","queue","synchronize","source_sync","source_join","claim","compact","takeover","events","wait","chat_input","chat_result","transfer","transfer_accept","bind","unbind","join","evaluate","stop_tree"]})
+            json!({"type":"string","enum":["list","create","resume","fork","start","queue","synchronize","source_sync","source_join","claim","budget","compact","takeover","events","wait","chat_input","chat_result","transfer","transfer_accept","bind","unbind","join","evaluate","stop_tree"]})
         }
         _ => json!({"type":"string"}),
     };
@@ -8435,6 +8720,7 @@ mod local_tests {
             max_app_starts: 64,
             max_native_calls: 256,
             max_elapsed_seconds: 1800,
+            max_turns: 100,
         };
         assert_eq!(
             previous
@@ -8449,7 +8735,7 @@ mod local_tests {
         assert_eq!(
             previous
                 .extend_budget(Budget {
-                    max_elapsed_seconds: 7201,
+                    max_elapsed_seconds: 604801,
                     ..previous.clone()
                 })
                 .unwrap_err(),
@@ -8478,6 +8764,7 @@ mod local_tests {
             max_app_starts: 6,
             max_native_calls: 40,
             max_elapsed_seconds: 900,
+            max_turns: 100,
         };
         let a = Assignment {
             role: "worker".into(),
@@ -8487,6 +8774,8 @@ mod local_tests {
             admitted_calls: Default::default(),
             evaluation: None,
             started_at_unix_ms: None,
+            turns_started: 0,
+            last_admitted_turn: None,
         };
         assert_eq!(sibling_parallel_limit(&a, Some(&budget(4))).unwrap(), 4);
         assert_eq!(
@@ -8498,12 +8787,102 @@ mod local_tests {
     }
 
     #[test]
+    fn default_orchestration_budget_is_six_hours_one_hundred_turns_two_thousand_tools() {
+        let b = Budget::orchestration_default();
+        b.validate().unwrap();
+        assert_eq!(b.max_parallel, 5);
+        assert_eq!(b.max_elapsed_seconds, 21600);
+        assert_eq!(b.max_turns, 100);
+        assert_eq!(b.max_native_calls, 2000);
+        assert_eq!(b.max_app_starts, 2000);
+        let mut turns = Assignment {
+            role: "worker".into(),
+            parent: Some("O".into()),
+            dependencies: vec![],
+            budget: b.clone(),
+            admitted_calls: Default::default(),
+            evaluation: None,
+            started_at_unix_ms: Some(1_000),
+            turns_started: 0,
+            last_admitted_turn: None,
+        };
+        for i in 0..100 {
+            let turn = format!("turn-{i}");
+            turns.admit_turn(&turn).unwrap();
+            turns.admit_turn(&turn).unwrap();
+        }
+        assert_eq!(turns.turns_started, 100);
+        assert_eq!(
+            turns.admit_turn("turn-over"),
+            Err(Error("assignment_turn_budget_exhausted"))
+        );
+        assert!(queued_input_budget(Some(&turns), 2_000_000).is_ok());
+        let changed = Budget {
+            max_turns: 101,
+            max_elapsed_seconds: 43200,
+            ..b
+        };
+        changed.validate().unwrap();
+        turns.budget = changed;
+        turns.admit_turn("turn-over").unwrap();
+        assert_eq!(turns.turns_started, 101);
+    }
+    #[test]
+    fn orchestration_title_is_deterministic_and_human_readable() {
+        let workspace = std::path::Path::new("/tmp/ops-20261117-b/w1");
+        let title = orchestration_thread_title(Some(workspace), Some("worker"), "abcdef0123456789");
+        assert!(title.contains("코덱스 오케스트레이션"));
+        assert!(title.contains("ops-20261117-b"));
+        assert!(title.contains("W1"));
+        assert!(title.contains("워커"));
+        assert!(title.ends_with("abcdef01"));
+    }
+
+    #[test]
+    fn queued_followup_rejects_expired_budget_before_consuming_message() {
+        let assignment = Assignment {
+            role: "worker".to_owned(),
+            parent: Some("orchestrator".to_owned()),
+            dependencies: Vec::new(),
+            budget: Budget {
+                max_parallel: 1,
+                max_app_starts: 6,
+                max_native_calls: 40,
+                max_elapsed_seconds: 900,
+                max_turns: 100,
+            },
+            admitted_calls: Default::default(),
+            evaluation: None,
+            started_at_unix_ms: Some(1_000),
+            turns_started: 0,
+            last_admitted_turn: None,
+        };
+        assert!(queued_input_budget(None, 2_000_000).is_ok());
+        let mut unstarted = assignment.clone();
+        unstarted.started_at_unix_ms = None;
+        assert!(queued_input_budget(Some(&unstarted), 2_000_000).is_ok());
+        assert!(queued_input_budget(Some(&assignment), 900_999).is_ok());
+        assert_eq!(
+            queued_input_budget(Some(&assignment), 901_000),
+            Err(Error("assignment_time_budget_exhausted"))
+        );
+        assert_eq!(
+            queued_input_budget(Some(&assignment), 2_000_000),
+            Err(Error("assignment_time_budget_exhausted"))
+        );
+        let mut extended = assignment.clone();
+        extended.budget.max_elapsed_seconds = 7_200;
+        assert!(queued_input_budget(Some(&extended), 2_000_000).is_ok());
+    }
+
+    #[test]
     fn budget_extension_preserves_host_caps_and_rejects_allowance_resets() {
         let original = Budget {
             max_parallel: 2,
             max_app_starts: 12,
             max_native_calls: 100,
             max_elapsed_seconds: 1200,
+            max_turns: 100,
         };
         let extended = original
             .extend_budget(Budget {
