@@ -127,6 +127,8 @@ impl Budget {
             || proposed.max_native_calls < self.max_native_calls
             || proposed.max_elapsed_seconds < self.max_elapsed_seconds
             || proposed.max_elapsed_seconds == 0
+            || proposed.max_elapsed_seconds > 7200
+            || proposed.max_native_calls > 1024
         {
             return Err(Error("assignment_budget_extension_invalid"));
         }
@@ -837,6 +839,13 @@ fn sibling_slot_active(phase: &str, has_native_turn: bool) -> bool {
 /// Explicit recovery is allowed after a real terminal failed turn. The claim
 /// path must still verify the original history/context cursors, terminal
 /// Native state, and the absence of unresolved effects before changing owner.
+fn submitted_host_quiescent(host: &Value) -> bool {
+    host["ready"] == true
+        && host["active_lanes"]
+            .as_array()
+            .is_some_and(|lanes| lanes.is_empty())
+}
+
 fn explicit_claim_phase(phase: &str) -> bool {
     matches!(
         phase,
@@ -4280,14 +4289,22 @@ impl Operator {
                 }
                 let recovered = self.recovery_receipts(&native, &record).await?;
                 let extension = if let Some(value) = args.get("budget") {
-                    if !record
+                    let inference = record
                         .selection
                         .as_ref()
-                        .is_some_and(|s| s.inference == Inference::Attached)
-                    {
-                        return Err(Error(
-                            "assignment_budget_extension_requires_attached_inference",
-                        ));
+                        .map(|selection| selection.inference)
+                        .ok_or(Error("assignment_budget_extension_requires_inference"))?;
+                    if inference == Inference::Submitted {
+                        // A submitted lane may extend *finite* allowance only
+                        // after its terminal Native history is reconciled and
+                        // the actual account/Host has no active inference.
+                        // Claim above already verifies cursors, Native status,
+                        // returned effects and the absence of owned jobs.
+                        self.verify_identity(&record).await?;
+                        let host = self.bridge.operation(json!({"op":"host_status"})).await?;
+                        if !submitted_host_quiescent(&host) {
+                            return Err(Error("assignment_submitted_extension_host_busy"));
+                        }
                     }
                     let assignment = record
                         .assignment
@@ -8400,6 +8417,44 @@ mod local_tests {
         ] {
             assert_eq!(recovered_phase(phase), "reconciliation_required");
         }
+    }
+
+    #[test]
+    fn submitted_budget_extension_requires_quiescent_host_and_stays_finite() {
+        assert!(submitted_host_quiescent(
+            &json!({"ready":true,"active_lanes":[]})
+        ));
+        assert!(!submitted_host_quiescent(
+            &json!({"ready":true,"active_lanes":[{"lane":"other"}]})
+        ));
+        assert!(!submitted_host_quiescent(
+            &json!({"ready":false,"active_lanes":[]})
+        ));
+        let previous = Budget {
+            max_parallel: 4,
+            max_app_starts: 64,
+            max_native_calls: 256,
+            max_elapsed_seconds: 1800,
+        };
+        assert_eq!(
+            previous
+                .extend_budget(Budget {
+                    max_elapsed_seconds: 5400,
+                    ..previous.clone()
+                })
+                .unwrap()
+                .max_elapsed_seconds,
+            5400
+        );
+        assert_eq!(
+            previous
+                .extend_budget(Budget {
+                    max_elapsed_seconds: 7201,
+                    ..previous.clone()
+                })
+                .unwrap_err(),
+            Error("assignment_budget_extension_invalid")
+        );
     }
 
     #[test]
