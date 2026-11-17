@@ -140,6 +140,25 @@ source-bound publication and independent consumer acceptance are recorded below.
   Neither test exercised a public signed Stage 2 addon, nor does this evidence
   authorize `main` merging or automatic operational daemon replacement.
 
+### Live diagnosis caveat (2026-11-17, read-only)
+
+The production `codex doctor --json` still exits `0` with an overall
+`healthy` summary and a healthy `termux_wrapper` check, but its upstream
+`state.rollout_db_parity` check reports **one warning**: the rollout files
+and the state DB thread inventory do not agree. The report counts **895 active
+rollout files**, **885 active DB rows**, **88 active and 3 archived rollout
+files without matching rows**, **75 DB rows referencing missing/unusable
+rollout files**, and **1 duplicate rollout thread ID** (0 duplicate DB
+paths). These categories overlap; file/row totals alone do not explain them.
+This was observed after the Wrapper cutover; its onset and cause are not
+established, and the warning must not be presented as resolved by Stage 1.
+It does not invalidate the separate Wrapper installation/activation checks,
+but conversation availability and inventory reconciliation require independent
+investigation. Only read-only diagnosis was requested; no inventory repair, DB/file edit,
+account/profile change, runtime replacement or service restart was attempted.
+Automatic reindex, DB rebuild, deletion or path correction is **not authorized**
+by this diagnosis alone.
+
 ### Status and scope
 Stage 1 decouples `crates/wrapper` (`codex`) and `crates/release-builder` (`codex-release-builder`) into a standalone, zero-addon Termux compatibility wrapper aligned with [SPEC.md](SPEC.md) Sections 1–5 (`Stage 1` vs `Stage 2` architecture).
 - `Cargo.toml` contains only `crates/wrapper` and `crates/release-builder`, and `Cargo.lock` locks only `codex`, `codex-release-builder`, and `libc` (`0.2.186`). Zero non-wrapper addon crates, providers, TUI patches, or legacy CI/qualification scripts remain tracked on `rewrite/wrapper`.
@@ -160,7 +179,10 @@ Stage 1 decouples `crates/wrapper` (`codex`) and `crates/release-builder` (`code
   - `install.sh --binary target/release/codex --prefix "$SYN_PREFIX" --skip-upstream` installed `$SYN_PREFIX/bin/codex`, `codex update --help` and `codex wrapper --help` exited `0`, uninitialized `codex wrapper status --json` exited `1` (`"status":"uninitialized"`, `"addons":"none"`), and `--sandbox read-only --version` and `sandbox linux true` exited `2`.
   - Using minimal static AArch64 mock binaries containing `/etc/resolv.conf` and `/etc/codex/config.toml` sites, `codex update --path pkg-1.0.0.tar.gz` patched and activated generation `local-*` (`generation.meta` `codex-local-generation`, `patch_policy_id: termux-fd-remap`, `wrapper-api`, `schema`, `codex-wrapper`, `termux-browser-open`/`manual`; `activation-state` `format=codex-activation-state`; FD 34 `config.toml` `# codex-termux-wrapper`), `codex --version` printed `codex-cli 1.0.0`, `codex wrapper status --json` reported `"layout":"package-root"`, `codex doctor --json` exited `0` (`"schema_version":1`, `"layout":"package-root"`), upgrade to `2.0.0` + `codex update --rollback` restored `codex-cli 1.0.0`, and `codex-release-builder build` -> `codex update --path <built-gen>` activated `"has_code_mode_host":false` (`codex-cli 3.0.0`).
 - **Publication and activation boundaries:**
-  - Live public `curl | sh` installation was subsequently tested below. The published binary still predates the fixes; fresh accepted-source release assets have not been published.
+  - At the 2026-11-16 baseline, the then-published `curl | sh` binary still
+    predated the accepted fixes. This historical gap was closed on 2026-11-17:
+    the current `wrapper` prerelease, exact asset readback and fresh public
+    consumer test are recorded in the Stage 1 P0 acceptance section above.
   - Local executable/generation activation was subsequently authorized and completed below. External remote client pairing over `codex remote-control` remains unverified.
   - Promotion of `rewrite/wrapper` to `main` (explicitly deferred until final sign-off).
 
@@ -213,14 +235,17 @@ services, and production generation pointers were **not** modified.
     - `install.sh --binary ... --skip-upstream` installed cleanly; `codex update --path` adapted all three `0.169.0` binaries cleanly; `codex --version`, `codex-exec-server --version` (`0.169.0`), and `codex-code-mode-host --help` executed cleanly on the Android kernel.
     - `codex app-server daemon start` (`"status":"started"`), `daemon version` (`"status":"running"`, `0.169.0`), `daemon stop` (`"status":"stopped"`), `timeout 2s codex app-server --listen unix://<118B-TMPDIR>/direct-listen.sock` (listening, exit `124`), and default `codex` PTY (`TERM=xterm-256color`, `671` TUI bytes, zero `SUN_LEN`, with `codex doctor --json` confirming `app_server.status` ok & `termux_wrapper` `healthy`, overall `unhealthy` only for missing auth credentials) all passed cleanly without altering live `/data/data/com.termux/files/usr/bin/codex` or running services.
   - **Boundaries remaining at that baseline:** live activation, authenticated task completion, external client pairing and refreshed public-asset installation. Later one-time authentication and public installation results are recorded below.
-- `install.sh` failure rollback is caught-exit/signal safe, not a
-  cross-power-loss transaction; after SIGKILL/power loss, an owned
-  `.codex.previous.<pid>` may remain behind a stale install lock and
-  requires inspected manual recovery. This is explicitly documented in
-  `README.md` and independently exercised by the new CI test fixture.
+- **Historical installer limitation at this 2026-11-16 checkpoint:**
+  caught-exit/signal rollback did not settle SIGKILL/power interruption, and
+  the prior `.codex.previous.<pid>` backup could remain with a stale lock.
+  The revised transaction and conservative `install.sh --recover` path passed
+  the 2026-11-17 fault suite; see the P0 acceptance at the beginning of this
+  file. This is not a claim of physical power-loss testing.
 
-The later read-only upstream scheduler is recorded below. Automatic publication
-and production runtime deployment remain separate and have not occurred.
+This historical 2026-11-16 checkpoint does not describe the current release
+or operating binary. The one-time Wrapper cutover and refreshed public
+prerelease acceptance are documented above; independent read-only official
+upstream scheduling is documented below.
 
 ### Independent standalone compatibility review (2026-11-16)
 
@@ -341,7 +366,8 @@ signed channels must not delay that work.
   `authenticated-report.json`). The first harness run's doctor-schema KeyError
   was retained; it was a harness assertion error after healthy Wrapper diagnosis,
   not a runtime failure. The corrected fresh-root run passed.
-- **Public installation boundary:** actual HTTPS `curl | sh` from the `wrapper`
+- **Historical public installation boundary (2026-11-16, before the P0
+  prerelease refresh):** actual HTTPS `curl | sh` from the then-current `wrapper`
   release into a fresh owned HOME/PREFIX completed archive/binary checksum checks,
   default online `0.169.0` bootstrap, `--version` and Wrapper status successfully.
   The executed installer matched the reviewed SHA-256 `f1fcfa65071c86ce20959084f877594c2d9ff8e766d4d8932f3e131a2f81855a`.
@@ -362,9 +388,9 @@ signed channels must not delay that work.
 The user's requested boundary is a one-time check of the available environment,
 not a hardcoded recurring check of this phone, account, API level or private path.
 No other Android/page-size environment or real external remote-control client
-has been exercised here. These qualification runs preserved the installed Wrapper;
-the later authorized local activation is recorded below. Public release refresh
-remains separate from source qualification and local activation.
+was exercised at that checkpoint. Those qualification runs preserved the
+installed Wrapper; the later authorized local activation is recorded below,
+and the separately authorized public prerelease refresh is recorded above.
 
 ### Authorized local activation and profile handover (2026-11-16)
 
