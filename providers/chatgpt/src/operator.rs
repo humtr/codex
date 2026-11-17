@@ -119,6 +119,10 @@ struct Budget {
     max_app_starts: usize,
     max_native_calls: usize,
     max_elapsed_seconds: u64,
+    // None is the preserved six-hour/session fallback for existing journals.
+    // New works default to an independently renewing one-hour Native turn.
+    #[serde(default)]
+    max_turn_elapsed_seconds: Option<u64>,
     #[serde(default = "default_max_turns")]
     max_turns: usize,
 }
@@ -157,6 +161,7 @@ impl Budget {
             max_app_starts: 2000,
             max_native_calls: 2000,
             max_elapsed_seconds: 21600,
+            max_turn_elapsed_seconds: Some(3600),
             max_turns: 100,
         }
     }
@@ -169,6 +174,9 @@ impl Budget {
             || self.max_native_calls > 100000
             || self.max_elapsed_seconds == 0
             || self.max_elapsed_seconds > 604800
+            || self
+                .max_turn_elapsed_seconds
+                .is_some_and(|seconds| seconds == 0 || seconds > 604800)
             || self.max_turns == 0
             || self.max_turns > 10000
         {
@@ -185,6 +193,11 @@ impl Budget {
             || proposed.max_elapsed_seconds == 0
             || proposed.max_elapsed_seconds > 604800
             || proposed.max_native_calls > 100000
+            || (self.max_turn_elapsed_seconds.is_some()
+                && proposed.max_turn_elapsed_seconds < self.max_turn_elapsed_seconds)
+            || proposed
+                .max_turn_elapsed_seconds
+                .is_some_and(|seconds| seconds == 0 || seconds > 604800)
             || proposed.max_turns < self.max_turns
             || proposed.max_turns > 10000
         {
@@ -201,11 +214,14 @@ fn queued_input_budget(assignment: Option<&Assignment>, now_unix_ms: u64) -> Res
     let Some(assignment) = assignment else {
         return Ok(());
     };
-    let Some(started) = assignment.started_at_unix_ms else {
+    if assignment.budget.max_turn_elapsed_seconds.is_some() {
+        // Queue waiting never consumes the NEXT turn's allowance. The active
+        // turn is bounded by its own timer and recorded admission timestamp.
         return Ok(());
-    };
-    if now_unix_ms.saturating_sub(started)
-        >= assignment.budget.max_elapsed_seconds.saturating_mul(1000)
+    }
+    if assignment
+        .deadline_unix_ms()
+        .is_some_and(|deadline| now_unix_ms >= deadline)
     {
         return Err(Error("assignment_time_budget_exhausted"));
     }
@@ -225,11 +241,27 @@ struct Assignment {
     #[serde(default)]
     started_at_unix_ms: Option<u64>,
     #[serde(default)]
+    turn_started_at_unix_ms: Option<u64>,
+    #[serde(default)]
     turns_started: u64,
     #[serde(default)]
     last_admitted_turn: Option<String>,
+    // Legacy journal records must never auto-redispatch a manually delivered result.
+    #[serde(default)]
+    auto_result: bool,
 }
 impl Assignment {
+    fn deadline_unix_ms(&self) -> Option<u64> {
+        if let Some(turn_limit) = self.budget.max_turn_elapsed_seconds {
+            self.turn_started_at_unix_ms
+                .map(|start| start.saturating_add(turn_limit.saturating_mul(1000)))
+        } else {
+            self.started_at_unix_ms.map(|start| {
+                start.saturating_add(self.budget.max_elapsed_seconds.saturating_mul(1000))
+            })
+        }
+    }
+
     fn admit_turn(&mut self, native_turn: &str) -> Result<(), Error> {
         if self.last_admitted_turn.as_deref() == Some(native_turn) {
             return Ok(());
@@ -239,6 +271,7 @@ impl Assignment {
         }
         self.turns_started += 1;
         self.last_admitted_turn = Some(native_turn.to_owned());
+        self.turn_started_at_unix_ms = Some(unix_ms());
         Ok(())
     }
 }
@@ -683,7 +716,7 @@ impl Bridge for LimitedBridge {
                         return Err(Error("operator_controller_fenced"));
                     }
                     if let Some(assignment) = &work.record.assignment {
-                        command["limits"] = json!({"maxDispatches":assignment.budget.max_app_starts,"deadlineUnixMs":assignment.started_at_unix_ms.map(|start|start.saturating_add(assignment.budget.max_elapsed_seconds.saturating_mul(1000)))});
+                        command["limits"] = json!({"maxDispatches":assignment.budget.max_app_starts,"deadlineUnixMs":assignment.deadline_unix_ms().or_else(||assignment.budget.max_turn_elapsed_seconds.map(|seconds|unix_ms().saturating_add(seconds.saturating_mul(1000))))});
                         command["nativeThread"] = json!(work.record.thread);
                     }
                     command["preferredTitle"] = json!(orchestration_thread_title(
@@ -1056,7 +1089,7 @@ impl Operator {
                 .with_connector(config.transport.connector_name.clone()),
         );
         let local = crate::local::Local::new(pool.clone(), journal.clone(), &config);
-        Ok(Arc::new(Self {
+        let operator = Arc::new(Self {
             pool,
             local,
             broker: broker.clone(),
@@ -1070,8 +1103,99 @@ impl Operator {
             session_mutations: Arc::new(Mutex::new(())),
             operations: Arc::new(Operations::default()),
             pools: Arc::new(Mutex::new(BTreeMap::new())),
-        }))
+        });
+        Self::start_auto_result_recovery(&operator);
+        Ok(operator)
     }
+
+    // Non-model, bounded journal reconciliation. After Provider restart a
+    // completed worker can retain an undelivered terminal RESULT. Only the
+    // original child and parent are examined, with the same stable call ID.
+    // A recorded queue receipt suppresses further dispatch.
+    fn start_auto_result_recovery(operator: &Arc<Self>) {
+        let Ok(runtime) = tokio::runtime::Handle::try_current() else {
+            return;
+        };
+        let weak = Arc::downgrade(operator);
+        runtime.spawn(async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(20));
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            loop {
+                interval.tick().await;
+                let Some(this) = weak.upgrade() else {
+                    return;
+                };
+                let records = {
+                    let works = this.works.lock().await;
+                    works
+                        .values()
+                        .filter(|work| {
+                            work.record.phase == "completed"
+                                && work
+                                    .record
+                                    .assignment
+                                    .as_ref()
+                                    .is_some_and(|a| a.auto_result)
+                        })
+                        .map(|work| work.record.clone())
+                        .collect::<Vec<_>>()
+                };
+                for child in records {
+                    let pending = {
+                        let works = this.works.lock().await;
+                        child
+                            .assignment
+                            .as_ref()
+                            .and_then(|a| a.parent.as_ref())
+                            .and_then(|id| works.values().find(|work| &work.record.id == id))
+                            .and_then(|parent| {
+                                child
+                                    .native_turn
+                                    .as_ref()
+                                    .map(|turn| (parent.record.thread.clone(), turn.clone()))
+                            })
+                    };
+                    let Some((parent_thread, turn)) = pending else {
+                        continue;
+                    };
+                    let call_id = format!("native-auto-result-{}-{}", child.id, turn);
+                    let key = queue_key(&parent_thread, &call_id);
+                    match this.journal.read::<Value>(&key) {
+                        Ok(Some(receipt)) if receipt.get("result").is_some() => continue,
+                        Err(error) => {
+                            eprintln!("auto_result_recovery_receipt_failed: {}", error.0);
+                            continue;
+                        }
+                        _ => {}
+                    }
+                    let native = async {
+                        let pool = this.work_pool(&child).await?;
+                        match pool.for_thread(&child.thread).await {
+                            Ok(native) => Ok(native),
+                            Err(Error("native_thread_owner_unavailable")) => {
+                                pool.prepare_thread(&child.thread).await
+                            }
+                            Err(error) => Err(error),
+                        }
+                    }
+                    .await;
+                    match native {
+                        Ok(native) => {
+                            if let Err(error) =
+                                this.auto_deliver_completed_child(&child, &native).await
+                            {
+                                eprintln!("auto_result_recovery_pending: {}", error.0);
+                            }
+                        }
+                        Err(error) => {
+                            eprintln!("auto_result_recovery_owner_unavailable: {}", error.0);
+                        }
+                    }
+                }
+            }
+        });
+    }
+
     async fn scoped_pool(
         &self,
         home: &std::path::Path,
@@ -1157,10 +1281,10 @@ impl Operator {
             if assignment.admitted_calls.len() >= assignment.budget.max_native_calls {
                 return Err(Error("assignment_native_budget_exhausted"));
             }
-            if assignment.started_at_unix_ms.is_some_and(|start| {
-                unix_ms().saturating_sub(start)
-                    >= assignment.budget.max_elapsed_seconds.saturating_mul(1000)
-            }) {
+            if assignment
+                .deadline_unix_ms()
+                .is_some_and(|deadline| unix_ms() >= deadline)
+            {
                 return Err(Error("assignment_time_budget_exhausted"));
             }
             assignment.admitted_calls.insert(id);
@@ -1254,8 +1378,9 @@ impl Operator {
             let work = works.get_mut(&record.thread).unwrap();
             let current = work.record.assignment.as_mut().unwrap();
             let start = *current.started_at_unix_ms.get_or_insert_with(unix_ms);
-            if unix_ms().saturating_sub(start)
-                >= current.budget.max_elapsed_seconds.saturating_mul(1000)
+            if current.budget.max_turn_elapsed_seconds.is_none()
+                && unix_ms().saturating_sub(start)
+                    >= current.budget.max_elapsed_seconds.saturating_mul(1000)
             {
                 return Err(Error("assignment_time_budget_exhausted"));
             }
@@ -3191,6 +3316,87 @@ impl Operator {
             "native_context":work.record.phase,"return_bound":record.origin=="codex"}),
         )
     }
+    // This non-model delivery step is keyed by (child work, completed Native
+    // turn) and uses the ordinary durable queue receipt. Retrying only
+    // reconciles the same queue item, never repeats the child computation.
+    async fn auto_deliver_completed_child(
+        &self,
+        child: &Record,
+        native: &Native,
+    ) -> Result<(), Error> {
+        let Some(assignment) = child.assignment.as_ref() else {
+            return Ok(());
+        };
+        if child.phase != "completed" || !assignment.auto_result {
+            return Ok(());
+        }
+        let Some(parent_id) = assignment.parent.as_deref() else {
+            return Ok(());
+        };
+        let native_turn = child
+            .native_turn
+            .as_deref()
+            .ok_or(Error("auto_result_turn_missing"))?;
+        let parent = {
+            let works = self.works.lock().await;
+            works
+                .values()
+                .find(|work| work.record.id == parent_id)
+                .map(|work| work.record.clone())
+                .ok_or(Error("auto_result_parent_unavailable"))?
+        };
+        if parent.execution.home != child.execution.home {
+            return Err(Error("auto_result_cross_account_forbidden"));
+        }
+        if matches!(
+            parent.phase.as_str(),
+            "stopped" | "stop_requested" | "reconciliation_required"
+        ) {
+            return Err(Error("auto_result_parent_not_ready"));
+        }
+        let call_id = format!("native-auto-result-{}-{}", child.id, native_turn);
+        if self
+            .journal
+            .read::<Value>(&queue_key(&parent.thread, &call_id))?
+            .is_some_and(|receipt| receipt.get("result").is_some())
+        {
+            return Ok(());
+        }
+        let history = Self::history(native, &child.thread).await?;
+        let result = completed_result(true, Some(native_turn), &history)
+            .ok_or(Error("auto_result_final_not_observable"))?;
+        // A terminal Native turn is not necessarily a terminal logical task.
+        // The worker explicitly marks the verified FINAL result. A progress
+        // turn or later ACK-consumption turn never sends another RESULT.
+        if !auto_result_ready(&result) {
+            return Ok(());
+        }
+        let result_digest = digest(&result);
+        let mut payload = json!({
+            "type":"native_auto_result_v1",
+            "child_work_id":child.id,
+            "child_thread_id":child.thread,
+            "child_native_turn_id":native_turn,
+            "parent_work_id":parent.id,
+            "result_sha256":result_digest,
+            "completed_result":result,
+        });
+        let mut body = payload.to_string();
+        if body.len() > 240_000 {
+            payload["completed_result"] = Value::Null;
+            payload["retrieve_completed_result_by_work_id"] = json!(child.id);
+            body = payload.to_string();
+        }
+        self.queue_input(json!({
+            "thread_id":parent.thread,
+            "execution_home":parent.execution.home,
+            "call_id":call_id,
+            "text":body,
+        }))
+        .await?;
+        Ok(())
+    }
+
     async fn queue_input(&self, args: Value) -> Result<Value, Error> {
         let thread = text(&args, "thread_id", 256)?;
         // Source recovery also enters here from a persisted host record.
@@ -3522,8 +3728,14 @@ impl Operator {
         match args["action"].as_str() {
             Some("budget") => {
                 let (record, _) = self.binding(&args, false).await?;
-                let updated: Budget = serde_json::from_value(args["budget"].clone())
+                let mut updated: Budget = serde_json::from_value(args["budget"].clone())
                     .map_err(|_| Error("assignment_budget_invalid"))?;
+                if args["budget"].get("max_turn_elapsed_seconds").is_none() {
+                    updated.max_turn_elapsed_seconds = record
+                        .assignment
+                        .as_ref()
+                        .and_then(|a| a.budget.max_turn_elapsed_seconds);
+                }
                 updated.validate()?;
                 let authorized = if args["controller"].as_str() == Some(&record.capability) {
                     true
@@ -3560,13 +3772,11 @@ impl Operator {
                     assignment.budget = updated.clone();
                     self.persist(&work.record)?;
                 }
-                let deadline = record
-                    .assignment
-                    .as_ref()
-                    .and_then(|a| a.started_at_unix_ms)
-                    .map(|start| {
-                        start.saturating_add(updated.max_elapsed_seconds.saturating_mul(1000))
-                    });
+                let deadline = record.assignment.as_ref().and_then(|assignment| {
+                    let mut proposed = assignment.clone();
+                    proposed.budget = updated.clone();
+                    proposed.deadline_unix_ms()
+                });
                 let host_update = if record
                     .selection
                     .as_ref()
@@ -3843,11 +4053,14 @@ impl Operator {
                         return Err(Error("inference_selection_required"));
                     }
                     let role = text(&args, "role", 64)?.to_owned();
-                    let budget: Budget = match args.get("budget") {
+                    let mut budget: Budget = match args.get("budget") {
                         Some(value) => serde_json::from_value(value.clone())
                             .map_err(|_| Error("assignment_budget_invalid"))?,
                         None => Budget::orchestration_default(),
                     };
+                    if budget.max_turn_elapsed_seconds.is_none() {
+                        budget.max_turn_elapsed_seconds = Some(3600);
+                    }
                     budget.validate()?;
                     let parent = args
                         .get("parent_work_id")
@@ -3908,6 +4121,7 @@ impl Operator {
                             return Err(Error("assignment_dependency_scope_changed"));
                         }
                     }
+                    let auto_result = parent.is_some() && role == "worker";
                     Some(Assignment {
                         role,
                         parent,
@@ -3916,8 +4130,10 @@ impl Operator {
                         admitted_calls: Default::default(),
                         evaluation: None,
                         started_at_unix_ms: None,
+                        turn_started_at_unix_ms: None,
                         turns_started: 0,
                         last_admitted_turn: None,
+                        auto_result,
                     })
                 } else {
                     None
@@ -4568,8 +4784,12 @@ impl Operator {
                         .assignment
                         .as_ref()
                         .ok_or(Error("assignment_unavailable"))?;
-                    let proposed = serde_json::from_value(value.clone())
+                    let mut proposed: Budget = serde_json::from_value(value.clone())
                         .map_err(|_| Error("assignment_budget_invalid"))?;
+                    if value.get("max_turn_elapsed_seconds").is_none() {
+                        proposed.max_turn_elapsed_seconds =
+                            assignment.budget.max_turn_elapsed_seconds;
+                    }
                     let proposed = assignment.budget.extend_budget(proposed)?;
                     if let Some(parent) = &assignment.parent {
                         let works = self.works.lock().await;
@@ -4820,6 +5040,14 @@ impl Operator {
                     {
                         if let Err(error) = this.ensure_development_binding(&observed).await {
                             eprintln!("development_binding_failed: {}", error.0);
+                        }
+                        if observed.phase == "completed" {
+                            if let Err(error) = this
+                                .auto_deliver_completed_child(&observed, current_native)
+                                .await
+                            {
+                                eprintln!("auto_result_delivery_pending: {}", error.0);
+                            }
                         }
                         return;
                     }
@@ -7255,17 +7483,10 @@ impl Host for Operator {
                                     let Some(assignment) = &work.record.assignment else {
                                         return;
                                     };
-                                    let Some(start) = assignment.started_at_unix_ms else {
+                                    let Some(deadline) = assignment.deadline_unix_ms() else {
                                         return;
                                     };
-                                    start
-                                        .saturating_add(
-                                            assignment
-                                                .budget
-                                                .max_elapsed_seconds
-                                                .saturating_mul(1000),
-                                        )
-                                        .saturating_sub(unix_ms())
+                                    deadline.saturating_sub(unix_ms())
                                 };
                                 if remaining == 0 {
                                     cancel.cancel();
@@ -7426,6 +7647,17 @@ fn local_signature(gateway: &str) -> Value {
         {"name":"name","required":true,"type":{"type":"string","description":format!("Exact control name: {names}")}},
         {"name":"input","required":true,"type":{"type":"string","description":"JSON string encoding the selected control's arguments object, using its advertised schema."}}
     ]})
+}
+fn auto_result_ready(result: &Value) -> bool {
+    result["items"].as_array().is_some_and(|items| {
+        items.iter().any(|item| {
+            item["type"] == "agentMessage"
+                && item["phase"] == "final_answer"
+                && item["text"]
+                    .as_str()
+                    .is_some_and(|text| text.trim_start().starts_with("NATIVE_RESULT_READY_V1 "))
+        })
+    })
 }
 fn completed_result(completed: bool, turn: Option<&str>, history: &[Value]) -> Option<Value> {
     if !completed {
@@ -7665,7 +7897,7 @@ pub(crate) fn tools() -> Vec<Value> {
             json!({"type":"array","items":{"type":"string"},"maxItems":256,"uniqueItems":true})
         }
         "budget" => {
-            json!({"type":"object","description":"Explicit finite orchestration budget. Defaults for assigned sessions: 5 parallel, 2000 AppHost dispatches, 2000 Native tool calls, 6-hour total elapsed, 100 native turns; an authorized work budget action may adjust all fields even after expiration.","properties":{"max_parallel":{"type":"integer","minimum":1,"maximum":32},"max_app_starts":{"type":"integer","minimum":1,"maximum":100000},"max_native_calls":{"type":"integer","minimum":1,"maximum":100000},"max_elapsed_seconds":{"type":"integer","minimum":1,"maximum":604800},"max_turns":{"type":"integer","minimum":1,"maximum":10000}},"required":["max_parallel","max_app_starts","max_native_calls","max_elapsed_seconds"],"additionalProperties":false})
+            json!({"type":"object","description":"Explicit finite orchestration budget. Defaults for assigned sessions: 5 parallel, 2000 AppHost dispatches, 2000 Native tool calls, 6-hour total elapsed, 100 native turns; an authorized work budget action may adjust all fields even after expiration.","properties":{"max_parallel":{"type":"integer","minimum":1,"maximum":32},"max_app_starts":{"type":"integer","minimum":1,"maximum":100000},"max_native_calls":{"type":"integer","minimum":1,"maximum":100000},"max_elapsed_seconds":{"type":"integer","minimum":1,"maximum":604800},"max_turn_elapsed_seconds":{"type":"integer","minimum":1,"maximum":604800},"max_turns":{"type":"integer","minimum":1,"maximum":10000}},"required":["max_parallel","max_app_starts","max_native_calls","max_elapsed_seconds"],"additionalProperties":false})
         }
         "answers" => {
             json!({"type":"object","additionalProperties":{"type":"object","properties":{"answers":{"type":"array","items":{"type":"string"}}},"required":["answers"],"additionalProperties":false}})
@@ -7862,6 +8094,19 @@ mod local_tests {
         assert!(app_lane_requires_host_stop(
             &json!({"pending_native_calls":0})
         ));
+    }
+
+    #[test]
+    fn auto_result_requires_verified_terminal_marker() {
+        let ready = json!({"items":[{"type":"agentMessage","phase":"final_answer",
+            "text":"NATIVE_RESULT_READY_V1 {\"sha256\":\"a\",\"status\":\"completed_result\"}"}]});
+        assert!(auto_result_ready(&ready));
+        let mut ack = ready.clone();
+        ack["items"][0]["text"] = json!("ACK_RECEIVED W1");
+        assert!(!auto_result_ready(&ack));
+        let mut progress = ready.clone();
+        progress["items"][0]["phase"] = json!("commentary");
+        assert!(!auto_result_ready(&progress));
     }
 
     #[test]
@@ -8720,6 +8965,7 @@ mod local_tests {
             max_app_starts: 64,
             max_native_calls: 256,
             max_elapsed_seconds: 1800,
+            max_turn_elapsed_seconds: None,
             max_turns: 100,
         };
         assert_eq!(
@@ -8764,6 +9010,7 @@ mod local_tests {
             max_app_starts: 6,
             max_native_calls: 40,
             max_elapsed_seconds: 900,
+            max_turn_elapsed_seconds: None,
             max_turns: 100,
         };
         let a = Assignment {
@@ -8774,8 +9021,10 @@ mod local_tests {
             admitted_calls: Default::default(),
             evaluation: None,
             started_at_unix_ms: None,
+            turn_started_at_unix_ms: None,
             turns_started: 0,
             last_admitted_turn: None,
+            auto_result: false,
         };
         assert_eq!(sibling_parallel_limit(&a, Some(&budget(4))).unwrap(), 4);
         assert_eq!(
@@ -8792,6 +9041,7 @@ mod local_tests {
         b.validate().unwrap();
         assert_eq!(b.max_parallel, 5);
         assert_eq!(b.max_elapsed_seconds, 21600);
+        assert_eq!(b.max_turn_elapsed_seconds, Some(3600));
         assert_eq!(b.max_turns, 100);
         assert_eq!(b.max_native_calls, 2000);
         assert_eq!(b.max_app_starts, 2000);
@@ -8803,8 +9053,10 @@ mod local_tests {
             admitted_calls: Default::default(),
             evaluation: None,
             started_at_unix_ms: Some(1_000),
+            turn_started_at_unix_ms: None,
             turns_started: 0,
             last_admitted_turn: None,
+            auto_result: false,
         };
         for i in 0..100 {
             let turn = format!("turn-{i}");
@@ -8828,6 +9080,55 @@ mod local_tests {
         assert_eq!(turns.turns_started, 101);
     }
     #[test]
+    fn independent_turn_budget_renews_without_replenishing_native_usage() {
+        let mut a = Assignment {
+            role: "worker".into(),
+            parent: Some("O".into()),
+            dependencies: vec![],
+            budget: Budget::orchestration_default(),
+            admitted_calls: Default::default(),
+            evaluation: None,
+            started_at_unix_ms: Some(1_000),
+            turn_started_at_unix_ms: None,
+            turns_started: 0,
+            last_admitted_turn: None,
+            auto_result: true,
+        };
+        a.admit_turn("first").unwrap();
+        a.admitted_calls.insert("already-consumed".into());
+        // A prior turn elapsed and the next message sat idle for many hours:
+        // the NEXT queue admission must not inherit the first turn's deadline.
+        a.turn_started_at_unix_ms = Some(1_000);
+        assert_eq!(a.deadline_unix_ms(), Some(3_601_000));
+        assert!(queued_input_budget(Some(&a), 100_000_000).is_ok());
+        a.admit_turn("second").unwrap();
+        assert_eq!(a.turns_started, 2);
+        assert_eq!(a.admitted_calls.len(), 1);
+        assert!(a.deadline_unix_ms().unwrap() > 100_000_000);
+    }
+    #[test]
+    fn old_budget_journal_preserves_six_hour_session_fallback() {
+        let budget: Budget = serde_json::from_value(json!({
+            "max_parallel":5,"max_app_starts":2000,"max_native_calls":2000,
+            "max_elapsed_seconds":21600,"max_turns":100
+        }))
+        .unwrap();
+        assert_eq!(budget.max_turn_elapsed_seconds, None);
+        let assignment: Assignment = serde_json::from_value(json!({
+            "role":"worker","parent":"O","dependencies":[],
+            "budget":budget,"started_at_unix_ms":1000,
+            "turns_started":1,"last_admitted_turn":"t1"
+        }))
+        .unwrap();
+        assert!(!assignment.auto_result);
+        assert_eq!(assignment.deadline_unix_ms(), Some(21_601_000));
+        assert_eq!(
+            queued_input_budget(Some(&assignment), 21_601_000),
+            Err(Error("assignment_time_budget_exhausted"))
+        );
+    }
+
+    #[test]
     fn orchestration_title_is_deterministic_and_human_readable() {
         let workspace = std::path::Path::new("/tmp/ops-20261117-b/w1");
         let title = orchestration_thread_title(Some(workspace), Some("worker"), "abcdef0123456789");
@@ -8849,13 +9150,16 @@ mod local_tests {
                 max_app_starts: 6,
                 max_native_calls: 40,
                 max_elapsed_seconds: 900,
+                max_turn_elapsed_seconds: None,
                 max_turns: 100,
             },
             admitted_calls: Default::default(),
             evaluation: None,
             started_at_unix_ms: Some(1_000),
+            turn_started_at_unix_ms: None,
             turns_started: 0,
             last_admitted_turn: None,
+            auto_result: false,
         };
         assert!(queued_input_budget(None, 2_000_000).is_ok());
         let mut unstarted = assignment.clone();
@@ -8882,6 +9186,7 @@ mod local_tests {
             max_app_starts: 12,
             max_native_calls: 100,
             max_elapsed_seconds: 1200,
+            max_turn_elapsed_seconds: None,
             max_turns: 100,
         };
         let extended = original

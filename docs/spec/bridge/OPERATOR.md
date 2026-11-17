@@ -251,3 +251,61 @@ received it. Synthetic transition proof and actual Chat creation/continuation pr
 are separate gates, including host dependencies and measured starts/submissions.
 No real Chat submission, account migration, live installation change or new default
 is implied by this specification. CURRENT owns detailed scope and proof.
+
+## Event-driven RESULT and independent turn-time allowance (2026-11-18 local development)
+
+A native model turn and the logical assignment are different state machines.
+An observed Native turn/completed alone does not mean the logical job completed.
+For newly assigned child works with role=worker, the Provider recognizes a
+terminal result only when the current completed Native turn has a nonempty
+final-answer item whose text begins with NATIVE_RESULT_READY_V1 followed by a
+space. A progress turn, an interrupted turn, and a later worker ACK-consumption
+turn do not match. Legacy journal assignments default to auto_result=false;
+a Provider upgrade must never resend their previously manual RESULT.
+
+When a marked worker completes, the Provider obtains the current turn's
+canonical Native final-answer items (not a synthesized host message), checks
+its original assigned parent work_id from the durable record and enforces
+the exact same Native execution home. The internal RESULT envelope is
+native_auto_result_v1 and contains the child work/thread/turn, intended
+parent work ID, digest and current Native result. Oversized finals carry a
+digest and an original-work retrieval pointer instead of a truncated fake
+result. The queue uses the deterministic ID
+native-auto-result-<child_work_id>-<completed_native_turn_id>, with the
+existing journal intent/receipt and clientUserMessageId deduplication.
+Queued is a submission receipt, not proof of parent consumption. The parent
+must still validate actual artifacts, ACK the original worker queue, and only
+then send any final logical report. Future turns preserve the same saved Chat
+and Native work/thread; no background model loop is introduced.
+
+The completion observer attempts immediate dispatch. A bounded Provider-side
+non-model reconciliation pass examines completed, opted-in workers at 20-second
+intervals after service restart; it skips entries with a settled original
+queue receipt and otherwise consults only the original child and parent.
+An unknown original queue intent cannot authorize a new call ID, replacement
+worker, or repeated computation. Stop, reconciliation-required and
+cross-account parent boundaries remain explicit delivery blockers.
+
+For new work budgets, max_turn_elapsed_seconds=3600 is the default
+independently renewing active Native turn deadline. The turn clock is
+persisted on admitted Native turn ID, not started by waiting in the queue.
+Each new turn gets its own deadline, while native call counters and
+turns_started remain cumulative and finite (max_native_calls=2000,
+max_turns=100, max_app_starts=2000, default descendant parallelism 5).
+max_elapsed_seconds=21600 remains the session-clock fallback in legacy
+journal entries lacking the new field, not a second elapsed cap imposed on
+new per-turn work. Authorized work budget updates may change the active
+turn deadline and can restore expired Native call/turn ceilings without
+resetting consumption. Missing max_turn_elapsed_seconds in an update
+preserves the current policy; explicit null can select fallback in a direct
+budget update. Untrusted controllers do not gain adjustment rights.
+
+Parent A transport is a separate contract from automatic worker RESULT.
+A Linux ChatGPT saved Chat assigned as A can receive queued O results and
+produce a durable ACK. An arbitrary active Android ChatGPT conversation is
+not assumed to expose a Native queue address or an autonomous reentry
+callback; any Android A consumption and final ACK require a separately
+verified authorized endpoint and receipt, not a Provider queue submission
+or a file being present. O must explicitly send its final accepted aggregate
+to that endpoint. A must explicitly ACK it, and both observations must be
+recorded before declaring full A/O/W product acceptance.
