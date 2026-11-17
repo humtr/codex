@@ -105,6 +105,19 @@ impl Controls {
         }
     }
 }
+/// Model options carry account identifiers but no host-generation lease.
+/// Only the separately observed, current identity may reach selection_reply.
+fn verified_model_identity<'a>(offered: &Value, observed: &'a Value) -> Result<&'a Value, Error> {
+    if ["account", "user", "structure"]
+        .iter()
+        .any(|key| observed[*key] != offered[*key])
+    {
+        return Err(Error("app_account_changed"));
+    }
+    crate::app::Identity::parse(observed)?;
+    Ok(observed)
+}
+
 pub(crate) async fn host(
     bridge: &dyn Bridge,
     journal: &Journal,
@@ -147,13 +160,8 @@ pub(crate) async fn host(
         let catalog = config
             .catalog
             .with_app_options(&offered["options"], &configured)?;
-        let identity = bridge.operation(json!({"op":"identity"})).await?;
-        if ["account", "user", "structure"]
-            .iter()
-            .any(|key| identity[*key] != offered["identity"][*key])
-        {
-            return Err(Error("app_account_changed"));
-        }
+        let observed_identity = bridge.operation(json!({"op":"identity"})).await?;
+        let identity = verified_model_identity(&offered["identity"], &observed_identity)?;
         if !snapshot
             .unchanged()
             .map_err(|_| Error("invalid_provider_configuration"))?
@@ -165,7 +173,7 @@ pub(crate) async fn host(
             .unwrap_or_default()
             .as_millis() as u64;
         let snapshot = crate::models::AppSnapshot {
-            identity: crate::app::Identity::parse(&identity)?,
+            identity: crate::app::Identity::parse(identity)?,
             options: offered["options"].clone(),
             observed_at_unix_ms,
         };
@@ -175,7 +183,7 @@ pub(crate) async fn host(
         return crate::registration::selection_reply(
             &projected,
             &journal.root,
-            &offered["identity"],
+            identity,
             observed_at_unix_ms,
         );
     }
@@ -239,4 +247,35 @@ pub(crate) fn cached_model_catalog(
         .catalog
         .with_app_options(&cached.options, &configured)?;
     Ok(Some((cached.identity, catalog)))
+}
+
+#[cfg(test)]
+mod model_identity_tests {
+    use super::*;
+
+    #[test]
+    fn live_selection_requires_separately_verified_generation() {
+        let offered = json!({"account":"a","user":"u","structure":"workspace"});
+        let current = json!({"generation":"g1","account":"a","user":"u","structure":"workspace"});
+        assert_eq!(
+            crate::app::Identity::parse(&offered)
+                .err()
+                .map(|error| error.0),
+            Some("app_identity_unavailable")
+        );
+        assert_eq!(
+            verified_model_identity(&offered, &current).unwrap(),
+            &current
+        );
+        let stale = json!({"generation":"g2","account":"other","user":"u","structure":"workspace"});
+        assert_eq!(
+            verified_model_identity(&offered, &stale).unwrap_err().0,
+            "app_account_changed"
+        );
+        let missing = json!({"account":"a","user":"u","structure":"workspace"});
+        assert_eq!(
+            verified_model_identity(&offered, &missing).unwrap_err().0,
+            "app_identity_unavailable"
+        );
+    }
 }
