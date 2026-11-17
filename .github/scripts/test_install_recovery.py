@@ -179,6 +179,37 @@ exec "$real" "$@"
                 self.fail(f"timeout waiting for owned fixture marker {marker}: {self.log.read_text()}")
             time.sleep(0.04)
 
+    def await_updater_receipt(self, timeout=12):
+        receipt = self.prefix / "bin/.codex-install.lock/updater"
+        limit = time.monotonic() + timeout
+        while not receipt.is_file():
+            if time.monotonic() > limit:
+                self.fail(f"missing updater admission receipt: {self.log.read_text()}")
+            time.sleep(0.02)
+        return receipt
+
+    def await_updater_quiescent(self, receipt, timeout=12):
+        values = dict(line.split("=", 1) for line in receipt.read_text().splitlines())
+        pid = int(values["pid"])
+        group = int(values["pgid"])
+        limit = time.monotonic() + timeout
+        while time.monotonic() < limit:
+            state_path = Path(f"/proc/{pid}/stat")
+            state = (state_path.read_text().split(") ")[-1].split()[0]
+                     if state_path.exists() else "X")
+            groups = subprocess.run(["ps", "-eo", "stat=,pgid="], text=True,
+                                    capture_output=True, check=True).stdout
+            live_group = any(
+                len(parts) >= 2 and parts[1] == str(group) and
+                parts[0][:1] not in ("Z", "X")
+                for line in groups.splitlines()
+                if (parts := line.split())
+            ) if group else False
+            if state in ("Z", "X") and not live_group:
+                return
+            time.sleep(0.04)
+        self.fail("owned updater or its process group did not quiesce")
+
     def interrupt(self, proc):
         self.assertIsNone(proc.poll(), self.log.read_text())
         proc.send_signal(signal.SIGKILL)
@@ -251,20 +282,33 @@ exec "$real" "$@"
         (self.home / "mode").write_text("commit-block")
         p = self.launch("--version", "0.169.0")
         self.await_marker("activation-committed")
+        # A very fast child can commit activation before the parent publishes
+        # its updater receipt. That ambiguous interval must fail closed, not be
+        # mistaken for the quiescent, durably admitted recovery case here.
+        receipt = self.await_updater_receipt()
         self.interrupt(p)
         r = self.recover()
         self.assertNotEqual(r.returncode, 0)
         self.assertTrue(self.has_lock())
         (self.home / "release-updater").touch()
-        pid = int((self.home / "updater-pid").read_text())
-        for _ in range(80):
-            procstat = Path(f"/proc/{pid}/stat")
-            if not procstat.exists() or procstat.read_text().split(") ")[-1][0] in "ZX":
-                break
-            time.sleep(0.05)
+        self.await_updater_quiescent(receipt)
         recovered = self.recover()
         self.assertEqual(recovered.returncode, 0, recovered.stderr)
         self.assertFalse(self.has_lock())
+
+    @unittest.skipUnless(IS_ANDROID_LINKER, "requires real Android linker branch")
+    def test_missing_updater_receipt_after_kill_remains_fail_closed(self):
+        (self.home / "mode").write_text("commit-block")
+        p = self.launch("--version", "0.169.0")
+        self.await_marker("activation-committed")
+        receipt = self.await_updater_receipt()
+        self.interrupt(p)
+        receipt.unlink()  # Only the disposable owned test transaction.
+        (self.home / "release-updater").touch()
+        r = self.recover()
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("updater launch receipt missing", r.stderr)
+        self.assertTrue(self.has_lock())
 
     @unittest.skipUnless(IS_ANDROID_LINKER, "requires real Android linker branch")
     def test_i08_after_activation_and_wait_kill_recovers_without_rerun(self):

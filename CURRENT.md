@@ -19,9 +19,9 @@ alive (parent PID 28456, child PID 28487); the staged executable replaced the ol
 SHA while the previous executable and empty install lock remained. The updated
 installer uses synced installer transaction receipts and conservative recovery.
 The owned-PREFIX synthetic process/filesystem fault suite
-`.github/scripts/test_install_recovery.py` passed 13/13 on actual Termux with
+`.github/scripts/test_install_recovery.py` passed 14/14 on actual Termux with
 Android linker present, including I1-I15 coverage (I6/I9 combined and I12/I13
-combined). In a **second isolated** `HOME`, `CODEX_HOME`, `TMPDIR`, and copied
+combined), plus explicit missing updater receipt rejection. In a **second isolated** `HOME`, `CODEX_HOME`, `TMPDIR`, and copied
 `PREFIX`, the already-installed 0.169.0 Wrapper acquired and verified the official
 0.169.0 archive and activated `local-1794879214-17073-2` (exit 0); `codex
 --version` returned `codex-cli 0.169.0` and a subsequent install without
