@@ -188,6 +188,74 @@ for(const outcome of ['bound-active','changed-branch','missing-assignment-ledger
  expect(f.created).toBe(0);expect(f.sent).toHaveLength(0);expect(f.draft).toBe('Full unsent draft');
 }));
 
+// Reproduces the original W2 read-only Saved Chat reentry: two settled
+// dispatches predate a renderer restart, while its new ledger has no history
+// or a zero-reservation placeholder. Restoring highwater must never refund.
+for(const preexisting of [false,true])test('saved Chat restart restores consumed assignment budget, existing='+preexisting,async()=>fixture(async({f,bindings})=>{
+ await bridge({op:'init',owner:'owned',returnPath:'mcp',bindings});
+ const thread='original-worker-native-thread',limits={maxDispatches:3,deadlineUnixMs:null};
+ const anchor={id:'final',author:{role:'assistant'},channel:'final',status:'finished_successfully',end_turn:true};
+ f.chatGet=async()=>({conversation_id:'original-worker-chat',gizmo_id:null,current_node:'later-user',mapping:{
+  final:{parent:null,message:anchor},
+  'later-user':{parent:'final',message:{id:'later-user',author:{role:'user'}}}}});
+ if(preexisting){
+  await bridge({op:'open',owner:'owned',lane:'empty-placeholder',nativeThread:thread,limits,signature:{name:'previous'}});
+  await bridge({op:'release',owner:'owned',lane:'empty-placeholder'});
+  expect(globalThis[slot].workBudgets.get(thread).reserved).toBe(0);
+ }
+ const command={op:'chat_adopt',owner:'owned',lane:'restored-worker',nativeThread:thread,
+  limits,conversation_id:'original-worker-chat',branch:'final',bound_source_anchor:'final',
+  source_counters:{dispatches:2,userMessages:3,toolMessages:0,hostReplyMessages:0},
+  budget_restore_single_chat:true,identity:{account:'account',user:'user',structure:'personal'},
+  returnPath:'mcp',signature:{name:'unused'}};
+ const createdBefore=f.created;
+ expect(await bridge(command)).toEqual({localId:'original-worker-chat'});
+ const budget=globalThis[slot].workBudgets.get(thread);
+ expect(budget.reserved).toBe(2);expect(budget.maxDispatches).toBe(3);
+ expect((await bridge({op:'snapshot',owner:'owned',lane:'restored-worker'})).dispatches).toBe(2);
+ expect(f.created).toBe(createdBefore);expect(f.sent).toHaveLength(0);
+ await bridge({op:'submit',owner:'owned',lane:'restored-worker',round:'new-original-thread-turn',model:'host',messages:[{role:'user',text:'New legitimate read-only turn'}]});
+ await Promise.resolve();
+ expect(budget.reserved).toBe(3);expect(f.sent).toHaveLength(1);
+ expect(f.submitOptions.conversationId).toBe('original-worker-chat');
+ expect(f.submitOptions.parentMessageId).toBe('final');
+}));
+
+test('saved Chat restored ledger retains exhausted usage without new model dispatch',async()=>fixture(async({f,bindings})=>{
+ await bridge({op:'init',owner:'owned',returnPath:'mcp',bindings});
+ const thread='original-exhausted-native-thread',limits={maxDispatches:1,deadlineUnixMs:null};
+ const anchor={id:'anchor',author:{role:'assistant'},channel:'final',status:'finished_successfully',end_turn:true};
+ f.chatGet=async()=>({conversation_id:'exhausted-chat',gizmo_id:null,current_node:'anchor',mapping:{anchor:{parent:null,message:anchor}}});
+ const command={op:'chat_adopt',owner:'owned',lane:'exhausted',nativeThread:thread,limits,
+  conversation_id:'exhausted-chat',branch:'anchor',bound_source_anchor:'anchor',
+  source_counters:{dispatches:2,userMessages:2,toolMessages:0,hostReplyMessages:0},
+  budget_restore_single_chat:true,identity:{account:'account',user:'user',structure:'personal'},returnPath:'mcp',signature:{name:'unused'}};
+ expect(await bridge(command)).toEqual({localId:'exhausted-chat'});
+ expect(globalThis[slot].workBudgets.get(thread).reserved).toBe(2);
+ await bridge({op:'submit',owner:'owned',lane:'exhausted',round:'must-not-send',model:'host',messages:[{role:'user',text:'Must not run'}]});await Promise.resolve();
+ const status=await bridge({op:'snapshot',owner:'owned',lane:'exhausted'});
+ expect(status.rejectedBeforeDispatch).toBe(true);expect(status.error).toBe('assignment_app_budget_exhausted');
+ expect(f.created).toBe(0);expect(f.sent).toHaveLength(0);
+}));
+
+test('saved Chat highwater cannot override active or unauthenticated assignment ledger',async()=>fixture(async({f,bindings})=>{
+ await bridge({op:'init',owner:'owned',returnPath:'mcp',bindings});
+ const thread='guarded-native-thread',limits={maxDispatches:5,deadlineUnixMs:null};
+ const anchor={id:'anchor',author:{role:'assistant'},channel:'final',status:'finished_successfully',end_turn:true};
+ f.chatGet=async()=>({conversation_id:'guarded-chat',gizmo_id:null,current_node:'anchor',mapping:{anchor:{parent:null,message:anchor}}});
+ await bridge({op:'open',owner:'owned',lane:'busy',nativeThread:thread,limits,signature:{name:'previous'}});
+ const prev=globalThis[slot].lanes.get('busy');prev.pending=true;
+ const command={op:'chat_adopt',owner:'owned',lane:'must-not-adopt',nativeThread:thread,limits,
+  conversation_id:'guarded-chat',branch:'anchor',bound_source_anchor:'anchor',
+  source_counters:{dispatches:2,userMessages:2,toolMessages:0,hostReplyMessages:0},
+  budget_restore_single_chat:true,identity:{account:'account',user:'user',structure:'personal'},returnPath:'mcp',signature:{name:'unused'}};
+ await expect(bridge(command)).rejects.toThrow('assignment_app_ledger_unavailable');
+ expect(globalThis[slot].workBudgets.get(thread).reserved).toBe(0);
+ prev.pending=false;
+ await expect(bridge({...command,budget_restore_single_chat:false})).rejects.toThrow('assignment_app_ledger_unavailable');
+ expect(f.sent).toHaveLength(0);
+}));
+
 for(const outcome of ['partial','user-only','no-next-user','completed'])test('interrupted bound source adoption verifies the next original user: '+outcome,async()=>fixture(async({f,bindings})=>{
  await bridge({op:'init',owner:'owned',returnPath:'mcp',bindings});
  const anchor=outcome==='user-only'?{id:'anchor',author:{role:'user'}}:
@@ -457,7 +525,7 @@ test('project operations preserve app credentials and verify membership before i
  await bridge({op:'open',owner:'owned',lane:'project-lane',project:project.id,signature:{name:'termux_codex_project'}});
  await bridge({op:'submit',owner:'owned',lane:'project-lane',round:'first',model:'configured',messages:[{role:'user',text:'Task',hidden:false}]});
  await Promise.resolve();expect(f.sent[0].gizmo_id).toBe(project.id);
- f.membership=project.id;expect(await bridge({op:'project_membership',owner:'owned',lane:'project-lane'})).toEqual({verified:true});
+ f.membership=project.id;expect(await bridge({op:'project_membership',owner:'owned',lane:'project-lane'})).toEqual({verified:true,title_status:'skipped'});
  f.membership='g-p-other';await expect(bridge({op:'project_membership',owner:'owned',lane:'project-lane'})).rejects.toThrow('project_membership_unconfirmed');
  const before=f.sent.length;
  expect(()=>f.client.prepareCompletionStream({conversation_id:'server-owned',local_function_signatures:[{name:'termux_codex_project'}],messages:[]})).toThrow('project_membership_unconfirmed');
@@ -808,7 +876,18 @@ test('one native assignment budget spans successor lanes and rejects excess star
  const status=await bridge({op:'snapshot',owner:'owned',lane:'successor'});
  expect(status.rejectedBeforeDispatch).toBe(true);expect(status.budget.reserved).toBe(1);
  expect(status.error).toBe('assignment_app_budget_exhausted');
- await expect(bridge({op:'open',owner:'owned',nativeThread:'same-thread',lane:'increase',limits:{...limits,maxDispatches:2},signature:{name:'increase'}})).rejects.toThrow('assignment_budget_changed');
+ // The controller-verified assignment budget may be raised after
+ // recovery; the one consumed dispatch cannot be refunded by a new lane.
+ await bridge({op:'open',owner:'owned',nativeThread:'same-thread',lane:'increase',limits:{...limits,maxDispatches:2},signature:{name:'increase'}});
+ const budget=globalThis[slot].workBudgets.get('same-thread');
+ expect(budget.maxDispatches).toBe(2);expect(budget.reserved).toBe(1);
+ await bridge({op:'submit',owner:'owned',lane:'increase',round:'third',messages:[{role:'user',text:'legitimate extended third'}]});await Promise.resolve();
+ expect(f.sent).toHaveLength(2);expect(budget.reserved).toBe(2);
+ await bridge({op:'open',owner:'owned',nativeThread:'same-thread',lane:'at-limit',limits:{...limits,maxDispatches:2},signature:{name:'at-limit'}});
+ await bridge({op:'submit',owner:'owned',lane:'at-limit',round:'no-fourth',messages:[{role:'user',text:'no fourth'}]});await Promise.resolve();
+ const refused=await bridge({op:'snapshot',owner:'owned',lane:'at-limit'});
+ expect(refused.rejectedBeforeDispatch).toBe(true);expect(refused.error).toBe('assignment_app_budget_exhausted');
+ expect(f.sent).toHaveLength(2);
 }));
 
 

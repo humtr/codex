@@ -1672,9 +1672,7 @@ impl AppHost {
         let mut lane = mutex
             .try_lock()
             .map_err(|_| Error("bound_chat_observation_busy"))?;
-        let (conversation, anchor) = lane
-            .retained_source()
-            .map(|(conversation, anchor)| (conversation.to_owned(), anchor.to_owned()))
+        lane.retained_source()
             .ok_or(Error("bound_chat_reattachment_unsettled"))?;
         let observed = self
             .bridge
@@ -1696,16 +1694,14 @@ impl AppHost {
         {
             return Ok(());
         }
-        self.bridge
-            .operation(
-                json!({"op":"chat_adopt","lane":lane.marker,"nativeThread":lane.native_thread,
-            "signature":signature(&lane.gateway),"project":lane.project,"identity":current,
-            "conversation_id":conversation,"branch":anchor,"bound_source_anchor":anchor,
-            "bound_source_interrupted":lane.last_error.as_deref()==Some("bound_chat_turn_interrupted"),"source_counters":{"dispatches":lane.dispatches,"userMessages":lane.user_messages,"toolMessages":lane.tool_messages,"hostReplyMessages":lane.host_reply_messages}}),
-            )
-            .await?;
-        lane.identity = Some(current);
-        self.journal.write(&context::digest(&thread), &*lane)
+        reattach_settled_lane(
+            self.bridge.as_ref(),
+            self.journal.as_ref(),
+            &context::digest(&thread),
+            &mut lane,
+            current,
+        )
+        .await
     }
     pub(crate) async fn bind_external(
         &self,
@@ -2273,6 +2269,54 @@ fn with_native_scope(mut command: Value, request: &Request) -> Value {
     command
 }
 
+// A single terminal Native lane's observed app-dispatch highwater can
+// rehydrate a new renderer's in-memory budget without refunding prior
+// dispatches. If other saved Chats precede it, unknown cross-lane debits
+// make this underdetermined: preserve the safety fence.
+fn single_chat_budget_restorable(lane: &Lane) -> bool {
+    lane.previous_chats.is_empty()
+        && lane.dispatches > 0
+        && matches!(lane.cached.last(), Some(Event::Completed { .. }))
+        && lane.pending.is_empty()
+        && lane.external.is_none()
+        && lane.checkpoint.is_none()
+        && lane.source_anchor.is_some()
+        && (lane.last_error.is_none()
+            || lane.last_error.as_deref() == Some("assignment_app_ledger_unavailable"))
+}
+
+/// Rebind a fully settled saved Chat after the AppHost/Provider generation
+/// changes. The authenticated account, project and the original completed
+/// assistant branch are verified by chat_adopt before a new Native turn can
+/// run. This must not silently create a replacement saved Chat.
+async fn reattach_settled_lane(
+    bridge: &dyn Bridge,
+    journal: &Journal,
+    key: &str,
+    lane: &mut Lane,
+    current: Identity,
+) -> Result<(), Error> {
+    let (conversation, anchor) = lane
+        .retained_source()
+        .map(|(conversation, anchor)| (conversation.to_owned(), anchor.to_owned()))
+        .ok_or(Error("bound_chat_reattachment_unsettled"))?;
+    bridge
+        .operation(json!({"op":"chat_adopt","lane":lane.marker,"nativeThread":lane.native_thread,
+            "signature":signature(&lane.gateway),"project":lane.project,"identity":current,
+            "conversation_id":conversation,"branch":anchor,"bound_source_anchor":anchor,
+            "bound_source_interrupted":lane.last_error.as_deref()==Some("bound_chat_turn_interrupted"),
+            "source_counters":{"dispatches":lane.dispatches,"userMessages":lane.user_messages,
+                "toolMessages":lane.tool_messages,"hostReplyMessages":lane.host_reply_messages},
+            // Restore only an authentic, settled original single-Chat lineage.
+            // Multiple Chat predecessors can contain unobservable additional
+            // reserved dispatches; those remain explicitly fenced rather than
+            // resetting their AppHost budget on restart.
+            "budget_restore_single_chat":single_chat_budget_restorable(lane)}))
+        .await?;
+    lane.identity = Some(current);
+    journal.write(key, &*lane)
+}
+
 /// After a Provider process replacement, the current App renderer can lose
 /// the old lane while the original saved conversation remains intact.
 /// This is an explicit *new Native turn* boundary, never the old request's
@@ -2417,9 +2461,17 @@ async fn exchange(
             }
         } else if old.generation != current.generation || observed["present"] != true {
             if matches!(lane.phase, Phase::Idle | Phase::Stopped) && new_turn(lane, request) {
-                // Re-import only at a new native user turn after a settled round.
-                // Old remote chats remain intact. No pending call is reissued.
-                *lane = lane.successor(&request.thread)?;
+                // A completed, account-bound saved Chat has a durable final
+                // assistant anchor: reattach that EXACT conversation, not a
+                // new remote Chat, after a Provider/AppHost generation swap.
+                // Any failed reattachment stays fenced, never silently forks.
+                if lane.retained_source().is_some() {
+                    reattach_settled_lane(bridge, journal, key, lane, current.clone()).await?;
+                } else {
+                    // Unsettled or legacy rounds cannot be adopted without an
+                    // authenticated terminal anchor; preserve old behavior.
+                    *lane = lane.successor(&request.thread)?;
+                }
             } else if !matches!(lane.phase, Phase::New | Phase::Opening) {
                 return Err(Error("owned_app_round_unavailable"));
             }
@@ -3483,6 +3535,161 @@ mod approval_tests {
         assert_eq!(next.native_thread, "thread");
         assert!(next.conversation_id.is_none());
     }
+    #[test]
+    fn app_budget_recovery_requires_single_settled_chat_and_retains_debits() {
+        let mut lane = Lane::new("valid-original-thread").unwrap();
+        lane.phase = Phase::Idle;
+        lane.dispatches = 7;
+        lane.source_anchor = Some("verified-source-final".into());
+        lane.cached.push(Event::Completed {
+            input_tokens: 0,
+            output_tokens: 0,
+        });
+        assert!(single_chat_budget_restorable(&lane));
+        lane.previous_chats.push("older-saved-chat".into());
+        assert!(!single_chat_budget_restorable(&lane));
+        lane.previous_chats.clear();
+        lane.last_error = Some("assignment_app_ledger_unavailable".into());
+        assert!(single_chat_budget_restorable(&lane));
+        lane.last_error = Some("cdp_operation_timeout".into());
+        assert!(!single_chat_budget_restorable(&lane));
+        lane.last_error = None;
+        lane.dispatches = 0;
+        assert!(!single_chat_budget_restorable(&lane));
+    }
+
+    #[tokio::test]
+    async fn queued_native_turn_reattaches_original_saved_chat_after_apphost_replacement() {
+        let root = std::env::temp_dir().join(format!(
+            "preserve-saved-chat-generation-{}",
+            random_id().unwrap()
+        ));
+        let journal = Arc::new(Journal::open(&root).unwrap());
+        let state = Arc::new(SyncMutex::new(SavedSourceState::default()));
+        let bridge = Arc::new(SavedSource(state.clone()));
+        let host = AppHost::new(bridge.clone(), journal.clone());
+        let mut body = json!({"stream":true,"model":"chatgpt-desktop/gpt-6",
+            "input":[{"role":"user","content":"Original Native worker input"}],"tools":[]});
+        let first = saved_round(&host, &body, "original-native-turn").await;
+        assert!(first
+            .iter()
+            .any(|event| matches!(event, Event::Completed { .. })));
+        body["input"]
+            .as_array_mut()
+            .unwrap()
+            .extend(native_output(&first).unwrap());
+        body["input"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({"role":"user",
+            "content":"A genuinely new queued input after the Provider restart"}));
+        host.shutdown().await;
+        drop(host);
+        // The account is unchanged, but the old renderer owns no lane after
+        // provider restart. Reusing a conversation needs a verified final
+        // assistant source anchor, not a fabricated ChatGPT title or UUID.
+        {
+            let mut scope = state.lock().unwrap();
+            scope.identity_generation = Some("replacement-generation".into());
+            scope.identity_present = Some(false);
+        }
+        let reopened = AppHost::new(bridge, journal.clone());
+        let second = saved_round(&reopened, &body, "next-native-turn").await;
+        assert!(second
+            .iter()
+            .any(|event| matches!(event, Event::Completed { .. })));
+        let lane = inspect_lane(&root, "bound-native-thread").unwrap();
+        assert_eq!(lane["conversation_id"], "saved-chat");
+        assert_eq!(lane["previous_chats"], json!([]));
+        let commands = state.lock().unwrap().commands.clone();
+        assert_eq!(
+            commands
+                .iter()
+                .filter(|cmd| cmd["op"] == "chat_adopt")
+                .count(),
+            1
+        );
+        assert_eq!(commands.iter().filter(|cmd| cmd["op"] == "open").count(), 1);
+        let adopted = commands
+            .iter()
+            .find(|cmd| cmd["op"] == "chat_adopt")
+            .unwrap();
+        assert_eq!(adopted["conversation_id"], "saved-chat");
+        assert_eq!(adopted["branch"], "native-final-1");
+        assert_eq!(adopted["source_counters"]["dispatches"], 1);
+        assert_eq!(
+            commands.iter().filter(|cmd| cmd["op"] == "submit").count(),
+            2
+        );
+        reopened.shutdown().await;
+        drop(reopened);
+        drop(journal);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+    #[tokio::test]
+    async fn failed_saved_chat_reattachment_never_forks_original_conversation() {
+        let root =
+            std::env::temp_dir().join(format!("refuse-saved-chat-fork-{}", random_id().unwrap()));
+        let journal = Arc::new(Journal::open(&root).unwrap());
+        let state = Arc::new(SyncMutex::new(SavedSourceState::default()));
+        let bridge = Arc::new(SavedSource(state.clone()));
+        let host = AppHost::new(bridge.clone(), journal.clone());
+        let mut body = json!({"stream":true,"model":"chatgpt-desktop/gpt-6",
+            "input":[{"role":"user","content":"Original Native worker input"}],"tools":[]});
+        let first = saved_round(&host, &body, "original-native-turn").await;
+        body["input"]
+            .as_array_mut()
+            .unwrap()
+            .extend(native_output(&first).unwrap());
+        body["input"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({"role":"user",
+            "content":"New queued input, original saved Chat cannot be adopted"}));
+        host.shutdown().await;
+        drop(host);
+        {
+            let mut scope = state.lock().unwrap();
+            scope.identity_generation = Some("replacement-generation".into());
+            scope.identity_present = Some(false);
+            scope.fail_adopt = true;
+        }
+        let reopened = AppHost::new(bridge, journal.clone());
+        let mut request = Request::parse(
+            body,
+            &crate::config::Config::default(),
+            Some("bound-native-thread"),
+        )
+        .unwrap();
+        request.turn = Some("next-native-turn".into());
+        let (sender, _receiver) = mpsc::channel(64);
+        assert_eq!(
+            reopened
+                .exchange(request, sender, CancellationToken::new())
+                .await,
+            Err(Error("app_chat_input_unavailable"))
+        );
+        let lane = inspect_lane(&root, "bound-native-thread").unwrap();
+        assert_eq!(lane["conversation_id"], "saved-chat");
+        assert_eq!(lane["previous_chats"], json!([]));
+        let commands = state.lock().unwrap().commands.clone();
+        assert_eq!(
+            commands
+                .iter()
+                .filter(|cmd| cmd["op"] == "chat_adopt")
+                .count(),
+            1
+        );
+        assert_eq!(commands.iter().filter(|cmd| cmd["op"] == "open").count(), 1);
+        assert_eq!(
+            commands.iter().filter(|cmd| cmd["op"] == "submit").count(),
+            1
+        );
+        drop(reopened);
+        drop(journal);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     #[tokio::test]
     async fn offline_source_queue_conversion_preserves_reserved_identity_and_blocks_active_downgrade(
     ) {
@@ -3583,6 +3790,9 @@ mod approval_tests {
         commands: Vec<Value>,
         snapshot: Value,
         saved: Vec<Value>,
+        identity_generation: Option<String>,
+        identity_present: Option<bool>,
+        fail_adopt: bool,
         fail_saved_read: bool,
         saved_read_calls: usize,
         reject_repeat_saved_read: bool,
@@ -3596,10 +3806,20 @@ mod approval_tests {
             state.commands.push(command.clone());
             let result = match command["op"].as_str().unwrap() {
                 "identity" => {
-                    json!({"generation":"saved-generation","account":"saved-account","user":"saved-user","structure":"personal","present":true})
+                    json!({"generation":state.identity_generation.as_deref().unwrap_or("saved-generation"),
+                        "account":"saved-account","user":"saved-user","structure":"personal",
+                        "present":state.identity_present.unwrap_or(true)})
                 }
                 "host_status" => json!({"saved_read_backoff":{"cooling_down":false}}),
-                "open" | "chat_adopt" => json!({"localId":"saved-chat"}),
+                "open" => json!({"localId":"saved-chat"}),
+                "chat_adopt" => {
+                    if state.fail_adopt {
+                        return Box::pin(async { Err(Error("app_chat_input_unavailable")) });
+                    }
+                    // The authentic app now has the requested owned lane.
+                    state.identity_present = Some(true);
+                    json!({"localId":"saved-chat"})
+                }
                 "release" => json!({"released":true}),
                 "dispose" => json!({"disposed":true}),
                 "submit" => {

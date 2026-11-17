@@ -704,9 +704,34 @@ async function termuxCodexBridge(command) {
       const {maxDispatches,deadlineUnixMs}=command.limits;
       if(typeof command.nativeThread!=='string'||!Number.isSafeInteger(maxDispatches)||maxDispatches<1||deadlineUnixMs!=null&&(!Number.isSafeInteger(deadlineUnixMs)||deadlineUnixMs<1))fail('assignment_budget_invalid');
       budget=state.workBudgets.get(command.nativeThread);
-      // A missing shared assignment ledger cannot be reconstructed from one
-      // lane's counters; preserve the original cap rather than resetting usage.
-      if(counters&&!budget)fail('assignment_app_ledger_unavailable');
+      // A renderer restart clears in-memory workBudgets. Restore the original
+      // single-Chat assignment with the *already consumed* dispatch highwater
+      // only after Rust has checked the settled Native source, unchanged
+      // account, original assistant anchor and absence of earlier Chat
+      // branches. This never resets used dispatches to zero. If there are
+      // earlier Chat branches or unproved reservations, fail closed rather
+      // than claim an incomplete one-lane counter represents every use.
+      // A renderer can have a zero-reservation placeholder for the exact
+      // Native thread (e.g. an admitted but never submitted opening) even
+      // though the prior Saved Chat already completed more dispatches. The
+      // authenticated original single-Chat record is an *upper* consumption
+      // bound: advancing reserved to that highwater only reduces remaining
+      // allowance, never refunds an old call. Do not adopt while any other
+      // lane still holds that ledger, including an idle unretired declaration.
+      // An externally reduced cap may already be exhausted by the recorded
+      // debits; restore the debits anyway and reject all later submissions.
+      if(counters&&(!budget||budget.reserved<counters.dispatches)) {
+        if(command.op!=='chat_adopt'||command.budget_restore_single_chat!==true||
+           !Number.isSafeInteger(counters.dispatches)||counters.dispatches<1||
+           typeof command.bound_source_anchor!=='string'||
+           command.bound_source_anchor!==command.branch||
+           budget&&[...state.lanes.values()].some(l=>l.budget===budget))
+          fail('assignment_app_ledger_unavailable');
+        if(!budget){
+          budget={maxDispatches,deadlineUnixMs,reserved:counters.dispatches};
+          state.workBudgets.set(command.nativeThread,budget);
+        } else budget.reserved=counters.dispatches;
+      }
       if(budget&&(budget.maxDispatches!==maxDispatches||budget.deadlineUnixMs!==deadlineUnixMs)) {
         // A change cannot erase already-consumed dispatches; only Rust's
         // controller-authenticated work budget operation can update a live

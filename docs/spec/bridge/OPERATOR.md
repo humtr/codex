@@ -309,3 +309,32 @@ verified authorized endpoint and receipt, not a Provider queue submission
 or a file being present. O must explicitly send its final accepted aggregate
 to that endpoint. A must explicitly ACK it, and both observations must be
 recorded before declaring full A/O/W product acceptance.
+
+## Saved Chat identity across Provider/AppHost generations (2026-11-18)
+
+Native work_id and thread_id are not sufficient evidence of a single saved
+ChatGPT conversation. A post-restart completed Native lane can still retain
+an authenticated saved Chat conversation ID and its finalized assistant
+message anchor, plus cumulative source counters. Reentering that same
+logical work should prefer to reattach the identical saved conversation,
+not silently create a new Chat with a duplicate human-readable title.
+
+On a new Native user turn, if the old submitted-inference lane is settled
+and retains a verified final answer anchor, a new renderer generation
+must authenticate the same Linux account, verify the saved Chat is in the
+same project, and use chat_adopt with conversation_id, completed branch,
+source counters, gateway signature and original Native thread. Only after
+a successful identity-bound adoption may the next model dispatch start.
+Failed reattachment is a visible pre-dispatch error; do not fall back to
+a new saved Chat or fabricate a conversation ID. Unsupported unsettled
+rounds, incomplete anchors and account changes retain separate explicit
+fencing/reconciliation policies.
+
+The initial v10 acceptance did observe a W1 successor saved Chat after a
+Provider restart, although its Native work/thread and original data were
+unchanged. The old W1 conversation is preserved as audit history, and
+the successor is not retrospectively represented as the original.
+Subsequent corrective code must pass both a positive source adoption
+test and a negative fail-without-fork test, then be checked against a
+genuine post-restart Linux GPT-6 conversation ID. No status/queued
+receipt alone proves saved Chat identity preservation.

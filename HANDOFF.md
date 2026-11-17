@@ -1,5 +1,51 @@
 # Handoff — one development route and active acceptance plan
 
+## 2026-11-18 active acceptance handoff — primary remaining gates
+
+The full four-actor, event-driven Linux A->O->W1/W2->O->A->O-ACK
+acceptance is ACTUALLY complete: original queued messages consumed,
+original saved Chat actors, actual model turns and durable ACK receipts,
+not just queued registration. See CURRENT.md for the exact IDs/hashes
+and $PREFIX/tmp/ops1672-auto-e2e-20261118-b/evidence for receipts.
+The four logical jobs had all completed with pending/effects zero and
+AppHost active lanes zero at the chain settlement boundary.
+
+The current isolated source branch is
+fix/ops1672-s29-queued-budget-20261117, based on 17a6245e with
+already committed eebabaa9 and d388432a. 0.167.2 Provider v10 was
+deployed privately; 0.169.0 operating Codex remains protected.
+Production release/publication is out of scope. Do not merge main into
+the official development branch rewrite/rust-core.
+
+CURRENT BLOCKER: after a v10 Provider restart, W1's original Native
+work and thread reentered but AppHost opened a successor saved Chat
+instead of preserving the original saved conversation. Source v11
+repair is being tested in providers/chatgpt/src/app.rs. Next:
+(1) pass positive/negative saved Chat adoption regressions, full
+Rust test matrix, Clippy all targets with zero warnings, formatter
+and new binary;
+(2) verify all active lanes/effects zero, rotate v10 to v11 with
+a stored rollback environment and no unrelated service changes;
+(3) deliver ONE read-only queue follow-up to the existing W2
+work/thread and actually verify both Native reentry and unchanged
+saved Chat ID, correct project/account/title and unchanged W2 files;
+(4) reconcile final results, document exact limits, commit,
+and fast-forward rewrite/rust-core only with verified Git ancestry.
+
+Still incomplete: arbitrary Android initiating Chat autonomously
+receiving Native results and returning ACK (Linux A delegate already
+passed); explicit third-party delegated budget adjusters distinct
+from verified direct A/O and O/W parent authority; active-turn budget
+modification; comprehensive before/after-crash and controller-rotation
+failure-injection matrix. Retain original queued call receipts and
+do not create replacement workers or execute original side effects
+on ambiguous status. The W1 successor conversation from the v10
+regression is preserved as audit history.
+
+---
+
+## Older 2026-11-13 stage plan (historical unless reconfirmed)
+
 Updated: **2026-11-13 KST**. This is the **single current execution
 backlog and dependency order**, not a second SPEC, source of observed facts
 or authorization to modify an operating release.

@@ -1,5 +1,88 @@
 # Current product state
 
+## 2026-11-18 verified local E2E — supersedes older installed-state observations below
+
+The 0.169.0 operating entry at $PREFIX/bin/codex was protected; SHA-256
+f5739302eff9b39a6883eca94f0ab4acfb8a79133f7493d392d8277828adeb3b.
+The privately deployed 0.167.2 Provider for development was actual runit
+v10 local-provider-chatgpt-v0.167.2-20261118-auto-budget-v10; its
+running PID/executable was checked and v9 remained available for rollback.
+Do not infer the operating Codex version from the Provider name or a
+legacy symlink. No public release, signing or 0.169 activation occurred.
+
+The real Linux-account project was 코덱스 오케스트레이션, project ID
+g-p-6afc6996acd88191b15bf36dd39c46eb. Native work/task:
+ops1672-auto-e2e-20261118-b under $PREFIX/tmp of the same name.
+All actors used janmori101, submitted GPT-6 Thinking xhigh Non-Pro:
+- A d58b5333016667a3c1781ff852fb0a8fcfc4a9f383dab078
+  / thread 01a1eacc-64b3-7b63-ae28-0310e0275991
+  / saved Chat 6afc9f08-04cc-83ec-b9a1-1f0ce82807c4.
+- O 72c39a92d967502a372b8b78cfb8f8d47f80a943cf570260
+  / thread 01a1ead0-03f3-7ba3-bbf3-96c5b1611148
+  / saved Chat 6afc9ffd-5a20-83e8-a54f-c33bd20f447b.
+- W1 aa5b98685e1bd263245a64ce6364020f89e602a83fae0669
+  / thread 01a1ead3-9a8d-7472-aef2-6308ea046e6a
+  / original saved Chat 6afca0ef-780c-83ee-8a04-c3affc6ee86d.
+- W2 7db41a86a57ae7eb92250430371e46ba37de004f3b34a6a8
+  / thread 01a1ead3-da0b-7f33-8f60-0b7c78f9af2a
+  / saved Chat 6afca0fd-bb30-83e8-855f-fc03de6c9b1d.
+
+A independently created and started O. O independently allocated/started
+two worker saved Chats and ended its turn. W1 generated 512 deterministic
+CSV rows; W2 independently computed six statistics. Both returned an
+explicit final Native marker and the Provider automatically posted a
+deduplicated native_auto_result_v1 to the original O thread. O consumed
+both in distinct model turns, checked source hashes, produced a final
+report, posted original W1/W2 ACKs which both workers consumed, and
+delivered FINAL_RESULT_V1 to the original Linux A saved Chat. A actually
+consumed and verified this message and posted its own ACK. O consumed
+the ACK in yet another original Native turn and recorded ack-received.json.
+All four original works then showed completed, pending_calls 0,
+unconfirmed_effects 0 and AppHost active model lanes 0.
+
+The observed six statistics were count=512, sum=9559296, min=19,
+max=37365, even_id_sum=4770176 and odd_id_sum=4789120.
+Original CSV SHA-256:
+a877eb75ade06befedf6065fb6d2ebb8d607e85b643f9110246a7f8a4c6b5b5f.
+The job/evidence directory includes original queue client IDs, the
+actual message-consumption history, W1 proof, W2 independent reference,
+O report, A receipt, A ACK and supervisor independent verification.
+The A in this acceptance was a Linux ChatGPT delegate, not the
+currently active Android ChatGPT application; native Android automatic
+queue consumption remains NOT_TESTED.
+
+New work budget defaults: 3600 seconds per Native model turn (queue
+waiting does not consume its next turn), max 100 turns, 2000 Native
+calls, 2000 app starts and parallel max five. Old journal records use
+21600 seconds/session fallback. Actual v10 authorized A-to-O and
+O-to-W1 budget edits succeeded, an original call_id idempotently
+returned the same receipt, a 2-turn/4-call ceiling rejected a queued
+W1 turn before admission, and parent-controlled restoration retained
+all consumed counters. The same original W1 queue call then ran a
+read-only post-restart model turn and returned
+V10_BUDGET_RECOVERY_CONFIRMED W1 512 9559296.
+
+Known saved-Chat identity regression in v10: the post-restart W1 turn
+retained native work/thread but created successor saved Chat
+6afca515-3448-83ee-848c-88c0ed1ce4c7 instead of continuing the
+original W1 saved Chat. The earlier saved Chat remains preserved,
+not overwritten. Source repair requires authenticated chat_adopt with
+the saved final-answer anchor and a real post-restart acceptance.
+Do not call this aspect passed merely because the Native IDs match.
+
+Build evidence before the latest identity repair: 358 Provider Rust
+library tests passed (five ignored), strict formatting/Clippy,
+v10 all-target Clippy and actual build all succeeded. The isolated
+source includes commits eebabaa9b527164fb4b81359287a5cea7cd3d418
+(auto-result and 1h/turn budgets) and
+d388432a0f7b74e8eab8231160022897098f7e6e
+(parent-only budget CLI). Historical reconciliation-required works
+are not new-job unsettled effects and were not silently reset.
+
+---
+
+## 2026-11-13 historical snapshot (superseded where inconsistent)
+
 Observed: **2026-11-13 14:22 KST** (source/CI/Termux read-only observations).
 This file records verified facts and evidence boundaries, not implementation obligations.
 Requirements: [SPEC](SPEC.md) and [functional annexes](docs/spec/INDEX.md).
