@@ -69,14 +69,33 @@ jobs:
     permissions:
       contents: write
     timeout-minutes: 10
+    # Dispatches from different refs may target the SAME Release tag. Keep one
+    # publisher per tag globally without cancelling a partially uploaded job.
+    concurrency:
+      group: wrapper-publish-${{ github.repository }}-${{ inputs.release_tag || github.ref_name }}
+      cancel-in-progress: false
     steps:
+      - name: Checkout exact publishing source
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          git init .
+          git remote add origin "https://github.com/$GITHUB_REPOSITORY.git"
+          git fetch --no-tags --depth=1 origin "$SOURCE_SHA"
+          git checkout --detach FETCH_HEAD
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+
       - name: Download packaged release artifact
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           name: wrapper-android
           path: ${{ runner.temp }}/dist
 
-      - name: Create or update GitHub Release
+      - name: Publish and verify source tag, notes and exact uploaded bytes
+        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           EVENT_NAME: ${{ github.event_name }}
@@ -90,37 +109,12 @@ jobs:
           else
             tag="$REF_NAME"
           fi
-          case "$tag" in
-            '' | *[!A-Za-z0-9._-]* )
-              echo "invalid release tag: $tag" >&2
-              exit 1
-              ;;
-          esac
-
-          dist="$RUNNER_TEMP/dist"
-          sha_line="$(cat "$dist/codex-wrapper-aarch64-linux-android.tar.gz.sha256")"
-          notes="$(printf '%s\n' \
-            "Termux codex wrapper ($tag)." \
-            "" \
-            "- Source commit: $GITHUB_SHA" \
-            "- Target: aarch64-linux-android (Android API 24)" \
-            "- Archive SHA-256: $sha_line" \
-            "- Install in Termux:" \
-            "  curl -fsSL https://github.com/$GITHUB_REPOSITORY/releases/download/$tag/install.sh | sh")"
-
-          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
-              gh api -X PATCH "repos/$GITHUB_REPOSITORY/git/refs/tags/$tag" \
-                -f "sha=$GITHUB_SHA" >/dev/null 2>&1 || true
-            fi
-            gh release upload "$tag" "$dist"/* --repo "$GITHUB_REPOSITORY" --clobber
-            gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --notes "$notes"
-          else
-            flags=(--repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "Termux Codex Wrapper ($tag)" --notes "$notes")
-            if [ "$EVENT_NAME" = "workflow_dispatch" ] && [ "$INPUT_PRERELEASE" = "true" ]; then
-              flags+=(--prerelease)
-            elif [ "$EVENT_NAME" != "workflow_dispatch" ] && [[ "$tag" == *-* ]]; then
-              flags+=(--prerelease)
-            fi
-            gh release create "$tag" "$dist"/* "${flags[@]}"
+          flags=(--repo "$GITHUB_REPOSITORY" --tag "$tag"
+                 --source-sha "$GITHUB_SHA" --dist "$RUNNER_TEMP/dist")
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            flags+=(--dispatch)
+            if [ "$INPUT_PRERELEASE" = "true" ]; then flags+=(--prerelease); fi
+          elif [[ "$tag" == *-* ]]; then
+            flags+=(--prerelease)
           fi
+          PYTHONDONTWRITEBYTECODE=1 python3 .github/scripts/publish_wrapper_release.py "${flags[@]}"

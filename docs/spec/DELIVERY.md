@@ -1558,6 +1558,27 @@ than one observed call site.
 
 ## Release execution
 
+### Stage 1 GitHub Release source and uploaded-byte binding
+
+The standalone Wrapper publisher runs only after the exact source SHA's CI
+packaging and smoke qualification. It must verify the real Git tag's peeled
+commit (including annotated tags), its verified source commit, and each local
+asset's actual SHA-256 before mutation. Existing lightweight tags may be moved
+only by explicitly authorized publication, never to conceal a failed update;
+a mismatched annotated tag is preserved and requires manual reconciliation.
+Tag readback must succeed before upload and after all asset readbacks. Upload
+or tag API failures cannot be suppressed or retried blindly.
+
+Each upload is followed by GitHub API metadata and a fresh download of the exact
+assets; local and downloaded SHA-256, byte size, archive checksum and Release
+notes source/archive SHA must all match. `target_commitish` is a separate
+Release metadata field, not proof that the Git tag moved; its mismatch is
+reported independently rather than accepted as a source/asset mismatch. GitHub
+Actions publishing is serialized per tag, with no cancellation of an in-flight
+publisher. The verifier runs with mock GitHub responses during ordinary CI and
+must never publish an actual Release as part of pull-request verification.
+
+
 One maintained release workflow owns construction and publication. main is a
 small immutable-source caller, with no second implementation or manually mirrored
 producer. The caller selects an accepted exact implementation commit; nested

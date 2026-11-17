@@ -100,6 +100,12 @@ jobs:
             git diff --check HEAD^ HEAD
           fi
 
+      - name: Mock release publication negative and provenance tests (no public mutation)
+        shell: bash
+        run: |
+          set -euo pipefail
+          PYTHONDONTWRITEBYTECODE=1 python3 .github/scripts/test_publish_wrapper_release.py
+
       - name: Install Rust toolchain
         shell: bash
         run: |

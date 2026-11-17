@@ -56,6 +56,26 @@ Wrapper + 8 release-builder tests with no failures. The faults are deterministic
 userspace I/O interruptions, not a physical power-cut proof; GitHub CI checks
 remain separate acceptance gates.
 
+### P0 GitHub Release provenance qualification (2026-11-17; isolated worktree)
+
+Read-only public GitHub API and exact asset download confirmed lightweight tag
+`wrapper` points at `0519fc5c18f7f330f1391775afd6442f5513094d`, matching
+Release body `Source commit`, and archive 886,125 bytes hashes to
+`cccefd20e8affd743cad52b23872aaf47b27e79467a725cbea4161d4ecc6b567`,
+matching the Release API asset digest. In contrast `targetCommitish`
+was `bc816505e7eef4f5590a68e6b5bb5da91820ce59`, a **metadata-only drift**
+in that published state. No public tag/Release was mutated. The release workflow
+now invokes `.github/scripts/publish_wrapper_release.py` only from the
+publication job, after source checkout; it performs exact Git commit/tag
+validation (with annotated tag peeling), local SHA checks, per-asset download
+and byte readback, note validation and final tag recheck. The publisher is
+serialized per target tag and no error is ignored. The offline fake-GitHub
+suite `.github/scripts/test_publish_wrapper_release.py` passed 16/16,
+including tag/API failures, incorrect tags/sources/notes/bytes, partial upload,
+annotated tags and concurrent tag drift. **No new public release** and no real
+publication-mode mutation has been accepted here; GitHub CI remains a separate
+gate.
+
 ### Status and scope
 Stage 1 decouples `crates/wrapper` (`codex`) and `crates/release-builder` (`codex-release-builder`) into a standalone, zero-addon Termux compatibility wrapper aligned with [SPEC.md](SPEC.md) Sections 1–5 (`Stage 1` vs `Stage 2` architecture).
 - `Cargo.toml` contains only `crates/wrapper` and `crates/release-builder`, and `Cargo.lock` locks only `codex`, `codex-release-builder`, and `libc` (`0.2.186`). Zero non-wrapper addon crates, providers, TUI patches, or legacy CI/qualification scripts remain tracked on `rewrite/wrapper`.
