@@ -1,6 +1,62 @@
 # Current product state
 
-## 2026-11-18 verified local E2E — supersedes older installed-state observations below
+## 2026-11-18 Provider v12 original Saved Chat reentry acceptance — PASS
+
+The 0.167.2 Provider now runs as the private **v12** generation under
+`/data/data/com.termux/files/home/.local/lib/codex/providers/chatgpt/generations/local-provider-chatgpt-v0.167.2-20261118-ledger-v12`.
+The actual runit PID/executable was verified, and the pre-v12 v11
+provider state and runit environment were independently backed up. The
+Provider binary SHA-256 is
+`2f2f6249b1e3fbdcbe671b04e0768359e165e28e95491144ae33bb35164bb1e4`.
+This is a local development Provider activation, **not** a public build,
+signed publication or a change to the stable 0.169 operating Core.
+The actual stable `/data/data/com.termux/files/usr/bin/codex` SHA-256
+remains `f5739302eff9b39a6883eca94f0ab4acfb8a79133f7493d392d8277828adeb3b`.
+
+Reproduced v11 defect: after renderer restart, a completed original W2
+Native turn was able to locate the original Saved Chat final anchor, but
+`chat_adopt` rejected its original two consumed app dispatches with
+`assignment_app_ledger_unavailable` when the new renderer retained a
+smaller reserved ledger. The fix permits a **monotonic consumed-highwater
+restore** only for a single authenticated, exact original Saved Chat and
+fully settled prior turns. An active, changed or unauthenticated lane is
+fenced; an already exhausted allowance stays exhausted and cannot be
+refunded by recovery or a changed cap. No new saved Chat is a fallback.
+
+Original W2 `work_id=7db41a86a57ae7eb92250430371e46ba37de004f3b34a6a8`,
+Native thread `01a1ead3-da0b-7f33-8f60-0b7c78f9af2a` was explicitly
+claimed after exact native history/context cursor reconciliation; no
+replacement work/thread was allocated. Its new idempotent queued input
+`ops1672-auto-e2e-20261118-b-W2-v12-saved-chat-reentry-001`
+admitted exactly **one** new native turn
+`01a1eb7c-e803-7ce3-92ec-0057ca3dba10`, which completed in the
+**same original Saved Chat**
+`6afca0fd-bb30-83e8-855f-fc03de6c9b1d`, with final text:
+`V12_SAVED_CHAT_REENTRY_CONFIRMED W2 512 9559296`.
+W2 was `completed`, Native `idle`, source app lane `idle`, cumulative
+app dispatches **3** (the original **2**, plus **1** new), no previous
+saved-Chat branches, no pending calls and zero unconfirmed Native effects.
+The existing W2 `reference.json` SHA-256 remains
+`6cd6e17dd15e4ca81dfa177aad376668262cf751d6cb071832366341a7584017`.
+The original A/O/W1/W2 works all ended `completed`, Host active lanes **0**,
+and original O consumption of A's ACK is preserved. The older W1 successor
+Chat in the v10 failure remains historical evidence, not silently repaired.
+
+Acceptance evidence is
+`$PREFIX/tmp/ops1672-auto-e2e-20261118-b/evidence/v12-final-acceptance.json`,
+SHA-256
+`b08d30f1982f843a0fa532fb528a12bb99a73092fe8189e07a0e92f9f7996b16`.
+Source/test commit `8f1adb5e3b01592cbb7ba2b5cdd6fac094ff17cb`:
+App bridge JS **119 pass, 0 fail**, Rust library **361 pass, 0 fail,
+5 ignored**, strict Clippy **0 warnings**, formatter pass, full Provider
+binary build pass. This proves the **original Linux Saved Chat reentry**,
+not an Android-current-chat unsolicited message or its automatic ACK.
+Those Android recipient-boundary and additional fault-injection gates
+remain NOT_TESTED; no other historical unfinished job is reclassified.
+
+---
+
+## 2026-11-18 earlier verified local E2E — prior to v12 reentry acceptance
 
 The 0.169.0 operating entry at $PREFIX/bin/codex was protected; SHA-256
 f5739302eff9b39a6883eca94f0ab4acfb8a79133f7493d392d8277828adeb3b.

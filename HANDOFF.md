@@ -1,6 +1,39 @@
 # Handoff — one development route and active acceptance plan
 
-## 2026-11-18 active acceptance handoff — primary remaining gates
+## 2026-11-18 current handoff after Provider v12 live reentry — verified
+
+The original Linux A -> O -> W1/W2 -> O -> A -> O-ACK orchestration
+job `ops1672-auto-e2e-20261118-b` passed with all four original works
+completed and actual saved-Chat model turns and message-consumption ACKs.
+After a v11 Provider restart exposed the W2 Saved Chat app-ledger defect,
+v12 restored consumed dispatch highwater without refunding allowance or
+admitting a duplicate worker. Exact-cursor claim of the **same original W2**
+then delivered one new read-only queued turn to the **identical original
+Saved Chat**, with final `V12_SAVED_CHAT_REENTRY_CONFIRMED W2 512 9559296`.
+Original Native thread and source conversation ID are unchanged, app
+usage 2 -> 3, no extra saved-Chat branch, pending calls/effects 0,
+Host active lanes 0. Evidence and precise SHA/call IDs:
+`CURRENT.md` and
+`$PREFIX/tmp/ops1672-auto-e2e-20261118-b/evidence/v12-final-acceptance.json`.
+Provider v12 is privately active under runit, v11 rollback assets exist,
+and the 0.169.0 operating Core SHA is unchanged. Source/test commit
+`8f1adb5e` passed JS 119/119, Rust 361/361 (+5 ignored), strict Clippy,
+format and Provider build. No public publication or signing occurred.
+
+**Remaining authorized acceptance scope:** (1) an actual current **Android
+A** receiving an O result and producing an authenticated ACK (Linux A
+is already proven; do not substitute it); (2) failure injection for
+crash/owner/controller boundaries and active-turn/externally delegated
+budget edits, maintaining durable call-id idempotence; (3) separate
+review/integration to `rewrite/rust-core` only after exact remote
+ancestry, source/scope and CI requirements are checked. The initial v10
+W1 successor saved Chat is preserved as historic regression evidence;
+its identity is not retroactively changed by W2 v12 acceptance. Do
+not create replacement original workers or replay settled side effects.
+
+---
+
+## 2026-11-18 prior handoff before v12 — superseded where inconsistent
 
 The full four-actor, event-driven Linux A->O->W1/W2->O->A->O-ACK
 acceptance is ACTUALLY complete: original queued messages consumed,

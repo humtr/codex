@@ -338,3 +338,29 @@ Subsequent corrective code must pass both a positive source adoption
 test and a negative fail-without-fork test, then be checked against a
 genuine post-restart Linux GPT-6 conversation ID. No status/queued
 receipt alone proves saved Chat identity preservation.
+
+### Guarded consumed app-ledger recovery and actual v12 acceptance
+
+A restarting renderer may contain an empty placeholder assignment budget
+for the same Native thread while the old, finalized Saved Chat already
+consumed more dispatches. The app may increase only that original thread
+ledger's consumed `reserved` highwater after a verified settled single
+saved-Chat adoption with the identical authenticated account, final source
+anchor, project, nativeThread and canonical cumulative counters. This
+never refunds an app-start budget. Reject adoption if another lane still
+owns the ledger, the source history is multi-chat/unsolved, the counter
+is not safe, or authorization/identity is missing. A cap reduced below
+already consumed dispatches leaves the ledger exhausted: subsequent
+model submissions are rejected before dispatch. On failure, preserve
+native and saved-Chat source identities without silent fork/replay.
+
+The positive, negative, restart and exhausted-ledger tests passed (119 JS
+cases; 361 Rust tests, five ignored). Live Provider v12 subsequently
+claimed the original W2 work after exact native-history reconciliation,
+queued one new read-only W2 turn, and observed **one actual GPT-6 Thinking
+final** in original saved Chat `6afca0fd-bb30-83e8-855f-fc03de6c9b1d`
+with exact result `V12_SAVED_CHAT_REENTRY_CONFIRMED W2 512 9559296`.
+The cumulative app dispatches became 3, previous Chat branches remained
+empty, and pending effects remained zero. See `CURRENT.md` and the private
+2026-11-18 v12 evidence record. This does not certify an arbitrary
+Android A recipient/ACK or every crash failure-injection path.
