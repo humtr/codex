@@ -252,16 +252,36 @@ are separate gates, including host dependencies and measured starts/submissions.
 No real Chat submission, account migration, live installation change or new default
 is implied by this specification. CURRENT owns detailed scope and proof.
 
+## Read-only recovery audit for legacy Native ownership (2026-11-19)
+
+`work audit --work-id <original>` queries the durable Provider work and
+Broker/Native-effect ledger even if the original Core process has exited.
+It returns recorded phase, original PID identity match, pending-entry count,
+unsettled offered and unoffered call counts, and owned effect counts. It does
+**not** resume an old Native thread, create a replacement work, retire a
+Broker call, or claim that an old execution completed. In particular, the
+four `offered=false` MCP calls observed in the 29-work audit are not proof
+that the corresponding Native turns or all independent Core effects settled.
+Retirement still requires explicit original history and effect receipts.
+
 ## Event-driven RESULT and independent turn-time allowance (2026-11-18 local development)
 
 A native model turn and the logical assignment are different state machines.
 An observed Native turn/completed alone does not mean the logical job completed.
 For newly assigned child works with role=worker, the Provider recognizes a
-terminal result only when the current completed Native turn has a nonempty
-final-answer item whose text begins with NATIVE_RESULT_READY_V1 followed by a
-space. A progress turn, an interrupted turn, and a later worker ACK-consumption
-turn do not match. Legacy journal assignments default to auto_result=false;
-a Provider upgrade must never resend their previously manual RESULT.
+terminal result only when the current completed Native turn contains an
+explicit NATIVE_RESULT_READY_V1 declaration followed by a typed JSON object
+with a terminal status and a result field. Plain text, fenced JSON, and known
+rendering wrappers are accepted without relaxing provenance. Bare mentions,
+progress turns, interrupted turns, and later worker ACK-consumption turns do
+not match. The model-supplied result_marker_payload is included as untrusted
+data; the parent must independently verify original work/turn and proof bytes.
+An opt-in sidecar record keyed by original work_id selects the new parser
+only for newly registered workers. Existing work/assignment v3 records stay
+binary rollback-readable and retain their old exact-prefix policy, preventing
+retroactive delivery of W2-W5-like formatted results on a Provider upgrade.
+Legacy journal assignments default to auto_result=false; a Provider upgrade
+must never resend their previously manual RESULT.
 
 When a marked worker completes, the Provider obtains the current turn's
 canonical Native final-answer items (not a synthesized host message), checks
