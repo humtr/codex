@@ -395,22 +395,28 @@ jobs:
           printf '%s\n' "$reset" | grep -F 'addons: none'
           printf '%s\n' "$reset" | grep -F 'signed_update: true'
 
-          # Symlinked wrapper.toml must fail closed on AArch64 Bionic without following or overwriting target.
+          # Inspection reports invalid settings. Mutation must reject the symlink.
           sym_target="$RUNNER_TEMP/symlink-target.toml"
           printf 'manager = false\n' > "$sym_target"
           rm -f "$cfg"
           ln -s "$sym_target" "$cfg"
           set +e
-          smoke_codex wrapper setup show >/dev/null 2>&1
+          sym_read="$(smoke_codex wrapper setup show)"
           sym_read_rc=$?
           smoke_codex wrapper setup --bare >/dev/null 2>&1
           sym_write_rc=$?
-          smoke_codex wrapper status --json >/dev/null 2>&1
+          sym_status="$(smoke_codex wrapper status --json)"
           sym_status_rc=$?
           set -e
-          test "$sym_read_rc" -ne 0
-          test "$sym_write_rc" -ne 0
-          test "$sym_status_rc" -ne 0
+          test "$sym_read_rc" -eq 0
+          printf '%s\n' "$sym_read" | grep -Fx 'addons: invalid'
+          printf '%s\n' "$sym_read" | grep -Fx 'signed_update: unknown'
+          test "$sym_write_rc" -eq 2
+          test "$sym_status_rc" -eq 1
+          printf '%s\n' "$sym_status" | grep -F '"addons":"invalid"'
+          printf '%s\n' "$sym_status" | grep -F '"signed_update":null'
+          test -L "$cfg"
+          test "$(readlink "$cfg")" = "$sym_target"
           test "$(cat "$sym_target")" = 'manager = false'
           rm -f "$cfg" "$sym_target"
 
