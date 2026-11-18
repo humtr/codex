@@ -647,10 +647,19 @@ command boundary:
 #### External profile environment binding (`CODEX_SHARED_HOME`, `CODEX_SQLITE_HOME`)
 
 Minimal standalone Wrapper implements no profile registry or profile CRUD commands:
-bare `codex` runs against `$CODEX_HOME` (default `$HOME/.codex`). External launchers
-(such as `ai` or future Stage 2 modules) may manage independent account directories
-holding only per-account `auth.json` and isolated `app-server-control`/`app-server-daemon`
-state, passing `CODEX_HOME=<profile_home>` alongside `CODEX_SQLITE_HOME` (preserved verbatim)
+bare `codex` runs against `$CODEX_HOME` (default `$HOME/.codex`). On a fresh
+home, the first TUI invocation eligible to use a managed daemon, or an explicit
+start route, can prepare the default link to `$HOME/.codex/packages/standalone/current`
+as specified in [Stage 1 ownership](../../SPEC.md). Upstream controls
+the actual daemon launch, including the effect of configuration and sign-in.
+Help (including `-hV`), version, queries, `--no-daemon`, `--remote`, and direct
+`app-server daemon update --from-cli` skip link preparation. `--from-cli` in an
+empty home continues to report that no daemon package is selected.
+External launchers
+(such as `ai` or future Stage 2 modules, or optional `contrib/codex-account`) may
+manage independent account directories holding only per-account `auth.json` and
+isolated `app-server-control`/`app-server-daemon` state, passing
+`CODEX_HOME=<profile_home>` alongside `CODEX_SQLITE_HOME` (preserved verbatim)
 and/or `CODEX_SHARED_HOME=<shared_home>`. When `CODEX_SHARED_HOME` is supplied on an
 ordinary upstream launch or `codex doctor` (and differs from `CODEX_HOME`), Wrapper defaults `CODEX_SQLITE_HOME`
 to `CODEX_SHARED_HOME` if unset, ensures private `0700` shared directories, reconciles
@@ -1155,10 +1164,10 @@ Manager-owned success output before Wrapper runs. For `default` it explicitly se
 profile home. Manager removes an inherited `CODEX_SQLITE_HOME` override instead
 of producing a parallel shared-store selection signal. Wrapper derives the shared
 root from the supported execution home and supplies canonical shared-state / SQLite
-env and immutable FD 34 overrides (preserving Stage 1's global `config.toml`
-with `sandbox_mode = "danger-full-access"`,
-`mcp_oauth_credentials_store = "file"`, and
-`thread_unload_delay_secs = 0` without mutating per-user `config.toml`). In Stage 2, an optional
+env and immutable FD 34 overrides built from Stage 1's Termux compatibility
+settings and explicit module fragments. Thread lifetime follows the selected
+upstream runtime and explicit configuration at its normal precedence.
+Per-user `config.toml` is preserved. In Stage 2, an optional
 Wrapper-owned `requirements.toml` is supplied only if a selected upstream
 execution topology still requires `sqlite_home` or rollout-migration pins, and
 is removed or replaced only through the Wrapper marker contract so a profile

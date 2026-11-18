@@ -468,14 +468,21 @@ mod tests {
         let generation_root = home.join(".codex/packages/standalone/releases");
         let state_root = home.join(".local/share/codex/wrapper");
         let config_dir = state_root.join("config");
-        fs::create_dir_all(&config_dir).unwrap();
+        crate::tests::create_private_test_dirs(&config_dir);
         let state_paths = generation_state::WrapperStatePaths::new(&state_root).unwrap();
         generation_state::prepare_wrapper_state_paths(&state_paths).unwrap();
         let lock = generation_state::acquire_activation_lock(&state_paths).unwrap();
         let mut io = generation_state::FsActivationIo;
         let ptr = generation_state::plan_initial_pointer_state("0.169.1-abcdef").unwrap();
-        generation_state::activate_pointer_state_locked(&state_paths, None, &ptr, &mut io, &lock)
-            .unwrap();
+        generation_state::activate_pointer_state_locked(
+            &state_paths,
+            generation_state::ActivationOperation::Update,
+            None,
+            &ptr,
+            &mut io,
+            &lock,
+        )
+        .unwrap();
         drop(lock);
 
         let roots = LocalWrapperRoots {

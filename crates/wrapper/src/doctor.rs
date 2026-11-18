@@ -1273,7 +1273,7 @@ mod tests {
         let state_root = home.join(".local/share/codex/wrapper");
         let config_dir = state_root.join("config");
         let generation_root = home.join(".codex/packages/standalone/releases");
-        fs::create_dir_all(&config_dir).unwrap();
+        crate::tests::create_private_test_dirs(&config_dir);
         fs::create_dir_all(&generation_root).unwrap();
         let resolver_path = root.join("resolv.conf");
         fs::write(&resolver_path, b"nameserver 1.1.1.1\n").unwrap();

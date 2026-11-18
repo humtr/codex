@@ -494,7 +494,7 @@ mod tests {
         .unwrap();
         assert_eq!(first.path, same.path);
         let cfg_text = fs::read_to_string(first.path.join("config.toml")).unwrap();
-        assert_eq!(cfg_text.matches("thread_unload_delay_secs = 0").count(), 1);
+        assert!(!cfg_text.contains("thread_unload_delay_secs"));
         assert!(cfg_text.ends_with("# ext A\n"));
         assert_eq!(
             render_snapshot_config(b"").unwrap(),
@@ -727,14 +727,58 @@ mod tests {
         let (resolver, _) = test_env_and_resolver(&root);
         let config = root.join("config");
 
-        let live = prepare(
+        let fragment = b"# live\n";
+        let old = [
+            crate::TERMUX_WRAPPER_CONFIG_CONTENT.as_bytes(),
+            b"thread_unload_delay_secs = 0\n\n",
+            fragment,
+        ]
+        .concat();
+        let snapshots = config.join("snapshots");
+        let live_path = snapshots.join(settings_identity(&old, None));
+        fs_util::private_dir(&config).unwrap();
+        fs_util::private_dir(&snapshots).unwrap();
+        fs_util::private_dir(&live_path).unwrap();
+        fs::write(live_path.join("config.toml"), &old).unwrap();
+        let live_lease = File::open(&live_path).unwrap();
+        fs_util::flock_fd(&live_lease, fs_util::LOCK_SH).unwrap();
+        let replacement = prepare(
             &config,
             ExtensionFd34Input {
-                fragment: Some(b"# live\n"),
+                fragment: Some(fragment),
                 requirements: None,
             },
         )
         .unwrap();
+        assert_ne!(replacement.path, live_path);
+        assert_eq!(
+            fs::read(replacement.path.join("config.toml")).unwrap(),
+            [
+                crate::TERMUX_WRAPPER_CONFIG_CONTENT.as_bytes(),
+                b"\n",
+                fragment
+            ]
+            .concat()
+        );
+
+        let explicit = b"thread_unload_delay_secs = 0\n";
+        let explicit_snapshot = prepare(
+            &config,
+            ExtensionFd34Input {
+                fragment: Some(explicit),
+                requirements: None,
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            fs::read(explicit_snapshot.path.join("config.toml")).unwrap(),
+            [
+                crate::TERMUX_WRAPPER_CONFIG_CONTENT.as_bytes(),
+                b"\n",
+                explicit
+            ]
+            .concat()
+        );
         let stale = prepare(
             &config,
             ExtensionFd34Input {
@@ -743,13 +787,12 @@ mod tests {
             },
         )
         .unwrap();
-        let live_path = live.path.clone();
         let stale_path = stale.path.clone();
         drop(stale);
 
         // Spawn a real child holding FD 34 onto `live` while dropping parent's `live.lease`.
         let ready = root.join("child-ready");
-        let fds = RuntimeFdSources::open_with_config_file(&resolver, &live.lease).unwrap();
+        let fds = RuntimeFdSources::open_with_config_file(&resolver, &live_lease).unwrap();
         let mut cmd = Command::new(shell_executable());
         cmd.arg("-c").arg(format!(
             "echo ok > '{}'; while [ -f '{}' ]; do sleep 0.05; done",
@@ -758,7 +801,7 @@ mod tests {
         ));
         fds.configure(&mut cmd);
         let mut child = cmd.spawn().unwrap();
-        drop(live);
+        drop(live_lease);
         drop(fds);
 
         let until = Instant::now() + Duration::from_secs(5);
@@ -768,7 +811,7 @@ mod tests {
         }
 
         prune(&config).unwrap();
-        assert!(live_path.exists());
+        assert_eq!(fs::read(live_path.join("config.toml")).unwrap(), old);
         assert!(!stale_path.exists());
 
         let _ = fs::remove_file(&ready);

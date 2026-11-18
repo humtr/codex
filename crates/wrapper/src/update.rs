@@ -1,4 +1,5 @@
 use crate::generation_state;
+use crate::generation_state::ActivationOperation;
 use crate::maintenance;
 use crate::remote_download;
 use crate::{
@@ -933,9 +934,17 @@ impl UpdatePresentation {
         }
     }
 
-    fn fail(&mut self, error: &LocalProductError) {
+    fn fail(&mut self, error: &LocalProductError) -> i32 {
         self.clear_transient();
         eprintln!("codex update: {error}");
+        if matches!(
+            error,
+            LocalProductError::State(generation_state::ActivationTransactionError::CommitSync(_))
+        ) {
+            3
+        } else {
+            1
+        }
     }
 }
 
@@ -983,40 +992,6 @@ fn local_update_generation_id(
         }
     }
     base
-}
-
-fn sync_standalone_current_symlink(
-    roots: &LocalWrapperRoots,
-    generation_id: &str,
-) -> Result<(), LocalProductError> {
-    let Some(standalone_root) = roots.generation_root.parent() else {
-        return Ok(());
-    };
-    let current_link = standalone_root.join("current");
-    let target = roots
-        .generation_root
-        .file_name()
-        .map(|name| PathBuf::from(name).join(generation_id))
-        .unwrap_or_else(|| roots.generation_root.join(generation_id));
-    if std::fs::symlink_metadata(&current_link).is_ok_and(|m| m.file_type().is_symlink())
-        && std::fs::read_link(&current_link).ok().as_ref() == Some(&target)
-    {
-        return Ok(());
-    }
-    let tmp_link = standalone_root.join(format!(".current.{}.tmp", std::process::id()));
-    let _ = std::fs::remove_file(&tmp_link);
-    std::os::unix::fs::symlink(&target, &tmp_link).map_err(|source| LocalProductError::Io {
-        operation: "create temporary standalone current symlink",
-        source,
-    })?;
-    if let Err(source) = std::fs::rename(&tmp_link, &current_link) {
-        let _ = std::fs::remove_file(&tmp_link);
-        return Err(LocalProductError::Io {
-            operation: "publish standalone current symlink",
-            source,
-        });
-    }
-    sync_directory(standalone_root)
 }
 
 fn running_wrapper_artifact() -> Result<PathBuf, LocalProductError> {
@@ -1120,6 +1095,52 @@ fn ensure_writable_roots(roots: &LocalWrapperRoots) -> Result<(), LocalProductEr
     Ok(())
 }
 
+fn activation_paths(
+    roots: &LocalWrapperRoots,
+) -> Result<generation_state::WrapperStatePaths, LocalProductError> {
+    generation_state::WrapperStatePaths::new(&roots.state_root)
+        .map(|paths| paths.with_generation_root(&roots.generation_root))
+        .map_err(LocalProductError::StateFormat)
+}
+
+fn activate_generation(
+    paths: &generation_state::WrapperStatePaths,
+    operation: ActivationOperation,
+    before: Option<&generation_state::GenerationPointerState>,
+    after: &generation_state::GenerationPointerState,
+    lock: &generation_state::ActivationLockGuard,
+) -> Result<(), LocalProductError> {
+    use generation_state::ActivationTransactionError::{CommitSync, CommittedCleanup, Io};
+
+    let mut io = generation_state::FsActivationIo;
+    match generation_state::activate_pointer_state_locked(
+        paths, operation, before, after, &mut io, lock,
+    ) {
+        Ok(()) => Ok(()),
+        Err(err @ CommittedCleanup { .. }) => {
+            eprintln!("codex update: warning: {err}");
+            Ok(())
+        }
+        Err(err @ Io { .. }) => {
+            // A link operation may have changed the filesystem before failing.
+            // Repair it from the journal while still holding the writer lock.
+            match generation_state::recover_activation_locked(paths, &mut io, lock) {
+                Ok((state, _)) if state.as_ref() == Some(after) => {
+                    eprintln!("codex update: warning: activation recovered after: {err}");
+                    Ok(())
+                }
+                Ok(_) => Err(LocalProductError::State(err)),
+                Err(recovery @ CommitSync(_)) => Err(LocalProductError::State(recovery)),
+                Err(recovery) => {
+                    eprintln!("codex update: activation recovery is pending: {recovery}");
+                    Err(LocalProductError::State(err))
+                }
+            }
+        }
+        Err(err) => Err(LocalProductError::State(err)),
+    }
+}
+
 fn current_loaded_generation(
     roots: &LocalWrapperRoots,
 ) -> Result<
@@ -1129,10 +1150,19 @@ fn current_loaded_generation(
     ),
     LocalProductError,
 > {
-    let state_paths = generation_state::WrapperStatePaths::new(&roots.state_root)
-        .map_err(LocalProductError::StateFormat)?;
-    let before = generation_state::recover_activation_state(&state_paths)
+    let state_paths = activation_paths(roots)?;
+    let lock = generation_state::acquire_activation_lock(&state_paths)
         .map_err(LocalProductError::State)?;
+    let (before, _) = generation_state::recover_activation_locked(
+        &state_paths,
+        &mut generation_state::FsActivationIo,
+        &lock,
+    )
+    .map_err(LocalProductError::State)?;
+    state_paths
+        .read_standalone_current()
+        .map_err(LocalProductError::State)?;
+    drop(lock);
     let loaded = match before.as_ref() {
         Some(state) => Some(load_local_generation(
             &roots.generation_root.join(&state.current),
@@ -1156,16 +1186,17 @@ fn install_built_generation_dir(
 
     ensure_writable_roots(roots)?;
     let final_dir = roots.generation_root.join(&generation_id);
-    match std::fs::symlink_metadata(&final_dir) {
+    let reuse_existing = match std::fs::symlink_metadata(&final_dir) {
+        Ok(meta) if meta.is_dir() => true,
         Ok(_) => return Err(LocalProductError::GenerationCollision),
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => false,
         Err(source) => {
             return Err(LocalProductError::Io {
                 operation: "inspect destination generation path",
                 source,
             })
         }
-    }
+    };
 
     let candidate_parent = roots.generation_root.clone();
     let candidate_seq = crate::LOCAL_STAGING_COUNTER.fetch_add(1, Ordering::Relaxed) + 1;
@@ -1173,10 +1204,24 @@ fn install_built_generation_dir(
         candidate_parent.join(format!(".candidate-{}-{candidate_seq}", std::process::id()));
 
     let result = (|| -> Result<ActivatedOutcome, LocalProductError> {
-        copy_local_directory_tree(built_dir, &candidate_dir)?;
-        sync_tree_recursive(&candidate_dir)?;
+        let staged_loaded = if reuse_existing {
+            // An interrupted update can leave its complete generation in the
+            // catalog. Reuse an exact, verified admission without rewriting it.
+            let existing = load_local_generation(&final_dir)?;
+            if existing.generation_id != generation_id
+                || existing.generation_layout != loaded.generation_layout
+                || existing.manifest != loaded.manifest
+            {
+                return Err(LocalProductError::GenerationCollision);
+            }
+            verify_generation_asset_digests(&loaded, &roots.openssl)?;
+            existing
+        } else {
+            copy_local_directory_tree(built_dir, &candidate_dir)?;
+            sync_tree_recursive(&candidate_dir)?;
+            load_local_generation(&candidate_dir)?
+        };
 
-        let staged_loaded = load_local_generation(&candidate_dir)?;
         presentation.transient(&format!(
             "Verifying Codex {version} assets & candidate runtime..."
         ));
@@ -1188,20 +1233,7 @@ fn install_built_generation_dir(
         probe_release_candidate(&staged_loaded, roots, process_env)?;
 
         presentation.transient(&format!("Activating Codex {version}..."));
-        rename_noreplace(&candidate_dir, &final_dir).map_err(|source| {
-            if source.kind() == std::io::ErrorKind::AlreadyExists {
-                LocalProductError::GenerationCollision
-            } else {
-                LocalProductError::Io {
-                    operation: "commit generation directory",
-                    source,
-                }
-            }
-        })?;
-        sync_directory(&roots.generation_root)?;
-
-        let state_paths = generation_state::WrapperStatePaths::new(&roots.state_root)
-            .map_err(LocalProductError::StateFormat)?;
+        let state_paths = activation_paths(roots)?;
         generation_state::prepare_wrapper_state_paths(&state_paths)
             .map_err(LocalProductError::State)?;
         let lock = generation_state::acquire_activation_lock(&state_paths)
@@ -1213,21 +1245,61 @@ fn install_built_generation_dir(
                 generation_state::ActivationTransactionError::StaleAuthoritativeState,
             ));
         }
+        if generation_state::has_pending_activation(&state_paths)
+            .map_err(LocalProductError::State)?
+        {
+            return Err(LocalProductError::State(
+                generation_state::ActivationTransactionError::PendingJournal,
+            ));
+        }
+        state_paths
+            .read_standalone_current()
+            .map_err(LocalProductError::State)?;
+        if !reuse_existing {
+            rename_noreplace(&candidate_dir, &final_dir).map_err(|source| {
+                if source.kind() == std::io::ErrorKind::AlreadyExists {
+                    LocalProductError::GenerationCollision
+                } else {
+                    LocalProductError::Io {
+                        operation: "commit generation directory",
+                        source,
+                    }
+                }
+            })?;
+        }
+        sync_directory(&roots.generation_root)?;
+
+        if authoritative
+            .as_ref()
+            .is_some_and(|state| state.current == generation_id)
+        {
+            let mut io = generation_state::FsActivationIo;
+            generation_state::sync_standalone_current(
+                &state_paths,
+                Some(&generation_id),
+                None,
+                &mut io,
+                &lock,
+            )
+            .map_err(LocalProductError::State)?;
+            return Ok(ActivatedOutcome {
+                generation_id,
+                previous_version: None,
+                current_version: version,
+            });
+        }
         let after = match authoritative.as_ref() {
             Some(prev) => generation_state::plan_activation_pointer_state(prev, &generation_id),
             None => generation_state::plan_initial_pointer_state(&generation_id),
         }
         .map_err(LocalProductError::StateFormat)?;
-        let mut io = generation_state::FsActivationIo;
-        generation_state::activate_pointer_state_locked(
+        activate_generation(
             &state_paths,
+            ActivationOperation::Update,
             authoritative.as_ref(),
             &after,
-            &mut io,
             &lock,
-        )
-        .map_err(LocalProductError::State)?;
-        sync_standalone_current_symlink(roots, &generation_id)?;
+        )?;
 
         Ok(ActivatedOutcome {
             generation_id,
@@ -1525,11 +1597,41 @@ fn run_rollback(
     process_env: &TermuxProcessEnvSnapshot,
     presentation: &mut UpdatePresentation,
 ) -> Result<ActivatedOutcome, LocalProductError> {
-    let state_paths = generation_state::WrapperStatePaths::new(&roots.state_root)
-        .map_err(LocalProductError::StateFormat)?;
-    let before = generation_state::recover_activation_state(&state_paths)
-        .map_err(LocalProductError::State)?
-        .ok_or(LocalProductError::NoCurrentGeneration)?;
+    let state_paths = activation_paths(roots)?;
+    let lock = generation_state::acquire_activation_lock(&state_paths)
+        .map_err(LocalProductError::State)?;
+    let (before, committed) = generation_state::recover_activation_locked(
+        &state_paths,
+        &mut generation_state::FsActivationIo,
+        &lock,
+    )
+    .map_err(LocalProductError::State)?;
+    let before = before.ok_or(LocalProductError::NoCurrentGeneration)?;
+    state_paths
+        .read_standalone_current()
+        .map_err(LocalProductError::State)?;
+    drop(lock);
+    if let Some(journal) = committed {
+        if journal.operation == ActivationOperation::Legacy && journal.is_rollback_transition() {
+            return Err(LocalProductError::LocalUpdate(
+                "recovered an older activation journal with ambiguous operation; inspect codex wrapper status before retrying",
+            ));
+        }
+        if journal.operation == ActivationOperation::Rollback {
+            // The previous rollback published its state but stopped before removing
+            // the journal. Recovery has finished that operation, so do not swap again.
+            let version = |id: &str| {
+                load_local_generation(&roots.generation_root.join(id))
+                    .map(|loaded| loaded.manifest.upstream_package_version)
+                    .unwrap_or_else(|_| id.to_owned())
+            };
+            return Ok(ActivatedOutcome {
+                current_version: version(&before.current),
+                previous_version: before.previous.as_deref().map(version),
+                generation_id: before.current,
+            });
+        }
+    }
     let after = generation_state::plan_rollback_pointer_state(&before)
         .map_err(LocalProductError::StateFormat)?;
 
@@ -1565,16 +1667,13 @@ fn run_rollback(
             generation_state::ActivationTransactionError::StaleAuthoritativeState,
         ));
     }
-    let mut io = generation_state::FsActivationIo;
-    generation_state::activate_pointer_state_locked(
+    activate_generation(
         &state_paths,
+        ActivationOperation::Rollback,
         Some(&before),
         &after,
-        &mut io,
         &lock,
-    )
-    .map_err(LocalProductError::State)?;
-    sync_standalone_current_symlink(roots, &after.current)?;
+    )?;
     Ok(ActivatedOutcome {
         generation_id: after.current,
         previous_version: Some(previous_version),
@@ -1592,8 +1691,7 @@ pub(super) fn run_update_action(action: UpdateAction) -> i32 {
     let roots = match LocalWrapperRoots::from_environment() {
         Ok(roots) => roots,
         Err(err) => {
-            presentation.fail(&err);
-            return 1;
+            return presentation.fail(&err);
         }
     };
     if let UpdateAction::Check { version, json } = action {
@@ -1602,17 +1700,13 @@ pub(super) fn run_update_action(action: UpdateAction) -> i32 {
                 print!("{output}");
                 0
             }
-            Err(err) => {
-                presentation.fail(&err);
-                1
-            }
+            Err(err) => presentation.fail(&err),
         };
     }
     let _lease = match maintenance::UpdateLease::acquire(&roots) {
         Ok(lease) => lease,
         Err(err) => {
-            presentation.fail(&err);
-            return 1;
+            return presentation.fail(&err);
         }
     };
     let process_env = capture_termux_process_env();
@@ -1634,10 +1728,7 @@ pub(super) fn run_update_action(action: UpdateAction) -> i32 {
                 );
                 0
             }
-            Err(err) => {
-                presentation.fail(&err);
-                1
-            }
+            Err(err) => presentation.fail(&err),
         },
         UpdateAction::Path(path) => {
             match run_path_update(&path, &roots, &process_env, &mut presentation) {
@@ -1649,10 +1740,7 @@ pub(super) fn run_update_action(action: UpdateAction) -> i32 {
                     );
                     0
                 }
-                Err(err) => {
-                    presentation.fail(&err);
-                    1
-                }
+                Err(err) => presentation.fail(&err),
             }
         }
         UpdateAction::Upstream { version } => {
@@ -1669,10 +1757,7 @@ pub(super) fn run_update_action(action: UpdateAction) -> i32 {
                     );
                     0
                 }
-                Err(err) => {
-                    presentation.fail(&err);
-                    1
-                }
+                Err(err) => presentation.fail(&err),
             }
         }
     }
@@ -1790,7 +1875,7 @@ mod tests {
         let state_root = root.join("state");
         let config_dir = state_root.join("config");
         let generation_root = root.join(".codex/packages/standalone/releases");
-        fs::create_dir_all(&config_dir).unwrap();
+        crate::tests::create_private_test_dirs(&config_dir);
         fs::create_dir_all(&generation_root).unwrap();
         let resolver_path = root.join("resolv.conf");
         fs::write(&resolver_path, b"nameserver 1.1.1.1\n").unwrap();
@@ -1953,6 +2038,84 @@ mod tests {
         );
 
         remove_temp_root(root);
+    }
+
+    #[test]
+    fn rollback_distinguishes_reselecting_previous_from_retrying_a_committed_rollback() {
+        for operation in [
+            ActivationOperation::Update,
+            ActivationOperation::Rollback,
+            ActivationOperation::Legacy,
+        ] {
+            let root = temp_root("rollback-journal-operation");
+            let roots = setup_update_test_roots(&root);
+            let env = crate::tests::test_process_env(&roots);
+            let mut presentation = UpdatePresentation::new();
+            let first = root.join("first");
+            let second = root.join("second");
+            let first_id = "1.2.3-111111";
+            let second_id = "1.2.4-222222";
+            crate::tests::write_sample_generation(&first, first_id, false);
+            crate::tests::write_sample_generation(&second, second_id, false);
+            for dir in [&first, &second, &first] {
+                let (state, loaded) = current_loaded_generation(&roots).unwrap();
+                install_built_generation_dir(
+                    dir,
+                    &roots,
+                    &env,
+                    state.as_ref(),
+                    loaded.as_ref(),
+                    &mut presentation,
+                )
+                .unwrap();
+            }
+
+            let paths = activation_paths(&roots).unwrap();
+            let after = generation_state::read_pointer_state(&paths)
+                .unwrap()
+                .unwrap();
+            let before = generation_state::plan_rollback_pointer_state(&after).unwrap();
+            let journal = generation_state::ActivationJournal {
+                operation,
+                before: Some(before.clone()),
+                after: after.clone(),
+            };
+            // Both commands can leave this same committed pair after a cleanup failure.
+            fs::write(
+                &paths.activation_journal,
+                generation_state::encode_activation_journal(&journal).unwrap(),
+            )
+            .unwrap();
+
+            let result = run_rollback(&roots, &env, &mut presentation);
+            let expected = match operation {
+                ActivationOperation::Update => {
+                    assert_eq!(result.unwrap().generation_id, second_id);
+                    before
+                }
+                ActivationOperation::Rollback => {
+                    assert_eq!(result.unwrap().generation_id, first_id);
+                    after
+                }
+                ActivationOperation::Legacy => {
+                    assert!(result
+                        .unwrap_err()
+                        .to_string()
+                        .contains("ambiguous operation"));
+                    after
+                }
+            };
+            assert_eq!(
+                paths.read_standalone_current().unwrap(),
+                paths.standalone_current_target(&expected.current)
+            );
+            assert_eq!(
+                generation_state::read_pointer_state(&paths).unwrap(),
+                Some(expected)
+            );
+            assert!(!paths.activation_journal.exists());
+            remove_temp_root(root);
+        }
     }
 
     #[test]

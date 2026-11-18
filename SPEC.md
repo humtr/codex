@@ -152,7 +152,7 @@ with usage status `2` and instruct the user to run `codex update`.
 | Command | Owner | Required behavior |
 | --- | --- | --- |
 | `codex` / `codex [UPSTREAM_ARGS...]` | Wrapper then upstream | apply FD 33/34/35 and Termux environment/timezone planning and execute upstream directly (including `app-server daemon` and `remote-control`; reject Linux Landlock `--sandbox read-only`/`workspace-write` and `sandbox linux`) |
-| `codex --version`, `codex -V`, `codex --help`, `codex -h`, `codex help` | upstream | execute upstream on the fast passthrough path (skipping `daemon_settings::ensure`) and print exact upstream output without extra Wrapper/Manager rows |
+| `codex --version`, `codex -V`, `codex --help`, `codex -h`, `codex help` | upstream | execute upstream on the fast passthrough path (also covering short combinations such as `-hV` and skipping `daemon_settings::ensure`) and print exact upstream output without extra Wrapper/Manager rows |
 | `codex update` / `codex update --upstream` | Wrapper | resolve the official upstream stable release metadata/archive (`openai/codex`), verify its official archive SHA-256 digest, unpack complete archive resources, preserve/wrap `codex-path/rg`, apply adaptive `termux-fd-remap` / `termux-uds-fd35` adaptation to static AArch64 musl binaries in `bin/*`, validate, and atomically activate |
 | `codex update --version <MAJOR.MINOR.PATCH>` | Wrapper | install and adapt one specific official upstream stable release through the upstream update pipeline |
 | `codex update --path <FILE_OR_DIR>` | Wrapper | adapt an offline official upstream `.tar.gz` archive or stage/validate/activate an already prepared generation directory |
@@ -218,8 +218,33 @@ transaction or as authorization to replay an uncertain updater.
 The official upstream runtime owns authentication, `CODEX_HOME` history/rollout
 and state DB, model/route decisions, approvals, Native execution, and its
 app-server daemon/remote-control lifecycle. Wrapper's narrowly scoped
-`autoUpdateEnabled = false` daemon settings default is not a daemon
-selection/restart operation. Existing external AppHost/Provider processes on
+`autoUpdateEnabled = false` daemon settings default and non-clobbering default
+package link are not a daemon process takeover or forced migration:
+
+- On an uninitialized execution home, Wrapper may prepare the default package
+  selection on the first TUI invocation eligible to use a managed daemon
+  (default TUI, a prompt, `resume`, `fork`, or `agents`). Upstream decides
+  whether to start the daemon using its configuration, login, and TUI state.
+  Wrapper also prepares the default on explicit `app-server daemon
+  {start,restart,bootstrap}` and `remote-control [start]` routes.
+  Help and version invocations (including `-hV`), `--no-daemon`, `--remote`,
+  queries and non-start commands such as `exec`, `login`, `queue`, `doctor`,
+  daemon `version`, `stop`, and `update --from-cli` skip default preparation.
+- The default is the non-clobbering link
+  `$CODEX_HOME/packages/app-server-daemon/current -> $HOME/.codex/packages/standalone/current`.
+  Existing dedicated package state, pinned or broken links, symlinked package
+  roots, and prior daemon launch traces are preserved. With upstream 0.170.0,
+  creation is skipped for each of its modern and legacy PID and stderr traces.
+  Upstream retains its selection order: dedicated `current`, then modern
+  traces, then legacy traces.
+- Under `activation_lock`, `activation-state` remains authoritative over
+  `$HOME/.codex/packages/standalone/current`: launch/status reconciliation
+  repairs a missing or stale `standalone/current` symlink back to the
+  activated generation without terminating already-running older daemons or
+  rewriting `standalone/releases/*`, and fails explicitly if a non-symlink entry
+  replaces `standalone/current`.
+
+Existing external AppHost/Provider processes on
 the device are not made Wrapper-owned by their presence, nor by Stage 2
 contracts in annexes.
 
@@ -776,29 +801,23 @@ silently weakening the request.
 
 Wrapper must preserve the accepted upstream argv byte-for-byte, including an empty
 bare-launch vector. It must not synthesize `-c`, `--enable`, `--disable`, or
-`--search`. The Termux no-sandbox and cross-home writer-release defaults are
-supplied through the existing Wrapper-owned system `config.toml` on FD 34 as
-`sandbox_mode = "danger-full-access"`, `mcp_oauth_credentials_store = "file"`,
-and `thread_unload_delay_secs = 0`.
+`--search`. The Wrapper-owned system `config.toml` on FD 34 supplies
+`sandbox_mode = "danger-full-access"` and `mcp_oauth_credentials_store = "file"`.
 User-supplied upstream options remain unchanged; explicit unsupported sandbox requests still
 fail before runtime I/O. Hiding a shared-server warning or disabling the server does not
 satisfy this contract.
 
-Including `thread_unload_delay_secs = 0` in the global FD 34 system layer
-ensures every `CODEX_HOME` unloads idle threads immediately when a client/TUI
-disconnects (releasing the native writer lock without the upstream default
-60-second cache delay for immediate cross-home `thread/resume`), without writing
-per-user `$CODEX_HOME/config.toml` files while still allowing explicit user
-`$CODEX_HOME/config.toml` overrides. When Stage 2 Manager snapshot extensions
-are active, the generated FD 34 snapshot preserves those base Wrapper defaults
-and appends optional Manager fragments without duplicating keys. Upstream unloads a thread only
-after its last subscriber disconnects and the thread is inactive; a running turn remains
-protected by native lifecycle checks. Wrapper never removes or steals a writer lock,
-copies a transcript, or overrides explicit higher-layer user configuration or CLI arguments.
-Authentication remains per account. This native setting is read when a shared server
-starts; already-running servers retain their previous delay until normal restart, and
-generation activation starts the new runtime's server without terminating other active
-clients or work.
+The selected upstream runtime owns thread lifetime after the last subscriber
+disconnects. The Wrapper leaves `thread_unload_delay_secs` unset in its base
+configuration and preserves upstream precedence for explicit user
+`$CODEX_HOME/config.toml` and `-c` values, including zero. When Stage 2 Manager
+snapshot extensions are active, new FD 34 snapshots combine the current base
+settings with explicit module fragments. Published snapshots remain immutable.
+Cross-home resume depends on actual native writer release and the selected
+upstream runtime's resume checks. Wrapper leaves native writer locks and
+transcripts under upstream ownership. Authentication remains per account. A daemon
+reads the new base configuration on its next normal start through the updated
+Wrapper. A running daemon retains its startup settings.
 
 In that Stage 2 shared-server topology, reuse binds the complete immutable FD-34 settings
 snapshot under the existing namespace coordinator lock. Equal settings may reuse the
@@ -816,12 +835,17 @@ Shared FD 34 system configuration (`config.toml`), cached `resolv.conf`, and
 daemon settings (`app-server-daemon/settings.json`) are materialized lazily only
 on creation or content mismatch — never rewritten or `fsync`-ed on unchanged
 launches (`daemon_settings::ensure` is also skipped on fast `--version`/`-V`/
-`--help`/`-h`/`help` passthrough).
+`--help`/`-h`/`help` and short help/version combinations such as `-hV`). On routes eligible for default daemon package preparation,
+`daemon_settings::ensure_default_package_link` likewise exits immediately after
+read-only `lstat` checks when `packages/app-server-daemon/current` or any
+existing daemon/package indicator is present, issuing at most one atomic
+`symlink` (`EEXIST`-safe) on an uninitialized home without modifying existing
+directory modes or `standalone/releases/*`.
 
 In standalone mode, FD 34 `config.toml` contains only the Wrapper Termux
 compatibility settings (`# codex-termux-wrapper\nsandbox_mode =
-"danger-full-access"\nmcp_oauth_credentials_store = "file"\nthread_unload_delay_secs =
-0\n`), without additional addon overrides or dry-run snapshot validation. Future opt-in Stage 2
+"danger-full-access"\nmcp_oauth_credentials_store = "file"\n`), without
+additional addon overrides or dry-run snapshot validation. Future opt-in Stage 2
 module configuration must attach through `wrapper.toml` and immutable FD 34 snapshot
 extensions without hardcoding Manager-specific IPC into standalone Wrapper execution.
 

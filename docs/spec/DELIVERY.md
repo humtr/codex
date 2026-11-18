@@ -978,14 +978,23 @@ a mixed or partially constructed generation.
 
 Normal execution, `wrapper status`, `doctor`, updater recovery and rollback
 must evaluate a published activation journal even when the authoritative
-`activation-state` file is missing (initial activation `before=None`). Before
-the state rename this is a recoverable uninitialized state; after rename the
-qualified new pointer is authoritative. Any unmatched pointer, simultaneous
-published and temporary journals, or orphan state temporary without journal
-remains fail-closed. Healthy readers acquire a shared (`LOCK_SH`) directory lock
-on the state root so concurrent reads and launches do not contend; only when
-pending journal or temporary files exist does a reader upgrade to the exclusive
-(`LOCK_EX`) writer lock, re-read journal/state, and recover deterministically.
+`activation-state` file is missing (initial activation `before=None`). Stage 1
+checks that `standalone/current` is missing or is a symlink under the activation
+lock before both activation and rollback. It durably publishes the journal,
+prepares the state file, and publishes and syncs the link before committing
+the state rename. The state remains authoritative for recovery. Before its
+rename, recovery restores the previous projection (or removes the uncommitted
+initial link). After the rename, recovery completes the new projection and
+syncs the state directory before clearing the journal. A regular file or
+directory at the link path is preserved and reported as an error.
+New journals record the initiating operation so recovery can distinguish
+an update that reselects the previous generation from a rollback.
+
+Any unmatched pointer, simultaneous published and temporary journals, or
+orphan state temporary without journal remains fail-closed. Healthy readers
+use a shared (`LOCK_SH`) directory lock. Pending journal or temporary state
+artifacts, and repairs to a missing or stale link, require the exclusive
+(`LOCK_EX`) writer lock and a fresh state read.
 Repeated recovery preserves the same authoritative pointer. When an installer
 interrupt recovery or startup check qualifies a candidate activation, `install.sh`
 retains ownership of the executable/updater receipts while delegating active
@@ -1068,12 +1077,23 @@ After installation, Wrapper exclusively owns `codex update`:
   or validates/activates a prepared `package-root` generation directory (`generation.meta`),
   verifying actual on-disk SHA-256 digests of runtime and declared browser helpers before probing.
   Raw standalone ELF files without `codex-package.json` or `generation.meta` are rejected.
-- `codex update --rollback`: recovers any incomplete journal under the state-root lock, identifies
-  the retained `previous` generation **without requiring `current` runtime files to still be intact**,
-  verifies the `previous` generation's descriptor compatibility, on-disk runtime/helper SHA-256
-  digests, executable bits, and isolated candidate probe (`--version` + `features list`), re-checks
-  the pointer under lock before commit, and atomically swaps `current` and `previous` (plus the
-  `standalone/current` symlink). Failed rollback preserves exact `activation-state` bytes.
+- `codex update --rollback`: recovers any incomplete journal under the state-root
+  lock, verifies the retained `previous` generation's descriptor, digests,
+  executable bits, and isolated runtime probes, and swaps `current` and
+  `previous` through the activation transaction. A damaged current runtime
+  does not prevent rollback. A pre-commit rejection preserves the authoritative
+  state bytes. A direct rollback retry that recovers a published rollback
+  finishes that transaction without swapping again. If recovery instead
+  finishes a published update, rollback operates on the recovered pair. For
+  an older journal without an operation whose committed pair could represent
+  either command, direct rollback recovers the selection and reports ambiguity.
+  Inspect the selection with `codex wrapper status` before choosing a new rollback.
+  An error syncing an
+  already-published state returns exit status `3` and keeps its journal for
+  recovery. Failure to clean up the journal after a durable commit is reported
+  as a warning. If the outcome of an interrupted command is uncertain, inspect
+  `codex wrapper status` before issuing a new rollback. Once recovery has
+  cleared the journal, a new rollback operates on the current retained pair.
 - `codex update --check [--version <MAJOR.MINOR.PATCH>] [--json]`: uses the same
   official resolver and bounded HTTPS transport in an owned disposable temporary
   directory. Latest-release discovery is cross-checked against the exact-version
@@ -1084,8 +1104,17 @@ After installation, Wrapper exclusively owns `codex update`:
 - Removed/Stage 2 flags (`--signed`, `--remote`, `--local`, `--build-local`) fail
   explicitly in Stage 1 with exit status `2` and zero state mutation. No compiler toolchain,
   signing key, or upstream self-updater is ever invoked in Stage 1.
-- `codex update` does not replace the independently selected upstream daemon
-  package or restart its process. `codex doctor` combines its upstream and
+- `codex update` and `codex update --rollback` do not replace an independently
+  selected dedicated `$CODEX_HOME/packages/app-server-daemon/current` target
+  (`releases/...`), never write into existing dedicated homes, and never
+  terminate or restart a running daemon process. Under `activation_lock`,
+  `load_activated_generation` reconciles a missing or stale
+  `$HOME/.codex/packages/standalone/current` symlink back to `activation-state`
+  and fails explicitly without replacing a non-symlink entry or disturbing
+  already-running earlier daemons; homes whose `packages/app-server-daemon/current`
+  points to `$HOME/.codex/packages/standalone/current` pick up the newly
+  activated generation on their next daemon start or restart. `codex doctor`
+  combines its upstream and
   Wrapper checks; it is not an upstream `state_*.db` or rollout inventory
   repair API. A healthy Wrapper diagnosis does not imply that every upstream
   check reports no warnings.
@@ -1418,6 +1447,10 @@ For execution, standalone Wrapper passes `codex app-server daemon` and
 with FD 33 (`resolv.conf`), FD 34 (wrapper `config.toml`), FD 35 (temporary root
 for Unix domain sockets fitting the 107-byte `sockaddr_un.sun_path` limit),
 clean Termux environment/timezone (`TZ` TZif), and `daemon_settings::ensure`.
+A fresh home can receive the non-clobbering link to
+`$HOME/.codex/packages/standalone/current` on a TUI invocation eligible to use a
+managed daemon or an explicit start route, as specified in [SPEC.md](../../SPEC.md).
+Upstream owns the decision to start a daemon.
 There is no hard block preventing upstream `app-server daemon` or
 `remote-control` dispatch. Note that optional Wrapper-managed shared
 app-server / catalog IPC contracts recorded below apply only if optional
@@ -1505,7 +1538,9 @@ Callers retain their filesystem trust checks and revalidate live process/peer
 identity before use. The codec performs no writes, process control, model-schema
 interpretation or provider selection. This introduces no registry, service or
 second runtime authority.
-Wrapper launches no upstream daemon updater and never creates a packages tree.
+Wrapper's Stage 1 default package preparation creates the per-home link to
+`standalone/current`. Dedicated package installs and the daemon updater remain
+owned by upstream.
 The historical public daemon/remote-control lifecycle fence remains in force.
 
 Configuration-bound Stage 2 execution records add the `config` owner marker after

@@ -1,6 +1,6 @@
 use std::fs::{self, DirBuilder, File, OpenOptions};
 use std::io::{self, ErrorKind, Read, Write};
-use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
+use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt};
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -171,6 +171,144 @@ pub(super) fn ensure(codex_home: &Path) -> io::Result<()> {
         let _ = fs::remove_file(&temp_path);
     }
     write_result
+}
+
+const EXISTING_PACKAGE_INDICATORS: &[&str] = &[
+    "current",
+    "releases",
+    "selection-history",
+    "auto-update-version",
+    "install.lock",
+];
+
+const PRIOR_DAEMON_TRACE_FILES: &[&str] = &[
+    "daemon.pid",
+    "daemon.stderr.log",
+    "daemon-updater.pid",
+    "daemon-updater.stderr.log",
+    "app-server.pid",
+    "app-server.stderr.log",
+    "app-server-updater.pid",
+    "app-server-updater.stderr.log",
+];
+
+fn current_uid() -> io::Result<u32> {
+    fs::metadata("/proc/self").map(|m| m.uid())
+}
+
+fn inspect_owned_real_dir(path: &Path, expected_uid: u32) -> io::Result<Option<bool>> {
+    match fs::symlink_metadata(path) {
+        Ok(meta) => {
+            if meta.file_type().is_symlink() || !meta.is_dir() || meta.uid() != expected_uid {
+                return Ok(Some(false));
+            }
+            Ok(Some(true))
+        }
+        Err(err) if err.kind() == ErrorKind::NotFound => Ok(None),
+        Err(err) => Err(err),
+    }
+}
+
+fn ensure_private_real_dir_no_chmod(path: &Path, expected_uid: u32) -> io::Result<bool> {
+    if let Some(valid) = inspect_owned_real_dir(path, expected_uid)? {
+        return Ok(valid);
+    }
+    let mut builder = DirBuilder::new();
+    builder.mode(0o700);
+    match builder.create(path) {
+        Ok(()) => Ok(true),
+        Err(err) if err.kind() == ErrorKind::AlreadyExists => {
+            Ok(inspect_owned_real_dir(path, expected_uid)? == Some(true))
+        }
+        Err(err) => Err(err),
+    }
+}
+
+fn may_exist(path: &Path) -> bool {
+    !matches!(fs::symlink_metadata(path), Err(err) if err.kind() == ErrorKind::NotFound)
+}
+
+/// Atomically create `$CODEX_HOME/packages/app-server-daemon/current -> standalone_current`
+/// on first managed-daemon initialization without overwriting any existing or partial state.
+pub(super) fn ensure_default_package_link(
+    codex_home: &Path,
+    standalone_current: &Path,
+    standalone_root: &Path,
+) -> io::Result<()> {
+    if codex_home.as_os_str().is_empty() {
+        return Ok(());
+    }
+    // Zero-write, zero-fsync fast path when `current` (or broken link) is already present.
+    if may_exist(&codex_home.join("packages/app-server-daemon/current")) {
+        return Ok(());
+    }
+    if fs::symlink_metadata(standalone_current).is_err()
+        || fs::metadata(standalone_current).is_err()
+    {
+        return Ok(());
+    }
+
+    let physical_home = match fs::canonicalize(codex_home) {
+        Ok(path) => path,
+        Err(err) if err.kind() == ErrorKind::NotFound => return Ok(()),
+        Err(err) => return Err(err),
+    };
+    if let Ok(canonical_standalone) = fs::canonicalize(standalone_root) {
+        if physical_home.starts_with(&canonical_standalone) {
+            return Ok(());
+        }
+    }
+
+    let uid = current_uid()?;
+    let packages_dir = physical_home.join("packages");
+    let packages_state = inspect_owned_real_dir(&packages_dir, uid)?;
+    if packages_state == Some(false) {
+        return Ok(());
+    }
+    let pkg_daemon_dir = packages_dir.join("app-server-daemon");
+    if packages_state == Some(true) {
+        let daemon_pkg_state = inspect_owned_real_dir(&pkg_daemon_dir, uid)?;
+        if daemon_pkg_state == Some(false) {
+            return Ok(());
+        }
+        if daemon_pkg_state == Some(true) {
+            for indicator in EXISTING_PACKAGE_INDICATORS {
+                if may_exist(&pkg_daemon_dir.join(indicator)) {
+                    return Ok(());
+                }
+            }
+        }
+    }
+
+    // Upstream 0.170.0 chooses an existing dedicated current first, then modern
+    // traces, then legacy traces. Leave the choice to upstream for all of them.
+    let state_dir = physical_home.join("app-server-daemon");
+    for trace in PRIOR_DAEMON_TRACE_FILES {
+        if may_exist(&state_dir.join(trace)) {
+            return Ok(());
+        }
+    }
+    if may_exist(&physical_home.join("app-server-control/app-server-control.sock")) {
+        return Ok(());
+    }
+
+    if !ensure_private_real_dir_no_chmod(&packages_dir, uid)? {
+        return Ok(());
+    }
+    if !ensure_private_real_dir_no_chmod(&pkg_daemon_dir, uid)? {
+        return Ok(());
+    }
+
+    let current_link = pkg_daemon_dir.join("current");
+    match std::os::unix::fs::symlink(standalone_current, &current_link) {
+        Ok(()) => {
+            File::open(&pkg_daemon_dir)?.sync_all()?;
+            Ok(())
+        }
+        // Another launcher or upstream installer made the selection.
+        Err(err) if err.kind() == ErrorKind::AlreadyExists => Ok(()),
+        Err(err) => Err(err),
+    }
 }
 
 fn update_settings_bytes(existing: Option<&[u8]>) -> io::Result<Option<Vec<u8>>> {
@@ -543,7 +681,7 @@ impl<'a> JsonParser<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::os::unix::fs::symlink;
+    use std::os::unix::fs::{symlink, PermissionsExt};
     use std::time::{SystemTime, UNIX_EPOCH};
 
     fn test_root(label: &str) -> std::path::PathBuf {
@@ -613,6 +751,168 @@ mod tests {
         fs::remove_file(daemon.join("settings.json")).unwrap();
         fs::write(daemon.join("settings.json"), b"not-json").unwrap();
         assert!(ensure(&home).is_err());
+        fs::remove_dir_all(&root).unwrap();
+    }
+
+    fn make_standalone_fixture(root: &Path) -> (std::path::PathBuf, std::path::PathBuf) {
+        let standalone = root.join(".codex/packages/standalone");
+        let rel = standalone.join("releases/0.170.0-3f7e1a");
+        fs::create_dir_all(rel.join("bin")).unwrap();
+        fs::write(rel.join("bin/codex"), b"binary").unwrap();
+        let current = standalone.join("current");
+        symlink("releases/0.170.0-3f7e1a", &current).unwrap();
+        (standalone, current)
+    }
+
+    #[test]
+    fn creates_default_package_link_only_for_uninitialized_home() {
+        let root = test_root("pkg-link-fresh");
+        let (standalone_root, standalone_current) = make_standalone_fixture(&root);
+        let codex_home = root.join("fresh-home");
+        fs::create_dir_all(&codex_home).unwrap();
+        fs::set_permissions(&codex_home, fs::Permissions::from_mode(0o755)).unwrap();
+
+        ensure_default_package_link(&codex_home, &standalone_current, &standalone_root).unwrap();
+        let link = codex_home.join("packages/app-server-daemon/current");
+        assert!(fs::symlink_metadata(&link)
+            .unwrap()
+            .file_type()
+            .is_symlink());
+        assert_eq!(fs::read_link(&link).unwrap(), standalone_current);
+        assert_eq!(
+            fs::metadata(&codex_home).unwrap().permissions().mode() & 0o777,
+            0o755
+        );
+
+        // Second call hits fast path without replacing or failing.
+        ensure_default_package_link(&codex_home, &standalone_current, &standalone_root).unwrap();
+        assert_eq!(fs::read_link(&link).unwrap(), standalone_current);
+        fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn preserves_existing_dedicated_broken_root_symlink_and_partial_daemon_state() {
+        let root = test_root("pkg-link-preserve");
+        let (standalone_root, standalone_current) = make_standalone_fixture(&root);
+
+        // 1. Existing pinned/different symlink target is preserved.
+        let h_pinned = root.join("h-pinned");
+        let pinned_target = root.join("other-gen");
+        fs::create_dir_all(pinned_target.join("bin")).unwrap();
+        fs::create_dir_all(h_pinned.join("packages/app-server-daemon")).unwrap();
+        symlink(
+            &pinned_target,
+            h_pinned.join("packages/app-server-daemon/current"),
+        )
+        .unwrap();
+        ensure_default_package_link(&h_pinned, &standalone_current, &standalone_root).unwrap();
+        assert_eq!(
+            fs::read_link(h_pinned.join("packages/app-server-daemon/current")).unwrap(),
+            pinned_target
+        );
+
+        // 2. Broken symlink is preserved rather than overwritten.
+        let h_broken = root.join("h-broken");
+        fs::create_dir_all(h_broken.join("packages/app-server-daemon")).unwrap();
+        symlink(
+            "/nonexistent/target",
+            h_broken.join("packages/app-server-daemon/current"),
+        )
+        .unwrap();
+        ensure_default_package_link(&h_broken, &standalone_current, &standalone_root).unwrap();
+        assert_eq!(
+            fs::read_link(h_broken.join("packages/app-server-daemon/current")).unwrap(),
+            Path::new("/nonexistent/target")
+        );
+
+        // 3. Symlinked packages/app-server-daemon root is never traversed or mutated.
+        let h_root_sym = root.join("h-root-sym");
+        let external_store = root.join("external-store");
+        fs::create_dir_all(&external_store).unwrap();
+        fs::create_dir_all(h_root_sym.join("packages")).unwrap();
+        symlink(
+            &external_store,
+            h_root_sym.join("packages/app-server-daemon"),
+        )
+        .unwrap();
+        ensure_default_package_link(&h_root_sym, &standalone_current, &standalone_root).unwrap();
+        assert!(!external_store.join("current").exists());
+
+        // 4. Incomplete/partial package state (`releases/`, `install.lock`, `selection-history`) prevents auto-link.
+        for indicator in [
+            "releases",
+            "install.lock",
+            "selection-history",
+            "auto-update-version",
+        ] {
+            let h_partial = root.join(format!("h-partial-{indicator}"));
+            let pkg_dir = h_partial.join("packages/app-server-daemon");
+            fs::create_dir_all(&pkg_dir).unwrap();
+            if indicator == "releases" {
+                fs::create_dir_all(pkg_dir.join(indicator)).unwrap();
+            } else {
+                fs::write(pkg_dir.join(indicator), b"").unwrap();
+            }
+            ensure_default_package_link(&h_partial, &standalone_current, &standalone_root).unwrap();
+            assert!(!pkg_dir.join("current").exists());
+        }
+
+        // Modern and legacy launch traces each preserve upstream's selection,
+        // even if only a stale log or dangling symlink remains.
+        for trace in PRIOR_DAEMON_TRACE_FILES {
+            let home = root.join(format!("h-{trace}"));
+            let state = home.join("app-server-daemon");
+            fs::create_dir_all(&state).unwrap();
+            symlink("missing", state.join(trace)).unwrap();
+            ensure_default_package_link(&home, &standalone_current, &standalone_root).unwrap();
+            assert!(!home.join("packages").exists(), "{trace}");
+        }
+
+        let h_stopped_empty = root.join("h-stopped-empty");
+        ensure(&h_stopped_empty).unwrap();
+        fs::write(h_stopped_empty.join("app-server-daemon/daemon.lock"), b"").unwrap();
+        ensure_default_package_link(&h_stopped_empty, &standalone_current, &standalone_root)
+            .unwrap();
+        assert_eq!(
+            fs::read_link(h_stopped_empty.join("packages/app-server-daemon/current")).unwrap(),
+            standalone_current
+        );
+
+        // 6. Never creates files inside standalone release root.
+        let inside_release = standalone_root.join("releases/0.170.0-3f7e1a");
+        ensure_default_package_link(&inside_release, &standalone_current, &standalone_root)
+            .unwrap();
+        assert!(!inside_release.join("packages").exists());
+
+        fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn handles_concurrent_first_initialization_with_eexist() {
+        let root = test_root("pkg-link-concurrent");
+        let (standalone_root, standalone_current) = make_standalone_fixture(&root);
+        let codex_home = root.join("shared-concurrent-home");
+        fs::create_dir_all(&codex_home).unwrap();
+
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(4));
+        let mut handles = Vec::new();
+        for _ in 0..4 {
+            let b = barrier.clone();
+            let h = codex_home.clone();
+            let sc = standalone_current.clone();
+            let sr = standalone_root.clone();
+            handles.push(std::thread::spawn(move || {
+                b.wait();
+                ensure_default_package_link(&h, &sc, &sr).unwrap();
+            }));
+        }
+        for handle in handles {
+            handle.join().unwrap();
+        }
+        assert_eq!(
+            fs::read_link(codex_home.join("packages/app-server-daemon/current")).unwrap(),
+            standalone_current
+        );
         fs::remove_dir_all(&root).unwrap();
     }
 }

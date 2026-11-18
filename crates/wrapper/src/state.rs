@@ -37,8 +37,11 @@ impl ReleasePublicKey {
 pub(super) mod generation_state {
     use super::ReleasePublicKey;
     use crate::{flock, FLOCK_EX, FLOCK_NB, FLOCK_UN};
-    use std::io::{Read, Write};
+    use std::fs;
+    use std::io::{self, Read, Write};
     use std::os::fd::AsRawFd;
+    use std::os::unix::fs::MetadataExt;
+    use std::path::{Path, PathBuf};
 
     const GENERATION_ID_MAX_BYTES: usize = 512;
     const STATE_FILE_MAX_BYTES: usize = 16 * 1024;
@@ -52,6 +55,7 @@ pub(super) mod generation_state {
         pub(crate) activation_journal: std::path::PathBuf,
         pub(crate) activation_journal_temp: std::path::PathBuf,
         pub(crate) activation_state_temp: std::path::PathBuf,
+        generation_root: Option<PathBuf>,
     }
 
     #[derive(Debug, Clone, PartialEq, Eq)]
@@ -65,8 +69,24 @@ pub(super) mod generation_state {
 
     #[derive(Debug, Clone, PartialEq, Eq)]
     pub(crate) struct ActivationJournal {
+        pub(crate) operation: ActivationOperation,
         pub(crate) before: Option<GenerationPointerState>,
         pub(crate) after: GenerationPointerState,
+    }
+
+    impl ActivationJournal {
+        pub(crate) fn is_rollback_transition(&self) -> bool {
+            self.before.as_ref().is_some_and(|before| {
+                plan_rollback_pointer_state(before).as_ref() == Ok(&self.after)
+            })
+        }
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub(crate) enum ActivationOperation {
+        Update,
+        Rollback,
+        Legacy,
     }
 
     #[derive(Debug, Clone, PartialEq, Eq)]
@@ -156,6 +176,11 @@ pub(super) mod generation_state {
         OrphanJournalTemporary,
         OrphanTemporaryState,
         RecoveryConflict,
+        CommitSync(io::Error),
+        CommittedCleanup {
+            operation: &'static str,
+            source: io::Error,
+        },
         WriterBusy,
     }
 
@@ -184,6 +209,13 @@ pub(super) mod generation_state {
                 ActivationTransactionError::RecoveryConflict => f.write_str(
                     "activation recovery cannot match authoritative state to journal before/after",
                 ),
+                ActivationTransactionError::CommitSync(err) => write!(
+                    f,
+                    "activation state has been published but could not be synchronized: {err}; check 'codex wrapper status' before issuing another update or rollback",
+                ),
+                ActivationTransactionError::CommittedCleanup { operation, source } => {
+                    write!(f, "activation committed; {operation} failed: {source}")
+                }
                 ActivationTransactionError::WriterBusy => {
                     f.write_str("another activation transaction is in progress; retry later")
                 }
@@ -195,7 +227,9 @@ pub(super) mod generation_state {
         fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
             match self {
                 ActivationTransactionError::Format(err) => Some(err),
-                ActivationTransactionError::Io { source, .. } => Some(source),
+                ActivationTransactionError::Io { source, .. }
+                | ActivationTransactionError::CommittedCleanup { source, .. }
+                | ActivationTransactionError::CommitSync(source) => Some(source),
                 _ => None,
             }
         }
@@ -301,7 +335,32 @@ pub(super) mod generation_state {
                 activation_journal: root.join("activation-journal"),
                 activation_journal_temp: root.join("activation-journal.tmp"),
                 activation_state_temp: root.join("activation-state.tmp"),
+                generation_root: None,
             })
+        }
+        pub(crate) fn with_generation_root(mut self, root: &Path) -> Self {
+            self.generation_root = Some(root.to_path_buf());
+            self
+        }
+
+        pub(crate) fn standalone_current_target(&self, generation: &str) -> Option<PathBuf> {
+            Some(Path::new(self.generation_root.as_ref()?.file_name()?).join(generation))
+        }
+
+        pub(crate) fn read_standalone_current(
+            &self,
+        ) -> Result<Option<PathBuf>, ActivationTransactionError> {
+            let Some(root) = self.standalone_root() else {
+                return Ok(None);
+            };
+            read_symlink(
+                &root.join("current"),
+                "standalone current pointer (expected a symlink)",
+            )
+        }
+
+        fn standalone_root(&self) -> Option<&Path> {
+            self.generation_root.as_ref()?.parent()
         }
     }
 
@@ -433,7 +492,6 @@ pub(super) mod generation_state {
     fn parse_lines<'a>(
         bytes: &'a [u8],
         label: &'static str,
-        expected_records: usize,
     ) -> Result<Vec<&'a str>, StateFormatError> {
         if bytes.len() > STATE_FILE_MAX_BYTES {
             return Err(StateFormatError::FileTooLarge(label));
@@ -443,11 +501,7 @@ pub(super) mod generation_state {
             return Err(StateFormatError::MissingFinalNewline(label));
         }
         let body = &text[..text.len() - 1];
-        let records: Vec<_> = body.split('\n').collect();
-        if records.len() != expected_records {
-            return Err(StateFormatError::InvalidRecordCount(label));
-        }
-        Ok(records)
+        Ok(body.split('\n').collect())
     }
 
     fn parse_field<'a>(
@@ -505,7 +559,10 @@ pub(super) mod generation_state {
     pub(crate) fn parse_pointer_state(
         bytes: &[u8],
     ) -> Result<GenerationPointerState, StateFormatError> {
-        let records = parse_lines(bytes, "activation state", 7)?;
+        let records = parse_lines(bytes, "activation state")?;
+        if records.len() != 7 {
+            return Err(StateFormatError::InvalidRecordCount("activation state"));
+        }
         if records[0] != format!("format={STATE_FORMAT}") {
             return Err(StateFormatError::InvalidField("activation state format"));
         }
@@ -596,8 +653,13 @@ pub(super) mod generation_state {
                 ))
             }
         };
+        let operation = match journal.operation {
+            ActivationOperation::Update => "operation=update\n",
+            ActivationOperation::Rollback => "operation=rollback\n",
+            ActivationOperation::Legacy => "",
+        };
         Ok(format!(
-            "format={JOURNAL_FORMAT}\nbefore_present={before_present}\nbefore_update_key={before_update_key}\nbefore_current={before_current}\nbefore_current_key={before_current_key}\nbefore_previous_present={before_previous_present}\nbefore_previous={before_previous}\nbefore_previous_key={before_previous_key}\nafter_update_key={}\nafter_current={}\nafter_current_key={}\nafter_previous_present={after_previous_present}\nafter_previous={after_previous}\nafter_previous_key={after_previous_key}\n",
+            "format={JOURNAL_FORMAT}\nbefore_present={before_present}\nbefore_update_key={before_update_key}\nbefore_current={before_current}\nbefore_current_key={before_current_key}\nbefore_previous_present={before_previous_present}\nbefore_previous={before_previous}\nbefore_previous_key={before_previous_key}\nafter_update_key={}\nafter_current={}\nafter_current_key={}\nafter_previous_present={after_previous_present}\nafter_previous={after_previous}\nafter_previous_key={after_previous_key}\n{operation}",
             journal.after.update_key.to_hex(),
             journal.after.current,
             journal.after.current_key.to_hex(),
@@ -608,7 +670,20 @@ pub(super) mod generation_state {
     pub(crate) fn parse_activation_journal(
         bytes: &[u8],
     ) -> Result<ActivationJournal, StateFormatError> {
-        let records = parse_lines(bytes, "activation journal", 14)?;
+        let records = parse_lines(bytes, "activation journal")?;
+        let operation = match records.len() {
+            14 => ActivationOperation::Legacy,
+            15 => match records[14] {
+                "operation=update" => ActivationOperation::Update,
+                "operation=rollback" => ActivationOperation::Rollback,
+                _ => {
+                    return Err(StateFormatError::InvalidField(
+                        "activation journal operation",
+                    ))
+                }
+            },
+            _ => return Err(StateFormatError::InvalidRecordCount("activation journal")),
+        };
         if records[0] != format!("format={JOURNAL_FORMAT}") {
             return Err(StateFormatError::InvalidField("activation journal format"));
         }
@@ -693,7 +768,17 @@ pub(super) mod generation_state {
         if before.as_ref() == Some(&after) {
             return Err(StateFormatError::AmbiguousJournal);
         }
-        Ok(ActivationJournal { before, after })
+        let journal = ActivationJournal {
+            operation,
+            before,
+            after,
+        };
+        if operation == ActivationOperation::Rollback && !journal.is_rollback_transition() {
+            return Err(StateFormatError::InvalidField(
+                "activation journal rollback",
+            ));
+        }
+        Ok(journal)
     }
 
     pub(crate) trait ActivationIo {
@@ -701,6 +786,9 @@ pub(super) mod generation_state {
         fn sync_dir(&mut self, path: &std::path::Path) -> std::io::Result<()>;
         fn rename(&mut self, from: &std::path::Path, to: &std::path::Path) -> std::io::Result<()>;
         fn remove_file(&mut self, path: &std::path::Path) -> std::io::Result<()>;
+        fn symlink(&mut self, target: &Path, path: &Path) -> io::Result<()> {
+            std::os::unix::fs::symlink(target, path)
+        }
     }
 
     pub(crate) struct FsActivationIo;
@@ -726,6 +814,75 @@ pub(super) mod generation_state {
         fn remove_file(&mut self, path: &std::path::Path) -> std::io::Result<()> {
             std::fs::remove_file(path)
         }
+    }
+
+    fn read_symlink(
+        path: &Path,
+        label: &'static str,
+    ) -> Result<Option<PathBuf>, ActivationTransactionError> {
+        match fs::symlink_metadata(path) {
+            Ok(meta) if meta.is_symlink() => fs::read_link(path)
+                .map(Some)
+                .map_err(|err| io_error("read standalone symlink", err)),
+            Ok(_) => Err(ActivationTransactionError::UnsafeFileType(label)),
+            Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(None),
+            Err(err) => Err(io_error("inspect standalone symlink", err)),
+        }
+    }
+
+    // The activation lock also serializes replacement and cleanup of this link.
+    pub(crate) fn sync_standalone_current<I: ActivationIo>(
+        paths: &WrapperStatePaths,
+        generation: Option<&str>,
+        journal: Option<&ActivationJournal>,
+        io: &mut I,
+        _lock: &ActivationLockGuard,
+    ) -> Result<(), ActivationTransactionError> {
+        let Some(root) = paths.standalone_root() else {
+            return Ok(());
+        };
+        let current = paths.read_standalone_current()?;
+        let desired = generation.and_then(|id| paths.standalone_current_target(id));
+        let attempted = journal.and_then(|j| paths.standalone_current_target(&j.after.current));
+        let tmp = root.join(".current.wrapper.tmp");
+        let staged = read_symlink(&tmp, "standalone temporary current pointer")?;
+        if current == desired && journal.is_none() && staged.is_none() {
+            return Ok(());
+        }
+
+        let uid = crate::fs_util::current_uid()
+            .map_err(|err| io_error("get standalone directory owner", err))?;
+        for dir in [root, paths.generation_root.as_deref().unwrap()] {
+            let meta = fs::symlink_metadata(dir)
+                .map_err(|err| io_error("inspect standalone directory", err))?;
+            if !meta.is_dir() || meta.uid() != uid {
+                return Err(ActivationTransactionError::UnsafeFileType(
+                    "standalone directory",
+                ));
+            }
+        }
+
+        // A crash may leave the staged symlink after creation and before rename.
+        // A temporary that is not a symlink is rejected by read_symlink above.
+        if staged.is_some() {
+            io.remove_file(&tmp)
+                .map_err(|err| io_error("remove stale standalone current temporary", err))?;
+        }
+        let link = root.join("current");
+        if current != desired {
+            if let Some(target) = desired {
+                io.symlink(&target, &tmp)
+                    .map_err(|err| io_error("create temporary standalone current symlink", err))?;
+                io.rename(&tmp, &link)
+                    .map_err(|err| io_error("publish standalone current symlink", err))?;
+            } else if current == attempted {
+                io.remove_file(&link).map_err(|err| {
+                    io_error("remove uncommitted standalone current symlink", err)
+                })?;
+            }
+        }
+        io.sync_dir(root)
+            .map_err(|err| io_error("sync standalone package directory", err))
     }
 
     fn path_exists(
@@ -784,10 +941,11 @@ pub(super) mod generation_state {
 
     pub(crate) fn activate_pointer_state_locked<I: ActivationIo>(
         paths: &WrapperStatePaths,
+        operation: ActivationOperation,
         before: Option<&GenerationPointerState>,
         after: &GenerationPointerState,
         io: &mut I,
-        _lock: &ActivationLockGuard,
+        lock: &ActivationLockGuard,
     ) -> Result<(), ActivationTransactionError> {
         if let Some(before) = before {
             validate_pointer_state(before)?;
@@ -813,7 +971,10 @@ pub(super) mod generation_state {
             return Err(ActivationTransactionError::OrphanTemporaryState);
         }
 
+        paths.read_standalone_current()?;
+
         let journal = ActivationJournal {
+            operation,
             before: before.cloned(),
             after: after.clone(),
         };
@@ -828,14 +989,24 @@ pub(super) mod generation_state {
             .map_err(|err| io_error("sync journal directory", err))?;
         io.write_new_synced(&paths.activation_state_temp, &state_bytes)
             .map_err(|err| io_error("write and sync activation state temporary", err))?;
+        // Commit the authoritative state only after its package link is durable.
+        // Until the rename below, the journal can restore the old selection.
+        sync_standalone_current(paths, Some(&after.current), None, io, lock)?;
         io.rename(&paths.activation_state_temp, &paths.activation_state)
             .map_err(|err| io_error("atomically replace activation state", err))?;
         io.sync_dir(&paths.root)
-            .map_err(|err| io_error("sync activation state directory", err))?;
+            .map_err(ActivationTransactionError::CommitSync)?;
         io.remove_file(&paths.activation_journal)
-            .map_err(|err| io_error("remove activation journal", err))?;
-        io.sync_dir(&paths.root)
-            .map_err(|err| io_error("sync final activation directory", err))?;
+            .map_err(|source| ActivationTransactionError::CommittedCleanup {
+                operation: "remove activation journal",
+                source,
+            })?;
+        io.sync_dir(&paths.root).map_err(|source| {
+            ActivationTransactionError::CommittedCleanup {
+                operation: "sync final activation directory",
+                source,
+            }
+        })?;
         Ok(())
     }
 
@@ -847,23 +1018,42 @@ pub(super) mod generation_state {
         if read_lock.file.is_none() {
             return Ok(None);
         }
-        let pending_journal = path_exists(&paths.activation_journal, "inspect activation journal")?;
-        let pending_journal_temp = path_exists(
-            &paths.activation_journal_temp,
-            "inspect activation journal temporary",
-        )?;
-        let pending_state_temp =
-            path_exists(&paths.activation_state_temp, "inspect activation temporary")?;
-        if !pending_journal && !pending_journal_temp && !pending_state_temp {
+        if !has_pending_activation(paths)? {
             return read_pointer_state(paths);
         }
         drop(read_lock);
 
-        let _lock = acquire_activation_lock_with_mode(
+        let lock = acquire_activation_lock_with_mode(
             paths,
             FLOCK_EX,
             Some(std::time::Duration::from_secs(2)),
         )?;
+        recover_activation_locked(paths, io, &lock).map(|(state, _)| state)
+    }
+
+    pub(crate) fn has_pending_activation(
+        paths: &WrapperStatePaths,
+    ) -> Result<bool, ActivationTransactionError> {
+        for path in [
+            &paths.activation_journal,
+            &paths.activation_journal_temp,
+            &paths.activation_state_temp,
+        ] {
+            if path_exists(path, "inspect pending activation")? {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
+    pub(crate) fn recover_activation_locked<I: ActivationIo>(
+        paths: &WrapperStatePaths,
+        io: &mut I,
+        lock: &ActivationLockGuard,
+    ) -> Result<
+        (Option<GenerationPointerState>, Option<ActivationJournal>),
+        ActivationTransactionError,
+    > {
         let journal_temporary_exists = path_exists(
             &paths.activation_journal_temp,
             "inspect activation journal temporary",
@@ -880,12 +1070,12 @@ pub(super) mod generation_state {
                     .map_err(|err| io_error("remove stale activation journal temporary", err))?;
                 io.sync_dir(&paths.root)
                     .map_err(|err| io_error("sync recovered journal-temporary directory", err))?;
-                return read_pointer_state(paths);
+                return Ok((read_pointer_state(paths)?, None));
             }
             if state_temporary_exists {
                 return Err(ActivationTransactionError::OrphanTemporaryState);
             }
-            return read_pointer_state(paths);
+            return Ok((read_pointer_state(paths)?, None));
         };
         if journal_temporary_exists {
             return Err(ActivationTransactionError::OrphanJournalTemporary);
@@ -901,15 +1091,33 @@ pub(super) mod generation_state {
             return Err(ActivationTransactionError::RecoveryConflict);
         }
 
+        sync_standalone_current(
+            paths,
+            authoritative.as_ref().map(|state| state.current.as_str()),
+            Some(&journal),
+            io,
+            lock,
+        )?;
+        if matches_after && paths.standalone_root().is_some() {
+            // The writer may have stopped before syncing the state rename.
+            io.sync_dir(&paths.root)
+                .map_err(ActivationTransactionError::CommitSync)?;
+        }
         if state_temporary_exists {
             io.remove_file(&paths.activation_state_temp)
                 .map_err(|err| io_error("remove stale activation temporary", err))?;
         }
         io.remove_file(&paths.activation_journal)
             .map_err(|err| io_error("remove recovered activation journal", err))?;
-        io.sync_dir(&paths.root)
-            .map_err(|err| io_error("sync recovered activation directory", err))?;
-        Ok(authoritative)
+        if let Err(err) = io.sync_dir(&paths.root) {
+            if !matches_after || paths.standalone_root().is_none() {
+                return Err(io_error("sync recovered activation directory", err));
+            }
+            // The committed pair is already durable. Losing only the journal
+            // deletion on power loss can cause the same recovery to run again.
+            eprintln!("codex: warning: activation committed; sync recovered journal deletion failed: {err}");
+        }
+        Ok((authoritative, matches_after.then_some(journal)))
     }
 
     pub(crate) fn recover_activation_state(
@@ -1005,6 +1213,10 @@ mod activation_interruption_tests {
             self.operation(|disk| disk.rename(from, to))
         }
 
+        fn symlink(&mut self, target: &Path, path: &Path) -> io::Result<()> {
+            self.operation(|disk| disk.symlink(target, path))
+        }
+
         fn remove_file(&mut self, path: &Path) -> io::Result<()> {
             self.operation(|disk| disk.remove_file(path))
         }
@@ -1059,13 +1271,23 @@ mod activation_interruption_tests {
                     };
                     let result = activate_pointer_state_locked(
                         &paths,
+                        if mode == 2 {
+                            ActivationOperation::Rollback
+                        } else {
+                            ActivationOperation::Update
+                        },
                         before.as_ref(),
                         &after,
                         &mut io,
                         &lock,
                     );
                     assert!(
-                        matches!(result, Err(ActivationTransactionError::Io { .. })),
+                        matches!(
+                            result,
+                            Err(ActivationTransactionError::Io { .. }
+                                | ActivationTransactionError::CommitSync(_)
+                                | ActivationTransactionError::CommittedCleanup { .. })
+                        ),
                         "mode={mode} step={step} after={after_io}: {result:?}"
                     );
                     assert_eq!(io.observed, step + 1);
@@ -1114,12 +1336,93 @@ mod activation_interruption_tests {
     }
 
     #[test]
+    fn standalone_link_failures_recover_initial_update_and_rollback() {
+        for mode in 0..3 {
+            // Link creation, rename and sync all precede the state rename.
+            for step in 4..7 {
+                for after_io in [false, true] {
+                    let (paths, before, after) = fixture(mode);
+                    let releases = paths.root.join("standalone/releases");
+                    fs::create_dir_all(&releases).unwrap();
+                    let paths = paths.with_generation_root(&releases);
+                    let old_target = before
+                        .as_ref()
+                        .and_then(|old| paths.standalone_current_target(&old.current));
+                    if let Some(old_target) = &old_target {
+                        std::os::unix::fs::symlink(
+                            old_target,
+                            releases.parent().unwrap().join("current"),
+                        )
+                        .unwrap();
+                    }
+
+                    let lock = acquire_activation_lock(&paths).unwrap();
+                    let mut fault = InterruptedIo {
+                        target: step,
+                        after: after_io,
+                        observed: 0,
+                        disk: FsActivationIo,
+                    };
+                    let result = activate_pointer_state_locked(
+                        &paths,
+                        if mode == 2 {
+                            ActivationOperation::Rollback
+                        } else {
+                            ActivationOperation::Update
+                        },
+                        before.as_ref(),
+                        &after,
+                        &mut fault,
+                        &lock,
+                    );
+                    assert!(matches!(result, Err(ActivationTransactionError::Io { .. })));
+                    assert_eq!(read_pointer_state(&paths).unwrap(), before);
+                    assert!(paths.activation_journal.exists());
+
+                    let recovery =
+                        recover_activation_locked(&paths, &mut FsActivationIo, &lock).unwrap();
+                    assert_eq!(recovery, (before.clone(), None));
+                    assert_eq!(paths.read_standalone_current().unwrap(), old_target);
+                    assert!(!releases
+                        .parent()
+                        .unwrap()
+                        .join(".current.wrapper.tmp")
+                        .is_symlink());
+
+                    activate_pointer_state_locked(
+                        &paths,
+                        if mode == 2 {
+                            ActivationOperation::Rollback
+                        } else {
+                            ActivationOperation::Update
+                        },
+                        before.as_ref(),
+                        &after,
+                        &mut FsActivationIo,
+                        &lock,
+                    )
+                    .unwrap();
+                    assert_eq!(read_pointer_state(&paths).unwrap().as_ref(), Some(&after));
+                    assert_eq!(
+                        paths.read_standalone_current().unwrap(),
+                        paths.standalone_current_target(&after.current),
+                    );
+                    assert!(!has_pending_activation(&paths).unwrap());
+                    drop(lock);
+                    fs::remove_dir_all(&paths.root).unwrap();
+                }
+            }
+        }
+    }
+
+    #[test]
     fn orphan_temporaries_and_conflicts_fail_closed() {
         // An incomplete temporary journal before publication is discardable,
         // but an isolated state temp has no authoritative journal owner.
         for case in 0..4 {
             let (paths, before, after) = fixture(1);
             let journal = ActivationJournal {
+                operation: ActivationOperation::Legacy,
                 before: before.clone(),
                 after,
             };
@@ -1181,6 +1484,7 @@ mod activation_interruption_tests {
             for after_io in [false, true] {
                 let (paths, before, after) = fixture(1);
                 let journal = ActivationJournal {
+                    operation: ActivationOperation::Legacy,
                     before: before.clone(),
                     after,
                 };
@@ -1239,7 +1543,15 @@ mod activation_interruption_tests {
         ));
         // Do not release the lock to mask race errors.
         let mut disk = FsActivationIo;
-        activate_pointer_state_locked(&paths, before.as_ref(), &after, &mut disk, &first).unwrap();
+        activate_pointer_state_locked(
+            &paths,
+            ActivationOperation::Update,
+            before.as_ref(),
+            &after,
+            &mut disk,
+            &first,
+        )
+        .unwrap();
         drop(first);
         assert_eq!(recover_activation_state(&paths).unwrap(), Some(after));
         fs::remove_dir_all(&paths.root).unwrap();
@@ -1249,6 +1561,7 @@ mod activation_interruption_tests {
     fn initial_journal_without_pointer_is_recognized_and_cleared() {
         let (paths, _before, after) = fixture(0);
         let journal = ActivationJournal {
+            operation: ActivationOperation::Legacy,
             before: None,
             after,
         };
@@ -1267,7 +1580,15 @@ mod activation_interruption_tests {
         let (paths, _before, after) = fixture(0);
         let writer = acquire_activation_lock(&paths).unwrap();
         let mut disk = FsActivationIo;
-        activate_pointer_state_locked(&paths, None, &after, &mut disk, &writer).unwrap();
+        activate_pointer_state_locked(
+            &paths,
+            ActivationOperation::Update,
+            None,
+            &after,
+            &mut disk,
+            &writer,
+        )
+        .unwrap();
         drop(writer);
 
         let shared1 = acquire_activation_read_lock(&paths).unwrap();

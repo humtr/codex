@@ -169,10 +169,63 @@ Every generation is stored under `~/.codex/packages/standalone/releases/<id>/`
   separate reusable test, not an account or personal-device check on every update.
 
 Binary adaptation happens when a generation is prepared; the patched bytes remain
-in that generation. Each launch still prepares process-local FD 33/34/35 and the
-Termux environment. Unchanged Wrapper system config is reused without rewriting
-it. Its `thread_unload_delay_secs = 0` default applies to every `CODEX_HOME`, with
-explicit user settings retaining their upstream precedence.
+in that generation (`~/.codex/packages/standalone/releases/<version>-<6hex>/`).
+Each launch still prepares process-local FD 33/34/35 and the
+Termux environment. The Wrapper refreshes older managed system config on
+launch and reuses unchanged files. The installed upstream Codex supplies
+the thread unload default. Explicit `config.toml` and `-c` settings retain
+upstream precedence, including an explicit zero.
+
+On the first TUI launch eligible to use a managed daemon in a fresh
+`$CODEX_HOME`, the Wrapper can prepare the default package selection by linking
+`$CODEX_HOME/packages/app-server-daemon/current` to
+`$HOME/.codex/packages/standalone/current`. Explicit daemon start commands
+can prepare the same default. Codex decides whether to start a daemon, so the
+link can appear even with `features.daemon_auto_start = false` or during sign-in.
+Help, version, queries, `--no-daemon`, `--remote`, and direct `app-server daemon
+update --from-cli` skip this preparation.
+
+Homes using the link pick up a Wrapper update or rollback on the next daemon
+start or restart. A running daemon keeps using its original executable.
+Existing per-home selections and homes with prior daemon launch traces keep
+their upstream-selected packages. A later explicit `app-server daemon update
+--from-cli --yes` can pin a dedicated package independently of Wrapper updates.
+
+If a regular file or directory occupies `$HOME/.codex/packages/standalone/current`,
+update and rollback fail without replacing it or changing the active generation.
+If an interrupted update leaves its result uncertain, use `codex wrapper status`
+to recover and inspect the selection before deciding whether to roll back again.
+
+### Optional account selector (`contrib/codex-account`)
+
+Stage 1 `install.sh` installs only `$PREFIX/bin/codex` and leaves profile
+registration/management out of the standalone Wrapper. For convenience when
+running already-registered account homes (`~/.local/share/codex/manager/profiles/<ACCOUNT>/home`)
+directly without `ai` or Stage 2 Manager, you can optionally copy
+[contrib/codex-account](contrib/codex-account) to `~/bin/codex-account`
+(preserving any existing file you already placed there):
+
+```sh
+mkdir -p ~/bin && cp -i contrib/codex-account ~/bin/codex-account && chmod 700 ~/bin/codex-account
+```
+
+Usage (`codex-account ACCOUNT [CODEX_ARG ...]`) consumes only `ACCOUNT`, sets
+`CODEX_HOME`, `CODEX_SHARED_HOME="$HOME/.codex"`, and
+`CODEX_SQLITE_HOME="$HOME/.codex"` for registered accounts (or unsets all three
+for `default` / `home`), and passes all remaining arguments directly to
+`$PREFIX/bin/codex` without requiring `--`:
+
+```sh
+codex-account szob                              # start Codex TUI in szob home
+codex-account janmori101 resume <UUID>          # resume thread in janmori101 home
+codex-account szob -p review exec "검토해 줘"   # apply szob home + review.config.toml
+codex-account default                           # unset inherited profile env and use ~/.codex
+codex-account szob --help                       # pass --help through to Codex
+```
+
+Per-account V2 config (`-p <name>`) reads `<name>.config.toml` from the
+selected account's `$CODEX_HOME`; `CODEX_SHARED_HOME` only auto-links
+`installation_id`, `config.toml`, `ais.config.toml`, and `chatgpt.config.toml`.
 
 ## Optional module configuration (Stage 2.1 boundary)
 
@@ -246,11 +299,10 @@ work. Wrapper does not change that selection automatically. Use `--from-cli`
 to retain the Termux adaptation; the plain upstream daemon updater downloads an
 official package without Wrapper adaptation.
 
-Closing a TUI does not necessarily stop its background server. A running server
-keeps its selected executable and startup settings until its normal lifecycle
-applies a replacement. Idle writer release requires the last subscriber to leave
-and the turn to be inactive; the global unload default does not interrupt work or
-merge authentication between homes.
+The background server can outlive the TUI. A running daemon keeps its
+startup settings and reads the updated Wrapper defaults on its next normal
+start through that Wrapper. Cross-home resume depends on actual native
+writer release and upstream resume checks. Authentication remains per home.
 
 Android kernels lack Linux Landlock / unprivileged user namespaces, so the Stage 1
 wrapper sets `sandbox_mode = "danger-full-access"` in its wrapper-owned config and
@@ -264,7 +316,7 @@ Before `exec`ing upstream's static musl `codex` binary (plus optional
 time), the wrapper prepares the Android/Termux environment:
 
 1. **DNS (`FD 33`):** materializes `~/.local/share/codex/wrapper/resolv.conf` when needed and redirects `/etc/resolv.conf` reads to `FD 33`.
-2. **Wrapper config (`FD 34`):** lazily ensures `~/.local/share/codex/wrapper/config/config.toml` (`sandbox_mode = "danger-full-access"`, `mcp_oauth_credentials_store = "file"`, `thread_unload_delay_secs = 0`) and redirects `/etc/codex` reads to `FD 34`.
+2. **Wrapper config (`FD 34`)** lazily ensures `~/.local/share/codex/wrapper/config/config.toml` (`sandbox_mode = "danger-full-access"`, `mcp_oauth_credentials_store = "file"`) and redirects `/etc/codex` reads to FD 34.
 3. **Temp root & UDS directory (`FD 35` + `TMPDIR`):** requires inherited `PREFIX` and `TMPDIR`, exports `TMPDIR`/`TMP`/`TEMP`/`SQLITE_TMPDIR`, and binds `FD 35` so static musl temp/socket paths do not hit read-only `/tmp`.
 4. **Timezone (`TZ`):** writes/reuses a valid `TZif` under `$XDG_CACHE_HOME/codex/timezones` (or `~/.cache/codex/timezones`) from Android `persist.sys.timezone` / `$TZ`.
 5. **TLS & environment fence:** injects Termux `SSL_CERT_FILE` / `SSL_CERT_DIR`, disables upstream daemon auto-updates (`$CODEX_HOME/app-server-daemon/settings.json` defaulting to `~/.codex/app-server-daemon/settings.json` -> `{"updater":{"autoUpdateEnabled":false}}` on normal launches), and neutralizes unreachable host X11/Wayland/WSL browser env vars.

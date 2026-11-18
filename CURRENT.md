@@ -24,6 +24,96 @@ by the healthy Wrapper diagnosis. The implementation and authority mapping
 lives in [STAGE1_BOUNDARIES](docs/architecture/STAGE1_BOUNDARIES.md);
 dated CI and device evidence follows.
 
+### Stage 1 upstream thread lifetime and rollback recovery candidate (2026-11-19)
+
+Qualified on `rewrite/wrapper` above `0391865acfd9`. This change leaves
+the idle unload delay to the selected upstream runtime. The earlier global
+FD 34 override below is historical. A running daemon uses its startup
+settings until its next normal start through the updated Wrapper.
+
+- On API 37 Termux, disposable homes ran fresh managed daemons from official
+  Codex 0.170.0 (Termux-adapted generation `0.170.0-3f7e1a`) with a local
+  Responses HTTP server. Each trial used a new thread UUID and submission
+  UUID. The sender closed as soon as `thread/queue/add` echoed the
+  `clientUserMessageId`. No trial waited for `turn/started` or HTTP, added a
+  subscriber, reconnected, resent, or called `thread/queue/start`.
+- The candidate completed **5/5** with a fresh FD 34 file and **5/5** after
+  replacing a legacy managed FD 34 file. Each had exactly one matching HTTP
+  request after disconnect and the same UUID-specific response in the local
+  SSE body, persisted assistant message, and `task_complete`. In the final
+  comparison the old FD 34 zero and explicit user-config zero each produced
+  **5/5** `turn_aborted` with no HTTP request. An earlier exploratory old-zero
+  run recorded one completion when `turn/started` had already arrived before
+  the receipt. Zero-control completion varied across the observed runs.
+- The normal launch path replaced the old managed file and retained inode,
+  mtime and ctime on subsequent launches. The daemon inherited the expected
+  FD 34 bytes. Workspace tests covered new immutable snapshot contents,
+  explicit fragment zero, and retention of the legacy snapshot under an
+  inherited FD 34 lease. An upstream stdio `config/read` reported user value
+  `23`, then CLI values `0` and `7` from `sessionFlags` with the same
+  unmodified user file.
+- A release-binary fault test reproduced the false rollback success on the
+  old Wrapper after `update --path` reselected `0.169.1-3de502` and journal
+  deletion failed. The candidate's next rollback selected `0.170.0-3f7e1a`
+  in both `activation-state` and `standalone/current`. Direct rollback
+  retries after pre-rename and post-rename termination, state-directory sync
+  failure, and journal-delete failure each ended at the intended generation.
+  A subsequent fresh rollback swapped the pair once. An ambiguous old
+  journal recovered its committed selection and returned an error.
+- Formatting, Clippy, documentation links, and workspace tests passed
+  (72 Wrapper and 9 release-builder tests under each of umasks `0077`
+  and `0022`). Evidence is under
+  `/data/data/com.termux/files/usr/tmp/wrap-idle.1tyULG/`.
+  This qualification covers local daemon and filesystem behavior. Physical
+  Command Center handoff and an independent `codex exec` writer remain
+  unverified. The device qualification used a local build in disposable homes.
+
+### Stage 1 default daemon package selection, rev 2 (2026-11-19)
+
+Originally qualified on `rewrite/wrapper` above `0391865acfd9`. Verified
+with a locally built Wrapper and official AArch64 musl prebuilt archives for
+`0.169.1-3de502` and `0.170.0-3f7e1a` in disposable Termux homes.
+
+- The unmodified 0.170.0 CLI and the Wrapper selected the same
+  `$CODEX_HOME/packages/standalone/current/bin/codex` and reported server
+  0.169.1 with only a legacy stderr log present. Neither created a dedicated
+  `current` link. Selection checks covered all four legacy and four modern
+  PID/stderr traces, modern traces taking precedence over legacy traces,
+  and a dedicated `current` taking precedence even when its target is broken.
+- Two fresh homes started distinct daemon PIDs and control socket inodes
+  while sharing the same executable inode. Neither installed dedicated
+  `releases/`. After stopping one, the other answered `daemon version`.
+  Explicit `daemon update --from-cli --yes` on an initialized home installed a
+  dedicated pin to 0.169.1 and kept it across an update to 0.170.0 and rollback.
+- Help (including `-hV`), version, queries, `--no-daemon`, `--remote` and
+  direct `--from-cli` in a fresh home skipped link preparation. A PTY launch
+  with `features.daemon_auto_start = false` prepared the default link without a
+  daemon PID or control socket. A literal `-- -hV` and an attached option
+  value containing `-hV` still ran the TUI.
+- `activation-state` remained authoritative during normal transitions and
+  recovery. Missing and stale symlinks were repaired. Ordinary files and
+  directories at `standalone/current` were preserved and rejected without
+  changing either activation pointer. First-install rejection left no active
+  generation. Rejected changes preserved both linked and pinned daemon
+  PIDs and executable inodes. After an active-generation change, a linked
+  daemon kept serving from 0.169.1 until its next start selected 0.170.0.
+- Release-binary fault tests injected link rename and directory sync errors,
+  termination immediately before and after state rename, state-directory sync
+  error, and journal cleanup error. Before commit, link failures returned
+  exit 1 and recovery restored the prior selection. After publication,
+  state-directory sync failure returned exit 3 with a recoverable journal.
+  Direct rollback re-entry completed a published rollback without a second
+  swap. Initial installation recovered to no active state after termination
+  before state rename, and retrying the same prepared path succeeded.
+- Workspace tests passed under both `0077` and `0022`. The earlier `0022`
+  logs had three fixture failures at the baseline and four in the incoming
+  candidate. Explicit private fixture directory creation fixed those four
+  without changing the product's permissions check.
+- Device-local evidence and scripts are under
+  `/data/data/com.termux/files/usr/tmp/daemon-fix-o8w22wke/`. The fault coverage
+  is process termination and injected filesystem call failure. Physical power
+  loss and live activation were outside this verification.
+
 ### Stage 1 P0 installer safety qualification (2026-11-17; isolated worktree)
 
 Work branch `work/wrapper-p0-recovery-20261117` began at

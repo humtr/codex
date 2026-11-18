@@ -91,7 +91,7 @@ mod unix_app {
     const RESOLVER_DEFAULT_OPTIONS: &[u8] = b"options timeout:2 attempts:10\n";
 
     // FD 34 configuration loaded by upstream Codex via inherited dirfd.
-    pub(super) const TERMUX_WRAPPER_CONFIG_CONTENT: &str = "# codex-termux-wrapper\nsandbox_mode = \"danger-full-access\"\nmcp_oauth_credentials_store = \"file\"\nthread_unload_delay_secs = 0\n";
+    pub(super) const TERMUX_WRAPPER_CONFIG_CONTENT: &str = "# codex-termux-wrapper\nsandbox_mode = \"danger-full-access\"\nmcp_oauth_credentials_store = \"file\"\n";
 
     pub(super) static LOCAL_STAGING_COUNTER: AtomicU64 = AtomicU64::new(0);
     static RESOLVER_SYNTHESIS_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -188,47 +188,148 @@ mod unix_app {
         None
     }
 
-    fn upstream_invocation_requires_daemon_settings(args: &[OsString]) -> bool {
+    fn app_server_option_takes_separate_value(value: &str) -> bool {
+        matches!(
+            value,
+            "--startup-client-info"
+                | "--cloud-skills-snapshot"
+                | "--code-mode-host"
+                | "--listen"
+                | "--ws-auth"
+                | "--ws-token-file"
+                | "--ws-token-sha256"
+                | "--ws-shared-secret-file"
+                | "--ws-issuer"
+                | "--ws-audience"
+                | "--ws-max-clock-skew-seconds"
+        )
+    }
+
+    struct UpstreamInvocationSummary<'a> {
+        positionals: [Option<&'a str>; 3],
+        saw_no_daemon: bool,
+        saw_remote: bool,
+        saw_help_or_version: bool,
+    }
+
+    fn scan_upstream_invocation(args: &[OsString]) -> UpstreamInvocationSummary<'_> {
+        let mut summary = UpstreamInvocationSummary {
+            positionals: [None, None, None],
+            saw_no_daemon: false,
+            saw_remote: false,
+            saw_help_or_version: false,
+        };
+        let mut positional_count = 0usize;
+        let mut index = 0usize;
+        while index < args.len() {
+            let Some(arg) = args[index].to_str() else {
+                if positional_count < summary.positionals.len() {
+                    summary.positionals[positional_count] = Some("");
+                    positional_count += 1;
+                }
+                index += 1;
+                continue;
+            };
+            if arg == "--" {
+                break;
+            }
+            if arg.starts_with('-') {
+                if arg == "--no-daemon" {
+                    summary.saw_no_daemon = true;
+                    index += 1;
+                    continue;
+                }
+                if arg == "--remote" || arg.starts_with("--remote=") {
+                    summary.saw_remote = true;
+                }
+                if is_upstream_help_or_version_flag(arg) {
+                    summary.saw_help_or_version = true;
+                }
+                if arg.contains('=') {
+                    index += 1;
+                    continue;
+                }
+                let in_app_server = summary.positionals[0] == Some("app-server");
+                if upstream_global_option_takes_separate_value(arg)
+                    || (in_app_server && app_server_option_takes_separate_value(arg))
+                {
+                    if index + 1 >= args.len() {
+                        break;
+                    }
+                    index += 2;
+                    continue;
+                }
+                index += 1;
+                continue;
+            }
+            if positional_count < summary.positionals.len() {
+                summary.positionals[positional_count] = Some(arg);
+                positional_count += 1;
+            }
+            index += 1;
+        }
+        summary
+    }
+
+    fn is_non_daemon_top_level_command(cmd: &str) -> bool {
+        matches!(
+            cmd,
+            "exec"
+                | "e"
+                | "review"
+                | "login"
+                | "logout"
+                | "mcp"
+                | "plugin"
+                | "completion"
+                | "sandbox"
+                | "debug"
+                | "execpolicy"
+                | "apply"
+                | "a"
+                | "queue"
+                | "archive"
+                | "delete"
+                | "migrate-rollouts"
+                | "migrate-nfs-db"
+                | "unarchive"
+                | "cloud"
+                | "cloud-tasks"
+                | "responses-api-proxy"
+                | "stdio-to-uds"
+                | "exec-server"
+                | "features"
+                | "help"
+                | "doctor"
+        )
+    }
+
+    pub(super) fn upstream_invocation_requires_daemon_settings(args: &[OsString]) -> bool {
         if is_help_or_version_invocation(args) {
             return false;
         }
-        if args.iter().any(|arg| {
-            arg == "--no-daemon" || arg.to_str().is_some_and(|s| s.starts_with("--remote"))
-        }) {
+        let summary = scan_upstream_invocation(args);
+        if summary.saw_no_daemon || summary.saw_remote {
             return false;
         }
-        !matches!(
-            first_top_level_subcommand_index(args).and_then(|idx| args[idx].to_str()),
-            Some(
-                "exec"
-                    | "e"
-                    | "review"
-                    | "login"
-                    | "logout"
-                    | "mcp"
-                    | "plugin"
-                    | "completion"
-                    | "sandbox"
-                    | "debug"
-                    | "execpolicy"
-                    | "apply"
-                    | "a"
-                    | "queue"
-                    | "archive"
-                    | "delete"
-                    | "migrate-rollouts"
-                    | "migrate-nfs-db"
-                    | "unarchive"
-                    | "cloud"
-                    | "cloud-tasks"
-                    | "responses-api-proxy"
-                    | "stdio-to-uds"
-                    | "exec-server"
-                    | "features"
-                    | "help"
-                    | "doctor"
-            )
-        )
+        !summary.positionals[0].is_some_and(is_non_daemon_top_level_command)
+    }
+
+    pub(super) fn upstream_invocation_initializes_managed_daemon(args: &[OsString]) -> bool {
+        let summary = scan_upstream_invocation(args);
+        if summary.saw_help_or_version || summary.saw_no_daemon || summary.saw_remote {
+            return false;
+        }
+        match summary.positionals {
+            [None, ..] => true,
+            [Some("resume" | "fork" | "agents"), ..] => true,
+            [Some("app-server"), Some("daemon"), Some("start" | "restart" | "bootstrap")] => true,
+            [Some("app-server"), ..] => false,
+            [Some("remote-control"), None | Some("start"), ..] => true,
+            [Some("remote-control"), ..] => false,
+            [Some(cmd), ..] if is_non_daemon_top_level_command(cmd) || cmd == "update" => false,
+            [Some(_), ..] => true,
+        }
     }
 
     fn unsupported_sandbox_mode(value: &str) -> Option<&str> {
@@ -306,6 +407,13 @@ mod unix_app {
         Ok(PublicDispatchRoute::Upstream(args))
     }
 
+    fn is_upstream_help_or_version_flag(arg: &str) -> bool {
+        matches!(arg, "--help" | "--version")
+            || arg.strip_prefix('-').is_some_and(|flags| {
+                !flags.is_empty() && flags.bytes().all(|flag| matches!(flag, b'h' | b'V'))
+            })
+    }
+
     pub(super) fn is_help_or_version_invocation(args: &[OsString]) -> bool {
         let mut index = 0usize;
         while index < args.len() {
@@ -326,7 +434,7 @@ mod unix_app {
                 index += 2;
                 continue;
             }
-            if matches!(arg, "--version" | "-V" | "--help" | "-h" | "help") {
+            if arg == "help" || is_upstream_help_or_version_flag(arg) {
                 return true;
             }
             if arg.starts_with('-') {
@@ -1623,6 +1731,59 @@ mod unix_app {
         })
     }
 
+    fn validate_and_load_generation(
+        roots: &LocalWrapperRoots,
+        generation_id: &str,
+    ) -> Result<LoadedLocalGeneration, LocalProductError> {
+        let loaded = load_local_generation(&roots.generation_root.join(generation_id))?;
+        if loaded.generation_id != generation_id {
+            return Err(LocalProductError::Descriptor(
+                "activated generation descriptor does not match pointer",
+            ));
+        }
+        Ok(loaded)
+    }
+
+    fn reconcile_standalone_current_and_load(
+        roots: &LocalWrapperRoots,
+        state_paths: &generation_state::WrapperStatePaths,
+        pointer_state: generation_state::GenerationPointerState,
+    ) -> Result<
+        (
+            generation_state::GenerationPointerState,
+            LoadedLocalGeneration,
+        ),
+        LocalProductError,
+    > {
+        let expected = state_paths.standalone_current_target(&pointer_state.current);
+        if state_paths
+            .read_standalone_current()
+            .map_err(LocalProductError::State)?
+            != expected
+        {
+            let lock = generation_state::acquire_activation_lock(state_paths)
+                .map_err(LocalProductError::State)?;
+            let mut io = generation_state::FsActivationIo;
+            let (authoritative, _) =
+                generation_state::recover_activation_locked(state_paths, &mut io, &lock)
+                    .map_err(LocalProductError::State)?;
+            let authoritative = authoritative.ok_or(LocalProductError::NoCurrentGeneration)?;
+            let loaded = validate_and_load_generation(roots, &authoritative.current)?;
+            generation_state::sync_standalone_current(
+                state_paths,
+                Some(&authoritative.current),
+                None,
+                &mut io,
+                &lock,
+            )
+            .map_err(LocalProductError::State)?;
+            return Ok((authoritative, loaded));
+        }
+
+        let loaded = validate_and_load_generation(roots, &pointer_state.current)?;
+        Ok((pointer_state, loaded))
+    }
+
     pub(super) fn load_activated_generation(
         roots: &LocalWrapperRoots,
     ) -> Result<
@@ -1633,7 +1794,8 @@ mod unix_app {
         LocalProductError,
     > {
         let state_paths = generation_state::WrapperStatePaths::new(&roots.state_root)
-            .map_err(LocalProductError::StateFormat)?;
+            .map_err(LocalProductError::StateFormat)?
+            .with_generation_root(&roots.generation_root);
         // The very first activation may have a durable journal while its
         // authoritative pointer is still absent. Recovery must inspect that
         // journal, too; otherwise reads report a misleading clean uninstalled
@@ -1641,13 +1803,7 @@ mod unix_app {
         let pointer_state = generation_state::recover_activation_state(&state_paths)
             .map_err(LocalProductError::State)?
             .ok_or(LocalProductError::NoCurrentGeneration)?;
-        let loaded = load_local_generation(&roots.generation_root.join(&pointer_state.current))?;
-        if loaded.generation_id != pointer_state.current {
-            return Err(LocalProductError::Descriptor(
-                "activated generation descriptor does not match pointer",
-            ));
-        }
-        Ok((pointer_state, loaded))
+        reconcile_standalone_current_and_load(roots, &state_paths, pointer_state)
     }
 
     pub(super) fn with_qualified_loaded_runtime<'loaded, T, F>(
@@ -1797,6 +1953,7 @@ mod unix_app {
         cert_dir: Option<&'a OsStr>,
         resolver_path: &'a Path,
         config_dir: &'a Path,
+        generation_root: &'a Path,
     }
 
     pub(super) fn prepare_shared_home_from_env() -> io::Result<Option<PathBuf>> {
@@ -1855,6 +2012,17 @@ mod unix_app {
                     eprintln!(
                         "codex: warning: daemon settings unavailable ({err}); continuing non-daemon command"
                     );
+                } else if upstream_invocation_initializes_managed_daemon(args) {
+                    if let Some(standalone_root) = host.generation_root.parent() {
+                        let standalone_current = standalone_root.join("current");
+                        if let Err(err) = daemon_settings::ensure_default_package_link(
+                            &codex_home,
+                            &standalone_current,
+                            standalone_root,
+                        ) {
+                            return RuntimeLaunchError::Config(err);
+                        }
+                    }
                 }
             }
         }
@@ -1910,20 +2078,18 @@ mod unix_app {
     fn launch_upstream_runtime(
         assets: QualifiedRuntimeAssets<'_, '_>,
         process_env: &TermuxProcessEnvSnapshot,
-        cert_file: &OsStr,
-        cert_dir: Option<&OsStr>,
-        resolver_path: &Path,
-        config_dir: &Path,
+        roots: &LocalWrapperRoots,
         args: &[OsString],
     ) -> RuntimeLaunchError {
         launch_upstream_runtime_with_plan(
             assets,
             process_env,
             UpstreamRuntimeHost {
-                cert_file,
-                cert_dir,
-                resolver_path,
-                config_dir,
+                cert_file: roots.cert_file.as_os_str(),
+                cert_dir: Some(roots.cert_dir.as_os_str()),
+                resolver_path: &roots.resolver_path,
+                config_dir: &roots.config_dir,
+                generation_root: &roots.generation_root,
             },
             system_config::ExtensionFd34Input::default(),
             args,
@@ -1967,10 +2133,7 @@ mod unix_app {
                     let err = launch_upstream_runtime(
                         context.runtime_assets,
                         context.process_env,
-                        context.cert_file,
-                        context.cert_dir,
-                        context.resolver_path,
-                        context.config_dir,
+                        roots,
                         &args,
                     );
                     Err(LocalProductError::Dispatch(
@@ -3091,6 +3254,15 @@ pub(crate) mod tests {
         }
     }
 
+    pub(crate) fn create_private_test_dirs(path: &Path) {
+        use std::os::unix::fs::DirBuilderExt;
+        fs::DirBuilder::new()
+            .recursive(true)
+            .mode(0o700)
+            .create(path)
+            .unwrap();
+    }
+
     pub(crate) fn make_test_roots(root: &Path) -> LocalWrapperRoots {
         let prefix = std::env::var_os("PREFIX")
             .map(PathBuf::from)
@@ -3098,7 +3270,7 @@ pub(crate) mod tests {
         let state_root = root.join("state");
         let config_dir = state_root.join("config");
         let generation_root = root.join("generations");
-        fs::create_dir_all(&config_dir).unwrap();
+        create_private_test_dirs(&config_dir);
         fs::create_dir_all(&generation_root).unwrap();
         let resolver_path = root.join("resolv.conf");
         fs::write(&resolver_path, b"nameserver 1.1.1.1\n").unwrap();
@@ -3340,21 +3512,38 @@ pub(crate) mod tests {
     #[test]
     fn wrapper_config_writes_managed_toml_and_preserves_other_files() {
         let root = temp_root("fd34");
-        let cfg = root.join("config");
-        super::fs_util::private_dir(&cfg).unwrap();
-        fs::write(cfg.join("config.toml"), b"# stale\nfoo = 1\n").unwrap();
-        fs::write(cfg.join("requirements.toml"), b"user_setting = true\n").unwrap();
+        let expected = "# codex-termux-wrapper\nsandbox_mode = \"danger-full-access\"\nmcp_oauth_credentials_store = \"file\"\n";
+        for (name, old) in [
+            ("fresh", None),
+            (
+                "legacy",
+                Some(format!("{expected}thread_unload_delay_secs = 0\n")),
+            ),
+            ("stale", Some("# stale\nfoo = 1\n".to_owned())),
+        ] {
+            let cfg = root.join(name);
+            let path = cfg.join("config.toml");
+            let requirements = cfg.join("requirements.toml");
+            if let Some(old) = old {
+                super::fs_util::private_dir(&cfg).unwrap();
+                fs::write(&path, old).unwrap();
+                fs::write(&requirements, b"user_setting = true\n").unwrap();
+            }
 
-        prepare_wrapper_config(&cfg).unwrap();
-        let written = fs::read_to_string(cfg.join("config.toml")).unwrap();
-        assert_eq!(
-            written,
-            "# codex-termux-wrapper\nsandbox_mode = \"danger-full-access\"\nmcp_oauth_credentials_store = \"file\"\nthread_unload_delay_secs = 0\n"
-        );
-        assert_eq!(
-            fs::read_to_string(cfg.join("requirements.toml")).unwrap(),
-            "user_setting = true\n"
-        );
+            prepare_wrapper_config(&cfg).unwrap();
+            assert_eq!(fs::read_to_string(&path).unwrap(), expected);
+            let first = fs::metadata(&path).unwrap();
+            prepare_wrapper_config(&cfg).unwrap();
+            let second = fs::metadata(&path).unwrap();
+            assert_eq!(first.ino(), second.ino());
+            assert_eq!(first.modified().unwrap(), second.modified().unwrap());
+            if name != "fresh" {
+                assert_eq!(
+                    fs::read_to_string(requirements).unwrap(),
+                    "user_setting = true\n"
+                );
+            }
+        }
         remove_temp_root(root);
     }
 
@@ -3476,6 +3665,7 @@ pub(crate) mod tests {
         let paths = generation_state::WrapperStatePaths::new(&roots.state_root).unwrap();
         let after = generation_state::plan_initial_pointer_state("first").unwrap();
         let journal = generation_state::ActivationJournal {
+            operation: generation_state::ActivationOperation::Legacy,
             before: None,
             after,
         };
@@ -3550,11 +3740,19 @@ pub(crate) mod tests {
         let lock = generation_state::acquire_activation_lock(&state_paths).unwrap();
         let mut io = generation_state::FsActivationIo;
         let s1 = generation_state::plan_initial_pointer_state("gen-1").unwrap();
-        generation_state::activate_pointer_state_locked(&state_paths, None, &s1, &mut io, &lock)
-            .unwrap();
+        generation_state::activate_pointer_state_locked(
+            &state_paths,
+            generation_state::ActivationOperation::Update,
+            None,
+            &s1,
+            &mut io,
+            &lock,
+        )
+        .unwrap();
         let s2 = generation_state::plan_activation_pointer_state(&s1, "gen-2").unwrap();
         generation_state::activate_pointer_state_locked(
             &state_paths,
+            generation_state::ActivationOperation::Update,
             Some(&s1),
             &s2,
             &mut io,
@@ -3734,8 +3932,15 @@ pub(crate) mod tests {
         let lock = generation_state::acquire_activation_lock(&state_paths).unwrap();
         let mut io = generation_state::FsActivationIo;
         let s1 = generation_state::plan_initial_pointer_state("gen-1").unwrap();
-        generation_state::activate_pointer_state_locked(&state_paths, None, &s1, &mut io, &lock)
-            .unwrap();
+        generation_state::activate_pointer_state_locked(
+            &state_paths,
+            generation_state::ActivationOperation::Update,
+            None,
+            &s1,
+            &mut io,
+            &lock,
+        )
+        .unwrap();
         drop(lock);
 
         let settings_path = syn_home.join(".codex/app-server-daemon/settings.json");
@@ -3782,6 +3987,302 @@ pub(crate) mod tests {
         assert!(with_shared.status.success(), "{with_shared:?}");
         assert!(String::from_utf8_lossy(&with_shared.stdout)
             .contains(&format!("SQLITE:{}", shared_home.display())));
+
+        drop(_env);
+        remove_temp_root(root);
+    }
+
+    #[test]
+    fn managed_daemon_init_classification_matches_upstream_startup_routes() {
+        // Routes that initialize managed daemon on a fresh CODEX_HOME
+        for args in [
+            &[][..],
+            &["hello"][..],
+            &["-p", "review", "검토해 줘"][..],
+            &["-c", "k=--no-daemon", "prompt"][..],
+            &["--", "--no-daemon"][..],
+            &["--", "--help"][..],
+            &["--", "-hV"][..],
+            &["--model", "-hV", "prompt"][..],
+            &["-m-hV", "prompt"][..],
+            &["resume"][..],
+            &["resume", "--last"][..],
+            &["fork", "019c0000-0000-7000-8000-000000000001"][..],
+            &["agents"][..],
+            &["app-server", "daemon", "start"][..],
+            &["app-server", "daemon", "restart"][..],
+            &["app-server", "daemon", "bootstrap"][..],
+            &["app-server", "-c", "k=v", "daemon", "start"][..],
+            &["remote-control"][..],
+            &["remote-control", "start"][..],
+        ] {
+            let v = os_vec(args);
+            assert!(
+                upstream_invocation_initializes_managed_daemon(&v),
+                "expected daemon init for {args:?}"
+            );
+            assert!(
+                upstream_invocation_requires_daemon_settings(&v),
+                "expected daemon settings requirement for {args:?}"
+            );
+        }
+
+        // Routes that must NOT pre-create `packages/app-server-daemon/current`
+        for args in [
+            &["--help"][..],
+            &["--version"][..],
+            &["-hV"][..],
+            &["-Vh"][..],
+            &["-p", "review", "-hV"][..],
+            &["help"][..],
+            &["app-server", "daemon", "start", "--help"][..],
+            &["resume", "--help"][..],
+            &["agents", "-h"][..],
+            &["--no-daemon"][..],
+            &["resume", "--no-daemon"][..],
+            &["fork", "--remote", "unix:///tmp/s"][..],
+            &["agents", "--remote=ws://127.0.0.1:8080"][..],
+            &["remote-control", "--no-daemon"][..],
+            &["app-server", "daemon", "stop"][..],
+            &["app-server", "daemon", "version"][..],
+            &["app-server", "daemon", "update", "--from-cli", "--yes"][..],
+            &["app-server", "daemon", "enable-remote-control"][..],
+            &["app-server", "daemon", "disable-remote-control"][..],
+            &["app-server"][..],
+            &["app-server", "--listen", "stdio://"][..],
+            &["app-server", "proxy"][..],
+            &["remote-control", "stop"][..],
+            &["remote-control", "pair"][..],
+            &["exec", "hi"][..],
+            &["e", "hi"][..],
+            &["review"][..],
+            &["login"][..],
+            &["logout"][..],
+            &["queue", "--thread", "t", "--message", "m"][..],
+            &["features", "list"][..],
+        ] {
+            let v = os_vec(args);
+            assert!(
+                !upstream_invocation_initializes_managed_daemon(&v),
+                "unexpected daemon init for {args:?}"
+            );
+        }
+
+        // `daemon version` / `daemon update` still require daemon settings integrity
+        assert!(upstream_invocation_requires_daemon_settings(&os_vec(&[
+            "app-server",
+            "daemon",
+            "version",
+        ])));
+        assert!(upstream_invocation_requires_daemon_settings(&os_vec(&[
+            "app-server",
+            "daemon",
+            "update",
+            "--from-cli",
+            "--yes",
+        ])));
+    }
+
+    #[test]
+    fn load_activated_generation_reconciles_standalone_current_and_rejects_non_symlink() {
+        let _guard = EnvRestoreGuard::new(&[]);
+        let root = temp_root("reconcile-standalone-current");
+        let roots = make_test_roots(&root);
+        fs::create_dir_all(&roots.generation_root).unwrap();
+        let state_paths = generation_state::WrapperStatePaths::new(&roots.state_root).unwrap();
+        generation_state::prepare_wrapper_state_paths(&state_paths).unwrap();
+
+        write_sample_generation(&roots.generation_root.join("gen-a"), "gen-a", false);
+        write_sample_generation(&roots.generation_root.join("gen-b"), "gen-b", false);
+
+        let lock = generation_state::acquire_activation_lock(&state_paths).unwrap();
+        let mut io = generation_state::FsActivationIo;
+        let sa = generation_state::plan_initial_pointer_state("gen-a").unwrap();
+        generation_state::activate_pointer_state_locked(
+            &state_paths,
+            generation_state::ActivationOperation::Update,
+            None,
+            &sa,
+            &mut io,
+            &lock,
+        )
+        .unwrap();
+        let sb = generation_state::plan_activation_pointer_state(&sa, "gen-b").unwrap();
+        generation_state::activate_pointer_state_locked(
+            &state_paths,
+            generation_state::ActivationOperation::Update,
+            Some(&sa),
+            &sb,
+            &mut io,
+            &lock,
+        )
+        .unwrap();
+        drop(lock);
+
+        // Case 1: activation-state points to `gen-b`, while `standalone/current` still points to `gen-a`.
+        let standalone_current = roots.generation_root.parent().unwrap().join("current");
+        let target_a = Path::new("generations/gen-a");
+        let target_b = Path::new("generations/gen-b");
+        std::os::unix::fs::symlink(target_a, &standalone_current).unwrap();
+        let (ptr, loaded) = load_activated_generation(&roots).unwrap();
+        assert_eq!(ptr.current, "gen-b");
+        assert_eq!(loaded.generation_id, "gen-b");
+        assert_eq!(fs::read_link(&standalone_current).unwrap(), target_b);
+
+        // Case 2: missing `standalone/current` is restored from authoritative `activation-state`.
+        fs::remove_file(&standalone_current).unwrap();
+        let (_, loaded2) = load_activated_generation(&roots).unwrap();
+        assert_eq!(loaded2.generation_id, "gen-b");
+        assert_eq!(fs::read_link(&standalone_current).unwrap(), target_b);
+
+        // Case 3: regular file or directory at `standalone/current` fails closed without overwriting.
+        fs::remove_file(&standalone_current).unwrap();
+        fs::write(&standalone_current, b"corrupt-non-symlink").unwrap();
+        let err = load_activated_generation(&roots).unwrap_err();
+        assert!(matches!(
+            err,
+            LocalProductError::State(
+                generation_state::ActivationTransactionError::UnsafeFileType(_)
+            )
+        ));
+        assert_eq!(
+            fs::read(&standalone_current).unwrap(),
+            b"corrupt-non-symlink"
+        );
+
+        fs::remove_file(&standalone_current).unwrap();
+        fs::create_dir(&standalone_current).unwrap();
+        let err_dir = load_activated_generation(&roots).unwrap_err();
+        assert!(matches!(
+            err_dir,
+            LocalProductError::State(
+                generation_state::ActivationTransactionError::UnsafeFileType(_)
+            )
+        ));
+        assert!(standalone_current.is_dir());
+
+        remove_temp_root(root);
+    }
+
+    #[test]
+    fn upstream_launch_prepares_default_daemon_link_only_for_daemon_init_routes() {
+        const CHILD_ENV: &str = "CODEX_TEST_DAEMON_LINK_CHILD";
+        if let Ok(encoded) = std::env::var(CHILD_ENV) {
+            let args: Vec<OsString> = if encoded.is_empty() {
+                Vec::new()
+            } else {
+                encoded.split('\x1f').map(OsString::from).collect()
+            };
+            std::process::exit(run_public_main(args));
+        }
+
+        let root = temp_root("e2e-daemon-link");
+        let syn_prefix = root.join("prefix");
+        fs::create_dir_all(syn_prefix.join("bin")).unwrap();
+        let real_openssl = test_openssl_path();
+        fs::copy(&real_openssl, syn_prefix.join("bin/openssl")).unwrap();
+        fs::set_permissions(
+            syn_prefix.join("bin/openssl"),
+            fs::Permissions::from_mode(0o700),
+        )
+        .unwrap();
+        fs::create_dir_all(syn_prefix.join("etc/tls/certs")).unwrap();
+        fs::write(syn_prefix.join("etc/resolv.conf"), b"nameserver 1.1.1.1\n").unwrap();
+        fs::write(syn_prefix.join("etc/tls/cert.pem"), b"").unwrap();
+        let syn_home = root.join("home");
+        fs::create_dir_all(syn_home.join(".codex/packages/standalone/releases")).unwrap();
+        fs::create_dir_all(syn_home.join(".local/share/codex")).unwrap();
+
+        let _env = EnvRestoreGuard::new(&[
+            ("HOME", Some(&syn_home)),
+            ("PREFIX", Some(&syn_prefix)),
+            ("TMPDIR", Some(&root)),
+            ("CODEX_HOME", None),
+            ("CODEX_SHARED_HOME", None),
+            ("CODEX_SQLITE_HOME", None),
+        ]);
+        let roots = LocalWrapperRoots::from_environment().unwrap();
+        let gen1 = roots.generation_root.join("gen-1");
+        write_sample_generation(&gen1, "gen-1", false);
+        let shell = if Path::new("/system/bin/sh").is_file() {
+            "/system/bin/sh"
+        } else {
+            "/bin/sh"
+        };
+        fs::write(
+            gen1.join("bin/codex"),
+            format!("#!{shell}\nif [ \"${{1:-}}\" = --version ]; then echo codex-cli 1.2.3; else printf 'ARGS:%s\\n' \"$*\"; fi\n"),
+        )
+        .unwrap();
+        fs::set_permissions(gen1.join("bin/codex"), fs::Permissions::from_mode(0o755)).unwrap();
+        let state_paths = generation_state::WrapperStatePaths::new(&roots.state_root)
+            .unwrap()
+            .with_generation_root(&roots.generation_root);
+        generation_state::prepare_wrapper_state_paths(&state_paths).unwrap();
+        let lock = generation_state::acquire_activation_lock(&state_paths).unwrap();
+        let mut io = generation_state::FsActivationIo;
+        let s1 = generation_state::plan_initial_pointer_state("gen-1").unwrap();
+        generation_state::activate_pointer_state_locked(
+            &state_paths,
+            generation_state::ActivationOperation::Update,
+            None,
+            &s1,
+            &mut io,
+            &lock,
+        )
+        .unwrap();
+        drop(lock);
+
+        let run_in = |codex_home: &Path, args: &str| {
+            Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "tests::upstream_launch_prepares_default_daemon_link_only_for_daemon_init_routes",
+                    "--nocapture",
+                ])
+                .env(CHILD_ENV, args)
+                .env("CODEX_HOME", codex_home)
+                .output()
+                .unwrap()
+        };
+
+        // 1. Non-daemon / query paths must NOT create `packages/app-server-daemon/current`.
+        let home_query = root.join("home-query");
+        for args in [
+            "exec\x1fhi",
+            "login\x1fstatus",
+            "app-server\x1fdaemon\x1fversion",
+            "app-server\x1fdaemon\x1fupdate\x1f--from-cli\x1f--yes",
+            "--no-daemon",
+            "app-server\x1fdaemon\x1fstart\x1f--help",
+        ] {
+            let out = run_in(&home_query, args);
+            assert!(out.status.success(), "{args}: {out:?}");
+            assert!(
+                !home_query
+                    .join("packages/app-server-daemon/current")
+                    .exists(),
+                "query route {args} unexpectedly created daemon package link"
+            );
+        }
+
+        // 2. Daemon initialization path creates `packages/app-server-daemon/current -> standalone/current`.
+        let out_start = run_in(&home_query, "app-server\x1fdaemon\x1fstart");
+        assert!(out_start.status.success(), "{out_start:?}");
+        let expected_target = syn_home.join(".codex/packages/standalone/current");
+        assert_eq!(
+            fs::read_link(home_query.join("packages/app-server-daemon/current")).unwrap(),
+            expected_target
+        );
+
+        // 3. Default TUI launch on a fresh custom CODEX_HOME creates link and preserves existing selection.
+        let home_tui = root.join("home-tui");
+        let out_tui = run_in(&home_tui, "");
+        assert!(out_tui.status.success(), "{out_tui:?}");
+        assert_eq!(
+            fs::read_link(home_tui.join("packages/app-server-daemon/current")).unwrap(),
+            expected_target
+        );
 
         drop(_env);
         remove_temp_root(root);

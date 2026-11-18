@@ -14,6 +14,7 @@ Codex**, not the entire former `rewrite/rust-core` distribution.
 | How does a Termux user install, update and recover? | [README](../README.md) | Commands and operational cautions; no architecture or release authority |
 | What may a coding agent change, and how must it verify? | [AGENTS](../AGENTS.md) | Process/ownership principles; not product functionality |
 | Which standalone Wrapper review findings need fixes, and how will each fix be verified? | [Wrapper review work order](plan/WRAPPER_REVIEW_WORK_ORDER.md) | Reproductions, implementation scope and acceptance criteria from the 2026-11-18 review |
+| How do legacy dedicated daemon-store notes relate to Stage 1 default linking, `/switch`, and `session_index.jsonl` checks? | [Shared daemon packages & handoff verification plan](plan/SHARED_DAEMON_PACKAGES_PLAN.md) | Stage 1 default `current -> standalone/current` supersedes neutral store / 3-gen daemon pruning; optional legacy copy cleanup and UUID `/switch`/`session_index.jsonl` checks remain separate |
 | What is the order of **unimplemented** optional integration? | [Stage 2 plan](plan/STAGE2_PLAN.md) | Sequencing, prerequisites, proposed implementation; no permission to activate services |
 | What happened in an earlier generation? | [History](#historical-evidence) | Non-normative evidence; not a current component dependency |
 
