@@ -3,9 +3,9 @@ use crate::maintenance;
 use crate::remote_download;
 use crate::{
     capture_termux_process_env, copy_local_directory_tree, ensure_openssl_available,
-    ensure_real_directory_tree, ensure_regular_file, load_local_generation, openssl_sha256,
-    prepare_wrapper_config, probe_release_candidate, rename_noreplace, sync_directory,
-    valid_sha256_hex, LoadedLocalGeneration, LocalProductError, LocalWrapperRoots,
+    ensure_real_directory_tree, load_local_generation, openssl_sha256, prepare_wrapper_config,
+    probe_release_candidate, rename_noreplace, sync_directory, valid_sha256_hex,
+    verify_generation_asset_digests, LoadedLocalGeneration, LocalProductError, LocalWrapperRoots,
     ReleaseFileEntry, TermuxProcessEnvSnapshot, DEFAULT_UPSTREAM_LATEST_URL,
     REMOTE_RELEASE_URL_MAX_BYTES, REMOTE_TRANSFER_TIMEOUT_SECONDS, UPSTREAM_PACKAGE_ASSET,
     UPSTREAM_RELEASE_METADATA_BASE, UPSTREAM_RELEASE_METADATA_MAX_BYTES,
@@ -15,7 +15,6 @@ use std::ffi::OsString;
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 const UPDATE_VERSION_ENV: &str = "CODEX_TERMUX_UPDATE_VERSION";
 const WRAPPER_CREATION_METADATA: &str = "codex-wrapper";
@@ -59,22 +58,7 @@ impl std::fmt::Display for UpdateCliError {
 }
 
 pub(super) fn valid_update_version(value: &str) -> bool {
-    if value.is_empty() || value.len() > 64 || !value.is_ascii() {
-        return false;
-    }
-    let components = value.split('.');
-    let mut count = 0;
-    for component in components {
-        count += 1;
-        if component.is_empty()
-            || !component.bytes().all(|byte| byte.is_ascii_digit())
-            || (component.len() > 1 && component.starts_with('0'))
-            || component.parse::<u64>().is_err()
-        {
-            return false;
-        }
-    }
-    count == 3
+    codex_release_builder::valid_stable_version(value)
 }
 
 pub(super) fn parse_update_args(args: &[OsString]) -> Result<UpdateAction, UpdateCliError> {
@@ -814,7 +798,7 @@ fn update_progress_enabled(stdout_is_terminal: bool, stderr_is_terminal: bool) -
 }
 
 enum UpdateTransientCommand {
-    Update { frame_index: usize, message: String },
+    Update { message: String },
     Stop,
 }
 
@@ -857,7 +841,6 @@ impl UpdatePresentation {
             if worker
                 .sender
                 .send(UpdateTransientCommand::Update {
-                    frame_index: 0,
                     message: message.to_owned(),
                 })
                 .is_ok()
@@ -876,12 +859,8 @@ impl UpdatePresentation {
                 let mut current_frame = 0usize;
                 loop {
                     match receiver.recv_timeout(std::time::Duration::from_millis(80)) {
-                        Ok(UpdateTransientCommand::Update {
-                            frame_index,
-                            message,
-                        }) => {
+                        Ok(UpdateTransientCommand::Update { message }) => {
                             current_message = message;
-                            current_frame = frame_index % UPDATE_SPINNER_FRAMES.len();
                             render_transient_frame(current_frame, &current_message);
                         }
                         Ok(UpdateTransientCommand::Stop)
@@ -966,13 +945,78 @@ impl Drop for UpdatePresentation {
     }
 }
 
-fn local_update_generation_id() -> String {
-    let sequence = crate::LOCAL_STAGING_COUNTER.fetch_add(1, Ordering::Relaxed) + 1;
-    let timestamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
-    format!("local-{timestamp}-{}-{sequence}", std::process::id())
+fn format_bytes(bytes: u64) -> String {
+    const KIB: f64 = 1024.0;
+    const MIB: f64 = 1024.0 * 1024.0;
+    const GIB: f64 = 1024.0 * 1024.0 * 1024.0;
+    let b = bytes as f64;
+    if b >= GIB {
+        format!("{:.2} GiB", b / GIB)
+    } else if b >= MIB {
+        format!("{:.1} MiB", b / MIB)
+    } else if b >= KIB {
+        format!("{:.1} KiB", b / KIB)
+    } else {
+        format!("{bytes} B")
+    }
+}
+
+fn local_update_generation_id(
+    roots: &LocalWrapperRoots,
+    version: &str,
+    archive_sha256: &str,
+) -> String {
+    let short: String = archive_sha256.chars().take(6).collect();
+    let short = if short.len() == 6 {
+        short
+    } else {
+        "000000".to_owned()
+    };
+    let base = format!("{version}-{short}");
+    if std::fs::symlink_metadata(roots.generation_root.join(&base)).is_err() {
+        return base;
+    }
+    for seq in 2u64.. {
+        let candidate = format!("{base}-{seq}");
+        if std::fs::symlink_metadata(roots.generation_root.join(&candidate)).is_err() {
+            return candidate;
+        }
+    }
+    base
+}
+
+fn sync_standalone_current_symlink(
+    roots: &LocalWrapperRoots,
+    generation_id: &str,
+) -> Result<(), LocalProductError> {
+    let Some(standalone_root) = roots.generation_root.parent() else {
+        return Ok(());
+    };
+    let current_link = standalone_root.join("current");
+    let target = roots
+        .generation_root
+        .file_name()
+        .map(|name| PathBuf::from(name).join(generation_id))
+        .unwrap_or_else(|| roots.generation_root.join(generation_id));
+    if std::fs::symlink_metadata(&current_link).is_ok_and(|m| m.file_type().is_symlink())
+        && std::fs::read_link(&current_link).ok().as_ref() == Some(&target)
+    {
+        return Ok(());
+    }
+    let tmp_link = standalone_root.join(format!(".current.{}.tmp", std::process::id()));
+    let _ = std::fs::remove_file(&tmp_link);
+    std::os::unix::fs::symlink(&target, &tmp_link).map_err(|source| LocalProductError::Io {
+        operation: "create temporary standalone current symlink",
+        source,
+    })?;
+    if let Err(source) = std::fs::rename(&tmp_link, &current_link) {
+        let _ = std::fs::remove_file(&tmp_link);
+        return Err(LocalProductError::Io {
+            operation: "publish standalone current symlink",
+            source,
+        });
+    }
+    sync_directory(standalone_root)
 }
 
 fn running_wrapper_artifact() -> Result<PathBuf, LocalProductError> {
@@ -1133,7 +1177,10 @@ fn install_built_generation_dir(
         sync_tree_recursive(&candidate_dir)?;
 
         let staged_loaded = load_local_generation(&candidate_dir)?;
-        presentation.transient(&format!("Checking Codex {version} candidate runtime..."));
+        presentation.transient(&format!(
+            "Verifying Codex {version} assets & candidate runtime..."
+        ));
+        verify_generation_asset_digests(&staged_loaded, &roots.openssl)?;
         prepare_wrapper_config(&roots.config_dir).map_err(|source| LocalProductError::Io {
             operation: "prepare wrapper config.toml",
             source,
@@ -1180,6 +1227,7 @@ fn install_built_generation_dir(
             &lock,
         )
         .map_err(LocalProductError::State)?;
+        sync_standalone_current_symlink(roots, &generation_id)?;
 
         Ok(ActivatedOutcome {
             generation_id,
@@ -1225,24 +1273,31 @@ fn build_from_archive_and_activate(
         ));
     }
     let wrapper = running_wrapper_artifact()?;
-    let generation_id = local_update_generation_id();
+    let generation_id = local_update_generation_id(roots, inputs.version, inputs.archive_sha256);
     let built_dir = inputs.staging_root.join("built-generation");
     let gzip = gzip_tool_path(roots)?;
     presentation.transient(&format!(
         "Building Termux generation for Codex {}...",
         inputs.version
     ));
-    codex_release_builder::build_generation(&codex_release_builder::GenerationRequest {
-        version: inputs.version.to_owned(),
-        archive: inputs.archive_path.to_path_buf(),
-        archive_sha256: inputs.archive_sha256.to_owned(),
-        generation_id,
-        wrapper,
-        creation_metadata: WRAPPER_CREATION_METADATA.to_owned(),
-        gzip,
-        openssl: roots.openssl.clone(),
-        output: built_dir.clone(),
-    })
+    let version_label = inputs.version;
+    let mut patch_progress = |stage: &str| {
+        presentation.transient(&format!("Codex {version_label}: {stage}"));
+    };
+    codex_release_builder::build_generation_with_progress(
+        &codex_release_builder::GenerationRequest {
+            version: inputs.version.to_owned(),
+            archive: inputs.archive_path.to_path_buf(),
+            archive_sha256: inputs.archive_sha256.to_owned(),
+            generation_id,
+            wrapper,
+            creation_metadata: WRAPPER_CREATION_METADATA.to_owned(),
+            gzip,
+            openssl: roots.openssl.clone(),
+            output: built_dir.clone(),
+        },
+        &mut patch_progress,
+    )
     .map_err(LocalProductError::Builder)?;
     install_built_generation_dir(
         &built_dir,
@@ -1315,10 +1370,28 @@ fn run_upstream_update(
             sha256: metadata.package_sha256.clone(),
             mode: 0o600,
         };
-        let mut last_bytes = 0u64;
-        let mut progress = |bytes: u64| {
-            if bytes != last_bytes {
+        let mut last_bytes = u64::MAX;
+        let mut last_total: Option<u64> = None;
+        let version_label = metadata.version.as_str();
+        let mut progress = |bytes: u64, total: Option<u64>| {
+            if bytes != last_bytes || total != last_total {
                 last_bytes = bytes;
+                last_total = total;
+                let msg = match total {
+                    Some(t) if t > 0 => {
+                        let pct = (bytes.saturating_mul(100) / t).min(100);
+                        format!(
+                            "Downloading Codex {version_label} ({} / {}, {pct}%)...",
+                            format_bytes(bytes),
+                            format_bytes(t),
+                        )
+                    }
+                    _ => format!(
+                        "Downloading Codex {version_label} ({})...",
+                        format_bytes(bytes)
+                    ),
+                };
+                presentation.transient(&msg);
             }
         };
         remote_download::payload(
@@ -1329,7 +1402,7 @@ fn run_upstream_update(
             remote_download::PayloadOptions {
                 limit: codex_release_builder::ARCHIVE_MAX_BYTES,
                 expected_size: None,
-                timeout: codex_release_builder::RELEASE_TRANSFER_TIMEOUT_SECONDS,
+                timeout: REMOTE_TRANSFER_TIMEOUT_SECONDS,
                 progress: Some(&mut progress),
             },
         )?;
@@ -1447,7 +1520,11 @@ fn run_path_update(
     result
 }
 
-fn run_rollback(roots: &LocalWrapperRoots) -> Result<ActivatedOutcome, LocalProductError> {
+fn run_rollback(
+    roots: &LocalWrapperRoots,
+    process_env: &TermuxProcessEnvSnapshot,
+    presentation: &mut UpdatePresentation,
+) -> Result<ActivatedOutcome, LocalProductError> {
     let state_paths = generation_state::WrapperStatePaths::new(&roots.state_root)
         .map_err(LocalProductError::StateFormat)?;
     let before = generation_state::recover_activation_state(&state_paths)
@@ -1456,18 +1533,28 @@ fn run_rollback(roots: &LocalWrapperRoots) -> Result<ActivatedOutcome, LocalProd
     let after = generation_state::plan_rollback_pointer_state(&before)
         .map_err(LocalProductError::StateFormat)?;
 
-    let current_loaded = load_local_generation(&roots.generation_root.join(&before.current))?;
+    // Do not let a damaged current generation prevent rolling back to a healthy previous one.
+    let previous_version = load_local_generation(&roots.generation_root.join(&before.current))
+        .ok()
+        .map(|current| current.manifest.upstream_package_version)
+        .unwrap_or_else(|| before.current.clone());
+
     let target_loaded = load_local_generation(&roots.generation_root.join(&after.current))?;
     if target_loaded.generation_id != after.current {
         return Err(LocalProductError::Descriptor(
             "rollback generation descriptor id does not match previous",
         ));
     }
-    ensure_regular_file(
-        &target_loaded.runtime_path,
-        "inspect rollback target runtime",
-        "rollback target runtime must be a regular file",
-    )?;
+    presentation.transient(&format!(
+        "Verifying rollback target {}...",
+        target_loaded.generation_id
+    ));
+    verify_generation_asset_digests(&target_loaded, &roots.openssl)?;
+    prepare_wrapper_config(&roots.config_dir).map_err(|source| LocalProductError::Io {
+        operation: "prepare wrapper config.toml",
+        source,
+    })?;
+    probe_release_candidate(&target_loaded, roots, process_env)?;
 
     let lock = generation_state::acquire_activation_lock(&state_paths)
         .map_err(LocalProductError::State)?;
@@ -1487,21 +1574,15 @@ fn run_rollback(roots: &LocalWrapperRoots) -> Result<ActivatedOutcome, LocalProd
         &lock,
     )
     .map_err(LocalProductError::State)?;
+    sync_standalone_current_symlink(roots, &after.current)?;
     Ok(ActivatedOutcome {
         generation_id: after.current,
-        previous_version: Some(current_loaded.manifest.upstream_package_version),
+        previous_version: Some(previous_version),
         current_version: target_loaded.manifest.upstream_package_version,
     })
 }
 
-pub(super) fn run_update_command(args: Vec<OsString>) -> i32 {
-    let action = match parse_update_args(&args) {
-        Ok(action) => action,
-        Err(err) => {
-            eprintln!("{err}");
-            return 2;
-        }
-    };
+pub(super) fn run_update_action(action: UpdateAction) -> i32 {
     if matches!(action, UpdateAction::Help) {
         print_update_usage();
         return 0;
@@ -1541,7 +1622,7 @@ pub(super) fn run_update_command(args: Vec<OsString>) -> i32 {
         UpdateAction::Check { .. } => {
             unreachable!("read-only inspection handled before update lease")
         }
-        UpdateAction::Rollback => match run_rollback(&roots) {
+        UpdateAction::Rollback => match run_rollback(&roots, &process_env, &mut presentation) {
             Ok(outcome) => {
                 presentation.finish_rollback(
                     outcome
@@ -1674,9 +1755,14 @@ mod tests {
         let curl = root.join("curl");
         fs::write(&curl, format!("#!{shell}\nurl=\nwhile [ $# -gt 0 ]; do\n if [ \"$1\" = --url ]; then shift; url=$1; fi\n shift\ndone\ncase \"$url\" in\n *releases/latest) exec {cat} '{}' ;;\n */release.json) exec {cat} '{}' ;;\n '') exit 0 ;;\n *) exit 57 ;;\nesac\n", latest.display(), exact.display())).unwrap();
         fs::set_permissions(&curl, fs::Permissions::from_mode(0o700)).unwrap();
-        let prefix = std::env::var_os("PREFIX")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from("/usr"));
+        let prefix = {
+            let _env = crate::tests::ENV_LOCK
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            std::env::var_os("PREFIX")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| PathBuf::from("/usr"))
+        };
         let state = root.join("state");
         let roots = LocalWrapperRoots {
             generation_root: root.join("generations"),
@@ -1697,6 +1783,199 @@ mod tests {
         assert!(check_release(&roots, None, true).is_err());
         assert!(!state.exists());
         assert!(!roots.generation_root.exists());
+        remove_temp_root(root);
+    }
+
+    fn setup_update_test_roots(root: &Path) -> LocalWrapperRoots {
+        let state_root = root.join("state");
+        let config_dir = state_root.join("config");
+        let generation_root = root.join(".codex/packages/standalone/releases");
+        fs::create_dir_all(&config_dir).unwrap();
+        fs::create_dir_all(&generation_root).unwrap();
+        let resolver_path = root.join("resolv.conf");
+        fs::write(&resolver_path, b"nameserver 1.1.1.1\n").unwrap();
+        let cert_file = root.join("cert.pem");
+        let cert_dir = root.join("certs");
+        fs::write(&cert_file, b"").unwrap();
+        fs::create_dir_all(&cert_dir).unwrap();
+        let openssl = crate::tests::test_openssl_path();
+        let curl = openssl.parent().unwrap().join("curl");
+        LocalWrapperRoots {
+            generation_root,
+            state_root,
+            config_dir,
+            resolver_path,
+            cert_file,
+            cert_dir,
+            openssl,
+            curl,
+        }
+    }
+
+    #[test]
+    fn install_built_generation_dir_rejects_tampered_runtime_and_helpers() {
+        let root = temp_root("p1-01-digest");
+        let roots = setup_update_test_roots(&root);
+        let env = crate::tests::test_process_env(&roots);
+        let mut presentation = UpdatePresentation::new();
+
+        // 1. Tampered bin/codex
+        let built_bad_rt = root.join("built-bad-rt");
+        crate::tests::write_sample_generation(&built_bad_rt, "1.2.3-aaaaaa", false);
+        fs::write(
+            built_bad_rt.join("bin/codex"),
+            b"#!/bin/sh\necho tampered\n",
+        )
+        .unwrap();
+        fs::set_permissions(
+            built_bad_rt.join("bin/codex"),
+            fs::Permissions::from_mode(0o755),
+        )
+        .unwrap();
+        assert!(matches!(
+            install_built_generation_dir(
+                &built_bad_rt,
+                &roots,
+                &env,
+                None,
+                None,
+                &mut presentation
+            ),
+            Err(LocalProductError::Descriptor(_))
+        ));
+        assert!(!roots.generation_root.join("1.2.3-aaaaaa").exists());
+
+        // 2. Tampered browser helper
+        let built_bad_helper = root.join("built-bad-helper");
+        crate::tests::write_sample_generation(&built_bad_helper, "1.2.3-bbbbbb", false);
+        fs::write(
+            built_bad_helper.join("browser/open/curl"),
+            b"#!/bin/sh\necho tampered\n",
+        )
+        .unwrap();
+        fs::set_permissions(
+            built_bad_helper.join("browser/open/curl"),
+            fs::Permissions::from_mode(0o755),
+        )
+        .unwrap();
+        assert!(matches!(
+            install_built_generation_dir(
+                &built_bad_helper,
+                &roots,
+                &env,
+                None,
+                None,
+                &mut presentation
+            ),
+            Err(LocalProductError::Descriptor(_))
+        ));
+        assert!(!roots.generation_root.join("1.2.3-bbbbbb").exists());
+
+        // 3. Missing browser helper
+        let built_missing_helper = root.join("built-missing-helper");
+        crate::tests::write_sample_generation(&built_missing_helper, "1.2.3-cccccc", false);
+        fs::remove_file(built_missing_helper.join("browser/manual/curl")).unwrap();
+        assert!(install_built_generation_dir(
+            &built_missing_helper,
+            &roots,
+            &env,
+            None,
+            None,
+            &mut presentation
+        )
+        .is_err());
+        assert!(!roots.generation_root.join("1.2.3-cccccc").exists());
+
+        remove_temp_root(root);
+    }
+
+    #[test]
+    fn rollback_rejects_corrupt_previous_and_recovers_from_damaged_current() {
+        let root = temp_root("p1-02-03-rollback");
+        let roots = setup_update_test_roots(&root);
+        let env = crate::tests::test_process_env(&roots);
+        let mut presentation = UpdatePresentation::new();
+
+        let src1 = root.join("src-g1");
+        let src2 = root.join("src-g2");
+        crate::tests::write_sample_generation(&src1, "1.2.3-111111", false);
+        crate::tests::write_sample_generation(&src2, "1.2.4-222222", false);
+        install_built_generation_dir(&src1, &roots, &env, None, None, &mut presentation).unwrap();
+        let (ptr1, loaded1) = current_loaded_generation(&roots).unwrap();
+        install_built_generation_dir(
+            &src2,
+            &roots,
+            &env,
+            ptr1.as_ref(),
+            loaded1.as_ref(),
+            &mut presentation,
+        )
+        .unwrap();
+
+        let state_paths = generation_state::WrapperStatePaths::new(&roots.state_root).unwrap();
+        let before_bytes = fs::read(&state_paths.activation_state).unwrap();
+        let current_link = roots.generation_root.parent().unwrap().join("current");
+        assert_eq!(
+            fs::read_link(&current_link).unwrap(),
+            PathBuf::from("releases/1.2.4-222222")
+        );
+
+        // P1-02: Tampered previous target fails before lock/pointer mutation.
+        let prev_rt = roots.generation_root.join("1.2.3-111111/bin/codex");
+        let orig_prev_rt = fs::read(&prev_rt).unwrap();
+        fs::write(&prev_rt, b"#!/bin/sh\necho corrupt\n").unwrap();
+        fs::set_permissions(&prev_rt, fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(run_rollback(&roots, &env, &mut presentation).is_err());
+        assert_eq!(
+            fs::read(&state_paths.activation_state).unwrap(),
+            before_bytes
+        );
+        assert_eq!(
+            fs::read_link(&current_link).unwrap(),
+            PathBuf::from("releases/1.2.4-222222")
+        );
+
+        // P1-03: Restore previous and completely damage active `current` -> rollback still recovers.
+        fs::write(&prev_rt, orig_prev_rt).unwrap();
+        fs::set_permissions(&prev_rt, fs::Permissions::from_mode(0o755)).unwrap();
+        fs::remove_file(roots.generation_root.join("1.2.4-222222/bin/codex")).unwrap();
+        fs::write(
+            roots.generation_root.join("1.2.4-222222/generation.meta"),
+            b"corrupt\n",
+        )
+        .unwrap();
+
+        let rolled = run_rollback(&roots, &env, &mut presentation).unwrap();
+        assert_eq!(rolled.generation_id, "1.2.3-111111");
+        assert_eq!(
+            fs::read_link(&current_link).unwrap(),
+            PathBuf::from("releases/1.2.3-111111")
+        );
+
+        remove_temp_root(root);
+    }
+
+    #[test]
+    fn local_generation_id_uses_version_prefix_and_collision_suffix() {
+        let root = temp_root("gen-id-naming");
+        let roots = setup_update_test_roots(&root);
+        let digest = "abcdef0123456789".repeat(4);
+
+        assert_eq!(
+            local_update_generation_id(&roots, "0.169.1", &digest),
+            "0.169.1-abcdef"
+        );
+        fs::create_dir_all(roots.generation_root.join("0.169.1-abcdef")).unwrap();
+        assert_eq!(
+            local_update_generation_id(&roots, "0.169.1", &digest),
+            "0.169.1-abcdef-2"
+        );
+        fs::create_dir_all(roots.generation_root.join("0.169.1-abcdef-2")).unwrap();
+        assert_eq!(
+            local_update_generation_id(&roots, "0.169.1", &digest),
+            "0.169.1-abcdef-3"
+        );
+
         remove_temp_root(root);
     }
 }

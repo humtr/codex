@@ -495,6 +495,21 @@ Implemented beyond initial PR #31 without attaching Manager, enhanced TUI, Provi
   Phase 2.2 signature implementation remains pending. This reconciliation changes
   documentation only; it performs no new deployment, account edit or server restart.
 
+### 2026-11-18 — Upstream-aligned paths, review work order (`P1-01`..`P1-06`, `P2-07`..`P2-10`, `R1`), shared-home profile isolation, and live `0.169.1` cutover (`rewrite/wrapper`, uncommitted above `f0db5f055756`)
+
+**Notice:** All workspace code, installer, updater UX, and isolated/live qualification checks below were executed on the local working tree above commit `f0db5f0557567499e389b010fd1e86d53dcfce5f` before committing.
+
+- **Installed wrapper artifact (`$PREFIX/bin/codex`, `target/release/codex`):** SHA-256 `37c4637ca20b1fbcbdb6b6459ef7559b96f706a9afd37a5eff9f40eaf25b9a98`; legacy `$PREFIX/bin/codex-switch` and `$PREFIX/bin/codex.bak` removed after backup under `~/.local/share/codex/wrapper-recovery/20261118-cutover-backup/`.
+- **Implemented scope:**
+  - Generation storage moved to upstream package layout `$HOME/.codex/packages/standalone/releases/<version>-<6hex>/` with `$HOME/.codex/packages/standalone/current -> releases/<id>` (`0.169.1-3de502` active, `0.169.0-c8d0b4` previous) and internal relative symlink `codex -> bin/codex`.
+  - Addressed [docs/plan/WRAPPER_REVIEW_WORK_ORDER.md](docs/plan/WRAPPER_REVIEW_WORK_ORDER.md) `P1-01`..`P1-06`, `P2-07`..`P2-10`, and `R1` (verified staged generation qualification, backward `BL` encoding guard, writer-lock pruning optimization, updater download `downloaded / total` progress and patching stage transients, `DOCTOR_PROBE_TIMEOUT = 90s` for multi-GiB `$CODEX_HOME` scans).
+  - External multi-account isolation via `CODEX_HOME` + `CODEX_SHARED_HOME` + `CODEX_SQLITE_HOME` implemented cleanly in Wrapper (`crates/wrapper/src/shared_home.rs`) and `ai` (`~/.config/ai/lib/`), keeping per-profile `auth.json` and daemon control sockets separate while sharing SQLite DBs, `sessions/`, `archived_sessions/`, `session_index.jsonl`, `history.jsonl`, `skills/`, `plugins/`, `rules/`, and `config.toml`.
+  - Reconciled `~/.codex` SQLite/session metadata from `janmori101` and `szob`, isolated `~/bin/codex167` (`0.167.2`) into `~/.codex-167`, updated managed `app-server-daemon` packages to `0.169.1` via `--from-cli --yes` on `~/.codex`, `janmori101`, and `szob`, and removed lingering `0.167.2`/`0.169.0` CLI daemons while leaving S27 runit services (`~/.p167`) untouched.
+- **Isolated & live device boundaries observed:**
+  - `qualify_wrapper.py` (`aarch64`, kernel `6.1.162-android14-11-34343818-abS928NKSU6EZJB`, `page_size=4096`, Android API `37`, `0.169.0 -> 0.169.1`): passed all 21 steps (`"status": "passed"`, `input_id=944680d6...`, 16 KiB ELF alignment, `daemon-start/version/stop`, `doctor`, `native_rpc`, 8 s `pty` render, `rollback` to `0.169.0`, and `restore-candidate` to `0.169.1-3de502`).
+  - Live device checks passed for `codex --version` (`0.169.1`), `codex update --check --json` (`status=current`), `wrapper status --verify` (`qualified=true`) on default/`janmori101`/`szob`, `doctor --json` (`summary.status=healthy`, upstream HTTP/WebSocket reachability ok) on default/`janmori101`/`szob`, `app-server --listen stdio://` `thread/list` consistency (`count=100` limit, identical IDs, distinct `auth.json` hashes across all 3 profiles), and `~/bin/codex167 --version` (`0.167.2` isolated from `janmori101`).
+  - Untested live boundaries: interactive ChatGPT/OpenAI model inference turns, interactive TUI session resume UI, and remote `ais`/`chatgpt_desktop` inference requests through the minimal Wrapper were not executed.
+
 ### Stage 2 Plan (Phase 2.1 engine implemented; 2.2–2.5 not attached)
 See [docs/plan/STAGE2_PLAN.md](docs/plan/STAGE2_PLAN.md) for the verified phase-by-phase reintegration procedure, `c200e676` vs `ebb0b519` regression protections, suffix-removal schema rules, live-device safety checks, and verification gates. Summary sequence:
 1. **`wrapper.toml` & Generic Extension Contract (Phase 2.1 — implemented in `crates/wrapper`; module producers in Phases 2.3–2.5):**

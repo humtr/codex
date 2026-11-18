@@ -222,15 +222,13 @@ qualified_new_activation() {
   [ "$(sed -n '1p' "$state")" = 'format=codex-activation-state' ] || return 1
   gen=$(record_value current "$state") || return 1
   case $gen in ''|.|..|*/*) return 1 ;; esac
-  meta="$HOME/.local/lib/codex/wrapper/generations/$gen/generation.meta"
+  meta="$HOME/.codex/packages/standalone/releases/$gen/generation.meta"
   [ -f "$meta" ] && [ ! -L "$meta" ] || return 1
-  meta_sha=$(awk -F '\t' '$1 == "wrapper_artifact_digest" { print $2; n++ } END { if (n!=1) exit 1 }' "$meta") || return 1
-  [ "$meta_sha" = "$candidate_sha" ] || return 1
   if [ "${upstream_version:-none}" != none ]; then
-    meta_version=$(awk -F '\t' '$1 == "upstream_package_version" { print $2; n++ } END { if (n!=1) exit 1 }' "$meta") || return 1
-    [ "$meta_version" = "$upstream_version" ] || return 1
+    "$dest_bin" wrapper status --verify --wrapper-sha256 "$candidate_sha" --upstream-version "$upstream_version" --json >/dev/null 2>&1
+  else
+    "$dest_bin" wrapper status --verify --wrapper-sha256 "$candidate_sha" --json >/dev/null 2>&1
   fi
-  "$dest_bin" wrapper status --json >/dev/null 2>&1
 }
 
 # Do not infer a dead owner solely from kill -0; same-boot PID reuse, unreadable

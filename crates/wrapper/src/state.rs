@@ -224,8 +224,10 @@ pub(super) mod generation_state {
         }
     }
 
-    pub(crate) fn acquire_activation_lock(
+    fn acquire_activation_lock_with_mode(
         paths: &WrapperStatePaths,
+        mode: std::os::raw::c_int,
+        wait_timeout: Option<std::time::Duration>,
     ) -> Result<ActivationLockGuard, ActivationTransactionError> {
         let metadata = match std::fs::symlink_metadata(&paths.root) {
             Ok(metadata) => metadata,
@@ -246,15 +248,38 @@ pub(super) mod generation_state {
         }
         let file = std::fs::File::open(&paths.root)
             .map_err(|source| io_error("open wrapper state root for writer lock", source))?;
-        let result = unsafe { flock(file.as_raw_fd(), FLOCK_EX | FLOCK_NB) };
-        if result == 0 {
-            return Ok(ActivationLockGuard { file: Some(file) });
+        let deadline = wait_timeout.map(|timeout| std::time::Instant::now() + timeout);
+        loop {
+            let result = unsafe { flock(file.as_raw_fd(), mode | FLOCK_NB) };
+            if result == 0 {
+                return Ok(ActivationLockGuard { file: Some(file) });
+            }
+            let source = std::io::Error::last_os_error();
+            if source.kind() == std::io::ErrorKind::WouldBlock {
+                if deadline.is_some_and(|until| std::time::Instant::now() < until) {
+                    std::thread::sleep(std::time::Duration::from_millis(10));
+                    continue;
+                }
+                return Err(ActivationTransactionError::WriterBusy);
+            }
+            return Err(io_error("acquire wrapper state writer lock", source));
         }
-        let source = std::io::Error::last_os_error();
-        if source.kind() == std::io::ErrorKind::WouldBlock {
-            return Err(ActivationTransactionError::WriterBusy);
-        }
-        Err(io_error("acquire wrapper state writer lock", source))
+    }
+
+    pub(crate) fn acquire_activation_lock(
+        paths: &WrapperStatePaths,
+    ) -> Result<ActivationLockGuard, ActivationTransactionError> {
+        acquire_activation_lock_with_mode(paths, FLOCK_EX, None)
+    }
+
+    pub(crate) fn acquire_activation_read_lock(
+        paths: &WrapperStatePaths,
+    ) -> Result<ActivationLockGuard, ActivationTransactionError> {
+        acquire_activation_lock_with_mode(
+            paths,
+            crate::fs_util::LOCK_SH,
+            Some(std::time::Duration::from_secs(2)),
+        )
     }
 
     impl WrapperStatePaths {
@@ -818,7 +843,27 @@ pub(super) mod generation_state {
         paths: &WrapperStatePaths,
         io: &mut I,
     ) -> Result<Option<GenerationPointerState>, ActivationTransactionError> {
-        let _lock = acquire_activation_lock(paths)?;
+        let read_lock = acquire_activation_read_lock(paths)?;
+        if read_lock.file.is_none() {
+            return Ok(None);
+        }
+        let pending_journal = path_exists(&paths.activation_journal, "inspect activation journal")?;
+        let pending_journal_temp = path_exists(
+            &paths.activation_journal_temp,
+            "inspect activation journal temporary",
+        )?;
+        let pending_state_temp =
+            path_exists(&paths.activation_state_temp, "inspect activation temporary")?;
+        if !pending_journal && !pending_journal_temp && !pending_state_temp {
+            return read_pointer_state(paths);
+        }
+        drop(read_lock);
+
+        let _lock = acquire_activation_lock_with_mode(
+            paths,
+            FLOCK_EX,
+            Some(std::time::Duration::from_secs(2)),
+        )?;
         let journal_temporary_exists = path_exists(
             &paths.activation_journal_temp,
             "inspect activation journal temporary",
@@ -1214,6 +1259,22 @@ mod activation_interruption_tests {
         .unwrap();
         assert_eq!(recover_activation_state(&paths).unwrap(), None);
         only_expected_files(&paths, false, false, false, false);
+        fs::remove_dir_all(&paths.root).unwrap();
+    }
+
+    #[test]
+    fn clean_readers_share_lock_without_contention() {
+        let (paths, _before, after) = fixture(0);
+        let writer = acquire_activation_lock(&paths).unwrap();
+        let mut disk = FsActivationIo;
+        activate_pointer_state_locked(&paths, None, &after, &mut disk, &writer).unwrap();
+        drop(writer);
+
+        let shared1 = acquire_activation_read_lock(&paths).unwrap();
+        let shared2 = acquire_activation_read_lock(&paths).unwrap();
+        assert_eq!(recover_activation_state(&paths).unwrap(), Some(after));
+        drop(shared2);
+        drop(shared1);
         fs::remove_dir_all(&paths.root).unwrap();
     }
 }

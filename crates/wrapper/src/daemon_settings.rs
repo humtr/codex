@@ -10,6 +10,67 @@ const DEFAULT_SETTINGS_BYTES: &[u8] = b"{\"updater\":{\"autoUpdateEnabled\":fals
 
 static SETTINGS_TMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 
+pub(super) fn inspect_read_only(codex_home: &Path) -> io::Result<()> {
+    if codex_home.as_os_str().is_empty() {
+        return Ok(());
+    }
+    match fs::symlink_metadata(codex_home) {
+        Ok(meta) if meta.file_type().is_symlink() => {
+            if !fs::metadata(codex_home)?.is_dir() {
+                return Err(io::Error::other("CODEX_HOME must be a directory"));
+            }
+        }
+        Ok(meta) if meta.is_dir() => {}
+        Ok(_) => return Err(io::Error::other("CODEX_HOME must be a directory")),
+        Err(err) if err.kind() == ErrorKind::NotFound => return Ok(()),
+        Err(err) => return Err(err),
+    }
+    let physical_home = fs::canonicalize(codex_home)?;
+    let daemon_dir = physical_home.join("app-server-daemon");
+    match fs::symlink_metadata(&daemon_dir) {
+        Ok(meta) if meta.file_type().is_dir() => {}
+        Ok(_) => {
+            return Err(io::Error::other(
+                "app-server-daemon path must be a real directory",
+            ))
+        }
+        Err(err) if err.kind() == ErrorKind::NotFound => return Ok(()),
+        Err(err) => return Err(err),
+    }
+    let settings_path = daemon_dir.join("settings.json");
+    match fs::symlink_metadata(&settings_path) {
+        Ok(meta) if meta.file_type().is_file() => {
+            if metadata_exceeds_limit(&meta) {
+                return Err(io::Error::new(
+                    ErrorKind::InvalidData,
+                    "app-server-daemon settings.json exceeds size limit",
+                ));
+            }
+            let file = File::open(&settings_path)?;
+            let mut bytes = Vec::with_capacity(meta.len() as usize);
+            file.take(MAX_SETTINGS_BYTES as u64 + 1)
+                .read_to_end(&mut bytes)?;
+            if bytes.len() > MAX_SETTINGS_BYTES {
+                return Err(io::Error::new(
+                    ErrorKind::InvalidData,
+                    "app-server-daemon settings.json exceeds size limit",
+                ));
+            }
+            let _ = update_settings_bytes(Some(&bytes))?;
+            Ok(())
+        }
+        Ok(_) => Err(io::Error::other(
+            "app-server-daemon settings.json must be a regular file",
+        )),
+        Err(err) if err.kind() == ErrorKind::NotFound => Ok(()),
+        Err(err) => Err(err),
+    }
+}
+
+fn metadata_exceeds_limit(meta: &fs::Metadata) -> bool {
+    meta.len() > MAX_SETTINGS_BYTES as u64
+}
+
 pub(super) fn ensure(codex_home: &Path) -> io::Result<()> {
     if codex_home.as_os_str().is_empty() {
         return Ok(());

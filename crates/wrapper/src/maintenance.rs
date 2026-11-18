@@ -51,6 +51,11 @@ pub(super) struct UpdateLease<'a> {
 }
 impl<'a> UpdateLease<'a> {
     pub(super) fn acquire(roots: &'a LocalWrapperRoots) -> Result<Self, LocalProductError> {
+        ensure_real_directory_tree(
+            &roots.generation_root,
+            "prepare wrapper generation root",
+            "wrapper generation root must be a real directory",
+        )?;
         let file =
             launch_lease(&roots.generation_root).map_err(|source| LocalProductError::Io {
                 operation: "lease installed generations during update",
@@ -238,6 +243,38 @@ fn staging_name(name: &str, prefix: &str) -> bool {
                 && sequence.bytes().all(|b| b.is_ascii_digit())
         })
 }
+fn matching_prunable_entry(name: &str, keep: &HashSet<String>, staging_only: bool) -> bool {
+    if keep.contains(name) {
+        return false;
+    }
+    let staging = staging_name(name, ".acquire-")
+        || staging_name(name, ".candidate-")
+        || staging_name(name, ".local-update-");
+    let generation = !staging_only
+        && generation_state::validate_generation_identity(name, "disposable generation").is_ok();
+    staging || generation
+}
+
+fn has_prunable_entries(
+    root: &Path,
+    keep: &HashSet<String>,
+    staging_only: bool,
+) -> io::Result<bool> {
+    if !root.exists() {
+        return Ok(false);
+    }
+    owned_directory(root)?;
+    for entry in fs::read_dir(root)? {
+        let entry = entry?;
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else { continue };
+        if matching_prunable_entry(name, keep, staging_only) {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
 fn prune_directory(root: &Path, keep: &HashSet<String>, staging_only: bool) -> io::Result<usize> {
     if !root.exists() {
         return Ok(0);
@@ -248,16 +285,7 @@ fn prune_directory(root: &Path, keep: &HashSet<String>, staging_only: bool) -> i
         let entry = entry?;
         let name = entry.file_name();
         let Some(name) = name.to_str() else { continue };
-        if keep.contains(name) {
-            continue;
-        }
-        let staging = staging_name(name, ".acquire-")
-            || staging_name(name, ".candidate-")
-            || staging_name(name, ".local-update-");
-        let generation = !staging_only
-            && generation_state::validate_generation_identity(name, "disposable generation")
-                .is_ok();
-        if !staging && !generation {
+        if !matching_prunable_entry(name, keep, staging_only) {
             continue;
         }
         let metadata = fs::symlink_metadata(entry.path())?;
@@ -303,14 +331,16 @@ pub(super) fn prune(roots: &LocalWrapperRoots) -> io::Result<usize> {
         .map_err(|_| invalid())?
         .ok_or_else(invalid)?;
     let mut keep = dependencies(&state);
+    let publications = roots.state_root.join("publications");
+    if !has_prunable_entries(&roots.generation_root, &keep, false)?
+        && !has_prunable_entries(&publications, &keep, false)?
+        && !has_prunable_entries(&roots.state_root, &keep, true)?
+    {
+        return Ok(0);
+    }
     keep.extend(process_references(&roots.generation_root)?);
     // No state mutation can occur under this writer lock, including rollback.
     let mut removed = prune_directory(&roots.generation_root, &keep, false)?;
-    let publications = roots
-        .generation_root
-        .parent()
-        .ok_or_else(invalid)?
-        .join("publications");
     removed += prune_directory(&publications, &keep, false)?;
     removed += prune_directory(&roots.state_root, &keep, true)?;
     Ok(removed)
@@ -428,6 +458,46 @@ mod tests {
         assert!(process_has_no_handles(&root, &mut no_wait).is_err());
         fs::remove_dir(root.join("stat")).unwrap();
         assert!(process_has_no_handles(&root, &mut no_wait).unwrap());
+        crate::tests::remove_temp_root(root);
+    }
+
+    #[test]
+    fn update_lease_creates_missing_generation_root_and_blocks_prune() {
+        let root = crate::tests::temp_root("update-lease-fresh");
+        let home = root.join("home");
+        let generation_root = home.join(".codex/packages/standalone/releases");
+        let state_root = home.join(".local/share/codex/wrapper");
+        let config_dir = state_root.join("config");
+        fs::create_dir_all(&config_dir).unwrap();
+        let state_paths = generation_state::WrapperStatePaths::new(&state_root).unwrap();
+        generation_state::prepare_wrapper_state_paths(&state_paths).unwrap();
+        let lock = generation_state::acquire_activation_lock(&state_paths).unwrap();
+        let mut io = generation_state::FsActivationIo;
+        let ptr = generation_state::plan_initial_pointer_state("0.169.1-abcdef").unwrap();
+        generation_state::activate_pointer_state_locked(&state_paths, None, &ptr, &mut io, &lock)
+            .unwrap();
+        drop(lock);
+
+        let roots = LocalWrapperRoots {
+            generation_root: generation_root.clone(),
+            state_root: state_root.clone(),
+            config_dir,
+            resolver_path: root.join("resolv.conf"),
+            cert_file: root.join("cert.pem"),
+            cert_dir: root.join("certs"),
+            openssl: crate::tests::test_openssl_path(),
+            curl: root.join("curl"),
+        };
+        assert!(!generation_root.exists());
+
+        let lease = UpdateLease::acquire(&roots).unwrap();
+        assert!(fs::symlink_metadata(&generation_root).unwrap().is_dir());
+
+        let blocked = prune(&roots).unwrap_err();
+        assert_eq!(blocked.kind(), io::ErrorKind::WouldBlock);
+
+        drop(lease);
+        assert_eq!(prune(&roots).unwrap(), 0);
         crate::tests::remove_temp_root(root);
     }
 }

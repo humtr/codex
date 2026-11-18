@@ -148,12 +148,16 @@ codex update --rollback
 codex update --check --json
 ```
 
-Every generation is isolated under `~/.local/lib/codex/wrapper/generations/<id>/`
-with a `previous` pointer for single-step rollback. State owned by the wrapper
-(`resolv.conf`, wrapper `config.toml`, timezone TZif cache) lives under
-`~/.local/share/codex/wrapper/` and `~/.cache/codex/timezones/`.
+Every generation is stored under `~/.codex/packages/standalone/releases/<id>/`
+(normally named `<version>-<6hex>`, e.g. `0.169.1-a1b2c3`, with
+`~/.codex/packages/standalone/current` pointing to the active release and a
+`previous` pointer retained for single-step rollback). State owned by the wrapper
+(`resolv.conf`, wrapper `config.toml`, timezone TZif cache, `activation-state`,
+`downloads/`) lives under `~/.local/share/codex/wrapper/` and `~/.cache/codex/timezones/`.
 
 - `--signed`, `--remote`, `--build-local`, and `--local` are disabled in Stage 1 and fail explicitly with exit status `2`.
+- Official updates show live download progress (`downloaded / total`) and transient Termux patching section status on interactive TTYs.
+- External launchers/addons may isolate `auth.json` per profile (`CODEX_HOME=<profile_home>`) while sharing sessions, SQLite databases (`CODEX_SQLITE_HOME`), and `config.toml`/skills via `CODEX_SHARED_HOME="$HOME/.codex"` without adding profile CRUD to the standalone Wrapper.
 - Upstream updates in Stage 1 resolve the latest stable release via GitHub Releases (`openai/codex/releases/latest`) or a requested release via `https://releases.openai.com/codex/releases/<version>/release.json`, and verify the official `codex-package-aarch64-unknown-linux-musl.tar.gz` SHA-256 digest over TLS 1.2+.
 - Latest discovery is cross-checked against the exact-version official descriptor.
   `--check --json` reports the version, canonical archive/descriptor URLs and

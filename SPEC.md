@@ -133,16 +133,21 @@ In descending order:
 
 ## 3. Public command contract
 
-The standalone Wrapper classifies an exact first argument (when
-not preceded by upstream payload delimiters) of `update`, `doctor`, or `wrapper`.
-Every invocation with zero arguments or an upstream argument vector — including
-`app-server daemon` and `remote-control` — passes through to the active adapted
-upstream runtime with FD 33/34/35, Termux environment/timezone compatibility,
-and the sandbox capability guard (without startup update discovery, Manager IPC
-spawning, or retention pruning on interactive/ordinary launches). `update` is a
-Wrapper-owned safety boundary: the installed wrapper must never execute the
-upstream distribution updater, because that updater can install an unadapted
-runtime on Termux.
+The standalone Wrapper classifies an `update`, `doctor`, or `wrapper`
+command at top level (including after leading upstream global flags such as
+`-c` or `--enable`, stopping at `--` or the first positional prompt) as well
+as blocking any upstream self-updater `update` invocation across `codex wrapper
+--bare`. Every invocation with zero arguments or an upstream argument vector —
+including `app-server daemon`, `remote-control`, and post-`--` prompts — passes
+through to the active adapted upstream runtime with FD 33/34/35, Termux
+environment/timezone compatibility, external `CODEX_SHARED_HOME`/`CODEX_SQLITE_HOME`
+preservation/binding when supplied by a caller, and the sandbox capability guard
+(without startup update discovery, Manager IPC spawning, profile CRUD, or
+retention pruning on interactive/ordinary launches). `update` is a Wrapper-owned
+safety boundary: the installed wrapper must never execute the upstream
+distribution updater, because that updater can install an unadapted runtime on
+Termux. Leading-option or `--bare` attempts to invoke upstream `update` fail
+with usage status `2` and instruct the user to run `codex update`.
 
 | Command | Owner | Required behavior |
 | --- | --- | --- |
@@ -153,10 +158,10 @@ runtime on Termux.
 | `codex update --path <FILE_OR_DIR>` | Wrapper | adapt an offline official upstream `.tar.gz` archive or stage/validate/activate an already prepared generation directory |
 | `codex update --help` | Wrapper | print Wrapper update usage without invoking upstream or changing state |
 | `codex update --check [--version <MAJOR.MINOR.PATCH>] [--json]` | Wrapper | resolve and cross-check exact official stable metadata, report immutable archive/metadata digests and installed-version comparison, without downloading a runtime, activating, pruning or creating installed state |
-| `codex update --rollback` | Wrapper | atomically activate the retained previous complete generation |
+| `codex update --rollback` | Wrapper | validate the retained previous complete generation independently of the current generation's integrity and atomically activate it |
 | `codex update [INVALID_ARGS...]` | Wrapper | reject unsupported or conflicting updater options without invoking upstream or changing state |
-| `codex doctor [--color \| --json]` | Wrapper | combine upstream and Wrapper/Termux diagnostics cleanly without addon/Manager coupling |
-| `codex wrapper status [--json]` | Wrapper | report active generation, previous generation, upstream version, layout, runtime path, patch policy/report, daemon passthrough status, and Wrapper roots |
+| `codex doctor [--color \| --json]` | Wrapper | combine upstream and Wrapper/Termux diagnostics cleanly with bounded timeout/child-reap and explicit component failure attribution without addon/Manager coupling |
+| `codex wrapper status [--verify [--wrapper-sha256 <SHA256>] [--upstream-version <VERSION>]] [--json]` | Wrapper | report active generation, previous generation, upstream version, layout, runtime path, patch policy/report, daemon passthrough status, and Wrapper roots (and with `--verify`, qualify current generation metadata, runtime/helper SHA-256 digests, clean journal state, optional Wrapper SHA/upstream version bindings, and isolated candidate probe) |
 | `codex wrapper --help` | Wrapper | print Wrapper usage without invoking upstream or changing state |
 | `codex wrapper setup [OPTIONS]` | Wrapper (Stage 2.1 interface) | strictly parse and atomically update optional `manager`/`tui`/`provider`/`signed_update` settings; `show` is inspection only; saved flags neither install modules nor enable signing |
 | `codex wrapper --bare [--] [UPSTREAM_ARGS...]` | Wrapper (Stage 2.1 interface) then upstream | bypass saved optional selections for this invocation and preserve upstream behavior |

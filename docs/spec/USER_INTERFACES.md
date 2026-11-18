@@ -602,7 +602,7 @@ authority crosswalk is the [implementation map](../architecture/STAGE1_BOUNDARIE
 ```text
 # Stage 1 + Stage 2.1 implemented commands
 codex wrapper [help|--help]
-codex wrapper status [--json]
+codex wrapper status [--verify [--wrapper-sha256 <SHA256>] [--upstream-version <VERSION>]] [--json]
 codex wrapper setup [show|--bare|--enable <MODULES>|--disable <MODULES>|--signed-update <true|false>]
 codex wrapper --bare [--] [UPSTREAM_ARGS...]
 codex wrapper --with <MODULES> [--] [UPSTREAM_ARGS...] # currently unavailable, exits 1
@@ -627,6 +627,36 @@ codex wrapper notify show
 codex wrapper notify set [NOTIFY_OPTIONS...]
 codex wrapper notify test
 ```
+
+#### Failure-scoping policy for `wrapper.toml` and daemon `settings.json`
+
+Optional extension configuration (`$HOME/.local/share/codex/wrapper/wrapper.toml`)
+and daemon update-suppression configuration (`$CODEX_HOME/app-server-daemon/settings.json`)
+never silently lose data or overwrite corrupt user files, and degrade cleanly by
+command boundary:
+
+- **`wrapper.toml` (parse/syntax or unsafe-file error):**
+  - `codex wrapper --bare` proceeds cleanly without reading or failing on `wrapper.toml`.
+  - Ordinary upstream execution (`codex ...`, `codex --version`, etc.) emits a concise stderr warning (omitted on fast `--version`/`-V`/`--help`/`-h`/`help` output passthrough so stdout/exit stay clean) and continues bare upstream execution without modifying `wrapper.toml`.
+  - `codex wrapper status`, `codex wrapper setup show`, and `codex doctor` remain inspectable without mutating `wrapper.toml` and explicitly report the invalid configuration error/warning.
+  - Explicit mutating `codex wrapper setup` writes and `codex wrapper --with <MODULES>` fail explicitly without overwriting the unreadable/malformed file.
+- **`$CODEX_HOME/app-server-daemon/settings.json` (parse/syntax or unsafe-file error):**
+  - Ordinary non-daemon commands (`codex features list`, `codex --no-daemon ...`, `codex --remote ...`, `codex update`, `codex wrapper ...`, `codex doctor`) emit a concise warning (or diagnostic notice in `codex doctor`) without overwriting `settings.json` and without aborting execution.
+  - Managed-daemon execution paths that depend on `autoUpdateEnabled = false` guarantees (`codex app-server daemon ...`, or interactive/TUI runs unless `--no-daemon` / `--remote*` opts out of managed daemon usage) fail closed with an explicit error referencing `$CODEX_HOME/app-server-daemon/settings.json`.
+
+#### External profile environment binding (`CODEX_SHARED_HOME`, `CODEX_SQLITE_HOME`)
+
+Minimal standalone Wrapper implements no profile registry or profile CRUD commands:
+bare `codex` runs against `$CODEX_HOME` (default `$HOME/.codex`). External launchers
+(such as `ai` or future Stage 2 modules) may manage independent account directories
+holding only per-account `auth.json` and isolated `app-server-control`/`app-server-daemon`
+state, passing `CODEX_HOME=<profile_home>` alongside `CODEX_SQLITE_HOME` (preserved verbatim)
+and/or `CODEX_SHARED_HOME=<shared_home>`. When `CODEX_SHARED_HOME` is supplied on an
+ordinary upstream launch or `codex doctor` (and differs from `CODEX_HOME`), Wrapper defaults `CODEX_SQLITE_HOME`
+to `CODEX_SHARED_HOME` if unset, ensures private `0700` shared directories, reconciles
+detached `session_index.jsonl`/`history.jsonl` lines without data loss, and maintains
+symlinks in `CODEX_HOME` to `CODEX_SHARED_HOME` for shared sessions, history, skills,
+plugins, rules, and `config.toml` while never linking or reading `auth.json` or daemon sockets.
 
 In Stage 2, `codex wrapper` with no command is equivalent to `codex wrapper help`
 (in Stage 1, `codex wrapper` with no arguments prints Wrapper usage help).
@@ -677,12 +707,16 @@ generation directory), `--rollback`, or `--help` after `update`. (Legacy
 `--path`; optional signed remote channel selectors remain deferred to decoupled
 Stage 2 extensions.) On an interactive TTY, Stage 1 official updates emit concise
 transient status lines (`Checking official Codex release...`,
-`Downloading official Codex <VERSION> package...`) before printing permanent result
+`Downloading Codex <VERSION> (<downloaded> / <total>)...`, and per-section
+Termux patching progress such as `Patching bin/codex (termux-fd-remap)...`)
+before printing permanent result
 output (`Updated Codex ...` / `Codex <VERSION> is now active...`). No top-level
 `codex rollback` command is introduced. A malformed invocation beginning with
-`update` is a Wrapper usage error. No top-level `codex update` argument is passed
-to upstream, and Wrapper never invokes a package manager or an upstream
-self-updater.
+`update`, a top-level `update` preceded by global options (e.g. `-c ... update`),
+or `codex wrapper --bare ... update` fails closed with usage status `2` and instructs
+users to invoke `codex update`; prompts after `--`, option values (`-c k=update`),
+and nested upstream subcommands (`app-server daemon update --from-cli`) remain
+preserved passthrough arguments. No upstream self-updater or package manager is ever invoked.
 
 When using optional signed channels in Stage 2 extensions (historical/deferred
 contract below): the automatic path tries the signed stable channel before

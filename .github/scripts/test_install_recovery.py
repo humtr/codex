@@ -44,8 +44,37 @@ if [ "${1:-}" = update ] && [ "${2:-}" = --help ]; then
   exit 0
 fi
 if [ "${1:-}" = wrapper ]; then
-  [ -f "$HOME/.local/share/codex/wrapper/activation-state" ] || exit 1
-  printf '{"status":"active"}\n'
+  state="$HOME/.local/share/codex/wrapper/activation-state"
+  [ -f "$state" ] || exit 1
+  shift
+  if [ "${1:-}" = status ]; then
+    shift
+    verify=0; req_sha=; req_ver=
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --verify) verify=1 ;;
+        --wrapper-sha256) shift; req_sha=${1:-} ;;
+        --upstream-version) shift; req_ver=${1:-} ;;
+        --json) ;;
+      esac
+      shift
+    done
+    if [ "$verify" -eq 1 ]; then
+      [ ! -f "$HOME/reject-verify" ] || exit 1
+      gen=$(awk -F= '$1 == "current" { print $2 }' "$state")
+      meta="$HOME/.codex/packages/standalone/releases/$gen/generation.meta"
+      [ -f "$meta" ] || exit 1
+      if [ -n "$req_sha" ]; then
+        meta_sha=$(awk -F '\t' '$1 == "wrapper_artifact_digest" { print $2 }' "$meta")
+        [ "$meta_sha" = "$req_sha" ] || exit 1
+      fi
+      if [ -n "$req_ver" ]; then
+        meta_ver=$(awk -F '\t' '$1 == "upstream_package_version" { print $2 }' "$meta")
+        [ "$meta_ver" = "$req_ver" ] || exit 1
+      fi
+    fi
+  fi
+  printf '{"status":"active","qualified":true}\n'
   exit 0
 fi
 if [ "${1:-}" = update ] && [ "${2:-}" = --upstream ]; then
@@ -62,7 +91,7 @@ if [ "${1:-}" = update ] && [ "${2:-}" = --upstream ]; then
   fi
   if [ "$mode" = commit ] || [ "$mode" = commit-block ]; then
     root="$HOME/.local/share/codex/wrapper"
-    generation="$HOME/.local/lib/codex/wrapper/generations/gen-stub"
+    generation="$HOME/.codex/packages/standalone/releases/gen-stub"
     mkdir -p "$root" "$generation"
     digest=$(sha256sum "$PREFIX/bin/codex" | awk '{print $1}')
     printf 'format=codex-activation-state\nupdate_key=%064d\ncurrent=gen-stub\ncurrent_key=%064d\nprevious_present=0\nprevious=\nprevious_key=\n' 0 0 > "$root/activation-state"
@@ -370,6 +399,20 @@ exec "$real" "$@"
         self.interrupt(p)
         r = self.run_install("--skip-upstream")
         self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertFalse(self.has_lock())
+        self.assertFalse(self.old_bytes())
+
+    @unittest.skipUnless(IS_ANDROID_LINKER, "requires real Android linker branch")
+    def test_i16_wrapper_verify_rejection_fails_activation_and_recovers(self):
+        (self.home / "mode").write_text("commit")
+        (self.home / "reject-verify").touch()
+        r = self.run_install("--version", "0.169.0")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("not qualified", r.stderr)
+        self.assertTrue(self.has_lock())
+        (self.home / "reject-verify").unlink()
+        rec = self.recover()
+        self.assertEqual(rec.returncode, 0, rec.stderr)
         self.assertFalse(self.has_lock())
         self.assertFalse(self.old_bytes())
 

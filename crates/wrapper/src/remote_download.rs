@@ -38,6 +38,61 @@ fn io(source: std::io::Error) -> LocalProductError {
     }
 }
 
+fn parse_total_size_from_headers(header_path: &Path, offset: u64, limit: u64) -> Option<u64> {
+    let bytes = fs::read(header_path).ok()?;
+    let text = std::str::from_utf8(&bytes).ok()?;
+    let mut last_length: Option<u64> = None;
+    let mut last_range_total: Option<u64> = None;
+    for block in text.split("\r\n\r\n") {
+        let trimmed = block.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let mut lines = trimmed.lines();
+        let status_line = lines.next()?;
+        let code = status_line
+            .split_whitespace()
+            .nth(1)
+            .and_then(|s| s.parse::<u16>().ok())?;
+        if (300..400).contains(&code) {
+            last_length = None;
+            last_range_total = None;
+            continue;
+        }
+        if code != 200 && code != 206 {
+            continue;
+        }
+        last_length = None;
+        last_range_total = None;
+        for line in lines {
+            let Some((name, value)) = line.split_once(':') else {
+                continue;
+            };
+            if name.trim().eq_ignore_ascii_case("content-range") {
+                if let Some((_, total_str)) = value.trim().rsplit_once('/') {
+                    if let Ok(total) = total_str.trim().parse::<u64>() {
+                        if total <= limit {
+                            last_range_total = Some(total);
+                        }
+                    }
+                }
+            } else if name.trim().eq_ignore_ascii_case("content-length") {
+                if let Ok(len) = value.trim().parse::<u64>() {
+                    let computed = if code == 206 {
+                        offset.checked_add(len)
+                    } else {
+                        Some(len)
+                    };
+                    if let Some(total) = computed.filter(|t| *t <= limit) {
+                        last_length = Some(total);
+                    }
+                }
+            }
+        }
+    }
+    last_range_total.or(last_length)
+}
+
 pub(super) fn fetch(
     roots: &LocalWrapperRoots,
     url: &str,
@@ -45,7 +100,38 @@ pub(super) fn fetch(
     max_bytes: u64,
     timeout: TransferTimeout<'_>,
     offset: u64,
-    mut progress: Option<&mut dyn FnMut(u64)>,
+    progress: Option<&mut dyn FnMut(u64)>,
+) -> Result<u64, LocalProductError> {
+    let mut wrapped = progress;
+    let mut bridge = wrapped
+        .as_mut()
+        .map(|cb| move |bytes: u64, _total: Option<u64>| cb(bytes));
+    fetch_with_headers(
+        roots,
+        url,
+        output,
+        max_bytes,
+        timeout,
+        offset,
+        None,
+        None,
+        bridge
+            .as_mut()
+            .map(|cb| cb as &mut dyn FnMut(u64, Option<u64>)),
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(super) fn fetch_with_headers(
+    roots: &LocalWrapperRoots,
+    url: &str,
+    output: &File,
+    max_bytes: u64,
+    timeout: TransferTimeout<'_>,
+    offset: u64,
+    expected_total: Option<u64>,
+    header_path: Option<&Path>,
+    mut progress: Option<&mut dyn FnMut(u64, Option<u64>)>,
 ) -> Result<u64, LocalProductError> {
     ensure_curl_available(&roots.curl)?;
     if max_bytes == 0 || max_bytes > REMOTE_RELEASE_TOTAL_MAX_BYTES || offset >= max_bytes {
@@ -84,6 +170,9 @@ pub(super) fn fetch(
         .arg("--capath")
         .arg(&roots.cert_dir)
         .args(["--connect-timeout", REMOTE_CONNECT_TIMEOUT_SECONDS]);
+    if let Some(hdr) = header_path {
+        command.arg("--dump-header").arg(hdr);
+    }
     if let TransferTimeout::Fixed(seconds) = timeout {
         command.args(["--max-time", seconds]);
         if seconds != REMOTE_CONTROL_TRANSFER_TIMEOUT_SECONDS {
@@ -114,6 +203,7 @@ pub(super) fn fetch(
         .map_err(|_| LocalProductError::CurlUnavailable)?;
     let result = (|| {
         let mut last = u64::MAX;
+        let mut last_total = None;
         let mut last_received = offset;
         let mut last_progress = started;
         loop {
@@ -137,15 +227,19 @@ pub(super) fn fetch(
             if observed > max_bytes {
                 return Err(LocalProductError::RemoteResponseTooLarge);
             }
+            let known_total = expected_total.or_else(|| {
+                header_path.and_then(|p| parse_total_size_from_headers(p, offset, max_bytes))
+            });
             if observed > last_received {
                 last_received = observed;
                 last_progress = Instant::now();
             }
-            if observed != last {
+            if observed != last || known_total != last_total {
                 if let Some(callback) = progress.as_mut() {
-                    callback(observed);
+                    callback(observed, known_total);
                 }
                 last = observed;
+                last_total = known_total;
             }
             if let Some(status) = status {
                 if !status.success() {
@@ -235,7 +329,7 @@ pub(super) struct PayloadOptions<'a> {
     pub limit: u64,
     pub expected_size: Option<u64>,
     pub timeout: &'a str,
-    pub progress: Option<&'a mut dyn FnMut(u64)>,
+    pub progress: Option<&'a mut dyn FnMut(u64, Option<u64>)>,
 }
 
 pub(super) fn payload(
@@ -320,20 +414,30 @@ pub(super) fn payload(
         && openssl_sha256(&roots.openssl, &path)? == entry.sha256;
     if verified {
         if let Some(callback) = progress {
-            callback(size);
+            callback(size, expected_size.or(Some(size)));
         }
     } else {
         if size == reserve {
             fs::remove_file(&path).map_err(io)?;
             return Err(LocalProductError::ReleaseDigestMismatch);
         }
-        match fetch(
+        struct HeaderCleanup(std::path::PathBuf);
+        impl Drop for HeaderCleanup {
+            fn drop(&mut self) {
+                let _ = fs::remove_file(&self.0);
+            }
+        }
+        let header_path = HeaderCleanup(cache.join(format!("{}.hdr", entry.sha256)));
+        let _ = fs::remove_file(&header_path.0);
+        match fetch_with_headers(
             roots,
             url,
             &file,
             reserve,
             TransferTimeout::Progress(idle),
             size,
+            expected_size,
+            progress.is_some().then_some(header_path.0.as_path()),
             progress,
         ) {
             Ok(n) => size = n,
@@ -418,9 +522,14 @@ mod tests {
             NEXT.fetch_add(1, Ordering::Relaxed)
         ));
         fs::DirBuilder::new().mode(0o700).create(&root).unwrap();
-        let prefix = std::env::var_os("PREFIX")
-            .map(std::path::PathBuf::from)
-            .unwrap_or_else(|| "/usr".into());
+        let prefix = {
+            let _env = crate::tests::ENV_LOCK
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            std::env::var_os("PREFIX")
+                .map(std::path::PathBuf::from)
+                .unwrap_or_else(|| "/usr".into())
+        };
         let roots = LocalWrapperRoots {
             generation_root: root.clone(),
             state_root: root.clone(),
@@ -458,6 +567,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
   header=self.headers.get('Range','')
   with (root/'requests').open('a') as f: f.write(header+'\n')
   mode=(root/'mode').read_text() if (root/'mode').exists() else ''
+  if mode=='redirect' and self.path=='/runtime':
+   self.send_response(302)
+   self.send_header('Location','/final')
+   self.send_header('Content-Length','0')
+   self.end_headers()
+   return
   offset=int(header.removeprefix('bytes=').removesuffix('-')) if header else 0
   accepted_range=bool(header) and mode!='ignore-range'
   if not accepted_range: offset=0
@@ -870,5 +985,50 @@ server.socket=context.wrap_socket(server.socket,server_side=True)
             Err(LocalProductError::Remote(_))
         ));
         assert_eq!(fs::read_dir(&dir).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn progress_callback_receives_total_bytes_across_redirect_and_content_range() {
+        let mut f = fixture();
+        let redirect_headers =
+            b"HTTP/1.1 302 Found\r\nLocation: /final\r\nContent-Length: 0\r\n\r\n\
+HTTP/2 206 Partial Content\r\nContent-Range: bytes 10-99/100\r\nContent-Length: 90\r\n\r\n";
+        let header_path = f.root.join("headers.tmp");
+        fs::write(&header_path, redirect_headers).unwrap();
+        assert_eq!(
+            parse_total_size_from_headers(&header_path, 10, 512 * 1024),
+            Some(100)
+        );
+
+        let data = vec![7u8; 4096];
+        let entry = entry(&f, &data);
+        let url = serve(&mut f);
+        fs::write(f.root.join("mode"), "redirect").unwrap();
+        let dest = f.root.join("redirected-download");
+        let mut observed = Vec::new();
+        let mut cb = |downloaded: u64, total: Option<u64>| {
+            observed.push((downloaded, total));
+        };
+        payload(
+            &f.roots,
+            &url,
+            &dest,
+            &entry,
+            PayloadOptions {
+                limit: 512 * 1024,
+                expected_size: None,
+                timeout: REMOTE_TRANSFER_TIMEOUT_SECONDS,
+                progress: Some(&mut cb),
+            },
+        )
+        .unwrap();
+        assert_eq!(fs::read(&dest).unwrap(), data);
+        assert!(
+            observed
+                .iter()
+                .any(|&(bytes, total)| bytes == data.len() as u64
+                    && total == Some(data.len() as u64)),
+            "expected progress callback to observe final total size across redirect: {observed:?}"
+        );
     }
 }

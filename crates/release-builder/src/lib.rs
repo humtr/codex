@@ -253,7 +253,7 @@ where
     })
 }
 
-fn valid_stable_version(value: &str) -> bool {
+pub fn valid_stable_version(value: &str) -> bool {
     if value.is_empty() || value.len() > 64 || !value.is_ascii() {
         return false;
     }
@@ -1797,18 +1797,24 @@ pub(crate) fn apply_fd_path_remaps(runtime: &mut [u8]) -> Result<usize, BuilderE
     apply_fd_path_remaps_with_options(runtime, true).map(|summary| summary.changed_bytes)
 }
 
-fn adapt_selected_runtime(
+fn adapt_selected_runtime<F>(
     request: &GenerationRequest,
     staging: &Path,
     selected: ArchiveSelection,
-) -> Result<AdaptedGeneration, BuilderError> {
+    progress: &mut F,
+) -> Result<AdaptedGeneration, BuilderError>
+where
+    F: FnMut(&str),
+{
     let raw_runtime_sha256 = openssl_sha256(&request.openssl, &selected.raw_runtime)?;
     let mut runtime = std::fs::read(&selected.raw_runtime)
         .map_err(|source| io_error("read selected raw runtime", source))?;
+    progress("Patching bin/codex (FD remap: /etc/resolv.conf, /etc/codex)...");
     let fd = apply_fd_path_remaps_with_options(&mut runtime, true)?;
     let mut changed_bytes = fd.changed_bytes;
 
     let uds_applied = if runtime_patch::contains_daemon_fmt(&runtime) {
+        progress("Patching bin/codex (UDS FD 35: /tmp sockets)...");
         changed_bytes +=
             runtime_patch::apply_uds_fd35(&mut runtime).map_err(BuilderError::Archive)?;
         true
@@ -1831,6 +1837,11 @@ fn adapt_selected_runtime(
         .map_err(|source| io_error("sync adapted runtime after final mode", source))?;
 
     for bin_path in &selected.extra_bins {
+        let display_name = bin_path
+            .file_name()
+            .map(|name| name.to_string_lossy())
+            .unwrap_or_else(|| std::borrow::Cow::Borrowed("companion"));
+        progress(&format!("Patching companion bin/{display_name}..."));
         let mut companion = std::fs::read(bin_path)
             .map_err(|source| io_error("read companion bin artifact", source))?;
         let c_fd = apply_fd_path_remaps_with_options(&mut companion, false)?;
@@ -1863,6 +1874,7 @@ fn adapt_selected_runtime(
         .as_ref()
         .map(|host_path| openssl_sha256(&request.openssl, host_path))
         .transpose()?;
+    progress("Creating Termux browser helpers...");
     let (browser_open_helper_sha256, browser_manual_helper_sha256) =
         create_browser_helpers(staging, &request.openssl)?;
     std::fs::remove_file(&selected.raw_runtime)
@@ -2010,13 +2022,17 @@ fn rename_noreplace(source: &Path, destination: &Path) -> Result<(), BuilderErro
     }
 }
 
-fn complete_and_publish(
+fn complete_and_publish<F>(
     request: &GenerationRequest,
     staging: &Path,
     selected: ArchiveSelection,
     wrapper_sha256: &str,
-) -> Result<(), BuilderError> {
-    let adapted = adapt_selected_runtime(request, staging, selected)?;
+    progress: &mut F,
+) -> Result<(), BuilderError>
+where
+    F: FnMut(&str),
+{
+    let adapted = adapt_selected_runtime(request, staging, selected, progress)?;
     rename_noreplace(&staging.join(".wrapper-artifact"), &staging.join("wrapper"))?;
     set_mode(
         &staging.join("wrapper"),
@@ -2026,6 +2042,9 @@ fn complete_and_publish(
     File::open(staging.join("wrapper"))
         .and_then(|file| file.sync_all())
         .map_err(|source| io_error("sync generation wrapper", source))?;
+    std::os::unix::fs::symlink("bin/codex", staging.join("codex"))
+        .map_err(|source| io_error("create upstream codex entrypoint symlink", source))?;
+    progress("Writing generation manifest & syncing files...");
     write_generation_descriptor(request, staging, &adapted, wrapper_sha256)?;
     sync_directory(staging, "sync complete unsigned generation")?;
     rename_noreplace(staging, &request.output)?;
@@ -2050,15 +2069,28 @@ fn cleanup_staging(staging: &Path) -> Result<(), BuilderError> {
 
 /// Assemble one unsigned generation using the same admission path as the CLI.
 pub fn build_generation(request: &GenerationRequest) -> Result<(), BuilderError> {
+    build_generation_with_progress(request, &mut |_| {})
+}
+
+/// Assemble one unsigned generation and emit patching stage progress messages.
+pub fn build_generation_with_progress<F>(
+    request: &GenerationRequest,
+    progress: &mut F,
+) -> Result<(), BuilderError>
+where
+    F: FnMut(&str),
+{
     validate_request(request)?;
     let staging = create_staging(&request.output)?;
     let result = (|| {
+        progress("Verifying archive & wrapper artifacts...");
         let wrapper_sha256 = snapshot_wrapper_artifact(request, &staging)?;
         let archive = snapshot_archive(request, &staging)?;
+        progress("Extracting upstream package archive...");
         let selected = select_archive(request, &archive, &staging)?;
         std::fs::remove_file(&archive)
             .map_err(|source| io_error("remove upstream archive snapshot", source))?;
-        complete_and_publish(request, &staging, selected, &wrapper_sha256)
+        complete_and_publish(request, &staging, selected, &wrapper_sha256, progress)
     })();
     match (result, cleanup_staging(&staging)) {
         (_, Err(error)) => Err(error),

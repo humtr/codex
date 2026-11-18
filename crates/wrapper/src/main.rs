@@ -13,6 +13,8 @@ mod qualification;
 #[cfg(unix)]
 mod remote_download;
 #[cfg(unix)]
+mod shared_home;
+#[cfg(unix)]
 mod state;
 #[cfg(unix)]
 mod system_config;
@@ -112,6 +114,7 @@ mod unix_app {
     pub(super) enum DispatchPlanError {
         UnsupportedSandboxMode(String),
         UnsupportedSandboxCommand,
+        UpstreamUpdaterDisabled,
     }
 
     impl std::fmt::Display for DispatchPlanError {
@@ -123,6 +126,9 @@ mod unix_app {
                 ),
                 DispatchPlanError::UnsupportedSandboxCommand => f.write_str(
                     "'codex sandbox linux' is unsupported on Termux because Android kernels lack Linux Landlock/seccomp-user-namespace sandboxing",
+                ),
+                DispatchPlanError::UpstreamUpdaterDisabled => f.write_str(
+                    "upstream self-updater is disabled on Termux; run 'codex update' directly without global flags or --bare",
                 ),
             }
         }
@@ -136,6 +142,8 @@ mod unix_app {
             "-c" | "--config"
                 | "--enable"
                 | "--disable"
+                | "--remote"
+                | "--remote-auth-token-env"
                 | "-s"
                 | "--sandbox"
                 | "-a"
@@ -149,14 +157,78 @@ mod unix_app {
                 | "-i"
                 | "--image"
                 | "--local-provider"
-                | "--oss"
-                | "--search"
                 | "--add-dir"
         )
     }
 
-    fn upstream_dispatch_global_option_takes_separate_value(value: &str) -> bool {
-        matches!(value, "-c" | "--config" | "--enable" | "--disable")
+    fn first_top_level_subcommand_index(args: &[OsString]) -> Option<usize> {
+        let mut index = 0usize;
+        while index < args.len() {
+            let arg = args[index].to_str()?;
+            if arg == "--" {
+                return None;
+            }
+            if arg.starts_with('-') {
+                if arg.contains('=') {
+                    index += 1;
+                    continue;
+                }
+                if upstream_global_option_takes_separate_value(arg) {
+                    if index + 1 >= args.len() {
+                        return None;
+                    }
+                    index += 2;
+                    continue;
+                }
+                index += 1;
+                continue;
+            }
+            return Some(index);
+        }
+        None
+    }
+
+    fn upstream_invocation_requires_daemon_settings(args: &[OsString]) -> bool {
+        if is_help_or_version_invocation(args) {
+            return false;
+        }
+        if args.iter().any(|arg| {
+            arg == "--no-daemon" || arg.to_str().is_some_and(|s| s.starts_with("--remote"))
+        }) {
+            return false;
+        }
+        !matches!(
+            first_top_level_subcommand_index(args).and_then(|idx| args[idx].to_str()),
+            Some(
+                "exec"
+                    | "e"
+                    | "review"
+                    | "login"
+                    | "logout"
+                    | "mcp"
+                    | "plugin"
+                    | "completion"
+                    | "sandbox"
+                    | "debug"
+                    | "execpolicy"
+                    | "apply"
+                    | "a"
+                    | "queue"
+                    | "archive"
+                    | "delete"
+                    | "migrate-rollouts"
+                    | "migrate-nfs-db"
+                    | "unarchive"
+                    | "cloud"
+                    | "cloud-tasks"
+                    | "responses-api-proxy"
+                    | "stdio-to-uds"
+                    | "exec-server"
+                    | "features"
+                    | "help"
+                    | "doctor"
+            )
+        )
     }
 
     fn unsupported_sandbox_mode(value: &str) -> Option<&str> {
@@ -218,34 +290,17 @@ mod unix_app {
     pub(super) fn plan_public_dispatch(
         args: Vec<OsString>,
     ) -> Result<PublicDispatchRoute, DispatchPlanError> {
-        let mut index = 0usize;
-        while index < args.len() {
-            let Some(arg) = args[index].to_str() else {
-                break;
-            };
-            if arg == "--" {
-                break;
+        match first_top_level_subcommand_index(&args) {
+            Some(0) => match args[0].to_str() {
+                Some("update") => return Ok(PublicDispatchRoute::Update(args[1..].to_vec())),
+                Some("doctor") => return Ok(PublicDispatchRoute::Doctor(args[1..].to_vec())),
+                Some("wrapper") => return Ok(PublicDispatchRoute::Wrapper(args[1..].to_vec())),
+                _ => {}
+            },
+            Some(index) if args[index] == "update" => {
+                return Err(DispatchPlanError::UpstreamUpdaterDisabled);
             }
-            if upstream_dispatch_global_option_takes_separate_value(arg) {
-                if index + 1 >= args.len() {
-                    break;
-                }
-                index += 2;
-                continue;
-            }
-            if arg.starts_with('-') {
-                index += 1;
-                continue;
-            }
-            if index == 0 {
-                match arg {
-                    "update" => return Ok(PublicDispatchRoute::Update(args[1..].to_vec())),
-                    "doctor" => return Ok(PublicDispatchRoute::Doctor(args[1..].to_vec())),
-                    "wrapper" => return Ok(PublicDispatchRoute::Wrapper(args[1..].to_vec())),
-                    _ => {}
-                }
-            }
-            break;
+            Some(_) | None => {}
         }
         plan_passthrough_args(&args)?;
         Ok(PublicDispatchRoute::Upstream(args))
@@ -260,7 +315,14 @@ mod unix_app {
             if arg == "--" {
                 return false;
             }
+            if arg.starts_with('-') && arg.contains('=') {
+                index += 1;
+                continue;
+            }
             if upstream_global_option_takes_separate_value(arg) {
+                if index + 1 >= args.len() {
+                    return false;
+                }
                 index += 2;
                 continue;
             }
@@ -781,7 +843,7 @@ mod unix_app {
             .env_remove("LD_LIBRARY_PATH");
     }
 
-    fn resolve_codex_home() -> Option<PathBuf> {
+    pub(super) fn resolve_codex_home() -> Option<PathBuf> {
         if let Some(value) = std::env::var_os("CODEX_HOME").filter(|v| !v.is_empty()) {
             let path = PathBuf::from(value);
             return if path.is_absolute() {
@@ -1093,7 +1155,7 @@ mod unix_app {
             let prefix = required_absolute_env_path("PREFIX")?;
             let state_root = home.join(".local/share/codex/wrapper");
             Ok(Self {
-                generation_root: home.join(".local/lib/codex/wrapper/generations"),
+                generation_root: home.join(".codex/packages/standalone/releases"),
                 config_dir: state_root.join("config"),
                 state_root,
                 resolver_path: prefix.join("etc/resolv.conf"),
@@ -1254,6 +1316,7 @@ mod unix_app {
         pub(super) cert_dir: Option<&'context OsStr>,
         pub(super) resolver_path: &'context Path,
         pub(super) config_dir: &'context Path,
+        pub(super) state_root: &'context Path,
         pub(super) wrapper_doctor_status: doctor::WrapperDoctorStatus,
         pub(super) generation_id: &'context str,
         pub(super) generation_layout: GenerationLayout,
@@ -1621,6 +1684,55 @@ mod unix_app {
         operation(runtime_assets)
     }
 
+    pub(super) fn verify_generation_asset_digests(
+        loaded: &LoadedLocalGeneration,
+        openssl: &Path,
+    ) -> Result<(), LocalProductError> {
+        qualify_generation_manifest(&loaded.manifest).map_err(LocalProductError::Manifest)?;
+        let runtime_meta =
+            fs::symlink_metadata(&loaded.runtime_path).map_err(|source| LocalProductError::Io {
+                operation: "inspect generation runtime permissions",
+                source,
+            })?;
+        if !runtime_meta.file_type().is_file() || runtime_meta.permissions().mode() & 0o111 == 0 {
+            return Err(LocalProductError::Descriptor(
+                "generation runtime is not an executable regular file",
+            ));
+        }
+        let observed_runtime = openssl_sha256(openssl, &loaded.runtime_path)?;
+        if observed_runtime != loaded.manifest.runtime_digest {
+            return Err(LocalProductError::Descriptor(
+                "generation runtime SHA-256 digest does not match generation.meta",
+            ));
+        }
+        for (helper_meta, helper_path) in loaded
+            .manifest
+            .helper_digests
+            .iter()
+            .zip(&loaded.helper_paths)
+        {
+            let helper_fs_meta =
+                fs::symlink_metadata(helper_path).map_err(|source| LocalProductError::Io {
+                    operation: "inspect generation helper permissions",
+                    source,
+                })?;
+            if !helper_fs_meta.file_type().is_file()
+                || helper_fs_meta.permissions().mode() & 0o111 == 0
+            {
+                return Err(LocalProductError::Descriptor(
+                    "generation helper is not an executable regular file",
+                ));
+            }
+            let observed_helper = openssl_sha256(openssl, helper_path)?;
+            if observed_helper != helper_meta.digest {
+                return Err(LocalProductError::Descriptor(
+                    "generation helper SHA-256 digest does not match generation.meta",
+                ));
+            }
+        }
+        Ok(())
+    }
+
     pub(super) fn probe_release_candidate(
         loaded: &LoadedLocalGeneration,
         roots: &LocalWrapperRoots,
@@ -1641,6 +1753,7 @@ mod unix_app {
         args: I,
         runtime_fds: RuntimeFdSources,
         env_plan: Option<&TermuxBaseEnvPlan>,
+        sqlite_home_override: Option<&Path>,
     ) -> io::Error
     where
         P: AsRef<OsStr>,
@@ -1650,6 +1763,9 @@ mod unix_app {
         let mut command = Command::new(program.as_ref());
         command.args(args);
         apply_child_env_plan_and_fence(&mut command, env_plan);
+        if let Some(sqlite_home) = sqlite_home_override {
+            command.env("CODEX_SQLITE_HOME", sqlite_home);
+        }
         runtime_fds.configure(&mut command);
         command.exec()
     }
@@ -1660,6 +1776,7 @@ mod unix_app {
         resolver_path: R,
         config_dir: C,
         env_plan: Option<&TermuxBaseEnvPlan>,
+        sqlite_home_override: Option<&Path>,
     ) -> io::Error
     where
         P: AsRef<OsStr>,
@@ -1672,7 +1789,7 @@ mod unix_app {
             Ok(fds) => fds,
             Err(err) => return err,
         };
-        exec_runtime_with_sources(program, args, runtime_fds, env_plan)
+        exec_runtime_with_sources(program, args, runtime_fds, env_plan, sqlite_home_override)
     }
 
     struct UpstreamRuntimeHost<'a> {
@@ -1680,6 +1797,25 @@ mod unix_app {
         cert_dir: Option<&'a OsStr>,
         resolver_path: &'a Path,
         config_dir: &'a Path,
+    }
+
+    pub(super) fn prepare_shared_home_from_env() -> io::Result<Option<PathBuf>> {
+        let Some(codex_home) = resolve_codex_home() else {
+            return Ok(None);
+        };
+        let Some(shared_home) = std::env::var_os("CODEX_SHARED_HOME").filter(|v| !v.is_empty())
+        else {
+            return Ok(None);
+        };
+        match crate::shared_home::prepare_shared_home(&codex_home, &shared_home) {
+            Ok(Some(shared_dir))
+                if std::env::var_os("CODEX_SQLITE_HOME").is_none_or(|v| v.is_empty()) =>
+            {
+                Ok(Some(shared_dir))
+            }
+            Ok(_) => Ok(None),
+            Err(err) => Err(err),
+        }
     }
 
     fn launch_upstream_runtime_with_plan(
@@ -1705,10 +1841,20 @@ mod unix_app {
             Err(err) => return RuntimeLaunchError::Environment(err),
         };
 
+        let mut sqlite_home_override = None;
         if !is_help_or_version_invocation(args) {
+            match prepare_shared_home_from_env() {
+                Ok(override_dir) => sqlite_home_override = override_dir,
+                Err(err) => return RuntimeLaunchError::Config(err),
+            }
             if let Some(codex_home) = resolve_codex_home() {
                 if let Err(err) = daemon_settings::ensure(&codex_home) {
-                    return RuntimeLaunchError::Config(err);
+                    if upstream_invocation_requires_daemon_settings(args) {
+                        return RuntimeLaunchError::Config(err);
+                    }
+                    eprintln!(
+                        "codex: warning: daemon settings unavailable ({err}); continuing non-daemon command"
+                    );
                 }
             }
         }
@@ -1722,6 +1868,7 @@ mod unix_app {
                 host.resolver_path,
                 host.config_dir,
                 Some(&env_plan),
+                sqlite_home_override.as_deref(),
             );
             return RuntimeLaunchError::Exec(exec_err);
         }
@@ -1754,6 +1901,7 @@ mod unix_app {
             args,
             runtime_fds,
             Some(&env_plan),
+            sqlite_home_override.as_deref(),
         );
         drop(prepared);
         RuntimeLaunchError::Exec(exec_err)
@@ -1802,6 +1950,7 @@ mod unix_app {
                 cert_dir: Some(roots.cert_dir.as_os_str()),
                 resolver_path: &roots.resolver_path,
                 config_dir: &roots.config_dir,
+                state_root: &roots.state_root,
                 wrapper_doctor_status: doctor::WrapperDoctorStatus::Healthy,
                 generation_id: &loaded.generation_id,
                 generation_layout: loaded.generation_layout,
@@ -1836,16 +1985,18 @@ mod unix_app {
     }
 
     fn print_wrapper_usage() {
-        println!("usage: codex wrapper <status [--json] | setup [show|--bare|--enable MODULES|--disable MODULES|--signed-update true|false] | --bare [--] [UPSTREAM_ARGS...] | --with MODULES [--] [UPSTREAM_ARGS...] | --help>");
-        println!("  status [--json]   show active generation, paths, and opt-in modules");
-        println!("  setup             read or change the persistent optional-module selection");
+        println!("usage: codex wrapper <status [--verify [--wrapper-sha256 SHA256] [--upstream-version VER]] [--json] | setup [show|--bare|--enable MODULES|--disable MODULES|--signed-update true|false] | --bare [--] [UPSTREAM_ARGS...] | --with MODULES [--] [UPSTREAM_ARGS...] | --help>");
+        println!("  status [--verify] [--json]  show or qualify active generation, paths, and opt-in modules");
         println!(
-            "  --bare            launch upstream without optional modules for this invocation"
+            "  setup                       read or change the persistent optional-module selection"
         );
         println!(
-            "  --with MODULES    opt in only for this invocation (unavailable modules fail closed)"
+            "  --bare                      launch upstream without optional modules for this invocation"
         );
-        println!("  --help            show this help");
+        println!(
+            "  --with MODULES              opt in only for this invocation (unavailable modules fail closed)"
+        );
+        println!("  --help                      show this help");
     }
 
     #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1949,6 +2100,7 @@ mod unix_app {
                 return 1;
             }
         };
+        let is_show = matches!(action, ParsedSetupAction::Show);
         let result = match action {
             ParsedSetupAction::Help => unreachable!(),
             ParsedSetupAction::Show => extensions::WrapperSettings::read(&roots.state_root),
@@ -1980,6 +2132,16 @@ mod unix_app {
                 println!("signed_update: {}", settings.signed_update);
                 0
             }
+            Err(err) if is_show => {
+                println!(
+                    "config: {}",
+                    roots.state_root.join("wrapper.toml").display()
+                );
+                println!("addons: invalid");
+                println!("signed_update: unknown");
+                eprintln!("codex wrapper setup: invalid wrapper.toml: {err}");
+                0
+            }
             Err(err) => {
                 eprintln!("codex wrapper setup: {err}");
                 if err.kind() == io::ErrorKind::InvalidData {
@@ -1991,8 +2153,17 @@ mod unix_app {
         }
     }
 
+    fn reject_bare_or_with_updater(args: &[OsString]) -> Result<(), DispatchPlanError> {
+        if let Some(index) = first_top_level_subcommand_index(args) {
+            if args[index] == "update" {
+                return Err(DispatchPlanError::UpstreamUpdaterDisabled);
+            }
+        }
+        plan_passthrough_args(args)
+    }
+
     fn run_bare_upstream(args: Vec<OsString>) -> i32 {
-        if let Err(err) = plan_passthrough_args(&args) {
+        if let Err(err) = reject_bare_or_with_updater(&args) {
             eprintln!("codex wrapper --bare: {err}");
             return 2;
         }
@@ -2010,6 +2181,13 @@ mod unix_app {
             return 1;
         }
         0
+    }
+
+    struct WrapperStatusOptions {
+        json: bool,
+        verify: bool,
+        expected_wrapper_sha256: Option<String>,
+        expected_upstream_version: Option<String>,
     }
 
     fn run_wrapper_command(args: Vec<OsString>) -> i32 {
@@ -2046,7 +2224,7 @@ mod unix_app {
                 if args.first().is_some_and(|value| value == "--") {
                     args.remove(0);
                 }
-                if let Err(err) = plan_passthrough_args(&args) {
+                if let Err(err) = reject_bare_or_with_updater(&args) {
                     eprintln!("codex wrapper --with: {err}");
                     return 2;
                 }
@@ -2057,10 +2235,58 @@ mod unix_app {
                 1
             }
             Some("status") => {
-                let mut json = false;
-                for arg in rest {
+                let mut options = WrapperStatusOptions {
+                    json: false,
+                    verify: false,
+                    expected_wrapper_sha256: None,
+                    expected_upstream_version: None,
+                };
+                let mut index = 0usize;
+                while index < rest.len() {
+                    let arg = &rest[index];
                     match arg.to_str() {
-                        Some("--json") if !json => json = true,
+                        Some("--json") if !options.json => {
+                            options.json = true;
+                            index += 1;
+                        }
+                        Some("--verify") if !options.verify => {
+                            options.verify = true;
+                            index += 1;
+                        }
+                        Some("--wrapper-sha256") if options.expected_wrapper_sha256.is_none() => {
+                            let Some(val) = rest.get(index + 1).and_then(|v| v.to_str()) else {
+                                eprintln!(
+                                    "codex wrapper status: --wrapper-sha256 requires a SHA-256 hex value"
+                                );
+                                return 2;
+                            };
+                            if !valid_sha256_hex(val) {
+                                eprintln!(
+                                    "codex wrapper status: --wrapper-sha256 must be 64 lowercase hex characters"
+                                );
+                                return 2;
+                            }
+                            options.expected_wrapper_sha256 = Some(val.to_owned());
+                            index += 2;
+                        }
+                        Some("--upstream-version")
+                            if options.expected_upstream_version.is_none() =>
+                        {
+                            let Some(val) = rest.get(index + 1).and_then(|v| v.to_str()) else {
+                                eprintln!(
+                                    "codex wrapper status: --upstream-version requires a version value"
+                                );
+                                return 2;
+                            };
+                            if !codex_release_builder::valid_stable_version(val) {
+                                eprintln!(
+                                    "codex wrapper status: --upstream-version must be MAJOR.MINOR.PATCH"
+                                );
+                                return 2;
+                            }
+                            options.expected_upstream_version = Some(val.to_owned());
+                            index += 2;
+                        }
                         Some("-h" | "--help") => {
                             print_wrapper_usage();
                             return 0;
@@ -2071,7 +2297,16 @@ mod unix_app {
                         }
                     }
                 }
-                run_wrapper_status(json)
+                if !options.verify
+                    && (options.expected_wrapper_sha256.is_some()
+                        || options.expected_upstream_version.is_some())
+                {
+                    eprintln!(
+                        "codex wrapper status: --wrapper-sha256 and --upstream-version require --verify"
+                    );
+                    return 2;
+                }
+                run_wrapper_status(options)
             }
             _ => {
                 eprintln!("codex wrapper: unknown subcommand {:?}", subcommand);
@@ -2081,7 +2316,49 @@ mod unix_app {
         }
     }
 
-    fn run_wrapper_status(json: bool) -> i32 {
+    fn verify_active_generation_snapshot(
+        roots: &LocalWrapperRoots,
+        gen: &LoadedLocalGeneration,
+        options: &WrapperStatusOptions,
+    ) -> Result<(), String> {
+        let state_paths = generation_state::WrapperStatePaths::new(&roots.state_root)
+            .map_err(|err| err.to_string())?;
+        for pending in [
+            &state_paths.activation_journal,
+            &state_paths.activation_journal_temp,
+            &state_paths.activation_state_temp,
+        ] {
+            if fs::symlink_metadata(pending).is_ok() {
+                return Err(format!(
+                    "activation state has unsettled transaction artifact '{}'",
+                    pending.display()
+                ));
+            }
+        }
+        if let Some(expected_sha) = options.expected_wrapper_sha256.as_deref() {
+            if gen.manifest.wrapper_artifact_digest != expected_sha {
+                return Err(format!(
+                    "generation wrapper_artifact_digest '{}' does not match expected '{expected_sha}'",
+                    gen.manifest.wrapper_artifact_digest
+                ));
+            }
+        }
+        if let Some(expected_ver) = options.expected_upstream_version.as_deref() {
+            if gen.manifest.upstream_package_version != expected_ver {
+                return Err(format!(
+                    "generation upstream_package_version '{}' does not match requested '{expected_ver}'",
+                    gen.manifest.upstream_package_version
+                ));
+            }
+        }
+        verify_generation_asset_digests(gen, &roots.openssl).map_err(|err| err.to_string())?;
+        prepare_wrapper_config(&roots.config_dir)
+            .map_err(|err| format!("wrapper config preparation failed: {err}"))?;
+        let env = capture_termux_process_env();
+        probe_release_candidate(gen, roots, &env).map_err(|err| err.to_string())
+    }
+
+    fn run_wrapper_status(options: WrapperStatusOptions) -> i32 {
         let roots = match LocalWrapperRoots::from_environment() {
             Ok(roots) => roots,
             Err(err) => {
@@ -2089,18 +2366,39 @@ mod unix_app {
                 return 1;
             }
         };
-        let settings = match extensions::WrapperSettings::read(&roots.state_root) {
-            Ok(settings) => settings,
-            Err(err) => {
-                eprintln!("codex wrapper status: invalid wrapper.toml: {err}");
-                return 1;
-            }
-        };
-        let addons = settings.addons_label();
-        let signed_update = settings.signed_update;
+        let (addons, signed_update, addons_error) =
+            match extensions::WrapperSettings::read(&roots.state_root) {
+                Ok(settings) => (settings.addons_label(), Some(settings.signed_update), None),
+                Err(err) => {
+                    eprintln!("codex wrapper status: warning: invalid wrapper.toml: {err}");
+                    ("invalid".to_owned(), None, Some(err.to_string()))
+                }
+            };
         let codex_home = resolve_codex_home();
         let loaded = load_activated_generation(&roots);
-        if json {
+        let verification_result = match (&loaded, options.verify) {
+            (Ok((_, gen)), true) => Some(verify_active_generation_snapshot(&roots, gen, &options)),
+            (Err(err), true) => Some(Err(err.to_string())),
+            (_, false) => None,
+        };
+        let verified_ok = verification_result.as_ref().is_none_or(|res| res.is_ok());
+
+        if options.json {
+            let addons_err_json = addons_error
+                .as_deref()
+                .map(|msg| format!(",\"addons_error\":\"{}\"", doctor::json_escape(msg)))
+                .unwrap_or_default();
+            let signed_json = signed_update
+                .map(|b| b.to_string())
+                .unwrap_or_else(|| "null".to_owned());
+            let verify_json = match &verification_result {
+                None => String::new(),
+                Some(Ok(())) => ",\"qualified\":true".to_owned(),
+                Some(Err(reason)) => format!(
+                    ",\"qualified\":false,\"verification_error\":\"{}\"",
+                    doctor::json_escape(reason)
+                ),
+            };
             let body = match &loaded {
                 Ok((pointer, gen)) => {
                     let prev_json = pointer
@@ -2113,7 +2411,7 @@ mod unix_app {
                         .map(|p| format!("\"{}\"", doctor::json_escape(&p.to_string_lossy())))
                         .unwrap_or_else(|| "null".to_owned());
                     format!(
-                        "{{\"status\":\"active\",\"generation_id\":\"{}\",\"previous_generation_id\":{},\"upstream_version\":\"{}\",\"layout\":\"{}\",\"runtime_path\":\"{}\",\"has_code_mode_host\":{},\"patch_policy_id\":\"{}\",\"patch_report\":\"{}\",\"creation_metadata\":\"{}\",\"daemon_passthrough\":\"supported\",\"addons\":\"{}\",\"signed_update\":{},\"generation_root\":\"{}\",\"state_root\":\"{}\",\"config_dir\":\"{}\",\"codex_home\":{}}}\n",
+                        "{{\"status\":\"active\",\"generation_id\":\"{}\",\"previous_generation_id\":{},\"upstream_version\":\"{}\",\"layout\":\"{}\",\"runtime_path\":\"{}\",\"has_code_mode_host\":{},\"patch_policy_id\":\"{}\",\"patch_report\":\"{}\",\"creation_metadata\":\"{}\",\"daemon_passthrough\":\"supported\",\"addons\":\"{}\"{addons_err_json},\"signed_update\":{signed_json}{verify_json},\"generation_root\":\"{}\",\"state_root\":\"{}\",\"config_dir\":\"{}\",\"codex_home\":{}}}\n",
                         doctor::json_escape(&gen.generation_id),
                         prev_json,
                         doctor::json_escape(&gen.manifest.upstream_package_version),
@@ -2124,7 +2422,6 @@ mod unix_app {
                         doctor::json_escape(&gen.manifest.patch_report),
                         doctor::json_escape(&gen.manifest.creation_metadata),
                         doctor::json_escape(&addons),
-                        signed_update,
                         doctor::json_escape(&roots.generation_root.to_string_lossy()),
                         doctor::json_escape(&roots.state_root.to_string_lossy()),
                         doctor::json_escape(&roots.config_dir.to_string_lossy()),
@@ -2137,9 +2434,8 @@ mod unix_app {
                         .map(|p| format!("\"{}\"", doctor::json_escape(&p.to_string_lossy())))
                         .unwrap_or_else(|| "null".to_owned());
                     format!(
-                        "{{\"status\":\"uninitialized\",\"generation_id\":null,\"previous_generation_id\":null,\"daemon_passthrough\":\"supported\",\"addons\":\"{}\",\"signed_update\":{},\"generation_root\":\"{}\",\"state_root\":\"{}\",\"config_dir\":\"{}\",\"codex_home\":{}}}\n",
+                        "{{\"status\":\"uninitialized\",\"generation_id\":null,\"previous_generation_id\":null,\"daemon_passthrough\":\"supported\",\"addons\":\"{}\"{addons_err_json},\"signed_update\":{signed_json}{verify_json},\"generation_root\":\"{}\",\"state_root\":\"{}\",\"config_dir\":\"{}\",\"codex_home\":{}}}\n",
                         doctor::json_escape(&addons),
-                        signed_update,
                         doctor::json_escape(&roots.generation_root.to_string_lossy()),
                         doctor::json_escape(&roots.state_root.to_string_lossy()),
                         doctor::json_escape(&roots.config_dir.to_string_lossy()),
@@ -2152,7 +2448,7 @@ mod unix_app {
                 }
             };
             print!("{body}");
-            return if loaded.is_ok() { 0 } else { 1 };
+            return if loaded.is_ok() && verified_ok { 0 } else { 1 };
         }
 
         match loaded {
@@ -2175,7 +2471,23 @@ mod unix_app {
                 println!("creation_metadata: {}", gen.manifest.creation_metadata);
                 println!("daemon_passthrough: supported");
                 println!("addons: {addons}");
-                println!("signed_update: {signed_update}");
+                if let Some(err) = addons_error.as_deref() {
+                    println!("addons_error: {err}");
+                }
+                if let Some(signed) = signed_update {
+                    println!("signed_update: {signed}");
+                } else {
+                    println!("signed_update: unknown");
+                }
+                if let Some(ref res) = verification_result {
+                    match res {
+                        Ok(()) => println!("qualified: true"),
+                        Err(reason) => {
+                            println!("qualified: false");
+                            println!("verification_error: {reason}");
+                        }
+                    }
+                }
                 println!("generation_root: {}", roots.generation_root.display());
                 println!("state_root: {}", roots.state_root.display());
                 println!("config_dir: {}", roots.config_dir.display());
@@ -2186,7 +2498,11 @@ mod unix_app {
                         .map(|p| p.display().to_string())
                         .unwrap_or_else(|| "-".to_owned())
                 );
-                0
+                if verified_ok {
+                    0
+                } else {
+                    1
+                }
             }
             Err(LocalProductError::NoCurrentGeneration) => {
                 println!("status: uninitialized");
@@ -2194,7 +2510,18 @@ mod unix_app {
                 println!("state_root: {}", roots.state_root.display());
                 println!("config_dir: {}", roots.config_dir.display());
                 println!("addons: {addons}");
-                println!("signed_update: {signed_update}");
+                if let Some(err) = addons_error.as_deref() {
+                    println!("addons_error: {err}");
+                }
+                if let Some(signed) = signed_update {
+                    println!("signed_update: {signed}");
+                } else {
+                    println!("signed_update: unknown");
+                }
+                if let Some(Err(reason)) = verification_result {
+                    println!("qualified: false");
+                    println!("verification_error: {reason}");
+                }
                 println!("Run 'codex update' or 'codex update --path <FILE_OR_DIR>' to install a generation.");
                 1
             }
@@ -2438,6 +2765,14 @@ mod unix_app {
         source: &Path,
         destination: &Path,
     ) -> Result<(), LocalProductError> {
+        copy_local_directory_tree_inner(source, destination, true)
+    }
+
+    fn copy_local_directory_tree_inner(
+        source: &Path,
+        destination: &Path,
+        is_generation_root: bool,
+    ) -> Result<(), LocalProductError> {
         ensure_real_directory(
             source,
             "inspect source directory for copy",
@@ -2472,7 +2807,18 @@ mod unix_app {
                     source,
                 })?;
             if meta.file_type().is_dir() {
-                copy_local_directory_tree(&src_child, &dst_child)?;
+                copy_local_directory_tree_inner(&src_child, &dst_child, false)?;
+            } else if meta.file_type().is_symlink()
+                && is_generation_root
+                && entry.file_name() == OsStr::new("codex")
+                && fs::read_link(&src_child).ok().as_deref() == Some(Path::new("bin/codex"))
+            {
+                std::os::unix::fs::symlink("bin/codex", &dst_child).map_err(|source| {
+                    LocalProductError::Io {
+                        operation: "copy upstream codex entrypoint symlink",
+                        source,
+                    }
+                })?;
             } else if meta.file_type().is_file() {
                 let mut reader =
                     File::open(&src_child).map_err(|source| LocalProductError::Io {
@@ -2586,11 +2932,18 @@ mod unix_app {
         };
         match route {
             PublicDispatchRoute::Update(args) => {
+                let action = match update::parse_update_args(&args) {
+                    Ok(action) => action,
+                    Err(err) => {
+                        eprintln!("{err}");
+                        return 2;
+                    }
+                };
                 let read_only = matches!(
-                    update::parse_update_args(&args),
-                    Ok(update::UpdateAction::Help | update::UpdateAction::Check { .. })
+                    action,
+                    update::UpdateAction::Help | update::UpdateAction::Check { .. }
                 );
-                let code = update::run_update_command(args);
+                let code = update::run_update_action(action);
                 if code == 0 && !read_only {
                     if let Ok(roots) = LocalWrapperRoots::from_environment() {
                         let _ = maintenance::prune(&roots);
@@ -2610,15 +2963,15 @@ mod unix_app {
                 if let PublicDispatchRoute::Upstream(ref args) = route {
                     // Direct help/version remains a zero-write, zero-addon fast path.
                     if !is_help_or_version_invocation(args) {
-                        let settings = match extensions::WrapperSettings::read(&roots.state_root) {
-                            Ok(settings) => settings,
-                            Err(err) => {
-                                eprintln!("codex: invalid wrapper.toml: {err}");
-                                return 1;
+                        match extensions::WrapperSettings::read(&roots.state_root) {
+                            Ok(settings) => {
+                                if let Some(modules) = settings.unavailable_addons() {
+                                    eprintln!("codex: optional module(s) {modules} are unavailable; continuing with standalone upstream");
+                                }
                             }
-                        };
-                        if let Some(modules) = settings.unavailable_addons() {
-                            eprintln!("codex: optional module(s) {modules} are unavailable; continuing with standalone upstream");
+                            Err(err) => {
+                                eprintln!("codex: warning: ignoring invalid wrapper.toml ({err}); using bare standalone mode");
+                            }
                         }
                     }
                 }
@@ -2672,7 +3025,38 @@ pub(crate) mod tests {
     use std::sync::Mutex;
 
     static NEXT_TEMP_ID: AtomicUsize = AtomicUsize::new(0);
-    static ENV_LOCK: Mutex<()> = Mutex::new(());
+    pub(crate) static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    pub(crate) struct EnvRestoreGuard {
+        _lock: std::sync::MutexGuard<'static, ()>,
+        saved: Vec<(&'static str, Option<OsString>)>,
+    }
+
+    impl EnvRestoreGuard {
+        pub(crate) fn new(vars: &[(&'static str, Option<&Path>)]) -> Self {
+            let lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+            let mut saved = Vec::with_capacity(vars.len());
+            for &(key, val) in vars {
+                saved.push((key, std::env::var_os(key)));
+                match val {
+                    Some(p) => unsafe { std::env::set_var(key, p) },
+                    None => unsafe { std::env::remove_var(key) },
+                }
+            }
+            Self { _lock: lock, saved }
+        }
+    }
+
+    impl Drop for EnvRestoreGuard {
+        fn drop(&mut self) {
+            for (key, prev) in self.saved.iter().rev() {
+                match prev {
+                    Some(v) => unsafe { std::env::set_var(key, v) },
+                    None => unsafe { std::env::remove_var(key) },
+                }
+            }
+        }
+    }
 
     pub(crate) fn temp_root(label: &str) -> PathBuf {
         let id = NEXT_TEMP_ID.fetch_add(1, Ordering::Relaxed);
@@ -2688,11 +3072,26 @@ pub(crate) mod tests {
         let _ = fs::remove_dir_all(path);
     }
 
-    fn os_vec(items: &[&str]) -> Vec<OsString> {
+    pub(crate) fn os_vec(items: &[&str]) -> Vec<OsString> {
         items.iter().map(OsString::from).collect()
     }
 
-    fn make_test_roots(root: &Path) -> LocalWrapperRoots {
+    pub(crate) fn test_process_env(roots: &LocalWrapperRoots) -> TermuxProcessEnvSnapshot {
+        TermuxProcessEnvSnapshot {
+            wsl_kernel: Some(false),
+            prefix: roots
+                .openssl
+                .parent()
+                .and_then(|p| p.parent())
+                .map(|p| p.as_os_str().to_owned()),
+            tmpdir: Some(roots.state_root.clone().into_os_string()),
+            inherited_path: Some(OsString::from("/system/bin")),
+            inherited_ssl_cert_file: Some(roots.cert_file.clone().into_os_string()),
+            inherited_ssl_cert_dir: Some(roots.cert_dir.clone().into_os_string()),
+        }
+    }
+
+    pub(crate) fn make_test_roots(root: &Path) -> LocalWrapperRoots {
         let prefix = std::env::var_os("PREFIX")
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from("/usr"));
@@ -2715,7 +3114,25 @@ pub(crate) mod tests {
         }
     }
 
-    fn write_sample_generation(dir: &Path, generation_id: &str, with_code_mode_host: bool) {
+    pub(crate) fn test_openssl_path() -> PathBuf {
+        let mut candidates = Vec::new();
+        if let Some(prefix) = std::env::var_os("PREFIX") {
+            candidates.push(PathBuf::from(prefix).join("bin/openssl"));
+        }
+        candidates.push(PathBuf::from("/data/data/com.termux/files/usr/bin/openssl"));
+        candidates.push(PathBuf::from("/usr/bin/openssl"));
+        candidates.push(PathBuf::from("/bin/openssl"));
+        candidates
+            .into_iter()
+            .find(|p| p.is_file())
+            .expect("openssl binary required for wrapper tests")
+    }
+
+    pub(crate) fn write_sample_generation(
+        dir: &Path,
+        generation_id: &str,
+        with_code_mode_host: bool,
+    ) {
         fs::create_dir_all(dir.join("bin")).unwrap();
         fs::create_dir_all(dir.join("browser/open")).unwrap();
         fs::create_dir_all(dir.join("browser/manual")).unwrap();
@@ -2743,7 +3160,12 @@ pub(crate) mod tests {
             fs::Permissions::from_mode(0o755),
         )
         .unwrap();
+        let _ = std::os::unix::fs::symlink("bin/codex", dir.join("codex"));
 
+        let openssl = test_openssl_path();
+        let runtime_digest = openssl_sha256(&openssl, &dir.join("bin/codex")).unwrap();
+        let open_digest = openssl_sha256(&openssl, &dir.join("browser/open/curl")).unwrap();
+        let manual_digest = openssl_sha256(&openssl, &dir.join("browser/manual/curl")).unwrap();
         let digest = "a".repeat(64);
         let meta = format!(
             "codex-local-generation\n\
@@ -2755,15 +3177,15 @@ pub(crate) mod tests {
              expected_architecture\taarch64\n\
              patch_policy_id\ttermux-fd-remap\n\
              patch_report\ttermux-fd-remap;changed_bytes=0\n\
-             runtime_digest\t{digest}\n\
+             runtime_digest\t{runtime_digest}\n\
              wrapper_artifact_digest\t{digest}\n\
              wrapper_api_identity\twrapper-api\n\
              persistent_schema_identity\tschema\n\
              qualification\tqualified\n\
              creation_metadata\tcodex-wrapper\n\
              helper_count\t2\n\
-             helper\ttermux-browser-open\t{digest}\n\
-             helper\ttermux-browser-manual\t{digest}\n"
+             helper\ttermux-browser-open\t{open_digest}\n\
+             helper\ttermux-browser-manual\t{manual_digest}\n"
         );
         fs::write(dir.join("generation.meta"), meta).unwrap();
     }
@@ -2791,6 +3213,37 @@ pub(crate) mod tests {
                 "--listen",
                 "stdio://"
             ]))
+        );
+        assert_eq!(
+            plan_public_dispatch(os_vec(&["app-server", "daemon", "update", "--from-cli"]))
+                .unwrap(),
+            PublicDispatchRoute::Upstream(os_vec(&[
+                "app-server",
+                "daemon",
+                "update",
+                "--from-cli"
+            ]))
+        );
+        assert_eq!(
+            plan_public_dispatch(os_vec(&["--", "update"])).unwrap(),
+            PublicDispatchRoute::Upstream(os_vec(&["--", "update"]))
+        );
+        assert_eq!(
+            plan_public_dispatch(os_vec(&["-c", "model=update", "exec", "hi"])).unwrap(),
+            PublicDispatchRoute::Upstream(os_vec(&["-c", "model=update", "exec", "hi"]))
+        );
+        assert!(matches!(
+            plan_public_dispatch(os_vec(&["-c", "foo=bar", "update"])),
+            Err(DispatchPlanError::UpstreamUpdaterDisabled)
+        ));
+        assert!(matches!(
+            plan_public_dispatch(os_vec(&["--search", "update"])),
+            Err(DispatchPlanError::UpstreamUpdaterDisabled)
+        ));
+        assert_eq!(run_public_main(os_vec(&["-c", "foo=bar", "update"])), 2);
+        assert_eq!(
+            run_public_main(os_vec(&["wrapper", "--bare", "--", "update"])),
+            2
         );
         assert_eq!(
             plan_public_dispatch(os_vec(&["remote-control"])).unwrap(),
@@ -2858,10 +3311,8 @@ pub(crate) mod tests {
 
     #[test]
     fn resolver_fd33_cache_hits_lock_free_on_matching_bytes_and_updates_when_stale() {
-        let _guard = ENV_LOCK.lock().unwrap();
         let root = temp_root("fd33");
-        let prev_home = std::env::var_os("HOME");
-        unsafe { std::env::set_var("HOME", &root) };
+        let _env_guard = EnvRestoreGuard::new(&[("HOME", Some(&root))]);
         fs::create_dir_all(root.join(".local/share/codex")).unwrap();
         super::fs_util::private_dir(&root.join(".local/share/codex/wrapper")).unwrap();
 
@@ -2882,10 +3333,7 @@ pub(crate) mod tests {
         Read::read_to_string(&mut &f3, &mut s3).unwrap();
         assert_eq!(s3, "nameserver 1.1.1.1\noptions timeout:2 attempts:10\n");
 
-        match prev_home {
-            Some(v) => unsafe { std::env::set_var("HOME", v) },
-            None => unsafe { std::env::remove_var("HOME") },
-        }
+        drop(_env_guard);
         remove_temp_root(root);
     }
 
@@ -2947,7 +3395,7 @@ pub(crate) mod tests {
 
     #[test]
     fn runtime_fd_sources_move_descriptors_above_safe_min_and_install_33_34_35() {
-        let _guard = ENV_LOCK.lock().unwrap();
+        let _guard = EnvRestoreGuard::new(&[]);
         let root = temp_root("fd-install");
         let roots = make_test_roots(&root);
         let sources = RuntimeFdSources::open(&roots.resolver_path, &roots.config_dir).unwrap();
@@ -3051,30 +3499,47 @@ pub(crate) mod tests {
         if std::env::var_os(LAUNCH_CHILD).is_some() {
             std::process::exit(run_public_main(os_vec(&["exec", "hi"])));
         }
-        let _guard = ENV_LOCK.lock().unwrap();
+        let _guard = EnvRestoreGuard::new(&[]);
         let root = temp_root("e2e-update");
         let gen1 = root.join("src-g1");
         let gen2 = root.join("src-g2");
         write_sample_generation(&gen1, "gen-1", false);
         write_sample_generation(&gen2, "gen-2", true);
 
-        let prev_home = std::env::var_os("HOME");
-        let prev_prefix = std::env::var_os("PREFIX");
-        let prev_tmpdir = std::env::var_os("TMPDIR");
         let syn_prefix = root.join("prefix");
         fs::create_dir_all(syn_prefix.join("bin")).unwrap();
+        let real_openssl = test_openssl_path();
+        fs::copy(&real_openssl, syn_prefix.join("bin/openssl")).unwrap();
+        fs::set_permissions(
+            syn_prefix.join("bin/openssl"),
+            fs::Permissions::from_mode(0o700),
+        )
+        .unwrap();
+        if let Some(real_curl) = real_openssl
+            .parent()
+            .map(|p| p.join("curl"))
+            .filter(|p| p.is_file())
+        {
+            if fs::copy(real_curl, syn_prefix.join("bin/curl")).is_ok() {
+                let _ = fs::set_permissions(
+                    syn_prefix.join("bin/curl"),
+                    fs::Permissions::from_mode(0o700),
+                );
+            }
+        }
         fs::create_dir_all(syn_prefix.join("etc/tls/certs")).unwrap();
         fs::write(syn_prefix.join("etc/resolv.conf"), b"nameserver 1.1.1.1\n").unwrap();
         fs::write(syn_prefix.join("etc/tls/cert.pem"), b"").unwrap();
         let syn_home = root.join("home");
-        fs::create_dir_all(syn_home.join(".local/lib/codex/wrapper/generations")).unwrap();
+        fs::create_dir_all(syn_home.join(".codex/packages/standalone/releases")).unwrap();
         fs::create_dir_all(syn_home.join(".local/share/codex")).unwrap();
 
-        unsafe {
-            std::env::set_var("HOME", &syn_home);
-            std::env::set_var("PREFIX", &syn_prefix);
-            std::env::set_var("TMPDIR", &root);
-        }
+        drop(_guard);
+        let _env_guard = EnvRestoreGuard::new(&[
+            ("HOME", Some(&syn_home)),
+            ("PREFIX", Some(&syn_prefix)),
+            ("TMPDIR", Some(&root)),
+        ]);
 
         let roots = LocalWrapperRoots::from_environment().unwrap();
         let state_paths = generation_state::WrapperStatePaths::new(&roots.state_root).unwrap();
@@ -3103,6 +3568,29 @@ pub(crate) mod tests {
         probe_release_candidate(&loaded, &roots, &snap).unwrap();
 
         assert_eq!(run_public_main(os_vec(&["wrapper", "status", "--json"])), 0);
+        assert_eq!(
+            run_public_main(os_vec(&[
+                "wrapper",
+                "status",
+                "--verify",
+                "--wrapper-sha256",
+                &"a".repeat(64),
+                "--upstream-version",
+                "1.2.3",
+                "--json"
+            ])),
+            0
+        );
+        assert_eq!(
+            run_public_main(os_vec(&[
+                "wrapper",
+                "status",
+                "--verify",
+                "--wrapper-sha256",
+                &"b".repeat(64)
+            ])),
+            1
+        );
         let outcome = execute_activated_route(
             PublicDispatchRoute::Doctor(os_vec(&["--json"])),
             &roots,
@@ -3124,10 +3612,20 @@ pub(crate) mod tests {
         // Absent wrapper.toml performs zero snapshot writes or config creation on version/status.
         assert!(!roots.config_dir.join("snapshots").exists());
 
-        // Malformed wrapper.toml fails closed on normal launch and setup, while --version and --bare stay clean.
+        // Malformed wrapper.toml keeps status/setup-show inspectable & non-mutating and rejects mutating setup/--with,
+        // while ordinary execution degrades gracefully with warning without overwriting wrapper.toml.
         fs::write(roots.state_root.join("wrapper.toml"), "broken = invalid\n").unwrap();
-        assert_eq!(run_public_main(os_vec(&["exec", "hi"])), 1);
-        assert_eq!(run_public_main(os_vec(&["wrapper", "status"])), 1);
+        assert_eq!(run_public_main(os_vec(&["wrapper", "status"])), 0);
+        assert_eq!(run_public_main(os_vec(&["wrapper", "setup", "show"])), 0);
+        assert_eq!(run_public_main(os_vec(&["doctor", "--json"])), 0);
+        assert_eq!(
+            run_public_main(os_vec(&["wrapper", "setup", "--enable", "manager"])),
+            2
+        );
+        assert_eq!(
+            fs::read_to_string(roots.state_root.join("wrapper.toml")).unwrap(),
+            "broken = invalid\n"
+        );
 
         // Reset via removal -> test multi-flag setup and --bare preserving signed_update.
         fs::remove_file(roots.state_root.join("wrapper.toml")).unwrap();
@@ -3174,18 +3672,118 @@ pub(crate) mod tests {
         assert!(after_bare.signed_update);
         assert_eq!(run_public_main(os_vec(&["wrapper", "status", "--json"])), 0);
 
-        match prev_home {
-            Some(v) => unsafe { std::env::set_var("HOME", v) },
-            None => unsafe { std::env::remove_var("HOME") },
+        drop(_env_guard);
+        remove_temp_root(root);
+    }
+
+    #[test]
+    fn daemon_settings_corruption_and_shared_home_scope_in_isolated_roots() {
+        const CHILD_ENV: &str = "CODEX_TEST_DAEMON_SCOPE_ARGS";
+        if let Ok(encoded) = std::env::var(CHILD_ENV) {
+            let args: Vec<OsString> = if encoded.is_empty() {
+                Vec::new()
+            } else {
+                encoded.split('\x1f').map(OsString::from).collect()
+            };
+            std::process::exit(run_public_main(args));
         }
-        match prev_prefix {
-            Some(v) => unsafe { std::env::set_var("PREFIX", v) },
-            None => unsafe { std::env::remove_var("PREFIX") },
-        }
-        match prev_tmpdir {
-            Some(v) => unsafe { std::env::set_var("TMPDIR", v) },
-            None => unsafe { std::env::remove_var("TMPDIR") },
-        }
+
+        let root = temp_root("daemon-scope");
+        let syn_prefix = root.join("prefix");
+        fs::create_dir_all(syn_prefix.join("bin")).unwrap();
+        let real_openssl = test_openssl_path();
+        fs::copy(&real_openssl, syn_prefix.join("bin/openssl")).unwrap();
+        fs::set_permissions(
+            syn_prefix.join("bin/openssl"),
+            fs::Permissions::from_mode(0o700),
+        )
+        .unwrap();
+        fs::create_dir_all(syn_prefix.join("etc/tls/certs")).unwrap();
+        fs::write(syn_prefix.join("etc/resolv.conf"), b"nameserver 1.1.1.1\n").unwrap();
+        fs::write(syn_prefix.join("etc/tls/cert.pem"), b"").unwrap();
+        let syn_home = root.join("home");
+        let shared_home = root.join("shared-home");
+        fs::create_dir_all(syn_home.join(".codex/packages/standalone/releases")).unwrap();
+        fs::create_dir_all(syn_home.join(".local/share/codex")).unwrap();
+        fs::create_dir_all(&shared_home).unwrap();
+
+        let _env = EnvRestoreGuard::new(&[
+            ("HOME", Some(&syn_home)),
+            ("PREFIX", Some(&syn_prefix)),
+            ("TMPDIR", Some(&root)),
+            ("CODEX_HOME", None),
+            ("CODEX_SHARED_HOME", None),
+            ("CODEX_SQLITE_HOME", None),
+        ]);
+        let roots = LocalWrapperRoots::from_environment().unwrap();
+        let gen1 = roots.generation_root.join("gen-1");
+        write_sample_generation(&gen1, "gen-1", false);
+        let shell = if Path::new("/system/bin/sh").is_file() {
+            "/system/bin/sh"
+        } else {
+            "/bin/sh"
+        };
+        fs::write(
+            gen1.join("bin/codex"),
+            format!("#!{shell}\nif [ \"${{1:-}}\" = --version ]; then echo codex-cli 1.2.3; else printf 'ARGS:%s|SQLITE:%s\\n' \"$*\" \"${{CODEX_SQLITE_HOME:-}}\"; fi\n"),
+        )
+        .unwrap();
+        fs::set_permissions(gen1.join("bin/codex"), fs::Permissions::from_mode(0o755)).unwrap();
+        let state_paths = generation_state::WrapperStatePaths::new(&roots.state_root).unwrap();
+        generation_state::prepare_wrapper_state_paths(&state_paths).unwrap();
+        let lock = generation_state::acquire_activation_lock(&state_paths).unwrap();
+        let mut io = generation_state::FsActivationIo;
+        let s1 = generation_state::plan_initial_pointer_state("gen-1").unwrap();
+        generation_state::activate_pointer_state_locked(&state_paths, None, &s1, &mut io, &lock)
+            .unwrap();
+        drop(lock);
+
+        let settings_path = syn_home.join(".codex/app-server-daemon/settings.json");
+        fs::create_dir_all(settings_path.parent().unwrap()).unwrap();
+        fs::write(&settings_path, "{broken-json").unwrap();
+
+        let run_child = |args: &str, shared: Option<&Path>| {
+            let mut cmd = Command::new(std::env::current_exe().unwrap());
+            cmd.args([
+                "--exact",
+                "tests::daemon_settings_corruption_and_shared_home_scope_in_isolated_roots",
+                "--nocapture",
+            ])
+            .env(CHILD_ENV, args);
+            if let Some(dir) = shared {
+                cmd.env("CODEX_SHARED_HOME", dir);
+            }
+            cmd.output().unwrap()
+        };
+
+        // Non-daemon routes succeed despite corrupt daemon settings and without overwriting them.
+        let features = run_child("features\x1flist", None);
+        assert!(features.status.success(), "{features:?}");
+        assert!(String::from_utf8_lossy(&features.stdout).contains("ARGS:features list"));
+
+        let no_daemon = run_child("--no-daemon\x1fexec\x1fhi", None);
+        assert!(no_daemon.status.success(), "{no_daemon:?}");
+
+        // Global flags before `update` fail closed with exit code 2 instead of reaching upstream.
+        assert_eq!(run_child("--oss\x1fupdate", None).status.code(), Some(2));
+        assert_eq!(run_child("--search\x1fupdate", None).status.code(), Some(2));
+
+        // Daemon-dependent routes (default TUI & `app-server daemon`) fail closed on corrupt settings.
+        assert_eq!(run_child("", None).status.code(), Some(1));
+        assert_eq!(
+            run_child("app-server\x1fdaemon", None).status.code(),
+            Some(1)
+        );
+        assert_eq!(fs::read_to_string(&settings_path).unwrap(), "{broken-json");
+
+        // Removing corrupt daemon settings lets `CODEX_SHARED_HOME` bind SQLite default cleanly.
+        fs::remove_file(&settings_path).unwrap();
+        let with_shared = run_child("exec\x1fhi", Some(&shared_home));
+        assert!(with_shared.status.success(), "{with_shared:?}");
+        assert!(String::from_utf8_lossy(&with_shared.stdout)
+            .contains(&format!("SQLITE:{}", shared_home.display())));
+
+        drop(_env);
         remove_temp_root(root);
     }
 }

@@ -811,7 +811,9 @@ The Wrapper state/generation layout is:
 
 ```text
 $PREFIX/bin/codex                                      stable public entrypoint
-~/.local/lib/codex/wrapper/generations/<id>/             immutable complete generation
+~/.codex/packages/standalone/current                   symlink -> releases/<current> synchronized with activation-state
+~/.codex/packages/standalone/releases/<id>/            immutable complete generation (`<version>-<6hex>`)
+  codex                                               relative symlink -> bin/codex (upstream package-root entrypoint alias)
   generation.meta                                     local generation descriptor (`codex-local-generation`)
   wrapper                                             Wrapper launcher for this generation
   bin/codex                                           adapted upstream CLI executable
@@ -822,23 +824,23 @@ $PREFIX/bin/codex                                      stable public entrypoint
   codex-resources/                                    optional upstream resource tree
   browser/open/curl                                   Termux browser open helper (`termux-browser-open`)
   browser/manual/curl                                 Termux browser manual helper (`termux-browser-manual`)
-~/.local/lib/codex/wrapper/generations/.acquire-*/        private incomplete remote acquisition staging; never activatable
-~/.local/lib/codex/wrapper/generations/.candidate-*/      private candidate build staging; never activatable
-~/.local/share/codex/wrapper/                             state root (directory flock writer lock when writing activation files)
-  activation-state                                        authoritative generation state (`codex-activation-state`)
-  activation-state.tmp                                    atomic state publication temporary
-  activation-journal[.tmp]                                crash-recovery transaction state (`codex-activation-journal`)
-  .local-update-*/                                        private offline/upstream archive staging workspace
-  config/config.toml                                      Wrapper-owned FD 34 compatibility config (`# codex-termux-wrapper`)
-  config/snapshots/<id>/                                  Stage 2 immutable per-launch effective system settings
-  resolv.conf                                             Wrapper-owned FD 33 DNS resolver file
-  downloads/<sha256>.part                                 private bounded untrusted/verified payload cache (1 GiB total cap)
-  publications/                                           optional staged/pruned local publication artifacts
-  wrapper.toml                                            Stage 2 optional module & update mode config
-  wrapper-entrypoint-rollback                             Stage 2 retained prior Wrapper launcher (when signed bundles enabled)
-  wrapper-entrypoint-rollback.meta                        Stage 2 rollback binding (`codex-wrapper-entrypoint-rollback`)
-  {servers,catalogs}/<id>/                                Stage 2 bound native server record/socket/config snapshot
-~/.local/share/codex/manager/                             Stage 2 Manager-owned mutable state (absent in Stage 1)
+~/.codex/packages/standalone/releases/.acquire-*/      private incomplete remote acquisition staging; never activatable
+~/.codex/packages/standalone/releases/.candidate-*/    private candidate build staging; never activatable
+~/.local/share/codex/wrapper/                          state root (directory flock: LOCK_SH for healthy read, LOCK_EX for writes/recovery)
+  activation-state                                     authoritative generation state (`codex-activation-state`)
+  activation-state.tmp                                 atomic state publication temporary
+  activation-journal[.tmp]                             crash-recovery transaction state (`codex-activation-journal`)
+  .local-update-*/                                     private offline/upstream archive staging workspace
+  config/config.toml                                   Wrapper-owned FD 34 compatibility config (`# codex-termux-wrapper`)
+  config/snapshots/<id>/                               Stage 2 immutable per-launch effective system settings
+  resolv.conf                                          Wrapper-owned FD 33 DNS resolver file
+  downloads/<sha256>.part                              private bounded untrusted/verified payload cache (1 GiB total cap)
+  publications/                                        optional staged/pruned local publication artifacts
+  wrapper.toml                                         Stage 2 optional module & update mode config
+  wrapper-entrypoint-rollback                          Stage 2 retained prior Wrapper launcher (when signed bundles enabled)
+  wrapper-entrypoint-rollback.meta                     Stage 2 rollback binding (`codex-wrapper-entrypoint-rollback`)
+  {servers,catalogs}/<id>/                             Stage 2 bound native server record/socket/config snapshot
+~/.local/share/codex/manager/                          Stage 2 Manager-owned mutable state (absent in Stage 1)
 ```
 
 The optional Stage 2 Manager state root is independent of the Wrapper root:
@@ -899,13 +901,16 @@ verify signatures, search keys/generations or implicitly select previous. The
 separately bounded bare all-TTY update advisory may authenticate the channel as
 specified in Section3, and best-effort artifact maintenance has its own explicit
 retention boundary below. Neither exception makes network/OpenSSL/maintenance a
-prerequisite for executing a valid current generation. The generation directory name is one safe path component
-and generation content is complete before it can become `current`. Before
-ordinary launch consumes that generation, Wrapper must verify the selected
-generation directory and every selected asset parent directory is a real
-directory, and every selected runtime, Manager, helper, and descriptor file is
-a regular non-symlink file. Ordinary launch must not follow a symlink from the
-generation root to content outside that generation.
+prerequisite for executing a valid current generation. The generation directory name is one safe path component (normally
+`<upstream_version>-<6hex>` derived from the built runtime SHA-256, with an
+incrementing suffix only on same-build collision) and generation content is
+complete before it can become `current`. Before ordinary launch consumes that
+generation, Wrapper must verify the selected generation directory and every
+selected asset parent directory is a real directory, and every selected
+runtime, Manager, helper, and descriptor file is a regular non-symlink file
+(allowing the sibling `codex -> bin/codex` internal relative symlink). Ordinary
+launch must not follow a symlink from the generation root to content outside
+that generation.
 
 For durability, complete means that every regular file has its final bytes and final mode written and synchronized, every generation directory is synchronized after its children in bottom-up order, the complete candidate directory is atomically renamed into the generation root, and the generation root is synchronized after that rename. A failure before the candidate rename leaves no activatable generation. A failure after the rename but before generation-root synchronization may retain that exact complete candidate without changing authoritative state; a retry may reuse it only after signed installed-generation verification and repeating the required tree and root synchronization. A differing, incomplete, or unverifiable existing directory is a conflict and is never activated.
 
@@ -977,9 +982,15 @@ must evaluate a published activation journal even when the authoritative
 the state rename this is a recoverable uninitialized state; after rename the
 qualified new pointer is authoritative. Any unmatched pointer, simultaneous
 published and temporary journals, or orphan state temporary without journal
-remains fail-closed. Repeated recovery preserves the same authoritative
-pointer; recovery I/O is synchronized under the existing state-root writer
-lock, not a second installer journal.
+remains fail-closed. Healthy readers acquire a shared (`LOCK_SH`) directory lock
+on the state root so concurrent reads and launches do not contend; only when
+pending journal or temporary files exist does a reader upgrade to the exclusive
+(`LOCK_EX`) writer lock, re-read journal/state, and recover deterministically.
+Repeated recovery preserves the same authoritative pointer. When an installer
+interrupt recovery or startup check qualifies a candidate activation, `install.sh`
+retains ownership of the executable/updater receipts while delegating active
+generation compatibility, digest, requested version, and candidate probe checks
+to Wrapper's authoritative `codex wrapper status --verify` path.
 
 `previous` is the only rollback pointer and is not permission to build a
 fallback ladder. Rollback is an explicit bounded activation-state transition;
@@ -1044,18 +1055,25 @@ After installation, Wrapper exclusively owns `codex update`:
   or `https://releases.openai.com/codex/releases/<version>/release.json`), downloads
   `codex-package-aarch64-unknown-linux-musl.tar.gz` into private `$state_root/.local-update-*` /
   `downloads/` via `$PREFIX/bin/curl` (15 s connect, 300 s idle transfer timeout, up to
-  `256 MiB` compressed archive, `1 GiB` download cache cap), verifies the official SHA-256
-  with `$PREFIX/bin/openssl`, unpacks and adaptively patches `bin/*` (`termux-fd-remap`,
-  `termux-uds-fd35`) in `.candidate-*`, probes the exact `bin/codex --version`
-  and `features list` under Termux FDs in a fresh account-free temporary home
-  (bounded time and output; no personal-device allowlist or account test),
-  and atomically activates (`codex-activation-state`, `LOCAL_ZERO` verifier slots).
+  `256 MiB` compressed archive, `1 GiB` download cache cap), displays live downloaded/total bytes
+  when known, verifies the official SHA-256 with `$PREFIX/bin/openssl`, prepares the generation
+  catalog root and acquires a shared `UpdateLease` BEFORE staging even on an uninitialized HOME,
+  unpacks and adaptively patches `bin/*` (`termux-fd-remap`, `termux-uds-fd35`) in `.candidate-*`
+  (emitting transient per-section patching progress on interactive TTYs), verifies actual on-disk
+  SHA-256 digests of copied runtime/helper binaries against `generation.meta`, probes the exact
+  `bin/codex --version` and `features list` under Termux FDs in a fresh account-free temporary
+  home (bounded time and output; no personal-device allowlist or account test), and atomically
+  activates (`codex-activation-state`, `LOCAL_ZERO` verifier slots, and `~/.codex/packages/standalone/current`).
 - `codex update --path <FILE_OR_DIR>`: adapts an offline official `.tar.gz` package archive
-  or validates/activates a prepared `package-root` generation directory (`generation.meta`).
+  or validates/activates a prepared `package-root` generation directory (`generation.meta`),
+  verifying actual on-disk SHA-256 digests of runtime and declared browser helpers before probing.
   Raw standalone ELF files without `codex-package.json` or `generation.meta` are rejected.
-- `codex update --rollback`: acquires the state-root directory lock, recovers any incomplete
-  journal, revalidates the single retained `previous` complete generation, and atomically
-  swaps `current` and `previous`.
+- `codex update --rollback`: recovers any incomplete journal under the state-root lock, identifies
+  the retained `previous` generation **without requiring `current` runtime files to still be intact**,
+  verifies the `previous` generation's descriptor compatibility, on-disk runtime/helper SHA-256
+  digests, executable bits, and isolated candidate probe (`--version` + `features list`), re-checks
+  the pointer under lock before commit, and atomically swaps `current` and `previous` (plus the
+  `standalone/current` symlink). Failed rollback preserves exact `activation-state` bytes.
 - `codex update --check [--version <MAJOR.MINOR.PATCH>] [--json]`: uses the same
   official resolver and bounded HTTPS transport in an owned disposable temporary
   directory. Latest-release discovery is cross-checked against the exact-version
@@ -1251,10 +1269,18 @@ reason that Linux bwrap sandboxing is not used.
 Unsupported upstream or Manager diagnostics are represented explicitly and do
 not fabricate success. Diagnostic failure returns nonzero while preserving a
 valid machine report when `--json` was requested. After valid doctor argument
-parsing, an upstream probe/setup failure is represented as a redacted
-`unhealthy` upstream status with empty output rather than an error string, and
-the command still returns its nonzero health-failure status. Upstream doctor
-output is capped at 64 KiB, has terminal control sequences and credential-like
+parsing:
+- A Wrapper runtime-preparation failure (e.g. missing resolver, config dir, or
+  invalid generation state) marks `termux_wrapper.status = "unhealthy"` (with a
+  bounded `"reason"` field when applicable) and `upstream.status = "not_run"`
+  without spawning the upstream binary.
+- An executed upstream probe tracks a bounded wall-clock deadline covering both
+  stdout collection and child process wait (`SIGTERM` -> short wait -> `SIGKILL`
+  + reap on timeout or > 64 KiB output), reporting `upstream.status` as
+  `"healthy"`, `"unhealthy"` (nonzero exit), `"timed_out"`, or
+  `"output_exceeded"` cleanly in both human output and `--json` while preserving
+  redacted diagnostic capture.
+Upstream doctor output is capped at 64 KiB, has terminal control sequences and credential-like
 values redacted before composition, and is emitted as a JSON string in the
 envelope. Usage errors remain distinct from health failures and API
 incompatibility.

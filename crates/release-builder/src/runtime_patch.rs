@@ -134,6 +134,10 @@ fn va_to_off(va: u64, seg: ElfLoad) -> Result<usize, &'static str> {
     Ok(off)
 }
 
+fn is_bl_instruction(insn: u32) -> bool {
+    (insn & 0xfc00_0000) == 0x9400_0000
+}
+
 fn decode_b_or_bl_target(insn: u32, pc_va: u64) -> Option<(bool, u64)> {
     if (insn & 0x7c00_0000) != 0x1400_0000 {
         return None;
@@ -962,8 +966,8 @@ fn is_memcpy_sequence_with_plus1(data: &[u8], start_off: usize, limit_off: usize
         };
         if (w & 0xffff_fc1f) == 0x9100_0402 {
             found_add_plus1 = true;
-        } else if let Some((is_link, _)) = decode_b_or_bl_target(w, (off as u64).wrapping_mul(1)) {
-            return is_link && found_add_plus1;
+        } else if is_bl_instruction(w) {
+            return found_add_plus1;
         } else if is_branch_or_call(w) {
             return false;
         }
@@ -985,7 +989,7 @@ fn extract_strdup_bl(
         let w = le_u32(data, off)?;
         if (w & 0xffe0_ffff) == 0xaa00_03e0 {
             saw_mov_x0 = true;
-        } else if let Some((true, _)) = decode_b_or_bl_target(w, 0) {
+        } else if is_bl_instruction(w) {
             if !saw_mov_x0 {
                 return None;
             }
@@ -1020,7 +1024,7 @@ fn locate_realpath_and_strdup(
                     break;
                 };
                 let wk = le_u32(data, bl_off).unwrap();
-                if let Some((true, _)) = decode_b_or_bl_target(wk, 0) {
+                if is_bl_instruction(wk) {
                     let has_cbz_x0 = (1usize..=3).any(|m| {
                         bl_off
                             .checked_add(m * 4)
@@ -2103,5 +2107,128 @@ mod tests {
         let page_blocked_before = page_blocked.clone();
         assert!(apply_uds_fd35(&mut page_blocked).is_err());
         assert_eq!(page_blocked, page_blocked_before);
+    }
+
+    #[test]
+    fn uds_fd35_accepts_backward_realpath_and_strdup_bl_calls() {
+        let mut elf =
+            build_synthetic_aarch64_elf(0x400_000, false, false, Site1Variant::Canonical).0;
+        let text_off = 0x1000usize;
+        let text_sz = 0x1000usize;
+        let orig_fini = 0x1400usize;
+        let extra = text_sz - 0x400usize;
+        let rx_va = 0x400_000u64;
+
+        // Expand `.text` by `extra` bytes so `realpath` (>0x800B before call site) and `strdup`
+        // (before `realpath`) both require negative signed BL displacements.
+        let mut grown = vec![0u8; elf.len() + extra];
+        grown[..orig_fini].copy_from_slice(&elf[..orig_fini]);
+        grown[orig_fini + extra..].copy_from_slice(&elf[orig_fini..]);
+        elf = grown;
+
+        // Shift PT_LOAD filesz/memsz, section table offset, and section offsets after `.text`.
+        let new_filesz = le_u64(&elf, 64 + 32).unwrap() + extra as u64;
+        write_u64(&mut elf, 64 + 32, new_filesz);
+        write_u64(&mut elf, 64 + 40, new_filesz);
+        let sh_off = 0x2280usize + extra;
+        write_u64(&mut elf, 40, sh_off as u64);
+        write_u64(&mut elf, sh_off + 64 + 32, text_sz as u64);
+        for idx in 2..=4 {
+            let off_field = sh_off + idx * 64 + 24;
+            let old = le_u64(&elf, off_field).unwrap();
+            write_u64(&mut elf, off_field, old + extra as u64);
+        }
+
+        // Clear expanded `.text` and place site1 + backward BL realpath >0x700B after realpath.
+        elf[text_off..text_off + text_sz].fill(0);
+        let site1_off = text_off + 0x900;
+        let call_off = text_off + 0x940;
+        let site2_off = text_off + 0xa40;
+        for (idx, insn) in [
+            0x528e_85e8u32,
+            0x9100_63e0,
+            0x72ae_0da8,
+            0x5280_00a1,
+            0x3900_73ff,
+            0xb900_1be8,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            write_u32(&mut elf, site1_off + idx * 4, insn);
+        }
+        let fmt_va = rx_va + (0x2000 + extra + 0x10) as u64;
+        write_u32(
+            &mut elf,
+            site2_off,
+            encode_adrp(8, rx_va + site2_off as u64, fmt_va).unwrap(),
+        );
+        write_u32(
+            &mut elf,
+            site2_off + 4,
+            encode_add_imm12(8, 8, (fmt_va & 0xfff) as u16).unwrap(),
+        );
+
+        let strdup_off = text_off + 0x10;
+        let realpath_off = text_off + 0x40;
+        let memcpy_off = text_off + 0x120;
+        let strdup_va = rx_va + strdup_off as u64;
+        let realpath_va = rx_va + realpath_off as u64;
+        let memcpy_va = rx_va + memcpy_off as u64;
+        let call_va = rx_va + call_off as u64;
+
+        write_u32(&mut elf, strdup_off, 0xd65f_03c0); // ret
+        write_u32(&mut elf, memcpy_off, 0xd65f_03c0); // ret
+        write_u32(&mut elf, call_off, 0xaa1f_03e1); // mov x1, xzr
+        write_u32(
+            &mut elf,
+            call_off + 4,
+            encode_b(call_va + 4, realpath_va, true).unwrap(),
+        );
+        write_u32(
+            &mut elf,
+            call_off + 8,
+            encode_cbz(call_va + 8, call_va + 0x14, 0, false, true).unwrap(),
+        );
+
+        write_u32(&mut elf, realpath_off, 0xd284_140c); // mov x12, #0x20a0
+        write_u32(&mut elf, realpath_off + 4, 0xcb2c_63ff); // sub sp, sp, x12
+        write_u32(&mut elf, realpath_off + 8, 0x7100_581f); // cmp w0, #0x16
+        let dup_blk_off = realpath_off + 0x28;
+        let dup_blk_va = rx_va + dup_blk_off as u64;
+        write_u32(
+            &mut elf,
+            realpath_off + 12,
+            encode_cbz(
+                rx_va + (realpath_off + 12) as u64,
+                dup_blk_va,
+                0,
+                false,
+                true,
+            )
+            .unwrap(),
+        );
+        write_u32(&mut elf, realpath_off + 16, 0x9100_0662); // add x2, x19, #1
+        write_u32(&mut elf, realpath_off + 20, 0xaa15_03e1); // mov x1, x21
+        write_u32(
+            &mut elf,
+            realpath_off + 24,
+            encode_b(rx_va + (realpath_off + 24) as u64, memcpy_va, true).unwrap(),
+        );
+        write_u32(&mut elf, realpath_off + 28, 0xd65f_03c0);
+        write_u32(&mut elf, dup_blk_off, 0xaa15_03e0); // mov x0, x21
+        write_u32(
+            &mut elf,
+            dup_blk_off + 4,
+            encode_b(dup_blk_va + 4, strdup_va, true).unwrap(),
+        );
+        write_u32(&mut elf, dup_blk_off + 8, 0xd65f_03c0);
+
+        let parsed = parse_elf(&elf).unwrap();
+        let matched = locate_realpath_and_strdup(&elf, &parsed, site1_off + 24, site2_off).unwrap();
+        assert_eq!(matched.realpath_off, realpath_off);
+        assert_eq!(matched.strdup_off, strdup_off);
+        assert!(crate::apply_fd_path_remaps(&mut elf).is_ok());
+        assert!(apply_uds_fd35(&mut elf).is_ok());
     }
 }
