@@ -224,8 +224,8 @@ fn control_command(args: &[String]) -> Result<(), String> {
             "stop" => "codex_stop",
             "answer" => "codex_answer",
             "attach" => "codex_attach",
-            "list" | "create" | "resume" | "fork" | "start" | "queue" | "synchronize" | "claim"
-            | "budget" | "compact" | "takeover" | "events" | "wait" | "chat-input"
+            "audit" | "list" | "create" | "resume" | "fork" | "start" | "queue" | "synchronize"
+            | "claim" | "budget" | "compact" | "takeover" | "events" | "wait" | "chat-input"
             | "chat-result" | "transfer" | "transfer-accept" | "bind" | "unbind" | "join"
             | "evaluate" | "source-sync" | "source-join" | "stop-tree" => {
                 values.insert("action".into(), serde_json::json!(action.replace('-', "_")));
@@ -245,6 +245,7 @@ fn control_command(args: &[String]) -> Result<(), String> {
         {
             if let Some(work) = values.get("work_id").and_then(serde_json::Value::as_str) {
                 if !matches!(tool, "codex_history" | "codex_status" | "codex_stop")
+                    && action != "audit"
                     && values.get("action").is_none_or(|value| {
                         !matches!(
                             value.as_str(),

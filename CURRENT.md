@@ -1,5 +1,37 @@
 # Current product state
 
+## 2026-11-19 c167 Provider acceptance defects — source-verified, NOT activated
+
+Isolated source branch `fix/c167-provider-acceptance-20261119` from
+`origin/rewrite/rust-core` `f6ac4ad9` addresses the 2026-11-18
+`ops1672-final5-20261118-a` acceptance run (O original final-report SHA-256
+`21ee73eb10f1f5152ae18bc0d8c97997d6cd39924ed54099974af4e1c35f25f3`).
+That run proved five correct worker outputs and all five O/worker ACKs,
+but *only one* automatic result delivered and *one* actual concurrent
+Native process across five isolated worker directories. The Android
+supervisor acknowledged the O's durable report artifact, not an automatic
+Android current-chat push.
+
+Source-only changes: terminal `NATIVE_RESULT_READY_V1` typed JSON is parsed
+from plain, fenced and known UI-wrapped final answers; new child works opt in
+through a separate durable journal key so older v3 records retain the exact
+old prefix gate on upgrade/rollback. A read-only `work audit` surfaces
+original stale-owner/Broker evidence without claiming or clearing 29 historic
+records (four `offered=false` unsettled calls are still unretired).
+A strictly bounded, trusted `sleep 1..60` command can share the scoped
+resource ledger for safe read-only concurrency measurement; arbitrary
+Python/opaque code remains serialized until a real isolation boundary is
+proven. No claim of real 5-way Python concurrency or legacy recovery PASS.
+
+Source checks: Provider Rust library **367 passed, 0 failed, 5 ignored**,
+`cargo clippy --offline --locked --all-targets -- -D warnings` **PASS**,
+`cargo fmt --check` **PASS**, binary debug build **PASS**. All tests used
+an isolated Git worktree and existing local Cargo cache. The live c167
+Provider **v12**, saved sessions, separate c170 Wrapper and tdev processes
+were not replaced, restarted or modified. This is not a deployed acceptance.
+
+---
+
 ## 2026-11-18 Provider v12 original Saved Chat reentry acceptance — PASS
 
 The 0.167.2 Provider now runs as the private **v12** generation under

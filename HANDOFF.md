@@ -1,5 +1,23 @@
 # Handoff — one development route and active acceptance plan
 
+## 2026-11-19 c167 Provider defect repair — source candidate, not deployed
+
+Scoped branch `fix/c167-provider-acceptance-20261119` implements/tests a
+non-retroactive typed worker RESULT parser, a verified safe-sleep concurrency
+probe and ownerless read-only `work audit`. Review/merge only after exact
+remote ancestry and CI. Before any live Provider activation: confirm all
+Native/AppHost lanes and shared claims are settled, preserve v12 as rollback,
+compare binary and service owner, and exclude c170/tdev from restart scope.
+Re-run a genuinely new O+5 W test after activation and measure real overlap:
+`python` writes remain opaque/serialized, so this still requires a verified
+isolation-capable Native execution design, not blind resource-guard removal.
+Use the audit to reconcile 29 historical original works and four unoffered
+Broker calls against original Native effect receipts. Do not auto-retire
+unverified work. Android unsolicited final-answer push and crash-in-load
+acceptance are still separate open gates.
+
+---
+
 ## 2026-11-18 current handoff after Provider v12 live reentry — verified
 
 The original Linux A -> O -> W1/W2 -> O -> A -> O-ACK orchestration

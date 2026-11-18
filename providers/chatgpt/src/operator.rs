@@ -97,6 +97,20 @@ fn source_admission_key(work: &str, turn: &str) -> String {
 fn queue_key(thread: &str, call: &str) -> String {
     digest(&("native-queue-v1", thread, call))
 }
+fn auto_result_v2_key(work: &str) -> String {
+    digest(&("native-auto-result-contract-v2", work))
+}
+fn expanded_auto_result_contract(journal: &Journal, work: &str) -> Result<bool, Error> {
+    match journal.read::<Value>(&auto_result_v2_key(work))? {
+        Some(value)
+            if value["schema"] == "native-auto-result-contract-v2" && value["work_id"] == work =>
+        {
+            Ok(true)
+        }
+        Some(_) => Err(Error("auto_result_contract_changed")),
+        None => Ok(false),
+    }
+}
 fn queue_client_id(thread: &str, call: &str) -> String {
     format!("termux-queue-{}", queue_key(thread, call))
 }
@@ -1465,6 +1479,17 @@ impl Operator {
             .ok_or(Error("operator_record_missing"))?;
         if index.pending.is_some() {
             return Err(Error("operator_registration_reconciliation_required"));
+        }
+        // Commit the version opt-in BEFORE making a new worker visible.
+        // Do not add fields to the v3 work/assignment record: an installed
+        // older Provider must still read it after a rollback. A restored old
+        // worker has no v2 key and retains its old exact-prefix admission;
+        // upgrading must never retro-deliver a prior formatted final.
+        if record.assignment.as_ref().is_some_and(|a| a.auto_result) {
+            self.journal.write(
+                &auto_result_v2_key(&record.id),
+                &json!({"schema":"native-auto-result-contract-v2","work_id":record.id}),
+            )?;
         }
         index.pending = Some(record.clone());
         commit_work_index(&self.journal, &index)?;
@@ -3368,7 +3393,17 @@ impl Operator {
         // A terminal Native turn is not necessarily a terminal logical task.
         // The worker explicitly marks the verified FINAL result. A progress
         // turn or later ACK-consumption turn never sends another RESULT.
-        if !auto_result_ready(&result) {
+        let opted_in = expanded_auto_result_contract(&self.journal, &child.id)?;
+        let marker_payload = auto_result_payload(&result);
+        let admitted = if opted_in {
+            marker_payload.is_some()
+        } else {
+            // Old saved works must retain their exact old contract. A change
+            // in result rendering must NOT enqueue an unacknowledged, old
+            // completed turn on service restart or historical observation.
+            legacy_auto_result_ready(&result)
+        };
+        if !admitted {
             return Ok(());
         }
         let result_digest = digest(&result);
@@ -3381,6 +3416,11 @@ impl Operator {
             "result_sha256":result_digest,
             "completed_result":result,
         });
+        if let Some(marker) = marker_payload {
+            // Model-supplied data only. Parent always verifies the original
+            // Native work, turn and actual proof files before evaluation.
+            payload["result_marker_payload"] = marker;
+        }
         let mut body = payload.to_string();
         if body.len() > 240_000 {
             payload["completed_result"] = Value::Null;
@@ -3952,6 +3992,58 @@ impl Operator {
                 Ok(
                     json!({"work_id":record.id,"evaluation":work.record.assignment.as_ref().unwrap().evaluation,"inference_submitted":false}),
                 )
+            }
+            Some("audit") => {
+                // Durable, read-only diagnostics for an original Native owner
+                // that may have died or been reused. No prepare/resume/status
+                // is attempted and no work phase, token or effect is retired.
+                let record = {
+                    let works = self.works.lock().await;
+                    find_work(&self.journal, &works, args["work_id"].as_str())?
+                        .ok_or(Error("operator_work_unavailable"))?
+                        .record
+                        .clone()
+                };
+                let calls = self.broker.recorded_calls(&record.token)?;
+                let call_counts = audit_broker_call_counts(&calls);
+                let claims = self
+                    .broker
+                    .effect_status_with_owners(&[record.id.as_str()], &BTreeMap::new())?;
+                let original_pid_matches = crate::cdp::Process::read(record.execution.process.pid)
+                    .is_ok_and(|process| process == record.execution.process);
+                let local_owned_claims = claims["active"]
+                    .as_array()
+                    .map(|active| {
+                        active
+                            .iter()
+                            .filter(|effect| effect["owned"] == true)
+                            .count()
+                    })
+                    .unwrap_or(0);
+                let shared_owned_claims = claims["shared"]["active"].as_array().map(|active| {
+                    active
+                        .iter()
+                        .filter(|effect| effect["owned"] == true)
+                        .count()
+                });
+                let owner_process_identity = if original_pid_matches {
+                    "matches_recorded_pid_start_and_executable"
+                } else {
+                    "unavailable_or_changed"
+                };
+                Ok(json!({"schema":"codex-legacy-work-audit-v1",
+                    "work_id":record.id,"thread_id":record.thread,"phase":record.phase,
+                    "origin":record.origin,"recorded_pending":record.pending.len(),
+                    "native_turn_recorded":record.native_turn.is_some(),
+                    "original_owner_process_identity":owner_process_identity,
+                    "broker_calls":call_counts,
+                    "local_owned_claims":local_owned_claims,
+                    "shared_guard_available":claims["shared"]["available"],
+                    "shared_owned_claims":shared_owned_claims,
+                    "live_native_thread_status":"not_observed",
+                    "safe_to_auto_finalize":false,
+                    "recovery":"explicit_original_native_history_and_effect_receipt_reconciliation_required",
+                    "inference_submitted":false}))
             }
             Some("list") => {
                 let works = self.works.lock().await;
@@ -7648,7 +7740,26 @@ fn local_signature(gateway: &str) -> Value {
         {"name":"input","required":true,"type":{"type":"string","description":"JSON string encoding the selected control's arguments object, using its advertised schema."}}
     ]})
 }
-fn auto_result_ready(result: &Value) -> bool {
+// A completed model answer can render its explicit result in plain text,
+// a Markdown fenced block, or a UI text/escape wrapper. Do not confuse this
+// presentation with the actual provenance: the surrounding Native turn and
+// assigned parent are still verified before delivery, and the parent must
+// independently validate the result's declared values and any proof files.
+// A bare mention of the marker is not sufficient to enqueue another turn.
+fn audit_broker_call_counts(calls: &[Value]) -> Value {
+    json!({
+        "total":calls.len(),
+        "settled":calls.iter().filter(|call| call["settled"] == true).count(),
+        "unsettled_unoffered":calls.iter().filter(|call| {
+            call["settled"] != true && call["offered"] != true
+        }).count(),
+        "unsettled_offered":calls.iter().filter(|call| {
+            call["settled"] != true && call["offered"] == true
+        }).count(),
+    })
+}
+
+fn legacy_auto_result_ready(result: &Value) -> bool {
     result["items"].as_array().is_some_and(|items| {
         items.iter().any(|item| {
             item["type"] == "agentMessage"
@@ -7658,6 +7769,77 @@ fn auto_result_ready(result: &Value) -> bool {
                     .is_some_and(|text| text.trim_start().starts_with("NATIVE_RESULT_READY_V1 "))
         })
     })
+}
+
+fn auto_result_payload(result: &Value) -> Option<Value> {
+    result["items"].as_array()?.iter().find_map(|item| {
+        (item["type"] == "agentMessage" && item["phase"] == "final_answer")
+            .then(|| item["text"].as_str())
+            .flatten()
+            .and_then(terminal_result_marker_payload)
+    })
+}
+
+fn terminal_result_marker_payload(text: &str) -> Option<Value> {
+    const MARKER: &str = "NATIVE_RESULT_READY_V1";
+    for (index, _) in text.match_indices(MARKER) {
+        // A marker mentioned in explanatory prose, a quote, or a negative
+        // example is not an explicit terminal declaration. Recognize only a
+        // standalone line or a short, known presentation wrapper.
+        let prefix = text[..index].rsplit('\n').next()?.trim();
+        if !prefix.is_empty()
+            && prefix != "**"
+            && prefix != "<escape>"
+            && !(prefix.starts_with("<text ") && (prefix.ends_with('>') || prefix.ends_with("{'")))
+        {
+            continue;
+        }
+        let rest = &text[index + MARKER.len()..];
+        let Some(open) = rest.find('{') else { continue };
+        if open > 128 {
+            continue;
+        }
+        // Restrict allowed material between the declaration and its JSON
+        // object; never hunt forward into an unrelated paragraph's JSON.
+        let interstitial = rest[..open]
+            .replace("```text", "")
+            .replace("```json", "")
+            .replace("```", "")
+            .replace("</text>", "")
+            .replace("</escape>", "")
+            .replace("**", "");
+        if !interstitial.trim().is_empty() {
+            continue;
+        }
+        let mut deserializer = serde_json::Deserializer::from_str(&rest[open..]);
+        let Ok(value) = Value::deserialize(&mut deserializer) else {
+            continue;
+        };
+        let Some(object) = value.as_object() else {
+            continue;
+        };
+        if !matches!(
+            object.get("status").and_then(Value::as_str),
+            Some("completed_result" | "verified" | "completed" | "success")
+        ) || !object.keys().any(|key| {
+            matches!(
+                key.as_str(),
+                "product"
+                    | "result"
+                    | "count"
+                    | "sum"
+                    | "sha256"
+                    | "proof_sha256"
+                    | "reference_sha256"
+                    | "output"
+                    | "value"
+            )
+        }) {
+            continue;
+        }
+        return Some(value);
+    }
+    None
 }
 fn completed_result(completed: bool, turn: Option<&str>, history: &[Value]) -> Option<Value> {
     if !completed {
@@ -7911,7 +8093,7 @@ pub(crate) fn tools() -> Vec<Value> {
         ("codex_projects", "List authenticated ChatGPT projects without inference. For an explicit request to create or use a project, use action=use with name: create or reuse its owned private destination, read it back, then save history.mode=project and its exact name/id. This completes project creation and selection for new lanes; existing conversations are preserved. Optional project_id selects an exact matching project. Retry the same selection after uncertainty; do not create a duplicate or submit a model task just to create a project.", "action name project_id", "action"),
         ("codex_host", "Manage the optional Provider-owned ChatGPT AppHost, not Native Core. Attached inference from an already-running Chat does not require this host; ensure cannot repair invalid Native work arguments. Observe or explicitly ensure/open/stop the configured app host. models reads the authenticated app picker and merges configured model additions without inference or changing selection; it may acquire the configured host. refresh=false reads retained/configured metadata without acquiring it and does not verify the current account. Status never acquires a missing host; ensure uses provisioned assets, never downloads or logs in. Open makes no model request. Stop cannot kill shared/unrelated owners or an active lane.", "action refresh", "action"),
         ("codex_chats", "Find or read accessible saved Chats without inference or acquiring work control. Select stable conversation_id/branch, never a title; continue with the account-bound list offset or source-bound read cursor. Hidden and unsupported content and private capability redactions are explicit.", "action conversation_id branch after account offset limit project_id title updated_after updated_before list_cursor", "action"),
-        ("codex_sessions", "Integrated Native development. For a NEW task in this already-running Chat: (1) create with required stable call_id and inference=attached; omit task/mode/model/effort and assignment fields. (2) start with returned work_id/controller, complete original task and a stable call_id. (3) read codex_attach and accept its receipt before tools. Allocation never starts a task. Native attached inference needs Core, not an extra AppHost or model request. On argument errors correct the specified fields and retain the requested workflow; do not fall back to standalone. For an existing task use join. Select an explicit Native work; create/fork only for a genuinely new task. With host chat metadata, list marks chat_correlated candidates; several works or branches may share that hint. It never selects a work or grants control. Native work_id/controller remain required. join continues a completed existing work using task and required stable call_id, uses integrated workflow with attached inference without another model inference or saved-Chat lookup, and returns its controller. Then call codex_attach, read instructions/context and echo receipt as accept before native tools. Use codex_report for complete public progress and codex_finish for the submitted final; these are Bridge-supplied text, not independently observed host messages. Never resend a join under a new call_id after uncertain delivery. A busy/stopped/unreconciled work is rejected, not taken over. inference=attached retains this response on integrated Native work; inference=submitted starts a new Provider model request (MCP default or explicit local_function). start uses an existing controller and selected route; optional model and effort change Provider Native settings and persist according to Native semantics. Provider results return via events/wait completed_result. Independent assignment is separate: role, budget, optional parent_work_id/parent_controller and dependencies. Inspect completed_result, not merely the last history item, and follow history pagination. events/wait observe Native results/questions without new inference. synchronize is a Native-only input barrier; it never retrieves saved Chat. source_sync explicitly verifies/imports saved original input for thread_id; source_join explicitly attaches to that verified active source using work_id, conversation_id, stable call_id and optional original source_message_id, then receipt as accept. Those recovery controls can retrieve saved Chat; respect waiting/retry_after_seconds, exact branch/account and context acceptance. They are not required for ordinary join. A source_join response uses its native_catalog/native_tool lease and observed original final, not codex_finish. bind/unbind changes the retained source verification connection at a completed boundary with controller and exact cursor/context_cursor; bind also requires conversation_id and complete source_cursor. No background history reader is enabled. claim recovers a settled Native controller using exact cursor/context_cursor; transfer/transfer_accept changes explicit ownership/route at a completed boundary. A settled attached-inference claim can extend native/elapsed budget while retaining concurrency/app caps and consumed counters; Submitted-inference extension requires host-ledger reconciliation. chat_input explicitly submits a related saved-Chat task with complete source_cursor, task, call_id and finite budget; optional model and effort override the prepared Chat selection. chat_result observes the original result. queue enqueues text with stable call_id on an explicit thread_id: registration ACK is separate from consumption. Supply execution_home/workspace to select scope. stop_tree fences descendants. All mutations preserve exact retry IDs and reconcile unknown delivery without redispatch.", "action work_id controller thread_id task call_id cursor context_cursor mode inference return_path workspace execution_home role budget parent_work_id parent_controller dependencies decision text max_wait_seconds conversation_id source_message_id source_cursor input_id transfer_receipt accept model effort approval_policy approvals_reviewer", "action"),
+        ("codex_sessions", "Integrated Native development. For a NEW task in this already-running Chat: (1) create with required stable call_id and inference=attached; omit task/mode/model/effort and assignment fields. (2) start with returned work_id/controller, complete original task and a stable call_id. (3) read codex_attach and accept its receipt before tools. Allocation never starts a task. Native attached inference needs Core, not an extra AppHost or model request. On argument errors correct the specified fields and retain the requested workflow; do not fall back to standalone. For an existing task use join. Select an explicit Native work; create/fork only for a genuinely new task. With host chat metadata, list marks chat_correlated candidates; several works or branches may share that hint. It never selects a work or grants control. audit is a stored-ledger read-only diagnostic for stale original Native owners: never equate an unoffered Broker call with a verified terminal Native effect or release a reservation based on it. Native work_id/controller remain required. join continues a completed existing work using task and required stable call_id, uses integrated workflow with attached inference without another model inference or saved-Chat lookup, and returns its controller. Then call codex_attach, read instructions/context and echo receipt as accept before native tools. Use codex_report for complete public progress and codex_finish for the submitted final; these are Bridge-supplied text, not independently observed host messages. Never resend a join under a new call_id after uncertain delivery. A busy/stopped/unreconciled work is rejected, not taken over. inference=attached retains this response on integrated Native work; inference=submitted starts a new Provider model request (MCP default or explicit local_function). start uses an existing controller and selected route; optional model and effort change Provider Native settings and persist according to Native semantics. Provider results return via events/wait completed_result. Independent assignment is separate: role, budget, optional parent_work_id/parent_controller and dependencies. Inspect completed_result, not merely the last history item, and follow history pagination. events/wait observe Native results/questions without new inference. synchronize is a Native-only input barrier; it never retrieves saved Chat. source_sync explicitly verifies/imports saved original input for thread_id; source_join explicitly attaches to that verified active source using work_id, conversation_id, stable call_id and optional original source_message_id, then receipt as accept. Those recovery controls can retrieve saved Chat; respect waiting/retry_after_seconds, exact branch/account and context acceptance. They are not required for ordinary join. A source_join response uses its native_catalog/native_tool lease and observed original final, not codex_finish. bind/unbind changes the retained source verification connection at a completed boundary with controller and exact cursor/context_cursor; bind also requires conversation_id and complete source_cursor. No background history reader is enabled. claim recovers a settled Native controller using exact cursor/context_cursor; transfer/transfer_accept changes explicit ownership/route at a completed boundary. A settled attached-inference claim can extend native/elapsed budget while retaining concurrency/app caps and consumed counters; Submitted-inference extension requires host-ledger reconciliation. chat_input explicitly submits a related saved-Chat task with complete source_cursor, task, call_id and finite budget; optional model and effort override the prepared Chat selection. chat_result observes the original result. queue enqueues text with stable call_id on an explicit thread_id: registration ACK is separate from consumption. Supply execution_home/workspace to select scope. stop_tree fences descendants. All mutations preserve exact retry IDs and reconcile unknown delivery without redispatch.", "action work_id controller thread_id task call_id cursor context_cursor mode inference return_path workspace execution_home role budget parent_work_id parent_controller dependencies decision text max_wait_seconds conversation_id source_message_id source_cursor input_id transfer_receipt accept model effort approval_policy approvals_reviewer", "action"),
         ("codex_attach", "Read current native context; echo its receipt as accept to acquire the offered controller. If delivery=pending_native_context or pending_native_history, observe status/events and retry this read; no receipt or execution authority exists yet. Do not restart the task or invent an acceptance receipt.", "work_id controller accept", "work_id controller"),
         ("codex_history", "Read public native history since an optional source-bound after cursor.", "work_id after after_context", "work_id"),
         ("codex_tools", "Discover the complete current native function/custom/search schemas.", "work_id controller", "work_id controller"),
@@ -8100,13 +8282,117 @@ mod local_tests {
     fn auto_result_requires_verified_terminal_marker() {
         let ready = json!({"items":[{"type":"agentMessage","phase":"final_answer",
             "text":"NATIVE_RESULT_READY_V1 {\"sha256\":\"a\",\"status\":\"completed_result\"}"}]});
-        assert!(auto_result_ready(&ready));
+        assert!(auto_result_payload(&ready).is_some());
         let mut ack = ready.clone();
         ack["items"][0]["text"] = json!("ACK_RECEIVED W1");
-        assert!(!auto_result_ready(&ack));
+        assert!(auto_result_payload(&ack).is_none());
         let mut progress = ready.clone();
         progress["items"][0]["phase"] = json!("commentary");
-        assert!(!auto_result_ready(&progress));
+        assert!(auto_result_payload(&progress).is_none());
+    }
+
+    #[test]
+    fn legacy_audit_reports_unoffered_calls_without_fabricating_settlement() {
+        let calls = vec![
+            json!({"id":"a","offered":false,"settled":false}),
+            json!({"id":"b","offered":false,"settled":false}),
+            json!({"id":"c","offered":true,"settled":false}),
+            json!({"id":"d","offered":true,"settled":true}),
+        ];
+        let counts = audit_broker_call_counts(&calls);
+        assert_eq!(counts["total"], 4);
+        assert_eq!(counts["settled"], 1);
+        assert_eq!(counts["unsettled_unoffered"], 2);
+        assert_eq!(counts["unsettled_offered"], 1);
+        // This snapshot deliberately does not mutate even obviously unoffered
+        // records: live Core state and the original effect receipt are separate.
+        assert_eq!(calls[0]["settled"], false);
+    }
+
+    #[test]
+    fn auto_result_opt_in_is_durable_and_old_records_remain_rollback_readable() {
+        struct Root(std::path::PathBuf);
+        impl Drop for Root {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+        let root =
+            Root(std::env::temp_dir().join(format!("auto-result-v2-{}", random_id().unwrap())));
+        let original = fixture_record(&root.0);
+        let journal = Journal::open(&root.0).unwrap();
+        assert!(!expanded_auto_result_contract(&journal, &original.id).unwrap());
+        let saved = serde_json::to_value(&original).unwrap();
+        journal
+            .write(
+                &auto_result_v2_key(&original.id),
+                &json!({"schema":"native-auto-result-contract-v2","work_id":original.id}),
+            )
+            .unwrap();
+        drop(journal);
+        let restored = Journal::open(&root.0).unwrap();
+        assert!(expanded_auto_result_contract(&restored, &original.id).unwrap());
+        let legacy: Record = serde_json::from_value(saved).unwrap();
+        assert_eq!(legacy.id, original.id);
+        restored
+            .write(
+                &auto_result_v2_key(&original.id),
+                &json!({"schema":"other","work_id":original.id}),
+            )
+            .unwrap();
+        assert_eq!(
+            expanded_auto_result_contract(&restored, &original.id),
+            Err(Error("auto_result_contract_changed"))
+        );
+        drop(restored);
+    }
+
+    #[test]
+    fn old_workers_do_not_retroactively_deliver_newly_recognized_finals() {
+        // A durable v3 record created before this binary has no v2 journal
+        // marker. Its old exact prefix test is left untouched for rollback.
+        let old = json!({"items":[{"type":"agentMessage","phase":"final_answer",
+            "text":"<escape>NATIVE_RESULT_READY_V1 {\"status\":\"verified\",\"product\":5767}</escape>"}]});
+        assert!(!legacy_auto_result_ready(&old));
+        assert!(auto_result_payload(&old).is_some());
+        let original = json!({"items":[{"type":"agentMessage","phase":"final_answer",
+            "text":"NATIVE_RESULT_READY_V1 {\"status\":\"completed_result\",\"product\":1763}"}]});
+        assert!(legacy_auto_result_ready(&original));
+        assert!(auto_result_payload(&original).is_some());
+    }
+
+    #[test]
+    fn auto_result_accepts_all_five_real_worker_final_presentations() {
+        // These five structural variants were observed in independent W1-W5
+        // original Native histories on 2026-11-18, not constructed host output.
+        let variants = [
+            r#"NATIVE_RESULT_READY_V1 {"status":"completed_result","role":"W1","product":1763}"#,
+            "<text>Worker verified</text>\n\n```text\nNATIVE_RESULT_READY_V1\n```\n\n```json\n{\"status\":\"completed_result\",\"role\":\"W2\",\"product\":2491}\n```",
+            r#"Verified Native evidence.
+<text preserveWhitespace>{'NATIVE_RESULT_READY_V1 {"status":"completed_result","role":"W3","product":3599}'}</text>"#,
+            "<text color=\"success\">NATIVE_RESULT_READY_V1</text>\n```json\n{\"status\":\"completed_result\",\"role\":\"W4\",\"product\":4757}\n```",
+            r#"<escape>NATIVE_RESULT_READY_V1 {"status":"verified","role":"W5","product":5767}</escape>"#,
+        ];
+        for (n, text) in variants.iter().enumerate() {
+            let result =
+                json!({"items":[{"type":"agentMessage","phase":"final_answer","text":text}]});
+            let payload = auto_result_payload(&result).expect("explicit result declaration");
+            assert_eq!(payload["product"], json!([1763, 2491, 3599, 4757, 5767][n]));
+        }
+    }
+
+    #[test]
+    fn auto_result_rejects_mentions_without_terminal_json_contract() {
+        for text in [
+            "NATIVE_RESULT_READY_V1",
+            "I will eventually send NATIVE_RESULT_READY_V1 {\"status\":\"completed_result\",\"product\":1}",
+            "NATIVE_RESULT_READY_V1 {\"status\":\"failed\",\"product\":1}",
+            "NATIVE_RESULT_READY_V1 {\"status\":\"completed_result\"}",
+            "NATIVE_RESULT_READY_V1 not yet ready. {\"status\":\"completed_result\",\"product\":1}",
+            "ACK_RECEIVED W5: NATIVE_RESULT_READY_V1 {\"status\":\"verified\",\"product\":10}",
+        ] {
+            assert!(terminal_result_marker_payload(text).is_none(), "{text}");
+        }
     }
 
     #[test]

@@ -268,6 +268,17 @@ fn is_simple_read_command(input: &str) -> bool {
     ) {
         return true;
     }
+    // A bounded, argument-only sleep is a cooperative concurrency probe. It
+    // never runs user code, but the trusted installed shell/executable and
+    // PATH must still be pinned by qualified_read below. Arbitrary Python or
+    // shell commands remain opaque, including subprocess launches.
+    if let Some(seconds) = command.strip_prefix("sleep ") {
+        return !seconds.is_empty()
+            && seconds.bytes().all(|b| b.is_ascii_digit())
+            && seconds
+                .parse::<u16>()
+                .is_ok_and(|value| (1..=60).contains(&value));
+    }
     // A single explicit, inert path operand is a real read even when a
     // bounded write to an unrelated resource is still running. No wildcard,
     // flag, command substitution, redirection or shell control is admitted.
@@ -936,6 +947,46 @@ mod tests {
     fn update(path: &str, old: &str, new: &str) -> String {
         format!("*** Begin Patch\n*** Update File: {path}\n@@\n-{old}\n+{new}\n*** End Patch\n")
     }
+    #[test]
+    fn bounded_sleep_allows_only_pinned_independent_read_only_processes() {
+        let root = temp();
+        let execution = compiler_fixture(&root);
+        let classify = |cmd: &str, login: bool| {
+            classify_with_execution(
+                "functions.exec_command",
+                &serde_json::json!({"cmd":cmd,"workdir":root,"login":login}).to_string(),
+                Some(&root),
+                Some(&execution),
+            )
+        };
+        let first = classify("sleep 8", false);
+        let second = classify("sleep 9", false);
+        assert!(matches!(first, Effect::Paths(_)));
+        assert!(matches!(second, Effect::Paths(_)));
+        assert!(
+            !conflicts(&first, &second),
+            "pinned tool inputs are compatible"
+        );
+        assert!(
+            conflicts(&first, &Effect::Opaque),
+            "untrusted process remains exclusive"
+        );
+        for command in [
+            "sleep 0",
+            "sleep 61",
+            "sleep -1",
+            "sleep 1.5",
+            "sleep 8; touch outside",
+            "sleep 8 && touch outside",
+            "env sleep 8",
+            "python -c 'import time;time.sleep(8)'",
+        ] {
+            assert_eq!(classify(command, false), Effect::Opaque, "{command}");
+        }
+        assert_eq!(classify("sleep 8", true), Effect::Opaque);
+        fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn direct_compiler_proves_input_output_scope_but_unknown_shell_stays_opaque() {
         let root = temp();

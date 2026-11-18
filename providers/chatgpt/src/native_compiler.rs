@@ -346,6 +346,16 @@ fn installed_shell(execution: &Execution, dependencies: &mut Vec<FileEffect>) ->
     Some(prefix)
 }
 
+fn bounded_sleep_program(command: &str) -> bool {
+    command.strip_prefix("sleep ").is_some_and(|arg| {
+        !arg.is_empty()
+            && arg.bytes().all(|b| b.is_ascii_digit())
+            && arg
+                .parse::<u16>()
+                .is_ok_and(|seconds| (1..=60).contains(&seconds))
+    })
+}
+
 /// Shell reads use the same Native environment authority as compiler writes.
 /// A command spelling alone cannot rule out BASH_ENV, exported functions,
 /// dynamic loader hooks, or a different executable earlier in PATH.
@@ -376,7 +386,8 @@ pub(super) fn qualified_read(
     if program == "pwd" {
         return Some(Effect::Paths(dependencies));
     }
-    if !matches!(program, "git" | "cat" | "ls")
+    if !matches!(program, "git" | "cat" | "ls" | "sleep")
+        || program == "sleep" && !bounded_sleep_program(value["cmd"].as_str()?)
         || program == "git"
             && execution.variables.iter().any(|key| {
                 key.starts_with("GIT_TRACE")
@@ -592,7 +603,7 @@ pub(crate) fn fixture(workspace: &Path) -> Execution {
     }
     // This is a filesystem/identity unit fixture, never an executable compiler
     // integration. Actual compilation is qualified on the installed Native lane.
-    for name in ["clang", "ld.lld", "bash", "cat", "ls", "git"] {
+    for name in ["clang", "ld.lld", "bash", "cat", "ls", "git", "sleep"] {
         let file = prefix.join("bin").join(name);
         fs::write(&file, b"\x7fELFsynthetic-installed-tool-identity").unwrap();
         fs::set_permissions(file, fs::Permissions::from_mode(0o755)).unwrap();
