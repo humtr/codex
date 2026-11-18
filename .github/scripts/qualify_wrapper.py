@@ -296,13 +296,20 @@ class Qualification:
         if not all(layouts.values()):
             raise RuntimeError("ELF alignment is incompatible with 16 KiB pages")
         self.daemon_possible = True
-        # Cold first-run `daemon start` copies the ~469 MiB CLI package to app-server-daemon on flash storage.
         started = json.loads(self.cli("daemon-start", "app-server", "daemon", "start", timeout=120))
         pid = started["pid"]
-        managed = Path(started["managedCodexPath"]).resolve()
-        if started["status"] != "started" or not managed.is_relative_to(self.codex_home):
+        daemon_package = self.codex_home / "packages/app-server-daemon"
+        package_link = daemon_package / "current"
+        standalone = self.home / ".codex/packages/standalone/current"
+        managed_path = Path(started["managedCodexPath"])
+        if started["status"] != "started" or managed_path != package_link / "bin/codex":
             raise RuntimeError("daemon start or ownership rejected")
-        if Path(f"/proc/{pid}/exe").readlink() != managed or digest(managed) != digest(generation / "bin/codex"):
+        if (not package_link.is_symlink() or package_link.readlink() != standalone
+                or (daemon_package / "releases").exists()):
+            raise RuntimeError("fresh daemon home did not select the standalone package link")
+        managed = managed_path.resolve(strict=True)
+        expected = generation / "bin/codex"
+        if managed != expected or Path(f"/proc/{pid}/exe").readlink() != expected:
             raise RuntimeError("daemon executable identity differs from qualified artifact")
         running = json.loads(self.cli("daemon-version", "app-server", "daemon", "version"))
         if running["status"] != "running" or running["appServerVersion"] != selected["upstream_version"]:
