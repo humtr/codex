@@ -3,13 +3,14 @@ use crate::generation_state::ActivationOperation;
 use crate::maintenance;
 use crate::remote_download;
 use crate::{
-    capture_termux_process_env, copy_local_directory_tree, ensure_openssl_available,
-    ensure_real_directory_tree, load_local_generation, openssl_sha256, prepare_wrapper_config,
-    probe_release_candidate, rename_noreplace, sync_directory, valid_sha256_hex,
-    verify_generation_asset_digests, LoadedLocalGeneration, LocalProductError, LocalWrapperRoots,
+    capture_termux_process_env, copy_local_directory_tree, ensure_real_directory_tree,
+    load_local_generation, prepare_wrapper_config, probe_release_candidate, rename_noreplace,
+    sha256_regular_file, sync_directory, valid_sha256_hex, verify_generation_asset_digests,
+    GenerationManifest, LoadedLocalGeneration, LocalProductError, LocalWrapperRoots,
     ReleaseFileEntry, TermuxProcessEnvSnapshot, DEFAULT_UPSTREAM_LATEST_URL,
+    PERSISTENT_SCHEMA_IDENTITY, REMOTE_CONTROL_TRANSFER_TIMEOUT_SECONDS,
     REMOTE_RELEASE_URL_MAX_BYTES, REMOTE_TRANSFER_TIMEOUT_SECONDS, UPSTREAM_PACKAGE_ASSET,
-    UPSTREAM_RELEASE_METADATA_BASE, UPSTREAM_RELEASE_METADATA_MAX_BYTES,
+    UPSTREAM_RELEASE_METADATA_BASE, UPSTREAM_RELEASE_METADATA_MAX_BYTES, WRAPPER_API_IDENTITY,
 };
 use std::ffi::OsStr;
 use std::ffi::OsString;
@@ -19,13 +20,14 @@ use std::sync::atomic::Ordering;
 
 const UPDATE_VERSION_ENV: &str = "CODEX_TERMUX_UPDATE_VERSION";
 const WRAPPER_CREATION_METADATA: &str = "codex-wrapper";
-const UPDATE_USAGE: &str = "usage: codex update [--upstream] [--version <MAJOR.MINOR.PATCH>] | --check [--version <MAJOR.MINOR.PATCH>] [--json] | --path <FILE_OR_DIR> | --rollback | --help";
+const UPDATE_USAGE: &str = "usage: codex update [--upstream] [--version <MAJOR.MINOR.PATCH>] [--force-rebuild] | --check [--version <MAJOR.MINOR.PATCH>] [--json] | --path <FILE_OR_DIR> | --rollback | --help";
 const UPDATE_SPINNER_FRAMES: [&str; 10] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
 pub(super) fn print_update_usage() {
     println!("{UPDATE_USAGE}");
     println!("  default / --upstream      download official Codex package, verify SHA-256, adapt locally for Termux, and activate");
     println!("  --version <M.m.p>         target a specific official release version (with default/--upstream)");
+    println!("  --force-rebuild           download and rebuild even when the active upstream release matches");
     println!("  --path <FILE_OR_DIR>      adapt an offline official package .tar.gz or stage a prepared generation directory");
     println!("  --rollback                atomically switch back to the previous generation");
     println!("  --check [--json]          inspect exact official release inputs without installing or changing state");
@@ -35,8 +37,14 @@ pub(super) fn print_update_usage() {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum UpdateAction {
     Help,
-    Upstream { version: Option<String> },
-    Check { version: Option<String>, json: bool },
+    Upstream {
+        requested_version: Option<String>,
+        force_rebuild: bool,
+    },
+    Check {
+        version: Option<String>,
+        json: bool,
+    },
     Path(PathBuf),
     Rollback,
 }
@@ -63,9 +71,6 @@ pub(super) fn valid_update_version(value: &str) -> bool {
 }
 
 pub(super) fn parse_update_args(args: &[OsString]) -> Result<UpdateAction, UpdateCliError> {
-    if args.is_empty() {
-        return Ok(UpdateAction::Upstream { version: None });
-    }
     if args.len() == 1 && matches!(args[0].to_str(), Some("--help" | "-h")) {
         return Ok(UpdateAction::Help);
     }
@@ -74,6 +79,7 @@ pub(super) fn parse_update_args(args: &[OsString]) -> Result<UpdateAction, Updat
     }
 
     let mut upstream_flag = false;
+    let mut force_rebuild = false;
     let mut check = false;
     let mut json = false;
     let mut version: Option<String> = None;
@@ -98,6 +104,9 @@ pub(super) fn parse_update_args(args: &[OsString]) -> Result<UpdateAction, Updat
                 ));
             }
             upstream_flag = true;
+            idx += 1;
+        } else if flag == "--force-rebuild" && !force_rebuild {
+            force_rebuild = true;
             idx += 1;
         } else if flag == "--version" {
             if version.is_some() {
@@ -130,7 +139,10 @@ pub(super) fn parse_update_args(args: &[OsString]) -> Result<UpdateAction, Updat
             if local_path.is_some() {
                 return Err(UpdateCliError::Usage("codex update: duplicate --path flag"));
             }
-            let Some(next) = args.get(idx + 1).filter(|v| !v.is_empty()) else {
+            let Some(next) = args
+                .get(idx + 1)
+                .filter(|v| !v.is_empty() && *v != "--force-rebuild")
+            else {
                 return Err(UpdateCliError::Usage(
                     "codex update: --path requires a non-empty file or directory",
                 ));
@@ -152,6 +164,11 @@ pub(super) fn parse_update_args(args: &[OsString]) -> Result<UpdateAction, Updat
         }
     }
 
+    if force_rebuild && (local_path.is_some() || check) {
+        return Err(UpdateCliError::Usage(
+            "codex update: --force-rebuild requires an upstream update",
+        ));
+    }
     if let Some(path) = local_path {
         if upstream_flag || version.is_some() || check || json {
             return Err(UpdateCliError::Usage(
@@ -170,7 +187,10 @@ pub(super) fn parse_update_args(args: &[OsString]) -> Result<UpdateAction, Updat
         return Ok(UpdateAction::Check { version, json });
     }
 
-    Ok(UpdateAction::Upstream { version })
+    Ok(UpdateAction::Upstream {
+        requested_version: version,
+        force_rebuild,
+    })
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -246,9 +266,22 @@ impl<'a> JsonCursor<'a> {
                         b'r' => value.push(b'\r'),
                         b't' => value.push(b'\t'),
                         b'u' => {
-                            let Some(codepoint) = self.hex_codepoint() else {
+                            let Some(mut codepoint) = self.hex_codepoint() else {
                                 return self.error();
                             };
+                            if (0xd800..=0xdbff).contains(&codepoint) {
+                                if !self.bytes[self.index..].starts_with(b"\\u") {
+                                    return self.error();
+                                }
+                                self.index += 2;
+                                let Some(low) = self
+                                    .hex_codepoint()
+                                    .filter(|unit| (0xdc00..=0xdfff).contains(unit))
+                                else {
+                                    return self.error();
+                                };
+                                codepoint = 0x10000 + ((codepoint - 0xd800) << 10) + (low - 0xdc00);
+                            }
                             let Some(character) = char::from_u32(codepoint) else {
                                 return self.error();
                             };
@@ -452,6 +485,7 @@ impl<'a> JsonCursor<'a> {
             self.expect(b'{')?;
             let mut name = None;
             let mut digest = None;
+            let mut digest_seen = false;
             self.skip_whitespace();
             if self.bytes.get(self.index) == Some(&b'}') {
                 self.index += 1;
@@ -467,10 +501,16 @@ impl<'a> JsonCursor<'a> {
                             name = Some(self.string()?);
                         }
                         "digest" => {
-                            if digest.is_some() {
+                            if digest_seen {
                                 return self.error();
                             }
-                            digest = Some(self.string()?);
+                            digest_seen = true;
+                            self.skip_whitespace();
+                            if self.bytes.get(self.index) == Some(&b'n') {
+                                self.literal(b"null")?;
+                            } else {
+                                digest = Some(self.string()?);
+                            }
                         }
                         _ => self.skip_value(0)?,
                     }
@@ -685,7 +725,7 @@ fn fetch_official_metadata(
         url,
         &output,
         UPSTREAM_RELEASE_METADATA_MAX_BYTES as u64,
-        remote_download::TransferTimeout::Fixed(REMOTE_TRANSFER_TIMEOUT_SECONDS),
+        remote_download::TransferTimeout::Fixed(REMOTE_CONTROL_TRANSFER_TIMEOUT_SECONDS),
         0,
         None,
     )?;
@@ -729,18 +769,22 @@ fn reject_changed_archive(
     Ok(())
 }
 
+fn generation_compatible_with_wrapper(manifest: &GenerationManifest) -> bool {
+    manifest.wrapper_api_identity == WRAPPER_API_IDENTITY
+        && manifest.persistent_schema_identity == PERSISTENT_SCHEMA_IDENTITY
+        && manifest.patch_policy_id == codex_release_builder::PATCH_POLICY_ID
+}
+
 fn check_release(
     roots: &LocalWrapperRoots,
     version: Option<&str>,
     json: bool,
 ) -> Result<String, LocalProductError> {
-    ensure_openssl_available(&roots.openssl)?;
     let staging = create_staging_root(&std::env::temp_dir(), ".codex-check-")?;
     let result = (|| {
         let (metadata, url) = resolve_official_release_metadata(roots, &staging, version)?;
-        let descriptor_sha =
-            openssl_sha256(&roots.openssl, &staging.join("upstream-release.json"))?;
-        let wrapper_sha = openssl_sha256(&roots.openssl, &running_wrapper_artifact()?)?;
+        let descriptor_sha = sha256_regular_file(&staging.join("upstream-release.json"))?;
+        let wrapper_sha = sha256_regular_file(&running_wrapper_artifact()?)?;
         // Inspection never recovers a journal or takes an update/pruning lease.
         let paths = generation_state::WrapperStatePaths::new(&roots.state_root)
             .map_err(LocalProductError::StateFormat)?;
@@ -765,7 +809,7 @@ fn check_release(
             Some(old)
                 if old.manifest.upstream_package_version == metadata.version
                     && old.manifest.source_artifact_digest == metadata.package_sha256
-                    && old.manifest.wrapper_artifact_digest == wrapper_sha =>
+                    && generation_compatible_with_wrapper(&old.manifest) =>
             {
                 "current"
             }
@@ -1163,12 +1207,13 @@ fn current_loaded_generation(
         .read_standalone_current()
         .map_err(LocalProductError::State)?;
     drop(lock);
-    let loaded = match before.as_ref() {
-        Some(state) => Some(load_local_generation(
-            &roots.generation_root.join(&state.current),
-        )?),
-        None => None,
-    };
+    // A forward update can replace missing or damaged generation files. The
+    // independently recovered pointer remains the activation transaction's base.
+    let loaded = before.as_ref().and_then(|state| {
+        load_local_generation(&roots.generation_root.join(&state.current))
+            .ok()
+            .filter(|loaded| loaded.generation_id == state.current)
+    });
     Ok((before, loaded))
 }
 
@@ -1214,6 +1259,7 @@ fn install_built_generation_dir(
             {
                 return Err(LocalProductError::GenerationCollision);
             }
+            sync_tree_recursive(&final_dir)?;
             verify_generation_asset_digests(&loaded)?;
             existing
         } else {
@@ -1388,20 +1434,20 @@ enum UpstreamOutcome {
 
 fn run_upstream_update(
     requested_version: Option<&str>,
+    force_rebuild: bool,
     roots: &LocalWrapperRoots,
     process_env: &TermuxProcessEnvSnapshot,
     presentation: &mut UpdatePresentation,
 ) -> Result<UpstreamOutcome, LocalProductError> {
-    ensure_openssl_available(&roots.openssl)?;
     ensure_writable_roots(roots)?;
-    let (before, before_loaded) = current_loaded_generation(roots)?;
+    let (before, installed) = current_loaded_generation(roots)?;
     let staging_root = create_staging_root(&roots.state_root, ".local-update-")?;
     let result = (|| -> Result<UpstreamOutcome, LocalProductError> {
         presentation.transient("Checking official Codex release...");
         let (metadata, _) =
             resolve_official_release_metadata(roots, &staging_root, requested_version)?;
 
-        if let Some(current) = before_loaded.as_ref() {
+        if let Some(current) = installed.as_ref() {
             reject_changed_archive(
                 &current.manifest.upstream_package_version,
                 &current.manifest.source_artifact_digest,
@@ -1417,14 +1463,18 @@ fn run_upstream_update(
             {
                 return Err(LocalProductError::LocalUpdate("official discovery would downgrade the installed version; use an explicit --version if intended"));
             }
-            let core = running_wrapper_artifact()?;
-            let core_sha256 = openssl_sha256(&roots.openssl, &core)?;
-            if current.manifest.upstream_package_version == metadata.version
-                && current.manifest.source_artifact_digest == metadata.package_sha256
-                && current.manifest.wrapper_artifact_digest == core_sha256
-            {
-                return Ok(UpstreamOutcome::AlreadyCurrent(metadata.version));
-            }
+        }
+        let before_loaded = installed
+            .as_ref()
+            .filter(|current| verify_generation_asset_digests(current).is_ok());
+        if !force_rebuild
+            && before_loaded.is_some_and(|current| {
+                current.manifest.upstream_package_version == metadata.version
+                    && current.manifest.source_artifact_digest == metadata.package_sha256
+                    && generation_compatible_with_wrapper(&current.manifest)
+            })
+        {
+            return Ok(UpstreamOutcome::AlreadyCurrent(metadata.version));
         }
 
         let archive_path = staging_root.join(UPSTREAM_PACKAGE_ASSET);
@@ -1473,6 +1523,7 @@ fn run_upstream_update(
             &archive_entry,
             remote_download::PayloadOptions {
                 limit: codex_release_builder::ARCHIVE_MAX_BYTES,
+                force_download: force_rebuild,
                 expected_size: None,
                 timeout: REMOTE_TRANSFER_TIMEOUT_SECONDS,
                 progress: Some(&mut progress),
@@ -1488,7 +1539,7 @@ fn run_upstream_update(
             roots,
             process_env,
             before.as_ref(),
-            before_loaded.as_ref(),
+            before_loaded,
             presentation,
         )?;
         Ok(UpstreamOutcome::Activated(activated))
@@ -1517,7 +1568,6 @@ fn run_path_update(
     process_env: &TermuxProcessEnvSnapshot,
     presentation: &mut UpdatePresentation,
 ) -> Result<ActivatedOutcome, LocalProductError> {
-    ensure_openssl_available(&roots.openssl)?;
     ensure_writable_roots(roots)?;
     let source_path = resolve_cli_path(input_path)?;
     let source_meta =
@@ -1525,7 +1575,10 @@ fn run_path_update(
             operation: "inspect local package path",
             source,
         })?;
-    let (before, before_loaded) = current_loaded_generation(roots)?;
+    let (before, loaded) = current_loaded_generation(roots)?;
+    let before_loaded = loaded
+        .as_ref()
+        .filter(|current| verify_generation_asset_digests(current).is_ok());
 
     if source_meta.file_type().is_dir() {
         presentation.transient("Inspecting local generation directory...");
@@ -1540,7 +1593,7 @@ fn run_path_update(
             roots,
             process_env,
             before.as_ref(),
-            before_loaded.as_ref(),
+            before_loaded,
             presentation,
         );
     }
@@ -1573,7 +1626,7 @@ fn run_path_update(
             operation: "stage local package archive",
             source,
         })?;
-        let sha256 = openssl_sha256(&roots.openssl, &staged_archive)?;
+        let sha256 = sha256_regular_file(&staged_archive)?;
         build_from_archive_and_activate(
             ArchiveBuildInputs {
                 archive_path: &staged_archive,
@@ -1584,7 +1637,7 @@ fn run_path_update(
             roots,
             process_env,
             before.as_ref(),
-            before_loaded.as_ref(),
+            before_loaded,
             presentation,
         )
     })();
@@ -1743,8 +1796,17 @@ pub(super) fn run_update_action(action: UpdateAction) -> i32 {
                 Err(err) => presentation.fail(&err),
             }
         }
-        UpdateAction::Upstream { version } => {
-            match run_upstream_update(version.as_deref(), &roots, &process_env, &mut presentation) {
+        UpdateAction::Upstream {
+            requested_version,
+            force_rebuild,
+        } => {
+            match run_upstream_update(
+                requested_version.as_deref(),
+                force_rebuild,
+                &roots,
+                &process_env,
+                &mut presentation,
+            ) {
                 Ok(UpstreamOutcome::AlreadyCurrent(version)) => {
                     presentation.finish_current(&version);
                     0
@@ -1780,6 +1842,37 @@ mod tests {
                 json: true
             }
         );
+        assert_eq!(
+            parse_update_args(&args(&["--force-rebuild"])).unwrap(),
+            UpdateAction::Upstream {
+                requested_version: None,
+                force_rebuild: true,
+            }
+        );
+        assert_eq!(
+            parse_update_args(&args(&[
+                "--upstream",
+                "--version",
+                "1.2.3",
+                "--force-rebuild"
+            ]))
+            .unwrap(),
+            UpdateAction::Upstream {
+                requested_version: Some("1.2.3".into()),
+                force_rebuild: true,
+            }
+        );
+        for flags in [
+            &["--force-rebuild", "--rollback"][..],
+            &["--check", "--force-rebuild"],
+            &["--path", "/offline", "--force-rebuild"],
+            &["--path", "--force-rebuild"],
+            &["--force-rebuild", "--force-rebuild"],
+        ] {
+            let mut words = vec![OsString::from("update")];
+            words.extend(flags.iter().map(OsString::from));
+            assert_eq!(crate::run_public_main(words), 2, "{flags:?}");
+        }
         for words in [
             vec!["--json"],
             vec!["--check", "--check"],
@@ -1821,6 +1914,47 @@ mod tests {
     }
 
     #[test]
+    fn metadata_accepts_paired_surrogates_and_only_unrelated_null_digests() {
+        let raw = metadata('a').replace(
+            r#""assets":["#,
+            r#""body":"Ready \uD83D\uDE80","assets":[{"digest":null,"name":"other"},"#,
+        );
+        let expected = parse_official_release_metadata(metadata('a').as_bytes(), None).unwrap();
+        assert_eq!(
+            parse_official_release_metadata(raw.as_bytes(), None).unwrap(),
+            expected
+        );
+        assert_eq!(
+            JsonCursor::new(br#""\uD800\uDC00\uDBFF\uDFFF""#)
+                .string()
+                .unwrap(),
+            "\u{10000}\u{10ffff}"
+        );
+        for escape in [
+            r"\uD83D",
+            r"\uDE80",
+            r"\uD83D\u0041",
+            r"\uD83D\uD83D",
+            r"\uD83D \uDE80",
+        ] {
+            let invalid = raw.replace(r"\uD83D\uDE80", escape);
+            assert!(
+                parse_official_release_metadata(invalid.as_bytes(), None).is_err(),
+                "{escape}"
+            );
+        }
+        for asset in [
+            format!(r#"{{"name":"{UPSTREAM_PACKAGE_ASSET}","digest":null}}"#),
+            format!(r#"{{"name":"{UPSTREAM_PACKAGE_ASSET}"}}"#),
+        ] {
+            let invalid = format!(r#"{{"tag_name":"rust-v1.2.3","assets":[{asset}]}}"#);
+            assert!(parse_official_release_metadata(invalid.as_bytes(), None).is_err());
+        }
+        let duplicate = raw.replace(r#""digest":null"#, r#""digest":null,"digest":null"#);
+        assert!(parse_official_release_metadata(duplicate.as_bytes(), None).is_err());
+    }
+
+    #[test]
     fn inspection_cross_checks_descriptors_without_installed_state_or_artifact_downloads() {
         let root = temp_root("release-check");
         let shell = if Path::new("/system/bin/sh").is_file() {
@@ -1838,23 +1972,14 @@ mod tests {
         fs::write(&latest, metadata('a')).unwrap();
         fs::write(&exact, metadata('a')).unwrap();
         let curl = root.join("curl");
-        fs::write(&curl, format!("#!{shell}\nurl=\nwhile [ $# -gt 0 ]; do\n if [ \"$1\" = --url ]; then shift; url=$1; fi\n shift\ndone\ncase \"$url\" in\n *releases/latest) exec {cat} '{}' ;;\n */release.json) exec {cat} '{}' ;;\n '') exit 0 ;;\n *) exit 57 ;;\nesac\n", latest.display(), exact.display())).unwrap();
+        fs::write(&curl, format!("#!{shell}\nurl=\nmax_time=\nwhile [ $# -gt 0 ]; do\n case \"$1\" in\n  --url) shift; url=$1 ;;\n  --max-time) shift; max_time=$1 ;;\n esac\n shift\ndone\n[ \"$max_time\" = 30 ] || exit 58\ncase \"$url\" in\n *releases/latest) exec {cat} '{}' ;;\n */release.json) exec {cat} '{}' ;;\n '') exit 0 ;;\n *) exit 57 ;;\nesac\n", latest.display(), exact.display())).unwrap();
         fs::set_permissions(&curl, fs::Permissions::from_mode(0o700)).unwrap();
-        let prefix = {
-            let _env = crate::tests::ENV_LOCK
-                .lock()
-                .unwrap_or_else(|e| e.into_inner());
-            std::env::var_os("PREFIX")
-                .map(PathBuf::from)
-                .unwrap_or_else(|| PathBuf::from("/usr"))
-        };
         let state = root.join("state");
         let roots = LocalWrapperRoots {
             generation_root: root.join("generations"),
             state_root: state.clone(),
             config_dir: state.join("config"),
             resolver_path: state.join("resolv.conf"),
-            openssl: prefix.join("bin/openssl"),
             curl,
             cert_file: root.join("cert.pem"),
             cert_dir: root.join("certs"),
@@ -1883,8 +2008,7 @@ mod tests {
         let cert_dir = root.join("certs");
         fs::write(&cert_file, b"").unwrap();
         fs::create_dir_all(&cert_dir).unwrap();
-        let openssl = crate::tests::test_openssl_path();
-        let curl = openssl.parent().unwrap().join("curl");
+        let curl = root.join("prefix/bin/curl");
         LocalWrapperRoots {
             generation_root,
             state_root,
@@ -1892,9 +2016,142 @@ mod tests {
             resolver_path,
             cert_file,
             cert_dir,
-            openssl,
             curl,
         }
+    }
+
+    #[test]
+    fn upstream_checks_compatibility_and_reaches_download_for_force_or_damage() {
+        let root = temp_root("release-selection");
+        let roots = setup_update_test_roots(&root);
+        let env = crate::tests::test_process_env(&roots);
+        let mut presentation = UpdatePresentation::new();
+        let source = root.join("prepared");
+        let id = "1.2.3-aaaaaa";
+        crate::tests::write_sample_generation(&source, id, false);
+        run_path_update(&source, &roots, &env, &mut presentation).unwrap();
+
+        let shell = if Path::new("/system/bin/sh").is_file() {
+            "/system/bin/sh"
+        } else {
+            "/bin/sh"
+        };
+        fs::create_dir_all(roots.curl.parent().unwrap()).unwrap();
+        fs::write(
+            &roots.curl,
+            format!(
+                r#"#!{shell}
+for url do :; done
+case "$url" in
+    */release.json) printf '%s' '{}' ;;
+    */{UPSTREAM_PACKAGE_ASSET}) exit 57 ;;
+    *) exit 58 ;;
+esac
+"#,
+                metadata('a')
+            ),
+        )
+        .unwrap();
+        fs::set_permissions(&roots.curl, fs::Permissions::from_mode(0o700)).unwrap();
+        let paths = activation_paths(&roots).unwrap();
+        let pointer = fs::read(&paths.activation_state).unwrap();
+        let output = check_release(&roots, Some("1.2.3"), true).unwrap();
+        assert!(output.contains("\"status\":\"current\""));
+        assert!(!output.contains(&format!("\"wrapper_sha256\":\"{}\"", "a".repeat(64))));
+        let update = |force, presentation: &mut UpdatePresentation| {
+            run_upstream_update(Some("1.2.3"), force, &roots, &env, presentation)
+        };
+        assert!(matches!(
+            update(false, &mut presentation),
+            Ok(UpstreamOutcome::AlreadyCurrent(_))
+        ));
+        let assert_download = |force, presentation: &mut UpdatePresentation| {
+            assert!(matches!(
+                update(force, presentation),
+                Err(LocalProductError::RemoteTransportFailed { code: Some(57), .. })
+            ));
+            assert_eq!(fs::read(&paths.activation_state).unwrap(), pointer);
+        };
+        assert_download(true, &mut presentation);
+
+        let generation = roots.generation_root.join(id);
+        let descriptor = generation.join("generation.meta");
+        let compatible = fs::read_to_string(&descriptor).unwrap();
+        for (field, identity) in [
+            ("wrapper_api_identity", WRAPPER_API_IDENTITY),
+            ("persistent_schema_identity", PERSISTENT_SCHEMA_IDENTITY),
+            ("patch_policy_id", codex_release_builder::PATCH_POLICY_ID),
+        ] {
+            let incompatible = compatible.replace(
+                &format!("{field}\t{identity}\n"),
+                &format!("{field}\told-identity\n"),
+            );
+            fs::write(&descriptor, incompatible).unwrap();
+            assert!(check_release(&roots, Some("1.2.3"), true)
+                .unwrap()
+                .contains("\"status\":\"available\""));
+            assert_download(false, &mut presentation);
+        }
+        fs::write(descriptor, compatible).unwrap();
+        fs::write(generation.join("bin/codex"), b"corrupted bytes").unwrap();
+        assert_download(false, &mut presentation);
+        fs::remove_dir_all(generation).unwrap();
+        assert_download(false, &mut presentation);
+        remove_temp_root(root);
+    }
+
+    #[test]
+    fn path_update_replaces_missing_current_and_rejects_corrupt_pointer_or_journal() {
+        let root = temp_root("path-recovery");
+        let roots = setup_update_test_roots(&root);
+        let env = crate::tests::test_process_env(&roots);
+        let mut presentation = UpdatePresentation::new();
+        let source = root.join("prepared");
+        let id = "1.2.3-aaaaaa";
+        let paths = activation_paths(&roots).unwrap();
+        let before = generation_state::plan_initial_pointer_state("missing-current").unwrap();
+        let lock = generation_state::acquire_activation_lock(&paths).unwrap();
+        activate_generation(&paths, ActivationOperation::Update, None, &before, &lock).unwrap();
+        drop(lock);
+        crate::tests::write_sample_generation(&source, id, false);
+
+        let pointer = fs::read(&paths.activation_state).unwrap();
+        fs::write(&paths.activation_state, b"corrupt state\n").unwrap();
+        assert!(matches!(
+            run_path_update(&source, &roots, &env, &mut presentation),
+            Err(LocalProductError::State(_))
+        ));
+        assert_eq!(
+            fs::read(&paths.activation_state).unwrap(),
+            b"corrupt state\n"
+        );
+        fs::write(&paths.activation_state, &pointer).unwrap();
+        let unrelated = generation_state::ActivationJournal {
+            operation: ActivationOperation::Update,
+            before: None,
+            after: generation_state::plan_initial_pointer_state("unrelated").unwrap(),
+        };
+        let journal = generation_state::encode_activation_journal(&unrelated).unwrap();
+        fs::write(&paths.activation_journal, &journal).unwrap();
+        assert!(matches!(
+            run_path_update(&source, &roots, &env, &mut presentation),
+            Err(LocalProductError::State(
+                generation_state::ActivationTransactionError::RecoveryConflict
+            ))
+        ));
+        assert_eq!(fs::read(&paths.activation_journal).unwrap(), journal);
+        assert_eq!(fs::read(&paths.activation_state).unwrap(), pointer);
+        assert!(!roots.generation_root.join(id).exists());
+
+        fs::remove_file(&paths.activation_journal).unwrap();
+        let selected = run_path_update(&source, &roots, &env, &mut presentation).unwrap();
+        let (state, loaded) = current_loaded_generation(&roots).unwrap();
+        let state = state.unwrap();
+        assert_eq!(selected.generation_id, id);
+        assert_eq!(state.current, id);
+        assert_eq!(state.previous, Some(before.current));
+        verify_generation_asset_digests(&loaded.unwrap()).unwrap();
+        remove_temp_root(root);
     }
 
     #[test]

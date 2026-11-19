@@ -44,7 +44,7 @@ mod unix_app {
     };
     use std::os::unix::process::CommandExt as _;
     use std::path::{Path, PathBuf};
-    use std::process::{Command, Stdio};
+    use std::process::Command;
     use std::sync::atomic::{AtomicU64, Ordering};
 
     pub const RESOLVER_FD: c_int = 33;
@@ -78,8 +78,8 @@ mod unix_app {
     const WRAPPER_EXEC_SERVER_PATH: &str = "bin/codex-exec-server";
     const WRAPPER_PACKAGE_JSON_PATH: &str = "codex-package.json";
 
-    const WRAPPER_API_IDENTITY: &str = "wrapper-api";
-    const PERSISTENT_SCHEMA_IDENTITY: &str = "schema";
+    pub(super) const WRAPPER_API_IDENTITY: &str = "wrapper-api";
+    pub(super) const PERSISTENT_SCHEMA_IDENTITY: &str = "schema";
     const EXPECTED_PLATFORM: &str = "android";
     const EXPECTED_ARCHITECTURE: &str = "aarch64";
 
@@ -1245,7 +1245,6 @@ mod unix_app {
         pub(super) resolver_path: PathBuf,
         pub(super) cert_file: PathBuf,
         pub(super) cert_dir: PathBuf,
-        pub(super) openssl: PathBuf,
         pub(super) curl: PathBuf,
     }
 
@@ -1272,7 +1271,6 @@ mod unix_app {
                 resolver_path: prefix.join("etc/resolv.conf"),
                 cert_file: prefix.join("etc/tls/cert.pem"),
                 cert_dir: prefix.join("etc/tls/certs"),
-                openssl: prefix.join("bin/openssl"),
                 curl: prefix.join("bin/curl"),
             })
         }
@@ -1292,9 +1290,7 @@ mod unix_app {
         Descriptor(&'static str),
         UnsafeSource(&'static str),
         GenerationCollision,
-        OpenSslUnavailable,
         CurlUnavailable,
-        OpenSslFailed(&'static str),
         Remote(&'static str),
         RemoteTransportFailed {
             code: Option<i32>,
@@ -1336,27 +1332,29 @@ mod unix_app {
                 LocalProductError::GenerationCollision => {
                     f.write_str("target generation directory already exists")
                 }
-                LocalProductError::OpenSslUnavailable => {
-                    f.write_str("required 'openssl' binary is unavailable in Termux PREFIX")
-                }
                 LocalProductError::CurlUnavailable => {
                     f.write_str("required 'curl' binary is unavailable in Termux PREFIX")
                 }
-                LocalProductError::OpenSslFailed(msg) => f.write_str(msg),
                 LocalProductError::Remote(msg) => f.write_str(msg),
                 LocalProductError::RemoteTransportFailed {
                     code,
                     http_status,
                     bytes,
                     elapsed_seconds,
-                } => write!(
-                    f,
-                    "download failed (exit={}, http={}, bytes={}, elapsed={}s)",
-                    code.map_or_else(|| "-".to_owned(), |c| c.to_string()),
-                    http_status.map_or_else(|| "-".to_owned(), |s| s.to_string()),
-                    bytes,
-                    elapsed_seconds
-                ),
+                } => {
+                    write!(
+                        f,
+                        "download failed (exit={}, http={}, bytes={}, elapsed={}s)",
+                        code.map_or_else(|| "-".to_owned(), |c| c.to_string()),
+                        http_status.map_or_else(|| "-".to_owned(), |s| s.to_string()),
+                        bytes,
+                        elapsed_seconds
+                    )?;
+                    if matches!(http_status, Some(403 | 429)) {
+                        f.write_str(". If you hit the GitHub API rate limit, try 'codex update --version <X.Y.Z>' with an exact release version")?;
+                    }
+                    Ok(())
+                }
                 LocalProductError::RemoteStalled { bytes, idle_seconds } => write!(
                     f,
                     "download stalled after {bytes} bytes ({idle_seconds}s without progress)"
@@ -1878,7 +1876,7 @@ mod unix_app {
                 "generation runtime is not an executable regular file",
             ));
         }
-        let observed_runtime = hash_generation_asset(&loaded.runtime_path)?;
+        let observed_runtime = sha256_regular_file(&loaded.runtime_path)?;
         if observed_runtime != loaded.manifest.runtime_digest {
             return Err(LocalProductError::Descriptor(
                 "generation runtime SHA-256 digest does not match generation.meta",
@@ -1902,7 +1900,7 @@ mod unix_app {
                     "generation helper is not an executable regular file",
                 ));
             }
-            let observed_helper = hash_generation_asset(helper_path)?;
+            let observed_helper = sha256_regular_file(helper_path)?;
             if observed_helper != helper_meta.digest {
                 return Err(LocalProductError::Descriptor(
                     "generation helper SHA-256 digest does not match generation.meta",
@@ -1920,7 +1918,7 @@ mod unix_app {
                     "generation companion is not an executable regular file",
                 ));
             }
-            if hash_generation_asset(&path)? != *digest {
+            if sha256_regular_file(&path)? != *digest {
                 return Err(LocalProductError::Descriptor(
                     "generation companion SHA-256 digest does not match generation.meta",
                 ));
@@ -1929,9 +1927,14 @@ mod unix_app {
         Ok(())
     }
 
-    fn hash_generation_asset(path: &Path) -> Result<String, LocalProductError> {
+    pub(super) fn sha256_regular_file(path: &Path) -> Result<String, LocalProductError> {
+        ensure_regular_file(
+            path,
+            "inspect file for SHA-256 verification",
+            "SHA-256 verification target must be a regular file",
+        )?;
         codex_release_builder::sha256_file(path).map_err(|source| LocalProductError::Io {
-            operation: "hash generation asset",
+            operation: "hash file for SHA-256 verification",
             source,
         })
     }
@@ -2561,6 +2564,13 @@ mod unix_app {
                 ));
             }
         }
+        if gen.manifest.patch_policy_id != codex_release_builder::PATCH_POLICY_ID {
+            return Err(format!(
+                "generation patch_policy_id '{}' does not match required '{}'",
+                gen.manifest.patch_policy_id,
+                codex_release_builder::PATCH_POLICY_ID
+            ));
+        }
         verify_generation_asset_digests(gen).map_err(|err| err.to_string())?;
         prepare_wrapper_config(&roots.config_dir)
             .map_err(|err| format!("wrapper config preparation failed: {err}"))?;
@@ -2755,48 +2765,9 @@ mod unix_app {
             .ok_or(LocalProductError::CurlUnavailable)
     }
 
-    pub(super) fn ensure_openssl_available(openssl: &Path) -> Result<(), LocalProductError> {
-        ensure_regular_file_tool(openssl)
-            .then_some(())
-            .ok_or(LocalProductError::OpenSslUnavailable)
-    }
-
     fn ensure_regular_file_tool(path: &Path) -> bool {
         fs::symlink_metadata(path)
             .is_ok_and(|meta| meta.file_type().is_file() && meta.permissions().mode() & 0o111 != 0)
-    }
-
-    pub(super) fn openssl_sha256(openssl: &Path, path: &Path) -> Result<String, LocalProductError> {
-        ensure_openssl_available(openssl)?;
-        ensure_regular_file(
-            path,
-            "inspect file for SHA-256 verification",
-            "SHA-256 verification target must be a regular file",
-        )?;
-        let output = Command::new(openssl)
-            .args(["dgst", "-sha256", "-r"])
-            .arg(path)
-            .stdin(Stdio::null())
-            .output()
-            .map_err(|source| LocalProductError::Io {
-                operation: "run openssl dgst -sha256",
-                source,
-            })?;
-        if !output.status.success() {
-            return Err(LocalProductError::OpenSslFailed(
-                "openssl dgst -sha256 failed",
-            ));
-        }
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let hex = stdout
-            .split_whitespace()
-            .next()
-            .map(|s| s.to_ascii_lowercase())
-            .filter(|s| valid_sha256_hex(s))
-            .ok_or(LocalProductError::OpenSslFailed(
-                "openssl dgst -sha256 returned malformed digest output",
-            ))?;
-        Ok(hex)
     }
 
     pub(super) fn ensure_real_directory(
@@ -3290,7 +3261,7 @@ pub(crate) mod tests {
         TermuxProcessEnvSnapshot {
             wsl_kernel: Some(false),
             prefix: roots
-                .openssl
+                .curl
                 .parent()
                 .and_then(|p| p.parent())
                 .map(|p| p.as_os_str().to_owned()),
@@ -3328,23 +3299,8 @@ pub(crate) mod tests {
             resolver_path,
             cert_file: prefix.join("etc/tls/cert.pem"),
             cert_dir: prefix.join("etc/tls/certs"),
-            openssl: prefix.join("bin/openssl"),
             curl: prefix.join("bin/curl"),
         }
-    }
-
-    pub(crate) fn test_openssl_path() -> PathBuf {
-        let mut candidates = Vec::new();
-        if let Some(prefix) = std::env::var_os("PREFIX") {
-            candidates.push(PathBuf::from(prefix).join("bin/openssl"));
-        }
-        candidates.push(PathBuf::from("/data/data/com.termux/files/usr/bin/openssl"));
-        candidates.push(PathBuf::from("/usr/bin/openssl"));
-        candidates.push(PathBuf::from("/bin/openssl"));
-        candidates
-            .into_iter()
-            .find(|p| p.is_file())
-            .expect("openssl binary required for wrapper tests")
     }
 
     pub(crate) fn write_sample_generation(
@@ -3381,10 +3337,9 @@ pub(crate) mod tests {
         .unwrap();
         let _ = std::os::unix::fs::symlink("bin/codex", dir.join("codex"));
 
-        let openssl = test_openssl_path();
-        let runtime_digest = openssl_sha256(&openssl, &dir.join("bin/codex")).unwrap();
-        let open_digest = openssl_sha256(&openssl, &dir.join("browser/open/curl")).unwrap();
-        let manual_digest = openssl_sha256(&openssl, &dir.join("browser/manual/curl")).unwrap();
+        let runtime_digest = sha256_regular_file(&dir.join("bin/codex")).unwrap();
+        let open_digest = sha256_regular_file(&dir.join("browser/open/curl")).unwrap();
+        let manual_digest = sha256_regular_file(&dir.join("browser/manual/curl")).unwrap();
         let digest = "a".repeat(64);
         let meta = format!(
             "codex-local-generation\n\
@@ -3860,25 +3815,6 @@ pub(crate) mod tests {
 
         let syn_prefix = root.join("prefix");
         fs::create_dir_all(syn_prefix.join("bin")).unwrap();
-        let real_openssl = test_openssl_path();
-        fs::copy(&real_openssl, syn_prefix.join("bin/openssl")).unwrap();
-        fs::set_permissions(
-            syn_prefix.join("bin/openssl"),
-            fs::Permissions::from_mode(0o700),
-        )
-        .unwrap();
-        if let Some(real_curl) = real_openssl
-            .parent()
-            .map(|p| p.join("curl"))
-            .filter(|p| p.is_file())
-        {
-            if fs::copy(real_curl, syn_prefix.join("bin/curl")).is_ok() {
-                let _ = fs::set_permissions(
-                    syn_prefix.join("bin/curl"),
-                    fs::Permissions::from_mode(0o700),
-                );
-            }
-        }
         fs::create_dir_all(syn_prefix.join("etc/tls/certs")).unwrap();
         fs::write(syn_prefix.join("etc/resolv.conf"), b"nameserver 1.1.1.1\n").unwrap();
         fs::write(syn_prefix.join("etc/tls/cert.pem"), b"").unwrap();
@@ -3891,6 +3827,9 @@ pub(crate) mod tests {
             ("HOME", Some(&syn_home)),
             ("PREFIX", Some(&syn_prefix)),
             ("TMPDIR", Some(&root)),
+            ("CODEX_HOME", None),
+            ("CODEX_SHARED_HOME", None),
+            ("CODEX_SQLITE_HOME", None),
         ]);
 
         let roots = LocalWrapperRoots::from_environment().unwrap();
@@ -3951,6 +3890,21 @@ pub(crate) mod tests {
             ])),
             1
         );
+        let descriptor = loaded.generation_dir.join("generation.meta");
+        let compatible = fs::read_to_string(&descriptor).unwrap();
+        let incompatible = compatible.replace(
+            &format!(
+                "patch_policy_id\t{}\n",
+                codex_release_builder::PATCH_POLICY_ID
+            ),
+            "patch_policy_id\toutdated-policy\n",
+        );
+        fs::write(&descriptor, incompatible).unwrap();
+        assert_eq!(
+            run_public_main(os_vec(&["wrapper", "status", "--verify", "--json"])),
+            1
+        );
+        fs::write(&descriptor, compatible).unwrap();
         let outcome = execute_activated_route(
             PublicDispatchRoute::Doctor(os_vec(&["--json"])),
             &roots,
@@ -4051,13 +4005,6 @@ pub(crate) mod tests {
         let root = temp_root("daemon-scope");
         let syn_prefix = root.join("prefix");
         fs::create_dir_all(syn_prefix.join("bin")).unwrap();
-        let real_openssl = test_openssl_path();
-        fs::copy(&real_openssl, syn_prefix.join("bin/openssl")).unwrap();
-        fs::set_permissions(
-            syn_prefix.join("bin/openssl"),
-            fs::Permissions::from_mode(0o700),
-        )
-        .unwrap();
         fs::create_dir_all(syn_prefix.join("etc/tls/certs")).unwrap();
         fs::write(syn_prefix.join("etc/resolv.conf"), b"nameserver 1.1.1.1\n").unwrap();
         fs::write(syn_prefix.join("etc/tls/cert.pem"), b"").unwrap();
@@ -4341,13 +4288,6 @@ pub(crate) mod tests {
         let root = temp_root("e2e-daemon-link");
         let syn_prefix = root.join("prefix");
         fs::create_dir_all(syn_prefix.join("bin")).unwrap();
-        let real_openssl = test_openssl_path();
-        fs::copy(&real_openssl, syn_prefix.join("bin/openssl")).unwrap();
-        fs::set_permissions(
-            syn_prefix.join("bin/openssl"),
-            fs::Permissions::from_mode(0o700),
-        )
-        .unwrap();
         fs::create_dir_all(syn_prefix.join("etc/tls/certs")).unwrap();
         fs::write(syn_prefix.join("etc/resolv.conf"), b"nameserver 1.1.1.1\n").unwrap();
         fs::write(syn_prefix.join("etc/tls/cert.pem"), b"").unwrap();

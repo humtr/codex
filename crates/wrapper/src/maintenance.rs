@@ -492,7 +492,6 @@ mod tests {
             resolver_path: root.join("resolv.conf"),
             cert_file: root.join("cert.pem"),
             cert_dir: root.join("certs"),
-            openssl: crate::tests::test_openssl_path(),
             curl: root.join("curl"),
         };
         assert!(!generation_root.exists());

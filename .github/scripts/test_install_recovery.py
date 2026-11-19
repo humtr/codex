@@ -5,6 +5,7 @@ All SIGKILL targets are Popen children of this harness. This is an actual
 filesystem/process-boundary test using deterministic shims, not a power cut or
 a test of official upstream archive acquisition.
 """
+import hashlib
 import os
 from pathlib import Path
 import shutil
@@ -27,7 +28,8 @@ class InstallerRecovery(unittest.TestCase):
         self.home = self.root / "home"
         self.temp = self.root / "tmp"
         self.shims = self.root / "shims"
-        for path in (self.prefix / "bin", self.home, self.temp, self.shims):
+        self.codex_home = self.root / "codex-home"
+        for path in (self.prefix / "bin", self.home, self.temp, self.shims, self.codex_home):
             path.mkdir(parents=True)
         self.old = self.root / "old"
         self.new = self.root / "new"
@@ -44,6 +46,7 @@ if [ "${1:-}" = update ] && [ "${2:-}" = --help ]; then
   exit 0
 fi
 if [ "${1:-}" = wrapper ]; then
+  printf '%s\n' "$*" >> "$HOME/verify-args"
   state="$HOME/.local/share/codex/wrapper/activation-state"
   [ -f "$state" ] || exit 1
   shift
@@ -64,6 +67,8 @@ if [ "${1:-}" = wrapper ]; then
       gen=$(awk -F= '$1 == "current" { print $2 }' "$state")
       meta="$HOME/.codex/packages/standalone/releases/$gen/generation.meta"
       [ -f "$meta" ] || exit 1
+      policy=$(awk -F '\t' '$1 == "patch_policy_id" { print $2 }' "$meta")
+      [ "$policy" = termux-fd-remap ] || exit 1
       if [ -n "$req_sha" ]; then
         meta_sha=$(awk -F '\t' '$1 == "wrapper_artifact_digest" { print $2 }' "$meta")
         [ "$meta_sha" = "$req_sha" ] || exit 1
@@ -89,13 +94,14 @@ if [ "${1:-}" = update ] && [ "${2:-}" = --upstream ]; then
     done
     exit 0
   fi
-  if [ "$mode" = commit ] || [ "$mode" = commit-block ]; then
+  if [ "$mode" = commit ] || [ "$mode" = commit-block ] || [ "$mode" = commit-wrong-wrapper ]; then
     root="$HOME/.local/share/codex/wrapper"
     generation="$HOME/.codex/packages/standalone/releases/gen-stub"
     mkdir -p "$root" "$generation"
     digest=$(sha256sum "$PREFIX/bin/codex" | awk '{print $1}')
+    if [ "$mode" = commit-wrong-wrapper ]; then digest=$(printf '%064d' 0); fi
     printf 'format=codex-activation-state\nupdate_key=%064d\ncurrent=gen-stub\ncurrent_key=%064d\nprevious_present=0\nprevious=\nprevious_key=\n' 0 0 > "$root/activation-state"
-    printf 'wrapper_artifact_digest\t%s\nupstream_package_version\t0.169.0\n' "$digest" > "$generation/generation.meta"
+    printf 'wrapper_artifact_digest\t%s\nupstream_package_version\t0.169.0\npatch_policy_id\ttermux-fd-remap\n' "$digest" > "$generation/generation.meta"
     if [ "$mode" = commit-block ]; then
       : > "$HOME/activation-committed"
       x=0
@@ -166,7 +172,7 @@ exec "$real" "$@"
             shim.write_text(self.shim)
             shim.chmod(0o755)
         self.env = dict(os.environ, HOME=str(self.home), PREFIX=str(self.prefix),
-                        TMPDIR=str(self.temp),
+                        TMPDIR=str(self.temp), CODEX_HOME=str(self.codex_home),
                         PATH=f"{self.shims}:{os.environ['PATH']}",
                         TEST_REAL_TOOLS=str(tools_dir), TEST_HOOK="")
         self.log = self.root / "installer.log"
@@ -250,6 +256,141 @@ exec "$real" "$@"
 
     def has_lock(self):
         return (self.prefix / "bin/.codex-install.lock").exists()
+
+    def seed_existing_activation(self, policy="termux-fd-remap"):
+        state = self.home / ".local/share/codex/wrapper/activation-state"
+        state.parent.mkdir(parents=True)
+        standalone = self.home / ".codex/packages/standalone"
+        active = standalone / "releases/gen-existing/generation.meta"
+        previous = standalone / "releases/gen-previous/generation.meta"
+        old_sha = hashlib.sha256(self.old.read_bytes()).hexdigest()
+        for descriptor, version in ((active, "0.169.0"), (previous, "0.168.0")):
+            descriptor.parent.mkdir(parents=True)
+            descriptor.write_text(
+                f"wrapper_artifact_digest\t{old_sha}\n"
+                f"upstream_package_version\t{version}\npatch_policy_id\t{policy}\n"
+            )
+        zero = "0" * 64
+        state.write_text(
+            f"format=codex-activation-state\nupdate_key={zero}\n"
+            f"current=gen-existing\ncurrent_key={zero}\nprevious_present=1\n"
+            f"previous=gen-previous\nprevious_key={zero}\n"
+        )
+        (standalone / "current").symlink_to("releases/gen-existing")
+        return state, active, previous
+
+    def assert_wrapper_only_upgrade(self, *flags, expected_verify):
+        paths = self.seed_existing_activation()
+        original = [path.read_bytes() for path in paths]
+        r = self.run_install(*flags)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual((self.prefix / "bin/codex").read_bytes(), self.new.read_bytes())
+        self.assertEqual([path.read_bytes() for path in paths], original)
+        current = paths[1].parents[2] / "current"
+        self.assertEqual(current.readlink(), Path("releases/gen-existing"))
+        self.assertFalse((self.home / "update-started").exists())
+        self.assertFalse(self.has_lock())
+        self.assertEqual((self.home / "verify-args").read_text().splitlines(),
+                         [expected_verify, expected_verify])
+
+    @unittest.skipUnless(IS_ANDROID_LINKER, "requires real Android linker branch")
+    def test_compatible_generation_skips_updater_and_preserves_previous(self):
+        self.assert_wrapper_only_upgrade(expected_verify="wrapper status --verify --json")
+
+    @unittest.skipUnless(IS_ANDROID_LINKER, "requires real Android linker branch")
+    def test_matching_explicit_version_skips_updater_and_preserves_previous(self):
+        self.assert_wrapper_only_upgrade(
+            "--version", "0.169.0",
+            expected_verify="wrapper status --verify --upstream-version 0.169.0 --json",
+        )
+
+    @unittest.skipUnless(IS_ANDROID_LINKER, "requires real Android linker branch")
+    def test_incompatible_generation_runs_updater_and_verifies_candidate_sha(self):
+        state, _, _ = self.seed_existing_activation(policy="old-policy")
+        (self.home / "mode").write_text("commit")
+        r = self.run_install("--version", "0.169.0")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("current=gen-stub\n", state.read_text())
+        self.assertTrue((self.home / "update-started").is_file())
+        self.assertFalse(self.has_lock())
+        candidate_sha = hashlib.sha256(self.new.read_bytes()).hexdigest()
+        self.assertEqual((self.home / "verify-args").read_text().splitlines(), [
+            "wrapper status --verify --upstream-version 0.169.0 --json",
+            f"wrapper status --verify --wrapper-sha256 {candidate_sha} --upstream-version 0.169.0 --json",
+        ])
+
+    @unittest.skipUnless(IS_ANDROID_LINKER, "requires real Android linker branch")
+    def test_incompatible_generation_rejects_activation_with_wrong_wrapper_sha(self):
+        self.seed_existing_activation(policy="old-policy")
+        (self.home / "mode").write_text("commit-wrong-wrapper")
+        r = self.run_install()
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("not qualified against this Wrapper SHA-256", r.stderr)
+        self.assertTrue((self.home / "update-started").is_file())
+        r = self.recover()
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("completed updater receipt contradicts activation metadata", r.stderr)
+        self.assertTrue(self.has_lock())
+
+    @unittest.skipUnless(IS_ANDROID_LINKER, "requires real Android linker branch")
+    def test_zombie_updater_with_matching_start_ticks_is_quiescent(self):
+        (self.home / "mode").write_text("commit")
+        installer = self.launch("--version", "0.169.0", hook="updated-after")
+        self.await_marker("hit")
+        self.interrupt(installer)
+
+        # Hold an owned session leader as a real zombie for the entire recovery.
+        # Substitute its identity into the fixture's interrupted updater receipt.
+        zombie = subprocess.Popen(["sh", "-c", "exit 0"], start_new_session=True)
+        self.addCleanup(zombie.wait)
+        os.waitid(os.P_PID, zombie.pid, os.WEXITED | os.WNOWAIT)
+        proc_stat = Path(f"/proc/{zombie.pid}/stat").read_text().rsplit(") ", 1)[1].split()
+        self.assertEqual(proc_stat[0], "Z")
+        lock = self.prefix / "bin/.codex-install.lock"
+        transaction = lock / "transaction"
+        transaction.write_text(transaction.read_text().replace("phase=updated", "phase=updating"))
+        (lock / "updater").write_text(
+            f"pid={zombie.pid}\nstart={proc_stat[19]}\npgid={zombie.pid}\n"
+        )
+
+        r = self.recover()
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("reconciled already activated generation", r.stdout)
+        self.assertFalse(self.has_lock())
+        self.assertFalse(self.old_bytes())
+
+    def test_stdin_install_ignores_cwd_bundle(self):
+        bundle = self.root / "bundle"
+        (bundle / "bin").mkdir(parents=True)
+        shutil.copy2(self.new, bundle / "bin/codex")
+        bundle_sha = hashlib.sha256(self.new.read_bytes()).hexdigest()
+        (bundle / "SHA256SUMS").write_text(f"{bundle_sha}  bin/codex\n")
+        curl = self.shims / "curl"
+        curl.write_text("""#!/bin/sh
+for url do :; done
+printf '%s\n' "$url" > "$HOME/curl-url"
+exit 22
+""")
+        curl.chmod(0o755)
+        # Feed actual stdin to sh -s. The curl shim keeps the negative test offline.
+        r = subprocess.run(["sh", "-s", "--", "--prefix", str(self.prefix), "--skip-upstream"],
+                           input=INSTALL.read_text(), cwd=bundle, env=self.env,
+                           capture_output=True, text=True, timeout=20)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("HTTPS download failed", r.stderr)
+        self.assertEqual((self.home / "curl-url").read_text().strip(),
+                         "https://github.com/humtr/codex/releases/download/wrapper/"
+                         "codex-wrapper-aarch64-linux-android.tar.gz")
+        self.assertTrue(self.old_bytes())
+        self.assertFalse(self.has_lock())
+
+    def test_version_with_slash_is_rejected_before_install(self):
+        r = self.run_install("--version", "0.170.0/bad")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("upstream version contains unsupported characters: 0.170.0/bad", r.stderr)
+        self.assertTrue(self.old_bytes())
+        self.assertFalse(self.has_lock())
+        self.assertFalse((self.home / "update-started").exists())
 
     def test_i01_copy_staging_partial_kill(self):
         p = self.launch("--skip-upstream", hook="stage-partial")

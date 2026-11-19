@@ -1281,8 +1281,7 @@ mod tests {
         let cert_dir = root.join("certs");
         fs::write(&cert_file, b"").unwrap();
         fs::create_dir_all(&cert_dir).unwrap();
-        let openssl = crate::tests::test_openssl_path();
-        let curl = openssl.parent().unwrap().join("curl");
+        let curl = root.join("prefix/bin/curl");
         crate::LocalWrapperRoots {
             generation_root,
             state_root,
@@ -1290,7 +1289,6 @@ mod tests {
             resolver_path,
             cert_file,
             cert_dir,
-            openssl,
             curl,
         }
     }

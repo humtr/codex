@@ -1025,12 +1025,13 @@ install.sh [--prefix <DIR>] [--binary <PATH>] [--build] [--release <TAG>] \
 install.sh --prefix <DIR> --recover
 ```
 
-- When `--binary`, `--build`, and `--release` are omitted, `install.sh` resolves
-  1) unpacked bundle `./bin/codex` or `./codex` (verifying `SHA256SUMS` when present)
-  only when invoked from an actual script file (`[ -f "$0" ]`, never when piped via
-  `curl ... | sh`), 2) local `./target/release/codex`, or 3) the GitHub Release asset
-  `codex-wrapper-aarch64-linux-android.tar.gz` and `.sha256` from tag `wrapper`
-  of `humtr/codex` over HTTPS (`curl`) + checksum verification (`sha256sum` or
+- When `--binary`, `--build`, and `--release` are omitted and the installer runs
+  from a regular script file (`[ -f "$0" ]`), it looks beside the script for an
+  unpacked bundle (`bin/codex` or `codex` with `SHA256SUMS`) and then for
+  `target/release/codex` in a checkout. If those sources are absent, or the
+  script runs from stdin via `curl ... | sh`, it fetches the GitHub Release
+  assets `codex-wrapper-aarch64-linux-android.tar.gz` and `.sha256` from tag
+  `wrapper` of `humtr/codex` over HTTPS (`curl`) + checksum verification (`sha256sum` or
   `openssl` fallback). (Stage 1 verifies `.sha256` / `SHA256SUMS` digests only
   without an Ed25519 signature; Phase 2.2 adds Ed25519 signature verification of
   the Wrapper bundle and `install.sh` self-update path.)
@@ -1046,19 +1047,15 @@ install.sh --prefix <DIR> --recover
   generation pointer and its separate activation journal. Neither may guess
   the other's commit status or replay an uncertain updater.
 - Unless `--skip-upstream` was requested:
-  - When an explicit `--version` was requested, `install.sh` launches the updater
-    and afterward qualifies the active generation against both `--upstream-version`
-    and `--wrapper-sha256` (when the updater actually activated a new generation).
-  - When `--version` is omitted and the existing active generation already passes
-    `codex wrapper status --verify --json` (valid descriptor, compatibility with
-    `(wrapper_api_identity, persistent_schema_identity, patch_policy_id)`, verified
-    runtime/helper/companion SHA-256 digests, and candidate probe), `install.sh`
-    **retains that compatible active generation without launching the updater**,
-    preserving the `previous` upstream rollback slot and allowing offline Wrapper
-    upgrades. `wrapper_artifact_digest` in `generation.meta` remains provenance
-    metadata rather than a forced-rebuild trigger.
-  - When no compatible active generation exists (first install or incompatible
-    `patch_policy_id`/API/schema), `install.sh` launches `codex update --upstream`
+  - When the existing active generation passes `codex wrapper status --verify
+    --json` (valid descriptor, compatibility with `(wrapper_api_identity,
+    persistent_schema_identity, patch_policy_id)`, verified runtime/helper/companion
+    SHA-256 digests, and candidate probe), the installer retains it without
+    calling the updater. An explicit `--version` adds `--upstream-version` to
+    this qualification. Retaining a compatible generation preserves the
+    `previous` upstream rollback slot and allows offline Wrapper upgrades.
+  - When the active generation is absent or fails qualification (including a
+    requested version mismatch), `install.sh` launches `codex update --upstream`
     and verifies the resulting activation via `codex wrapper status --verify
     --wrapper-sha256 <candidate_sha>` (and `--upstream-version` if requested).
 - A caught bootstrap failure restores the previous executable only when the
@@ -1106,7 +1103,8 @@ After installation, Wrapper exclusively owns `codex update`:
   already matches the target `(upstream_package_version, source_artifact_digest)`
   and is compatible with `(wrapper_api_identity, persistent_schema_identity,
   patch_policy_id)`, `codex update` reports already current without redownloading
-  or evicting `previous` unless `--force-rebuild` is explicitly passed. A damaged
+  or evicting `previous`. The explicit `--force-rebuild` flag downloads the archive
+  again, verifies it, and builds and activates a new generation. A damaged
   current generation does not block forward recovery via `codex update` or `--path`.
 - `codex update --path <FILE_OR_DIR>`: adapts an offline official `.tar.gz` package archive
   or validates/activates a prepared `package-root` generation directory (`generation.meta`),

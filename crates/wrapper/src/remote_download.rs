@@ -17,6 +17,8 @@ extern "C" {
 }
 
 const HTTP_STATUS: &str = "%{stderr}CODEX_HTTP_STATUS=%{response_code}";
+const STDERR_TAIL_BYTES: usize = 1024;
+const EMPTY_SHA256: &str = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
 
 #[derive(Clone, Copy)]
 pub(super) enum TransferTimeout<'a> {
@@ -164,12 +166,17 @@ pub(super) fn fetch_with_headers(
             "--proto-redir",
             "=https",
             "--location",
+            "-A",
+            "codex-termux-wrapper",
         ])
         .arg("--cacert")
         .arg(&roots.cert_file)
         .arg("--capath")
         .arg(&roots.cert_dir)
         .args(["--connect-timeout", REMOTE_CONNECT_TIMEOUT_SECONDS]);
+    if url.starts_with("https://api.github.com/") {
+        command.args(["-H", "Accept: application/vnd.github+json"]);
+    }
     if let Some(hdr) = header_path {
         command.arg("--dump-header").arg(hdr);
     }
@@ -198,12 +205,18 @@ pub(super) fn fetch_with_headers(
         .stdout(Stdio::from(child_output))
         .stderr(Stdio::from(OwnedFd::from(writer)));
     let started = Instant::now();
-    let mut child = command
-        .spawn()
-        .map_err(|_| LocalProductError::CurlUnavailable)?;
+    let spawned = command.spawn();
+    drop(command);
+    let mut child = spawned.map_err(|_| LocalProductError::CurlUnavailable)?;
     let result = (|| {
         let mut last = u64::MAX;
         let mut last_total = None;
+        let mut known_total = expected_total;
+        let mut pending_headers = if known_total.is_none() {
+            header_path
+        } else {
+            None
+        };
         let mut last_received = offset;
         let mut last_progress = started;
         loop {
@@ -214,8 +227,8 @@ pub(super) fn fetch_with_headers(
                     Ok(0) => break,
                     Ok(n) => {
                         tail.extend_from_slice(&buffer[..n]);
-                        if tail.len() > 256 {
-                            tail.drain(..tail.len() - 256);
+                        if tail.len() > STDERR_TAIL_BYTES {
+                            tail.drain(..tail.len() - STDERR_TAIL_BYTES);
                         }
                     }
                     Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => break,
@@ -227,9 +240,14 @@ pub(super) fn fetch_with_headers(
             if observed > max_bytes {
                 return Err(LocalProductError::RemoteResponseTooLarge);
             }
-            let known_total = expected_total.or_else(|| {
-                header_path.and_then(|p| parse_total_size_from_headers(p, offset, max_bytes))
-            });
+            // Curl has written the final response headers before emitting
+            // body bytes. Wait for that boundary or exit so a proxy or
+            // redirect response cannot supply the cached total.
+            if observed > offset || status.is_some() {
+                if let Some(path) = pending_headers.take() {
+                    known_total = parse_total_size_from_headers(path, offset, max_bytes);
+                }
+            }
             if observed > last_received {
                 last_received = observed;
                 last_progress = Instant::now();
@@ -245,13 +263,11 @@ pub(super) fn fetch_with_headers(
                 if !status.success() {
                     return Err(LocalProductError::RemoteTransportFailed {
                         code: status.code(),
-                        http_status: std::str::from_utf8(&tail)
-                            .ok()
-                            .and_then(|text| {
-                                text.rsplit_once("CODEX_HTTP_STATUS=")
-                                    .map(|(_, value)| value)
-                            })
-                            .and_then(|value| value.parse::<u16>().ok())
+                        // The suffix may start inside a UTF-8 sequence. Lossy
+                        // decoding preserves the trailing ASCII status marker.
+                        http_status: String::from_utf8_lossy(&tail)
+                            .rsplit_once("CODEX_HTTP_STATUS=")
+                            .and_then(|(_, value)| value.parse::<u16>().ok())
                             .filter(|code| (100..600).contains(code)),
                         bytes: observed,
                         elapsed_seconds: started.elapsed().as_secs(),
@@ -327,6 +343,7 @@ fn cache_file(path: &Path) -> Result<File, LocalProductError> {
 /// A directory lease serializes downloads and eviction independently of activation.
 pub(super) struct PayloadOptions<'a> {
     pub limit: u64,
+    pub force_download: bool,
     pub expected_size: Option<u64>,
     pub timeout: &'a str,
     pub progress: Option<&'a mut dyn FnMut(u64, Option<u64>)>,
@@ -341,6 +358,7 @@ pub(super) fn payload(
 ) -> Result<u64, LocalProductError> {
     let PayloadOptions {
         limit,
+        force_download,
         expected_size,
         timeout,
         progress,
@@ -404,14 +422,33 @@ pub(super) fn payload(
         fs::remove_file(old).map_err(io)?;
         total -= bytes;
     }
+    struct HeaderCleanup(std::path::PathBuf);
+    impl Drop for HeaderCleanup {
+        fn drop(&mut self) {
+            let _ = fs::remove_file(&self.0);
+        }
+    }
+    let header_path = HeaderCleanup(cache.join(format!("{}.hdr", entry.sha256)));
+    match fs::remove_file(&header_path.0) {
+        Ok(()) => (),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => (),
+        Err(error) => return Err(io(error)),
+    }
     let mut file = cache_file(&path)?;
+    if force_download {
+        file.set_len(0).map_err(io)?;
+    }
     let mut size = file.metadata().map_err(io)?.len();
     if size > reserve {
         fs::remove_file(&path).map_err(io)?;
         return Err(LocalProductError::RemoteResponseTooLarge);
     }
     let verified = expected_size.is_none_or(|expected| size == expected)
-        && openssl_sha256(&roots.openssl, &path)? == entry.sha256;
+        && if size == 0 {
+            entry.sha256 == EMPTY_SHA256
+        } else {
+            sha256_regular_file(&path)? == entry.sha256
+        };
     if verified {
         if let Some(callback) = progress {
             callback(size, expected_size.or(Some(size)));
@@ -421,14 +458,6 @@ pub(super) fn payload(
             fs::remove_file(&path).map_err(io)?;
             return Err(LocalProductError::ReleaseDigestMismatch);
         }
-        struct HeaderCleanup(std::path::PathBuf);
-        impl Drop for HeaderCleanup {
-            fn drop(&mut self) {
-                let _ = fs::remove_file(&self.0);
-            }
-        }
-        let header_path = HeaderCleanup(cache.join(format!("{}.hdr", entry.sha256)));
-        let _ = fs::remove_file(&header_path.0);
         match fetch_with_headers(
             roots,
             url,
@@ -475,7 +504,7 @@ pub(super) fn payload(
         }
     }
     if expected_size.is_some_and(|n| n != size)
-        || (!verified && openssl_sha256(&roots.openssl, &path)? != entry.sha256)
+        || (!verified && sha256_regular_file(&path)? != entry.sha256)
     {
         fs::remove_file(&path).map_err(io)?;
         return Err(LocalProductError::ReleaseDigestMismatch);
@@ -537,7 +566,6 @@ mod tests {
             resolver_path: root.join("unused-resolver"),
             cert_file: root.join("cert.pem"),
             cert_dir: root.join("certs"),
-            openssl: prefix.join("bin/openssl"),
             curl: prefix.join("bin/curl"),
         };
         fs::create_dir(&roots.cert_dir).unwrap();
@@ -552,7 +580,7 @@ mod tests {
         fs::write(&source, data).unwrap();
         ReleaseFileEntry {
             relative_path: "runtime".into(),
-            sha256: openssl_sha256(&f.roots.openssl, &source).unwrap(),
+            sha256: sha256_regular_file(&source).unwrap(),
             mode: 0o755,
         }
     }
@@ -594,7 +622,7 @@ server.socket=context.wrap_socket(server.socket,server_side=True)
 "#;
 
     fn serve(f: &mut Fixture) -> String {
-        assert!(Command::new(&f.roots.openssl)
+        assert!(Command::new("openssl")
             .args([
                 "req",
                 "-x509",
@@ -655,6 +683,7 @@ server.socket=context.wrap_socket(server.socket,server_side=True)
             &entry,
             PayloadOptions {
                 limit: data.len() as u64,
+                force_download: false,
                 expected_size: Some(data.len() as u64),
                 timeout: "1",
                 progress: None,
@@ -682,6 +711,7 @@ server.socket=context.wrap_socket(server.socket,server_side=True)
                 &entry,
                 PayloadOptions {
                     limit: data.len() as u64,
+                    force_download: false,
                     expected_size: Some(data.len() as u64),
                     timeout: "1",
                     progress: None,
@@ -712,6 +742,7 @@ server.socket=context.wrap_socket(server.socket,server_side=True)
             &entry,
             PayloadOptions {
                 limit: 512 * 1024,
+                force_download: false,
                 expected_size: Some(data.len() as u64),
                 timeout: REMOTE_TRANSFER_TIMEOUT_SECONDS,
                 progress: None,
@@ -731,6 +762,7 @@ server.socket=context.wrap_socket(server.socket,server_side=True)
                 &entry,
                 PayloadOptions {
                     limit: 512 * 1024,
+                    force_download: false,
                     expected_size: Some(data.len() as u64),
                     timeout: REMOTE_TRANSFER_TIMEOUT_SECONDS,
                     progress: None,
@@ -757,6 +789,7 @@ server.socket=context.wrap_socket(server.socket,server_side=True)
                 &entry,
                 PayloadOptions {
                     limit: 512 * 1024,
+                    force_download: false,
                     expected_size: Some(data.len() as u64),
                     timeout: REMOTE_TRANSFER_TIMEOUT_SECONDS,
                     progress: None,
@@ -808,6 +841,7 @@ server.socket=context.wrap_socket(server.socket,server_side=True)
             &entry,
             PayloadOptions {
                 limit: 512 * 1024,
+                force_download: false,
                 expected_size: Some(data.len() as u64),
                 timeout: REMOTE_TRANSFER_TIMEOUT_SECONDS,
                 progress: None,
@@ -829,13 +863,17 @@ server.socket=context.wrap_socket(server.socket,server_side=True)
         std::io::Write::write_all(&mut file, b"1234").unwrap();
         // Inject the old-curl error at its process boundary. The real TLS test
         // above independently covers actual socket/Range/body handling.
-        let shell = f.roots.openssl.parent().unwrap().join("sh");
+        let shell = if Path::new("/system/bin/sh").is_file() {
+            "/system/bin/sh"
+        } else {
+            "/bin/sh"
+        };
         f.roots.curl = f.root.join("curl");
         fs::write(
             &f.roots.curl,
             format!(
                 "#!{}\nprintf '%s' 'CODEX_HTTP_STATUS=200' >&2\nexit 63\n",
-                shell.display()
+                shell
             ),
         )
         .unwrap();
@@ -848,6 +886,7 @@ server.socket=context.wrap_socket(server.socket,server_side=True)
             &entry,
             PayloadOptions {
                 limit: 8,
+                force_download: false,
                 expected_size: Some(8),
                 timeout: REMOTE_TRANSFER_TIMEOUT_SECONDS,
                 progress: None,
@@ -871,6 +910,73 @@ server.socket=context.wrap_socket(server.socket,server_side=True)
     }
 
     #[test]
+    fn rate_limit_hint_survives_multibyte_stderr_and_removes_headers() {
+        use std::os::unix::fs::PermissionsExt;
+        let mut f = fixture();
+        let entry = entry(&f, b"expected release bytes");
+        let shell = if Path::new("/system/bin/sh").is_file() {
+            "/system/bin/sh"
+        } else {
+            "/bin/sh"
+        };
+        let script = r#"
+agent=
+accept=
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        -A) shift; agent=$1 ;;
+        -H) shift; accept=$1 ;;
+        --dump-header) shift; printf 'HTTP/2 %s\r\n\r\n' @STATUS@ > "$1" ;;
+    esac
+    shift
+done
+[ "$agent" = codex-termux-wrapper ] || exit 57
+[ "$accept" = 'Accept: application/vnd.github+json' ] || exit 58
+printf '%s' MULTIBYTE >&2
+printf 'CODEX_HTTP_STATUS=%s' @STATUS@ >&2
+exit 22
+"#;
+        f.roots.curl = f.root.join("curl");
+        let header = f
+            .root
+            .join("downloads")
+            .join(format!("{}.hdr", entry.sha256));
+        for status in [403, 429] {
+            let script = script
+                .replace("@STATUS@", &status.to_string())
+                .replace("MULTIBYTE", &"é".repeat(710));
+            fs::write(&f.roots.curl, format!("#!{shell}\n{script}")).unwrap();
+            fs::set_permissions(&f.roots.curl, fs::Permissions::from_mode(0o700)).unwrap();
+            let dest = f.root.join("download");
+            let error = payload(
+                &f.roots,
+                "https://api.github.com/repos/openai/codex/releases/latest",
+                &dest,
+                &entry,
+                PayloadOptions {
+                    limit: 512,
+                    force_download: false,
+                    expected_size: None,
+                    timeout: REMOTE_TRANSFER_TIMEOUT_SECONDS,
+                    progress: Some(&mut |_, _| {}),
+                },
+            )
+            .unwrap_err();
+            assert!(
+                matches!(error, LocalProductError::RemoteTransportFailed {
+                    code: Some(22), http_status: Some(actual), ..
+                } if actual == status),
+                "{error}"
+            );
+            let message = error.to_string();
+            assert!(message.contains("GitHub API rate limit"));
+            assert!(message.contains("codex update --version <X.Y.Z>"));
+            assert!(!header.exists());
+            assert!(!dest.exists());
+        }
+    }
+
+    #[test]
     fn authenticated_empty_payload_needs_no_transport_and_preserves_exact_bytes() {
         let f = fixture();
         let entry = entry(&f, b"");
@@ -884,6 +990,7 @@ server.socket=context.wrap_socket(server.socket,server_side=True)
                     &entry,
                     PayloadOptions {
                         limit: 512,
+                        force_download: false,
                         expected_size: size,
                         timeout: REMOTE_TRANSFER_TIMEOUT_SECONDS,
                         progress: None,
@@ -916,6 +1023,7 @@ server.socket=context.wrap_socket(server.socket,server_side=True)
                 &entry,
                 PayloadOptions {
                     limit: 7,
+                    force_download: false,
                     expected_size: Some(7),
                     timeout: REMOTE_TRANSFER_TIMEOUT_SECONDS,
                     progress: None,
@@ -935,6 +1043,7 @@ server.socket=context.wrap_socket(server.socket,server_side=True)
             &entry,
             PayloadOptions {
                 limit: 7,
+                force_download: false,
                 expected_size: Some(7),
                 timeout: REMOTE_TRANSFER_TIMEOUT_SECONDS,
                 progress: None,
@@ -952,6 +1061,7 @@ server.socket=context.wrap_socket(server.socket,server_side=True)
             &entry,
             PayloadOptions {
                 limit: 7,
+                force_download: false,
                 expected_size: Some(7),
                 timeout: REMOTE_TRANSFER_TIMEOUT_SECONDS,
                 progress: None,
@@ -977,6 +1087,7 @@ server.socket=context.wrap_socket(server.socket,server_side=True)
                 &entry,
                 PayloadOptions {
                     limit: 7,
+                    force_download: false,
                     expected_size: Some(7),
                     timeout: REMOTE_TRANSFER_TIMEOUT_SECONDS,
                     progress: None,
@@ -1016,12 +1127,18 @@ HTTP/2 206 Partial Content\r\nContent-Range: bytes 10-99/100\r\nContent-Length: 
             &entry,
             PayloadOptions {
                 limit: 512 * 1024,
+                force_download: false,
                 expected_size: None,
                 timeout: REMOTE_TRANSFER_TIMEOUT_SECONDS,
                 progress: Some(&mut cb),
             },
         )
         .unwrap();
+        let header = f
+            .root
+            .join("downloads")
+            .join(format!("{}.hdr", entry.sha256));
+        assert!(!header.exists());
         assert_eq!(fs::read(&dest).unwrap(), data);
         assert!(
             observed
@@ -1030,5 +1147,24 @@ HTTP/2 206 Partial Content\r\nContent-Range: bytes 10-99/100\r\nContent-Length: 
                     && total == Some(data.len() as u64)),
             "expected progress callback to observe final total size across redirect: {observed:?}"
         );
+        let requests = f.root.join("requests");
+        assert_eq!(fs::read_to_string(&requests).unwrap().lines().count(), 2);
+        fs::remove_file(&dest).unwrap();
+        payload(
+            &f.roots,
+            &url,
+            &dest,
+            &entry,
+            PayloadOptions {
+                limit: 512 * 1024,
+                force_download: true,
+                expected_size: None,
+                timeout: REMOTE_TRANSFER_TIMEOUT_SECONDS,
+                progress: None,
+            },
+        )
+        .unwrap();
+        assert_eq!(fs::read_to_string(&requests).unwrap().lines().count(), 4);
+        assert_eq!(fs::read(&dest).unwrap(), data);
     }
 }

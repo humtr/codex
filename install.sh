@@ -41,7 +41,7 @@ Options:
 Source resolution when --binary, --build, and --release are omitted:
   1. ./bin/codex or ./codex beside install.sh (unpacked release bundle)
   2. ./target/release/codex in a built git checkout
-  3. GitHub Release tag 'wrapper' from humtr/codex
+  3. GitHub Release tag 'wrapper' from humtr/codex (default for stdin)
 EOF
 }
 
@@ -210,9 +210,7 @@ install_record_owner() {
   install_sync "$install_lock"
 }
 
-# Only a fully qualified active generation can prove that an uncertain
-# updater already committed. A process exit alone is not a commit receipt.
-qualified_new_activation() {
+qualified_generation_status() {
   state=$(activation_state_file)
   [ -f "$state" ] && [ ! -L "$state" ] || return 1
   root="$HOME/.local/share/codex/wrapper"
@@ -224,11 +222,19 @@ qualified_new_activation() {
   case $gen in ''|.|..|*/*) return 1 ;; esac
   meta="$HOME/.codex/packages/standalone/releases/$gen/generation.meta"
   [ -f "$meta" ] && [ ! -L "$meta" ] || return 1
-  if [ "${upstream_version:-none}" != none ]; then
-    "$dest_bin" wrapper status --verify --wrapper-sha256 "$candidate_sha" --upstream-version "$upstream_version" --json >/dev/null 2>&1
-  else
-    "$dest_bin" wrapper status --verify --wrapper-sha256 "$candidate_sha" --json >/dev/null 2>&1
+  if [ -n "$upstream_version" ]; then
+    set -- "$@" --upstream-version "$upstream_version"
   fi
+  "$dest_bin" wrapper status --verify "$@" --json >/dev/null 2>&1
+}
+
+qualified_active_generation() {
+  qualified_generation_status
+}
+
+# Recovery uses the candidate binding as evidence of the updater's activation.
+qualified_new_activation() {
+  qualified_generation_status --wrapper-sha256 "$candidate_sha"
 }
 
 # Do not infer a dead owner solely from kill -0; same-boot PID reuse, unreadable
@@ -271,8 +277,9 @@ updater_is_quiescent() {
         proc_state=$(sed 's/^.*) //' "/proc/$update_pid/stat" | awk '{print $1}') ||
           fail 'cannot inspect updater process state'
         case $proc_state in Z|X) ;; *) fail "updater process $update_pid is still alive; refusing recovery" ;; esac
+      else
+        fail 'updater PID was reused; refusing automatic settlement'
       fi
-      fail 'updater PID was reused; refusing automatic settlement'
     fi
     [ "$update_group" != 0 ] || fail 'updater group was not independently tracked'
     groups=$(ps -eo stat=,pgid= 2>/dev/null) ||
@@ -323,6 +330,7 @@ recover_install_lock() {
   fi
   case $skip_upstream in 0|1) ;; *) fail 'invalid install transaction mode' ;; esac
   case $upstream_version in
+    none) upstream_version='' ;;
     *[!A-Za-z0-9._-]*|'') fail 'invalid requested version in transaction' ;;
   esac
   # Every recovery path checks the installed bytes before any destructive step.
@@ -456,13 +464,18 @@ case $repo in
 esac
 
 if [ -n "$upstream_version" ]; then
-  validate_simple_token 'upstream version' "$upstream_version"
+  case $upstream_version in
+    *[!A-Za-z0-9._-]*) fail "upstream version contains unsupported characters: $upstream_version" ;;
+  esac
 fi
 
-script_dir=$(
-  CDPATH='' cd -- "$(dirname -- "$0")" 2>/dev/null &&
-    pwd -P
-) || fail 'cannot resolve script directory'
+script_dir=''
+if [ -f "$0" ]; then
+  script_dir=$(
+    CDPATH='' cd -- "$(dirname -- "$0")" 2>/dev/null &&
+      pwd -P
+  ) || fail 'cannot resolve script directory'
+fi
 
 work_parent=${TMPDIR:-"$prefix/tmp"}
 if [ ! -d "$work_parent" ]; then
@@ -563,6 +576,13 @@ trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
+# The child Wrapper must use the installer's runtime roots, including in recovery.
+PREFIX=$prefix
+export PREFIX
+if [ -n "${TMPDIR:-}" ]; then
+  export TMPDIR
+fi
+
 dest_dir="$prefix/bin"
 dest_bin="$dest_dir/codex"
 install_lock="$dest_dir/.codex-install.lock"
@@ -595,7 +615,10 @@ if [ -d "$install_lock" ] && [ ! -L "$install_lock" ]; then
 fi
 
 if [ -z "$source_mode" ]; then
-  if [ -f "$script_dir/bin/codex" ] && [ ! -L "$script_dir/bin/codex" ] && [ -f "$script_dir/SHA256SUMS" ]; then
+  if [ -z "$script_dir" ]; then
+    source_mode='release'
+    release_tag=$DEFAULT_RELEASE_TAG
+  elif [ -f "$script_dir/bin/codex" ] && [ ! -L "$script_dir/bin/codex" ] && [ -f "$script_dir/SHA256SUMS" ]; then
     source_mode='bundle'
     binary_path="$script_dir/bin/codex"
   elif [ -f "$script_dir/codex" ] && [ ! -L "$script_dir/codex" ] && [ -f "$script_dir/SHA256SUMS" ]; then
@@ -631,7 +654,7 @@ case $source_mode in
     fi
     ;;
   build)
-    [ -f "$script_dir/Cargo.toml" ] || fail '--build must be run from the codex repository root'
+    [ -n "$script_dir" ] && [ -f "$script_dir/Cargo.toml" ] || fail '--build must be run from the codex repository root'
     cargo_bin=$(find_tool cargo) || fail 'cargo is required for --build'
     note 'building codex wrapper in release mode'
     "$cargo_bin" build --release --locked --manifest-path "$script_dir/Cargo.toml" -p codex
@@ -670,14 +693,11 @@ case $source_mode in
 esac
 
 if [ "$skip_upstream" -eq 0 ]; then
-  for req in curl openssl gzip; do
+  for req in curl gzip; do
     find_tool "$req" >/dev/null 2>&1 || fail "runtime dependency missing from PATH/PREFIX: $req"
   done
 fi
 
-# --prefix must also govern the child Wrapper's actual runtime roots.
-PREFIX=$prefix
-export PREFIX
 mkdir -p "$dest_dir"
 if [ -e "$recovery_gate" ] || [ -L "$recovery_gate" ]; then
   fail "unsettled installer recovery: $recovery_gate"
@@ -745,15 +765,14 @@ if [ "$skip_upstream" -eq 1 ]; then
 fi
 
 if [ -x /system/bin/linker64 ]; then
-  if [ -n "$upstream_version" ]; then
-    note "fetching upstream Codex v$upstream_version"
-    needs_update=1
-  elif qualified_new_activation; then
-    note "qualified active generation already matches new Wrapper SHA-256"
+  needs_update=1
+  if qualified_active_generation; then
+    note 'retaining the qualified active upstream generation'
     needs_update=0
+  elif [ -n "$upstream_version" ]; then
+    note "fetching upstream Codex v$upstream_version"
   else
     note 'bootstrapping or requalifying upstream generation for the new Wrapper'
-    needs_update=1
   fi
   if [ "$needs_update" -eq 1 ]; then
     [ "$(activation_snapshot)" = "$state_before_sha" ] ||
@@ -796,9 +815,11 @@ if [ -x /system/bin/linker64 ]; then
       result=$?
       fail "upstream updater exited with status $result; activation must be reconciled"
     fi
-  fi
-  if ! qualified_new_activation; then
-    fail 'updater returned but active generation is not qualified against this Wrapper SHA-256'
+    qualified_new_activation ||
+      fail 'updater returned but active generation is not qualified against this Wrapper SHA-256'
+  else
+    qualified_active_generation ||
+      fail 'retained active generation is no longer qualified'
   fi
   note "installation complete; try '$dest_bin doctor' or '$dest_bin wrapper status'"
 else
