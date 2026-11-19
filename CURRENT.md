@@ -15,14 +15,14 @@ and retired work orders are archived in
 
 | Boundary | Observed State | Notes |
 | --- | --- | --- |
-| **Active branch / source** | `rewrite/wrapper` at `a1ee6590` (WP0–WP6 complete locally, unpushed) | `origin/main` (`fcefb8b3`) still holds legacy `0.167.2` pointer files; push, promotion, and stable release publication await final sign-off |
-| **Installed Wrapper (`$PREFIX/bin/codex`)** | Published `wrapper` prerelease (`addffcba`, SHA-256 `8701483e...`) | Live device binary intentionally untouched during WP1–WP6; HTTPS + SHA-256 checksum verified (not Stage 2.2 Ed25519) |
-| **Active / rollback upstream generation** | Active: `0.170.0-3f7e1a` (`ino=9717389`, SHA-256 `096ac747...`)<br>Rollback (`previous`): `0.169.1-3de502` | Under `$HOME/.codex/packages/standalone/releases/`; `standalone/current -> releases/0.170.0-3f7e1a` |
+| **Active branch / source** | `main` & `rewrite/wrapper` promoted to `135fccd1` (Stage 1 graduated) | Legacy `0.167.2` `main` (`fcefb8b3`) preserved at `origin/archive/main-legacy-0.167.2` |
+| **Installed Wrapper (`$PREFIX/bin/codex`)** | Published stable `wrapper` release (`135fccd1`, `bin/codex` SHA-256 `dfdcbbc2...`, `prerelease: false`) | Installed via public GitHub Release `install.sh` (`44464940477`); HTTPS + SHA-256 checksum verified (not Stage 2.2 Ed25519) |
+| **Active / rollback upstream generation** | Active: `0.170.0-3f7e1a` (`ino=9717389`, SHA-256 `096ac747...`)<br>Rollback (`previous`): `0.169.1-3de502` | Under `$HOME/.codex/packages/standalone/releases/`; `standalone/current -> releases/0.170.0-3f7e1a`; preserved offline during Wrapper cutover |
 | **Live managed daemons (`default` / `janmori101` / `szob`)** | All 3 homes linked to `$HOME/.codex/packages/standalone/current` | Independent PIDs (`20823`, `21394`, `21500`) and control sockets sharing `ino=9717389` with updated FD 34 (no `thread_unload_delay_secs = 0`) |
-| **Live `codex doctor --json` (all 3 homes)** | `termux_wrapper = healthy`; rollout/DB parity improved from `70/3/1/75` → `0/0/0/3` | 72 broken paths fixed & duplicate pair isolated (2026-11-19); 3 missing-file `/usr/tmp/*` DB rows retained untouched |
+| **Live `codex doctor --json` (all 3 homes)** | `exit 0`, `termux_wrapper = healthy`, `app_server = ok` (`0.170.0`), `summary = healthy`, parity `0/0/0/3` | Re-verified post-cutover across `default`, `janmori101`, and `szob` (0 Wrapper warnings); 3 missing-file `/usr/tmp/*` DB rows retained untouched |
 | **External services (`runit` & `167.2`)** | All 5 `runit` services running; `167.2` preserved in original generation (`ino=489102`) | Independently owned; excluded from Wrapper binary unification |
 | **Stage 2.1 boundary / Stage 2.2–2.5 addons** | 2.1 settings & FD 34 snapshot engine implemented; 2.2–2.5 deferred | Zero Manager/TUI/Provider executables attached |
-| **Stage 1 completion status (WP0–WP6)** | WP0–WP6 complete and qualified in isolated Android API 37 root (archived in [STAGE1_MILESTONES.md](docs/history/STAGE1_MILESTONES.md)) | Graduating to `origin/main`, stable GitHub `wrapper` release (`prerelease: false`), and live `$PREFIX/bin/codex` cutover |
+| **Stage 1 graduation status** | **Complete** (WP0–WP6 archived in [STAGE1_MILESTONES.md](docs/history/STAGE1_MILESTONES.md), ephemeral `HANDOFF.md` retired) | Deferred Stage 2 items tracked in [docs/ROADMAP.md](docs/ROADMAP.md) |
 
 ### Unverified / Remaining Boundaries
 
@@ -31,11 +31,16 @@ and retired work orders are archived in
 - External Remote Control client pairing and post-cutover interactive model inference across all accounts.
 - Deferred Stage 2 `/switch` cross-account UUID handoff and `session_index.jsonl` authority matrix (see [docs/ROADMAP.md](docs/ROADMAP.md#7-follow-up-verification-session-handoff-and-session_indexjsonl)).
 - Post-retention disk reclamation of legacy per-home `packages/app-server-daemon/releases/` (~2.82 GiB) and `$HOME/.local/share/codex/wrapper/downloads-v1` (~960 MiB), retained until rollback window sign-off.
-- Promotion of `rewrite/wrapper` to `origin/main` and switching the GitHub `wrapper` release from `prerelease: true` to stable.
 
 ---
 
 ## Recent Verified Evidence (Newest-First)
+
+### 2026-11-19 — Stage 1 Graduation: `origin/main` Promotion, Stable `wrapper` Release & Live Device Cutover (CI + actual Termux API 37)
+
+- **Branch promotion & archival:** Archived legacy `0.167.2` `origin/main` (`fcefb8b3`) to `origin/archive/main-legacy-0.167.2`; retired ephemeral `HANDOFF.md` after archiving its WP0–WP6 summary into [STAGE1_MILESTONES.md](docs/history/STAGE1_MILESTONES.md); fixed Ubuntu CI `shellcheck` SC2015 (`1e714e8b`) and Linux CI test portability (`e76a3ae4`, `104` Wrapper + `19` builder tests = `123` passed); promoted `rewrite/wrapper` cleanly to `origin/main` at `135fccd1` (zero force-push, exact tree parity).
+- **CI & stable public release publication:** [Wrapper CI run 44464940477](https://github.com/humtr/codex/actions/runs/44464940477) on `main` (`135fccd1`) passed all 4 jobs: `checks`, `android-package`, `android-smoke` (including full `qualify_wrapper.py` cross-version `0.169.1`↔`0.170.0` upstream qualification on Android Bionic), and `release` (`publish_wrapper_release.py` verified peeled tag, notes, `prerelease=False`, and exact asset readback). Published stable GitHub Release `wrapper` (`isPrerelease: false`, `codex-wrapper-aarch64-linux-android.tar.gz` 966,831 B SHA-256 `636c0a5a0cc3...`, `bin/codex` SHA-256 `dfdcbbc25be2...`, `install.sh` SHA-256 `40c57c2f2df6...`).
+- **Live device cutover (actual Termux API 37):** Saved pre-cutover backup (`8701483e...`) and state snapshot to `0700` `$HOME/.local/share/codex/wrapper-recovery/20261119-stage1-graduation/`. Executed the published `https://github.com/humtr/codex/releases/download/wrapper/install.sh` cleanly: verified release archive & `bin/codex` SHA-256, installed `$PREFIX/bin/codex` (`dfdcbbc25be2...`), and retained the compatible active generation offline (`retaining the qualified active upstream generation`). Verified byte-identical `activation-state` (`35540262...`), unchanged `current=0.170.0-3f7e1a` (`ino=9717389`) & `previous=0.169.1-3de502`, undisturbed live daemons (`PID 20823, 21394, 21500`) and 5 `runit` services, and `codex doctor --json` returning `exit 0` (`termux_wrapper=healthy`, `app_server=ok`, `summary=healthy`, parity `0/0/0/3`) across `default`, `janmori101`, and `szob`.
 
 ### 2026-11-19 — Stage 1 Completion Candidate WP1–WP6 (isolated Android API 37 Termux)
 
