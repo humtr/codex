@@ -1678,12 +1678,10 @@ printf 'upstream stderr captured\n' >&2
         } else {
             "/bin/sh"
         };
-        let sleep_bin = Path::new("/system/bin/sleep");
-        let sleep_cmd = if sleep_bin.exists() {
-            "/system/bin/sleep"
-        } else {
-            "sleep"
-        };
+        let sleep_cmd = ["/system/bin/sleep", "/bin/sleep", "/usr/bin/sleep"]
+            .into_iter()
+            .find(|path| Path::new(path).exists())
+            .unwrap_or("sleep");
         let child_pid_file = root.join("bg.pid");
         fs::write(
             gen_dir.join("bin/codex"),

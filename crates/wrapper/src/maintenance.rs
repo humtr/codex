@@ -42,6 +42,8 @@ pub(super) fn launch_lease(root: &Path) -> io::Result<Option<File>> {
 pub(super) struct UpdateLease<'a> {
     roots: &'a LocalWrapperRoots,
     file: Option<File>,
+    #[cfg(test)]
+    proc_root: Option<std::path::PathBuf>,
 }
 impl<'a> UpdateLease<'a> {
     pub(super) fn acquire(roots: &'a LocalWrapperRoots) -> Result<Self, LocalProductError> {
@@ -55,12 +57,32 @@ impl<'a> UpdateLease<'a> {
                 operation: "lease installed generations during update",
                 source,
             })?;
-        Ok(Self { roots, file })
+        Ok(Self {
+            roots,
+            file,
+            #[cfg(test)]
+            proc_root: None,
+        })
+    }
+
+    #[cfg(test)]
+    fn acquire_with_proc(
+        roots: &'a LocalWrapperRoots,
+        proc_root: std::path::PathBuf,
+    ) -> Result<Self, LocalProductError> {
+        let mut lease = Self::acquire(roots)?;
+        lease.proc_root = Some(proc_root);
+        Ok(lease)
     }
 }
 impl Drop for UpdateLease<'_> {
     fn drop(&mut self) {
         drop(self.file.take());
+        #[cfg(test)]
+        if let Some(proc_root) = self.proc_root.as_deref() {
+            let _ = prune_with_proc(self.roots, proc_root);
+            return;
+        }
         let _ = prune(self.roots);
     }
 }
@@ -161,7 +183,7 @@ fn process_is_owned(process: &Path, directory_uid: u32, uid: u32) -> io::Result<
     Ok(owners.contains(&uid))
 }
 
-fn process_references(roots: &[&Path]) -> io::Result<HashSet<String>> {
+fn process_references_in(proc_root: &Path, roots: &[&Path]) -> io::Result<HashSet<String>> {
     let uid = fs_util::current_uid()?;
     let mut keep = HashSet::new();
     let mut record = |link: &Path| -> io::Result<()> {
@@ -179,7 +201,7 @@ fn process_references(roots: &[&Path]) -> io::Result<HashSet<String>> {
         Ok(())
     };
     let mut exit_budget = std::time::Duration::from_millis(10);
-    for entry in fs::read_dir("/proc")? {
+    for entry in fs::read_dir(proc_root)? {
         let entry = entry?;
         if !entry
             .file_name()
@@ -296,7 +318,7 @@ fn prune_directory(root: &Path, keep: &HashSet<String>, staging_only: bool) -> i
     Ok(removed)
 }
 
-fn prune_orphaned_headers(root: &Path) -> io::Result<usize> {
+fn prune_orphaned_headers_with_proc(root: &Path, proc_root: &Path) -> io::Result<usize> {
     match fs::symlink_metadata(root) {
         Ok(_) => owned_directory(root)?,
         Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(0),
@@ -349,7 +371,7 @@ fn prune_orphaned_headers(root: &Path) -> io::Result<usize> {
         // an open header after the directory lease has been released.
         let references = match references.as_mut() {
             Some(references) => references,
-            None => references.insert(process_references(&[root])?),
+            None => references.insert(process_references_in(proc_root, &[root])?),
         };
         if references.contains(filename) {
             continue;
@@ -377,6 +399,10 @@ fn prune_orphaned_headers(root: &Path) -> io::Result<usize> {
 }
 
 pub(super) fn prune(roots: &LocalWrapperRoots) -> io::Result<usize> {
+    prune_with_proc(roots, Path::new("/proc"))
+}
+
+fn prune_with_proc(roots: &LocalWrapperRoots, proc_root: &Path) -> io::Result<usize> {
     owned_directory(&roots.generation_root)?;
     let parent = roots.generation_root.parent().ok_or_else(invalid)?;
     owned_directory(parent)?;
@@ -401,7 +427,7 @@ pub(super) fn prune(roots: &LocalWrapperRoots) -> io::Result<usize> {
         .map_err(|_| invalid())?
         .ok_or_else(invalid)?;
     let mut keep = dependencies(&state);
-    let headers = prune_orphaned_headers(&roots.state_root.join("downloads"));
+    let headers = prune_orphaned_headers_with_proc(&roots.state_root.join("downloads"), proc_root);
     let publications = roots.state_root.join("publications");
     if !has_prunable_entries(&roots.generation_root, &keep, false)?
         && !has_prunable_entries(&publications, &keep, false)?
@@ -409,10 +435,10 @@ pub(super) fn prune(roots: &LocalWrapperRoots) -> io::Result<usize> {
     {
         return headers;
     }
-    keep.extend(process_references(&[
-        &roots.generation_root,
-        &roots.state_root,
-    ])?);
+    keep.extend(process_references_in(
+        proc_root,
+        &[&roots.generation_root, &roots.state_root],
+    )?);
     // No state mutation can occur under this writer lock, including rollback.
     let mut removed = prune_directory(&roots.generation_root, &keep, false)?;
     removed += prune_directory(&publications, &keep, false)?;
@@ -546,10 +572,19 @@ mod tests {
         crate::tests::remove_temp_root(root);
     }
 
+    fn test_self_proc_root(root: &Path) -> std::path::PathBuf {
+        let proc_root = root.join("proc");
+        fs::create_dir_all(&proc_root).unwrap();
+        let pid = std::process::id().to_string();
+        std::os::unix::fs::symlink(Path::new("/proc").join(&pid), proc_root.join(&pid)).unwrap();
+        proc_root
+    }
+
     #[test]
     fn maintenance_preserves_open_state_staging_and_prunes_it_after_release() {
         let root = crate::tests::temp_root("state-staging-prune");
         let roots = crate::tests::make_test_roots(&root);
+        let proc_root = test_self_proc_root(&root);
         let paths = generation_state::WrapperStatePaths::new(&roots.state_root).unwrap();
         let pointer = generation_state::plan_initial_pointer_state("gen-1").unwrap();
         fs::write(
@@ -563,12 +598,12 @@ mod tests {
         fs::create_dir(&busy).unwrap();
         fs::create_dir(&old).unwrap();
         let open = File::create(busy.join("proof")).unwrap();
-        assert_eq!(prune(&roots).unwrap(), 1);
+        assert_eq!(prune_with_proc(&roots, &proc_root).unwrap(), 1);
         assert!(busy.exists());
         assert!(!old.exists());
 
         drop(open);
-        assert_eq!(prune(&roots).unwrap(), 1);
+        assert_eq!(prune_with_proc(&roots, &proc_root).unwrap(), 1);
         assert!(!busy.exists());
         crate::tests::remove_temp_root(root);
     }
@@ -577,6 +612,7 @@ mod tests {
     fn maintenance_prunes_only_owned_unheld_orphan_download_headers() {
         let root = crate::tests::temp_root("header-prune");
         let roots = crate::tests::make_test_roots(&root);
+        let proc_root = test_self_proc_root(&root);
         let paths = generation_state::WrapperStatePaths::new(&roots.state_root).unwrap();
         let pointer = generation_state::plan_initial_pointer_state("gen-1").unwrap();
         fs::write(
@@ -604,25 +640,64 @@ mod tests {
         std::os::unix::fs::symlink(&unknown, &symlink).unwrap();
         let cache_lease = File::open(&downloads).unwrap();
         flock_fd(&cache_lease, LOCK_EX | LOCK_NB).unwrap();
-        assert_eq!(prune(&roots).unwrap_err().kind(), io::ErrorKind::WouldBlock);
+        assert_eq!(
+            prune_with_proc(&roots, &proc_root).unwrap_err().kind(),
+            io::ErrorKind::WouldBlock
+        );
         assert!(orphan.exists());
         drop(cache_lease);
         let open_header = File::open(&held).unwrap();
-        assert_eq!(prune(&roots).unwrap(), 1);
+        assert_eq!(prune_with_proc(&roots, &proc_root).unwrap(), 1);
         assert!(!orphan.exists());
         assert!(paired.exists());
         assert!(held.exists());
         assert!(symlink.is_symlink());
         assert!(unknown.exists());
         drop(open_header);
-        assert_eq!(prune(&roots).unwrap(), 1);
+        assert_eq!(prune_with_proc(&roots, &proc_root).unwrap(), 1);
         assert!(!held.exists());
+        crate::tests::remove_temp_root(root);
+    }
+
+    #[test]
+    fn prune_fails_closed_when_owned_process_fd_is_unreadable() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = crate::tests::temp_root("unreadable-proc-fd");
+        let roots = crate::tests::make_test_roots(&root);
+        let proc_root = test_self_proc_root(&root);
+        let paths = generation_state::WrapperStatePaths::new(&roots.state_root).unwrap();
+        let pointer = generation_state::plan_initial_pointer_state("gen-1").unwrap();
+        fs::write(
+            &paths.activation_state,
+            generation_state::encode_pointer_state(&pointer).unwrap(),
+        )
+        .unwrap();
+
+        let old = roots.state_root.join(".local-update-19-1");
+        fs::create_dir(&old).unwrap();
+        let unreadable = proc_root.join("999999");
+        let unreadable_fd = unreadable.join("fd");
+        fs::create_dir_all(&unreadable_fd).unwrap();
+        let mut fields = vec!["0"; 18];
+        fields[0] = "S";
+        fields[17] = "1";
+        fs::write(
+            unreadable.join("stat"),
+            format!("999999 (opaque) {}", fields.join(" ")),
+        )
+        .unwrap();
+        fs::set_permissions(&unreadable_fd, fs::Permissions::from_mode(0o000)).unwrap();
+        let err = prune_with_proc(&roots, &proc_root).unwrap_err();
+        fs::set_permissions(&unreadable_fd, fs::Permissions::from_mode(0o700)).unwrap();
+        assert_eq!(err.kind(), io::ErrorKind::PermissionDenied);
+        assert!(old.exists());
         crate::tests::remove_temp_root(root);
     }
 
     #[test]
     fn update_lease_creates_missing_generation_root_and_blocks_prune() {
         let root = crate::tests::temp_root("update-lease-fresh");
+        let proc_root = test_self_proc_root(&root);
         let home = root.join("home");
         let generation_root = home.join(".codex/packages/standalone/releases");
         let state_root = home.join(".local/share/codex/wrapper");
@@ -655,17 +730,17 @@ mod tests {
         };
         assert!(!generation_root.exists());
 
-        let lease = UpdateLease::acquire(&roots).unwrap();
+        let lease = UpdateLease::acquire_with_proc(&roots, proc_root.clone()).unwrap();
         assert!(fs::symlink_metadata(&generation_root).unwrap().is_dir());
 
         let old_staging = state_root.join(".local-update-22-1");
         fs::create_dir(&old_staging).unwrap();
-        let blocked = prune(&roots).unwrap_err();
+        let blocked = prune_with_proc(&roots, &proc_root).unwrap_err();
         assert_eq!(blocked.kind(), io::ErrorKind::WouldBlock);
 
         drop(lease);
         assert!(!old_staging.exists(), "UpdateLease drop already prunes");
-        assert_eq!(prune(&roots).unwrap(), 0);
+        assert_eq!(prune_with_proc(&roots, &proc_root).unwrap(), 0);
         crate::tests::remove_temp_root(root);
     }
 }
