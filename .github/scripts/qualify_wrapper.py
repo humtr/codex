@@ -35,7 +35,8 @@ def filesystem_snapshot(roots):
 
     def visit(path):
         info = path.lstat()
-        entries[path] = (info.st_mode, info.st_size, info.st_mtime_ns, info.st_ctime_ns, info.st_ino)
+        link = path.readlink() if stat.S_ISLNK(info.st_mode) else None
+        entries[path] = (info.st_mode, info.st_size, info.st_mtime_ns, info.st_ctime_ns, info.st_ino, link)
         if stat.S_ISDIR(info.st_mode):
             for child in path.iterdir():
                 visit(child)
@@ -45,10 +46,35 @@ def filesystem_snapshot(roots):
     return entries
 
 
-def require_unchanged(label, before, roots):
+def is_upstream_arg0_artifact(path, homes):
+    for home in homes:
+        try:
+            rel = path.relative_to(home)
+        except ValueError:
+            continue
+        parts = rel.parts
+        if parts in ((), ("tmp",), ("tmp", "arg0-linux")):
+            return home
+        if len(parts) >= 3 and parts[:2] == ("tmp", "arg0-linux") and parts[2].startswith("codex-arg0"):
+            return home
+    return None
+
+
+def require_unchanged(label, before, roots, *, upstream_arg0_homes=()):
     after = filesystem_snapshot(roots)
-    changed = sorted(path for path in before.keys() | after.keys()
-                     if before.get(path) != after.get(path))
+    changed = []
+    for path in sorted(before.keys() | after.keys()):
+        if before.get(path) == after.get(path):
+            continue
+        matched_home = is_upstream_arg0_artifact(path, upstream_arg0_homes)
+        if matched_home is not None:
+            if path == matched_home:
+                prev, curr = before.get(path), after.get(path)
+                if prev is not None and curr is not None and (prev[0], prev[4]) == (curr[0], curr[4]):
+                    continue
+            else:
+                continue
+        changed.append(path)
     if changed:
         raise RuntimeError(f"{label}: changed {len(changed)} snapshot entries: {changed[:6]}")
 
@@ -179,13 +205,13 @@ class Qualification:
     def status(self, label):
         return json.loads(self.cli(label, "wrapper", "status", "--json"))
 
-    def read_only_doctor(self, label, *homes, env=None):
+    def read_only_doctor(self, label, *homes, env=None, upstream_arg0_homes=()):
         roots = (self.home, self.prefix, *homes)
         before = filesystem_snapshot(roots)
         try:
             output = self.cli(label, "doctor", "--json", expected=(0, 1), timeout=120, env=env)
         finally:
-            require_unchanged(label, before, roots)
+            require_unchanged(label, before, roots, upstream_arg0_homes=upstream_arg0_homes)
         doctor = json.loads(output)
         if doctor["termux_wrapper"]["status"] != "healthy":
             raise RuntimeError(f"{label}: Wrapper diagnosis is unhealthy")
@@ -223,8 +249,9 @@ class Qualification:
             output = self.cli(f"{profile.name}-version", "--version", env=env)
             if output != f"codex-cli {version}\n".encode():
                 raise RuntimeError(f"{profile.name}: fast version output differs from qualified release")
-        require_unchanged("shared profile fast path", before, roots)
-        self.read_only_doctor("shared-doctor", *profiles, shared, env=profile_envs[0])
+        require_unchanged("shared profile fast path", before, roots, upstream_arg0_homes=profiles)
+        self.read_only_doctor("shared-doctor", *profiles, shared,
+                              env=profile_envs[0], upstream_arg0_homes=(profiles[0],))
 
         for profile, env in zip(profiles, profile_envs):
             self.cli(f"{profile.name}-features", "features", "list", env=env)
@@ -474,7 +501,14 @@ class Qualification:
         running = json.loads(self.cli("daemon-version", "app-server", "daemon", "version"))
         if running["status"] != "running" or running["appServerVersion"] != selected["upstream_version"]:
             raise RuntimeError("daemon control connection failed")
-        doctor, checks = self.read_only_doctor("doctor", self.codex_home)
+        # While the live upstream app-server daemon owns SQLite WAL/SHM and `.tmp`
+        # inside `self.codex_home`, verify that `$HOME`, `$PREFIX`, and Wrapper-managed
+        # daemon files remain untouched by `codex doctor`.
+        doctor, checks = self.read_only_doctor(
+            "doctor",
+            self.codex_home / "app-server-daemon/settings.json",
+            package_link,
+        )
         if checks["app_server.status"]["status"] != "ok":
             raise RuntimeError("actual app-server diagnosis is unhealthy")
         self.report["doctor"] = {"wrapper": "healthy", "app_server": "ok", "overall": doctor["summary"]["status"],
