@@ -654,7 +654,9 @@ case $source_mode in
     fi
     ;;
   build)
-    [ -n "$script_dir" ] && [ -f "$script_dir/Cargo.toml" ] || fail '--build must be run from the codex repository root'
+    if [ -z "$script_dir" ] || [ ! -f "$script_dir/Cargo.toml" ]; then
+      fail '--build must be run from the codex repository root'
+    fi
     cargo_bin=$(find_tool cargo) || fail 'cargo is required for --build'
     note 'building codex wrapper in release mode'
     "$cargo_bin" build --release --locked --manifest-path "$script_dir/Cargo.toml" -p codex
