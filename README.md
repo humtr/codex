@@ -9,7 +9,7 @@ the Termux layer, remove local code superseded by upstream and improve the
 existing automated upgrade path. Compatibility failures require repair; the
 current working release remains available until the next is qualified. This
 applies to future releases as well as the current target. See the
-[continuous upstream upgrade contract](SPEC.md#continuous-upstream-upgrades).
+[continuous upstream adoption invariant](SPEC.md#2-continuous-upstream-adoption).
 
 The product has one public command, `codex`, built in two decoupled stages:
 
@@ -27,8 +27,8 @@ The product has one public command, `codex`, built in two decoupled stages:
   verification, Manager, enhanced `TUI`, and Wrapper-managed `Provider` bridge.
   Earlier source is preserved on `rewrite/rust-core` for selective integration,
   not included in the Stage 1 binary. See the
-  [implementation/ownership map](docs/architecture/STAGE1_BOUNDARIES.md),
-  [current evidence](CURRENT.md) and [Stage 2 plan](docs/plan/STAGE2_PLAN.md).
+  [architecture and ownership map](docs/ARCHITECTURE.md),
+  [current evidence](CURRENT.md) and [roadmap](docs/ROADMAP.md).
 
 ## Requirements on Termux
 
@@ -82,7 +82,7 @@ curl -fsSL https://github.com/humtr/codex/releases/download/wrapper/install.sh |
 
 This installs the standalone `codex` wrapper binary, verifies its SHA-256
 digest, and bootstraps an active adapted upstream Codex generation; see
-[current public-release and installed-device acceptance](CURRENT.md#stage-1-p0-operational-cutover-and-public-release-acceptance-2026-11-17-actual-termux).
+[current operating state](CURRENT.md#current-live-operating-snapshot-2026-11-19).
 The standalone release uses HTTPS plus SHA-256 checksum verification, **not
 Stage 2.2 Ed25519-signed addon distribution**.
 
@@ -216,16 +216,16 @@ for `default` / `home`), and passes all remaining arguments directly to
 `$PREFIX/bin/codex` without requiring `--`:
 
 ```sh
-codex-account szob                              # start Codex TUI in szob home
-codex-account janmori101 resume <UUID>          # resume thread in janmori101 home
-codex-account szob -p review exec "검토해 줘"   # apply szob home + review.config.toml
+codex-account work                              # start Codex TUI in work home
+codex-account personal resume <UUID>            # resume thread in personal home
+codex-account work -p review exec "review this" # apply work home + review.config.toml
 codex-account default                           # unset inherited profile env and use ~/.codex
-codex-account szob --help                       # pass --help through to Codex
+codex-account work --help                       # pass --help through to Codex
 ```
 
 Per-account V2 config (`-p <name>`) reads `<name>.config.toml` from the
-selected account's `$CODEX_HOME`; `CODEX_SHARED_HOME` only auto-links
-`installation_id`, `config.toml`, `ais.config.toml`, and `chatgpt.config.toml`.
+selected account's `$CODEX_HOME`; `CODEX_SHARED_HOME` shares `installation_id`
+and `config.toml` by default (plus any additional opt-in shared files once configured).
 
 ## Optional module configuration (Stage 2.1 boundary)
 
@@ -353,15 +353,15 @@ cargo build --release --locked -p codex -p codex-release-builder
 ## Repository Documentation
 
 Start at the [documentation map](docs/INDEX.md) for document authority,
-scope and status vocabulary; the
-[Stage 1 implementation and responsibility map](docs/architecture/STAGE1_BOUNDARIES.md)
+lifecycle rules, and status vocabulary; the
+[architecture and ownership map](docs/ARCHITECTURE.md)
 ties active commands to code and distinguishes integrated from deferred modules.
 
-- [SPEC.md](SPEC.md) — Normative product contract and Stage 1 / Stage 2 boundaries.
-- [CURRENT.md](CURRENT.md) — Verified build, live-device, and isolated runtime evidence.
-- [docs/plan/STAGE2_PLAN.md](docs/plan/STAGE2_PLAN.md) — Stage 2 detailed reintegration procedure, lineage warnings, and verification gates.
+- [SPEC.md](SPEC.md) — Settled top-level product invariants.
+- [CURRENT.md](CURRENT.md) — Current live operating state and recent verified evidence.
+- [docs/ROADMAP.md](docs/ROADMAP.md) — Deferred Stage 2 reintegration roadmap, lineage warnings, and follow-up verification criteria.
 - [AGENTS.md](AGENTS.md) — Agent and engineering working principles.
-- [docs/spec/USER_INTERFACES.md](docs/spec/USER_INTERFACES.md) and [docs/spec/DELIVERY.md](docs/spec/DELIVERY.md) — CLI routing and delivery contracts.
-- [docs/spec/BRIDGE.md](docs/spec/BRIDGE.md) — Stage 2 optional ChatGPT bridge architecture (source preserved on `rewrite/rust-core`).
-- [docs/history/GENERATION_ADMISSION.md](docs/history/GENERATION_ADMISSION.md) — Historical generation admission architecture record.
-- [docs/history/LEGACY_RUST_CORE.md](docs/history/LEGACY_RUST_CORE.md) — Archived pre-rewrite `rewrite/rust-core` (`0.167.0`) development evidence.
+- [docs/spec/DELIVERY.md](docs/spec/DELIVERY.md) and [docs/spec/USER_INTERFACES.md](docs/spec/USER_INTERFACES.md) — Detailed delivery, recovery, CLI, and conditional Stage 2 contracts.
+- [docs/spec/BRIDGE.md](docs/spec/BRIDGE.md) — Deferred Stage 2 ChatGPT Bridge/Provider contract (source preserved on `rewrite/rust-core`).
+- [docs/history/STAGE1_MILESTONES.md](docs/history/STAGE1_MILESTONES.md) — Archived 2026-11-16 – 2026-11-19 Stage 1 milestones and retired work orders.
+- [docs/history/GENERATION_ADMISSION.md](docs/history/GENERATION_ADMISSION.md) and [docs/history/LEGACY_RUST_CORE.md](docs/history/LEGACY_RUST_CORE.md) — Archived pre-rewrite admission records and `rewrite/rust-core` (`0.167.x`) evidence.

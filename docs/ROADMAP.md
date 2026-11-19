@@ -1,10 +1,10 @@
-# Stage 2 Reintegration Procedure and Implementation Plan
+# Roadmap: Stage 2 Reintegration and Follow-Up Verification
 
 > **Status:** **Remaining optional integration plan, not the active Wrapper feature list.**
-> Follow [documentation authority](../INDEX.md) and the
-> [current implementation/owner map](../architecture/STAGE1_BOUNDARIES.md).
-> Normative contracts: [SPEC.md](../../SPEC.md), [DELIVERY.md](../spec/DELIVERY.md),
-> [USER_INTERFACES.md](../spec/USER_INTERFACES.md), [BRIDGE.md](../spec/BRIDGE.md).
+> Follow [documentation authority](INDEX.md) and the
+> [current implementation/owner map](ARCHITECTURE.md).
+> Normative contracts: [SPEC.md](../SPEC.md), [DELIVERY.md](spec/DELIVERY.md),
+> [USER_INTERFACES.md](spec/USER_INTERFACES.md), [BRIDGE.md](spec/BRIDGE.md).
 > Historical lineage and example source paths below are porting references, not
 > instructions to replace the accepted Stage 1 implementation wholesale.
 > **Current implementation state:** **Stage 1** (including adaptive Issue #33 FD 35 `realpath` + multi-gap/trailing RX relocation) and **Phase 2.1** (`wrapper.toml`, `codex wrapper setup`/`--bare`/`--with`, and the conditional FD 34 snapshot engine in `crates/wrapper`) have source implementation and scoped workspace/API 37 Termux evidence; no addon binaries (`manager`, `tui`, `provider`) are attached. FD 34 concurrent publication/pruning is repaired and covered by process tests; actual producer integration remains unqualified. Phases 2.2–2.5 remain pending; Phase 2.6 has read-only discovery and qualification support. The current priority is standalone compatibility and recurring upstream adoption before optional module attachment; base discovery and qualification in Phase 2.6 need not wait for Phases 2.2–2.5.
@@ -16,7 +16,7 @@
 1. **Preserve Stage 1 independence at every phase:**
    - Bare `codex` (and `codex --version`, `-V`, `--help`, `-h`, `help`, `codex update --upstream`, `codex doctor`, `codex wrapper status`) must remain runnable with **zero** dependency on Node.js, Manager, enhanced TUI, Provider, network indices, or Termux:API apps.
    - `crates/wrapper` (`codex` CLI binary) keeps bare runtime fast path: zero addon probes, zero Manager IPC spawns, and zero **addon** writes/locks/`fsync` calls on unchanged launches when no optional module is enabled. Existing generation leases, qualified runtime checks and recovery of a pending activation journal are **not** skipped.
-   - `Cargo.lock` for bare Stage 1 Wrapper currently locks only `codex`, `codex-release-builder`, and `libc` (`=0.2.186`), enforced by [`.github/workflows/wrapper.yml`](../../.github/workflows/wrapper.yml). Any Stage 2 workspace additions (`crates/manager`, `crates/runtime-binding`, TOML/JSON/WS dependencies) must keep bare `crates/wrapper` dependency-isolated or intentionally update the CI workspace check alongside separate package boundaries so Manager/source-builder crates never become runtime or build prerequisites for bare execution.
+   - `Cargo.lock` for bare Stage 1 Wrapper currently locks only `codex`, `codex-release-builder`, and `libc` (`=0.2.186`), enforced by [`.github/workflows/wrapper.yml`](../.github/workflows/wrapper.yml). Any Stage 2 workspace additions (`crates/manager`, `crates/runtime-binding`, TOML/JSON/WS dependencies) must keep bare `crates/wrapper` dependency-isolated or intentionally update the CI workspace check alongside separate package boundaries so Manager/source-builder crates never become runtime or build prerequisites for bare execution.
 2. **Authoritative Source Lineage — Do NOT Wholesale-Restore `ebb0b519`:**
    - As inspected on **2026-11-17**, `origin/main` at `fcefb8b3` contains **20 tracked files** (release/index/config inputs, `.github/`, `AGENTS.md`, `README.md`), with **zero** Rust/frontend/provider source crates. `f9c75f55` was an earlier main checkpoint, not its current HEAD. `main` is a separate publication/source-pointer branch, **not** the Stage 1 implementation branch; never merge it into `rewrite/wrapper` merely to obtain implementation files.
    - **`rewrite/rust-core` (`c200e676`)** is the authoritative preserved Stage 2 source tree (`crates/core`, `crates/runtime-binding`, `crates/manager`, `crates/release-builder`, `frontend/tui`, `providers/chatgpt`, `transport/tunnel-client`, `.github/scripts`).
@@ -194,7 +194,7 @@ issue filing, or device access): local `codex update --upstream` resolves OpenAI
 directly and has zero functional dependency on CI schedules, so keeping
 `wrapper-upstream.yml` manual (`workflow_dispatch`, pointing at the current verified
 `rewrite/wrapper` commit) avoids unnecessary daily pinned-commit cron runs while
-retaining on-demand compatibility checks; see [current evidence](../../CURRENT.md#standalone-qualification-and-read-only-upstream-discovery-follow-up-2026-11-16).
+retaining on-demand compatibility checks; see [current evidence](history/STAGE1_MILESTONES.md#standalone-qualification-and-read-only-upstream-discovery-follow-up-2026-11-16).
 
 The canary runs the existing adaptation implementation; it does not generate a
 new implementation when upstream changes. A compatible new archive needs no
@@ -317,12 +317,36 @@ ABI compatibility layer, not the real-device operating acceptance by itself.
 
 The 2026-11-17 P0 installer/recovery, public `wrapper` prerelease source and
 asset readback, isolated actual Android qualification and authorized device
-Wrapper cutover are recorded in [CURRENT](../../CURRENT.md). This closes
+Wrapper cutover are recorded in [CURRENT](../CURRENT.md). This closes
 standalone publication/operation for that qualified source, **not** the
 post-cutover authenticated inference, external remote client or physical
 power/16-KiB-kernel/other-device boundaries. The Stage 2.1 interface/FD 34
 engine is code-complete; a real Manager fragment producer is **not**.
 
-- Unified naming (`wrapper`, `codex-wrapper`, `codex-local-generation`, `codex-activation-state`, `package-root`, `termux-fd-remap`, `termux-uds-fd35`) across code, tests, [`install.sh`](../../install.sh), [`.github/workflows/wrapper.yml`](../../.github/workflows/wrapper.yml), and documentation.
+- Unified naming (`wrapper`, `codex-wrapper`, `codex-local-generation`, `codex-activation-state`, `package-root`, `termux-fd-remap`, `termux-uds-fd35`) across code, tests, [`install.sh`](../install.sh), [`.github/workflows/wrapper.yml`](../.github/workflows/wrapper.yml), and documentation.
 - Removed legacy `99b` / `R10` / `helpers/{0,1}` / `RootCodeModeHost` / `upstream_doctor` / version-pinned tests.
 - Passed local checks (`ruby` Psych YAML, `sh -n` / `shellcheck`, `cargo fmt`, `clippy`, `cargo test --workspace --locked`, isolated AArch64 mock-ELF E2E) and GitHub Actions `Wrapper CI` (`checks`, `android-package`, `android-smoke`).
+
+---
+
+## 7. Follow-Up Verification: Session Handoff and `session_index.jsonl`
+
+이 두 과제는 `contrib/codex-account` 구현과 독립적으로 진행합니다.
+Stage 1의 FD 34는 스레드 수명을 업스트림 정책에 맡깁니다. 마지막 클라이언트가
+연결을 닫은 뒤에도 실제 writer 해제와 업스트림 재개 조건을 확인한 다음 인계합니다.
+
+### 7.1 동일 UUID 세션 인계(`/switch`) 검증 기준
+- **합격 조건:**
+  1. 계정 A가 스레드 X의 턴을 완료하고, 단순 `thread/unsubscribe` ACK가 아니라 **`thread-writer-locks/`의 실제 writer 해제가 완료된 뒤** 계정 B가 동일 UUID X를 재개합니다.
+  2. B가 보낸 다음 추론 요청에 A의 직전 응답 문맥이 포함되고 B의 턴이 완료됩니다.
+  3. 같은 시간 동안 A의 다른 스레드 Y 작업이 중단 없이 지속·완료됩니다.
+- **실계정 온라인 시험 계획:** 별도 승인된 새 테스트 스레드에서만 A 기준 턴 → writer 해제 → B 후속 턴을 검증합니다.
+- **계정 일치 검사 정책:** `0.170.0`의 `cli_resume_account_check` 등 업스트림 계정 일치 검사가 켜진 환경에서 타 계정 재개가 거절되면, **계정 태그나 정책을 변조해 억지로 통과시키지 말고** 해당 버전/설정의 호환성 결과로 그대로 기록합니다.
+
+### 7.2 `session_index.jsonl` 권위 원천 및 삭제/이름변경 검증안
+- **분리 측정 항목:** A/B 동시 기동 상태에서 이름 변경(`rename`) 및 삭제(`delete`) 수행 후 아래 4개 경로의 **UUID 조회·신규 이름 조회·구 이름(alias) 조회**를 각각 측정하고 실제 권위 원천(`state_5.sqlite` vs `session_index.jsonl`)을 기록합니다:
+  1. `app-server` `thread/list`
+  2. `app-server` `thread/read`
+  3. TUI 목록 및 `/resume`
+  4. `codex exec resume <NAME|UUID>`
+- **제약:** 각 조회의 권위 원천과 동시 쓰기 정합성이 입증되기 전에는 `state_5.sqlite`나 파일 타임스탬프를 역산해 `session_index.jsonl`을 임의 재생성하는 임시 우회를 적용하지 않습니다.

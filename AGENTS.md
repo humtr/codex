@@ -24,19 +24,18 @@ selected model and entrypoint.
 - Check the actual checkout, branch, HEAD, user changes, current work ownership
   and the relevant existing implementation before changing files.
 - Start at the [documentation map](docs/INDEX.md) when a request touches product
-  boundaries. Read [SPEC.md](SPEC.md) and its linked normative contracts for required
-  behavior, the [source/owner implementation map](docs/architecture/STAGE1_BOUNDARIES.md)
-  for what is actually implemented here, and [CURRENT.md](CURRENT.md) for what is
-  running, proven and unfinished.
-  If a `PRO_HANDOFF.md` file is present on a branch, use it only for the current handoff/work order.
+  boundaries. Read [SPEC.md](SPEC.md) and its linked normative annexes for
+  required behavior, [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for what is
+  actually implemented here, [CURRENT.md](CURRENT.md) for what is running,
+  proven and unfinished, and [docs/ROADMAP.md](docs/ROADMAP.md) for deferred
+  Stage 2 sequencing.
+  If a `HANDOFF.md` file is present at the repository root on a branch, use it
+  only for the current ephemeral handoff/work order.
   A release record, prior implementation or passing test does not override the
   product contract. [README.md](README.md) is the user-facing guide.
 - After compaction, recovery or handoff, reread this file, then the relevant
   contract, actual diff and unresolved findings. Do not treat a summary or a
   previous agent's judgment as source authority.
-- Use [goal.md](goal.md) only when the user has explicitly established an
-  active long-term goal. An empty file means no such goal is currently set;
-  never invent one as housekeeping.
 
 ## Design with clear ownership
 
@@ -89,15 +88,18 @@ selected model and entrypoint.
 - Inspect the final diff, affected callers and failure propagation. Reject
   unsupported claims, skipped mandatory gates and conclusions drawn only from
   counters, request acknowledgments or historical receipts.
-- Keep contract and documentation changes precise: stable requirements in
-  SPEC.md and its normative annexes; current command/owner/source traceability
-  in docs/architecture/STAGE1_BOUNDARIES.md; dated actual evidence in CURRENT.md;
-  Stage 2 work order in docs/plan/STAGE2_PLAN.md; completed history in Git
-  or explicitly non-normative records. Review and update the affected documents
-  together when a source feature becomes reachable, a route is removed, or a
-  responsibility moves. A Phase 2.1 interface is not proof of attached addons.
-  Never relabel an upstream/Provider service as a Wrapper implementation because
-  it is running on the same device.
+- Keep contract and documentation changes precise: stable top-level product
+  invariants in [SPEC.md](SPEC.md) and detailed/conditional contracts in
+  `docs/spec/*`; current command/owner/source traceability in
+  [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md); current live state and recent
+  dated evidence in [CURRENT.md](CURRENT.md); deferred Stage 2 sequencing and
+  open follow-up verification in [docs/ROADMAP.md](docs/ROADMAP.md); active
+  milestone execution in ephemeral `HANDOFF.md` (removed or archived to
+  `docs/history/` when complete); completed history in `docs/history/*` or Git.
+  Review and update the affected documents together when a source feature
+  becomes reachable, a route is removed, or a responsibility moves. A Phase 2.1
+  interface is not proof of attached addons. Never relabel an upstream/Provider
+  service as a Wrapper implementation because it is running on the same device.
 
 ## Report and hand off responsibly
 

@@ -4,8 +4,13 @@
 Stage 1 standalone Wrapper implements upstream passthrough, `codex update`,
 `codex doctor`, and `codex wrapper status`. The already implemented Stage 2.1
 configuration surface adds `codex wrapper setup`, `--bare` and `--with`
-**admission**, but not executable addon routing. The optional Manager,
-quota-rotation, notification,
+**admission**, but not executable addon routing.
+
+> **Quick navigation (Stage 1 active vs Stage 2 conditional):**
+> - **Active Stage 1 + 2.1 CLI & profile binding:** [Failure-scoping policy](#failure-scoping-policy-for-wrappertoml-and-daemon-settingsjson) · [External profile environment binding](#external-profile-environment-binding-codex_shared_home-codex_sqlite_home)
+> - **Deferred Stage 2 conditional contracts:** [Native `/switch` & quota UI](#native-switch-behavior) · [Manager contracts](#manager-contracts-stage-2-modular-opt-in) · [Conditional Stage 2 extension & permission-picker contracts](#conditional-stage-2-extension-and-permission-picker-contracts)
+
+The optional Manager, quota-rotation, notification,
 and profile contracts below describe decoupled Stage 2 modular capabilities (with
 all `codex termux` surfaces cut over cleanly to `codex wrapper`) and are not
 compiled into or required by the standalone Wrapper. These are feature
@@ -593,11 +598,11 @@ optional module executable has yet been attached. A persistently selected
 unavailable module produces a warning while normal upstream execution proceeds.
 `signed_update=true` is a stored preference, not a signed update channel.
 
-In deferred Stage 2.2–2.5 ([plan](../plan/STAGE2_PLAN.md)), admitted modules
+In deferred Stage 2.2–2.5 ([roadmap](../ROADMAP.md)), admitted modules
 will attach additional `codex wrapper provider`, Manager and related routes;
 none is a current command. Bare Wrapper remains independently usable and
 upstream conversation/daemon state remains upstream-owned. The source and
-authority crosswalk is the [implementation map](../architecture/STAGE1_BOUNDARIES.md).
+authority crosswalk is the [architecture map](../ARCHITECTURE.md).
 
 ```text
 # Stage 1 + Stage 2.1 implemented commands
@@ -639,10 +644,12 @@ command boundary:
   - `codex wrapper --bare` proceeds cleanly without reading or failing on `wrapper.toml`.
   - Ordinary upstream execution (`codex ...`, `codex --version`, etc.) emits a concise stderr warning (omitted on fast `--version`/`-V`/`--help`/`-h`/`help` output passthrough so stdout/exit stay clean) and continues bare upstream execution without modifying `wrapper.toml`.
   - `codex wrapper status`, `codex wrapper setup show`, and `codex doctor` remain inspectable without mutating `wrapper.toml` and explicitly report the invalid configuration error/warning.
-  - Explicit mutating `codex wrapper setup` writes and `codex wrapper --with <MODULES>` fail explicitly without overwriting the unreadable/malformed file.
+  - Explicit mutating `codex wrapper setup` writes (`--enable`, `--disable`, `--signed-update`) and `codex wrapper --with <MODULES>` fail explicitly without overwriting the unreadable/malformed file; an explicit reset via `codex wrapper setup --bare` (with no additive/subtractive flags) may atomically replace a malformed regular `wrapper.toml` with the safe bare defaults (still rejecting symlinks or unsafe ownership).
 - **`$CODEX_HOME/app-server-daemon/settings.json` (parse/syntax or unsafe-file error):**
-  - Ordinary non-daemon commands (`codex features list`, `codex --no-daemon ...`, `codex --remote ...`, `codex update`, `codex wrapper ...`, `codex doctor`) emit a concise warning (or diagnostic notice in `codex doctor`) without overwriting `settings.json` and without aborting execution.
+  - Ordinary non-daemon commands (`codex features list`, `codex --no-daemon ...`, `codex --remote ...`, subcommand `--help`/`--version`, `codex update`, `codex wrapper ...`, `codex doctor`) emit a concise warning (or diagnostic notice in `codex doctor`) without overwriting `settings.json` and without aborting execution.
   - Managed-daemon execution paths that depend on `autoUpdateEnabled = false` guarantees (`codex app-server daemon ...`, or interactive/TUI runs unless `--no-daemon` / `--remote*` opts out of managed daemon usage) fail closed with an explicit error referencing `$CODEX_HOME/app-server-daemon/settings.json`.
+- **Leading upstream flags before Wrapper-owned subcommands (`update`, `doctor`, `wrapper`):**
+  - Invoking `update`, `doctor`, or `wrapper` after leading upstream global flags (e.g. `codex -c foo=bar doctor`, `codex -c foo=bar wrapper status`, `codex -c foo=bar update`) fails with usage status `2` and instructs the user to run `codex <subcommand>` directly without leading upstream flags. Literal post-`--` arguments and option values (e.g. `codex -c model=doctor exec hi`) pass through to upstream unchanged.
 
 #### External profile environment binding (`CODEX_SHARED_HOME`, `CODEX_SQLITE_HOME`)
 
@@ -661,11 +668,19 @@ manage independent account directories holding only per-account `auth.json` and
 isolated `app-server-control`/`app-server-daemon` state, passing
 `CODEX_HOME=<profile_home>` alongside `CODEX_SQLITE_HOME` (preserved verbatim)
 and/or `CODEX_SHARED_HOME=<shared_home>`. When `CODEX_SHARED_HOME` is supplied on an
-ordinary upstream launch or `codex doctor` (and differs from `CODEX_HOME`), Wrapper defaults `CODEX_SQLITE_HOME`
+ordinary upstream launch (and differs from `CODEX_HOME`), Wrapper defaults `CODEX_SQLITE_HOME`
 to `CODEX_SHARED_HOME` if unset, ensures private `0700` shared directories, reconciles
-detached `session_index.jsonl`/`history.jsonl` lines without data loss, and maintains
-symlinks in `CODEX_HOME` to `CODEX_SHARED_HOME` for shared sessions, history, skills,
-plugins, rules, and `config.toml` while never linking or reading `auth.json` or daemon sockets.
+detached `session_index.jsonl`/`history.jsonl` lines by exact line equality (preserving
+append-only `session_index.jsonl` thread-rename entries without dropping later updates
+for the same thread ID), and maintains symlinks in `CODEX_HOME` to `CODEX_SHARED_HOME`
+for shared sessions, history, skills, plugins, rules, `installation_id`, and `config.toml`
+while never linking or reading `auth.json` or daemon sockets. Optional additional regular
+files in `CODEX_SHARED_HOME` may be shared only via explicit opt-in through
+`CODEX_SHARED_EXTRA_FILES` (colon-separated, up to 16 validated single-segment filenames;
+rejecting `/`, `.`, `..`, control bytes, and reserved/sensitive names such as `auth.json`,
+`state_*.sqlite*`, `session_index.jsonl`, `history.jsonl`, `config.toml`, and
+`installation_id`); no user-specific filenames are hardcoded in Wrapper source.
+`codex doctor` validates shared-home bindings read-only without mutating files or symlinks.
 
 In Stage 2, `codex wrapper` with no command is equivalent to `codex wrapper help`
 (in Stage 1, `codex wrapper` with no arguments prints Wrapper usage help).
@@ -1877,3 +1892,148 @@ tokens, and unredacted session content are never recorded as evidence.
 Profile behavior requires meaningful proof for exact grammar, path containment,
 symlink rejection, create-new publication, effective account reporting and raw
 process preservation. Later features need their own affected-path proof.
+
+---
+
+## Conditional Stage 2 extension and permission-picker contracts
+
+> Relocated verbatim from root `SPEC.md` so the root specification remains focused on settled top-level product invariants.
+
+### Optional extension modules (decoupled Stage 2)
+
+Optional Manager, enhanced TUI, and Provider capabilities are decoupled from the
+standalone Wrapper and are not required for Termux Codex operation.
+When enabled as Stage 2 opt-in extensions:
+
+- `Manager` owns optional profile/task/notify/usage/rotation conveniences
+  exposed through a generic extension boundary;
+- ordinary standalone `codex` execution never compiles in, links against, spawns, or
+  probes Manager/TUI/Provider executables;
+- conversation persistence, discovery, selection, resume, and daemon lifecycle
+  remain upstream-owned;
+- optional artifacts are built and distributed independently of Wrapper's
+  standalone `Cargo.toml` and `release-builder` pipeline.
+
+Manager must not directly write Wrapper generations, pointers, manifests, locks,
+runtime state, resolver data, or activation journals. A Manager request that
+would mutate Wrapper state must use a versioned, runtime-validated Wrapper contract.
+The Manager may create and update only its declared state and an explicitly
+created profile-home directory, plus the no-replace shared configuration-profile
+links in a validated selected upstream home described below. It must not copy,
+parse, summarize, or rewrite
+authentication files, cookies, OAuth material, arbitrary upstream state, or
+session transcript content. Profile execution changes `CODEX_HOME` only in the
+child environment and returns through the stable Wrapper entrypoint; it never
+changes the caller's environment or persistent Wrapper state. Manager commands
+that need an update, rollback, doctor, or other Wrapper operation must request the
+corresponding Wrapper-owned command through that entrypoint and must not
+reimplement the operation.
+
+The Manager artifact is optional and independently qualified. Its absence,
+incompatibility, or failure must not make ordinary upstream launch, Wrapper
+doctor, Wrapper update, or Wrapper rollback unavailable. Manager has no external network,
+package-manager, OpenSSL, bwrap, resolver, or generation-discovery authority.
+Profile registration creates only Manager metadata and a private new account
+home. Selection affects only the child invocation; execution readiness and
+shared conversation-path preparation belong to Wrapper before upstream launch.
+Optional shared configuration-profile projection belongs to Manager preparation.
+
+When Stage 2 signed Wrapper/addon bundles and optional modules are enabled, an
+installed generation's unavailable Manager is reported at the Manager boundary
+and by doctor; it does not invalidate the independently usable Wrapper runtime.
+Ordinary dispatch checks the declared Manager path for a regular,
+owner-executable file without probing it or requiring OpenSSL. On Stage 2 signed
+bundles, Ed25519 verification authenticates the published Wrapper executable,
+installer/update manifest, and any declared self-built addon assets (`Manager`,
+`Provider`, enhanced `TUI`), while locally patched upstream `bin/*` runtimes are
+verified locally via OpenAI SHA-256 provenance and Wrapper descriptors rather
+than remote CI signatures; a failed optional Manager file check degrades only at
+the Manager boundary without disabling Wrapper update or rollback. (Stage 1
+standalone local generations carry zero Manager asset and verify locally without
+remote signing keys.) This exception applies only to already-installed
+installations. Fresh signed Wrapper/addon candidate admission, staging and
+activation retain complete declared-addon verification whenever a candidate
+declares one. No generation metadata, signed inventory or user state is rewritten
+to express absence.
+
+Manager is a separate Rust executable. No Manager runtime or dependency may
+become a prerequisite for ordinary upstream launch, Wrapper doctor, update, or rollback.
+
+### Shared contracts
+
+Wrapper and Manager may share only explicit versioned data contracts. Compile-time
+types are insufficient; every external or cross-layer payload is validated at
+runtime. Unknown incompatible schema versions fail without mutation.
+
+### Product completeness against upstream
+
+The completeness boundary is the public `codex` and `codex wrapper` product.
+Wrapper supplies the supported official runtime, Termux adaptation, process and
+shared-server execution, generation lifecycle and diagnosis. It must preserve
+accepted upstream command/configuration behavior and account isolation; optional
+convenience failures must not become prerequisites for ordinary execution.
+Stage 1 standalone generations require valid local official archive checksums and
+runtime probes; Stage 2 signed Wrapper/addon bundle publication and activation
+require the complete signed bundle inventory and qualification. Optionality
+never permits admitting an invalid candidate.
+
+Manager supplies standalone user-facing configuration and selection conveniences
+above that boundary. A useful convenience must produce a distinct user result,
+not another implementation of a Wrapper command. Profile selection must clearly
+distinguish the identity supplied to the upstream child from saved selection
+history; history alone is not evidence of the identity used by a later ordinary
+launch. Authentication, conversation persistence and thread lifecycle remain
+upstream-owned. Session conveniences, if selected in a later contract, must use
+upstream-supported discovery/resume rather than a second transcript index.
+
+Notification policy, upstream hook rendering and Termux delivery belong to Manager.
+Wrapper combines its execution defaults with a bounded configuration fragment from
+the admitted Manager; it does not parse Manager notification records or event names.
+Delivery failure must
+not fail an upstream turn. Public-path proof must establish the intended event
+and delivery behavior; a configuration record or generated command alone is not
+proof of the user's completed task. Legacy functionality is evaluated against
+these user results and ownership boundaries, not as an automatic feature backlog.
+
+
+### Termux permission selection (Stage 2 enhanced TUI or upstream-adopted UI)
+
+> **Stage boundary:** Standalone Stage 1 ships the unpatched official upstream TUI binary with FD 34 `sandbox_mode = "danger-full-access"` and CLI `--sandbox` rejection; source-level picker adaptations below apply when Stage 2 opt-in `TUI` (`frontend/tui`) is enabled or upstream adopts the picker changes directly.
+
+Approve for me selects the upstream automatic reviewer for native approval
+requests. It does not promise a model review for every command. Preserve
+OnRequest eligibility and establish a specific missing reviewer invocation
+before changing approval behavior. Do not restore Untrusted or broaden admission
+merely because ordinary allowed commands showed no review.
+
+For a qualified Termux runtime, the upstream TUI permission picker and its
+permission shortcuts must preserve the supported no-sandbox execution policy.
+`Ask for approval` selects `danger-full-access`, `on-request` and the user
+reviewer. `Approve for me` selects `danger-full-access`, `on-request` and
+`auto_review`. `Full Access` selects `danger-full-access` and `never`. Changing
+reviewer must not select Linux workspace sandboxing or restart a shared server.
+Qualified local frontend resume must explicitly carry the effective supported
+Termux permission selection even when it came from Wrapper's system defaults, so
+saved Linux sandbox settings cannot override that selection. Preserve saved
+approval policy and reviewer unless the user supplied a current replacement.
+Fork and side conversations inherit the resulting actual parent selection.
+Reject an effective explicitly restricted/custom policy before a new local
+thread/turn request; never silently reinterpret it as unrestricted execution.
+The Termux picker and shortcuts exclude the unsupported Read Only choice;
+explicit CLI sandbox requests remain Wrapper usage failures. User-supplied
+named/custom profiles retain upstream semantics. This adaptation
+must not impose a profile allowlist that silently falls back from an explicit
+restricted request to unrestricted execution.
+The UI must describe the actual no-sandbox permissions; auto review evaluates
+only approval requests and does not imply that every unrestricted command is
+reviewed. Read-only and explicitly requested workspace sandbox policies remain
+unsupported; a compatibility adaptation must not reinterpret such explicit
+requests as full access. Wrapper does not own approval decisions or add synthetic
+CLI overrides. Manager is not required for this capability.
+
+A release-specific UI adaptation requires exact official source and artifact
+qualification, bounded byte changes, actual TUI selection and effective native
+thread-setting proof before release. A default-setting test or a direct API
+request alone does not close the picker requirement. Existing installed
+runtimes remain unchanged until Stage 2 publication and ordinary activation are
+separately accepted.

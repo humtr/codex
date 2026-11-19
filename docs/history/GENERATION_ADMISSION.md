@@ -3,7 +3,7 @@
 **Non-normative archive.** This file describes previous generations,
 rejected/retired designs and historical evidence, **not** currently installed
 Wrapper code. For present behavior and ownership use the
-[implementation map](../architecture/STAGE1_BOUNDARIES.md); for proven
+[implementation map](../ARCHITECTURE.md); for proven
 live/public status use [CURRENT](../../CURRENT.md); for binding contracts
 use [SPEC](../../SPEC.md). Never infer current Manager/Provider support
 from a historical test.

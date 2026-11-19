@@ -6,11 +6,13 @@ rollback, device compatibility and qualification behavior. Exact upstream
 release identities and prior patch/admission reports are evidence outside
 this contract, not a condition requiring a new specification on every upgrade.
 **Implementation status is not implied by a normative subheading:** the
-[implementation/ownership map](../architecture/STAGE1_BOUNDARIES.md) names
-what the current binary implements, while [CURRENT](../../CURRENT.md)
-records its separate CI, device, published-asset and operating proofs.
+[architecture map](../ARCHITECTURE.md) names what the current binary implements,
+while [CURRENT](../../CURRENT.md) records its separate CI, device,
+published-asset and operating proofs.
 
-> **Stage scope:** Active Stage 1 standalone delivery (`install.sh`, `codex update --upstream|--path|--rollback`, `package-root`, adaptive `termux-fd-remap`/`termux-uds-fd35`, and `codex doctor`) is documented alongside deferred Stage 2 optional extensions (`--signed` Ed25519 verification for published Wrapper and optional self-built addon bundles, `publish`, Manager/TUI composition, and shared-server snapshots). Under local upstream patching, official OpenAI upstream archives (`codex-package-aarch64-unknown-linux-musl.tar.gz`) remain verified against OpenAI metadata + SHA-256 and locally patched into `bin/codex` on-device without remote CI re-signing; cryptographic signing applies to the Wrapper and optional self-built addon distributions hosted by this repository. Stages and implementation status live in [CURRENT.md](../../CURRENT.md) and [docs/plan/STAGE2_PLAN.md](../plan/STAGE2_PLAN.md).
+> **Quick navigation (Stage 1 active vs Stage 2 conditional):**
+> - **Active Stage 1 delivery & runtime contracts:** [State & generation model](#7-state-and-generation-model) · [Stage 1 `install.sh`](#stage-1-standalone-installation-installsh) · [Stage 1 `codex update`](#stage-1-standalone-update-lifecycle-codex-update) · [Artifact retention](#bounded-installed-artifact-retention) · [Doctor contract](#9-doctor-contract) · [Termux compatibility](#9a-termux-compatibility-extension) · [Release execution](#release-execution)
+> - **Deferred Stage 2 conditional contracts:** [Base qualification & lanes](#base-qualification) · [Signed / source-built qualification](#6-artifact-and-patch-qualification) · [Stage 2 signed channels](#stage-2-optional-signed-wrapperaddon-channels-and-bootstrap-trust-phase-22-deferred) · Roadmap in [ROADMAP.md](../ROADMAP.md).
 
 ## Base qualification
 
@@ -643,7 +645,7 @@ digest checks. Reuse never skips complete candidate admission or repairs a corru
 immutable generation. A rollback followed by an authenticated force retry must
 work with the retained target's runtime origin unavailable.
 Implementation, qualification, publication and device activation remain
-separate states. [CURRENT.md](../../CURRENT.md) and [docs/plan/STAGE2_PLAN.md](../plan/STAGE2_PLAN.md) record sequence and proof status.
+separate states. [CURRENT.md](../../CURRENT.md) and [docs/ROADMAP.md](../ROADMAP.md) record sequence and proof status.
 
 #### Signed composition and public qualification
 
@@ -1024,15 +1026,16 @@ install.sh --prefix <DIR> --recover
 ```
 
 - When `--binary`, `--build`, and `--release` are omitted, `install.sh` resolves
-  1) unpacked bundle `./bin/codex` or `./codex` (verifying `SHA256SUMS` when present),
-  2) local `./target/release/codex`, or 3) the GitHub Release asset
+  1) unpacked bundle `./bin/codex` or `./codex` (verifying `SHA256SUMS` when present)
+  only when invoked from an actual script file (`[ -f "$0" ]`, never when piped via
+  `curl ... | sh`), 2) local `./target/release/codex`, or 3) the GitHub Release asset
   `codex-wrapper-aarch64-linux-android.tar.gz` and `.sha256` from tag `wrapper`
-  of `humtr/codex` over HTTPS (`curl`) + OpenSSL/sha256 verification. (Stage 1
-  verifies `.sha256` / `SHA256SUMS` digests only without an Ed25519 signature;
-  Phase 2.2 adds Ed25519 signature verification of the Wrapper bundle and
-  `install.sh` self-update path.)
+  of `humtr/codex` over HTTPS (`curl`) + checksum verification (`sha256sum` or
+  `openssl` fallback). (Stage 1 verifies `.sha256` / `SHA256SUMS` digests only
+  without an Ed25519 signature; Phase 2.2 adds Ed25519 signature verification of
+  the Wrapper bundle and `install.sh` self-update path.)
 - On Android AArch64, `install.sh` runs a non-mutating `/system/bin/linker64`
-  `--version` sanity probe on the staged binary before atomically publishing it to
+  `update --help` sanity probe on the staged binary before atomically publishing it to
   `$PREFIX/bin/codex`.
 - A single exclusive installer writer stores a synced owner identity plus
   a phased SHA-256 receipt for the prior/new executable and the original
@@ -1042,41 +1045,74 @@ install.sh --prefix <DIR> --recover
   Installer owns the binary and install receipt; the Wrapper updater owns the
   generation pointer and its separate activation journal. Neither may guess
   the other's commit status or replay an uncertain updater.
-- Unless `--skip-upstream` was requested, a Wrapper with no matching qualified
-  generation digest performs the upstream bootstrap/requalification (an explicit
-  `--version` always requests it). Existing matching generations are retained.
+- Unless `--skip-upstream` was requested:
+  - When an explicit `--version` was requested, `install.sh` launches the updater
+    and afterward qualifies the active generation against both `--upstream-version`
+    and `--wrapper-sha256` (when the updater actually activated a new generation).
+  - When `--version` is omitted and the existing active generation already passes
+    `codex wrapper status --verify --json` (valid descriptor, compatibility with
+    `(wrapper_api_identity, persistent_schema_identity, patch_policy_id)`, verified
+    runtime/helper/companion SHA-256 digests, and candidate probe), `install.sh`
+    **retains that compatible active generation without launching the updater**,
+    preserving the `previous` upstream rollback slot and allowing offline Wrapper
+    upgrades. `wrapper_artifact_digest` in `generation.meta` remains provenance
+    metadata rather than a forced-rebuild trigger.
+  - When no compatible active generation exists (first install or incompatible
+    `patch_policy_id`/API/schema), `install.sh` launches `codex update --upstream`
+    and verifies the resulting activation via `codex wrapper status --verify
+    --wrapper-sha256 <candidate_sha>` (and `--upstream-version` if requested).
 - A caught bootstrap failure restores the previous executable only when the
   activation state has not changed; otherwise the executable, backup and receipt
   are preserved and installation returns failure. An interrupted install may
   resume after proving that the old writer is gone and any recorded updater and
-  its process group cannot mutate state. Partial ownership or contradictory
-  byte/activation state always fails closed. `install.sh --recover` performs
-  reconciliation without launching a new updater, and ordinary installs recover
-  only the provably safe states before continuing. Activation-journal recovery
-  is separate and is not bypassed by the installer.
+  its process group cannot mutate state (treating zombie/dead `Z`/`X` updater
+  PIDs with matching start ticks as quiescent, not PID reuse). Partial ownership
+  or contradictory byte/activation state always fails closed. `install.sh --recover`
+  performs reconciliation without launching a new updater, and ordinary installs
+  recover only the provably safe states before continuing. During post-updater
+  recovery (`updating`/`updated`), `install.sh` continues requiring `--wrapper-sha256`
+  on `wrapper status --verify` so an interrupted updater is never confused with a
+  pre-existing generation. Activation-journal recovery is separate and is not
+  bypassed by the installer.
 
 ### Stage 1 standalone update lifecycle (`codex update`)
 
 After installation, Wrapper exclusively owns `codex update`:
 
-- `codex update` / `codex update --upstream [--version <MAJOR.MINOR.PATCH>]`: resolves
-  official `openai/codex` release metadata (`api.github.com/repos/openai/codex/releases/latest`
-  or `https://releases.openai.com/codex/releases/<version>/release.json`), downloads
-  `codex-package-aarch64-unknown-linux-musl.tar.gz` into private `$state_root/.local-update-*` /
-  `downloads/` via `$PREFIX/bin/curl` (15 s connect, 300 s idle transfer timeout, up to
-  `256 MiB` compressed archive, `1 GiB` download cache cap), displays live downloaded/total bytes
-  when known, verifies the official SHA-256 with `$PREFIX/bin/openssl`, prepares the generation
-  catalog root and acquires a shared `UpdateLease` BEFORE staging even on an uninitialized HOME,
-  unpacks and adaptively patches `bin/*` (`termux-fd-remap`, `termux-uds-fd35`) in `.candidate-*`
-  (emitting transient per-section patching progress on interactive TTYs), verifies actual on-disk
-  SHA-256 digests of copied runtime/helper binaries against `generation.meta`, probes the exact
-  `bin/codex --version` and `features list` under Termux FDs in a fresh account-free temporary
-  home (bounded time and output; no personal-device allowlist or account test), and atomically
-  activates (`codex-activation-state`, `LOCAL_ZERO` verifier slots, and `~/.codex/packages/standalone/current`).
+- `codex update` / `codex update --upstream [--version <MAJOR.MINOR.PATCH>] [--force-rebuild]`:
+  resolves official `openai/codex` release metadata (`api.github.com/repos/openai/codex/releases/latest`
+  or `https://releases.openai.com/codex/releases/<version>/release.json`) with a
+  bounded control timeout (30 s), downloads `codex-package-aarch64-unknown-linux-musl.tar.gz`
+  into private `$state_root/.local-update-*` / `downloads/` via `$PREFIX/bin/curl`
+  (15 s connect, 300 s idle transfer timeout, up to `512 MiB` compressed archive,
+  `1 GiB` download cache cap), displays live downloaded/total bytes when known,
+  verifies the official SHA-256 using Wrapper/release-builder's internal FIPS 180-4
+  SHA-256 implementation (no external `openssl-tool` runtime prerequisite in Stage 1),
+  prepares the generation catalog root and acquires a shared `UpdateLease` BEFORE
+  staging even on an uninitialized HOME, unpacks and adaptively patches `bin/*`
+  (`termux-fd-remap`, requiring both `/etc/resolv.conf` and `/etc/codex/config.toml`
+  on main `bin/codex`, plus `termux-uds-fd35` failing closed if `"codex-daemon-"`
+  is present without a recognized format pattern) in `.candidate-*` (emitting
+  transient per-section patching progress on interactive TTYs), records companion
+  binary SHA-256 digests (`companion\tbin/<name>\t<sha256>`) in `generation.meta`
+  while remaining backward-compatible when loading earlier generations without
+  `companion` lines, verifies actual on-disk SHA-256 digests of copied runtime,
+  helper, and declared companion binaries against `generation.meta`, probes the exact
+  `bin/codex --version` and `features list` under Termux FDs in a fresh account-free
+  temporary home (clearing `CODEX_SHARED_HOME`/`CODEX_SQLITE_HOME`, bounded time and
+  output; no personal-device allowlist or account test), and atomically activates
+  (`codex-activation-state`, `LOCAL_ZERO` verifier slots, and
+  `~/.codex/packages/standalone/current`). When the currently active generation
+  already matches the target `(upstream_package_version, source_artifact_digest)`
+  and is compatible with `(wrapper_api_identity, persistent_schema_identity,
+  patch_policy_id)`, `codex update` reports already current without redownloading
+  or evicting `previous` unless `--force-rebuild` is explicitly passed. A damaged
+  current generation does not block forward recovery via `codex update` or `--path`.
 - `codex update --path <FILE_OR_DIR>`: adapts an offline official `.tar.gz` package archive
   or validates/activates a prepared `package-root` generation directory (`generation.meta`),
-  verifying actual on-disk SHA-256 digests of runtime and declared browser helpers before probing.
-  Raw standalone ELF files without `codex-package.json` or `generation.meta` are rejected.
+  verifying actual on-disk SHA-256 digests of runtime, declared browser helpers, and any
+  declared companion binaries before probing. Raw standalone ELF files without
+  `codex-package.json` or `generation.meta` are rejected.
 - `codex update --rollback`: recovers any incomplete journal under the state-root
   lock, verifies the retained `previous` generation's descriptor, digests,
   executable bits, and isolated runtime probes, and swaps `current` and
@@ -1098,9 +1134,12 @@ After installation, Wrapper exclusively owns `codex update`:
   official resolver and bounded HTTPS transport in an owned disposable temporary
   directory. Latest-release discovery is cross-checked against the exact-version
   official descriptor. Output binds the version, canonical archive URL/SHA-256,
-  exact descriptor URL/SHA-256 and current Wrapper SHA-256. It reports current,
-  available or older relative to an installed generation without activation,
-  retention, artifact download, journal recovery or installed-state writes.
+  exact descriptor URL/SHA-256 and current Wrapper SHA-256. It reports `current`
+  when `(upstream_package_version, source_artifact_digest)` matches and the active
+  generation is compatible with `(wrapper_api_identity, persistent_schema_identity,
+  patch_policy_id)`, `older` when the requested version is lower, and `available`
+  otherwise — without activation, retention, artifact download, journal recovery,
+  or installed-state writes.
 - Removed/Stage 2 flags (`--signed`, `--remote`, `--local`, `--build-local`) fail
   explicitly in Stage 1 with exit status `2` and zero state mutation. No compiler toolchain,
   signing key, or upstream self-updater is ever invoked in Stage 1.
@@ -1325,9 +1364,15 @@ reachability may make the upstream diagnostic unhealthy, but must not be
 reclassified as candidate runtime-integrity failure.
 
 Doctor must not expose tokens, OAuth data, cookies, auth-derived private data,
-notification content, or unredacted session content. A filesystem snapshot
-before and after doctor must be unchanged except for operating-system access
-metadata outside product control.
+notification content, or unredacted session content. A filesystem snapshot of
+`$HOME`, `$CODEX_HOME`, `$CODEX_SHARED_HOME`, and `$PREFIX` before and after
+`codex doctor` must be unchanged except for operating-system access metadata
+outside product control (when `$HOME/.local/share/codex/wrapper/config/config.toml`
+is absent or drifted, `doctor` does not write to the state root; it supplies FD 34
+from an ephemeral read-only temporary directory cleaned before exit and reports the
+config drift in the Termux wrapper section, and validates `CODEX_SHARED_HOME`
+read-only without creating symlinks or mutating logs). Non-PTY execution also
+captures bounded `stderr` diagnostics instead of discarding them.
 
 Generation descriptors written by `codex-release-builder` and `codex update` use
 `codex-local-generation` and the `package-root` layout (`bin/codex`, optional

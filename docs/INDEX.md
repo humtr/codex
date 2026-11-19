@@ -1,61 +1,60 @@
-# Documentation map and source of truth
+# Documentation Map and Source of Truth
 
-Read this page before interpreting an older acceptance report as current
-implementation. The product is the **standalone Termux Wrapper around official
-Codex**, not the entire former `rewrite/rust-core` distribution.
+Read this page before interpreting an older report or conditional annex as
+active code. The shipped product is the **standalone Termux Wrapper around
+official Codex** (`rewrite/wrapper`), not the archived `rewrite/rust-core`
+distribution.
 
-## Which document answers which question?
+## 1. Document Directory and Authority
 
-| Question | Authority | Rule |
+| Question | Authority | Lifecycle / Rule |
 | --- | --- | --- |
-| What must the product do, and who is allowed to do it? | [SPEC](../SPEC.md) and its [normative annexes](#normative-detail) | Requirements and future opt-in contracts; **not** evidence that code exists |
-| What does the current Wrapper **actually implement**, and where? | [Stage 1 ownership and implementation map](architecture/STAGE1_BOUNDARIES.md) | Source-traceable active/deferred matrix; revisit when routes or owners change |
-| What was verified on this device and in CI, and what is still unverified? | [CURRENT](../CURRENT.md) | Dated evidence, live/isolated/public distinctions, open findings; do not substitute old results |
-| How does a Termux user install, update and recover? | [README](../README.md) | Commands and operational cautions; no architecture or release authority |
-| What may a coding agent change, and how must it verify? | [AGENTS](../AGENTS.md) | Process/ownership principles; not product functionality |
-| Which standalone Wrapper review findings need fixes, and how will each fix be verified? | [Wrapper review work order](plan/WRAPPER_REVIEW_WORK_ORDER.md) | Reproductions, implementation scope and acceptance criteria from the 2026-11-18 review |
-| How should the live device consolidate daemon binaries and reconcile session state? | [Stage 1 device maintenance work order](plan/STAGE1_DEVICE_MAINTENANCE_WORK_ORDER.md) | App-server shutdown, shared package cutover, database reconciliation and rollback |
-| How do legacy dedicated daemon-store notes relate to Stage 1 default linking, `/switch`, and `session_index.jsonl` checks? | [Shared daemon packages & handoff verification plan](plan/SHARED_DAEMON_PACKAGES_PLAN.md) | Stage 1 default `current -> standalone/current` supersedes neutral store / 3-gen daemon pruning; optional legacy copy cleanup and UUID `/switch`/`session_index.jsonl` checks remain separate |
-| What is the order of **unimplemented** optional integration? | [Stage 2 plan](plan/STAGE2_PLAN.md) | Sequencing, prerequisites, proposed implementation; no permission to activate services |
-| What happened in an earlier generation? | [History](#historical-evidence) | Non-normative evidence; not a current component dependency |
+| What are the settled top-level product invariants? | [SPEC.md](../SPEC.md) | Stable release-independent contract (bundled in releases); updated only on deliberate invariant change |
+| What are the detailed delivery, CLI, or conditional Stage 2 contracts? | [Normative annexes](#normative-annexes) (`docs/spec/*`) | Detailed Stage 1 mechanics + conditional Stage 2 requirements; **not** proof that code exists |
+| What does the current codebase **actually implement**, and who owns each file/state? | [ARCHITECTURE.md](ARCHITECTURE.md) | Source-traceable active/deferred ownership map; updated when routes, modules, or owners change |
+| What is currently running, verified, and unfinished? | [CURRENT.md](../CURRENT.md) | Crisp live snapshot + recent dated evidence ledger (newest-first); rotate superseded checkpoints to `docs/history/` |
+| How does a Termux user install, update, diagnose, and recover? | [README.md](../README.md) | User guide (bundled in releases); no architecture or release authority |
+| What is the active execution work order on this branch? | `HANDOFF.md` *(ephemeral, repo root when present)* | Sole location for active milestone execution/checklists; delete or archive to `docs/history/` when complete |
+| What is the deferred Stage 2 integration plan and open verification backlog? | [ROADMAP.md](ROADMAP.md) | Unimplemented Stage 2 sequencing, lineage rules, and deferred verification criteria; grants no activation authority |
+| What principles govern coding agents in this repo? | [AGENTS.md](../AGENTS.md) | Engineering, verification, and handoff discipline; not product functionality |
+| What happened in completed Stage 1 milestones or earlier lineages? | [Historical archives](#historical-archives) (`docs/history/*`) | Non-normative provenance only; never a current component dependency |
 
-### Normative detail
+### Normative Annexes
 
-- [USER_INTERFACES](spec/USER_INTERFACES.md): current standalone public routes and **conditional** Stage 2 Manager/TUI/notification/profile requirements.
-- [DELIVERY](spec/DELIVERY.md): installation, local upstream update, crash recovery, artifact provenance, and **conditional** signed-distribution contracts.
-- [BRIDGE](spec/BRIDGE.md): **conditional** Native/ChatGPT Provider/Bridge integration contracts. A running external connector does not make it a Wrapper-built Stage 1 module.
+- [docs/spec/DELIVERY.md](spec/DELIVERY.md): Stage 1 installation (`install.sh`), local upstream updates/rollback, artifact retention, `codex doctor`, Termux compatibility, release execution, and **conditional** Stage 2 signed-distribution/source-build contracts.
+- [docs/spec/USER_INTERFACES.md](spec/USER_INTERFACES.md): Stage 1 + 2.1 CLI failure scoping, `CODEX_SHARED_HOME`/`CODEX_SQLITE_HOME` binding, and **conditional** Stage 2 Manager/TUI/permission-picker/notification contracts.
+- [docs/spec/BRIDGE.md](spec/BRIDGE.md): **Conditional** Stage 2 Native/ChatGPT Provider/Bridge ownership, user-flow, and interoperability contracts. A running external connector on a device does not make it a Wrapper-built module.
 
-### Historical evidence
+### Historical Archives
 
-- [GENERATION_ADMISSION](history/GENERATION_ADMISSION.md): prior patches, release admissions, legacy decisions.
-- [LEGACY_RUST_CORE](history/LEGACY_RUST_CORE.md): earlier Rust Core/Manager/Provider/TUI implementation and findings. Its implementation is **not** restored merely by referring to it.
-- [goal.md](../goal.md): presently empty; **not** an active plan.
+- [docs/history/STAGE1_MILESTONES.md](history/STAGE1_MILESTONES.md): Completed 2026-11-16 – 2026-11-19 Stage 1 P0/review/maintenance milestones and retired work orders.
+- [docs/history/GENERATION_ADMISSION.md](history/GENERATION_ADMISSION.md): Earlier pre-rewrite patches, release admissions, and legacy byte policies.
+- [docs/history/LEGACY_RUST_CORE.md](history/LEGACY_RUST_CORE.md): Archived `rewrite/rust-core` (`0.167.x`) development evidence. Referring to it does **not** restore its implementation.
 
-## Status vocabulary (do not collapse these)
+---
+
+## 2. Status Vocabulary (Do Not Collapse These)
 
 | Term | Meaning |
 | --- | --- |
-| **Contracted** | Required by SPEC or an annex if its phase is selected; may be absent from HEAD |
-| **Implemented** | Reachable, inspected source exists on the branch; this alone proves neither integration nor device acceptance |
-| **Qualified** | Named test boundary actually passed with reproducible input/results (unit, synthetic, Android, authenticated, connected client are different boundaries) |
-| **Published** | The exact source/tag and bytes passed independent public readback |
-| **Activated** | An explicitly selected binary/generation is running/selected on a device; other services keep their separate selection |
-| **Deferred** | Not in the active distribution; a test, old service or planned CLI spelling is not delivery |
-| **Unknown / warning** | Evidence is insufficient or a separate owner reported degradation; do not silently normalize to healthy |
+| **Contracted** | Required by [SPEC.md](../SPEC.md) or an annex when selected; may not yet be implemented on `HEAD` |
+| **Implemented** | Reachable, inspected source exists on the branch; alone proves neither integration nor device acceptance |
+| **Qualified** | Named test boundary passed with reproducible input/results (unit, synthetic, Linux+Bionic, Android, authenticated, connected client are distinct) |
+| **Published** | Exact peeled Git tag commit, release metadata, and downloaded asset bytes passed independent public readback |
+| **Activated** | Explicitly selected binary/generation is active on a device; unrelated services retain their own selection |
+| **Deferred** | Absent from the active distribution; a saved config flag, old service, or planned CLI spelling is not delivery |
+| **Unknown / warning** | Evidence is insufficient or another owner reported degradation; never silently normalize to healthy |
 
-## Maintenance and change propagation
+---
 
-1. Check the active branch, source tree and command dispatcher **before** editing status.
-   [STAGE1_BOUNDARIES](architecture/STAGE1_BOUNDARIES.md) links each owner to code.
-2. Behavior/policy changes go through SPEC and relevant annex first; update source,
-   tests and user-facing README together. An evidence-only change belongs in
-   CURRENT, not SPEC.
-3. If a feature becomes implemented, update its row in the implementation map,
-   the Stage 2 plan and the interface's active/deferred label; add exact tests
-   to CURRENT **only after** their boundary passes.
-4. Public artifact/tag refresh and operating activation are distinct decisions
-   from source acceptance or a documentation push. Never claim the former from
-   a passed doc CI run.
-5. Avoid a second feature ledger in README, AGENTS, history or a plan. This map
-   is a **source/owner index**, CURRENT is the **evidence ledger**, and the
-   annexes are **contracts**, even where the same command is referenced.
+## 3. Documentation Lifecycle and Change Propagation
+
+1. **Keep one authority per question:** Avoid duplicate feature ledgers in `README.md`, `CURRENT.md`, `AGENTS.md`, or `docs/history/*`.
+2. **Ephemeral work orders live only in `HANDOFF.md`:** Never accumulate completed `*_WORK_ORDER.md` or superseded one-off plan files in permanent folders. When a milestone closes, record verified receipts in [CURRENT.md](../CURRENT.md), archive significant milestone notes into [docs/history/STAGE1_MILESTONES.md](history/STAGE1_MILESTONES.md), and remove or replace `HANDOFF.md`.
+3. **Keep `CURRENT.md` concise and newest-first:** Top = current live operating snapshot; middle = open findings/work; bottom = current-milestone verified receipts. Rotate superseded older checkpoint logs into `docs/history/STAGE1_MILESTONES.md`.
+4. **Propagate changes in order:**
+   - Deliberate invariant/behavior change → update [SPEC.md](../SPEC.md) / relevant annex first, then source & tests.
+   - Code/module/route change → update [ARCHITECTURE.md](ARCHITECTURE.md) and user-facing [README.md](../README.md) when reachable.
+   - New verified boundary → update [CURRENT.md](../CURRENT.md) only after that boundary actually passes.
+   - Deferred roadmap change → update [ROADMAP.md](ROADMAP.md).
+5. **All linked local Markdown targets must be Git-tracked** and verified by `.github/scripts/check_doc_links.py`. Never claim publication or live activation from a source/doc CI pass alone.
