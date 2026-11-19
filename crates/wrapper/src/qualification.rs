@@ -87,9 +87,12 @@ impl Probe<'_> {
             .current_dir(self.home)
             .env_remove("OPENAI_API_KEY")
             .env_remove("CODEX_API_KEY")
+            .env_remove("CODEX_SQLITE_HOME")
+            .env_remove("CODEX_SHARED_HOME")
             .stdin(Stdio::null())
             .stdout(Stdio::from(output))
             .stderr(Stdio::from(stderr));
+        crate::timezone::configure_with_cache(&mut command, Some(self.home));
         self.fds.configure(&mut command);
         let mut child = command.spawn().map_err(io_error)?;
         let deadline = Instant::now() + timeout;
@@ -162,8 +165,7 @@ pub(super) fn probe(
         probe.run(&["features", "list"])?;
         Ok(())
     })();
-    fs::remove_dir_all(&home).map_err(io_error)?;
-    result
+    result.and(fs::remove_dir_all(&home).map_err(io_error))
 }
 
 #[cfg(test)]
@@ -221,12 +223,71 @@ mod tests {
                 .run_with_timeout(&[], Duration::from_millis(150))
                 .is_err());
         }
+        let external = root.join("external");
+        let env = crate::tests::EnvRestoreGuard::new(&[
+            ("CODEX_SHARED_HOME", Some(&external)),
+            ("CODEX_SQLITE_HOME", Some(&external)),
+        ]);
         fs::write(
             &program,
-            format!("#!{shell}\nprintf '%s' \"$CODEX_HOME\"\n"),
+            format!(
+                r#"#!{shell}
+[ "${{CODEX_SHARED_HOME+x}}" != x ] || exit 8
+[ "${{CODEX_SQLITE_HOME+x}}" != x ] || exit 9
+printf '%s' "$CODEX_HOME"
+"#
+            ),
         )
         .unwrap();
         assert_eq!(probe.run(&[]).unwrap(), root.as_os_str().as_encoded_bytes());
+        assert!(!external.exists());
+        drop(env);
+        crate::tests::remove_temp_root(root);
+    }
+    #[test]
+    fn original_candidate_failure_survives_cleanup_failure() {
+        let root = crate::tests::temp_root("candidate-cleanup-failure");
+        let env = crate::tests::EnvRestoreGuard::new(&[("TMPDIR", Some(&root))]);
+        let roots = crate::tests::make_test_roots(&root);
+        crate::prepare_wrapper_config(&roots.config_dir).unwrap();
+        let stage = root.join("gen-1");
+        crate::tests::write_sample_generation(&stage, "gen-1", false);
+        let runtime = stage.join("bin/codex");
+        let shell = if Path::new("/system/bin/sh").is_file() {
+            "/system/bin/sh"
+        } else {
+            "/bin/sh"
+        };
+        fs::write(
+            &runtime,
+            format!(
+                r#"#!{shell}
+mv "$HOME" "$HOME.moved" || exit 8
+exit 7
+"#
+            ),
+        )
+        .unwrap();
+        fs::set_permissions(runtime, fs::Permissions::from_mode(0o700)).unwrap();
+        let loaded = crate::load_local_generation(&stage).unwrap();
+        let process_env = crate::tests::test_process_env(&roots);
+        let err = crate::with_qualified_loaded_runtime(&loaded, |assets| {
+            probe(assets, &process_env, &roots, "1.2.3")
+        })
+        .unwrap_err();
+        assert!(
+            matches!(
+                err,
+                LocalProductError::CandidateProbe("candidate runtime command failed")
+            ),
+            "{err}"
+        );
+        assert!(fs::read_dir(&root).unwrap().any(|entry| entry
+            .unwrap()
+            .file_name()
+            .to_string_lossy()
+            .ends_with(".moved")));
+        drop(env);
         crate::tests::remove_temp_root(root);
     }
 }

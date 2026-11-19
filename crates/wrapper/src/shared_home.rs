@@ -27,19 +27,58 @@ const SHARED_DIRS: &[&str] = &[
 ];
 
 const SHARED_APPEND_LOGS: &[&str] = &["session_index.jsonl", "history.jsonl"];
-const SHARED_OPTIONAL_FILES: &[&str] = &[
-    "installation_id",
-    "config.toml",
-    "ais.config.toml",
-    "chatgpt.config.toml",
-];
+const SHARED_OPTIONAL_FILES: &[&str] = &["installation_id", "config.toml"];
+const OPTIONAL_FILE_MAX_BYTES: u64 = 4 * 1024 * 1024;
 const MERGE_MAX_BYTES: u64 = 64 * 1024 * 1024;
+
+fn extra_files(raw: &OsStr) -> io::Result<Vec<&str>> {
+    let invalid_name =
+        || err_invalid("CODEX_SHARED_EXTRA_FILES contains an invalid or reserved filename");
+    let raw = raw.to_str().ok_or_else(invalid_name)?;
+    let mut files = Vec::new();
+    for name in raw.split(':').filter(|item| !item.is_empty()) {
+        if name.len() > 128
+            || !name
+                .bytes()
+                .all(|byte| byte.is_ascii_graphic() && byte != b'/')
+            || matches!(
+                name,
+                "." | ".."
+                    | "auth.json"
+                    | "auth.json.lock"
+                    | "auth.lock"
+                    | "version.json"
+                    | "models_cache.json"
+                    | "app-server-control"
+                    | "app-server-daemon"
+            )
+            || SHARED_DIRS.contains(&name)
+            || SHARED_APPEND_LOGS.contains(&name)
+            || SHARED_OPTIONAL_FILES.contains(&name)
+            || name.starts_with("state_")
+            || [".sqlite", ".sqlite-wal", ".sqlite-shm", ".lock"]
+                .iter()
+                .any(|suffix| name.ends_with(suffix))
+        {
+            return Err(invalid_name());
+        }
+        if !files.contains(&name) {
+            if files.len() == 16 {
+                return Err(err_invalid(
+                    "CODEX_SHARED_EXTRA_FILES exceeds 16 unique filenames",
+                ));
+            }
+            files.push(name);
+        }
+    }
+    Ok(files)
+}
 
 fn err_invalid(msg: impl Into<String>) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, msg.into())
 }
 
-fn ensure_owned_real_dir(path: &Path) -> io::Result<()> {
+fn validate_owned_real_dir(path: &Path, create: bool) -> io::Result<()> {
     if !fs_util::wrapper_safe_absolute_path(path) {
         return Err(err_invalid(format!(
             "CODEX_SHARED_HOME/CODEX_HOME path must be safe and absolute: {}",
@@ -63,6 +102,9 @@ fn ensure_owned_real_dir(path: &Path) -> io::Result<()> {
     match fs::symlink_metadata(path) {
         Ok(_) => {}
         Err(err) if err.kind() == io::ErrorKind::NotFound => {
+            if !create {
+                return Ok(());
+            }
             // Create parent chain privately when needed without altering existing dirs.
             let mut cursor = PathBuf::from("/");
             for component in path.components().skip(1) {
@@ -125,9 +167,14 @@ fn ensure_symlink_target(link_path: &Path, expected_target: &Path) -> io::Result
     Ok(())
 }
 
-fn ensure_shared_dir_entry(codex_home: &Path, shared_home: &Path, name: &str) -> io::Result<()> {
+fn check_shared_dir_entry(
+    codex_home: &Path,
+    shared_home: &Path,
+    name: &str,
+    prepare: bool,
+) -> io::Result<()> {
     let shared_target = shared_home.join(name);
-    ensure_owned_real_dir(&shared_target)?;
+    validate_owned_real_dir(&shared_target, prepare)?;
     let link_path = codex_home.join(name);
     match fs::symlink_metadata(&link_path) {
         Ok(meta) if meta.file_type().is_symlink() => {
@@ -145,9 +192,11 @@ fn ensure_shared_dir_entry(codex_home: &Path, shared_home: &Path, name: &str) ->
         }
         Ok(meta) if meta.is_dir() => {
             if fs::read_dir(&link_path)?.next().is_none() {
-                fs::remove_dir(&link_path)?;
-                std::os::unix::fs::symlink(&shared_target, &link_path)?;
-                File::open(codex_home)?.sync_all()?;
+                if prepare {
+                    fs::remove_dir(&link_path)?;
+                    std::os::unix::fs::symlink(&shared_target, &link_path)?;
+                    File::open(codex_home)?.sync_all()?;
+                }
                 Ok(())
             } else {
                 Err(err_invalid(format!(
@@ -162,21 +211,14 @@ fn ensure_shared_dir_entry(codex_home: &Path, shared_home: &Path, name: &str) ->
             shared_target.display()
         ))),
         Err(err) if err.kind() == io::ErrorKind::NotFound => {
-            std::os::unix::fs::symlink(&shared_target, &link_path)?;
-            File::open(codex_home)?.sync_all()?;
+            if prepare {
+                std::os::unix::fs::symlink(&shared_target, &link_path)?;
+                File::open(codex_home)?.sync_all()?;
+            }
             Ok(())
         }
         Err(err) => Err(err),
     }
-}
-
-fn extract_json_string_id(line: &str) -> Option<&str> {
-    let key = "\"id\":";
-    let start = line.find(key)? + key.len();
-    let rest = line[start..].trim_start();
-    let rest = rest.strip_prefix('"')?;
-    let end = rest.find('"')?;
-    Some(&rest[..end])
 }
 
 fn read_capped_text(path: &Path) -> io::Result<String> {
@@ -200,7 +242,12 @@ fn read_capped_text(path: &Path) -> io::Result<String> {
         .map_err(|_| err_invalid(format!("shared log '{}' is not UTF-8", path.display())))
 }
 
-fn reconcile_append_log(codex_home: &Path, shared_home: &Path, name: &str) -> io::Result<()> {
+fn reconcile_append_log(
+    codex_home: &Path,
+    shared_home: &Path,
+    name: &str,
+    prepare: bool,
+) -> io::Result<()> {
     let shared_file = shared_home.join(name);
     let expected_uid = fs_util::current_uid()?;
     match fs::symlink_metadata(&shared_file) {
@@ -211,6 +258,7 @@ fn reconcile_append_log(codex_home: &Path, shared_home: &Path, name: &str) -> io
                 shared_file.display()
             )));
         }
+        Err(err) if err.kind() == io::ErrorKind::NotFound && !prepare => {}
         Err(err) if err.kind() == io::ErrorKind::NotFound => {
             match OpenOptions::new()
                 .write(true)
@@ -245,6 +293,9 @@ fn reconcile_append_log(codex_home: &Path, shared_home: &Path, name: &str) -> io
             }
         }
         Ok(meta) if meta.file_type().is_file() && meta.uid() == expected_uid => {
+            if !prepare {
+                return Ok(());
+            }
             // Upstream atomic rename can detach symlinked JSONL files; merge unseen lines into
             // the shared log under flock before relinking.
             let lock_path = shared_home.join(format!(".{name}.wrapper-merge.lock"));
@@ -264,24 +315,13 @@ fn reconcile_append_log(codex_home: &Path, shared_home: &Path, name: &str) -> io
 
             let shared_text = read_capped_text(&shared_file)?;
             let profile_text = read_capped_text(&profile_file)?;
-            let by_id = name == "session_index.jsonl";
-            let mut seen_keys: HashSet<String> = HashSet::new();
-            for line in shared_text.lines().filter(|l| !l.trim().is_empty()) {
-                let key = if by_id {
-                    extract_json_string_id(line).unwrap_or(line)
-                } else {
-                    line
-                };
-                seen_keys.insert(key.to_owned());
-            }
+            let mut seen: HashSet<&str> = shared_text.split_terminator('\n').collect();
             let mut to_append = String::new();
-            for line in profile_text.lines().filter(|l| !l.trim().is_empty()) {
-                let key = if by_id {
-                    extract_json_string_id(line).unwrap_or(line)
-                } else {
-                    line
-                };
-                if seen_keys.insert(key.to_owned()) {
+            for line in profile_text
+                .split_terminator('\n')
+                .filter(|line| !line.trim().is_empty())
+            {
+                if seen.insert(line) {
                     to_append.push_str(line);
                     to_append.push('\n');
                 }
@@ -307,8 +347,10 @@ fn reconcile_append_log(codex_home: &Path, shared_home: &Path, name: &str) -> io
             profile_file.display()
         ))),
         Err(err) if err.kind() == io::ErrorKind::NotFound => {
-            std::os::unix::fs::symlink(&shared_file, &profile_file)?;
-            File::open(codex_home)?.sync_all()?;
+            if prepare {
+                std::os::unix::fs::symlink(&shared_file, &profile_file)?;
+                File::open(codex_home)?.sync_all()?;
+            }
             Ok(())
         }
         Err(err) => Err(err),
@@ -319,6 +361,7 @@ fn ensure_optional_shared_file(
     codex_home: &Path,
     shared_home: &Path,
     name: &str,
+    prepare: bool,
 ) -> io::Result<()> {
     let shared_file = shared_home.join(name);
     let expected_uid = fs_util::current_uid()?;
@@ -350,10 +393,18 @@ fn ensure_optional_shared_file(
             }
         }
         Ok(meta) if meta.file_type().is_file() && meta.uid() == expected_uid => {
-            let shared_bytes = fs::read(&shared_file)?;
-            let profile_bytes = fs::read(&profile_file)?;
-            if shared_bytes == profile_bytes {
-                ensure_symlink_target(&profile_file, &shared_file)?;
+            let read = |path| {
+                fs_util::read_bounded_regular(
+                    path,
+                    OPTIONAL_FILE_MAX_BYTES,
+                    false,
+                    "shared file must be a bounded, owned regular file",
+                )
+            };
+            if read(&shared_file)? == read(&profile_file)? {
+                if prepare {
+                    ensure_symlink_target(&profile_file, &shared_file)?;
+                }
                 Ok(())
             } else {
                 Err(err_invalid(format!(
@@ -368,8 +419,10 @@ fn ensure_optional_shared_file(
             profile_file.display()
         ))),
         Err(err) if err.kind() == io::ErrorKind::NotFound => {
-            std::os::unix::fs::symlink(&shared_file, &profile_file)?;
-            File::open(codex_home)?.sync_all()?;
+            if prepare {
+                std::os::unix::fs::symlink(&shared_file, &profile_file)?;
+                File::open(codex_home)?.sync_all()?;
+            }
             Ok(())
         }
         Err(err) => Err(err),
@@ -382,26 +435,46 @@ pub(super) fn prepare_shared_home(
     codex_home: &Path,
     shared_home_raw: &OsStr,
 ) -> io::Result<Option<PathBuf>> {
-    let shared_home = PathBuf::from(shared_home_raw);
-    ensure_owned_real_dir(&shared_home)?;
-    ensure_owned_real_dir(codex_home)?;
+    let extra = std::env::var_os("CODEX_SHARED_EXTRA_FILES").unwrap_or_default();
+    bind_shared_home(codex_home, shared_home_raw, extra_files(&extra)?, true)
+}
 
-    let canonical_shared = fs::canonicalize(&shared_home)?;
-    let canonical_codex = fs::canonicalize(codex_home)?;
-    if canonical_shared == canonical_codex {
+/// Checks the same paths and bindings as a launch without reconciling them.
+pub(super) fn inspect_shared_home(
+    codex_home: &Path,
+    shared_home_raw: &OsStr,
+) -> io::Result<Option<PathBuf>> {
+    let extra = std::env::var_os("CODEX_SHARED_EXTRA_FILES").unwrap_or_default();
+    bind_shared_home(codex_home, shared_home_raw, extra_files(&extra)?, false)
+}
+
+fn bind_shared_home(
+    codex_home: &Path,
+    shared_home_raw: &OsStr,
+    extra: Vec<&str>,
+    prepare: bool,
+) -> io::Result<Option<PathBuf>> {
+    let shared_home = Path::new(shared_home_raw);
+    validate_owned_real_dir(shared_home, prepare)?;
+    validate_owned_real_dir(codex_home, prepare)?;
+
+    // Validation has excluded symlinks in both paths. Normalize separators even
+    // when the read-only check encounters a directory that does not exist yet.
+    let shared_home: PathBuf = shared_home.components().collect();
+    if shared_home == codex_home {
         return Ok(None);
     }
 
     for dir in SHARED_DIRS {
-        ensure_shared_dir_entry(codex_home, &canonical_shared, dir)?;
+        check_shared_dir_entry(codex_home, &shared_home, dir, prepare)?;
     }
     for log_name in SHARED_APPEND_LOGS {
-        reconcile_append_log(codex_home, &canonical_shared, log_name)?;
+        reconcile_append_log(codex_home, &shared_home, log_name, prepare)?;
     }
-    for file_name in SHARED_OPTIONAL_FILES {
-        ensure_optional_shared_file(codex_home, &canonical_shared, file_name)?;
+    for file_name in SHARED_OPTIONAL_FILES.iter().copied().chain(extra) {
+        ensure_optional_shared_file(codex_home, &shared_home, file_name, prepare)?;
     }
-    Ok(Some(canonical_shared))
+    Ok(Some(shared_home))
 }
 
 #[cfg(test)]
@@ -467,6 +540,136 @@ mod tests {
             "{\"token\":\"default\"}\n"
         );
 
+        remove_temp_root(root);
+    }
+
+    #[test]
+    fn opt_in_extra_files_are_validated_before_binding_and_bounded_on_conflict() {
+        let root = temp_root("extra-shared-files");
+        let profile = root.join("profile");
+        let shared = root.join("shared");
+        fs::create_dir(&shared).unwrap();
+        fs::write(shared.join("extra.toml"), b"shared content").unwrap();
+        fs::write(shared.join("private.toml"), b"not opted in").unwrap();
+        let guard = crate::tests::EnvRestoreGuard::new(&[(
+            "CODEX_SHARED_EXTRA_FILES",
+            Some(Path::new("auth.json:extra.toml")),
+        )]);
+        assert_eq!(
+            prepare_shared_home(&profile, shared.as_os_str())
+                .unwrap_err()
+                .kind(),
+            io::ErrorKind::InvalidData
+        );
+        assert!(!profile.exists());
+        assert!(!shared.join("sessions").exists());
+        drop(guard);
+        let guard = crate::tests::EnvRestoreGuard::new(&[(
+            "CODEX_SHARED_EXTRA_FILES",
+            Some(Path::new(":extra.toml::extra.toml:")),
+        )]);
+        prepare_shared_home(&profile, shared.as_os_str()).unwrap();
+        assert_eq!(
+            fs::read_link(profile.join("extra.toml")).unwrap(),
+            shared.join("extra.toml")
+        );
+        assert!(!profile.join("private.toml").exists());
+        fs::remove_file(profile.join("extra.toml")).unwrap();
+        File::create(profile.join("extra.toml"))
+            .unwrap()
+            .set_len(OPTIONAL_FILE_MAX_BYTES + 1)
+            .unwrap();
+        assert_eq!(
+            prepare_shared_home(&profile, shared.as_os_str())
+                .unwrap_err()
+                .kind(),
+            io::ErrorKind::InvalidData
+        );
+        assert!(profile.join("extra.toml").is_file());
+        drop(guard);
+        remove_temp_root(root);
+    }
+
+    #[test]
+    fn extra_file_names_reject_sensitive_paths_and_enforce_unique_count() {
+        use std::os::unix::ffi::OsStrExt as _;
+
+        for name in [
+            "auth.json",
+            "auth.json.lock",
+            "auth.lock",
+            ".",
+            "..",
+            "a/b",
+            "a b",
+            "a\0b",
+            "한",
+            "config.toml",
+            "installation_id",
+            "session_index.jsonl",
+            "history.jsonl",
+            "version.json",
+            "models_cache.json",
+            "state_data",
+            "a.sqlite",
+            "a.sqlite-wal",
+            "a.sqlite-shm",
+            "a.lock",
+        ] {
+            assert_eq!(
+                extra_files(OsStr::new(name)).unwrap_err().kind(),
+                io::ErrorKind::InvalidData,
+                "{name:?}"
+            );
+        }
+        assert!(extra_files(OsStr::from_bytes(b"extra-\xff")).is_err());
+        assert!(extra_files(OsStr::new(&"a".repeat(129))).is_err());
+        assert_eq!(extra_files(OsStr::new(&"a".repeat(128))).unwrap().len(), 1);
+        let names = (0..16)
+            .map(|n| format!("file-{n}"))
+            .collect::<Vec<_>>()
+            .join(":");
+        assert_eq!(
+            extra_files(OsStr::new(&format!("{names}:file-0")))
+                .unwrap()
+                .len(),
+            16
+        );
+        assert!(extra_files(OsStr::new(&format!("{names}:file-16"))).is_err());
+    }
+
+    #[test]
+    fn session_index_retains_same_id_renames_and_deduplicates_exact_lines() {
+        let root = temp_root("shared-home-rename");
+        let shared = root.join("shared");
+        let profile = root.join("profile");
+        fs::create_dir(&shared).unwrap();
+        fs::create_dir(&profile).unwrap();
+        let name = "session_index.jsonl";
+        let original = r#"{"id":"t1","thread_name":"initial"}"#;
+        let renamed = r#"{"id":"t1","thread_name":"renamed"}"#;
+        fs::write(shared.join(name), original).unwrap();
+        fs::write(
+            profile.join(name),
+            format!("{original}\n{renamed}\n{renamed}\n"),
+        )
+        .unwrap();
+        assert_eq!(
+            inspect_shared_home(&profile, shared.as_os_str()).unwrap(),
+            Some(shared.clone())
+        );
+        assert_eq!(fs::read_to_string(shared.join(name)).unwrap(), original);
+        assert!(fs::symlink_metadata(profile.join(name)).unwrap().is_file());
+        assert!(!shared.join("sessions").exists());
+        prepare_shared_home(&profile, shared.as_os_str()).unwrap();
+        assert_eq!(
+            fs::read_to_string(shared.join(name)).unwrap(),
+            format!("{original}\n{renamed}\n")
+        );
+        assert_eq!(
+            fs::read_link(profile.join(name)).unwrap(),
+            shared.join(name)
+        );
         remove_temp_root(root);
     }
 

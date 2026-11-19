@@ -55,6 +55,10 @@ impl WrapperSettings {
     }
 
     pub(super) fn read(root: &Path) -> io::Result<Self> {
+        Self::read_with_reset(root, false)
+    }
+
+    fn read_with_reset(root: &Path, allow_malformed: bool) -> io::Result<Self> {
         if !fs_util::wrapper_safe_absolute_path(root) {
             return Err(invalid("wrapper state root must be a safe absolute path"));
         }
@@ -95,11 +99,29 @@ impl WrapperSettings {
         ) {
             Ok(bytes) => bytes,
             Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(Self::default()),
+            Err(err) if allow_malformed && err.kind() == io::ErrorKind::InvalidData => {
+                // The explicit reset can discard oversized contents without
+                // reading them, but still requires a safe file to replace.
+                let meta = fs::symlink_metadata(&path)?;
+                if meta.is_file()
+                    && meta.uid() == expected_uid
+                    && meta.permissions().mode() & 0o022 == 0
+                    && meta.len() > SETTINGS_MAX_BYTES
+                {
+                    return Ok(Self::default());
+                }
+                return Err(err);
+            }
             Err(err) => return Err(err),
         };
-        let text =
-            std::str::from_utf8(&bytes).map_err(|_| invalid("wrapper.toml must be UTF-8"))?;
-        Self::parse(text)
+        let settings = std::str::from_utf8(&bytes)
+            .map_err(|_| invalid("wrapper.toml must be UTF-8"))
+            .and_then(Self::parse);
+        if allow_malformed {
+            Ok(settings.unwrap_or_default())
+        } else {
+            settings
+        }
     }
 
     pub(super) fn clear_addons(&mut self) {
@@ -156,7 +178,7 @@ impl WrapperSettings {
         )
     }
 
-    pub(super) fn update<F>(root: &Path, modify: F) -> io::Result<Self>
+    pub(super) fn update<F>(root: &Path, allow_malformed: bool, modify: F) -> io::Result<Self>
     where
         F: FnOnce(&mut Self) -> io::Result<()>,
     {
@@ -193,7 +215,7 @@ impl WrapperSettings {
         }
         fs_util::flock_fd(&lease, fs_util::LOCK_EX)?;
 
-        let mut settings = Self::read(root)?;
+        let mut settings = Self::read_with_reset(root, allow_malformed)?;
         modify(&mut settings)?;
         let dest = root.join("wrapper.toml");
         let sequence = WRITE_SEQUENCE.fetch_add(1, Ordering::Relaxed);
@@ -348,7 +370,7 @@ mod tests {
     #[test]
     fn atomic_update_roundtrip_and_invalid_module_preserve_previous_state() {
         let root = test_root();
-        let settings = WrapperSettings::update(&root, |settings| {
+        let settings = WrapperSettings::update(&root, false, |settings| {
             settings.set_modules("manager,provider", true)?;
             settings.signed_update = true;
             Ok(())
@@ -358,7 +380,7 @@ mod tests {
         assert_eq!(WrapperSettings::read(&root).unwrap(), settings);
         let metadata = fs::metadata(root.join("wrapper.toml")).unwrap();
         assert_eq!(metadata.permissions().mode() & 0o777, 0o600);
-        let err = WrapperSettings::update(&root, |settings| {
+        let err = WrapperSettings::update(&root, false, |settings| {
             settings.set_modules("manager,unknown", false)
         })
         .unwrap_err();
@@ -375,7 +397,7 @@ mod tests {
         fs::write(&target, "manager = false\n").unwrap();
         symlink(&target, root.join("wrapper.toml")).unwrap();
         assert!(WrapperSettings::read(&root).is_err());
-        assert!(WrapperSettings::update(&root, |_| Ok(())).is_err());
+        assert!(WrapperSettings::update(&root, false, |_| Ok(())).is_err());
         assert_eq!(fs::read_to_string(&target).unwrap(), "manager = false\n");
         fs::remove_dir_all(root).unwrap();
     }
@@ -386,8 +408,10 @@ mod tests {
         fs::create_dir_all(&base).unwrap();
         let state = base.join(".local/share/codex/wrapper");
         assert!(!state.exists());
-        let new = WrapperSettings::update(&state, |settings| settings.set_modules("manager", true))
-            .unwrap();
+        let new = WrapperSettings::update(&state, false, |settings| {
+            settings.set_modules("manager", true)
+        })
+        .unwrap();
         assert_eq!(new.addons_label(), "manager");
         assert_eq!(WrapperSettings::read(&state).unwrap(), new);
         assert!(state.join("wrapper.toml").is_file());
@@ -413,7 +437,7 @@ mod tests {
         fs_util::private_dir(&root).unwrap();
         let dir_handle = File::open(&root).unwrap();
         fs_util::flock_fd(&dir_handle, fs_util::LOCK_EX | fs_util::LOCK_NB).unwrap();
-        let updated = WrapperSettings::update(&root, |s| {
+        let updated = WrapperSettings::update(&root, false, |s| {
             s.signed_update = true;
             Ok(())
         })
@@ -441,7 +465,7 @@ mod tests {
         fs::create_dir_all(&other).unwrap();
         symlink(&other, base.join(".local")).unwrap();
         let state = base.join(".local/share/codex/wrapper");
-        assert!(WrapperSettings::update(&state, |_| Ok(())).is_err());
+        assert!(WrapperSettings::update(&state, false, |_| Ok(())).is_err());
         assert!(!other.join("share").exists());
         fs::remove_dir_all(base).unwrap();
     }
@@ -454,7 +478,7 @@ mod tests {
         fs::create_dir_all(&real_home).unwrap();
         symlink(&real_home, base.join("home")).unwrap();
         let settings = base.join("home/.local/share/codex/wrapper");
-        assert!(WrapperSettings::update(&settings, |_| Ok(())).is_err());
+        assert!(WrapperSettings::update(&settings, false, |_| Ok(())).is_err());
         assert!(!real_home.join(".local").exists());
         fs::remove_dir_all(base).unwrap();
     }

@@ -45,16 +45,22 @@ pub(super) fn flock_with_timeout(
     loop {
         match flock_fd(file, mode | LOCK_NB) {
             Ok(()) => return Ok(()),
-            Err(err) if err.kind() == io::ErrorKind::WouldBlock && Instant::now() < deadline => {
-                std::thread::sleep(Duration::from_millis(10));
+            Err(err) if err.kind() == io::ErrorKind::Interrupted => continue,
+            Err(err) if err.kind() == io::ErrorKind::WouldBlock => {
+                let remaining = deadline.saturating_duration_since(Instant::now());
+                if remaining.is_zero() {
+                    return Err(io::Error::new(io::ErrorKind::TimedOut, timeout_message));
+                }
+                std::thread::sleep(remaining.min(Duration::from_millis(10)));
             }
-            Err(_) => return Err(io::Error::other(timeout_message)),
+            Err(err) => return Err(err),
         }
     }
 }
 
 pub(super) fn wrapper_safe_absolute_path(path: &Path) -> bool {
     path.is_absolute()
+        && !path.as_os_str().as_encoded_bytes().contains(&0)
         && path.components().all(|component| {
             matches!(
                 component,
@@ -124,4 +130,79 @@ pub(super) fn private_dir(path: &Path) -> io::Result<()> {
         return Err(invalid());
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    #[test]
+    fn flock_waits_for_contention_and_propagates_os_errors() {
+        let root = crate::tests::temp_root("flock-timeout");
+        let holder = File::open(&root).unwrap();
+        let waiter = File::open(&root).unwrap();
+        flock_fd(&holder, LOCK_EX).unwrap();
+        let start = Instant::now();
+        let err = flock_with_timeout(
+            &waiter,
+            LOCK_EX,
+            Duration::from_millis(25),
+            "lease timed out",
+        )
+        .unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::TimedOut);
+        assert_eq!(err.to_string(), "lease timed out");
+        assert!(start.elapsed() >= Duration::from_millis(25));
+        let unlock = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(30));
+            drop(holder);
+        });
+        flock_with_timeout(&waiter, LOCK_EX, Duration::from_secs(2), "lease timed out").unwrap();
+        unlock.join().unwrap();
+
+        // LOCK_NB without a lock operation is invalid at the OS boundary.
+        let expected = flock_fd(&waiter, LOCK_NB).unwrap_err().raw_os_error();
+        let actual = flock_with_timeout(&waiter, 0, Duration::ZERO, "lease timed out").unwrap_err();
+        assert_eq!(actual.raw_os_error(), expected);
+        assert!(expected.is_some());
+        crate::tests::remove_temp_root(root);
+    }
+
+    #[test]
+    fn bounded_regular_read_rejects_symlink_size_and_unsafe_mode() {
+        let root = crate::tests::temp_root("bounded-regular");
+        let file = root.join("file");
+        let link = root.join("link");
+        fs::write(&file, b"four").unwrap();
+        std::os::unix::fs::symlink(&file, &link).unwrap();
+        let read =
+            |path, size, private| read_bounded_regular(path, size, private, "invalid test file");
+        assert_eq!(read(&file, 4, true).unwrap(), b"four");
+        assert_eq!(
+            read(&link, 4, false).unwrap_err().kind(),
+            io::ErrorKind::InvalidData
+        );
+        assert_eq!(
+            read(&file, 3, false).unwrap_err().kind(),
+            io::ErrorKind::InvalidData
+        );
+        fs::set_permissions(&file, fs::Permissions::from_mode(0o622)).unwrap();
+        assert_eq!(
+            read(&file, 4, true).unwrap_err().kind(),
+            io::ErrorKind::InvalidData
+        );
+        assert_eq!(read(&file, 4, false).unwrap(), b"four");
+        crate::tests::remove_temp_root(root);
+    }
+
+    #[test]
+    fn safe_absolute_paths_reject_parent_traversal_and_relative_paths() {
+        for path in ["/", "/a/b", "/a//b", "/a/./b"] {
+            assert!(wrapper_safe_absolute_path(Path::new(path)), "{path}");
+        }
+        for path in ["", ".", "a/b", "../a", "/a/../b", "/..", "/a/\0b"] {
+            assert!(!wrapper_safe_absolute_path(&PathBuf::from(path)), "{path}");
+        }
+    }
 }

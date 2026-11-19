@@ -117,6 +117,7 @@ mod unix_app {
         UnsupportedSandboxMode(String),
         UnsupportedSandboxCommand,
         UpstreamUpdaterDisabled,
+        LeadingGlobalFlags(&'static str),
     }
 
     impl std::fmt::Display for DispatchPlanError {
@@ -128,6 +129,10 @@ mod unix_app {
                 ),
                 DispatchPlanError::UnsupportedSandboxCommand => f.write_str(
                     "'codex sandbox linux' is unsupported on Termux because Android kernels lack Linux Landlock/seccomp-user-namespace sandboxing",
+                ),
+                DispatchPlanError::LeadingGlobalFlags(command) => write!(
+                    f,
+                    "run 'codex {command}' directly without leading upstream flags"
                 ),
                 DispatchPlanError::UpstreamUpdaterDisabled => f.write_str(
                     "upstream self-updater is disabled on Termux; run 'codex update' directly without global flags or --bare",
@@ -166,7 +171,13 @@ mod unix_app {
     fn first_top_level_subcommand_index(args: &[OsString]) -> Option<usize> {
         let mut index = 0usize;
         while index < args.len() {
-            let arg = args[index].to_str()?;
+            let Some(arg) = args[index].to_str() else {
+                if args[index].as_bytes().starts_with(b"-") {
+                    index += 1;
+                    continue;
+                }
+                return Some(index);
+            };
             if arg == "--" {
                 return None;
             }
@@ -311,7 +322,7 @@ mod unix_app {
             return false;
         }
         let summary = scan_upstream_invocation(args);
-        if summary.saw_no_daemon || summary.saw_remote {
+        if summary.saw_help_or_version || summary.saw_no_daemon || summary.saw_remote {
             return false;
         }
         !summary.positionals[0].is_some_and(is_non_daemon_top_level_command)
@@ -354,7 +365,8 @@ mod unix_app {
             }
             if let Some(value) = arg
                 .strip_prefix("--sandbox=")
-                .or_else(|| arg.strip_prefix("-s="))
+                .or_else(|| arg.strip_prefix("-s=").or_else(|| arg.strip_prefix("-s")))
+                .filter(|value| !value.is_empty())
             {
                 if let Some(mode) = unsupported_sandbox_mode(value) {
                     return Err(DispatchPlanError::UnsupportedSandboxMode(mode.to_owned()));
@@ -403,7 +415,12 @@ mod unix_app {
             Some(index) if args[index] == "update" => {
                 return Err(DispatchPlanError::UpstreamUpdaterDisabled);
             }
-            Some(_) | None => {}
+            Some(index) => match args[index].to_str() {
+                Some("doctor") => return Err(DispatchPlanError::LeadingGlobalFlags("doctor")),
+                Some("wrapper") => return Err(DispatchPlanError::LeadingGlobalFlags("wrapper")),
+                _ => {}
+            },
+            None => {}
         }
         plan_passthrough_args(&args)?;
         Ok(PublicDispatchRoute::Upstream(args))
@@ -510,7 +527,7 @@ mod unix_app {
         Ok(Some((ro, existing)))
     }
 
-    pub(super) fn open_synthesized_resolver(bytes: &[u8]) -> io::Result<File> {
+    pub(super) fn open_synthesized_resolver(bytes: &[u8], cache: bool) -> io::Result<File> {
         let mut synthesized = Vec::with_capacity(bytes.len() + RESOLVER_DEFAULT_OPTIONS.len() + 1);
         synthesized.extend_from_slice(bytes);
         if !synthesized.is_empty() && !synthesized.ends_with(b"\n") {
@@ -518,7 +535,10 @@ mod unix_app {
         }
         synthesized.extend_from_slice(RESOLVER_DEFAULT_OPTIONS);
 
-        if let Some(home) = std::env::var_os("HOME").filter(|v| !v.is_empty()) {
+        if let Some(home) = cache
+            .then(|| std::env::var_os("HOME").filter(|v| !v.is_empty()))
+            .flatten()
+        {
             let state_dir = PathBuf::from(home).join(".local/share/codex/wrapper");
             if fs::symlink_metadata(&state_dir).is_ok_and(|meta| meta.file_type().is_dir()) {
                 let cache_path = state_dir.join("resolv.conf");
@@ -621,6 +641,14 @@ mod unix_app {
             resolver_path: R,
             config: &File,
         ) -> io::Result<Self> {
+            Self::open_with_resolver_cache(resolver_path, config, true)
+        }
+
+        pub(super) fn open_with_resolver_cache<R: AsRef<Path>>(
+            resolver_path: R,
+            config: &File,
+            cache: bool,
+        ) -> io::Result<Self> {
             if !config.metadata()?.is_dir() {
                 return Err(io::Error::from_raw_os_error(20));
             }
@@ -635,7 +663,7 @@ mod unix_app {
             let resolver_file = if resolver_bytes.len() <= RESOLVER_SYNTHESIS_MAX_BYTES
                 && !resolver_has_options_directive(&resolver_bytes)
             {
-                open_synthesized_resolver(&resolver_bytes)?
+                open_synthesized_resolver(&resolver_bytes, cache)?
             } else {
                 source_resolver.seek(io::SeekFrom::Start(0))?;
                 source_resolver
@@ -944,7 +972,6 @@ mod unix_app {
             for name in &plan.removals {
                 cmd.env_remove(name);
             }
-            timezone::configure(cmd);
         }
         cmd.env_remove("CODEX_MANAGED_BY_NPM")
             .env_remove("CODEX_MANAGED_BY_BUN")
@@ -1766,7 +1793,7 @@ mod unix_app {
         Ok(loaded)
     }
 
-    fn reconcile_standalone_current_and_load(
+    pub(super) fn reconcile_standalone_current_and_load(
         roots: &LocalWrapperRoots,
         state_paths: &generation_state::WrapperStatePaths,
         pointer_state: generation_state::GenerationPointerState,
@@ -1783,7 +1810,7 @@ mod unix_app {
             .map_err(LocalProductError::State)?
             != expected
         {
-            let lock = generation_state::acquire_activation_lock(state_paths)
+            let lock = generation_state::wait_for_activation_lock(state_paths)
                 .map_err(LocalProductError::State)?;
             let mut io = generation_state::FsActivationIo;
             let (authoritative, _) =
@@ -1826,6 +1853,29 @@ mod unix_app {
             .map_err(LocalProductError::State)?
             .ok_or(LocalProductError::NoCurrentGeneration)?;
         reconcile_standalone_current_and_load(roots, &state_paths, pointer_state)
+    }
+
+    fn inspect_activated_generation(
+        roots: &LocalWrapperRoots,
+    ) -> Result<LoadedLocalGeneration, LocalProductError> {
+        let paths = generation_state::WrapperStatePaths::new(&roots.state_root)
+            .map_err(LocalProductError::StateFormat)?
+            .with_generation_root(&roots.generation_root);
+        let _lock = generation_state::acquire_activation_read_lock(&paths)
+            .map_err(LocalProductError::State)?;
+        if generation_state::has_pending_activation(&paths).map_err(LocalProductError::State)? {
+            return Err(LocalProductError::Descriptor(
+                "wrapper activation has a pending transaction",
+            ));
+        }
+        let pointer = generation_state::read_pointer_state(&paths)
+            .map_err(LocalProductError::State)?
+            .ok_or(LocalProductError::NoCurrentGeneration)?;
+        // Validate the compatibility link's type without repairing it.
+        paths
+            .read_standalone_current()
+            .map_err(LocalProductError::State)?;
+        validate_and_load_generation(roots, &pointer.current)
     }
 
     pub(super) fn with_qualified_loaded_runtime<'loaded, T, F>(
@@ -1954,48 +2004,24 @@ mod unix_app {
         })
     }
 
-    fn exec_runtime_with_sources<P, I, S>(
-        program: P,
-        args: I,
+    fn exec_runtime_with_sources(
+        program: &OsStr,
+        args: &[OsString],
         runtime_fds: RuntimeFdSources,
-        env_plan: Option<&TermuxBaseEnvPlan>,
+        env_plan: &TermuxBaseEnvPlan,
         sqlite_home_override: Option<&Path>,
-    ) -> io::Error
-    where
-        P: AsRef<OsStr>,
-        I: IntoIterator<Item = S>,
-        S: AsRef<OsStr>,
-    {
-        let mut command = Command::new(program.as_ref());
+    ) -> io::Error {
+        let mut command = Command::new(program);
         command.args(args);
-        apply_child_env_plan_and_fence(&mut command, env_plan);
+        apply_child_env_plan_and_fence(&mut command, Some(env_plan));
+        if !is_help_or_version_invocation(args) {
+            timezone::configure(&mut command);
+        }
         if let Some(sqlite_home) = sqlite_home_override {
             command.env("CODEX_SQLITE_HOME", sqlite_home);
         }
         runtime_fds.configure(&mut command);
         command.exec()
-    }
-
-    fn exec_runtime<P, I, S, R, C>(
-        program: P,
-        args: I,
-        resolver_path: R,
-        config_dir: C,
-        env_plan: Option<&TermuxBaseEnvPlan>,
-        sqlite_home_override: Option<&Path>,
-    ) -> io::Error
-    where
-        P: AsRef<OsStr>,
-        I: IntoIterator<Item = S>,
-        S: AsRef<OsStr>,
-        R: AsRef<Path>,
-        C: AsRef<Path>,
-    {
-        let runtime_fds = match RuntimeFdSources::open(resolver_path, config_dir) {
-            Ok(fds) => fds,
-            Err(err) => return err,
-        };
-        exec_runtime_with_sources(program, args, runtime_fds, env_plan, sqlite_home_override)
     }
 
     struct UpstreamRuntimeHost<'a> {
@@ -2007,6 +2033,16 @@ mod unix_app {
     }
 
     pub(super) fn prepare_shared_home_from_env() -> io::Result<Option<PathBuf>> {
+        shared_home_from_env(crate::shared_home::prepare_shared_home)
+    }
+
+    pub(super) fn inspect_shared_home_from_env() -> io::Result<Option<PathBuf>> {
+        shared_home_from_env(crate::shared_home::inspect_shared_home)
+    }
+
+    fn shared_home_from_env(
+        handle_binding: impl FnOnce(&Path, &OsStr) -> io::Result<Option<PathBuf>>,
+    ) -> io::Result<Option<PathBuf>> {
         let Some(codex_home) = resolve_codex_home() else {
             return Ok(None);
         };
@@ -2014,14 +2050,13 @@ mod unix_app {
         else {
             return Ok(None);
         };
-        match crate::shared_home::prepare_shared_home(&codex_home, &shared_home) {
-            Ok(Some(shared_dir))
+        match handle_binding(&codex_home, &shared_home)? {
+            Some(shared_dir)
                 if std::env::var_os("CODEX_SQLITE_HOME").is_none_or(|v| v.is_empty()) =>
             {
                 Ok(Some(shared_dir))
             }
-            Ok(_) => Ok(None),
-            Err(err) => Err(err),
+            _ => Ok(None),
         }
     }
 
@@ -2080,12 +2115,15 @@ mod unix_app {
             if let Err(err) = prepare_wrapper_config(host.config_dir) {
                 return RuntimeLaunchError::Config(err);
             }
-            let exec_err = exec_runtime(
+            let runtime_fds = match RuntimeFdSources::open(host.resolver_path, host.config_dir) {
+                Ok(fds) => fds,
+                Err(err) => return RuntimeLaunchError::Exec(err),
+            };
+            let exec_err = exec_runtime_with_sources(
                 selection.runtime.program_path,
                 args,
-                host.resolver_path,
-                host.config_dir,
-                Some(&env_plan),
+                runtime_fds,
+                &env_plan,
                 sqlite_home_override.as_deref(),
             );
             return RuntimeLaunchError::Exec(exec_err);
@@ -2118,7 +2156,7 @@ mod unix_app {
             selection.runtime.program_path,
             args,
             runtime_fds,
-            Some(&env_plan),
+            &env_plan,
             sqlite_home_override.as_deref(),
         );
         drop(prepared);
@@ -2157,7 +2195,11 @@ mod unix_app {
                 source,
             }
         })?;
-        let (_, loaded) = load_activated_generation(roots)?;
+        let loaded = if matches!(route, PublicDispatchRoute::Doctor(_)) {
+            inspect_activated_generation(roots)?
+        } else {
+            load_activated_generation(roots)?.1
+        };
         with_qualified_loaded_runtime(&loaded, |runtime_assets| {
             let context = LocalPublicDispatchContext {
                 runtime_assets,
@@ -2318,17 +2360,24 @@ mod unix_app {
             ParsedSetupAction::Help => unreachable!(),
             ParsedSetupAction::Show => extensions::WrapperSettings::read(&roots.state_root),
             ParsedSetupAction::Update(ops) => {
-                let updated = extensions::WrapperSettings::update(&roots.state_root, |settings| {
-                    for op in ops {
-                        match op {
-                            SetupOp::Bare => settings.clear_addons(),
-                            SetupOp::Enable(modules) => settings.set_modules(modules, true)?,
-                            SetupOp::Disable(modules) => settings.set_modules(modules, false)?,
-                            SetupOp::SignedUpdate(val) => settings.signed_update = val,
+                let allow_malformed = ops == [SetupOp::Bare];
+                let updated = extensions::WrapperSettings::update(
+                    &roots.state_root,
+                    allow_malformed,
+                    |settings| {
+                        for op in ops {
+                            match op {
+                                SetupOp::Bare => settings.clear_addons(),
+                                SetupOp::Enable(modules) => settings.set_modules(modules, true)?,
+                                SetupOp::Disable(modules) => {
+                                    settings.set_modules(modules, false)?
+                                }
+                                SetupOp::SignedUpdate(val) => settings.signed_update = val,
+                            }
                         }
-                    }
-                    Ok(())
-                });
+                        Ok(())
+                    },
+                );
                 if updated.is_ok() {
                     let _ = system_config::prune(&roots.config_dir);
                 }
@@ -2595,6 +2644,13 @@ mod unix_app {
                 }
             };
         let codex_home = resolve_codex_home();
+        let _lease = match maintenance::launch_lease(&roots.generation_root) {
+            Ok(lease) => lease,
+            Err(err) => {
+                eprintln!("codex wrapper status: cannot lease installed generation: {err}");
+                return 1;
+            }
+        };
         let loaded = load_activated_generation(&roots);
         let verification_result = match (&loaded, options.verify) {
             (Ok((_, gen)), true) => Some(verify_active_generation_snapshot(&roots, gen, &options)),
@@ -3120,53 +3176,50 @@ mod unix_app {
                         return 2;
                     }
                 };
-                let read_only = matches!(
-                    action,
-                    update::UpdateAction::Help | update::UpdateAction::Check { .. }
-                );
-                let code = update::run_update_action(action);
-                if code == 0 && !read_only {
-                    if let Ok(roots) = LocalWrapperRoots::from_environment() {
-                        let _ = maintenance::prune(&roots);
-                    }
-                }
-                code
+                update::run_update_action(action)
             }
             PublicDispatchRoute::Wrapper(args) => run_wrapper_command(args),
             route @ (PublicDispatchRoute::Doctor(_) | PublicDispatchRoute::Upstream(_)) => {
-                let roots = match LocalWrapperRoots::from_environment() {
-                    Ok(roots) => roots,
-                    Err(err) => {
-                        eprintln!("codex: {err}");
-                        return 1;
+                let doctor_mode = if let PublicDispatchRoute::Doctor(args) = &route {
+                    match doctor::doctor_output_mode(args.iter().cloned()) {
+                        Ok(mode) => Some(mode),
+                        Err(err) => {
+                            eprintln!("codex: {err}");
+                            return 2;
+                        }
                     }
+                } else {
+                    None
                 };
-                if let PublicDispatchRoute::Upstream(ref args) = route {
-                    // Direct help/version remains a zero-write, zero-addon fast path.
-                    if !is_help_or_version_invocation(args) {
-                        match extensions::WrapperSettings::read(&roots.state_root) {
-                            Ok(settings) => {
-                                if let Some(modules) = settings.unavailable_addons() {
-                                    eprintln!("codex: optional module(s) {modules} are unavailable; continuing with standalone upstream");
+                let result = LocalWrapperRoots::from_environment().and_then(|roots| {
+                    if let PublicDispatchRoute::Upstream(ref args) = route {
+                        if !is_help_or_version_invocation(args) {
+                            match extensions::WrapperSettings::read(&roots.state_root) {
+                                Ok(settings) => {
+                                    if let Some(modules) = settings.unavailable_addons() {
+                                        eprintln!("codex: optional module(s) {modules} are unavailable; continuing with standalone upstream");
+                                    }
                                 }
-                            }
-                            Err(err) => {
-                                eprintln!("codex: warning: ignoring invalid wrapper.toml ({err}); using bare standalone mode");
+                                Err(err) => {
+                                    eprintln!("codex: warning: ignoring invalid wrapper.toml ({err}); using bare standalone mode");
+                                }
                             }
                         }
                     }
-                }
-                let process_env = capture_termux_process_env();
-                match execute_activated_route(route, &roots, &process_env) {
-                    Ok(PublicDispatchCompletion::Doctor(outcome)) => {
-                        print!("{}", outcome.output);
-                        doctor::doctor_exit_code(outcome.exit_class)
-                    }
+                    execute_activated_route(route, &roots, &capture_termux_process_env())
+                });
+                let outcome = match result {
+                    Ok(PublicDispatchCompletion::Doctor(outcome)) => outcome,
                     Err(err) => {
-                        eprintln!("codex: {err}");
-                        1
+                        let Some(mode) = doctor_mode else {
+                            eprintln!("codex: {err}");
+                            return 1;
+                        };
+                        doctor::doctor_preparation_failure(mode, &err.to_string())
                     }
-                }
+                };
+                print!("{}", outcome.output);
+                doctor::doctor_exit_code(outcome.exit_class)
             }
         }
     }
@@ -3453,8 +3506,38 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn dispatch_keeps_non_utf8_option_values_and_positional_prompts_distinct() {
+        use std::os::unix::ffi::OsStringExt as _;
+
+        let raw = OsString::from_vec(vec![0xff]);
+        for owned in ["update", "doctor", "wrapper"] {
+            assert_eq!(
+                run_public_main([OsString::from("-c"), raw.clone(), OsString::from(owned)]),
+                2
+            );
+        }
+        let prompt = vec![raw, OsString::from("update")];
+        assert_eq!(
+            plan_public_dispatch(prompt.clone()).unwrap(),
+            PublicDispatchRoute::Upstream(prompt)
+        );
+        let flag = OsString::from_vec(b"--unknown=\xff".to_vec());
+        assert!(plan_public_dispatch(vec![flag, OsString::from("update")]).is_err());
+    }
+
+    #[test]
     fn passthrough_sandbox_guard_blocks_unsupported_linux_sandboxes() {
         assert!(plan_public_dispatch(os_vec(&["exec", "--sandbox", "read-only", "hi"])).is_err());
+        for args in [
+            ["-sread-only", "exec", "hi"],
+            ["-sworkspace-write", "exec", "hi"],
+            ["-s=read-only", "exec", "hi"],
+            ["exec", "-sread-only", "hi"],
+        ] {
+            assert_eq!(run_public_main(os_vec(&args)), 2);
+        }
+        assert!(plan_public_dispatch(os_vec(&["exec", "--", "-sread-only"])).is_ok());
+        assert!(plan_public_dispatch(os_vec(&["-sdanger-full-access", "exec", "hi"])).is_ok());
         assert!(plan_public_dispatch(os_vec(&["-s=workspace-write", "exec", "hi"])).is_err());
         assert!(plan_public_dispatch(os_vec(&["sandbox", "linux", "true"])).is_err());
         assert!(
@@ -3490,18 +3573,18 @@ pub(crate) mod tests {
         fs::create_dir_all(root.join(".local/share/codex")).unwrap();
         super::fs_util::private_dir(&root.join(".local/share/codex/wrapper")).unwrap();
 
-        let f1 = open_synthesized_resolver(b"nameserver 8.8.8.8\n").unwrap();
+        let f1 = open_synthesized_resolver(b"nameserver 8.8.8.8\n", true).unwrap();
         let ino1 = f1.metadata().unwrap().ino();
         let mut s1 = String::new();
         Read::read_to_string(&mut &f1, &mut s1).unwrap();
         assert_eq!(s1, "nameserver 8.8.8.8\noptions timeout:2 attempts:10\n");
         drop(f1);
 
-        let f2 = open_synthesized_resolver(b"nameserver 8.8.8.8\n").unwrap();
+        let f2 = open_synthesized_resolver(b"nameserver 8.8.8.8\n", true).unwrap();
         assert_eq!(f2.metadata().unwrap().ino(), ino1);
         drop(f2);
 
-        let f3 = open_synthesized_resolver(b"nameserver 1.1.1.1\n").unwrap();
+        let f3 = open_synthesized_resolver(b"nameserver 1.1.1.1\n", true).unwrap();
         assert_eq!(f3.metadata().unwrap().ino(), ino1);
         let mut s3 = String::new();
         Read::read_to_string(&mut &f3, &mut s3).unwrap();
@@ -3776,6 +3859,96 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn wrapper_status_holds_generation_lease_during_verification() {
+        const CHILD: &str = "CODEX_WP3_STATUS_LEASE_CHILD";
+        if std::env::var_os(CHILD).is_some() {
+            std::process::exit(run_public_main(os_vec(&["wrapper", "status", "--verify"])));
+        }
+        let root = temp_root("status-launch-lease");
+        let home = root.join("home");
+        let prefix = root.join("prefix");
+        let _env = EnvRestoreGuard::new(&[
+            ("HOME", Some(&home)),
+            ("PREFIX", Some(&prefix)),
+            ("TMPDIR", Some(&root)),
+        ]);
+        let roots = LocalWrapperRoots::from_environment().unwrap();
+        create_private_test_dirs(&roots.state_root);
+        create_private_test_dirs(roots.resolver_path.parent().unwrap());
+        fs::write(&roots.resolver_path, b"nameserver 1.1.1.1\n").unwrap();
+
+        let stage = roots.generation_root.join("gen-1");
+        write_sample_generation(&stage, "gen-1", false);
+        let runtime = stage.join("bin/codex");
+        let old_digest = sha256_regular_file(&runtime).unwrap();
+        let shell = if Path::new("/system/bin/sh").is_file() {
+            "/system/bin/sh"
+        } else {
+            "/bin/sh"
+        };
+        let entered = root.join("entered-probe");
+        let proceed = root.join("finish-probe");
+        fs::write(
+            &runtime,
+            format!(
+                r#"#!{shell}
+if [ "$1" = --version ]; then
+    : > '{}'
+    while [ ! -f '{}' ]; do sleep 0.02; done
+    echo codex-cli 1.2.3
+fi
+"#,
+                entered.display(),
+                proceed.display()
+            ),
+        )
+        .unwrap();
+        let new_digest = sha256_regular_file(&runtime).unwrap();
+        let meta = stage.join("generation.meta");
+        let manifest = fs::read_to_string(&meta).unwrap().replace(
+            &format!("runtime_digest\t{old_digest}"),
+            &format!("runtime_digest\t{new_digest}"),
+        );
+        fs::write(meta, manifest).unwrap();
+        let paths = generation_state::WrapperStatePaths::new(&roots.state_root).unwrap();
+        let pointer = generation_state::plan_initial_pointer_state("gen-1").unwrap();
+        fs::write(
+            &paths.activation_state,
+            generation_state::encode_pointer_state(&pointer).unwrap(),
+        )
+        .unwrap();
+
+        let child = Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "tests::wrapper_status_holds_generation_lease_during_verification",
+                "--nocapture",
+            ])
+            .env(CHILD, "1")
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+        while !entered.exists() && std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        let entered_probe = entered.exists();
+        let other = fs::File::open(roots.generation_root.parent().unwrap()).unwrap();
+        let contention = crate::fs_util::flock_fd(&other, FLOCK_EX | FLOCK_NB);
+        fs::write(&proceed, b"").unwrap();
+        let result = child.wait_with_output().unwrap();
+        assert!(entered_probe && result.status.success(), "{result:?}");
+        assert_eq!(
+            contention.unwrap_err().kind(),
+            std::io::ErrorKind::WouldBlock
+        );
+        crate::fs_util::flock_fd(&other, FLOCK_EX | FLOCK_NB).unwrap();
+        drop(_env);
+        remove_temp_root(root);
+    }
+
+    #[test]
     fn absent_initial_pointer_still_recovers_a_published_journal() {
         let root = temp_root("initial-journal");
         let roots = make_test_roots(&root);
@@ -3791,6 +3964,7 @@ pub(crate) mod tests {
             generation_state::encode_activation_journal(&journal).unwrap(),
         )
         .unwrap();
+        fs::remove_dir(&roots.generation_root).unwrap();
         let first = load_activated_generation(&roots).unwrap_err();
         assert!(matches!(first, LocalProductError::NoCurrentGeneration));
         assert!(!paths.activation_journal.exists());
@@ -3991,6 +4165,63 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn pure_bare_setup_resets_malformed_config_without_following_symlinks() {
+        let root = temp_root("setup-bare-recovery");
+        let home = root.join("home");
+        let prefix = root.join("prefix");
+        create_private_test_dirs(&home);
+        create_private_test_dirs(&prefix);
+        let _env = EnvRestoreGuard::new(&[
+            ("HOME", Some(&home)),
+            ("PREFIX", Some(&prefix)),
+            ("TMPDIR", Some(&root)),
+        ]);
+        let roots = LocalWrapperRoots::from_environment().unwrap();
+        create_private_test_dirs(&roots.state_root);
+        let config = roots.state_root.join("wrapper.toml");
+        let corrupt = b"manager = true\nsigned_update = true\ninvalid = [";
+        fs::write(&config, corrupt).unwrap();
+        let inode = fs::metadata(&config).unwrap().ino();
+        for flags in [
+            &["setup", "--enable", "manager"][..],
+            &["setup", "--disable", "manager"],
+            &["setup", "--bare", "--signed-update", "true"],
+            &["setup", "--bare", "--bare"],
+            &["--with", "manager"],
+        ] {
+            let mut args = os_vec(&["wrapper"]);
+            args.extend(os_vec(flags));
+            assert_ne!(run_public_main(args), 0, "{flags:?}");
+            assert_eq!(fs::read(&config).unwrap(), corrupt);
+        }
+        assert_eq!(run_public_main(os_vec(&["wrapper", "setup", "--bare"])), 0);
+        let settings = crate::extensions::WrapperSettings::read(&roots.state_root).unwrap();
+        assert_eq!(settings, crate::extensions::WrapperSettings::default());
+        assert_ne!(fs::metadata(&config).unwrap().ino(), inode);
+
+        fs::write(&config, vec![b'x'; 32 * 1024]).unwrap();
+        assert_eq!(run_public_main(os_vec(&["wrapper", "setup", "--bare"])), 0);
+        assert_eq!(
+            crate::extensions::WrapperSettings::read(&roots.state_root).unwrap(),
+            crate::extensions::WrapperSettings::default()
+        );
+
+        let foreign = root.join("foreign");
+        fs::rename(&config, &foreign).unwrap();
+        std::os::unix::fs::symlink(&foreign, &config).unwrap();
+        assert_eq!(run_public_main(os_vec(&["wrapper", "setup", "--bare"])), 2);
+        assert_eq!(fs::read_link(&config).unwrap(), foreign);
+        fs::remove_file(&config).unwrap();
+        fs::rename(&foreign, &config).unwrap();
+        fs::set_permissions(&config, fs::Permissions::from_mode(0o622)).unwrap();
+        assert_eq!(run_public_main(os_vec(&["wrapper", "setup", "--bare"])), 2);
+        assert_eq!(fs::metadata(&config).unwrap().mode() & 0o777, 0o622);
+
+        drop(_env);
+        remove_temp_root(root);
+    }
+
+    #[test]
     fn daemon_settings_corruption_and_shared_home_scope_in_isolated_roots() {
         const CHILD_ENV: &str = "CODEX_TEST_DAEMON_SCOPE_ARGS";
         if let Ok(encoded) = std::env::var(CHILD_ENV) {
@@ -4070,6 +4301,47 @@ pub(crate) mod tests {
             cmd.output().unwrap()
         };
 
+        let fast_cache = root.join("fast-path-cache");
+        let fast = Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "tests::daemon_settings_corruption_and_shared_home_scope_in_isolated_roots",
+                "--nocapture",
+            ])
+            .env(CHILD_ENV, "--version")
+            .env("TZ", ":Asia/Seoul")
+            .env("XDG_CACHE_HOME", &fast_cache)
+            .output()
+            .unwrap();
+        assert!(fast.status.success(), "{fast:?}");
+        assert!(String::from_utf8_lossy(&fast.stdout).contains("codex-cli 1.2.3"));
+        assert!(!fast_cache.exists(), "fast path must skip timezone cache");
+
+        for (args, expected) in [
+            ("exec\x1f--help", "ARGS:exec --help"),
+            (
+                "app-server\x1fdaemon\x1f--help",
+                "ARGS:app-server daemon --help",
+            ),
+            (
+                "-c\x1fmodel=doctor\x1fexec\x1fhi",
+                "ARGS:-c model=doctor exec hi",
+            ),
+        ] {
+            let result = run_child(args, None);
+            assert!(result.status.success(), "{result:?}");
+            assert!(String::from_utf8_lossy(&result.stdout).contains(expected));
+        }
+        for (args, expected) in [
+            ("-c\x1ffoo=bar\x1fdoctor", "codex doctor"),
+            ("-c\x1ffoo=bar\x1fwrapper\x1fstatus", "codex wrapper"),
+        ] {
+            let result = run_child(args, None);
+            assert_eq!(result.status.code(), Some(2));
+            assert!(String::from_utf8_lossy(&result.stderr).contains(expected));
+            assert!(!String::from_utf8_lossy(&result.stdout).contains("ARGS:"));
+        }
+
         // Non-daemon routes succeed despite corrupt daemon settings and without overwriting them.
         let features = run_child("features\x1flist", None);
         assert!(features.status.success(), "{features:?}");
@@ -4092,6 +4364,9 @@ pub(crate) mod tests {
 
         // Removing corrupt daemon settings lets `CODEX_SHARED_HOME` bind SQLite default cleanly.
         fs::remove_file(&settings_path).unwrap();
+        let literal = run_child("--\x1fdoctor", None);
+        assert!(literal.status.success(), "{literal:?}");
+        assert!(String::from_utf8_lossy(&literal.stdout).contains("ARGS:-- doctor"));
         let with_shared = run_child("exec\x1fhi", Some(&shared_home));
         assert!(with_shared.status.success(), "{with_shared:?}");
         assert!(String::from_utf8_lossy(&with_shared.stdout)
@@ -4238,9 +4513,18 @@ pub(crate) mod tests {
         assert_eq!(loaded.generation_id, "gen-b");
         assert_eq!(fs::read_link(&standalone_current).unwrap(), target_b);
 
-        // Case 2: missing `standalone/current` is restored from authoritative `activation-state`.
+        // Another writer may acquire the lock after the pointer read and
+        // before reconciliation of the now-missing compatibility link.
         fs::remove_file(&standalone_current).unwrap();
-        let (_, loaded2) = load_activated_generation(&roots).unwrap();
+        let state_paths = state_paths.with_generation_root(&roots.generation_root);
+        let lock = generation_state::acquire_activation_lock(&state_paths).unwrap();
+        let release = std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            drop(lock);
+        });
+        let (_, loaded2) =
+            reconcile_standalone_current_and_load(&roots, &state_paths, ptr).unwrap();
+        release.join().unwrap();
         assert_eq!(loaded2.generation_id, "gen-b");
         assert_eq!(fs::read_link(&standalone_current).unwrap(), target_b);
 

@@ -17,6 +17,10 @@ const DATABASE_BYTE_LIMIT: usize = 16 * 1024 * 1024;
 const ZONE_BYTE_LIMIT: usize = 1024 * 1024;
 
 pub(super) fn configure(command: &mut Command) {
+    configure_with_cache(command, None);
+}
+
+pub(super) fn configure_with_cache(command: &mut Command, cache_base: Option<&Path>) {
     if !Path::new("/system/bin/getprop").is_file() {
         return;
     }
@@ -40,18 +44,29 @@ pub(super) fn configure(command: &mut Command) {
         else {
             return Ok(None);
         };
-        let database = read_database(&DATABASES.map(PathBuf::from))?;
-        let bytes = extract_zone(&database, &zone)?;
-        let base = std::env::var_os("XDG_CACHE_HOME")
-            .filter(|value| !value.is_empty())
-            .map(PathBuf::from)
+        let base = cache_base
+            .map(Path::to_path_buf)
+            .or_else(|| {
+                std::env::var_os("XDG_CACHE_HOME")
+                    .filter(|value| !value.is_empty())
+                    .map(PathBuf::from)
+            })
             .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".cache")))
             .filter(|path| path.is_absolute())
             .ok_or_else(|| invalid("timezone cache needs an absolute XDG_CACHE_HOME or HOME"))?;
         let parent = base.join("codex");
         fs::create_dir_all(&parent)?;
         let cache = parent.canonicalize()?.join("timezones");
-        publish_zone(&cache, &zone, bytes).map(Some)
+        let mut database = open_database(&DATABASES.map(PathBuf::from))?;
+        let stamp = database_stamp(&database.metadata()?);
+        load_cached_zone(&cache, &zone, &stamp, || {
+            let bytes = read_bounded(&mut database, DATABASE_BYTE_LIMIT)?;
+            if database_stamp(&database.metadata()?) != stamp {
+                return Err(invalid("Android tzdata changed during extraction"));
+            }
+            Ok(bytes)
+        })
+        .map(Some)
     })();
     match result {
         Ok(Some(tz)) => {
@@ -87,6 +102,7 @@ fn selected_zone(
         Some(value) => {
             use std::os::unix::ffi::OsStrExt;
             let bytes = value.as_bytes();
+            let explicit_name = bytes.starts_with(b":");
             let value = OsStr::from_bytes(bytes.strip_prefix(b":").unwrap_or(bytes));
             if Path::new(value).is_absolute() {
                 return Ok(None);
@@ -96,7 +112,9 @@ fn selected_zone(
             if value.is_empty()
                 || value.starts_with('.')
                 || value.contains(',')
-                || (!value.contains('/') && value.bytes().any(|c| c.is_ascii_digit()))
+                || (!explicit_name
+                    && !value.contains('/')
+                    && value.bytes().any(|c| c.is_ascii_digit()))
             {
                 return Ok(None);
             }
@@ -110,21 +128,24 @@ fn selected_zone(
     Ok(Some(zone))
 }
 
-fn read_bounded(path: &Path, limit: usize) -> io::Result<Vec<u8>> {
+fn read_bounded(file: impl Read, limit: usize) -> io::Result<Vec<u8>> {
     let mut bytes = Vec::new();
-    File::open(path)?
-        .take(limit as u64 + 1)
-        .read_to_end(&mut bytes)?;
+    file.take(limit as u64 + 1).read_to_end(&mut bytes)?;
     if bytes.len() > limit {
         return Err(invalid("timezone data exceeds its byte limit"));
     }
     Ok(bytes)
 }
 
-fn read_database(paths: &[PathBuf]) -> io::Result<Vec<u8>> {
+fn open_database(paths: &[PathBuf]) -> io::Result<File> {
     for path in paths {
-        match read_bounded(path, DATABASE_BYTE_LIMIT) {
-            Ok(bytes) => return Ok(bytes),
+        match OpenOptions::new()
+            .read(true)
+            .custom_flags(0o4000)
+            .open(path)
+        {
+            Ok(file) if file.metadata()?.is_file() => return Ok(file),
+            Ok(_) => return Err(invalid("Android tzdata is not a regular file")),
             Err(error) if error.kind() == io::ErrorKind::NotFound => {
                 match fs::symlink_metadata(path) {
                     Err(missing) if missing.kind() == io::ErrorKind::NotFound => (),
@@ -143,6 +164,22 @@ fn read_database(paths: &[PathBuf]) -> io::Result<Vec<u8>> {
         io::ErrorKind::NotFound,
         "Android tzdata is unavailable",
     ))
+}
+
+#[cfg(test)]
+fn read_database(paths: &[PathBuf]) -> io::Result<Vec<u8>> {
+    read_bounded(open_database(paths)?, DATABASE_BYTE_LIMIT)
+}
+
+fn database_stamp(meta: &fs::Metadata) -> String {
+    format!(
+        "v1 {} {} {} {} {}\n",
+        meta.dev(),
+        meta.ino(),
+        meta.len(),
+        meta.mtime(),
+        meta.mtime_nsec(),
+    )
 }
 
 fn number(bytes: &[u8], offset: usize) -> io::Result<usize> {
@@ -297,51 +334,99 @@ fn validate_tzif(bytes: &[u8]) -> io::Result<()> {
     Ok(())
 }
 
-fn publish_zone(cache: &Path, zone: &str, bytes: &[u8]) -> io::Result<OsString> {
-    super::fs_util::private_dir(cache)?;
+fn zone_path(cache: &Path, zone: &str) -> PathBuf {
     // '/' is the only valid zone-name byte escaped here; '%' cannot occur in a name.
-    let path = cache.join(format!("{}.tzif", zone.replace('/', "%")));
-    let unchanged = match fs::symlink_metadata(&path) {
-        Ok(metadata) => {
-            if !metadata.is_file()
-                || metadata.uid() != fs::metadata(cache)?.uid()
-                || metadata.permissions().mode() & 0o777 != 0o600
-            {
-                return Err(invalid("timezone cache file is not a private regular file"));
-            }
-            read_bounded(&path, ZONE_BYTE_LIMIT)? == bytes
+    cache.join(format!("{}.tzif", zone.replace('/', "%")))
+}
+
+fn read_cache_file(path: &Path, limit: u64) -> io::Result<Option<Vec<u8>>> {
+    match fs::symlink_metadata(path) {
+        Ok(meta)
+            if meta.is_file()
+                && meta.uid() == super::fs_util::current_uid()?
+                && meta.permissions().mode() & 0o777 == 0o600 =>
+        {
+            super::fs_util::read_bounded_regular(path, limit, true, "invalid timezone cache file")
+                .map(Some)
         }
-        Err(error) if error.kind() == io::ErrorKind::NotFound => false,
-        Err(error) => return Err(error),
-    };
-    if !unchanged {
-        let temporary = cache.join(format!(
-            ".zone-{}-{}",
-            std::process::id(),
-            super::LOCAL_STAGING_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-        ));
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .mode(0o600)
-            .open(&temporary)?;
-        let result = (|| {
-            if file.metadata()?.permissions().mode() & 0o777 != 0o600 {
-                return Err(invalid("timezone output file is not private and readable"));
-            }
-            file.write_all(bytes)?;
-            file.sync_all()?;
-            fs::rename(&temporary, &path)?;
-            File::open(cache)?.sync_all()
-        })();
-        if result.is_err() {
-            let _ = fs::remove_file(&temporary);
-        }
-        result?;
+        Ok(_) => Err(invalid("timezone cache file is not a private regular file")),
+        Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(err) => Err(err),
     }
+}
+
+fn write_cache_file(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    let cache = path
+        .parent()
+        .ok_or_else(|| invalid("timezone cache has no parent"))?;
+    let temporary = cache.join(format!(
+        ".zone-{}-{}",
+        std::process::id(),
+        super::LOCAL_STAGING_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    ));
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(&temporary)?;
+    let result = (|| {
+        if file.metadata()?.permissions().mode() & 0o777 != 0o600 {
+            return Err(invalid("timezone output file is not private and readable"));
+        }
+        file.write_all(bytes)?;
+        file.sync_all()?;
+        fs::rename(&temporary, path)?;
+        File::open(cache)?.sync_all()
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&temporary);
+    }
+    result
+}
+
+fn tz_value(path: &Path) -> OsString {
     let mut tz = OsString::from(":");
     tz.push(path);
-    Ok(tz)
+    tz
+}
+
+fn load_cached_zone(
+    cache: &Path,
+    zone: &str,
+    stamp: &str,
+    read_database: impl FnOnce() -> io::Result<Vec<u8>>,
+) -> io::Result<OsString> {
+    super::fs_util::private_dir(cache)?;
+    let path = zone_path(cache, zone);
+    let stamp_path = path.with_extension("stamp");
+    let cached = read_cache_file(&path, ZONE_BYTE_LIMIT as u64)?;
+    let cached_stamp = read_cache_file(&stamp_path, 256)?;
+    // Bind the stamp to the exact TZif bytes so readers never accept a mixed
+    // cache pair when another process is publishing or is interrupted.
+    let stamped_zone =
+        |bytes: &[u8]| format!("{stamp}{}", codex_release_builder::sha256_bytes(bytes));
+    if let Some(bytes) = cached.as_deref() {
+        if cached_stamp.as_deref() == Some(stamped_zone(bytes).as_bytes())
+            && validate_tzif(bytes).is_ok()
+        {
+            return Ok(tz_value(&path));
+        }
+    }
+
+    let database = read_database()?;
+    let bytes = extract_zone(&database, zone)?;
+    if cached.as_deref() != Some(bytes) {
+        write_cache_file(&path, bytes)?;
+    }
+    write_cache_file(&stamp_path, stamped_zone(bytes).as_bytes())?;
+    Ok(tz_value(&path))
+}
+
+#[cfg(test)]
+fn publish_zone(cache: &Path, zone: &str, bytes: &[u8]) -> io::Result<OsString> {
+    let data = tests::database(zone, bytes);
+    let stamp = codex_release_builder::sha256_bytes(&data);
+    load_cached_zone(cache, zone, &stamp, || Ok(data))
 }
 
 #[cfg(test)]
@@ -359,7 +444,7 @@ mod tests {
         bytes
     }
 
-    fn database(zone: &str, payload: &[u8]) -> Vec<u8> {
+    pub(super) fn database(zone: &str, payload: &[u8]) -> Vec<u8> {
         let mut bytes = b"tzdata2026c\0".to_vec();
         for offset in [24, 76, 76 + payload.len() as u32] {
             bytes.extend(offset.to_be_bytes());
@@ -465,6 +550,63 @@ mod tests {
     }
 
     #[test]
+    fn colon_prefixed_numeric_iana_names_select_database_entries() {
+        for zone in ["EST5EDT", "GMT0", "CST6CDT", "MST7MDT", "PST8PDT"] {
+            let explicit = format!(":{zone}");
+            assert_eq!(
+                selected_zone(Some(OsStr::new(&explicit)), || panic!(
+                    "unexpected system query"
+                ))
+                .unwrap()
+                .as_deref(),
+                Some(zone)
+            );
+            assert_eq!(
+                selected_zone(Some(OsStr::new(zone)), || panic!("unexpected system query"))
+                    .unwrap(),
+                None
+            );
+        }
+    }
+
+    #[test]
+    fn unchanged_database_stamp_and_tzif_skip_database_reads() {
+        let root = crate::tests::temp_root("timezone-cache-hit");
+        let source = root.join("active");
+        let cache = root.join("cache");
+        let zone = "EST5EDT";
+        let first = fixed_zone(-5 * 3600);
+        fs::write(&source, database(zone, &first)).unwrap();
+        let metadata = || database_stamp(&fs::metadata(&source).unwrap());
+        let stamp = metadata();
+        load_cached_zone(&cache, zone, &stamp, || fs::read(&source)).unwrap();
+        let path = zone_path(&cache, zone);
+        let inode = fs::metadata(&path).unwrap().ino();
+        assert_eq!(
+            load_cached_zone(&cache, zone, &stamp, || panic!(
+                "cache hit read Android tzdata"
+            ))
+            .unwrap(),
+            tz_value(&path)
+        );
+        assert_eq!(fs::metadata(&path).unwrap().ino(), inode);
+
+        let second = fixed_zone(-4 * 3600);
+        let mut changed = database(zone, &second);
+        changed.extend_from_slice(b"extra trailing database bytes");
+        fs::write(&source, &changed).unwrap();
+        let fresh = metadata();
+        assert_ne!(fresh, stamp);
+        load_cached_zone(&cache, zone, &fresh, || fs::read(&source)).unwrap();
+        assert_eq!(fs::read(&path).unwrap(), second);
+        // A valid but mismatched cached TZif must not be accepted under an unchanged stamp.
+        fs::write(&path, first).unwrap();
+        load_cached_zone(&cache, zone, &fresh, || fs::read(&source)).unwrap();
+        assert_eq!(fs::read(&path).unwrap(), second);
+        crate::tests::remove_temp_root(root);
+    }
+
+    #[test]
     fn active_android_source_and_changed_zone_bytes_are_published() {
         let root = crate::tests::temp_root("timezone-refresh");
         let sources = [
@@ -547,6 +689,7 @@ mod tests {
                     removals: vec![],
                 }),
             );
+            configure(&mut command);
             let output = command.output().unwrap();
             assert!(output.status.success());
             let tz = String::from_utf8(output.stdout).unwrap();

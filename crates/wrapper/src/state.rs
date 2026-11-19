@@ -306,6 +306,12 @@ pub(super) mod generation_state {
         acquire_activation_lock_with_mode(paths, FLOCK_EX, None)
     }
 
+    pub(crate) fn wait_for_activation_lock(
+        paths: &WrapperStatePaths,
+    ) -> Result<ActivationLockGuard, ActivationTransactionError> {
+        acquire_activation_lock_with_mode(paths, FLOCK_EX, Some(std::time::Duration::from_secs(2)))
+    }
+
     pub(crate) fn acquire_activation_read_lock(
         paths: &WrapperStatePaths,
     ) -> Result<ActivationLockGuard, ActivationTransactionError> {
@@ -853,8 +859,22 @@ pub(super) mod generation_state {
         let uid = crate::fs_util::current_uid()
             .map_err(|err| io_error("get standalone directory owner", err))?;
         for dir in [root, paths.generation_root.as_deref().unwrap()] {
-            let meta = fs::symlink_metadata(dir)
-                .map_err(|err| io_error("inspect standalone directory", err))?;
+            let meta = match fs::symlink_metadata(dir) {
+                Ok(meta) => meta,
+                Err(err)
+                    if err.kind() == std::io::ErrorKind::NotFound
+                        && generation.is_none()
+                        && journal.is_some_and(|journal| journal.before.is_none()) =>
+                {
+                    if dir == root {
+                        return Ok(());
+                    }
+                    // The initial activation did not commit. A staged or published
+                    // link can still be removed even without its target directory.
+                    continue;
+                }
+                Err(err) => return Err(io_error("inspect standalone directory", err)),
+            };
             if !meta.is_dir() || meta.uid() != uid {
                 return Err(ActivationTransactionError::UnsafeFileType(
                     "standalone directory",
@@ -1023,11 +1043,7 @@ pub(super) mod generation_state {
         }
         drop(read_lock);
 
-        let lock = acquire_activation_lock_with_mode(
-            paths,
-            FLOCK_EX,
-            Some(std::time::Duration::from_secs(2)),
-        )?;
+        let lock = wait_for_activation_lock(paths)?;
         recover_activation_locked(paths, io, &lock).map(|(state, _)| state)
     }
 
@@ -1572,6 +1588,36 @@ mod activation_interruption_tests {
         .unwrap();
         assert_eq!(recover_activation_state(&paths).unwrap(), None);
         only_expected_files(&paths, false, false, false, false);
+        fs::remove_dir_all(&paths.root).unwrap();
+    }
+
+    #[test]
+    fn uncommitted_initial_journal_clears_attempted_link_without_releases() {
+        let (paths, before, after) = fixture(0);
+        let standalone = paths.root.join("standalone");
+        let releases = standalone.join("releases");
+        let paths = paths.with_generation_root(&releases);
+        fs::create_dir(&standalone).unwrap();
+        let target = paths.standalone_current_target(&after.current).unwrap();
+        let link = standalone.join("current");
+        let staged = standalone.join(".current.wrapper.tmp");
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+        std::os::unix::fs::symlink(&target, &staged).unwrap();
+        let journal = ActivationJournal {
+            operation: ActivationOperation::Update,
+            before,
+            after,
+        };
+        fs::write(
+            &paths.activation_journal,
+            encode_activation_journal(&journal).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(recover_activation_state(&paths).unwrap(), None);
+        assert!(!paths.activation_journal.exists());
+        assert!(!releases.exists());
+        assert!(fs::symlink_metadata(&link).is_err());
+        assert!(fs::symlink_metadata(&staged).is_err());
         fs::remove_dir_all(&paths.root).unwrap();
     }
 

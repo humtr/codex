@@ -1,10 +1,10 @@
 //! One local retention boundary. No conversation or credential contents are read.
 use super::*;
 use std::collections::HashSet;
-use std::fs::{self, File};
+use std::fs::{self, File, OpenOptions};
 use std::io;
 use std::os::fd::{AsRawFd, FromRawFd};
-use std::os::unix::fs::MetadataExt;
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use std::path::{Component, Path};
 
 fn invalid() -> io::Error {
@@ -25,8 +25,10 @@ fn owned_directory(path: &Path) -> io::Result<()> {
 
 /// CLOEXEC releases this lease only after the kernel opens the selected program.
 pub(super) fn launch_lease(root: &Path) -> io::Result<Option<File>> {
-    if !root.exists() {
-        return Ok(None);
+    match fs::symlink_metadata(root) {
+        Ok(_) => (),
+        Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(err) => return Err(err),
     }
     owned_directory(root)?;
     let parent = root.parent().ok_or_else(invalid)?;
@@ -167,9 +169,23 @@ fn process_is_owned(process: &Path, directory_uid: u32, uid: u32) -> io::Result<
     Ok(owners.contains(&uid))
 }
 
-pub(super) fn process_references(root: &Path) -> io::Result<HashSet<String>> {
+fn process_references(roots: &[&Path]) -> io::Result<HashSet<String>> {
     let uid = fs::metadata("/proc/self")?.uid();
     let mut keep = HashSet::new();
+    let mut record = |link: &Path| -> io::Result<()> {
+        match fs::read_link(link) {
+            Ok(path) => {
+                keep.extend(
+                    roots
+                        .iter()
+                        .filter_map(|root| referenced_generation(&path, root)),
+                );
+            }
+            Err(err) if err.kind() == io::ErrorKind::NotFound => (),
+            Err(err) => return Err(err),
+        }
+        Ok(())
+    };
     let mut exit_budget = std::time::Duration::from_millis(10);
     for entry in fs::read_dir("/proc")? {
         let entry = entry?;
@@ -195,26 +211,10 @@ pub(super) fn process_references(root: &Path) -> io::Result<HashSet<String>> {
             continue;
         }
         let references = (|| -> io::Result<()> {
-            match fs::read_link(process.join("exe")) {
-                Ok(path) => {
-                    if let Some(id) = referenced_generation(&path, root) {
-                        keep.insert(id);
-                    }
-                }
-                Err(e) if e.kind() == io::ErrorKind::NotFound => (),
-                Err(e) => return Err(e),
-            }
-            let files = fs::read_dir(process.join("fd"))?;
-            for file in files {
-                match fs::read_link(file?.path()) {
-                    Ok(path) => {
-                        if let Some(id) = referenced_generation(&path, root) {
-                            keep.insert(id);
-                        }
-                    }
-                    Err(e) if e.kind() == io::ErrorKind::NotFound => (),
-                    Err(e) => return Err(e),
-                }
+            record(&process.join("exe"))?;
+            record(&process.join("cwd"))?;
+            for file in fs::read_dir(process.join("fd"))? {
+                record(&file?.path())?;
             }
             Ok(())
         })();
@@ -304,6 +304,86 @@ fn prune_directory(root: &Path, keep: &HashSet<String>, staging_only: bool) -> i
     Ok(removed)
 }
 
+fn prune_orphaned_headers(root: &Path) -> io::Result<usize> {
+    match fs::symlink_metadata(root) {
+        Ok(_) => owned_directory(root)?,
+        Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(0),
+        Err(err) => return Err(err),
+    }
+    let lease = OpenOptions::new()
+        .read(true)
+        .custom_flags(crate::fs_util::O_NOFOLLOW)
+        .open(root)?;
+    let metadata = lease.metadata()?;
+    if !metadata.is_dir()
+        || metadata.uid() != crate::fs_util::current_uid()?
+        || metadata.mode() & 0o077 != 0
+    {
+        return Err(invalid());
+    }
+    // The downloader uses this same directory lease for part and header files.
+    crate::fs_util::flock_fd(&lease, FLOCK_EX | FLOCK_NB)?;
+    let mut removed = 0;
+    let mut references = None;
+    let uid = crate::fs_util::current_uid()?;
+    for item in fs::read_dir(root)? {
+        let item = item?;
+        let filename = item.file_name();
+        let Some(filename) = filename.to_str() else {
+            continue;
+        };
+        let Some(digest) = filename.strip_suffix(".hdr") else {
+            continue;
+        };
+        if !valid_sha256_hex(digest) {
+            continue;
+        }
+        match fs::symlink_metadata(root.join(format!("{digest}.part"))) {
+            Err(err) if err.kind() == io::ErrorKind::NotFound => (),
+            Ok(_) => continue,
+            Err(err) => return Err(err),
+        }
+
+        let path = item.path();
+        let metadata = fs::symlink_metadata(&path)?;
+        if !metadata.is_file()
+            || metadata.uid() != uid
+            || metadata.nlink() != 1
+            || metadata.mode() & 0o022 != 0
+        {
+            continue;
+        }
+        // A downloader killed before cleanup can leave a curl child with
+        // an open header after the directory lease has been released.
+        let references = match references.as_mut() {
+            Some(references) => references,
+            None => references.insert(process_references(&[root])?),
+        };
+        if references.contains(filename) {
+            continue;
+        }
+        let header = OpenOptions::new()
+            .read(true)
+            .custom_flags(crate::fs_util::O_NOFOLLOW | 0o4000)
+            .open(&path)?;
+        let opened = header.metadata()?;
+        if opened.dev() != metadata.dev() || opened.ino() != metadata.ino() {
+            continue;
+        }
+        match crate::fs_util::flock_fd(&header, FLOCK_EX | FLOCK_NB) {
+            Err(err) if err.kind() == io::ErrorKind::WouldBlock => continue,
+            Err(err) => return Err(err),
+            Ok(()) => (),
+        }
+        fs::remove_file(path)?;
+        removed += 1;
+    }
+    if removed != 0 {
+        lease.sync_all()?;
+    }
+    Ok(removed)
+}
+
 pub(super) fn prune(roots: &LocalWrapperRoots) -> io::Result<usize> {
     owned_directory(&roots.generation_root)?;
     let parent = roots.generation_root.parent().ok_or_else(invalid)?;
@@ -331,19 +411,23 @@ pub(super) fn prune(roots: &LocalWrapperRoots) -> io::Result<usize> {
         .map_err(|_| invalid())?
         .ok_or_else(invalid)?;
     let mut keep = dependencies(&state);
+    let headers = prune_orphaned_headers(&roots.state_root.join("downloads"));
     let publications = roots.state_root.join("publications");
     if !has_prunable_entries(&roots.generation_root, &keep, false)?
         && !has_prunable_entries(&publications, &keep, false)?
         && !has_prunable_entries(&roots.state_root, &keep, true)?
     {
-        return Ok(0);
+        return headers;
     }
-    keep.extend(process_references(&roots.generation_root)?);
+    keep.extend(process_references(&[
+        &roots.generation_root,
+        &roots.state_root,
+    ])?);
     // No state mutation can occur under this writer lock, including rollback.
     let mut removed = prune_directory(&roots.generation_root, &keep, false)?;
     removed += prune_directory(&publications, &keep, false)?;
     removed += prune_directory(&roots.state_root, &keep, true)?;
-    Ok(removed)
+    Ok(removed + headers?)
 }
 
 #[cfg(test)]
@@ -462,6 +546,91 @@ mod tests {
     }
 
     #[test]
+    fn launch_lease_rejects_dangling_generation_symlink() {
+        let root = crate::tests::temp_root("dangling-generation");
+        let generation_root = root.join("releases");
+        assert!(launch_lease(&generation_root).unwrap().is_none());
+        std::os::unix::fs::symlink(root.join("absent"), &generation_root).unwrap();
+        assert!(launch_lease(&generation_root).is_err());
+        assert!(fs::symlink_metadata(&generation_root).unwrap().is_symlink());
+        crate::tests::remove_temp_root(root);
+    }
+
+    #[test]
+    fn maintenance_preserves_open_state_staging_and_prunes_it_after_release() {
+        let root = crate::tests::temp_root("state-staging-prune");
+        let roots = crate::tests::make_test_roots(&root);
+        let paths = generation_state::WrapperStatePaths::new(&roots.state_root).unwrap();
+        let pointer = generation_state::plan_initial_pointer_state("gen-1").unwrap();
+        fs::write(
+            &paths.activation_state,
+            generation_state::encode_pointer_state(&pointer).unwrap(),
+        )
+        .unwrap();
+
+        let busy = roots.state_root.join(".local-update-10-1");
+        let old = roots.state_root.join(".local-update-11-1");
+        fs::create_dir(&busy).unwrap();
+        fs::create_dir(&old).unwrap();
+        let open = File::create(busy.join("proof")).unwrap();
+        assert_eq!(prune(&roots).unwrap(), 1);
+        assert!(busy.exists());
+        assert!(!old.exists());
+
+        drop(open);
+        assert_eq!(prune(&roots).unwrap(), 1);
+        assert!(!busy.exists());
+        crate::tests::remove_temp_root(root);
+    }
+
+    #[test]
+    fn maintenance_prunes_only_owned_unheld_orphan_download_headers() {
+        let root = crate::tests::temp_root("header-prune");
+        let roots = crate::tests::make_test_roots(&root);
+        let paths = generation_state::WrapperStatePaths::new(&roots.state_root).unwrap();
+        let pointer = generation_state::plan_initial_pointer_state("gen-1").unwrap();
+        fs::write(
+            &paths.activation_state,
+            generation_state::encode_pointer_state(&pointer).unwrap(),
+        )
+        .unwrap();
+
+        let downloads = roots.state_root.join("downloads");
+        crate::fs_util::private_dir(&downloads).unwrap();
+        let orphan = downloads.join(format!("{}.hdr", "a".repeat(64)));
+        let paired = downloads.join(format!("{}.hdr", "b".repeat(64)));
+        let held = downloads.join(format!("{}.hdr", "c".repeat(64)));
+        let symlink = downloads.join(format!("{}.hdr", "d".repeat(64)));
+        let unknown = downloads.join("user.hdr");
+        for path in [
+            &orphan,
+            &paired,
+            &held,
+            &unknown,
+            &paired.with_extension("part"),
+        ] {
+            fs::write(path, b"test").unwrap();
+        }
+        std::os::unix::fs::symlink(&unknown, &symlink).unwrap();
+        let cache_lease = File::open(&downloads).unwrap();
+        crate::fs_util::flock_fd(&cache_lease, FLOCK_EX | FLOCK_NB).unwrap();
+        assert_eq!(prune(&roots).unwrap_err().kind(), io::ErrorKind::WouldBlock);
+        assert!(orphan.exists());
+        drop(cache_lease);
+        let open_header = File::open(&held).unwrap();
+        assert_eq!(prune(&roots).unwrap(), 1);
+        assert!(!orphan.exists());
+        assert!(paired.exists());
+        assert!(held.exists());
+        assert!(symlink.is_symlink());
+        assert!(unknown.exists());
+        drop(open_header);
+        assert_eq!(prune(&roots).unwrap(), 1);
+        assert!(!held.exists());
+        crate::tests::remove_temp_root(root);
+    }
+
+    #[test]
     fn update_lease_creates_missing_generation_root_and_blocks_prune() {
         let root = crate::tests::temp_root("update-lease-fresh");
         let home = root.join("home");
@@ -499,10 +668,13 @@ mod tests {
         let lease = UpdateLease::acquire(&roots).unwrap();
         assert!(fs::symlink_metadata(&generation_root).unwrap().is_dir());
 
+        let old_staging = state_root.join(".local-update-22-1");
+        fs::create_dir(&old_staging).unwrap();
         let blocked = prune(&roots).unwrap_err();
         assert_eq!(blocked.kind(), io::ErrorKind::WouldBlock);
 
         drop(lease);
+        assert!(!old_staging.exists(), "UpdateLease drop already prunes");
         assert_eq!(prune(&roots).unwrap(), 0);
         crate::tests::remove_temp_root(root);
     }

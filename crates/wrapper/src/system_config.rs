@@ -277,6 +277,7 @@ fn validate_with_timeout(
         let mut command = Command::new(program);
         command.args(["features", "list"]);
         apply_child_env_plan_and_fence(&mut command, Some(env_plan));
+        crate::timezone::configure(&mut command);
         command
             .env("HOME", &temporary)
             .env("CODEX_HOME", &temporary)

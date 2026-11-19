@@ -325,49 +325,44 @@ fn update_settings_bytes(existing: Option<&[u8]>) -> io::Result<Option<Vec<u8>>>
     };
 
     let mut changed = false;
-    match entries.iter().rposition(|(key, _)| key == "updater") {
-        None => {
-            entries.push((
-                "updater".to_owned(),
-                JsonValue::Object(vec![(
-                    "autoUpdateEnabled".to_owned(),
-                    JsonValue::Bool(false),
-                )]),
-            ));
+    let mut found_updater = false;
+    for (_, updater) in entries.iter_mut().filter(|(key, _)| key == "updater") {
+        found_updater = true;
+        if matches!(updater, JsonValue::Null) {
+            *updater = JsonValue::Object(Vec::new());
             changed = true;
         }
-        Some(index) => match &mut entries[index].1 {
-            JsonValue::Object(sub_entries) => {
-                match sub_entries
-                    .iter()
-                    .rposition(|(key, _)| key == "autoUpdateEnabled")
-                {
-                    Some(flag_idx) if matches!(sub_entries[flag_idx].1, JsonValue::Bool(false)) => {
-                    }
-                    Some(flag_idx) => {
-                        sub_entries[flag_idx].1 = JsonValue::Bool(false);
-                        changed = true;
-                    }
-                    None => {
-                        sub_entries.push(("autoUpdateEnabled".to_owned(), JsonValue::Bool(false)));
-                        changed = true;
-                    }
-                }
-            }
-            JsonValue::Null => {
-                entries[index].1 = JsonValue::Object(vec![(
-                    "autoUpdateEnabled".to_owned(),
-                    JsonValue::Bool(false),
-                )]);
+        let JsonValue::Object(fields) = updater else {
+            return Err(io::Error::new(
+                ErrorKind::InvalidData,
+                "app-server-daemon settings.json updater field is not an object",
+            ));
+        };
+        let mut found_flag = false;
+        for (_, flag) in fields
+            .iter_mut()
+            .filter(|(key, _)| key == "autoUpdateEnabled")
+        {
+            found_flag = true;
+            if !matches!(flag, JsonValue::Bool(false)) {
+                *flag = JsonValue::Bool(false);
                 changed = true;
             }
-            _ => {
-                return Err(io::Error::new(
-                    ErrorKind::InvalidData,
-                    "app-server-daemon settings.json updater field is not an object",
-                ));
-            }
-        },
+        }
+        if !found_flag {
+            fields.push(("autoUpdateEnabled".to_owned(), JsonValue::Bool(false)));
+            changed = true;
+        }
+    }
+    if !found_updater {
+        entries.push((
+            "updater".to_owned(),
+            JsonValue::Object(vec![(
+                "autoUpdateEnabled".to_owned(),
+                JsonValue::Bool(false),
+            )]),
+        ));
+        changed = true;
     }
 
     if !changed {
@@ -566,6 +561,9 @@ impl<'a> JsonParser<'a> {
         let Some(slice) = self.bytes.get(self.offset..self.offset + 4) else {
             return Err(Self::invalid("truncated unicode escape in JSON string"));
         };
+        if !slice.iter().all(u8::is_ascii_hexdigit) {
+            return Err(Self::invalid("invalid unicode escape"));
+        }
         let text =
             std::str::from_utf8(slice).map_err(|_| Self::invalid("invalid unicode escape"))?;
         let code =
@@ -735,6 +733,34 @@ mod tests {
             "{\"custom\":42,\"updater\":{\"lastCheck\":\"2026-11-15\",\"autoUpdateEnabled\":false},\"tags\":[\"a\\nb\"]}\n"
         );
         fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn every_updater_flag_is_false_even_with_duplicate_escaped_keys() {
+        let input = br#"{"updater":{"autoUpdateEnabled":true,"setting":5,"autoUpdateEnabled":false},"updat\u0065r":{"autoUpdateEnabled":true,"autoUpdateEnabl\u0065d":false},"updater":null}"#;
+        let updated = update_settings_bytes(Some(input)).unwrap().unwrap();
+        let text = std::str::from_utf8(&updated).unwrap();
+        assert_eq!(text.matches(r#""autoUpdateEnabled":false"#).count(), 5);
+        assert!(!text.contains("true"));
+        assert!(text.contains(r#""setting":5"#));
+        assert!(update_settings_bytes(Some(&updated)).unwrap().is_none());
+    }
+
+    #[test]
+    fn json_unicode_escape_requires_four_hex_digits() {
+        for input in [
+            br#"{"key":"\u+041"}"#.as_slice(),
+            br#"{"key":"\u00g1"}"#,
+            br#"{"key":"\u 041"}"#,
+        ] {
+            assert_eq!(
+                update_settings_bytes(Some(input)).unwrap_err().kind(),
+                ErrorKind::InvalidData
+            );
+        }
+        assert!(update_settings_bytes(Some(br#"{"key":"\u0041"}"#))
+            .unwrap()
+            .is_some());
     }
 
     #[test]
