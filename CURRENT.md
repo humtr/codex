@@ -22,7 +22,7 @@ and retired work orders are archived in
 | **Live `codex doctor --json` (all 3 homes)** | `termux_wrapper = healthy`; rollout/DB parity improved from `70/3/1/75` → `0/0/0/3` | 72 broken paths fixed & duplicate pair isolated (2026-11-19); 3 missing-file `/usr/tmp/*` DB rows retained untouched |
 | **External services (`runit` & `167.2`)** | All 5 `runit` services running; `167.2` preserved in original generation (`ino=489102`) | Independently owned; excluded from Wrapper binary unification |
 | **Stage 2.1 boundary / Stage 2.2–2.5 addons** | 2.1 settings & FD 34 snapshot engine implemented; 2.2–2.5 deferred | Zero Manager/TUI/Provider executables attached |
-| **Stage 1 completion status (WP1–WP6)** | Local WP1–WP6 complete and qualified in isolated Android API 37 root (`HANDOFF.md`) | Ready for final user sign-off before `git push`, `origin/main` promotion, stable GitHub `wrapper` release, or live `$PREFIX/bin/codex` cutover |
+| **Stage 1 completion status (WP0–WP6)** | WP0–WP6 complete and qualified in isolated Android API 37 root (archived in [STAGE1_MILESTONES.md](docs/history/STAGE1_MILESTONES.md)) | Graduating to `origin/main`, stable GitHub `wrapper` release (`prerelease: false`), and live `$PREFIX/bin/codex` cutover |
 
 ### Unverified / Remaining Boundaries
 
