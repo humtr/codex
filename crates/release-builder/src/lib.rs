@@ -1,8 +1,14 @@
 #![cfg(unix)]
 
 mod runtime_patch;
+mod sha256;
 
-use std::collections::BTreeSet;
+pub use runtime_patch::PATCH_POLICY_ID;
+pub use sha256::{sha256_bytes, sha256_file};
+
+use sha256::Sha256;
+
+use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::{CString, OsStr, OsString};
 use std::fs::{File, OpenOptions};
 use std::io::{self, Read, Seek, SeekFrom, Write};
@@ -12,7 +18,7 @@ use std::path::{Component, Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 
-pub const ARCHIVE_MAX_BYTES: u64 = 256 * 1024 * 1024;
+pub const ARCHIVE_MAX_BYTES: u64 = 512 * 1024 * 1024;
 
 pub fn binary_adaptation_available(version: &str) -> bool {
     valid_stable_version(version)
@@ -21,8 +27,8 @@ const ENTRY_MAX_BYTES: u64 = 384 * 1024 * 1024;
 const PAYLOAD_MAX_BYTES: u64 = 768 * 1024 * 1024;
 const WRAPPER_ARTIFACT_MAX_BYTES: u64 = 64 * 1024 * 1024;
 const PATH_MAX_BYTES: usize = 256;
-const LOGICAL_ENTRY_MAX: usize = 256;
-const PAX_PAYLOAD_MAX_BYTES: u64 = 512;
+const LOGICAL_ENTRY_MAX: usize = 1024;
+const PAX_PAYLOAD_MAX_BYTES: u64 = 4096;
 const PACKAGE_JSON_MAX_BYTES: u64 = 64 * 1024;
 const JSON_DEPTH_MAX: usize = 16;
 const GENERATION_ID_MAX_BYTES: usize = 512;
@@ -128,7 +134,7 @@ const USAGE: &str = concat!(
     "--archive <ABSOLUTE_FILE> --archive-sha256 <LOWERCASE_SHA256> ",
     "--generation-id <ID> --wrapper <ABSOLUTE_FILE> ",
     "--creation-metadata <VALUE> ",
-    "--gzip <ABSOLUTE_EXECUTABLE> --openssl <ABSOLUTE_EXECUTABLE> ",
+    "--gzip <ABSOLUTE_EXECUTABLE> [--openssl <PATH>] ",
     "--output <ABSENT_ABSOLUTE_DIRECTORY>"
 );
 
@@ -184,7 +190,8 @@ pub struct GenerationRequest {
     pub wrapper: PathBuf,
     pub creation_metadata: String,
     pub gzip: PathBuf,
-    pub openssl: PathBuf,
+    /// Accepted for compatibility with existing callers.
+    pub openssl: Option<PathBuf>,
     pub output: PathBuf,
 }
 
@@ -248,7 +255,7 @@ where
         wrapper: fields.wrapper.ok_or(BuilderError::Usage)?,
         creation_metadata: fields.creation_metadata.ok_or(BuilderError::Usage)?,
         gzip: fields.gzip.ok_or(BuilderError::Usage)?,
-        openssl: fields.openssl.ok_or(BuilderError::Usage)?,
+        openssl: fields.openssl,
         output: fields.output.ok_or(BuilderError::Usage)?,
     })
 }
@@ -336,7 +343,6 @@ fn validate_request(request: &GenerationRequest) -> Result<(), BuilderError> {
         &request.archive,
         &request.wrapper,
         &request.gzip,
-        &request.openssl,
         &request.output,
     ] {
         if !canonical_absolute_path(path) {
@@ -371,10 +377,6 @@ fn validate_request(request: &GenerationRequest) -> Result<(), BuilderError> {
         ));
     }
     ensure_executable(&request.gzip, "gzip is not an executable regular file")?;
-    ensure_executable(
-        &request.openssl,
-        "OpenSSL is not an executable regular file",
-    )?;
     match std::fs::symlink_metadata(&request.output) {
         Ok(_) => return Err(BuilderError::Invalid("output directory already exists")),
         Err(err) if err.kind() == io::ErrorKind::NotFound => {}
@@ -399,24 +401,8 @@ fn validate_request(request: &GenerationRequest) -> Result<(), BuilderError> {
     Ok(())
 }
 
-fn openssl_sha256(openssl: &Path, file: &Path) -> Result<String, BuilderError> {
-    let output = Command::new(openssl)
-        .args(["dgst", "-sha256", "-binary"])
-        .arg(file)
-        .env_clear()
-        .stdin(Stdio::null())
-        .stderr(Stdio::null())
-        .output()
-        .map_err(|source| io_error("run OpenSSL SHA-256", source))?;
-    if !output.status.success() || output.stdout.len() != 32 {
-        return Err(BuilderError::Tool("OpenSSL SHA-256 failed"));
-    }
-    let mut hex = String::with_capacity(64);
-    for byte in output.stdout {
-        use std::fmt::Write as _;
-        write!(&mut hex, "{byte:02x}").expect("writing into a String cannot fail");
-    }
-    Ok(hex)
+fn hash_file(path: &Path) -> Result<String, BuilderError> {
+    sha256_file(path).map_err(|source| io_error("hash generation input or asset", source))
 }
 
 fn create_dir_mode(path: &Path, mode: u32, operation: &'static str) -> Result<(), BuilderError> {
@@ -493,8 +479,7 @@ fn snapshot_wrapper_artifact(
     drop(snapshot);
 
     validate_android_aarch64_wrapper_elf(&snapshot_path)?;
-    let sha256 = openssl_sha256(&request.openssl, &snapshot_path)?;
-    Ok(sha256)
+    hash_file(&snapshot_path)
 }
 
 fn create_staging(output: &Path) -> Result<PathBuf, BuilderError> {
@@ -545,59 +530,31 @@ fn snapshot_archive(request: &GenerationRequest, staging: &Path) -> Result<PathB
 
     let snapshot_path = staging.join(".source-archive");
     let mut snapshot = create_private_file(&snapshot_path)?;
-    let mut child = Command::new(&request.openssl)
-        .args(["dgst", "-sha256", "-binary"])
-        .env_clear()
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .map_err(|source| io_error("start OpenSSL archive SHA-256", source))?;
-    let mut digest_input = child
-        .stdin
-        .take()
-        .ok_or(BuilderError::Tool("OpenSSL digest input is unavailable"))?;
-    let copy_result = (|| {
-        let mut total = 0u64;
-        let mut buffer = [0u8; 64 * 1024];
-        loop {
-            let read = source
-                .read(&mut buffer)
-                .map_err(|source| io_error("read upstream archive", source))?;
-            if read == 0 {
-                break;
-            }
-            total = total
-                .checked_add(read as u64)
-                .filter(|total| *total <= ARCHIVE_MAX_BYTES)
-                .ok_or(BuilderError::Invalid(
-                    "upstream archive exceeds its byte bound",
-                ))?;
-            snapshot
-                .write_all(&buffer[..read])
-                .map_err(|source| io_error("write upstream archive snapshot", source))?;
-            digest_input
-                .write_all(&buffer[..read])
-                .map_err(|source| io_error("hash upstream archive snapshot", source))?;
+    let mut digest = Sha256::new();
+    let mut total = 0u64;
+    let mut buffer = [0u8; 64 * 1024];
+    loop {
+        let read = match source.read(&mut buffer) {
+            Ok(0) => break,
+            Ok(read) => read,
+            Err(err) if err.kind() == io::ErrorKind::Interrupted => continue,
+            Err(err) => return Err(io_error("read upstream archive", err)),
+        };
+        total += read as u64;
+        if total > ARCHIVE_MAX_BYTES {
+            return Err(BuilderError::Invalid(
+                "upstream archive exceeds its byte bound",
+            ));
         }
         snapshot
-            .sync_all()
-            .map_err(|source| io_error("sync upstream archive snapshot", source))
-    })();
-    drop(digest_input);
-    let output = child
-        .wait_with_output()
-        .map_err(|source| io_error("wait for OpenSSL archive SHA-256", source))?;
-    copy_result?;
-    if !output.status.success() || output.stdout.len() != 32 {
-        return Err(BuilderError::Tool("OpenSSL archive SHA-256 failed"));
+            .write_all(&buffer[..read])
+            .map_err(|source| io_error("write upstream archive snapshot", source))?;
+        digest.update(&buffer[..read]);
     }
-    let mut actual = String::with_capacity(64);
-    for byte in output.stdout {
-        use std::fmt::Write as _;
-        write!(&mut actual, "{byte:02x}").expect("writing into a String cannot fail");
-    }
-    if actual != request.archive_sha256 {
+    snapshot
+        .sync_all()
+        .map_err(|source| io_error("sync upstream archive snapshot", source))?;
+    if digest.finish() != request.archive_sha256 {
         return Err(BuilderError::ArchiveDigestMismatch);
     }
     Ok(snapshot_path)
@@ -606,8 +563,7 @@ fn snapshot_archive(request: &GenerationRequest, staging: &Path) -> Result<PathB
 #[derive(Debug)]
 struct ArchiveSelection {
     raw_runtime: PathBuf,
-    code_mode_host: Option<PathBuf>,
-    extra_bins: Vec<PathBuf>,
+    extra_bins: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -615,22 +571,18 @@ enum EntryKind {
     Regular,
     Directory,
     Pax,
+    GnuLongName,
 }
 
 #[derive(Debug)]
-struct TarHeader {
-    path: String,
+struct TarHeader<PathName> {
+    path: PathName,
     size: u64,
     mode: u64,
     kind: EntryKind,
 }
 
 fn parse_octal(field: &[u8]) -> Result<u64, BuilderError> {
-    if field.first().is_some_and(|byte| byte & 0x80 != 0) {
-        return Err(BuilderError::Archive(
-            "base-256 tar numbers are unsupported",
-        ));
-    }
     let mut value = 0u64;
     let mut saw_digit = false;
     let mut ended = false;
@@ -658,6 +610,20 @@ fn parse_octal(field: &[u8]) -> Result<u64, BuilderError> {
     }
 }
 
+fn parse_tar_number(field: &[u8]) -> Result<i128, BuilderError> {
+    let Some((&first, rest)) = field.split_first() else {
+        return Err(BuilderError::Archive("tar number is empty"));
+    };
+    if first & 0x80 == 0 {
+        return parse_octal(field).map(i128::from);
+    }
+    // The top bit marks a binary number. The other bits are signed big endian.
+    let leading = i128::from(first & 0x7f) - if first & 0x40 != 0 { 0x80 } else { 0 };
+    Ok(rest
+        .iter()
+        .fold(leading, |value, byte| (value << 8) | i128::from(*byte)))
+}
+
 fn header_text(field: &[u8]) -> Result<&[u8], BuilderError> {
     let end = field
         .iter()
@@ -669,33 +635,21 @@ fn header_text(field: &[u8]) -> Result<&[u8], BuilderError> {
     Ok(&field[..end])
 }
 
-fn valid_archive_path(path: &str, directory: bool) -> bool {
-    if path.is_empty()
-        || path.len() > PATH_MAX_BYTES
-        || path.starts_with('/')
-        || path.contains('\\')
-        || path.bytes().any(|byte| byte.is_ascii_control())
+fn valid_archive_path(path: &[u8], directory: bool) -> bool {
+    if path.len() > PATH_MAX_BYTES || path.contains(&b'\\') || path.iter().any(u8::is_ascii_control)
     {
         return false;
     }
     let body = if directory {
-        let Some(body) = path.strip_suffix('/') else {
-            return false;
-        };
-        body
+        path.strip_suffix(b"/").unwrap_or(path)
     } else {
-        if path.ends_with('/') {
-            return false;
-        }
         path
     };
-    !body.is_empty()
-        && body
-            .split('/')
-            .all(|component| !component.is_empty() && component != "." && component != "..")
+    body.split(|&byte| byte == b'/')
+        .all(|component| !matches!(component, b"" | b"." | b".."))
 }
 
-fn parse_tar_header(block: &[u8; TAR_BLOCK_BYTES]) -> Result<TarHeader, BuilderError> {
+fn parse_tar_header(block: &[u8; TAR_BLOCK_BYTES]) -> Result<TarHeader<Vec<u8>>, BuilderError> {
     let expected_checksum = parse_octal(&block[148..156])?;
     let actual_checksum: u64 = block
         .iter()
@@ -711,42 +665,36 @@ fn parse_tar_header(block: &[u8; TAR_BLOCK_BYTES]) -> Result<TarHeader, BuilderE
     if expected_checksum != actual_checksum {
         return Err(BuilderError::Archive("tar header checksum is invalid"));
     }
-    if &block[257..263] != b"ustar\0" || &block[263..265] != b"00" {
-        return Err(BuilderError::Archive("tar header is not POSIX ustar"));
-    }
-    if block[345..500].iter().any(|byte| *byte != 0) {
-        return Err(BuilderError::Archive("tar path prefixes are unsupported"));
-    }
+    let prefix = match &block[257..265] {
+        b"ustar\x0000" => header_text(&block[345..500])?,
+        b"ustar  \0" => b"",
+        _ => return Err(BuilderError::Archive("tar header is not USTAR or GNU tar")),
+    };
     if block[157..257].iter().any(|byte| *byte != 0) {
         return Err(BuilderError::Archive("tar link metadata is unsupported"));
     }
     let mode = parse_octal(&block[100..108])?;
-    parse_octal(&block[108..116])?;
-    parse_octal(&block[116..124])?;
-    let size = parse_octal(&block[124..136])?;
+    parse_tar_number(&block[108..116])?;
+    parse_tar_number(&block[116..124])?;
+    let size = u64::try_from(parse_tar_number(&block[124..136])?)
+        .map_err(|_| BuilderError::Archive("tar size is out of range"))?;
     parse_octal(&block[136..148])?;
-    let path = std::str::from_utf8(header_text(&block[..100])?)
-        .map_err(|_| BuilderError::Archive("tar path is not UTF-8"))?
-        .to_owned();
+    let name = header_text(&block[..100])?;
+    if name.is_empty() {
+        return Err(BuilderError::Archive("tar header name is empty"));
+    }
+    let path = if prefix.is_empty() {
+        name.to_vec()
+    } else {
+        [prefix, b"/", name].concat()
+    };
     let kind = match block[156] {
         0 | b'0' => EntryKind::Regular,
         b'5' => EntryKind::Directory,
         b'x' => EntryKind::Pax,
+        b'L' => EntryKind::GnuLongName,
         _ => return Err(BuilderError::Archive("tar entry type is unsupported")),
     };
-    match kind {
-        EntryKind::Pax if path != "././@PaxHeader" => {
-            return Err(BuilderError::Archive("PAX header name is unsupported"))
-        }
-        EntryKind::Pax => {}
-        EntryKind::Regular if !valid_archive_path(&path, false) => {
-            return Err(BuilderError::Archive("regular-file path is not canonical"))
-        }
-        EntryKind::Directory if !valid_archive_path(&path, true) || size != 0 => {
-            return Err(BuilderError::Archive("directory entry is malformed"))
-        }
-        _ => {}
-    }
     Ok(TarHeader {
         path,
         size,
@@ -817,7 +765,7 @@ fn valid_pax_mtime(value: &str) -> bool {
     let mut decimal = false;
     let mut before = 0usize;
     let mut after = 0usize;
-    for byte in value.bytes() {
+    for byte in value.strip_prefix('-').unwrap_or(value).bytes() {
         match byte {
             b'0'..=b'9' if decimal => after += 1,
             b'0'..=b'9' => before += 1,
@@ -828,26 +776,167 @@ fn valid_pax_mtime(value: &str) -> bool {
     before != 0 && (!decimal || after != 0)
 }
 
-fn parse_pax_payload(bytes: &[u8]) -> Result<(), BuilderError> {
-    let text = std::str::from_utf8(bytes)
-        .map_err(|_| BuilderError::Archive("PAX payload is not UTF-8"))?;
-    let Some(space) = text.find(' ') else {
-        return Err(BuilderError::Archive("PAX record is malformed"));
-    };
-    let length = text[..space]
-        .parse::<usize>()
-        .map_err(|_| BuilderError::Archive("PAX record length is invalid"))?;
-    if length != bytes.len() || text.as_bytes().last() != Some(&b'\n') {
-        return Err(BuilderError::Archive("PAX record length is invalid"));
+#[derive(Default)]
+struct PaxOverrides {
+    path: Option<String>,
+    size: Option<u64>,
+}
+
+fn parse_pax_payload(mut bytes: &[u8]) -> Result<PaxOverrides, BuilderError> {
+    let mut overrides = PaxOverrides::default();
+    let mut saw_mtime = false;
+    let malformed = || BuilderError::Archive("PAX record is malformed");
+    while !bytes.is_empty() {
+        let space = bytes
+            .iter()
+            .position(|byte| *byte == b' ')
+            .ok_or_else(malformed)?;
+        let length = std::str::from_utf8(&bytes[..space])
+            .ok()
+            .filter(|digits| digits.bytes().all(|byte| byte.is_ascii_digit()))
+            .and_then(|digits| digits.parse::<usize>().ok())
+            .filter(|&length| length > space + 1 && length <= bytes.len())
+            .ok_or(BuilderError::Archive("PAX record length is invalid"))?;
+        let (record, rest) = bytes.split_at(length);
+        bytes = rest;
+        let record = record[space + 1..]
+            .strip_suffix(b"\n")
+            .ok_or_else(malformed)?;
+        let record = std::str::from_utf8(record)
+            .map_err(|_| BuilderError::Archive("PAX record is not UTF-8"))?;
+        let (key, value) = record.split_once('=').ok_or_else(malformed)?;
+        if key.is_empty() || !key.bytes().all(|byte| byte.is_ascii_graphic()) {
+            return Err(malformed());
+        }
+        match key {
+            "path" if overrides.path.is_none() => overrides.path = Some(value.to_owned()),
+            "size"
+                if overrides.size.is_none() && value.bytes().all(|byte| byte.is_ascii_digit()) =>
+            {
+                overrides.size = Some(value.parse().map_err(|_| malformed())?);
+            }
+            "mtime" if !saw_mtime && valid_pax_mtime(value) => saw_mtime = true,
+            "path" | "size" | "mtime" => return Err(malformed()),
+            // These can change how the next entry's bytes or type are interpreted.
+            "linkpath" | "SCHILY.realsize" | "SCHILY.filetype" => {
+                return Err(BuilderError::Archive(
+                    "PAX link or sparse metadata is unsupported",
+                ));
+            }
+            key if key.starts_with("GNU.sparse.") => {
+                return Err(BuilderError::Archive("PAX sparse metadata is unsupported"));
+            }
+            _ => {}
+        }
     }
-    let record = &text[space + 1..text.len() - 1];
-    let Some((key, value)) = record.split_once('=') else {
-        return Err(BuilderError::Archive("PAX record is malformed"));
-    };
-    if key != "mtime" || !valid_pax_mtime(value) {
-        return Err(BuilderError::Archive("PAX semantics are unsupported"));
+    Ok(overrides)
+}
+
+// Resolve local extension headers before either the version scan or extraction
+// sees the next logical entry. Only its resolved path and size reach callers.
+fn read_tar_entry<R: Read>(reader: &mut R) -> Result<Option<TarHeader<String>>, BuilderError> {
+    let mut pax = None;
+    let mut long_name = None;
+    loop {
+        let block =
+            read_block(reader)?.ok_or(BuilderError::Archive("tar stream has no end marker"))?;
+        if block.iter().all(|byte| *byte == 0) {
+            if pax.is_some() || long_name.is_some() {
+                return Err(BuilderError::Archive(
+                    "tar extension has no following entry",
+                ));
+            }
+            let second = read_block(reader)?
+                .ok_or(BuilderError::Archive("tar stream has only one zero block"))?;
+            if second.iter().any(|byte| *byte != 0) {
+                return Err(BuilderError::Archive("tar stream has only one zero block"));
+            }
+            while let Some(trailing) = read_block(reader)? {
+                if trailing.iter().any(|byte| *byte != 0) {
+                    return Err(BuilderError::Archive(
+                        "tar stream has nonzero trailing content",
+                    ));
+                }
+            }
+            return Ok(None);
+        }
+
+        let header = parse_tar_header(&block)?;
+        match header.kind {
+            EntryKind::Pax => {
+                if pax.is_some() || header.size == 0 || header.size > PAX_PAYLOAD_MAX_BYTES {
+                    return Err(BuilderError::Archive("PAX header is malformed"));
+                }
+                let mut name = header.path.as_slice();
+                while let Some(trimmed) = name.strip_prefix(b"./") {
+                    name = trimmed;
+                }
+                if !valid_archive_path(name, false) {
+                    return Err(BuilderError::Archive("PAX header name is not canonical"));
+                }
+                let payload = read_payload(reader, header.size, None, true)?;
+                pax = Some(parse_pax_payload(&payload)?);
+            }
+            EntryKind::GnuLongName => {
+                if long_name.is_some()
+                    || header.size == 0
+                    || header.size > PATH_MAX_BYTES as u64 + 1
+                {
+                    return Err(BuilderError::Archive("GNU long-name header is malformed"));
+                }
+                if header.path != b"././@LongLink" && !valid_archive_path(&header.path, false) {
+                    return Err(BuilderError::Archive(
+                        "GNU long-name header name is not canonical",
+                    ));
+                }
+                let payload = read_payload(reader, header.size, None, true)?;
+                if payload.last() != Some(&0) {
+                    return Err(BuilderError::Archive("GNU long name is not NUL-terminated"));
+                }
+                long_name = Some(
+                    std::str::from_utf8(header_text(&payload)?)
+                        .map_err(|_| BuilderError::Archive("GNU long name is not UTF-8"))?
+                        .to_owned(),
+                );
+            }
+            EntryKind::Regular | EntryKind::Directory => {
+                let directory = header.kind == EntryKind::Directory;
+                let overrides = pax.unwrap_or_default();
+                // GNU and PAX can truncate a placeholder in the middle of a
+                // UTF-8 character. The raw name still cannot contain traversal.
+                let has_override = long_name.is_some() || overrides.path.is_some();
+                if !valid_archive_path(&header.path, directory || has_override) {
+                    return Err(BuilderError::Archive("tar header path is not canonical"));
+                }
+                if long_name.is_some() && overrides.path.is_some() {
+                    return Err(BuilderError::Archive(
+                        "tar extensions specify conflicting paths",
+                    ));
+                }
+                let mut path = match overrides.path.or(long_name) {
+                    Some(path) => path,
+                    None => String::from_utf8(header.path)
+                        .map_err(|_| BuilderError::Archive("tar path is not UTF-8"))?,
+                };
+                let size = overrides.size.unwrap_or(header.size);
+                if !valid_archive_path(path.as_bytes(), directory) {
+                    return Err(BuilderError::Archive("tar entry path is not canonical"));
+                }
+                if directory && size != 0 {
+                    return Err(BuilderError::Archive("directory entry is malformed"));
+                }
+                if directory && path.ends_with('/') {
+                    path.pop();
+                }
+                return Ok(Some(TarHeader {
+                    path,
+                    size,
+                    mode: header.mode,
+                    kind: header.kind,
+                }));
+            }
+        }
     }
-    Ok(())
 }
 
 fn package_json_error() -> BuilderError {
@@ -1262,7 +1351,7 @@ fn validate_static_aarch64_elf(path: &Path) -> Result<(), BuilderError> {
         || header[4] != 2
         || header[5] != 1
         || header[6] != 1
-        || little_u16(&header[16..18]) != 2
+        || !matches!(little_u16(&header[16..18]), 2 | 3)
         || little_u16(&header[18..20]) != 183
         || little_u32(&header[20..24]) != 1
         || little_u16(&header[52..54]) != 64
@@ -1402,48 +1491,14 @@ fn parse_archive<R: Read>(
 ) -> Result<ArchiveSelection, BuilderError> {
     let raw_runtime = staging.join(".raw-runtime");
     ensure_dir_chain_0755(staging, "bin")?;
-    let mut code_mode_host = None;
     let mut extra_bins = Vec::new();
     let mut seen = BTreeSet::new();
     let mut logical_entries = 0usize;
     let mut total_payload = 0u64;
-    let mut pending_pax = false;
     let mut package_json = None;
     let mut rg_extracted = false;
 
-    loop {
-        let block =
-            read_block(reader)?.ok_or(BuilderError::Archive("tar stream has no end marker"))?;
-        if block.iter().all(|byte| *byte == 0) {
-            if pending_pax {
-                return Err(BuilderError::Archive("PAX header has no following entry"));
-            }
-            let second = read_block(reader)?
-                .ok_or(BuilderError::Archive("tar stream has only one zero block"))?;
-            if second.iter().any(|byte| *byte != 0) {
-                return Err(BuilderError::Archive("tar stream has only one zero block"));
-            }
-            while let Some(trailing) = read_block(reader)? {
-                if trailing.iter().any(|byte| *byte != 0) {
-                    return Err(BuilderError::Archive(
-                        "tar stream has nonzero trailing content",
-                    ));
-                }
-            }
-            break;
-        }
-
-        let header = parse_tar_header(&block)?;
-        if header.kind == EntryKind::Pax {
-            if pending_pax || header.size == 0 || header.size > PAX_PAYLOAD_MAX_BYTES {
-                return Err(BuilderError::Archive("PAX header is malformed"));
-            }
-            let payload = read_payload(reader, header.size, None, true)?;
-            parse_pax_payload(&payload)?;
-            pending_pax = true;
-            continue;
-        }
-
+    while let Some(header) = read_tar_entry(reader)? {
         logical_entries += 1;
         if logical_entries > LOGICAL_ENTRY_MAX {
             return Err(BuilderError::Archive(
@@ -1461,10 +1516,9 @@ fn parse_archive<R: Read>(
         if !seen.insert(header.path.clone()) {
             return Err(BuilderError::Archive("archive path is duplicated"));
         }
-        pending_pax = false;
 
         if header.kind == EntryKind::Directory {
-            let trimmed = header.path.trim_end_matches('/');
+            let trimmed = header.path.as_str();
             if trimmed == "bin"
                 || trimmed == "codex-path"
                 || trimmed == "codex-resources"
@@ -1495,15 +1549,6 @@ fn parse_archive<R: Read>(
                 file.sync_all()
                     .map_err(|source| io_error("sync selected raw runtime", source))?;
             }
-            "bin/codex-code-mode-host" => {
-                let dest = staging.join("bin/codex-code-mode-host");
-                let mut file = create_private_file(&dest)?;
-                read_payload(reader, header.size, Some(&mut file), false)?;
-                file.sync_all()
-                    .map_err(|source| io_error("sync selected code-mode host", source))?;
-                code_mode_host = Some(dest.clone());
-                extra_bins.push(dest);
-            }
             "codex-package.json" => {
                 package_json = Some(read_payload(reader, header.size, None, true)?);
             }
@@ -1517,7 +1562,7 @@ fn parse_archive<R: Read>(
                 read_payload(reader, header.size, Some(&mut file), false)?;
                 file.sync_all()
                     .map_err(|source| io_error("sync selected bin entry", source))?;
-                extra_bins.push(dest);
+                extra_bins.push(rel.to_owned());
             }
             "codex-path/rg" => {
                 ensure_dir_chain_0755(staging, "codex-path")?;
@@ -1597,11 +1642,10 @@ fn parse_archive<R: Read>(
     }
     validate_static_aarch64_elf(&raw_runtime)?;
     for bin_path in &extra_bins {
-        validate_static_aarch64_elf(bin_path)?;
+        validate_static_aarch64_elf(&staging.join(bin_path))?;
     }
     Ok(ArchiveSelection {
         raw_runtime,
-        code_mode_host,
         extra_bins,
     })
 }
@@ -1652,7 +1696,7 @@ fn occurrence_offsets(bytes: &[u8], pattern: &[u8]) -> Vec<usize> {
 struct AdaptedGeneration {
     raw_runtime_sha256: String,
     runtime_sha256: String,
-    code_mode_host_sha256: Option<String>,
+    companion_digests: BTreeMap<String, String>,
     browser_open_helper_sha256: String,
     browser_manual_helper_sha256: String,
     fd_counts: [usize; 4],
@@ -1674,11 +1718,7 @@ fn sync_directory(path: &Path, operation: &'static str) -> Result<(), BuilderErr
         .map_err(|source| io_error(operation, source))
 }
 
-fn write_browser_helper(
-    path: &Path,
-    contents: &[u8],
-    openssl: &Path,
-) -> Result<String, BuilderError> {
+fn write_browser_helper(path: &Path, contents: &[u8]) -> Result<String, BuilderError> {
     if contents.len() as u64 > BROWSER_HELPER_MAX_BYTES {
         return Err(BuilderError::Invalid(
             "browser helper exceeds its byte bound",
@@ -1694,13 +1734,10 @@ fn write_browser_helper(
     File::open(path)
         .and_then(|file| file.sync_all())
         .map_err(|source| io_error("sync browser helper after final mode", source))?;
-    openssl_sha256(openssl, path)
+    hash_file(path)
 }
 
-fn create_browser_helpers(
-    staging: &Path,
-    openssl: &Path,
-) -> Result<(String, String), BuilderError> {
+fn create_browser_helpers(staging: &Path) -> Result<(String, String), BuilderError> {
     let browser = staging.join("browser");
     create_private_dir(&browser)?;
     create_private_dir(&browser.join("open"))?;
@@ -1708,12 +1745,10 @@ fn create_browser_helpers(
     let open_sha256 = write_browser_helper(
         &staging.join("browser/open/curl"),
         TERMUX_BROWSER_OPEN_HELPER,
-        openssl,
     )?;
     let manual_sha256 = write_browser_helper(
         &staging.join("browser/manual/curl"),
         TERMUX_BROWSER_MANUAL_HELPER,
-        openssl,
     )?;
     sync_directory(
         &staging.join("browser/open"),
@@ -1735,7 +1770,7 @@ struct FdRemapSummary {
 
 fn apply_fd_path_remaps_with_options(
     runtime: &mut [u8],
-    require_any: bool,
+    require_main_paths: bool,
 ) -> Result<FdRemapSummary, BuilderError> {
     let mut counts = [0usize; 4];
     let mut selected_offsets = Vec::new();
@@ -1756,9 +1791,9 @@ fn apply_fd_path_remaps_with_options(
             selected_offsets.push((offset, source, replacement));
         }
     }
-    if require_any && counts.iter().sum::<usize>() == 0 {
+    if require_main_paths && (counts[0] == 0 || counts[1] == 0) {
         return Err(BuilderError::Archive(
-            "runtime patch source occurrences do not match policy",
+            "bin/codex must contain both /etc/resolv.conf and /etc/codex/config.toml",
         ));
     }
     selected_offsets.sort_by_key(|(offset, _, _)| *offset);
@@ -1798,7 +1833,6 @@ pub(crate) fn apply_fd_path_remaps(runtime: &mut [u8]) -> Result<usize, BuilderE
 }
 
 fn adapt_selected_runtime<F>(
-    request: &GenerationRequest,
     staging: &Path,
     selected: ArchiveSelection,
     progress: &mut F,
@@ -1806,9 +1840,9 @@ fn adapt_selected_runtime<F>(
 where
     F: FnMut(&str),
 {
-    let raw_runtime_sha256 = openssl_sha256(&request.openssl, &selected.raw_runtime)?;
     let mut runtime = std::fs::read(&selected.raw_runtime)
         .map_err(|source| io_error("read selected raw runtime", source))?;
+    let raw_runtime_sha256 = sha256_bytes(&runtime);
     progress("Patching bin/codex (FD remap: /etc/resolv.conf, /etc/codex)...");
     let fd = apply_fd_path_remaps_with_options(&mut runtime, true)?;
     let mut changed_bytes = fd.changed_bytes;
@@ -1818,6 +1852,10 @@ where
         changed_bytes +=
             runtime_patch::apply_uds_fd35(&mut runtime).map_err(BuilderError::Archive)?;
         true
+    } else if runtime_patch::contains_daemon_prefix_literal(&runtime) {
+        return Err(BuilderError::Archive(
+            "bin/codex contains codex-daemon- without the supported FD 35 format",
+        ));
     } else {
         false
     };
@@ -1836,13 +1874,11 @@ where
         .and_then(|file| file.sync_all())
         .map_err(|source| io_error("sync adapted runtime after final mode", source))?;
 
-    for bin_path in &selected.extra_bins {
-        let display_name = bin_path
-            .file_name()
-            .map(|name| name.to_string_lossy())
-            .unwrap_or_else(|| std::borrow::Cow::Borrowed("companion"));
-        progress(&format!("Patching companion bin/{display_name}..."));
-        let mut companion = std::fs::read(bin_path)
+    let mut companion_digests = BTreeMap::new();
+    for relative_path in selected.extra_bins {
+        let bin_path = staging.join(&relative_path);
+        progress(&format!("Patching companion {relative_path}..."));
+        let mut companion = std::fs::read(&bin_path)
             .map_err(|source| io_error("read companion bin artifact", source))?;
         let c_fd = apply_fd_path_remaps_with_options(&mut companion, false)?;
         let c_uds = if runtime_patch::contains_daemon_fmt(&companion) {
@@ -1854,36 +1890,32 @@ where
             let mut out = OpenOptions::new()
                 .write(true)
                 .truncate(true)
-                .open(bin_path)
+                .open(&bin_path)
                 .map_err(|source| io_error("open adapted companion bin", source))?;
             out.write_all(&companion)
                 .map_err(|source| io_error("write adapted companion bin", source))?;
             out.sync_all()
                 .map_err(|source| io_error("sync adapted companion bin", source))?;
         }
-        set_mode(bin_path, 0o755, "set companion bin mode")?;
-        File::open(bin_path)
+        set_mode(&bin_path, 0o755, "set companion bin mode")?;
+        File::open(&bin_path)
             .and_then(|file| file.sync_all())
             .map_err(|source| io_error("sync companion bin after mode", source))?;
+        companion_digests.insert(relative_path, hash_file(&bin_path)?);
     }
     sync_directory(&staging.join("bin"), "sync bin directory")?;
 
-    let runtime_sha256 = openssl_sha256(&request.openssl, &runtime_path)?;
-    let code_mode_host_sha256 = selected
-        .code_mode_host
-        .as_ref()
-        .map(|host_path| openssl_sha256(&request.openssl, host_path))
-        .transpose()?;
+    let runtime_sha256 = hash_file(&runtime_path)?;
     progress("Creating Termux browser helpers...");
     let (browser_open_helper_sha256, browser_manual_helper_sha256) =
-        create_browser_helpers(staging, &request.openssl)?;
+        create_browser_helpers(staging)?;
     std::fs::remove_file(&selected.raw_runtime)
         .map_err(|source| io_error("remove selected raw runtime", source))?;
 
     Ok(AdaptedGeneration {
         raw_runtime_sha256,
         runtime_sha256,
-        code_mode_host_sha256,
+        companion_digests,
         browser_open_helper_sha256,
         browser_manual_helper_sha256,
         fd_counts: fd.counts,
@@ -1904,7 +1936,10 @@ fn write_generation_descriptor(
         request.archive_sha256,
         adapted.raw_runtime_sha256,
         adapted.runtime_sha256,
-        adapted.code_mode_host_sha256.as_deref().unwrap_or("-"),
+        adapted
+            .companion_digests
+            .get("bin/codex-code-mode-host")
+            .map_or("-", String::as_str),
         adapted.fd_counts[0],
         adapted.fd_counts[1],
         adapted.fd_counts[2],
@@ -1914,7 +1949,7 @@ fn write_generation_descriptor(
     if adapted.uds_applied {
         patch_report.push_str(&format!(";uds_policy={}", runtime_patch::UDS_POLICY_ID));
     }
-    let descriptor = format!(
+    let mut descriptor = format!(
         concat!(
             "{}\n",
             "generation_id\t{}\n",
@@ -1952,6 +1987,11 @@ fn write_generation_descriptor(
         TERMUX_BROWSER_MANUAL_HELPER_IDENTITY,
         adapted.browser_manual_helper_sha256
     );
+    for (path, digest) in &adapted.companion_digests {
+        use std::fmt::Write as _;
+        writeln!(descriptor, "companion\t{path}\t{digest}")
+            .expect("writing into a String cannot fail");
+    }
     let path = staging.join("generation.meta");
     let mut file = create_private_file(&path)?;
     file.write_all(descriptor.as_bytes())
@@ -2032,7 +2072,7 @@ fn complete_and_publish<F>(
 where
     F: FnMut(&str),
 {
-    let adapted = adapt_selected_runtime(request, staging, selected, progress)?;
+    let adapted = adapt_selected_runtime(staging, selected, progress)?;
     rename_noreplace(&staging.join(".wrapper-artifact"), &staging.join("wrapper"))?;
     set_mode(
         &staging.join("wrapper"),
@@ -2103,42 +2143,9 @@ fn scan_package_archive_version<R: Read>(reader: &mut R) -> Result<String, Build
     let mut seen = BTreeSet::new();
     let mut logical_entries = 0usize;
     let mut total_payload = 0u64;
-    let mut pending_pax = false;
     let mut package_json = None;
 
-    loop {
-        let block =
-            read_block(reader)?.ok_or(BuilderError::Archive("tar stream has no end marker"))?;
-        if block.iter().all(|byte| *byte == 0) {
-            if pending_pax {
-                return Err(BuilderError::Archive("PAX header has no following entry"));
-            }
-            let second = read_block(reader)?
-                .ok_or(BuilderError::Archive("tar stream has only one zero block"))?;
-            if second.iter().any(|byte| *byte != 0) {
-                return Err(BuilderError::Archive("tar stream has only one zero block"));
-            }
-            while let Some(trailing) = read_block(reader)? {
-                if trailing.iter().any(|byte| *byte != 0) {
-                    return Err(BuilderError::Archive(
-                        "tar stream has nonzero trailing content",
-                    ));
-                }
-            }
-            break;
-        }
-
-        let header = parse_tar_header(&block)?;
-        if header.kind == EntryKind::Pax {
-            if pending_pax || header.size == 0 || header.size > PAX_PAYLOAD_MAX_BYTES {
-                return Err(BuilderError::Archive("PAX header is malformed"));
-            }
-            let payload = read_payload(reader, header.size, None, true)?;
-            parse_pax_payload(&payload)?;
-            pending_pax = true;
-            continue;
-        }
-
+    while let Some(header) = read_tar_entry(reader)? {
         logical_entries += 1;
         if logical_entries > LOGICAL_ENTRY_MAX {
             return Err(BuilderError::Archive(
@@ -2155,7 +2162,6 @@ fn scan_package_archive_version<R: Read>(reader: &mut R) -> Result<String, Build
         if !seen.insert(header.path.clone()) {
             return Err(BuilderError::Archive("archive path is duplicated"));
         }
-        pending_pax = false;
 
         if header.kind == EntryKind::Directory {
             continue;
@@ -2471,16 +2477,32 @@ mod tests {
         header[116..124].copy_from_slice(b"0000000\0");
         header[124..136].copy_from_slice(format!("{:011o}\0", body.len()).as_bytes());
         header[136..148].copy_from_slice(b"00000000000\0");
-        header[148..156].fill(b' ');
         header[156] = typeflag;
         header[257..263].copy_from_slice(b"ustar\0");
         header[263..265].copy_from_slice(b"00");
-        let sum: u32 = header.iter().map(|b| u32::from(*b)).sum();
-        header[148..156].copy_from_slice(format!("{sum:06o}\0 ").as_bytes());
+        set_tar_checksum(&mut header);
         tar.extend_from_slice(&header);
         tar.extend_from_slice(body);
         let pad = (512 - (body.len() % 512)) % 512;
         tar.resize(tar.len() + pad, 0);
+    }
+
+    fn set_tar_checksum(header: &mut [u8]) {
+        header[148..156].fill(b' ');
+        let sum: u32 = header.iter().map(|b| u32::from(*b)).sum();
+        header[148..156].copy_from_slice(format!("{sum:06o}\0 ").as_bytes());
+    }
+
+    fn pax_record(key: &str, value: &str) -> String {
+        let record = format!("{key}={value}\n");
+        let mut length = record.len() + 2;
+        loop {
+            let encoded = format!("{length} {record}");
+            if encoded.len() == length {
+                return encoded;
+            }
+            length = encoded.len();
+        }
     }
 
     fn write_tar_gz(tar_bytes: &[u8], out_gz: &Path, gzip: &Path) {
@@ -2507,14 +2529,15 @@ mod tests {
 
     #[test]
     fn cli_parses_build_and_rejects_invalid_or_retired_subcommands() {
-        let parsed = parse_request([
+        let digest = "a".repeat(64);
+        let args = [
             "build",
             "--version",
             "1.2.3",
             "--archive",
             "/tmp/a.tar.gz",
             "--archive-sha256",
-            &"a".repeat(64),
+            &digest,
             "--generation-id",
             "gen-1",
             "--wrapper",
@@ -2523,14 +2546,16 @@ mod tests {
             "codex-wrapper",
             "--gzip",
             "/usr/bin/gzip",
-            "--openssl",
-            "/usr/bin/openssl",
             "--output",
             "/tmp/out",
-        ])
-        .unwrap();
+        ];
+        let parsed = parse_request(args).unwrap();
         assert_eq!(parsed.version, "1.2.3");
         assert_eq!(parsed.creation_metadata, "codex-wrapper");
+        assert_eq!(parsed.openssl, None);
+        let legacy =
+            parse_request(args.into_iter().chain(["--openssl", "/unused/openssl"])).unwrap();
+        assert_eq!(legacy.openssl, Some(PathBuf::from("/unused/openssl")));
 
         // Duplicate flag rejected.
         assert!(matches!(
@@ -2569,6 +2594,7 @@ mod tests {
         let wrong_interp = dir.join("wrapper-wrong-interp");
         let exec_wrapper = dir.join("wrapper-et-exec");
         let static_bin = dir.join("upstream-static");
+        let static_pie = dir.join("upstream-static-pie");
 
         std::fs::write(
             &good_wrapper,
@@ -2587,11 +2613,21 @@ mod tests {
         .unwrap();
         std::fs::write(&static_bin, build_static_aarch64_elf(true, false)).unwrap();
 
+        let mut pie = build_static_aarch64_elf(true, false);
+        write_u16(&mut pie, 16, 3);
+        std::fs::write(&static_pie, pie).unwrap();
+
         assert!(validate_android_aarch64_wrapper_elf(&good_wrapper).is_ok());
         assert!(validate_android_aarch64_wrapper_elf(&wrong_interp).is_err());
         assert!(validate_android_aarch64_wrapper_elf(&exec_wrapper).is_err());
         assert!(validate_static_aarch64_elf(&static_bin).is_ok());
-        assert!(validate_static_aarch64_elf(&good_wrapper).is_err());
+        assert!(validate_static_aarch64_elf(&static_pie).is_ok());
+        assert!(matches!(
+            validate_static_aarch64_elf(&good_wrapper),
+            Err(BuilderError::Archive(
+                "selected executable has a PT_INTERP program header"
+            ))
+        ));
 
         let _ = std::fs::remove_dir_all(dir);
     }
@@ -2600,7 +2636,6 @@ mod tests {
     fn build_generation_remaps_fds_relocates_uds_builds_helpers_and_guards_failures() {
         let dir = temp_dir("build-gen");
         let gzip = find_tool("gzip");
-        let openssl = find_tool("openssl");
         let wrapper = dir.join("codex-wrapper");
         std::fs::write(
             &wrapper,
@@ -2617,7 +2652,9 @@ mod tests {
         // Case 1: Full package with daemon UDS, companion exec-server, and non-ELF rg wrapper fallback.
         let tar1 = package_tar_bytes(&[
             ("bin/codex", b'0', 0o755, &main_elf),
+            ("bin/extra", b'0', 0o755, &static_rg),
             ("bin/codex-exec-server", b'0', 0o755, &companion_elf),
+            ("bin/codex-code-mode-host", b'0', 0o755, &companion_elf),
             ("codex-package.json", b'0', 0o644, &pkg_json),
             ("codex-resources/notice.txt", b'0', 0o644, b"ok\n"),
             ("codex-path/rg", b'0', 0o755, b"#!/bin/sh\n"),
@@ -2628,7 +2665,7 @@ mod tests {
             inspect_package_archive_version(&archive1, &gzip).unwrap(),
             "1.2.3"
         );
-        let sha1 = openssl_sha256(&openssl, &archive1).unwrap();
+        let sha1 = sha256_file(&archive1).unwrap();
         let out1 = dir.join("gen-with-uds");
         build_generation(&GenerationRequest {
             version: "1.2.3".to_owned(),
@@ -2638,7 +2675,7 @@ mod tests {
             wrapper: wrapper.clone(),
             creation_metadata: "codex-wrapper".to_owned(),
             gzip: gzip.clone(),
-            openssl: openssl.clone(),
+            openssl: Some(PathBuf::from("nonexistent/unused-openssl")),
             output: out1.clone(),
         })
         .unwrap();
@@ -2654,6 +2691,27 @@ mod tests {
         assert!(meta1.contains("helper\ttermux-browser-manual\t"));
         assert!(!meta1.contains("manager_artifact_digest"));
         assert!(!meta1.contains("upstream_doctor"));
+
+        let expected_rows: Vec<_> = [
+            "bin/codex-code-mode-host",
+            "bin/codex-exec-server",
+            "bin/extra",
+        ]
+        .into_iter()
+        .map(|name| {
+            format!(
+                "companion\t{name}\t{}",
+                sha256_file(&out1.join(name)).unwrap()
+            )
+        })
+        .collect();
+        let tail: Vec<_> = meta1
+            .lines()
+            .skip_while(|line| !line.starts_with("helper\ttermux-browser-manual\t"))
+            .skip(1)
+            .collect();
+        assert_eq!(tail, expected_rows);
+        assert_eq!(std::fs::read(out1.join("bin/extra")).unwrap(), static_rg);
 
         let patched_main = std::fs::read(out1.join("bin/codex")).unwrap();
         let patched_companion = std::fs::read(out1.join("bin/codex-exec-server")).unwrap();
@@ -2712,7 +2770,7 @@ mod tests {
         ]);
         let archive2 = dir.join("pkg2.tar.gz");
         write_tar_gz(&tar2, &archive2, &gzip);
-        let sha2 = openssl_sha256(&openssl, &archive2).unwrap();
+        let sha2 = sha256_file(&archive2).unwrap();
         let out2 = dir.join("gen-no-uds");
         build_generation(&GenerationRequest {
             version: "1.2.3".to_owned(),
@@ -2722,7 +2780,7 @@ mod tests {
             wrapper: wrapper.clone(),
             creation_metadata: "codex-wrapper".to_owned(),
             gzip: gzip.clone(),
-            openssl: openssl.clone(),
+            openssl: None,
             output: out2.clone(),
         })
         .unwrap();
@@ -2742,7 +2800,7 @@ mod tests {
             wrapper: wrapper.clone(),
             creation_metadata: "codex-wrapper".to_owned(),
             gzip: gzip.clone(),
-            openssl: openssl.clone(),
+            openssl: None,
             output: out1.clone(),
         })
         .is_err());
@@ -2757,7 +2815,7 @@ mod tests {
                 wrapper,
                 creation_metadata: "codex-wrapper".to_owned(),
                 gzip,
-                openssl,
+                openssl: None,
                 output: out_bad_sha.clone(),
             }),
             Err(BuilderError::ArchiveDigestMismatch)
@@ -2771,7 +2829,6 @@ mod tests {
     fn build_rejects_uds_layout_drift_in_main_and_companions_without_publication() {
         let dir = temp_dir("uds-layout-drift");
         let gzip = find_tool("gzip");
-        let openssl = find_tool("openssl");
         let wrapper = dir.join("wrapper");
         std::fs::write(
             &wrapper,
@@ -2802,13 +2859,13 @@ mod tests {
             let output = dir.join(format!("gen-{name}"));
             let result = build_generation(&GenerationRequest {
                 version: "1.2.3".to_owned(),
-                archive_sha256: openssl_sha256(&openssl, &archive).unwrap(),
+                archive_sha256: sha256_file(&archive).unwrap(),
                 archive,
                 generation_id: format!("gen-{name}"),
                 wrapper: wrapper.clone(),
                 creation_metadata: "codex-wrapper".to_owned(),
                 gzip: gzip.clone(),
-                openssl: openssl.clone(),
+                openssl: None,
                 output: output.clone(),
             });
             assert!(
@@ -2818,6 +2875,253 @@ mod tests {
             assert!(!output.exists(), "failed candidate must not be published");
         }
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn main_requires_both_fd_literals_and_rejects_unsupported_daemon_prefix() {
+        let dir = temp_dir("main-patch-policy");
+        let gzip = find_tool("gzip");
+        let wrapper = dir.join("wrapper");
+        std::fs::write(
+            &wrapper,
+            build_wrapper_pie_elf(Some(b"/system/bin/linker64\0"), 3),
+        )
+        .unwrap();
+        set_mode(&wrapper, 0o755, "mode test wrapper").unwrap();
+        let package = expected_package_json("1.2.3");
+
+        let plain = build_static_aarch64_elf(true, false);
+        let mut bad_daemon = plain.clone();
+        bad_daemon.extend_from_slice(b"codex-daemon-%u\0");
+        let mut cases = vec![(
+            "unsupported-daemon",
+            bad_daemon,
+            "bin/codex contains codex-daemon- without the supported FD 35 format",
+        )];
+        for (name, index) in [("missing-resolver", 0), ("missing-config", 1)] {
+            let mut image = plain.clone();
+            let needle = FD_REMAP_RULES[index].0;
+            let offsets = occurrence_offsets(&image, needle);
+            assert!(!offsets.is_empty());
+            for offset in offsets {
+                image[offset..offset + needle.len()].fill(0);
+            }
+            assert!(!occurrence_offsets(&image, FD_REMAP_RULES[1 - index].0).is_empty());
+            cases.push((
+                name,
+                image,
+                "bin/codex must contain both /etc/resolv.conf and /etc/codex/config.toml",
+            ));
+        }
+
+        for (name, image, expected_error) in cases {
+            let archive = dir.join(format!("{name}.tar.gz"));
+            write_tar_gz(
+                &package_tar_bytes(&[
+                    ("bin/codex", b'0', 0o755, &image),
+                    ("codex-package.json", b'0', 0o644, &package),
+                ]),
+                &archive,
+                &gzip,
+            );
+            let output = dir.join(name);
+            let result = build_generation(&GenerationRequest {
+                version: "1.2.3".to_owned(),
+                archive_sha256: sha256_file(&archive).unwrap(),
+                archive,
+                generation_id: name.to_owned(),
+                wrapper: wrapper.clone(),
+                creation_metadata: "codex-wrapper".to_owned(),
+                gzip: gzip.clone(),
+                openssl: None,
+                output: output.clone(),
+            });
+            assert!(
+                matches!(result, Err(BuilderError::Archive(error)) if error == expected_error),
+                "{name}: {result:?}"
+            );
+            assert!(!output.exists());
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn tar_extensions_apply_the_same_names_and_sizes_to_inspection_and_extraction() {
+        let dir = temp_dir("tar-extended");
+        let mut tar = Vec::new();
+        let runtime = build_static_aarch64_elf(true, false);
+        append_tar_entry(&mut tar, "bin/codex", b'0', 0o755, &runtime);
+        let header = &mut tar[..TAR_BLOCK_BYTES];
+        header[108..116].copy_from_slice(&[0x80, 0, 0, 0, 1, 0, 0, 0]);
+        header[116..124].copy_from_slice(&[0xff; 8]);
+        header[124..136].fill(0);
+        header[124] = 0x80;
+        header[128..136].copy_from_slice(&(runtime.len() as u64).to_be_bytes());
+        set_tar_checksum(header);
+
+        let ustar_path = format!("codex-resources/{}/ustar.txt", "u".repeat(95));
+        append_tar_entry(&mut tar, &ustar_path, b'0', 0o644, b"ustar");
+
+        let gnu_path = format!("codex-resources/{}é{}", "g".repeat(83), "n".repeat(60));
+        let gnu_at = tar.len();
+        append_tar_entry(
+            &mut tar,
+            "././@LongLink",
+            b'L',
+            0o644,
+            format!("{gnu_path}\0").as_bytes(),
+        );
+        let gnu_target = tar.len();
+        append_tar_entry(&mut tar, "placeholder", b'0', 0o644, b"gnu");
+        tar[gnu_target..gnu_target + 100].copy_from_slice(&gnu_path.as_bytes()[..100]);
+        for at in [gnu_at, gnu_target] {
+            let header = &mut tar[at..at + TAR_BLOCK_BYTES];
+            header[257..265].copy_from_slice(b"ustar  \0");
+            set_tar_checksum(header);
+        }
+
+        let package = expected_package_json("1.2.3");
+        let mut pax = [
+            pax_record("path", "codex-package.json"),
+            pax_record("size", &package.len().to_string()),
+            pax_record("mtime", "-1.25"),
+        ]
+        .concat();
+        let key = "custom.metadata";
+        let record_overhead = 4 + key.len() + 3; // Length, space, '=', newline
+        let value_len = PAX_PAYLOAD_MAX_BYTES as usize - pax.len() - record_overhead;
+        pax.push_str(&pax_record(key, &"x".repeat(value_len)));
+        assert_eq!(pax.len(), 4096);
+        append_tar_entry(
+            &mut tar,
+            "PaxHeaders/safe-name",
+            b'x',
+            0o644,
+            pax.as_bytes(),
+        );
+        let pax_target = tar.len();
+        append_tar_entry(&mut tar, "placeholder.json", b'0', 0o644, &package);
+        let header = &mut tar[pax_target..pax_target + TAR_BLOCK_BYTES];
+        header[124..136].copy_from_slice(b"00000000000\0");
+        set_tar_checksum(header);
+        tar.resize(tar.len() + 2 * TAR_BLOCK_BYTES, 0);
+
+        assert_eq!(
+            scan_package_archive_version(&mut tar.as_slice()).unwrap(),
+            "1.2.3"
+        );
+        parse_archive(&mut tar.as_slice(), &dir, "1.2.3").unwrap();
+        for (path, contents) in [(&ustar_path, &b"ustar"[..]), (&gnu_path, &b"gnu"[..])] {
+            assert_eq!(std::fs::read(dir.join(path)).unwrap(), contents);
+        }
+        assert_eq!(
+            std::fs::read(dir.join("codex-package.json")).unwrap(),
+            package
+        );
+        assert!(!dir.join("placeholder.json").exists());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn tar_extensions_reject_unsafe_paths_links_and_malformed_records() {
+        let long_name = b"codex-resources/../../escape\0";
+        let path_escape = pax_record("path", "codex-resources/../escape");
+        let absolute_path = pax_record("path", "/escape");
+        let linkpath = pax_record("linkpath", "../escape");
+        let sparse = pax_record("GNU.sparse.size", "1");
+        let duplicate = pax_record("path", "bin/codex").repeat(2);
+        let oversized = pax_record(
+            "custom.metadata",
+            &"x".repeat(PAX_PAYLOAD_MAX_BYTES as usize),
+        );
+        for (name, kind, payload, target, target_kind) in [
+            ("././@LongLink", b'L', &long_name[..], "bin/codex", b'0'),
+            (
+                "././@LongLink",
+                b'L',
+                &b"missing-nul"[..],
+                "bin/codex",
+                b'0',
+            ),
+            ("../metadata", b'x', &b"10 mtime=0\n"[..], "bin/codex", b'0'),
+            ("PaxHeader", b'x', path_escape.as_bytes(), "bin/codex", b'0'),
+            (
+                "PaxHeader",
+                b'x',
+                absolute_path.as_bytes(),
+                "bin/codex",
+                b'0',
+            ),
+            ("PaxHeader", b'x', linkpath.as_bytes(), "bin/codex", b'0'),
+            ("PaxHeader", b'x', sparse.as_bytes(), "bin/codex", b'0'),
+            ("PaxHeader", b'x', duplicate.as_bytes(), "bin/codex", b'0'),
+            ("PaxHeader", b'x', oversized.as_bytes(), "bin/codex", b'0'),
+            ("PaxHeader", b'x', &b"999 mtime=0\n"[..], "bin/codex", b'0'),
+            ("PaxHeader", b'x', &b"11 mtime=0\n"[..], "bin/codex", b'2'),
+        ] {
+            let tar = package_tar_bytes(&[
+                (name, kind, 0o644, payload),
+                (target, target_kind, 0o755, b""),
+            ]);
+            assert!(
+                read_tar_entry(&mut tar.as_slice()).is_err(),
+                "{name} {kind} {payload:?}"
+            );
+        }
+        let prefixed_escape = format!("{}/../escape", "p".repeat(101));
+        let tar = package_tar_bytes(&[(&prefixed_escape, b'0', 0o644, b"")]);
+        assert!(read_tar_entry(&mut tar.as_slice()).is_err());
+
+        let mut negative = package_tar_bytes(&[("bin/codex", b'0', 0o755, b"")]);
+        negative[124..136].fill(0xff);
+        set_tar_checksum(&mut negative[..512]);
+        assert!(read_tar_entry(&mut negative.as_slice()).is_err());
+    }
+
+    #[test]
+    fn compressed_archive_bound_is_512_mib() {
+        let dir = temp_dir("archive-bound");
+        let archive = dir.join("oversized.tar.gz");
+        let file = File::create(&archive).unwrap();
+        file.set_len(512 * 1024 * 1024 + 1).unwrap();
+        assert_eq!(ARCHIVE_MAX_BYTES, 512 * 1024 * 1024);
+        assert!(matches!(
+            inspect_package_archive_version(&archive, &dir.join("unused-gzip")),
+            Err(BuilderError::Invalid("archive exceeds its byte bound"))
+        ));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn tar_logical_entry_count_has_the_1024_entry_bound() {
+        let mut tar = package_tar_bytes(&[
+            ("bin/codex", b'0', 0o755, b""),
+            (
+                "codex-package.json",
+                b'0',
+                0o644,
+                &expected_package_json("1.2.3"),
+            ),
+        ]);
+        tar.truncate(tar.len() - 2 * TAR_BLOCK_BYTES);
+        for index in 2..LOGICAL_ENTRY_MAX {
+            append_tar_entry(&mut tar, &format!("resource-{index}"), b'0', 0o644, b"");
+        }
+        let end = tar.len();
+        tar.resize(end + 2 * TAR_BLOCK_BYTES, 0);
+        assert_eq!(
+            scan_package_archive_version(&mut tar.as_slice()).unwrap(),
+            "1.2.3"
+        );
+        tar.truncate(end);
+        append_tar_entry(&mut tar, "overflow", b'0', 0o644, b"");
+        tar.resize(tar.len() + 2 * TAR_BLOCK_BYTES, 0);
+        assert!(matches!(
+            scan_package_archive_version(&mut tar.as_slice()),
+            Err(BuilderError::Archive(
+                "archive entry count exceeds its bound"
+            ))
+        ));
     }
 
     #[test]

@@ -207,7 +207,7 @@
 | --- | --- | --- | --- | --- | --- |
 | **WP0** | Supervisor | — | **Done** | `b7b48fca` | Pre-existing maintenance docs preserved verbatim |
 | **Foundation** | Supervisor | — | **Done** | `e30bc790` + `HANDOFF.md` | Doc architecture consolidated, `SPEC.md` distilled, Phase A contracts updated |
-| **WP1** | Codex + Review | `szob` (`gpt-6.2-sol` `xhigh`) | Pending | — | `release-builder`: patcher, TAR, companions, pure-Rust SHA-256 |
+| **WP1** | Codex + Review | `szob` (`gpt-6.2-sol` `xhigh`) | **Done** | `5bfb489a` | `release-builder`: patcher, TAR, companions, pure-Rust SHA-256 (74+19 tests pass) |
 | **WP2** | Codex + Review | `szob` / `janmori101` | Pending | — | Wrapper/upstream decoupling, updater, HTTP, `install.sh` |
 | **WP3** | Codex + Review | `szob` / `janmori101` | Pending | — | CLI, locks, `shared_home`, `doctor`, `qualification`, `daemon_settings`, `timezone`, `maintenance`, `fs_util` |
 | **WP4** | Codex + Review | `szob` / `janmori101` | Pending | — | Behavior-preserving structural refactoring + `contrib/codex-account` |

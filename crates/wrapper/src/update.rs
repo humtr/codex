@@ -1214,7 +1214,7 @@ fn install_built_generation_dir(
             {
                 return Err(LocalProductError::GenerationCollision);
             }
-            verify_generation_asset_digests(&loaded, &roots.openssl)?;
+            verify_generation_asset_digests(&loaded)?;
             existing
         } else {
             copy_local_directory_tree(built_dir, &candidate_dir)?;
@@ -1225,7 +1225,7 @@ fn install_built_generation_dir(
         presentation.transient(&format!(
             "Verifying Codex {version} assets & candidate runtime..."
         ));
-        verify_generation_asset_digests(&staged_loaded, &roots.openssl)?;
+        verify_generation_asset_digests(&staged_loaded)?;
         prepare_wrapper_config(&roots.config_dir).map_err(|source| LocalProductError::Io {
             operation: "prepare wrapper config.toml",
             source,
@@ -1365,7 +1365,7 @@ fn build_from_archive_and_activate(
             wrapper,
             creation_metadata: WRAPPER_CREATION_METADATA.to_owned(),
             gzip,
-            openssl: roots.openssl.clone(),
+            openssl: None,
             output: built_dir.clone(),
         },
         &mut patch_progress,
@@ -1651,7 +1651,7 @@ fn run_rollback(
         "Verifying rollback target {}...",
         target_loaded.generation_id
     ));
-    verify_generation_asset_digests(&target_loaded, &roots.openssl)?;
+    verify_generation_asset_digests(&target_loaded)?;
     prepare_wrapper_config(&roots.config_dir).map_err(|source| LocalProductError::Io {
         operation: "prepare wrapper config.toml",
         source,

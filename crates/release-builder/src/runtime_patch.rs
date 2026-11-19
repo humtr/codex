@@ -1,13 +1,17 @@
 //! Rule-based Termux adaptation of the protected UDS root.
-pub(super) const PATCH_POLICY_ID: &str = "termux-fd-remap";
+pub const PATCH_POLICY_ID: &str = "termux-fd-remap";
 pub(super) const UDS_POLICY_ID: &str = "termux-uds-fd35";
 const FD35_BYTES: &[u8] = b"/proc/self/fd/35\0";
 const FMT_UID_ONLY: &[u8] = b"\xc0\0";
 const DAEMON_FMT_NEEDLE: &[u8] = b"\x0dcodex-daemon-\xc0\0";
 const NOP_INSN: u32 = 0xd503_201f;
 const FD35_CAVE_PREFIX: usize = 0x30;
-const REALPATH_STUB_MAX_BYTES: usize = 0x140;
-const RX_CAVE_MIN_BYTES: usize = FD35_CAVE_PREFIX + REALPATH_STUB_MAX_BYTES;
+const REALPATH_STUB_MAX_BYTES: usize = 0x180;
+
+pub(super) fn contains_daemon_prefix_literal(bytes: &[u8]) -> bool {
+    let prefix = b"codex-daemon-";
+    bytes.windows(prefix.len()).any(|window| window == prefix)
+}
 
 pub(super) fn contains_daemon_fmt(bytes: &[u8]) -> bool {
     // Detection must not depend on the layout parser used to apply the patch.
@@ -52,7 +56,6 @@ struct RxCave {
     fd35_off: usize,
     fmt_off: usize,
     stub_off: usize,
-    stub_cap: usize,
     extend_rx_to: Option<usize>,
 }
 
@@ -230,7 +233,7 @@ fn is_branch_or_call(insn: u32) -> bool {
 }
 
 fn is_mov_wide(insn: u32) -> bool {
-    matches!((insn >> 23) & 0x3f, 0b100101 | 0b000101 | 0b110101)
+    ((insn >> 23) & 0x3f) == 0b100101
 }
 
 fn is_safe_interleaved(insn: u32) -> bool {
@@ -250,7 +253,14 @@ fn is_safe_interleaved(insn: u32) -> bool {
     if (op0 & 0b1110) == 0b1000 && !is_mov_wide(insn) && (insn & (1 << 29)) != 0 {
         return false;
     }
-    if (op0 & 0b0111) == 0b0101 && (insn & (1 << 29)) != 0 && (insn & 0x1f00_0000) != 0x1a00_0000 {
+    let dp_register = (op0 & 0b0111) == 0b0101;
+    if dp_register && (insn & (1 << 29)) != 0 {
+        return false; // ADCS/SBCS/CCMP/CCMN also write NZCV.
+    }
+    if (insn & 0x1fe0_0000) == 0x1a80_0000 // CSEL family
+        || (insn & 0x7fe0_f800) == 0x1ac0_0800
+    // UDIV / SDIV
+    {
         return false;
     }
     // Reject SP writes via unflagged ADD/SUB (imm) where Rd == 31.
@@ -265,9 +275,17 @@ fn is_safe_interleaved(insn: u32) -> bool {
     if !is_mov_wide(insn) && ((insn >> 5) & 0x1f) <= 1 {
         return false;
     }
-    // Data processing (register): also reject Rm in {0, 1}.
-    if (op0 & 0b0111) == 0b0101 && ((insn >> 16) & 0x1f) <= 1 {
-        return false;
+    let register_offset = (insn & 0x3b20_0c00) == 0x3820_0800;
+    let dp_one_source = (insn & 0x7fff_0000) == 0x5ac0_0000; // RBIT / CLZ / REV / ...
+    if ((dp_register && !dp_one_source) || register_offset) && ((insn >> 16) & 0x1f) <= 1 {
+        return false; // Rm
+    }
+    if (insn & 0x1f00_0000) == 0x1b00_0000 && ((insn >> 10) & 0x1f) <= 1 {
+        return false; // Ra of a three-source data-processing instruction
+    }
+    let uses_sp = ((insn >> 5) & 0x1f) == 31;
+    if uses_sp && (insn & 0x3b20_0000) == 0x3800_0000 && matches!((insn >> 10) & 3, 1 | 3) {
+        return false; // Single-register load/store with pre/post-indexed SP.
     }
     // Load/store pair: reject Rt2 in {0, 1} and writeback on SP.
     if (insn & 0x3a00_0000) == 0x2800_0000 {
@@ -275,7 +293,7 @@ fn is_safe_interleaved(insn: u32) -> bool {
             return false;
         }
         let writeback_mode = (insn >> 23) & 0x3;
-        if matches!(writeback_mode, 1 | 3) && ((insn >> 5) & 0x1f) == 31 {
+        if matches!(writeback_mode, 1 | 3) && uses_sp {
             return false;
         }
     }
@@ -288,13 +306,13 @@ fn parse_elf(data: &[u8]) -> Result<ParsedElf, &'static str> {
         || data[4] != 2
         || data[5] != 1
         || data[6] != 1
-        || le_u16(data, 16) != Some(2)
+        || !matches!(le_u16(data, 16), Some(2 | 3))
         || le_u16(data, 18) != Some(183)
         || le_u32(data, 20) != Some(1)
         || le_u16(data, 52) != Some(64)
         || le_u16(data, 54) != Some(56)
     {
-        return Err("runtime is not an ELF64 LE AArch64 ET_EXEC binary");
+        return Err("runtime is not an ELF64 LE AArch64 executable or PIE");
     }
     let e_phoff =
         usize::try_from(le_u64(data, 32).ok_or("corrupt ELF")?).map_err(|_| "ELF overflow")?;
@@ -528,37 +546,40 @@ fn parse_elf(data: &[u8]) -> Result<ParsedElf, &'static str> {
     })
 }
 
-fn find_zero_slot(
+fn align_cave_offset(offset: usize) -> usize {
+    (offset + 15) & !15
+}
+
+fn find_zero_slots(
     data: &[u8],
     gap_start: usize,
     gap_end: usize,
     needed: usize,
-    require_contiguous_zero_prefix: bool,
-) -> Option<usize> {
-    let mut cand = (gap_start.checked_add(16)? + 15) & !15;
-    if require_contiguous_zero_prefix
-        && data
-            .get(gap_start..cand)
-            .is_none_or(|prefix| prefix.iter().any(|&b| b != 0))
-    {
-        return None;
-    }
-    while cand.checked_add(needed).is_some_and(|end| end <= gap_end) {
-        if data[cand..cand + needed].iter().all(|&b| b == 0) {
-            return Some(cand);
+) -> impl Iterator<Item = usize> + '_ {
+    let mut cursor = align_cave_offset(gap_start + 16).min(gap_end);
+    std::iter::from_fn(move || {
+        while cursor + needed <= gap_end {
+            let run_start = cursor + data[cursor..gap_end].iter().position(|&byte| byte == 0)?;
+            let run_end = run_start
+                + data[run_start..gap_end]
+                    .iter()
+                    .position(|&byte| byte != 0)
+                    .unwrap_or(gap_end - run_start);
+            cursor = run_end;
+            let aligned = align_cave_offset(run_start);
+            if aligned + needed <= run_end {
+                return Some(aligned);
+            }
         }
-        if require_contiguous_zero_prefix {
-            break;
-        }
-        cand += 16;
-    }
-    None
+        None
+    })
 }
 
 fn locate_rx_cave(
     data: &[u8],
     elf: &ParsedElf,
     realpath_off: usize,
+    stub_len: usize,
 ) -> Result<RxCave, &'static str> {
     let fini_end = elf
         .fini
@@ -586,97 +607,58 @@ fn locate_rx_cave(
     internal_gaps
         .sort_by_key(|&(start, _, is_fini_rodata)| (!is_fini_rodata, start.abs_diff(realpath_off)));
 
-    // Pass 1: single contiguous internal RX alignment gap (no PHDR mutation).
-    for &(g_start, g_end, _) in &internal_gaps {
-        if let Some(cand) = find_zero_slot(data, g_start, g_end, RX_CAVE_MIN_BYTES, false) {
-            let stub_off = cand + FD35_CAVE_PREFIX;
-            let stub_va = off_to_va(stub_off, elf.rx_load.delta)?;
-            if encode_b(realpath_va, stub_va, false).is_ok() {
-                return Ok(RxCave {
-                    fd35_off: cand,
-                    fmt_off: cand + 0x20,
-                    stub_off,
-                    stub_cap: REALPATH_STUB_MAX_BYTES,
-                    extend_rx_to: None,
-                });
-            }
-        }
-    }
+    let combined_len = FD35_CAVE_PREFIX + stub_len;
+    let stub_is_reachable = |off| {
+        off_to_va(off, elf.rx_load.delta)
+            .is_ok_and(|stub_va| encode_b(realpath_va, stub_va, false).is_ok())
+    };
+    let trailing_slot = |needed| {
+        let start = align_cave_offset(rx_end + 16);
+        let end = start + needed;
+        (end <= elf.max_rx_extend_end && data[rx_end..end].iter().all(|&byte| byte == 0))
+            .then_some((start, Some(end)))
+    };
+    let make_cave = |fd35_off, stub_off, extend_rx_to| RxCave {
+        fd35_off,
+        fmt_off: fd35_off + 0x20,
+        stub_off,
+        extend_rx_to,
+    };
 
-    // Pass 2: contiguous all-zero padding immediately following RX PT_LOAD (extends p_filesz/p_memsz).
-    if elf.max_rx_extend_end > rx_end {
-        if let Some(cand) =
-            find_zero_slot(data, rx_end, elf.max_rx_extend_end, RX_CAVE_MIN_BYTES, true)
+    // Pass 1: a single internal RX gap, without extending the segment.
+    for &(start, end, _) in &internal_gaps {
+        if let Some(off) = find_zero_slots(data, start, end, combined_len)
+            .find(|&off| stub_is_reachable(off + FD35_CAVE_PREFIX))
         {
-            let stub_off = cand + FD35_CAVE_PREFIX;
-            let stub_va = off_to_va(stub_off, elf.rx_load.delta)?;
-            if encode_b(realpath_va, stub_va, false).is_ok() {
-                return Ok(RxCave {
-                    fd35_off: cand,
-                    fmt_off: cand + 0x20,
-                    stub_off,
-                    stub_cap: REALPATH_STUB_MAX_BYTES,
-                    extend_rx_to: Some(cand + RX_CAVE_MIN_BYTES),
-                });
-            }
+            return Ok(make_cave(off, off + FD35_CAVE_PREFIX, None));
         }
     }
 
-    // Pass 3: split strings (0x30B) and stub (0x140B) across two separate RX gaps/extension.
-    let mut string_slots: Vec<(usize, Option<usize>)> = Vec::new();
-    for &(g_start, g_end, _) in &internal_gaps {
-        if let Some(cand) = find_zero_slot(data, g_start, g_end, FD35_CAVE_PREFIX, false) {
-            string_slots.push((cand, None));
-        }
-    }
-    if elf.max_rx_extend_end > rx_end {
-        if let Some(cand) =
-            find_zero_slot(data, rx_end, elf.max_rx_extend_end, FD35_CAVE_PREFIX, true)
-        {
-            string_slots.push((cand, Some(cand + FD35_CAVE_PREFIX)));
+    // Pass 2: contiguous zero padding immediately after RX PT_LOAD.
+    if let Some((off, extension)) = trailing_slot(combined_len) {
+        let stub_off = off + FD35_CAVE_PREFIX;
+        if stub_is_reachable(stub_off) {
+            return Ok(make_cave(off, stub_off, extension));
         }
     }
 
-    let mut stub_slots: Vec<(usize, Option<usize>)> = Vec::new();
-    for &(g_start, g_end, _) in &internal_gaps {
-        if let Some(cand) = find_zero_slot(data, g_start, g_end, REALPATH_STUB_MAX_BYTES, false) {
-            stub_slots.push((cand, None));
-        }
-    }
-    if elf.max_rx_extend_end > rx_end {
-        if let Some(cand) = find_zero_slot(
-            data,
-            rx_end,
-            elf.max_rx_extend_end,
-            REALPATH_STUB_MAX_BYTES,
-            true,
-        ) {
-            stub_slots.push((cand, Some(cand + REALPATH_STUB_MAX_BYTES)));
-        }
-    }
-
-    for &(str_off, str_ext) in &string_slots {
-        for &(stub_off, stub_ext) in &stub_slots {
-            let overlaps = !(str_off + FD35_CAVE_PREFIX <= stub_off
-                || stub_off + REALPATH_STUB_MAX_BYTES <= str_off);
-            if overlaps {
-                continue;
-            }
-            let stub_va = off_to_va(stub_off, elf.rx_load.delta)?;
-            if encode_b(realpath_va, stub_va, false).is_ok() {
-                let extend_rx_to = match (str_ext, stub_ext) {
-                    (Some(a), Some(b)) => Some(a.max(b)),
-                    (Some(a), None) | (None, Some(a)) => Some(a),
-                    (None, None) => None,
-                };
-                return Ok(RxCave {
-                    fd35_off: str_off,
-                    fmt_off: str_off + 0x20,
-                    stub_off,
-                    stub_cap: REALPATH_STUB_MAX_BYTES,
-                    extend_rx_to,
-                });
-            }
+    // Pass 3: split the strings and stub across separate zero runs.
+    let slots = |needed| {
+        internal_gaps
+            .iter()
+            .flat_map(move |&(start, end, _)| {
+                find_zero_slots(data, start, end, needed).map(|off| (off, None))
+            })
+            .chain(trailing_slot(needed))
+    };
+    let stub_slots: Vec<_> = slots(stub_len)
+        .filter(|&(off, _)| stub_is_reachable(off))
+        .collect();
+    for (str_off, str_ext) in slots(FD35_CAVE_PREFIX) {
+        if let Some(&(stub_off, stub_ext)) = stub_slots.iter().find(|&&(stub_off, _)| {
+            str_off + FD35_CAVE_PREFIX <= stub_off || stub_off + stub_len <= str_off
+        }) {
+            return Ok(make_cave(str_off, stub_off, str_ext.max(stub_ext)));
         }
     }
 
@@ -1115,41 +1097,39 @@ fn locate_realpath_and_strdup(
     })
 }
 
-fn build_realpath_stub(
-    stub_va: u64,
-    fd35_va: u64,
-    realpath_va: u64,
-    orig_insn0: u32,
-    strdup_va: u64,
-) -> Result<Vec<u8>, &'static str> {
-    enum StubItem {
-        Raw(u32),
-        B(&'static str),
-        BCond(&'static str, u32),
-        Cbz(&'static str, u8, bool, bool),
-        Adrp(u8, u64),
-    }
+#[derive(Clone, Copy)]
+enum StubTarget {
+    Fd35,
+    RealpathResume,
+    Strdup,
+}
 
-    let mut items: Vec<StubItem> = Vec::with_capacity(80);
-    let mut labels: std::collections::HashMap<&'static str, usize> =
-        std::collections::HashMap::new();
-    let label_va = |lbl: &'static str, map: &std::collections::HashMap<&'static str, usize>| {
-        stub_va + (*map.get(lbl).expect("label defined") as u64) * 4
-    };
+enum StubItem {
+    Raw(u32),
+    B(&'static str),
+    BCond(&'static str, u32),
+    Cbz(&'static str, u8, bool, bool),
+    Adrp(u8, StubTarget),
+    AddPageOffset(u8, StubTarget),
+}
 
-    labels.insert("entry", items.len());
+struct RealpathStub {
+    items: Vec<StubItem>,
+    labels: std::collections::HashMap<&'static str, usize>,
+}
+
+fn realpath_stub(orig_insn0: u32) -> RealpathStub {
+    let mut items = Vec::with_capacity(80);
+    let mut labels = std::collections::HashMap::new();
+
     items.push(StubItem::Raw(0xd108_83ff)); // sub sp, sp, #0x220
     items.push(StubItem::Raw(0xa900_7bfd)); // stp x29, x30, [sp]
     items.push(StubItem::Raw(0xa901_53f3)); // stp x19, x20, [sp, #0x10]
     items.push(StubItem::Cbz("call_orig_raw", 0, false, true));
     items.push(StubItem::Raw(0xaa00_03f3)); // mov x19, x0 (path)
     items.push(StubItem::Raw(0xaa01_03f4)); // mov x20, x1 (resolved)
-    items.push(StubItem::Adrp(2, fd35_va));
-    items.push(StubItem::Raw(encode_add_imm12(
-        2,
-        2,
-        (fd35_va & 0xfff) as u16,
-    )?));
+    items.push(StubItem::Adrp(2, StubTarget::Fd35));
+    items.push(StubItem::AddPageOffset(2, StubTarget::Fd35));
     items.push(StubItem::Raw(0xaa13_03e3)); // mov x3, x19
 
     labels.insert("cmp1", items.len());
@@ -1179,12 +1159,8 @@ fn build_realpath_stub(
     items.push(StubItem::BCond("call_orig", 0xa)); // b.ge
     items.push(StubItem::Raw(0x9100_83e3)); // add x3, sp, #0x20
     items.push(StubItem::Raw(0x3820_687f)); // strb wzr, [x3, x0]
-    items.push(StubItem::Adrp(2, fd35_va));
-    items.push(StubItem::Raw(encode_add_imm12(
-        2,
-        2,
-        (fd35_va & 0xfff) as u16,
-    )?));
+    items.push(StubItem::Adrp(2, StubTarget::Fd35));
+    items.push(StubItem::AddPageOffset(2, StubTarget::Fd35));
 
     labels.insert("cmp2", items.len());
     items.push(StubItem::Raw(0x3840_1444)); // ldrb w4, [x2], #1
@@ -1225,13 +1201,8 @@ fn build_realpath_stub(
     items.push(StubItem::Raw(0xa940_7bfd)); // ldp x29, x30, [sp]
     items.push(StubItem::Raw(0x9108_83ff)); // add sp, sp, #0x220
     items.push(StubItem::Raw(orig_insn0));
-    let realpath_resume = realpath_va + 4;
-    items.push(StubItem::Adrp(16, realpath_resume));
-    items.push(StubItem::Raw(encode_add_imm12(
-        16,
-        16,
-        (realpath_resume & 0xfff) as u16,
-    )?));
+    items.push(StubItem::Adrp(16, StubTarget::RealpathResume));
+    items.push(StubItem::AddPageOffset(16, StubTarget::RealpathResume));
     items.push(StubItem::Raw(0xd61f_0200)); // br x16
 
     labels.insert("accessible", items.len());
@@ -1247,12 +1218,8 @@ fn build_realpath_stub(
 
     labels.insert("do_strdup", items.len());
     items.push(StubItem::Raw(0xaa09_03e0)); // mov x0, x9
-    items.push(StubItem::Adrp(16, strdup_va));
-    items.push(StubItem::Raw(encode_add_imm12(
-        16,
-        16,
-        (strdup_va & 0xfff) as u16,
-    )?));
+    items.push(StubItem::Adrp(16, StubTarget::Strdup));
+    items.push(StubItem::AddPageOffset(16, StubTarget::Strdup));
     items.push(StubItem::Raw(0xd63f_0200)); // blr x16
 
     labels.insert("ret_clean", items.len());
@@ -1261,21 +1228,46 @@ fn build_realpath_stub(
     items.push(StubItem::Raw(0x9108_83ff)); // add sp, sp, #0x220
     items.push(StubItem::Raw(0xd65f_03c0)); // ret
 
-    let mut out = Vec::with_capacity(items.len() * 4);
-    for (idx, item) in items.iter().enumerate() {
-        let pc = stub_va + (idx as u64) * 4;
-        let w = match *item {
-            StubItem::Raw(raw) => raw,
-            StubItem::B(lbl) => encode_b(pc, label_va(lbl, &labels), false)?,
-            StubItem::BCond(lbl, cond) => encode_b_cond(pc, label_va(lbl, &labels), cond)?,
-            StubItem::Cbz(lbl, rt, nz, is64) => {
-                encode_cbz(pc, label_va(lbl, &labels), rt, nz, is64)?
-            }
-            StubItem::Adrp(rd, target) => encode_adrp(rd, pc, target)?,
-        };
-        out.extend_from_slice(&w.to_le_bytes());
+    RealpathStub { items, labels }
+}
+
+impl RealpathStub {
+    fn len(&self) -> usize {
+        self.items.len() * 4
     }
-    Ok(out)
+
+    fn encode(
+        &self,
+        stub_va: u64,
+        fd35_va: u64,
+        realpath_va: u64,
+        strdup_va: u64,
+    ) -> Result<Vec<u8>, &'static str> {
+        let label_va = |label| stub_va + (self.labels[label] as u64) * 4;
+        let target_va = |target| match target {
+            StubTarget::Fd35 => fd35_va,
+            StubTarget::RealpathResume => realpath_va + 4,
+            StubTarget::Strdup => strdup_va,
+        };
+        let mut out = Vec::with_capacity(self.len());
+        for (index, item) in self.items.iter().enumerate() {
+            let pc = stub_va + (index as u64) * 4;
+            let word = match *item {
+                StubItem::Raw(raw) => raw,
+                StubItem::B(label) => encode_b(pc, label_va(label), false)?,
+                StubItem::BCond(label, cond) => encode_b_cond(pc, label_va(label), cond)?,
+                StubItem::Cbz(label, rt, nz, is64) => {
+                    encode_cbz(pc, label_va(label), rt, nz, is64)?
+                }
+                StubItem::Adrp(rd, target) => encode_adrp(rd, pc, target_va(target))?,
+                StubItem::AddPageOffset(rd, target) => {
+                    encode_add_imm12(rd, rd, (target_va(target) & 0xfff) as u16)?
+                }
+            };
+            out.extend_from_slice(&word.to_le_bytes());
+        }
+        Ok(out)
+    }
 }
 
 pub(super) fn apply_uds_fd35(bytes: &mut [u8]) -> Result<usize, &'static str> {
@@ -1288,7 +1280,11 @@ pub(super) fn apply_uds_fd35(bytes: &mut [u8]) -> Result<usize, &'static str> {
         site1.start_off + site1.span_insns * 4,
         site2.adrp_off,
     )?;
-    let cave = locate_rx_cave(bytes, &elf, realpath.realpath_off)?;
+    let stub = realpath_stub(realpath.orig_insn0);
+    if stub.len() > REALPATH_STUB_MAX_BYTES {
+        return Err("realpath FD35 wrapper stub exceeds policy limit");
+    }
+    let cave = locate_rx_cave(bytes, &elf, realpath.realpath_off, stub.len())?;
 
     let va_delta = elf.rx_load.delta;
     let fd35_va = off_to_va(cave.fd35_off, va_delta)?;
@@ -1299,16 +1295,7 @@ pub(super) fn apply_uds_fd35(bytes: &mut [u8]) -> Result<usize, &'static str> {
     let realpath_va = off_to_va(realpath.realpath_off, va_delta)?;
     let strdup_va = off_to_va(realpath.strdup_off, va_delta)?;
 
-    let stub_bytes = build_realpath_stub(
-        stub_va,
-        fd35_va,
-        realpath_va,
-        realpath.orig_insn0,
-        strdup_va,
-    )?;
-    if stub_bytes.len() > cave.stub_cap {
-        return Err("realpath FD35 wrapper stub exceeds RX cave capacity");
-    }
+    let stub_bytes = stub.encode(stub_va, fd35_va, realpath_va, strdup_va)?;
     let realpath_hook = encode_b(realpath_va, stub_va, false)?.to_le_bytes();
 
     let mut site1_seq = Vec::with_capacity(site1.span_insns);
@@ -1677,6 +1664,96 @@ mod tests {
         (buf, site1_off, site2_off, fini_off + fini_sz)
     }
 
+    #[test]
+    fn interleaved_instructions_preserve_argument_registers_nzcv_and_sp() {
+        for (name, word) in [
+            ("CSEL", 0x9a84_0062),
+            ("UDIV", 0x9ac4_0862),
+            ("SDIV", 0x9ac4_0c62),
+            ("RBIT reads W0", 0x5ac0_0002),
+            ("CLZ reads X1", 0xdac0_1022),
+            ("ADCS", 0xba04_0062),
+            ("SBCS", 0xfa04_0062),
+            ("CCMP", 0xfa44_0060),
+            ("CCMN", 0xba44_0060),
+            ("MADD reads X0", 0x9b04_0062),
+            ("MADD reads X1", 0x9b04_0462),
+            ("MSUB reads X1", 0x9b04_8462),
+            ("LDR indexed by X0", 0xf860_6862),
+            ("LDR indexed by X1", 0xf861_6862),
+            ("STR indexed by X1", 0xf821_6862),
+            ("post-indexed LDR from SP", 0xf840_87e2),
+            ("pre-indexed LDR from SP", 0xf840_8fe2),
+            ("post-indexed STR to SP", 0xf800_87e2),
+            ("pre-indexed STR to SP", 0xf81f_8fe2),
+        ] {
+            assert!(!is_mov_wide(word), "{name} is not move wide");
+            assert!(!is_safe_interleaved(word), "{name} is unsafe");
+        }
+        for word in [0x1280_0002, 0x5280_0002, 0xf280_0002] {
+            assert!(is_mov_wide(word));
+            assert!(is_safe_interleaved(word));
+        }
+        for word in [
+            0xdac0_0062,
+            0xdac0_1062,
+            0x9b04_1462,
+            0xf865_6862,
+            0xf940_07e2,
+            0xf840_8c62,
+        ] {
+            assert!(is_safe_interleaved(word), "{word:#010x} is safe");
+        }
+    }
+
+    #[test]
+    fn split_cave_can_use_two_zero_runs_in_one_gap() {
+        let base = 0x400_000;
+        let (mut fixture, _, _, fini_end) =
+            build_synthetic_aarch64_elf(base, false, true, Site1Variant::Canonical);
+        let first = align_cave_offset(fini_end + 16);
+        let second = first + 0x150;
+        fixture[first..first + 0x140].fill(0);
+        let stub_len = realpath_stub(NOP_INSN).len();
+        assert!(stub_len <= 0x140 && stub_len > FD35_CAVE_PREFIX);
+        for (second_size, strings, stub) in
+            [(FD35_CAVE_PREFIX, second, first), (0x140, first, second)]
+        {
+            let mut image = fixture.clone();
+            image[second..second + second_size].fill(0);
+            let elf = parse_elf(&image).unwrap();
+            let realpath_off = elf.text.off + 0x200;
+            let cave = locate_rx_cave(&image, &elf, realpath_off, stub_len).unwrap();
+            assert_eq!(
+                (cave.fd35_off, cave.stub_off, cave.extend_rx_to),
+                (strings, stub, None)
+            );
+            assert!(apply_uds_fd35(&mut image).is_ok());
+            assert_eq!(&image[strings..strings + FD35_BYTES.len()], FD35_BYTES);
+            assert_eq!(le_u32(&image, stub), Some(0xd108_83ff));
+            assert_eq!(image[first + 0x140..second], fixture[first + 0x140..second]);
+        }
+    }
+
+    #[test]
+    fn uds_patch_accepts_static_pie_and_rejects_pie_with_an_interpreter() {
+        let (mut image, _, _, _) =
+            build_synthetic_aarch64_elf(0, false, false, Site1Variant::Canonical);
+        write_u16(&mut image, 16, 3);
+        let mut dynamic_image = image.clone();
+        write_u16(&mut dynamic_image, 56, 2);
+        write_u32(&mut dynamic_image, 64 + 56, 3);
+        let original_dynamic = dynamic_image.clone();
+
+        assert!(apply_uds_fd35(&mut image).is_ok());
+        assert_eq!(le_u16(&image, 16), Some(3));
+        assert_eq!(
+            apply_uds_fd35(&mut dynamic_image),
+            Err("executable has PT_INTERP")
+        );
+        assert_eq!(dynamic_image, original_dynamic);
+    }
+
     #[cfg(target_arch = "aarch64")]
     #[test]
     fn emitted_realpath_hook_preserves_fd35_aliases_and_libc_failures() {
@@ -1721,7 +1798,8 @@ mod tests {
             image[0x204..0x204 + original.len()].copy_from_slice(&original);
             let strdup = jump(libc::strdup as *const () as u64);
             image[0x240..0x240 + strdup.len()].copy_from_slice(&strdup);
-            let stub = build_realpath_stub(base + 0x40, base, base + 0x200, NOP_INSN, base + 0x240)
+            let stub = realpath_stub(NOP_INSN)
+                .encode(base + 0x40, base, base + 0x200, base + 0x240)
                 .unwrap();
             assert!(stub.len() <= REALPATH_STUB_MAX_BYTES);
             image[0x40..0x40 + stub.len()].copy_from_slice(&stub);

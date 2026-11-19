@@ -32,6 +32,7 @@ mod unix_app {
         daemon_settings, doctor, extensions, fs_util, generation_state, maintenance, system_config,
         timezone, update,
     };
+    use std::collections::BTreeMap;
     use std::ffi::{OsStr, OsString};
     use std::fs::{self, File, OpenOptions};
     use std::io::{self, Read as _, Seek as _, Write as _};
@@ -85,7 +86,8 @@ mod unix_app {
     const TERMUX_BROWSER_OPEN_HELPER_IDENTITY: &str = "termux-browser-open";
     const TERMUX_BROWSER_MANUAL_HELPER_IDENTITY: &str = "termux-browser-manual";
 
-    const LOCAL_GENERATION_MAX_BYTES: usize = 256 * 1024;
+    // One digest row per archive entry, including full-length bin paths.
+    const LOCAL_GENERATION_MAX_BYTES: usize = 512 * 1024;
     const LOCAL_RELEASE_MAX_FILES: usize = 64;
     const RESOLVER_SYNTHESIS_MAX_BYTES: usize = 64 * 1024;
     const RESOLVER_DEFAULT_OPTIONS: &[u8] = b"options timeout:2 attempts:10\n";
@@ -995,6 +997,7 @@ mod unix_app {
         pub(super) patch_report: String,
         pub(super) runtime_digest: String,
         pub(super) helper_digests: Vec<GenerationHelperDigest>,
+        pub(super) companion_digests: BTreeMap<String, String>,
         pub(super) wrapper_artifact_digest: String,
         pub(super) wrapper_api_identity: String,
         pub(super) persistent_schema_identity: String,
@@ -1586,10 +1589,30 @@ mod unix_app {
                 helper_paths.push(generation_dir.join(rel));
             }
         }
-        if lines.next().is_some() {
-            return Err(LocalProductError::Descriptor(
-                "generation descriptor has unexpected trailing fields",
-            ));
+        let mut companion_digests = BTreeMap::new();
+        for line in lines {
+            let row = descriptor_field(Some(line), "companion")?;
+            let (path, digest) = row.split_once('\t').ok_or(LocalProductError::Descriptor(
+                "generation companion entry is malformed",
+            ))?;
+            let valid_path = path.strip_prefix("bin/").is_some_and(|name| {
+                !matches!(name, "" | "." | ".." | "codex")
+                    && !name.contains(['/', '\\'])
+                    && !name.bytes().any(|byte| byte.is_ascii_control())
+            });
+            if !valid_path || !valid_sha256_hex(digest) {
+                return Err(LocalProductError::Descriptor(
+                    "generation companion path or digest is invalid",
+                ));
+            }
+            if companion_digests
+                .insert(path.to_owned(), digest.to_owned())
+                .is_some()
+            {
+                return Err(LocalProductError::Descriptor(
+                    "generation companion path is duplicated",
+                ));
+            }
         }
 
         let manifest = GenerationManifest {
@@ -1602,6 +1625,7 @@ mod unix_app {
             patch_report: patch_report.to_owned(),
             runtime_digest: runtime_digest.to_owned(),
             helper_digests,
+            companion_digests,
             wrapper_artifact_digest: wrapper_artifact_digest.to_owned(),
             wrapper_api_identity: wrapper_api_identity.to_owned(),
             persistent_schema_identity: persistent_schema_identity.to_owned(),
@@ -1842,7 +1866,6 @@ mod unix_app {
 
     pub(super) fn verify_generation_asset_digests(
         loaded: &LoadedLocalGeneration,
-        openssl: &Path,
     ) -> Result<(), LocalProductError> {
         qualify_generation_manifest(&loaded.manifest).map_err(LocalProductError::Manifest)?;
         let runtime_meta =
@@ -1855,7 +1878,7 @@ mod unix_app {
                 "generation runtime is not an executable regular file",
             ));
         }
-        let observed_runtime = openssl_sha256(openssl, &loaded.runtime_path)?;
+        let observed_runtime = hash_generation_asset(&loaded.runtime_path)?;
         if observed_runtime != loaded.manifest.runtime_digest {
             return Err(LocalProductError::Descriptor(
                 "generation runtime SHA-256 digest does not match generation.meta",
@@ -1879,14 +1902,38 @@ mod unix_app {
                     "generation helper is not an executable regular file",
                 ));
             }
-            let observed_helper = openssl_sha256(openssl, helper_path)?;
+            let observed_helper = hash_generation_asset(helper_path)?;
             if observed_helper != helper_meta.digest {
                 return Err(LocalProductError::Descriptor(
                     "generation helper SHA-256 digest does not match generation.meta",
                 ));
             }
         }
+        for (relative_path, digest) in &loaded.manifest.companion_digests {
+            let path = loaded.generation_dir.join(relative_path);
+            let metadata = fs::symlink_metadata(&path).map_err(|source| LocalProductError::Io {
+                operation: "inspect generation companion permissions",
+                source,
+            })?;
+            if !metadata.file_type().is_file() || metadata.permissions().mode() & 0o111 == 0 {
+                return Err(LocalProductError::Descriptor(
+                    "generation companion is not an executable regular file",
+                ));
+            }
+            if hash_generation_asset(&path)? != *digest {
+                return Err(LocalProductError::Descriptor(
+                    "generation companion SHA-256 digest does not match generation.meta",
+                ));
+            }
+        }
         Ok(())
+    }
+
+    fn hash_generation_asset(path: &Path) -> Result<String, LocalProductError> {
+        codex_release_builder::sha256_file(path).map_err(|source| LocalProductError::Io {
+            operation: "hash generation asset",
+            source,
+        })
     }
 
     pub(super) fn probe_release_candidate(
@@ -2514,7 +2561,7 @@ mod unix_app {
                 ));
             }
         }
-        verify_generation_asset_digests(gen, &roots.openssl).map_err(|err| err.to_string())?;
+        verify_generation_asset_digests(gen).map_err(|err| err.to_string())?;
         prepare_wrapper_config(&roots.config_dir)
             .map_err(|err| format!("wrapper config preparation failed: {err}"))?;
         let env = capture_termux_process_env();
@@ -3579,6 +3626,121 @@ pub(crate) mod tests {
         let loaded_bad = load_local_generation(&bad_api).unwrap();
         assert!(with_qualified_loaded_runtime(&loaded_bad, |_| Ok(())).is_err());
 
+        remove_temp_root(root);
+    }
+
+    #[test]
+    fn companion_digests_are_optional_and_verify_every_declared_asset() {
+        let root = temp_root("generation-companions");
+        let id = "0.170.0-3f7e1a";
+        let generation = root.join(id);
+        write_sample_generation(&generation, id, true);
+        let descriptor = generation.join("generation.meta");
+        let legacy = fs::read_to_string(&descriptor).unwrap().replace(
+            "upstream_package_version\t1.2.3",
+            "upstream_package_version\t0.170.0",
+        );
+        fs::write(&descriptor, &legacy).unwrap();
+        let loaded_legacy = load_local_generation(&generation).unwrap();
+        assert_eq!(loaded_legacy.manifest.upstream_package_version, "0.170.0");
+        assert!(loaded_legacy.manifest.companion_digests.is_empty());
+        verify_generation_asset_digests(&loaded_legacy).unwrap();
+
+        let expected = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
+        let names = [
+            "bin/codex-code-mode-host",
+            "bin/codex-exec-server",
+            "bin/extra",
+        ];
+        let mut with_companions = legacy;
+        for name in names {
+            let path = generation.join(name);
+            fs::write(&path, b"abc").unwrap();
+            fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap();
+            use std::fmt::Write as _;
+            writeln!(with_companions, "companion\t{name}\t{expected}").unwrap();
+        }
+        fs::write(&descriptor, &with_companions).unwrap();
+        let loaded = load_local_generation(&generation).unwrap();
+        assert_eq!(loaded.manifest.companion_digests.len(), names.len());
+        verify_generation_asset_digests(&loaded).unwrap();
+
+        for name in names {
+            let path = generation.join(name);
+            fs::write(&path, b"modified").unwrap();
+            assert!(
+                matches!(
+                    verify_generation_asset_digests(&loaded),
+                    Err(LocalProductError::Descriptor(
+                        "generation companion SHA-256 digest does not match generation.meta"
+                    ))
+                ),
+                "{name}"
+            );
+            fs::write(path, b"abc").unwrap();
+        }
+        let extra = generation.join("bin/extra");
+        fs::set_permissions(&extra, fs::Permissions::from_mode(0o644)).unwrap();
+        assert!(matches!(
+            verify_generation_asset_digests(&loaded),
+            Err(LocalProductError::Descriptor(
+                "generation companion is not an executable regular file"
+            ))
+        ));
+        fs::remove_file(&extra).unwrap();
+        assert!(matches!(
+            verify_generation_asset_digests(&loaded),
+            Err(LocalProductError::Io { source, .. }) if source.kind() == std::io::ErrorKind::NotFound
+        ));
+        std::os::unix::fs::symlink("codex-exec-server", &extra).unwrap();
+        assert!(matches!(
+            verify_generation_asset_digests(&loaded),
+            Err(LocalProductError::Descriptor(
+                "generation companion is not an executable regular file"
+            ))
+        ));
+        remove_temp_root(root);
+    }
+
+    #[test]
+    fn companion_manifest_rejects_duplicate_or_malformed_rows() {
+        let root = temp_root("generation-companion-rows");
+        let generation = root.join("gen-1");
+        write_sample_generation(&generation, "gen-1", false);
+        let descriptor = generation.join("generation.meta");
+        let legacy = fs::read_to_string(&descriptor).unwrap();
+        let valid_digest = "a".repeat(64);
+        let row = format!("companion\tbin/extra\t{valid_digest}\n");
+        for name in [
+            "bin/codex",
+            "bin/.",
+            "bin/..",
+            "bin/",
+            "bin/sub/program",
+            "bin//program",
+            "/bin/program",
+            "./bin/program",
+            "other/program",
+            "bin/back\\slash",
+            "bin/bad\0name",
+        ] {
+            let invalid = format!("{legacy}companion\t{name}\t{valid_digest}\n");
+            fs::write(&descriptor, invalid).unwrap();
+            assert!(load_local_generation(&generation).is_err(), "{name:?}");
+        }
+        for trailing in [
+            row.repeat(2),
+            format!("{row}junk\n"),
+            format!("{row}\n"),
+            format!("companion\tbin/extra\t{valid_digest}\tjunk\n"),
+            format!("companion\tbin/extra\t{}\n", valid_digest.to_uppercase()),
+            format!("companion\tbin/extra\t{}\n", "z".repeat(64)),
+            "companion\tbin/extra\t1234\n".to_owned(),
+            "companion\tbin/extra\n".to_owned(),
+        ] {
+            fs::write(&descriptor, format!("{legacy}{trailing}")).unwrap();
+            assert!(load_local_generation(&generation).is_err(), "{trailing:?}");
+        }
         remove_temp_root(root);
     }
 
