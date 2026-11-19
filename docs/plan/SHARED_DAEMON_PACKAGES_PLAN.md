@@ -5,6 +5,8 @@
 (참고: 이 문서의 1~3장은 2026-11-18 초기 비교 당시 임시 검증 기록 `daemon-location.SFQRwC/location.txt`, `swR.ryJJ8I/verification.txt`, `srvR.PgsDPG/verification.txt`를 바탕으로 작성했던 **구 공용 저장소안 기록**으로만 보존합니다.)
 이번 단계에서는 실사용 계정 홈, `packages/app-server-daemon`, S27 `runit` 서비스, 기존 백업을 변경하지 않습니다.
 
+현재 배치에서 기존 데몬을 공용 실행 파일로 전환하고 공유 DB를 정리하는 절차는 [Stage 1 실사용 기기 정비 작업지시서](STAGE1_DEVICE_MAINTENANCE_WORK_ORDER.md)에 있습니다.
+
 ---
 
 ## 1. (대체됨) 구 공용 저장소 배치 구조 (참고용)
