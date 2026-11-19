@@ -1,5 +1,5 @@
 //! Opt-in Wrapper settings; bare Codex retains its upstream-owned execution path.
-use std::fs::{self, File, OpenOptions};
+use std::fs::{self, OpenOptions};
 use std::io::{self, Write as _};
 use std::os::unix::fs::{
     DirBuilderExt as _, MetadataExt as _, OpenOptionsExt as _, PermissionsExt as _,
@@ -233,7 +233,7 @@ impl WrapperSettings {
             file.write_all(settings.serialize().as_bytes())?;
             file.sync_all()?;
             fs::rename(&tmp_path, &dest)?;
-            File::open(root)?.sync_all()?;
+            fs_util::sync_directory(root)?;
             Ok(())
         })();
         if result.is_err() {
@@ -322,6 +322,7 @@ fn invalid(message: &'static str) -> io::Error {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs::File;
     use std::os::unix::fs::symlink;
     use std::sync::atomic::{AtomicUsize, Ordering};
 

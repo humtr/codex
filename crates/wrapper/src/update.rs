@@ -1,27 +1,31 @@
-use crate::generation_state;
-use crate::generation_state::ActivationOperation;
-use crate::maintenance;
-use crate::remote_download;
-use crate::{
-    capture_termux_process_env, copy_local_directory_tree, ensure_real_directory_tree,
-    load_local_generation, prepare_wrapper_config, probe_release_candidate, rename_noreplace,
-    sha256_regular_file, sync_directory, valid_sha256_hex, verify_generation_asset_digests,
-    GenerationManifest, LoadedLocalGeneration, LocalProductError, LocalWrapperRoots,
-    ReleaseFileEntry, TermuxProcessEnvSnapshot, DEFAULT_UPSTREAM_LATEST_URL,
-    PERSISTENT_SCHEMA_IDENTITY, REMOTE_CONTROL_TRANSFER_TIMEOUT_SECONDS,
-    REMOTE_RELEASE_URL_MAX_BYTES, REMOTE_TRANSFER_TIMEOUT_SECONDS, UPSTREAM_PACKAGE_ASSET,
-    UPSTREAM_RELEASE_METADATA_BASE, UPSTREAM_RELEASE_METADATA_MAX_BYTES, WRAPPER_API_IDENTITY,
+use crate::error::LocalProductError;
+use crate::fs_util::{
+    copy_local_directory_tree, ensure_real_directory_tree, rename_noreplace,
+    sync_generation_directory, LOCAL_STAGING_COUNTER,
 };
-use std::ffi::OsStr;
-use std::ffi::OsString;
-use std::io::Write as _;
+use crate::generation::{
+    load_local_generation, probe_release_candidate, sha256_regular_file,
+    verify_generation_asset_digests, GenerationManifest, LoadedLocalGeneration, LocalWrapperRoots,
+    PERSISTENT_SCHEMA_IDENTITY, WRAPPER_API_IDENTITY,
+};
+use crate::maintenance;
+use crate::progress::{format_bytes, UpdatePresentation};
+use crate::remote_download::{self, ReleaseFileEntry, REMOTE_TRANSFER_TIMEOUT_SECONDS};
+use crate::runtime_env::{
+    capture_termux_process_env, prepare_wrapper_config, TermuxProcessEnvSnapshot,
+};
+use crate::state::generation_state::{self, ActivationOperation};
+use crate::upstream_metadata::{
+    reject_changed_archive, resolve_official_release_metadata, valid_update_version,
+    validate_https_url, version_order, UPDATE_VERSION_ENV, UPSTREAM_PACKAGE_ASSET,
+    UPSTREAM_RELEASE_METADATA_BASE,
+};
+use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
 
-const UPDATE_VERSION_ENV: &str = "CODEX_TERMUX_UPDATE_VERSION";
 const WRAPPER_CREATION_METADATA: &str = "codex-wrapper";
 const UPDATE_USAGE: &str = "usage: codex update [--upstream] [--version <MAJOR.MINOR.PATCH>] [--force-rebuild] | --check [--version <MAJOR.MINOR.PATCH>] [--json] | --path <FILE_OR_DIR> | --rollback | --help";
-const UPDATE_SPINNER_FRAMES: [&str; 10] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
 pub(super) fn print_update_usage() {
     println!("{UPDATE_USAGE}");
@@ -64,10 +68,6 @@ impl std::fmt::Display for UpdateCliError {
             }
         }
     }
-}
-
-pub(super) fn valid_update_version(value: &str) -> bool {
-    codex_release_builder::valid_stable_version(value)
 }
 
 pub(super) fn parse_update_args(args: &[OsString]) -> Result<UpdateAction, UpdateCliError> {
@@ -193,582 +193,6 @@ pub(super) fn parse_update_args(args: &[OsString]) -> Result<UpdateAction, Updat
     })
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct OfficialReleaseMetadata {
-    pub(super) version: String,
-    pub(super) package_sha256: String,
-}
-
-struct JsonCursor<'a> {
-    bytes: &'a [u8],
-    index: usize,
-}
-
-impl<'a> JsonCursor<'a> {
-    fn new(bytes: &'a [u8]) -> Self {
-        Self { bytes, index: 0 }
-    }
-
-    fn error<T>(&self) -> Result<T, LocalProductError> {
-        Err(LocalProductError::LocalUpdate(
-            "upstream release metadata is malformed",
-        ))
-    }
-
-    fn skip_whitespace(&mut self) {
-        while self
-            .bytes
-            .get(self.index)
-            .is_some_and(|byte| matches!(*byte, b' ' | b'\t' | b'\r' | b'\n'))
-        {
-            self.index += 1;
-        }
-    }
-
-    fn expect(&mut self, expected: u8) -> Result<(), LocalProductError> {
-        self.skip_whitespace();
-        if self.bytes.get(self.index) != Some(&expected) {
-            return self.error();
-        }
-        self.index += 1;
-        Ok(())
-    }
-
-    fn string(&mut self) -> Result<String, LocalProductError> {
-        self.skip_whitespace();
-        if self.bytes.get(self.index) != Some(&b'"') {
-            return self.error();
-        }
-        self.index += 1;
-        let mut value = Vec::new();
-        loop {
-            let Some(&byte) = self.bytes.get(self.index) else {
-                return self.error();
-            };
-            match byte {
-                b'"' => {
-                    self.index += 1;
-                    return String::from_utf8(value).map_err(|_| {
-                        LocalProductError::LocalUpdate("upstream release metadata is malformed")
-                    });
-                }
-                b'\\' => {
-                    self.index += 1;
-                    let Some(&escape) = self.bytes.get(self.index) else {
-                        return self.error();
-                    };
-                    self.index += 1;
-                    match escape {
-                        b'"' | b'\\' | b'/' => value.push(escape),
-                        b'b' => value.push(0x08),
-                        b'f' => value.push(0x0c),
-                        b'n' => value.push(b'\n'),
-                        b'r' => value.push(b'\r'),
-                        b't' => value.push(b'\t'),
-                        b'u' => {
-                            let Some(mut codepoint) = self.hex_codepoint() else {
-                                return self.error();
-                            };
-                            if (0xd800..=0xdbff).contains(&codepoint) {
-                                if !self.bytes[self.index..].starts_with(b"\\u") {
-                                    return self.error();
-                                }
-                                self.index += 2;
-                                let Some(low) = self
-                                    .hex_codepoint()
-                                    .filter(|unit| (0xdc00..=0xdfff).contains(unit))
-                                else {
-                                    return self.error();
-                                };
-                                codepoint = 0x10000 + ((codepoint - 0xd800) << 10) + (low - 0xdc00);
-                            }
-                            let Some(character) = char::from_u32(codepoint) else {
-                                return self.error();
-                            };
-                            let mut encoded = [0; 4];
-                            value.extend_from_slice(character.encode_utf8(&mut encoded).as_bytes());
-                        }
-                        _ => return self.error(),
-                    }
-                }
-                0..=0x1f => return self.error(),
-                _ => {
-                    let start = self.index;
-                    while let Some(&next) = self.bytes.get(self.index) {
-                        if matches!(next, b'"' | b'\\' | 0..=0x1f) {
-                            break;
-                        }
-                        self.index += 1;
-                    }
-                    let chunk =
-                        std::str::from_utf8(&self.bytes[start..self.index]).map_err(|_| {
-                            LocalProductError::LocalUpdate("upstream release metadata is malformed")
-                        })?;
-                    value.extend_from_slice(chunk.as_bytes());
-                }
-            }
-        }
-    }
-
-    fn hex_codepoint(&mut self) -> Option<u32> {
-        let end = self.index.checked_add(4)?;
-        let bytes = self.bytes.get(self.index..end)?;
-        let mut value: u32 = 0;
-        for byte in bytes {
-            value = value.checked_mul(16)?;
-            value += match byte {
-                b'0'..=b'9' => u32::from(byte - b'0'),
-                b'a'..=b'f' => u32::from(byte - b'a' + 10),
-                b'A'..=b'F' => u32::from(byte - b'A' + 10),
-                _ => return None,
-            };
-        }
-        self.index = end;
-        Some(value)
-    }
-
-    fn literal(&mut self, literal: &[u8]) -> Result<(), LocalProductError> {
-        self.skip_whitespace();
-        let end = self.index.saturating_add(literal.len());
-        if self.bytes.get(self.index..end) != Some(literal) {
-            return self.error();
-        }
-        self.index = end;
-        Ok(())
-    }
-
-    fn skip_number(&mut self) -> Result<(), LocalProductError> {
-        self.skip_whitespace();
-        let mut index = self.index;
-        if self.bytes.get(index) == Some(&b'-') {
-            index += 1;
-        }
-        match self.bytes.get(index) {
-            Some(b'0') => {
-                index += 1;
-                if self
-                    .bytes
-                    .get(index)
-                    .is_some_and(|byte| byte.is_ascii_digit())
-                {
-                    return self.error();
-                }
-            }
-            Some(b'1'..=b'9') => {
-                index += 1;
-                while self
-                    .bytes
-                    .get(index)
-                    .is_some_and(|byte| byte.is_ascii_digit())
-                {
-                    index += 1;
-                }
-            }
-            _ => return self.error(),
-        }
-        if self.bytes.get(index) == Some(&b'.') {
-            index += 1;
-            let start = index;
-            while self
-                .bytes
-                .get(index)
-                .is_some_and(|byte| byte.is_ascii_digit())
-            {
-                index += 1;
-            }
-            if start == index {
-                return self.error();
-            }
-        }
-        if self
-            .bytes
-            .get(index)
-            .is_some_and(|byte| matches!(*byte, b'e' | b'E'))
-        {
-            index += 1;
-            if self
-                .bytes
-                .get(index)
-                .is_some_and(|byte| matches!(*byte, b'+' | b'-'))
-            {
-                index += 1;
-            }
-            let start = index;
-            while self
-                .bytes
-                .get(index)
-                .is_some_and(|byte| byte.is_ascii_digit())
-            {
-                index += 1;
-            }
-            if start == index {
-                return self.error();
-            }
-        }
-        if self
-            .bytes
-            .get(index)
-            .is_some_and(|byte| !matches!(*byte, b' ' | b'\t' | b'\r' | b'\n' | b',' | b']' | b'}'))
-        {
-            return self.error();
-        }
-        self.index = index;
-        Ok(())
-    }
-
-    fn skip_value(&mut self, depth: usize) -> Result<(), LocalProductError> {
-        if depth > 32 {
-            return self.error();
-        }
-        self.skip_whitespace();
-        match self.bytes.get(self.index) {
-            Some(b'"') => self.string().map(|_| ()),
-            Some(b'{') => {
-                self.index += 1;
-                self.skip_whitespace();
-                if self.bytes.get(self.index) == Some(&b'}') {
-                    self.index += 1;
-                    return Ok(());
-                }
-                loop {
-                    self.string()?;
-                    self.expect(b':')?;
-                    self.skip_value(depth + 1)?;
-                    self.skip_whitespace();
-                    match self.bytes.get(self.index) {
-                        Some(b',') => self.index += 1,
-                        Some(b'}') => {
-                            self.index += 1;
-                            return Ok(());
-                        }
-                        _ => return self.error(),
-                    }
-                }
-            }
-            Some(b'[') => {
-                self.index += 1;
-                self.skip_whitespace();
-                if self.bytes.get(self.index) == Some(&b']') {
-                    self.index += 1;
-                    return Ok(());
-                }
-                loop {
-                    self.skip_value(depth + 1)?;
-                    self.skip_whitespace();
-                    match self.bytes.get(self.index) {
-                        Some(b',') => self.index += 1,
-                        Some(b']') => {
-                            self.index += 1;
-                            return Ok(());
-                        }
-                        _ => return self.error(),
-                    }
-                }
-            }
-            Some(b't') => self.literal(b"true"),
-            Some(b'f') => self.literal(b"false"),
-            Some(b'n') => self.literal(b"null"),
-            Some(b'-' | b'0'..=b'9') => self.skip_number(),
-            _ => self.error(),
-        }
-    }
-
-    fn parse_assets(&mut self, wanted_asset: &str) -> Result<Option<String>, LocalProductError> {
-        self.expect(b'[')?;
-        self.skip_whitespace();
-        if self.bytes.get(self.index) == Some(&b']') {
-            self.index += 1;
-            return Ok(None);
-        }
-        let mut wanted_digest = None;
-        loop {
-            self.expect(b'{')?;
-            let mut name = None;
-            let mut digest = None;
-            let mut digest_seen = false;
-            self.skip_whitespace();
-            if self.bytes.get(self.index) == Some(&b'}') {
-                self.index += 1;
-            } else {
-                loop {
-                    let key = self.string()?;
-                    self.expect(b':')?;
-                    match key.as_str() {
-                        "name" => {
-                            if name.is_some() {
-                                return self.error();
-                            }
-                            name = Some(self.string()?);
-                        }
-                        "digest" => {
-                            if digest_seen {
-                                return self.error();
-                            }
-                            digest_seen = true;
-                            self.skip_whitespace();
-                            if self.bytes.get(self.index) == Some(&b'n') {
-                                self.literal(b"null")?;
-                            } else {
-                                digest = Some(self.string()?);
-                            }
-                        }
-                        _ => self.skip_value(0)?,
-                    }
-                    self.skip_whitespace();
-                    match self.bytes.get(self.index) {
-                        Some(b',') => self.index += 1,
-                        Some(b'}') => {
-                            self.index += 1;
-                            break;
-                        }
-                        _ => return self.error(),
-                    }
-                }
-            }
-            if name.as_deref() == Some(wanted_asset) {
-                if wanted_digest.is_some() {
-                    return self.error();
-                }
-                let digest = digest.ok_or(LocalProductError::LocalUpdate(
-                    "upstream release metadata is missing the package digest",
-                ))?;
-                wanted_digest = Some(digest);
-            }
-            self.skip_whitespace();
-            match self.bytes.get(self.index) {
-                Some(b',') => self.index += 1,
-                Some(b']') => {
-                    self.index += 1;
-                    return Ok(wanted_digest);
-                }
-                _ => return self.error(),
-            }
-        }
-    }
-}
-
-pub(super) fn parse_official_release_metadata(
-    bytes: &[u8],
-    requested_version: Option<&str>,
-) -> Result<OfficialReleaseMetadata, LocalProductError> {
-    let mut cursor = JsonCursor::new(bytes);
-    cursor.expect(b'{')?;
-    let mut tag_name = None;
-    let mut package_digest = None;
-    let mut assets_seen = false;
-    let mut release_flags_seen = 0u8;
-    cursor.skip_whitespace();
-    if cursor.bytes.get(cursor.index) == Some(&b'}') {
-        return Err(LocalProductError::LocalUpdate(
-            "upstream release metadata is incomplete",
-        ));
-    }
-    loop {
-        let key = cursor.string()?;
-        cursor.expect(b':')?;
-        match key.as_str() {
-            "draft" | "prerelease" => {
-                let bit = if key == "draft" { 1 } else { 2 };
-                if release_flags_seen & bit != 0 {
-                    return cursor.error();
-                }
-                release_flags_seen |= bit;
-                cursor.literal(b"false")?;
-            }
-            "tag_name" => {
-                if tag_name.is_some() {
-                    return cursor.error();
-                }
-                tag_name = Some(cursor.string()?);
-            }
-            "assets" => {
-                if assets_seen {
-                    return cursor.error();
-                }
-                assets_seen = true;
-                package_digest = cursor.parse_assets(UPSTREAM_PACKAGE_ASSET)?;
-            }
-            _ => cursor.skip_value(0)?,
-        }
-        cursor.skip_whitespace();
-        match cursor.bytes.get(cursor.index) {
-            Some(b',') => cursor.index += 1,
-            Some(b'}') => {
-                cursor.index += 1;
-                break;
-            }
-            _ => return cursor.error(),
-        }
-    }
-    cursor.skip_whitespace();
-    if cursor.index != cursor.bytes.len() {
-        return cursor.error();
-    }
-    let tag_name = tag_name.ok_or(LocalProductError::LocalUpdate(
-        "upstream release metadata has no release tag",
-    ))?;
-    let version = tag_name
-        .strip_prefix("rust-v")
-        .ok_or(LocalProductError::LocalUpdate(
-            "upstream release metadata has an unsupported tag",
-        ))?;
-    if !valid_update_version(version) {
-        return Err(LocalProductError::LocalUpdate(
-            "upstream release metadata has a non-stable version",
-        ));
-    }
-    if requested_version.is_some_and(|requested| requested != version) {
-        return Err(LocalProductError::LocalUpdate(
-            "upstream release metadata version does not match the requested version",
-        ));
-    }
-    let package_sha256 = package_digest
-        .ok_or(LocalProductError::LocalUpdate(
-            "upstream release metadata has no target package",
-        ))?
-        .strip_prefix("sha256:")
-        .filter(|digest| valid_sha256_hex(digest))
-        .ok_or(LocalProductError::LocalUpdate(
-            "upstream release metadata package digest is invalid",
-        ))?
-        .to_owned();
-    Ok(OfficialReleaseMetadata {
-        version: version.to_owned(),
-        package_sha256,
-    })
-}
-
-fn validate_https_url(value: &str) -> Result<(), LocalProductError> {
-    if value.is_empty()
-        || value.len() > REMOTE_RELEASE_URL_MAX_BYTES
-        || !value.is_ascii()
-        || value
-            .bytes()
-            .any(|b| b.is_ascii_whitespace() || b.is_ascii_control())
-        || value.contains(['?', '#', '\\'])
-    {
-        return Err(LocalProductError::LocalUpdate(
-            "upstream URL is not canonical",
-        ));
-    }
-    let Some(remainder) = value.strip_prefix("https://") else {
-        return Err(LocalProductError::LocalUpdate(
-            "upstream URL must use HTTPS",
-        ));
-    };
-    let Some((authority, path)) = remainder.split_once('/') else {
-        return Err(LocalProductError::LocalUpdate(
-            "upstream URL has no resource path",
-        ));
-    };
-    if authority.is_empty() || path.is_empty() || path.ends_with('/') {
-        return Err(LocalProductError::LocalUpdate(
-            "upstream URL is not canonical",
-        ));
-    }
-    Ok(())
-}
-
-fn resolve_official_release_metadata(
-    roots: &LocalWrapperRoots,
-    staging_root: &Path,
-    cli_version: Option<&str>,
-) -> Result<(OfficialReleaseMetadata, String), LocalProductError> {
-    let env_requested = std::env::var_os(UPDATE_VERSION_ENV);
-    let env_version = if let Some(raw) = env_requested.as_ref() {
-        let s = raw.to_str().ok_or(LocalProductError::LocalUpdate(
-            "local update version is not UTF-8",
-        ))?;
-        if !valid_update_version(s) {
-            return Err(LocalProductError::LocalUpdate(
-                "local update version must be MAJOR.MINOR.PATCH",
-            ));
-        }
-        Some(s)
-    } else {
-        None
-    };
-    let requested_version = cli_version.or(env_version);
-    let fetch = |url: &str, name: &str, expected: Option<&str>| {
-        fetch_official_metadata(roots, staging_root, url, name, expected)
-    };
-    if let Some(version) = requested_version {
-        let url = format!("{UPSTREAM_RELEASE_METADATA_BASE}/{version}/release.json");
-        return Ok((fetch(&url, "upstream-release.json", Some(version))?, url));
-    }
-    let latest = fetch(DEFAULT_UPSTREAM_LATEST_URL, "upstream-latest.json", None)?;
-    let url = format!(
-        "{UPSTREAM_RELEASE_METADATA_BASE}/{}/release.json",
-        latest.version
-    );
-    let pinned = fetch(&url, "upstream-release.json", Some(&latest.version))?;
-    if pinned != latest {
-        return Err(LocalProductError::LocalUpdate(
-            "official latest and exact-version descriptors disagree",
-        ));
-    }
-    Ok((pinned, url))
-}
-
-fn fetch_official_metadata(
-    roots: &LocalWrapperRoots,
-    staging_root: &Path,
-    url: &str,
-    name: &str,
-    requested_version: Option<&str>,
-) -> Result<OfficialReleaseMetadata, LocalProductError> {
-    validate_https_url(url)?;
-    let path = staging_root.join(name);
-    let output = crate::create_remote_output(&path)?;
-    remote_download::fetch(
-        roots,
-        url,
-        &output,
-        UPSTREAM_RELEASE_METADATA_MAX_BYTES as u64,
-        remote_download::TransferTimeout::Fixed(REMOTE_CONTROL_TRANSFER_TIMEOUT_SECONDS),
-        0,
-        None,
-    )?;
-    let bytes = crate::read_bounded_regular_file(
-        &path,
-        UPSTREAM_RELEASE_METADATA_MAX_BYTES,
-        "read upstream release metadata",
-        LocalProductError::LocalUpdate("upstream release metadata exceeds its byte bound"),
-        LocalProductError::LocalUpdate("upstream release metadata is not a regular file"),
-    )?;
-    parse_official_release_metadata(&bytes, requested_version)
-}
-
-fn version_order(a: &str, b: &str) -> Result<std::cmp::Ordering, LocalProductError> {
-    let tuple = |s: &str| {
-        if !valid_update_version(s) {
-            return Err(LocalProductError::LocalUpdate(
-                "release comparison requires stable versions",
-            ));
-        }
-        s.split('.')
-            .map(|n| {
-                n.parse::<u64>()
-                    .map_err(|_| LocalProductError::LocalUpdate("release version overflow"))
-            })
-            .collect::<Result<Vec<_>, _>>()
-    };
-    Ok(tuple(a)?.cmp(&tuple(b)?))
-}
-
-fn reject_changed_archive(
-    version: &str,
-    digest: &str,
-    discovered: &OfficialReleaseMetadata,
-) -> Result<(), LocalProductError> {
-    if version == discovered.version && digest != discovered.package_sha256 {
-        return Err(LocalProductError::LocalUpdate(
-            "official archive digest changed for an already installed version",
-        ));
-    }
-    Ok(())
-}
-
 fn generation_compatible_with_wrapper(manifest: &GenerationManifest) -> bool {
     manifest.wrapper_api_identity == WRAPPER_API_IDENTITY
         && manifest.persistent_schema_identity == PERSISTENT_SCHEMA_IDENTITY
@@ -838,182 +262,6 @@ fn check_release(
     result
 }
 
-fn update_progress_enabled(stdout_is_terminal: bool, stderr_is_terminal: bool) -> bool {
-    stdout_is_terminal && stderr_is_terminal
-}
-
-enum UpdateTransientCommand {
-    Update { message: String },
-    Stop,
-}
-
-struct UpdateTransientWorker {
-    sender: std::sync::mpsc::Sender<UpdateTransientCommand>,
-    worker: Option<std::thread::JoinHandle<()>>,
-}
-
-struct UpdatePresentation {
-    enabled: bool,
-    transient_visible: bool,
-    transient_worker: Option<UpdateTransientWorker>,
-}
-
-fn render_transient_frame(frame_index: usize, message: &str) {
-    let frame = UPDATE_SPINNER_FRAMES[frame_index % UPDATE_SPINNER_FRAMES.len()];
-    let mut stderr = std::io::stderr().lock();
-    let _ = write!(stderr, "\r\x1b[2K{frame} {message}");
-    let _ = stderr.flush();
-}
-
-impl UpdatePresentation {
-    fn new() -> Self {
-        use std::io::IsTerminal as _;
-        Self {
-            enabled: update_progress_enabled(
-                std::io::stdout().is_terminal(),
-                std::io::stderr().is_terminal(),
-            ),
-            transient_visible: false,
-            transient_worker: None,
-        }
-    }
-
-    fn transient(&mut self, message: &str) {
-        if !self.enabled {
-            return;
-        }
-        if let Some(worker) = self.transient_worker.as_ref() {
-            if worker
-                .sender
-                .send(UpdateTransientCommand::Update {
-                    message: message.to_owned(),
-                })
-                .is_ok()
-            {
-                self.transient_visible = true;
-                return;
-            }
-        }
-        render_transient_frame(0, message);
-        let (sender, receiver) = std::sync::mpsc::channel::<UpdateTransientCommand>();
-        let initial_message = message.to_owned();
-        let worker = std::thread::Builder::new()
-            .name("codex-update-spinner".to_owned())
-            .spawn(move || {
-                let mut current_message = initial_message;
-                let mut current_frame = 0usize;
-                loop {
-                    match receiver.recv_timeout(std::time::Duration::from_millis(80)) {
-                        Ok(UpdateTransientCommand::Update { message }) => {
-                            current_message = message;
-                            render_transient_frame(current_frame, &current_message);
-                        }
-                        Ok(UpdateTransientCommand::Stop)
-                        | Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
-                        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                            current_frame = (current_frame + 1) % UPDATE_SPINNER_FRAMES.len();
-                            render_transient_frame(current_frame, &current_message);
-                        }
-                    }
-                }
-            });
-        if let Ok(worker) = worker {
-            self.transient_worker = Some(UpdateTransientWorker {
-                sender,
-                worker: Some(worker),
-            });
-        }
-        self.transient_visible = true;
-    }
-
-    fn clear_transient(&mut self) {
-        if let Some(mut transient) = self.transient_worker.take() {
-            let _ = transient.sender.send(UpdateTransientCommand::Stop);
-            if let Some(worker) = transient.worker.take() {
-                let _ = worker.join();
-            }
-        }
-        if !self.transient_visible {
-            return;
-        }
-        let mut stderr = std::io::stderr().lock();
-        let _ = write!(stderr, "\r\x1b[2K");
-        let _ = stderr.flush();
-        self.transient_visible = false;
-    }
-
-    fn finish_activated(
-        &mut self,
-        previous_version: Option<&str>,
-        current_version: &str,
-        generation_id: &str,
-    ) {
-        self.clear_transient();
-        match previous_version {
-            Some(prev) if prev != current_version => {
-                println!("Updated Codex {prev} -> {current_version} (generation {generation_id}).");
-            }
-            _ => {
-                println!("Codex {current_version} is now active (generation {generation_id}).");
-            }
-        }
-    }
-
-    fn finish_current(&mut self, current_version: &str) {
-        self.clear_transient();
-        println!("Codex {current_version} is already up to date.");
-    }
-
-    fn finish_rollback(
-        &mut self,
-        previous_version: &str,
-        current_version: &str,
-        generation_id: &str,
-    ) {
-        self.clear_transient();
-        if previous_version == current_version {
-            println!("Rolled back Codex {current_version} (generation {generation_id}).");
-        } else {
-            println!("Rolled back Codex {previous_version} -> {current_version} (generation {generation_id}).");
-        }
-    }
-
-    fn fail(&mut self, error: &LocalProductError) -> i32 {
-        self.clear_transient();
-        eprintln!("codex update: {error}");
-        if matches!(
-            error,
-            LocalProductError::State(generation_state::ActivationTransactionError::CommitSync(_))
-        ) {
-            3
-        } else {
-            1
-        }
-    }
-}
-
-impl Drop for UpdatePresentation {
-    fn drop(&mut self) {
-        self.clear_transient();
-    }
-}
-
-fn format_bytes(bytes: u64) -> String {
-    const KIB: f64 = 1024.0;
-    const MIB: f64 = 1024.0 * 1024.0;
-    const GIB: f64 = 1024.0 * 1024.0 * 1024.0;
-    let b = bytes as f64;
-    if b >= GIB {
-        format!("{:.2} GiB", b / GIB)
-    } else if b >= MIB {
-        format!("{:.1} MiB", b / MIB)
-    } else if b >= KIB {
-        format!("{:.1} KiB", b / KIB)
-    } else {
-        format!("{bytes} B")
-    }
-}
-
 fn local_update_generation_id(
     roots: &LocalWrapperRoots,
     version: &str,
@@ -1064,7 +312,7 @@ fn create_staging_root(parent: &Path, prefix: &str) -> Result<PathBuf, LocalProd
         "wrapper staging parent must be a real directory",
     )?;
     for _ in 0..32 {
-        let sequence = crate::LOCAL_STAGING_COUNTER.fetch_add(1, Ordering::Relaxed) + 1;
+        let sequence = LOCAL_STAGING_COUNTER.fetch_add(1, Ordering::Relaxed) + 1;
         let path = parent.join(format!("{prefix}{}-{sequence}", std::process::id()));
         let mut builder = std::fs::DirBuilder::new();
         builder.mode(0o700);
@@ -1110,7 +358,7 @@ fn sync_tree_recursive(root: &Path) -> Result<(), LocalProductError> {
                 })?;
         }
     }
-    sync_directory(root)
+    sync_generation_directory(root)
 }
 
 #[derive(Debug)]
@@ -1244,7 +492,7 @@ fn install_built_generation_dir(
     };
 
     let candidate_parent = roots.generation_root.clone();
-    let candidate_seq = crate::LOCAL_STAGING_COUNTER.fetch_add(1, Ordering::Relaxed) + 1;
+    let candidate_seq = LOCAL_STAGING_COUNTER.fetch_add(1, Ordering::Relaxed) + 1;
     let candidate_dir =
         candidate_parent.join(format!(".candidate-{}-{candidate_seq}", std::process::id()));
 
@@ -1313,7 +561,7 @@ fn install_built_generation_dir(
                 }
             })?;
         }
-        sync_directory(&roots.generation_root)?;
+        sync_generation_directory(&roots.generation_root)?;
 
         if authoritative
             .as_ref()
@@ -1828,7 +1076,9 @@ pub(super) fn run_update_action(action: UpdateAction) -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::json::JsonParser as JsonCursor;
     use crate::tests::{remove_temp_root, temp_root};
+    use crate::upstream_metadata::{parse_official_release_metadata, OfficialReleaseMetadata};
     use std::fs;
     use std::os::unix::fs::PermissionsExt as _;
 

@@ -362,7 +362,7 @@ fn write_cache_file(path: &Path, bytes: &[u8]) -> io::Result<()> {
     let temporary = cache.join(format!(
         ".zone-{}-{}",
         std::process::id(),
-        super::LOCAL_STAGING_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        crate::fs_util::LOCAL_STAGING_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
     ));
     let mut file = OpenOptions::new()
         .write(true)
@@ -682,9 +682,9 @@ mod tests {
         if let Ok(zone) = std::env::var(CHILD) {
             let mut command = Command::new("/system/bin/sh");
             command.args(["-c", "printf '%s' \"$TZ\""]);
-            super::super::apply_child_env_plan_and_fence(
+            crate::runtime_env::apply_child_env_plan_and_fence(
                 &mut command,
-                Some(&crate::TermuxBaseEnvPlan {
+                Some(&crate::runtime_env::TermuxBaseEnvPlan {
                     assignments: vec![],
                     removals: vec![],
                 }),

@@ -88,7 +88,7 @@ fn validate_owned_real_dir(path: &Path, create: bool) -> io::Result<()> {
     let expected_uid = fs_util::current_uid()?;
     for ancestor in path.ancestors() {
         match fs::symlink_metadata(ancestor) {
-            Ok(meta) if meta.file_type().is_dir() && !meta.file_type().is_symlink() => {}
+            Ok(meta) if fs_util::is_real_directory(&meta) => {}
             Ok(_) => {
                 return Err(err_invalid(format!(
                     "directory path contains non-directory or symlink component: {}",
@@ -115,9 +115,7 @@ fn validate_owned_real_dir(path: &Path, create: bool) -> io::Result<()> {
                         match DirBuilder::new().mode(0o700).create(&cursor) {
                             Ok(()) => {
                                 if let Some(p) = cursor.parent() {
-                                    if let Ok(d) = File::open(p) {
-                                        let _ = d.sync_all();
-                                    }
+                                    let _ = fs_util::sync_directory(p);
                                 }
                             }
                             Err(e2) if e2.kind() == io::ErrorKind::AlreadyExists => {}
@@ -131,11 +129,7 @@ fn validate_owned_real_dir(path: &Path, create: bool) -> io::Result<()> {
         Err(err) => return Err(err),
     }
     let meta = fs::symlink_metadata(path)?;
-    if !meta.is_dir()
-        || meta.file_type().is_symlink()
-        || meta.uid() != expected_uid
-        || meta.permissions().mode() & 0o022 != 0
-    {
+    if !fs_util::is_owned_directory(&meta, expected_uid) || meta.permissions().mode() & 0o022 != 0 {
         return Err(err_invalid(format!(
             "directory must be an owned, non-group/world-writable real directory: {}",
             path.display()
@@ -163,7 +157,7 @@ fn ensure_symlink_target(link_path: &Path, expected_target: &Path) -> io::Result
         let _ = fs::remove_file(&tmp_path);
         return Err(err);
     }
-    File::open(parent)?.sync_all()?;
+    fs_util::sync_directory(parent)?;
     Ok(())
 }
 
@@ -195,7 +189,7 @@ fn check_shared_dir_entry(
                 if prepare {
                     fs::remove_dir(&link_path)?;
                     std::os::unix::fs::symlink(&shared_target, &link_path)?;
-                    File::open(codex_home)?.sync_all()?;
+                    fs_util::sync_directory(codex_home)?;
                 }
                 Ok(())
             } else {
@@ -213,7 +207,7 @@ fn check_shared_dir_entry(
         Err(err) if err.kind() == io::ErrorKind::NotFound => {
             if prepare {
                 std::os::unix::fs::symlink(&shared_target, &link_path)?;
-                File::open(codex_home)?.sync_all()?;
+                fs_util::sync_directory(codex_home)?;
             }
             Ok(())
         }
@@ -268,7 +262,7 @@ fn reconcile_append_log(
             {
                 Ok(file) => {
                     file.sync_all()?;
-                    File::open(shared_home)?.sync_all()?;
+                    fs_util::sync_directory(shared_home)?;
                 }
                 Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {}
                 Err(e) => return Err(e),
@@ -349,7 +343,7 @@ fn reconcile_append_log(
         Err(err) if err.kind() == io::ErrorKind::NotFound => {
             if prepare {
                 std::os::unix::fs::symlink(&shared_file, &profile_file)?;
-                File::open(codex_home)?.sync_all()?;
+                fs_util::sync_directory(codex_home)?;
             }
             Ok(())
         }
@@ -421,7 +415,7 @@ fn ensure_optional_shared_file(
         Err(err) if err.kind() == io::ErrorKind::NotFound => {
             if prepare {
                 std::os::unix::fs::symlink(&shared_file, &profile_file)?;
-                File::open(codex_home)?.sync_all()?;
+                fs_util::sync_directory(codex_home)?;
             }
             Ok(())
         }

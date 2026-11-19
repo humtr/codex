@@ -1,9 +1,13 @@
 //! One local retention boundary. No conversation or credential contents are read.
-use super::*;
+use crate::error::LocalProductError;
+use crate::fs_util::{self, ensure_real_directory_tree, flock_fd, LOCK_EX, LOCK_NB, LOCK_SH};
+use crate::generation::{valid_sha256_hex, LocalWrapperRoots};
+use crate::runtime_env::dup_above_safe_min;
+use crate::state::generation_state;
 use std::collections::HashSet;
 use std::fs::{self, File, OpenOptions};
 use std::io;
-use std::os::fd::{AsRawFd, FromRawFd};
+use std::os::fd::AsRawFd;
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use std::path::{Component, Path};
 
@@ -11,13 +15,8 @@ fn invalid() -> io::Error {
     io::Error::other("installed artifact maintenance is unavailable")
 }
 fn owned_directory(path: &Path) -> io::Result<()> {
-    for part in path.ancestors() {
-        let m = fs::symlink_metadata(part)?;
-        if !m.is_dir() || m.file_type().is_symlink() {
-            return Err(invalid());
-        }
-    }
-    if fs::metadata(path)?.uid() != fs::metadata("/proc/self")?.uid() {
+    fs_util::ensure_real_directories(path.ancestors(), invalid)?;
+    if fs::metadata(path)?.uid() != fs_util::current_uid()? {
         return Err(invalid());
     }
     Ok(())
@@ -34,17 +33,10 @@ pub(super) fn launch_lease(root: &Path) -> io::Result<Option<File>> {
     let parent = root.parent().ok_or_else(invalid)?;
     owned_directory(parent)?;
     let file = File::open(parent)?;
-    if unsafe { flock(file.as_raw_fd(), 1) } != 0 {
-        return Err(io::Error::last_os_error());
-    }
+    flock_fd(&file, LOCK_SH)?;
     // Runtime descriptor publication may replace 33–36. Keep generation
     // retention independent of those bindings even under descriptor pressure.
-    let safe =
-        unsafe { super::fcntl(file.as_raw_fd(), super::F_DUPFD_CLOEXEC, super::SAFE_MIN_FD) };
-    if safe < 0 {
-        return Err(io::Error::last_os_error());
-    }
-    Ok(Some(unsafe { File::from_raw_fd(safe) }))
+    Ok(Some(File::from(dup_above_safe_min(file.as_raw_fd())?)))
 }
 
 pub(super) struct UpdateLease<'a> {
@@ -170,7 +162,7 @@ fn process_is_owned(process: &Path, directory_uid: u32, uid: u32) -> io::Result<
 }
 
 fn process_references(roots: &[&Path]) -> io::Result<HashSet<String>> {
-    let uid = fs::metadata("/proc/self")?.uid();
+    let uid = fs_util::current_uid()?;
     let mut keep = HashSet::new();
     let mut record = |link: &Path| -> io::Result<()> {
         match fs::read_link(link) {
@@ -291,7 +283,7 @@ fn prune_directory(root: &Path, keep: &HashSet<String>, staging_only: bool) -> i
         let metadata = fs::symlink_metadata(entry.path())?;
         if !metadata.is_dir()
             || metadata.file_type().is_symlink()
-            || metadata.uid() != fs::metadata("/proc/self")?.uid()
+            || metadata.uid() != fs_util::current_uid()?
         {
             continue;
         }
@@ -299,7 +291,7 @@ fn prune_directory(root: &Path, keep: &HashSet<String>, staging_only: bool) -> i
         removed += 1;
     }
     if removed != 0 {
-        File::open(root)?.sync_all()?;
+        fs_util::sync_directory(root)?;
     }
     Ok(removed)
 }
@@ -322,7 +314,7 @@ fn prune_orphaned_headers(root: &Path) -> io::Result<usize> {
         return Err(invalid());
     }
     // The downloader uses this same directory lease for part and header files.
-    crate::fs_util::flock_fd(&lease, FLOCK_EX | FLOCK_NB)?;
+    flock_fd(&lease, LOCK_EX | LOCK_NB)?;
     let mut removed = 0;
     let mut references = None;
     let uid = crate::fs_util::current_uid()?;
@@ -370,7 +362,7 @@ fn prune_orphaned_headers(root: &Path) -> io::Result<usize> {
         if opened.dev() != metadata.dev() || opened.ino() != metadata.ino() {
             continue;
         }
-        match crate::fs_util::flock_fd(&header, FLOCK_EX | FLOCK_NB) {
+        match flock_fd(&header, LOCK_EX | LOCK_NB) {
             Err(err) if err.kind() == io::ErrorKind::WouldBlock => continue,
             Err(err) => return Err(err),
             Ok(()) => (),
@@ -389,9 +381,7 @@ pub(super) fn prune(roots: &LocalWrapperRoots) -> io::Result<usize> {
     let parent = roots.generation_root.parent().ok_or_else(invalid)?;
     owned_directory(parent)?;
     let lease = File::open(parent)?;
-    if unsafe { flock(lease.as_raw_fd(), 2 | 4) } != 0 {
-        return Err(io::Error::last_os_error());
-    }
+    flock_fd(&lease, LOCK_EX | LOCK_NB)?;
     owned_directory(&roots.state_root)?;
     let paths =
         generation_state::WrapperStatePaths::new(&roots.state_root).map_err(|_| invalid())?;
@@ -613,7 +603,7 @@ mod tests {
         }
         std::os::unix::fs::symlink(&unknown, &symlink).unwrap();
         let cache_lease = File::open(&downloads).unwrap();
-        crate::fs_util::flock_fd(&cache_lease, FLOCK_EX | FLOCK_NB).unwrap();
+        flock_fd(&cache_lease, LOCK_EX | LOCK_NB).unwrap();
         assert_eq!(prune(&roots).unwrap_err().kind(), io::ErrorKind::WouldBlock);
         assert!(orphan.exists());
         drop(cache_lease);

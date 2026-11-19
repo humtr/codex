@@ -8,12 +8,13 @@ use std::os::unix::fs::{DirBuilderExt as _, OpenOptionsExt as _};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::Ordering;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
-use crate::fs_util;
-use crate::unix_app::{
-    apply_child_env_plan_and_fence, rename_noreplace, RuntimeFdSources, TermuxBaseEnvPlan,
-    LOCAL_STAGING_COUNTER, TERMUX_WRAPPER_CONFIG_CONTENT,
+use crate::fs_util::{self, rename_noreplace, LOCAL_STAGING_COUNTER};
+use crate::proc_exec;
+use crate::runtime_env::{
+    apply_child_env_plan_and_fence, RuntimeFdSources, TermuxBaseEnvPlan,
+    TERMUX_WRAPPER_CONFIG_CONTENT,
 };
 
 pub(super) const FRAGMENT_LIMIT: usize = 8 * 1024;
@@ -287,19 +288,11 @@ fn validate_with_timeout(
             .stderr(Stdio::null());
         fds.configure(&mut command);
         let mut child = command.spawn()?;
-        let until = Instant::now() + timeout;
-        loop {
-            match child.try_wait() {
-                Ok(Some(status)) => return Ok(status.success()),
-                Ok(None) if Instant::now() < until => std::thread::sleep(Duration::from_millis(10)),
-                result => {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    return match result {
-                        Err(err) => Err(err),
-                        _ => Ok(false),
-                    };
-                }
+        match proc_exec::wait_for_exit(&mut child, timeout, std::convert::identity, || Ok(())) {
+            Ok(Some(status)) => Ok(status.success()),
+            result => {
+                proc_exec::kill_and_wait(&mut child);
+                result.map(|_| false)
             }
         }
     })();
@@ -409,10 +402,11 @@ pub(super) fn prune(config_root: &Path) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::runtime_env::plan_termux_env;
     use crate::tests::{remove_temp_root, temp_root};
-    use crate::unix_app::plan_termux_env;
     use std::ffi::OsString;
     use std::os::unix::fs::PermissionsExt as _;
+    use std::time::Instant;
 
     fn shell_executable() -> &'static str {
         if Path::new("/system/bin/sh").is_file() {
@@ -432,7 +426,7 @@ mod tests {
         fs::create_dir_all(&tmp).unwrap();
         let resolver = root.join("resolv.conf");
         fs::write(&resolver, b"nameserver 1.1.1.1\n").unwrap();
-        let snap = crate::unix_app::TermuxProcessEnvSnapshot {
+        let snap = crate::runtime_env::TermuxProcessEnvSnapshot {
             wsl_kernel: Some(false),
             prefix: Some(prefix.into_os_string()),
             tmpdir: Some(tmp.into_os_string()),
@@ -499,7 +493,7 @@ mod tests {
         assert!(cfg_text.ends_with("# ext A\n"));
         assert_eq!(
             render_snapshot_config(b"").unwrap(),
-            crate::TERMUX_WRAPPER_CONFIG_CONTENT.as_bytes()
+            TERMUX_WRAPPER_CONFIG_CONTENT.as_bytes()
         );
         assert!(first.path.join("requirements.toml").is_file());
 
@@ -730,7 +724,7 @@ mod tests {
 
         let fragment = b"# live\n";
         let old = [
-            crate::TERMUX_WRAPPER_CONFIG_CONTENT.as_bytes(),
+            TERMUX_WRAPPER_CONFIG_CONTENT.as_bytes(),
             b"thread_unload_delay_secs = 0\n\n",
             fragment,
         ]
@@ -754,12 +748,7 @@ mod tests {
         assert_ne!(replacement.path, live_path);
         assert_eq!(
             fs::read(replacement.path.join("config.toml")).unwrap(),
-            [
-                crate::TERMUX_WRAPPER_CONFIG_CONTENT.as_bytes(),
-                b"\n",
-                fragment
-            ]
-            .concat()
+            [TERMUX_WRAPPER_CONFIG_CONTENT.as_bytes(), b"\n", fragment].concat()
         );
 
         let explicit = b"thread_unload_delay_secs = 0\n";
@@ -773,12 +762,7 @@ mod tests {
         .unwrap();
         assert_eq!(
             fs::read(explicit_snapshot.path.join("config.toml")).unwrap(),
-            [
-                crate::TERMUX_WRAPPER_CONFIG_CONTENT.as_bytes(),
-                b"\n",
-                explicit
-            ]
-            .concat()
+            [TERMUX_WRAPPER_CONFIG_CONTENT.as_bytes(), b"\n", explicit].concat()
         );
         let stale = prepare(
             &config,

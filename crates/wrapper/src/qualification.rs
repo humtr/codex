@@ -6,13 +6,15 @@ use std::os::unix::fs::{DirBuilderExt as _, OpenOptionsExt as _};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::Ordering;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
-use crate::fs_util;
-use crate::unix_app::{
-    apply_child_env_plan_and_fence, plan_termux_env, termux_browser_helper_paths,
-    LocalProductError, LocalWrapperRoots, QualifiedRuntimeAssets, RuntimeFdSources,
-    TermuxBaseEnvPlan, TermuxProcessEnvSnapshot, LOCAL_STAGING_COUNTER,
+use crate::error::LocalProductError;
+use crate::fs_util::{self, LOCAL_STAGING_COUNTER};
+use crate::generation::{termux_browser_helper_paths, LocalWrapperRoots, QualifiedRuntimeAssets};
+use crate::proc_exec;
+use crate::runtime_env::{
+    apply_child_env_plan_and_fence, plan_termux_env, RuntimeFdSources, TermuxBaseEnvPlan,
+    TermuxProcessEnvSnapshot,
 };
 
 const OUTPUT_LIMIT: u64 = 64 * 1024;
@@ -95,35 +97,27 @@ impl Probe<'_> {
         crate::timezone::configure_with_cache(&mut command, Some(self.home));
         self.fds.configure(&mut command);
         let mut child = command.spawn().map_err(io_error)?;
-        let deadline = Instant::now() + timeout;
-        let result = (|| loop {
-            let status = child.try_wait().map_err(io_error)?;
+        let result = proc_exec::wait_for_exit(&mut child, timeout, io_error, || {
             if output_watch.metadata().map_err(io_error)?.len() > OUTPUT_LIMIT
                 || error_watch.metadata().map_err(io_error)?.len() > OUTPUT_LIMIT
             {
                 return Err(rejected("candidate probe output exceeded its bound"));
             }
-            if let Some(status) = status {
-                return if status.success() {
-                    fs_util::read_bounded_regular(
-                        &path,
-                        OUTPUT_LIMIT,
-                        true,
-                        "candidate output is unsafe or oversized",
-                    )
-                    .map_err(io_error)
-                } else {
-                    Err(rejected("candidate runtime command failed"))
-                };
-            }
-            if Instant::now() >= deadline {
-                return Err(rejected("candidate runtime command timed out"));
-            }
-            std::thread::sleep(Duration::from_millis(10));
-        })();
+            Ok(())
+        })
+        .and_then(|status| match status {
+            Some(status) if status.success() => fs_util::read_bounded_regular(
+                &path,
+                OUTPUT_LIMIT,
+                true,
+                "candidate output is unsafe or oversized",
+            )
+            .map_err(io_error),
+            Some(_) => Err(rejected("candidate runtime command failed")),
+            None => Err(rejected("candidate runtime command timed out")),
+        });
         if result.is_err() {
-            let _ = child.kill();
-            let _ = child.wait();
+            proc_exec::kill_and_wait(&mut child);
         }
         result
     }
@@ -249,7 +243,7 @@ printf '%s' "$CODEX_HOME"
         let root = crate::tests::temp_root("candidate-cleanup-failure");
         let env = crate::tests::EnvRestoreGuard::new(&[("TMPDIR", Some(&root))]);
         let roots = crate::tests::make_test_roots(&root);
-        crate::prepare_wrapper_config(&roots.config_dir).unwrap();
+        crate::runtime_env::prepare_wrapper_config(&roots.config_dir).unwrap();
         let stage = root.join("gen-1");
         crate::tests::write_sample_generation(&stage, "gen-1", false);
         let runtime = stage.join("bin/codex");
@@ -269,9 +263,9 @@ exit 7
         )
         .unwrap();
         fs::set_permissions(runtime, fs::Permissions::from_mode(0o700)).unwrap();
-        let loaded = crate::load_local_generation(&stage).unwrap();
+        let loaded = crate::generation::load_local_generation(&stage).unwrap();
         let process_env = crate::tests::test_process_env(&roots);
-        let err = crate::with_qualified_loaded_runtime(&loaded, |assets| {
+        let err = crate::generation::with_qualified_loaded_runtime(&loaded, |assets| {
             probe(assets, &process_env, &roots, "1.2.3")
         })
         .unwrap_err();

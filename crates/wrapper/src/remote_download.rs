@@ -1,10 +1,14 @@
 //! Bounded HTTPS acquisition and resumable, untrusted payload storage. Signed
 //! admission owns identities; this module never selects or activates a release.
-use super::*;
+use crate::error::LocalProductError;
+use crate::fs_util::{ensure_real_directory, flock_fd, LOCK_EX, LOCK_NB};
+use crate::generation::{sha256_regular_file, LocalWrapperRoots};
+use crate::proc_exec;
 use std::fs::{self, File, OpenOptions};
+use std::io;
 use std::io::{Read, Seek, SeekFrom};
-use std::os::fd::{AsRawFd, OwnedFd};
-use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt};
+use std::os::fd::OwnedFd;
+use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::os::unix::net::UnixStream;
 use std::path::Path;
 use std::process::{Command, Stdio};
@@ -14,6 +18,85 @@ use crate::fs_util::O_NOFOLLOW as NOFOLLOW;
 
 extern "C" {
     fn geteuid() -> u32;
+}
+
+pub(super) const REMOTE_RELEASE_TOTAL_MAX_BYTES: u64 = 1024 * 1024 * 1024;
+pub(super) const REMOTE_CONNECT_TIMEOUT_SECONDS: &str = "15";
+pub(super) const REMOTE_CONTROL_TRANSFER_TIMEOUT_SECONDS: &str = "30";
+pub(super) const REMOTE_TRANSFER_TIMEOUT_SECONDS: &str = "1800";
+#[derive(Debug, Clone)]
+pub(super) struct ReleaseFileEntry {
+    #[allow(dead_code)]
+    pub(super) relative_path: String,
+    pub(super) sha256: String,
+    #[allow(dead_code)]
+    pub(super) mode: u32,
+}
+
+pub(super) fn ensure_curl_available(curl: &Path) -> Result<(), LocalProductError> {
+    ensure_regular_file_tool(curl)
+        .then_some(())
+        .ok_or(LocalProductError::CurlUnavailable)
+}
+
+fn ensure_regular_file_tool(path: &Path) -> bool {
+    fs::symlink_metadata(path)
+        .is_ok_and(|meta| meta.file_type().is_file() && meta.permissions().mode() & 0o111 != 0)
+}
+
+pub(super) fn create_remote_output(path: &Path) -> Result<File, LocalProductError> {
+    match fs::symlink_metadata(path) {
+        Ok(meta) if !meta.file_type().is_file() => {
+            return Err(LocalProductError::UnsafeSource(
+                "remote output destination must not be a symlink or directory",
+            ))
+        }
+        Ok(_) => {}
+        Err(err) if err.kind() == io::ErrorKind::NotFound => {}
+        Err(source) => {
+            return Err(LocalProductError::Io {
+                operation: "inspect remote output path",
+                source,
+            })
+        }
+    }
+    OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .mode(0o600)
+        .open(path)
+        .map_err(|source| LocalProductError::Io {
+            operation: "create remote download output",
+            source,
+        })
+}
+
+pub(super) fn copy_bounded_file_contents<R: io::Read, W: io::Write>(
+    reader: &mut R,
+    writer: &mut W,
+    limit: u64,
+    operation: &'static str,
+    over_limit_message: &'static str,
+) -> Result<u64, LocalProductError> {
+    let mut total = 0u64;
+    let mut buf = [0u8; 64 * 1024];
+    loop {
+        let n = reader
+            .read(&mut buf)
+            .map_err(|source| LocalProductError::Io { operation, source })?;
+        if n == 0 {
+            return Ok(total);
+        }
+        total = total
+            .checked_add(n as u64)
+            .filter(|&sum| sum <= limit)
+            .ok_or(LocalProductError::Remote(over_limit_message))?;
+        writer
+            .write_all(&buf[..n])
+            .map_err(|source| LocalProductError::Io { operation, source })?;
+    }
 }
 
 const HTTP_STATUS: &str = "%{stderr}CODEX_HTTP_STATUS=%{response_code}";
@@ -290,8 +373,7 @@ pub(super) fn fetch_with_headers(
     })();
     // Reap the exact child on metadata, progress-bound and status failures too.
     if result.is_err() {
-        let _ = child.kill();
-        let _ = child.wait();
+        proc_exec::kill_and_wait(&mut child);
     }
     result
 }
@@ -379,7 +461,7 @@ pub(super) fn payload(
     )?;
     let cache = roots.state_root.join("downloads");
     let lease = private_directory(&cache)?;
-    if unsafe { flock(lease.as_raw_fd(), FLOCK_EX | FLOCK_NB) } != 0 {
+    if flock_fd(&lease, LOCK_EX | LOCK_NB).is_err() {
         return Err(LocalProductError::Remote(
             "another update owns the download cache; retry after it finishes",
         ));
@@ -1077,7 +1159,9 @@ exit 22
         let entry = entry(&f, b"correct");
         let dir = f.root.join("downloads");
         let lease = private_directory(&dir).unwrap();
-        assert_eq!(unsafe { flock(lease.as_raw_fd(), FLOCK_EX | FLOCK_NB) }, 0);
+        use crate::fs_util::flock;
+        use std::os::fd::AsRawFd as _;
+        assert_eq!(unsafe { flock(lease.as_raw_fd(), LOCK_EX | LOCK_NB) }, 0);
         let dest = f.root.join("out");
         assert!(matches!(
             payload(

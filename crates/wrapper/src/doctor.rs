@@ -1,46 +1,27 @@
-use crate::{
-    apply_child_env_plan_and_fence, plan_termux_env, termux_browser_helper_paths, GenerationLayout,
-    LocalPublicDispatchContext, QualifiedRuntimeAssets, RuntimeFdSources, TermuxProcessEnvError,
-    TermuxProcessEnvSnapshot, DOCTOR_OUTPUT_MAX_BYTES,
+use crate::generation::{termux_browser_helper_paths, GenerationLayout, QualifiedRuntimeAssets};
+use crate::json::json_escape;
+use crate::proc_exec::{self, nonblocking_output_pipe as doctor_output_pipe, O_NONBLOCK_LINUX};
+use crate::runtime_env::{
+    apply_child_env_plan_and_fence, inspect_shared_home_from_env, plan_termux_env,
+    RuntimeFdSources, TermuxProcessEnvError, TermuxProcessEnvSnapshot,
+    TERMUX_WRAPPER_CONFIG_CONTENT,
 };
+use crate::LocalPublicDispatchContext;
 use std::ffi::{OsStr, OsString};
 use std::fs::{self, File, OpenOptions};
-use std::io::{self, Read as _, Write as _};
+use std::io::{self, Write as _};
 use std::os::fd::AsRawFd as _;
-use std::os::fd::FromRawFd as _;
-use std::os::raw::{c_int, c_short};
 use std::os::unix::fs::{
     DirBuilderExt as _, MetadataExt as _, OpenOptionsExt as _, PermissionsExt as _,
 };
-use std::os::unix::process::CommandExt as _;
 use std::path::{Path, PathBuf};
 use std::process::{Child, ExitStatus, Stdio};
 use std::sync::atomic::Ordering;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 // Upstream `doctor` walks `$CODEX_HOME` (including `packages/standalone` and large session histories); allow >40s flash scans.
+const DOCTOR_OUTPUT_MAX_BYTES: usize = 64 * 1024;
 const DOCTOR_PROBE_TIMEOUT: Duration = Duration::from_secs(90);
-const F_GETFL: c_int = 3;
-const F_SETFL: c_int = 4;
-const O_NONBLOCK_LINUX: c_int = 0o4000;
-const O_CLOEXEC_LINUX: c_int = 0o2000000;
-const POLLIN_EVENT: c_short = 1;
-const SIGTERM_NUM: c_int = 15;
-const SIGKILL_NUM: c_int = 9;
-
-#[repr(C)]
-struct PollFd {
-    fd: c_int,
-    events: c_short,
-    revents: c_short,
-}
-
-unsafe extern "C" {
-    fn kill(pid: c_int, sig: c_int) -> c_int;
-    fn poll(fds: *mut PollFd, nfds: usize, timeout: c_int) -> c_int;
-    fn pipe2(fds: *mut c_int, flags: c_int) -> c_int;
-}
-
 #[derive(Debug)]
 pub(super) enum QualifiedUpstreamDoctorProbeError {
     WrapperPreparation(String),
@@ -519,106 +500,21 @@ fn doctor_pty_path(process_env: &TermuxProcessEnvSnapshot) -> Option<std::path::
     (metadata.file_type().is_file() && metadata.permissions().mode() & 0o111 != 0).then_some(path)
 }
 
-fn reap_doctor_child(child: &mut Child) {
-    let group = -(child.id() as c_int);
-    // The leader may already be reaped while descendants still hold the pipe.
-    if unsafe { kill(group, SIGTERM_NUM) } == 0 {
-        let deadline = Instant::now() + Duration::from_millis(150);
-        loop {
-            let _ = child.try_wait();
-            if unsafe { kill(group, 0) } != 0 {
-                break;
-            }
-            if Instant::now() >= deadline {
-                unsafe { kill(group, SIGKILL_NUM) };
-                break;
-            }
-            std::thread::sleep(Duration::from_millis(10));
-        }
-    }
-    let _ = child.kill();
-    let _ = child.wait();
-}
-
-fn doctor_output_pipe() -> io::Result<(File, File)> {
-    let mut fds = [0; 2];
-    // The read end alone is nonblocking, so child writes still have pipe backpressure.
-    if unsafe { pipe2(fds.as_mut_ptr(), O_CLOEXEC_LINUX) } != 0 {
-        return Err(io::Error::last_os_error());
-    }
-    let (reader, writer) = unsafe { (File::from_raw_fd(fds[0]), File::from_raw_fd(fds[1])) };
-    let fd = reader.as_raw_fd();
-    let flags = unsafe { crate::fcntl(fd, F_GETFL) };
-    if flags < 0 || unsafe { crate::fcntl(fd, F_SETFL, flags | O_NONBLOCK_LINUX) } < 0 {
-        return Err(io::Error::last_os_error());
-    }
-    Ok((reader, writer))
-}
-
 fn collect_bounded_output_and_wait(
     child: &mut Child,
-    mut reader: File,
+    reader: File,
     timeout: Duration,
 ) -> Result<(Vec<u8>, ExitStatus), QualifiedUpstreamDoctorProbeError> {
-    use QualifiedUpstreamDoctorProbeError::{Io, OutputTooLarge, TimedOut};
-
-    let deadline = Instant::now() + timeout;
-    let mut bytes = Vec::new();
-    let mut buf = [0u8; 4096];
-    let mut eof = false;
-    let result = (|| loop {
-        let status = child.try_wait().map_err(Io)?;
-        while !eof {
-            // After observing exit, drain bytes already in the pipe without
-            // waiting for EOF from any descendant that inherited the writer.
-            match reader.read(&mut buf) {
-                Ok(0) => eof = true,
-                Ok(n) => {
-                    let remaining = DOCTOR_OUTPUT_MAX_BYTES - bytes.len();
-                    if n > remaining {
-                        bytes.extend_from_slice(&buf[..remaining]);
-                        return Err(OutputTooLarge(bytes));
-                    }
-                    bytes.extend_from_slice(&buf[..n]);
-                }
-                Err(err) if err.kind() == io::ErrorKind::WouldBlock => break,
-                Err(err) if err.kind() == io::ErrorKind::Interrupted => {
-                    if Instant::now() >= deadline {
-                        return Err(TimedOut(bytes));
-                    }
-                }
-                Err(err) => return Err(Io(err)),
+    proc_exec::collect_bounded_output_and_wait(child, reader, timeout, DOCTOR_OUTPUT_MAX_BYTES)
+        .map_err(|err| match err {
+            proc_exec::OutputError::Io(err) => QualifiedUpstreamDoctorProbeError::Io(err),
+            proc_exec::OutputError::TimedOut(bytes) => {
+                QualifiedUpstreamDoctorProbeError::TimedOut(bytes)
             }
-        }
-        if let Some(status) = status {
-            return Ok((bytes, status));
-        }
-
-        let remaining = deadline.saturating_duration_since(Instant::now());
-        if remaining.is_zero() {
-            return Err(TimedOut(bytes));
-        }
-        let wait = remaining.min(Duration::from_millis(25));
-        if eof {
-            std::thread::sleep(wait);
-        } else {
-            let mut pfd = PollFd {
-                fd: reader.as_raw_fd(),
-                events: POLLIN_EVENT,
-                revents: 0,
-            };
-            if unsafe { poll(&mut pfd, 1, wait.as_millis() as c_int) } < 0 {
-                let err = io::Error::last_os_error();
-                if err.kind() != io::ErrorKind::Interrupted {
-                    return Err(Io(err));
-                }
+            proc_exec::OutputError::OutputTooLarge(bytes) => {
+                QualifiedUpstreamDoctorProbeError::OutputTooLarge(bytes)
             }
-        }
-    })();
-    if result.is_err() || !eof {
-        reap_doctor_child(child);
-    }
-    result
+        })
 }
 
 struct DoctorTemp(PathBuf);
@@ -627,7 +523,7 @@ impl DoctorTemp {
     fn create() -> io::Result<Self> {
         let root = std::env::temp_dir();
         for _ in 0..32 {
-            let sequence = crate::LOCAL_STAGING_COUNTER.fetch_add(1, Ordering::Relaxed);
+            let sequence = crate::fs_util::LOCAL_STAGING_COUNTER.fetch_add(1, Ordering::Relaxed);
             let path = root.join(format!(".codex-doctor-{}-{sequence}", std::process::id()));
             match fs::DirBuilder::new().mode(0o700).create(&path) {
                 Ok(()) => return Ok(Self(path)),
@@ -653,7 +549,7 @@ fn open_doctor_config(
     warning: &mut Option<&'static str>,
 ) -> io::Result<File> {
     use crate::fs_util;
-    let expected = crate::TERMUX_WRAPPER_CONFIG_CONTENT.as_bytes();
+    let expected = TERMUX_WRAPPER_CONFIG_CONTENT.as_bytes();
     for dir in config_dir.ancestors() {
         match fs::symlink_metadata(dir) {
             Ok(meta) if meta.is_dir() => (),
@@ -754,7 +650,7 @@ where
         cert_file,
         cert_dir,
     )?;
-    let sqlite_home_override = crate::inspect_shared_home_from_env().map_err(|err| {
+    let sqlite_home_override = inspect_shared_home_from_env().map_err(|err| {
         QualifiedUpstreamDoctorProbeError::WrapperPreparation(format!(
             "wrapper shared-home inspection failed: {err}"
         ))
@@ -800,8 +696,8 @@ where
             .map_err(QualifiedUpstreamDoctorProbeError::Io)?,
     ))
     .stdout(Stdio::from(writer))
-    .stdin(Stdio::null())
-    .process_group(0);
+    .stdin(Stdio::null());
+    proc_exec::isolate_process_group(&mut cmd);
     apply_child_env_plan_and_fence(&mut cmd, Some(&env_plan));
     crate::timezone::configure_with_cache(&mut cmd, Some(&temp.0));
     if let Some(sqlite_home) = sqlite_home_override {
@@ -1173,28 +1069,6 @@ fn render_doctor_human(report: &DoctorReport, color: bool) -> String {
     output
 }
 
-pub(super) fn json_escape(value: &str) -> String {
-    let mut escaped = String::with_capacity(value.len());
-    for character in value.chars() {
-        match character {
-            '"' => escaped.push_str("\\\""),
-            '\\' => escaped.push_str("\\\\"),
-            '\u{08}' => escaped.push_str("\\b"),
-            '\u{0c}' => escaped.push_str("\\f"),
-            '\n' => escaped.push_str("\\n"),
-            '\r' => escaped.push_str("\\r"),
-            '\t' => escaped.push_str("\\t"),
-            c if c.is_control() => {
-                use std::fmt::Write as _;
-                write!(&mut escaped, "\\u{:04x}", c as u32)
-                    .expect("writing into String cannot fail");
-            }
-            c => escaped.push(c),
-        }
-    }
-    escaped
-}
-
 fn render_doctor_json(report: &DoctorReport) -> String {
     let (code_mode_status, _) = code_mode_status(&report.termux_wrapper);
     let runtime_status = if report.termux_wrapper.status == WrapperDoctorStatus::Healthy {
@@ -1339,7 +1213,7 @@ where
     if let Err(err) = crate::extensions::WrapperSettings::read(context.state_root) {
         warnings.push(format!("invalid wrapper.toml: {err}"));
     }
-    if let Some(codex_home) = crate::resolve_codex_home() {
+    if let Some(codex_home) = crate::runtime_env::resolve_codex_home() {
         if let Err(err) = crate::daemon_settings::inspect_read_only(&codex_home) {
             warnings.push(format!("invalid daemon settings.json: {err}"));
         }
@@ -1415,8 +1289,11 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::proc_exec::kill;
     use crate::tests::{os_vec, remove_temp_root, temp_root, EnvRestoreGuard};
     use std::fs;
+    use std::os::unix::process::CommandExt as _;
+    use std::time::Instant;
 
     #[test]
     fn redaction_merges_overlapping_styled_ranges_at_utf8_boundaries() {
@@ -1574,13 +1451,13 @@ mod tests {
             b"{\"id\":\"local\"}\n",
         )
         .unwrap();
-        let state = crate::generation_state::WrapperStatePaths::new(&roots.state_root)
+        let state = crate::state::generation_state::WrapperStatePaths::new(&roots.state_root)
             .unwrap()
             .with_generation_root(&roots.generation_root);
-        let pointer = crate::generation_state::plan_initial_pointer_state("gen-1").unwrap();
+        let pointer = crate::state::generation_state::plan_initial_pointer_state("gen-1").unwrap();
         fs::write(
             &state.activation_state,
-            crate::generation_state::encode_pointer_state(&pointer).unwrap(),
+            crate::state::generation_state::encode_pointer_state(&pointer).unwrap(),
         )
         .unwrap();
         let shell = if Path::new("/system/bin/sh").is_file() {
@@ -1645,21 +1522,21 @@ printf 'upstream stderr captured\n' >&2
 
         fs::write(
             roots.config_dir.join("config.toml"),
-            crate::TERMUX_WRAPPER_CONFIG_CONTENT,
+            TERMUX_WRAPPER_CONFIG_CONTENT,
         )
         .unwrap();
         let (status, output) = invoke();
         assert!(status.success(), "{output}");
         assert!(!output.contains("temporary Termux defaults"), "{output}");
 
-        let pending = crate::generation_state::ActivationJournal {
-            operation: crate::generation_state::ActivationOperation::Update,
+        let pending = crate::state::generation_state::ActivationJournal {
+            operation: crate::state::generation_state::ActivationOperation::Update,
             before: None,
             after: pointer,
         };
         fs::write(
             &state.activation_journal,
-            crate::generation_state::encode_activation_journal(&pending).unwrap(),
+            crate::state::generation_state::encode_activation_journal(&pending).unwrap(),
         )
         .unwrap();
         let (status, output) = invoke();
@@ -1727,10 +1604,10 @@ printf 'upstream stderr captured\n' >&2
 
         // Break resolver_path so RuntimeFdSources::open fails during wrapper preparation.
         fs::remove_file(&roots.resolver_path).unwrap();
-        let loaded = crate::load_local_generation(&gen_dir).unwrap();
+        let loaded = crate::generation::load_local_generation(&gen_dir).unwrap();
         let process_env = crate::tests::test_process_env(&roots);
 
-        let outcome = crate::with_qualified_loaded_runtime(&loaded, |assets| {
+        let outcome = crate::generation::with_qualified_loaded_runtime(&loaded, |assets| {
             let ctx = LocalPublicDispatchContext {
                 runtime_assets: assets,
                 process_env: &process_env,
@@ -1818,7 +1695,7 @@ printf 'upstream stderr captured\n' >&2
         .unwrap();
         fs::set_permissions(gen_dir.join("bin/codex"), fs::Permissions::from_mode(0o755)).unwrap();
 
-        let loaded = crate::load_local_generation(&gen_dir).unwrap();
+        let loaded = crate::generation::load_local_generation(&gen_dir).unwrap();
         let process_env = crate::tests::test_process_env(&roots);
         let opts = DoctorCaptureOptions {
             json: true,
@@ -1826,7 +1703,7 @@ printf 'upstream stderr captured\n' >&2
             force_color: false,
         };
         let started = Instant::now();
-        let res = crate::with_qualified_loaded_runtime(&loaded, |assets| {
+        let res = crate::generation::with_qualified_loaded_runtime(&loaded, |assets| {
             Ok(capture_qualified_upstream_doctor_with_timeout(
                 assets,
                 &process_env,
@@ -1870,8 +1747,8 @@ printf 'upstream stderr captured\n' >&2
                 format!("#!{shell}\ni=0\nline='aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'\nwhile [ \"$i\" -lt 1200 ]; do echo \"$line\" {redirects}; i=$((i+1)); done\n"),
             )
             .unwrap();
-            let loaded2 = crate::load_local_generation(&gen_dir).unwrap();
-            let res2 = crate::with_qualified_loaded_runtime(&loaded2, |assets| {
+            let loaded2 = crate::generation::load_local_generation(&gen_dir).unwrap();
+            let res2 = crate::generation::with_qualified_loaded_runtime(&loaded2, |assets| {
                 Ok(capture_qualified_upstream_doctor_with_timeout(
                     assets,
                     &process_env,

@@ -4,8 +4,7 @@ LC_ALL=C
 export LC_ALL
 
 usage() {
-  printf '%s\n' "usage: codex-account ACCOUNT [CODEX_ARG ...]" >&2
-  exit 2
+  printf '%s\n' "usage: codex-account ACCOUNT [CODEX_ARG ...]"
 }
 
 fail() {
@@ -93,6 +92,9 @@ check_profile_meta() {
   if printf 'codex-manager-profile-v2\n' | cmp -s - "$meta_path"; then
     return 0
   fi
+  if printf 'codex-manager-profile\n' | cmp -s - "$meta_path"; then
+    return 0
+  fi
   fail "unrecognized or mismatched profile metadata: $meta_path"
 }
 
@@ -110,7 +112,16 @@ validate_account_name() {
   esac
 }
 
-[ "$#" -ge 1 ] || usage
+if [ "$#" -eq 0 ]; then
+  usage >&2
+  exit 2
+fi
+case "$1" in
+  -h | --help)
+    usage
+    exit 0
+    ;;
+esac
 account=$1
 shift
 

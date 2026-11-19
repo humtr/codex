@@ -1,11 +1,12 @@
+use crate::fs_util;
+use crate::json::{JsonParser, JsonValue};
 use std::fs::{self, DirBuilder, File, OpenOptions};
 use std::io::{self, ErrorKind, Read, Write};
-use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt};
+use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 const MAX_SETTINGS_BYTES: usize = 1024 * 1024;
-const MAX_JSON_DEPTH: usize = 32;
 const DEFAULT_SETTINGS_BYTES: &[u8] = b"{\"updater\":{\"autoUpdateEnabled\":false}}\n";
 
 static SETTINGS_TMP_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -164,7 +165,7 @@ pub(super) fn ensure(codex_home: &Path) -> io::Result<()> {
         temp.sync_all()?;
         drop(temp);
         fs::rename(&temp_path, &settings_path)?;
-        File::open(&daemon_dir)?.sync_all()?;
+        fs_util::sync_directory(&daemon_dir)?;
         Ok(())
     })();
     if write_result.is_err() {
@@ -193,17 +194,12 @@ const PRIOR_DAEMON_TRACE_FILES: &[&str] = &[
 ];
 
 fn current_uid() -> io::Result<u32> {
-    fs::metadata("/proc/self").map(|m| m.uid())
+    fs_util::current_uid()
 }
 
 fn inspect_owned_real_dir(path: &Path, expected_uid: u32) -> io::Result<Option<bool>> {
     match fs::symlink_metadata(path) {
-        Ok(meta) => {
-            if meta.file_type().is_symlink() || !meta.is_dir() || meta.uid() != expected_uid {
-                return Ok(Some(false));
-            }
-            Ok(Some(true))
-        }
+        Ok(meta) => Ok(Some(fs_util::is_owned_directory(&meta, expected_uid))),
         Err(err) if err.kind() == ErrorKind::NotFound => Ok(None),
         Err(err) => Err(err),
     }
@@ -302,7 +298,7 @@ pub(super) fn ensure_default_package_link(
     let current_link = pkg_daemon_dir.join("current");
     match std::os::unix::fs::symlink(standalone_current, &current_link) {
         Ok(()) => {
-            File::open(&pkg_daemon_dir)?.sync_all()?;
+            fs_util::sync_directory(&pkg_daemon_dir)?;
             Ok(())
         }
         // Another launcher or upstream installer made the selection.
@@ -373,307 +369,6 @@ fn update_settings_bytes(existing: Option<&[u8]>) -> io::Result<Option<Vec<u8>>>
     root.write_json(&mut out);
     out.push('\n');
     Ok(Some(out.into_bytes()))
-}
-
-#[derive(Debug, Clone, PartialEq)]
-enum JsonValue {
-    Null,
-    Bool(bool),
-    Number(String),
-    String(String),
-    Array(Vec<JsonValue>),
-    Object(Vec<(String, JsonValue)>),
-}
-
-impl JsonValue {
-    fn write_json(&self, out: &mut String) {
-        match self {
-            JsonValue::Null => out.push_str("null"),
-            JsonValue::Bool(true) => out.push_str("true"),
-            JsonValue::Bool(false) => out.push_str("false"),
-            JsonValue::Number(raw) => out.push_str(raw),
-            JsonValue::String(text) => write_json_string(text, out),
-            JsonValue::Array(items) => {
-                out.push('[');
-                for (index, item) in items.iter().enumerate() {
-                    if index > 0 {
-                        out.push(',');
-                    }
-                    item.write_json(out);
-                }
-                out.push(']');
-            }
-            JsonValue::Object(entries) => {
-                out.push('{');
-                for (index, (key, value)) in entries.iter().enumerate() {
-                    if index > 0 {
-                        out.push(',');
-                    }
-                    write_json_string(key, out);
-                    out.push(':');
-                    value.write_json(out);
-                }
-                out.push('}');
-            }
-        }
-    }
-}
-
-fn write_json_string(text: &str, out: &mut String) {
-    use std::fmt::Write as _;
-
-    out.push('"');
-    for ch in text.chars() {
-        match ch {
-            '"' => out.push_str("\\\""),
-            '\\' => out.push_str("\\\\"),
-            '\u{08}' => out.push_str("\\b"),
-            '\u{0C}' => out.push_str("\\f"),
-            '\n' => out.push_str("\\n"),
-            '\r' => out.push_str("\\r"),
-            '\t' => out.push_str("\\t"),
-            ch if (ch as u32) < 0x20 => {
-                let _ = write!(out, "\\u{:04x}", ch as u32);
-            }
-            ch => out.push(ch),
-        }
-    }
-    out.push('"');
-}
-
-struct JsonParser<'a> {
-    bytes: &'a [u8],
-    offset: usize,
-}
-
-impl<'a> JsonParser<'a> {
-    fn new(bytes: &'a [u8]) -> Self {
-        Self { bytes, offset: 0 }
-    }
-
-    fn invalid(msg: &'static str) -> io::Error {
-        io::Error::new(ErrorKind::InvalidData, msg)
-    }
-
-    fn skip_ws(&mut self) {
-        while matches!(
-            self.bytes.get(self.offset),
-            Some(b' ' | b'\n' | b'\r' | b'\t')
-        ) {
-            self.offset += 1;
-        }
-    }
-
-    fn parse_document(&mut self) -> io::Result<JsonValue> {
-        let value = self.parse_value(0)?;
-        self.skip_ws();
-        if self.offset != self.bytes.len() {
-            return Err(Self::invalid("trailing data after JSON document"));
-        }
-        Ok(value)
-    }
-
-    fn parse_value(&mut self, depth: usize) -> io::Result<JsonValue> {
-        if depth >= MAX_JSON_DEPTH {
-            return Err(Self::invalid("JSON nesting exceeds maximum depth"));
-        }
-        self.skip_ws();
-        let Some(&byte) = self.bytes.get(self.offset) else {
-            return Err(Self::invalid("unexpected end of JSON"));
-        };
-        match byte {
-            b'{' => self.parse_object(depth + 1),
-            b'[' => self.parse_array(depth + 1),
-            b'"' => self.parse_string().map(JsonValue::String),
-            b't' => self.expect_literal(b"true", JsonValue::Bool(true)),
-            b'f' => self.expect_literal(b"false", JsonValue::Bool(false)),
-            b'n' => self.expect_literal(b"null", JsonValue::Null),
-            b'-' | b'0'..=b'9' => self.parse_number().map(JsonValue::Number),
-            _ => Err(Self::invalid("unexpected token in JSON")),
-        }
-    }
-
-    fn expect_literal(&mut self, literal: &[u8], value: JsonValue) -> io::Result<JsonValue> {
-        if self.bytes[self.offset..].starts_with(literal) {
-            self.offset += literal.len();
-            Ok(value)
-        } else {
-            Err(Self::invalid("invalid JSON literal"))
-        }
-    }
-
-    fn parse_object(&mut self, depth: usize) -> io::Result<JsonValue> {
-        self.offset += 1;
-        self.skip_ws();
-        let mut entries = Vec::new();
-        if self.bytes.get(self.offset) == Some(&b'}') {
-            self.offset += 1;
-            return Ok(JsonValue::Object(entries));
-        }
-        loop {
-            self.skip_ws();
-            if self.bytes.get(self.offset) != Some(&b'"') {
-                return Err(Self::invalid("expected JSON object key"));
-            }
-            let key = self.parse_string()?;
-            self.skip_ws();
-            if self.bytes.get(self.offset) != Some(&b':') {
-                return Err(Self::invalid("expected ':' in JSON object"));
-            }
-            self.offset += 1;
-            let value = self.parse_value(depth)?;
-            entries.push((key, value));
-            self.skip_ws();
-            match self.bytes.get(self.offset) {
-                Some(b',') => self.offset += 1,
-                Some(b'}') => {
-                    self.offset += 1;
-                    return Ok(JsonValue::Object(entries));
-                }
-                _ => return Err(Self::invalid("expected ',' or '}' in JSON object")),
-            }
-        }
-    }
-
-    fn parse_array(&mut self, depth: usize) -> io::Result<JsonValue> {
-        self.offset += 1;
-        self.skip_ws();
-        let mut items = Vec::new();
-        if self.bytes.get(self.offset) == Some(&b']') {
-            self.offset += 1;
-            return Ok(JsonValue::Array(items));
-        }
-        loop {
-            items.push(self.parse_value(depth)?);
-            self.skip_ws();
-            match self.bytes.get(self.offset) {
-                Some(b',') => self.offset += 1,
-                Some(b']') => {
-                    self.offset += 1;
-                    return Ok(JsonValue::Array(items));
-                }
-                _ => return Err(Self::invalid("expected ',' or ']' in JSON array")),
-            }
-        }
-    }
-
-    fn parse_hex4(&mut self) -> io::Result<u16> {
-        let Some(slice) = self.bytes.get(self.offset..self.offset + 4) else {
-            return Err(Self::invalid("truncated unicode escape in JSON string"));
-        };
-        if !slice.iter().all(u8::is_ascii_hexdigit) {
-            return Err(Self::invalid("invalid unicode escape"));
-        }
-        let text =
-            std::str::from_utf8(slice).map_err(|_| Self::invalid("invalid unicode escape"))?;
-        let code =
-            u16::from_str_radix(text, 16).map_err(|_| Self::invalid("invalid unicode escape"))?;
-        self.offset += 4;
-        Ok(code)
-    }
-
-    fn parse_string(&mut self) -> io::Result<String> {
-        self.offset += 1;
-        let mut out = Vec::new();
-        loop {
-            let Some(&byte) = self.bytes.get(self.offset) else {
-                return Err(Self::invalid("unterminated JSON string"));
-            };
-            self.offset += 1;
-            match byte {
-                b'"' => {
-                    return String::from_utf8(out)
-                        .map_err(|_| Self::invalid("JSON string is not valid UTF-8"));
-                }
-                b'\\' => {
-                    let Some(&esc) = self.bytes.get(self.offset) else {
-                        return Err(Self::invalid("unterminated escape in JSON string"));
-                    };
-                    self.offset += 1;
-                    match esc {
-                        b'"' => out.push(b'"'),
-                        b'\\' => out.push(b'\\'),
-                        b'/' => out.push(b'/'),
-                        b'b' => out.push(0x08),
-                        b'f' => out.push(0x0c),
-                        b'n' => out.push(b'\n'),
-                        b'r' => out.push(b'\r'),
-                        b't' => out.push(b'\t'),
-                        b'u' => {
-                            let first = self.parse_hex4()?;
-                            let scalar = if (0xD800..=0xDBFF).contains(&first) {
-                                if !self.bytes[self.offset..].starts_with(b"\\u") {
-                                    return Err(Self::invalid("unpaired UTF-16 high surrogate"));
-                                }
-                                self.offset += 2;
-                                let second = self.parse_hex4()?;
-                                if !(0xDC00..=0xDFFF).contains(&second) {
-                                    return Err(Self::invalid("invalid UTF-16 low surrogate"));
-                                }
-                                0x10000
-                                    + ((u32::from(first - 0xD800) << 10)
-                                        | u32::from(second - 0xDC00))
-                            } else if (0xDC00..=0xDFFF).contains(&first) {
-                                return Err(Self::invalid("unpaired UTF-16 low surrogate"));
-                            } else {
-                                u32::from(first)
-                            };
-                            let ch = char::from_u32(scalar)
-                                .ok_or_else(|| Self::invalid("invalid unicode scalar"))?;
-                            let mut buf = [0u8; 4];
-                            out.extend_from_slice(ch.encode_utf8(&mut buf).as_bytes());
-                        }
-                        _ => return Err(Self::invalid("unsupported JSON escape")),
-                    }
-                }
-                0..=0x1f => {
-                    return Err(Self::invalid("unescaped control character in JSON string"))
-                }
-                _ => out.push(byte),
-            }
-        }
-    }
-
-    fn parse_number(&mut self) -> io::Result<String> {
-        let start = self.offset;
-        if self.bytes.get(self.offset) == Some(&b'-') {
-            self.offset += 1;
-        }
-        match self.bytes.get(self.offset) {
-            Some(b'0') => self.offset += 1,
-            Some(b'1'..=b'9') => {
-                self.offset += 1;
-                while matches!(self.bytes.get(self.offset), Some(b'0'..=b'9')) {
-                    self.offset += 1;
-                }
-            }
-            _ => return Err(Self::invalid("invalid JSON number")),
-        }
-        if self.bytes.get(self.offset) == Some(&b'.') {
-            self.offset += 1;
-            if !matches!(self.bytes.get(self.offset), Some(b'0'..=b'9')) {
-                return Err(Self::invalid("invalid JSON fraction"));
-            }
-            while matches!(self.bytes.get(self.offset), Some(b'0'..=b'9')) {
-                self.offset += 1;
-            }
-        }
-        if matches!(self.bytes.get(self.offset), Some(b'e' | b'E')) {
-            self.offset += 1;
-            if matches!(self.bytes.get(self.offset), Some(b'+' | b'-')) {
-                self.offset += 1;
-            }
-            if !matches!(self.bytes.get(self.offset), Some(b'0'..=b'9')) {
-                return Err(Self::invalid("invalid JSON exponent"));
-            }
-            while matches!(self.bytes.get(self.offset), Some(b'0'..=b'9')) {
-                self.offset += 1;
-            }
-        }
-        std::str::from_utf8(&self.bytes[start..self.offset])
-            .map(str::to_owned)
-            .map_err(|_| Self::invalid("invalid JSON number"))
-    }
 }
 
 #[cfg(test)]

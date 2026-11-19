@@ -36,11 +36,9 @@ impl ReleasePublicKey {
 /// Transactional pointer-state persistence for activated Codex generations.
 pub(super) mod generation_state {
     use super::ReleasePublicKey;
-    use crate::{flock, FLOCK_EX, FLOCK_NB, FLOCK_UN};
+    use crate::fs_util::{self, flock_fd, LOCK_EX, LOCK_NB, LOCK_SH, LOCK_UN};
     use std::fs;
     use std::io::{self, Read, Write};
-    use std::os::fd::AsRawFd;
-    use std::os::unix::fs::MetadataExt;
     use std::path::{Path, PathBuf};
 
     const GENERATION_ID_MAX_BYTES: usize = 512;
@@ -253,7 +251,7 @@ pub(super) mod generation_state {
     impl Drop for ActivationLockGuard {
         fn drop(&mut self) {
             if let Some(file) = self.file.as_ref() {
-                let _ = unsafe { flock(file.as_raw_fd(), FLOCK_UN) };
+                let _ = flock_fd(file, LOCK_UN);
             }
         }
     }
@@ -284,11 +282,10 @@ pub(super) mod generation_state {
             .map_err(|source| io_error("open wrapper state root for writer lock", source))?;
         let deadline = wait_timeout.map(|timeout| std::time::Instant::now() + timeout);
         loop {
-            let result = unsafe { flock(file.as_raw_fd(), mode | FLOCK_NB) };
-            if result == 0 {
-                return Ok(ActivationLockGuard { file: Some(file) });
-            }
-            let source = std::io::Error::last_os_error();
+            let source = match flock_fd(&file, mode | LOCK_NB) {
+                Ok(()) => return Ok(ActivationLockGuard { file: Some(file) }),
+                Err(source) => source,
+            };
             if source.kind() == std::io::ErrorKind::WouldBlock {
                 if deadline.is_some_and(|until| std::time::Instant::now() < until) {
                     std::thread::sleep(std::time::Duration::from_millis(10));
@@ -303,23 +300,19 @@ pub(super) mod generation_state {
     pub(crate) fn acquire_activation_lock(
         paths: &WrapperStatePaths,
     ) -> Result<ActivationLockGuard, ActivationTransactionError> {
-        acquire_activation_lock_with_mode(paths, FLOCK_EX, None)
+        acquire_activation_lock_with_mode(paths, LOCK_EX, None)
     }
 
     pub(crate) fn wait_for_activation_lock(
         paths: &WrapperStatePaths,
     ) -> Result<ActivationLockGuard, ActivationTransactionError> {
-        acquire_activation_lock_with_mode(paths, FLOCK_EX, Some(std::time::Duration::from_secs(2)))
+        acquire_activation_lock_with_mode(paths, LOCK_EX, Some(std::time::Duration::from_secs(2)))
     }
 
     pub(crate) fn acquire_activation_read_lock(
         paths: &WrapperStatePaths,
     ) -> Result<ActivationLockGuard, ActivationTransactionError> {
-        acquire_activation_lock_with_mode(
-            paths,
-            crate::fs_util::LOCK_SH,
-            Some(std::time::Duration::from_secs(2)),
-        )
+        acquire_activation_lock_with_mode(paths, LOCK_SH, Some(std::time::Duration::from_secs(2)))
     }
 
     impl WrapperStatePaths {
@@ -375,12 +368,11 @@ pub(super) mod generation_state {
     ) -> Result<(), ActivationTransactionError> {
         crate::fs_util::private_dir(&paths.root)
             .map_err(|err| io_error("prepare wrapper state root", err))?;
-        let directory = std::fs::File::open(&paths.root)
-            .map_err(|err| io_error("open wrapper state root for sync", err))?;
-        directory
-            .sync_all()
-            .map_err(|err| io_error("sync wrapper state root", err))?;
-        Ok(())
+        fs_util::sync_directory_with(
+            &paths.root,
+            |err| io_error("open wrapper state root for sync", err),
+            |err| io_error("sync wrapper state root", err),
+        )
     }
 
     pub(crate) fn validate_generation_identity(
@@ -810,7 +802,7 @@ pub(super) mod generation_state {
         }
 
         fn sync_dir(&mut self, path: &std::path::Path) -> std::io::Result<()> {
-            std::fs::File::open(path)?.sync_all()
+            fs_util::sync_directory(path)
         }
 
         fn rename(&mut self, from: &std::path::Path, to: &std::path::Path) -> std::io::Result<()> {
@@ -875,7 +867,7 @@ pub(super) mod generation_state {
                 }
                 Err(err) => return Err(io_error("inspect standalone directory", err)),
             };
-            if !meta.is_dir() || meta.uid() != uid {
+            if !fs_util::is_owned_directory(&meta, uid) {
                 return Err(ActivationTransactionError::UnsafeFileType(
                     "standalone directory",
                 ));
