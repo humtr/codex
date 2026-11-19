@@ -1,6 +1,6 @@
 # Stage 1 Completion & Refactoring Handoff (`rewrite/wrapper`)
 
-**Status:** Active ephemeral work order (remove or archive to [docs/history/STAGE1_MILESTONES.md](docs/history/STAGE1_MILESTONES.md) when completed).
+**Status:** WP1–WP6 locally complete on `rewrite/wrapper` — awaiting final user sign-off before `git push`, `origin/main` promotion, stable release publication, or live device cutover (retire/archive to [docs/history/STAGE1_MILESTONES.md](docs/history/STAGE1_MILESTONES.md) upon graduation).
 **Branch:** `rewrite/wrapper` (baseline after WP0 `b7b48fca` + documentation consolidation `e30bc790`).
 **Authority:** [AGENTS.md](AGENTS.md) · [SPEC.md](SPEC.md) · [docs/spec/DELIVERY.md](docs/spec/DELIVERY.md) · [docs/spec/USER_INTERFACES.md](docs/spec/USER_INTERFACES.md) · [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · [CURRENT.md](CURRENT.md).
 
@@ -210,6 +210,6 @@
 | **WP1** | Codex + Review | `szob` (`gpt-6.2-sol` `xhigh`) | **Done** | `1ce6ac39` | `release-builder`: patcher, TAR, companions, pure-Rust SHA-256 (74+19 tests pass) |
 | **WP2** | Codex + Review | `szob` (`gpt-6.2-sol` `xhigh`) | **Done** | `6b12338e` | Wrapper/upstream decoupling, updater, HTTP, `install.sh` (78+19 Rust, 22/22 install) |
 | **WP3** | Codex + Review | `szob` (`gpt-6.2-sol` `xhigh`) | **Done** | `b60686f6` | CLI, locks, `shared_home`, read-only `doctor`, `qualification`, `daemon_settings`, `timezone`, `maintenance`, `fs_util` (100+19 Rust) |
-| **WP4** | Codex + Review | `szob` / `janmori101` | Pending | — | Behavior-preserving structural refactoring + `contrib/codex-account` |
-| **WP5** | Codex + Review | `szob` / `janmori101` | Pending | — | CI/release gates, `qualify_wrapper.py`, `check_doc_links.py`, `ARCHITECTURE.md`/`README.md` sync |
-| **WP6** | Supervisor | — | Pending | — | Isolated Android API 37 qualification + `CURRENT.md` proof → stop before push/release |
+| **WP4** | Codex + Review | `szob` (`gpt-6.2-sol` `xhigh`) | **Done** | `017dae14` | Behavior-preserving structural refactoring (`main.rs`/`update.rs` split, unified `json`/`proc_exec`/`fs_util`) + `contrib/codex-account` (103+19 Rust) |
+| **WP5** | Codex + Review | `szob` (`gpt-6.2-sol` `xhigh`) | **Done** | `e9d323ba` + `a1ee6590` | CI/release gates, `qualify_wrapper.py` (+ read-only boundary fix `a1ee6590`), `check_doc_links.py`, `ARCHITECTURE.md`/`README.md` sync (47 Python tests) |
+| **WP6** | Supervisor | — | **Done** | `CURRENT.md` | Isolated Android API 37 qualification passed (29/29 `qualify_wrapper.py` + `--force-rebuild` + absent-config `doctor` + `--version` bench); stopped before push/release for final user sign-off |
