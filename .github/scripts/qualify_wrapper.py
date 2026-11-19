@@ -16,6 +16,7 @@ import select
 import shlex
 import shutil
 import signal
+import stat
 import struct
 import subprocess
 import sys
@@ -27,6 +28,29 @@ import uuid
 def digest(path):
     with Path(path).open("rb") as stream:
         return hashlib.file_digest(stream, "sha256").hexdigest()
+
+
+def filesystem_snapshot(roots):
+    entries = {}
+
+    def visit(path):
+        info = path.lstat()
+        entries[path] = (info.st_mode, info.st_size, info.st_mtime_ns, info.st_ctime_ns, info.st_ino)
+        if stat.S_ISDIR(info.st_mode):
+            for child in path.iterdir():
+                visit(child)
+
+    for root in roots:
+        visit(root)
+    return entries
+
+
+def require_unchanged(label, before, roots):
+    after = filesystem_snapshot(roots)
+    changed = sorted(path for path in before.keys() | after.keys()
+                     if before.get(path) != after.get(path))
+    if changed:
+        raise RuntimeError(f"{label}: changed {len(changed)} snapshot entries: {changed[:6]}")
 
 
 def elf_16k(path):
@@ -48,6 +72,28 @@ def elf_16k(path):
     return bool(loads) and all(loads)
 
 
+def verify_generation(generation, release):
+    rows = (generation / "generation.meta").read_text().splitlines()[1:]
+    fields = dict(line.split("\t", 1) for line in rows
+                  if "\t" in line and not line.startswith(("helper\t", "companion\t")))
+    if (fields["upstream_package_version"] != release["upstream_version"]
+            or fields["source_artifact_digest"] != release["archive_sha256"]):
+        raise RuntimeError("admitted generation differs from immutable discovery inputs")
+
+    declared = [tuple(line.split("\t")[1:]) for line in rows if line.startswith("companion\t")]
+    expected = []
+    for path in sorted((generation / "bin").iterdir()):
+        if path.name == "codex":
+            continue
+        mode = path.lstat().st_mode
+        if not stat.S_ISREG(mode) or not mode & 0o111:
+            raise RuntimeError(f"generation companion is not an executable regular file: {path.name}")
+        expected.append((f"bin/{path.name}", digest(path)))
+    if sorted(declared) != expected:
+        raise RuntimeError("generation.meta companion rows differ from installed bin/* digests")
+    return [name for name, _ in expected]
+
+
 class Qualification:
     def __init__(self, args):
         self.args = args
@@ -62,7 +108,7 @@ class Qualification:
                      self.tmp, self.codex_home, self.workspace):
             path.mkdir(mode=0o700, parents=True, exist_ok=True)
         original_prefix = Path(os.environ.get("PREFIX", "/usr"))
-        for name in ("sh", "curl", "openssl", "gzip", "tar", "ps"):
+        for name in ("sh", "curl", "gzip", "tar", "ps", "sha256sum"):
             source = original_prefix / "bin" / name
             if not source.is_file():
                 found = shutil.which(name)
@@ -77,7 +123,7 @@ class Qualification:
         shutil.copyfile(next(p for p in certificates if p.is_file()), self.prefix / "etc/tls/cert.pem")
         shutil.copyfile(next(p for p in resolver if p.is_file()), self.prefix / "etc/resolv.conf")
         self.env = {k: v for k, v in os.environ.items()
-                    if not k.startswith(("CODEX_", "OPENAI_", "LD_", "DYLD_"))
+                    if not k.startswith(("CODEX_", "OPENAI_", "LD_", "DYLD_", "XDG_"))
                     and k not in ("ENV", "BASH_ENV")}
         self.env.update(HOME=str(self.home), CODEX_HOME=str(self.codex_home), PREFIX=str(self.prefix),
                         TMPDIR=str(self.tmp), PATH=f"{self.prefix}/bin:/system/bin:/bin:/usr/bin", TERM="xterm-256color")
@@ -100,10 +146,10 @@ class Qualification:
         temporary.write_text(json.dumps(self.report, indent=2) + "\n")
         temporary.replace(self.root / "report.json")
 
-    def run(self, label, args, expected=(0,), timeout=30):
+    def run(self, label, args, expected=(0,), timeout=30, env=None):
         out, err = self.root / f"{label}.stdout", self.root / f"{label}.stderr"
         with out.open("xb") as stdout, err.open("xb") as stderr:
-            child = subprocess.Popen([str(a) for a in args], env=self.env, cwd=self.workspace,
+            child = subprocess.Popen([str(a) for a in args], env=self.env if env is None else env, cwd=self.workspace,
                                      stdin=subprocess.DEVNULL, stdout=stdout, stderr=stderr, start_new_session=True)
             try:
                 code = child.wait(timeout=timeout)
@@ -132,6 +178,109 @@ class Qualification:
 
     def status(self, label):
         return json.loads(self.cli(label, "wrapper", "status", "--json"))
+
+    def read_only_doctor(self, label, *homes, env=None):
+        roots = (self.home, self.prefix, *homes)
+        before = filesystem_snapshot(roots)
+        try:
+            output = self.cli(label, "doctor", "--json", expected=(0, 1), timeout=120, env=env)
+        finally:
+            require_unchanged(label, before, roots)
+        doctor = json.loads(output)
+        if doctor["termux_wrapper"]["status"] != "healthy":
+            raise RuntimeError(f"{label}: Wrapper diagnosis is unhealthy")
+        if doctor["upstream"]["status"] not in ("healthy", "unhealthy"):
+            raise RuntimeError(f"{label}: upstream doctor did not complete")
+        native = json.loads(doctor["upstream"]["output"])
+        self.report["steps"][label]["read_only"] = True
+        return doctor, native["checks"]
+
+    def verify_shared_profiles(self, version):
+        shared = self.root / "shared-home"
+        shared.mkdir(mode=0o700)
+        index = shared / "session_index.jsonl"
+        extra = shared / "custom.config.toml"
+        extra.write_text("# Shared qualification fixture\n")
+        profiles = [self.root / name for name in ("profile-a", "profile-b")]
+        auth = {}
+        for profile in profiles:
+            profile.mkdir(mode=0o700)
+            auth[profile / "auth.json"] = json.dumps({"qualification_profile": profile.name}).encode() + b"\n"
+            (profile / "auth.json").write_bytes(auth[profile / "auth.json"])
+
+        thread_id = str(uuid.uuid4())
+        rows = [json.dumps({"id": thread_id, "thread_name": name, "updated_at": timestamp}).encode() + b"\n"
+                for name, timestamp in (("Initial", "2026-01-01T00:00:00Z"), ("Renamed", "2026-01-01T00:01:00Z"))]
+        index.write_bytes(rows[0])
+        # A detached log still contains the original row as well as the rename.
+        (profiles[0] / index.name).write_bytes(b"".join(rows))
+
+        shared_env = {**self.env, "CODEX_SHARED_HOME": str(shared), "CODEX_SHARED_EXTRA_FILES": extra.name}
+        profile_envs = [{**shared_env, "CODEX_HOME": str(profile)} for profile in profiles]
+        roots = (self.home, *profiles, shared)
+        before = filesystem_snapshot(roots)
+        for profile, env in zip(profiles, profile_envs):
+            output = self.cli(f"{profile.name}-version", "--version", env=env)
+            if output != f"codex-cli {version}\n".encode():
+                raise RuntimeError(f"{profile.name}: fast version output differs from qualified release")
+        require_unchanged("shared profile fast path", before, roots)
+        self.read_only_doctor("shared-doctor", *profiles, shared, env=profile_envs[0])
+
+        for profile, env in zip(profiles, profile_envs):
+            self.cli(f"{profile.name}-features", "features", "list", env=env)
+            for target in (extra, index):
+                link = profile / target.name
+                if not link.is_symlink() or link.readlink() != target:
+                    raise RuntimeError(f"{profile.name}: wrong shared target for {target.name}")
+        if index.read_bytes() != b"".join(rows):
+            raise RuntimeError("shared session index lost or duplicated a same-thread rename row")
+        if os.path.lexists(shared / "auth.json"):
+            raise RuntimeError("auth.json was written into the shared home")
+        for path, expected in auth.items():
+            if path.is_symlink() or not path.is_file() or path.read_bytes() != expected:
+                raise RuntimeError(f"{path.parent.name}: auth.json was shared or changed")
+        self.report["shared_home"] = {"profiles": len(profiles), "session_index_rows": len(rows),
+                                      "extra_file_symlinked": True, "auth_isolated": True}
+
+    def verify_wrapper_upgrade(self, wrapper, installer, active, previous, replacement):
+        state = Path(active["state_root"]) / "activation-state"
+        current = Path(active["generation_root"]).parent / "current"
+        slots = {"generation_id": active["generation_id"],
+                 "previous_generation_id": previous["generation_id"]}
+        if active["previous_generation_id"] != slots["previous_generation_id"]:
+            raise RuntimeError("upstream upgrade did not retain the expected previous generation")
+        state_before, link_before = state.read_bytes(), current.readlink()
+        if replacement is None:
+            replacement = self.root / "upgrade-wrapper"
+            shutil.copyfile(wrapper, replacement)
+            replacement.chmod(0o755)
+            # An ELF overlay changes the artifact hash without changing loaded segments.
+            with replacement.open("ab") as stream:
+                stream.write(b"\nWrapper-only upgrade qualification\n")
+        replacement_sha = digest(replacement)
+        if replacement_sha == digest(self.binary):
+            raise RuntimeError("replacement Wrapper must have a different SHA-256")
+
+        curl = self.prefix / "bin/curl"
+        original_curl = self.root / "original-curl"
+        curl_called = self.root / "upgrade-curl-called"
+        curl.rename(original_curl)
+        try:
+            curl.write_text(f"#!{self.prefix / 'bin/sh'}\n: > {shlex.quote(str(curl_called))}\nexit 57\n")
+            curl.chmod(0o755)
+            output = self.run("wrapper-upgrade", [self.prefix / "bin/sh", installer,
+                                                  "--binary", replacement, "--prefix", self.prefix])
+            status = json.loads(self.cli("wrapper-upgrade-status", "wrapper", "status", "--verify", "--json"))
+        finally:
+            original_curl.replace(curl)
+        if curl_called.exists() or b"retaining the qualified active upstream generation\n" not in output:
+            raise RuntimeError("Wrapper upgrade did not retain the generation offline without the updater")
+        if digest(self.binary) != replacement_sha:
+            raise RuntimeError("installed Wrapper differs from the replacement artifact")
+        if (any(status[key] != value for key, value in slots.items())
+                or state.read_bytes() != state_before or current.readlink() != link_before):
+            raise RuntimeError("Wrapper upgrade changed current or previous upstream generation")
+        self.report["wrapper_upgrade"] = {**slots, "replacement_sha256": replacement_sha, "offline": True}
 
     def native_rpc(self):
         nonce = uuid.uuid4().hex
@@ -238,9 +387,19 @@ class Qualification:
         selected = json.loads(self.cli("release-check", *check_args))
         if selected["schema_version"] != 1 or selected["status"] == "older":
             raise RuntimeError("discovery schema or downgrade rejected")
+        previous_release = None
+        if self.args.previous_version:
+            previous_release = json.loads(self.cli("previous-release-check", "update", "--check", "--json",
+                                                   "--version", self.args.previous_version))
+            if (previous_release["schema_version"] != 1
+                    or previous_release["upstream_version"] != self.args.previous_version
+                    or previous_release["upstream_version"] == selected["upstream_version"]):
+                raise RuntimeError("cross-version rollback requires a distinct, exact previous release")
         if (self.home / ".local").exists():
             raise RuntimeError("read-only discovery wrote installed state")
-        inputs = {"release": selected, "source_sha": self.args.source_sha,
+        replacement = Path(self.args.upgrade_wrapper).resolve() if self.args.upgrade_wrapper else None
+        inputs = {"release": selected, "previous_release": previous_release, "source_sha": self.args.source_sha,
+                  "wrapper_sha256": digest(wrapper), "upgrade_wrapper_sha256": digest(replacement) if replacement else None,
                   "execution_environment": {**self.report["environment"], "runner_image": os.environ.get("ImageVersion")},
                   "toolchain": {key: os.environ.get(key) for key in
                                 ("RUST_VERSION", "ANDROID_NDK_VERSION", "ANDROID_API", "ANDROID_RUNTIME_APEX_SHA256")}}
@@ -249,9 +408,10 @@ class Qualification:
         if self.args.inspect_only:
             self.report["status"] = "discovered"
             return
-        if self.args.previous_version:
-            self.cli("previous-install", "update", "--version", self.args.previous_version, timeout=420)
+        if previous_release:
+            self.cli("previous-install", "update", "--version", previous_release["upstream_version"], timeout=420)
             previous = self.status("previous-status")
+            verify_generation(Path(previous["runtime_path"]).parents[1], previous_release)
         else:
             previous = None
         if self.args.archive:
@@ -263,11 +423,7 @@ class Qualification:
             self.cli("candidate-update", "update", "--version", selected["upstream_version"], timeout=420)
         self.runtime_present = True
         active = self.status("candidate-status")
-        generation = Path(active["runtime_path"]).parents[1]
-        fields = dict(line.split("\t", 1) for line in (generation / "generation.meta").read_text().splitlines()[1:]
-                      if "\t" in line and not line.startswith("helper\t"))
-        if active["upstream_version"] != selected["upstream_version"] or fields["source_artifact_digest"] != selected["archive_sha256"]:
-            raise RuntimeError("admitted generation differs from immutable discovery inputs")
+        companions = verify_generation(Path(active["runtime_path"]).parents[1], selected)
         if previous is None:
             # Exercise exact-generation rollback even when no older archive was
             # requested. Reuse the public updater's verified cached input; this
@@ -280,7 +436,11 @@ class Qualification:
             previous = active
             self.cli("rollback-candidate-update", "update", "--path", archive, timeout=180)
             active = self.status("rollback-candidate-status")
-            generation = Path(active["runtime_path"]).parents[1]
+            companions = verify_generation(Path(active["runtime_path"]).parents[1], selected)
+        generation = Path(active["runtime_path"]).parents[1]
+        if active["upstream_version"] != selected["upstream_version"]:
+            raise RuntimeError("active runtime version differs from immutable discovery inputs")
+        self.report["verified_companions"] = companions
         self.cli("version", "--version")
         self.cli("help", "--help")
         self.cli("features", "features", "list")
@@ -314,11 +474,7 @@ class Qualification:
         running = json.loads(self.cli("daemon-version", "app-server", "daemon", "version"))
         if running["status"] != "running" or running["appServerVersion"] != selected["upstream_version"]:
             raise RuntimeError("daemon control connection failed")
-        doctor = json.loads(self.cli("doctor", "doctor", "--json", expected=(0, 1), timeout=120))
-        if doctor["termux_wrapper"]["status"] != "healthy":
-            raise RuntimeError("Wrapper diagnosis is unhealthy")
-        native_doctor = json.loads(doctor["upstream"]["output"])
-        checks = native_doctor["checks"]
+        doctor, checks = self.read_only_doctor("doctor", self.codex_home)
         if checks["app_server.status"]["status"] != "ok":
             raise RuntimeError("actual app-server diagnosis is unhealthy")
         self.report["doctor"] = {"wrapper": "healthy", "app_server": "ok", "overall": doctor["summary"]["status"],
@@ -329,18 +485,24 @@ class Qualification:
         self.pty_startup()
         self.cli("pty-daemon-stop", "app-server", "daemon", "stop")
         self.daemon_possible = False
-        if previous:
-            self.cli("rollback", "update", "--rollback")
-            restored = self.status("rollback-status")
-            if restored["generation_id"] != previous["generation_id"] or restored["upstream_version"] != previous["upstream_version"]:
-                raise RuntimeError("rollback did not restore the exact previous generation")
-            self.cli("rollback-version", "--version")
-            self.cli("restore-candidate", "update", "--rollback")
-            if self.status("restored-status")["generation_id"] != active["generation_id"]:
-                raise RuntimeError("candidate restoration did not restore its exact generation")
-            self.report["rollback"] = {"previous_version": previous["upstream_version"],
-                                       "cross_version": previous["upstream_version"] != selected["upstream_version"],
-                                       "exact_generation_restored": True}
+        self.verify_shared_profiles(selected["upstream_version"])
+        self.verify_wrapper_upgrade(wrapper, installer, active, previous, replacement)
+        self.cli("rollback", "update", "--rollback")
+        restored = self.status("rollback-status")
+        if (restored["generation_id"] != previous["generation_id"]
+                or restored["upstream_version"] != previous["upstream_version"]
+                or restored["previous_generation_id"] != active["generation_id"]):
+            raise RuntimeError("rollback did not swap the expected current and previous generations")
+        if self.cli("rollback-version", "--version").strip() != f"codex-cli {previous['upstream_version']}".encode():
+            raise RuntimeError("rollback did not launch the previous release")
+        self.cli("restore-candidate", "update", "--rollback")
+        restored = self.status("restored-status")
+        if (restored["generation_id"] != active["generation_id"]
+                or restored["previous_generation_id"] != previous["generation_id"]):
+            raise RuntimeError("candidate restoration did not restore the original generation slots")
+        self.report["rollback"] = {"previous_version": previous["upstream_version"],
+                                   "cross_version": previous_release is not None,
+                                   "exact_generation_restored": True}
         self.report["status"] = "passed"
 
 
@@ -352,6 +514,8 @@ def main():
     parser.add_argument("--version")
     parser.add_argument("--archive")
     parser.add_argument("--previous-version")
+    parser.add_argument("--upgrade-wrapper", metavar="PATH",
+                        help="compatible replacement binary with a distinct digest; defaults to an ELF copy with an overlay")
     parser.add_argument("--source-sha", default=os.environ.get("GITHUB_SHA", "local-working-tree"))
     parser.add_argument("--inspect-only", action="store_true")
     args = parser.parse_args()

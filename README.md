@@ -17,7 +17,7 @@ The product has one public command, `codex`, built in two decoupled stages:
   and adaptive builder (`crates/release-builder`) with zero external crate dependencies
   beyond `libc` that provides Termux runtime compatibility (FD 33/34/35, wrapper `config.toml`,
   timezone TZif, TLS certs, browser helpers, sandbox guard, `app-server daemon` &
-  `remote-control` passthrough), `codex update [--upstream] [--version <M.m.p>] | --path <FILE_OR_DIR> | --rollback`,
+  `remote-control` passthrough), `codex update [--upstream] [--version <M.m.p>] [--force-rebuild] | --path <FILE_OR_DIR> | --rollback`,
   `codex doctor [--color | --json]`, and `codex wrapper status [--json]`.
 - **Stage 2.1 extension interface (implemented, not attached):** `wrapper.toml`,
   `codex wrapper setup`, `--bare`, unavailable-module `--with` admission,
@@ -37,8 +37,12 @@ Termux and relies only on base Termux packages (plus base `Essential` `procps` `
 needed by upstream `app-server daemon` PID tracking):
 
 ```sh
-pkg install curl openssl-tool gzip
+pkg install curl gzip
 ```
+
+`install.sh` uses `sha256sum` from Termux `coreutils` to verify release tarballs.
+Wrapper and the release builder use built-in SHA-256, so Stage 1 runs without
+`openssl-tool`.
 
 (`clang`/`rust` are only needed if you build the wrapper from source on-device.)
 
@@ -129,6 +133,11 @@ the Wrapper executable. The same Wrapper can handle new upstream releases while
 its adaptation rules remain sufficient. A compatibility defect beyond those rules
 requires a Wrapper fix and a new Wrapper installation.
 
+For an offline Wrapper-only upgrade, run `./install.sh --binary /path/to/new/codex`.
+If the new Wrapper qualifies the active generation by Wrapper API, persistent
+schema, and patch policy, the installer keeps both `current` and `previous`
+without calling the updater or downloading an upstream archive.
+
 After `codex` is installed:
 
 ```sh
@@ -137,6 +146,9 @@ codex update --upstream
 
 # Install a specific upstream version
 codex update --upstream --version <X.Y.Z>
+
+# Download, verify, and re-adapt a release even when it is already current
+codex update --version <X.Y.Z> --force-rebuild
 
 # Install from an official upstream package .tar.gz or a prepared generation directory
 codex update --path /path/to/codex-package-aarch64-unknown-linux-musl.tar.gz
@@ -157,6 +169,7 @@ Every generation is stored under `~/.codex/packages/standalone/releases/<id>/`
 
 - `--signed`, `--remote`, `--build-local`, and `--local` are disabled in Stage 1 and fail explicitly with exit status `2`.
 - Official updates show live download progress (`downloaded / total`) and transient Termux patching section status on interactive TTYs.
+- A compatible active generation with the requested version and official archive SHA-256 is reused by default. Use `--force-rebuild` with an official upstream update to re-adapt it explicitly.
 - External launchers/addons may isolate `auth.json` per profile (`CODEX_HOME=<profile_home>`) while sharing sessions, SQLite databases (`CODEX_SQLITE_HOME`), and `config.toml`/skills via `CODEX_SHARED_HOME="$HOME/.codex"` without adding profile CRUD to the standalone Wrapper.
 - Upstream updates in Stage 1 resolve the latest stable release via GitHub Releases (`openai/codex/releases/latest`) or a requested release via `https://releases.openai.com/codex/releases/<version>/release.json`, and verify the official `codex-package-aarch64-unknown-linux-musl.tar.gz` SHA-256 digest over TLS 1.2+.
 - Latest discovery is cross-checked against the exact-version official descriptor.
@@ -216,6 +229,7 @@ for `default` / `home`), and passes all remaining arguments directly to
 `$PREFIX/bin/codex` without requiring `--`:
 
 ```sh
+contrib/codex-account --help                    # show the selector's own usage from a checkout
 codex-account work                              # start Codex TUI in work home
 codex-account personal resume <UUID>            # resume thread in personal home
 codex-account work -p review exec "review this" # apply work home + review.config.toml
@@ -223,9 +237,14 @@ codex-account default                           # unset inherited profile env an
 codex-account work --help                       # pass --help through to Codex
 ```
 
-Per-account V2 config (`-p <name>`) reads `<name>.config.toml` from the
-selected account's `$CODEX_HOME`; `CODEX_SHARED_HOME` shares `installation_id`
-and `config.toml` by default (plus any additional opt-in shared files once configured).
+Per-account V2 config (`-p <name>`) reads `<name>.config.toml` from the selected
+account's `$CODEX_HOME`. With `CODEX_SHARED_HOME`, `installation_id` and
+`config.toml` are shared by default. To share other config files already present
+in the shared home, set `CODEX_SHARED_EXTRA_FILES` to their colon-separated
+basenames. For example, `CODEX_SHARED_EXTRA_FILES=review.config.toml:team.config.toml`
+opts in both files. Credentials such as `auth.json`, database files, and lock
+files are reserved and cannot be opted in. Session index merges preserve separate
+entries for renamed threads.
 
 ## Optional module configuration (Stage 2.1 boundary)
 
@@ -253,7 +272,10 @@ persistent settings emits a warning and ordinary `codex` continues with
 standalone upstream, so a saved opt-in is **not** evidence of running integration.
 `--bare` bypasses enabled
 addon modules for one launch while preserving upstream arguments (`wrapper setup
---bare` disables addon modules while retaining `signed_update`). Setting
+--bare` disables addon modules while retaining `signed_update` when the settings
+are valid). If `wrapper.toml` is a malformed regular file, run
+`codex wrapper setup --bare` alone to restore the bare defaults, including
+`signed_update = false`. Setting
 `signed_update = true` records the opt-in but does **not** activate a signed
 channel until Phase 2.2; ordinary `codex update` remains independent, and
 actual Manager/TUI/Provider addon reattachment remains deferred to Phases 2.3–2.5.
@@ -279,10 +301,14 @@ codex app-server daemon version
 codex remote-control
 ```
 
-The Wrapper doctor reports its own health and embeds the upstream doctor
-output; an overall `healthy` result may still contain upstream warnings
-(e.g. `state.rollout_db_parity`). The Wrapper does not edit upstream thread
-inventory or reconcile an upstream session database.
+`codex doctor` is read-only. It inspects generation state and shared-home
+bindings without repairing them, and uses disposable runtime preparation under
+`$TMPDIR`. The output reports Wrapper health and embeds the upstream diagnosis.
+An overall `healthy` result can include upstream warnings such as
+`state.rollout_db_parity`.
+
+Run Wrapper commands directly. Leading upstream options on commands such as
+`codex -c k=v doctor` or `codex -c k=v wrapper status` return exit `2`.
 
 Upstream keeps its selected daemon package separate from the CLI generation.
 After updating or re-adapting the CLI, select its complete adapted package when
@@ -329,14 +355,14 @@ Fast inspection flags (`--version`, `-V`, `--help`, `-h`, and top-level `help`) 
 
 Every push or pull request on `main`, `wrapper`, or `rewrite/wrapper` runs:
 
-1. **`checks` (`ubuntu-24.04-arm`):** YAML syntax check, `sh -n install.sh` (plus `shellcheck install.sh` when available), Stage 1 workspace/`Cargo.lock` boundary check (`codex`, `codex-release-builder`, `libc`), markdown link check across all `*.md` files, `cargo fmt --check`, `cargo clippy --workspace --all-targets --locked -- -D warnings`, and `cargo test --workspace --locked`, including execution of the emitted AArch64 `realpath` hook.
+1. **`checks` (`ubuntu-24.04-arm`):** YAML syntax, `sh -n` and `shellcheck` for `install.sh` and `contrib/codex-account`, workspace and lockfile scope, Git-tracked Markdown links and heading anchors, Rust formatting, clippy, and workspace tests including the emitted AArch64 `realpath` hook.
 2. **`android-package` (`ubuntu-24.04`):** cross-compiles `codex` and `codex-release-builder` for `aarch64-linux-android` (API 24, Android NDK `27.3.13750724`), verifies `ARM aarch64` ELF headers and `/system/bin/linker64`, bundles `codex-wrapper-aarch64-linux-android.tar.gz` + `.sha256` + `SHA256SUMS` + `install.sh`, and uploads the workflow artifact.
 3. **`android-smoke` (`ubuntu-24.04-arm`):** provisions pinned Android Runtime APEX `linker64` and Bionic libraries, installs the packaged bundle via `install.sh --skip-upstream`, and executes the real Android binary (`codex update --help`, `codex wrapper status --json`, `codex --sandbox read-only --version`, `codex sandbox linux true`).
-4. **`release` (tag `wrapper`, `wrapper-*`, or `v*`, or manual `workflow_dispatch` with `publish_release=true`):** publishes the verified bundle, `.sha256`, `install.sh`, and `SHA256SUMS` to GitHub Releases only after the real tag commit, exact verified source, notes and uploaded asset bytes pass the independent source/asset readback gate. This job is additionally serialized by target tag, and is never executed by ordinary pull-request verification. Prepublication SHA checks and mocked negative tests run without changing GitHub Releases. Existing annotated tags are peeled to their commits, but moving a mismatched annotated tag requires manual reconciliation rather than discarding its annotation. Release API `target_commitish` is checked as separate metadata and cannot substitute for the peeled Git tag commit.
+4. **`release` (tag `wrapper`, `wrapper-*`, or `v*`, or manual `workflow_dispatch` with `publish_release=true`):** requires official upstream runtime qualification before publishing the verified bundle, `.sha256`, `install.sh`, and `SHA256SUMS`. Publication is serialized per tag and succeeds only after readback verifies the peeled tag commit, notes, prerelease setting, and uploaded asset bytes. A mismatched annotated tag requires manual reconciliation.
 
-The manual upstream canary tests the installed adaptation logic against exact
-official inputs. It neither repairs that logic automatically nor gates local
-`codex update` through an online CI result. CI with a Bionic loader on Linux and
+Manual verification can also request upstream qualification and supply
+`previous_version` to test upgrade and rollback across two official releases.
+Local `codex update` continues to qualify candidates independently. CI with a Bionic loader on Linux and
 actual Android execution remain distinct evidence boundaries. Current releases
 use checksum verification; Ed25519 verification of distributed Wrapper/addon
 bundles is planned in Phase 2.2, not active Stage 1 behavior.

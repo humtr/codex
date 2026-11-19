@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Fully offline GitHub API/gh negative tests: never creates a real Release."""
+from contextlib import redirect_stderr, redirect_stdout
 import importlib.util
 import hashlib
+from io import StringIO
 from pathlib import Path
 import tempfile
 from types import SimpleNamespace
@@ -22,13 +24,15 @@ TAG = "wrapper"
 
 
 class FakeGh:
-    def __init__(self, *, source=SOURCE, existing=True, annotated=False, fault=None):
+    def __init__(self, *, source=SOURCE, existing=True, annotated=False,
+                 prerelease=False, fault=None):
         self.source = source
         self.ref = source if existing else None
         self.annotated = annotated
         self.fault = fault
         self.release = (
-            {"tag_name": TAG, "target_commitish": OTHER, "body": "prior release"}
+            {"tag_name": TAG, "target_commitish": OTHER, "body": "prior release",
+             "prerelease": prerelease}
             if existing else None
         )
         self.assets = {}
@@ -101,6 +105,11 @@ class FakeGh:
                 self.release["body"] = "incorrect source/asset"
             if self.fault != "stale-target":
                 self.release["target_commitish"] = argv[argv.index("--target") + 1]
+            if self.fault != "prerelease-edit-ignored":
+                if "--prerelease" in argv:
+                    self.release["prerelease"] = True
+                elif "--prerelease=false" in argv:
+                    self.release["prerelease"] = False
             return SimpleNamespace(returncode=0, stdout="", stderr="")
         if argv[1:3] == ["release", "create"]:
             self.ref = self.source if self.ref is None else self.ref
@@ -108,6 +117,7 @@ class FakeGh:
                 "tag_name": TAG,
                 "target_commitish": argv[argv.index("--target") + 1],
                 "body": argv[argv.index("--notes") + 1],
+                "prerelease": "--prerelease" in argv,
             }
             for path in argv[4:8]:
                 file = Path(path)
@@ -139,16 +149,47 @@ class PublicationTests(unittest.TestCase):
         }.items():
             (self.dist / name).write_bytes(data)
 
-    def make(self, fake, *, source=SOURCE, dispatch=True):
+    def make(self, fake, *, source=SOURCE, dispatch=True, prerelease=False):
         return publish.Publication(REPO, TAG, source, self.dist,
-                                   dispatch=dispatch, runner=fake)
+                                   dispatch=dispatch, prerelease=prerelease, runner=fake)
 
     def test_existing_release_readback_succeeds_even_if_target_commitish_is_stale(self):
         fake = FakeGh(fault="stale-target")
-        self.make(fake).publish()
+        warnings = StringIO()
+        with redirect_stderr(warnings):
+            self.make(fake).publish()
+        self.assertIn("WARNING: target_commitish=", warnings.getvalue())
         self.assertEqual(fake.release["target_commitish"], OTHER)
         self.assertTrue(any("download" in argv for argv in fake.calls))
         self.assertEqual(len(fake.assets), 4)
+
+    def test_existing_prerelease_is_updated_to_stable(self):
+        fake = FakeGh(prerelease=True)
+        output = StringIO()
+        with redirect_stdout(output):
+            self.make(fake, prerelease=False).publish()
+        edit = next(argv for argv in fake.calls if argv[1:3] == ["release", "edit"])
+        self.assertIn("--prerelease=false", edit)
+        self.assertIs(fake.release["prerelease"], False)
+        self.assertRegex(output.getvalue(), r"^RELEASE_VERIFIED .* prerelease=False\n$")
+
+    def test_existing_stable_release_is_updated_to_prerelease(self):
+        fake = FakeGh(prerelease=False)
+        output = StringIO()
+        with redirect_stdout(output):
+            self.make(fake, prerelease=True).publish()
+        edit = next(argv for argv in fake.calls if argv[1:3] == ["release", "edit"])
+        self.assertIn("--prerelease", edit)
+        self.assertIs(fake.release["prerelease"], True)
+        self.assertRegex(output.getvalue(), r"^RELEASE_VERIFIED .* prerelease=True\n$")
+
+    def test_release_prerelease_readback_mismatch_fails_closed(self):
+        for expected in (True, False):
+            with self.subTest(expected=expected):
+                fake = FakeGh(prerelease=not expected, fault="prerelease-edit-ignored")
+                with self.assertRaisesRegex(publish.PublicationError, "release prerelease mismatch"):
+                    self.make(fake, prerelease=expected).publish()
+                self.assertFalse(any(argv[1:3] == ["release", "download"] for argv in fake.calls))
 
     def test_annotated_tag_peels_to_commit(self):
         fake = FakeGh(annotated=True)

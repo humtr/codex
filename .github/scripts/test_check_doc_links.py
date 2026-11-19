@@ -41,6 +41,39 @@ class MarkdownLinkChecks(unittest.TestCase):
             self.assertTrue(any("missing heading" in item for item in issues))
             self.assertTrue(any("missing file" in item for item in issues))
 
+    def test_tracked_files_and_directory_prefixes_pass(self):
+        with tempfile.TemporaryDirectory(prefix="wrapper-doc-check-") as temp:
+            root = Path(temp).resolve()
+            destination = root / "tools" / "bin" / "script"
+            destination.parent.mkdir(parents=True)
+            destination.touch()
+            source = root / "source.md"
+            contents = "[script](tools/bin/script)\n[bin](tools/bin/)\n[tools](tools/)\n"
+            source.write_text(contents)
+            self.assertEqual(check_doc_links.validate(
+                {source: contents}, root, {source, destination}
+            ), [])
+
+    def test_untracked_file_and_directory_are_rejected_even_when_present(self):
+        with tempfile.TemporaryDirectory(prefix="wrapper-doc-check-") as temp:
+            root = Path(temp).resolve()
+            (root / "tools").mkdir()
+            (root / "tools-extra").mkdir()
+            tracked = root / "tools" / "tracked"
+            tracked.touch()
+            (root / "tools" / "generated").touch()
+            (root / "alias").symlink_to(tracked)
+            source = root / "source.md"
+            contents = "[generated](tools/generated)\n[similar name](tools-extra/)\n[alias](alias)\n"
+            source.write_text(contents)
+            self.assertEqual(check_doc_links.validate(
+                {source: contents}, root, {source, tracked}
+            ), [
+                "source.md:1: untracked link: tools/generated",
+                "source.md:2: untracked link: tools-extra/",
+                "source.md:3: untracked link: alias",
+            ])
+
     def test_out_of_tree_reference_is_rejected(self):
         with tempfile.TemporaryDirectory(prefix="wrapper-doc-check-") as temp:
             root = (Path(temp) / "repo").resolve()

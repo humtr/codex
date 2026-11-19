@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """Validate local Markdown document links AND GitHub-style heading fragments.
 
-Only repository-tracked Markdown is authoritative; ignore generated files,
-untracked private workspaces and external HTTP(S)/mailto destinations.
+Scan repository-tracked Markdown, require local destinations to be tracked,
+and ignore external HTTP(S)/mailto destinations.
 """
 from __future__ import annotations
 
 import collections
+import os
 import re
 import subprocess
 from pathlib import Path
@@ -51,8 +52,17 @@ def anchors_for(contents: str) -> set[str]:
     return names
 
 
-def validate(docs: dict[Path, str], root: Path) -> list[str]:
+def validate(docs: dict[Path, str], root: Path,
+             tracked_files: set[Path] | None = None) -> list[str]:
     heading_cache = {p: anchors_for(text) for p, text in docs.items()}
+    tracked_dirs = set()
+    if tracked_files is not None:
+        tracked_files = {root / path for path in tracked_files}
+        tracked_dirs = {parent for path in tracked_files for parent in path.parents}
+
+    def tracked(path: Path) -> bool:
+        return path in tracked_files or (path in tracked_dirs and path.is_dir())
+
     errors: list[str] = []
     for source, contents in sorted(docs.items()):
         for lineno, line in enumerate(contents.splitlines(), 1):
@@ -61,26 +71,29 @@ def validate(docs: dict[Path, str], root: Path) -> list[str]:
                 if target.startswith(("https://", "http://", "mailto:")):
                     continue
                 file_part, _, fragment = target.partition("#")
-                dest = (source.parent / file_part).resolve() if file_part else source
+                linked_path = source.parent / file_part if file_part else source
+                dest = linked_path.resolve()
                 if not dest.is_relative_to(root):
                     errors.append(f"{source.relative_to(root)}:{lineno}: out-of-tree link: {target}")
                 elif not dest.exists():
                     errors.append(f"{source.relative_to(root)}:{lineno}: missing file: {target}")
+                elif tracked_files is not None and (
+                    not tracked(Path(os.path.abspath(linked_path))) or not tracked(dest)
+                ):
+                    errors.append(f"{source.relative_to(root)}:{lineno}: untracked link: {target}")
                 elif fragment and dest in heading_cache and fragment.lower() not in heading_cache[dest]:
                     errors.append(f"{source.relative_to(root)}:{lineno}: missing heading: {target}")
     return errors
 
 
 def main() -> int:
-    paths = subprocess.check_output(
-        ["git", "ls-files", "-z", "--", "*.md"], cwd=ROOT
-    ).split(b"\0")
+    paths = subprocess.check_output(["git", "ls-files", "-z"], cwd=ROOT).split(b"\0")
+    tracked_files = {ROOT / os.fsdecode(path) for path in paths if path}
     docs = {
-        (ROOT / path.decode("utf-8")).resolve(): (ROOT / path.decode("utf-8")).read_text()
-        for path in paths
-        if path
+        path.resolve(): path.read_text()
+        for path in tracked_files if path.name.endswith(".md")
     }
-    errors = validate(docs, ROOT)
+    errors = validate(docs, ROOT, tracked_files)
     if errors:
         print("\n".join(errors))
         return 1

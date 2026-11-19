@@ -119,6 +119,11 @@ class Publication:
             raise PublicationError("release tag_name changed during publication")
         if release.get("body") != self.notes:
             raise PublicationError("release notes source/archive SHA mismatch")
+        prerelease = bool(release.get("prerelease"))
+        if prerelease != self.prerelease:
+            raise PublicationError(
+                f"release prerelease mismatch: expected {self.prerelease}, got {prerelease}"
+            )
         assets = release.get("assets", [])
         names = [asset.get("name") for asset in assets]
         for name in ASSETS:
@@ -174,7 +179,8 @@ class Publication:
                          *(str(self.dist / name) for name in ASSETS),
                          "--repo", self.repo, "--clobber")
             self.command("release", "edit", self.tag, "--repo", self.repo,
-                         "--target", self.source, "--notes", self.notes)
+                         "--target", self.source, "--notes", self.notes,
+                         "--prerelease" if self.prerelease else "--prerelease=false")
         else:
             if current is not None and current[0] != self.source:
                 raise PublicationError("unpublished existing tag differs from source")
@@ -191,7 +197,7 @@ class Publication:
         self.verify_tag()  # Detect a tag move between upload and readback.
         print(f"RELEASE_VERIFIED repo={self.repo} tag={self.tag} "
               f"source={self.source} archive_sha256={self.inputs[ARCHIVE]} "
-              f"target_commitish={target}")
+              f"target_commitish={target} prerelease={self.prerelease}")
 
 
 def main():

@@ -15,6 +15,9 @@ on:
       upstream_version:
         type: string
         default: ''
+      previous_version:
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -62,10 +65,10 @@ jobs:
           for workflow in .github/workflows/*.yml; do
             ruby -e 'require "psych"; Psych.parse_file(ARGV.fetch(0))' "$workflow"
           done
-          sh -n install.sh
-          if command -v shellcheck >/dev/null 2>&1; then
-            shellcheck install.sh
-          fi
+          sh -n install.sh contrib/codex-account
+          # sh -n parses only its script operand, so check the selector on its own too.
+          sh -n contrib/codex-account
+          shellcheck install.sh contrib/codex-account
           python3 - <<'PYCHECK'
           from pathlib import Path
           import tomllib
@@ -297,14 +300,14 @@ jobs:
 
           prefix="/data/data/com.termux/files/usr"
           sudo mkdir -p "$prefix/bin" "$prefix/tmp" "$prefix/etc/tls"
-          for tool in sh curl openssl gzip tar ps; do
+          for tool in sh curl gzip tar ps sha256sum; do
             src="$(command -v "$tool")"
             sudo install -m 0755 "$src" "$prefix/bin/$tool"
           done
           sudo chown -R "$(id -u):$(id -g)" /data/data/com.termux
 
-      - name: Verify exact source for explicit or scheduled discovery
-        if: github.event_name == 'schedule' || inputs.check_upstream == true || inputs.qualify_upstream == true
+      - name: Verify exact source for upstream discovery
+        if: inputs.check_upstream == true || inputs.qualify_upstream == true
         shell: bash
         env:
           SOURCE_SHA: ${{ inputs.source_sha }}
@@ -343,6 +346,8 @@ jobs:
           codex_bin="$prefix/bin/codex"
           test -x "$codex_bin"
           "$codex_bin" update --help | grep -F -- '--upstream'
+          "$codex_bin" update --help | grep -F -- '--force-rebuild'
+          sh contrib/codex-account --help | grep -Fx 'usage: codex-account ACCOUNT [CODEX_ARG ...]'
 
           set +e
           status_json="$(HOME="$smoke_home" PREFIX="$prefix" TMPDIR="$prefix/tmp" "$codex_bin" wrapper status --json)"
@@ -364,6 +369,12 @@ jobs:
           smoke_codex() {
             HOME="$smoke_home" PREFIX="$prefix" TMPDIR="$prefix/tmp" "$codex_bin" "$@"
           }
+          for command in doctor wrapper; do
+            flag_rc=0
+            flag_error="$(smoke_codex -c k=v "$command" 2>&1)" || flag_rc=$?
+            test "$flag_rc" -eq 2
+            printf '%s\n' "$flag_error" | grep -F "run 'codex $command' directly"
+          done
           cfg="$smoke_home/.local/share/codex/wrapper/wrapper.toml"
           test ! -e "$cfg"
           show="$(smoke_codex wrapper setup show)"
@@ -394,6 +405,12 @@ jobs:
           reset="$(smoke_codex wrapper setup show)"
           printf '%s\n' "$reset" | grep -F 'addons: none'
           printf '%s\n' "$reset" | grep -F 'signed_update: true'
+
+          printf 'invalid wrapper config\n' > "$cfg"
+          smoke_codex wrapper setup --bare
+          reset="$(smoke_codex wrapper setup show)"
+          printf '%s\n' "$reset" | grep -Fx 'addons: none'
+          printf '%s\n' "$reset" | grep -Fx 'signed_update: false'
 
           # Inspection reports invalid settings. Mutation must reject the symlink.
           sym_target="$RUNNER_TEMP/symlink-target.toml"
@@ -449,7 +466,7 @@ jobs:
           mkdir -p "$home" "$prefix/bin" "$prefix/tmp" "$prefix/etc/tls"
           printf 'nameserver 1.1.1.1\n' > "$prefix/etc/resolv.conf"
           : > "$prefix/etc/tls/cert.pem"
-          for tool in openssl gzip; do
+          for tool in gzip sha256sum; do
             cp "$(command -v "$tool")" "$prefix/bin/$tool"
           done
           # Bootstrap must reach curl and fail deterministically, offline.
@@ -526,15 +543,17 @@ jobs:
 
       - name: Discover immutable official inputs without deployment
         id: upstream
-        if: github.event_name == 'schedule' || inputs.check_upstream == true || inputs.qualify_upstream == true
+        if: inputs.check_upstream == true || inputs.qualify_upstream == true
         shell: bash
         env:
           UPSTREAM_VERSION: ${{ inputs.upstream_version }}
+          PREVIOUS_VERSION: ${{ inputs.previous_version }}
           SOURCE_SHA: ${{ inputs.source_sha }}
         run: |
           set -euo pipefail
           args=()
           if [ -n "$UPSTREAM_VERSION" ]; then args+=(--version "$UPSTREAM_VERSION"); fi
+          if [ -n "$PREVIOUS_VERSION" ]; then args+=(--previous-version "$PREVIOUS_VERSION"); fi
           PYTHONDONTWRITEBYTECODE=1 python3 .github/scripts/qualify_wrapper.py \
             --wrapper "$RUNNER_TEMP/unpacked/bin/codex" \
             --root "$RUNNER_TEMP/upstream-discovery" --source-sha "$SOURCE_SHA" --inspect-only "${args[@]}"
@@ -549,7 +568,7 @@ jobs:
 
       - name: Reuse only an identical completed base qualification
         id: proof
-        if: github.event_name == 'schedule' || inputs.qualify_upstream == true
+        if: inputs.qualify_upstream == true
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
         with:
           path: ${{ runner.temp }}/upstream-proof
@@ -558,7 +577,7 @@ jobs:
             wrapper-upstream-${{ steps.upstream.outputs.version }}-
 
       - name: Reject an archive changed under a previously qualified version
-        if: github.event_name == 'schedule' || inputs.qualify_upstream == true
+        if: inputs.qualify_upstream == true
         shell: bash
         run: |
           set -euo pipefail
@@ -578,21 +597,24 @@ jobs:
           PYARCHIVE
 
       - name: Qualify official base runtime through the public Wrapper
-        if: (github.event_name == 'schedule' || inputs.qualify_upstream == true) && steps.proof.outputs.cache-hit != 'true'
+        if: inputs.qualify_upstream == true && steps.proof.outputs.cache-hit != 'true'
         shell: bash
         env:
           UPSTREAM_VERSION: ${{ steps.upstream.outputs.version }}
+          PREVIOUS_VERSION: ${{ inputs.previous_version }}
           SOURCE_SHA: ${{ inputs.source_sha }}
         run: |
           set -euo pipefail
+          args=()
+          if [ -n "$PREVIOUS_VERSION" ]; then args+=(--previous-version "$PREVIOUS_VERSION"); fi
           PYTHONDONTWRITEBYTECODE=1 python3 .github/scripts/qualify_wrapper.py \
             --wrapper "$RUNNER_TEMP/unpacked/bin/codex" \
-            --root "$RUNNER_TEMP/upstream-qualification" --source-sha "$SOURCE_SHA" --version "$UPSTREAM_VERSION"
+            --root "$RUNNER_TEMP/upstream-qualification" --source-sha "$SOURCE_SHA" --version "$UPSTREAM_VERSION" "${args[@]}"
           mkdir -p "$RUNNER_TEMP/upstream-proof"
           cp "$RUNNER_TEMP/upstream-qualification/report.json" "$RUNNER_TEMP/upstream-proof/report.json"
 
       - name: Validate cached or fresh proof against exact discovered inputs
-        if: github.event_name == 'schedule' || inputs.qualify_upstream == true
+        if: inputs.qualify_upstream == true
         shell: bash
         run: |
           set -euo pipefail
@@ -609,7 +631,7 @@ jobs:
           PYPROOF
 
       - name: Retain discovery and qualification receipts
-        if: always() && (github.event_name == 'schedule' || inputs.check_upstream == true || inputs.qualify_upstream == true)
+        if: always() && (inputs.check_upstream == true || inputs.qualify_upstream == true)
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: wrapper-upstream-evidence
