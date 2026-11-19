@@ -207,9 +207,9 @@
 | --- | --- | --- | --- | --- | --- |
 | **WP0** | Supervisor | — | **Done** | `b7b48fca` | Pre-existing maintenance docs preserved verbatim |
 | **Foundation** | Supervisor | — | **Done** | `e30bc790` + `HANDOFF.md` | Doc architecture consolidated, `SPEC.md` distilled, Phase A contracts updated |
-| **WP1** | Codex + Review | `szob` (`gpt-6.2-sol` `xhigh`) | **Done** | `5bfb489a` | `release-builder`: patcher, TAR, companions, pure-Rust SHA-256 (74+19 tests pass) |
-| **WP2** | Codex + Review | `szob` / `janmori101` | Pending | — | Wrapper/upstream decoupling, updater, HTTP, `install.sh` |
-| **WP3** | Codex + Review | `szob` / `janmori101` | Pending | — | CLI, locks, `shared_home`, `doctor`, `qualification`, `daemon_settings`, `timezone`, `maintenance`, `fs_util` |
+| **WP1** | Codex + Review | `szob` (`gpt-6.2-sol` `xhigh`) | **Done** | `1ce6ac39` | `release-builder`: patcher, TAR, companions, pure-Rust SHA-256 (74+19 tests pass) |
+| **WP2** | Codex + Review | `szob` (`gpt-6.2-sol` `xhigh`) | **Done** | `6b12338e` | Wrapper/upstream decoupling, updater, HTTP, `install.sh` (78+19 Rust, 22/22 install) |
+| **WP3** | Codex + Review | `szob` (`gpt-6.2-sol` `xhigh`) | **Done** | `b60686f6` | CLI, locks, `shared_home`, read-only `doctor`, `qualification`, `daemon_settings`, `timezone`, `maintenance`, `fs_util` (100+19 Rust) |
 | **WP4** | Codex + Review | `szob` / `janmori101` | Pending | — | Behavior-preserving structural refactoring + `contrib/codex-account` |
 | **WP5** | Codex + Review | `szob` / `janmori101` | Pending | — | CI/release gates, `qualify_wrapper.py`, `check_doc_links.py`, `ARCHITECTURE.md`/`README.md` sync |
 | **WP6** | Supervisor | — | Pending | — | Isolated Android API 37 qualification + `CURRENT.md` proof → stop before push/release |
