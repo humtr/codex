@@ -166,8 +166,13 @@ where
                 None
             };
             let result = LocalWrapperRoots::from_environment().and_then(|roots| {
-                if matches!(route, PublicDispatchRoute::Upstream(_)) && !scan.help_or_version {
-                    warn_unavailable_addons(&roots);
+                if let PublicDispatchRoute::Upstream(ref args) = route {
+                    if !scan.help_or_version {
+                        warn_unavailable_addons(&roots);
+                        if args.is_empty() {
+                            update::maybe_prompt_and_update_on_bare_launch(&roots);
+                        }
+                    }
                 }
                 execute_activated_route(route, &roots, &capture_termux_process_env(), &scan)
             });

@@ -23,6 +23,7 @@ extern "C" {
 pub(super) const REMOTE_RELEASE_TOTAL_MAX_BYTES: u64 = 1024 * 1024 * 1024;
 pub(super) const REMOTE_CONNECT_TIMEOUT_SECONDS: &str = "15";
 pub(super) const REMOTE_CONTROL_TRANSFER_TIMEOUT_SECONDS: &str = "30";
+pub(super) const REMOTE_QUICK_CHECK_TIMEOUT_SECONDS: &str = "5";
 pub(super) const REMOTE_TRANSFER_TIMEOUT_SECONDS: &str = "1800";
 #[derive(Debug, Clone)]
 pub(super) struct ReleaseFileEntry {
@@ -238,6 +239,10 @@ pub(super) fn fetch_with_headers(
     stderr.set_nonblocking(true).map_err(transfer_io)?;
     let mut tail = Vec::new();
     let mut command = Command::new(&roots.curl);
+    let connect_timeout = match timeout {
+        TransferTimeout::Fixed(REMOTE_QUICK_CHECK_TIMEOUT_SECONDS) => "3",
+        _ => REMOTE_CONNECT_TIMEOUT_SECONDS,
+    };
     command
         .arg("--disable")
         .args([
@@ -256,7 +261,7 @@ pub(super) fn fetch_with_headers(
         .arg(&roots.cert_file)
         .arg("--capath")
         .arg(&roots.cert_dir)
-        .args(["--connect-timeout", REMOTE_CONNECT_TIMEOUT_SECONDS]);
+        .args(["--connect-timeout", connect_timeout]);
     if url.starts_with("https://api.github.com/") {
         command.args(["-H", "Accept: application/vnd.github+json"]);
     }
@@ -265,7 +270,10 @@ pub(super) fn fetch_with_headers(
     }
     if let TransferTimeout::Fixed(seconds) = timeout {
         command.args(["--max-time", seconds]);
-        if seconds != REMOTE_CONTROL_TRANSFER_TIMEOUT_SECONDS {
+        if !matches!(
+            seconds,
+            REMOTE_CONTROL_TRANSFER_TIMEOUT_SECONDS | REMOTE_QUICK_CHECK_TIMEOUT_SECONDS
+        ) {
             command.args(["--speed-limit", "1024", "--speed-time", "60"]);
         }
     } else {

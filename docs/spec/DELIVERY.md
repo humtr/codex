@@ -836,6 +836,7 @@ $PREFIX/bin/codex                                      stable public entrypoint
   config/config.toml                                   Wrapper-owned FD 34 compatibility config (`# codex-termux-wrapper`)
   config/snapshots/<id>/                               Stage 2 immutable per-launch effective system settings
   resolv.conf                                          Wrapper-owned FD 33 DNS resolver file
+  update-check.cache                                   15-minute official release metadata cache for interactive bare `codex` startup prompt
   downloads/<sha256>.part                              private bounded untrusted/verified payload cache (1 GiB total cap)
   publications/                                        optional staged/pruned local publication artifacts
   wrapper.toml                                         Stage 2 optional module & update mode config
@@ -1141,16 +1142,29 @@ After installation, Wrapper exclusively owns `codex update`:
 - Removed/Stage 2 flags (`--signed`, `--remote`, `--local`, `--build-local`) fail
   explicitly in Stage 1 with exit status `2` and zero state mutation. No compiler toolchain,
   signing key, or upstream self-updater is ever invoked in Stage 1.
-- `codex update` and `codex update --rollback` do not replace an independently
-  selected dedicated `$CODEX_HOME/packages/app-server-daemon/current` target
-  (`releases/...`), never write into existing dedicated homes, and never
-  terminate or restart a running daemon process. Under `activation_lock`,
+- `codex update`, `codex update --path`, and `codex update --rollback` synchronize
+  initialized daemon homes (`$CODEX_HOME`, `$HOME/.codex`, and existing owned
+  `$HOME/.local/share/codex/manager/profiles/*/home`) so any existing
+  `packages/app-server-daemon/current` symlink points to
+  `$HOME/.codex/packages/standalone/current`, ensure `autoUpdateEnabled=false`
+  in `app-server-daemon/settings.json`, and restart any currently running
+  managed daemons (`app-server daemon restart`) whose running executable or
+  version differs from the active generation. Homes with no initialized daemon
+  link and no running daemon PID are left untouched, and stopped daemons are
+  never started by `codex update`. Under `activation_lock`,
   `load_activated_generation` reconciles a missing or stale
   `$HOME/.codex/packages/standalone/current` symlink back to `activation-state`
-  and fails explicitly without replacing a non-symlink entry or disturbing
-  already-running earlier daemons; homes whose `packages/app-server-daemon/current`
-  points to `$HOME/.codex/packages/standalone/current` pick up the newly
-  activated generation on their next daemon start or restart. `codex doctor`
+  and fails explicitly without replacing a non-symlink entry.
+- On an interactive bare `codex` launch (zero arguments, `stdin`/`stdout`/`stderr`
+  all terminals, and `CODEX_DISABLE_UPDATE_PROMPT` unset), Wrapper checks
+  official stable release metadata using `~/.local/share/codex/wrapper/update-check.cache`
+  (15-minute TTL) and a bounded fail-open HTTPS probe (3 s connect / 5 s total
+  timeout). When a strictly newer upstream version is available, Wrapper prompts
+  `Codex update available: <current> -> <latest>. Update now? [y/N] ` on stderr:
+  confirming with `y`/`yes` runs `codex update` (including daemon synchronization)
+  before launching the newly activated generation, while `n`/empty input or a
+  failed check/update proceeds directly with the currently active generation.
+  `codex doctor`
   combines its upstream and
   Wrapper checks; it is not an upstream `state_*.db` or rollout inventory
   repair API. A healthy Wrapper diagnosis does not imply that every upstream

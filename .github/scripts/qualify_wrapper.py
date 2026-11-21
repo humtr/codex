@@ -152,7 +152,8 @@ class Qualification:
                     if not k.startswith(("CODEX_", "OPENAI_", "LD_", "DYLD_", "XDG_"))
                     and k not in ("ENV", "BASH_ENV")}
         self.env.update(HOME=str(self.home), CODEX_HOME=str(self.codex_home), PREFIX=str(self.prefix),
-                        TMPDIR=str(self.tmp), PATH=f"{self.prefix}/bin:/system/bin:/bin:/usr/bin", TERM="xterm-256color")
+                        TMPDIR=str(self.tmp), PATH=f"{self.prefix}/bin:/system/bin:/bin:/usr/bin",
+                        TERM="xterm-256color", CODEX_DISABLE_UPDATE_PROMPT="1")
         self.binary = self.prefix / "bin/codex"
         self.daemon_possible = False
         self.runtime_present = False

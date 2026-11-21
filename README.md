@@ -198,11 +198,21 @@ link can appear even with `features.daemon_auto_start = false` or during sign-in
 Help, version, queries, `--no-daemon`, `--remote`, and direct `app-server daemon
 update --from-cli` skip this preparation.
 
-Homes using the link pick up a Wrapper update or rollback on the next daemon
-start or restart. A running daemon keeps using its original executable.
-Existing per-home selections and homes with prior daemon launch traces keep
-their upstream-selected packages. A later explicit `app-server daemon update
---from-cli --yes` can pin a dedicated package independently of Wrapper updates.
+Homes using the link share the single active generation under
+`$HOME/.codex/packages/standalone/current` while running separate daemon
+processes per home. When `codex update` (including `--path` and `--rollback`)
+runs, Wrapper aligns initialized daemon homes (`$CODEX_HOME`, `$HOME/.codex`,
+and registered `~/.local/share/codex/manager/profiles/*/home`) back to
+`$HOME/.codex/packages/standalone/current` and restarts any currently running
+managed daemons onto the active generation (without starting a daemon in homes
+where none is running).
+
+On an interactive bare `codex` launch (zero arguments on a terminal), Wrapper
+checks for a newer official stable Codex release using a 15-minute local cache
+(`~/.local/share/codex/wrapper/update-check.cache`) and a short fail-open
+timeout. When an update is available, it asks `Update now? [y/N]`: confirming
+with `y` runs `codex update` (updating both the CLI generation and running
+managed daemons) and then launches the new Codex release.
 
 If a regular file or directory occupies `$HOME/.codex/packages/standalone/current`,
 update and rollback fail without replacing it or changing the active generation.
@@ -310,20 +320,21 @@ An overall `healthy` result can include upstream warnings such as
 Run Wrapper commands directly. Leading upstream options on commands such as
 `codex -c k=v doctor` or `codex -c k=v wrapper status` return exit `2`.
 
-Upstream keeps its selected daemon package separate from the CLI generation.
-After updating or re-adapting the CLI, select its complete adapted package when
-you also want to update an existing daemon:
+`codex update` automatically aligns initialized daemon homes to the active
+CLI generation (`$HOME/.codex/packages/standalone/current`) and restarts any
+currently running managed daemons:
 
 ```sh
-codex app-server daemon update --from-cli
+codex update
 codex app-server daemon start
 codex app-server daemon version
 ```
 
-The upstream confirmation covers replacement and a possible restart of running
-work. Wrapper does not change that selection automatically. Use `--from-cli`
-to retain the Termux adaptation; the plain upstream daemon updater downloads an
-official package without Wrapper adaptation.
+Avoid running upstream's raw `codex app-server daemon update` without
+`codex update`, as upstream's `--from-cli` copies a separate ~450 MiB package
+into `$CODEX_HOME/packages/app-server-daemon/releases/`; `codex update`
+re-unifies `packages/app-server-daemon/current` to `standalone/current` and
+restarts running daemons automatically.
 
 The background server can outlive the TUI. A running daemon keeps its
 startup settings and reads the updated Wrapper defaults on its next normal

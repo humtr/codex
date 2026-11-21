@@ -3,7 +3,7 @@ use crate::json::{JsonParser, JsonValue};
 use std::fs::{self, DirBuilder, File, OpenOptions};
 use std::io::{self, ErrorKind, Read, Write};
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 const MAX_SETTINGS_BYTES: usize = 1024 * 1024;
@@ -305,6 +305,141 @@ pub(super) fn ensure_default_package_link(
         Err(err) if err.kind() == ErrorKind::AlreadyExists => Ok(()),
         Err(err) => Err(err),
     }
+}
+
+pub(super) fn has_daemon_pid_file(codex_home: &Path) -> bool {
+    let state_dir = codex_home.join("app-server-daemon");
+    may_exist(&state_dir.join("daemon.pid")) || may_exist(&state_dir.join("app-server.pid"))
+}
+
+pub(super) fn has_daemon_activity(codex_home: &Path) -> bool {
+    may_exist(&codex_home.join("packages/app-server-daemon/current"))
+        || has_daemon_pid_file(codex_home)
+}
+
+/// Discover owned execution homes (`active_codex_home`, `$HOME/.codex`, and
+/// `$HOME/.local/share/codex/manager/profiles/*/home`) in deterministic order,
+/// deduplicated by canonical path.
+pub(super) fn candidate_daemon_homes(
+    home_dir: &Path,
+    active_codex_home: Option<&Path>,
+    standalone_root: &Path,
+) -> Vec<PathBuf> {
+    let Ok(uid) = current_uid() else {
+        return Vec::new();
+    };
+    let canonical_standalone = fs::canonicalize(standalone_root).ok();
+    let mut raw_candidates = Vec::new();
+    if let Some(active) = active_codex_home.filter(|p| !p.as_os_str().is_empty()) {
+        raw_candidates.push(active.to_path_buf());
+    }
+    if !home_dir.as_os_str().is_empty() {
+        raw_candidates.push(home_dir.join(".codex"));
+        let profiles_root = home_dir.join(".local/share/codex/manager/profiles");
+        if matches!(inspect_owned_real_dir(&profiles_root, uid), Ok(Some(true))) {
+            if let Ok(entries) = fs::read_dir(&profiles_root) {
+                let mut profile_names: Vec<_> = entries
+                    .filter_map(|e| e.ok().map(|entry| entry.file_name()))
+                    .collect();
+                profile_names.sort();
+                for name in profile_names {
+                    let profile_dir = profiles_root.join(name);
+                    if matches!(inspect_owned_real_dir(&profile_dir, uid), Ok(Some(true))) {
+                        raw_candidates.push(profile_dir.join("home"));
+                    }
+                }
+            }
+        }
+    }
+
+    let mut homes = Vec::new();
+    for candidate in raw_candidates {
+        if !matches!(inspect_owned_real_dir(&candidate, uid), Ok(Some(true))) {
+            continue;
+        }
+        let Ok(physical) = fs::canonicalize(&candidate) else {
+            continue;
+        };
+        if canonical_standalone
+            .as_ref()
+            .is_some_and(|standalone| physical.starts_with(standalone))
+        {
+            continue;
+        }
+        if !homes.contains(&physical) {
+            homes.push(physical);
+        }
+    }
+    homes
+}
+
+/// Ensure an initialized daemon home's `packages/app-server-daemon/current`
+/// symlink points to `standalone_current`. Returns `Ok(true)` if the link was
+/// created or re-pointed, or `Ok(false)` if unchanged or not initialized.
+pub(super) fn align_package_link_to_standalone(
+    codex_home: &Path,
+    standalone_current: &Path,
+    standalone_root: &Path,
+) -> io::Result<bool> {
+    if codex_home.as_os_str().is_empty() || !has_daemon_activity(codex_home) {
+        return Ok(false);
+    }
+    if fs::symlink_metadata(standalone_current).is_err()
+        || fs::metadata(standalone_current).is_err()
+    {
+        return Ok(false);
+    }
+    let physical_home = match fs::canonicalize(codex_home) {
+        Ok(path) => path,
+        Err(err) if err.kind() == ErrorKind::NotFound => return Ok(false),
+        Err(err) => return Err(err),
+    };
+    if let Ok(canonical_standalone) = fs::canonicalize(standalone_root) {
+        if physical_home.starts_with(&canonical_standalone) {
+            return Ok(false);
+        }
+    }
+
+    let uid = current_uid()?;
+    let packages_dir = physical_home.join("packages");
+    if !ensure_private_real_dir_no_chmod(&packages_dir, uid)? {
+        return Err(io::Error::other(
+            "packages directory is not an owned real directory",
+        ));
+    }
+    let pkg_daemon_dir = packages_dir.join("app-server-daemon");
+    if !ensure_private_real_dir_no_chmod(&pkg_daemon_dir, uid)? {
+        return Err(io::Error::other(
+            "packages/app-server-daemon is not an owned real directory",
+        ));
+    }
+
+    let current_link = pkg_daemon_dir.join("current");
+    match fs::symlink_metadata(&current_link) {
+        Ok(meta) => {
+            if !meta.file_type().is_symlink() {
+                return Err(io::Error::other(
+                    "packages/app-server-daemon/current must be a symlink",
+                ));
+            }
+            if fs::read_link(&current_link).ok().as_deref() == Some(standalone_current) {
+                return Ok(false);
+            }
+        }
+        Err(err) if err.kind() == ErrorKind::NotFound => {}
+        Err(err) => return Err(err),
+    }
+
+    let seq = SETTINGS_TMP_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let temp_link = pkg_daemon_dir.join(format!(".current.{}.{seq}.tmp", std::process::id()));
+    let _ = fs::remove_file(&temp_link);
+    std::os::unix::fs::symlink(standalone_current, &temp_link)?;
+    if let Err(err) = fs::rename(&temp_link, &current_link) {
+        let _ = fs::remove_file(&temp_link);
+        return Err(err);
+    }
+    fs_util::sync_directory(&pkg_daemon_dir)?;
+    Ok(true)
 }
 
 fn update_settings_bytes(existing: Option<&[u8]>) -> io::Result<Option<Vec<u8>>> {
@@ -632,6 +767,67 @@ mod tests {
         }
         assert_eq!(
             fs::read_link(codex_home.join("packages/app-server-daemon/current")).unwrap(),
+            standalone_current
+        );
+        fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn align_package_link_repoints_pinned_daemon_and_discovers_profile_homes() {
+        let root = test_root("align-and-discover");
+        let (standalone_root, standalone_current) = make_standalone_fixture(&root);
+        let default_home = root.join(".codex");
+        let prof_a = root.join(".local/share/codex/manager/profiles/janmori101/home");
+        let prof_b = root.join(".local/share/codex/manager/profiles/unused/home");
+        for dir in [&default_home, &prof_a, &prof_b] {
+            fs::create_dir_all(dir).unwrap();
+        }
+
+        let homes = candidate_daemon_homes(&root, Some(&default_home), &standalone_root);
+        assert_eq!(homes.len(), 3);
+
+        // Unused profile home without daemon activity is left untouched.
+        assert!(
+            !align_package_link_to_standalone(&prof_b, &standalone_current, &standalone_root)
+                .unwrap()
+        );
+        assert!(!prof_b.join("packages").exists());
+
+        // Pinned local release link in default_home is re-pointed to standalone_current.
+        let local_rel = default_home.join("packages/app-server-daemon/releases/local-abc");
+        fs::create_dir_all(&local_rel).unwrap();
+        symlink(
+            &local_rel,
+            default_home.join("packages/app-server-daemon/current"),
+        )
+        .unwrap();
+        assert!(align_package_link_to_standalone(
+            &default_home,
+            &standalone_current,
+            &standalone_root
+        )
+        .unwrap());
+        assert_eq!(
+            fs::read_link(default_home.join("packages/app-server-daemon/current")).unwrap(),
+            standalone_current
+        );
+        // Second alignment is a no-op returning Ok(false).
+        assert!(!align_package_link_to_standalone(
+            &default_home,
+            &standalone_current,
+            &standalone_root
+        )
+        .unwrap());
+
+        // Home with daemon.pid but missing current link gets aligned to standalone_current.
+        fs::create_dir_all(prof_a.join("app-server-daemon")).unwrap();
+        fs::write(prof_a.join("app-server-daemon/daemon.pid"), b"{\"pid\":1}").unwrap();
+        assert!(
+            align_package_link_to_standalone(&prof_a, &standalone_current, &standalone_root)
+                .unwrap()
+        );
+        assert_eq!(
+            fs::read_link(prof_a.join("packages/app-server-daemon/current")).unwrap(),
             standalone_current
         );
         fs::remove_dir_all(&root).unwrap();

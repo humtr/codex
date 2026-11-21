@@ -1,30 +1,45 @@
+use crate::daemon_settings;
 use crate::error::LocalProductError;
 use crate::fs_util::{
-    copy_local_directory_tree, ensure_real_directory_tree, rename_noreplace,
+    copy_local_directory_tree, ensure_real_directory_tree, read_bounded_regular, rename_noreplace,
     sync_generation_directory, LOCAL_STAGING_COUNTER,
 };
 use crate::generation::{
     load_local_generation, probe_release_candidate, sha256_regular_file,
-    verify_generation_asset_digests, GenerationManifest, LoadedLocalGeneration, LocalWrapperRoots,
+    termux_browser_helper_paths, valid_sha256_hex, verify_generation_asset_digests,
+    with_qualified_loaded_runtime, GenerationManifest, LoadedLocalGeneration, LocalWrapperRoots,
     PERSISTENT_SCHEMA_IDENTITY, WRAPPER_API_IDENTITY,
 };
+use crate::json::{JsonParser, JsonValue};
 use crate::maintenance;
+use crate::proc_exec;
 use crate::progress::{format_bytes, UpdatePresentation};
 use crate::remote_download::{self, ReleaseFileEntry, REMOTE_TRANSFER_TIMEOUT_SECONDS};
 use crate::runtime_env::{
-    capture_termux_process_env, prepare_wrapper_config, TermuxProcessEnvSnapshot,
+    apply_child_env_plan_and_fence, capture_termux_process_env, plan_termux_env,
+    prepare_wrapper_config, resolve_codex_home, RuntimeFdSources, TermuxProcessEnvSnapshot,
 };
 use crate::state::generation_state::{self, ActivationOperation};
 use crate::upstream_metadata::{
-    reject_changed_archive, resolve_official_release_metadata, valid_update_version,
-    validate_https_url, version_order, UPDATE_VERSION_ENV, UPSTREAM_PACKAGE_ASSET,
+    reject_changed_archive, resolve_official_release_metadata,
+    resolve_official_release_metadata_quick, valid_update_version, validate_https_url,
+    version_order, OfficialReleaseMetadata, UPDATE_VERSION_ENV, UPSTREAM_PACKAGE_ASSET,
     UPSTREAM_RELEASE_METADATA_BASE,
 };
 use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 const WRAPPER_CREATION_METADATA: &str = "codex-wrapper";
+pub(super) const UPDATE_CHECK_CACHE_FILE: &str = "update-check.cache";
+const UPDATE_CHECK_CACHE_HEADER: &str = "codex-update-check-v1";
+pub(super) const UPDATE_CHECK_CACHE_TTL_SECS: u64 = 15 * 60;
+const UPDATE_CHECK_CACHE_MAX_BYTES: u64 = 4096;
+const DISABLE_UPDATE_PROMPT_ENV: &str = "CODEX_DISABLE_UPDATE_PROMPT";
+const DAEMON_COMMAND_OUTPUT_MAX_BYTES: usize = 64 * 1024;
+const DAEMON_VERSION_TIMEOUT: Duration = Duration::from_secs(15);
+const DAEMON_RESTART_TIMEOUT: Duration = Duration::from_secs(30);
 const UPDATE_USAGE: &str = "usage: codex update [--upstream] [--version <MAJOR.MINOR.PATCH>] [--force-rebuild] | --check [--version <MAJOR.MINOR.PATCH>] [--json] | --path <FILE_OR_DIR> | --rollback | --help";
 
 pub(super) fn print_update_usage() {
@@ -676,7 +691,10 @@ fn build_from_archive_and_activate(
 }
 
 enum UpstreamOutcome {
-    AlreadyCurrent(String),
+    AlreadyCurrent {
+        generation_id: String,
+        version: String,
+    },
     Activated(ActivatedOutcome),
 }
 
@@ -694,6 +712,14 @@ fn run_upstream_update(
         presentation.transient("Checking official Codex release...");
         let (metadata, _) =
             resolve_official_release_metadata(roots, &staging_root, requested_version)?;
+        if requested_version.is_none() && std::env::var_os(UPDATE_VERSION_ENV).is_none() {
+            write_update_check_cache(
+                &roots.state_root,
+                current_unix_secs(),
+                &metadata.version,
+                &metadata.package_sha256,
+            );
+        }
 
         if let Some(current) = installed.as_ref() {
             reject_changed_archive(
@@ -715,14 +741,17 @@ fn run_upstream_update(
         let before_loaded = installed
             .as_ref()
             .filter(|current| verify_generation_asset_digests(current).is_ok());
-        if !force_rebuild
-            && before_loaded.is_some_and(|current| {
+        if !force_rebuild {
+            if let Some(current) = before_loaded.filter(|current| {
                 current.manifest.upstream_package_version == metadata.version
                     && current.manifest.source_artifact_digest == metadata.package_sha256
                     && generation_compatible_with_wrapper(&current.manifest)
-            })
-        {
-            return Ok(UpstreamOutcome::AlreadyCurrent(metadata.version));
+            }) {
+                return Ok(UpstreamOutcome::AlreadyCurrent {
+                    generation_id: current.generation_id.clone(),
+                    version: metadata.version,
+                });
+            }
         }
 
         let archive_path = staging_root.join(UPSTREAM_PACKAGE_ASSET);
@@ -982,6 +1011,468 @@ fn run_rollback(
     })
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct UpdateCheckCacheEntry {
+    checked_at: u64,
+    latest_version: String,
+    archive_sha256: String,
+}
+
+fn current_unix_secs() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs())
+}
+
+fn read_update_check_cache(state_root: &Path, now_secs: u64) -> Option<UpdateCheckCacheEntry> {
+    let cache_path = state_root.join(UPDATE_CHECK_CACHE_FILE);
+    let bytes = read_bounded_regular(
+        &cache_path,
+        UPDATE_CHECK_CACHE_MAX_BYTES,
+        true,
+        "invalid update-check.cache",
+    )
+    .ok()?;
+    let text = std::str::from_utf8(&bytes).ok()?;
+    let mut lines = text.lines();
+    if lines.next()? != UPDATE_CHECK_CACHE_HEADER {
+        return None;
+    }
+    let checked_at: u64 = lines.next()?.strip_prefix("checked_at\t")?.parse().ok()?;
+    let latest_version = lines.next()?.strip_prefix("latest_version\t")?;
+    let archive_sha256 = lines.next()?.strip_prefix("archive_sha256\t")?;
+    if lines.next().is_some()
+        || !valid_update_version(latest_version)
+        || !valid_sha256_hex(archive_sha256)
+        || now_secs < checked_at
+        || now_secs.saturating_sub(checked_at) >= UPDATE_CHECK_CACHE_TTL_SECS
+    {
+        return None;
+    }
+    Some(UpdateCheckCacheEntry {
+        checked_at,
+        latest_version: latest_version.to_owned(),
+        archive_sha256: archive_sha256.to_owned(),
+    })
+}
+
+fn write_update_check_cache(
+    state_root: &Path,
+    now_secs: u64,
+    latest_version: &str,
+    archive_sha256: &str,
+) {
+    use std::io::Write as _;
+    use std::os::unix::fs::OpenOptionsExt as _;
+
+    if !valid_update_version(latest_version) || !valid_sha256_hex(archive_sha256) {
+        return;
+    }
+    if ensure_real_directory_tree(
+        state_root,
+        "prepare wrapper state directory for update cache",
+        "wrapper state directory must be a real directory",
+    )
+    .is_err()
+    {
+        return;
+    }
+    let seq = LOCAL_STAGING_COUNTER.fetch_add(1, Ordering::Relaxed) + 1;
+    let tmp_path = state_root.join(format!(
+        ".{UPDATE_CHECK_CACHE_FILE}.{}.{seq}.tmp",
+        std::process::id()
+    ));
+    let cache_path = state_root.join(UPDATE_CHECK_CACHE_FILE);
+    let content = format!(
+        "{UPDATE_CHECK_CACHE_HEADER}\nchecked_at\t{now_secs}\nlatest_version\t{latest_version}\narchive_sha256\t{archive_sha256}\n"
+    );
+    let write_res = (|| -> std::io::Result<()> {
+        let mut f = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&tmp_path)?;
+        f.write_all(content.as_bytes())?;
+        f.sync_all()?;
+        drop(f);
+        std::fs::rename(&tmp_path, &cache_path)?;
+        Ok(())
+    })();
+    if write_res.is_err() {
+        let _ = std::fs::remove_file(&tmp_path);
+    }
+}
+
+fn read_active_installed_generation(roots: &LocalWrapperRoots) -> Option<LoadedLocalGeneration> {
+    let paths = generation_state::WrapperStatePaths::new(&roots.state_root).ok()?;
+    let pointer = generation_state::read_pointer_state(&paths).ok()??;
+    let loaded = load_local_generation(&roots.generation_root.join(&pointer.current)).ok()?;
+    (loaded.generation_id == pointer.current).then_some(loaded)
+}
+
+fn check_and_prompt_bare_launch<R: std::io::Read, W: std::io::Write>(
+    roots: &LocalWrapperRoots,
+    now_secs: u64,
+    input: &mut R,
+    err_out: &mut W,
+    fetch_latest: impl FnOnce(&LocalWrapperRoots) -> Option<OfficialReleaseMetadata>,
+    run_update: impl FnOnce() -> i32,
+) -> bool {
+    let Some(installed) = read_active_installed_generation(roots) else {
+        return false;
+    };
+    let current_version = installed.manifest.upstream_package_version;
+    let latest_version = if let Some(cached) = read_update_check_cache(&roots.state_root, now_secs)
+    {
+        cached.latest_version
+    } else {
+        let Some(discovered) = fetch_latest(roots) else {
+            return false;
+        };
+        write_update_check_cache(
+            &roots.state_root,
+            now_secs,
+            &discovered.version,
+            &discovered.package_sha256,
+        );
+        discovered.version
+    };
+    if !matches!(
+        version_order(&latest_version, &current_version),
+        Ok(std::cmp::Ordering::Greater)
+    ) {
+        return false;
+    }
+
+    let _ = write!(
+        err_out,
+        "Codex update available: {current_version} -> {latest_version}. Update now? [y/N] "
+    );
+    let _ = err_out.flush();
+
+    let mut answer = Vec::with_capacity(64);
+    let mut byte = [0u8; 1];
+    while answer.len() < 64 {
+        match input.read(&mut byte) {
+            Ok(0) => break,
+            Ok(_) => {
+                if byte[0] == b'\n' {
+                    break;
+                }
+                answer.push(byte[0]);
+            }
+            Err(err) if err.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(_) => return false,
+        }
+    }
+    let reply = std::str::from_utf8(&answer).unwrap_or("").trim();
+    if !(reply.eq_ignore_ascii_case("y") || reply.eq_ignore_ascii_case("yes")) {
+        return false;
+    }
+
+    let rc = run_update();
+    if rc != 0 {
+        let _ = writeln!(
+            err_out,
+            "codex: update failed (exit {rc}); continuing with Codex {current_version}."
+        );
+        return false;
+    }
+    true
+}
+
+pub(super) fn maybe_prompt_and_update_on_bare_launch(roots: &LocalWrapperRoots) {
+    use std::io::IsTerminal as _;
+
+    if std::env::var_os(DISABLE_UPDATE_PROMPT_ENV).is_some()
+        || !std::io::stdin().is_terminal()
+        || !std::io::stdout().is_terminal()
+        || !std::io::stderr().is_terminal()
+    {
+        return;
+    }
+    let mut stdin = std::io::stdin().lock();
+    let mut stderr = std::io::stderr();
+    let _ = check_and_prompt_bare_launch(
+        roots,
+        current_unix_secs(),
+        &mut stdin,
+        &mut stderr,
+        |roots| {
+            let staging = create_staging_root(&std::env::temp_dir(), ".codex-quick-check-").ok()?;
+            let resolved = resolve_official_release_metadata_quick(roots, &staging).ok();
+            let _ = std::fs::remove_dir_all(&staging);
+            resolved
+        },
+        || {
+            run_update_action(UpdateAction::Upstream {
+                requested_version: None,
+                force_rebuild: false,
+            })
+        },
+    );
+}
+
+fn parse_daemon_version_json(bytes: &[u8]) -> Option<(String, Option<String>)> {
+    let mut parser = JsonParser::new(bytes);
+    let JsonValue::Object(fields) = parser.parse_document().ok()? else {
+        return None;
+    };
+    let mut status = None;
+    let mut app_server_version = None;
+    for (k, v) in fields {
+        if k == "status" {
+            if let JsonValue::String(s) = v {
+                status = Some(s);
+            }
+        } else if k == "appServerVersion" {
+            if let JsonValue::String(s) = v {
+                app_server_version = Some(s);
+            }
+        }
+    }
+    Some((status?, app_server_version))
+}
+
+fn running_pid_matches_runtime(codex_home: &Path, runtime_path: &Path) -> bool {
+    use std::os::unix::fs::MetadataExt as _;
+
+    let pid_path = codex_home.join("app-server-daemon/daemon.pid");
+    let Ok(bytes) = read_bounded_regular(&pid_path, 64 * 1024, true, "invalid daemon.pid") else {
+        return false;
+    };
+    let mut parser = JsonParser::new(&bytes);
+    let Ok(JsonValue::Object(fields)) = parser.parse_document() else {
+        return false;
+    };
+    let Some(pid) = fields.into_iter().find_map(|(k, v)| match (k.as_str(), v) {
+        ("pid", JsonValue::Number(num)) => num.parse::<u64>().ok(),
+        _ => None,
+    }) else {
+        return false;
+    };
+    let Ok(expected_meta) = std::fs::metadata(runtime_path) else {
+        return false;
+    };
+    let Ok(proc_meta) = std::fs::metadata(format!("/proc/{pid}/exe")) else {
+        return false;
+    };
+    proc_meta.dev() == expected_meta.dev() && proc_meta.ino() == expected_meta.ino()
+}
+
+fn run_daemon_subcommand(
+    loaded: &LoadedLocalGeneration,
+    roots: &LocalWrapperRoots,
+    process_env: &TermuxProcessEnvSnapshot,
+    codex_home: &Path,
+    subcommand: &str,
+    timeout: Duration,
+) -> Result<(Vec<u8>, std::process::ExitStatus), String> {
+    let map_err = |e: LocalProductError| e.to_string();
+    with_qualified_loaded_runtime(loaded, |assets| {
+        let selection = assets.selection();
+        let helpers = termux_browser_helper_paths(selection).map_err(|e| {
+            LocalProductError::LocalUpdate(if e.to_string().is_empty() {
+                "browser helper unavailable"
+            } else {
+                "qualified generation is missing required browser helper"
+            })
+        })?;
+        let env_plan = plan_termux_env(
+            process_env,
+            helpers,
+            roots.cert_file.as_os_str(),
+            Some(roots.cert_dir.as_os_str()),
+        )
+        .map_err(|_| LocalProductError::LocalUpdate("Termux environment unavailable"))?;
+        Ok(env_plan)
+    })
+    .map_err(map_err)
+    .and_then(|env_plan| {
+        prepare_wrapper_config(&roots.config_dir).map_err(|e| e.to_string())?;
+        let fds = RuntimeFdSources::open(&roots.resolver_path, &roots.config_dir)
+            .map_err(|e| e.to_string())?;
+        let (reader, writer) = proc_exec::nonblocking_output_pipe().map_err(|e| e.to_string())?;
+        let mut cmd = std::process::Command::new(&loaded.runtime_path);
+        cmd.args(["app-server", "daemon", subcommand]);
+        apply_child_env_plan_and_fence(&mut cmd, Some(&env_plan));
+        crate::timezone::configure(&mut cmd);
+        cmd.env("CODEX_HOME", codex_home)
+            .env_remove("CODEX_SHARED_HOME")
+            .env_remove("CODEX_SQLITE_HOME")
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::from(writer))
+            .stderr(std::process::Stdio::null());
+        proc_exec::isolate_process_group(&mut cmd);
+        fds.configure(&mut cmd);
+        let mut child = cmd.spawn().map_err(|e| e.to_string())?;
+        drop(cmd);
+        proc_exec::collect_bounded_output_and_wait(
+            &mut child,
+            reader,
+            timeout,
+            DAEMON_COMMAND_OUTPUT_MAX_BYTES,
+        )
+        .map_err(|err| match err {
+            proc_exec::OutputError::Io(e) => e.to_string(),
+            proc_exec::OutputError::TimedOut(_) => format!("daemon {subcommand} timed out"),
+            proc_exec::OutputError::OutputTooLarge(_) => {
+                format!("daemon {subcommand} output exceeded limit")
+            }
+        })
+    })
+}
+
+fn synchronize_managed_daemons(
+    generation_id: &str,
+    roots: &LocalWrapperRoots,
+    process_env: &TermuxProcessEnvSnapshot,
+    generation_changed: bool,
+    presentation: &mut UpdatePresentation,
+) -> (Vec<String>, Vec<String>) {
+    let mut notices = Vec::new();
+    let mut warnings = Vec::new();
+    let Ok(loaded) = load_local_generation(&roots.generation_root.join(generation_id)) else {
+        return (notices, warnings);
+    };
+    let Some(standalone_root) = roots.generation_root.parent() else {
+        return (notices, warnings);
+    };
+    let standalone_current = standalone_root.join("current");
+    let home_dir = std::env::var_os("HOME")
+        .filter(|v| !v.is_empty())
+        .map(PathBuf::from)
+        .or_else(|| roots.state_root.ancestors().nth(4).map(Path::to_path_buf));
+    let Some(home_dir) = home_dir else {
+        return (notices, warnings);
+    };
+    let active_version = loaded.manifest.upstream_package_version.as_str();
+    let homes = daemon_settings::candidate_daemon_homes(
+        &home_dir,
+        resolve_codex_home().as_deref(),
+        standalone_root,
+    );
+
+    for codex_home in homes {
+        if !daemon_settings::has_daemon_activity(&codex_home) {
+            continue;
+        }
+        if let Err(err) = daemon_settings::ensure(&codex_home) {
+            warnings.push(format!(
+                "codex update: warning: could not update daemon settings in {}: {err}",
+                codex_home.display()
+            ));
+            continue;
+        }
+        let link_changed = match daemon_settings::align_package_link_to_standalone(
+            &codex_home,
+            &standalone_current,
+            standalone_root,
+        ) {
+            Ok(changed) => changed,
+            Err(err) => {
+                warnings.push(format!(
+                    "codex update: warning: could not align daemon package link in {}: {err}",
+                    codex_home.display()
+                ));
+                continue;
+            }
+        };
+
+        if !daemon_settings::has_daemon_pid_file(&codex_home) {
+            if link_changed {
+                notices.push(format!(
+                    "Aligned managed daemon package link in {} -> {}.",
+                    codex_home.display(),
+                    standalone_current.display()
+                ));
+            }
+            continue;
+        }
+
+        let is_running = match run_daemon_subcommand(
+            &loaded,
+            roots,
+            process_env,
+            &codex_home,
+            "version",
+            DAEMON_VERSION_TIMEOUT,
+        ) {
+            Ok((out, status)) if status.success() => parse_daemon_version_json(&out),
+            _ => None,
+        };
+        let Some((status_label, running_version)) = is_running else {
+            if link_changed {
+                notices.push(format!(
+                    "Aligned managed daemon package link in {} -> {}.",
+                    codex_home.display(),
+                    standalone_current.display()
+                ));
+            }
+            continue;
+        };
+        if status_label != "running" {
+            if link_changed {
+                notices.push(format!(
+                    "Aligned managed daemon package link in {} -> {}.",
+                    codex_home.display(),
+                    standalone_current.display()
+                ));
+            }
+            continue;
+        }
+
+        let version_matches = running_version.as_deref() == Some(active_version);
+        let exe_matches = running_pid_matches_runtime(&codex_home, &loaded.runtime_path);
+        let needs_restart = generation_changed || link_changed || !version_matches || !exe_matches;
+        if !needs_restart {
+            continue;
+        }
+
+        presentation.transient(&format!(
+            "Restarting managed daemon in {} (Codex {active_version})...",
+            codex_home.display()
+        ));
+        match run_daemon_subcommand(
+            &loaded,
+            roots,
+            process_env,
+            &codex_home,
+            "restart",
+            DAEMON_RESTART_TIMEOUT,
+        ) {
+            Ok((_, status)) if status.success() => {
+                notices.push(format!(
+                    "Updated managed daemon in {} (Codex {active_version}).",
+                    codex_home.display()
+                ));
+            }
+            Ok((_, status)) => {
+                warnings.push(format!(
+                    "codex update: warning: failed to restart managed daemon in {} (exit {status})",
+                    codex_home.display()
+                ));
+            }
+            Err(err) => {
+                warnings.push(format!(
+                    "codex update: warning: failed to restart managed daemon in {}: {err}",
+                    codex_home.display()
+                ));
+            }
+        }
+    }
+    (notices, warnings)
+}
+
+fn print_daemon_sync_messages(notices: &[String], warnings: &[String]) {
+    for notice in notices {
+        println!("{notice}");
+    }
+    for warning in warnings {
+        eprintln!("{warning}");
+    }
+}
+
 pub(super) fn run_update_action(action: UpdateAction) -> i32 {
     if matches!(action, UpdateAction::Help) {
         print_update_usage();
@@ -1019,6 +1510,13 @@ pub(super) fn run_update_action(action: UpdateAction) -> i32 {
         }
         UpdateAction::Rollback => match run_rollback(&roots, &process_env, &mut presentation) {
             Ok(outcome) => {
+                let (notices, warnings) = synchronize_managed_daemons(
+                    &outcome.generation_id,
+                    &roots,
+                    &process_env,
+                    true,
+                    &mut presentation,
+                );
                 presentation.finish_rollback(
                     outcome
                         .previous_version
@@ -1027,6 +1525,7 @@ pub(super) fn run_update_action(action: UpdateAction) -> i32 {
                     &outcome.current_version,
                     &outcome.generation_id,
                 );
+                print_daemon_sync_messages(&notices, &warnings);
                 0
             }
             Err(err) => presentation.fail(&err),
@@ -1034,11 +1533,19 @@ pub(super) fn run_update_action(action: UpdateAction) -> i32 {
         UpdateAction::Path(path) => {
             match run_path_update(&path, &roots, &process_env, &mut presentation) {
                 Ok(outcome) => {
+                    let (notices, warnings) = synchronize_managed_daemons(
+                        &outcome.generation_id,
+                        &roots,
+                        &process_env,
+                        true,
+                        &mut presentation,
+                    );
                     presentation.finish_activated(
                         outcome.previous_version.as_deref(),
                         &outcome.current_version,
                         &outcome.generation_id,
                     );
+                    print_daemon_sync_messages(&notices, &warnings);
                     0
                 }
                 Err(err) => presentation.fail(&err),
@@ -1055,16 +1562,35 @@ pub(super) fn run_update_action(action: UpdateAction) -> i32 {
                 &process_env,
                 &mut presentation,
             ) {
-                Ok(UpstreamOutcome::AlreadyCurrent(version)) => {
+                Ok(UpstreamOutcome::AlreadyCurrent {
+                    generation_id,
+                    version,
+                }) => {
+                    let (notices, warnings) = synchronize_managed_daemons(
+                        &generation_id,
+                        &roots,
+                        &process_env,
+                        false,
+                        &mut presentation,
+                    );
                     presentation.finish_current(&version);
+                    print_daemon_sync_messages(&notices, &warnings);
                     0
                 }
                 Ok(UpstreamOutcome::Activated(outcome)) => {
+                    let (notices, warnings) = synchronize_managed_daemons(
+                        &outcome.generation_id,
+                        &roots,
+                        &process_env,
+                        true,
+                        &mut presentation,
+                    );
                     presentation.finish_activated(
                         outcome.previous_version.as_deref(),
                         &outcome.current_version,
                         &outcome.generation_id,
                     );
+                    print_daemon_sync_messages(&notices, &warnings);
                     0
                 }
                 Err(err) => presentation.fail(&err),
@@ -1077,7 +1603,7 @@ pub(super) fn run_update_action(action: UpdateAction) -> i32 {
 mod tests {
     use super::*;
     use crate::json::JsonParser as JsonCursor;
-    use crate::tests::{remove_temp_root, temp_root};
+    use crate::tests::{remove_temp_root, temp_root, test_process_env, write_sample_generation};
     use crate::upstream_metadata::{parse_official_release_metadata, OfficialReleaseMetadata};
     use std::fs;
     use std::os::unix::fs::PermissionsExt as _;
@@ -1313,7 +1839,7 @@ esac
         };
         assert!(matches!(
             update(false, &mut presentation),
-            Ok(UpstreamOutcome::AlreadyCurrent(_))
+            Ok(UpstreamOutcome::AlreadyCurrent { .. })
         ));
         let assert_download = |force, presentation: &mut UpdatePresentation| {
             assert!(matches!(
@@ -1646,6 +2172,245 @@ esac
             "0.169.1-abcdef-3"
         );
 
+        remove_temp_root(root);
+    }
+
+    #[test]
+    fn startup_update_check_uses_15_min_cache_and_honors_y_n_prompt() {
+        let root = temp_root("startup-prompt-cache");
+        let roots = setup_update_test_roots(&root);
+        let gen1 = root.join("src-1.2.3");
+        write_sample_generation(&gen1, "1.2.3-aaaaaa", false);
+        let env = test_process_env(&roots);
+        let mut presentation = UpdatePresentation::new();
+        install_built_generation_dir(&gen1, &roots, &env, None, None, &mut presentation).unwrap();
+
+        let sha = "b".repeat(64);
+        // 1. Fresh cache with same version (1.2.3) -> no network fetch, no prompt, no update.
+        write_update_check_cache(&roots.state_root, 1000, "1.2.3", &sha);
+        let mut input = &b"y\n"[..];
+        let mut err_out = Vec::new();
+        let mut fetch_called = false;
+        let mut update_called = false;
+        let updated = check_and_prompt_bare_launch(
+            &roots,
+            1000 + UPDATE_CHECK_CACHE_TTL_SECS - 1,
+            &mut input,
+            &mut err_out,
+            |_| {
+                fetch_called = true;
+                None
+            },
+            || {
+                update_called = true;
+                0
+            },
+        );
+        assert!(!updated && !fetch_called && !update_called);
+        assert!(err_out.is_empty());
+
+        // 2. Expired cache (>= 900s) fetches latest (1.3.0), prompts [y/N], and empty input defaults to No.
+        let mut input = &b"\n"[..];
+        let mut err_out = Vec::new();
+        let mut fetch_called = false;
+        let mut update_called = false;
+        let updated = check_and_prompt_bare_launch(
+            &roots,
+            1000 + UPDATE_CHECK_CACHE_TTL_SECS,
+            &mut input,
+            &mut err_out,
+            |_| {
+                fetch_called = true;
+                Some(OfficialReleaseMetadata {
+                    version: "1.3.0".to_owned(),
+                    package_sha256: sha.clone(),
+                })
+            },
+            || {
+                update_called = true;
+                0
+            },
+        );
+        assert!(!updated && fetch_called && !update_called);
+        let prompt_str = String::from_utf8_lossy(&err_out);
+        assert!(
+            prompt_str.contains("Codex update available: 1.2.3 -> 1.3.0. Update now? [y/N] "),
+            "{prompt_str}"
+        );
+
+        // 3. Subsequent launch within 15 minutes hits cache (no fetch), prompts, and 'y' runs update.
+        let mut input = &b"y\n"[..];
+        let mut err_out = Vec::new();
+        let mut fetch_called = false;
+        let mut update_called = false;
+        let updated = check_and_prompt_bare_launch(
+            &roots,
+            1000 + UPDATE_CHECK_CACHE_TTL_SECS + 30,
+            &mut input,
+            &mut err_out,
+            |_| {
+                fetch_called = true;
+                None
+            },
+            || {
+                update_called = true;
+                0
+            },
+        );
+        assert!(updated && !fetch_called && update_called);
+
+        // 4. Failed update logs warning and returns false so launch continues with existing version.
+        let mut input = &b"yes\n"[..];
+        let mut err_out = Vec::new();
+        let updated = check_and_prompt_bare_launch(
+            &roots,
+            1000 + UPDATE_CHECK_CACHE_TTL_SECS + 60,
+            &mut input,
+            &mut err_out,
+            |_| None,
+            || 1,
+        );
+        assert!(!updated);
+        assert!(String::from_utf8_lossy(&err_out).contains("continuing with Codex 1.2.3"));
+
+        remove_temp_root(root);
+    }
+
+    #[test]
+    fn synchronize_managed_daemons_aligns_links_and_restarts_running_daemons_across_homes() {
+        let root = temp_root("sync-daemons");
+        let home = root.join("home");
+        let prefix = root.join("prefix");
+        fs::create_dir_all(prefix.join("bin")).unwrap();
+        fs::create_dir_all(prefix.join("etc/tls/certs")).unwrap();
+        fs::write(prefix.join("etc/resolv.conf"), b"nameserver 1.1.1.1\n").unwrap();
+        fs::write(prefix.join("etc/tls/cert.pem"), b"").unwrap();
+        fs::write(prefix.join("bin/curl"), b"#!/bin/sh\nexit 0\n").unwrap();
+        fs::set_permissions(prefix.join("bin/curl"), fs::Permissions::from_mode(0o755)).unwrap();
+
+        let _guard = crate::tests::EnvRestoreGuard::new(&[
+            ("HOME", Some(&home)),
+            ("PREFIX", Some(&prefix)),
+            ("TMPDIR", Some(&root)),
+            ("CODEX_HOME", None),
+        ]);
+        let roots = LocalWrapperRoots::from_environment().unwrap();
+        ensure_writable_roots(&roots).unwrap();
+
+        let default_home = home.join(".codex");
+        let prof_running = home.join(".local/share/codex/manager/profiles/janmori101/home");
+        let prof_unused = home.join(".local/share/codex/manager/profiles/unused/home");
+        for dir in [&default_home, &prof_running, &prof_unused] {
+            crate::tests::create_private_test_dirs(dir);
+        }
+
+        let shell = if Path::new("/system/bin/sh").is_file() {
+            "/system/bin/sh"
+        } else {
+            "/bin/sh"
+        };
+        let restart_log = root.join("restarted.log");
+        let gen_src = root.join("src-gen");
+        write_sample_generation(&gen_src, "1.2.3-aaaaaa", false);
+        fs::write(
+            gen_src.join("bin/codex"),
+            format!(
+                r#"#!{shell}
+if [ "$1" = --version ]; then
+    echo "codex-cli 1.2.3"
+    exit 0
+fi
+if [ "$1" = features ] && [ "$2" = list ]; then
+    exit 0
+fi
+if [ "$1" = app-server ] && [ "$2" = daemon ] && [ "$3" = version ]; then
+    echo '{{"status":"running","appServerVersion":"1.2.2"}}'
+    exit 0
+fi
+if [ "$1" = app-server ] && [ "$2" = daemon ] && [ "$3" = restart ]; then
+    printf '%s\n' "$CODEX_HOME" >> '{}'
+    exit 0
+fi
+exit 0
+"#,
+                restart_log.display()
+            ),
+        )
+        .unwrap();
+        fs::set_permissions(gen_src.join("bin/codex"), fs::Permissions::from_mode(0o755)).unwrap();
+        let new_digest = sha256_regular_file(&gen_src.join("bin/codex")).unwrap();
+        let meta_path = gen_src.join("generation.meta");
+        let meta = fs::read_to_string(&meta_path).unwrap();
+        let updated_meta: String = meta
+            .lines()
+            .map(|line| {
+                if line.starts_with("runtime_digest\t") {
+                    format!("runtime_digest\t{new_digest}\n")
+                } else {
+                    format!("{line}\n")
+                }
+            })
+            .collect();
+        fs::write(&meta_path, updated_meta).unwrap();
+
+        // Default home has a pinned local release link + running daemon.pid
+        let local_pin = default_home.join("packages/app-server-daemon/releases/local-old");
+        fs::create_dir_all(&local_pin).unwrap();
+        std::os::unix::fs::symlink(
+            &local_pin,
+            default_home.join("packages/app-server-daemon/current"),
+        )
+        .unwrap();
+        fs::create_dir_all(default_home.join("app-server-daemon")).unwrap();
+        fs::write(
+            default_home.join("app-server-daemon/daemon.pid"),
+            b"{\"pid\":999999}",
+        )
+        .unwrap();
+
+        // Profile janmori101 has standalone/current link + running daemon.pid
+        let standalone_current = home.join(".codex/packages/standalone/current");
+        fs::create_dir_all(prof_running.join("packages/app-server-daemon")).unwrap();
+        std::os::unix::fs::symlink(
+            &standalone_current,
+            prof_running.join("packages/app-server-daemon/current"),
+        )
+        .unwrap();
+        fs::create_dir_all(prof_running.join("app-server-daemon")).unwrap();
+        fs::write(
+            prof_running.join("app-server-daemon/daemon.pid"),
+            b"{\"pid\":999998}",
+        )
+        .unwrap();
+
+        let env = capture_termux_process_env();
+        let mut presentation = UpdatePresentation::new();
+        let outcome =
+            install_built_generation_dir(&gen_src, &roots, &env, None, None, &mut presentation)
+                .unwrap();
+        let (notices, warnings) = synchronize_managed_daemons(
+            &outcome.generation_id,
+            &roots,
+            &env,
+            true,
+            &mut presentation,
+        );
+        assert!(warnings.is_empty(), "{warnings:?}");
+        assert_eq!(notices.len(), 2, "{notices:?}");
+        assert_eq!(
+            fs::read_link(default_home.join("packages/app-server-daemon/current")).unwrap(),
+            standalone_current
+        );
+        assert_eq!(
+            fs::read_link(prof_running.join("packages/app-server-daemon/current")).unwrap(),
+            standalone_current
+        );
+        assert!(!prof_unused.join("packages").exists());
+        let restarted = fs::read_to_string(&restart_log).unwrap();
+        assert!(restarted.contains(&default_home.display().to_string()));
+        assert!(restarted.contains(&prof_running.display().to_string()));
+
+        drop(_guard);
         remove_temp_root(root);
     }
 }
