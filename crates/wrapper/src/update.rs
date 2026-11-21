@@ -1250,7 +1250,10 @@ impl UpdateSuccess {
                 &outcome.current_version,
                 &outcome.generation_id,
             ),
-            UpdateSuccess::AlreadyCurrent { version, .. } => presentation.finish_current(version),
+            UpdateSuccess::AlreadyCurrent {
+                generation_id,
+                version,
+            } => presentation.finish_current(version, generation_id),
             UpdateSuccess::RolledBack(outcome) => presentation.finish_rollback(
                 outcome
                     .previous_version
@@ -1304,8 +1307,8 @@ fn execute_mutating_update(
 }
 
 fn print_daemon_sync_report(report: &daemon_sync::DaemonSyncReport) {
-    if let Some(summary) = report.summary_line() {
-        println!("{summary}");
+    for line in report.summary_lines() {
+        println!("{line}");
     }
     for warning in report.warnings() {
         eprintln!("{warning}");

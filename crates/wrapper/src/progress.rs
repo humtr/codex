@@ -401,9 +401,9 @@ impl UpdatePresentation {
         }
     }
 
-    pub(super) fn finish_current(&mut self, current_version: &str) {
+    pub(super) fn finish_current(&mut self, current_version: &str, generation_id: &str) {
         self.clear_transient();
-        println!("Codex {current_version} is already up to date.");
+        println!("Codex {current_version} is already up to date (generation {generation_id}).");
     }
 
     pub(super) fn finish_rollback(

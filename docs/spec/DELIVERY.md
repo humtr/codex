@@ -1218,12 +1218,14 @@ the active generation. `update --check` performs read-only release inspection.
   `codex update` process, Wrapper aligns its non-legacy package link without
   terminating its own parent daemon and defers that restart with a warning so
   other homes finish and the caller receives the full result. Normal completion
-  prints a concise summary distinguishing restarted, link-aligned,
-  already-current, deferred, and failed homes using short profile names
-  (`default`, manager profile names, or custom `$CODEX_HOME` paths). Each
-  failure or deferred restart is reported as a warning on stderr identifying
-  the profile, full home path, and cause; activation remains committed, exit
-  status stays `0`, and synchronization proceeds for other homes.
+  prints the active generation and a hierarchical per-profile daemon summary
+  under the shared runtime distinguishing restarted (with version transition),
+  link-aligned, already up to date, deferred, and failed homes using short
+  profile names (`default`, manager profile names, or custom `$CODEX_HOME`
+  paths). Each failure or deferred restart is reported as a warning on stderr
+  identifying the profile, full home path, and cause; activation remains
+  committed, exit status stays `0`, and synchronization proceeds for other
+  homes.
 
 ### Stage 2 optional signed Wrapper/addon channels and bootstrap trust (Phase 2.2, deferred)
 

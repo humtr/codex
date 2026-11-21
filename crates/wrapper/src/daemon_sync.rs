@@ -27,96 +27,61 @@ const VERSION_TIMEOUT: Duration = Duration::from_secs(15);
 const STOP_TIMEOUT: Duration = Duration::from_secs(350);
 const START_TIMEOUT: Duration = Duration::from_secs(45);
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct DaemonHomeEntry {
+    label: String,
+    outcome: DaemonHomeOutcome,
+}
+
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub(super) struct DaemonSyncReport {
-    restarted: Vec<String>,
-    aligned: Vec<String>,
-    already_current: Vec<String>,
-    deferred: Vec<String>,
-    failed: Vec<String>,
+    active_version: String,
+    entries: Vec<DaemonHomeEntry>,
     warnings: Vec<String>,
 }
 
 impl DaemonSyncReport {
-    pub(super) fn summary_line(&self) -> Option<String> {
-        let mut parts = Vec::new();
-        if !self.restarted.is_empty() {
-            parts.push(format!(
-                "restarted {} ({})",
-                self.restarted.len(),
-                self.restarted.join(", ")
-            ));
+    pub(super) fn summary_lines(&self) -> Vec<String> {
+        if self.entries.is_empty() {
+            return Vec::new();
         }
-        if !self.aligned.is_empty() {
-            let noun = if self.aligned.len() == 1 {
-                "link"
+        let mut lines = Vec::with_capacity(self.entries.len() + 1);
+        lines.push("  └─ daemons (shared runtime)".to_owned());
+        let last_index = self.entries.len() - 1;
+        for (idx, entry) in self.entries.iter().enumerate() {
+            let branch = if idx == last_index {
+                "     └─ "
             } else {
-                "links"
+                "     ├─ "
             };
-            parts.push(format!(
-                "aligned {} {noun} ({})",
-                self.aligned.len(),
-                self.aligned.join(", ")
-            ));
-        }
-        if !self.already_current.is_empty() {
-            parts.push(format!(
-                "{} already current ({})",
-                self.already_current.len(),
-                self.already_current.join(", ")
-            ));
-        }
-        if !self.deferred.is_empty() {
-            parts.push(format!(
-                "{} deferred ({})",
-                self.deferred.len(),
-                self.deferred.join(", ")
-            ));
-        }
-        if !self.failed.is_empty() {
-            parts.push(format!(
-                "{} failed ({})",
-                self.failed.len(),
-                self.failed.join(", ")
-            ));
-        }
-        match parts.len() {
-            0 => None,
-            1 => {
-                if !self.restarted.is_empty() {
-                    let n = self.restarted.len();
-                    let noun = if n == 1 { "daemon" } else { "daemons" };
-                    Some(format!(
-                        "Restarted {n} managed {noun} ({}).",
-                        self.restarted.join(", ")
-                    ))
-                } else if !self.aligned.is_empty() {
-                    let n = self.aligned.len();
-                    let noun = if n == 1 { "link" } else { "links" };
-                    Some(format!(
-                        "Aligned {n} managed daemon {noun} ({}).",
-                        self.aligned.join(", ")
-                    ))
-                } else if !self.already_current.is_empty() {
-                    let n = self.already_current.len();
-                    let noun = if n == 1 { "daemon" } else { "daemons" };
-                    Some(format!(
-                        "{n} managed {noun} already current ({}).",
-                        self.already_current.join(", ")
-                    ))
-                } else if !self.deferred.is_empty() {
-                    let n = self.deferred.len();
-                    let noun = if n == 1 { "daemon" } else { "daemons" };
-                    Some(format!(
-                        "Deferred restarting {n} managed {noun} ({}).",
-                        self.deferred.join(", ")
-                    ))
-                } else {
-                    Some(format!("Managed daemons: {}.", parts[0]))
+            let detail = match &entry.outcome {
+                DaemonHomeOutcome::Restarted { previous_version } => match previous_version {
+                    Some(prev) if prev != &self.active_version => {
+                        format!("{prev} -> {} (restarted)", self.active_version)
+                    }
+                    _ => format!("{} (restarted)", self.active_version),
+                },
+                DaemonHomeOutcome::AlreadyCurrent => {
+                    format!("{} (up to date)", self.active_version)
                 }
-            }
-            _ => Some(format!("Managed daemons: {}.", parts.join("; "))),
+                DaemonHomeOutcome::LinkAligned { running: true } => {
+                    format!("{} (up to date, link aligned)", self.active_version)
+                }
+                DaemonHomeOutcome::LinkAligned { running: false } => {
+                    "link aligned (stopped)".to_owned()
+                }
+                DaemonHomeOutcome::DeferredSelf {
+                    previous_version, ..
+                } => match previous_version {
+                    Some(prev) => format!("{prev} (deferred: current session)"),
+                    None => "deferred (current session)".to_owned(),
+                },
+                DaemonHomeOutcome::Failed => "failed (see warning)".to_owned(),
+                DaemonHomeOutcome::UnchangedStopped => continue,
+            };
+            lines.push(format!("{branch}{}: {detail}", entry.label));
         }
+        lines
     }
 
     pub(super) fn warnings(&self) -> &[String] {
@@ -126,11 +91,19 @@ impl DaemonSyncReport {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum DaemonHomeOutcome {
-    Restarted,
-    LinkAligned,
+    Restarted {
+        previous_version: Option<String>,
+    },
+    LinkAligned {
+        running: bool,
+    },
     AlreadyCurrent,
     UnchangedStopped,
-    DeferredSelf { link_aligned: bool },
+    DeferredSelf {
+        previous_version: Option<String>,
+        link_aligned: bool,
+    },
+    Failed,
 }
 
 fn json_fields(bytes: &[u8]) -> Option<BTreeMap<String, JsonValue>> {
@@ -412,7 +385,7 @@ impl DaemonUpdate<'_> {
 
         let Some(live) = find_live_pid(home)? else {
             return Ok(if align(&package)? {
-                DaemonHomeOutcome::LinkAligned
+                DaemonHomeOutcome::LinkAligned { running: false }
             } else {
                 DaemonHomeOutcome::UnchangedStopped
             });
@@ -437,12 +410,13 @@ impl DaemonUpdate<'_> {
             );
         }
         let active_version = self.loaded.manifest.upstream_package_version.as_str();
+        let previous_version = string_field(&version, "appServerVersion").map(str::to_owned);
         if !live.legacy()
             && live.matches(&self.exe)
-            && string_field(&version, "appServerVersion") == Some(active_version)
+            && previous_version.as_deref() == Some(active_version)
         {
             return Ok(if align(&package)? {
-                DaemonHomeOutcome::LinkAligned
+                DaemonHomeOutcome::LinkAligned { running: true }
             } else {
                 DaemonHomeOutcome::AlreadyCurrent
             });
@@ -456,7 +430,10 @@ impl DaemonUpdate<'_> {
             } else {
                 align(&package)?
             };
-            return Ok(DaemonHomeOutcome::DeferredSelf { link_aligned });
+            return Ok(DaemonHomeOutcome::DeferredSelf {
+                previous_version,
+                link_aligned,
+            });
         }
 
         let original_env = live.launch_env()?;
@@ -487,7 +464,7 @@ impl DaemonUpdate<'_> {
         drop(lock);
         if status == Some("notRunning") {
             return Ok(if changed {
-                DaemonHomeOutcome::LinkAligned
+                DaemonHomeOutcome::LinkAligned { running: false }
             } else {
                 DaemonHomeOutcome::UnchangedStopped
             });
@@ -522,7 +499,7 @@ impl DaemonUpdate<'_> {
                 "stopped old daemon, but startup did not confirm the active executable and version (run `codex app-server daemon start` in this profile)".into(),
             );
         }
-        Ok(DaemonHomeOutcome::Restarted)
+        Ok(DaemonHomeOutcome::Restarted { previous_version })
     }
 }
 
@@ -550,6 +527,7 @@ pub(super) fn synchronize(
             return report;
         }
     };
+    report.active_version = loaded.manifest.upstream_package_version.clone();
     let standalone = roots
         .generation_root
         .parent()
@@ -575,12 +553,12 @@ pub(super) fn synchronize(
             let label = daemon_settings::daemon_home_label(home, &candidate);
             let short = label.short_name().to_owned();
             match update.sync_home(&candidate, &label, presentation) {
-                Ok(DaemonHomeOutcome::Restarted) => report.restarted.push(short),
-                Ok(DaemonHomeOutcome::LinkAligned) => report.aligned.push(short),
-                Ok(DaemonHomeOutcome::AlreadyCurrent) => report.already_current.push(short),
                 Ok(DaemonHomeOutcome::UnchangedStopped) => {}
-                Ok(DaemonHomeOutcome::DeferredSelf { link_aligned }) => {
-                    report.deferred.push(short);
+                Ok(outcome @ DaemonHomeOutcome::DeferredSelf { link_aligned, .. }) => {
+                    report.entries.push(DaemonHomeEntry {
+                        label: short,
+                        outcome,
+                    });
                     let detail = if link_aligned {
                         "package link aligned for next start; "
                     } else {
@@ -591,8 +569,17 @@ pub(super) fn synchronize(
                         label.warning_target(&candidate)
                     ));
                 }
+                Ok(outcome) => {
+                    report.entries.push(DaemonHomeEntry {
+                        label: short,
+                        outcome,
+                    });
+                }
                 Err(err) => {
-                    report.failed.push(short);
+                    report.entries.push(DaemonHomeEntry {
+                        label: short,
+                        outcome: DaemonHomeOutcome::Failed,
+                    });
                     report.warnings.push(format!(
                         "codex update: warning: managed daemon sync failed for {}: {err}",
                         label.warning_target(&candidate)
@@ -609,58 +596,100 @@ mod tests {
     use super::*;
 
     #[test]
-    fn summary_formats_single_and_mixed_daemon_outcomes_concisely() {
-        assert_eq!(DaemonSyncReport::default().summary_line(), None);
+    fn summary_formats_per_profile_tree_for_all_daemon_outcomes() {
+        assert!(DaemonSyncReport::default().summary_lines().is_empty());
 
-        let restarted_one = DaemonSyncReport {
-            restarted: vec!["default".into()],
-            ..Default::default()
-        };
-        assert_eq!(
-            restarted_one.summary_line().as_deref(),
-            Some("Restarted 1 managed daemon (default).")
-        );
-
-        let restarted_three = DaemonSyncReport {
-            restarted: vec!["default".into(), "janmori101".into(), "szob".into()],
-            ..Default::default()
-        };
-        assert_eq!(
-            restarted_three.summary_line().as_deref(),
-            Some("Restarted 3 managed daemons (default, janmori101, szob).")
-        );
-
-        let aligned = DaemonSyncReport {
-            aligned: vec!["stale".into()],
-            ..Default::default()
-        };
-        assert_eq!(
-            aligned.summary_line().as_deref(),
-            Some("Aligned 1 managed daemon link (stale).")
-        );
-
-        let current = DaemonSyncReport {
-            already_current: vec!["default".into(), "janmori101".into(), "szob".into()],
-            ..Default::default()
-        };
-        assert_eq!(
-            current.summary_line().as_deref(),
-            Some("3 managed daemons already current (default, janmori101, szob).")
-        );
-
-        let mixed = DaemonSyncReport {
-            restarted: vec!["default".into(), "janmori101".into()],
-            aligned: vec!["stale".into()],
-            already_current: vec!["szob".into()],
-            deferred: vec!["self".into()],
-            failed: vec!["conflict".into()],
+        let upgraded_three = DaemonSyncReport {
+            active_version: "0.171.0".into(),
+            entries: vec![
+                DaemonHomeEntry {
+                    label: "default".into(),
+                    outcome: DaemonHomeOutcome::Restarted {
+                        previous_version: Some("0.170.0".into()),
+                    },
+                },
+                DaemonHomeEntry {
+                    label: "janmori101".into(),
+                    outcome: DaemonHomeOutcome::Restarted {
+                        previous_version: Some("0.170.0".into()),
+                    },
+                },
+                DaemonHomeEntry {
+                    label: "szob".into(),
+                    outcome: DaemonHomeOutcome::Restarted {
+                        previous_version: Some("0.170.0".into()),
+                    },
+                },
+            ],
             warnings: Vec::new(),
         };
         assert_eq!(
-            mixed.summary_line().as_deref(),
-            Some(
-                "Managed daemons: restarted 2 (default, janmori101); aligned 1 link (stale); 1 already current (szob); 1 deferred (self); 1 failed (conflict)."
-            )
+            upgraded_three.summary_lines(),
+            vec![
+                "  └─ daemons (shared runtime)",
+                "     ├─ default: 0.170.0 -> 0.171.0 (restarted)",
+                "     ├─ janmori101: 0.170.0 -> 0.171.0 (restarted)",
+                "     └─ szob: 0.170.0 -> 0.171.0 (restarted)",
+            ]
+        );
+
+        let single_up_to_date = DaemonSyncReport {
+            active_version: "0.171.0".into(),
+            entries: vec![DaemonHomeEntry {
+                label: "default".into(),
+                outcome: DaemonHomeOutcome::AlreadyCurrent,
+            }],
+            warnings: Vec::new(),
+        };
+        assert_eq!(
+            single_up_to_date.summary_lines(),
+            vec![
+                "  └─ daemons (shared runtime)",
+                "     └─ default: 0.171.0 (up to date)",
+            ]
+        );
+
+        let mixed = DaemonSyncReport {
+            active_version: "0.171.0".into(),
+            entries: vec![
+                DaemonHomeEntry {
+                    label: "default".into(),
+                    outcome: DaemonHomeOutcome::DeferredSelf {
+                        previous_version: Some("0.170.0".into()),
+                        link_aligned: false,
+                    },
+                },
+                DaemonHomeEntry {
+                    label: "janmori101".into(),
+                    outcome: DaemonHomeOutcome::Restarted {
+                        previous_version: Some("0.171.0".into()),
+                    },
+                },
+                DaemonHomeEntry {
+                    label: "szob".into(),
+                    outcome: DaemonHomeOutcome::LinkAligned { running: false },
+                },
+                DaemonHomeEntry {
+                    label: "aligned-live".into(),
+                    outcome: DaemonHomeOutcome::LinkAligned { running: true },
+                },
+                DaemonHomeEntry {
+                    label: "conflict".into(),
+                    outcome: DaemonHomeOutcome::Failed,
+                },
+            ],
+            warnings: Vec::new(),
+        };
+        assert_eq!(
+            mixed.summary_lines(),
+            vec![
+                "  └─ daemons (shared runtime)",
+                "     ├─ default: 0.170.0 (deferred: current session)",
+                "     ├─ janmori101: 0.171.0 (restarted)",
+                "     ├─ szob: link aligned (stopped)",
+                "     ├─ aligned-live: 0.171.0 (up to date, link aligned)",
+                "     └─ conflict: failed (see warning)",
+            ]
         );
     }
 
