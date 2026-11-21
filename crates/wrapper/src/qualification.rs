@@ -132,7 +132,6 @@ pub(super) fn probe(
     let selection = assets.selection();
     let env = plan_termux_env(
         process_env,
-        selection.generation_dir,
         termux_browser_helper_paths(selection)
             .map_err(|_| rejected("candidate browser environment unavailable"))?,
         roots.cert_file.as_os_str(),
@@ -189,14 +188,7 @@ mod tests {
             inherited_ssl_cert_file: None,
             inherited_ssl_cert_dir: None,
         };
-        let env = plan_termux_env(
-            &process_env,
-            root.as_os_str(),
-            None,
-            OsStr::new("/cert.pem"),
-            None,
-        )
-        .unwrap();
+        let env = plan_termux_env(&process_env, None, OsStr::new("/cert.pem"), None).unwrap();
         let fds = RuntimeFdSources::open(&resolver, &config).unwrap();
         let mut probe = Probe {
             program: program.as_os_str(),

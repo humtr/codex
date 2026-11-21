@@ -407,7 +407,7 @@ fn required_process_env<'a>(
     Ok(value)
 }
 
-pub(super) fn valid_path_component(value: &OsStr) -> bool {
+fn valid_path_component(value: &OsStr) -> bool {
     let bytes = value.as_bytes();
     !bytes.is_empty() && !bytes.contains(&0) && !bytes.contains(&b':')
 }
@@ -423,7 +423,6 @@ fn valid_browser_helper_path(value: &OsStr) -> bool {
 
 pub(super) fn plan_termux_env(
     snapshot: &TermuxProcessEnvSnapshot,
-    generation_dir: &OsStr,
     browser_helpers: Option<(&OsStr, &OsStr)>,
     cert_file: &OsStr,
     cert_dir: Option<&OsStr>,
@@ -434,11 +433,6 @@ pub(super) fn plan_termux_env(
     let prefix = required_process_env(&snapshot.prefix, "PREFIX")?;
     let temp_dir = required_process_env(&snapshot.tmpdir, "TMPDIR")?;
     let prefix_bin = PathBuf::from(prefix).join("bin");
-    if !valid_path_component(generation_dir) {
-        return Err(TermuxProcessEnvError::InvalidPathComponent(
-            "generation_dir",
-        ));
-    }
     if !valid_path_component(prefix_bin.as_os_str()) {
         return Err(TermuxProcessEnvError::InvalidPathComponent("prefix_bin"));
     }
@@ -455,19 +449,22 @@ pub(super) fn plan_termux_env(
         }
     }
 
+    // Keep `$PREFIX/bin` ahead of inherited PATH so bare `codex` always enters
+    // the Wrapper (even when inheriting a stale generation directory), without
+    // adding the active generation root (upstream resolves `bin/*`,
+    // `codex-path/`, and `codex-resources/` from its own executable path).
+    let prefix_bin_bytes = prefix_bin.as_os_str().as_bytes();
     let inherited_path = snapshot.inherited_path.as_deref().unwrap_or_default();
-    let mut path = Vec::with_capacity(
-        generation_dir.as_bytes().len()
-            + prefix_bin.as_os_str().as_bytes().len()
-            + inherited_path.as_bytes().len()
-            + 2,
-    );
-    path.extend_from_slice(generation_dir.as_bytes());
-    path.push(b':');
-    path.extend_from_slice(prefix_bin.as_os_str().as_bytes());
+    let mut path = Vec::with_capacity(prefix_bin_bytes.len() + inherited_path.as_bytes().len() + 1);
+    path.extend_from_slice(prefix_bin_bytes);
     if !inherited_path.is_empty() {
-        path.push(b':');
-        path.extend_from_slice(inherited_path.as_bytes());
+        for segment in inherited_path.as_bytes().split(|&b| b == b':') {
+            if segment == prefix_bin_bytes {
+                continue;
+            }
+            path.push(b':');
+            path.extend_from_slice(segment);
+        }
     }
 
     let mut assignments = Vec::with_capacity(11);
@@ -623,16 +620,11 @@ fn launch_upstream_runtime_with_plan(
         Ok(paths) => paths,
         Err(err) => return RuntimeLaunchError::Environment(err),
     };
-    let env_plan = match plan_termux_env(
-        process_env,
-        selection.generation_dir,
-        browser_helpers,
-        host.cert_file,
-        host.cert_dir,
-    ) {
-        Ok(plan) => plan,
-        Err(err) => return RuntimeLaunchError::Environment(err),
-    };
+    let env_plan =
+        match plan_termux_env(process_env, browser_helpers, host.cert_file, host.cert_dir) {
+            Ok(plan) => plan,
+            Err(err) => return RuntimeLaunchError::Environment(err),
+        };
 
     let mut sqlite_home_override = None;
     if !scan.help_or_version {
@@ -853,7 +845,6 @@ mod tests {
         };
         let plan = plan_termux_env(
             &snap,
-            OsStr::new("/gen"),
             Some((
                 OsStr::new("/gen/browser/open/curl"),
                 OsStr::new("/gen/browser/manual/curl"),
@@ -868,6 +859,10 @@ mod tests {
                 .find(|(ak, _)| ak == k)
                 .map(|(_, av)| av.to_string_lossy().into_owned())
         };
+        assert_eq!(
+            get("PATH").as_deref(),
+            Some("/data/data/com.termux/files/usr/bin:/system/bin")
+        );
         assert_eq!(
             get("TMPDIR").as_deref(),
             Some("/data/data/com.termux/files/usr/tmp")
@@ -885,5 +880,45 @@ mod tests {
             .unwrap()
             .contains("/gen/browser/open/curl %s:"));
         assert!(plan.removals.contains(&OsString::from("WSL_DISTRO_NAME")));
+    }
+
+    #[test]
+    fn plan_termux_env_places_prefix_bin_first_and_deduplicates_without_generation_root() {
+        let cases: &[(Option<&[u8]>, &[u8])] = &[
+            (None, b"/prefix/bin"),
+            (Some(b""), b"/prefix/bin"),
+            (Some(b"/prefix/bin"), b"/prefix/bin"),
+            (
+                Some(b"/prefix/bin:/system/bin"),
+                b"/prefix/bin:/system/bin",
+            ),
+            (
+                Some(b"/home/.codex/packages/standalone/releases/0.170.0-3f7e1a:/prefix/bin:/system/bin"),
+                b"/prefix/bin:/home/.codex/packages/standalone/releases/0.170.0-3f7e1a:/system/bin",
+            ),
+            (
+                Some(b"/prefix/bin:/custom/\xff/bin:/prefix/bin:/system/bin"),
+                b"/prefix/bin:/custom/\xff/bin:/system/bin",
+            ),
+        ];
+        for (inherited, expected) in cases {
+            let snap = TermuxProcessEnvSnapshot {
+                wsl_kernel: Some(false),
+                prefix: Some(OsString::from("/prefix")),
+                tmpdir: Some(OsString::from("/prefix/tmp")),
+                inherited_path: inherited.map(|b| OsString::from_vec(b.to_vec())),
+                inherited_ssl_cert_file: None,
+                inherited_ssl_cert_dir: None,
+            };
+            let plan =
+                plan_termux_env(&snap, None, OsStr::new("/prefix/etc/tls/cert.pem"), None).unwrap();
+            let path = plan
+                .assignments
+                .iter()
+                .find(|(k, _)| k == "PATH")
+                .map(|(_, v)| v.as_os_str().as_bytes())
+                .unwrap();
+            assert_eq!(path, *expected);
+        }
     }
 }

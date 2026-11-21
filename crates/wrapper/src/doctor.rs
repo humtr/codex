@@ -643,13 +643,7 @@ where
     let mut use_color = options.use_color;
     let selection = assets.selection();
     let browser_helpers = termux_browser_helper_paths(selection)?;
-    let env_plan = plan_termux_env(
-        process_env,
-        selection.generation_dir,
-        browser_helpers,
-        cert_file,
-        cert_dir,
-    )?;
+    let env_plan = plan_termux_env(process_env, browser_helpers, cert_file, cert_dir)?;
     let sqlite_home_override = inspect_shared_home_from_env().map_err(|err| {
         QualifiedUpstreamDoctorProbeError::WrapperPreparation(format!(
             "wrapper shared-home inspection failed: {err}"

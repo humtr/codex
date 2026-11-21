@@ -350,8 +350,18 @@ class Qualification:
                                            "cwd": str(self.workspace), "timeoutMs": 5000})
             if result["exitCode"] != 0 or result["stdout"] != nonce or proof.read_bytes() != (nonce + "\n").encode():
                 raise RuntimeError("Native command did not produce the requested independent file effect")
+            path_probe = "command -v codex; codex wrapper status --json; codex update --help"
+            path_result = rpc(4, "command/exec", {"command": [str(self.prefix / "bin/sh"), "-c", path_probe],
+                                                  "cwd": str(self.workspace), "timeoutMs": 8000})
+            if path_result["exitCode"] != 0:
+                raise RuntimeError(f"Native child shell Wrapper dispatch failed: {path_result}")
+            lines = path_result["stdout"].splitlines()
+            if (len(lines) < 3 or lines[0] != str(self.binary)
+                    or json.loads(lines[1]).get("codex_home") != str(self.codex_home)
+                    or not any("--rollback" in line for line in lines[2:])):
+                raise RuntimeError(f"Native child shell resolved unexpected codex entrypoint: {lines[:3]}")
             self.report["native_rpc"] = {"initialize": True, "config_read": True, "command_exec": True,
-                                          "file_sha256": digest(proof)}
+                                          "native_shell_codex": lines[0], "file_sha256": digest(proof)}
         finally:
             server.stdin.close()
             try:

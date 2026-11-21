@@ -3,7 +3,7 @@ use crate::fs_util::{
     self, ensure_real_directory, ensure_real_directory_if_present, ensure_regular_file,
     read_bounded_regular_file,
 };
-use crate::runtime_env::{valid_path_component, TermuxProcessEnvError, TermuxProcessEnvSnapshot};
+use crate::runtime_env::{TermuxProcessEnvError, TermuxProcessEnvSnapshot};
 use crate::state::generation_state;
 use std::collections::BTreeMap;
 use std::ffi::OsStr;
@@ -168,7 +168,6 @@ pub(super) struct HelperAssetBinding<'a> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct RuntimeAssetSelection<'a> {
     pub(super) runtime: RuntimeAssetBinding<'a>,
-    pub(super) generation_dir: &'a OsStr,
     pub(super) helpers: &'a [HelperAssetBinding<'a>],
 }
 
@@ -177,7 +176,6 @@ pub(super) enum RuntimeAssetError {
     EmptyPath(&'static str),
     RelativePath(&'static str),
     NulPath(&'static str),
-    InvalidGenerationDir,
     EmptyRuntimeDigest,
     DuplicateHelperIdentity { first: usize, duplicate: usize },
 }
@@ -193,9 +191,6 @@ impl std::fmt::Display for RuntimeAssetError {
             }
             RuntimeAssetError::NulPath(name) => {
                 write!(f, "runtime asset path '{name}' must not contain NUL")
-            }
-            RuntimeAssetError::InvalidGenerationDir => {
-                f.write_str("generation directory is not a valid PATH component")
             }
             RuntimeAssetError::EmptyRuntimeDigest => f.write_str("runtime asset digest is empty"),
             RuntimeAssetError::DuplicateHelperIdentity { first, duplicate } => write!(
@@ -264,10 +259,6 @@ fn qualify_runtime_assets<'selection, 'asset>(
     selection: &'selection RuntimeAssetSelection<'asset>,
 ) -> Result<QualifiedRuntimeAssets<'selection, 'asset>, RuntimeAssetError> {
     validate_absolute_runtime_asset_path(selection.runtime.program_path, "runtime_program")?;
-    validate_absolute_runtime_asset_path(selection.generation_dir, "generation_dir")?;
-    if !valid_path_component(selection.generation_dir) {
-        return Err(RuntimeAssetError::InvalidGenerationDir);
-    }
     if selection.runtime.observed_digest.is_empty() {
         return Err(RuntimeAssetError::EmptyRuntimeDigest);
     }
@@ -765,7 +756,6 @@ where
             program_path: loaded.runtime_path.as_os_str(),
             observed_digest: &loaded.manifest.runtime_digest,
         },
-        generation_dir: loaded.generation_dir.as_os_str(),
         helpers: &helper_bindings,
     };
     let runtime_assets =

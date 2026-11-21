@@ -418,11 +418,9 @@ mod tests {
 
     fn test_env_and_resolver(root: &Path) -> (PathBuf, TermuxBaseEnvPlan) {
         let prefix = root.join("prefix");
-        let gen = root.join("gen");
         let bin = prefix.join("bin");
         let tmp = root.join("tmp");
         fs::create_dir_all(&bin).unwrap();
-        fs::create_dir_all(&gen).unwrap();
         fs::create_dir_all(&tmp).unwrap();
         let resolver = root.join("resolv.conf");
         fs::write(&resolver, b"nameserver 1.1.1.1\n").unwrap();
@@ -434,14 +432,7 @@ mod tests {
             inherited_ssl_cert_file: None,
             inherited_ssl_cert_dir: None,
         };
-        let plan = plan_termux_env(
-            &snap,
-            gen.as_os_str(),
-            None,
-            OsStr::new("/etc/tls/cert.pem"),
-            None,
-        )
-        .unwrap();
+        let plan = plan_termux_env(&snap, None, OsStr::new("/etc/tls/cert.pem"), None).unwrap();
         (resolver, plan)
     }
 
