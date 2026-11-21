@@ -17,10 +17,10 @@ Observed on 2026-11-21.
 
 | Boundary | Observed State | Notes |
 | --- | --- | --- |
-| **Published and installed Wrapper (`$PREFIX/bin/codex`)** | Stable `wrapper` tag at `5994956a`. Published archive SHA-256 `51e44d50...`. Published and installed `bin/codex` SHA-256 both `d76f1a0a...` | Public release metadata, tag and asset readback matched on 2026-11-21 |
+| **Published and installed Wrapper (`$PREFIX/bin/codex`)** | Stable `wrapper` tag at `0cdb8eda`. Published archive SHA-256 `b15f5257...`. Published and installed `bin/codex` SHA-256 both `a9c08127...` | CI artifact, public asset and installed binary readback matched on 2026-11-21 |
 | **Active / rollback upstream generation** | Active `0.171.0-d8c43b` (`ino=627564`, SHA-256 `26d9f90b...`). Rollback `0.170.0-3f7e1a` | `wrapper status --json`, `codex --version` and `standalone/current` agreed |
-| **Live managed daemons (`default` / `janmori101` / `szob`)** | All three homes link to `$HOME/.codex/packages/standalone/current` | PID records `10856`, `11009`, `11134` resolved through `/proc/<pid>/exe` to the active `0.171.0` executable |
-| **Live doctor and external services** | Last recorded three-home doctor result and external service inventory are in the 2026-11-19 cutover receipt | 2026-11-21 used read-only Wrapper status, release and process identity checks |
+| **Live managed daemons (`default` / `janmori101` / `szob`)** | All three homes link to `$HOME/.codex/packages/standalone/current` | PIDs `10856`, `11009`, `11134` survived the Wrapper install and `codex update` synchronization. Their control endpoints reported `0.171.0` and their executable inodes matched the active generation |
+| **Live doctor and external services** | Last recorded three-home doctor result and external service inventory are in the 2026-11-19 cutover receipt | The 2026-11-21 handoff verified live process identity and queried each managed daemon's version |
 | **Stage 2.1 boundary / Stage 2.2–2.5 addons** | 2.1 settings & FD 34 snapshot engine implemented; 2.2–2.5 deferred | Zero Manager/TUI/Provider executables attached |
 | **Stage 1 graduation status** | **Complete** (WP0–WP6 archived in [STAGE1_MILESTONES.md](docs/history/STAGE1_MILESTONES.md), ephemeral `HANDOFF.md` retired) | Deferred Stage 2 items tracked in [docs/ROADMAP.md](docs/ROADMAP.md) |
 
@@ -35,6 +35,21 @@ Observed on 2026-11-21.
 ---
 
 ## Recent Verified Evidence (Newest-First)
+
+### 2026-11-21 — Daemon synchronization release and live Wrapper cutover
+
+- [Wrapper CI run 44871873250](https://github.com/humtr/codex/actions/runs/44871873250)
+  qualified source `0cdb8eda` with official `0.171.0` and `0.170.0` on
+  the Android Bionic runner. The public stable `wrapper` tag, release
+  notes and four assets matched the verified CI output.
+- The API 37 device qualified the existing runtime with the released
+  Wrapper, installed the verified binary with `install.sh --skip-upstream`,
+  then ran `codex update --upstream --version 0.171.0`. The updater returned
+  already current with zero warnings. The activation-state SHA-256,
+  generation slots, daemon links, PIDs and runtime inode matched the
+  pre-install snapshot. Each of the three daemon control endpoints
+  independently reported `backend=pid`, `status=running`, and
+  `appServerVersion=0.171.0`.
 
 ### 2026-11-21 — Independent review of `c64d3e31..5994956a` (isolated Android API 37 Termux)
 
