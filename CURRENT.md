@@ -17,9 +17,9 @@ Observed on 2026-11-21.
 
 | Boundary | Observed State | Notes |
 | --- | --- | --- |
-| **Published and installed Wrapper (`$PREFIX/bin/codex`)** | Stable `wrapper` tag at `751b863d`. Published archive SHA-256 `4e502398...`. Published and installed `bin/codex` SHA-256 both `288e21d5...` | CI artifact, public asset, and installed binary readback matched on 2026-11-21 |
-| **Active / rollback upstream generation** | Active `0.170.0-3f7e1a-2` (`ino=650222`, SHA-256 `096ac747...`). Rollback `0.171.0-d8c43b-2` | Intentionally switched to `0.170.0` for interactive `0.170.0 -> 0.171.0` upgrade testing; `wrapper status --verify --json`, `codex --version`, and `standalone/current` agreed |
-| **Live managed daemons (`default` / `janmori101` / `szob`)** | Three processes share the active `0.170.0` executable (`ino=650222`) through `$HOME/.codex/packages/standalone/current` | PIDs `30780`, `30937`, `31042` restarted cleanly via `codex update --rollback`. Each control endpoint reported `0.170.0` |
+| **Published and installed Wrapper (`$PREFIX/bin/codex`)** | Stable `wrapper` tag at `ce439293`. Published archive SHA-256 `2cc5410a...`. Published and installed `bin/codex` SHA-256 both `56b4adfa...` | CI artifact ([run 44921454220](https://github.com/humtr/codex/actions/runs/44921454220)), public asset, and installed binary readback matched on 2026-11-22 |
+| **Active / rollback upstream generation** | Active `0.170.0-3f7e1a-2` (`ino=650222`, SHA-256 `096ac747...`). Rollback `0.171.0-d8c43b-3` | Intentionally switched to `0.170.0` for interactive `0.170.0 -> 0.171.0` upgrade testing; `wrapper status --verify --json`, `codex --version`, and `standalone/current` agreed |
+| **Live managed daemons (`default` / `janmori101` / `szob`)** | Three processes share the active `0.170.0` executable (`ino=650222`) through `$HOME/.codex/packages/standalone/current` | PIDs `21082`, `21219`, `21352` restarted cleanly via `codex update --rollback`. Each control endpoint reported `0.170.0` |
 | **Live doctor and external services** | Last recorded three-home doctor result and external service inventory are in the 2026-11-19 cutover receipt | The 2026-11-21 handoff verified live process identity and queried each managed daemon's version |
 | **Stage 2.1 boundary / Stage 2.2–2.5 addons** | 2.1 settings & FD 34 snapshot engine implemented; 2.2–2.5 deferred | Zero Manager/TUI/Provider executables attached |
 | **Stage 1 graduation status** | **Complete** (WP0–WP6 archived in [STAGE1_MILESTONES.md](docs/history/STAGE1_MILESTONES.md), ephemeral `HANDOFF.md` retired) | Deferred Stage 2 items tracked in [docs/ROADMAP.md](docs/ROADMAP.md) |
@@ -35,6 +35,22 @@ Observed on 2026-11-21.
 ---
 
 ## Recent Verified Evidence (Newest-First)
+
+### 2026-11-22 — End-of-row atomic progress redraws and per-profile daemon tree summary
+
+- [Wrapper CI run 44921454220](https://github.com/humtr/codex/actions/runs/44921454220)
+  qualified source `ce439293` (building on `c1aeb52f` end-of-row atomic progress
+  redraws and `751b863d` rate-limit fallback / ancestor deferral) with official
+  `0.170.0` and `0.171.0` on the Android Bionic runner (`checks`,
+  `android-package`, `android-smoke`, `release`). Published stable `wrapper` tag
+  (`prerelease=false`), archive SHA-256 `2cc5410a...`, and `bin/codex` SHA-256
+  `56b4adfa...` matched independent readback.
+- Installed the published Wrapper (`56b4adfa...`) via
+  `install.sh --skip-upstream`, ran `codex update --rollback` to leave the live
+  runtime on `0.170.0-3f7e1a-2` (`previous=0.171.0-d8c43b-3`), and cleared
+  `update-check.cache`. All three live managed daemons (`default` PID `21082`,
+  `janmori101` PID `21219`, `szob` PID `21352`) reported `running 0.170.0` with
+  matching executable `ino=650222`.
 
 ### 2026-11-21 — Flicker-free progress, concise daemon summary, ancestor deferral & GitHub API rate-limit fallback
 
