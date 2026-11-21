@@ -1164,9 +1164,9 @@ After installation, Wrapper exclusively owns `codex update`:
   for the remaining cache lifetime. Launch resolves the active generation after
   the prompt.
 - Interactive update progress, including managed daemon stop/start phases,
-  updates one terminal row in place using atomic single-write updates (updating
-  only the spinner glyph when the fitted message and terminal width are
-  unchanged, and clearing only trailing cells after text changes). Frames fit
+  updates one terminal row in place using atomic single-write updates (keeping
+  the cursor at the end of the row without full-line erase flicker, and clearing
+  only trailing cells when a line shortens or the terminal resizes). Frames fit
   within the terminal width and are cleared before final results or warnings are
   printed. Non-interactive streams emit neither transient progress nor terminal
   control sequences.

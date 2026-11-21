@@ -48,7 +48,7 @@ fn char_display_width(ch: char) -> usize {
     }
 }
 
-fn transient_row_parts(frame: &str, message: &str, columns: usize) -> (String, String, usize) {
+fn transient_row_with_width(frame: &str, message: &str, columns: usize) -> (String, usize) {
     // Leave the last column unused to avoid a terminal's pending autowrap.
     let mut remaining = columns.saturating_sub(1);
     let mut row = String::new();
@@ -56,13 +56,12 @@ fn transient_row_parts(frame: &str, message: &str, columns: usize) -> (String, S
     for ch in frame.chars() {
         let w = char_display_width(ch);
         if w > remaining {
-            return (String::new(), String::new(), 0);
+            return (String::new(), 0);
         }
         row.push(ch);
         remaining -= w;
         width += w;
     }
-    let mut body = String::new();
     for ch in std::iter::once(' ').chain(message.chars()) {
         let ch = if ch.is_control() { '?' } else { ch };
         let w = char_display_width(ch);
@@ -70,23 +69,21 @@ fn transient_row_parts(frame: &str, message: &str, columns: usize) -> (String, S
             break;
         }
         row.push(ch);
-        body.push(ch);
         remaining -= w;
         width += w;
     }
-    (row, body, width)
+    (row, width)
 }
 
 #[cfg(test)]
 fn transient_row(frame_index: usize, message: &str, columns: usize) -> String {
     let frame = UPDATE_SPINNER_FRAMES[frame_index % UPDATE_SPINNER_FRAMES.len()];
-    transient_row_parts(frame, message, columns).0
+    transient_row_with_width(frame, message, columns).0
 }
 
 #[derive(Default)]
 struct TransientRenderer {
     last_columns: usize,
-    last_body: String,
     last_width: usize,
     visible: bool,
 }
@@ -99,35 +96,29 @@ impl TransientRenderer {
         columns: usize,
     ) -> Option<String> {
         let frame = UPDATE_SPINNER_FRAMES[frame_index % UPDATE_SPINNER_FRAMES.len()];
-        let (row, body, width) = transient_row_parts(frame, message, columns);
+        let (row, width) = transient_row_with_width(frame, message, columns);
         if row.is_empty() {
             self.last_columns = columns;
             if self.visible {
                 self.visible = false;
-                self.last_body.clear();
                 self.last_width = 0;
                 return Some("\r\x1b[K".to_owned());
             }
             return None;
         }
-        if self.visible && self.last_columns == columns && self.last_body == body {
-            // Only the spinner glyph at column 0 changed; overwrite it in place
-            // without erasing or rewriting the unchanged message body.
-            return Some(format!("\r{frame}"));
-        }
+        // Write the complete row in one atomic write(2) so the terminal never
+        // paints a blank line between erase and text, and the cursor stays at
+        // the end of the row instead of jumping back to column 1 on ticks.
         let need_eol_clear =
             !self.visible || width < self.last_width || columns != self.last_columns;
         let mut out = String::with_capacity(row.len() + 5);
         out.push('\r');
         out.push_str(&row);
         if need_eol_clear {
-            // Clear only trailing cells after writing the new text in one write(2)
-            // so the terminal never paints a blank line between erase and text.
             out.push_str("\x1b[K");
         }
         self.visible = true;
         self.last_columns = columns;
-        self.last_body = body;
         self.last_width = width;
         Some(out)
     }
@@ -483,17 +474,17 @@ mod tests {
     }
 
     #[test]
-    fn transient_renderer_updates_spinner_in_place_without_full_line_erase() {
+    fn transient_renderer_keeps_cursor_at_row_end_without_full_line_erase() {
         let mut renderer = TransientRenderer::default();
         // Initial frame writes text then clears trailing EOL in one atomic buffer.
         assert_eq!(
             renderer.next_frame_bytes(0, "Checking official Codex release...", 42),
             Some("\r⠋ Checking official Codex release...\x1b[K".to_owned())
         );
-        // Same message & width: only column-0 spinner glyph changes, zero erase.
+        // Same message & width: atomic full-row overwrite keeps cursor at end with zero erase.
         assert_eq!(
             renderer.next_frame_bytes(1, "Checking official Codex release...", 42),
-            Some("\r⠙".to_owned())
+            Some("\r⠙ Checking official Codex release...".to_owned())
         );
         // Longer message at same width overwrites everything: no EOL clear needed.
         assert_eq!(
@@ -518,10 +509,10 @@ mod tests {
             renderer.next_frame_bytes(5, "Activating Codex 0.171.0...", 20),
             Some("\r⠴ Activating Codex\x1b[K".to_owned())
         );
-        // Next tick at same narrow width again only updates the spinner glyph.
+        // Next tick at same narrow width keeps cursor at end without EOL clear.
         assert_eq!(
             renderer.next_frame_bytes(6, "Activating Codex 0.171.0...", 20),
-            Some("\r⠦".to_owned())
+            Some("\r⠦ Activating Codex".to_owned())
         );
         // Too narrow to render even the spinner: clear once, then stay silent.
         assert_eq!(
