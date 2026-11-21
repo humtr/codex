@@ -13,13 +13,13 @@ and retired work orders are archived in
 
 ## Current Live Operating Snapshot
 
-Observed on 2026-11-21.
+Observed on 2026-11-22.
 
 | Boundary | Observed State | Notes |
 | --- | --- | --- |
 | **Published and installed Wrapper (`$PREFIX/bin/codex`)** | Stable `wrapper` tag at `ce439293`. Published archive SHA-256 `2cc5410a...`. Published and installed `bin/codex` SHA-256 both `56b4adfa...` | CI artifact ([run 44921454220](https://github.com/humtr/codex/actions/runs/44921454220)), public asset, and installed binary readback matched on 2026-11-22 |
-| **Active / rollback upstream generation** | Active `0.170.0-3f7e1a-2` (`ino=650222`, SHA-256 `096ac747...`). Rollback `0.171.0-d8c43b-3` | Intentionally switched to `0.170.0` for interactive `0.170.0 -> 0.171.0` upgrade testing; `wrapper status --verify --json`, `codex --version`, and `standalone/current` agreed |
-| **Live managed daemons (`default` / `janmori101` / `szob`)** | Three processes share the active `0.170.0` executable (`ino=650222`) through `$HOME/.codex/packages/standalone/current` | PIDs `21082`, `21219`, `21352` restarted cleanly via `codex update --rollback`. Each control endpoint reported `0.170.0` |
+| **Active / rollback upstream generation** | Active `0.171.0-d8c43b-2` (`ino=9741792`, SHA-256 `26d9f90b...`). Rollback `0.170.0-3f7e1a-2` | Operator upgraded `0.170.0 -> 0.171.0` on Termux after cutover; `wrapper status --verify --json` (`qualified=true`) and `standalone/current` agreed |
+| **Live managed daemons (`default` / `janmori101` / `szob`)** | All three homes aligned to `$HOME/.codex/packages/standalone/current`; currently stopped | Verified `0.171.0 -> 0.170.0` rollback restart (PIDs `21082`, `21219`, `21352`) and post-upgrade stop cleanly |
 | **Live doctor and external services** | Last recorded three-home doctor result and external service inventory are in the 2026-11-19 cutover receipt | The 2026-11-21 handoff verified live process identity and queried each managed daemon's version |
 | **Stage 2.1 boundary / Stage 2.2–2.5 addons** | 2.1 settings & FD 34 snapshot engine implemented; 2.2–2.5 deferred | Zero Manager/TUI/Provider executables attached |
 | **Stage 1 graduation status** | **Complete** (WP0–WP6 archived in [STAGE1_MILESTONES.md](docs/history/STAGE1_MILESTONES.md), ephemeral `HANDOFF.md` retired) | Deferred Stage 2 items tracked in [docs/ROADMAP.md](docs/ROADMAP.md) |
