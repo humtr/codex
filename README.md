@@ -167,7 +167,8 @@ Every generation is stored under `~/.codex/packages/standalone/releases/<id>/`
 `downloads/`) lives under `~/.local/share/codex/wrapper/` and `~/.cache/codex/timezones/`.
 
 - `--signed`, `--remote`, `--build-local`, and `--local` are disabled in Stage 1 and fail explicitly with exit status `2`.
-- Official updates show live download progress (`downloaded / total`) and transient Termux patching section status on interactive TTYs.
+- Interactive updates display download progress (`downloaded / total`), Termux
+  patching, and daemon restart progress on one terminal row.
 - A compatible active generation with the requested version and official archive SHA-256 is reused by default. Use `--force-rebuild` with an official upstream update to re-adapt it explicitly.
 - External launchers/addons may isolate `auth.json` per profile (`CODEX_HOME=<profile_home>`) while sharing sessions, SQLite databases (`CODEX_SQLITE_HOME`), and `config.toml`/skills via `CODEX_SHARED_HOME="$HOME/.codex"` without adding profile CRUD to the standalone Wrapper.
 - Upstream updates in Stage 1 resolve the latest stable release via GitHub Releases (`openai/codex/releases/latest`) or a requested release via `https://releases.openai.com/codex/releases/<version>/release.json`, and verify the official `codex-package-aarch64-unknown-linux-musl.tar.gz` SHA-256 digest over TLS 1.2+.
@@ -188,37 +189,60 @@ launch and reuses unchanged files. The installed upstream Codex supplies
 the thread unload default. Explicit `config.toml` and `-c` settings retain
 upstream precedence, including an explicit zero.
 
-On the first TUI launch eligible to use a managed daemon in a fresh
-`$CODEX_HOME`, the Wrapper can prepare the default package selection by linking
-`$CODEX_HOME/packages/app-server-daemon/current` to
-`$HOME/.codex/packages/standalone/current`. Explicit daemon start commands
-can prepare the same default. Codex decides whether to start a daemon, so the
-link can appear even with `features.daemon_auto_start = false` or during sign-in.
-Help, version, queries, `--no-daemon`, `--remote`, and direct `app-server daemon
-update --from-cli` skip this preparation.
-
-Homes using the link share the single active generation under
-`$HOME/.codex/packages/standalone/current` while running separate daemon
-processes per home. When `codex update` (including `--path` and `--rollback`)
-runs, Wrapper aligns initialized daemon homes (`$CODEX_HOME`, `$HOME/.codex`,
-and registered `~/.local/share/codex/manager/profiles/*/home`) back to
-`$HOME/.codex/packages/standalone/current`. Wrapper restarts verified running
-managed daemons that need the new executable or a PID namespace migration.
-An update can interrupt active or queued work in those homes. Per-home warnings
-report daemon failures after the CLI generation has been activated.
-
 On a bare `codex` launch with all three streams attached to terminals, Wrapper
 checks for a newer official stable Codex release using a 15-minute local cache
 (`~/.local/share/codex/wrapper/update-check.cache`) and a five-second deadline.
-Choose `y` or `yes` to update to the release shown. Declining or an update
-failure defers that offer for the remainder of the cache lifetime and opens
-the active Codex. Set `CODEX_DISABLE_UPDATE_PROMPT=1` to skip the startup check.
+Press `y` or `Y` to update immediately. Press `n`, `N`, or Enter to decline.
+Declining or an update failure defers the offer for the remaining cache lifetime
+and opens the active Codex. Set `CODEX_DISABLE_UPDATE_PROMPT=1` to skip the startup check.
 An explicitly set `CODEX_TERMUX_UPDATE_VERSION` also skips it.
 
 If a regular file or directory occupies `$HOME/.codex/packages/standalone/current`,
 update and rollback fail without replacing it or changing the active generation.
 If an interrupted update leaves its result uncertain, use `codex wrapper status`
 to recover and inspect the selection before deciding whether to roll back again.
+
+### Managed daemon binaries and profiles
+
+Each profile with a running managed daemon has its own PID and control socket.
+Once aligned, all profile links resolve to one active executable. A new
+generation changes the target while keeping each profile's logical launch path.
+
+```text
+$CODEX_HOME/packages/app-server-daemon/current/bin/codex
+  -> $HOME/.codex/packages/standalone/current/bin/codex
+  -> $HOME/.codex/packages/standalone/releases/<id>/bin/codex
+```
+
+On an eligible first TUI launch or explicit daemon start in a fresh home,
+Wrapper can create the default package link. Upstream decides when to start
+the process, so the link can exist during sign-in or with
+`features.daemon_auto_start = false`. Help, version, queries, `--no-daemon`,
+`--remote`, and direct `app-server daemon update --from-cli` skip this link setup.
+
+A successful `codex update`, including an already-current result, `--path`,
+or `--rollback`, synchronizes eligible initialized homes. Wrapper looks in
+the invocation's `$CODEX_HOME`, `$HOME/.codex`, and owned Manager profile homes
+under `$HOME/.local/share/codex/manager/profiles/*/home`. It aligns the
+package link in a stopped home. It keeps the PID of a matching running daemon
+when no migration is needed. A verified running daemon is restarted when its
+executable or version differs from the active generation, or when its legacy
+PID path needs migration.
+Restarting can interrupt active or queued work. Completion output summarizes
+restarted, link-aligned, already-current, deferred, and failed homes by profile
+name; if `codex update` runs inside a session hosted by a daemon that needs a
+restart, Wrapper aligns its link and defers restarting that ancestor daemon
+with a warning instead of terminating the running update. Check stderr warnings
+for per-home details and use `codex app-server daemon version` in that profile
+to verify the running version.
+
+Use `codex update` for the shared Termux package. The upstream TUI `/daemon`
+menu and `codex app-server daemon update` can select a separate package for
+one home. The public-release option can select a package without Termux
+adaptation. The `--from-cli` option copies the full adapted package to that
+home's `packages/app-server-daemon/releases/` and selects it for the same
+home's daemon. A subsequent Wrapper update can reselect the shared executable.
+Dedicated package files and the shared rollback generation can remain on disk.
 
 ### Optional account selector (`contrib/codex-account`)
 
@@ -321,18 +345,9 @@ An overall `healthy` result can include upstream warnings such as
 Run Wrapper commands directly. Leading upstream options on commands such as
 `codex -c k=v doctor` or `codex -c k=v wrapper status` return exit `2`.
 
-Use `codex update` to update managed daemons on Termux. Its output reports
-link alignment and any restarts. To check the selected home's daemon, run
-`codex app-server daemon version`. If a warning reports a start failure
-after a confirmed stop, resolve the reported error and run
+If [daemon synchronization](#managed-daemon-binaries-and-profiles) reports a
+start failure after a confirmed stop, resolve the reported error and run
 `codex app-server daemon start` from that profile.
-
-The upstream TUI `/daemon` update menu and CLI
-`codex app-server daemon update` manage the upstream daemon package.
-The public-release option may select a package without Termux adaptation.
-The `--from-cli` option copies the entire adapted CLI package into the
-profile's dedicated releases. A subsequent `codex update` reselects the
-shared standalone package and retains those release files.
 
 The background server can outlive the TUI. A running daemon keeps its
 startup settings and reads the updated Wrapper defaults on its next normal

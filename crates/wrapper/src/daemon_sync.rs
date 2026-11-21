@@ -1,4 +1,4 @@
-use crate::daemon_settings::{self, DAEMON_PID_FILES};
+use crate::daemon_settings::{self, DaemonHomeLabel, DAEMON_PID_FILES};
 use crate::fs_util;
 use crate::generation::{
     load_activated_generation, termux_browser_helper_paths, with_qualified_loaded_runtime,
@@ -11,7 +11,7 @@ use crate::runtime_env::{
     apply_child_env_plan_and_fence, plan_termux_env, prepare_wrapper_config, resolve_codex_home,
     RuntimeFdSources, TermuxProcessEnvSnapshot,
 };
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::ffi::{OsStr, OsString};
 use std::fs::{self, File, Metadata};
 use std::io::{ErrorKind, Read as _};
@@ -27,6 +27,112 @@ const VERSION_TIMEOUT: Duration = Duration::from_secs(15);
 const STOP_TIMEOUT: Duration = Duration::from_secs(350);
 const START_TIMEOUT: Duration = Duration::from_secs(45);
 
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub(super) struct DaemonSyncReport {
+    restarted: Vec<String>,
+    aligned: Vec<String>,
+    already_current: Vec<String>,
+    deferred: Vec<String>,
+    failed: Vec<String>,
+    warnings: Vec<String>,
+}
+
+impl DaemonSyncReport {
+    pub(super) fn summary_line(&self) -> Option<String> {
+        let mut parts = Vec::new();
+        if !self.restarted.is_empty() {
+            parts.push(format!(
+                "restarted {} ({})",
+                self.restarted.len(),
+                self.restarted.join(", ")
+            ));
+        }
+        if !self.aligned.is_empty() {
+            let noun = if self.aligned.len() == 1 {
+                "link"
+            } else {
+                "links"
+            };
+            parts.push(format!(
+                "aligned {} {noun} ({})",
+                self.aligned.len(),
+                self.aligned.join(", ")
+            ));
+        }
+        if !self.already_current.is_empty() {
+            parts.push(format!(
+                "{} already current ({})",
+                self.already_current.len(),
+                self.already_current.join(", ")
+            ));
+        }
+        if !self.deferred.is_empty() {
+            parts.push(format!(
+                "{} deferred ({})",
+                self.deferred.len(),
+                self.deferred.join(", ")
+            ));
+        }
+        if !self.failed.is_empty() {
+            parts.push(format!(
+                "{} failed ({})",
+                self.failed.len(),
+                self.failed.join(", ")
+            ));
+        }
+        match parts.len() {
+            0 => None,
+            1 => {
+                if !self.restarted.is_empty() {
+                    let n = self.restarted.len();
+                    let noun = if n == 1 { "daemon" } else { "daemons" };
+                    Some(format!(
+                        "Restarted {n} managed {noun} ({}).",
+                        self.restarted.join(", ")
+                    ))
+                } else if !self.aligned.is_empty() {
+                    let n = self.aligned.len();
+                    let noun = if n == 1 { "link" } else { "links" };
+                    Some(format!(
+                        "Aligned {n} managed daemon {noun} ({}).",
+                        self.aligned.join(", ")
+                    ))
+                } else if !self.already_current.is_empty() {
+                    let n = self.already_current.len();
+                    let noun = if n == 1 { "daemon" } else { "daemons" };
+                    Some(format!(
+                        "{n} managed {noun} already current ({}).",
+                        self.already_current.join(", ")
+                    ))
+                } else if !self.deferred.is_empty() {
+                    let n = self.deferred.len();
+                    let noun = if n == 1 { "daemon" } else { "daemons" };
+                    Some(format!(
+                        "Deferred restarting {n} managed {noun} ({}).",
+                        self.deferred.join(", ")
+                    ))
+                } else {
+                    Some(format!("Managed daemons: {}.", parts[0]))
+                }
+            }
+            _ => Some(format!("Managed daemons: {}.", parts.join("; "))),
+        }
+    }
+
+    pub(super) fn warnings(&self) -> &[String] {
+        &self.warnings
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum DaemonHomeOutcome {
+    Restarted,
+    LinkAligned,
+    AlreadyCurrent,
+    UnchangedStopped,
+    DeferredSelf { link_aligned: bool },
+}
+
 fn json_fields(bytes: &[u8]) -> Option<BTreeMap<String, JsonValue>> {
     let JsonValue::Object(fields) = JsonParser::new(bytes).parse_document().ok()? else {
         return None;
@@ -41,19 +147,26 @@ fn string_field<'a>(fields: &'a BTreeMap<String, JsonValue>, key: &str) -> Optio
     }
 }
 
+fn pid_field(fields: &BTreeMap<String, JsonValue>, key: &str) -> Option<i32> {
+    match fields.get(key) {
+        Some(JsonValue::Number(value)) => value.parse::<i32>().ok().filter(|pid| *pid > 0),
+        _ => None,
+    }
+}
+
 fn read_pid_record(path: &Path) -> Result<Vec<u8>, std::io::Error> {
     fs_util::read_bounded_regular(path, 64 * 1024, true, "invalid daemon PID file")
 }
 
-fn saved_feature_args(home: &Path) -> Result<Vec<String>, String> {
-    let path = home.join("app-server-daemon/settings.json");
-    let bytes = fs_util::read_bounded_regular(&path, 1024 * 1024, true, "invalid daemon settings")
-        .map_err(|err| err.to_string())?;
-    let mut settings = json_fields(&bytes).ok_or("invalid daemon settings")?;
+fn parse_saved_feature_args(bytes: &[u8]) -> Result<Vec<String>, String> {
+    let mut settings = json_fields(bytes).ok_or("invalid daemon settings")?;
     let mut args = Vec::new();
     let Some(overrides) = settings.remove("featureOverrides") else {
         return Ok(args);
     };
+    if matches!(overrides, JsonValue::Null) {
+        return Ok(args);
+    }
     let JsonValue::Object(overrides) = overrides else {
         return Err("invalid saved daemon feature overrides".into());
     };
@@ -70,7 +183,41 @@ fn saved_feature_args(home: &Path) -> Result<Vec<String>, String> {
     Ok(args)
 }
 
+fn saved_feature_args(home: &Path) -> Result<Vec<String>, String> {
+    let path = home.join("app-server-daemon/settings.json");
+    let bytes = fs_util::read_bounded_regular(&path, 1024 * 1024, true, "invalid daemon settings")
+        .map_err(|err| err.to_string())?;
+    parse_saved_feature_args(&bytes)
+}
+
+fn parse_proc_stat_ppid(stat: &str) -> Option<i32> {
+    let (_, rest) = stat.rsplit_once(')')?;
+    let mut fields = rest.split_whitespace();
+    let _state = fields.next()?;
+    let ppid = fields.next()?.parse::<i32>().ok()?;
+    (ppid > 0).then_some(ppid)
+}
+
+fn ancestor_pids() -> HashSet<i32> {
+    let mut ancestors = HashSet::new();
+    let mut current = std::process::id() as i32;
+    for _ in 0..128 {
+        let Ok(stat) = fs::read_to_string(format!("/proc/{current}/stat")) else {
+            break;
+        };
+        let Some(ppid) = parse_proc_stat_ppid(&stat) else {
+            break;
+        };
+        if ppid <= 1 || !ancestors.insert(ppid) {
+            break;
+        }
+        current = ppid;
+    }
+    ancestors
+}
+
 struct LivePid {
+    pid: i32,
     file: PathBuf,
     bytes: Vec<u8>,
     process: File,
@@ -140,10 +287,7 @@ fn find_live_pid(home: &Path) -> Result<Option<LivePid>, String> {
         // A zero-byte reservation may mean startup is still in progress. The
         // current upstream CLI expects JSON, but an old dead raw PID is harmless.
         let pid = json_fields(&bytes)
-            .and_then(|mut fields| match fields.remove("pid") {
-                Some(JsonValue::Number(pid)) => pid.parse::<i32>().ok(),
-                _ => None,
-            })
+            .and_then(|fields| pid_field(&fields, "pid"))
             .or_else(|| std::str::from_utf8(&bytes).ok()?.trim().parse().ok())
             .filter(|pid| *pid > 0)
             .ok_or_else(|| format!("cannot verify {name}"))?;
@@ -161,6 +305,7 @@ fn find_live_pid(home: &Path) -> Result<Option<LivePid>, String> {
             return Err("both upstream PID records identify live processes".into());
         }
         live = Some(LivePid {
+            pid,
             file,
             bytes,
             process,
@@ -176,6 +321,7 @@ struct DaemonUpdate<'a> {
     process_env: &'a TermuxProcessEnvSnapshot,
     standalone_current: &'a Path,
     exe: Metadata,
+    ancestors: &'a HashSet<i32>,
 }
 
 impl DaemonUpdate<'_> {
@@ -252,8 +398,9 @@ impl DaemonUpdate<'_> {
     fn sync_home(
         &self,
         home: &Path,
+        label: &DaemonHomeLabel,
         presentation: &mut UpdatePresentation,
-    ) -> Result<Option<String>, String> {
+    ) -> Result<DaemonHomeOutcome, String> {
         let lock = daemon_settings::lock_daemon_home(home).map_err(|err| err.to_string())?;
         let package =
             daemon_settings::prepare_daemon_package_dir(home).map_err(|err| err.to_string())?;
@@ -262,10 +409,13 @@ impl DaemonUpdate<'_> {
             daemon_settings::align_package_link_to_standalone(package, self.standalone_current)
                 .map_err(|err| format!("could not align daemon package link: {err}"))
         };
-        let aligned = || format!("Aligned managed daemon package link in {}.", home.display());
 
         let Some(live) = find_live_pid(home)? else {
-            return Ok(align(&package)?.then(aligned));
+            return Ok(if align(&package)? {
+                DaemonHomeOutcome::LinkAligned
+            } else {
+                DaemonHomeOutcome::UnchangedStopped
+            });
         };
         let version = self.command(home, "version", VERSION_TIMEOUT, None, &[])?;
         let selected = string_field(&version, "managedCodexPath").map(Path::new);
@@ -291,7 +441,22 @@ impl DaemonUpdate<'_> {
             && live.matches(&self.exe)
             && string_field(&version, "appServerVersion") == Some(active_version)
         {
-            return Ok(align(&package)?.then(aligned));
+            return Ok(if align(&package)? {
+                DaemonHomeOutcome::LinkAligned
+            } else {
+                DaemonHomeOutcome::AlreadyCurrent
+            });
+        }
+
+        // Stopping an ancestor daemon terminates this update process mid-flight,
+        // leaving that daemon stopped and subsequent profiles un-synchronized.
+        if self.ancestors.contains(&live.pid) {
+            let link_aligned = if live.legacy() {
+                false
+            } else {
+                align(&package)?
+            };
+            return Ok(DaemonHomeOutcome::DeferredSelf { link_aligned });
         }
 
         let original_env = live.launch_env()?;
@@ -303,10 +468,8 @@ impl DaemonUpdate<'_> {
         if !live.unchanged() {
             return Err("running daemon changed before shutdown".into());
         }
-        presentation.transient(&format!(
-            "Restarting managed daemon in {} (Codex {active_version})...",
-            home.display()
-        ));
+        let short_label = label.short_name();
+        presentation.transient(&format!("Stopping daemon ({short_label})..."));
         let stopped = self.command(home, "stop", STOP_TIMEOUT, Some(&original_env), &[])?;
         let status = string_field(&stopped, "status");
         if !matches!(status, Some("stopped" | "notRunning")) {
@@ -323,28 +486,43 @@ impl DaemonUpdate<'_> {
         let changed = align(&package)?;
         drop(lock);
         if status == Some("notRunning") {
-            return Ok(changed.then(aligned));
+            return Ok(if changed {
+                DaemonHomeOutcome::LinkAligned
+            } else {
+                DaemonHomeOutcome::UnchangedStopped
+            });
         }
 
-        let started = self.command(
-            home,
-            "start",
-            START_TIMEOUT,
-            Some(&original_env),
-            &feature_args,
-        )?;
+        presentation.transient(&format!("Starting daemon ({short_label})..."));
+        let started = self
+            .command(
+                home,
+                "start",
+                START_TIMEOUT,
+                Some(&original_env),
+                &feature_args,
+            )
+            .map_err(|err| {
+                format!(
+                    "stopped old daemon, but restart failed: {err} (run `codex app-server daemon start` in this profile)"
+                )
+            })?;
+        let started_pid = pid_field(&started, "pid");
         if !matches!(
             string_field(&started, "status"),
             Some("started" | "alreadyRunning")
         ) || string_field(&started, "appServerVersion") != Some(active_version)
-            || !find_live_pid(home)?.is_some_and(|pid| !pid.legacy() && pid.matches(&self.exe))
+            || !find_live_pid(home)?.is_some_and(|pid| {
+                !pid.legacy()
+                    && pid.matches(&self.exe)
+                    && started_pid.is_none_or(|expected| pid.pid == expected)
+            })
         {
-            return Err("daemon startup did not confirm the active executable and version".into());
+            return Err(
+                "stopped old daemon, but startup did not confirm the active executable and version (run `codex app-server daemon start` in this profile)".into(),
+            );
         }
-        Ok(Some(format!(
-            "Updated managed daemon in {} (Codex {active_version}).",
-            home.display()
-        )))
+        Ok(DaemonHomeOutcome::Restarted)
     }
 }
 
@@ -353,7 +531,8 @@ pub(super) fn synchronize(
     roots: &LocalWrapperRoots,
     process_env: &TermuxProcessEnvSnapshot,
     presentation: &mut UpdatePresentation,
-) -> (Vec<String>, Vec<String>) {
+) -> DaemonSyncReport {
+    let mut report = DaemonSyncReport::default();
     let sync = || {
         let (_, loaded) = load_activated_generation(roots).map_err(|err| err.to_string())?;
         if loaded.generation_id != generation_id {
@@ -365,12 +544,10 @@ pub(super) fn synchronize(
     let (loaded, exe) = match sync() {
         Ok(result) => result,
         Err(err) => {
-            return (
-                Vec::new(),
-                vec![format!(
-                    "codex update: warning: daemon synchronization skipped: {err}"
-                )],
-            )
+            report.warnings.push(format!(
+                "codex update: warning: daemon synchronization skipped: {err}"
+            ));
+            return report;
         }
     };
     let standalone = roots
@@ -382,27 +559,134 @@ pub(super) fn synchronize(
         .ancestors()
         .nth(4)
         .expect("wrapper state HOME");
+    let ancestors = ancestor_pids();
     let update = DaemonUpdate {
         loaded: &loaded,
         roots,
         process_env,
         standalone_current: &standalone.join("current"),
         exe,
+        ancestors: &ancestors,
     };
-    let mut notices = Vec::new();
-    let mut warnings = Vec::new();
-    for home in
+    for candidate in
         daemon_settings::candidate_daemon_homes(home, resolve_codex_home().as_deref(), standalone)
     {
-        if daemon_settings::has_daemon_activity(&home) {
-            match update.sync_home(&home, presentation) {
-                Ok(notice) => notices.extend(notice),
-                Err(err) => warnings.push(format!(
-                    "codex update: warning: daemon synchronization in {}: {err}",
-                    home.display()
-                )),
+        if daemon_settings::has_daemon_activity(&candidate) {
+            let label = daemon_settings::daemon_home_label(home, &candidate);
+            let short = label.short_name().to_owned();
+            match update.sync_home(&candidate, &label, presentation) {
+                Ok(DaemonHomeOutcome::Restarted) => report.restarted.push(short),
+                Ok(DaemonHomeOutcome::LinkAligned) => report.aligned.push(short),
+                Ok(DaemonHomeOutcome::AlreadyCurrent) => report.already_current.push(short),
+                Ok(DaemonHomeOutcome::UnchangedStopped) => {}
+                Ok(DaemonHomeOutcome::DeferredSelf { link_aligned }) => {
+                    report.deferred.push(short);
+                    let detail = if link_aligned {
+                        "package link aligned for next start; "
+                    } else {
+                        ""
+                    };
+                    report.warnings.push(format!(
+                        "codex update: warning: deferred restarting {} because this update is running inside that daemon ({detail}run `codex app-server daemon restart` or rerun `codex update` outside this session)",
+                        label.warning_target(&candidate)
+                    ));
+                }
+                Err(err) => {
+                    report.failed.push(short);
+                    report.warnings.push(format!(
+                        "codex update: warning: managed daemon sync failed for {}: {err}",
+                        label.warning_target(&candidate)
+                    ));
+                }
             }
         }
     }
-    (notices, warnings)
+    report
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn summary_formats_single_and_mixed_daemon_outcomes_concisely() {
+        assert_eq!(DaemonSyncReport::default().summary_line(), None);
+
+        let restarted_one = DaemonSyncReport {
+            restarted: vec!["default".into()],
+            ..Default::default()
+        };
+        assert_eq!(
+            restarted_one.summary_line().as_deref(),
+            Some("Restarted 1 managed daemon (default).")
+        );
+
+        let restarted_three = DaemonSyncReport {
+            restarted: vec!["default".into(), "janmori101".into(), "szob".into()],
+            ..Default::default()
+        };
+        assert_eq!(
+            restarted_three.summary_line().as_deref(),
+            Some("Restarted 3 managed daemons (default, janmori101, szob).")
+        );
+
+        let aligned = DaemonSyncReport {
+            aligned: vec!["stale".into()],
+            ..Default::default()
+        };
+        assert_eq!(
+            aligned.summary_line().as_deref(),
+            Some("Aligned 1 managed daemon link (stale).")
+        );
+
+        let current = DaemonSyncReport {
+            already_current: vec!["default".into(), "janmori101".into(), "szob".into()],
+            ..Default::default()
+        };
+        assert_eq!(
+            current.summary_line().as_deref(),
+            Some("3 managed daemons already current (default, janmori101, szob).")
+        );
+
+        let mixed = DaemonSyncReport {
+            restarted: vec!["default".into(), "janmori101".into()],
+            aligned: vec!["stale".into()],
+            already_current: vec!["szob".into()],
+            deferred: vec!["self".into()],
+            failed: vec!["conflict".into()],
+            warnings: Vec::new(),
+        };
+        assert_eq!(
+            mixed.summary_line().as_deref(),
+            Some(
+                "Managed daemons: restarted 2 (default, janmori101); aligned 1 link (stale); 1 already current (szob); 1 deferred (self); 1 failed (conflict)."
+            )
+        );
+    }
+
+    #[test]
+    fn proc_stat_ppid_handles_spaces_and_parentheses_in_comm() {
+        assert_eq!(
+            parse_proc_stat_ppid("1234 (codex (app) server) S 987 1234 1234 0 -1"),
+            Some(987)
+        );
+        assert_eq!(parse_proc_stat_ppid("1 (init) S 0 1 1 0 -1"), None);
+        assert_eq!(parse_proc_stat_ppid("malformed"), None);
+    }
+
+    #[test]
+    fn saved_feature_args_handles_null_and_valid_overrides() {
+        assert_eq!(
+            parse_saved_feature_args(
+                br#"{"updater":{"autoUpdateEnabled":false},"featureOverrides":null}"#
+            )
+            .unwrap(),
+            Vec::<String>::new()
+        );
+        assert_eq!(
+            parse_saved_feature_args(br#"{"featureOverrides":{"shell_snapshot":false}}"#).unwrap(),
+            vec!["-c", "features.shell_snapshot=false"]
+        );
+        assert!(parse_saved_feature_args(br#"{"featureOverrides":"bad"}"#).is_err());
+    }
 }

@@ -10,6 +10,9 @@ use std::time::{Duration, Instant};
 
 pub(super) const DEFAULT_UPSTREAM_LATEST_URL: &str =
     "https://api.github.com/repos/openai/codex/releases/latest";
+pub(super) const DEFAULT_UPSTREAM_LATEST_REDIRECT_URL: &str =
+    "https://github.com/openai/codex/releases/latest";
+const GITHUB_RELEASE_TAG_PREFIX: &str = "https://github.com/openai/codex/releases/tag/rust-v";
 pub(super) const UPSTREAM_RELEASE_METADATA_BASE: &str =
     "https://releases.openai.com/codex/releases";
 pub(super) const UPSTREAM_PACKAGE_ASSET: &str = "codex-package-aarch64-unknown-linux-musl.tar.gz";
@@ -231,6 +234,17 @@ pub(super) fn resolve_official_release_metadata_quick(
     .map(|(metadata, _)| metadata)
 }
 
+fn parse_github_latest_redirect_version(location: &str) -> Result<String, LocalProductError> {
+    let version = location
+        .trim()
+        .strip_prefix(GITHUB_RELEASE_TAG_PREFIX)
+        .filter(|version| valid_update_version(version))
+        .ok_or(LocalProductError::LocalUpdate(
+            "official latest release redirect target is invalid",
+        ))?;
+    Ok(version.to_owned())
+}
+
 fn resolve_official_release_metadata_with_timeout(
     roots: &LocalWrapperRoots,
     staging_root: &Path,
@@ -259,18 +273,36 @@ fn resolve_official_release_metadata_with_timeout(
         let url = format!("{UPSTREAM_RELEASE_METADATA_BASE}/{version}/release.json");
         return Ok((fetch(&url, "upstream-release.json", Some(version))?, url));
     }
-    let latest = fetch(DEFAULT_UPSTREAM_LATEST_URL, "upstream-latest.json", None)?;
-    let url = format!(
-        "{UPSTREAM_RELEASE_METADATA_BASE}/{}/release.json",
-        latest.version
-    );
-    let pinned = fetch(&url, "upstream-release.json", Some(&latest.version))?;
-    if pinned != latest {
-        return Err(LocalProductError::LocalUpdate(
-            "official latest and exact-version descriptors disagree",
-        ));
+    match fetch(DEFAULT_UPSTREAM_LATEST_URL, "upstream-latest.json", None) {
+        Ok(latest) => {
+            let url = format!(
+                "{UPSTREAM_RELEASE_METADATA_BASE}/{}/release.json",
+                latest.version
+            );
+            let pinned = fetch(&url, "upstream-release.json", Some(&latest.version))?;
+            if pinned != latest {
+                return Err(LocalProductError::LocalUpdate(
+                    "official latest and exact-version descriptors disagree",
+                ));
+            }
+            Ok((pinned, url))
+        }
+        Err(LocalProductError::RemoteTransportFailed {
+            http_status: Some(403 | 429),
+            ..
+        }) => {
+            validate_https_url(DEFAULT_UPSTREAM_LATEST_REDIRECT_URL)?;
+            let location = remote_download::fetch_redirect_location(
+                roots,
+                DEFAULT_UPSTREAM_LATEST_REDIRECT_URL,
+                timeout,
+            )?;
+            let version = parse_github_latest_redirect_version(&location)?;
+            let url = format!("{UPSTREAM_RELEASE_METADATA_BASE}/{version}/release.json");
+            Ok((fetch(&url, "upstream-release.json", Some(&version))?, url))
+        }
+        Err(err) => Err(err),
     }
-    Ok((pinned, url))
 }
 
 fn fetch_official_metadata(

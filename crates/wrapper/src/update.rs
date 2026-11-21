@@ -10,7 +10,7 @@ use crate::generation::{
     PERSISTENT_SCHEMA_IDENTITY, WRAPPER_API_IDENTITY,
 };
 use crate::maintenance;
-use crate::progress::{format_bytes, UpdatePresentation};
+use crate::progress::{format_bytes, prompt_update_confirmation, UpdatePresentation};
 use crate::remote_download::{self, ReleaseFileEntry, REMOTE_TRANSFER_TIMEOUT_SECONDS};
 use crate::runtime_env::{
     capture_termux_process_env, prepare_wrapper_config, TermuxProcessEnvSnapshot,
@@ -409,6 +409,7 @@ fn activate_generation(
     before: Option<&generation_state::GenerationPointerState>,
     after: &generation_state::GenerationPointerState,
     lock: &generation_state::ActivationLockGuard,
+    presentation: &mut UpdatePresentation,
 ) -> Result<(), LocalProductError> {
     use generation_state::ActivationTransactionError::{CommitSync, CommittedCleanup, Io};
 
@@ -418,7 +419,7 @@ fn activate_generation(
     ) {
         Ok(()) => Ok(()),
         Err(err @ CommittedCleanup { .. }) => {
-            eprintln!("codex update: warning: {err}");
+            presentation.warn(&format!("codex update: warning: {err}"));
             Ok(())
         }
         Err(err @ Io { .. }) => {
@@ -426,13 +427,17 @@ fn activate_generation(
             // Repair it from the journal while still holding the writer lock.
             match generation_state::recover_activation_locked(paths, &mut io, lock) {
                 Ok((state, _)) if state.as_ref() == Some(after) => {
-                    eprintln!("codex update: warning: activation recovered after: {err}");
+                    presentation.warn(&format!(
+                        "codex update: warning: activation recovered after: {err}"
+                    ));
                     Ok(())
                 }
                 Ok(_) => Err(LocalProductError::State(err)),
                 Err(recovery @ CommitSync(_)) => Err(LocalProductError::State(recovery)),
                 Err(recovery) => {
-                    eprintln!("codex update: activation recovery is pending: {recovery}");
+                    presentation.warn(&format!(
+                        "codex update: activation recovery is pending: {recovery}"
+                    ));
                     Err(LocalProductError::State(err))
                 }
             }
@@ -601,6 +606,7 @@ fn install_built_generation_dir(
             authoritative.as_ref(),
             &after,
             &lock,
+            presentation,
         )?;
 
         Ok(ActivatedOutcome {
@@ -1007,6 +1013,7 @@ fn run_rollback(
         Some(&before),
         &after,
         &lock,
+        presentation,
     )?;
     Ok(ActivatedOutcome {
         generation_id: after.current,
@@ -1123,11 +1130,11 @@ fn read_active_installed_generation(roots: &LocalWrapperRoots) -> Option<LoadedL
     (loaded.generation_id == pointer.current).then_some(loaded)
 }
 
-fn check_and_prompt_bare_launch<R: std::io::Read, W: std::io::Write>(
+fn check_and_prompt_bare_launch<W: std::io::Write>(
     roots: &LocalWrapperRoots,
     now_secs: u64,
-    input: &mut R,
     err_out: &mut W,
+    confirm: impl FnOnce(&mut W, &str) -> bool,
     fetch_latest: impl FnOnce(&LocalWrapperRoots) -> Option<OfficialReleaseMetadata>,
     run_update: impl FnOnce(&OfficialReleaseMetadata) -> i32,
 ) -> bool {
@@ -1159,17 +1166,10 @@ fn check_and_prompt_bare_launch<R: std::io::Read, W: std::io::Write>(
         return false;
     }
 
-    if write!(
-        err_out,
-        "Codex {latest} is available (current: {current_version}). Update now? [y/N]: "
-    )
-    .and_then(|()| err_out.flush())
-    .is_err()
-    {
-        return false;
-    }
+    let prompt =
+        format!("Codex {latest} is available (current: {current_version}). Update now? [y/N]: ");
 
-    if read_update_confirmation(input) {
+    if confirm(err_out, &prompt) {
         let rc = run_update(&entry.release);
         if rc == 0 {
             return true;
@@ -1182,24 +1182,6 @@ fn check_and_prompt_bare_launch<R: std::io::Read, W: std::io::Write>(
     entry.deferred_for = Some(current_version);
     write_update_check_cache(&roots.state_root, &entry);
     false
-}
-
-fn read_update_confirmation(input: &mut impl std::io::Read) -> bool {
-    let mut answer = Vec::with_capacity(64);
-    let mut byte = [0u8; 1];
-    let mut too_long = false;
-    loop {
-        match input.read(&mut byte) {
-            Ok(0) => return false,
-            Ok(_) if byte[0] == b'\n' => break,
-            Ok(_) if answer.len() < 64 => answer.push(byte[0]),
-            Ok(_) => too_long = true,
-            Err(err) if err.kind() == std::io::ErrorKind::Interrupted => continue,
-            Err(_) => return false,
-        }
-    }
-    let reply = std::str::from_utf8(&answer).unwrap_or("").trim();
-    !too_long && (reply.eq_ignore_ascii_case("y") || reply.eq_ignore_ascii_case("yes"))
 }
 
 pub(super) fn maybe_prompt_and_update_on_bare_launch(roots: &LocalWrapperRoots) {
@@ -1218,11 +1200,12 @@ pub(super) fn maybe_prompt_and_update_on_bare_launch(roots: &LocalWrapperRoots) 
     let Ok(stdin) = std::io::stdin().as_fd().try_clone_to_owned() else {
         return;
     };
+    let mut stdin = std::fs::File::from(stdin);
     let _ = check_and_prompt_bare_launch(
         roots,
         current_unix_secs(),
-        &mut std::fs::File::from(stdin),
         &mut std::io::stderr(),
+        |out, prompt| prompt_update_confirmation(&mut stdin, out, prompt),
         |roots| {
             let staging = create_staging_root(&std::env::temp_dir(), ".codex-quick-check-").ok()?;
             let resolved = resolve_official_release_metadata_quick(roots, &staging).ok();
@@ -1241,11 +1224,90 @@ pub(super) fn maybe_prompt_and_update_on_bare_launch(roots: &LocalWrapperRoots) 
     );
 }
 
-fn print_daemon_sync_messages(notices: &[String], warnings: &[String]) {
-    for notice in notices {
-        println!("{notice}");
+enum UpdateSuccess {
+    Activated(ActivatedOutcome),
+    AlreadyCurrent {
+        generation_id: String,
+        version: String,
+    },
+    RolledBack(ActivatedOutcome),
+}
+
+impl UpdateSuccess {
+    fn generation_id(&self) -> &str {
+        match self {
+            UpdateSuccess::Activated(outcome) | UpdateSuccess::RolledBack(outcome) => {
+                &outcome.generation_id
+            }
+            UpdateSuccess::AlreadyCurrent { generation_id, .. } => generation_id,
+        }
     }
-    for warning in warnings {
+
+    fn finish_presentation(&self, presentation: &mut UpdatePresentation) {
+        match self {
+            UpdateSuccess::Activated(outcome) => presentation.finish_activated(
+                outcome.previous_version.as_deref(),
+                &outcome.current_version,
+                &outcome.generation_id,
+            ),
+            UpdateSuccess::AlreadyCurrent { version, .. } => presentation.finish_current(version),
+            UpdateSuccess::RolledBack(outcome) => presentation.finish_rollback(
+                outcome
+                    .previous_version
+                    .as_deref()
+                    .unwrap_or(&outcome.current_version),
+                &outcome.current_version,
+                &outcome.generation_id,
+            ),
+        }
+    }
+}
+
+fn execute_mutating_update(
+    action: UpdateAction,
+    roots: &LocalWrapperRoots,
+    process_env: &TermuxProcessEnvSnapshot,
+    presentation: &mut UpdatePresentation,
+    confirmed: Option<&OfficialReleaseMetadata>,
+) -> Result<UpdateSuccess, LocalProductError> {
+    match action {
+        UpdateAction::Rollback => {
+            run_rollback(roots, process_env, presentation).map(UpdateSuccess::RolledBack)
+        }
+        UpdateAction::Path(path) => {
+            run_path_update(&path, roots, process_env, presentation).map(UpdateSuccess::Activated)
+        }
+        UpdateAction::Upstream {
+            requested_version,
+            force_rebuild,
+        } => match run_upstream_update(
+            requested_version.as_deref(),
+            force_rebuild,
+            roots,
+            process_env,
+            presentation,
+            confirmed,
+        )? {
+            UpstreamOutcome::AlreadyCurrent {
+                generation_id,
+                version,
+            } => Ok(UpdateSuccess::AlreadyCurrent {
+                generation_id,
+                version,
+            }),
+            UpstreamOutcome::Activated(outcome) => Ok(UpdateSuccess::Activated(outcome)),
+        },
+        UpdateAction::Help | UpdateAction::Check { .. } => {
+            unreachable!("non-mutating update actions handled before update lease")
+        }
+    }
+}
+
+fn print_daemon_sync_report(report: &daemon_sync::DaemonSyncReport) {
+    if let Some(summary) = report.summary_line() {
+        println!("{summary}");
+    }
+    for warning in report.warnings() {
         eprintln!("{warning}");
     }
 }
@@ -1287,96 +1349,19 @@ fn run_update_action_confirmed(
     };
     let process_env = capture_termux_process_env();
 
-    match action {
-        UpdateAction::Help => 0,
-        UpdateAction::Check { .. } => {
-            unreachable!("read-only inspection handled before update lease")
-        }
-        UpdateAction::Rollback => match run_rollback(&roots, &process_env, &mut presentation) {
-            Ok(outcome) => {
-                let (notices, warnings) = daemon_sync::synchronize(
-                    &outcome.generation_id,
-                    &roots,
-                    &process_env,
-                    &mut presentation,
-                );
-                presentation.finish_rollback(
-                    outcome
-                        .previous_version
-                        .as_deref()
-                        .unwrap_or(&outcome.current_version),
-                    &outcome.current_version,
-                    &outcome.generation_id,
-                );
-                print_daemon_sync_messages(&notices, &warnings);
-                0
-            }
-            Err(err) => presentation.fail(&err),
-        },
-        UpdateAction::Path(path) => {
-            match run_path_update(&path, &roots, &process_env, &mut presentation) {
-                Ok(outcome) => {
-                    let (notices, warnings) = daemon_sync::synchronize(
-                        &outcome.generation_id,
-                        &roots,
-                        &process_env,
-                        &mut presentation,
-                    );
-                    presentation.finish_activated(
-                        outcome.previous_version.as_deref(),
-                        &outcome.current_version,
-                        &outcome.generation_id,
-                    );
-                    print_daemon_sync_messages(&notices, &warnings);
-                    0
-                }
-                Err(err) => presentation.fail(&err),
-            }
-        }
-        UpdateAction::Upstream {
-            requested_version,
-            force_rebuild,
-        } => {
-            match run_upstream_update(
-                requested_version.as_deref(),
-                force_rebuild,
+    match execute_mutating_update(action, &roots, &process_env, &mut presentation, confirmed) {
+        Ok(success) => {
+            let daemon_report = daemon_sync::synchronize(
+                success.generation_id(),
                 &roots,
                 &process_env,
                 &mut presentation,
-                confirmed,
-            ) {
-                Ok(UpstreamOutcome::AlreadyCurrent {
-                    generation_id,
-                    version,
-                }) => {
-                    let (notices, warnings) = daemon_sync::synchronize(
-                        &generation_id,
-                        &roots,
-                        &process_env,
-                        &mut presentation,
-                    );
-                    presentation.finish_current(&version);
-                    print_daemon_sync_messages(&notices, &warnings);
-                    0
-                }
-                Ok(UpstreamOutcome::Activated(outcome)) => {
-                    let (notices, warnings) = daemon_sync::synchronize(
-                        &outcome.generation_id,
-                        &roots,
-                        &process_env,
-                        &mut presentation,
-                    );
-                    presentation.finish_activated(
-                        outcome.previous_version.as_deref(),
-                        &outcome.current_version,
-                        &outcome.generation_id,
-                    );
-                    print_daemon_sync_messages(&notices, &warnings);
-                    0
-                }
-                Err(err) => presentation.fail(&err),
-            }
+            );
+            success.finish_presentation(&mut presentation);
+            print_daemon_sync_report(&daemon_report);
+            0
         }
+        Err(err) => presentation.fail(&err),
     }
 }
 
@@ -1550,6 +1535,40 @@ mod tests {
         assert!(check_release(&roots, None, true).is_err());
         assert!(!state.exists());
         assert!(!roots.generation_root.exists());
+
+        // When GitHub API returns 403 rate limit, discovery falls back to the
+        // public latest release redirect and verifies OpenAI's exact descriptor.
+        fs::write(&exact, metadata('a')).unwrap();
+        fs::write(
+            &roots.curl,
+            format!(
+                r#"#!{shell}
+url=
+while [ $# -gt 0 ]; do
+ case "$1" in
+  --url) shift; url=$1 ;;
+ esac
+ shift
+done
+case "$url" in
+ https://api.github.com/*releases/latest)
+  printf 'CODEX_HTTP_STATUS=403' >&2
+  exit 22 ;;
+ https://github.com/openai/codex/releases/latest)
+  printf 'HTTP/2 302\r\nlocation: https://github.com/openai/codex/releases/tag/rust-v1.2.3\r\n\r\n' ;;
+ */1.2.3/release.json)
+  exec {cat} '{}' ;;
+ *) exit 57 ;;
+esac
+"#,
+                exact.display()
+            ),
+        )
+        .unwrap();
+        fs::set_permissions(&roots.curl, fs::Permissions::from_mode(0o700)).unwrap();
+        let fallback_out = check_release(&roots, None, true).unwrap();
+        assert!(fallback_out.contains("\"upstream_version\":\"1.2.3\""));
+        assert!(!state.exists());
         remove_temp_root(root);
     }
 
@@ -1668,7 +1687,15 @@ esac
         let paths = activation_paths(&roots).unwrap();
         let before = generation_state::plan_initial_pointer_state("missing-current").unwrap();
         let lock = generation_state::acquire_activation_lock(&paths).unwrap();
-        activate_generation(&paths, ActivationOperation::Update, None, &before, &lock).unwrap();
+        activate_generation(
+            &paths,
+            ActivationOperation::Update,
+            None,
+            &before,
+            &lock,
+            &mut presentation,
+        )
+        .unwrap();
         drop(lock);
         crate::tests::write_sample_generation(&source, id, false);
 
@@ -1977,12 +2004,14 @@ esac
             |_| panic!("fresh cache should avoid network discovery");
         let never_update: fn(&OfficialReleaseMetadata) -> i32 =
             |_| panic!("unconfirmed input should avoid update");
-        let mut input = b"n\n".as_slice();
         assert!(!check_and_prompt_bare_launch(
             &roots,
             start,
-            &mut input,
             &mut output,
+            |out, prompt| {
+                out.extend_from_slice(prompt.as_bytes());
+                false
+            },
             |_| Some(release.clone()),
             never_update,
         ));
@@ -2005,8 +2034,8 @@ esac
         assert!(!check_and_prompt_bare_launch(
             &roots,
             expiry - 1,
-            &mut &b"yes\n"[..],
             &mut output,
+            |_, _| panic!("deferred offer should not prompt"),
             never_fetch,
             never_update,
         ));
@@ -2014,8 +2043,8 @@ esac
         assert!(check_and_prompt_bare_launch(
             &roots,
             expiry,
-            &mut &b" YeS \r\n"[..],
             &mut output,
+            |_, _| true,
             |_| Some(release.clone()),
             |confirmed| {
                 assert_eq!(confirmed, &release);
@@ -2028,24 +2057,12 @@ esac
         assert!(!check_and_prompt_bare_launch(
             &roots,
             expiry,
-            &mut &b"yes\n"[..],
             &mut output,
+            |_, _| true,
             |_| Some(release),
             |_| 1,
         ));
         assert!(String::from_utf8_lossy(&output).contains("continuing with the active generation"));
         remove_temp_root(root);
-    }
-
-    #[test]
-    fn startup_confirmation_leaves_following_input_and_rejects_truncation() {
-        let mut input = &b"yes\nTUI"[..];
-        assert!(read_update_confirmation(&mut input));
-        assert_eq!(input, b"TUI");
-        let overlong = format!("yes{:65}x\nTUI", "");
-        let mut input = overlong.as_bytes();
-        assert!(!read_update_confirmation(&mut input));
-        assert_eq!(input, b"TUI");
-        assert!(!read_update_confirmation(&mut &b"y"[..]));
     }
 }

@@ -101,6 +101,7 @@ pub(super) fn copy_bounded_file_contents<R: io::Read, W: io::Write>(
 
 const HTTP_STATUS: &str = "%{stderr}CODEX_HTTP_STATUS=%{response_code}";
 const STDERR_TAIL_BYTES: usize = 1024;
+const REDIRECT_HEADER_MAX_BYTES: usize = 64 * 1024;
 const EMPTY_SHA256: &str = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
 
 #[derive(Clone, Copy)]
@@ -177,6 +178,131 @@ fn parse_total_size_from_headers(header_path: &Path, offset: u64, limit: u64) ->
         }
     }
     last_range_total.or(last_length)
+}
+
+fn parse_redirect_location(headers: &[u8]) -> Option<String> {
+    let text = std::str::from_utf8(headers).ok()?;
+    let mut lines = text.lines();
+    let status_line = lines.next()?;
+    let code = status_line
+        .split_whitespace()
+        .nth(1)
+        .and_then(|s| s.parse::<u16>().ok())?;
+    if !matches!(code, 301 | 302 | 303 | 307 | 308) {
+        return None;
+    }
+    let mut location = None;
+    for line in lines {
+        let trimmed = line.trim_end_matches('\r');
+        if trimmed.is_empty() {
+            break;
+        }
+        if let Some((name, value)) = trimmed.split_once(':') {
+            if name.trim().eq_ignore_ascii_case("location") {
+                if location.is_some() {
+                    return None;
+                }
+                let trimmed_val = value.trim();
+                if trimmed_val.is_empty() {
+                    return None;
+                }
+                location = Some(trimmed_val.to_owned());
+            }
+        }
+    }
+    location
+}
+
+pub(super) fn fetch_redirect_location(
+    roots: &LocalWrapperRoots,
+    url: &str,
+    timeout: TransferTimeout<'_>,
+) -> Result<String, LocalProductError> {
+    ensure_curl_available(&roots.curl)?;
+    let (reader, writer) = proc_exec::nonblocking_output_pipe().map_err(transfer_io)?;
+    let mut command = Command::new(&roots.curl);
+    let connect_timeout = match timeout {
+        TransferTimeout::Quick(_) => "3",
+        _ => REMOTE_CONNECT_TIMEOUT_SECONDS,
+    };
+    let wait_timeout = match timeout {
+        TransferTimeout::Fixed(seconds) => {
+            let secs = seconds.parse::<u64>().unwrap_or(30);
+            command.args(["--max-time", seconds]);
+            Duration::from_secs(secs.saturating_add(5))
+        }
+        TransferTimeout::Quick(deadline) => {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            let millis = remaining.as_millis();
+            if millis == 0 {
+                return Err(transfer_io(std::io::Error::new(
+                    std::io::ErrorKind::TimedOut,
+                    "startup release check timed out",
+                )));
+            }
+            let seconds = format!("{}.{:03}", millis / 1000, millis % 1000);
+            command.args(["--max-time", &seconds]);
+            remaining
+        }
+        TransferTimeout::Progress(idle) => {
+            command.args(["--max-time", REMOTE_CONTROL_TRANSFER_TIMEOUT_SECONDS]);
+            idle
+        }
+    };
+    command
+        .arg("--disable")
+        .args([
+            "--silent",
+            "--show-error",
+            "--head",
+            "--proto",
+            "=https",
+            "--max-redirs",
+            "0",
+            "-A",
+            "codex-termux-wrapper",
+        ])
+        .arg("--cacert")
+        .arg(&roots.cert_file)
+        .arg("--capath")
+        .arg(&roots.cert_dir)
+        .args(["--connect-timeout", connect_timeout])
+        .arg("--url")
+        .arg(url)
+        .env_clear()
+        .stdin(Stdio::null())
+        .stdout(Stdio::from(writer))
+        .stderr(Stdio::null());
+    proc_exec::isolate_process_group(&mut command);
+    let started = Instant::now();
+    let spawned = command.spawn();
+    drop(command);
+    let mut child = spawned.map_err(|_| LocalProductError::CurlUnavailable)?;
+    let (out, status) = proc_exec::collect_bounded_output_and_wait(
+        &mut child,
+        reader,
+        wait_timeout,
+        REDIRECT_HEADER_MAX_BYTES,
+    )
+    .map_err(|err| match err {
+        proc_exec::OutputError::Io(source) => transfer_io(source),
+        proc_exec::OutputError::TimedOut(_) => transfer_io(std::io::Error::new(
+            std::io::ErrorKind::TimedOut,
+            "release redirect discovery timed out",
+        )),
+        proc_exec::OutputError::OutputTooLarge(_) => LocalProductError::RemoteResponseTooLarge,
+    })?;
+    if !status.success() {
+        return Err(LocalProductError::RemoteTransportFailed {
+            code: status.code(),
+            http_status: None,
+            bytes: out.len() as u64,
+            elapsed_seconds: started.elapsed().as_secs(),
+        });
+    }
+    parse_redirect_location(&out).ok_or(LocalProductError::LocalUpdate(
+        "official latest release redirect response is invalid",
+    ))
 }
 
 pub(super) fn fetch(

@@ -1079,7 +1079,10 @@ After installation, Wrapper exclusively owns `codex update`:
 
 - `codex update` / `codex update --upstream [--version <MAJOR.MINOR.PATCH>] [--force-rebuild]`:
   resolves official `openai/codex` release metadata (`api.github.com/repos/openai/codex/releases/latest`
-  or `https://releases.openai.com/codex/releases/<version>/release.json`) with a
+  cross-checked against `https://releases.openai.com/codex/releases/<version>/release.json`,
+  falling back on GitHub API `403`/`429` rate limits to the canonical
+  `https://github.com/openai/codex/releases/latest` HTTPS redirect target
+  verified against `https://releases.openai.com/codex/releases/<version>/release.json`) with a
   bounded control timeout (30 s), downloads `codex-package-aarch64-unknown-linux-musl.tar.gz`
   into private `$state_root/.local-update-*` / `downloads/` via `$PREFIX/bin/curl`
   (15 s connect, 300 s idle transfer timeout, up to `512 MiB` compressed archive,
@@ -1142,27 +1145,10 @@ After installation, Wrapper exclusively owns `codex update`:
 - Removed/Stage 2 flags (`--signed`, `--remote`, `--local`, `--build-local`) fail
   explicitly in Stage 1 with exit status `2` and zero state mutation. No compiler toolchain,
   signing key, or upstream self-updater is ever invoked in Stage 1.
-- `codex update`, `codex update --path`, and `codex update --rollback` synchronize
-  initialized daemon homes (`$CODEX_HOME`, `$HOME/.codex`, and existing owned
-  `$HOME/.local/share/codex/manager/profiles/*/home`) so any existing
-  `packages/app-server-daemon/current` symlink points to
-  `$HOME/.codex/packages/standalone/current`, ensure `autoUpdateEnabled=false`
-  in `app-server-daemon/settings.json`, and restart a verified running managed
-  daemon when its executable or version differs or it uses the legacy PID
-  namespace. Wrapper asks upstream to stop the daemon before switching that
-  namespace and starts a replacement only after upstream confirms the stop.
-  The replacement retains the daemon's launch environment, including its
-  SQLite binding, with the active Wrapper's Termux preparation. Homes with no
-  package link or PID record are left untouched. Stale PID records alone allow
-  link alignment. Unsafe paths and unverified live processes are preserved.
-  A per-home failure warns without reverting upstream activation or blocking
-  other homes. Wrapper serializes its updates through daemon synchronization
-  and uses upstream's home operation lock for package-link changes. Upstream
-  owns each stop and start, so another upstream command can run between them.
-  Under `activation_lock`,
-  `load_activated_generation` reconciles a missing or stale
-  `$HOME/.codex/packages/standalone/current` symlink back to `activation-state`
-  and fails explicitly without replacing a non-symlink entry.
+- Under `activation_lock`, `load_activated_generation` reconciles a missing or
+  stale `$HOME/.codex/packages/standalone/current` symlink to `activation-state`.
+  It preserves a non-symlink entry and reports the conflict. Successful
+  updates also run [managed daemon synchronization](#managed-daemon-synchronization).
 - On an interactive bare `codex` launch (zero arguments, `stdin`/`stdout`/`stderr`
   all terminals, and `CODEX_DISABLE_UPDATE_PROMPT` unset), Wrapper checks
   official stable release metadata using `~/.local/share/codex/wrapper/update-check.cache`
@@ -1171,10 +1157,19 @@ After installation, Wrapper exclusively owns `codex update`:
   also bypasses startup discovery. When a strictly newer upstream version is
   available, Wrapper prompts
   `Codex <latest> is available (current: <current>). Update now? [y/N]: ` on stderr.
-  Confirming with `y`/`yes` runs the updater for the displayed release after
-  checking its official descriptor again. Declining or a failed update
-  defers the same offer for the remaining cache lifetime. Launch resolves the
-  active generation after the prompt.
+  A single `y` or `Y` confirms immediately. `n`, `N`, or Enter declines
+  immediately. The prompt restores the terminal mode before running the updater
+  or opening the active Codex. The updater checks the displayed release's
+  official descriptor again. Declining or a failed update defers the same offer
+  for the remaining cache lifetime. Launch resolves the active generation after
+  the prompt.
+- Interactive update progress, including managed daemon stop/start phases,
+  updates one terminal row in place using atomic single-write updates (updating
+  only the spinner glyph when the fitted message and terminal width are
+  unchanged, and clearing only trailing cells after text changes). Frames fit
+  within the terminal width and are cleared before final results or warnings are
+  printed. Non-interactive streams emit neither transient progress nor terminal
+  control sequences.
 - `codex doctor`
   combines its upstream and
   Wrapper checks; it is not an upstream `state_*.db` or rollout inventory
@@ -1184,6 +1179,51 @@ After installation, Wrapper exclusively owns `codex update`:
 Browser helpers occupy the fixed package-root paths `browser/open/curl` (`termux-browser-open`)
 and `browser/manual/curl` (`termux-browser-manual`), with `helper_count = 2`. No indexed
 `helpers/0` / `helpers/1` compatibility bridge is retained.
+
+### Managed daemon synchronization
+
+After a successful Wrapper update, including an already-current result,
+`--path`, or `--rollback`, Wrapper synchronizes daemon package selection to
+the active generation. `update --check` performs read-only release inspection.
+
+- **Home selection.** Wrapper checks the invocation's `$CODEX_HOME`, the
+  default `$HOME/.codex`, and existing
+  `$HOME/.local/share/codex/manager/profiles/*/home`. It checks ownership and
+  real directories, skips symlinked profile paths and homes under
+  `standalone`, and deduplicates homes by device and inode. A home is eligible
+  when it has an entry at `packages/app-server-daemon/current` or a
+  `daemon.pid` or legacy `app-server.pid` record in `app-server-daemon/`.
+- **Package selection.** Successful synchronization selects the same active
+  executable via `packages/app-server-daemon/current ->
+  $HOME/.codex/packages/standalone/current`. This keeps the profile's logical
+  launch path stable across generation changes. Wrapper disables automatic
+  upstream package updates and preserves ordinary files and directories at
+  the link path. Dedicated per-home packages stay on disk. Wrapper rollback
+  uses the separately retained `previous` generation.
+- **Process lifecycle.** Each running daemon has its own PID and control socket.
+  If the executable and version already match and the daemon uses the current
+  PID path, Wrapper preserves the PID. A stopped home or a stale PID record
+  receives link alignment and stays stopped. Wrapper asks upstream to stop a
+  verified running daemon when its executable or version differs or its legacy
+  PID path needs migration. It switches a legacy PID path once it confirms
+  the old process is gone and starts a replacement only after upstream reports
+  `stopped`. The replacement retains the daemon's launch environment,
+  including its SQLite binding, with the active Wrapper's Termux preparation.
+  Wrapper checks its executable identity and reported version after startup.
+- **Failure handling and reporting.** Wrapper serializes its updates through
+  daemon synchronization and uses upstream's home operation lock for
+  package-link changes. Upstream owns each stop and start, so another upstream
+  command can run between them. Unsafe paths and unverified live processes are
+  preserved. If a daemon requiring restart is an ancestor of the running
+  `codex update` process, Wrapper aligns its non-legacy package link without
+  terminating its own parent daemon and defers that restart with a warning so
+  other homes finish and the caller receives the full result. Normal completion
+  prints a concise summary distinguishing restarted, link-aligned,
+  already-current, deferred, and failed homes using short profile names
+  (`default`, manager profile names, or custom `$CODEX_HOME` paths). Each
+  failure or deferred restart is reported as a warning on stderr identifying
+  the profile, full home path, and cause; activation remains committed, exit
+  status stays `0`, and synchronization proceeds for other homes.
 
 ### Stage 2 optional signed Wrapper/addon channels and bootstrap trust (Phase 2.2, deferred)
 
@@ -1518,12 +1558,12 @@ clean Termux environment/timezone (`TZ` TZif), and `daemon_settings::ensure`.
 A fresh home can receive the non-clobbering link to
 `$HOME/.codex/packages/standalone/current` on a TUI invocation eligible to use a
 managed daemon or an explicit start route, as specified in [SPEC.md](../../SPEC.md).
-Upstream owns the decision to start a daemon.
-There is no hard block preventing upstream `app-server daemon` or
-`remote-control` dispatch. Note that optional Wrapper-managed shared
-app-server / catalog IPC contracts recorded below apply only if optional
-Manager modules are reintroduced in a later extension layer; standalone Wrapper
-starts no private `__app-server-*` daemon of its own on ordinary launches.
+Upstream owns the decision to start a daemon. Wrapper owns
+[post-update package synchronization](#managed-daemon-synchronization).
+
+#### Optional shared app-server and catalog (Stage 2, deferred)
+
+The following contracts apply when the optional Manager modules are attached.
 
 For interactive local upstream TUI/resume/fork launches, Wrapper may start one
 shared app-server directly from the already qualified active generation before

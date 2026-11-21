@@ -93,12 +93,12 @@ prompts — passes through to the active adapted upstream runtime.
 
 | Command | Owner | Required Invariant |
 | --- | --- | --- |
-| `codex` / `codex [UPSTREAM_ARGS...]` | Wrapper → upstream | On an interactive bare `codex` launch (zero args, stdin/stdout/stderr all TTYs, neither `CODEX_DISABLE_UPDATE_PROMPT` nor an explicit release pin set), check official stable release metadata using a 15-minute local cache (`update-check.cache`) and short fail-open timeout, prompt `Update now? [y/N]` when a newer release exists, and run the Wrapper updater for the offered release on `y`/`yes` (continuing with the active generation if the update fails); then prepare FD 33/34/35, Termux env/timezone, optional `CODEX_SHARED_HOME`/`CODEX_SQLITE_HOME` binding, and sandbox guard, and `exec` upstream directly with argv preserved byte-for-byte (rejecting Linux Landlock `--sandbox read-only`/`workspace-write`, `-sread-only`/`-sworkspace-write`, and `sandbox linux` with exit `2`) |
+| `codex` / `codex [UPSTREAM_ARGS...]` | Wrapper → upstream | On an interactive bare `codex` launch (zero args, stdin/stdout/stderr all TTYs, neither `CODEX_DISABLE_UPDATE_PROMPT` nor an explicit release pin set), check official stable release metadata using a 15-minute local cache (`update-check.cache`) and short fail-open timeout. Prompt `Update now? [y/N]` when a newer release exists. A single `y` or `Y` runs the Wrapper updater for the offered release. Continue with the active generation after a decline or update failure. Then prepare FD 33/34/35, Termux env/timezone, optional `CODEX_SHARED_HOME`/`CODEX_SQLITE_HOME` binding, and sandbox guard, and `exec` upstream directly with argv preserved byte-for-byte (rejecting Linux Landlock `--sandbox read-only`/`workspace-write`, `-sread-only`/`-sworkspace-write`, and `sandbox linux` with exit `2`) |
 | `codex --version`, `-V`, `--help`, `-h`, `help`, `-hV` | Upstream (fast path) | Bypass daemon settings, shared-home writes, timezone extraction, and addon checks; print exact upstream output with zero added Wrapper rows (`codex version` is not introduced) |
-| `codex update [--upstream] [--version <M.m.p>] [--force-rebuild]` | Wrapper | Resolve & cross-check official stable release metadata, verify SHA-256 internally, skip rebuild if active generation is compatible and matches `(version, archive_sha256)` unless `--force-rebuild`, otherwise adapt `bin/*`, verify runtime/helper/companion digests, probe in disposable home, and atomically activate; recover even if `current` is damaged; align initialized daemon homes to `standalone/current` and restart running managed daemons onto the active generation |
-| `codex update --path <FILE_OR_DIR>` | Wrapper | Adapt an offline official `.tar.gz` archive or validate/probe/activate a prepared `package-root` generation directory; recover even if `current` is damaged; align initialized daemon homes to `standalone/current` and restart running managed daemons |
+| `codex update [--upstream] [--version <M.m.p>] [--force-rebuild]` | Wrapper | Resolve & cross-check official stable release metadata, verify SHA-256 internally, skip rebuild if active generation is compatible and matches `(version, archive_sha256)` unless `--force-rebuild`, otherwise adapt `bin/*`, verify runtime/helper/companion digests, probe in disposable home, and atomically activate. Recover even if `current` is damaged. Synchronize eligible daemon homes on success, including when the generation is already current |
+| `codex update --path <FILE_OR_DIR>` | Wrapper | Adapt an offline official `.tar.gz` archive or validate, probe, and activate a prepared `package-root` generation directory. Recover even if `current` is damaged. Synchronize eligible daemon homes on success |
 | `codex update --check [--version <M.m.p>] [--json]` | Wrapper | Resolve & cross-check official metadata and compare against the active generation (`current` / `available` / `older`) with zero downloads, activation, journal recovery, or installed-state writes |
-| `codex update --rollback` | Wrapper | Independently validate the retained `previous` complete generation (even if `current` is damaged), atomically swap `current` and `previous`, and align/restart running managed daemons onto the rolled-back generation |
+| `codex update --rollback` | Wrapper | Independently validate the retained `previous` complete generation even if `current` is damaged, atomically swap `current` and `previous`, and synchronize eligible daemon homes to the rolled-back generation |
 | `codex update --help` / `[INVALID_ARGS...]` | Wrapper | Print usage (`0`) or reject unsupported/Stage-2/conflicting options (`2`) without invoking upstream or mutating state |
 | `codex doctor [--color \| --json]` | Wrapper | Read-only composition of bounded upstream doctor (with timeout, bounded stderr/stdout capture, child-group reap, and secret redaction) and Wrapper/Termux checks with explicit component attribution; never mutates upstream DBs, `$CODEX_HOME`, or Wrapper state |
 | `codex wrapper status [--verify [--wrapper-sha256 <SHA256>] [--upstream-version <VER>]] [--json]` | Wrapper | Report active/previous generation, layout, patch report, roots, and opt-in settings under a generation launch lease; `--verify` qualifies clean journal state, compatibility, on-disk asset digests, optional Wrapper/version bindings, and candidate probe |
@@ -130,8 +130,8 @@ second executor, conversation database, credential store, or update controller.
   process lifecycles.
 - **Narrowly scoped daemon defaults and post-update synchronization:**
   - Wrapper ensures `{"updater":{"autoUpdateEnabled":false}}` in
-    `$CODEX_HOME/app-server-daemon/settings.json` on daemon-relevant launches so
-    upstream never replaces adapted packages with unadapted binaries.
+    `$CODEX_HOME/app-server-daemon/settings.json` on daemon-relevant launches to
+    disable automatic upstream daemon package updates.
   - On an uninitialized execution home, on the first TUI invocation eligible to
     use a managed daemon or an explicit `app-server daemon {start,restart,bootstrap}`
     / `remote-control [start]` route, Wrapper may create the non-clobbering link
@@ -139,16 +139,15 @@ second executor, conversation database, credential store, or update controller.
     Existing dedicated selections, symlinked roots, and prior modern/legacy launch
     traces are strictly preserved on ordinary launch; help/version, queries, `--no-daemon`, `--remote`,
     and `daemon update --from-cli` skip preparation.
-  - On explicit `codex update` (including `--path` and `--rollback`), Wrapper
-    aligns initialized daemon homes (`$CODEX_HOME`, `$HOME/.codex`, and registered
-    `$HOME/.local/share/codex/manager/profiles/*/home`) so their
-    `packages/app-server-daemon/current` symlink targets
-    `$HOME/.codex/packages/standalone/current`, and restarts any currently
-    running managed daemons whose executable or version differs from the active
-    generation or whose legacy PID namespace needs migration. A restart
-    preserves the daemon's launch environment and uses the upstream lifecycle
-    commands. A home with no running managed daemon receives link alignment
-    only. Synchronization failures are reported per home after activation.
+  - On successful `codex update` operations, Wrapper aligns eligible initialized
+    homes to the shared active executable through `standalone/current`. Each
+    home retains its upstream process and socket ownership. Wrapper uses upstream
+    lifecycle commands to restart a verified running daemon when its executable
+    or version differs or its legacy PID path needs migration. Stopped homes
+    remain stopped after link alignment. Dedicated package files are retained.
+    Synchronization failures are reported per home after activation. See the
+    [delivery contract](docs/spec/DELIVERY.md#managed-daemon-synchronization)
+    for scope and failure handling.
 - **External shared-home binding (`CODEX_SHARED_HOME` / `CODEX_SQLITE_HOME`):**
   - Wrapper owns no profile registry or profile CRUD. When callers supply
     `CODEX_SHARED_HOME`, Wrapper isolates `auth.json` and daemon sockets per

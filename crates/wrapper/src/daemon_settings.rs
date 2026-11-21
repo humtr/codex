@@ -329,8 +329,59 @@ fn directory_identity(meta: &std::fs::Metadata) -> (u64, u64) {
     (meta.dev(), meta.ino())
 }
 
-/// Discover local execution homes without following symlinks within the
-/// registry or the candidate home. HOME itself can have platform aliases.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum DaemonHomeLabel {
+    Named(String),
+    Path(String),
+}
+
+impl DaemonHomeLabel {
+    pub(super) fn short_name(&self) -> &str {
+        match self {
+            DaemonHomeLabel::Named(name) | DaemonHomeLabel::Path(name) => name,
+        }
+    }
+
+    pub(super) fn warning_target(&self, home: &Path) -> String {
+        match self {
+            DaemonHomeLabel::Named(name) => format!("{name} ({})", home.display()),
+            DaemonHomeLabel::Path(_) => home.display().to_string(),
+        }
+    }
+}
+
+pub(super) fn daemon_home_label(home_dir: &Path, codex_home: &Path) -> DaemonHomeLabel {
+    let canonical_home = fs::canonicalize(home_dir).unwrap_or_else(|_| home_dir.to_path_buf());
+    let normalized = codex_home
+        .strip_prefix(home_dir)
+        .map_or_else(|_| codex_home.to_path_buf(), |rel| canonical_home.join(rel));
+    if normalized == canonical_home.join(".codex") {
+        return DaemonHomeLabel::Named("default".to_owned());
+    }
+    if let Ok(rel) =
+        normalized.strip_prefix(canonical_home.join(".local/share/codex/manager/profiles"))
+    {
+        let mut components = rel.components();
+        if let (
+            Some(std::path::Component::Normal(name)),
+            Some(std::path::Component::Normal(leaf)),
+            None,
+        ) = (components.next(), components.next(), components.next())
+        {
+            if leaf == "home" {
+                if let Some(name) = name.to_str().filter(|s| !s.is_empty()) {
+                    return DaemonHomeLabel::Named(name.to_owned());
+                }
+            }
+        }
+    }
+    DaemonHomeLabel::Path(codex_home.display().to_string())
+}
+
+/// Discover local execution homes in deterministic order (`default`, sorted
+/// manager profiles, then any distinct active `$CODEX_HOME`) without following
+/// symlinks within the registry or the candidate home. HOME itself can have
+/// platform aliases.
 pub(super) fn candidate_daemon_homes(
     home_dir: &Path,
     active_codex_home: Option<&Path>,
@@ -374,11 +425,6 @@ pub(super) fn candidate_daemon_homes(
             homes.push(candidate);
         }
     };
-    if let Some(active) = active_codex_home {
-        add(active
-            .strip_prefix(home_dir)
-            .map_or_else(|_| active.to_path_buf(), |rel| home.join(rel)));
-    }
     add(home.join(".codex"));
     let profiles = home.join(".local/share/codex/manager/profiles");
     if owned_directory_chain(&home, &profiles, uid) {
@@ -391,6 +437,11 @@ pub(super) fn candidate_daemon_homes(
                 add(profiles.join(name).join("home"));
             }
         }
+    }
+    if let Some(active) = active_codex_home {
+        add(active
+            .strip_prefix(home_dir)
+            .map_or_else(|_| active.to_path_buf(), |rel| home.join(rel)));
     }
     homes
 }
@@ -842,8 +893,28 @@ mod tests {
             fs::create_dir_all(dir).unwrap();
         }
 
-        let homes = candidate_daemon_homes(&root, Some(&default_home), &standalone_root);
+        let homes = candidate_daemon_homes(&root, Some(&prof_a), &standalone_root);
         assert_eq!(homes.len(), 3);
+        assert_eq!(
+            daemon_home_label(&root, &homes[0]),
+            DaemonHomeLabel::Named("default".to_owned())
+        );
+        assert_eq!(
+            daemon_home_label(&root, &homes[1]),
+            DaemonHomeLabel::Named("janmori101".to_owned())
+        );
+        assert_eq!(
+            daemon_home_label(&root, &homes[2]),
+            DaemonHomeLabel::Named("unused".to_owned())
+        );
+        let custom = root.join("custom-codex-home");
+        fs::create_dir_all(&custom).unwrap();
+        let with_custom = candidate_daemon_homes(&root, Some(&custom), &standalone_root);
+        assert_eq!(with_custom.len(), 4);
+        assert_eq!(
+            daemon_home_label(&root, &with_custom[3]),
+            DaemonHomeLabel::Path(with_custom[3].display().to_string())
+        );
 
         assert!(!has_daemon_activity(&prof_b));
         let local_rel = default_home.join("packages/app-server-daemon/releases/local-abc");
