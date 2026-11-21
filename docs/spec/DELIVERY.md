@@ -1147,11 +1147,19 @@ After installation, Wrapper exclusively owns `codex update`:
   `$HOME/.local/share/codex/manager/profiles/*/home`) so any existing
   `packages/app-server-daemon/current` symlink points to
   `$HOME/.codex/packages/standalone/current`, ensure `autoUpdateEnabled=false`
-  in `app-server-daemon/settings.json`, and restart any currently running
-  managed daemons (`app-server daemon restart`) whose running executable or
-  version differs from the active generation. Homes with no initialized daemon
-  link and no running daemon PID are left untouched, and stopped daemons are
-  never started by `codex update`. Under `activation_lock`,
+  in `app-server-daemon/settings.json`, and restart a verified running managed
+  daemon when its executable or version differs or it uses the legacy PID
+  namespace. Wrapper asks upstream to stop the daemon before switching that
+  namespace and starts a replacement only after upstream confirms the stop.
+  The replacement retains the daemon's launch environment, including its
+  SQLite binding, with the active Wrapper's Termux preparation. Homes with no
+  package link or PID record are left untouched. Stale PID records alone allow
+  link alignment. Unsafe paths and unverified live processes are preserved.
+  A per-home failure warns without reverting upstream activation or blocking
+  other homes. Wrapper serializes its updates through daemon synchronization
+  and uses upstream's home operation lock for package-link changes. Upstream
+  owns each stop and start, so another upstream command can run between them.
+  Under `activation_lock`,
   `load_activated_generation` reconciles a missing or stale
   `$HOME/.codex/packages/standalone/current` symlink back to `activation-state`
   and fails explicitly without replacing a non-symlink entry.
@@ -1159,12 +1167,15 @@ After installation, Wrapper exclusively owns `codex update`:
   all terminals, and `CODEX_DISABLE_UPDATE_PROMPT` unset), Wrapper checks
   official stable release metadata using `~/.local/share/codex/wrapper/update-check.cache`
   (15-minute TTL) and a bounded fail-open HTTPS probe (3 s connect / 5 s total
-  timeout). When a strictly newer upstream version is available, Wrapper prompts
-  `Codex update available: <current> -> <latest>. Update now? [y/N] ` on stderr:
-  confirming with `y`/`yes` runs `codex update` (including daemon synchronization)
-  before launching the newly activated generation, while `n`/empty input or a
-  failed check/update proceeds directly with the currently active generation.
-  `codex doctor`
+  timeout across discovery requests). A set `CODEX_TERMUX_UPDATE_VERSION`
+  also bypasses startup discovery. When a strictly newer upstream version is
+  available, Wrapper prompts
+  `Codex <latest> is available (current: <current>). Update now? [y/N]: ` on stderr.
+  Confirming with `y`/`yes` runs the updater for the displayed release after
+  checking its official descriptor again. Declining or a failed update
+  defers the same offer for the remaining cache lifetime. Launch resolves the
+  active generation after the prompt.
+- `codex doctor`
   combines its upstream and
   Wrapper checks; it is not an upstream `state_*.db` or rollout inventory
   repair API. A healthy Wrapper diagnosis does not imply that every upstream

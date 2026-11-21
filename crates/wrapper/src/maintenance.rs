@@ -42,6 +42,7 @@ pub(super) fn launch_lease(root: &Path) -> io::Result<Option<File>> {
 pub(super) struct UpdateLease<'a> {
     roots: &'a LocalWrapperRoots,
     file: Option<File>,
+    writer: Option<File>,
     #[cfg(test)]
     proc_root: Option<std::path::PathBuf>,
 }
@@ -57,9 +58,21 @@ impl<'a> UpdateLease<'a> {
                 operation: "lease installed generations during update",
                 source,
             })?;
+        // Launches and read-only checks can proceed while an update owns the
+        // complete activation and daemon synchronization operation.
+        let writer = File::open(&roots.generation_root)
+            .and_then(|dir| {
+                flock_fd(&dir, LOCK_EX | LOCK_NB)?;
+                Ok(dir)
+            })
+            .map_err(|source| LocalProductError::Io {
+                operation: "acquire exclusive upstream update lease",
+                source,
+            })?;
         Ok(Self {
             roots,
             file,
+            writer: Some(writer),
             #[cfg(test)]
             proc_root: None,
         })
@@ -77,6 +90,7 @@ impl<'a> UpdateLease<'a> {
 }
 impl Drop for UpdateLease<'_> {
     fn drop(&mut self) {
+        drop(self.writer.take());
         drop(self.file.take());
         #[cfg(test)]
         if let Some(proc_root) = self.proc_root.as_deref() {
@@ -732,6 +746,8 @@ mod tests {
 
         let lease = UpdateLease::acquire_with_proc(&roots, proc_root.clone()).unwrap();
         assert!(fs::symlink_metadata(&generation_root).unwrap().is_dir());
+        assert!(UpdateLease::acquire(&roots).is_err());
+        assert!(launch_lease(&generation_root).unwrap().is_some());
 
         let old_staging = state_root.join(".local-update-22-1");
         fs::create_dir(&old_staging).unwrap();

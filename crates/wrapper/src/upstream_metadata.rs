@@ -3,10 +3,10 @@ use crate::fs_util::read_bounded_regular_file;
 use crate::generation::{valid_sha256_hex, LocalWrapperRoots};
 use crate::json::JsonParser;
 use crate::remote_download::{
-    self, create_remote_output, REMOTE_CONTROL_TRANSFER_TIMEOUT_SECONDS,
-    REMOTE_QUICK_CHECK_TIMEOUT_SECONDS,
+    self, create_remote_output, TransferTimeout, REMOTE_CONTROL_TRANSFER_TIMEOUT_SECONDS,
 };
 use std::path::Path;
+use std::time::{Duration, Instant};
 
 pub(super) const DEFAULT_UPSTREAM_LATEST_URL: &str =
     "https://api.github.com/repos/openai/codex/releases/latest";
@@ -214,7 +214,7 @@ pub(super) fn resolve_official_release_metadata(
         roots,
         staging_root,
         cli_version,
-        REMOTE_CONTROL_TRANSFER_TIMEOUT_SECONDS,
+        TransferTimeout::Fixed(REMOTE_CONTROL_TRANSFER_TIMEOUT_SECONDS),
     )
 }
 
@@ -226,7 +226,7 @@ pub(super) fn resolve_official_release_metadata_quick(
         roots,
         staging_root,
         None,
-        REMOTE_QUICK_CHECK_TIMEOUT_SECONDS,
+        TransferTimeout::Quick(Instant::now() + Duration::from_secs(5)),
     )
     .map(|(metadata, _)| metadata)
 }
@@ -235,7 +235,7 @@ fn resolve_official_release_metadata_with_timeout(
     roots: &LocalWrapperRoots,
     staging_root: &Path,
     cli_version: Option<&str>,
-    timeout_seconds: &'static str,
+    timeout: TransferTimeout<'_>,
 ) -> Result<(OfficialReleaseMetadata, String), LocalProductError> {
     let env_requested = std::env::var_os(UPDATE_VERSION_ENV);
     let env_version = if let Some(raw) = env_requested.as_ref() {
@@ -253,7 +253,7 @@ fn resolve_official_release_metadata_with_timeout(
     };
     let requested_version = cli_version.or(env_version);
     let fetch = |url: &str, name: &str, expected: Option<&str>| {
-        fetch_official_metadata(roots, staging_root, url, name, expected, timeout_seconds)
+        fetch_official_metadata(roots, staging_root, url, name, expected, timeout)
     };
     if let Some(version) = requested_version {
         let url = format!("{UPSTREAM_RELEASE_METADATA_BASE}/{version}/release.json");
@@ -279,7 +279,7 @@ fn fetch_official_metadata(
     url: &str,
     name: &str,
     requested_version: Option<&str>,
-    timeout_seconds: &'static str,
+    timeout: TransferTimeout<'_>,
 ) -> Result<OfficialReleaseMetadata, LocalProductError> {
     validate_https_url(url)?;
     let path = staging_root.join(name);
@@ -289,7 +289,7 @@ fn fetch_official_metadata(
         url,
         &output,
         UPSTREAM_RELEASE_METADATA_MAX_BYTES as u64,
-        remote_download::TransferTimeout::Fixed(timeout_seconds),
+        timeout,
         0,
         None,
     )?;

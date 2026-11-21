@@ -11,16 +11,16 @@ and retired work orders are archived in
 
 ---
 
-## Current Live Operating Snapshot (2026-11-19)
+## Current Live Operating Snapshot
+
+Observed on 2026-11-21.
 
 | Boundary | Observed State | Notes |
 | --- | --- | --- |
-| **Active branch / source** | `main` & `rewrite/wrapper` promoted to `135fccd1` (Stage 1 graduated) | Legacy `0.167.2` `main` (`fcefb8b3`) preserved at `origin/archive/main-legacy-0.167.2` |
-| **Installed Wrapper (`$PREFIX/bin/codex`)** | Published stable `wrapper` release (`135fccd1`, `bin/codex` SHA-256 `dfdcbbc2...`, `prerelease: false`) | Installed via public GitHub Release `install.sh` (`44464940477`); HTTPS + SHA-256 checksum verified (not Stage 2.2 Ed25519) |
-| **Active / rollback upstream generation** | Active: `0.170.0-3f7e1a` (`ino=9717389`, SHA-256 `096ac747...`)<br>Rollback (`previous`): `0.169.1-3de502` | Under `$HOME/.codex/packages/standalone/releases/`; `standalone/current -> releases/0.170.0-3f7e1a`; preserved offline during Wrapper cutover |
-| **Live managed daemons (`default` / `janmori101` / `szob`)** | All 3 homes linked to `$HOME/.codex/packages/standalone/current` | Independent PIDs (`20823`, `21394`, `21500`) and control sockets sharing `ino=9717389` with updated FD 34 (no `thread_unload_delay_secs = 0`) |
-| **Live `codex doctor --json` (all 3 homes)** | `exit 0`, `termux_wrapper = healthy`, `app_server = ok` (`0.170.0`), `summary = healthy`, parity `0/0/0/3` | Re-verified post-cutover across `default`, `janmori101`, and `szob` (0 Wrapper warnings); 3 missing-file `/usr/tmp/*` DB rows retained untouched |
-| **External services (`runit` & `167.2`)** | All 5 `runit` services running; `167.2` preserved in original generation (`ino=489102`) | Independently owned; excluded from Wrapper binary unification |
+| **Published and installed Wrapper (`$PREFIX/bin/codex`)** | Stable `wrapper` tag at `5994956a`. Published archive SHA-256 `51e44d50...`. Published and installed `bin/codex` SHA-256 both `d76f1a0a...` | Public release metadata, tag and asset readback matched on 2026-11-21 |
+| **Active / rollback upstream generation** | Active `0.171.0-d8c43b` (`ino=627564`, SHA-256 `26d9f90b...`). Rollback `0.170.0-3f7e1a` | `wrapper status --json`, `codex --version` and `standalone/current` agreed |
+| **Live managed daemons (`default` / `janmori101` / `szob`)** | All three homes link to `$HOME/.codex/packages/standalone/current` | PID records `10856`, `11009`, `11134` resolved through `/proc/<pid>/exe` to the active `0.171.0` executable |
+| **Live doctor and external services** | Last recorded three-home doctor result and external service inventory are in the 2026-11-19 cutover receipt | 2026-11-21 used read-only Wrapper status, release and process identity checks |
 | **Stage 2.1 boundary / Stage 2.2–2.5 addons** | 2.1 settings & FD 34 snapshot engine implemented; 2.2–2.5 deferred | Zero Manager/TUI/Provider executables attached |
 | **Stage 1 graduation status** | **Complete** (WP0–WP6 archived in [STAGE1_MILESTONES.md](docs/history/STAGE1_MILESTONES.md), ephemeral `HANDOFF.md` retired) | Deferred Stage 2 items tracked in [docs/ROADMAP.md](docs/ROADMAP.md) |
 
@@ -30,11 +30,42 @@ and retired work orders are archived in
 - Execution on an actual 16 KiB kernel page-size device or other Android API/hardware (only 16 KiB ELF geometry on Android API 37 / 4 KiB pages is verified).
 - External Remote Control client pairing and post-cutover interactive model inference across all accounts.
 - Deferred Stage 2 `/switch` cross-account UUID handoff and `session_index.jsonl` authority matrix (see [docs/ROADMAP.md](docs/ROADMAP.md#7-follow-up-verification-session-handoff-and-session_indexjsonl)).
-- Post-retention disk reclamation of legacy per-home `packages/app-server-daemon/releases/` (~2.82 GiB) and `$HOME/.local/share/codex/wrapper/downloads-v1` (~960 MiB), retained until rollback window sign-off.
+- Post-retention disk reclamation of legacy per-home `packages/app-server-daemon/releases/`.
 
 ---
 
 ## Recent Verified Evidence (Newest-First)
+
+### 2026-11-21 — Independent review of `c64d3e31..5994956a` (isolated Android API 37 Termux)
+
+- **Reproduced on the baseline:** An actual `0.170.0` legacy daemon remained
+  running after `update --path` activated `0.171.0`. Creating the dedicated
+  link first hid its `app-server.pid` from upstream lifecycle commands.
+- **Review candidate based on `5994956a`:** Qualification passed 38 steps with
+  the official `0.170.0` and `0.171.0` archives on a 4 KiB kernel
+  (input `885bf9e0...`, Wrapper binary SHA-256 `a789c3de...`). Both legacy
+  and modern daemons changed PID and executable across rollback and restore.
+  The replacements retained the SQLite binding and feature override. A stale
+  PID received link alignment only, and a directory at the daemon package
+  `current` path was preserved and reported while other homes completed.
+  Read-only doctor checks reported a healthy Wrapper and app-server. The
+  account-free upstream auth check returned exit 1. The same 38 steps passed
+  with `0.169.1` as the rollback target (input `88c686b1...`).
+- **Additional isolated checks:** Official already-current updates aligned a
+  dedicated pin, preserved a matching live PID and reported a busy upstream
+  daemon lock. After upstream `daemon update --from-cli` copied a package,
+  the Wrapper re-aligned the stopped home's link and retained that copy.
+  A concurrent Wrapper update was excluded while status succeeded.
+  Native `command/exec` in stdio and through a restarted daemon,
+  and the TUI `!` shell resolved bare `codex` to the isolated Wrapper.
+  The daemon test also resolved packaged `rg` and the arg0 `apply_patch`
+  alias, and both companion binaries passed qualification.
+- **Startup and workspace gates:** PTY tests covered all three TTY gates,
+  opt-out, a shared five-second discovery budget with delayed transport,
+  invalid and future-dated cache entries, decline, EOF, update failure, and
+  exec of `0.171.0` after confirmation. The cached repeat launches made zero
+  discovery requests. Rust fmt, Clippy with `-D warnings`, doc links, and
+  108 Wrapper plus 19 builder tests passed under both requested umasks.
 
 ### 2026-11-19 — Stage 1 Graduation: `origin/main` Promotion, Stable `wrapper` Release & Live Device Cutover (CI + actual Termux API 37)
 

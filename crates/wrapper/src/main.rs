@@ -3,6 +3,8 @@ mod cli;
 #[cfg(unix)]
 mod daemon_settings;
 #[cfg(unix)]
+mod daemon_sync;
+#[cfg(unix)]
 mod doctor;
 #[cfg(unix)]
 mod error;

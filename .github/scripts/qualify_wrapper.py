@@ -314,8 +314,12 @@ class Qualification:
         nonce = uuid.uuid4().hex
         proof = self.workspace / "native-proof.txt"
         stderr = (self.root / "native-rpc.stderr").open("xb")
+        runtime = Path(self.status("native-path-status")["runtime_path"])
+        # Upstream packages may expose a top-level codex symlink. Even with
+        # that directory inherited ahead of bin, a child must invoke Wrapper.
+        env = dict(self.env, PATH=f"{runtime.parents[1]}::{self.env['PATH']}:{self.prefix}/bin")
         server = subprocess.Popen([str(self.binary), "app-server", "--listen", "stdio://"],
-                                  env=self.env, cwd=self.workspace, stdin=subprocess.PIPE,
+                                  env=env, cwd=self.workspace, stdin=subprocess.PIPE,
                                   stdout=subprocess.PIPE, stderr=stderr, bufsize=0, start_new_session=True)
         pending = bytearray()
 
@@ -371,6 +375,92 @@ class Qualification:
                 os.killpg(server.pid, signal.SIGTERM)
                 server.wait(timeout=5)
             stderr.close()
+
+    def verify_daemon_updates(self, active, previous):
+        """Exercise rollback and restoration with real modern and legacy daemons."""
+        legacy = self.home / ".codex"
+        legacy_state = legacy / "app-server-daemon"
+        legacy_state.mkdir(mode=0o700)
+        (legacy_state / "app-server.stderr.log").touch()
+        profiles = self.home / ".local/share/codex/manager/profiles"
+        stale = profiles / "stale/home"
+        stale_state = stale / "app-server-daemon"
+        stale_state.mkdir(mode=0o700, parents=True)
+        (stale_state / "daemon.pid").write_text("2147483647\n")
+        problem = profiles / "conflict/home/packages/app-server-daemon/current"
+        problem.mkdir(mode=0o700, parents=True)
+        (problem / "keep").write_text("preserve")
+        shared_sqlite = self.root / "daemon-sqlite"
+        shared_sqlite.mkdir(mode=0o700)
+
+        daemon_homes = {"modern": self.codex_home, "legacy": legacy}
+        def daemon_env(label):
+            env = dict(self.env, CODEX_HOME=str(daemon_homes[label]))
+            if label == "modern":
+                env["CODEX_SQLITE_HOME"] = str(shared_sqlite)
+            return env
+
+        def assert_daemons(stage, generation, prior_pids):
+            actual = {}
+            for label, home in daemon_homes.items():
+                pid_file = home / "app-server-daemon/daemon.pid"
+                pid = json.loads(pid_file.read_text())["pid"]
+                if (pid in prior_pids.values()
+                        or not os.path.samefile(f"/proc/{pid}/exe", generation["runtime_path"])):
+                    raise RuntimeError(f"{stage}: {label} daemon executable/PID mismatch")
+                reply = json.loads(self.cli(f"{stage}-{label}-version", "app-server", "daemon",
+                                            "version", env=daemon_env(label)))
+                if reply.get("backend") != "pid" or reply.get("appServerVersion") != generation["upstream_version"]:
+                    raise RuntimeError(f"{stage}: {label} daemon is not ready")
+                if label == "modern":
+                    environ = Path(f"/proc/{pid}/environ").read_bytes().split(b"\0")
+                    if f"CODEX_SQLITE_HOME={shared_sqlite}".encode() not in environ:
+                        raise RuntimeError(f"{stage}: daemon SQLite binding was lost")
+                    settings = json.loads((home / "app-server-daemon/settings.json").read_text())
+                    if settings.get("featureOverrides", {}).get("shell_snapshot") is not False:
+                        raise RuntimeError(f"{stage}: daemon feature override was lost")
+                actual[label] = pid
+            return actual
+
+        started = {}
+        try:
+            for label in daemon_homes:
+                features = ("-c", "features.shell_snapshot=false") if label == "modern" else ()
+                reply = self.cli(f"update-start-{label}", *features, "app-server", "daemon",
+                                 "start", env=daemon_env(label), timeout=90)
+                started[label] = json.loads(reply)["pid"]
+            if not (legacy_state / "app-server.pid").is_file():
+                raise RuntimeError("legacy daemon did not acquire the legacy PID file")
+            self.cli("rollback", "update", "--rollback", timeout=180)
+            restored = self.status("rollback-status")
+            if (restored["generation_id"] != previous["generation_id"]
+                    or restored["previous_generation_id"] != active["generation_id"]):
+                raise RuntimeError("rollback did not swap the expected generation slots")
+            rolled_pids = assert_daemons("rollback", restored, started)
+            if any(Path(f"/proc/{pid}/exe").exists() for pid in started.values()):
+                raise RuntimeError("an original daemon survived after successful rollback")
+            if self.cli("rollback-version", "--version").strip() != f"codex-cli {previous['upstream_version']}".encode():
+                raise RuntimeError("rollback did not launch the previous release")
+            self.cli("restore-candidate", "update", "--rollback", timeout=180)
+            restored = self.status("restored-status")
+            if (restored["generation_id"] != active["generation_id"]
+                    or restored["previous_generation_id"] != previous["generation_id"]):
+                raise RuntimeError("candidate restoration did not restore the original generation slots")
+            final_pids = assert_daemons("restored", restored, rolled_pids)
+            stale_link = stale / "packages/app-server-daemon/current"
+            if (stale_link.readlink() != self.home / ".codex/packages/standalone/current"
+                    or (stale_state / "daemon.pid").read_text() != "2147483647\n"
+                    or (stale / "app-server-control").exists()):
+                raise RuntimeError("update started a daemon from a stale PID or failed alignment")
+            if (problem / "keep").read_text() != "preserve" or b"must be a symlink" not in (
+                    self.root / "rollback.stderr").read_bytes():
+                raise RuntimeError("non-link daemon package selection was not preserved and reported")
+            self.report["daemon_update"] = {"original": started, "rollback": rolled_pids,
+                                            "restored": final_pids, "stale_and_conflict": True}
+        finally:
+            for label in daemon_homes:
+                self.cli(f"update-stop-{label}", "app-server", "daemon", "stop",
+                         env=daemon_env(label), timeout=90)
 
     def pty_startup(self):
         master, slave = pty.openpty()
@@ -532,19 +622,7 @@ class Qualification:
         self.daemon_possible = False
         self.verify_shared_profiles(selected["upstream_version"])
         self.verify_wrapper_upgrade(wrapper, installer, active, previous, replacement)
-        self.cli("rollback", "update", "--rollback")
-        restored = self.status("rollback-status")
-        if (restored["generation_id"] != previous["generation_id"]
-                or restored["upstream_version"] != previous["upstream_version"]
-                or restored["previous_generation_id"] != active["generation_id"]):
-            raise RuntimeError("rollback did not swap the expected current and previous generations")
-        if self.cli("rollback-version", "--version").strip() != f"codex-cli {previous['upstream_version']}".encode():
-            raise RuntimeError("rollback did not launch the previous release")
-        self.cli("restore-candidate", "update", "--rollback")
-        restored = self.status("restored-status")
-        if (restored["generation_id"] != active["generation_id"]
-                or restored["previous_generation_id"] != previous["generation_id"]):
-            raise RuntimeError("candidate restoration did not restore the original generation slots")
+        self.verify_daemon_updates(active, previous)
         self.report["rollback"] = {"previous_version": previous["upstream_version"],
                                    "cross_version": previous_release is not None,
                                    "exact_generation_restored": True}

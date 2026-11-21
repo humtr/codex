@@ -93,7 +93,7 @@ prompts — passes through to the active adapted upstream runtime.
 
 | Command | Owner | Required Invariant |
 | --- | --- | --- |
-| `codex` / `codex [UPSTREAM_ARGS...]` | Wrapper → upstream | On an interactive bare `codex` launch (zero args, stdin/stdout/stderr all TTYs, unless `CODEX_DISABLE_UPDATE_PROMPT` is set), check official stable release metadata using a 15-minute local cache (`update-check.cache`) and short fail-open timeout, prompt `Update now? [y/N]` when a newer release exists, and run `codex update` on `y`/`yes` (continuing with the active generation if the update fails); then prepare FD 33/34/35, Termux env/timezone, optional `CODEX_SHARED_HOME`/`CODEX_SQLITE_HOME` binding, and sandbox guard, and `exec` upstream directly with argv preserved byte-for-byte (rejecting Linux Landlock `--sandbox read-only`/`workspace-write`, `-sread-only`/`-sworkspace-write`, and `sandbox linux` with exit `2`) |
+| `codex` / `codex [UPSTREAM_ARGS...]` | Wrapper → upstream | On an interactive bare `codex` launch (zero args, stdin/stdout/stderr all TTYs, neither `CODEX_DISABLE_UPDATE_PROMPT` nor an explicit release pin set), check official stable release metadata using a 15-minute local cache (`update-check.cache`) and short fail-open timeout, prompt `Update now? [y/N]` when a newer release exists, and run the Wrapper updater for the offered release on `y`/`yes` (continuing with the active generation if the update fails); then prepare FD 33/34/35, Termux env/timezone, optional `CODEX_SHARED_HOME`/`CODEX_SQLITE_HOME` binding, and sandbox guard, and `exec` upstream directly with argv preserved byte-for-byte (rejecting Linux Landlock `--sandbox read-only`/`workspace-write`, `-sread-only`/`-sworkspace-write`, and `sandbox linux` with exit `2`) |
 | `codex --version`, `-V`, `--help`, `-h`, `help`, `-hV` | Upstream (fast path) | Bypass daemon settings, shared-home writes, timezone extraction, and addon checks; print exact upstream output with zero added Wrapper rows (`codex version` is not introduced) |
 | `codex update [--upstream] [--version <M.m.p>] [--force-rebuild]` | Wrapper | Resolve & cross-check official stable release metadata, verify SHA-256 internally, skip rebuild if active generation is compatible and matches `(version, archive_sha256)` unless `--force-rebuild`, otherwise adapt `bin/*`, verify runtime/helper/companion digests, probe in disposable home, and atomically activate; recover even if `current` is damaged; align initialized daemon homes to `standalone/current` and restart running managed daemons onto the active generation |
 | `codex update --path <FILE_OR_DIR>` | Wrapper | Adapt an offline official `.tar.gz` archive or validate/probe/activate a prepared `package-root` generation directory; recover even if `current` is damaged; align initialized daemon homes to `standalone/current` and restart running managed daemons |
@@ -145,7 +145,10 @@ second executor, conversation database, credential store, or update controller.
     `packages/app-server-daemon/current` symlink targets
     `$HOME/.codex/packages/standalone/current`, and restarts any currently
     running managed daemons whose executable or version differs from the active
-    generation (never starting a daemon in a home where none is running).
+    generation or whose legacy PID namespace needs migration. A restart
+    preserves the daemon's launch environment and uses the upstream lifecycle
+    commands. A home with no running managed daemon receives link alignment
+    only. Synchronization failures are reported per home after activation.
 - **External shared-home binding (`CODEX_SHARED_HOME` / `CODEX_SQLITE_HOME`):**
   - Wrapper owns no profile registry or profile CRUD. When callers supply
     `CODEX_SHARED_HOME`, Wrapper isolates `auth.json` and daemon sockets per

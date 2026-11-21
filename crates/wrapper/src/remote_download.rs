@@ -23,7 +23,6 @@ extern "C" {
 pub(super) const REMOTE_RELEASE_TOTAL_MAX_BYTES: u64 = 1024 * 1024 * 1024;
 pub(super) const REMOTE_CONNECT_TIMEOUT_SECONDS: &str = "15";
 pub(super) const REMOTE_CONTROL_TRANSFER_TIMEOUT_SECONDS: &str = "30";
-pub(super) const REMOTE_QUICK_CHECK_TIMEOUT_SECONDS: &str = "5";
 pub(super) const REMOTE_TRANSFER_TIMEOUT_SECONDS: &str = "1800";
 #[derive(Debug, Clone)]
 pub(super) struct ReleaseFileEntry {
@@ -107,6 +106,7 @@ const EMPTY_SHA256: &str = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495
 #[derive(Clone, Copy)]
 pub(super) enum TransferTimeout<'a> {
     Fixed(&'a str),
+    Quick(Instant),
     Progress(Duration),
 }
 
@@ -240,7 +240,7 @@ pub(super) fn fetch_with_headers(
     let mut tail = Vec::new();
     let mut command = Command::new(&roots.curl);
     let connect_timeout = match timeout {
-        TransferTimeout::Fixed(REMOTE_QUICK_CHECK_TIMEOUT_SECONDS) => "3",
+        TransferTimeout::Quick(_) => "3",
         _ => REMOTE_CONNECT_TIMEOUT_SECONDS,
     };
     command
@@ -268,18 +268,34 @@ pub(super) fn fetch_with_headers(
     if let Some(hdr) = header_path {
         command.arg("--dump-header").arg(hdr);
     }
-    if let TransferTimeout::Fixed(seconds) = timeout {
-        command.args(["--max-time", seconds]);
-        if !matches!(
-            seconds,
-            REMOTE_CONTROL_TRANSFER_TIMEOUT_SECONDS | REMOTE_QUICK_CHECK_TIMEOUT_SECONDS
-        ) {
-            command.args(["--speed-limit", "1024", "--speed-time", "60"]);
+    let quick_timeout = || {
+        transfer_io(std::io::Error::new(
+            std::io::ErrorKind::TimedOut,
+            "startup release check timed out",
+        ))
+    };
+    match timeout {
+        TransferTimeout::Fixed(seconds) => {
+            command.args(["--max-time", seconds]);
+            if seconds != REMOTE_CONTROL_TRANSFER_TIMEOUT_SECONDS {
+                command.args(["--speed-limit", "1024", "--speed-time", "60"]);
+            }
         }
-    } else {
-        // The idle timer observes file growth, so curl must expose received
-        // bytes immediately rather than buffering them on its stdout stream.
-        command.arg("--no-buffer");
+        TransferTimeout::Quick(deadline) => {
+            let millis = deadline
+                .saturating_duration_since(Instant::now())
+                .as_millis();
+            if millis == 0 {
+                return Err(quick_timeout());
+            }
+            let seconds = format!("{}.{:03}", millis / 1000, millis % 1000);
+            command.args(["--max-time", &seconds]);
+            proc_exec::isolate_process_group(&mut command);
+        }
+        TransferTimeout::Progress(_) => {
+            // Expose file growth immediately to the idle timer.
+            command.arg("--no-buffer");
+        }
     }
     if offset != 0 {
         command.arg("--continue-at").arg(offset.to_string());
@@ -313,6 +329,9 @@ pub(super) fn fetch_with_headers(
         loop {
             let status = child.try_wait().map_err(transfer_io)?;
             loop {
+                if matches!(timeout, TransferTimeout::Quick(until) if Instant::now() >= until) {
+                    return Err(quick_timeout());
+                }
                 let mut buffer = [0; 1024];
                 match stderr.read(&mut buffer) {
                     Ok(0) => break,
@@ -376,12 +395,23 @@ pub(super) fn fetch_with_headers(
                 }
                 _ => {}
             }
-            std::thread::sleep(Duration::from_millis(80));
+            let poll_interval = Duration::from_millis(80);
+            let wait = match timeout {
+                TransferTimeout::Quick(until) => {
+                    poll_interval.min(until.saturating_duration_since(Instant::now()))
+                }
+                _ => poll_interval,
+            };
+            std::thread::sleep(wait);
         }
     })();
     // Reap the exact child on metadata, progress-bound and status failures too.
     if result.is_err() {
-        proc_exec::kill_and_wait(&mut child);
+        if matches!(timeout, TransferTimeout::Quick(_)) {
+            proc_exec::reap_process_group(&mut child);
+        } else {
+            proc_exec::kill_and_wait(&mut child);
+        }
     }
     result
 }

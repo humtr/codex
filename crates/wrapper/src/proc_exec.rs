@@ -61,7 +61,7 @@ pub(super) enum OutputError {
     OutputTooLarge(Vec<u8>),
 }
 
-fn reap_process_group(child: &mut Child) {
+pub(super) fn reap_process_group(child: &mut Child) {
     let group = -(child.id() as c_int);
     // The leader may already be reaped while descendants still hold the pipe.
     if unsafe { kill(group, SIGTERM_NUM) } == 0 {
