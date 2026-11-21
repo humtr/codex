@@ -17,9 +17,9 @@ Observed on 2026-11-21.
 
 | Boundary | Observed State | Notes |
 | --- | --- | --- |
-| **Published and installed Wrapper (`$PREFIX/bin/codex`)** | Stable `wrapper` tag at `0cdb8eda`. Published archive SHA-256 `b15f5257...`. Published and installed `bin/codex` SHA-256 both `a9c08127...` | CI artifact, public asset and installed binary readback matched on 2026-11-21 |
-| **Active / rollback upstream generation** | Active `0.171.0-d8c43b` (`ino=627564`, SHA-256 `26d9f90b...`). Rollback `0.170.0-3f7e1a` | `wrapper status --json`, `codex --version` and `standalone/current` agreed |
-| **Live managed daemons (`default` / `janmori101` / `szob`)** | Three processes share the active executable (`ino=627564`) through `$HOME/.codex/packages/standalone/current` | PIDs `10856`, `11009`, `11134` survived the Wrapper install and `codex update` synchronization. Each control endpoint reported `0.171.0` |
+| **Published and installed Wrapper (`$PREFIX/bin/codex`)** | Stable `wrapper` tag at `751b863d`. Published archive SHA-256 `4e502398...`. Published and installed `bin/codex` SHA-256 both `288e21d5...` | CI artifact, public asset, and installed binary readback matched on 2026-11-21 |
+| **Active / rollback upstream generation** | Active `0.170.0-3f7e1a-2` (`ino=650222`, SHA-256 `096ac747...`). Rollback `0.171.0-d8c43b-2` | Intentionally switched to `0.170.0` for interactive `0.170.0 -> 0.171.0` upgrade testing; `wrapper status --verify --json`, `codex --version`, and `standalone/current` agreed |
+| **Live managed daemons (`default` / `janmori101` / `szob`)** | Three processes share the active `0.170.0` executable (`ino=650222`) through `$HOME/.codex/packages/standalone/current` | PIDs `30780`, `30937`, `31042` restarted cleanly via `codex update --rollback`. Each control endpoint reported `0.170.0` |
 | **Live doctor and external services** | Last recorded three-home doctor result and external service inventory are in the 2026-11-19 cutover receipt | The 2026-11-21 handoff verified live process identity and queried each managed daemon's version |
 | **Stage 2.1 boundary / Stage 2.2–2.5 addons** | 2.1 settings & FD 34 snapshot engine implemented; 2.2–2.5 deferred | Zero Manager/TUI/Provider executables attached |
 | **Stage 1 graduation status** | **Complete** (WP0–WP6 archived in [STAGE1_MILESTONES.md](docs/history/STAGE1_MILESTONES.md), ephemeral `HANDOFF.md` retired) | Deferred Stage 2 items tracked in [docs/ROADMAP.md](docs/ROADMAP.md) |
@@ -35,6 +35,29 @@ Observed on 2026-11-21.
 ---
 
 ## Recent Verified Evidence (Newest-First)
+
+### 2026-11-21 — Flicker-free progress, concise daemon summary, ancestor deferral & GitHub API rate-limit fallback
+
+- [Wrapper CI run 44911991173](https://github.com/humtr/codex/actions/runs/44911991173)
+  qualified source `751b863d` with official `0.170.0` and `0.171.0` on the
+  Android Bionic runner (`checks`, `android-package`, `android-smoke`, and
+  `release`). Published stable `wrapper` tag (`prerelease=false`), archive
+  SHA-256 `4e502398...`, and `bin/codex` SHA-256 `288e21d5...` matched
+  independent readback.
+- Isolated Android API 37 verification passed all 38/38 `qualify_wrapper.py`
+  steps (`input_id: 037b592f...`), 113 Wrapper + 19 release-builder unit tests
+  (umasks `0022`/`0077`), 47 `.github/scripts` Python tests, `strace` single-write
+  and 4-byte in-place spinner checks (0 `\r\x1b[2K` clears during animation),
+  42-column PTY prompt/resize regressions, WS-over-UDS self-daemon deferral and
+  external rerun, and live GitHub API `403` rate-limit redirect fallback.
+- Installed the published Wrapper binary (`288e21d5...`) via
+  `install.sh --skip-upstream`, then ran `codex update --rollback` to leave the
+  live runtime on `0.170.0-3f7e1a-2` (`previous=0.171.0-d8c43b-2`) with
+  `update-check.cache` cleared for interactive upgrade testing. All three live
+  daemons (`default` PID `30780`, `janmori101` PID `30937`, `szob` PID `31042`)
+  reported `appServerVersion=0.170.0` with matching executable `ino=650222`, and
+  `codex update --check --json` succeeded under live GitHub API `403` rate
+  limiting (`status=available`, `upstream_version=0.171.0`).
 
 ### 2026-11-21 — Daemon synchronization release and live Wrapper cutover
 
