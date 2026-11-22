@@ -244,42 +244,39 @@ home's `packages/app-server-daemon/releases/` and selects it for the same
 home's daemon. A subsequent Wrapper update can reselect the shared executable.
 Dedicated package files and the shared rollback generation can remain on disk.
 
-### Optional account selector (`contrib/codex-account`)
+### Standalone companion (`codex-ext` / `cdx`)
 
 Stage 1 `install.sh` installs only `$PREFIX/bin/codex` and leaves profile
-registration/management out of the standalone Wrapper. For convenience when
-running already-registered account homes (`~/.local/share/codex/manager/profiles/<ACCOUNT>/home`)
-directly without `ai` or Stage 2 Manager, you can optionally copy
-[contrib/codex-account](contrib/codex-account) to `~/bin/codex-account`
-(preserving any existing file you already placed there):
+CRUD, notifications, and in-session switching completely out of the standalone
+Wrapper. Those features live in the independent Stage 2 companion crate
+[crates/codex-ext](crates/codex-ext/Cargo.toml) (`$PREFIX/bin/codex-ext` +
+`$PREFIX/bin/cdx` symlink, superseding the retired `contrib/codex-account`
+script while remaining 100% compatible with existing
+`~/.local/share/codex/manager/profiles/<NAME>/home` directories):
 
 ```sh
-mkdir -p ~/bin && cp -i contrib/codex-account ~/bin/codex-account && chmod 700 ~/bin/codex-account
-```
+# Build locally from source (independent workspace; zero impact on crates/wrapper)
+cargo build --release --locked --manifest-path crates/codex-ext/Cargo.toml
+install -m 0755 crates/codex-ext/target/release/codex-ext "$PREFIX/bin/codex-ext"
+ln -sf codex-ext "$PREFIX/bin/cdx"
 
-Usage (`codex-account ACCOUNT [CODEX_ARG ...]`) consumes only `ACCOUNT`, sets
-`CODEX_HOME`, `CODEX_SHARED_HOME="$HOME/.codex"`, and
-`CODEX_SQLITE_HOME="$HOME/.codex"` for registered accounts (or unsets all three
-for `default` / `home`), and passes all remaining arguments directly to
-`$PREFIX/bin/codex` without requiring `--`:
-
-```sh
-contrib/codex-account --help                    # show the selector's own usage from a checkout
-codex-account work                              # start Codex TUI in work home
-codex-account personal resume <UUID>            # resume thread in personal home
-codex-account work -p review exec "review this" # apply work home + review.config.toml
-codex-account default                           # unset inherited profile env and use ~/.codex
-codex-account work --help                       # pass --help through to Codex
+cdx                                      # launch Codex in default profile (non-PTY, lossless OSC 52)
+cdx use szob                             # launch Codex in named OpenAI OAuth profile
+cdx profile list                         # list profiles, auth presence, and daemon status
+cdx profile create work                  # create a new isolated OpenAI OAuth profile
+cdx notify set --enable --events Stop    # configure Termux:API notifications (config.toml Stop / hooks.json extras)
+# Inside Codex TUI (`!` shell):
+!cdx switch szob                         # pre-checks idle daemon, releases writer lock, resumes same thread
+!cdx provider chatgpt                    # switches to ~/.codex with `codex -p chatgpt` (new thread)
 ```
 
 Per-account V2 config (`-p <name>`) reads `<name>.config.toml` from the selected
 account's `$CODEX_HOME`. With `CODEX_SHARED_HOME`, `installation_id` and
-`config.toml` are shared by default. To share other config files already present
-in the shared home, set `CODEX_SHARED_EXTRA_FILES` to their colon-separated
-basenames. For example, `CODEX_SHARED_EXTRA_FILES=review.config.toml:team.config.toml`
-opts in both files. Credentials such as `auth.json`, database files, and lock
-files are reserved and cannot be opted in. Session index merges preserve separate
-entries for renamed threads.
+`config.toml` are shared by default; `codex-ext` automatically includes
+`hooks.json` in `CODEX_SHARED_EXTRA_FILES` while preserving any additional
+colon-separated basenames you configure. Credentials such as `auth.json`,
+database files, and lock files are reserved and cannot be opted in. Session
+index merges preserve separate entries for renamed threads.
 
 ## Diagnostics and Upstream Passthrough
 
@@ -342,7 +339,7 @@ Fast inspection flags (`--version`, `-V`, `--help`, `-h`, and top-level `help`) 
 
 Every push or pull request on `main`, `wrapper`, or `rewrite/wrapper` runs:
 
-1. **`checks` (`ubuntu-24.04-arm`):** YAML syntax, `sh -n` and `shellcheck` for `install.sh` and `contrib/codex-account`, workspace and lockfile scope, Git-tracked Markdown links and heading anchors, Rust formatting, clippy, and workspace tests including the emitted AArch64 `realpath` hook.
+1. **`checks` (`ubuntu-24.04-arm`):** YAML syntax, `sh -n` and `shellcheck` for `install.sh`, workspace and lockfile scope, Git-tracked Markdown links and heading anchors, Rust formatting, clippy, and workspace tests including the emitted AArch64 `realpath` hook.
 2. **`android-package` (`ubuntu-24.04`):** cross-compiles `codex` and `codex-release-builder` for `aarch64-linux-android` (API 24, Android NDK `27.3.13750724`), verifies `ARM aarch64` ELF headers and `/system/bin/linker64`, bundles `codex-wrapper-aarch64-linux-android.tar.gz` + `.sha256` + `SHA256SUMS` + `install.sh`, and uploads the workflow artifact.
 3. **`android-smoke` (`ubuntu-24.04-arm`):** provisions pinned Android Runtime APEX `linker64` and Bionic libraries, installs the packaged bundle via `install.sh --skip-upstream`, and executes the real Android binary (`codex update --help`, `codex wrapper status --json`, `codex --sandbox read-only --version`, `codex sandbox linux true`).
 4. **`release` (tag `wrapper`, `wrapper-*`, or `v*`, or manual `workflow_dispatch` with `publish_release=true`):** requires official upstream runtime qualification before signing `SHA256SUMS` + `SHA256SUMS.sig` (Ed25519 with monotonic `sequence`) and publishing the verified bundle, `.sha256`, `install.sh`, `SHA256SUMS`, and `SHA256SUMS.sig`. Publication is serialized per tag and succeeds only after readback verifies the peeled tag commit, notes, prerelease setting, Ed25519 signature, and uploaded asset bytes. A mismatched annotated tag requires manual reconciliation.

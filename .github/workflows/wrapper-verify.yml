@@ -65,10 +65,8 @@ jobs:
           for workflow in .github/workflows/*.yml; do
             ruby -e 'require "psych"; Psych.parse_file(ARGV.fetch(0))' "$workflow"
           done
-          sh -n install.sh contrib/codex-account
-          # sh -n parses only its script operand, so check the selector on its own too.
-          sh -n contrib/codex-account
-          shellcheck install.sh contrib/codex-account
+          sh -n install.sh
+          shellcheck install.sh
           python3 - <<'PYCHECK'
           from pathlib import Path
           import tomllib
@@ -348,7 +346,6 @@ jobs:
           test -x "$codex_bin"
           "$codex_bin" update --help | grep -F -- '--upstream'
           "$codex_bin" update --help | grep -F -- '--force-rebuild'
-          sh contrib/codex-account --help | grep -Fx 'usage: codex-account ACCOUNT [CODEX_ARG ...]'
 
           set +e
           status_json="$(HOME="$smoke_home" PREFIX="$prefix" TMPDIR="$prefix/tmp" "$codex_bin" wrapper status --json)"

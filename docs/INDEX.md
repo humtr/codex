@@ -22,7 +22,7 @@ distribution.
 ### Normative Annexes
 
 - [docs/spec/DELIVERY.md](spec/DELIVERY.md): Stage 1 installation (`install.sh`), local upstream updates/rollback, artifact retention, `codex doctor`, Termux compatibility, release execution, and **conditional** Stage 2 signed-distribution/source-build contracts.
-- [docs/spec/USER_INTERFACES.md](spec/USER_INTERFACES.md): Stage 1 + 2.1 CLI failure scoping, `CODEX_SHARED_HOME`/`CODEX_SQLITE_HOME` binding, and **conditional** Stage 2 Manager/TUI/permission-picker/notification contracts.
+- [docs/spec/USER_INTERFACES.md](spec/USER_INTERFACES.md): Stage 1 CLI failure scoping, `CODEX_SHARED_HOME`/`CODEX_SQLITE_HOME` binding, and Stage 2 Slice 2 standalone `codex-ext` (`cdx`) profile, switch, provider, and notification contracts.
 - [docs/spec/BRIDGE.md](spec/BRIDGE.md): **Conditional** Stage 2 Native/ChatGPT Provider/Bridge ownership, user-flow, and interoperability contracts. A running external connector on a device does not make it a Wrapper-built module.
 
 ### Historical Archives

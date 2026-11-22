@@ -87,7 +87,7 @@
 
 ### 3.2 독립 확장 바이너리 `codex-ext` (축약 심볼릭 링크 `cdx`)
 - **패키징 & 독립 주기:** 독립 크레이트(`crates/codex-ext`, 자체 `[workspace]`) → 단일 바이너리 `$PREFIX/bin/codex-ext` + 축약 심볼릭 링크 `$PREFIX/bin/cdx`. 업스트림 `codex` 버전업 시 수정·빌드·배포 0회(완전 독립 릴리스).
-- **기존 [contrib/codex-account](contrib/codex-account) 흡수:** `codex-ext` 자격 검증 완료 후 `contrib/codex-account` 퇴역 (`~/.local/share/codex/manager/profiles/` 기존 프로필 디렉터리 호환 유지).
+- **기존 `contrib/codex-account` 흡수 (Slice 2에서 퇴역 완료):** `codex-ext` 자격 검증 완료 후 `contrib/codex-account` 퇴역 (`~/.local/share/codex/manager/profiles/` 기존 프로필 디렉터리 호환 유지).
 - **핵심 서브커맨드:**
   - `cdx [use <acct>] [CODEX_ARGS...]` — non-PTY 상위 프로세스 런처(Termux TTY `fd 0/1/2` 100% 직결, PTY 프록시 0, 장문 OSC 52 `/copy`·`SIGWINCH` 무손실) + 원본 `termios` 백업 + `~/.local/state/codex-ext/sessions/<pid>.json`(`0600`) 세션 등록.
   - `!cdx switch <acct> [<tid>] [--wait]` & `!cdx provider <openai|chatgpt|ais|...>` — 공식 `0.171.0` TUI 내장 `!` 명령을 이용한 **세션 내 즉시 전환** (업스트림 소스 패치 0):
@@ -173,4 +173,9 @@ Slice 1: Wrapper 슬림화 + 공용 SHA256SUMS.sig 경량 Ed25519 서명·배포
 - [x] 출구 게이트: `cargo fmt --check`, `cargo clippy --workspace --all-targets --locked -- -D warnings`, `cargo test --workspace --locked` (umask `0022`/`0077`), `python3 -m unittest discover -s .github/scripts`, `check_doc_links.py`, `shellcheck install.sh`, 서명 변조·다운그레이드·로테이션·미서명 로컬 폴백 테스트 통과.
 - [x] Stage 2 전용 Ed25519 키 프로비저닝(`CODEX_SIGNING_KEY`, 공개키 핀 `0df170da...`), `main` 승격 및 [Wrapper CI run 44997871190](https://github.com/humtr/codex/actions/runs/44997871190) 서명 `wrapper` 릴리스 발행(`sequence=1`, `prerelease=false`), 실기기 Termux `--require-signed --skip-upstream` 컷오버 완료 (상세 영수증 [CURRENT.md](CURRENT.md)).
 
-> **다음 착수:** **Slice 2 (`crates/codex-daemon-client` + `crates/codex-ext` / `cdx`)** — 신규 브랜치(`stage2/slice-2-codex-ext`)에서 [docs/spec/USER_INTERFACES.md](docs/spec/USER_INTERFACES.md) 슬림화 및 구현·검증 착수.
+> **Slice 2 (`stage2/slice-2-codex-ext`) 구현 완료:**
+> - [x] [docs/spec/USER_INTERFACES.md](docs/spec/USER_INTERFACES.md) 슬림화 (`codex-ext`/`cdx` · `notify` A안 · `!cdx switch`/`!cdx provider` 규범 확정).
+> - [x] 공용 [crates/codex-daemon-client](crates/codex-daemon-client/src/lib.rs) (독립 `[workspace]`, RFC 6455 WebSocket-over-UDS + Termux FD 35 `dirfd` 해결 + `flock` writer-lock 프로브).
+> - [x] 독립 [crates/codex-ext](crates/codex-ext/src/main.rs) (`cdx` 논-PTY 런처, `!cdx switch`/`!cdx provider`, `profile` CRUD, `notify` A안, `status`) + 독립 경로 트리거 CI ([codex-ext.yml](.github/workflows/codex-ext.yml)).
+> - [x] 격리 Android API 37 실증: §7 동일 UUID writer-lock 해제(`flock`)·문맥 유지 인계 및 `session_index.jsonl`/`state_5.sqlite` 권위 원천 확인, 다중 창 분기, 바쁜 데몬 사전 차단, `contrib/codex-account` 퇴역.
+> - [ ] 사후 감사·개선 승인 후 `main` 머지 및 **Slice 3 (`crates/mcp-kit` + `@TermuxShell` + `tunnel-client` + `runit` 3상태 수퍼비전)** 착수.

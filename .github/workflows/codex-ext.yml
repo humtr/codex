@@ -1,0 +1,199 @@
+name: Codex-Ext CI
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'crates/codex-daemon-client/**'
+      - 'crates/codex-ext/**'
+      - '.github/workflows/codex-ext.yml'
+      - '.github/scripts/release_sign.py'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'crates/codex-daemon-client/**'
+      - 'crates/codex-ext/**'
+      - '.github/workflows/codex-ext.yml'
+      - '.github/scripts/release_sign.py'
+  workflow_dispatch:
+    inputs:
+      publish_release:
+        description: Publish signed codex-ext GitHub Release assets
+        type: boolean
+        default: false
+      release_tag:
+        description: Target GitHub Release tag when publish_release is true
+        type: string
+        default: codex-ext
+      prerelease:
+        description: Mark published GitHub Release as prerelease
+        type: boolean
+        default: false
+      release_sequence:
+        description: Monotonic signed release sequence (used when CODEX_SIGNING_KEY secret is set)
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+env:
+  RUST_VERSION: '1.99.1'
+  ANDROID_TARGET: 'aarch64-linux-android'
+  ANDROID_API: '24'
+  ANDROID_NDK_VERSION: '27.3.13750724'
+  CARGO_INCREMENTAL: '0'
+
+jobs:
+  checks:
+    name: Format, clippy, and unit/integration tests
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact commit
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        run: |
+          set -euo pipefail
+          rustup toolchain install "$RUST_VERSION" --profile minimal --component rustfmt,clippy
+          rustup default "$RUST_VERSION"
+
+      - name: Test codex-daemon-client and codex-ext
+        run: |
+          set -euo pipefail
+          for manifest in crates/codex-daemon-client/Cargo.toml crates/codex-ext/Cargo.toml; do
+            cargo fmt --manifest-path "$manifest" -- --check
+            cargo clippy --manifest-path "$manifest" --all-targets --locked -- -D warnings
+            cargo test --manifest-path "$manifest" --locked
+          done
+
+  android-package:
+    name: Cross-compile and package aarch64-linux-android codex-ext
+    needs: [checks]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact commit
+        uses: actions/checkout@v4
+
+      - name: Install Rust target toolchain
+        run: |
+          set -euo pipefail
+          rustup toolchain install "$RUST_VERSION" --profile minimal --target "$ANDROID_TARGET"
+          rustup default "$RUST_VERSION"
+
+      - name: Cross-compile codex-ext
+        run: |
+          set -euo pipefail
+          toolchain="$ANDROID_SDK_ROOT/ndk/$ANDROID_NDK_VERSION/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          linker="$toolchain/aarch64-linux-android$ANDROID_API-clang"
+          ar="$toolchain/llvm-ar"
+          export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$linker"
+          export CC_aarch64_linux_android="$linker"
+          export AR_aarch64_linux_android="$ar"
+          export RUSTFLAGS="-C link-arg=-Wl,-z,max-page-size=16384 -C link-arg=-Wl,-z,common-page-size=16384"
+          unset CARGO_ENCODED_RUSTFLAGS
+          cargo build --release --locked --manifest-path crates/codex-ext/Cargo.toml --target "$ANDROID_TARGET"
+
+          elf="crates/codex-ext/target/$ANDROID_TARGET/release/codex-ext"
+          test -x "$elf"
+          file "$elf" | grep -F 'ARM aarch64'
+          readelf -l "$elf" | grep -F '/system/bin/linker64'
+          PYTHONDONTWRITEBYTECODE=1 python3 - <<'PYELF'
+          import importlib.util
+          from pathlib import Path
+          spec = importlib.util.spec_from_file_location('qualify_wrapper', '.github/scripts/qualify_wrapper.py')
+          module = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(module)
+          path = Path('crates/codex-ext/target/aarch64-linux-android/release/codex-ext')
+          assert module.elf_16k(path), 'codex-ext: incompatible ELF geometry for 16 KiB pages'
+          PYELF
+
+      - name: Package codex-ext release bundle
+        run: |
+          set -euo pipefail
+          bundle="$RUNNER_TEMP/codex-ext-aarch64-linux-android"
+          dist="$RUNNER_TEMP/dist"
+          rm -rf "$bundle" "$dist"
+          mkdir -p "$bundle/bin" "$dist"
+          install -m 0755 "crates/codex-ext/target/$ANDROID_TARGET/release/codex-ext" "$bundle/bin/codex-ext"
+          (
+            cd "$bundle"
+            sha256sum bin/codex-ext > SHA256SUMS
+            sha256sum -c SHA256SUMS
+          )
+          tarball="codex-ext-aarch64-linux-android.tar.gz"
+          tar --sort=name --mtime='UTC 2026-01-01' --owner=0 --group=0 --numeric-owner \
+            -cf - -C "$bundle" . | gzip -n -9 > "$dist/$tarball"
+          (
+            cd "$dist"
+            sha256sum "$tarball" > "$tarball.sha256"
+            sha256sum -c "$tarball.sha256"
+          )
+
+      - name: Upload codex-ext artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: codex-ext-android
+          path: ${{ runner.temp }}/dist/*
+          if-no-files-found: error
+          retention-days: 30
+
+  release:
+    name: Publish signed codex-ext GitHub Release
+    needs: [android-package]
+    if: github.event_name == 'workflow_dispatch' && inputs.publish_release == true
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    timeout-minutes: 10
+    concurrency:
+      group: codex-ext-publish-${{ github.repository }}-${{ inputs.release_tag }}
+      cancel-in-progress: false
+    steps:
+      - name: Checkout exact commit
+        uses: actions/checkout@v4
+
+      - name: Download codex-ext artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: codex-ext-android
+          path: ${{ runner.temp }}/dist
+
+      - name: Sign and publish codex-ext release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.release_tag }}
+          PRERELEASE: ${{ inputs.prerelease }}
+          INPUT_SEQUENCE: ${{ inputs.release_sequence }}
+          CODEX_SIGNING_KEY: ${{ secrets.CODEX_SIGNING_KEY }}
+        run: |
+          set -euo pipefail
+          dist="$RUNNER_TEMP/dist"
+          tarball="codex-ext-aarch64-linux-android.tar.gz"
+          key_file="$RUNNER_TEMP/release-signing-key.pem"
+          trap 'rm -f "$key_file"' EXIT
+          [ -n "${CODEX_SIGNING_KEY:-}" ] || { echo "CODEX_SIGNING_KEY secret is required" >&2; exit 1; }
+          umask 077
+          printf '%s\n' "$CODEX_SIGNING_KEY" > "$key_file"
+          seq="${INPUT_SEQUENCE:-$GITHUB_RUN_NUMBER}"
+          PYTHONDONTWRITEBYTECODE=1 python3 .github/scripts/release_sign.py sign \
+            --component codex-ext --sequence "$seq" --commit "$GITHUB_SHA" \
+            --dist "$dist" --files "$tarball" --private-key "$key_file"
+          PYTHONDONTWRITEBYTECODE=1 python3 .github/scripts/release_sign.py verify \
+            --component codex-ext --dist "$dist" --public-key release/release-public-key.pem \
+            --min-sequence "$seq"
+          assets=("$dist/$tarball" "$dist/$tarball.sha256" "$dist/SHA256SUMS" "$dist/SHA256SUMS.sig")
+          notes="Termux codex-ext (cdx) standalone companion ($TAG, commit $GITHUB_SHA, sequence $seq)."
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$TAG" "${assets[@]}" --repo "$GITHUB_REPOSITORY" --clobber
+            gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --notes "$notes" \
+              $( [ "$PRERELEASE" = "true" ] && echo "--prerelease" || echo "--prerelease=false" )
+          else
+            gh release create "$TAG" "${assets[@]}" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+              --title "Termux codex-ext ($TAG)" --notes "$notes" \
+              $( [ "$PRERELEASE" = "true" ] && echo "--prerelease" || true )
+          fi
