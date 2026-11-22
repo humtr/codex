@@ -1,0 +1,18 @@
+{
+  "upstream_repository": "https://github.com/openai/tunnel-client.git",
+  "version": "v0.0.21",
+  "commit": "714f2d67844b660af25754f1d19b0360b346b13b",
+  "target": {
+    "GOOS": "android",
+    "GOARCH": "arm64",
+    "CGO_ENABLED": "1"
+  },
+  "test_packages": [
+    "./pkg/controlplane/...",
+    "./pkg/transport",
+    "./pkg/runtimeconfig",
+    "./pkg/version",
+    "./cmd/client"
+  ],
+  "regression_test": "TestPoll(RecoversFromSilentHTTP2ConnectionLoss|PreservesHealthyHTTP2LongWait)$"
+}

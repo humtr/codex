@@ -1,0 +1,255 @@
+diff --git a/cmd/client/main_test.go b/cmd/client/main_test.go
+index ec36bf9..5f0c5e1 100644
+--- a/cmd/client/main_test.go
++++ b/cmd/client/main_test.go
+@@ -869,7 +869,7 @@ func readTarGzFiles(t *testing.T, data []byte) map[string]string {
+ func shortSocketPath(t *testing.T, pattern string) string {
+ 	t.Helper()
+ 
+-	socketFile, err := os.CreateTemp("/tmp", pattern)
++	socketFile, err := os.CreateTemp("", pattern)
+ 	require.NoError(t, err)
+ 	require.NoError(t, socketFile.Close())
+ 	require.NoError(t, os.Remove(socketFile.Name()))
+diff --git a/cmd/client/ux_command_test.go b/cmd/client/ux_command_test.go
+index 7f738c1..ed4523e 100644
+--- a/cmd/client/ux_command_test.go
++++ b/cmd/client/ux_command_test.go
+@@ -2,6 +2,7 @@ package main
+ 
+ import (
+ 	"os"
++	"os/exec"
+ 	"path/filepath"
+ 	"runtime"
+ 	"testing"
+@@ -265,6 +266,8 @@ func TestInitSTDIO0305RejectsShellCWrapperForNonExecutableScript(t *testing.T) {
+ 		t.Skip("execute-bit preflight is Unix-specific")
+ 	}
+ 
++	shell, err := exec.LookPath("sh")
++	require.NoError(t, err)
+ 	profileDir := t.TempDir()
+ 	commandPath := filepath.Join(t.TempDir(), "stdio_server.sh")
+ 	require.NoError(t, os.WriteFile(commandPath, []byte("#!/bin/sh\n"), 0o600))
+@@ -276,7 +279,7 @@ func TestInitSTDIO0305RejectsShellCWrapperForNonExecutableScript(t *testing.T) {
+ 		"--profile", "broken-stdio-shell",
+ 		"--profile-dir", profileDir,
+ 		"--tunnel-id", "tunnel_0123456789abcdef0123456789abcdef",
+-		"--mcp-command", "/bin/sh -c "+shellQuote(commandPath),
++		"--mcp-command", shellQuote(shell)+" -c "+shellQuote(commandPath),
+ 	)
+ 
+ 	require.Error(t, err)
+diff --git a/docs/configuration.md b/docs/configuration.md
+index 13fb2b7..5c8de02 100644
+--- a/docs/configuration.md
++++ b/docs/configuration.md
+@@ -435,6 +435,10 @@ tunnel-client profiles add corp-proxy --sample sample_mcp_enterprise_proxy --tun
+     that clamp or ignore the requested wait.
+     Local test services can allow a lower minimum to exercise shorter initial
+     waits; the service's own minimum still determines the effective wait.
++  - HTTP/2 control-plane connections send a liveness PING after half of the
++    configured poll wait without a received frame. An unanswered PING closes
++    the connection within `poll_deadline_guardrail`; healthy long polls retain
++    their full wait. Request deadlines and replay rules remain unchanged.
+ - **Poll deadline guardrail**
+   - Flag: `--control-plane.poll-deadline-guardrail`
+   - Env: `CONTROL_PLANE_POLL_DEADLINE_GUARDRAIL`
+diff --git a/pkg/controlplane/internal/halfopen_poll_test.go b/pkg/controlplane/internal/halfopen_poll_test.go
+new file mode 100644
+index 0000000..e059b9f
+--- /dev/null
++++ b/pkg/controlplane/internal/halfopen_poll_test.go
+@@ -0,0 +1,139 @@
++package internal
++
++import (
++	"context"
++	"crypto/x509"
++	"net"
++	"net/http"
++	"net/http/httptest"
++	"net/url"
++	"sync"
++	"sync/atomic"
++	"testing"
++	"time"
++
++	"github.com/openai/tunnel-client/pkg/runtimeconfig"
++	"github.com/openai/tunnel-client/pkg/tlsconfig"
++	"github.com/openai/tunnel-client/pkg/types"
++)
++
++type strandedConn struct {
++	net.Conn
++	discard atomic.Bool
++}
++
++func (c *strandedConn) Read(p []byte) (int, error) {
++	for {
++		n, err := c.Conn.Read(p)
++		if !c.discard.Load() || err != nil {
++			return n, err
++		}
++	}
++}
++func (c *strandedConn) Write(p []byte) (int, error) {
++	if c.discard.Load() {
++		return len(p), nil
++	}
++	return c.Conn.Write(p)
++}
++
++type strandedListener struct {
++	net.Listener
++	mu          sync.Mutex
++	connections []*strandedConn
++}
++
++func (l *strandedListener) Accept() (net.Conn, error) {
++	c, err := l.Listener.Accept()
++	if err != nil {
++		return nil, err
++	}
++	s := &strandedConn{Conn: c}
++	l.mu.Lock()
++	l.connections = append(l.connections, s)
++	l.mu.Unlock()
++	return s, nil
++}
++func TestPollRecoversFromSilentHTTP2ConnectionLoss(t *testing.T) {
++	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++		if r.ProtoMajor != 2 {
++			t.Errorf("expected HTTP/2, got %s", r.Proto)
++		}
++		w.WriteHeader(http.StatusNoContent)
++	}))
++	listener := &strandedListener{Listener: server.Listener}
++	server.Listener = listener
++	server.EnableHTTP2 = true
++	server.StartTLS()
++	defer server.Close()
++	defer func() {
++		listener.mu.Lock()
++		defer listener.mu.Unlock()
++		for _, c := range listener.connections {
++			c.Conn.Close()
++		}
++	}()
++	roots := x509.NewCertPool()
++	roots.AddCert(server.Certificate())
++	endpoint, _ := url.Parse(server.URL)
++	client, err := NewTunnelServiceClient(context.Background(), &runtimeconfig.ControlPlaneConfig{BaseURL: endpoint, TunnelID: types.TunnelID("tunnel_00000000000000000000000000000000"), APIKey: "test-owned-runtime-key", PollTimeout: 500 * time.Millisecond, PollDeadlineGuardrail: 100 * time.Millisecond}, &tlsconfig.Bundle{RootCAs: roots}, newDiscardLogger(), &runtimeconfig.LoggingConfig{}, testMeterProvider)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if _, _, err = client.Poll(context.Background(), 1); err != nil {
++		t.Fatal("warm poll:", err)
++	}
++	listener.mu.Lock()
++	count := len(listener.connections)
++	if count == 1 {
++		listener.connections[0].discard.Store(true)
++	}
++	listener.mu.Unlock()
++	if count != 1 {
++		t.Fatalf("warm connections: %d", count)
++	}
++	// Only the established TCP connection loses traffic. The listener and the
++	// same service remain reachable; a fresh connection can answer immediately.
++	var failures []error
++	for attempt := 0; attempt < 2; attempt++ {
++		if _, _, err = client.Poll(context.Background(), 1); err == nil {
++			listener.mu.Lock()
++			count := len(listener.connections)
++			listener.mu.Unlock()
++			if count < 2 {
++				t.Fatal("recovery must use a fresh physical connection")
++			}
++			return
++		}
++		failures = append(failures, err)
++	}
++	t.Fatalf("polling stayed pinned to a silent HTTP/2 connection across two request deadlines: %v", failures)
++}
++
++func TestPollPreservesHealthyHTTP2LongWait(t *testing.T) {
++	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++		if r.ProtoMajor != 2 {
++			t.Errorf("expected HTTP/2, got %s", r.Proto)
++		}
++		select {
++		case <-time.After(400 * time.Millisecond):
++			w.WriteHeader(http.StatusNoContent)
++		case <-r.Context().Done():
++		}
++	}))
++	server.EnableHTTP2 = true
++	server.StartTLS()
++	defer server.Close()
++	roots := x509.NewCertPool()
++	roots.AddCert(server.Certificate())
++	endpoint, _ := url.Parse(server.URL)
++	client, err := NewTunnelServiceClient(context.Background(), &runtimeconfig.ControlPlaneConfig{BaseURL: endpoint, TunnelID: types.TunnelID("tunnel_00000000000000000000000000000000"), APIKey: "test-owned-runtime-key", PollTimeout: 500 * time.Millisecond, PollDeadlineGuardrail: 100 * time.Millisecond}, &tlsconfig.Bundle{RootCAs: roots}, newDiscardLogger(), &runtimeconfig.LoggingConfig{}, testMeterProvider)
++	if err != nil {
++		t.Fatal(err)
++	}
++	// The response legitimately waits beyond SendPingTimeout. A healthy peer
++	// answers the transport PING while its request handler is still waiting.
++	if _, _, err = client.Poll(context.Background(), 1); err != nil {
++		t.Fatal(err)
++	}
++}
+diff --git a/pkg/controlplane/internal/tunnel_service_client.go b/pkg/controlplane/internal/tunnel_service_client.go
+index a2d150f..34a7036 100644
+--- a/pkg/controlplane/internal/tunnel_service_client.go
++++ b/pkg/controlplane/internal/tunnel_service_client.go
+@@ -572,6 +572,21 @@ func buildControlPlaneHTTPTransportWithLogging(cfg *runtimeconfig.ControlPlaneCo
+ 	if err != nil {
+ 		return nil, fmt.Errorf("controlplane client: %w", err)
+ 	}
++	// A mobile route can silently lose an established TCP connection while
++	// the service remains reachable. HTTP/2 request cancellation retires only
++	// its stream, so subsequent polls would reuse that stranded connection.
++	// Probe within the requested long-poll wait and bound the ping by the
++	// existing network guardrail, without extending any request deadline.
++	if transport, ok := base.(*http.Transport); ok {
++		h2 := http.HTTP2Config{}
++		if transport.HTTP2 != nil {
++			h2 = *transport.HTTP2
++		}
++		wait := cfg.PollTimeoutOrDefault()
++		h2.SendPingTimeout = wait - wait/2
++		h2.PingTimeout = cfg.PollDeadlineGuardrailOrDefault()
++		transport.HTTP2 = &h2
++	}
+ 	base = newResponseReceiptRoundTripper(base)
+ 	base = tcmetrics.WithHTTPClientMetricAttributes(base)
+ 	instrumentationOptions := []otelhttp.Option{otelhttp.WithMeterProvider(meterProvider)}
+diff --git a/pkg/controlplane/internal/tunnel_service_client_test.go b/pkg/controlplane/internal/tunnel_service_client_test.go
+index bbe59d1..b2a8109 100644
+--- a/pkg/controlplane/internal/tunnel_service_client_test.go
++++ b/pkg/controlplane/internal/tunnel_service_client_test.go
+@@ -435,7 +435,7 @@ func TestTunnelServiceClientPollUsesConfiguredUnixSocketPath(t *testing.T) {
+ 	t.Parallel()
+ 
+ 	// Keep the socket path below Unix limits even when the test temp root is long.
+-	socketDir, err := os.MkdirTemp("/tmp", "tc-control-")
++	socketDir, err := os.MkdirTemp("", "tc-control-")
+ 	require.NoError(t, err)
+ 	t.Cleanup(func() {
+ 		require.NoError(t, os.RemoveAll(socketDir))
+diff --git a/pkg/transport/default_test.go b/pkg/transport/default_test.go
+index 791dfce..f398bc7 100644
+--- a/pkg/transport/default_test.go
++++ b/pkg/transport/default_test.go
+@@ -43,7 +43,7 @@ func TestApplyClientCertificateConfiguresExplicitClientCertificateCallback(t *te
+ func TestApplyUnixSocketPathDialsUnixListener(t *testing.T) {
+ 	t.Parallel()
+ 
+-	socketFile, err := os.CreateTemp("/tmp", "transport-*.sock")
++	socketFile, err := os.CreateTemp("", "transport-*.sock")
+ 	require.NoError(t, err)
+ 	socketPath := socketFile.Name()
+ 	require.NoError(t, socketFile.Close())

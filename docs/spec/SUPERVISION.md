@@ -1,0 +1,58 @@
+# Opt-In `runit` 3-State Generation Supervision
+
+**Status:** Normative annex of [SPEC.md](../../SPEC.md) for Stage 2 background
+services (`termux-shell-tunnel`, `termux-codex-tunnel`, `chatgpt-provider`,
+`termux-chatgpt-tunnel`, and `tunnel-client`). Implemented by
+[scripts/runit_service.py](../../scripts/runit_service.py).
+
+---
+
+## 1. Immutable Generation Layout & Opt-In Enrollment
+
+- Every supervised Stage 2 component stores immutable verified generations under:
+  ```text
+  $HOME/.local/lib/<component>/generations/<version>/<binary>
+  $HOME/.local/lib/<component>/current  -> generations/<active_version>
+  $HOME/.local/lib/<component>/previous -> generations/<previous_version>
+  ```
+- **Opt-in invariant:** Installing or updating a component binary **never**
+  auto-enrolls a new `runit` service under `$PREFIX/var/service/`. Enrollment
+  happens only through an explicit `enroll` action.
+- **Stable `current` execution:** Generated `$PREFIX/var/service/<service>/run`
+  scripts execute `$HOME/.local/lib/<component>/current/<binary>` rather than
+  hardcoded versioned paths, ensuring reboots and `runsvdir` restarts always
+  launch the selected generation.
+
+---
+
+## 2. Mandatory 3-State Visibility
+
+`status` must never conflate package installation with live service activation.
+It reports three independent fields:
+
+1. **`selected_generation`**: version, resolved binary path, and SHA-256 of the
+   `current` symlink target (plus retained `previous_version`).
+2. **`running_generation`**: live PID, `/proc/<pid>/stat` start ticks,
+   `/proc/<pid>/exe` (explicitly flagging `(deleted)` images), derived running
+   version, and readiness check result.
+3. **`activation_state`**:
+   - `active`: running PID's `/proc/<pid>/exe` matches `selected_generation`
+     and readiness passes.
+   - `pending_activation`: `selected_generation` differs from the running
+     process image (e.g. deferred due to active work or awaiting restart).
+   - `stopped` / `not_enrolled` / `error`.
+
+---
+
+## 3. Safe Rebinding and Automatic Rollback
+
+- Before restarting an enrolled running service, `activate` runs any declared
+  busy-check guard. If active work/leases exist, it does **not** force-kill the
+  service; it leaves the old process operational and reports
+  `pending_activation`.
+- When idle, `activate` atomically updates `previous` and `current` symlinks
+  (`os.replace` + `fsync(dir)`), invokes `sv restart`, and verifies a new
+  `(pid, start_ticks)`, matching `/proc/<pid>/exe`, and readiness check within
+  the bounded timeout.
+- On restart or readiness failure, `activate` automatically restores
+  `current -> previous` and restarts the previous generation.
