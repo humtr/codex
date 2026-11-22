@@ -1,12 +1,12 @@
 # Current Wrapper: responsibility and implementation map
 
-**Source scope:** `rewrite/wrapper` standalone Rust `codex`, its
-`codex-release-builder`, `install.sh` and `wrapper.yml` CI. This is the
-active source-to-feature ownership map on `rewrite/wrapper`, not a
-new normative specification or a fresh qualification report. For verified
-source SHA, device hashes, CI runs and open boundaries consult
-[CURRENT](../CURRENT.md). For required policy consult
-[SPEC](../SPEC.md) and the [documentation map](INDEX.md).
+**Source scope:** `main` standalone Rust `codex`, its `codex-release-builder`,
+`install.sh`, lightweight Ed25519 signing scripts (`release_sign.py`,
+`publish_wrapper_release.py`), and `wrapper.yml` CI. This is the active
+source-to-feature ownership map on `main`, not a new normative specification or
+a fresh qualification report. For verified source SHA, device hashes, CI runs
+and open boundaries consult [CURRENT](../CURRENT.md). For required policy
+consult [SPEC](../SPEC.md) and the [documentation map](INDEX.md).
 
 **Four independent facts must not be conflated:**
 (1) source compiled, (2) behavior qualified, (3) artifact publicly published,
@@ -19,16 +19,16 @@ Wrapper integration.
 ```text
 Operator / shell / existing ChatGPT or terminal client
   |
-  +-- install.sh --> $PREFIX/bin/codex                    [installer owns replacement]
-  |                    |                                 [Wrapper process]
-  |                    +-- update / doctor / wrapper ...  [Wrapper-owned routes]
-  |                    +-- normal upstream argv ----------> package-root/bin/codex
-  |                        |                              [official upstream process]
-  |                        +-- Native threads / approvals / tools / history
-  |                        +-- app-server daemon / remote-control
+  +-- install.sh (Ed25519 SHA256SUMS.sig) --> $PREFIX/bin/codex  [installer owns replacement]
+  |                                             |                [Wrapper process]
+  |                                             +-- update / doctor / wrapper status
+  |                                             +-- normal upstream argv -> package-root/bin/codex
+  |                                                 |            [official upstream process]
+  |                                                 +-- Native threads / approvals / tools / history
+  |                                                 +-- app-server daemon / remote-control
   |
-  +-- optional future Stage 2 routing: Manager / enhanced TUI / Provider
-       [2.1 configuration surface exists, executable attachment does not]
+  +-- independent Stage 2 tools & services (Slices 2–6, zero Wrapper coupling):
+       codex-ext (cdx), @TermuxShell / @TermuxCodex / @TermuxChatGPT, chatgpt-provider, tunnel-client
 ```
 
 - **Installer** owns the `$PREFIX/bin/codex` executable swap and its
@@ -50,22 +50,24 @@ Operator / shell / existing ChatGPT or terminal client
   inference correlation and service lifecycle. Stage 1 does **not** build,
   launch, authenticate, configure, migrate or update these services. A
   Bridge/Native work contract in an annex is **not** an active Stage 1 route.
-- **Stage 2 Manager / enhanced TUI / Provider** are future opt-in consumers
-  of Wrapper interfaces, not Wrapper substitutes for Native authority. They
-  must use upstream-supported session APIs rather than create another
-  authoritative conversation index or independent execution owner.
+- **Stage 2 standalone components (`codex-ext`/`cdx`, 3 MCPs, `chatgpt-provider`,
+  `host/chatgpt-desktop`, `tunnel-client`)** are completely decoupled executables
+  and opt-in services with zero Wrapper compilation or launch coupling. They use
+  official upstream `app-server daemon` JSON-RPC and `CODEX_SHARED_HOME` rather
+  than creating another authoritative conversation index or Wrapper routing hook.
 
 ## 2. Implemented feature matrix
 
-**Stage 1 = installed standalone path; 2.1 = implemented boundary, not
-attached module; deferred = absent from this source/distribution.** Tests
-quoted here are **test types**, not a claim that every Android/device/account
-scenario has passed. See CURRENT for exact receipts.
+**Stage 1 = installed standalone Wrapper path; Slice 1 = shipped lightweight
+Ed25519 signed release pipeline & Phase 2.1 hook retirement; deferred = absent
+from this source/distribution (Slices 2–6).** Tests quoted here are **test
+types**, not a claim that every Android/device/account scenario has passed. See
+CURRENT for exact receipts.
 
 | Feature and observed contract | Responsible implementation | State / boundary |
 | --- | --- | --- |
 | `codex` routes top-level `update`, `doctor`, and `wrapper` to the Wrapper. `codex -c k=v update\|doctor\|wrapper` returns exit `2` with direct-invocation guidance | [main.rs](../crates/wrapper/src/main.rs), [cli.rs](../crates/wrapper/src/cli.rs), [error.rs](../crates/wrapper/src/error.rs), [wrapper_cli.rs](../crates/wrapper/src/wrapper_cli.rs) | **Stage 1 implemented**. Other argv pass to upstream, including `app-server daemon`, `remote-control`, option values, and post-`--` prompts |
-| Fast `--version`/`-V`/`--help`/`-h`/`help` and combined flags such as `-hV` bypass daemon settings, shared-home binding, timezone extraction, and addon selection | [cli.rs](../crates/wrapper/src/cli.rs), [runtime_env.rs](../crates/wrapper/src/runtime_env.rs) | **Stage 1 implemented**. Fast paths still load the selected generation |
+| Fast `--version`/`-V`/`--help`/`-h`/`help` and combined flags such as `-hV` bypass daemon settings, shared-home binding, and timezone extraction | [cli.rs](../crates/wrapper/src/cli.rs), [runtime_env.rs](../crates/wrapper/src/runtime_env.rs) | **Stage 1 implemented**. Fast paths still load the selected generation |
 | Unsupported Android sandbox modes, including attached `-sread-only` and `-sworkspace-write`, return exit `2` | [cli.rs](../crates/wrapper/src/cli.rs) | **Stage 1 implemented**. `danger-full-access` is the compatibility default |
 | FD 33 DNS, FD 34 Wrapper config, FD 35 temp/socket, Termux environment, TLS, browser helpers, and TZif | [runtime_env.rs](../crates/wrapper/src/runtime_env.rs), [timezone.rs](../crates/wrapper/src/timezone.rs) | **Stage 1 implemented**. Wrapper places `$PREFIX/bin` before the inherited PATH entries and invokes the generation executable by absolute path. Upstream locates its package resources and adds its arg0 helpers |
 | `CODEX_SHARED_HOME`/`CODEX_SQLITE_HOME` binding isolates auth and daemon sockets, preserves distinct lines for renamed threads, and accepts validated `CODEX_SHARED_EXTRA_FILES` | [shared_home.rs](../crates/wrapper/src/shared_home.rs), [runtime_env.rs](../crates/wrapper/src/runtime_env.rs) | **Stage 1 implemented**. External launchers select homes. The optional [codex-account](../contrib/codex-account) script selects existing profiles |
@@ -79,13 +81,12 @@ scenario has passed. See CURRENT for exact receipts.
 | Initial `$CODEX_HOME/packages/app-server-daemon/current -> $HOME/.codex/packages/standalone/current` for eligible TUI and daemon start routes, plus `settings.json` `autoUpdateEnabled=false` | [cli.rs](../crates/wrapper/src/cli.rs), [runtime_env.rs](../crates/wrapper/src/runtime_env.rs), [daemon_settings.rs](../crates/wrapper/src/daemon_settings.rs) | **Stage 1 implemented**. Default link preparation preserves existing dedicated selections. Invalid settings block routes that require auto-update suppression. Upstream owns `app-server daemon update --from-cli` |
 | Shared bounded JSON handling, child-process capture and reaping, and safe filesystem and locking primitives | [json.rs](../crates/wrapper/src/json.rs), [proc_exec.rs](../crates/wrapper/src/proc_exec.rs), [fs_util.rs](../crates/wrapper/src/fs_util.rs) | Internal utilities used by diagnostics, qualification, download, and state-management paths |
 | Source-bound Android NDK build, Linux+Bionic smoke, tests, lint, and official upstream qualification required for release jobs. Publisher checks peeled tag, notes, prerelease flag, and exact asset readback | [wrapper.yml](../.github/workflows/wrapper.yml), [wrapper-verify.yml](../.github/workflows/wrapper-verify.yml), [qualification harness](../.github/scripts/qualify_wrapper.py), [publisher](../.github/scripts/publish_wrapper_release.py) | **Stage 1 CI implemented**. Linux+Bionic qualification is a separate boundary from device activation and authenticated execution |
-| Published standalone `wrapper` prerelease (archive, digest, `install.sh`, `SHA256SUMS`) | [publisher](../.github/scripts/publish_wrapper_release.py), [install.sh](../install.sh) | **Stage 1 P0 published and on-device installed** per CURRENT; HTTPS + SHA-256 integrity, **not** an Ed25519-signed channel |
+| Published stable Ed25519-signed `wrapper` release (archive, `.sha256`, `install.sh`, signed `SHA256SUMS`, `SHA256SUMS.sig`) with pinned key trust, anti-rollback `sequence`, and key-rotation verification | [release_sign.py](../.github/scripts/release_sign.py), [publisher](../.github/scripts/publish_wrapper_release.py), [install.sh](../install.sh), [release-public-key.pem](../release/release-public-key.pem) | **Stage 2 Slice 1 shipped & live** per CURRENT; `codex update --upstream` still fetches official OpenAI releases directly with built-in SHA-256 and zero `openssl-tool` dependency |
 
 ### Not shipped by the active Wrapper
 
 | Capability / owner | Exact current boundary | Required next implementation |
 | --- | --- | --- |
-| Lightweight `SHA256SUMS.sig` Ed25519 signing for distributed releases (`install.sh`, Wrapper & Stage 2 components) | Stage 1 uses HTTPS + SHA-256 only; Phase 2.1 unused hooks pending removal | [Slice 1](ROADMAP.md#slice-1--wrapper-slimming--universal-sha256sumssig-signed-releases) |
 | Standalone `codex-ext` (`cdx`) profiles, notify hooks, and `!cdx switch`/`!cdx provider` non-PTY launcher | Not yet built; optional [codex-account](../contrib/codex-account) script handles launch only | [Slice 2](ROADMAP.md#slice-2--codex-ext-cdx--cratescodex-daemon-client--7--osc-52-proof) |
 | Independent `@TermuxShell` MCP, `tunnel-client` (`v0.0.20+`), and opt-in `runit` 3-state supervision | Not yet ported to Stage 2 clean paths | [Slice 3](ROADMAP.md#slice-3--cratesmcp-kit--termuxshell--tunnel-client--runit-3-state-supervision) |
 | Thin `@TermuxCodex` MCP (`app-server daemon` JSON-RPC bridge) | Not yet built | [Slice 4](ROADMAP.md#slice-4--termuxcodex-mcptermux-codex-5-tools-greenfield) |
@@ -134,9 +135,9 @@ scenario has passed. See CURRENT for exact receipts.
 1. **Owner first:** name the producer, authoritative writer, consumer,
    failure settlement and expected persisted state. If it belongs to
    upstream Native or an external Provider, do not duplicate it in Wrapper.
-2. **Scope first:** change an **active** Stage 1 or 2.1 implementation here,
-   or explicitly stage a **deferred** 2.2–2.5 integration; a planned command
-   spelling does not make a route available.
+2. **Scope first:** change an **active** Stage 1 / Slice 1 implementation here,
+   or explicitly stage a **deferred** Slice 2–6 component in its own workspace;
+   a planned command spelling does not make a route available.
 3. **Verify the actual path:** compare source contract, CLI parsing,
    negative/positive tests, exact artifact bytes, actual Android runtime and
    integrated account/client evidence as separate checks. A skipped CI job

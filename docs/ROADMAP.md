@@ -6,7 +6,7 @@
 > Normative contracts: [SPEC.md](../SPEC.md), [DELIVERY.md](spec/DELIVERY.md),
 > [USER_INTERFACES.md](spec/USER_INTERFACES.md), [BRIDGE.md](spec/BRIDGE.md).
 > Active design & slice checklist: [HANDOFF.md](../HANDOFF.md).
-> **Current implementation state:** **Stage 1** (`ce439293` / `8e7d1db5`, including adaptive Issue #33 FD 35 `realpath` + multi-gap/trailing RX relocation, managed daemon sync, single-write progress, and GitHub API 403 redirect fallback) is complete and live on `main`. Stage 2 was reassessed from first principles on **2026-11-22** to keep `codex` Wrapper strictly zero-coupling and source-patch-free, replacing the legacy `c200e676` coupled Phases 2.1–2.5 (`shared_server`, `native_route.patch`, `frontend/tui` fork, CDN `update-index`, DDPE monolith) with **6 independent decoupled slices (Slices 1–6)**.
+> **Current implementation state:** **Stage 1** and **Stage 2 Slice 1** (`3ea207cb` on `main`: unused Phase 2.1 hooks removed; universal Ed25519 `SHA256SUMS.sig` signed `wrapper` release `sequence=1` live on GitHub and Termux) are complete; see [CURRENT.md](../CURRENT.md). Stage 2 was reassessed from first principles on **2026-11-22** to keep `codex` Wrapper strictly zero-coupling and source-patch-free, replacing the legacy `c200e676` coupled Phases 2.1–2.5 (`shared_server`, `native_route.patch`, `frontend/tui` fork, CDN `update-index`, DDPE monolith) with **6 independent decoupled slices (Slices 1–6)** — **Slices 2–6 remain to be built**.
 
 ---
 
@@ -51,9 +51,9 @@ Slice 1: Wrapper slimming + universal SHA256SUMS.sig Ed25519 release signing
                 └──▶ Slice 6: mcp/termux-chatgpt (@TermuxChatGPT — 6 tools greenfield) & optional 0.167.2 cutover
 ```
 
-### Slice 1 — Wrapper Slimming & Universal `SHA256SUMS.sig` Signed Releases
+### Slice 1 — Wrapper Slimming & Universal `SHA256SUMS.sig` Signed Releases *(Complete — 2026-11-22)*
 - **Goal:** Permanently close `crates/wrapper` by retiring unused Phase 2.1 hooks (`system_config.rs`, `wrapper.toml` `manager`/`tui`/`provider`, `--with`/`--bare`) and introducing one lightweight Ed25519 `SHA256SUMS.sig` signing/verification format (with component-scoped monotonic `sequence` anti-rollback and pinned public-key trust) across `publish_wrapper_release.py`, `install.sh`, and future Stage 2 component releases.
-- **Exit gate:** Workspace fmt/clippy/tests (umask `0022`/`0077`), `install.sh` tamper/downgrade/rotation/offline-local recovery tests, and `wrapper-verify.yml` Bionic smoke pass with zero `openssl-tool` requirement on bare `codex update --upstream`.
+- **Completed:** Merged to `main` (`3a87150e..3ea207cb`), published signed `wrapper` (`sequence=1`, [run 44997871190](https://github.com/humtr/codex/actions/runs/44997871190)), and verified live Termux `--require-signed --skip-upstream` cutover (see [CURRENT.md](../CURRENT.md)).
 
 ### Slice 2 — `codex-ext` (`cdx`) + `crates/codex-daemon-client` + §7 / OSC 52 Proof
 - **Goal:** Build standalone `crates/codex-ext` (`$PREFIX/bin/codex-ext` + `$PREFIX/bin/cdx` symlink) and shared `crates/codex-daemon-client` (~250 lines, public `app-server daemon` UDS JSON-RPC client):

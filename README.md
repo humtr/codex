@@ -37,9 +37,10 @@ needed by upstream `app-server daemon` PID tracking):
 pkg install curl gzip
 ```
 
-`install.sh` uses `sha256sum` from Termux `coreutils` to verify release tarballs.
-Wrapper and the release builder use built-in SHA-256, so Stage 1 runs without
-`openssl-tool`.
+`install.sh` uses `sha256sum` from Termux `coreutils` and `openssl` (`openssl-tool`)
+to verify Ed25519-signed GitHub Release `SHA256SUMS.sig` manifests. Wrapper and
+the release builder use built-in SHA-256, so ordinary `codex update --upstream`
+runs without `openssl-tool`.
 
 (`clang`/`rust` are only needed if you build the wrapper from source on-device.)
 
@@ -80,16 +81,18 @@ The stable `wrapper` release contains the standalone Stage 1 binary:
 curl -fsSL https://github.com/humtr/codex/releases/download/wrapper/install.sh | sh
 ```
 
-This installs the standalone `codex` wrapper binary, verifies its SHA-256
-digest, and bootstraps an active adapted upstream Codex generation; see
+This downloads and verifies the Ed25519-signed `SHA256SUMS` + `SHA256SUMS.sig`
+manifest against the pinned Stage 2 public key ([release-public-key.pem](release/release-public-key.pem))
+with monotonic `sequence` anti-rollback, verifies the release archive and
+extracted `bin/codex` SHA-256, installs `$PREFIX/bin/codex`, and bootstraps an
+active adapted upstream Codex generation; see
 [current operating state](CURRENT.md#current-live-operating-snapshot).
-The standalone release uses HTTPS plus SHA-256 checksum verification, **not
-Stage 2.2 Ed25519-signed addon distribution**.
 
 Useful installer options (`./install.sh --help`):
 
 - `--prefix <DIR>`: override `$PREFIX` (defaults to `$PREFIX` or `/data/data/com.termux/files/usr`).
-- `--release <TAG>`: download `codex-wrapper-aarch64-linux-android.tar.gz` and `.sha256` from a specific GitHub Release tag (defaults to `wrapper` rather than `/releases/latest`).
+- `--release <TAG>`: download signed `SHA256SUMS`, `SHA256SUMS.sig`, and `codex-wrapper-aarch64-linux-android.tar.gz` from a specific GitHub Release tag (defaults to `wrapper` rather than `/releases/latest`).
+- `--verify-key <PEM>` / `--key-sha256 <HEX>` / `--require-signed`: override or strictly pin the Ed25519 public key used to verify `SHA256SUMS.sig`.
 - `--version <X.Y.Z>`: bootstrap a specific upstream Codex release version during install.
 - `--skip-upstream`: install `$PREFIX/bin/codex` without running `codex update --upstream` immediately.
 
@@ -342,14 +345,14 @@ Every push or pull request on `main`, `wrapper`, or `rewrite/wrapper` runs:
 1. **`checks` (`ubuntu-24.04-arm`):** YAML syntax, `sh -n` and `shellcheck` for `install.sh` and `contrib/codex-account`, workspace and lockfile scope, Git-tracked Markdown links and heading anchors, Rust formatting, clippy, and workspace tests including the emitted AArch64 `realpath` hook.
 2. **`android-package` (`ubuntu-24.04`):** cross-compiles `codex` and `codex-release-builder` for `aarch64-linux-android` (API 24, Android NDK `27.3.13750724`), verifies `ARM aarch64` ELF headers and `/system/bin/linker64`, bundles `codex-wrapper-aarch64-linux-android.tar.gz` + `.sha256` + `SHA256SUMS` + `install.sh`, and uploads the workflow artifact.
 3. **`android-smoke` (`ubuntu-24.04-arm`):** provisions pinned Android Runtime APEX `linker64` and Bionic libraries, installs the packaged bundle via `install.sh --skip-upstream`, and executes the real Android binary (`codex update --help`, `codex wrapper status --json`, `codex --sandbox read-only --version`, `codex sandbox linux true`).
-4. **`release` (tag `wrapper`, `wrapper-*`, or `v*`, or manual `workflow_dispatch` with `publish_release=true`):** requires official upstream runtime qualification before publishing the verified bundle, `.sha256`, `install.sh`, and `SHA256SUMS`. Publication is serialized per tag and succeeds only after readback verifies the peeled tag commit, notes, prerelease setting, and uploaded asset bytes. A mismatched annotated tag requires manual reconciliation.
+4. **`release` (tag `wrapper`, `wrapper-*`, or `v*`, or manual `workflow_dispatch` with `publish_release=true`):** requires official upstream runtime qualification before signing `SHA256SUMS` + `SHA256SUMS.sig` (Ed25519 with monotonic `sequence`) and publishing the verified bundle, `.sha256`, `install.sh`, `SHA256SUMS`, and `SHA256SUMS.sig`. Publication is serialized per tag and succeeds only after readback verifies the peeled tag commit, notes, prerelease setting, Ed25519 signature, and uploaded asset bytes. A mismatched annotated tag requires manual reconciliation.
 
 Manual verification can also request upstream qualification and supply
 `previous_version` to test upgrade and rollback across two official releases.
-Local `codex update` continues to qualify candidates independently. CI with a Bionic loader on Linux and
-actual Android execution remain distinct evidence boundaries. Current releases
-use checksum verification; Ed25519 verification of distributed Wrapper/addon
-bundles is planned in Phase 2.2, not active Stage 1 behavior.
+Local `codex update` continues to qualify official OpenAI releases independently
+with built-in SHA-256 (no signing key or `openssl-tool` required). CI with a
+Bionic loader on Linux and actual Android execution remain distinct evidence
+boundaries.
 
 ### Local development checks
 
