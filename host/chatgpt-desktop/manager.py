@@ -288,7 +288,9 @@ def atomic_symlink(link: Path, target: str) -> None:
             tmp.unlink(missing_ok=True)
 
 
-def activate_generation(install_root: Path, version: str) -> dict[str, Any]:
+def activate_generation(
+    install_root: Path, version: str, profile_dir: Path | None = None
+) -> dict[str, Any]:
     ver = validate_version(version)
     target_dir = generation_dir(install_root, ver)
     if not is_valid_generation(target_dir):
@@ -299,10 +301,12 @@ def activate_generation(install_root: Path, version: str) -> dict[str, Any]:
     if old_cur and old_cur != ver and is_valid_generation(generation_dir(install_root, old_cur)):
         atomic_symlink(prev_link, f"generations/{old_cur}")
     atomic_symlink(cur_link, f"generations/{ver}")
-    return status_report(install_root, default_profile_dir(Path.home()))
+    return status_report(install_root, profile_dir or default_profile_dir(Path.home()))
 
 
-def rollback_generation(install_root: Path) -> dict[str, Any]:
+def rollback_generation(
+    install_root: Path, profile_dir: Path | None = None
+) -> dict[str, Any]:
     cur_link = install_root / "current"
     prev_link = install_root / "previous"
     prev_ver = read_link_version(prev_link)
@@ -315,7 +319,7 @@ def rollback_generation(install_root: Path) -> dict[str, Any]:
     atomic_symlink(cur_link, f"generations/{prev_ver}")
     if old_cur and old_cur != prev_ver and is_valid_generation(generation_dir(install_root, old_cur)):
         atomic_symlink(prev_link, f"generations/{old_cur}")
-    return status_report(install_root, default_profile_dir(Path.home()))
+    return status_report(install_root, profile_dir or default_profile_dir(Path.home()))
 
 
 def status_report(install_root: Path, profile_dir: Path) -> dict[str, Any]:
@@ -826,18 +830,18 @@ def main(argv: list[str] | None = None) -> int:
             if not args.keep_deb and not args.deb and deb_path.is_file():
                 deb_path.unlink(missing_ok=True)
             if args.activate:
-                st = activate_generation(install_root, ver)
+                st = activate_generation(install_root, ver, profile_dir)
             else:
                 st = status_report(install_root, profile_dir)
             print(json.dumps({"installed_path": str(gen_path), "version": ver, "status": st}, indent=2))
             return 0
 
         if args.cmd == "activate":
-            print(json.dumps(activate_generation(install_root, args.version), indent=2))
+            print(json.dumps(activate_generation(install_root, args.version, profile_dir), indent=2))
             return 0
 
         if args.cmd == "rollback":
-            print(json.dumps(rollback_generation(install_root), indent=2))
+            print(json.dumps(rollback_generation(install_root, profile_dir), indent=2))
             return 0
 
         if args.cmd == "probe":

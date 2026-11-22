@@ -66,15 +66,11 @@ pub fn validate_profile_name(name: &str) -> Result<(), String> {
     Ok(())
 }
 
-pub fn verify_profile_meta(meta_path: &Path, account: &str) -> Result<(), String> {
+pub fn verify_profile_meta(meta_path: &Path) -> Result<(), String> {
     require_owned_regular_file(meta_path, "profile metadata")?;
     let content = fs::read_to_string(meta_path)
         .map_err(|e| format!("cannot read {}: {e}", meta_path.display()))?;
-    let v1 = format!("codex-manager-profile-v1\nid\t{account}\n");
-    if content == v1
-        || content == "codex-manager-profile-v2\n"
-        || content == "codex-manager-profile\n"
-    {
+    if content == "codex-manager-profile\n" {
         Ok(())
     } else {
         Err(format!(
@@ -146,7 +142,7 @@ pub fn resolve_profile(paths: &ExtPaths, name: &str) -> Result<ProfileTarget, St
             ));
         }
     }
-    verify_profile_meta(&meta_path, name)?;
+    verify_profile_meta(&meta_path)?;
     Ok(ProfileTarget::Named {
         name: name.to_owned(),
         home: profile_home,
@@ -378,7 +374,7 @@ mod tests {
     }
 
     #[test]
-    fn profile_crud_and_legacy_meta_compatibility() {
+    fn profile_crud_and_meta_validation() {
         let (root, paths) = test_paths("cdx-prof");
         assert!(validate_profile_name("default").is_err());
         assert!(validate_profile_name("wrapper").is_err());
@@ -389,16 +385,11 @@ mod tests {
         assert_eq!(created.name(), "work");
         assert!(create_profile(&paths, "work").is_err());
 
-        // Simulate legacy v1 and v2 profiles
-        let v1_dir = paths.profiles_dir.join("legacy1");
-        fs::create_dir_all(v1_dir.join("home")).unwrap();
-        atomic_write_private(
-            &v1_dir.join("profile.meta"),
-            b"codex-manager-profile-v1\nid\tlegacy1\n",
-            0o600,
-        )
-        .unwrap();
-        assert!(resolve_profile(&paths, "legacy1").is_ok());
+        // Malformed metadata must fail closed
+        let bad_dir = paths.profiles_dir.join("badmeta");
+        fs::create_dir_all(bad_dir.join("home")).unwrap();
+        atomic_write_private(&bad_dir.join("profile.meta"), b"invalid-header\n", 0o600).unwrap();
+        assert!(resolve_profile(&paths, "badmeta").is_err());
 
         write_default_profile(&paths, Some("work")).unwrap();
         assert_eq!(
@@ -416,7 +407,7 @@ mod tests {
 
         let list = list_profiles(&paths, false).unwrap();
         let names: Vec<&str> = list.iter().map(|p| p.name.as_str()).collect();
-        assert_eq!(names, vec!["default", "legacy1", "work2"]);
+        assert_eq!(names, vec!["default", "work2"]);
 
         delete_profile(&paths, "work2").unwrap();
         assert_eq!(read_default_profile(&paths).unwrap(), None);

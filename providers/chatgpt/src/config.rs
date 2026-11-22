@@ -281,7 +281,11 @@ pub fn load_or_create_control_token(state_dir: &Path) -> Result<(PathBuf, String
         }
     }
     let token = random_hex(32)?;
-    let tmp = state_dir.join(format!(".control.token.tmp-{}", std::process::id()));
+    let tmp = state_dir.join(format!(
+        ".control.token.tmp-{}-{}",
+        std::process::id(),
+        random_hex(4)?
+    ));
     let mut f = OpenOptions::new()
         .write(true)
         .create_new(true)

@@ -2,10 +2,11 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import vm from "node:vm";
 
 const DRIVER_SRC = fs.readFileSync(
-  path.resolve(import.meta.dirname, "../src/page_driver.js"),
+  path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../src/page_driver.js"),
   "utf8"
 );
 
@@ -131,6 +132,10 @@ test("page_driver status, chats, linear branch read (no private thoughts), proje
         status: 200,
         body: { items: [{ gizmo: { gizmo: { id: "g-p-1", display: { name: "Proj 1" } } } }] },
       },
+      "POST /backend-api/projects": {
+        status: 200,
+        body: { resource: { gizmo: { id: "g-p-created", display: { name: "New Proj" } } } },
+      },
     },
   });
 
@@ -153,6 +158,11 @@ test("page_driver status, chats, linear branch read (no private thoughts), proje
 
   const projs = await driver.listProjects({});
   assert.equal(projs.projects[0].id, "g-p-1");
+
+  const createdProj = await driver.createProject({ name: "New Proj", instructions: "Goal" });
+  assert.equal(createdProj.state, "ok");
+  assert.equal(createdProj.project_id, "g-p-created");
+  assert.equal(createdProj.name, "New Proj");
 
   // Multi-turn continuation on existing chat_id inherits current_node + gizmo_id + model + mapped reasoning_effort
   const sent = await driver.sendMessage({
@@ -177,16 +187,35 @@ test("page_driver status, chats, linear branch read (no private thoughts), proje
   assert.equal(wire.conversation_mode.kind, "gizmo_interaction");
   assert.equal(wire.model, "gpt-5-6-thinking");
   assert.equal(wire.thinking_effort, "min");
-  assert.ok(wire.messages[0].content.parts[0].includes("[LOCAL_FUNCTION_SIGNATURES]"));
+  assert.deepEqual([...wire.local_function_names], ["exec_command"]);
+  assert.equal(wire.local_function_signatures[0].type, "kwargs");
+  assert.equal(wire.local_function_signatures[0].name, "exec_command");
+  assert.equal(wire.messages[0].content.parts[0], "List directory");
 
-  // Instant model must omit thinking_effort (ChatGPT returns 422 if sent on instant models)
+  // Instant model must omit thinking_effort (ChatGPT returns 422 if sent on instant models);
+  // continuation turns still send native local_function_signatures without repeating text preamble
   await driver.sendMessage({
-    prompt: "Quick hello",
+    prompt: "[Tool Output call_1]\nOK",
     model: "gpt-5-6-instant",
     reasoning_effort: "medium",
+    local_function_signatures: [{ type: "custom", name: "exec" }],
+    is_continuation: true,
     wait_ms: 1000,
   });
   assert.equal(startCalls[1].request.thinking_effort, undefined);
+  assert.deepEqual([...startCalls[1].request.local_function_names], ["codex_exec"]);
+  assert.equal(startCalls[1].request.local_function_signatures[0].params[0].name, "input");
+  assert.ok(!startCalls[1].request.messages[0].content.parts[0].includes("[LOCAL_FUNCTION_SIGNATURES]"));
+
+  // Custom input & namespace tool call parsing
+  const parsedCustom = driver.parseToolCallsFromText(
+    '```codex_tool_call\n{"call_id":"c1","name":"exec","input":"echo 123"}\n```\n' +
+    '```codex_tool_call\n{"call_id":"c2","namespace":"collaboration","name":"spawn_agent","arguments":{"task_name":"w1"}}\n```'
+  );
+  assert.equal(parsedCustom.calls.length, 2);
+  assert.equal(parsedCustom.calls[0].arguments, "echo 123");
+  assert.equal(parsedCustom.calls[1].namespace, "collaboration");
+  assert.equal(parsedCustom.calls[1].name, "spawn_agent");
 });
 
 test("page_driver observeChat while in_progress, busy rejection, and programmatic stopGeneration", async () => {

@@ -275,14 +275,19 @@
               const pipeId = bodyExpr[1];
               const pipe = this.pipes.get(pipeId);
               if (pipe) {
+                let bodyTimer = null;
                 try {
                   text = await Promise.race([
                     pipe.done,
-                    new Promise((_, rej) =>
-                      setTimeout(() => rej(new Error("app_host_body_timeout")), timeoutMs)
-                    ),
+                    new Promise((_, rej) => {
+                      bodyTimer = setTimeout(
+                        () => rej(new Error("app_host_body_timeout")),
+                        timeoutMs
+                      );
+                    }),
                   ]);
                 } finally {
+                  if (bodyTimer) clearTimeout(bodyTimer);
                   this.pipes.delete(pipeId);
                 }
               }
@@ -649,6 +654,100 @@
     return chain;
   }
 
+  // Avoid ChatGPT backend name collisions with built-in container/runtime `exec`.
+  function wireLocalFunctionName(rawName) {
+    return rawName === "exec" ? "codex_exec" : rawName;
+  }
+
+  function buildNativeLocalFunctionSignatures(sigs) {
+    if (!Array.isArray(sigs) || sigs.length === 0) {
+      return { names: [], signatures: [], wireToOriginal: new Map() };
+    }
+    const names = [];
+    const signatures = [];
+    const wireToOriginal = new Map();
+    const seen = new Set();
+    for (const s of sigs) {
+      if (!s || typeof s.name !== "string") continue;
+      const rawName = s.name.trim();
+      if (!rawName || !/^[A-Za-z0-9_-]{1,64}$/.test(rawName) || seen.has(rawName)) continue;
+      seen.add(rawName);
+      const wireName = wireLocalFunctionName(rawName);
+      wireToOriginal.set(wireName, rawName);
+      names.push(wireName);
+      const params = [];
+      if (s.type === "custom") {
+        params.push({
+          name: "input",
+          required: true,
+          type: { type: "string", description: "Raw tool input string" },
+        });
+      } else if (s.parameters && typeof s.parameters === "object" && s.parameters.properties) {
+        const reqSet = new Set(Array.isArray(s.parameters.required) ? s.parameters.required : []);
+        for (const [pname, pdef] of Object.entries(s.parameters.properties)) {
+          const ptype = pdef && typeof pdef.type === "string" ? pdef.type : "string";
+          const mappedType =
+            ptype === "integer" || ptype === "number" || ptype === "boolean" || ptype === "string"
+              ? ptype
+              : "string";
+          params.push({
+            name: pname,
+            required: reqSet.has(pname),
+            type: {
+              type: mappedType,
+              description: truncate(
+                pdef && typeof pdef.description === "string" ? pdef.description : pname,
+                160
+              ),
+            },
+          });
+        }
+      }
+      signatures.push({
+        name: wireName,
+        description: truncate(
+          typeof s.description === "string" && s.description.trim()
+            ? s.description.trim()
+            : `Invoke local Codex tool ${rawName}`,
+          2400
+        ),
+        type: "kwargs",
+        params,
+      });
+    }
+    return { names, signatures, wireToOriginal };
+  }
+
+  function extractNativeToolCallFromMessage(msg, declaredNames, wireToOriginal) {
+    if (!msg || typeof msg !== "object") return null;
+    if (msg.author?.role !== "assistant") return null;
+    const recipient = typeof msg.recipient === "string" ? msg.recipient.trim() : "";
+    if (!recipient || recipient === "all") return null;
+    const stripped = recipient.includes(".") ? recipient.split(".").pop() : recipient;
+    if (declaredNames.size > 0 && !declaredNames.has(recipient) && !declaredNames.has(stripped)) {
+      return null;
+    }
+    const content = msg.content || {};
+    let rawArgs = "";
+    if (typeof content.text === "string" && content.text.trim()) {
+      rawArgs = content.text.trim();
+    } else if (Array.isArray(content.parts)) {
+      rawArgs = content.parts
+        .filter((p) => typeof p === "string")
+        .join("\n")
+        .trim();
+    }
+    if (!rawArgs) return null;
+    const matchedWire = declaredNames.has(recipient) ? recipient : stripped;
+    const resolvedName = (wireToOriginal && wireToOriginal.get(matchedWire)) || matchedWire;
+    return {
+      id: msg.id ? `call_${String(msg.id).replace(/[^A-Za-z0-9_-]/g, "").slice(0, 24)}` : `call_${newUuid().slice(0, 8)}`,
+      name: resolvedName,
+      arguments: rawArgs,
+      native_recipient: recipient,
+    };
+  }
+
   function parseToolCallsFromText(text) {
     const calls = [];
     const fenceRe = /```codex_tool_call\s*([\s\S]*?)```/g;
@@ -658,17 +757,24 @@
       try {
         const parsed = JSON.parse(match[1].trim());
         if (parsed && typeof parsed.name === "string" && parsed.name.length > 0) {
-          calls.push({
+          const payload =
+            typeof parsed.input === "string"
+              ? parsed.input
+              : typeof parsed.arguments === "string"
+                ? parsed.arguments
+                : JSON.stringify(parsed.arguments || {});
+          const entry = {
             id:
               typeof parsed.call_id === "string" && parsed.call_id
                 ? parsed.call_id
                 : `call_${calls.length + 1}`,
             name: parsed.name,
-            arguments:
-              typeof parsed.arguments === "string"
-                ? parsed.arguments
-                : JSON.stringify(parsed.arguments || {}),
-          });
+            arguments: payload,
+          };
+          if (typeof parsed.namespace === "string" && parsed.namespace.trim()) {
+            entry.namespace = parsed.namespace.trim();
+          }
+          calls.push(entry);
           stripped = stripped.replace(match[0], "").trim();
         }
       } catch (_) {}
@@ -859,21 +965,33 @@
     if (!name) {
       return { state: "error", error: "project_name_required", detail: "non-empty name required" };
     }
-    const res = await apiFetch("/gizmos/snorlax/upsert", {
+    const payload = {
+      name,
+      instructions: typeof opts.instructions === "string" ? opts.instructions : "",
+    };
+    const res = await apiFetch("/projects", {
       method: "POST",
-      body: JSON.stringify({
-        display: { name },
-        instructions: typeof opts.instructions === "string" ? opts.instructions : "",
-      }),
+      body: JSON.stringify(payload),
     });
     if (!res.ok || !res.json) {
       return { state: "error", error: `backend_http_${res.status}`, detail: res.text };
     }
-    const g = res.json.gizmo || res.json;
+    if (res.json.error) {
+      return {
+        state: "error",
+        error: "project_create_failed",
+        detail: truncate(String(res.json.error), 512),
+      };
+    }
+    const g =
+      (res.json.resource && res.json.resource.gizmo) ||
+      res.json.gizmo ||
+      res.json.resource ||
+      res.json;
     return {
       state: "ok",
       project_id: g.id || null,
-      name: (g.display && g.display.name) || name,
+      name: (g.display && g.display.name) || g.name || name,
     };
   }
 
@@ -1031,8 +1149,24 @@
       }
     }
 
+    const nativeTools = buildNativeLocalFunctionSignatures(opts.local_function_signatures);
+    const declaredToolNames = new Set(nativeTools.names);
+    if (Array.isArray(opts.tool_names)) {
+      for (const n of opts.tool_names) {
+        if (typeof n === "string" && n.trim()) {
+          declaredToolNames.add(n.trim());
+          if (n.includes(".")) declaredToolNames.add(n.split(".").pop().trim());
+        }
+      }
+    }
+
     let wirePrompt = prompt;
-    if (Array.isArray(opts.local_function_signatures) && opts.local_function_signatures.length > 0) {
+    if (
+      !opts.is_continuation &&
+      Array.isArray(opts.local_function_signatures) &&
+      opts.local_function_signatures.length > 0 &&
+      nativeTools.signatures.length === 0
+    ) {
       const sigBlock = JSON.stringify(opts.local_function_signatures);
       wirePrompt =
         `[LOCAL_FUNCTION_SIGNATURES]\n${sigBlock}\n` +
@@ -1053,6 +1187,12 @@
       conversation_mode: projectId
         ? { kind: "gizmo_interaction", gizmo_id: projectId }
         : { kind: "primary_assistant" },
+      ...(nativeTools.signatures.length > 0
+        ? {
+            local_function_names: nativeTools.names,
+            local_function_signatures: nativeTools.signatures,
+          }
+        : {}),
       messages: [
         {
           id: userMsgId,
@@ -1088,6 +1228,7 @@
       error: null,
       messageId: null,
       assistantText: "",
+      nativeToolCalls: new Map(),
       donePromise,
       resolveDone: () => {
         turn.generating = false;
@@ -1095,6 +1236,25 @@
       },
     };
     activeTurn = turn;
+
+    const recordMessage = (msg) => {
+      if (!msg || typeof msg !== "object") return;
+      const nativeCall = extractNativeToolCallFromMessage(
+        msg,
+        declaredToolNames,
+        nativeTools.wireToOriginal
+      );
+      if (nativeCall) {
+        turn.nativeToolCalls.set(nativeCall.id, nativeCall);
+        if (msg.id) turn.messageId = msg.id;
+        return;
+      }
+      const extracted = extractTextFromMessage(msg);
+      if (extracted && extracted.role === "assistant") {
+        turn.assistantText = extracted.text;
+        if (extracted.id) turn.messageId = extracted.id;
+      }
+    };
 
     try {
       const handle = await client.startCompletionStream({
@@ -1107,11 +1267,7 @@
             turn.chatId = update.conversationId;
           }
           if (update.type === "message" && update.message) {
-            const extracted = extractTextFromMessage(update.message);
-            if (extracted && extracted.role === "assistant") {
-              turn.assistantText = extracted.text;
-              if (extracted.id) turn.messageId = extracted.id;
-            }
+            recordMessage(update.message);
           }
         },
         onDecodedEvent: (ev) => {
@@ -1121,11 +1277,7 @@
           }
           const msg = ev?.update?.type === "message" ? ev.update.message : ev?.payload?.message;
           if (msg) {
-            const extracted = extractTextFromMessage(msg);
-            if (extracted && extracted.role === "assistant") {
-              turn.assistantText = extracted.text;
-              if (extracted.id) turn.messageId = extracted.id;
-            }
+            recordMessage(msg);
           }
         },
         onComplete: () => {
@@ -1153,7 +1305,7 @@
       turn.resolveDone();
     }
 
-    const waitMs = Math.max(0, Math.min(120000, Number(opts.wait_ms ?? 30000)));
+    const waitMs = Math.max(0, Math.min(300000, Number(opts.wait_ms ?? 30000)));
     if (waitMs > 0 && turn.generating) {
       await Promise.race([
         turn.donePromise,
@@ -1194,12 +1346,18 @@
     }
 
     const parsed = parseToolCallsFromText(turn.assistantText || "");
+    const nativeCalls = [...turn.nativeToolCalls.values()].map((c) => ({
+      id: c.id,
+      name: c.name,
+      arguments: c.arguments,
+    }));
+    const allCalls = nativeCalls.length > 0 ? nativeCalls : parsed.calls;
     return {
       state: turn.stopped ? "stopped" : "settled",
       chat_id: turn.chatId,
       message_id: turn.messageId,
       assistant_text: parsed.text,
-      tool_calls: parsed.calls,
+      tool_calls: allCalls,
       generating: false,
     };
   }

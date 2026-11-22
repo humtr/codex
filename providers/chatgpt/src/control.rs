@@ -145,7 +145,8 @@ async fn rename_chat(
 ) -> Result<Json<Value>> {
     require_bearer(&headers, &st.token)?;
     let title = body.title.trim();
-    if id.is_empty() || title.is_empty() || title.len() > 200 {
+    if id.is_empty() || id.len() > 128 || id.contains('/') || title.is_empty() || title.len() > 200
+    {
         return Err(ProviderError::bad_request(
             "invalid_rename_request",
             "chat_id and non-empty title <= 200 bytes required",
@@ -230,7 +231,7 @@ async fn send_message(
         .get("wait_ms")
         .and_then(Value::as_u64)
         .unwrap_or(30_000)
-        .min(120_000);
+        .min(300_000);
     Ok(Json(
         st.driver
             .send_message(json!({

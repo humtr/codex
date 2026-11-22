@@ -19,7 +19,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
-const RECEIPT_SCHEMA: &str = "termux-mcp-shell-receipt-v1";
+const RECEIPT_SCHEMA: &str = "termux-mcp-shell-receipt";
 const MAX_COMMAND_BYTES: usize = 32 * 1024;
 const MAX_OUTPUT_BYTES: usize = 64 * 1024;
 const DEFAULT_TIMEOUT_MS: u64 = 60_000;
@@ -61,7 +61,7 @@ fn default_receipt_root() -> Result<PathBuf, &'static str> {
     let prefix = env::var_os("PREFIX")
         .filter(|v| !v.is_empty())
         .ok_or("termux_prefix_unavailable")?;
-    Ok(PathBuf::from(prefix).join("var/tmp/termux-mcp-shell-receipts-v1"))
+    Ok(PathBuf::from(prefix).join("var/tmp/termux-mcp-shell-receipts"))
 }
 
 fn default_shell_path() -> Result<PathBuf, &'static str> {
@@ -265,14 +265,9 @@ pub fn execute_with(receipt_root: &Path, shell: &Path, args: &Value) -> Value {
         Err(err) => return fail(err),
     };
 
-    let legacy_fp = sha256_hex(
-        json!(["termux-shell-v1", script, cwd, timeout_ms])
-            .to_string()
-            .as_bytes(),
-    );
     let primary_fp = sha256_hex(
         json!([
-            "termux-shell-v2",
+            "termux-shell",
             script,
             args.get("cwd"),
             args.get("timeout_ms")
@@ -281,7 +276,7 @@ pub fn execute_with(receipt_root: &Path, shell: &Path, args: &Value) -> Value {
         .as_bytes(),
     );
 
-    let receipt_path = match store.claim(call_id, &primary_fp, &[&primary_fp, &legacy_fp]) {
+    let receipt_path = match store.claim(call_id, &primary_fp, &[&primary_fp]) {
         ReceiptClaim::Acquired(p) => p,
         ReceiptClaim::Existing(v) => return v,
         ReceiptClaim::Rejected(err) => return fail(err),
@@ -479,7 +474,7 @@ mod tests {
     }
 
     #[test]
-    fn output_truncation_corrupt_receipt_and_legacy_v1_fingerprint_preserved() {
+    fn output_truncation_and_corrupt_receipt_handled_fail_closed() {
         let root = fixture();
         let res = execute_with(
             &root,
@@ -500,35 +495,6 @@ mod tests {
             &json!({"call_id": "corrupt", "command": "echo nope", "cwd": root}),
         );
         assert_eq!(corrupt["state"], "delivery_unknown");
-
-        // Legacy v1 receipt fingerprint compatibility
-        let store = ReceiptStore::open(
-            root.clone(),
-            RECEIPT_SCHEMA,
-            "termux_call_id_payload_conflict",
-        )
-        .unwrap();
-        let legacy_fp = sha256_hex(
-            json!(["termux-shell-v1", "printf exact", root, DEFAULT_TIMEOUT_MS])
-                .to_string()
-                .as_bytes(),
-        );
-        let p = store.receipt_path("legacy-id");
-        store.write_intent(&p, &legacy_fp).unwrap();
-        store
-            .commit(
-                &p,
-                &legacy_fp,
-                &json!({"state": "exited", "executed": true, "stdout": "ORIGINAL"}),
-            )
-            .unwrap();
-        let replayed = execute_with(
-            &root,
-            &sh(),
-            &json!({"call_id": "legacy-id", "command": "printf exact", "cwd": root}),
-        );
-        assert_eq!(replayed["stdout"], "ORIGINAL");
-        assert_eq!(replayed["replayed_from_receipt"], true);
 
         let _ = fs::remove_dir_all(&root);
     }

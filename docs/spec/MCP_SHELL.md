@@ -30,9 +30,9 @@ independent recovery and automation plane even if every other component is down.
   - `command` (required, non-blank string `1..=32768` bytes, no NUL)
   - `cwd` (optional, absolute path without NUL; defaults to `$HOME`)
   - `timeout_ms` (optional, integer `1000..=600000`, default `60000`)
-- **Private receipt store:** `$PREFIX/var/tmp/termux-mcp-shell-receipts-v1`
+- **Private receipt store:** `$PREFIX/var/tmp/termux-mcp-shell-receipts`
   (`0700` owned directory, `O_NOFOLLOW`, `0600` receipt files, <= `512 KiB`,
-  schema `termux-mcp-shell-receipt-v1`).
+  schema `termux-mcp-shell-receipt`).
   - Before spawning a shell, the worker atomically commits a `state: "started"`
     intent (`O_CREAT | O_EXCL | O_NOFOLLOW`, `fsync(file)`, `fsync(dir)`).
   - Resending the same `call_id` with exact matching arguments returns the
@@ -41,8 +41,6 @@ independent recovery and automation plane even if every other component is down.
     `state: "delivery_unknown"` and never re-executes.
   - Reusing a `call_id` with different arguments returns
     `termux_call_id_payload_conflict` (`executed: false`).
-  - Both raw-argument `termux-shell-v2` fingerprints and historical
-    `termux-shell-v1` fingerprints are recognized when reading existing receipts.
 - **Process group & output bounds:**
   - Each invocation runs `$PREFIX/bin/sh -c <command>` in a private process
     group (`process_group(0)`).

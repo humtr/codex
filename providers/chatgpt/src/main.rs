@@ -495,4 +495,148 @@ mod tests {
         cfg.server.bind = "0.0.0.0:4319".to_owned();
         assert!(cfg.validate().is_err());
     }
+
+    #[tokio::test]
+    async fn responses_extracts_codex_additional_tools_emits_custom_and_namespaced_calls_and_tracks_delta_sessions(
+    ) {
+        let driver = MockDriver::new(json!({
+            "state": "settled",
+            "chat_id": "conv-orch-1",
+            "assistant_text": "",
+            "tool_calls": [
+                {
+                    "id": "call_exec_1",
+                    "name": "exec",
+                    "arguments": "echo hi"
+                },
+                {
+                    "id": "call_spawn_1",
+                    "name": "spawn_agent",
+                    "arguments": "{\"task_name\":\"worker\",\"message\":\"compute\"}"
+                }
+            ]
+        }));
+        let history = config::HistoryConfig {
+            project_id: Some("g-p-test-proj".to_owned()),
+            project_name: None,
+        };
+        let router = build_router(
+            driver.clone(),
+            config::ModelConfig::default(),
+            history,
+            "tok-0123456789abcdef0123456789abcdef".to_owned(),
+            Arc::new(RwLock::new(None)),
+        );
+
+        let r1_body = json!({
+            "model": "gpt-6-sol-wm",
+            "stream": true,
+            "prompt_cache_key": "sess-orch-1",
+            "reasoning": {"effort": "xhigh"},
+            "input": [
+                {
+                    "type": "additional_tools",
+                    "role": "developer",
+                    "tools": [
+                        {
+                            "type": "namespace",
+                            "name": "functions",
+                            "tools": [
+                                {"type": "custom", "name": "exec", "description": "Run shell command"}
+                            ]
+                        },
+                        {
+                            "type": "namespace",
+                            "name": "collaboration",
+                            "tools": [
+                                {"type": "function", "name": "spawn_agent", "description": "Spawn worker", "parameters": {"type": "object"}}
+                            ]
+                        }
+                    ]
+                },
+                {"type": "message", "role": "user", "content": [{"type": "input_text", "text": "Delegate work"}]}
+            ]
+        });
+        let resp1 = oneshot(
+            router.clone(),
+            Request::builder()
+                .method("POST")
+                .uri("/v1/responses")
+                .header("content-type", "application/json")
+                .header("thread-id", "thread-orch-1")
+                .body(Body::from(r1_body.to_string()))
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(resp1.status(), StatusCode::OK);
+        let sse1 = String::from_utf8(
+            to_bytes(resp1.into_body(), 1024 * 1024)
+                .await
+                .unwrap()
+                .to_vec(),
+        )
+        .unwrap();
+        assert!(sse1.contains("event: response.custom_tool_call_input.done\n"));
+        assert!(sse1.contains("\"type\":\"custom_tool_call\""));
+        assert!(sse1.contains("\"input\":\"echo hi\""));
+        assert!(sse1.contains("\"name\":\"spawn_agent\""));
+        assert!(sse1.contains("\"namespace\":\"collaboration\""));
+
+        let sent1 = driver.last_send.lock().unwrap().clone().unwrap();
+        assert_eq!(sent1["project_id"], "g-p-test-proj");
+        assert_eq!(sent1["model"], "gpt-6-sol-wm");
+        assert_eq!(sent1["reasoning_effort"], "xhigh");
+        assert_eq!(
+            sent1["local_function_signatures"].as_array().unwrap().len(),
+            2
+        );
+
+        // Round 2 with same thread-id must reuse conv-orch-1 and send only delta tail!
+        let mut r2_body = r1_body.clone();
+        r2_body["input"].as_array_mut().unwrap().push(json!({
+            "type": "function_call",
+            "call_id": "call_spawn_1",
+            "name": "spawn_agent",
+            "arguments": "{}"
+        }));
+        r2_body["input"].as_array_mut().unwrap().push(json!({
+            "type": "function_call_output",
+            "call_id": "call_spawn_1",
+            "output": "WORKER_DONE=42"
+        }));
+        r2_body["input"].as_array_mut().unwrap().push(json!({
+            "type": "agent_message",
+            "author": "/root",
+            "recipient": "/root/worker",
+            "content": [
+                {"type": "input_text", "text": "Message Type: NEW_TASK\nPayload:\n"},
+                {"type": "encrypted_content", "encrypted_content": "READ_SECRET_TASK_99"}
+            ]
+        }));
+        let resp2 = oneshot(
+            router,
+            Request::builder()
+                .method("POST")
+                .uri("/v1/responses")
+                .header("content-type", "application/json")
+                .header("thread-id", "thread-orch-1")
+                .body(Body::from(r2_body.to_string()))
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(resp2.status(), StatusCode::OK);
+        let sent2 = driver.last_send.lock().unwrap().clone().unwrap();
+        assert_eq!(sent2["chat_id"], "conv-orch-1");
+        assert!(sent2["prompt"].as_str().unwrap().contains("WORKER_DONE=42"));
+        assert!(sent2["prompt"]
+            .as_str()
+            .unwrap()
+            .contains("READ_SECRET_TASK_99"));
+        assert!(!sent2["prompt"].as_str().unwrap().contains("Delegate work"));
+        assert_eq!(sent2["is_continuation"], true);
+        assert_eq!(
+            sent2["local_function_signatures"].as_array().unwrap().len(),
+            2
+        );
+    }
 }

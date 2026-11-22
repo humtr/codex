@@ -129,9 +129,7 @@ symlink) that shares `crates/codex-daemon-client` with `@TermuxCodex` and has
 - Storage layout (compatible with existing profiles):
   - Directory: `$HOME/.local/share/codex/manager/profiles/<NAME>/` (`0700`),
     child `home/` (`0700`), metadata `profile.meta` (`0600`).
-  - Accepted metadata formats: `codex-manager-profile\n` (written for new
-    profiles), `codex-manager-profile-v2\n`, and
-    `codex-manager-profile-v1\nid\t<NAME>\n`.
+  - Metadata format: `codex-manager-profile\n`.
   - Default selection pointer: `$HOME/.local/share/codex/manager/default-profile`
     (`0600`, `codex-manager-default-profile\nprofile\t<NAME>\n`).
 - Name validation: 1..=64 chars matching `[A-Za-z0-9][A-Za-z0-9._-]*`; `default`,

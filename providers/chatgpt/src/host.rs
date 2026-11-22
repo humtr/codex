@@ -209,9 +209,11 @@ pub fn merge_mimeapps_defaults(previous: &str) -> String {
 pub async fn open_android_url(prefix: &Path, url: &str) -> Result<()> {
     if url.is_empty()
         || url.len() > 16_383
-        || url
-            .chars()
-            .any(|c| c.is_whitespace() || c.is_control() || matches!(c, '\'' | '"' | ';' | '`'))
+        || url.chars().any(|c| {
+            c.is_whitespace()
+                || c.is_control()
+                || matches!(c, '\'' | '"' | ';' | '`' | '\\' | '<' | '>' | '(' | ')')
+        })
         || !(url.starts_with("https://") || url.starts_with("http://127.0.0.1:"))
     {
         return Err(ProviderError::bad_request(

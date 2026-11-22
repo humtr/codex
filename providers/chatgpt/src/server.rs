@@ -12,6 +12,7 @@ use crate::responses::{handle_models, handle_responses, ResponseThreadMap};
 use crate::viewer::{viewer_router, ViewerSlot};
 use axum::{
     extract::State,
+    http::HeaderMap,
     response::Response,
     routing::{get, post},
     Json, Router,
@@ -69,12 +70,24 @@ async fn v1_models(State(st): State<AppState>) -> Json<Value> {
     handle_models(Arc::clone(&st.driver), &st.model_cfg).await
 }
 
-async fn v1_responses(State(st): State<AppState>, Json(body): Json<Value>) -> Result<Response> {
+async fn v1_responses(
+    State(st): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<Value>,
+) -> Result<Response> {
+    let session_hint = headers
+        .get("thread-id")
+        .or_else(|| headers.get("session-id"))
+        .and_then(|v| v.to_str().ok())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(ToOwned::to_owned);
     handle_responses(
         Arc::clone(&st.driver),
         &st.model_cfg,
         &st.history_cfg,
         &st.threads,
+        session_hint,
         body,
     )
     .await

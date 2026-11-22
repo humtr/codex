@@ -261,7 +261,7 @@ impl DriverBackend for CdpDriver {
                 .get("wait_ms")
                 .and_then(Value::as_u64)
                 .unwrap_or(30_000)
-                .min(120_000);
+                .min(300_000);
             self.ensure_ready_and_call(
                 "sendMessage",
                 params,
