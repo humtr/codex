@@ -8,7 +8,7 @@ DEFAULT_PREFIX='/data/data/com.termux/files/usr'
 DEFAULT_REPO='humtr/codex'
 DEFAULT_RELEASE_TAG='wrapper'
 ASSET_NAME='codex-wrapper-aarch64-linux-android.tar.gz'
-PINNED_RELEASE_PUBKEY_SHA256=''
+PINNED_RELEASE_PUBKEY_SHA256='0df170dae2d7234b4425fcdddaa4bd9b6e2104794d0541955b022631b1105fca'
 MAX_TARBALL_BYTES=20971520
 MAX_SHA256_BYTES=4096
 MAX_SUMS_BYTES=65536
@@ -162,6 +162,15 @@ fetch_optional_https() {
     fail "downloaded optional file out of bounds: $out"
   fi
   return 0
+}
+
+write_embedded_release_pubkey() {
+  cat > "$1" <<'EOF'
+-----BEGIN PUBLIC KEY-----
+MCowBQYDK2VwAyEAgx0w1LvXUvnWBt+0eGnCrd2XrkfFZZmFuBdOR8H/2kM=
+-----END PUBLIC KEY-----
+EOF
+  chmod 0600 "$1"
 }
 
 verify_ed25519_sig() {
@@ -505,7 +514,7 @@ release_tag=''
 source_mode=''
 binary_path=''
 verify_key=''
-key_sha256=$PINNED_RELEASE_PUBKEY_SHA256
+key_sha256=''
 require_signed=0
 verified_release_sequence=''
 verified_active_pubkey=''
@@ -801,8 +810,16 @@ case $source_mode in
     tarball_sha="$work/$ASSET_NAME.sha256"
 
     default_key="$HOME/.local/lib/codex/wrapper/release-public-key.pem"
-    if [ -z "$verify_key" ] && { [ -e "$default_key" ] || [ -L "$default_key" ]; }; then
-      verify_key=$default_key
+    if [ -z "$verify_key" ]; then
+      if [ -e "$default_key" ] || [ -L "$default_key" ]; then
+        verify_key=$default_key
+      elif [ -n "$PINNED_RELEASE_PUBKEY_SHA256" ]; then
+        verify_key="$work/embedded-release-public-key.pem"
+        write_embedded_release_pubkey "$verify_key"
+        if [ -z "$key_sha256" ]; then
+          key_sha256=$PINNED_RELEASE_PUBKEY_SHA256
+        fi
+      fi
     fi
     if [ -n "$verify_key" ] || [ "$require_signed" -eq 1 ] || [ -n "$key_sha256" ]; then
       [ -n "$verify_key" ] ||

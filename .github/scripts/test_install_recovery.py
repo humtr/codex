@@ -647,13 +647,13 @@ exit 22
         self._install_curl_shim(rel)
         payload = self.new.read_bytes()
 
-        # 1. --require-signed without key fails closed
+        # 1. Release signed by untrusted key fails closed against embedded pinned key
+        self._build_signed_release_dir(rel, priv1, 5, payload)
         r0 = self._run_release_install("--require-signed")
         self.assertNotEqual(r0.returncode, 0)
-        self.assertIn("no --verify-key", r0.stderr)
+        self.assertIn("signature verification failed", r0.stderr)
 
-        # 2. Valid signed install (seq 5) succeeds and persists sequence + key
-        self._build_signed_release_dir(rel, priv1, 5, payload)
+        # 2. Valid signed install (seq 5) with explicit pinned test key succeeds and persists sequence + key
         r1 = self._run_release_install("--verify-key", str(pub1), "--key-sha256", sha1)
         self.assertEqual(r1.returncode, 0, r1.stderr)
         self.assertEqual(

@@ -46,7 +46,7 @@ on:
         type: boolean
         default: true
       release_sequence:
-        description: Monotonic signed release sequence (used when CODEX_RELEASE_SIGNING_KEY secret is set)
+        description: Monotonic signed release sequence (used when CODEX_SIGNING_KEY secret is set)
         type: string
         default: ''
 
@@ -115,7 +115,7 @@ jobs:
           INPUT_TAG: ${{ inputs.release_tag }}
           INPUT_PRERELEASE: ${{ inputs.prerelease }}
           INPUT_SEQUENCE: ${{ inputs.release_sequence }}
-          CODEX_RELEASE_SIGNING_KEY: ${{ secrets.CODEX_RELEASE_SIGNING_KEY }}
+          CODEX_SIGNING_KEY: ${{ secrets.CODEX_SIGNING_KEY }}
         run: |
           set -euo pipefail
           key_file=""
@@ -133,10 +133,10 @@ jobs:
           elif [[ "$tag" == *-* ]]; then
             flags+=(--prerelease)
           fi
-          if [ -n "${CODEX_RELEASE_SIGNING_KEY:-}" ]; then
+          if [ -n "${CODEX_SIGNING_KEY:-}" ]; then
             key_file="$RUNNER_TEMP/release-signing-key.pem"
             umask 077
-            printf '%s\n' "$CODEX_RELEASE_SIGNING_KEY" > "$key_file"
+            printf '%s\n' "$CODEX_SIGNING_KEY" > "$key_file"
             seq="${INPUT_SEQUENCE:-$GITHUB_RUN_NUMBER}"
             flags+=(--signing-key "$key_file" --sequence "$seq")
           fi

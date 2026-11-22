@@ -112,7 +112,7 @@
 ### 4.1 공용 경량 Ed25519 서명 배포 체계 (`SHA256SUMS.sig`)
 - **공통 포맷:** 레거시 CDN/`asset-map`/`update-index`를 폐기하고, 모든 자체 빌드 컴포넌트의 GitHub Release에 **`SHA256SUMS`**(상단 헤더 `# component=<name>`, `# sequence=<N>`, `# commit=<40-hex>` + 아카이브 SHA-256) + **`SHA256SUMS.sig`**(단일 Ed25519 서명)를 공통 적용한다.
 - **검증 3단계:** ① 핀된 공개키(`release-public-key.pem`, pinned SHA-256)로 `SHA256SUMS.sig` 검증(`openssl pkeyutl -verify -pubin -rawin`) → ② 컴포넌트별 `sequence` 단조 증가(anti-rollback) 확인 → ③ 아카이브 SHA-256 일치 확인 후 설치/교체. 키 교체 시에만 `release-public-key.pem.sig` 로테이션 체인 지원.
-- **신뢰 키:** Stage 2 전용 신규 Ed25519 키쌍 1개 (`0.167.2` 레거시 키와 완전 분리; 개인키는 GitHub Actions Secret `CODEX_RELEASE_SIGNING_KEY`에만 보관).
+- **신뢰 키:** Stage 2 전용 신규 Ed25519 키쌍 1개 (`0.167.2` 레거시 키와 완전 분리; 개인키는 GitHub Actions Secret `CODEX_SIGNING_KEY`에만 보관, 공개키는 [release-public-key.pem](release/release-public-key.pem) SHA-256 `0df170dae2d7234b4425fcdddaa4bd9b6e2104794d0541955b022631b1105fca` 핀).
 - **Stage 1 bare 무영향:** 공식 OpenAI 업스트림 `codex update`는 기존대로 OpenAI SHA-256 + 로컬 ELF 패치(`LOCAL_ZERO`)를 유지하며 `openssl-tool`이나 서명 키를 요구하지 않는다.
 - **릴리스·태그 현황:** `humtr/codex` 원격에는 현재 Stage 1 `wrapper` 태그/릴리스 1개만 존재(구 `0.167.2` 릴리스 없음). Slice 1 완료 시 경량 서명 `wrapper` 릴리스로 갱신하고, 이후 컴포넌트별 독립 태그로 발행한다.
 
