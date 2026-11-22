@@ -6,7 +6,7 @@
 > Normative contracts: [SPEC.md](../SPEC.md), [DELIVERY.md](spec/DELIVERY.md),
 > [USER_INTERFACES.md](spec/USER_INTERFACES.md), [BRIDGE.md](spec/BRIDGE.md).
 > Active design & slice checklist: [HANDOFF.md](../HANDOFF.md).
-> **Current implementation state:** **Stage 1** and **Stage 2 Slice 1** (`3ea207cb` on `main`: unused Phase 2.1 hooks removed; universal Ed25519 `SHA256SUMS.sig` signed `wrapper` release `sequence=1` live on GitHub and Termux) are complete; see [CURRENT.md](../CURRENT.md). Stage 2 was reassessed from first principles on **2026-11-22** to keep `codex` Wrapper strictly zero-coupling and source-patch-free, replacing the legacy `c200e676` coupled Phases 2.1–2.5 (`shared_server`, `native_route.patch`, `frontend/tui` fork, CDN `update-index`, DDPE monolith) with **6 independent decoupled slices (Slices 1–6)** — **Slices 2–6 remain to be built**.
+> **Current implementation state:** **Stage 1** and **Stage 2 Slices 1–3** are complete and live on `main` (see [CURRENT.md](../CURRENT.md)); **Slice 4** (`@TermuxCodex`) is implemented on `stage2/slice-4-termux-codex`. Stage 2 was reassessed from first principles on **2026-11-22** to keep `codex` Wrapper strictly zero-coupling and source-patch-free, replacing the legacy `c200e676` coupled Phases 2.1–2.5 (`shared_server`, `native_route.patch`, `frontend/tui` fork, CDN `update-index`, DDPE monolith) with **6 independent decoupled slices (Slices 1–6)** — **Slices 5–6 remain to be built**.
 
 ---
 

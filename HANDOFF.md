@@ -183,4 +183,6 @@ Slice 1: Wrapper 슬림화 + 공용 SHA256SUMS.sig 경량 Ed25519 서명·배포
 > - [x] 독립 [mcp/termux-shell](mcp/termux-shell/src/main.rs) (`@TermuxShell` `termux-shell-mcp`, 정적 1도구 `termux_shell`, 비-tokio 경량 프로세스 그룹/바운디드 캡처, `termux-shell-v1/v2` 호환) + [docs/spec/MCP_SHELL.md](docs/spec/MCP_SHELL.md) + [termux-shell.yml](.github/workflows/termux-shell.yml).
 > - [x] [transport/tunnel-client](transport/tunnel-client/recipe.json) (`v0.0.21` + `termux.patch` HTTP/2 half-open PING), [scripts/build_tunnel_client.py](scripts/build_tunnel_client.py) (GitHub API 403 리다이렉트 폴백 + NDK 크로스컴파일 지원) + [tunnel-client.yml](.github/workflows/tunnel-client.yml) (Go `1.27.4`).
 > - [x] opt-in `runit` 3상태 수퍼비전 ([scripts/runit_service.py](scripts/runit_service.py) + [docs/spec/SUPERVISION.md](docs/spec/SUPERVISION.md) + 지연 활성화 재시도·롤백 시 `previous` 보존 테스트).
-> - [ ] **다음 착수:** **Slice 4 (`mcp/termux-codex` `@TermuxCodex` 5도구 그린필드)** — 신규 브랜치 `stage2/slice-4-termux-codex`.
+> **Slice 4 구현 진행 (`stage2/slice-4-termux-codex` — 2026-11-22):**
+> - [x] 독립 [mcp/termux-codex](mcp/termux-codex/src/main.rs) (`@TermuxCodex` `termux-codex-mcp`, 정적 5도구 `codex_status`/`codex_threads`/`codex_turn`/`codex_catalog`/`codex_call` + 상호배타 10개 확장 액션 + `call_id` 멱등 영수증 + `codex-daemon-client`/`mcp-kit` 재사용) + [docs/spec/MCP_CODEX.md](docs/spec/MCP_CODEX.md) + [termux-codex.yml](.github/workflows/termux-codex.yml).
+> - [ ] **다음 착수:** Slice 4 사후 감사·개선 → `main` 머지/푸시 → **Slice 5 (`Gate 5-0` + `host/chatgpt-desktop` + `providers/chatgpt` 클린룸 `page_driver.js`)**.

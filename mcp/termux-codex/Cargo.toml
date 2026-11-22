@@ -1,0 +1,19 @@
+[workspace]
+members = ["."]
+resolver = "2"
+
+[package]
+name = "termux-codex-mcp"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[[bin]]
+name = "termux-codex-mcp"
+path = "src/main.rs"
+
+[dependencies]
+codex-daemon-client = { path = "../../crates/codex-daemon-client" }
+libc = "0.2"
+mcp-kit = { path = "../../crates/mcp-kit" }
+serde_json = "1"
