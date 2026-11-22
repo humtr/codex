@@ -1,180 +1,86 @@
-# Roadmap: Stage 2 Reintegration and Follow-Up Verification
+# Roadmap: Stage 2 Decoupled Architecture and Follow-Up Verification
 
-> **Status:** **Remaining optional integration plan, not the active Wrapper feature list.**
+> **Status:** **Remaining Stage 2 independent component plan, not the active Wrapper feature list.**
 > Follow [documentation authority](INDEX.md) and the
 > [current implementation/owner map](ARCHITECTURE.md).
 > Normative contracts: [SPEC.md](../SPEC.md), [DELIVERY.md](spec/DELIVERY.md),
 > [USER_INTERFACES.md](spec/USER_INTERFACES.md), [BRIDGE.md](spec/BRIDGE.md).
-> Historical lineage and example source paths below are porting references, not
-> instructions to replace the accepted Stage 1 implementation wholesale.
-> **Current implementation state:** **Stage 1** (including adaptive Issue #33 FD 35 `realpath` + multi-gap/trailing RX relocation) and **Phase 2.1** (`wrapper.toml`, `codex wrapper setup`/`--bare`/`--with`, and the conditional FD 34 snapshot engine in `crates/wrapper`) have source implementation and scoped workspace/API 37 Termux evidence; no addon binaries (`manager`, `tui`, `provider`) are attached. FD 34 concurrent publication/pruning is repaired and covered by process tests; actual producer integration remains unqualified. Phases 2.2–2.5 remain pending; Phase 2.6 has read-only discovery and qualification support. The current priority is standalone compatibility and recurring upstream adoption before optional module attachment; base discovery and qualification in Phase 2.6 need not wait for Phases 2.2–2.5.
+> Active design & slice checklist: [HANDOFF.md](../HANDOFF.md).
+> **Current implementation state:** **Stage 1** (`ce439293` / `8e7d1db5`, including adaptive Issue #33 FD 35 `realpath` + multi-gap/trailing RX relocation, managed daemon sync, single-write progress, and GitHub API 403 redirect fallback) is complete and live on `main`. Stage 2 was reassessed from first principles on **2026-11-22** to keep `codex` Wrapper strictly zero-coupling and source-patch-free, replacing the legacy `c200e676` coupled Phases 2.1–2.5 (`shared_server`, `native_route.patch`, `frontend/tui` fork, CDN `update-index`, DDPE monolith) with **6 independent decoupled slices (Slices 1–6)**.
 
 ---
 
 ## 1. Ground Rules & Non-Negotiable Constraints
 
-1. **Preserve Stage 1 independence at every phase:**
-   - Bare `codex` (and `codex --version`, `-V`, `--help`, `-h`, `help`, `codex update --upstream`, `codex doctor`, `codex wrapper status`) must remain runnable with **zero** dependency on Node.js, Manager, enhanced TUI, Provider, network indices, or Termux:API apps.
-   - `crates/wrapper` (`codex` CLI binary) keeps bare runtime fast path: zero addon probes, zero Manager IPC spawns, and zero **addon** writes/locks/`fsync` calls on unchanged launches when no optional module is enabled. Existing generation leases, qualified runtime checks and recovery of a pending activation journal are **not** skipped.
-   - `Cargo.lock` for bare Stage 1 Wrapper currently locks only `codex`, `codex-release-builder`, and `libc` (`=0.2.186`), enforced by [`.github/workflows/wrapper.yml`](../.github/workflows/wrapper.yml). Any Stage 2 workspace additions (`crates/manager`, `crates/runtime-binding`, TOML/JSON/WS dependencies) must keep bare `crates/wrapper` dependency-isolated or intentionally update the CI workspace check alongside separate package boundaries so Manager/source-builder crates never become runtime or build prerequisites for bare execution.
-2. **Authoritative Source Lineage — Do NOT Wholesale-Restore `ebb0b519`:**
-   - As inspected on **2026-11-17**, `origin/main` at `fcefb8b3` contains **20 tracked files** (release/index/config inputs, `.github/`, `AGENTS.md`, `README.md`), with **zero** Rust/frontend/provider source crates. `f9c75f55` was an earlier main checkpoint, not its current HEAD. `main` is a separate publication/source-pointer branch, **not** the Stage 1 implementation branch; never merge it into `rewrite/wrapper` merely to obtain implementation files.
-   - **`rewrite/rust-core` (`c200e676`)** is the authoritative preserved Stage 2 source tree (`crates/core`, `crates/runtime-binding`, `crates/manager`, `crates/release-builder`, `frontend/tui`, `providers/chatgpt`, `transport/tunnel-client`, `.github/scripts`).
-   - **Pre-split `ebb0b519` (`rewrite/wrapper` history) trap:** `ebb0b519` branched near `merge-base = 27103ec0` while `c200e676` continued receiving ~70+ commits of security, concurrency, locking, and completeness fixes. Blindly resurrecting files from `ebb0b519` **silently reverts** critical fixes in:
-     - `crates/runtime-binding/src/native.rs` (`writer_free_until`, `writer_directories`, structured error codes, retired-record safety checks);
-     - `crates/manager/src/{origin,terminal,window,profile,profile_resume}.rs` (`origin::capture`, `target_execution_home`, `launch_lock`, `validate_private_reentry`);
-     - `frontend/tui/src/` (`termux_reentry.rs`, `account_observation.rs`, `provider_presentation.rs`, `CODEX_CHAT_MODEL_REENTRY_PID` check);
-     - `crates/release-builder/src/provider.rs` (`valid_new_id`, `O_NOFOLLOW`, full ELF checks);
-     - `providers/chatgpt/src/` (`termux_mcp_worker.rs`, `termux_shell.rs`, `native_compiler.rs`, `native_completion.rs`).
-   - **Porting rule:** Always take implementation logic from `git show c200e676:<path>`, and selectively apply ONLY verified transition fixes from `ebb0b519` (notably `window.rs`'s `--ei com.termux.RUN_COMMAND_SESSION_ACTION 0` fix, `PackageRoot` `bin/codex` runtime matching, and `CODEX_PROFILE_WRAPPER` naming). Note also that actual TUI directory in `c200e676` is `frontend/tui/` (not `frontend/manager-tui/`).
-3. **Suffix Removal & Unified Naming Policy (`wrapper` Cutover):**
-   - Stage 2 Wrapper, Manager, Release, and Provider management surfaces follow the Stage 1 clean cutover — **no** `Core`, `codex termux`, `minimal-wrapper`, `99b`, `R10` (`helpers/0..2`), `RootCodeModeHost`, or gratuitous `-v1`/`-v2`/`-v3`/`-v4` suffixes:
-     - CLI route: `codex wrapper ...` and unified **`codex wrapper provider ...`** (`codex termux` removed; no separate top-level `codex provider`).
-     - Env vars: `CODEX_TERMUX_WRAPPER_API`, `CODEX_TERMUX_WRAPPER_ENTRYPOINT`, `CODEX_TERMUX_WRAPPER_ONLY`, `CODEX_PROFILE_WRAPPER`.
-     - Identities & descriptors: `wrapper-api`, `schema`, `codex-wrapper`, `package-root`, `termux-fd-remap`, `termux-uds-fd35`, `codex-local-generation`, `codex-activation-state`, `codex-activation-journal`.
-     - Stage 2 release/manager/provider surfaces: `update-index`, `update-index-base`, `provider-index`, `codex-release`, `asset-map.json`, `codex-manager-artifact`, `codex-manager-wrapper`, `codex-manager-profile`, `codex-manager-default-profile`, `notifications/config`, `codex-manager-notify`, `codex-update-hold`, `codex-rollback-wrapper-guard`, `codex-provider-payload`, `codex-provider-state`, `termux-codex-bridge-qualification`, `execution.wrapper`, `termux-codex-operator-work`, `operator-work`, `work-route-transfer`, `codex-chatgpt-catalog`, `app-model-catalog`, and unversioned internal IPC/owner identities (`__prepare-runtime`, `__prepare-launch`, `__task-*`, `__terminal-*`, `__app-server-*`, `config`, `catalog`).
-   - **No legacy Bridge work-record backward compatibility (`BRIDGE.md` cleanup):** Inside `providers/chatgpt`, `c200e676`'s `v1` -> `v2` -> `v3` work-record chain (`termux-codex-operator-work-v3`, `migrate-inference --target attached-submitted|provider21|provider14`, `config-v1`, `catalog-v1`) existed only for historical downgrade/migration across pre-rewrite iterations. Because `rewrite/wrapper` drops pre-cutover backward compatibility, Phase 2.5 cuts straight to one single suffix-free schema (`termux-codex-operator-work` with `selection.inference = attached|submitted`, plus suffix-free journal/catalog/owner records) and omits `v1`/`v2`/`v3`/`provider14`/`provider21`/`migrate-inference`/`catalog-v1`/`config-v1` legacy parsers and rollback paths (initializing a clean Provider state root rather than carrying old work stores across cutover). External live `@TermuxBridge` MCP connector tool schemas remain aligned during deployment.
-   - **`runtime-binding::settings_identity` domain tag:** `c200e676` hashes `OsStr::new("core-system-config-v1")`. Before Phase 2.3 merges, decide intentionally whether to rename that hash domain to `"wrapper-system-config"` (clean cutover, fresh `servers/<hex16>` namespaces) or maintain a transitional server-retire lookup.
+1. **Zero-coupling Stage 1 Wrapper (`$PREFIX/bin/codex`):**
+   - `codex` stays strictly an `execve()` Termux runtime wrapper + official upstream updater/rollback/daemon-sync + read-only `doctor` + `codex wrapper status`.
+   - Root `Cargo.lock` locks only `codex`, `codex-release-builder`, and `libc` (`=0.2.186`). Stage 2 components live in their own independent `[workspace]` manifests and CI path-triggered workflows.
+   - Unused Phase 2.1 Wrapper-embedded addon hooks (`system_config.rs` FD 34 snapshots, `wrapper.toml` `manager`/`tui`/`provider`, `--with`/`--bare`) are retired in Slice 1.
+2. **Zero upstream source patching:**
+   - Do **not** port `native_route.patch` (~14.5K lines) or `frontend/tui/native.patch` (~4.7K lines). Follow official upstream `bin/codex` and `app-server daemon` via binary ELF adaptation only.
+   - External providers (`ais.config.toml`, `chatgpt.config.toml`) do not use OpenAI OAuth `auth.json` and run against canonical `~/.codex` with `-p <profile>` (starting a new thread on provider switch, matching upstream `0.171.0` `threads.model_provider`).
+   - OpenAI OAuth multi-account profiles (`CODEX_HOME` + `CODEX_SHARED_HOME`) handle same-thread switching through standalone `codex-ext` (`cdx`).
+3. **No second executor or DDPE coupling:**
+   - Drop `shared_server`, FD 36 `execution_lease`, `codex-runtime-binding`, and `0.167.2` DDPE multi-worker orchestration from Stage 2. Official `codex app-server daemon` owns Codex tasks; ChatGPT owns ChatGPT sessions; MCP bridges stay thin and stateless (only bounded `call_id` transport deduplication receipts).
 4. **Live Termux Device & Service Preservation:**
-   - Do **not** overwrite `/data/data/com.termux/files/usr/bin/codex`, stop or mutate running `codex-chatgpt-provider` / `codex-chatgpt-host` / `codex-chatgpt-tunnel`, alter live `@TermuxBridge` registrations, or modify `~/.config/codex/providers/chatgpt.toml` during development or tests.
-   - All smoke and integration tests must run in isolated temporary `$HOME`, `$PREFIX`, `$CODEX_HOME`, and `$TMPDIR` roots.
+   - Never overwrite `$PREFIX/bin/codex`, stop or mutate live `0.167.2` `codex-chatgpt-*` / `tdev-tunnel*` services, touch `~/.cache/codex-web-experiment/` (`26.1007.21434`), or modify `~/.config/codex/providers/chatgpt.toml` during development or tests. New Stage 2 paths are completely disjoint from live `0.167.2`.
 
 ---
 
-## 2. Structural Differences Between `HEAD` and `c200e676` to Reconcile
+## 2. Stage 2 Component Architecture & Slice Execution Order (Slices 1–6)
 
-| Area | Stage 1 `HEAD` (`rewrite/wrapper`) | `c200e676` (`rewrite/rust-core`) | Required Stage 2 Reconciliation |
-| --- | --- | --- | --- |
-| Generation layout | Single `package-root`: `bin/codex`, `0..N` companions (`bin/*`), `codex-package.json`, `codex-path/`, `codex-resources/`, `browser/{open,manual}/curl`; rejects root `runtime` / `compat` | Flat files: `core` (or `wrapper`), `runtime`, `codex-code-mode-host`, `helpers/{0,1,2}` | Port all Stage 2 consumers (`release-builder publish`, `remote_release`, `runtime-binding`, `manager`, `providers/chatgpt`, CI scripts) to `package-root` (`bin/codex` + `browser/` + `wrapper` + optional `manager` / `tui`) |
-| Subcommands | Top-level `update`, `doctor`; `wrapper status`, `setup`, `--bare`, `--with` admission and help; otherwise upstream passthrough | `termux ...` (`core` env vars), `update --core/--full/--signed/--remote/--local/--build-local` | **Retain implemented 2.1 routes**; attach only deferred `provider`, `launch`, `profile`, `task`, `notify`, `usage`, `rotation` after actual module qualification. `--with` currently fails unavailable |
-| Signing & state | `activation-state` (`LOCAL_ZERO` keys); local `--upstream`/`--path`/`--rollback` | Strict Ed25519 non-zero keys (`codex-activation-state-v3`); remote signed indices only | Support **both**: bare `LOCAL_ZERO` `--upstream`/`--path` works with zero keys/network; `--signed` enables Ed25519 chain + rotation without bricking bare generations or cross-mode `--rollback` |
-| FD 34 config | Bare launch maintains the Termux base config and delegates thread lifetime to upstream. **2.1 conditional snapshot engine exists and is tested** but receives no live extension fragment or `requirements.toml` from Manager | Always hashes `config/snapshots/<id>/config.toml` + Manager fragment + `requirements.toml`, dry-runs `features list` | Keep bare config independent. Connect a qualified Manager producer through the existing conditional snapshot engine in Phase 2.3 and preserve explicit fragments and existing snapshots |
-| FD 36 lease | None (no execution lease / `shared_server` / `shared_layout`) | `execution_lease.rs` duplicates `flock(LOCK_SH)` of physical `CODEX_HOME` onto FD 36 across `exec` | Add only when `manager` / shared-server topology attaches in Phase 2.3 |
-| Enhanced TUI | Unpatched upstream `bin/codex` + adaptive binary ELF patch | `frontend/tui` (`native.patch` pinned to `086ccc8...` / `0.167.0`), `tui.rs` checks exact `upstream_package_version` match! | Rebase `frontend/tui` onto `>= 0.169.0`, decouple TUI capability probe from `upstream_package_version`, and keep `codex update --upstream` independent of TUI |
+```text
+Slice 1: Wrapper slimming + universal SHA256SUMS.sig Ed25519 release signing
+  │       (closes crates/wrapper + establishes shared signed GitHub Release pipeline)
+  │
+  ├──▶ Slice 2: codex-ext (cdx) + [shared] crates/codex-daemon-client + §7 / OSC 52 proof
+  │      │     (profile CRUD, notify hooks, non-PTY launcher + !cdx switch/provider; retires contrib/codex-account)
+  │      │
+  └──▶ Slice 3: [shared] crates/mcp-kit + mcp/termux-shell (@TermuxShell) + transport/tunnel-client (v0.0.20+, 403) + runit 3-state supervision
+         │     (independent recovery plane + shared MCP & supervision foundation)
+         │
+         ├──▶ Slice 4: mcp/termux-codex (@TermuxCodex — 5 tools greenfield)
+         │             (reuses codex-daemon-client + mcp-kit; mobile Codex control without Linux app)
+         │
+         └──▶ [Gate 5-0: latest official Linux chatgpt .deb isolated PRoot/Xvnc & CDP probe]
+                │
+                ▼
+              Slice 5: host/chatgpt-desktop (generation rootfs) + providers/chatgpt (clean-room page_driver.js)
+                │      (Type 1: codex -p chatgpt via /v1/responses + in-app tool callbacks; exposes /control/*)
+                │
+                └──▶ Slice 6: mcp/termux-chatgpt (@TermuxChatGPT — 6 tools greenfield) & optional 0.167.2 cutover
+```
 
----
+### Slice 1 — Wrapper Slimming & Universal `SHA256SUMS.sig` Signed Releases
+- **Goal:** Permanently close `crates/wrapper` by retiring unused Phase 2.1 hooks (`system_config.rs`, `wrapper.toml` `manager`/`tui`/`provider`, `--with`/`--bare`) and introducing one lightweight Ed25519 `SHA256SUMS.sig` signing/verification format (with component-scoped monotonic `sequence` anti-rollback and pinned public-key trust) across `publish_wrapper_release.py`, `install.sh`, and future Stage 2 component releases.
+- **Exit gate:** Workspace fmt/clippy/tests (umask `0022`/`0077`), `install.sh` tamper/downgrade/rotation/offline-local recovery tests, and `wrapper-verify.yml` Bionic smoke pass with zero `openssl-tool` requirement on bare `codex update --upstream`.
 
-## 3. Phased Execution Procedure
+### Slice 2 — `codex-ext` (`cdx`) + `crates/codex-daemon-client` + §7 / OSC 52 Proof
+- **Goal:** Build standalone `crates/codex-ext` (`$PREFIX/bin/codex-ext` + `$PREFIX/bin/cdx` symlink) and shared `crates/codex-daemon-client` (~250 lines, public `app-server daemon` UDS JSON-RPC client):
+  - `profile` CRUD (`~/.local/share/codex/manager/profiles/` compatible) & safe `CODEX_SHARED_HOME` launch;
+  - `notify` (`Stop` via `~/.codex/config.toml` `notify = [...]`, detailed events via `~/.codex/hooks.json` + `CODEX_SHARED_EXTRA_FILES=hooks.json`, Termux:API delivery);
+  - non-PTY parent launcher (`termios` save/restore, zero PTY proxy, 100% direct Termux TTY/OSC 52) supporting in-TUI `!cdx switch <acct>` and `!cdx provider <name>` (matching daemon-spawned `!` commands via `($CODEX_HOME, cwd)` `0600` session registry, pre-checking idle daemon before closing TUI, stopping idle Daemon A in ~0.2s while preserving `thread_unload_delay_secs` upstream default).
+- **Exit gate:** Isolated tests for daemon-child `!` self-kill prevention, multi-window disambiguation, idle vs busy daemon protection, §7 handoff/`session_index.jsonl` verification, and Termux `/copy` OSC 52 check; retire `contrib/codex-account` once qualified.
 
-### Phase 2.1 — Generic Extension Boundary (`wrapper.toml`, CLI Hooks, FD 34 Snapshots)
-**Status: implemented interface and snapshot engine, not an attached addon.**
-The steps below preserve the implementation and qualification rationale; they
-are **not** instructions to reimplement a finished command surface.
-**Goal:** Establish the clean configuration, opt-in routing, and FD 34 snapshot extension point inside `crates/wrapper` **without** adding external crate bloat or connecting any Manager/TUI/Provider binaries yet.
+### Slice 3 — `crates/mcp-kit` + `@TermuxShell` + `tunnel-client` + `runit` 3-State Supervision
+- **Goal:** Establish the shared MCP foundation (`crates/mcp-kit`: stdio JSON-RPC, uniform immutable annotations `readOnlyHint=true`/`destructiveHint=false`/`openWorldHint=false` + accurate `idempotentHint`, bounded `call_id` transport receipts, disjoint `catalog`/`call` helper), extract independent `mcp/termux-shell` (`@TermuxShell`, 1 tool `termux_shell`, `docs/spec/MCP_SHELL.md`), update `transport/tunnel-client` (`v0.0.20+` from `5c495538`, GitHub API 403 fallback, prebuilt signed CI), and define opt-in `runit` supervision using stable `current` symlinks with 3-state visibility (`selected`, `running`, `pending_activation`).
+- **Exit gate:** Independent `@TermuxShell` isolated + connector schema verification, Go `tunnel-client` `android/arm64` build + HTTP/2 regression tests, and `runit` rebinding/rollback tests pass.
 
-1. **Inspect reference code (read-only):**
-   - `git show c200e676:crates/core/src/system_config.rs` (snapshot hashing, `flock(LOCK_SH)`, fragment bounds, pruning)
-   - `git show c200e676:crates/runtime-binding/src/host_config.rs` & `lib.rs` (`CONFIG_LIMIT = 16384`, `settings_identity`)
-2. **Implemented design (retain when attaching producers):**
-   - **Config schema (`~/.local/share/codex/wrapper/wrapper.toml`):** implemented minimal schema storing enabled optional modules (`manager`, `tui`, `provider` booleans) and `signed_update = false`. The strict parser lives in `crates/wrapper` without adding `toml`/`serde` dependencies to bare `codex`; no addon executable is installed by changing these values.
-   - **CLI additions under `codex wrapper`:**
-     - `codex wrapper setup [show|--bare|--enable <MODULES>|--disable <MODULES>|--signed-update <true|false>]`
-     - `codex wrapper --bare [--] [UPSTREAM_ARGS...]` (session-only bypass of enabled Stage 2 modules)
-     - `codex wrapper --with <MODULES> [--] [UPSTREAM_ARGS...]` (session-only module opt-in; fails cleanly with exit `1` or usage `2` if requested module executable is absent — never corrupts bare `codex`)
-   - **FD 34 snapshot & fragment extension point:**
-     - When no module overrides exist (default Stage 1 / `--bare` / empty `wrapper.toml`), retain the exact Stage 1 zero-write lazy `config/config.toml` path (zero dry-run `features list` spawns, zero snapshot dirs).
-     - When enabled modules supply bounded config fragments (`<= 8 KiB`), materialize immutable `config/snapshots/<settings_id>/config.toml` (+ optional bounded `requirements.toml` only when a module requires shared topology constraints), validate with bounded `features list`, bind FD 34 + `flock(LOCK_SH)` over child lifetime, and prune unheld expired snapshots safely.
-     - Keep `codex wrapper status --json` accurately reporting active config (`"addons":"none"` when bare, listing enabled modules when active).
-3. **Exit Gate Status (Engine Implemented; Producer Attachment in Phase 2.3):**
-   - `cargo fmt --check`, `cargo clippy --workspace --all-targets --locked -- -D warnings`, `cargo test --workspace --locked` (`system_config::tests::*`, `extensions::tests::*`), and isolated API 37 Termux checks verify: absent `wrapper.toml` performs **zero** snapshot writes or subprocess probes on bare `--version`/`--help`/launch; malformed or symlinked `wrapper.toml` fails closed safely; `--bare` ignores configured modules and `setup --bare` preserves `signed_update`; `--with manager` fails cleanly when no Manager binary exists. Persisted unavailable selections warn and retain standalone execution, as required by SPEC. FD 34 tests cover serial preparation, `features list` caching, child-inherited `flock(LOCK_SH)` retention and unheld pruning.
-   - **Concurrency repair:** creation and pruning hold the same existing configuration-directory coordinator. New snapshots are completed in a private staging directory and atomically renamed while their lifetime shared lease is already held. Published partial/colliding state is preserved and rejected rather than repaired in place. Tests reproduce the old uncoordinated prune, exercise four concurrent creator/pruner processes, preserve inherited FD 34 leases and verify that interrupted unpublished state is never selected. Real Manager producer attachment remains the Phase 2.3 gate; bare execution does not enter this engine.
+### Slice 4 — `@TermuxCodex` (`mcp/termux-codex`, 5 Tools Greenfield)
+- **Goal:** Build stateless thin MCP bridge over `crates/codex-daemon-client` + `crates/mcp-kit`: static core (`codex_status`, `codex_threads` read-only, `codex_turn` `start|steer|interrupt` with 1-shot new-thread start and `call_id` transport receipt) + disjoint extensions (`codex_catalog`, `codex_call`). Zero shadow task DB; independently retirable when upstream `remote-control` matures.
+- **Exit gate:** Isolated JSON-RPC bridge tests against official `0.171.0+` `app-server daemon` (idempotency, partial outage isolation, disjoint extension validation).
 
----
+### Slice 5 — `Gate 5-0` + `host/chatgpt-desktop` + `providers/chatgpt` (`page_driver.js` Clean-Room)
+- **Goal:** First pass `Gate 5-0` (install latest official ARM64 `chatgpt` `.deb` from `persistent.oaistatic.com/codex-app-prod/linux/deb` into new `~/.local/lib/chatgpt-desktop/generations/<ver>/rootfs` while leaving live `26.1007.21434` untouched as backup; test isolated PRoot/Xvnc + CDP). Then build `host/chatgpt-desktop` generation lifecycle (`current`/`previous` + separated `~/.local/share/chatgpt-desktop/profile`) and slim `providers/chatgpt` (`chatgpt-provider` owning single CDP + clean-room greenfield `page_driver.js` + `/v1/responses` with in-app tool callbacks + local authenticated `/control/*`; retire ~40K lines of DDPE/MCP/`shared_server` and redundant `codex-chatgpt-host` keepalive).
+- **Exit gate:** Isolated `codex -p chatgpt` roundtrip, clean-room `page_driver.js` capability tests, and rootfs rollback verification.
 
-### Phase 2.2 — Signed Wrapper & Addon Distribution (`--signed` / `install.sh` Verification)
-**Goal:** Add Ed25519 signature verification and signed publication for **self-built distributed bundles** (`codex` wrapper, `codex-release-builder`, `install.sh` self-update, and optional self-built addons `manager`, enhanced `tui`, `provider`), while keeping official OpenAI upstream tarballs verified by OpenAI SHA-256 and locally patched into `bin/codex` on-device without remote CI signatures.
-
-1. **Inspect reference code (read-only):**
-   - `git show c200e676:crates/core/src/{remote_release.rs,release_display.rs,rollback_guard.rs,component_metadata.rs,maintenance.rs}`
-   - `git show c200e676:crates/release-builder/src/lib.rs` (`publish` command)
-   - `git show c200e676:.github/scripts/{release_signing.py,release_publication.py}`
-2. **Design & Implement:**
-   - **Sign what we build & distribute (TCB + self-built addons), not upstream `bin/codex`:** Replace the legacy whole-generation model (`publish` bundling pre-patched upstream `bin/codex`, `codex-path/`, `codex-resources/`) with signed **Wrapper + Addon bundles** (`release.manifest`, `release.sig`, `wrapper`, optional `codex-release-builder`, `install.sh`, and optional declared `manager` / `tui` / `provider` binaries). Official OpenAI upstream tarballs continue arriving via `codex update --upstream` (OpenAI release metadata + SHA-256 + deterministic local ELF patching into `generations/<id>/bin/codex` without needing a remote private key on CI or on-device).
-   - **Close the `install.sh` / Wrapper self-update trust gap:** Replace Stage 1's `.sha256` / `SHA256SUMS`-only check in `install.sh` and Wrapper self-update with Ed25519 verification against a pinned verifier key (`release-public-key.pem`), alongside `update-index` / `update-index-base` and monotonic sequence anti-rollback.
-     - Authenticate the initial trust seed and installer origin before relying on them. Verify a downloaded replacement before executing it; an installer checking itself after execution or fetching a key beside the same unauthenticated bundle does not establish initial trust.
-     - Do not reintroduce a device-local signer, `config/build-signing-key`, temporary Ed25519 keys or signed whole-generation provenance for ordinary local upstream patches. Keep bundle verifier/sequence state scoped to distributed Wrapper/addon artifacts and preserve local upstream activation/rollback independently.
-   - **OpenSSL Ed25519 verification & key state transitions:**
-     - Bootstrap trust seed at `$HOME/.local/lib/codex/wrapper/release-public-key.pem` (bound by pinned key SHA-256 on initial `--signed` enrollment).
-     - Verify `release.manifest` + `release.sig` + optional `release-authority.sig` rotation via OpenSSL.
-     - Keep Stage 1 `ReleasePublicKey::LOCAL_ZERO` supported for local `--upstream` and offline `--path` upstream generations. Enforce signature/sequence anti-rollback for the signed Wrapper/addon artifacts themselves; a local upstream generation must not downgrade their authority or be rejected merely because it has no publication signature.
-   - **CLI additions:**
-     - `codex update --signed [--version ... | --remote <HTTPS_URL> | --path <DIR>]` / `codex wrapper update --signed` (enabled explicitly or via `wrapper.toml` `signed_update = true`; default `codex update` keeps Stage 1 `--upstream`).
-     - `codex-release-builder publish --bundle <DIR> --release-sequence <N> --release-base <HTTPS> --private-key <PEM> --openssl <BIN> --output <DIR>`.
-   - **Optional-addon degradation rule (`SPEC.md` §4.2):**
-     - Fresh candidate staging/signing still requires all declared assets in `release.manifest`.
-     - On an already-installed host, a missing/broken optional `manager` or `tui` addon degrades only at that addon's boundary and in `codex doctor`; bare `codex`, `codex doctor`, `codex update --upstream`, and `codex update --rollback` stay operational.
-3. **Exit Gate (Must Pass Before Phase 2.3):**
-   - Full `codex-release-builder` bundle build -> `publish` -> `install.sh` / `codex update --signed --path` / mock HTTPS `--remote` test covering: initial trust seed, key rotation (`release-authority.sig`), tampered signature/manifest/mode rejection, sequence rollback protection, `LOCAL_ZERO` <-> signed boundary behavior, and missing optional addon non-bricking recovery.
-   - All Stage 1 `codex update --upstream` / `--path` / `--rollback` tests remain green offline with zero `release-public-key.pem`.
+### Slice 6 — `@TermuxChatGPT` (`mcp/termux-chatgpt`, 6 Tools Greenfield) & Optional Cutover
+- **Goal:** Build stateless thin MCP bridge over `chatgpt-provider` `/control/*` + `crates/mcp-kit`: static core (`chatgpt_status`, `chatgpt_chats` read-only, `chatgpt_projects` read-only, `chatgpt_send` `send|observe|stop` with `call_id` receipt) + disjoint extensions (`chatgpt_catalog`, `chatgpt_call`). Zero local code execution privilege.
+- **Exit gate:** Isolated end-to-end tests + explicit operator-approved cutover plan off legacy `0.167.2` services when desired.
 
 ---
 
-### Phase 2.3 — Optional `codex-manager` & `crates/runtime-binding` Reattachment
-**Goal:** Port shared server coordination, execution lease (FD 36), and standalone `codex-manager` (`profile`, `task`, `notify`, `usage`, `rotation`, `launch`) cleanly behind Phase 2.1's `wrapper.toml` boundary.
-
-1. **Inspect reference code (read-only):**
-   - `git show c200e676:crates/runtime-binding/Cargo.toml` and `src/{lib,native,host_config}.rs` + `git show ebb0b519:crates/runtime-binding/src/native.rs` (`PackageRoot` diff ONLY — preserve `c200e676`'s security guards!)
-   - `git show c200e676:crates/manager/Cargo.toml` and all `src/*.rs` + `git show ebb0b519:crates/manager/src/window.rs` (`--ei` diff ONLY!)
-   - `git show c200e676:crates/core/src/{execution_lease.rs,shared_layout.rs,shared_server.rs,native_task.rs,manager_config.rs,manager_dispatch.rs}`
-2. **Design & Implement:**
-   - **Workspace & CI boundary update:** Re-add `crates/runtime-binding` and `crates/manager` to root `Cargo.toml`. Keep `crates/wrapper/Cargo.toml` free of `serde`/`serde_json`/`tungstenite` (depending at most on lightweight `codex-runtime-binding` if/when needed, which depends only on `libc = "=0.2.186"`). Update `.github/workflows/wrapper.yml` dependency check explicitly to distinguish bare `crates/wrapper` (`codex`) deps from optional `crates/manager` deps (`serde`, `serde_json`, `tungstenite`), rather than allowing silent dependency creep into `codex`.
-   - **Runtime-binding unification** merges `c200e676`'s `writer_free_until`/`writer_directories`/error-code checks with `package-root` roots (`~/.local/share/codex/wrapper/{servers,catalogs}` and `generations/<id>/bin/codex`) and finalizes the `settings_identity` domain string. Handoff requires observed native writer release under the selected upstream policy and effective configuration.
-   - **Manager rebrand & clean IPC contracts:**
-     - Cut ALL `c200e676` `codex termux` callbacks/help text in `crates/manager` to `codex wrapper`, and `CODEX_TERMUX_CORE_*` -> `CODEX_TERMUX_WRAPPER_*` (`CODEX_TERMUX_WRAPPER_API = "codex-manager-wrapper"`, artifact marker `codex-manager-artifact`, probe `wrapper_api=codex-manager-wrapper`).
-     - Clean suffix-free Manager formats & IPC endpoints (`__prepare-runtime`, `__prepare-launch`, `__task-connection`, `__task-reentry`, `__terminal-*`, `codex-manager-profile`, `codex-manager-default-profile`, `notifications/config`, `codex-manager-notify`).
-     - Generate notify hook `["codex", "wrapper", "notify", "emit", "Stop"]`. Evaluate explicit removal of `requirements.toml` generation unless shared SQLite topology strictly still requires setting `sqlite_home` for cross-profile sessions (note Stage 1 `runtime_patch` already preserves `/dev/fd/34/requirements.toml` remapping if needed!).
-   - **Wire Manager / `shared_server` / `execution_lease` strictly behind opt-in activation:**
-     - Bare `codex` still starts no `shared_server`, opens no FD 36 lease, and spawns zero `codex-manager` processes.
-     - Active `manager` module (via `wrapper.toml`, `--with manager`, or `codex wrapper launch|profile|task|notify|usage|rotation`) resolves Manager executable (`<gen>/manager` or configured path), probes/validates API compatibility, prepares FD 34 fragment + FD 36 lease + `shared_layout` / `shared_server` (`setsid()`, `SO_PEERCRED`), and attaches `codex wrapper doctor` optional Manager diagnostics when present.
-3. **Exit Gate (Must Pass Before Phase 2.4):**
-   - Full `codex-runtime-binding` + `codex-manager` test suite (ported from `c200e676` to `package-root` / `bin/codex` / `codex wrapper`) passes under isolated `$HOME`/`$TMPDIR`.
-   - Bare `codex --version` and bare `codex` run cleanly even when `manager` binary is deleted, corrupted, or disabled in `wrapper.toml`.
-   - Active `--with manager` tests verify multi-profile `CODEX_HOME` isolation, shared server reuse & snapshot namespace isolation (`FD 34`), FD 36 lease inheritance, and Termux AM notification dry-run/JSON formatting.
-
----
-
-### Phase 2.4 — Optional Enhanced TUI (`frontend/tui`) & Upstream Upgrade Immunity
-**Goal:** Reintroduce opt-in source-patched TUI conveniences (`/switch`, quota switching, permission picker adaptations, clipboard write confirmation, foreground terminal FD binding) without ever tying `codex update --upstream` to TUI version pins.
-
-1. **Inspect reference code (read-only):**
-   - `git show c200e676:frontend/tui/` (`README.md`, `apply.py`, `native.patch`, `check_command_boundary.py`, `check_upstream_features.py`, all `src/*.rs` files including `termux_reentry.rs`, `account_observation.rs`, `provider_presentation.rs`, `termux_clipboard.rs`, `termux_terminal.rs`, `termux_backend_catalog.rs`)
-   - `git show c200e676:crates/core/src/tui.rs` & `c200e676:crates/release-builder/src/source*` (`syn` permission rewriter + `native_route.patch`)
-2. **Design & Implement:**
-   - **Rebase TUI patches onto current upstream (`>= 0.169.0`):** `c200e676:frontend/tui/native.patch` still carries `# codex-upstream-base 086ccc833bc9cf01024ad2dd6af7dbd421b6bf9a` (`0.167.0`). Rebase `native.patch` + `source/syntax` onto current upstream source and update `frontend/tui` tests cleanly.
-   - **Fix `upstream_package_version` coupling bug:** Replace `c200e676:tui.rs`'s hardcoded exact `upstream_package_version` requirement with capability/API probe matching (`--termux-backend-capabilities` -> `codex-termux-resolved-startup`, `CODEX_TERMUX_BACKEND_STARTUP=resolved`). When `tui` is enabled in `wrapper.toml` but incompatible or absent for a newly installed `codex update --upstream` version, fail clearly at `--with tui` OR fall back cleanly per explicit user setting without breaking `bin/codex` launch or `codex update`.
-   - **Cut over all callbacks in `frontend/tui`:** `codex termux ...` -> `codex wrapper ...`, `CODEX_PROFILE_CORE` -> `CODEX_PROFILE_WRAPPER`, `CODEX_TERMUX_CORE_*` -> `CODEX_TERMUX_WRAPPER_*`; retain `c200e676`'s `termux_reentry.rs` + `CODEX_CHAT_MODEL_REENTRY_PID` guards.
-   - **ELF patching:** Run `codex-release-builder`'s adaptive `termux-fd-remap` + `termux-uds-fd35` over the built optional TUI binary (stored cleanly inside `package-root` / optional TUI path rather than legacy `helpers/2`).
-   - **Separate builder/CI job:** Keep `syn` / `proc-macro2` / `quote` / upstream Rust checkout cleanly isolated in an optional source-build workflow/binary so standard `crates/wrapper` and `crates/release-builder build` stay lightweight.
-3. **Exit Gate (Must Pass Before Phase 2.5):**
-   - `frontend/tui` Python checks (`test_apply.py`, `test_command_boundary.py`, `test_upstream_features.py`) pass on the rebased upstream source.
-   - End-to-end tests verify: bare `codex` runs unpatched `bin/codex` cleanly; `codex --with tui` passes `termux-am-socket` clipboard confirmation, `/switch`, permission picker full-access mapping, and foreground terminal FD bind; `codex update --upstream` onto a newer mock upstream release never fails solely due to missing enhanced TUI.
-
----
-
-### Phase 2.5 — Optional `providers/chatgpt` & `transport/tunnel-client`
-**Goal:** Reattach ChatGPT Provider (`codex-chatgpt-provider`, `codex-termux-mcp-worker`) and Go tunnel client (`tunnel-client`) under `codex wrapper provider ...` with complete continuity for `@TermuxBridge`.
-
-1. **Inspect reference code (read-only):**
-   - `git show c200e676:providers/chatgpt/` (`Cargo.toml`, `README.md`, `LINUX_APP.md`, `qualification.schema.json`, `scripts/*`, `src/*.rs`)
-   - `git show c200e676:transport/tunnel-client/` + `git show c200e676:scripts/build_tunnel_client.py`
-   - `git show c200e676:crates/core/src/provider.rs` + `git show c200e676:crates/release-builder/src/provider.rs` + `git show c200e676:.github/scripts/{provider_signing,provider_publication}.py`
-2. **Design & Implement:**
-   - **Port hardcoded paths & config in `providers/chatgpt/`:**
-     - `src/main.rs`, `src/operator_native.rs`: replace `.local/share/codex/core`, `.local/lib/codex/core/generations`, and `program.file_name() == "runtime"` (`operator_native.rs:422`) with `.local/share/codex/wrapper`, `.local/lib/codex/wrapper/generations`, and `bin/codex`.
-     - `src/config.rs`: adopt `execution.wrapper` cleanly (explicit migration guidance if `~/.config/codex/providers/chatgpt.toml` still specifies `execution.core` on the live host).
-     - Internal callbacks: `core termux __terminal-auto-show-v1` -> `wrapper __terminal-auto-show`, `__app-server-{catalog,default}` -> `wrapper ...`, env scrub `CODEX_TERMUX_WRAPPER_*`.
-   - **Wrapper CLI routing (`codex wrapper provider ...`):**
-     - Expose `codex wrapper provider install|update|status|rollback|chatgpt ...` behind Phase 2.1/2.2/2.3 modules (using suffix-free `codex-provider-payload`, `codex-provider-state`, `provider-index`, `termux-codex-operator-work`, `operator-work`, `work-route-transfer`, `codex-chatgpt-catalog`, `app-model-catalog`, and `config`/`catalog` records without retaining `v1`/`v2`/`v3`/`provider14`/`provider21`/`migrate-inference` backward compatibility).
-   - **Independent Provider CI:** Restore a dedicated Provider + `tunnel-client` CI workflow/job (Go + NDK Clang + Rust `1.98+` + Node) triggered only on `providers/chatgpt/**`, `transport/tunnel-client/**`, or `crates/runtime-binding/**`, keeping `Wrapper CI` isolated.
-   - **Live service migration checklist (explicit operator step, never automatic):** Verify disposable `$HOME` PRoot/CDP/MCP readback first, prepare `~/.config/codex/providers/chatgpt.toml` (`execution.wrapper`) and a clean Provider state directory for the suffix-free schema, then restart `codex-chatgpt-*` services intentionally without disturbing live `@TermuxBridge` tunnel identity.
-3. **Exit Gate (Phase 2.5 Complete; see Phase 2.6 below):**
-   - `cargo test` in `providers/chatgpt/` + `codex-release-builder` provider packaging + Ed25519 sign/verify readback + `qualification.schema.json` validation pass in disposable roots.
-   - Go `tunnel-client` cross-compile (`android/arm64`) succeeds cleanly.
-   - Live `@TermuxBridge` / existing running services remain untouched until explicit post-qualification cutover.
-
----
-
-## 4. Phase 2.6 — Read-only Upstream Discovery and Qualification
+## 3. Phase 2.6 — Read-only Upstream Discovery and Qualification
 
 **User request, 2026-11-16:** Treat recurring official-upstream adoption as a
 Stage 2 delivery work item. It must **extend** the single Stage 1

@@ -88,11 +88,12 @@ scenario has passed. See CURRENT for exact receipts.
 
 | Capability / owner | Exact current boundary | Required next implementation |
 | --- | --- | --- |
-| Ed25519-signed Wrapper/addon index, key rotation, `codex update --signed` and `codex-release-builder publish` | `signed_update` is settings **only**; Stage 1 `--signed` is invalid | [Phase 2.2](ROADMAP.md#phase-22--signed-wrapper--addon-distribution---signed--installsh-verification) |
-| Manager profiles, account selection, notifications, rotation, shared-server FD 36 | No Manager crate/executable/commands in this branch's Stage 1 workspace | [Phase 2.3](ROADMAP.md#phase-23--optional-codex-manager--cratesruntime-binding-reattachment) |
-| Enhanced Termux TUI, quota picker, `/switch`, clipboard enhancements | Runs upstream Codex TUI, not `frontend/tui` fork | [Phase 2.4](ROADMAP.md#phase-24--optional-enhanced-tui-frontendtui--upstream-upgrade-immunity) |
-| Wrapper-managed ChatGPT Provider, Linux app account binding, `codex wrapper provider ...`, independent O/W orchestration | No Provider module/command or bridge lifecycle inside the current Wrapper | [Phase 2.5](ROADMAP.md#phase-25--optional-providerschatgpt--transporttunnel-client) |
-| Ongoing official release canary with auto-repair or auto-install | `--check` and account-free qualification exist; no automatic source repair, signing or device deployment | [Phase 2.6](ROADMAP.md#4-phase-26--read-only-upstream-discovery-and-qualification) and explicit subsequent approvals |
+| Lightweight `SHA256SUMS.sig` Ed25519 signing for distributed releases (`install.sh`, Wrapper & Stage 2 components) | Stage 1 uses HTTPS + SHA-256 only; Phase 2.1 unused hooks pending removal | [Slice 1](ROADMAP.md#slice-1--wrapper-slimming--universal-sha256sumssig-signed-releases) |
+| Standalone `codex-ext` (`cdx`) profiles, notify hooks, and `!cdx switch`/`!cdx provider` non-PTY launcher | Not yet built; optional [codex-account](../contrib/codex-account) script handles launch only | [Slice 2](ROADMAP.md#slice-2--codex-ext-cdx--cratescodex-daemon-client--7--osc-52-proof) |
+| Independent `@TermuxShell` MCP, `tunnel-client` (`v0.0.20+`), and opt-in `runit` 3-state supervision | Not yet ported to Stage 2 clean paths | [Slice 3](ROADMAP.md#slice-3--cratesmcp-kit--termuxshell--tunnel-client--runit-3-state-supervision) |
+| Thin `@TermuxCodex` MCP (`app-server daemon` JSON-RPC bridge) | Not yet built | [Slice 4](ROADMAP.md#slice-4--termuxcodex-mcptermux-codex-5-tools-greenfield) |
+| `host/chatgpt-desktop`, clean-room `providers/chatgpt`, and `@TermuxChatGPT` MCP | Not yet built; any live `0.167.2` services remain externally owned | [Slice 5](ROADMAP.md#slice-5--gate-5-0--hostchatgpt-desktop--providerschatgpt-page_driverjs-clean-room) & [Slice 6](ROADMAP.md#slice-6--termuxchatgpt-mcptermux-chatgpt-6-tools-greenfield--optional-cutover) |
+| Ongoing official release canary with auto-repair or auto-install | `--check` and account-free qualification exist; no automatic source repair, signing or device deployment | [Phase 2.6](ROADMAP.md#3-phase-26--read-only-upstream-discovery-and-qualification) and explicit subsequent approvals |
 
 ## 3. Mutable state, authority and failure recovery
 

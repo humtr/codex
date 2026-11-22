@@ -12,7 +12,7 @@ published-asset and operating proofs.
 
 > **Quick navigation (Stage 1 active vs Stage 2 conditional):**
 > - **Active Stage 1 delivery & runtime contracts:** [State & generation model](#7-state-and-generation-model) · [Stage 1 `install.sh`](#stage-1-standalone-installation-installsh) · [Stage 1 `codex update`](#stage-1-standalone-update-lifecycle-codex-update) · [Artifact retention](#bounded-installed-artifact-retention) · [Doctor contract](#9-doctor-contract) · [Termux compatibility](#9a-termux-compatibility-extension) · [Release execution](#release-execution)
-> - **Deferred Stage 2 conditional contracts:** [Base qualification & lanes](#base-qualification) · [Signed / source-built qualification](#6-artifact-and-patch-qualification) · [Stage 2 signed channels](#stage-2-optional-signed-wrapperaddon-channels-and-bootstrap-trust-phase-22-deferred) · Roadmap in [ROADMAP.md](../ROADMAP.md).
+> - **Deferred Stage 2 conditional contracts:** [Base qualification & lanes](#base-qualification) · [Signed / source-built qualification](#6-artifact-and-patch-qualification) · [Stage 2 lightweight signed releases](#stage-2-lightweight-signed-releases-and-bootstrap-trust-slice-1) · Roadmap in [ROADMAP.md](../ROADMAP.md).
 
 ## Base qualification
 
@@ -1227,54 +1227,48 @@ the active generation. `update --check` performs read-only release inspection.
   committed, exit status stays `0`, and synchronization proceeds for other
   homes.
 
-### Stage 2 optional signed Wrapper/addon channels and bootstrap trust (Phase 2.2, deferred)
+### Stage 2 lightweight signed releases and bootstrap trust (Slice 1)
 
-When Stage 2 signed Wrapper/addon distribution (`--signed` or `wrapper.toml`
-`signed_update = true`) is enabled in Phase 2.2, Ed25519 verification protects the
-trusted computing base built and hosted by this repository (`wrapper`,
-`codex-release-builder`, `install.sh`, and optional self-built addons such as
-`manager`, enhanced `tui`, and `provider`) without requiring remote CI signatures
-for OpenAI upstream tarballs or locally patched `bin/codex` `package-root`
-generations (which remain authenticated by OpenAI SHA-256 + local Wrapper derivation):
+Self-built artifacts distributed by this repository (`codex` wrapper via
+`install.sh`, and independent Stage 2 components such as `codex-ext`,
+`termux-shell-mcp`, `termux-codex-mcp`, `termux-chatgpt-mcp`, `chatgpt-provider`,
+and `tunnel-client`) share one lightweight Ed25519 verification contract over
+standard GitHub Release assets — without reintroducing legacy CDN indices
+(`update-index` / `update-index-base`), `asset-map.json`, `Base`/`Full`
+whole-generation bundling, or remote CI signing of official OpenAI upstream
+tarballs (which remain authenticated directly by OpenAI metadata + SHA-256 +
+local ELF adaptation with zero `openssl-tool` or signing-key requirement):
 
-- **`install.sh` & Wrapper self-update Ed25519 verification:** replaces Stage 1's
-  checksum-only (`SHA256SUMS`/`.sha256`) release fetch with Ed25519 signature
-  verification over distributed Wrapper/addon bundles using the pinned verifier key.
-- **Automatic signed Wrapper/addon index:** fetches bounded `update-index` (or base
-  `update-index-base`, overridable via `CODEX_TERMUX_UPDATE_INDEX_URL`) and `<URL>.sig`,
-  verifying the canonical index (`codex-update-index`, `channel`, `bundle_id`,
-  `release_base`) against `update_key` before touching bundle payloads.
-- **Explicit signed remote/local acquisition (`codex update --signed --remote <HTTPS_BASE_URL>` / `--signed --path <DIR>`):**
-  accepts canonical `https://` release bases (up to 4,096 bytes), fetches and verifies
-  `<base>release.manifest` (`128 KiB` cap) and `<base>release.sig` (`1 KiB` cap, plus
-  `<base>release-authority.sig` on key rotation) against the authoritative Ed25519
-  `update_key` before staging Wrapper or self-built addon files.
-- **Ed25519 verification & key transitions:** `release_public_key` is 64 lowercase hex digits.
-  Non-rotating updates require `release_public_key == update_key`; key rotations verify
-  `release-authority.sig` under `update_key` first, then `release.sig` under the new candidate
-  key. On initial `--signed` trust enrollment (before signed keys exist in `activation-state`),
-  Wrapper binds one pinned public key seed (`~/.local/lib/codex/wrapper/release-public-key.pem`,
-  `16 KiB` cap); once signed keys exist, this seed file is never used as a recovery fallback.
-  Bare `LOCAL_ZERO` (`00..00`) verifier slots from Stage 1 remain preserved for local
-  `--upstream` / unsigned `--path` upstream generations without conflicting with signed
-  Wrapper/addon self-updates.
-- **Bounded transfer, staging & cache limits:** uses `$PREFIX/bin/curl` (`--location`,
-  `--proto-redir =https`, `NO_PROXY`/`--noproxy` isolated environment, 15 s connect, 30 s
-  control timeout, 1800 s idle transfer timeout for release files / 120 s for Provider files),
-  `384 MiB` per-file / `768 MiB` total extracted payload bounds (`1 GiB` `state_root/downloads`
-  total cache), staging under private `.acquire-<pid>-<counter>` / `.candidate-*`
-  (and `64 MiB` Wrapper artifact bound / `64 KiB` descriptor bound).
-- **`--rollback` across Wrapper/addon & upstream boundaries:** swaps retained `previous`
-  state atomically while leaving rotated-out forward `update_key` authorities retired,
-  and missing optional addon assets degrade only at the addon boundary without bricking
-  `codex`, `codex doctor`, or `codex update --upstream`.
-
-In summary, every Stage 2 signed Wrapper/addon update step must:
-1. recover state/journal under the state-root directory `flock`;
-2. verify index/manifest signatures (`update_key`, optional `release-authority.sig`, `release.sig`) and monotonic sequence anti-rollback before staging;
-3. acquire verified regular files with expected octal modes (`wrapper` and declared addons executable, no special bits);
-4. run non-mutating binary probe(s) before atomic replacement;
-5. commit state atomically without leaving partial destinations on failure, keeping local upstream `codex update --upstream` independent.
+- **Uniform signed GitHub Release format:** each component release publishes
+  its archive(s), `SHA256SUMS`, and `SHA256SUMS.sig` (a raw Ed25519 signature
+  over the exact `SHA256SUMS` bytes). `SHA256SUMS` carries bounded metadata
+  comment lines at the top (`# component=<name>`, `# sequence=<N>`,
+  `# commit=<40-hex>`) followed by standard `<64-hex>  <filename>` entries.
+- **Three-step verification before execution or swap:**
+  1. Verify `SHA256SUMS.sig` against the pinned Ed25519 verifier key
+     (`release-public-key.pem`, bound by pinned public-key SHA-256) using
+     `openssl pkeyutl -verify -pubin -rawin`.
+  2. Enforce component-scoped monotonic `sequence` anti-rollback against the
+     last installed signed sequence for that component (preventing replay of an
+     older signed release without ever blocking or interacting with local
+     upstream `codex update --upstream` / `--rollback` generations).
+  3. Verify the downloaded archive's exact SHA-256 against the signed
+     `SHA256SUMS` entry before unpacking or swapping executables.
+- **Trust root & key rotation:** one dedicated Stage 2 Ed25519 keypair signs
+  repository releases (private key held exclusively in authorized CI release
+  secrets, never on device and decoupled from historical `0.167.2` keys).
+  When key rotation is required, a signed `release-public-key.pem.sig`
+  authorizes the replacement public key under the previously trusted key before
+  verifying `SHA256SUMS.sig` under the new key.
+- **Installer pre-execution verification (`install.sh`):** downloaded Wrapper
+  tarballs verify `SHA256SUMS.sig` (and `sequence` / `SHA256SUMS`) before
+  extracting or replacing `$PREFIX/bin/codex`. Explicit local installs
+  (`--binary`, `--build`, local unpacked bundle) remain offline-usable without
+  requiring remote signature metadata.
+- **Component isolation:** each independent component owns its own GitHub
+  Release tag, sequence counter, and installation path; signature/update
+  failures in any optional Stage 2 component never affect bare `codex`,
+  `codex doctor`, or `codex update --upstream` / `--rollback`.
 
 ### Bounded installed-artifact retention
 

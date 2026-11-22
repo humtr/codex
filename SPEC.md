@@ -35,7 +35,7 @@ In descending priority order:
 3. **Preserve upstream process, conversation, approval, tool, and daemon behavior at the execution boundary.**
 4. **Make installation, update, activation, and rollback crash-safe and fail-closed.**
 5. **Keep Wrapper small, dependency-free beyond `libc`, fast to build, and near-zero cold-start overhead.**
-6. **Keep future optional modules (`Manager`, enhanced `TUI`, `Provider`, signed addon bundles) strictly decoupled and opt-in — never prerequisites for bare execution or upstream updates.**
+6. **Keep Stage 2 companion tools and services (`codex-ext`/`cdx`, `providers/chatgpt`, independent MCP servers, `tunnel-client`) strictly decoupled as separate executables/services — never compiled into, spawned by, or prerequisites for standalone `codex`.**
 7. **Maintain independent qualification gates; never trade correctness for velocity.**
 
 This repository is a clean rewrite. Legacy source is historical reference only
@@ -84,7 +84,7 @@ product invariant.
 
 Wrapper owns top-level `update`, `doctor`, and `wrapper` commands and blocks
 all attempts to invoke upstream's unadapted self-updater `update` (including
-after leading global flags or `codex wrapper --bare`). Invoking `update`,
+after leading global flags). Invoking `update`,
 `doctor`, or `wrapper` after leading upstream global flags (e.g.
 `codex -c k=v doctor`) fails with usage status `2` and instructs the user to
 call `codex <subcommand>` directly. Every zero-arg or upstream argument vector
@@ -94,15 +94,15 @@ prompts — passes through to the active adapted upstream runtime.
 | Command | Owner | Required Invariant |
 | --- | --- | --- |
 | `codex` / `codex [UPSTREAM_ARGS...]` | Wrapper → upstream | On an interactive bare `codex` launch (zero args, stdin/stdout/stderr all TTYs, neither `CODEX_DISABLE_UPDATE_PROMPT` nor an explicit release pin set), check official stable release metadata using a 15-minute local cache (`update-check.cache`) and short fail-open timeout. Prompt `Update now? [y/N]` when a newer release exists. A single `y` or `Y` runs the Wrapper updater for the offered release. Continue with the active generation after a decline or update failure. Then prepare FD 33/34/35, Termux env/timezone, optional `CODEX_SHARED_HOME`/`CODEX_SQLITE_HOME` binding, and sandbox guard, and `exec` upstream directly with argv preserved byte-for-byte (rejecting Linux Landlock `--sandbox read-only`/`workspace-write`, `-sread-only`/`-sworkspace-write`, and `sandbox linux` with exit `2`) |
-| `codex --version`, `-V`, `--help`, `-h`, `help`, `-hV` | Upstream (fast path) | Bypass daemon settings, shared-home writes, timezone extraction, and addon checks; print exact upstream output with zero added Wrapper rows (`codex version` is not introduced) |
+| `codex --version`, `-V`, `--help`, `-h`, `help`, `-hV` | Upstream (fast path) | Bypass daemon settings, shared-home writes, and timezone extraction; print exact upstream output with zero added Wrapper rows (`codex version` is not introduced) |
 | `codex update [--upstream] [--version <M.m.p>] [--force-rebuild]` | Wrapper | Resolve & cross-check official stable release metadata, verify SHA-256 internally, skip rebuild if active generation is compatible and matches `(version, archive_sha256)` unless `--force-rebuild`, otherwise adapt `bin/*`, verify runtime/helper/companion digests, probe in disposable home, and atomically activate. Recover even if `current` is damaged. Synchronize eligible daemon homes on success, including when the generation is already current |
 | `codex update --path <FILE_OR_DIR>` | Wrapper | Adapt an offline official `.tar.gz` archive or validate, probe, and activate a prepared `package-root` generation directory. Recover even if `current` is damaged. Synchronize eligible daemon homes on success |
 | `codex update --check [--version <M.m.p>] [--json]` | Wrapper | Resolve & cross-check official metadata and compare against the active generation (`current` / `available` / `older`) with zero downloads, activation, journal recovery, or installed-state writes |
 | `codex update --rollback` | Wrapper | Independently validate the retained `previous` complete generation even if `current` is damaged, atomically swap `current` and `previous`, and synchronize eligible daemon homes to the rolled-back generation |
-| `codex update --help` / `[INVALID_ARGS...]` | Wrapper | Print usage (`0`) or reject unsupported/Stage-2/conflicting options (`2`) without invoking upstream or mutating state |
+| `codex update --help` / `[INVALID_ARGS...]` | Wrapper | Print usage (`0`) or reject unsupported/conflicting options (`2`) without invoking upstream or mutating state |
 | `codex doctor [--color \| --json]` | Wrapper | Read-only composition of bounded upstream doctor (with timeout, bounded stderr/stdout capture, child-group reap, and secret redaction) and Wrapper/Termux checks with explicit component attribution; never mutates upstream DBs, `$CODEX_HOME`, or Wrapper state |
-| `codex wrapper status [--verify [--wrapper-sha256 <SHA256>] [--upstream-version <VER>]] [--json]` | Wrapper | Report active/previous generation, layout, patch report, roots, and opt-in settings under a generation launch lease; `--verify` qualifies clean journal state, compatibility, on-disk asset digests, optional Wrapper/version bindings, and candidate probe |
-| `codex wrapper setup [...]` / `--bare` / `--with <MODULES>` / `--help` | Wrapper (opt-in boundary) | Strictly parse and atomically update `wrapper.toml` (`setup --bare` may reset malformed regular `wrapper.toml`); `--bare` bypasses optional selections for one run; `--with` fails closed (`1`) when no admitted module exists; unavailable persisted selections never block bare upstream launch |
+| `codex wrapper status [--verify [--wrapper-sha256 <SHA256>] [--upstream-version <VER>]] [--json]` | Wrapper | Report active/previous generation, layout, patch report, and roots under a generation launch lease; `--verify` qualifies clean journal state, compatibility, on-disk asset digests, optional Wrapper/version bindings, and candidate probe |
+| `codex wrapper --help` | Wrapper | Print `codex wrapper` usage (`0`) and reject unsupported subcommands/flags (`2`) without mutating state |
 
 ---
 
@@ -116,7 +116,7 @@ second executor, conversation database, credential store, or update controller.
   Installer and updater transitions are independent and reconciled separately
   without replaying an uncertain updater.
 - **Wrapper & `codex-release-builder`** exclusively own:
-  - public command dispatch, sandbox guard, and opt-in `wrapper.toml` boundary;
+  - public command dispatch and sandbox guard;
   - immutable generations under `$HOME/.codex/packages/standalone/releases/<id>/`
     and authoritative `activation-state` / `activation-journal` under
     `$HOME/.local/share/codex/wrapper/` (keeping `standalone/current` synchronized
@@ -156,13 +156,14 @@ second executor, conversation database, credential store, or update controller.
     against sensitive/path-unsafe names), and merges append-only logs
     (`session_index.jsonl`, `history.jsonl`) by exact line equality so thread
     renames are never dropped.
-- **External services & future Stage 2 modules:** Independently running services
-  (Provider, AppHost, Bridge, legacy runtimes) are never made Wrapper-owned by
-  coexistence. Any future Stage 2 module (`Manager`, enhanced `TUI`, `Provider`,
-  Ed25519 signed Wrapper/addon bundles) must attach behind explicit opt-in
-  contracts ([USER_INTERFACES.md](docs/spec/USER_INTERFACES.md),
-  [DELIVERY.md](docs/spec/DELIVERY.md), [BRIDGE.md](docs/spec/BRIDGE.md))
-  without becoming a build or runtime prerequisite for standalone `codex`.
+- **External services & Stage 2 standalone components:** Independently running
+  services and Stage 2 companion tools (`codex-ext`/`cdx`, `providers/chatgpt`,
+  `host/chatgpt-desktop`, `mcp/termux-shell`, `mcp/termux-codex`,
+  `mcp/termux-chatgpt`, `transport/tunnel-client`) remain completely decoupled
+  from `codex` Wrapper. Self-built distributed artifacts share a lightweight
+  `SHA256SUMS.sig` Ed25519 signing contract ([DELIVERY.md](docs/spec/DELIVERY.md))
+  without becoming a build or runtime prerequisite for standalone `codex` or
+  official OpenAI upstream updates.
 
 ---
 
