@@ -17,7 +17,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-const RECEIPT_SCHEMA: &str = "termux-codex-mcp-receipt-v1";
+const RECEIPT_SCHEMA: &str = "termux-codex-mcp-receipt";
 const STATIC_TOOL_NAMES: &[&str] = &[
     "codex_status",
     "codex_threads",
@@ -563,7 +563,7 @@ impl CodexMcpServer {
         let receipt_root = env::var_os("TERMUX_CODEX_RECEIPT_DIR")
             .filter(|v| !v.is_empty())
             .map(PathBuf::from)
-            .unwrap_or_else(|| prefix.join("var/tmp/termux-codex-mcp-receipts-v1"));
+            .unwrap_or_else(|| prefix.join("var/tmp/termux-codex-mcp-receipts"));
 
         Ok(Self {
             home,
@@ -1034,7 +1034,7 @@ impl CodexMcpServer {
         };
         let fp = sha256_hex(
             json!([
-                "termux-codex-turn-v1",
+                "termux-codex-turn",
                 codex_home.display().to_string(),
                 action,
                 profile,

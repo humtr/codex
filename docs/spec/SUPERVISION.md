@@ -9,17 +9,21 @@ services (`termux-shell-tunnel`, `termux-codex-tunnel`, `chatgpt-provider`,
 
 ## 1. Immutable Generation Layout & Opt-In Enrollment
 
-- Every supervised Stage 2 component stores immutable verified generations under:
+- Every supervised Stage 2 component stores immutable verified generations under
+  the unified canonical XDG `codex/` namespace:
   ```text
-  $HOME/.local/lib/<component>/generations/<version>/<binary>
-  $HOME/.local/lib/<component>/current  -> generations/<active_version>
-  $HOME/.local/lib/<component>/previous -> generations/<previous_version>
+  $HOME/.local/lib/codex/<component>/generations/<version>/<binary>
+  $HOME/.local/lib/codex/<component>/current  -> generations/<active_version>
+  $HOME/.local/lib/codex/<component>/previous -> generations/<previous_version>
   ```
+  (for example `mcp/termux-shell`, `mcp/termux-codex`, `mcp/termux-chatgpt`,
+  `providers/chatgpt`, `transport/tunnel-client`; service logs live under
+  `$HOME/.local/state/codex/services/<service>/log`).
 - **Opt-in invariant:** Installing or updating a component binary **never**
   auto-enrolls a new `runit` service under `$PREFIX/var/service/`. Enrollment
   happens only through an explicit `enroll` action.
 - **Stable `current` execution:** Generated `$PREFIX/var/service/<service>/run`
-  scripts execute `$HOME/.local/lib/<component>/current/<binary>` rather than
+  scripts execute `$HOME/.local/lib/codex/<component>/current/<binary>` rather than
   hardcoded versioned paths, ensuring reboots and `runsvdir` restarts always
   launch the selected generation.
 

@@ -791,7 +791,7 @@ mod tests {
     #[test]
     fn receipt_store_prevents_replay_and_detects_conflict_and_unsettled() {
         let dir = tmp_dir("mcp-kit-rcpt");
-        let store = ReceiptStore::open(dir.clone(), "test-v1", "payload_conflict").unwrap();
+        let store = ReceiptStore::open(dir.clone(), "test-receipt", "payload_conflict").unwrap();
         let path = match store.claim("id-1", "fp-a", &["fp-a"]) {
             ReceiptClaim::Acquired(p) => p,
             other => panic!("expected Acquired, got {other:?}"),

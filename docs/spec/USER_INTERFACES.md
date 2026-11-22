@@ -91,7 +91,7 @@ symlink) that shares `crates/codex-daemon-client` with `@TermuxCodex` and has
     `app-server daemon` (inheriting daemon `CODEX_HOME` and `cwd`, not TUI-only
     env vars).
   - Each live `cdx` parent writes an atomic `0600` session record to
-    `$HOME/.local/state/codex-ext/sessions/<pid>.json` containing `pid`,
+    `$HOME/.local/state/codex/ext/sessions/<pid>.json` containing `pid`,
     `/proc/<pid>/stat` `start_ticks`, `account`, `codex_home`, and `cwd`. Stale
     records whose `(pid, start_ticks)` no longer match a live non-zombie process
     are pruned automatically.
@@ -110,7 +110,7 @@ symlink) that shares `crates/codex-daemon-client` with `@TermuxCodex` and has
     the command prints the active thread ID(s) and exits `1` **without**
     disturbing the running TUI or daemon.
   - When idle (or `--wait`), `!cdx` writes a `0600` atomic handoff ticket to
-    `$HOME/.local/state/codex-ext/handoff/<parent_pid>.json`, sends `SIGUSR1`
+    `$HOME/.local/state/codex/ext/handoff/<parent_pid>.json`, sends `SIGUSR1`
     to the verified parent PID, and exits `0` immediately (avoiding daemon-child
     self-kill races).
   - Parent `cdx` terminates the child TUI (`SIGTERM`, 3s grace), restores the
@@ -142,7 +142,7 @@ symlink) that shares `crates/codex-daemon-client` with `@TermuxCodex` and has
 
 ### 2.4 Notifications (`cdx notify` — Option A)
 
-- Preferences stored in `$HOME/.config/codex-ext/notify.json` (`0600`).
+- Preferences stored in `$HOME/.config/codex/ext/notify.json` (`0600`).
 - **`Stop` (turn completion):** Managed as top-level
   `notify = ["codex-ext", "notify", "emit", "Stop"]` in `$HOME/.codex/config.toml`
   via comment- and table-preserving atomic edits (works immediately across all

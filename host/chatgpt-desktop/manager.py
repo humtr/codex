@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
 """Immutable generation lifecycle & isolated CDP probe for Linux ChatGPT AppHost.
 
-Canonical paths (completely disjoint from legacy ~/.cache/codex-web-experiment):
-  - Generations root: ~/.local/lib/chatgpt-desktop/
+Canonical XDG `codex/` namespace paths (zero `~/.cache`):
+  - Generations root: ~/.local/lib/codex/host/chatgpt-desktop/
       generations/<ver>/rootfs/
       generations/<ver>/generation.json
       current -> generations/<ver>
       previous -> generations/<old-ver>
+      viewer/
       downloads/
   - Persistent profile (never deleted on generation upgrade/rollback):
-      ~/.local/share/chatgpt-desktop/profile/
+      ~/.local/share/codex/chatgpt-desktop/profile/
 """
 
 from __future__ import annotations
@@ -44,11 +45,11 @@ VERSION_RE = re.compile(r"^[0-9A-Za-z][0-9A-Za-z.+:~-]{0,63}$")
 
 
 def default_install_root(home: Path) -> Path:
-    return home / ".local" / "lib" / "chatgpt-desktop"
+    return home / ".local" / "lib" / "codex" / "host" / "chatgpt-desktop"
 
 
 def default_profile_dir(home: Path) -> Path:
-    return home / ".local" / "share" / "chatgpt-desktop" / "profile"
+    return home / ".local" / "share" / "codex" / "chatgpt-desktop" / "profile"
 
 
 def sha256_bytes(data: bytes) -> str:
@@ -437,7 +438,7 @@ def provision_rootfs_generation(
         shutil.rmtree(guest_tmp, ignore_errors=True)
 
         manifest = {
-            "schema": "chatgpt-desktop-generation-v1",
+            "schema": "chatgpt-desktop-generation",
             "version": ver,
             "deb_url": deb_meta.get("url"),
             "deb_sha256": deb_meta["sha256"],

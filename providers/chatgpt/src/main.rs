@@ -31,7 +31,7 @@ fn print_help() {
          Usage:\n\
          \x20 chatgpt-provider serve [--config <path>] [--bind 127.0.0.1:<port>] [--state <dir>] [--rootfs <dir>] [--eager-host]\n\
          \x20 chatgpt-provider status [--config <path>]\n\
-         \x20 chatgpt-provider print-codex-profile [--bind 127.0.0.1:4319] [--model gpt-5.4]\n\
+         \x20 chatgpt-provider print-codex-profile [--bind 127.0.0.1:4319] [--model auto]\n\
          \x20 chatgpt-provider --version | --help",
         env!("CARGO_PKG_VERSION")
     );
@@ -58,7 +58,7 @@ async fn run() -> Result<()> {
         }
         Some("print-codex-profile") => {
             let mut bind = "127.0.0.1:4319".to_owned();
-            let mut model = "gpt-5.4".to_owned();
+            let mut model = "auto".to_owned();
             let mut i = 1;
             while i < args.len() {
                 match args[i].as_str() {
@@ -187,19 +187,21 @@ async fn run() -> Result<()> {
                 let _ = driver.restart_host().await?;
             }
 
-            let app = build_router(driver, cfg.model, token, viewer_slot);
+            let driver_dyn: Arc<dyn DriverBackend> = driver.clone();
+            let app = build_router(driver_dyn, cfg.model, cfg.history, token, viewer_slot);
             eprintln!(
                 "chatgpt-provider {} listening on http://{} (control token: {})",
                 env!("CARGO_PKG_VERSION"),
                 local_addr,
                 token_path.display()
             );
-            axum::serve(listener, app)
+            let serve_res = axum::serve(listener, app)
                 .with_graceful_shutdown(shutdown_signal())
-                .await
-                .map_err(|e| {
-                    crate::error::ProviderError::internal("server_error", e.to_string())
-                })?;
+                .await;
+            driver.shutdown().await;
+            serve_res.map_err(|e| {
+                crate::error::ProviderError::internal("server_error", e.to_string())
+            })?;
             Ok(())
         }
         Some(other) => {
@@ -386,6 +388,7 @@ mod tests {
         let router = build_router(
             driver,
             config::ModelConfig::default(),
+            config::HistoryConfig::default(),
             "secret-token-0123456789abcdef0123456789".to_owned(),
             Arc::new(RwLock::new(None)),
         );
@@ -446,6 +449,7 @@ mod tests {
         let router = build_router(
             driver.clone(),
             config::ModelConfig::default(),
+            config::HistoryConfig::default(),
             "tok-0123456789abcdef0123456789abcdef".to_owned(),
             Arc::new(RwLock::new(None)),
         );

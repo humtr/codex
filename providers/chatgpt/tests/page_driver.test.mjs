@@ -9,63 +9,63 @@ const DRIVER_SRC = fs.readFileSync(
   "utf8"
 );
 
-function createMockEnv({ url = "https://chatgpt.com/c/conv-12345678", apiMap = {}, generating = false } = {}) {
-  const sentPrompts = [];
-  let stopVisible = generating;
-  let assistantNodes = [];
+function createMockEnv({ url = "https://chatgpt.com/c/conv-12345678", apiMap = {}, completionBehavior } = {}) {
+  const startCalls = [];
+  const cancelCalls = [];
+  const stopCalls = [];
 
-  const composer = {
-    tagName: "TEXTAREA",
-    value: "",
-    focused: false,
-    focus() {
-      this.focused = true;
-    },
-    dispatchEvent() {},
-  };
-  const sendBtn = {
-    disabled: false,
-    click() {
-      sentPrompts.push(composer.value);
-      assistantNodes.push({
-        innerText:
-          'Sure!\n```codex_tool_call\n{"call_id":"call_42","name":"exec_command","arguments":{"cmd":"ls"}}\n```',
+  const mockCompletionClient = {
+    async startCompletionStream(args) {
+      startCalls.push(args);
+      if (completionBehavior) {
+        return completionBehavior(args);
+      }
+      queueMicrotask(() => {
+        args.onUpdate?.({
+          type: "message",
+          conversationId: args.request.conversation_id || "conv-new-1",
+          message: {
+            id: "msg-thought",
+            author: { role: "assistant" },
+            content: { content_type: "thoughts", parts: ["PRIVATE_THOUGHT_MUST_NOT_LEAK"] },
+          },
+        });
+        args.onUpdate?.({
+          type: "message",
+          conversationId: args.request.conversation_id || "conv-new-1",
+          message: {
+            id: "msg-final",
+            author: { role: "assistant" },
+            content: {
+              content_type: "text",
+              parts: [
+                'Sure!\n```codex_tool_call\n{"call_id":"call_42","name":"exec_command","arguments":{"cmd":"ls"}}\n```',
+              ],
+            },
+          },
+        });
+        args.onComplete?.({ reason: "done" });
       });
+      return { streamRequestId: "stream-1", prepareResponse: { conduit_token: "ctok-1" } };
     },
-  };
-  const stopBtn = {
-    click() {
-      stopVisible = false;
+    cancelStream(reqId) {
+      cancelCalls.push(reqId);
+    },
+    async stopCompletion(body, meta) {
+      stopCalls.push({ body, meta });
     },
   };
 
   const sandbox = {
     location: new URL(url),
-    window: { HTMLTextAreaElement: { prototype: {} } },
-    Event: class Event {
-      constructor(type, init) {
-        this.type = type;
-        this.init = init;
-      }
-    },
-    InputEvent: class InputEvent {
-      constructor(type, init) {
-        this.type = type;
-        this.init = init;
-      }
-    },
+    window: { location: new URL(url) },
     document: {
-      querySelector(sel) {
-        if (sel === "#prompt-textarea") return composer;
-        if (sel === 'button[data-testid="send-button"]') return sendBtn;
-        if (sel === 'button[data-testid="stop-button"]') return stopVisible ? stopBtn : null;
-        return null;
-      },
-      querySelectorAll(sel) {
-        if (sel === '[data-message-author-role="assistant"]') return assistantNodes;
-        return [];
-      },
+      querySelector: () => null,
+      querySelectorAll: () => [],
+      getElementById: () => null,
     },
+    crypto: { randomUUID: () => "uuid-test-1" },
+    __termuxMockCompletionClient: mockCompletionClient,
     fetch: async (reqUrl, opts = {}) => {
       const key = `${(opts.method || "GET").toUpperCase()} ${reqUrl}`;
       const hit = apiMap[key] || apiMap[reqUrl];
@@ -82,19 +82,26 @@ function createMockEnv({ url = "https://chatgpt.com/c/conv-12345678", apiMap = {
     setTimeout,
     clearTimeout,
     AbortController,
+    Intl,
     URL,
     Date,
   };
   sandbox.globalThis = sandbox;
   vm.runInNewContext(DRIVER_SRC, sandbox);
-  return { driver: sandbox.__termuxChatGptDriver, sentPrompts };
+  return { driver: sandbox.__termuxChatGptDriver, startCalls, cancelCalls, stopCalls };
 }
 
-test("page_driver status, chats, linear branch read (no private thoughts), projects, and tool callback parsing", async () => {
-  const { driver, sentPrompts } = createMockEnv({
+test("page_driver status, chats, linear branch read (no private thoughts), projects, project send, and tool callback parsing", async () => {
+  const { driver, startCalls } = createMockEnv({
     apiMap: {
-      "GET /backend-api/me": { status: 200, body: { id: "u1", name: "User", orgs: { data: [{ title: "Plus" }] } } },
-      "GET /backend-api/models": { status: 200, body: { models: [{ slug: "gpt-5.4", title: "GPT-5.4", max_tokens: 128000 }] } },
+      "GET /backend-api/me": {
+        status: 200,
+        body: { id: "u1", name: "User", orgs: { data: [{ id: "acc-1", title: "Plus", is_personal: true }] } },
+      },
+      "GET /backend-api/models": {
+        status: 200,
+        body: { models: [{ slug: "gpt-5-6", title: "GPT-5.6", max_tokens: 128000 }] },
+      },
       "GET /backend-api/conversations?offset=0&limit=20&order=updated&is_archived=false": {
         status: 200,
         body: { total: 2, items: [{ id: "conv-12345678", title: "Demo Chat", create_time: 100, update_time: 200 }] },
@@ -103,6 +110,7 @@ test("page_driver status, chats, linear branch read (no private thoughts), proje
         status: 200,
         body: {
           title: "Demo Chat",
+          gizmo_id: "g-p-1",
           current_node: "n3",
           mapping: {
             n1: { parent: null, message: { id: "m1", author: { role: "user" }, content: { content_type: "text", parts: ["Hi"] } } },
@@ -112,10 +120,7 @@ test("page_driver status, chats, linear branch read (no private thoughts), proje
               message: {
                 id: "m3",
                 author: { role: "assistant" },
-                content: {
-                  content_type: "text",
-                  parts: ['Sure!\n```codex_tool_call\n{"call_id":"call_42","name":"exec_command","arguments":{"cmd":"ls"}}\n```'],
-                },
+                content: { content_type: "text", parts: ["Earlier reply"] },
               },
             },
           },
@@ -131,7 +136,9 @@ test("page_driver status, chats, linear branch read (no private thoughts), proje
 
   const st = await driver.status();
   assert.equal(st.auth_state, "authenticated");
-  assert.equal(st.models[0].slug, "gpt-5.4");
+  assert.equal(st.completion_ready, true);
+  assert.equal(st.ui_state, "ready");
+  assert.equal(st.models[0].slug, "gpt-5-6");
 
   const list = await driver.listChats({ limit: 20 });
   assert.equal(list.chats.length, 1);
@@ -147,23 +154,199 @@ test("page_driver status, chats, linear branch read (no private thoughts), proje
   const projs = await driver.listProjects({});
   assert.equal(projs.projects[0].id, "g-p-1");
 
+  // Multi-turn continuation on existing chat_id inherits current_node + gizmo_id + model + mapped reasoning_effort
   const sent = await driver.sendMessage({
     chat_id: "conv-12345678",
     prompt: "List directory",
+    model: "gpt-5-6-thinking",
+    reasoning_effort: "low",
     local_function_signatures: [{ type: "function", name: "exec_command" }],
-    wait_ms: 500,
+    wait_ms: 1000,
   });
   assert.equal(sent.state, "settled");
+  assert.equal(sent.chat_id, "conv-12345678");
   assert.equal(sent.assistant_text, "Sure!");
   assert.equal(sent.tool_calls.length, 1);
   assert.equal(sent.tool_calls[0].id, "call_42");
   assert.equal(sent.tool_calls[0].name, "exec_command");
-  assert.ok(sentPrompts[0].includes("[LOCAL_FUNCTION_SIGNATURES]"));
+
+  const wire = startCalls[0].request;
+  assert.equal(wire.conversation_id, "conv-12345678");
+  assert.equal(wire.parent_message_id, "n3");
+  assert.equal(wire.gizmo_id, "g-p-1");
+  assert.equal(wire.conversation_mode.kind, "gizmo_interaction");
+  assert.equal(wire.model, "gpt-5-6-thinking");
+  assert.equal(wire.thinking_effort, "min");
+  assert.ok(wire.messages[0].content.parts[0].includes("[LOCAL_FUNCTION_SIGNATURES]"));
+
+  // Instant model must omit thinking_effort (ChatGPT returns 422 if sent on instant models)
+  await driver.sendMessage({
+    prompt: "Quick hello",
+    model: "gpt-5-6-instant",
+    reasoning_effort: "medium",
+    wait_ms: 1000,
+  });
+  assert.equal(startCalls[1].request.thinking_effort, undefined);
 });
 
-test("page_driver stopGeneration clicks stop button cleanly", async () => {
-  const { driver } = createMockEnv({ generating: true });
-  const res = await driver.stopGeneration();
-  assert.equal(res.state, "stopped");
-  assert.equal(res.stopped, true);
+test("page_driver observeChat while in_progress, busy rejection, and programmatic stopGeneration", async () => {
+  const { driver, cancelCalls, stopCalls } = createMockEnv({
+    apiMap: {
+      "GET /backend-api/me": {
+        status: 200,
+        body: { id: "u1", name: "User", orgs: { data: [{ id: "acc-1", title: "Plus", is_personal: true }] } },
+      },
+    },
+    completionBehavior(args) {
+      queueMicrotask(() => {
+        args.onUpdate?.({
+          type: "message",
+          conversationId: "conv-live-9",
+          message: {
+            id: "msg-partial",
+            author: { role: "assistant" },
+            content: { content_type: "text", parts: ["Streaming chunk..."] },
+          },
+        });
+      });
+      return { streamRequestId: "stream-live-9", prepareResponse: { conduit_token: "ctok-9" } };
+    },
+  });
+
+  // Start with short wait_ms -> returns in_progress
+  const first = await driver.sendMessage({ prompt: "Long essay", project_id: "g-p-9", wait_ms: 30 });
+  assert.equal(first.state, "in_progress");
+  assert.equal(first.generating, true);
+  assert.equal(first.chat_id, "conv-live-9");
+  assert.equal(first.assistant_text, "Streaming chunk...");
+
+  // Concurrent send must fail closed with generation_already_active
+  const busy = await driver.sendMessage({ prompt: "Second prompt", wait_ms: 30 });
+  assert.equal(busy.state, "error");
+  assert.equal(busy.error, "generation_already_active");
+
+  // observeChat returns live partial stream
+  const obs = await driver.observeChat({ chat_id: "conv-live-9" });
+  assert.equal(obs.state, "in_progress");
+  assert.equal(obs.assistant_text, "Streaming chunk...");
+
+  // stopGeneration cancels stream & sends server stopCompletion
+  const stopped = await driver.stopGeneration();
+  assert.equal(stopped.state, "stopped");
+  assert.equal(stopped.stopped, true);
+  assert.deepEqual(cancelCalls, ["stream-live-9"]);
+  assert.equal(stopCalls.length, 1);
+  assert.equal(stopCalls[0].body.conversation_id, "conv-live-9");
+});
+
+test("page_driver on app://- Electron origin uses connect-app-host Cap'n Web httpFetch", async () => {
+  const seenRequests = [];
+  let serverPort = null;
+  let serverExportId = 1;
+  let nextClientExportId = 1;
+
+  class FakeMessagePort {
+    constructor() {
+      this.peer = null;
+      this.onmessage = null;
+      this.onmessageerror = null;
+    }
+    start() {}
+    close() {}
+    postMessage(data) {
+      const target = this.peer;
+      queueMicrotask(() => {
+        if (target && target.onmessage) target.onmessage({ data });
+      });
+    }
+  }
+  class FakeMessageChannel {
+    constructor() {
+      this.port1 = new FakeMessagePort();
+      this.port2 = new FakeMessagePort();
+      this.port1.peer = this.port2;
+      this.port2.peer = this.port1;
+    }
+  }
+
+  const routes = {
+    "GET /me": {
+      status: 200,
+      body: { id: "u-electron", name: "Desktop User", orgs: { data: [{ id: "acc-e1", title: "Plus", is_personal: true }] } },
+    },
+    "GET /models": { status: 200, body: { models: [{ slug: "gpt-5-6", title: "GPT-5.6", max_tokens: 128000 }] } },
+    "GET /conversations?offset=0&limit=5&order=updated&is_archived=false": {
+      status: 200,
+      body: { total: 1, items: [{ id: "c-el-1", title: "App Chat", create_time: 10, update_time: 20 }] },
+    },
+  };
+
+  const sandbox = {
+    location: new URL("app://-/index.html"),
+    MessageChannel: FakeMessageChannel,
+    TextEncoder,
+    TextDecoder,
+    Uint8Array,
+    ArrayBuffer,
+    crypto: { randomUUID: () => "uuid-1" },
+    window: {
+      location: new URL("app://-/index.html"),
+      postMessage(msg) {
+        if (msg && msg.type === "connect-app-host" && msg.port) {
+          serverPort = msg.port;
+          serverPort.onmessage = ({ data }) => {
+            if (!Array.isArray(data)) return;
+            if (data[0] === "push") {
+              const impId = serverExportId++;
+              const [, , , args] = data[1];
+              const req = args[1];
+              seenRequests.push(req);
+              const hit = routes[`${req.method} ${req.url}`];
+              const pipeId = nextClientExportId++;
+              serverPort.postMessage(["pipe"]);
+              const payload = new TextEncoder().encode(JSON.stringify(hit ? hit.body : { error: "not_found" }));
+              const status = hit ? hit.status : 404;
+              const respMeta = status === 200 ? { headers: [] } : { status, headers: [] };
+              serverPort.postMessage([
+                "resolve",
+                impId,
+                { response: ["response", ["readable", pipeId], respMeta] },
+              ]);
+              nextClientExportId++;
+              serverPort.postMessage(["stream", ["pipeline", pipeId, ["write"], [["bytes", payload]]]]);
+              nextClientExportId++;
+              serverPort.postMessage(["stream", ["pipeline", pipeId, ["close"], []]]);
+            }
+          };
+        }
+      },
+    },
+    document: {
+      querySelector: () => null,
+      querySelectorAll: () => [],
+      getElementById: () => null,
+    },
+    fetch: async () => {
+      throw new Error("raw fetch must not be called on app://- origin");
+    },
+    setTimeout,
+    clearTimeout,
+    Intl,
+    URL,
+    Date,
+  };
+  sandbox.globalThis = sandbox;
+  vm.runInNewContext(DRIVER_SRC, sandbox);
+
+  const driver = sandbox.__termuxChatGptDriver;
+  const st = await driver.status();
+  assert.equal(st.transport, "app_host_http_fetch");
+  assert.equal(st.auth_state, "authenticated");
+  assert.equal(st.account.id, "u-electron");
+  assert.equal(st.models[0].slug, "gpt-5-6");
+  assert.equal(seenRequests[0].headers["X-OpenAI-Attach-Auth"], "1");
+
+  const chats = await driver.listChats({ limit: 5 });
+  assert.equal(chats.state, "ok");
+  assert.equal(chats.chats[0].id, "c-el-1");
 });

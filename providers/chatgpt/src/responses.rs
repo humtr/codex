@@ -4,7 +4,7 @@
 //! single-path in-app tool callbacks (`local_function_signatures`).
 //! Never synthesizes private/hidden reasoning.
 
-use crate::config::{random_hex, ModelConfig};
+use crate::config::{random_hex, HistoryConfig, ModelConfig};
 use crate::driver::DriverBackend;
 use crate::error::{ProviderError, Result};
 use axum::{
@@ -13,7 +13,35 @@ use axum::{
     Json,
 };
 use serde_json::{json, Value};
-use std::sync::Arc;
+use std::collections::VecDeque;
+use std::sync::{Arc, Mutex};
+
+const MAX_RESPONSE_THREADS: usize = 256;
+
+#[derive(Default)]
+pub struct ResponseThreadMap {
+    entries: Mutex<VecDeque<(String, String)>>,
+}
+
+impl ResponseThreadMap {
+    pub fn get(&self, response_id: &str) -> Option<String> {
+        let guard = self.entries.lock().ok()?;
+        guard
+            .iter()
+            .rev()
+            .find(|(rid, _)| rid == response_id)
+            .map(|(_, cid)| cid.clone())
+    }
+
+    pub fn insert(&self, response_id: String, chat_id: String) {
+        if let Ok(mut guard) = self.entries.lock() {
+            if guard.len() >= MAX_RESPONSE_THREADS {
+                guard.pop_front();
+            }
+            guard.push_back((response_id, chat_id));
+        }
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct ParsedToolCall {
@@ -262,10 +290,29 @@ pub fn build_responses_sse_frames(
     (frames, final_resp)
 }
 
-pub fn handle_models(model_cfg: &ModelConfig) -> Json<Value> {
-    let data: Vec<Value> = model_cfg
-        .available
-        .iter()
+pub async fn handle_models(driver: Arc<dyn DriverBackend>, model_cfg: &ModelConfig) -> Json<Value> {
+    let mut slugs: Vec<String> = Vec::new();
+    if driver.host_running().await {
+        if let Ok(st) = driver.status().await {
+            if let Some(arr) = st.get("models").and_then(Value::as_array) {
+                for m in arr {
+                    if let Some(slug) = m
+                        .get("slug")
+                        .and_then(Value::as_str)
+                        .or_else(|| m.as_str())
+                        .filter(|s| !s.is_empty())
+                    {
+                        slugs.push(slug.to_owned());
+                    }
+                }
+            }
+        }
+    }
+    if slugs.is_empty() {
+        slugs = model_cfg.available.clone();
+    }
+    let data: Vec<Value> = slugs
+        .into_iter()
         .map(|id| {
             json!({
                 "id": id,
@@ -280,6 +327,8 @@ pub fn handle_models(model_cfg: &ModelConfig) -> Json<Value> {
 pub async fn handle_responses(
     driver: Arc<dyn DriverBackend>,
     model_cfg: &ModelConfig,
+    history_cfg: &HistoryConfig,
+    threads: &ResponseThreadMap,
     body: Value,
 ) -> Result<Response> {
     let model = body
@@ -292,14 +341,20 @@ pub async fn handle_responses(
         .get("reasoning")
         .and_then(|r| r.get("effort"))
         .and_then(Value::as_str)
-        .unwrap_or(&model_cfg.reasoning_effort)
-        .to_owned();
+        .filter(|s| !s.trim().is_empty())
+        .map(ToOwned::to_owned);
     let stream = body.get("stream").and_then(Value::as_bool).unwrap_or(true);
     let prompt = render_prompt_from_responses_request(&body)?;
     let local_function_signatures = extract_local_function_signatures(body.get("tools"));
+    let prev_chat_id = body
+        .get("previous_response_id")
+        .and_then(Value::as_str)
+        .and_then(|rid| threads.get(rid));
 
     let driver_res = driver
         .send_message(json!({
+            "chat_id": prev_chat_id,
+            "project_id": history_cfg.project_id,
             "prompt": prompt,
             "model": model,
             "reasoning_effort": effort,
@@ -320,6 +375,12 @@ pub async fn handle_responses(
         return Err(ProviderError::unavailable(
             "chatgpt_driver_failed",
             format!("{code}: {detail}"),
+        ));
+    }
+    if driver_res.get("state").and_then(Value::as_str) == Some("in_progress") {
+        return Err(ProviderError::unavailable(
+            "chatgpt_response_in_progress",
+            "ChatGPT response did not finish within the wait budget",
         ));
     }
 
@@ -348,6 +409,13 @@ pub async fn handle_responses(
         .unwrap_or_default();
 
     let resp_id = format!("resp_{}", random_hex(8)?);
+    if let Some(cid) = driver_res
+        .get("chat_id")
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty())
+    {
+        threads.insert(resp_id.clone(), cid.to_owned());
+    }
     let (frames, final_resp) =
         build_responses_sse_frames(&resp_id, &model, assistant_text, &tool_calls);
 

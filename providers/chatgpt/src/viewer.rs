@@ -86,12 +86,17 @@ impl Viewer {
         }
         let mime = match Path::new(relative).extension().and_then(|e| e.to_str()) {
             Some("html") => "text/html; charset=utf-8",
-            Some("js") => "text/javascript; charset=utf-8",
+            Some("js") | Some("mjs") => "text/javascript; charset=utf-8",
             Some("css") => "text/css; charset=utf-8",
+            Some("json") => "application/json; charset=utf-8",
             Some("svg") => "image/svg+xml",
             Some("png") => "image/png",
             Some("ico") => "image/x-icon",
             Some("woff2") => "font/woff2",
+            Some("woff") => "font/woff",
+            Some("ttf") => "font/ttf",
+            Some("mp3") => "audio/mpeg",
+            Some("oga") => "audio/ogg",
             _ => {
                 return Err(ProviderError::bad_request(
                     "viewer_asset_invalid",

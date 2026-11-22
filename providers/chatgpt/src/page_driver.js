@@ -1,31 +1,369 @@
 // Clean-room greenfield page driver for the official Linux ChatGPT Desktop app.
 //
 // Injected into the ChatGPT renderer page via CDP Runtime.evaluate.
-// Zero legacy app_bridge.js / DDPE / MCP coupling.
-// Uses same-origin authenticated backend APIs for reads/metadata and minimal
-// composer/stop selectors for turn driving. Never reads or returns cookies/tokens.
+// Zero app file modification; zero legacy app_bridge.js / DDPE / MCP coupling;
+// zero hardcoded chunk hashes or minified symbol names; zero DOM clicking or
+// computer-use automation.
+//
+// Architecture:
+// - Authenticated REST reads/mutations:
+//     * On `app://-` (Electron ChatGPT Desktop): native `connect-app-host`
+//       MessageChannel (`services.httpFetch` with `X-OpenAI-Attach-Auth: 1`).
+//     * On `https://` (web / unit tests): same-origin `fetch("/backend-api/...")`.
+// - Programmatic turn execution / streaming / cancellation:
+//     * Dynamically discovers the app's own internal CompletionClient
+//       (`startCompletionStream`, `cancelStream`, `stopCompletion`) via the live
+//       React Fiber `scope` and standard Rspack `__webpack_require__` export —
+//       operating directly in-process independent of onboarding screens, modals,
+//       tutorials, or active UI view.
+// Never reads or returns cookies/auth tokens; never synthesizes private reasoning.
 (() => {
-  if (globalThis.__termuxChatGptDriver && globalThis.__termuxChatGptDriver.version === 1) {
-    return { installed: true, version: 1 };
+  if (globalThis.__termuxChatGptDriver) {
+    return { installed: true };
   }
 
-  const API_BASE =
-    location && location.protocol === "https:"
-      ? "/backend-api"
-      : "https://chatgpt.com/backend-api";
   const DEFAULT_LIMIT = 20;
   const MAX_TEXT_CHARS = 65536;
+  const MAX_RESPONSE_BYTES = 8 * 1024 * 1024;
 
   function truncate(str, limit = MAX_TEXT_CHARS) {
     if (typeof str !== "string") return "";
     return str.length > limit ? str.slice(0, limit) : str;
   }
 
-  async function apiFetch(path, options = {}, timeoutMs = 5000) {
+  function newUuid() {
+    if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+      return crypto.randomUUID();
+    }
+    return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+      const r = (Math.random() * 16) | 0;
+      return (c === "x" ? r : (r & 0x3) | 0x8).toString(16);
+    });
+  }
+
+  function decodeUtf8Chunks(chunks) {
+    let total = 0;
+    for (const c of chunks) total += c.byteLength;
+    const merged = new Uint8Array(total);
+    let offset = 0;
+    for (const c of chunks) {
+      merged.set(c, offset);
+      offset += c.byteLength;
+    }
+    return new TextDecoder("utf-8", { fatal: false }).decode(merged);
+  }
+
+  function toUint8Array(val) {
+    if (Array.isArray(val) && val[0] === "bytes") {
+      return toUint8Array(val[1]);
+    }
+    if (val instanceof Uint8Array) return val;
+    if (ArrayBuffer.isView(val)) {
+      return new Uint8Array(val.buffer, val.byteOffset, val.byteLength);
+    }
+    if (val instanceof ArrayBuffer) return new Uint8Array(val);
+    if (typeof val === "string") return new TextEncoder().encode(val);
+    return null;
+  }
+
+  // Minimal Cap'n Web client for Electron's `connect-app-host` MessagePort
+  // `services.httpFetch` service.
+  class AppHostHttpClient {
+    constructor() {
+      this.port = null;
+      this.nextImportId = 1;
+      this.nextExportId = 1;
+      this.pendingPulls = new Map();
+      this.pipes = new Map();
+      this.closed = false;
+      this.everReceived = false;
+    }
+
+    ensureConnected() {
+      if (this.port && !this.closed) return;
+      if (typeof MessageChannel !== "function" || typeof window.postMessage !== "function") {
+        throw new Error("connect-app-host MessageChannel unavailable");
+      }
+      const { port1, port2 } = new MessageChannel();
+      this.port = port1;
+      this.closed = false;
+      this.everReceived = false;
+      this.nextImportId = 1;
+      this.nextExportId = 1;
+      this.pendingPulls.clear();
+      this.pipes.clear();
+
+      port1.onmessage = (ev) => this._onMessage(ev.data);
+      port1.onmessageerror = () => this._failAll("app_host_port_message_error");
+      port1.start();
+
+      const targetOrigin =
+        window.location && window.location.origin && window.location.origin !== "null"
+          ? window.location.origin
+          : "*";
+      window.postMessage({ type: "connect-app-host", port: port2 }, targetOrigin, [port2]);
+    }
+
+    _failAll(reason) {
+      this.closed = true;
+      try {
+        if (this.port) this.port.close();
+      } catch (_) {}
+      this.port = null;
+      for (const [, p] of this.pendingPulls) p.reject(new Error(reason));
+      this.pendingPulls.clear();
+      for (const [, pipe] of this.pipes) pipe.reject(new Error(reason));
+      this.pipes.clear();
+    }
+
+    _allocPipe() {
+      const id = this.nextExportId++;
+      let resolve;
+      let reject;
+      const done = new Promise((res, rej) => {
+        resolve = res;
+        reject = rej;
+      });
+      this.pipes.set(id, {
+        chunks: [],
+        bytes: 0,
+        settled: false,
+        done,
+        resolve: (v) => {
+          const p = this.pipes.get(id);
+          if (p && !p.settled) {
+            p.settled = true;
+            resolve(v);
+          }
+        },
+        reject: (e) => {
+          const p = this.pipes.get(id);
+          if (p && !p.settled) {
+            p.settled = true;
+            reject(e);
+          }
+        },
+      });
+      return id;
+    }
+
+    _onMessage(msg) {
+      if (msg == null) {
+        this._failAll("app_host_port_closed");
+        return;
+      }
+      this.everReceived = true;
+      if (!Array.isArray(msg) || msg.length === 0) return;
+      const tag = msg[0];
+      if (tag === "pipe") {
+        this._allocPipe();
+        return;
+      }
+      if (tag === "stream" || tag === "push") {
+        const expId = this.nextExportId++;
+        const expr = msg[1];
+        if (
+          Array.isArray(expr) &&
+          expr[0] === "pipeline" &&
+          typeof expr[1] === "number" &&
+          Array.isArray(expr[2])
+        ) {
+          const pipe = this.pipes.get(expr[1]);
+          const method = expr[2][0];
+          const args = Array.isArray(expr[3]) ? expr[3] : [];
+          if (pipe) {
+            if (method === "write") {
+              const bytes = toUint8Array(args[0]);
+              if (bytes && pipe.bytes + bytes.byteLength <= MAX_RESPONSE_BYTES) {
+                pipe.chunks.push(bytes);
+                pipe.bytes += bytes.byteLength;
+              }
+            } else if (method === "close" || method === "abort") {
+              pipe.resolve(decodeUtf8Chunks(pipe.chunks));
+              pipe.chunks = [];
+            }
+          }
+        }
+        if (tag === "stream" && this.port) {
+          this.port.postMessage(["resolve", expId, undefined]);
+        }
+        return;
+      }
+      if (tag === "pull") {
+        const expId = msg[1];
+        if (typeof expId === "number" && this.port) {
+          this.port.postMessage(["resolve", expId, undefined]);
+        }
+        return;
+      }
+      if (tag === "resolve" || tag === "reject") {
+        const impId = msg[1];
+        const pending = this.pendingPulls.get(impId);
+        if (!pending) return;
+        this.pendingPulls.delete(impId);
+        if (tag === "resolve") {
+          pending.resolve(msg[2]);
+        } else {
+          const errVal = msg[2];
+          const errMsg =
+            Array.isArray(errVal) && errVal[0] === "error"
+              ? String(errVal[2] || errVal[1] || "rpc_rejected")
+              : String(errVal || "rpc_rejected");
+          pending.reject(new Error(errMsg));
+        }
+        return;
+      }
+      if (tag === "abort") {
+        this._failAll("app_host_rpc_aborted");
+      }
+    }
+
+    async fetch(path, options = {}, timeoutMs = 15000) {
+      this.ensureConnected();
+      const reqId = newUuid();
+      const method = (options.method || "GET").toUpperCase();
+      const headers = {
+        "X-OpenAI-Attach-Auth": "1",
+        Accept: "application/json",
+        ...(options.body != null ? { "Content-Type": "application/json" } : {}),
+        ...(options.headers || {}),
+      };
+      const init = {
+        url: path,
+        method,
+        headers,
+        returnErrorResponse: true,
+      };
+      if (options.body != null) {
+        init.body = typeof options.body === "string" ? options.body : JSON.stringify(options.body);
+      }
+
+      const impId = this.nextImportId++;
+      let timer = null;
+      const rpcPromise = new Promise((resolve, reject) => {
+        this.pendingPulls.set(impId, { resolve, reject });
+        timer = setTimeout(() => {
+          this.pendingPulls.delete(impId);
+          if (!this.everReceived) {
+            this._failAll("app_host_fetch_timeout");
+          }
+          reject(new Error("app_host_fetch_timeout"));
+        }, timeoutMs);
+      });
+
+      this.port.postMessage([
+        "push",
+        ["pipeline", 0, ["services", "httpFetch", "fetch"], [reqId, init]],
+      ]);
+      this.port.postMessage(["pull", impId]);
+
+      try {
+        const resVal = await rpcPromise;
+        if (this.port) {
+          this.port.postMessage(["release", impId, 1]);
+        }
+        if (resVal && typeof resVal === "object" && "response" in resVal) {
+          const respWire = resVal.response;
+          // Standard Cap'n Web Response encoding: ["response", bodyExpr, { status?, statusText?, headers? }]
+          // Cap'n Web omits `status` when HTTP status is 200 (default).
+          if (Array.isArray(respWire) && respWire[0] === "response") {
+            const bodyExpr = respWire[1];
+            const meta = respWire[2] || {};
+            const status = meta.status == null ? 200 : Number(meta.status);
+            let text = "";
+            if (Array.isArray(bodyExpr) && bodyExpr[0] === "readable") {
+              const pipeId = bodyExpr[1];
+              const pipe = this.pipes.get(pipeId);
+              if (pipe) {
+                try {
+                  text = await Promise.race([
+                    pipe.done,
+                    new Promise((_, rej) =>
+                      setTimeout(() => rej(new Error("app_host_body_timeout")), timeoutMs)
+                    ),
+                  ]);
+                } finally {
+                  this.pipes.delete(pipeId);
+                }
+              }
+            } else if (typeof bodyExpr === "string") {
+              text = bodyExpr;
+            }
+            let json = null;
+            try {
+              json = text ? JSON.parse(text) : null;
+            } catch (_) {
+              json = null;
+            }
+            return {
+              ok: status >= 200 && status < 300,
+              status,
+              json,
+              text: truncate(text, 4096),
+            };
+          }
+          if (respWire && typeof respWire.text === "function") {
+            const text = await respWire.text();
+            let json = null;
+            try {
+              json = text ? JSON.parse(text) : null;
+            } catch (_) {
+              json = null;
+            }
+            const status = Number(respWire.status || 0);
+            return { ok: status >= 200 && status < 300, status, json, text: truncate(text, 4096) };
+          }
+        }
+        if (resVal && typeof resVal === "object" && resVal.responseType === "error") {
+          const status = Number(resVal.responseStatus ?? resVal.status ?? 0);
+          return {
+            ok: false,
+            status,
+            json: null,
+            text: truncate(String(resVal.error || resVal.errorCode || "fetch_error"), 1024),
+          };
+        }
+        return {
+          ok: false,
+          status: 0,
+          json: null,
+          text: truncate(`unexpected_app_host_response: ${JSON.stringify(resVal)}`, 512),
+        };
+      } catch (err) {
+        return {
+          ok: false,
+          status: 0,
+          json: null,
+          text: truncate(String(err && err.message ? err.message : err), 512),
+        };
+      } finally {
+        if (timer) clearTimeout(timer);
+      }
+    }
+  }
+
+  const appHostClient = new AppHostHttpClient();
+  let cachedCompletionClient = null;
+  let cachedAccountId = null;
+  let activeTurn = null;
+
+  function isElectronAppOrigin() {
+    return Boolean(location && location.protocol === "app:");
+  }
+
+  async function apiFetch(path, options = {}, timeoutMs = 15000) {
+    if (isElectronAppOrigin()) {
+      return appHostClient.fetch(path, options, timeoutMs);
+    }
+
+    const apiBase =
+      location && location.protocol === "https:"
+        ? "/backend-api"
+        : "https://chatgpt.com/backend-api";
     const controller = typeof AbortController === "function" ? new AbortController() : null;
     const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
     try {
-      const resp = await fetch(`${API_BASE}${path}`, {
+      const resp = await fetch(`${apiBase}${path}`, {
         credentials: "include",
         headers: {
           "Content-Type": "application/json",
@@ -54,38 +392,241 @@
     }
   }
 
+  // Dynamically discover the app's React Fiber state scope (zero minified symbol names).
+  function findAppScope() {
+    if (!document) return null;
+    const roots = [
+      document.getElementById("root"),
+      document.body,
+      document.querySelector("button"),
+      document.querySelector("div"),
+    ].filter(Boolean);
+
+    const visited = new Set();
+    const queue = [];
+    for (const domNode of roots) {
+      const fk = Object.keys(domNode).find(
+        (k) => k.startsWith("__reactFiber") || k.startsWith("__reactContainer")
+      );
+      if (fk && domNode[fk]) queue.push(domNode[fk]);
+    }
+
+    let steps = 0;
+    while (queue.length > 0 && steps < 1200) {
+      steps++;
+      const fiber = queue.shift();
+      if (!fiber || visited.has(fiber)) continue;
+      visited.add(fiber);
+
+      for (let hook = fiber.memoizedState, j = 0; hook && j < 100; hook = hook.next, j++) {
+        const cand = hook.memoizedState?.current ?? hook.memoizedState;
+        if (
+          cand &&
+          typeof cand.get === "function" &&
+          typeof cand.set === "function" &&
+          cand.node &&
+          cand.chain
+        ) {
+          return cand;
+        }
+      }
+      const mp = fiber.memoizedProps?.value;
+      if (mp && typeof mp.get === "function" && typeof mp.set === "function" && mp.node) {
+        return mp;
+      }
+      if (fiber.child) queue.push(fiber.child);
+      if (fiber.sibling) queue.push(fiber.sibling);
+      if (fiber.return) queue.push(fiber.return);
+    }
+    return null;
+  }
+
+  // Dynamically obtain Rspack's standard `__webpack_require__` export from the
+  // page's own module entry `<script type="module" src="...">` (zero hardcoded hashes).
+  async function findWebpackRequire() {
+    if (typeof globalThis.__termuxWebpackRequire === "function") {
+      return globalThis.__termuxWebpackRequire;
+    }
+    if (!document) return null;
+    const scripts = [...document.querySelectorAll('script[type="module"][src]')];
+    for (const s of scripts) {
+      try {
+        const mod = await import(s.src);
+        if (mod && typeof mod.__webpack_require__ === "function") {
+          globalThis.__termuxWebpackRequire = mod.__webpack_require__;
+          return mod.__webpack_require__;
+        }
+      } catch (_) {}
+    }
+    return null;
+  }
+
+  function isCompletionClient(obj) {
+    return Boolean(
+      obj &&
+        typeof obj.startCompletionStream === "function" &&
+        typeof obj.stopCompletion === "function" &&
+        typeof obj.cancelStream === "function"
+    );
+  }
+
+  // Dynamically discover the app's own CompletionClient by capability signature.
+  // Works independently of onboarding screens, modals, or DOM layout.
+  // When `waitMs > 0` (used by `sendMessage` on lazy cold boot), polls until the
+  // Electron renderer finishes mounting React/Rspack.
+  async function ensureCompletionClient(waitMs = 0) {
+    if (isCompletionClient(globalThis.__termuxMockCompletionClient)) {
+      return globalThis.__termuxMockCompletionClient;
+    }
+    if (isCompletionClient(cachedCompletionClient)) {
+      return cachedCompletionClient;
+    }
+
+    const tryOnce = async () => {
+      const scope = findAppScope();
+      if (!scope) return null;
+      const wpReq = await findWebpackRequire();
+      if (!wpReq || !wpReq.m) return null;
+
+      const searchLoadedModules = () => {
+        for (const [modId, factory] of Object.entries(wpReq.m)) {
+          if (typeof factory !== "function") continue;
+          let src = "";
+          try {
+            src = Function.prototype.toString.call(factory);
+          } catch (_) {
+            continue;
+          }
+          if (
+            !src.includes("startCompletionStream") ||
+            !src.includes("stopCompletion") ||
+            !src.includes("cancelStream")
+          ) {
+            continue;
+          }
+          let mod;
+          try {
+            mod = wpReq(modId);
+          } catch (_) {
+            continue;
+          }
+          if (!mod || typeof mod !== "object") continue;
+          for (const val of Object.values(mod)) {
+            if (isCompletionClient(val)) {
+              cachedCompletionClient = val;
+              return val;
+            }
+            try {
+              const inst = scope.get(val);
+              if (isCompletionClient(inst)) {
+                cachedCompletionClient = inst;
+                return inst;
+              }
+            } catch (_) {}
+          }
+        }
+        return null;
+      };
+
+      let found = searchLoadedModules();
+      if (found) return found;
+
+      if (typeof wpReq.u === "function" && typeof wpReq.e === "function") {
+        try {
+          const entrySrc = Function.prototype.toString.call(wpReq.u);
+          const chunkMatches = [...entrySrc.matchAll(/(\d+):"([0-9a-f]{8,})"/g)];
+          const loadedUrls = new Set(
+            typeof performance !== "undefined" && performance.getEntriesByType
+              ? performance.getEntriesByType("resource").map((r) => r.name)
+              : []
+          );
+          const orderedIds = chunkMatches
+            .map((m) => Number(m[1]))
+            .sort((a, b) => {
+              const au = [...loadedUrls].some((u) => u.includes(`/${a}.`));
+              const bu = [...loadedUrls].some((u) => u.includes(`/${b}.`));
+              return Number(bu) - Number(au);
+            });
+          for (const cid of orderedIds.slice(0, 20)) {
+            if (![...loadedUrls].some((u) => u.includes(`/${cid}.`))) break;
+            try {
+              await wpReq.e(cid);
+            } catch (_) {}
+            found = searchLoadedModules();
+            if (found) return found;
+          }
+        } catch (_) {}
+      }
+      return null;
+    };
+
+    const first = await tryOnce();
+    if (first || waitMs <= 0) return first;
+    const deadline = Date.now() + waitMs;
+    while (Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 400));
+      const hit = await tryOnce();
+      if (hit) return hit;
+    }
+    return null;
+  }
+
+  function normalizeThinkingEffort(modelSlug, rawEffort) {
+    if (!rawEffort || typeof rawEffort !== "string") return undefined;
+    const slug = String(modelSlug || "").toLowerCase();
+    if (slug.includes("instant")) return undefined;
+    const key = rawEffort.trim().toLowerCase();
+    const map = {
+      none: "zero",
+      zero: "zero",
+      minimal: "min",
+      min: "min",
+      low: "min",
+      medium: "standard",
+      standard: "standard",
+      high: "extended",
+      extended: "extended",
+      xhigh: "xhigh",
+      max: "max",
+      ultra: "ultra",
+    };
+    return map[key];
+  }
+
   function currentChatIdFromUrl() {
-    const m = location.pathname.match(/\/c\/([0-9a-fA-F-]{8,})/);
+    const combined = `${location?.pathname || ""} ${location?.hash || ""}`;
+    const m = combined.match(/\/c\/([0-9a-fA-F-]{8,})/);
     return m ? m[1] : null;
   }
 
-  function findComposer() {
-    return (
-      document.querySelector("#prompt-textarea") ||
-      document.querySelector('[contenteditable="true"][data-id="root"]') ||
-      document.querySelector('textarea[placeholder*="Message"], textarea[data-id]')
-    );
-  }
-
-  function findSendButton() {
-    return (
-      document.querySelector('button[data-testid="send-button"]') ||
-      document.querySelector('button[aria-label*="Send"]')
-    );
-  }
-
-  function findStopButton() {
-    return (
-      document.querySelector('button[data-testid="stop-button"]') ||
-      document.querySelector('button[aria-label*="Stop"]')
-    );
+  function isOnboardingVisible() {
+    return Boolean(document && document.querySelector('[data-testid="onboarding-progress-bar"]'));
   }
 
   function isLoginRequired() {
-    const url = location.href || "";
+    const url = location?.href || "";
     if (/auth\.openai\.com|\/auth\/login/.test(url)) return true;
-    const loginBtn = document.querySelector('[data-testid="login-button"]');
-    return Boolean(loginBtn && !findComposer());
+    return false;
+  }
+
+  function extractTextFromMessage(msg) {
+    if (!msg || typeof msg !== "object") return null;
+    const role = msg.author && msg.author.role ? msg.author.role : "unknown";
+    const contentType = msg.content && msg.content.content_type ? msg.content.content_type : "";
+    if (contentType === "thoughts" || contentType === "reasoning_recap") return null;
+    const parts = Array.isArray(msg.content && msg.content.parts) ? msg.content.parts : [];
+    const text = parts
+      .filter((p) => typeof p === "string")
+      .join("\n")
+      .trim();
+    if (!text) return null;
+    return {
+      id: msg.id || null,
+      role,
+      text: truncate(text),
+      create_time: msg.create_time || null,
+      model: (msg.metadata && msg.metadata.model_slug) || null,
+    };
   }
 
   function extractLinearMessages(conv) {
@@ -97,27 +638,9 @@
       seen.add(nodeId);
       const node = mapping[nodeId];
       if (node.message) {
-        const msg = node.message;
-        const role = msg.author && msg.author.role ? msg.author.role : "unknown";
-        const contentType = msg.content && msg.content.content_type ? msg.content.content_type : "";
-        const parts = Array.isArray(msg.content && msg.content.parts) ? msg.content.parts : [];
-        const text = parts
-          .filter((p) => typeof p === "string")
-          .join("\n")
-          .trim();
-        if (
-          (role === "user" || role === "assistant") &&
-          text.length > 0 &&
-          contentType !== "thoughts" &&
-          contentType !== "reasoning_recap"
-        ) {
-          chain.push({
-            id: msg.id || nodeId,
-            role,
-            text: truncate(text),
-            create_time: msg.create_time || null,
-            model: (msg.metadata && msg.metadata.model_slug) || null,
-          });
+        const extracted = extractTextFromMessage(node.message);
+        if (extracted && (extracted.role === "user" || extracted.role === "assistant")) {
+          chain.push({ ...extracted, id: extracted.id || nodeId });
         }
       }
       nodeId = node.parent || null;
@@ -127,8 +650,6 @@
   }
 
   function parseToolCallsFromText(text) {
-    // Single-path in-app tool callback extraction for Type 1 (`codex -p chatgpt`)
-    // when `local_function_signatures` are supplied.
     const calls = [];
     const fenceRe = /```codex_tool_call\s*([\s\S]*?)```/g;
     let match;
@@ -150,31 +671,9 @@
           });
           stripped = stripped.replace(match[0], "").trim();
         }
-      } catch (_) {
-        // Ignore malformed fenced blocks so user text is preserved.
-      }
+      } catch (_) {}
     }
     return { calls, text: stripped };
-  }
-
-  function setComposerText(el, value) {
-    el.focus();
-    if (el.tagName === "TEXTAREA" || el.tagName === "INPUT") {
-      const setter = Object.getOwnPropertyDescriptor(
-        window.HTMLTextAreaElement.prototype,
-        "value"
-      )?.set;
-      if (setter) setter.call(el, value);
-      else el.value = value;
-      el.dispatchEvent(new Event("input", { bubbles: true }));
-    } else {
-      el.textContent = value;
-      el.dispatchEvent(new InputEvent("input", { bubbles: true, data: value }));
-    }
-  }
-
-  function wait(ms) {
-    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
   async function status() {
@@ -182,20 +681,25 @@
     let authState = loginReq ? "login_required" : "loading";
     let account = null;
     let models = [];
+    let backendError = null;
 
     if (!loginReq) {
       const me = await apiFetch("/me");
       if (me.ok && me.json) {
         authState = "authenticated";
+        const orgs = me.json.orgs && Array.isArray(me.json.orgs.data) ? me.json.orgs.data : [];
+        const personalOrg = orgs.find((o) => o.is_personal) || orgs[0] || null;
+        cachedAccountId = personalOrg?.id || me.json.account_id || cachedAccountId;
         account = {
           id: me.json.id || null,
+          account_id: cachedAccountId || null,
           name: me.json.name || null,
-          plan:
-            (me.json.orgs && me.json.orgs.data && me.json.orgs.data[0]?.title) ||
-            null,
+          plan: personalOrg?.title || null,
         };
-      } else if (me.status === 401 || me.status === 403) {
+      } else if (me.status === 401 || me.status === 403 || me.status === 432) {
         authState = "login_required";
+      } else {
+        backendError = `backend_http_${me.status}: ${truncate(me.text, 200)}`;
       }
 
       if (authState === "authenticated") {
@@ -210,16 +714,34 @@
       }
     }
 
+    const completionClient = await ensureCompletionClient();
+    const completionReady = Boolean(completionClient);
+    const onboarding = isOnboardingVisible();
+    const uiState =
+      authState === "login_required"
+        ? "login_required"
+        : completionReady
+          ? "ready"
+          : onboarding
+            ? "onboarding"
+            : "loading";
+
     return {
       state: "ok",
-      driver_version: 1,
-      page_url: `${location.origin}${location.pathname}`,
+      transport: isElectronAppOrigin() ? "app_host_http_fetch" : "same_origin_fetch",
+      page_url:
+        location && location.origin && location.origin !== "null"
+          ? `${location.origin}${location.pathname}`
+          : String(location && location.href ? location.href : "").split("?", 1)[0],
       auth_state: authState,
+      ui_state: uiState,
+      completion_ready: completionReady,
+      onboarding_visible: onboarding,
       account,
-      active_chat_id: currentChatIdFromUrl(),
-      generating: Boolean(findStopButton()),
-      composer_ready: Boolean(findComposer()),
+      active_chat_id: (activeTurn && activeTurn.chatId) || currentChatIdFromUrl(),
+      generating: Boolean(activeTurn && activeTurn.generating),
       models,
+      ...(backendError ? { backend_error: backendError } : {}),
     };
   }
 
@@ -251,7 +773,7 @@
   }
 
   async function readChat(opts = {}) {
-    const chatId = opts.chat_id || currentChatIdFromUrl();
+    const chatId = opts.chat_id || (activeTurn && activeTurn.chatId) || currentChatIdFromUrl();
     if (!chatId) {
       return { state: "error", error: "chat_id_required", detail: "no chat_id provided or active" };
     }
@@ -269,6 +791,7 @@
       chat_id: chatId,
       title: res.json.title || "",
       gizmo_id: res.json.gizmo_id || null,
+      current_node: res.json.current_node || null,
       messages,
     };
   }
@@ -355,48 +878,84 @@
   }
 
   async function observeChat(opts = {}) {
-    const chatId = opts.chat_id || currentChatIdFromUrl();
-    const generating = Boolean(findStopButton());
-    let latestAssistant = "";
-    let latestMessageId = null;
-    if (chatId) {
-      const rd = await readChat({ chat_id: chatId, limit: 10 });
-      if (rd.state === "ok" && Array.isArray(rd.messages)) {
-        const lastA = [...rd.messages].reverse().find((m) => m.role === "assistant");
-        if (lastA) {
-          latestAssistant = lastA.text;
-          latestMessageId = lastA.id;
-        }
-      }
-    } else {
-      const nodes = document.querySelectorAll('[data-message-author-role="assistant"]');
-      if (nodes.length > 0) {
-        latestAssistant = truncate((nodes[nodes.length - 1].innerText || "").trim());
-      }
+    const requestedId = opts.chat_id || null;
+    if (
+      activeTurn &&
+      activeTurn.generating &&
+      (!requestedId || requestedId === activeTurn.chatId)
+    ) {
+      return {
+        state: "in_progress",
+        chat_id: activeTurn.chatId || requestedId,
+        generating: true,
+        message_id: activeTurn.messageId,
+        assistant_text: activeTurn.assistantText,
+      };
+    }
+
+    const chatId = requestedId || (activeTurn && activeTurn.chatId) || currentChatIdFromUrl();
+    if (!chatId) {
+      return {
+        state: "settled",
+        chat_id: null,
+        generating: false,
+        message_id: (activeTurn && activeTurn.messageId) || null,
+        assistant_text: (activeTurn && activeTurn.assistantText) || "",
+      };
+    }
+
+    const rd = await readChat({ chat_id: chatId, limit: 10 });
+    if (rd.state === "ok" && Array.isArray(rd.messages)) {
+      const lastA = [...rd.messages].reverse().find((m) => m.role === "assistant");
+      return {
+        state: "settled",
+        chat_id: chatId,
+        generating: false,
+        message_id: (lastA && lastA.id) || (activeTurn && activeTurn.messageId) || null,
+        assistant_text: (lastA && lastA.text) || (activeTurn && activeTurn.assistantText) || "",
+      };
     }
     return {
-      state: generating ? "in_progress" : "settled",
+      state: "settled",
       chat_id: chatId,
-      generating,
-      message_id: latestMessageId,
-      assistant_text: latestAssistant,
+      generating: false,
+      message_id: (activeTurn && activeTurn.messageId) || null,
+      assistant_text: (activeTurn && activeTurn.assistantText) || "",
     };
   }
 
   async function stopGeneration() {
-    const btn = findStopButton();
-    if (!btn) {
-      return { state: "idle", stopped: false, chat_id: currentChatIdFromUrl() };
+    if (!activeTurn || !activeTurn.generating) {
+      return {
+        state: "idle",
+        stopped: false,
+        chat_id: (activeTurn && activeTurn.chatId) || currentChatIdFromUrl(),
+      };
     }
-    btn.click();
-    const deadline = Date.now() + 5000;
-    while (Date.now() < deadline && findStopButton()) {
-      await wait(120);
+    const turn = activeTurn;
+    turn.stopped = true;
+    turn.generating = false;
+    const client = await ensureCompletionClient();
+    if (client) {
+      if (turn.requestId) {
+        try {
+          client.cancelStream(turn.requestId);
+        } catch (_) {}
+      }
+      if (turn.chatId) {
+        try {
+          await client.stopCompletion(
+            { conversation_id: turn.chatId },
+            { conduitToken: turn.conduitToken || undefined }
+          );
+        } catch (_) {}
+      }
     }
+    turn.resolveDone();
     return {
-      state: findStopButton() ? "in_progress" : "stopped",
-      stopped: !findStopButton(),
-      chat_id: currentChatIdFromUrl(),
+      state: "stopped",
+      stopped: true,
+      chat_id: turn.chatId,
     };
   }
 
@@ -408,8 +967,68 @@
     if (!prompt.trim()) {
       return { state: "error", error: "prompt_required", detail: "non-empty prompt required" };
     }
-    if (findStopButton()) {
-      return { state: "error", error: "generation_already_active", detail: "stop or wait for active response" };
+    if (activeTurn && activeTurn.generating) {
+      return {
+        state: "error",
+        error: "generation_already_active",
+        detail: "stop or wait for active response",
+      };
+    }
+
+    const shouldWaitForBoot =
+      isElectronAppOrigin() || Boolean(location && location.protocol === "about:");
+    const client = await ensureCompletionClient(shouldWaitForBoot ? 30000 : 0);
+    if (!client) {
+      return {
+        state: "error",
+        error: "completion_client_unavailable",
+        detail: "in-app CompletionClient not initialized yet",
+      };
+    }
+
+    // Ensure we have current accountId and verify session auth (briefly retrying on cold boot).
+    if (!cachedAccountId) {
+      let me = await apiFetch("/me");
+      for (let attempt = 0; attempt < 4 && !me.ok && me.status === 0 && isElectronAppOrigin(); attempt++) {
+        await new Promise((r) => setTimeout(r, 1500));
+        me = await apiFetch("/me");
+      }
+      if (!me.ok || !me.json) {
+        if (me.status === 401 || me.status === 403 || me.status === 432) {
+          return {
+            state: "error",
+            error: "login_required",
+            detail: "ChatGPT account login required",
+          };
+        }
+        return { state: "error", error: `backend_http_${me.status}`, detail: me.text };
+      }
+      const orgs = me.json.orgs && Array.isArray(me.json.orgs.data) ? me.json.orgs.data : [];
+      const personalOrg = orgs.find((o) => o.is_personal) || orgs[0] || null;
+      cachedAccountId = personalOrg?.id || me.json.account_id || null;
+    }
+
+    let chatId = typeof opts.chat_id === "string" && opts.chat_id.trim() ? opts.chat_id.trim() : null;
+    let projectId =
+      typeof opts.project_id === "string" && opts.project_id.trim() ? opts.project_id.trim() : null;
+    let parentMessageId = newUuid();
+
+    // If continuing an existing conversation, resolve its exact current_node leaf & project.
+    if (chatId) {
+      const convRes = await apiFetch(`/conversation/${encodeURIComponent(chatId)}`);
+      if (!convRes.ok || !convRes.json) {
+        return {
+          state: "error",
+          error: `backend_http_${convRes.status}`,
+          detail: convRes.text || "failed to load target conversation",
+        };
+      }
+      if (typeof convRes.json.current_node === "string" && convRes.json.current_node) {
+        parentMessageId = convRes.json.current_node;
+      }
+      if (!projectId && typeof convRes.json.gizmo_id === "string" && convRes.json.gizmo_id) {
+        projectId = convRes.json.gizmo_id;
+      }
     }
 
     let wirePrompt = prompt;
@@ -422,47 +1041,170 @@
         `Otherwise answer directly.\n\n${prompt}`;
     }
 
-    const composer = findComposer();
-    if (!composer) {
-      return { state: "error", error: "composer_unavailable", detail: "ChatGPT composer input not ready" };
-    }
+    const modelSlug =
+      typeof opts.model === "string" && opts.model.trim() ? opts.model.trim() : "auto";
+    const thinkingEffort = normalizeThinkingEffort(modelSlug, opts.reasoning_effort);
 
-    const prevAssistantNodes = document.querySelectorAll('[data-message-author-role="assistant"]').length;
-    setComposerText(composer, wirePrompt);
-    await wait(80);
-    const sendBtn = findSendButton();
-    if (!sendBtn || sendBtn.disabled) {
-      return { state: "error", error: "send_button_unavailable", detail: "send button disabled or missing" };
+    const userMsgId = newUuid();
+    const requestPayload = {
+      action: "next",
+      ...(chatId ? { conversation_id: chatId } : {}),
+      ...(projectId ? { gizmo_id: projectId } : {}),
+      conversation_mode: projectId
+        ? { kind: "gizmo_interaction", gizmo_id: projectId }
+        : { kind: "primary_assistant" },
+      messages: [
+        {
+          id: userMsgId,
+          author: { role: "user" },
+          create_time: Date.now() / 1000,
+          content: { content_type: "text", parts: [wirePrompt] },
+        },
+      ],
+      model: modelSlug,
+      parent_message_id: parentMessageId,
+      ...(thinkingEffort ? { thinking_effort: thinkingEffort } : {}),
+      timezone:
+        (typeof Intl !== "undefined" &&
+          Intl.DateTimeFormat &&
+          Intl.DateTimeFormat().resolvedOptions().timeZone) ||
+        "UTC",
+      timezone_offset_min: new Date().getTimezoneOffset(),
+    };
+
+    let resolveDone;
+    const donePromise = new Promise((resolve) => {
+      resolveDone = resolve;
+    });
+
+    const turn = {
+      requestId: null,
+      conduitToken: null,
+      chatId,
+      projectId,
+      model: modelSlug,
+      generating: true,
+      stopped: false,
+      error: null,
+      messageId: null,
+      assistantText: "",
+      donePromise,
+      resolveDone: () => {
+        turn.generating = false;
+        resolveDone();
+      },
+    };
+    activeTurn = turn;
+
+    try {
+      const handle = await client.startCompletionStream({
+        request: requestPayload,
+        expectedAccountId: cachedAccountId || undefined,
+        turnTraceId: newUuid(),
+        onUpdate: (update) => {
+          if (!update || typeof update !== "object") return;
+          if (typeof update.conversationId === "string" && update.conversationId) {
+            turn.chatId = update.conversationId;
+          }
+          if (update.type === "message" && update.message) {
+            const extracted = extractTextFromMessage(update.message);
+            if (extracted && extracted.role === "assistant") {
+              turn.assistantText = extracted.text;
+              if (extracted.id) turn.messageId = extracted.id;
+            }
+          }
+        },
+        onDecodedEvent: (ev) => {
+          const cid = ev?.update?.conversationId || ev?.payload?.conversation_id;
+          if (typeof cid === "string" && cid) {
+            turn.chatId = cid;
+          }
+          const msg = ev?.update?.type === "message" ? ev.update.message : ev?.payload?.message;
+          if (msg) {
+            const extracted = extractTextFromMessage(msg);
+            if (extracted && extracted.role === "assistant") {
+              turn.assistantText = extracted.text;
+              if (extracted.id) turn.messageId = extracted.id;
+            }
+          }
+        },
+        onComplete: () => {
+          turn.resolveDone();
+        },
+        onError: (err) => {
+          if (!turn.stopped) {
+            const code = err?.errorCode || (err?.responseStatus ? `backend_http_${err.responseStatus}` : "completion_stream_error");
+            const detail = err?.error || err?.message || String(err || "completion stream failed");
+            turn.error = { code: String(code), detail: truncate(String(detail), 512) };
+          }
+          turn.resolveDone();
+        },
+      });
+      if (handle && typeof handle === "object") {
+        turn.requestId = handle.streamRequestId || null;
+        turn.conduitToken = handle.prepareResponse?.conduit_token || null;
+      }
+    } catch (err) {
+      turn.generating = false;
+      turn.error = {
+        code: "completion_dispatch_failed",
+        detail: truncate(String(err && err.message ? err.message : err), 512),
+      };
+      turn.resolveDone();
     }
-    sendBtn.click();
 
     const waitMs = Math.max(0, Math.min(120000, Number(opts.wait_ms ?? 30000)));
-    const deadline = Date.now() + waitMs;
-    let sawGenerating = false;
-    while (Date.now() < deadline) {
-      const stopVisible = Boolean(findStopButton());
-      if (stopVisible) sawGenerating = true;
-      const curNodes = document.querySelectorAll('[data-message-author-role="assistant"]').length;
-      if ((sawGenerating && !stopVisible) || (!stopVisible && curNodes > prevAssistantNodes)) {
-        break;
-      }
-      await wait(180);
+    if (waitMs > 0 && turn.generating) {
+      await Promise.race([
+        turn.donePromise,
+        new Promise((resolve) => setTimeout(resolve, waitMs)),
+      ]);
     }
 
-    const obs = await observeChat({ chat_id: opts.chat_id || currentChatIdFromUrl() });
-    const parsed = parseToolCallsFromText(obs.assistant_text || "");
+    if (turn.error) {
+      return {
+        state: "error",
+        error: turn.error.code,
+        detail: turn.error.detail,
+        chat_id: turn.chatId,
+      };
+    }
+
+    if (turn.generating) {
+      return {
+        state: "in_progress",
+        chat_id: turn.chatId,
+        message_id: turn.messageId,
+        assistant_text: turn.assistantText,
+        tool_calls: [],
+        generating: true,
+      };
+    }
+
+    // If settled with a server conversation_id and stream text was empty, fetch authoritative tail.
+    if (!turn.assistantText && turn.chatId) {
+      const rd = await readChat({ chat_id: turn.chatId, limit: 10 });
+      if (rd.state === "ok" && Array.isArray(rd.messages)) {
+        const lastA = [...rd.messages].reverse().find((m) => m.role === "assistant");
+        if (lastA) {
+          turn.assistantText = lastA.text;
+          turn.messageId = lastA.id;
+        }
+      }
+    }
+
+    const parsed = parseToolCallsFromText(turn.assistantText || "");
     return {
-      state: obs.state,
-      chat_id: obs.chat_id,
-      message_id: obs.message_id,
+      state: turn.stopped ? "stopped" : "settled",
+      chat_id: turn.chatId,
+      message_id: turn.messageId,
       assistant_text: parsed.text,
       tool_calls: parsed.calls,
-      generating: obs.generating,
+      generating: false,
     };
   }
 
   globalThis.__termuxChatGptDriver = {
-    version: 1,
     status,
     listChats,
     readChat,
@@ -475,5 +1217,5 @@
     stopGeneration,
     parseToolCallsFromText,
   };
-  return { installed: true, version: 1 };
+  return { installed: true };
 })();

@@ -166,7 +166,7 @@ impl CdpClient {
 
     /// Find the primary ChatGPT page target and attach a flattened CDP session.
     pub async fn attach_chatgpt_page(&self) -> Result<String> {
-        let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
         let target_id = loop {
             let res = self.request("Target.getTargets", json!({}), None).await?;
             let infos = res
@@ -178,21 +178,14 @@ impl CdpClient {
                         "Target.getTargets missing array",
                     )
                 })?;
-            let target = infos
-                .iter()
-                .find(|t| {
-                    t.get("type").and_then(Value::as_str) == Some("page")
-                        && t.get("url").and_then(Value::as_str).is_some_and(|u| {
-                            u.starts_with("app://")
-                                || u.contains("chatgpt.com")
-                                || u.starts_with("https://")
-                        })
-                })
-                .or_else(|| {
-                    infos
-                        .iter()
-                        .find(|t| t.get("type").and_then(Value::as_str) == Some("page"))
-                });
+            let target = infos.iter().find(|t| {
+                t.get("type").and_then(Value::as_str) == Some("page")
+                    && t.get("url").and_then(Value::as_str).is_some_and(|u| {
+                        u.starts_with("app://")
+                            || u.contains("chatgpt.com")
+                            || u.starts_with("https://")
+                    })
+            });
             if let Some(tid) = target
                 .and_then(|t| t.get("targetId"))
                 .and_then(Value::as_str)
@@ -200,6 +193,14 @@ impl CdpClient {
                 break tid.to_owned();
             }
             if tokio::time::Instant::now() >= deadline {
+                if let Some(fallback_tid) = infos
+                    .iter()
+                    .find(|t| t.get("type").and_then(Value::as_str) == Some("page"))
+                    .and_then(|t| t.get("targetId"))
+                    .and_then(Value::as_str)
+                {
+                    break fallback_tid.to_owned();
+                }
                 return Err(ProviderError::unavailable(
                     "cdp_page_not_found",
                     "no ChatGPT renderer page target",

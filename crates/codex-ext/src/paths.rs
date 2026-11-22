@@ -48,10 +48,10 @@ impl ExtPaths {
         let manager_dir = home.join(".local/share/codex/manager");
         let profiles_dir = manager_dir.join("profiles");
         let default_profile_file = manager_dir.join("default-profile");
-        let state_dir = home.join(".local/state/codex-ext");
+        let state_dir = home.join(".local/state/codex/ext");
         let sessions_dir = state_dir.join("sessions");
         let handoff_dir = state_dir.join("handoff");
-        let config_dir = home.join(".config/codex-ext");
+        let config_dir = home.join(".config/codex/ext");
         let notify_config_file = config_dir.join("notify.json");
 
         Ok(Self {

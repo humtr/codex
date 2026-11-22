@@ -814,9 +814,9 @@ mod tests {
             manager_dir: root.join(".local/share/codex/manager"),
             profiles_dir: root.join(".local/share/codex/manager/profiles"),
             default_profile_file: root.join(".local/share/codex/manager/default-profile"),
-            sessions_dir: root.join(".local/state/codex-ext/sessions"),
-            handoff_dir: root.join(".local/state/codex-ext/handoff"),
-            notify_config_file: root.join(".config/codex-ext/notify.json"),
+            sessions_dir: root.join(".local/state/codex/ext/sessions"),
+            handoff_dir: root.join(".local/state/codex/ext/handoff"),
+            notify_config_file: root.join(".config/codex/ext/notify.json"),
         };
         create_profile(&paths, "szob").unwrap();
 

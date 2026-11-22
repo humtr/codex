@@ -76,10 +76,8 @@ impl CdpDriver {
             let rootfs = self.config.resolved_rootfs(&self.home);
             let profile = self.config.profile_dir(&self.home);
             let host = OwnedHost::start(&rootfs, &profile).await?;
-            if let Some(ref assets) = self.config.host.viewer_assets {
-                if let Ok(viewer) =
-                    Viewer::new(host.viewer_socket(), assets.clone(), self.listen_port)
-                {
+            if let Some(assets) = self.config.resolved_viewer_assets(&self.home) {
+                if let Ok(viewer) = Viewer::new(host.viewer_socket(), assets, self.listen_port) {
                     if let Ok(mut slot) = self.viewer_slot.write() {
                         *slot = Some(viewer);
                     }
@@ -89,21 +87,53 @@ impl CdpDriver {
             guard.session_id = None;
         }
         let client = guard.host.as_ref().unwrap().client.clone();
-        let sid = match &guard.session_id {
-            Some(s) => s.clone(),
+        let (sid, freshly_attached) = match &guard.session_id {
+            Some(s) => (s.clone(), false),
             None => {
                 let s = client.attach_chatgpt_page().await?;
                 guard.session_id = Some(s.clone());
-                s
+                (s, true)
             }
         };
+        if freshly_attached {
+            // Wait for the initial `about:blank` -> `app://-/index.html` document commit
+            // before injecting `page_driver.js`, avoiding transient
+            // "Execution context was destroyed" errors during cold boot without ever
+            // replaying a mutation.
+            let ready_deadline = tokio::time::Instant::now() + Duration::from_secs(15);
+            while tokio::time::Instant::now() < ready_deadline {
+                match client
+                    .evaluate_json(
+                        &sid,
+                        "(document.readyState === 'complete' && location.protocol !== 'about:')",
+                        Duration::from_secs(3),
+                    )
+                    .await
+                {
+                    Ok(Value::Bool(true)) => break,
+                    Ok(_) => {}
+                    Err(e) if e.code == "cdp_disconnected" => {
+                        guard.session_id = None;
+                        if let Ok(mut slot) = self.viewer_slot.write() {
+                            *slot = None;
+                        }
+                        if let Some(mut dead) = guard.host.take() {
+                            dead.shutdown().await;
+                        }
+                        return Err(e);
+                    }
+                    Err(_) => {}
+                }
+                tokio::time::sleep(Duration::from_millis(250)).await;
+            }
+        }
         let arg_json = serde_json::to_string(&arg)
             .map_err(|e| ProviderError::internal("driver_encode_failed", e.to_string()))?;
         // Ensure page_driver.js is installed and invoke the requested method atomically
         // in one evaluation so Electron page reloads cannot drop the global between calls.
         let expr = format!(
             "(async () => {{\
-                if (!globalThis.__termuxChatGptDriver || globalThis.__termuxChatGptDriver.version !== 1) {{\
+                if (!globalThis.__termuxChatGptDriver) {{\
                     {PAGE_DRIVER_JS};\
                 }}\
                 return await globalThis.__termuxChatGptDriver.{method}({arg_json});\
@@ -114,8 +144,27 @@ impl CdpDriver {
             Ok(val) => Ok(val),
             Err(err) => {
                 guard.session_id = None;
+                if err.code == "cdp_disconnected" {
+                    if let Ok(mut slot) = self.viewer_slot.write() {
+                        *slot = None;
+                    }
+                    if let Some(mut dead) = guard.host.take() {
+                        dead.shutdown().await;
+                    }
+                }
                 Err(err)
             }
+        }
+    }
+
+    pub async fn shutdown(&self) {
+        let mut guard = self.state.lock().await;
+        if let Ok(mut slot) = self.viewer_slot.write() {
+            *slot = None;
+        }
+        guard.session_id = None;
+        if let Some(mut host) = guard.host.take() {
+            host.shutdown().await;
         }
     }
 }
@@ -154,7 +203,7 @@ impl DriverBackend for CdpDriver {
                 }
             };
             let mut st = self
-                .ensure_ready_and_call("status", json!({}), Duration::from_secs(20))
+                .ensure_ready_and_call("status", json!({}), Duration::from_secs(30))
                 .await?;
             st["host_running"] = json!(true);
             st["rootfs"] = json!(rootfs_str);
@@ -216,7 +265,7 @@ impl DriverBackend for CdpDriver {
             self.ensure_ready_and_call(
                 "sendMessage",
                 params,
-                Duration::from_millis(wait_ms + 15_000),
+                Duration::from_millis(wait_ms + 45_000),
             )
             .await
         })
@@ -265,10 +314,8 @@ impl DriverBackend for CdpDriver {
             let profile = self.config.profile_dir(&self.home);
             let host = OwnedHost::start(&rootfs, &profile).await?;
             let display = host.display;
-            if let Some(ref assets) = self.config.host.viewer_assets {
-                if let Ok(viewer) =
-                    Viewer::new(host.viewer_socket(), assets.clone(), self.listen_port)
-                {
+            if let Some(assets) = self.config.resolved_viewer_assets(&self.home) {
+                if let Ok(viewer) = Viewer::new(host.viewer_socket(), assets, self.listen_port) {
                     if let Ok(mut slot) = self.viewer_slot.write() {
                         *slot = Some(viewer);
                     }

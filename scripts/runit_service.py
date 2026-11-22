@@ -2,10 +2,11 @@
 """Opt-in runit 3-state generation supervision for Stage 2 standalone services.
 
 Manages immutable component generations under:
-  $HOME/.local/lib/<component>/{generations/<version>/<bin>, current, previous}
+  $HOME/.local/lib/codex/<component>/{generations/<version>/<bin>, current, previous}
 
 And opt-in Termux runit services under:
   $PREFIX/var/service/<service>/{run, log/run}
+  (logs under $HOME/.local/state/codex/services/<service>/log)
 
 Invariants:
 - Installing/updating a component generation NEVER auto-enrolls a new runit service.
@@ -108,6 +109,15 @@ def proc_exe_path(pid: int) -> str | None:
         return None
 
 
+def validate_component_path(value: str) -> str:
+    parts = value.split("/")
+    if not (1 <= len(parts) <= 3):
+        raise SupervisionError(f"invalid component path: {value!r}")
+    for seg in parts:
+        validate_token(seg, NAME_RE, "component")
+    return "/".join(parts)
+
+
 class ServiceSupervisor:
     def __init__(
         self,
@@ -120,7 +130,7 @@ class ServiceSupervisor:
         sv_bin: str = "sv",
         proc_reader=None,
     ):
-        self.component = validate_token(component, NAME_RE, "component")
+        self.component = validate_component_path(component)
         self.binary_name = validate_token(binary_name, NAME_RE, "binary_name")
         self.service_name = validate_token(service_name, NAME_RE, "service_name")
         self.home = home or Path.home()
@@ -128,7 +138,7 @@ class ServiceSupervisor:
         self.sv_bin = sv_bin
         self._proc_reader = proc_reader
 
-        self.comp_root = self.home / ".local/lib" / self.component
+        self.comp_root = self.home / ".local/lib/codex" / self.component
         self.generations_dir = self.comp_root / "generations"
         self.current_link = self.comp_root / "current"
         self.previous_link = self.comp_root / "previous"
@@ -277,7 +287,7 @@ class ServiceSupervisor:
         ensure_private_dir(self.service_dir)
         log_dir = self.service_dir / "log"
         ensure_private_dir(log_dir)
-        log_out = self.home / ".local/state" / self.service_name / "log"
+        log_out = self.home / ".local/state/codex/services" / self.service_name / "log"
         ensure_private_dir(log_out)
 
         stable_bin = self.current_link / self.binary_name

@@ -126,7 +126,7 @@ fn multi_window_disambiguation_and_provider_switch_end_to_end() {
         .spawn()
         .unwrap();
 
-    let sessions_dir = root.join(".local/state/codex-ext/sessions");
+    let sessions_dir = root.join(".local/state/codex/ext/sessions");
     let pids = wait_for_session_count(&sessions_dir, 2);
     assert!(pids.contains(&win1.id()));
     assert!(pids.contains(&win2.id()));
@@ -323,7 +323,7 @@ fn busy_daemon_preflight_blocks_switch_without_disturbing_tui() {
         .stderr(Stdio::null())
         .spawn()
         .unwrap();
-    let _ = wait_for_session_count(&root.join(".local/state/codex-ext/sessions"), 1);
+    let _ = wait_for_session_count(&root.join(".local/state/codex/ext/sessions"), 1);
 
     let sw = Command::new(ext_bin())
         .args(["switch", "szob"])
@@ -444,7 +444,7 @@ fn parent_launcher_survives_sigint_and_fails_closed_on_corrupt_daemon_probe() {
         .stderr(Stdio::null())
         .spawn()
         .unwrap();
-    let _ = wait_for_session_count(&root.join(".local/state/codex-ext/sessions"), 1);
+    let _ = wait_for_session_count(&root.join(".local/state/codex/ext/sessions"), 1);
 
     // Send SIGINT directly to parent codex-ext: parent MUST NOT die!
     unsafe {

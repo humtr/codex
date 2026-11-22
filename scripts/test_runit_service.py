@@ -26,7 +26,7 @@ class RunitSupervisionTests(unittest.TestCase):
             f"echo \"$*\" >> '{self.sv_log}'\n"
             f"if [ -f '{self.root}/sv-fail' ]; then exit 1; fi\n"
             f"if [ \"$1\" = 'restart' ]; then\n"
-            f"  target=$(readlink -f '{self.home}/.local/lib/tunnel-client/current/tunnel-client')\n"
+            f"  target=$(readlink -f '{self.home}/.local/lib/codex/transport/tunnel-client/current/tunnel-client')\n"
             f"  printf '%s' \"$target\" > '{self.root}/running-exe'\n"
             f"  n=$(cat '{self.root}/pid-seq' 2>/dev/null || echo 1001)\n"
             f"  n=$((n + 1))\n"
@@ -37,7 +37,7 @@ class RunitSupervisionTests(unittest.TestCase):
         os.chmod(self.sv_bin, 0o755)
 
     def _install_gen(self, version: str, content: bytes = b"#!/bin/sh\nexit 0\n"):
-        gdir = self.home / ".local/lib/tunnel-client/generations" / version
+        gdir = self.home / ".local/lib/codex/transport/tunnel-client/generations" / version
         gdir.mkdir(parents=True, exist_ok=True)
         b = gdir / "tunnel-client"
         b.write_bytes(content)
@@ -59,7 +59,7 @@ class RunitSupervisionTests(unittest.TestCase):
 
     def _sup(self) -> ServiceSupervisor:
         return ServiceSupervisor(
-            component="tunnel-client",
+            component="transport/tunnel-client",
             binary_name="tunnel-client",
             service_name="termux-shell-tunnel",
             home=self.home,
@@ -86,7 +86,7 @@ class RunitSupervisionTests(unittest.TestCase):
         self.assertTrue(enr["enrolled"])
         run_txt = (self.prefix / "var/service/termux-shell-tunnel/run").read_text()
         # Stable `current` symlink (NEVER hardcoded version path!)
-        self.assertIn(".local/lib/tunnel-client/current/tunnel-client", run_txt)
+        self.assertIn(".local/lib/codex/transport/tunnel-client/current/tunnel-client", run_txt)
         self.assertNotIn("v0.0.20", run_txt)
 
         # Simulate service running v0.0.20

@@ -14,7 +14,7 @@ and [crates/mcp-kit](../../crates/mcp-kit/src/lib.rs).
   state lives authoritatively inside the official `codex app-server daemon`
   queried over its public RFC 6455 WebSocket-over-UDS control socket.
 - **Zero Wrapper/Provider coupling:** Runs as an independent binary
-  (`~/.local/lib/termux-codex-mcp/current/termux-codex-mcp`, `$PREFIX/bin/termux-codex-mcp`)
+  (`~/.local/lib/codex/mcp/termux-codex/current/termux-codex-mcp`, `$PREFIX/bin/termux-codex-mcp`)
   and can be retired cleanly without affecting `codex`, `codex-ext`,
   `@TermuxShell`, or `chatgpt-provider` once official `codex remote-control`
   covers the same mobile workflow.

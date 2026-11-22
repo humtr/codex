@@ -59,6 +59,7 @@ pub fn control_router(state: ControlState) -> Router {
         .route("/control/observe", post(observe_chat))
         .route("/control/stop", post(stop_generation))
         .route("/control/viewer", get(get_viewer))
+        .route("/control/viewer/open", post(open_viewer))
         .route("/control/host/restart", post(restart_host))
         .with_state(state)
 }
@@ -268,6 +269,32 @@ async fn stop_generation(
 async fn get_viewer(State(st): State<ControlState>, headers: HeaderMap) -> Result<Json<Value>> {
     require_bearer(&headers, &st.token)?;
     Ok(Json(st.driver.viewer_info().await?))
+}
+
+async fn open_viewer(State(st): State<ControlState>, headers: HeaderMap) -> Result<Json<Value>> {
+    require_bearer(&headers, &st.token)?;
+    let info = st.driver.viewer_info().await?;
+    let url = info
+        .get("url")
+        .and_then(Value::as_str)
+        .ok_or_else(|| {
+            ProviderError::unavailable(
+                "viewer_unavailable",
+                "viewer is not active (start host and ensure viewer assets are installed)",
+            )
+        })?
+        .to_owned();
+    let prefix = std::path::PathBuf::from(
+        std::env::var_os("PREFIX")
+            .filter(|v| !v.is_empty())
+            .unwrap_or_else(|| "/data/data/com.termux/files/usr".into()),
+    );
+    crate::host::open_android_url(&prefix, &url).await?;
+    Ok(Json(json!({
+        "state": "ok",
+        "viewer_open_requested": true,
+        "url": url
+    })))
 }
 
 async fn restart_host(State(st): State<ControlState>, headers: HeaderMap) -> Result<Json<Value>> {

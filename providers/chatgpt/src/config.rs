@@ -1,7 +1,10 @@
 //! Configuration and private state layout for `chatgpt-provider`.
 //!
-//! All default paths are strictly disjoint from legacy `0.167.2`
-//! (`~/.config/codex/providers/chatgpt.toml` and `~/.cache/codex-web-experiment`).
+//! Unified under the canonical XDG `codex/` namespace with strict role separation:
+//! - Config: `~/.config/codex/providers/chatgpt.toml`
+//! - Immutable host generations: `~/.local/lib/codex/host/chatgpt-desktop/`
+//! - Persistent login profile: `~/.local/share/codex/chatgpt-desktop/profile/`
+//! - Ephemeral runtime state: `~/.local/state/codex/providers/chatgpt/`
 
 use crate::error::{ProviderError, Result};
 use serde::{Deserialize, Serialize};
@@ -25,11 +28,11 @@ pub struct ProviderConfig {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct HostConfig {
-    /// Generation install root (default: `~/.local/lib/chatgpt-desktop`).
+    /// Generation install root (default: `~/.local/lib/codex/host/chatgpt-desktop`).
     pub install_root: Option<PathBuf>,
     /// Optional explicit rootfs override (otherwise `<install_root>/current/rootfs`).
     pub rootfs: Option<PathBuf>,
-    /// Separated persistent login profile dir (default: `~/.local/share/chatgpt-desktop/profile`).
+    /// Separated persistent login profile dir (default: `~/.local/share/codex/chatgpt-desktop/profile`).
     pub profile_dir: Option<PathBuf>,
     /// Optional noVNC static assets directory for `/viewer/{capability}/...`.
     pub viewer_assets: Option<PathBuf>,
@@ -68,7 +71,7 @@ fn default_bind() -> String {
 }
 
 fn default_model() -> String {
-    "gpt-5.4".to_owned()
+    "auto".to_owned()
 }
 
 fn default_reasoning_effort() -> String {
@@ -77,11 +80,10 @@ fn default_reasoning_effort() -> String {
 
 fn default_models() -> Vec<String> {
     vec![
-        "gpt-5.4".to_owned(),
-        "gpt-5.4-mini".to_owned(),
-        "gpt-5".to_owned(),
-        "o3".to_owned(),
-        "o4-mini".to_owned(),
+        "auto".to_owned(),
+        "gpt-5-6".to_owned(),
+        "gpt-5-6-instant".to_owned(),
+        "gpt-5-6-thinking".to_owned(),
     ]
 }
 
@@ -106,7 +108,7 @@ impl Default for ModelConfig {
 
 impl ProviderConfig {
     pub fn default_path(home: &Path) -> PathBuf {
-        home.join(".config/chatgpt-provider/config.toml")
+        home.join(".config/codex/providers/chatgpt.toml")
     }
 
     pub fn load_or_default(path: Option<&Path>, home: &Path) -> Result<Self> {
@@ -153,7 +155,7 @@ impl ProviderConfig {
         self.host
             .install_root
             .clone()
-            .unwrap_or_else(|| home.join(".local/lib/chatgpt-desktop"))
+            .unwrap_or_else(|| home.join(".local/lib/codex/host/chatgpt-desktop"))
     }
 
     pub fn resolved_rootfs(&self, home: &Path) -> PathBuf {
@@ -167,14 +169,25 @@ impl ProviderConfig {
         self.host
             .profile_dir
             .clone()
-            .unwrap_or_else(|| home.join(".local/share/chatgpt-desktop/profile"))
+            .unwrap_or_else(|| home.join(".local/share/codex/chatgpt-desktop/profile"))
+    }
+
+    pub fn resolved_viewer_assets(&self, home: &Path) -> Option<PathBuf> {
+        if let Some(ref explicit) = self.host.viewer_assets {
+            return Some(explicit.clone());
+        }
+        let candidate = self.install_root(home).join("viewer");
+        if candidate.join("vnc.html").is_file() {
+            return Some(candidate);
+        }
+        None
     }
 
     pub fn state_dir(&self, home: &Path) -> PathBuf {
         self.server
             .state_dir
             .clone()
-            .unwrap_or_else(|| home.join(".local/state/chatgpt-provider"))
+            .unwrap_or_else(|| home.join(".local/state/codex/providers/chatgpt"))
     }
 }
 

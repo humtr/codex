@@ -1,7 +1,7 @@
 //! Single provider-owned Linux ChatGPT AppHost lifecycle (PRoot + Xvnc + CDP pipe).
 //!
 //! No separate `codex-chatgpt-host` keepalive service: `chatgpt-provider` owns
-//! its single `OwnedHost` directly, leases `~/.local/share/chatgpt-desktop/profile`
+//! its single `OwnedHost` directly, leases `~/.local/share/codex/chatgpt-desktop/profile`
 //! via non-blocking `flock`, allocates a free X11 display, and cleans up process
 //! groups and verified X11 lock/socket artifacts on drop.
 
@@ -134,29 +134,165 @@ impl Drop for DisplayArtifacts {
 }
 
 /// Minimal allow-listed Android OAuth browser relay for in-app ChatGPT sign-in.
+///
+/// Configures `/ui/bin/xdg-open`, `guest_home/.local/share/applications/codex-termux-auth-browser.desktop`,
+/// and `guest_home/.config/mimeapps.list` so Electron's `shell.openExternal` / `xdg-open` / `gio open`
+/// hands OAuth URLs to the user's real Android browser via `termux-am-socket` instead of a Linux browser.
 struct AuthBrowserRelay {
     task: tokio::task::JoinHandle<()>,
 }
 
-impl AuthBrowserRelay {
-    fn start(guest_home: &Path, ui_dir: &Path, prefix: &Path) -> Result<Self> {
-        const OPENER: &str = "#!/bin/sh\nset -eu\ntest \"$#\" = 1\numask 077\nprintf '%s' \"$1\" > /ui/open-url.tmp\nmv /ui/open-url.tmp /ui/open-url\n";
-        let bin = ui_dir.join("bin");
-        ensure_private_dir(&bin)?;
-        let opener_path = bin.join("xdg-open");
+const AUTH_DESKTOP_NAME: &str = "codex-termux-auth-browser.desktop";
+const AUTH_DESKTOP_ENTRY: &str = "[Desktop Entry]\nType=Application\nName=Termux authentication browser\nExec=/ui/bin/xdg-open %u\nNoDisplay=true\nTerminal=false\nMimeType=x-scheme-handler/http;x-scheme-handler/https;\n";
+const AUTH_OPENER_SCRIPT: &str = "#!/bin/sh\nset -eu\ntest \"$#\" = 1\numask 077\nprintf '%s' \"$1\" > /ui/open-url.tmp\nmv /ui/open-url.tmp /ui/open-url\n";
+
+fn write_private_file(path: &Path, bytes: &[u8], executable: bool) -> Result<()> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| ProviderError::internal("auth_browser_setup_failed", "missing parent"))?;
+    ensure_private_dir(parent)?;
+    let tmp = parent.join(format!(".tmp-{}-{}", std::process::id(), random_hex(4)?));
+    let res = (|| {
         let mut f = OpenOptions::new()
             .write(true)
-            .create(true)
-            .truncate(true)
-            .mode(0o700)
-            .open(&opener_path)
-            .map_err(|e| ProviderError::internal("auth_browser_setup_failed", e.to_string()))?;
-        f.write_all(OPENER.as_bytes())
-            .map_err(|e| ProviderError::internal("auth_browser_setup_failed", e.to_string()))?;
-        let _ = guest_home;
+            .create_new(true)
+            .mode(if executable { 0o700 } else { 0o600 })
+            .custom_flags(libc::O_NOFOLLOW)
+            .open(&tmp)?;
+        f.write_all(bytes)?;
+        f.sync_all()?;
+        fs::rename(&tmp, path)
+    })();
+    if let Err(e) = res {
+        let _ = fs::remove_file(&tmp);
+        return Err(ProviderError::internal(
+            "auth_browser_setup_failed",
+            e.to_string(),
+        ));
+    }
+    Ok(())
+}
+
+pub fn merge_mimeapps_defaults(previous: &str) -> String {
+    let mut output = String::new();
+    let mut in_defaults = false;
+    let mut seen = false;
+    let entries = format!(
+        "x-scheme-handler/http={AUTH_DESKTOP_NAME}\nx-scheme-handler/https={AUTH_DESKTOP_NAME}\n"
+    );
+    for line in previous.lines() {
+        if line.starts_with('[') {
+            if in_defaults {
+                output.push_str(&entries);
+            }
+            in_defaults = line == "[Default Applications]";
+            seen |= in_defaults;
+        } else if in_defaults
+            && (line.starts_with("x-scheme-handler/http=")
+                || line.starts_with("x-scheme-handler/https="))
+        {
+            continue;
+        }
+        output.push_str(line);
+        output.push('\n');
+    }
+    if in_defaults {
+        output.push_str(&entries);
+    }
+    if !seen {
+        output.push_str("[Default Applications]\n");
+        output.push_str(&entries);
+    }
+    output
+}
+
+pub async fn open_android_url(prefix: &Path, url: &str) -> Result<()> {
+    if url.is_empty()
+        || url.len() > 16_383
+        || url
+            .chars()
+            .any(|c| c.is_whitespace() || c.is_control() || matches!(c, '\'' | '"' | ';' | '`'))
+        || !(url.starts_with("https://") || url.starts_with("http://127.0.0.1:"))
+    {
+        return Err(ProviderError::bad_request(
+            "android_url_rejected",
+            "only safe https:// or localhost viewer URLs may be opened on Android",
+        ));
+    }
+    let am_socket = prefix.join("bin/termux-am-socket");
+    if am_socket.is_file() {
+        let output = Command::new(&am_socket)
+            .arg(format!("start -a android.intent.action.VIEW -d {url}"))
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .kill_on_drop(true)
+            .output()
+            .await
+            .map_err(|e| {
+                ProviderError::unavailable("android_browser_launch_failed", e.to_string())
+            })?;
+        let combined = format!(
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        if output.status.success() && !combined.contains("Error:") {
+            return Ok(());
+        }
+        return Err(ProviderError::unavailable(
+            "android_browser_launch_failed",
+            combined.trim().to_owned(),
+        ));
+    }
+    let open_url = prefix.join("bin/termux-open-url");
+    if open_url.is_file() {
+        let status = Command::new(&open_url)
+            .arg(url)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .kill_on_drop(true)
+            .status()
+            .await
+            .map_err(|e| {
+                ProviderError::unavailable("android_browser_launch_failed", e.to_string())
+            })?;
+        if status.success() {
+            return Ok(());
+        }
+    }
+    Err(ProviderError::unavailable(
+        "android_browser_unavailable",
+        "neither termux-am-socket nor termux-open-url succeeded",
+    ))
+}
+
+impl AuthBrowserRelay {
+    fn start(guest_home: &Path, ui_dir: &Path, prefix: &Path) -> Result<Self> {
+        let bin = ui_dir.join("bin");
+        ensure_private_dir(&bin)?;
+        write_private_file(&bin.join("xdg-open"), AUTH_OPENER_SCRIPT.as_bytes(), true)?;
+
+        let apps_dir = guest_home.join(".local/share/applications");
+        ensure_private_dir(&guest_home.join(".local"))?;
+        ensure_private_dir(&guest_home.join(".local/share"))?;
+        ensure_private_dir(&apps_dir)?;
+        write_private_file(
+            &apps_dir.join(AUTH_DESKTOP_NAME),
+            AUTH_DESKTOP_ENTRY.as_bytes(),
+            false,
+        )?;
+
+        let cfg_dir = guest_home.join(".config");
+        ensure_private_dir(&cfg_dir)?;
+        let mime_path = cfg_dir.join("mimeapps.list");
+        let existing = fs::read_to_string(&mime_path).unwrap_or_default();
+        let merged = merge_mimeapps_defaults(&existing);
+        write_private_file(&mime_path, merged.as_bytes(), false)?;
 
         let url_file = ui_dir.join("open-url");
-        let opener_bin = prefix.join("bin/termux-open-url");
+        let prefix_owned = prefix.to_path_buf();
         let task = tokio::spawn(async move {
             let mut ticker = tokio::time::interval(Duration::from_millis(250));
             loop {
@@ -170,14 +306,8 @@ impl AuthBrowserRelay {
                     let _ = file.take(16_384).read_to_string(&mut raw);
                     let _ = fs::remove_file(&url_file);
                     let url = raw.trim();
-                    if is_allowed_oauth_url(url) && opener_bin.is_file() {
-                        let _ = Command::new(&opener_bin)
-                            .arg(url)
-                            .stdin(Stdio::null())
-                            .stdout(Stdio::null())
-                            .stderr(Stdio::null())
-                            .status()
-                            .await;
+                    if is_allowed_oauth_url(url) {
+                        let _ = open_android_url(&prefix_owned, url).await;
                     }
                 }
             }
@@ -193,23 +323,52 @@ impl Drop for AuthBrowserRelay {
 }
 
 pub fn is_allowed_oauth_url(url: &str) -> bool {
-    if url.is_empty() || url.len() > 8192 || url.chars().any(char::is_control) {
+    if url.is_empty()
+        || url.len() > 16_383
+        || url.chars().any(|c| c.is_whitespace() || c.is_control())
+        || url.contains('#')
+    {
         return false;
     }
     let Some(rest) = url.strip_prefix("https://") else {
         return false;
     };
-    let host = rest.split('/').next().unwrap_or("");
-    matches!(
-        host,
-        "auth.openai.com"
-            | "auth0.openai.com"
-            | "chatgpt.com"
-            | "accounts.google.com"
-            | "appleid.apple.com"
-            | "login.microsoftonline.com"
-            | "login.live.com"
-    )
+    let (authority, path_and_query) = match rest.find('/') {
+        Some(idx) => (&rest[..idx], &rest[idx..]),
+        None => (rest, "/"),
+    };
+    if authority.contains('@') {
+        return false;
+    }
+    let host = match authority.split_once(':') {
+        Some((h, "443")) => h,
+        Some(_) => return false,
+        None => authority,
+    };
+    let (path, query) = match path_and_query.split_once('?') {
+        Some((p, q)) => (p, q),
+        None => (path_and_query, ""),
+    };
+    for pair in query.split('&') {
+        let key = pair.split_once('=').map_or(pair, |(k, _)| k);
+        if matches!(key, "id_token" | "access_token" | "refresh_token") {
+            return false;
+        }
+    }
+    match host {
+        "auth.openai.com" | "auth0.openai.com" => {
+            path == "/oauth/authorize"
+                || path.starts_with("/api/accounts/")
+                || path.starts_with("/u/")
+                || path.starts_with("/authorize")
+        }
+        "chatgpt.com" => path == "/codex/desktop-auth" || path.starts_with("/auth/"),
+        "accounts.google.com"
+        | "appleid.apple.com"
+        | "login.microsoftonline.com"
+        | "login.live.com" => true,
+        _ => false,
+    }
 }
 
 fn write_xauthority(path: &Path, display: u16) -> Result<()> {
@@ -238,12 +397,20 @@ fn write_xauthority(path: &Path, display: u16) -> Result<()> {
         .map_err(|e| ProviderError::internal("host_authority_failed", e.to_string()))
 }
 
+struct WindowAdjuster(tokio::task::JoinHandle<()>);
+impl Drop for WindowAdjuster {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
+}
+
 pub struct OwnedHost {
     pub client: CdpClient,
     pub display: u16,
     pub rootfs: PathBuf,
     app: ChildGroup,
     window_manager: Option<ChildGroup>,
+    window_adjuster: Option<WindowAdjuster>,
     display_child: ChildGroup,
     _display_artifacts: DisplayArtifacts,
     _auth_browser: AuthBrowserRelay,
@@ -280,9 +447,11 @@ impl OwnedHost {
         );
         ensure_private_dir(profile_dir)?;
 
-        // Exclusive non-blocking flock lease on a sibling lock file so the
-        // Chromium user-data-dir itself is never directly flock'd.
-        let lock_path = profile_dir.with_extension("lock");
+        // Exclusive non-blocking flock lease on a sibling `<profile_dir>.lock` file
+        // so the Chromium user-data-dir itself is never directly flock'd.
+        let mut lock_os = profile_dir.as_os_str().to_os_string();
+        lock_os.push(".lock");
+        let lock_path = PathBuf::from(lock_os);
         let lease = OpenOptions::new()
             .read(true)
             .write(true)
@@ -301,6 +470,18 @@ impl OwnedHost {
             ));
         }
 
+        // Persist BOTH Electron's Chromium profile (`/root/chromium`) AND its embedded
+        // Codex app-server OAuth credentials (`/root/.codex`) inside `profile_dir` so
+        // authentication survives restarts and rootfs generation upgrades/rollbacks.
+        let chromium_dir = profile_dir.join("chromium");
+        let codex_home_dir = profile_dir.join(".codex");
+        ensure_private_dir(&chromium_dir)?;
+        ensure_private_dir(&codex_home_dir)?;
+        // Safe to clear stale Chromium singleton artifacts because we hold the exclusive flock.
+        for stale in ["SingletonLock", "SingletonSocket", "SingletonCookie"] {
+            let _ = fs::remove_file(chromium_dir.join(stale));
+        }
+
         let tmp_path = std::env::temp_dir().join(format!("cgp-{}", random_hex(4)?));
         fs::DirBuilder::new()
             .mode(0o700)
@@ -308,11 +489,10 @@ impl OwnedHost {
             .map_err(|e| ProviderError::internal("host_temp_failed", e.to_string()))?;
         let temp_dir = TemporaryDir(tmp_path);
         let path = &temp_dir.0;
-        for name in ["guest_home", "guest_home/profile", "tmp", "shm", "links"] {
+        for name in ["tmp", "shm", "links"] {
             ensure_private_dir(&path.join(name))?;
         }
-        let guest_home = path.join("guest_home");
-        let auth_browser = AuthBrowserRelay::start(&guest_home, path, &prefix)?;
+        let auth_browser = AuthBrowserRelay::start(profile_dir, path, &prefix)?;
 
         let socket_root = prefix.join("tmp/.X11-unix");
         let display = (130..1950_u16)
@@ -330,7 +510,7 @@ impl OwnedHost {
         let mut xserver = Command::new(prefix.join("bin/Xvnc"));
         xserver
             .env_clear()
-            .env("HOME", &guest_home)
+            .env("HOME", path)
             .env("PATH", prefix.join("bin"))
             .env("PREFIX", &prefix)
             .env("TMPDIR", path)
@@ -381,7 +561,7 @@ impl OwnedHost {
         let window_manager = if openbox_bin.is_file() {
             let mut wm = Command::new(openbox_bin);
             wm.env_clear()
-                .env("HOME", &guest_home)
+                .env("HOME", path)
                 .env("PATH", prefix.join("bin"))
                 .env("PREFIX", &prefix)
                 .env("DISPLAY", format!(":{display}"))
@@ -415,7 +595,7 @@ impl OwnedHost {
         let mut cmd = Command::new(prefix.join("bin/proot"));
         cmd.env_clear()
             .env("PATH", prefix.join("bin"))
-            .env("HOME", &guest_home)
+            .env("HOME", profile_dir)
             .env("TMPDIR", path)
             .env("PROOT_TMP_DIR", path)
             .env("PROOT_L2S_DIR", path.join("links"))
@@ -432,21 +612,20 @@ impl OwnedHost {
                 "--bind=/sys",
                 "--bind=/dev/urandom:/dev/random",
             ])
-            .arg(format!("--bind={}:/root", guest_home.display()))
-            .arg(format!("--bind={}:/mnt", profile_dir.display()))
+            .arg(format!("--bind={}:/root", profile_dir.display()))
             .arg(format!("--bind={}:/tmp", path.join("tmp").display()))
             .arg(format!("--bind={}:/dev/shm", path.join("shm").display()))
             .arg(format!("--bind={}:/tmp/.X11-unix", socket_root.display()))
-            .arg(format!("--bind={}:/root/.Xauthority", auth.display()))
             .arg(format!("--bind={}:/ui", path.display()))
             .args([
                 "/usr/bin/env",
                 "-i",
                 "HOME=/root",
+                "CODEX_HOME=/root/.codex",
                 "PATH=/ui/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
                 "BROWSER=/ui/bin/xdg-open",
                 "LANG=C.UTF-8",
-                "XAUTHORITY=/root/.Xauthority",
+                "XAUTHORITY=/ui/Xauthority",
             ])
             .arg(format!("DISPLAY=:{display}"))
             .args([
@@ -456,7 +635,7 @@ impl OwnedHost {
                 "--no-sandbox",
                 "--disable-gpu",
                 "--disable-dev-shm-usage",
-                "--user-data-dir=/mnt",
+                "--user-data-dir=/root/chromium",
                 "--remote-debugging-pipe",
             ])
             .stdin(Stdio::null())
@@ -489,6 +668,7 @@ impl OwnedHost {
             rootfs: canonical_rootfs,
             app,
             window_manager,
+            window_adjuster: None,
             display_child,
             _display_artifacts: display_artifacts,
             _auth_browser: auth_browser,
@@ -513,6 +693,34 @@ impl OwnedHost {
             ));
         }
 
+        let wmctrl_bin = prefix.join("bin/wmctrl");
+        if wmctrl_bin.is_file() {
+            let display_str = format!(":{display}");
+            let auth_path = auth.clone();
+            let bin_dir = prefix.join("bin");
+            host.window_adjuster = Some(WindowAdjuster(tokio::spawn(async move {
+                let until = tokio::time::Instant::now() + Duration::from_secs(45);
+                loop {
+                    let ok = Command::new(&wmctrl_bin)
+                        .env_clear()
+                        .env("PATH", &bin_dir)
+                        .env("DISPLAY", &display_str)
+                        .env("XAUTHORITY", &auth_path)
+                        .args(["-r", "ChatGPT", "-b", "add,maximized_vert,maximized_horz"])
+                        .stdin(Stdio::null())
+                        .stdout(Stdio::null())
+                        .stderr(Stdio::null())
+                        .status()
+                        .await
+                        .is_ok_and(|s| s.success());
+                    if ok || tokio::time::Instant::now() >= until {
+                        break;
+                    }
+                    tokio::time::sleep(Duration::from_millis(250)).await;
+                }
+            })));
+        }
+
         Ok(host)
     }
 
@@ -521,6 +729,7 @@ impl OwnedHost {
     }
 
     pub async fn shutdown(&mut self) {
+        self.window_adjuster.take();
         let _ = tokio::time::timeout(
             Duration::from_secs(3),
             self.client.request("Browser.close", json!({}), None),
@@ -541,11 +750,40 @@ mod tests {
     #[test]
     fn oauth_url_allowlist_blocks_arbitrary_hosts_and_schemes() {
         assert!(is_allowed_oauth_url(
-            "https://auth.openai.com/authorize?x=1"
+            "https://auth.openai.com/oauth/authorize?state=1"
         ));
-        assert!(is_allowed_oauth_url("https://accounts.google.com/o/oauth2"));
-        assert!(!is_allowed_oauth_url("http://auth.openai.com/authorize"));
+        assert!(is_allowed_oauth_url(
+            "https://auth.openai.com/api/accounts/login"
+        ));
+        assert!(is_allowed_oauth_url(
+            "https://chatgpt.com/codex/desktop-auth?authorize_url=https%3A%2F%2Fauth.openai.com%2Foauth%2Fauthorize"
+        ));
+        assert!(is_allowed_oauth_url(
+            "https://accounts.google.com/o/oauth2/v2/auth"
+        ));
+        assert!(!is_allowed_oauth_url(
+            "http://auth.openai.com/oauth/authorize"
+        ));
+        assert!(!is_allowed_oauth_url(
+            "https://auth.openai.com/oauth/authorize?access_token=secret"
+        ));
+        assert!(!is_allowed_oauth_url(
+            "https://auth.openai.com/oauth/authorize#frag"
+        ));
+        assert!(!is_allowed_oauth_url(
+            "https://user@auth.openai.com/oauth/authorize"
+        ));
         assert!(!is_allowed_oauth_url("https://evil.example.com/phish"));
         assert!(!is_allowed_oauth_url("file:///etc/passwd"));
+    }
+
+    #[test]
+    fn mimeapps_merge_sets_android_auth_handler_and_preserves_other_entries() {
+        let old = "[Default Applications]\ntext/plain=other.desktop\nx-scheme-handler/http=firefox.desktop\n";
+        let merged = merge_mimeapps_defaults(old);
+        assert!(merged.contains("text/plain=other.desktop"));
+        assert!(merged.contains("x-scheme-handler/http=codex-termux-auth-browser.desktop"));
+        assert!(merged.contains("x-scheme-handler/https=codex-termux-auth-browser.desktop"));
+        assert!(!merged.contains("firefox.desktop"));
     }
 }

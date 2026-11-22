@@ -4,11 +4,11 @@
 //! - Local authenticated `/control/*` control plane for Slice 6 `@TermuxChatGPT`
 //! - Optional capability-scoped `/viewer/{capability}/{*path}` noVNC proxy
 
-use crate::config::ModelConfig;
+use crate::config::{HistoryConfig, ModelConfig};
 use crate::control::{control_router, ControlState};
 use crate::driver::DriverBackend;
 use crate::error::Result;
-use crate::responses::{handle_models, handle_responses};
+use crate::responses::{handle_models, handle_responses, ResponseThreadMap};
 use crate::viewer::{viewer_router, ViewerSlot};
 use axum::{
     extract::State,
@@ -23,17 +23,22 @@ use std::sync::Arc;
 struct AppState {
     driver: Arc<dyn DriverBackend>,
     model_cfg: Arc<ModelConfig>,
+    history_cfg: Arc<HistoryConfig>,
+    threads: Arc<ResponseThreadMap>,
 }
 
 pub fn build_router(
     driver: Arc<dyn DriverBackend>,
     model_cfg: ModelConfig,
+    history_cfg: HistoryConfig,
     control_token: String,
     viewer_slot: ViewerSlot,
 ) -> Router {
     let app_state = AppState {
         driver: Arc::clone(&driver),
         model_cfg: Arc::new(model_cfg),
+        history_cfg: Arc::new(history_cfg),
+        threads: Arc::new(ResponseThreadMap::default()),
     };
     let v1_router = Router::new()
         .route("/healthz", get(healthz))
@@ -61,9 +66,16 @@ async fn healthz(State(st): State<AppState>) -> Json<Value> {
 }
 
 async fn v1_models(State(st): State<AppState>) -> Json<Value> {
-    handle_models(&st.model_cfg)
+    handle_models(Arc::clone(&st.driver), &st.model_cfg).await
 }
 
 async fn v1_responses(State(st): State<AppState>, Json(body): Json<Value>) -> Result<Response> {
-    handle_responses(Arc::clone(&st.driver), &st.model_cfg, body).await
+    handle_responses(
+        Arc::clone(&st.driver),
+        &st.model_cfg,
+        &st.history_cfg,
+        &st.threads,
+        body,
+    )
+    .await
 }
