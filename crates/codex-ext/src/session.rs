@@ -40,6 +40,19 @@ pub fn handoff_file_path(paths: &ExtPaths, parent_pid: u32) -> PathBuf {
     paths.handoff_dir.join(format!("{parent_pid}.json"))
 }
 
+pub fn normalize_match_path(path: &Path) -> String {
+    if let Ok(canon) = fs::canonicalize(path) {
+        return canon.display().to_string();
+    }
+    let s = path.display().to_string();
+    let trimmed = s.trim_end_matches('/');
+    if trimmed.is_empty() {
+        "/".to_owned()
+    } else {
+        trimmed.to_owned()
+    }
+}
+
 pub fn register_current_session(
     paths: &ExtPaths,
     account: &str,
@@ -53,8 +66,8 @@ pub fn register_current_session(
         pid,
         start_ticks,
         account: account.to_owned(),
-        codex_home: codex_home.display().to_string(),
-        cwd: cwd.display().to_string(),
+        codex_home: normalize_match_path(codex_home),
+        cwd: normalize_match_path(cwd),
         provider: provider.map(ToOwned::to_owned),
         created_at_ms: now_millis(),
     };
@@ -150,8 +163,8 @@ pub fn find_matching_session(
             )),
         };
     }
-    let home_str = current_codex_home.display().to_string();
-    let cwd_str = current_cwd.display().to_string();
+    let home_str = normalize_match_path(current_codex_home);
+    let cwd_str = normalize_match_path(current_cwd);
     let matches: Vec<SessionRecord> = live
         .into_iter()
         .filter(|s| s.codex_home == home_str && s.cwd == cwd_str)

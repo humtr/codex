@@ -109,8 +109,45 @@ fn is_top_level_notify_key(trimmed: &str) -> bool {
     rest.starts_with('=')
 }
 
+/// Count bracket balance change (`[` vs `]`) on a TOML line outside strings and comments.
+fn toml_bracket_delta(line: &str) -> i32 {
+    let bytes = line.as_bytes();
+    let mut i = 0usize;
+    let mut delta = 0i32;
+    let mut in_double = false;
+    let mut in_single = false;
+    while i < bytes.len() {
+        let b = bytes[i];
+        if in_double {
+            if b == b'\\' {
+                i += 2;
+                continue;
+            }
+            if b == b'"' {
+                in_double = false;
+            }
+        } else if in_single {
+            if b == b'\'' {
+                in_single = false;
+            }
+        } else {
+            match b {
+                b'#' => break,
+                b'"' => in_double = true,
+                b'\'' => in_single = true,
+                b'[' => delta += 1,
+                b']' => delta -= 1,
+                _ => {}
+            }
+        }
+        i += 1;
+    }
+    delta
+}
+
 /// Atomically set or remove top-level `notify = ["codex-ext", "notify", "emit", "Stop"]`
 /// in `~/.codex/config.toml` while preserving all comments, formatting, and tables.
+/// Correctly handles both single-line and multi-line TOML `notify = [...]` arrays.
 pub fn sync_config_toml_stop_notify(config_path: &Path, enable_stop: bool) -> Result<(), String> {
     let existing = if fs::symlink_metadata(config_path).is_ok() {
         require_owned_regular_file(config_path, "config.toml")?;
@@ -120,11 +157,14 @@ pub fn sync_config_toml_stop_notify(config_path: &Path, enable_stop: bool) -> Re
         String::new()
     };
 
+    let lines: Vec<&str> = existing.lines().collect();
     let mut out_lines: Vec<String> = Vec::new();
     let mut in_top_level = true;
     let mut inserted = false;
+    let mut idx = 0usize;
 
-    for line in existing.lines() {
+    while idx < lines.len() {
+        let line = lines[idx];
         let trimmed = line.trim();
         if in_top_level && trimmed.starts_with('[') {
             if enable_stop && !inserted {
@@ -133,21 +173,35 @@ pub fn sync_config_toml_stop_notify(config_path: &Path, enable_stop: bool) -> Re
             }
             in_top_level = false;
             out_lines.push(line.to_owned());
+            idx += 1;
             continue;
         }
         if in_top_level && is_top_level_notify_key(trimmed) {
+            // Capture the full value block (single-line or multi-line array).
+            let mut block = vec![line];
+            let mut depth = toml_bracket_delta(line);
+            while depth > 0 && idx + 1 < lines.len() {
+                idx += 1;
+                block.push(lines[idx]);
+                depth += toml_bracket_delta(lines[idx]);
+            }
+            let block_text = block.join("\n");
             if enable_stop {
                 if !inserted {
                     out_lines.push(STOP_NOTIFY_LINE.to_owned());
                     inserted = true;
                 }
-            } else if !trimmed.contains("codex-ext") {
+            } else if !block_text.contains("codex-ext") {
                 // Preserve non-codex-ext user notify command when disabling.
-                out_lines.push(line.to_owned());
+                for b_line in block {
+                    out_lines.push(b_line.to_owned());
+                }
             }
+            idx += 1;
             continue;
         }
         out_lines.push(line.to_owned());
+        idx += 1;
     }
 
     if enable_stop && !inserted {
@@ -459,6 +513,17 @@ mod tests {
         assert!(!after_off.contains(STOP_NOTIFY_LINE));
         assert!(after_off.contains("# user header\nmodel = \"gpt-5.4\"\n"));
         assert!(after_off.contains("[tui]\n# keep comment\nfullscreen = true\n"));
+
+        // Multiline existing notify array is cleanly replaced without leaving orphan lines
+        let multi = "model = \"gpt-5.4\"\nnotify = [\n  \"old-tool\",\n  \"--arg\" # comment [ignored]\n]\n\n[tui]\nfullscreen = true\n";
+        fs::write(&cfg, multi).unwrap();
+        sync_config_toml_stop_notify(&cfg, true).unwrap();
+        let after_multi = fs::read_to_string(&cfg).unwrap();
+        assert!(!after_multi.contains("old-tool"));
+        assert!(!after_multi.contains("--arg"));
+        assert!(after_multi.contains(STOP_NOTIFY_LINE));
+        assert!(after_multi.contains("[tui]\nfullscreen = true\n"));
+
         let _ = fs::remove_dir_all(&dir);
     }
 

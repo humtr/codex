@@ -189,11 +189,43 @@ jobs:
           assets=("$dist/$tarball" "$dist/$tarball.sha256" "$dist/SHA256SUMS" "$dist/SHA256SUMS.sig")
           notes="Termux codex-ext (cdx) standalone companion ($TAG, commit $GITHUB_SHA, sequence $seq)."
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            # Enforce publisher-side monotonic sequence against existing signed release
+            prev_dir="$RUNNER_TEMP/prev-seq"
+            rm -rf "$prev_dir" && mkdir -p "$prev_dir"
+            if gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern SHA256SUMS --dir "$prev_dir" >/dev/null 2>&1; then
+              PYTHONDONTWRITEBYTECODE=1 python3 - "$prev_dir/SHA256SUMS" "$seq" <<'PYSEQ'
+          import importlib.util, sys
+          from pathlib import Path
+          spec = importlib.util.spec_from_file_location('release_sign', '.github/scripts/release_sign.py')
+          rs = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(rs)
+          prev = rs.parse_sums(Path(sys.argv[1]).read_bytes())
+          cur_seq = int(sys.argv[2])
+          if prev['component'] == 'codex-ext' and cur_seq <= prev['sequence']:
+              raise SystemExit(f"codex-ext sequence {cur_seq} must exceed published sequence {prev['sequence']}")
+          PYSEQ
+            fi
             gh release upload "$TAG" "${assets[@]}" --repo "$GITHUB_REPOSITORY" --clobber
-            gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --notes "$notes" \
-              $( [ "$PRERELEASE" = "true" ] && echo "--prerelease" || echo "--prerelease=false" )
+            edit_flags=(--repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --notes "$notes")
+            if [ "$PRERELEASE" = "true" ]; then
+              edit_flags+=(--prerelease)
+            else
+              edit_flags+=(--prerelease=false)
+            fi
+            gh release edit "$TAG" "${edit_flags[@]}"
           else
-            gh release create "$TAG" "${assets[@]}" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
-              --title "Termux codex-ext ($TAG)" --notes "$notes" \
-              $( [ "$PRERELEASE" = "true" ] && echo "--prerelease" || true )
+            create_flags=(--repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "Termux codex-ext ($TAG)" --notes "$notes")
+            if [ "$PRERELEASE" = "true" ]; then
+              create_flags+=(--prerelease)
+            fi
+            gh release create "$TAG" "${assets[@]}" "${create_flags[@]}"
           fi
+          # Mandatory post-upload readback verification against pinned repo public key
+          rb="$RUNNER_TEMP/readback"
+          rm -rf "$rb" && mkdir -p "$rb"
+          for name in "$tarball" SHA256SUMS SHA256SUMS.sig; do
+            gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern "$name" --dir "$rb"
+          done
+          PYTHONDONTWRITEBYTECODE=1 python3 .github/scripts/release_sign.py verify \
+            --component codex-ext --dist "$rb" --public-key release/release-public-key.pem \
+            --min-sequence "$seq"

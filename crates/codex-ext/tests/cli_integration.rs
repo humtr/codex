@@ -415,6 +415,90 @@ fn notify_set_show_and_emit_dry_run_work_for_stop_and_hooks_json() {
     let _ = fs::remove_dir_all(&root);
 }
 
+#[test]
+fn parent_launcher_survives_sigint_and_fails_closed_on_corrupt_daemon_probe() {
+    let root = temp_root("cdx-sigint-failclosed");
+    let work_real = root.join("work-real");
+    let work_link = root.join("work-link");
+    let tmp = root.join("tmp");
+    let codex_home = root.join(".codex");
+    fs::create_dir_all(&work_real).unwrap();
+    fs::create_dir_all(&tmp).unwrap();
+    fs::create_dir_all(codex_home.join("app-server-control")).unwrap();
+    std::os::unix::fs::symlink(&work_real, &work_link).unwrap();
+
+    // Fake codex catches SIGINT (like Codex TUI!) and exits cleanly after 250ms.
+    let fake_codex = root.join("usr/bin/codex");
+    fs::create_dir_all(fake_codex.parent().unwrap()).unwrap();
+    fs::write(&fake_codex, "#!/bin/sh\ntrap '' INT\nsleep 0.4\nexit 0\n").unwrap();
+    fs::set_permissions(&fake_codex, fs::Permissions::from_mode(0o755)).unwrap();
+
+    let mut parent = Command::new(ext_bin())
+        .current_dir(&work_link)
+        .env("HOME", &root)
+        .env("PREFIX", root.join("usr"))
+        .env("TMPDIR", &tmp)
+        .env("CODEX_EXT_CODEX_BIN", &fake_codex)
+        .env_remove("CODEX_HOME")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let _ = wait_for_session_count(&root.join(".local/state/codex-ext/sessions"), 1);
+
+    // Send SIGINT directly to parent codex-ext: parent MUST NOT die!
+    unsafe {
+        libc::kill(parent.id() as libc::pid_t, libc::SIGINT);
+    }
+    thread::sleep(Duration::from_millis(80));
+    assert!(
+        parent.try_wait().unwrap().is_none(),
+        "parent codex-ext must survive SIGINT while child runs"
+    );
+    let st = parent.wait().unwrap();
+    assert_eq!(st.code(), Some(0));
+
+    // Now bind a broken UDS socket that immediately sends invalid HTTP (not 101)
+    let broken_sock = tmp.join("broken.sock");
+    let listener = UnixListener::bind(&broken_sock).unwrap();
+    std::os::unix::fs::symlink(
+        "/proc/self/fd/35/broken.sock",
+        codex_home.join("app-server-control/app-server-control.sock"),
+    )
+    .unwrap();
+    let srv = thread::spawn(move || {
+        if let Ok((mut s, _)) = listener.accept() {
+            let _ = s.write_all(b"HTTP/1.1 500 Internal Server Error\r\n\r\n");
+        }
+    });
+
+    Command::new(ext_bin())
+        .args(["profile", "create", "szob"])
+        .env("HOME", &root)
+        .env("PREFIX", root.join("usr"))
+        .env("TMPDIR", &tmp)
+        .env("CODEX_EXT_CODEX_BIN", &fake_codex)
+        .status()
+        .unwrap();
+
+    // Standalone switch against broken daemon MUST fail closed (not treat daemon as NotRunning!)
+    let r = Command::new(ext_bin())
+        .args(["switch", "szob"])
+        .current_dir(&work_real)
+        .env("HOME", &root)
+        .env("PREFIX", root.join("usr"))
+        .env("TMPDIR", &tmp)
+        .env("CODEX_EXT_CODEX_BIN", &fake_codex)
+        .env_remove("CODEX_HOME")
+        .output()
+        .unwrap();
+    assert!(!r.status.success());
+    let err = String::from_utf8_lossy(&r.stderr);
+    assert!(err.contains("fail-closed"), "{err}");
+    srv.join().unwrap();
+    let _ = fs::remove_dir_all(&root);
+}
+
 fn send_ws_unmasked(writer: &mut UnixStream, payload: &[u8]) {
     let mut hdr = vec![0x81u8];
     if payload.len() < 126 {
