@@ -164,10 +164,13 @@ Slice 1: Wrapper 슬림화 + 공용 SHA256SUMS.sig 경량 Ed25519 서명·배포
 
 ---
 
-## 5. Slice 1 체크리스트 (즉시 실행)
+## 5. Slice 1 체크리스트 (완료 — `main` `3ea207cb` · 실기기 컷오버 마감)
 
 - [x] 덩어리 1·2·3 설계 확정 및 `HANDOFF.md` 고정.
 - [x] [SPEC.md](SPEC.md), [docs/ROADMAP.md](docs/ROADMAP.md), [docs/spec/DELIVERY.md](docs/spec/DELIVERY.md) 규범 동기화.
 - [x] Wrapper Phase 2.1 잔여 코드 제거 (`system_config.rs`, `extensions.rs` 제거 및 [wrapper_cli.rs](crates/wrapper/src/wrapper_cli.rs) 슬림화, 관련 호출부·테스트·[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)·[wrapper-verify.yml](.github/workflows/wrapper-verify.yml) 정리).
 - [x] 공용 경량 `SHA256SUMS.sig` Ed25519 서명/검증 구현 ([release_sign.py](.github/scripts/release_sign.py), [publish_wrapper_release.py](.github/scripts/publish_wrapper_release.py), [wrapper.yml](.github/workflows/wrapper.yml), [install.sh](install.sh) 사전 검증 + sequence anti-rollback + `release-public-key.pem` 핀/로테이션 검증).
 - [x] 출구 게이트: `cargo fmt --check`, `cargo clippy --workspace --all-targets --locked -- -D warnings`, `cargo test --workspace --locked` (umask `0022`/`0077`), `python3 -m unittest discover -s .github/scripts`, `check_doc_links.py`, `shellcheck install.sh`, 서명 변조·다운그레이드·로테이션·미서명 로컬 폴백 테스트 통과.
+- [x] Stage 2 전용 Ed25519 키 프로비저닝(`CODEX_SIGNING_KEY`, 공개키 핀 `0df170da...`), `main` 승격 및 [Wrapper CI run 44997871190](https://github.com/humtr/codex/actions/runs/44997871190) 서명 `wrapper` 릴리스 발행(`sequence=1`, `prerelease=false`), 실기기 Termux `--require-signed --skip-upstream` 컷오버 완료 (상세 영수증 [CURRENT.md](CURRENT.md)).
+
+> **다음 착수:** **Slice 2 (`crates/codex-daemon-client` + `crates/codex-ext` / `cdx`)** — 신규 브랜치(`stage2/slice-2-codex-ext`)에서 [docs/spec/USER_INTERFACES.md](docs/spec/USER_INTERFACES.md) 슬림화 및 구현·검증 착수.
