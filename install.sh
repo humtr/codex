@@ -8,8 +8,12 @@ DEFAULT_PREFIX='/data/data/com.termux/files/usr'
 DEFAULT_REPO='humtr/codex'
 DEFAULT_RELEASE_TAG='wrapper'
 ASSET_NAME='codex-wrapper-aarch64-linux-android.tar.gz'
+PINNED_RELEASE_PUBKEY_SHA256=''
 MAX_TARBALL_BYTES=20971520
 MAX_SHA256_BYTES=4096
+MAX_SUMS_BYTES=65536
+MAX_PUBKEY_BYTES=4096
+ED25519_SIG_BYTES=64
 
 fail() {
   printf '%s\n' "codex install: $*" >&2
@@ -33,6 +37,9 @@ Options:
   --release <TAG>    Download tarball from GitHub Releases tag (default: wrapper)
   --repo <OWNER/REPO>
                      GitHub repository for --release (default: humtr/codex)
+  --verify-key <PEM> Ed25519 public key PEM used to verify release SHA256SUMS.sig
+  --key-sha256 <HEX> Pin expected 64-hex SHA-256 digest of the verifier public key
+  --require-signed   Fail closed if no verifier key or SHA256SUMS.sig is available
   --version <X.Y.Z>  Install a specific upstream Codex version after wrapper install
   --skip-upstream    Install wrapper only without running `codex update --upstream`
   --recover          Reconcile a verified interrupted install (no updater replay)
@@ -105,7 +112,7 @@ verify_sha256_file() {
   require_regular_file "$sum_file" 'checksum file'
   if [ -n "$expected_entry" ]; then
     expected=$(awk -v name="$expected_entry" '
-      $2 == name || $2 == "./" name || $2 == "*" name { print $1; count++ }
+      !/^#/ && ($2 == name || $2 == "./" name || $2 == "*" name) { print $1; count++ }
       END { if (count != 1) exit 1 }
     ' "$sum_file" 2>/dev/null) || fail "missing unique SHA-256 entry for $expected_entry in $sum_file"
   else
@@ -132,6 +139,107 @@ fetch_https() {
   case $size in ''|*[!0-9]*) fail "invalid downloaded byte size for $out" ;; esac
   if [ "$size" -le 0 ] || [ "$size" -gt "$max_bytes" ]; then
     fail "downloaded file out of bounds: $out"
+  fi
+}
+
+fetch_optional_https() {
+  url=$1
+  out=$2
+  max_bytes=$3
+  curl_bin=$(find_tool curl) || fail 'curl is required to download release assets'
+  if ! "$curl_bin" --fail --silent --location \
+    --proto '=https' --proto-redir '=https' --tlsv1.2 \
+    --connect-timeout 15 --max-time 60 --max-filesize "$max_bytes" \
+    --output "$out" "$url" 2>/dev/null; then
+    rm -f "$out"
+    return 1
+  fi
+  require_regular_file "$out" 'downloaded optional asset'
+  size=$(wc -c < "$out" | tr -d '[:space:]')
+  case $size in ''|*[!0-9]*) rm -f "$out"; return 1 ;; esac
+  if [ "$size" -le 0 ] || [ "$size" -gt "$max_bytes" ]; then
+    rm -f "$out"
+    fail "downloaded optional file out of bounds: $out"
+  fi
+  return 0
+}
+
+verify_ed25519_sig() {
+  v_openssl=$1
+  v_pubkey=$2
+  v_data=$3
+  v_sig=$4
+  require_regular_file "$v_pubkey" 'Ed25519 public key'
+  require_regular_file "$v_data" 'signed payload'
+  require_regular_file "$v_sig" 'Ed25519 signature'
+  v_sig_size=$(wc -c < "$v_sig" | tr -d '[:space:]')
+  [ "$v_sig_size" = "$ED25519_SIG_BYTES" ] ||
+    fail "Ed25519 signature must be $ED25519_SIG_BYTES bytes (got $v_sig_size)"
+  "$v_openssl" pkeyutl -verify -pubin -inkey "$v_pubkey" -rawin \
+    -in "$v_data" -sigfile "$v_sig" >/dev/null 2>&1 ||
+    fail "Ed25519 signature verification failed for $(basename -- "$v_data")"
+}
+
+verify_signed_sums_headers() {
+  sums_file=$1
+  h_fmt=$(sed -n '1p' "$sums_file")
+  h_cmp=$(sed -n '2p' "$sums_file")
+  h_seq=$(sed -n '3p' "$sums_file")
+  h_cmt=$(sed -n '4p' "$sums_file")
+  [ "$h_fmt" = '# format=codex-release-sums-v1' ] ||
+    fail "unexpected SHA256SUMS format header: $h_fmt"
+  [ "$h_cmp" = '# component=wrapper' ] ||
+    fail "unexpected SHA256SUMS component header: $h_cmp"
+  case $h_seq in
+    '# sequence='[1-9]*)
+      seq_val=${h_seq#'# sequence='}
+      case $seq_val in *[!0-9]*) fail "malformed SHA256SUMS sequence: $h_seq" ;; esac
+      ;;
+    *) fail "missing or invalid SHA256SUMS sequence header: $h_seq" ;;
+  esac
+  case $h_cmt in
+    '# commit='*)
+      cmt_val=${h_cmt#'# commit='}
+      [ "${#cmt_val}" -eq 40 ] || fail "malformed SHA256SUMS commit header"
+      case $cmt_val in *[!0-9a-f]*) fail "malformed SHA256SUMS commit hex" ;; esac
+      ;;
+    *) fail "missing SHA256SUMS commit header" ;;
+  esac
+  printf '%s\n' "$seq_val"
+}
+
+read_recorded_release_sequence() {
+  seq_file=$1
+  if [ ! -e "$seq_file" ] && [ ! -L "$seq_file" ]; then
+    printf '0\n'
+    return 0
+  fi
+  require_regular_file "$seq_file" 'release sequence file'
+  rec=$(tr -d '\r\n' < "$seq_file")
+  case $rec in
+    ''|*[!0-9]*) fail "corrupt release sequence file: $seq_file" ;;
+  esac
+  printf '%s\n' "$rec"
+}
+
+persist_signed_release_state() {
+  state_dir="$HOME/.local/share/codex/wrapper"
+  key_dir="$HOME/.local/lib/codex/wrapper"
+  mkdir -p "$state_dir" "$key_dir"
+  chmod 0700 "$state_dir" "$key_dir"
+  seq_tmp="$state_dir/.release-sequence.tmp.$$"
+  printf '%s\n' "$verified_release_sequence" > "$seq_tmp"
+  chmod 0600 "$seq_tmp"
+  install_sync "$seq_tmp"
+  mv -f "$seq_tmp" "$state_dir/release-sequence"
+  install_sync "$state_dir"
+  if [ -n "$verified_active_pubkey" ]; then
+    key_tmp="$key_dir/.release-public-key.pem.tmp.$$"
+    cp "$verified_active_pubkey" "$key_tmp"
+    chmod 0600 "$key_tmp"
+    install_sync "$key_tmp"
+    mv -f "$key_tmp" "$key_dir/release-public-key.pem"
+    install_sync "$key_dir"
   fi
 }
 
@@ -396,6 +504,11 @@ repo=$DEFAULT_REPO
 release_tag=''
 source_mode=''
 binary_path=''
+verify_key=''
+key_sha256=$PINNED_RELEASE_PUBKEY_SHA256
+require_signed=0
+verified_release_sequence=''
+verified_active_pubkey=''
 upstream_version=''
 skip_upstream=0
 recover_only=0
@@ -430,6 +543,22 @@ while [ "$#" -gt 0 ]; do
       require_value "$1" "${2:-}"
       repo=$2
       shift 2
+      ;;
+    --verify-key)
+      require_value "$1" "${2:-}"
+      verify_key=$2
+      shift 2
+      ;;
+    --key-sha256)
+      require_value "$1" "${2:-}"
+      [ "${#2}" -eq 64 ] || fail '--key-sha256 must be 64 lowercase hex characters'
+      case $2 in *[!0-9a-f]*) fail '--key-sha256 must be 64 lowercase hex characters' ;; esac
+      key_sha256=$2
+      shift 2
+      ;;
+    --require-signed)
+      require_signed=1
+      shift
       ;;
     --version)
       require_value "$1" "${2:-}"
@@ -670,11 +799,61 @@ case $source_mode in
     base_url="https://github.com/$repo/releases/download/$release_tag"
     tarball="$work/$ASSET_NAME"
     tarball_sha="$work/$ASSET_NAME.sha256"
-    note "downloading $ASSET_NAME from tag $release_tag ($repo)"
-    fetch_https "$base_url/$ASSET_NAME" "$tarball" "$MAX_TARBALL_BYTES"
-    fetch_https "$base_url/$ASSET_NAME.sha256" "$tarball_sha" "$MAX_SHA256_BYTES"
-    verify_sha256_file "$tarball" "$tarball_sha"
-    note 'verified release archive SHA-256'
+
+    default_key="$HOME/.local/lib/codex/wrapper/release-public-key.pem"
+    if [ -z "$verify_key" ] && { [ -e "$default_key" ] || [ -L "$default_key" ]; }; then
+      verify_key=$default_key
+    fi
+    if [ -n "$verify_key" ] || [ "$require_signed" -eq 1 ] || [ -n "$key_sha256" ]; then
+      [ -n "$verify_key" ] ||
+        fail 'signed release verification requested, but no --verify-key or installed release-public-key.pem was found'
+      require_regular_file "$verify_key" 'verifier public key'
+      key_size=$(wc -c < "$verify_key" | tr -d '[:space:]')
+      [ "$key_size" -gt 0 ] && [ "$key_size" -le "$MAX_PUBKEY_BYTES" ] ||
+        fail "verifier public key out of bounds: $verify_key"
+      if [ -n "$key_sha256" ]; then
+        actual_key_sha=$(sha256_hex "$verify_key")
+        [ "$actual_key_sha" = "$key_sha256" ] ||
+          fail "verifier public key SHA-256 mismatch (expected $key_sha256, got $actual_key_sha)"
+      fi
+      openssl_bin=$(find_tool openssl) ||
+        fail 'openssl is required for Ed25519 signed release verification'
+      sums_file="$work/SHA256SUMS"
+      sig_file="$work/SHA256SUMS.sig"
+      note "downloading signed SHA256SUMS from tag $release_tag ($repo)"
+      fetch_https "$base_url/SHA256SUMS" "$sums_file" "$MAX_SUMS_BYTES"
+      fetch_https "$base_url/SHA256SUMS.sig" "$sig_file" "$ED25519_SIG_BYTES"
+
+      active_key="$verify_key"
+      rot_sig="$work/release-public-key.pem.sig"
+      rot_key="$work/release-public-key.pem"
+      if fetch_optional_https "$base_url/release-public-key.pem.sig" "$rot_sig" "$ED25519_SIG_BYTES"; then
+        fetch_https "$base_url/release-public-key.pem" "$rot_key" "$MAX_PUBKEY_BYTES"
+        verify_ed25519_sig "$openssl_bin" "$verify_key" "$rot_key" "$rot_sig"
+        active_key="$rot_key"
+        note 'verified Ed25519 key rotation'
+      fi
+      verify_ed25519_sig "$openssl_bin" "$active_key" "$sums_file" "$sig_file"
+      seq_val=$(verify_signed_sums_headers "$sums_file")
+      prev_seq=$(read_recorded_release_sequence "$HOME/.local/share/codex/wrapper/release-sequence")
+      if [ "$seq_val" -lt "$prev_seq" ]; then
+        fail "release sequence rollback rejected (got $seq_val, installed $prev_seq)"
+      fi
+      verified_release_sequence=$seq_val
+      verified_active_pubkey=$active_key
+      note "verified Ed25519 release signature (sequence $seq_val)"
+
+      note "downloading $ASSET_NAME from tag $release_tag ($repo)"
+      fetch_https "$base_url/$ASSET_NAME" "$tarball" "$MAX_TARBALL_BYTES"
+      verify_sha256_file "$tarball" "$sums_file" "$ASSET_NAME"
+      note 'verified release archive SHA-256 against signed SHA256SUMS'
+    else
+      note "downloading $ASSET_NAME from tag $release_tag ($repo)"
+      fetch_https "$base_url/$ASSET_NAME" "$tarball" "$MAX_TARBALL_BYTES"
+      fetch_https "$base_url/$ASSET_NAME.sha256" "$tarball_sha" "$MAX_SHA256_BYTES"
+      verify_sha256_file "$tarball" "$tarball_sha"
+      note 'verified release archive SHA-256'
+    fi
 
     if "$tar_bin" -tzf "$tarball" | grep -E '(^/|(^|/)\.\.(/|$))' >/dev/null 2>&1; then
       fail 'release tarball contains unsafe path entries'
@@ -761,6 +940,9 @@ write_install_phase swapped
 note "installed codex wrapper to $dest_bin"
 
 if [ "$skip_upstream" -eq 1 ]; then
+  if [ -n "$verified_release_sequence" ]; then
+    persist_signed_release_state
+  fi
   note "skipped upstream bootstrap (--skip-upstream); run '$dest_bin update --upstream' when ready"
   install_committed=1
   exit 0
@@ -826,5 +1008,8 @@ if [ -x /system/bin/linker64 ]; then
   note "installation complete; try '$dest_bin doctor' or '$dest_bin wrapper status'"
 else
   note "non-Android host detected; skipping on-device upstream bootstrap"
+fi
+if [ -n "$verified_release_sequence" ]; then
+  persist_signed_release_state
 fi
 install_committed=1

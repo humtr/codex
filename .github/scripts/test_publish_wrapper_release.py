@@ -91,7 +91,9 @@ class FakeGh:
             import json
             return SimpleNamespace(returncode=0, stdout=json.dumps(body), stderr="")
         if argv[1:3] == ["release", "upload"]:
-            for path in argv[4:8]:
+            for path in argv[4:]:
+                if path.startswith("--"):
+                    break
                 file = Path(path)
                 self.assets[file.name] = file.read_bytes()
                 if self.fault == "partial-upload":
@@ -119,7 +121,9 @@ class FakeGh:
                 "body": argv[argv.index("--notes") + 1],
                 "prerelease": "--prerelease" in argv,
             }
-            for path in argv[4:8]:
+            for path in argv[4:]:
+                if path.startswith("--"):
+                    break
                 file = Path(path)
                 self.assets[file.name] = file.read_bytes()
             return SimpleNamespace(returncode=0, stdout="", stderr="")
@@ -129,6 +133,8 @@ class FakeGh:
             value = self.assets[name]
             if name == publish.ARCHIVE and self.fault == "corrupt-readback":
                 value += b"unauthorized-extra-byte"
+            if name == "SHA256SUMS.sig" and self.fault == "corrupt-sig-readback":
+                value = bytes([value[0] ^ 0xFF]) + value[1:]
             dest.write_bytes(value)
             return SimpleNamespace(returncode=0, stdout="", stderr="")
         raise AssertionError(f"unexpected fake gh invocation: {argv}")
@@ -268,6 +274,35 @@ class PublicationTests(unittest.TestCase):
         text = (Path(__file__).resolve().parents[1] / "workflows/wrapper.yml").read_text()
         self.assertIn("wrapper-publish-", text)
         self.assertIn("cancel-in-progress: false", text)
+
+    def test_signed_publication_and_readback_verify_ed25519_signature(self):
+        import subprocess
+        priv = Path(self.temp.name) / "ed25519.priv.pem"
+        subprocess.run(
+            ["openssl", "genpkey", "-algorithm", "ED25519", "-out", str(priv)],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        fake = FakeGh(existing=False)
+        output = StringIO()
+        with redirect_stdout(output):
+            publish.Publication(
+                REPO, TAG, SOURCE, self.dist,
+                dispatch=True, prerelease=False,
+                signing_key=priv, sequence=7, runner=fake,
+            ).publish()
+        self.assertIn("SHA256SUMS.sig", fake.assets)
+        self.assertEqual(len(fake.assets), 5)
+        self.assertRegex(output.getvalue(), r"signed=True sequence=7 key_sha256=[0-9a-f]{64}")
+
+        bad_fake = FakeGh(existing=False, fault="corrupt-sig-readback")
+        with self.assertRaisesRegex(publish.PublicationError, "asset bytes differ"):
+            publish.Publication(
+                REPO, TAG, SOURCE, self.dist,
+                dispatch=True, prerelease=False,
+                signing_key=priv, sequence=8, runner=bad_fake,
+            ).publish()
 
 
 if __name__ == "__main__":

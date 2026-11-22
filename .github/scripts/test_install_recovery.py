@@ -557,6 +557,144 @@ exit 22
         self.assertFalse(self.has_lock())
         self.assertFalse(self.old_bytes())
 
+    def _build_signed_release_dir(self, release_dir: Path, priv: Path, sequence: int,
+                                  payload_script: bytes, rot_pub: Path | None = None,
+                                  rot_sig: Path | None = None):
+        import importlib.util, tarfile
+        spec = importlib.util.spec_from_file_location(
+            "release_sign", Path(__file__).with_name("release_sign.py")
+        )
+        rs = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(rs)
+
+        release_dir.mkdir(parents=True, exist_ok=True)
+        bundle = release_dir / "_bundle"
+        (bundle / "bin").mkdir(parents=True, exist_ok=True)
+        bin_path = bundle / "bin/codex"
+        bin_path.write_bytes(payload_script)
+        bin_path.chmod(0o755)
+        bin_sha = hashlib.sha256(payload_script).hexdigest()
+        (bundle / "SHA256SUMS").write_text(f"{bin_sha}  bin/codex\n")
+        tarball = release_dir / "codex-wrapper-aarch64-linux-android.tar.gz"
+        with tarfile.open(tarball, "w:gz") as tf:
+            tf.add(bin_path, arcname="bin/codex")
+            tf.add(bundle / "SHA256SUMS", arcname="SHA256SUMS")
+        tar_sha = hashlib.sha256(tarball.read_bytes()).hexdigest()
+        (release_dir / "codex-wrapper-aarch64-linux-android.tar.gz.sha256").write_text(
+            f"{tar_sha}  codex-wrapper-aarch64-linux-android.tar.gz\n"
+        )
+        (release_dir / "install.sh").write_bytes(INSTALL.read_bytes())
+        rs.sign_release(
+            component="wrapper",
+            sequence=sequence,
+            commit="a" * 40,
+            dist=release_dir,
+            files=["codex-wrapper-aarch64-linux-android.tar.gz", "install.sh"],
+            private_key=priv,
+        )
+        if rot_pub and rot_sig:
+            (release_dir / "release-public-key.pem").write_bytes(rot_pub.read_bytes())
+            (release_dir / "release-public-key.pem.sig").write_bytes(rot_sig.read_bytes())
+
+    def _install_curl_shim(self, release_dir: Path):
+        curl = self.shims / "curl"
+        curl.write_text(
+            "#!/bin/sh\n"
+            "out=''\n"
+            "url=''\n"
+            "while [ $# -gt 0 ]; do\n"
+            "  case $1 in\n"
+            "    --output) out=$2; shift 2 ;;\n"
+            "    --proto|--proto-redir|--connect-timeout|--max-time|--max-filesize) shift 2 ;;\n"
+            "    -*) shift ;;\n"
+            "    *) url=$1; shift ;;\n"
+            "  esac\n"
+            "done\n"
+            "name=${url##*/}\n"
+            f"src='{release_dir}/'\"$name\"\n"
+            "[ -f \"$src\" ] || exit 22\n"
+            "cp \"$src\" \"$out\"\n"
+        )
+        curl.chmod(0o755)
+
+    def _run_release_install(self, *args):
+        return subprocess.run(
+            ["/bin/sh", str(INSTALL), "--prefix", str(self.prefix),
+             "--release", "wrapper", "--skip-upstream", *args],
+            env=self.env, capture_output=True, text=True,
+        )
+
+    def test_i17_signed_release_verify_rollback_tamper_and_key_rotation(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            "release_sign", Path(__file__).with_name("release_sign.py")
+        )
+        rs = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(rs)
+
+        def gen_key(name):
+            priv = self.root / f"{name}.priv.pem"
+            pub = self.root / f"{name}.pub.pem"
+            subprocess.run(["openssl", "genpkey", "-algorithm", "ED25519", "-out", str(priv)],
+                           check=True, capture_output=True)
+            subprocess.run(["openssl", "pkey", "-in", str(priv), "-pubout", "-out", str(pub)],
+                           check=True, capture_output=True)
+            return priv, pub, hashlib.sha256(pub.read_bytes()).hexdigest()
+
+        priv1, pub1, sha1 = gen_key("k1")
+        priv2, pub2, sha2 = gen_key("k2")
+        rel = self.root / "release-srv"
+        self._install_curl_shim(rel)
+        payload = self.new.read_bytes()
+
+        # 1. --require-signed without key fails closed
+        r0 = self._run_release_install("--require-signed")
+        self.assertNotEqual(r0.returncode, 0)
+        self.assertIn("no --verify-key", r0.stderr)
+
+        # 2. Valid signed install (seq 5) succeeds and persists sequence + key
+        self._build_signed_release_dir(rel, priv1, 5, payload)
+        r1 = self._run_release_install("--verify-key", str(pub1), "--key-sha256", sha1)
+        self.assertEqual(r1.returncode, 0, r1.stderr)
+        self.assertEqual(
+            (self.home / ".local/share/codex/wrapper/release-sequence").read_text().strip(),
+            "5",
+        )
+        self.assertEqual(
+            hashlib.sha256((self.home / ".local/lib/codex/wrapper/release-public-key.pem").read_bytes()).hexdigest(),
+            sha1,
+        )
+
+        # 3. Sequence rollback (seq 4 < 5) rejected before executable swap
+        self._build_signed_release_dir(rel, priv1, 4, payload)
+        r2 = self._run_release_install()
+        self.assertNotEqual(r2.returncode, 0)
+        self.assertIn("rollback rejected", r2.stderr)
+
+        # 4. Tampered SHA256SUMS.sig rejected
+        self._build_signed_release_dir(rel, priv1, 6, payload)
+        sig_path = rel / "SHA256SUMS.sig"
+        sig_bytes = sig_path.read_bytes()
+        sig_path.write_bytes(bytes([sig_bytes[0] ^ 0xFF]) + sig_bytes[1:])
+        r3 = self._run_release_install()
+        self.assertNotEqual(r3.returncode, 0)
+        self.assertIn("signature verification failed", r3.stderr)
+
+        # 5. Authorized key rotation k1 -> k2 (seq 7) succeeds and updates stored key
+        rot_sig = self.root / "rot.sig"
+        rs.sign_key_rotation(old_private_key=priv1, new_public_key=pub2, output_sig=rot_sig)
+        self._build_signed_release_dir(rel, priv2, 7, payload, rot_pub=pub2, rot_sig=rot_sig)
+        r4 = self._run_release_install()
+        self.assertEqual(r4.returncode, 0, r4.stderr)
+        self.assertEqual(
+            (self.home / ".local/share/codex/wrapper/release-sequence").read_text().strip(),
+            "7",
+        )
+        self.assertEqual(
+            hashlib.sha256((self.home / ".local/lib/codex/wrapper/release-public-key.pem").read_bytes()).hexdigest(),
+            sha2,
+        )
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
