@@ -56,6 +56,7 @@ class Publication:
         self.openssl = openssl
         self.signed = signing_key is not None
         self.sequence = sequence
+        self.has_rotation = rotation_key is not None
         self.public_key_pem = None
         self.public_key_sha256 = None
         self.assets = list(ASSETS)
@@ -65,6 +66,8 @@ class Publication:
                 raise PublicationError("--sequence (>= 1) is required with --signing-key")
             key_path = Path(signing_key)
             try:
+                self.public_key_pem = release_sign.derive_public_key_pem(self.openssl, key_path)
+                self.public_key_sha256 = hashlib.sha256(self.public_key_pem).hexdigest()
                 if (rotation_key is None) != (rotation_sig is None):
                     raise PublicationError(
                         "--rotation-key and --rotation-sig must be provided together"
@@ -73,14 +76,20 @@ class Publication:
                     rot_k = release_sign.require_regular(
                         Path(rotation_key), "rotation public key", release_sign.MAX_PUBKEY_BYTES
                     )
+                    if rot_k != self.public_key_pem:
+                        raise PublicationError(
+                            "--rotation-key does not match the public key derived from --signing-key"
+                        )
                     rot_s = release_sign.require_regular(
                         Path(rotation_sig), "rotation signature", release_sign.ED25519_SIG_BYTES
                     )
+                    if len(rot_s) != release_sign.ED25519_SIG_BYTES:
+                        raise PublicationError(
+                            f"--rotation-sig must be {release_sign.ED25519_SIG_BYTES} bytes"
+                        )
                     (self.dist / "release-public-key.pem").write_bytes(rot_k)
                     (self.dist / "release-public-key.pem.sig").write_bytes(rot_s)
                     self.assets.extend(ROTATION_ASSETS)
-                self.public_key_pem = release_sign.derive_public_key_pem(self.openssl, key_path)
-                self.public_key_sha256 = hashlib.sha256(self.public_key_pem).hexdigest()
                 release_sign.sign_release(
                     component="wrapper",
                     sequence=sequence,
@@ -189,6 +198,12 @@ class Publication:
         for name in self.assets:
             if names.count(name) != 1:
                 raise PublicationError(f"release asset missing or duplicated: {name}")
+        if not self.has_rotation:
+            for stale in ROTATION_ASSETS:
+                if stale in names:
+                    raise PublicationError(
+                        f"unexpected stale key-rotation asset on non-rotation release: {stale}"
+                    )
         with tempfile.TemporaryDirectory(prefix="wrapper-release-readback-") as tmp:
             for name in self.assets:
                 # Separate exact requests to avoid unintended wildcard matches.
@@ -230,10 +245,36 @@ class Publication:
                   "have separate authoritative SHA verification.", file=sys.stderr)
         return target
 
+    def enforce_monotonic_sequence(self, existing_release):
+        if not self.signed or existing_release is None:
+            return
+        existing_names = {asset.get("name") for asset in existing_release.get("assets", [])}
+        if "SHA256SUMS" not in existing_names or "SHA256SUMS.sig" not in existing_names:
+            return
+        with tempfile.TemporaryDirectory(prefix="wrapper-release-prev-seq-") as tmp:
+            self.command(
+                "release", "download", self.tag, "--repo", self.repo,
+                "--pattern", "SHA256SUMS", "--dir", tmp,
+            )
+            prev_path = Path(tmp) / "SHA256SUMS"
+            if not prev_path.is_file() or prev_path.is_symlink():
+                raise PublicationError("cannot read existing SHA256SUMS for sequence check")
+            try:
+                prev = release_sign.parse_sums(prev_path.read_bytes())
+            except release_sign.SigningError as exc:
+                raise PublicationError(
+                    f"existing signed SHA256SUMS is unreadable for sequence check: {exc}"
+                ) from exc
+            if prev["component"] == "wrapper" and self.sequence <= prev["sequence"]:
+                raise PublicationError(
+                    f"signed sequence {self.sequence} must exceed existing published sequence {prev['sequence']}"
+                )
+
     def publish(self):
         self.validate_source()
         release = self.api(f"releases/tags/{self.tag}", allow_404=True)
         current = self.commit_for_ref(allow_404=True)
+        self.enforce_monotonic_sequence(release)
 
         if release is not None:
             if current is None:

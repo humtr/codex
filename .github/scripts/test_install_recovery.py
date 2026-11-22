@@ -695,6 +695,22 @@ exit 22
             sha2,
         )
 
+        # 6. Re-running install.sh against the same rotated release after k2 is already saved succeeds
+        r5 = self._run_release_install()
+        self.assertEqual(r5.returncode, 0, r5.stderr)
+        self.assertEqual(
+            (self.home / ".local/share/codex/wrapper/release-sequence").read_text().strip(),
+            "7",
+        )
+
+        # 7. --recover rejects signing flags
+        r_rec = subprocess.run(
+            ["/bin/sh", str(INSTALL), "--prefix", str(self.prefix), "--recover", "--require-signed"],
+            env=self.env, capture_output=True, text=True,
+        )
+        self.assertNotEqual(r_rec.returncode, 0)
+        self.assertIn("--recover may only be combined with --prefix", r_rec.stderr)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

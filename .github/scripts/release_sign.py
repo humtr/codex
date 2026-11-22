@@ -302,10 +302,18 @@ def verify_release(
         new_pub = require_regular(rot_key, "rotated public key", MAX_PUBKEY_BYTES)
         if b"BEGIN PUBLIC KEY" not in new_pub:
             raise SigningError("rotated public key is not a PEM public key")
-        verify_ed25519_file(openssl, public_key, rot_key, rot_sig)
-        active_key = rot_key
-        active_key_sha = hashlib.sha256(new_pub).hexdigest()
-        rotated = active_key_sha != pinned_sha
+        new_pub_sha = hashlib.sha256(new_pub).hexdigest()
+        if new_pub_sha == pinned_sha:
+            # Verifier already trusts the rotated key; allow idempotent re-verification
+            # while the release still carries the old-key -> new-key rotation signature.
+            active_key = public_key
+            active_key_sha = pinned_sha
+            rotated = False
+        else:
+            verify_ed25519_file(openssl, public_key, rot_key, rot_sig)
+            active_key = rot_key
+            active_key_sha = new_pub_sha
+            rotated = True
 
     sums_path = dist / "SHA256SUMS"
     sig_path = dist / "SHA256SUMS.sig"

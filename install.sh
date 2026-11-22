@@ -112,7 +112,7 @@ verify_sha256_file() {
   require_regular_file "$sum_file" 'checksum file'
   if [ -n "$expected_entry" ]; then
     expected=$(awk -v name="$expected_entry" '
-      !/^#/ && ($2 == name || $2 == "./" name || $2 == "*" name) { print $1; count++ }
+      NF == 2 && !/^#/ && ($2 == name || $2 == "./" name || $2 == "*" name) { print $1; count++ }
       END { if (count != 1) exit 1 }
     ' "$sum_file" 2>/dev/null) || fail "missing unique SHA-256 entry for $expected_entry in $sum_file"
   else
@@ -235,19 +235,30 @@ persist_signed_release_state() {
   state_dir="$HOME/.local/share/codex/wrapper"
   key_dir="$HOME/.local/lib/codex/wrapper"
   mkdir -p "$state_dir" "$key_dir"
+  if [ -L "$state_dir" ] || [ ! -d "$state_dir" ] || [ -L "$key_dir" ] || [ ! -d "$key_dir" ]; then
+    fail 'signed release state directories must be real non-symlink directories'
+  fi
   chmod 0700 "$state_dir" "$key_dir"
+  seq_dest="$state_dir/release-sequence"
+  if [ -L "$seq_dest" ] || { [ -e "$seq_dest" ] && [ ! -f "$seq_dest" ]; }; then
+    fail "release sequence destination must be absent or a regular non-symlink file: $seq_dest"
+  fi
   seq_tmp="$state_dir/.release-sequence.tmp.$$"
   printf '%s\n' "$verified_release_sequence" > "$seq_tmp"
   chmod 0600 "$seq_tmp"
   install_sync "$seq_tmp"
-  mv -f "$seq_tmp" "$state_dir/release-sequence"
+  mv -f "$seq_tmp" "$seq_dest"
   install_sync "$state_dir"
   if [ -n "$verified_active_pubkey" ]; then
+    key_dest="$key_dir/release-public-key.pem"
+    if [ -L "$key_dest" ] || { [ -e "$key_dest" ] && [ ! -f "$key_dest" ]; }; then
+      fail "release public key destination must be absent or a regular non-symlink file: $key_dest"
+    fi
     key_tmp="$key_dir/.release-public-key.pem.tmp.$$"
     cp "$verified_active_pubkey" "$key_tmp"
     chmod 0600 "$key_tmp"
     install_sync "$key_tmp"
-    mv -f "$key_tmp" "$key_dir/release-public-key.pem"
+    mv -f "$key_tmp" "$key_dest"
     install_sync "$key_dir"
   fi
 }
@@ -726,7 +737,8 @@ dest_bin="$dest_dir/codex"
 install_lock="$dest_dir/.codex-install.lock"
 recovery_gate="$dest_dir/.codex-install.recovering"
 if [ "$recover_only" -eq 1 ]; then
-  if [ -n "$source_mode" ] || [ -n "$upstream_version" ] || [ "$skip_upstream" -ne 0 ]; then
+  if [ -n "$source_mode" ] || [ -n "$upstream_version" ] || [ "$skip_upstream" -ne 0 ] ||
+     [ -n "$verify_key" ] || [ -n "$key_sha256" ] || [ "$require_signed" -ne 0 ]; then
     fail '--recover may only be combined with --prefix'
   fi
   [ -d "$dest_dir" ] || fail "install directory does not exist: $dest_dir"
@@ -847,9 +859,16 @@ case $source_mode in
       rot_key="$work/release-public-key.pem"
       if fetch_optional_https "$base_url/release-public-key.pem.sig" "$rot_sig" "$ED25519_SIG_BYTES"; then
         fetch_https "$base_url/release-public-key.pem" "$rot_key" "$MAX_PUBKEY_BYTES"
-        verify_ed25519_sig "$openssl_bin" "$verify_key" "$rot_key" "$rot_sig"
-        active_key="$rot_key"
-        note 'verified Ed25519 key rotation'
+        require_regular_file "$rot_key" 'rotated public key'
+        grep -F 'BEGIN PUBLIC KEY' "$rot_key" >/dev/null 2>&1 ||
+          fail 'rotated public key is not a PEM public key'
+        if [ "$(sha256_hex "$rot_key")" = "$(sha256_hex "$verify_key")" ]; then
+          active_key="$verify_key"
+        else
+          verify_ed25519_sig "$openssl_bin" "$verify_key" "$rot_key" "$rot_sig"
+          active_key="$rot_key"
+          note 'verified Ed25519 key rotation'
+        fi
       fi
       verify_ed25519_sig "$openssl_bin" "$active_key" "$sums_file" "$sig_file"
       seq_val=$(verify_signed_sums_headers "$sums_file")

@@ -134,6 +134,17 @@ class ReleaseSignTests(unittest.TestCase):
         self.assertTrue(res["rotated"])
         self.assertEqual(res["active_key_sha256"], pub2_sha)
 
+        # Idempotent re-verification when verifier already trusts rotated key pub2
+        res_repeat = rs.verify_release(
+            component="wrapper",
+            dist=self.dist,
+            public_key=pub2,
+            min_sequence=6,
+            expected_key_sha256=pub2_sha,
+        )
+        self.assertFalse(res_repeat["rotated"])
+        self.assertEqual(res_repeat["active_key_sha256"], pub2_sha)
+
         # Forged rotation signed by unauthorized k3 must fail
         rs.sign_key_rotation(
             old_private_key=priv3,

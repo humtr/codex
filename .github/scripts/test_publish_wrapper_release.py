@@ -304,6 +304,46 @@ class PublicationTests(unittest.TestCase):
                 signing_key=priv, sequence=8, runner=bad_fake,
             ).publish()
 
+        # Publisher-side monotonic sequence guard rejects seq <= existing published seq (7)
+        with self.assertRaisesRegex(publish.PublicationError, "must exceed existing published sequence 7"):
+            publish.Publication(
+                REPO, TAG, SOURCE, self.dist,
+                dispatch=True, prerelease=False,
+                signing_key=priv, sequence=7, runner=fake,
+            ).publish()
+
+        # Strictly newer sequence (8 > 7) against existing signed release succeeds
+        output2 = StringIO()
+        with redirect_stdout(output2):
+            publish.Publication(
+                REPO, TAG, SOURCE, self.dist,
+                dispatch=True, prerelease=False,
+                signing_key=priv, sequence=8, runner=fake,
+            ).publish()
+        self.assertRegex(output2.getvalue(), r"signed=True sequence=8 ")
+
+        # Mismatched --rotation-key vs --signing-key is rejected before mutation
+        priv2 = Path(self.temp.name) / "ed25519-other.priv.pem"
+        pub2 = Path(self.temp.name) / "ed25519-other.pub.pem"
+        rot_sig = Path(self.temp.name) / "rot.sig"
+        subprocess.run(
+            ["openssl", "genpkey", "-algorithm", "ED25519", "-out", str(priv2)],
+            check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        )
+        subprocess.run(
+            ["openssl", "pkey", "-in", str(priv2), "-pubout", "-out", str(pub2)],
+            check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        )
+        rot_sig.write_bytes(b"\x00" * 64)
+        with self.assertRaisesRegex(publish.PublicationError, "does not match the public key derived"):
+            publish.Publication(
+                REPO, TAG, SOURCE, self.dist,
+                dispatch=True, prerelease=False,
+                signing_key=priv, sequence=9,
+                rotation_key=pub2, rotation_sig=rot_sig,
+                runner=fake,
+            )
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
