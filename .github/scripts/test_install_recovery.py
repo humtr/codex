@@ -380,7 +380,7 @@ exit 22
         self.assertIn("HTTPS download failed", r.stderr)
         self.assertEqual((self.home / "curl-url").read_text().strip(),
                          "https://github.com/humtr/codex/releases/download/wrapper/"
-                         "codex-wrapper-aarch64-linux-android.tar.gz")
+                         "SHA256SUMS")
         self.assertTrue(self.old_bytes())
         self.assertFalse(self.has_lock())
 
