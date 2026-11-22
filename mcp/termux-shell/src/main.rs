@@ -245,6 +245,9 @@ pub fn execute_with(receipt_root: &Path, shell: &Path, args: &Value) -> Value {
         },
         _ => return fail("termux_cwd_invalid"),
     };
+    if !cwd.is_dir() {
+        return fail("termux_cwd_not_found");
+    }
     let timeout_ms = match args.get("timeout_ms") {
         None => DEFAULT_TIMEOUT_MS,
         Some(v) => match v.as_u64() {
@@ -285,11 +288,12 @@ pub fn execute_with(receipt_root: &Path, shell: &Path, args: &Value) -> Value {
     };
 
     let mut outcome = run_shell_command(script, &cwd, timeout_ms, shell);
+    outcome["replay_safe"] = json!(true);
     if let Err(err) = store.commit(&receipt_path, &primary_fp, &outcome) {
         outcome["receipt_error"] = json!(err);
         outcome["replay_safe"] = json!(false);
     } else {
-        outcome["replay_safe"] = json!(true);
+        store.prune_settled(512);
     }
     outcome
 }

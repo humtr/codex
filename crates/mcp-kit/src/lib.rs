@@ -369,6 +369,41 @@ impl ReceiptStore {
         sync_parent(path)
     }
 
+    /// Best-effort bounded retention: remove oldest *settled* receipts when count exceeds `max_settled`.
+    /// Never removes `started` (unsettled) or unreadable/corrupt receipts so uncertainty is preserved.
+    pub fn prune_settled(&self, max_settled: usize) {
+        if max_settled == 0 {
+            return;
+        }
+        let Ok(entries) = fs::read_dir(&self.root) else {
+            return;
+        };
+        let mut settled: Vec<(std::time::SystemTime, PathBuf)> = Vec::new();
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) != Some("json") {
+                continue;
+            }
+            if let Ok(Some(record)) = self.read_record(&path) {
+                if record["schema"] == self.schema && record["state"] == "settled" {
+                    let mtime = entry
+                        .metadata()
+                        .and_then(|m| m.modified())
+                        .unwrap_or(std::time::UNIX_EPOCH);
+                    settled.push((mtime, path));
+                }
+            }
+        }
+        if settled.len() <= max_settled {
+            return;
+        }
+        settled.sort_by_key(|(mtime, _)| *mtime);
+        let to_remove = settled.len() - max_settled;
+        for (_, path) in settled.into_iter().take(to_remove) {
+            let _ = fs::remove_file(path);
+        }
+    }
+
     fn read_record(&self, path: &Path) -> Result<Option<Value>, &'static str> {
         let file = match OpenOptions::new()
             .read(true)
@@ -567,10 +602,14 @@ fn read_bounded_line<R: BufRead>(
         }
         if let Some(pos) = available.iter().position(|&b| b == b'\n') {
             let take = pos + 1;
-            let room = max_bytes.saturating_sub(out.len());
-            out.extend_from_slice(&available[..take.min(room)]);
-            reader.consume(take);
             total += take;
+            if total > max_bytes {
+                out.clear();
+                out.extend_from_slice(b"{\"oversized\":");
+            } else {
+                out.extend_from_slice(&available[..take]);
+            }
+            reader.consume(take);
             return Ok(total);
         }
         let len = available.len();
@@ -778,6 +817,36 @@ mod tests {
             }
             other => panic!("expected settled replay, got {other:?}"),
         }
+        // Bounded pruning keeps unsettled receipts untouched and prunes oldest settled ones
+        let p2 = match store.claim("id-2", "fp-2", &["fp-2"]) {
+            ReceiptClaim::Acquired(p) => p,
+            other => panic!("expected Acquired, got {other:?}"),
+        };
+        store.commit(&p2, "fp-2", &json!({"state":"ok"})).unwrap();
+        let _unsettled = match store.claim("id-unsettled", "fp-u", &["fp-u"]) {
+            ReceiptClaim::Acquired(p) => p,
+            other => panic!("expected Acquired, got {other:?}"),
+        };
+        store.prune_settled(1);
+        assert_eq!(
+            store.inspect("id-unsettled", &["fp-u"])["state"],
+            "delivery_unknown"
+        );
+        let settled_remaining = [
+            store.receipt_path("id-1").exists(),
+            store.receipt_path("id-2").exists(),
+        ]
+        .into_iter()
+        .filter(|&x| x)
+        .count();
+        assert_eq!(settled_remaining, 1);
+
+        // Oversized single line ending with newline in the same chunk must still be rejected
+        let mut cursor = io::Cursor::new(b"{\"id\":1,\"method\":\"ping\"}     \n".as_slice());
+        let mut buf = Vec::new();
+        let _ = read_bounded_line(&mut cursor, &mut buf, 20).unwrap();
+        assert!(serde_json::from_slice::<Value>(&buf).is_err());
+
         let _ = fs::remove_dir_all(&dir);
     }
 

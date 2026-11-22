@@ -103,8 +103,7 @@ class RunitSupervisionTests(unittest.TestCase):
         self.assertEqual(st_busy["running_generation"]["version"], "v0.0.20")
         self.assertEqual(st_busy["deferred_reason"], "active_lease")
 
-        # Now roll back back to v0.0.20 then cleanly upgrade to v0.0.21 with passing readiness
-        sup.activate("v0.0.20")
+        # Re-running activate("v0.0.21") once idle MUST complete deferred pending_activation!
         st_up = sup.activate("v0.0.21", readiness_cmd=["true"])
         self.assertEqual(st_up["activation_state"], "active")
         self.assertEqual(st_up["selected_generation"]["version"], "v0.0.21")
@@ -117,10 +116,12 @@ class RunitSupervisionTests(unittest.TestCase):
         self.assertEqual(st_rb["selected_generation"]["version"], "v0.0.20")
         self.assertEqual(st_rb["running_generation"]["version"], "v0.0.20")
 
-    def test_failed_readiness_automatically_rolls_back_to_previous_generation(self):
+    def test_failed_readiness_automatically_rolls_back_and_preserves_prior_previous(self):
+        self._install_gen("v0.0.19", b"bin-19")
         b20 = self._install_gen("v0.0.20", b"bin-20")
         self._install_gen("v0.0.21", b"bin-21")
         sup = self._sup()
+        sup.activate("v0.0.19")
         sup.activate("v0.0.20")
         sup.enroll(exec_args=["run"])
         (self.root / "running-exe").write_text(str(b20.resolve()))
@@ -129,8 +130,10 @@ class RunitSupervisionTests(unittest.TestCase):
         with self.assertRaisesRegex(SupervisionError, "rolled back"):
             sup.activate("v0.0.21", readiness_cmd=["false"], restart_timeout=0.4)
 
-        # Must have reverted `current` back to v0.0.20!
-        self.assertEqual(sup.selected_generation()["version"], "v0.0.20")
+        # Must have reverted `current` to v0.0.20 AND preserved `previous` as v0.0.19!
+        sel = sup.selected_generation()
+        self.assertEqual(sel["version"], "v0.0.20")
+        self.assertEqual(sel["previous_version"], "v0.0.19")
 
 
 if __name__ == "__main__":

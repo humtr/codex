@@ -93,7 +93,9 @@ def fetch_latest_release(
             raw = resp.read(1048576)
         return json.loads(raw.decode("utf-8"))
     except urllib.error.HTTPError as exc:
-        if exc.code == 403:
+        code = exc.code
+        exc.close()
+        if code == 403:
             return fallback()
         raise
 

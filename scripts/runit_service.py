@@ -324,20 +324,29 @@ class ServiceSupervisor:
             raise SupervisionError(f"generation binary missing or non-executable: {target_bin}")
 
         prev_ver = self._read_link_version(self.current_link)
+        old_previous = self._read_link_version(self.previous_link)
+        resolved_target_bin = str(target_bin.resolve())
+
         if prev_ver == version:
-            return self.status(readiness_cmd=readiness_cmd)
-
-        if prev_ver is not None:
-            atomic_symlink(self.previous_link, f"generations/{prev_ver}")
-        atomic_symlink(self.current_link, f"generations/{version}")
-
-        # Installing/activating a generation NEVER auto-enrolls a new runit service.
-        if not self.is_enrolled():
-            return self.status(readiness_cmd=readiness_cmd)
-
-        before = self._inspect_running()
-        if before.get("state") != "running":
-            return self.status(readiness_cmd=readiness_cmd)
+            # If enrolled and running a stale image (pending_activation), proceed to restart;
+            # otherwise it is already active/settled.
+            if not self.is_enrolled():
+                return self.status(readiness_cmd=readiness_cmd)
+            before = self._inspect_running()
+            if before.get("state") != "running" or before.get("exe") == resolved_target_bin:
+                return self.status(readiness_cmd=readiness_cmd)
+            switched_links = False
+        else:
+            if prev_ver is not None:
+                atomic_symlink(self.previous_link, f"generations/{prev_ver}")
+            atomic_symlink(self.current_link, f"generations/{version}")
+            switched_links = True
+            # Installing/activating a generation NEVER auto-enrolls a new runit service.
+            if not self.is_enrolled():
+                return self.status(readiness_cmd=readiness_cmd)
+            before = self._inspect_running()
+            if before.get("state") != "running":
+                return self.status(readiness_cmd=readiness_cmd)
 
         # If active work is in progress, defer restart safely and report pending_activation!
         if busy_check_cmd is not None:
@@ -349,16 +358,22 @@ class ServiceSupervisor:
 
         try:
             self._restart_and_verify(
-                expected_bin=str(target_bin.resolve()),
+                expected_bin=resolved_target_bin,
                 old_pid=before.get("pid"),
                 old_ticks=before.get("start_ticks"),
                 readiness_cmd=readiness_cmd,
                 timeout=restart_timeout,
             )
         except SupervisionError as err:
-            # Roll back `current` -> `previous` if a previous generation exists!
-            if prev_ver is not None:
-                atomic_symlink(self.current_link, f"generations/{prev_ver}")
+            # Roll back `current` and restore `previous` if a previous generation existed!
+            rollback_ver = prev_ver if switched_links else old_previous
+            if rollback_ver is not None:
+                atomic_symlink(self.current_link, f"generations/{rollback_ver}")
+                if switched_links:
+                    if old_previous is not None:
+                        atomic_symlink(self.previous_link, f"generations/{old_previous}")
+                    elif self.previous_link.is_symlink():
+                        self.previous_link.unlink()
                 subprocess.run([self.sv_bin, "restart", str(self.service_dir)], capture_output=True)
             raise SupervisionError(f"activation of '{version}' failed (rolled back): {err}") from err
 
