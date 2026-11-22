@@ -238,6 +238,211 @@ fn end_to_end_stdio_bridge_one_shot_turn_replay_steer_interrupt_and_extensions()
     let _ = fs::remove_dir_all(&root);
 }
 
+#[test]
+fn cli_flags_and_negative_validation_and_daemon_down_non_poisoning_retry() {
+    // 1) CLI flags: --help, --version, --describe-tools, unknown flag exit 2
+    let help = Command::new(bin()).arg("--help").output().unwrap();
+    assert!(help.status.success());
+    assert!(String::from_utf8_lossy(&help.stdout).contains("termux-codex-mcp"));
+
+    let ver = Command::new(bin()).arg("--version").output().unwrap();
+    assert!(ver.status.success());
+    assert!(String::from_utf8_lossy(&ver.stdout).starts_with("termux-codex-mcp "));
+
+    let desc = Command::new(bin())
+        .arg("--describe-tools")
+        .output()
+        .unwrap();
+    assert!(desc.status.success());
+    let desc_val: Value = serde_json::from_slice(&desc.stdout).unwrap();
+    assert_eq!(desc_val["tools"].as_array().unwrap().len(), 5);
+
+    let bad_flag = Command::new(bin()).arg("--bogus").output().unwrap();
+    assert_eq!(bad_flag.status.code(), Some(2));
+
+    // 2) Stopped daemon returns codex_daemon_not_running WITHOUT poisoning call_id;
+    //    starting the daemon afterward allows the SAME call_id to succeed!
+    let root = temp_dir("termux-codex-neg");
+    let home = root.join("home");
+    let tmp = root.join("tmp");
+    let rcpt = root.join("rcpt");
+    let codex_home = home.join(".codex");
+    fs::create_dir_all(codex_home.join("app-server-control")).unwrap();
+    fs::create_dir_all(&tmp).unwrap();
+    DirBuilder::new().mode(0o700).create(&rcpt).unwrap();
+
+    let run_stdio = |reqs: &[Value]| -> Vec<Value> {
+        let mut child = Command::new(bin())
+            .env("HOME", &home)
+            .env("TMPDIR", &tmp)
+            .env("TERMUX_CODEX_RECEIPT_DIR", &rcpt)
+            .env_remove("CODEX_HOME")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        {
+            let stdin = child.stdin.as_mut().unwrap();
+            for r in reqs {
+                writeln!(stdin, "{r}").unwrap();
+            }
+        }
+        let out = child.wait_with_output().unwrap();
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        String::from_utf8(out.stdout)
+            .unwrap()
+            .lines()
+            .map(|l| serde_json::from_str(l).unwrap())
+            .collect()
+    };
+
+    // Daemon stopped: test codex_turn(start) + strict rejections
+    let down_res = run_stdio(&[
+        json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}),
+        json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"codex_turn","arguments":{"action":"start","call_id":"retry-after-start","prompt":"hi","wait_ms":1000}}}),
+        // Non-string profile rejected
+        json!({"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"codex_status","arguments":{"profile":123}}}),
+        // Invalid approval_policy rejected
+        json!({"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"codex_turn","arguments":{"action":"start","call_id":"bad-ap","prompt":"hi","approval_policy":"yolo"}}}),
+        // Unknown key on account_usage returns expected_schema
+        json!({"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"codex_call","arguments":{"action":"account_usage","arguments":{"extra":true}}}}),
+        // Invalid delivery enum on review_start returns expected_schema
+        json!({"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"codex_call","arguments":{"action":"review_start","arguments":{"thread_id":"t1","target":{"type":"uncommittedChanges"},"delivery":"detached"}}}}),
+        // Out-of-range limit on models_list returns expected_schema
+        json!({"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"codex_call","arguments":{"action":"models_list","arguments":{"limit":0}}}}),
+        // Non-empty args on codex_catalog rejected
+        json!({"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"codex_catalog","arguments":{"extra":1}}}),
+    ]);
+
+    let d1: Value = serde_json::from_str(
+        down_res[1]["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(d1["error"], "codex_daemon_not_running");
+    assert_eq!(down_res[1]["result"]["isError"], true);
+    for (idx, item) in down_res.iter().enumerate().skip(2).take(6) {
+        assert_eq!(item["result"]["isError"], true, "req {idx} should fail");
+    }
+    let ext_err: Value = serde_json::from_str(
+        down_res[5]["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap(),
+    )
+    .unwrap();
+    assert!(ext_err["expected_schema"].is_object());
+
+    // Now start mock daemon and retry the EXACT same call_id "retry-after-start" -> MUST succeed!
+    // Also test call_id payload conflict AND mid-poll daemon disconnect breaking immediately!
+    let sock_path = tmp.join("mock-recover.sock");
+    let listener = UnixListener::bind(&sock_path).unwrap();
+    std::os::unix::fs::symlink(
+        "/proc/self/fd/35/mock-recover.sock",
+        codex_home.join("app-server-control/app-server-control.sock"),
+    )
+    .unwrap();
+
+    let srv = thread::spawn(move || {
+        for (conn_idx, conn) in listener.incoming().take(2).enumerate() {
+            let stream = conn.unwrap();
+            let mut writer = stream.try_clone().unwrap();
+            let mut reader = BufReader::new(stream);
+            let mut key = String::new();
+            loop {
+                let mut line = String::new();
+                if reader.read_line(&mut line).unwrap() == 0 || line.trim().is_empty() {
+                    break;
+                }
+                if let Some((k, v)) = line.split_once(':') {
+                    if k.trim().eq_ignore_ascii_case("sec-websocket-key") {
+                        key = v.trim().to_owned();
+                    }
+                }
+            }
+            let accept = ws_accept(&key);
+            write!(
+                writer,
+                "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: {accept}\r\n\r\n"
+            )
+            .unwrap();
+            writer.flush().unwrap();
+
+            while let Some(msg) = read_ws_json(&mut reader) {
+                let method = msg["method"].as_str().unwrap_or("");
+                let id = msg.get("id").and_then(Value::as_u64);
+                let resp = match method {
+                    "initialize" => {
+                        Some(json!({"id": id, "result": {"userAgent": "mock/0.171.0"}}))
+                    }
+                    "initialized" => None,
+                    "thread/start" => {
+                        Some(json!({"id": id, "result": {"thread": {"id": "tid-rec"}}}))
+                    }
+                    "turn/start" => Some(json!({"id": id, "result": {"turn": {"id": "turn-rec"}}})),
+                    "thread/read" => {
+                        if conn_idx == 1 {
+                            // Simulate abrupt daemon disconnect mid-poll!
+                            break;
+                        }
+                        Some(json!({
+                            "id": id,
+                            "result": {
+                                "thread": {
+                                    "id": "tid-rec",
+                                    "status": {"type": "idle", "activeFlags": []},
+                                    "turns": [{"id": "turn-rec", "status": "completed", "items": [{"type": "agentMessage", "text": "recovered!"}]}]
+                                }
+                            }
+                        }))
+                    }
+                    _ => Some(json!({"id": id, "result": {}})),
+                };
+                if let Some(r) = resp {
+                    send_ws_unmasked(&mut writer, r.to_string().as_bytes());
+                }
+            }
+        }
+    });
+
+    let up_res = run_stdio(&[
+        json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}),
+        // Same call_id that failed when daemon was down now succeeds!
+        json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"codex_turn","arguments":{"action":"start","call_id":"retry-after-start","prompt":"hi","wait_ms":3000}}}),
+        // Reusing same call_id with DIFFERENT prompt -> codex_call_id_payload_conflict (without opening daemon)!
+        json!({"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"codex_turn","arguments":{"action":"start","call_id":"retry-after-start","prompt":"DIFFERENT","wait_ms":3000}}}),
+        // Mid-poll daemon crash with wait_ms=60000 MUST break immediately (<2s) with delivery_unknown + poll_error!
+        json!({"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"codex_turn","arguments":{"action":"start","call_id":"crash-mid-poll","prompt":"crash","wait_ms":60000}}}),
+    ]);
+    srv.join().unwrap();
+
+    let r_ok: Value =
+        serde_json::from_str(up_res[1]["result"]["content"][0]["text"].as_str().unwrap()).unwrap();
+    assert_eq!(r_ok["state"], "settled");
+    assert_eq!(r_ok["assistant_text"], "recovered!");
+
+    let r_conf: Value =
+        serde_json::from_str(up_res[2]["result"]["content"][0]["text"].as_str().unwrap()).unwrap();
+    assert_eq!(r_conf["error"], "codex_call_id_payload_conflict");
+    assert_eq!(up_res[2]["result"]["isError"], true);
+
+    let r_crash: Value =
+        serde_json::from_str(up_res[3]["result"]["content"][0]["text"].as_str().unwrap()).unwrap();
+    assert_eq!(r_crash["state"], "delivery_unknown");
+    assert!(r_crash["poll_error"].is_string());
+    assert!(
+        r_crash["waited_ms"].as_u64().unwrap() < 5_000,
+        "must break immediately on disconnect, got {r_crash}"
+    );
+
+    let _ = fs::remove_dir_all(&root);
+}
+
 fn read_ws_json(reader: &mut BufReader<UnixStream>) -> Option<Value> {
     let mut hdr = [0u8; 2];
     reader.read_exact(&mut hdr).ok()?;
