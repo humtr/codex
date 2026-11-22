@@ -1204,9 +1204,6 @@ where
 {
     let mode = doctor_output_mode(args)?;
     let mut warnings = Vec::new();
-    if let Err(err) = crate::extensions::WrapperSettings::read(context.state_root) {
-        warnings.push(format!("invalid wrapper.toml: {err}"));
-    }
     if let Some(codex_home) = crate::runtime_env::resolve_codex_home() {
         if let Err(err) = crate::daemon_settings::inspect_read_only(&codex_home) {
             warnings.push(format!("invalid daemon settings.json: {err}"));
@@ -1591,7 +1588,6 @@ printf 'upstream stderr captured\n' >&2
 
         let _env =
             EnvRestoreGuard::new(&[("HOME", Some(&root.join("home"))), ("CODEX_HOME", None)]);
-        fs::write(roots.state_root.join("wrapper.toml"), "invalid = [\n").unwrap();
         let daemon_settings = root.join("home/.codex/app-server-daemon/settings.json");
         fs::create_dir_all(daemon_settings.parent().unwrap()).unwrap();
         fs::write(&daemon_settings, "{corrupt").unwrap();
@@ -1609,7 +1605,6 @@ printf 'upstream stderr captured\n' >&2
                 cert_dir: Some(roots.cert_dir.as_os_str()),
                 resolver_path: &roots.resolver_path,
                 config_dir: &roots.config_dir,
-                state_root: &roots.state_root,
                 wrapper_doctor_status: WrapperDoctorStatus::Healthy,
                 generation_id: &loaded.generation_id,
                 generation_layout: loaded.generation_layout,
@@ -1642,11 +1637,6 @@ printf 'upstream stderr captured\n' >&2
             outcome
                 .output
                 .contains("\"summary\":{\"status\":\"unhealthy\"}"),
-            "{}",
-            outcome.output
-        );
-        assert!(
-            outcome.output.contains("invalid wrapper.toml"),
             "{}",
             outcome.output
         );

@@ -32,7 +32,7 @@ impl std::fmt::Display for DispatchPlanError {
                 "run 'codex {command}' directly without leading upstream flags"
             ),
             DispatchPlanError::UpstreamUpdaterDisabled => f.write_str(
-                "upstream self-updater is disabled on Termux; run 'codex update' directly without global flags or --bare",
+                "upstream self-updater is disabled on Termux; run 'codex update' directly without global flags",
             ),
         }
     }
@@ -251,13 +251,6 @@ impl UpstreamArgScan {
         }
     }
 
-    pub(super) fn reject_bare_or_with_updater(&self) -> Result<(), DispatchPlanError> {
-        if matches!(self.wrapper_command, Some((_, "update"))) {
-            return Err(DispatchPlanError::UpstreamUpdaterDisabled);
-        }
-        self.sandbox_result()
-    }
-
     fn sandbox_result(&self) -> Result<(), DispatchPlanError> {
         self.sandbox_error.clone().map_or(Ok(()), Err)
     }
@@ -350,10 +343,6 @@ mod tests {
             Err(DispatchPlanError::UpstreamUpdaterDisabled)
         ));
         assert_eq!(run_public_main(os_vec(&["-c", "foo=bar", "update"])), 2);
-        assert_eq!(
-            run_public_main(os_vec(&["wrapper", "--bare", "--", "update"])),
-            2
-        );
         assert_eq!(
             plan_public_dispatch(os_vec(&["remote-control"])).unwrap(),
             PublicDispatchRoute::Upstream(os_vec(&["remote-control"]))

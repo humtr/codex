@@ -18,15 +18,12 @@ The product has one public command, `codex`, built in two decoupled stages:
   beyond `libc` that provides Termux runtime compatibility (FD 33/34/35, wrapper `config.toml`,
   timezone TZif, TLS certs, browser helpers, sandbox guard, `app-server daemon` &
   `remote-control` passthrough), `codex update [--upstream] [--version <M.m.p>] [--force-rebuild] | --path <FILE_OR_DIR> | --rollback`,
-  `codex doctor [--color | --json]`, and `codex wrapper status [--json]`.
-- **Stage 2.1 extension interface (implemented, not attached):** `wrapper.toml`,
-  `codex wrapper setup`, `--bare`, unavailable-module `--with` admission,
-  and conditional FD 34 snapshot preparation. These do **not** launch optional
-  modules; the production empty-fragment path bypasses the snapshot engine.
-- **Stage 2.2–2.5 (deferred):** Ed25519 `--signed` Wrapper/addon
-  verification, Manager, enhanced `TUI`, and Wrapper-managed `Provider` bridge.
-  Earlier source is preserved on `rewrite/rust-core` for selective integration,
-  not included in the Stage 1 binary. See the
+  `codex doctor [--color | --json]`, and `codex wrapper status [--verify] [--json]`.
+- **Stage 2 (decoupled standalone tools & services):** lightweight `SHA256SUMS.sig`
+  Ed25519 signed releases, standalone `codex-ext` (`cdx`) for profiles/notifications/switching,
+  independent MCP servers (`@TermuxShell`, `@TermuxCodex`, `@TermuxChatGPT`),
+  `chatgpt-provider` + `host/chatgpt-desktop`, and `transport/tunnel-client` — kept completely
+  separate from the `codex` binary. See the
   [architecture and ownership map](docs/ARCHITECTURE.md),
   [current evidence](CURRENT.md) and [roadmap](docs/ROADMAP.md).
 
@@ -280,43 +277,6 @@ basenames. For example, `CODEX_SHARED_EXTRA_FILES=review.config.toml:team.config
 opts in both files. Credentials such as `auth.json`, database files, and lock
 files are reserved and cannot be opted in. Session index merges preserve separate
 entries for renamed threads.
-
-## Optional module configuration (Stage 2.1 boundary)
-
-Stage 1 upstream execution remains the default: no Manager, enhanced TUI, or
-ChatGPT Provider binaries are bundled or started by this wrapper. The Stage 2.1
-extension boundary implements strict `wrapper.toml` at
-`~/.local/share/codex/wrapper/wrapper.toml`, multi-flag `codex wrapper setup`,
-and conditional FD 34 immutable fragment snapshots (`config/snapshots/<settings_id>/`
-with `flock(LOCK_SH)` and `features list` validation when modules supply fragments), with:
-
-```sh
-codex wrapper setup show
-codex wrapper setup --enable manager
-codex wrapper setup --disable manager
-codex wrapper setup --signed-update false
-codex wrapper setup --bare
-codex wrapper --bare -- --version
-codex wrapper --with tui -- --version
-```
-
-`--with` currently validates the module names then **always fails with
-unavailable status (exit 1)**: no Manager/TUI/Provider executables are admitted
-or dispatched by this source. An enabled but unavailable module stored in
-persistent settings emits a warning and ordinary `codex` continues with
-standalone upstream, so a saved opt-in is **not** evidence of running integration.
-`--bare` bypasses enabled
-addon modules for one launch while preserving upstream arguments (`wrapper setup
---bare` disables addon modules while retaining `signed_update` when the settings
-are valid). If `wrapper.toml` is a malformed regular file, run
-`codex wrapper setup --bare` alone to restore the bare defaults, including
-`signed_update = false`. Setting
-`signed_update = true` records the opt-in but does **not** activate a signed
-channel until Phase 2.2; ordinary `codex update` remains independent, and
-actual Manager/TUI/Provider addon reattachment remains deferred to Phases 2.3–2.5.
-The no-addon launch adds no *addon* dependency, process, lock, snapshot write,
-or extra config probe. Existing Wrapper generation retention and activation
-recovery remain in force.
 
 ## Diagnostics and Upstream Passthrough
 

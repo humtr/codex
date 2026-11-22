@@ -360,8 +360,6 @@ jobs:
 
           test "$status_rc" -eq 1
           printf '%s\n' "$status_json" | grep -F '"status":"uninitialized"'
-          printf '%s\n' "$status_json" | grep -F '"addons":"none"'
-          printf '%s\n' "$status_json" | grep -F '"signed_update":false'
           test "$sandbox_rc" -eq 2
           test "$subcmd_sandbox_rc" -eq 2
 
@@ -375,67 +373,11 @@ jobs:
             test "$flag_rc" -eq 2
             printf '%s\n' "$flag_error" | grep -F "run 'codex $command' directly"
           done
-          cfg="$smoke_home/.local/share/codex/wrapper/wrapper.toml"
-          test ! -e "$cfg"
-          show="$(smoke_codex wrapper setup show)"
-          printf '%s\n' "$show" | grep -F 'addons: none'
-          test ! -e "$cfg"
-          umask 0022
-          smoke_codex wrapper setup --enable manager --signed-update true
-          test -f "$cfg"
-          test "$(stat -c '%a' "$cfg")" = 600
-          test "$(stat -c '%a' "$smoke_home/.local/share")" = 755
-          test "$(stat -c '%a' "$smoke_home/.local/share/codex")" = 700
-
-          set +e
-          selected="$(smoke_codex wrapper status --json)"
-          selected_rc=$?
-          smoke_codex wrapper --with manager -- --version >/dev/null 2>&1
-          unavailable_rc=$?
-          smoke_codex wrapper --with unknown >/dev/null 2>&1
-          unknown_rc=$?
-          set -e
-          test "$selected_rc" -eq 1
-          printf '%s\n' "$selected" | grep -F '"addons":"manager"'
-          printf '%s\n' "$selected" | grep -F '"signed_update":true'
-          test "$unavailable_rc" -eq 1
-          test "$unknown_rc" -eq 2
-
-          smoke_codex wrapper setup --bare
-          reset="$(smoke_codex wrapper setup show)"
-          printf '%s\n' "$reset" | grep -F 'addons: none'
-          printf '%s\n' "$reset" | grep -F 'signed_update: true'
-
-          printf 'invalid wrapper config\n' > "$cfg"
-          smoke_codex wrapper setup --bare
-          reset="$(smoke_codex wrapper setup show)"
-          printf '%s\n' "$reset" | grep -Fx 'addons: none'
-          printf '%s\n' "$reset" | grep -Fx 'signed_update: false'
-
-          # Inspection reports invalid settings. Mutation must reject the symlink.
-          sym_target="$RUNNER_TEMP/symlink-target.toml"
-          printf 'manager = false\n' > "$sym_target"
-          rm -f "$cfg"
-          ln -s "$sym_target" "$cfg"
-          set +e
-          sym_read="$(smoke_codex wrapper setup show)"
-          sym_read_rc=$?
-          smoke_codex wrapper setup --bare >/dev/null 2>&1
-          sym_write_rc=$?
-          sym_status="$(smoke_codex wrapper status --json)"
-          sym_status_rc=$?
-          set -e
-          test "$sym_read_rc" -eq 0
-          printf '%s\n' "$sym_read" | grep -Fx 'addons: invalid'
-          printf '%s\n' "$sym_read" | grep -Fx 'signed_update: unknown'
-          test "$sym_write_rc" -eq 2
-          test "$sym_status_rc" -eq 1
-          printf '%s\n' "$sym_status" | grep -F '"addons":"invalid"'
-          printf '%s\n' "$sym_status" | grep -F '"signed_update":null'
-          test -L "$cfg"
-          test "$(readlink "$cfg")" = "$sym_target"
-          test "$(cat "$sym_target")" = 'manager = false'
-          rm -f "$cfg" "$sym_target"
+          for retired in setup --bare --with; do
+            retired_rc=0
+            smoke_codex wrapper "$retired" >/dev/null 2>&1 || retired_rc=$?
+            test "$retired_rc" -eq 2
+          done
 
       - name: Exercise installer rollback and concurrency guards on Android Bionic
         shell: bash

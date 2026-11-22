@@ -2,7 +2,7 @@ use crate::cli::UpstreamArgScan;
 use crate::error::RuntimeLaunchError;
 use crate::fs_util::{self, fcntl, LOCAL_STAGING_COUNTER};
 use crate::generation::{termux_browser_helper_paths, LocalWrapperRoots, QualifiedRuntimeAssets};
-use crate::{daemon_settings, system_config, timezone};
+use crate::{daemon_settings, timezone};
 use std::ffi::{OsStr, OsString};
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read as _, Seek as _, Write as _};
@@ -611,7 +611,6 @@ fn launch_upstream_runtime_with_plan(
     assets: QualifiedRuntimeAssets<'_, '_>,
     process_env: &TermuxProcessEnvSnapshot,
     host: UpstreamRuntimeHost<'_>,
-    extension_input: system_config::ExtensionFd34Input<'_>,
     args: &[OsString],
     scan: &UpstreamArgScan,
 ) -> RuntimeLaunchError {
@@ -654,48 +653,13 @@ fn launch_upstream_runtime_with_plan(
             }
         }
     }
-    if extension_input.is_empty() {
-        if let Err(err) = prepare_wrapper_config(host.config_dir) {
-            return RuntimeLaunchError::Config(err);
-        }
-        let runtime_fds = match RuntimeFdSources::open(host.resolver_path, host.config_dir) {
-            Ok(fds) => fds,
-            Err(err) => return RuntimeLaunchError::Exec(err),
-        };
-        let exec_err = exec_runtime_with_sources(
-            selection.runtime.program_path,
-            args,
-            runtime_fds,
-            &env_plan,
-            sqlite_home_override.as_deref(),
-            scan.help_or_version,
-        );
-        return RuntimeLaunchError::Exec(exec_err);
+    if let Err(err) = prepare_wrapper_config(host.config_dir) {
+        return RuntimeLaunchError::Config(err);
     }
-
-    let prepared = match system_config::prepare(host.config_dir, extension_input) {
-        Ok(prepared) => prepared,
-        Err(err) => return RuntimeLaunchError::Config(err),
+    let runtime_fds = match RuntimeFdSources::open(host.resolver_path, host.config_dir) {
+        Ok(fds) => fds,
+        Err(err) => return RuntimeLaunchError::Exec(err),
     };
-    match system_config::validate(
-        &prepared,
-        selection.runtime.program_path,
-        host.resolver_path,
-        &env_plan,
-    ) {
-        Ok(true) => (),
-        Ok(false) => {
-            return RuntimeLaunchError::Config(io::Error::other(
-                "extension FD 34 snapshot failed runtime features validation",
-            ))
-        }
-        Err(err) => return RuntimeLaunchError::Config(err),
-    }
-    let runtime_fds =
-        match RuntimeFdSources::open_with_config_file(host.resolver_path, &prepared.lease) {
-            Ok(fds) => fds,
-            Err(err) => return RuntimeLaunchError::Config(err),
-        };
     let exec_err = exec_runtime_with_sources(
         selection.runtime.program_path,
         args,
@@ -704,7 +668,6 @@ fn launch_upstream_runtime_with_plan(
         sqlite_home_override.as_deref(),
         scan.help_or_version,
     );
-    drop(prepared);
     RuntimeLaunchError::Exec(exec_err)
 }
 
@@ -725,7 +688,6 @@ pub(super) fn launch_upstream_runtime(
             config_dir: &roots.config_dir,
             generation_root: &roots.generation_root,
         },
-        system_config::ExtensionFd34Input::default(),
         args,
         scan,
     )

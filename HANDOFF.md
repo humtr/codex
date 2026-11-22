@@ -82,8 +82,8 @@
 ### 3.1 Wrapper 본체(`codex`) 경계 고정 및 Phase 2.1 잔여 코드 제거
 - **`$PREFIX/bin/codex` 정체성 고정:** 온전히 Stage 1 업스트림 실행(`execve()` 즉시 퇴장) + 바이너리 ELF 패치 + `update`/`rollback`/`doctor` + 관리형 데몬 동기화 + 경량 서명 검증에 국한한다.
 - **Phase 2.1 잔여 코드 제거 ([SPEC.md](SPEC.md) 개정 동반):**
-  - 소비자 0인 [system_config.rs](crates/wrapper/src/system_config.rs)(799줄 FD 34 스냅샷 엔진) 완전 제거.
-  - [extensions.rs](crates/wrapper/src/extensions.rs) · [wrapper_cli.rs](crates/wrapper/src/wrapper_cli.rs)의 미사용 `manager`·`tui`·`provider`·`--with`·`--bare`·`setup --enable/--disable` 죽은 분기 제거 (`codex wrapper status [--verify] [--json]` 중심으로 슬림화).
+  - 소비자 0인 `crates/wrapper/src/system_config.rs`(799줄 FD 34 스냅샷 엔진) 완전 제거.
+  - `crates/wrapper/src/extensions.rs` 제거 및 [wrapper_cli.rs](crates/wrapper/src/wrapper_cli.rs)의 미사용 `manager`·`tui`·`provider`·`--with`·`--bare`·`setup --enable/--disable` 죽은 분기 제거 (`codex wrapper status [--verify] [--json]` 중심으로 슬림화).
 
 ### 3.2 독립 확장 바이너리 `codex-ext` (축약 심볼릭 링크 `cdx`)
 - **패키징 & 독립 주기:** 독립 크레이트(`crates/codex-ext`, 자체 `[workspace]`) → 단일 바이너리 `$PREFIX/bin/codex-ext` + 축약 심볼릭 링크 `$PREFIX/bin/cdx`. 업스트림 `codex` 버전업 시 수정·빌드·배포 0회(완전 독립 릴리스).
@@ -167,7 +167,7 @@ Slice 1: Wrapper 슬림화 + 공용 SHA256SUMS.sig 경량 Ed25519 서명·배포
 ## 5. Slice 1 체크리스트 (즉시 실행)
 
 - [x] 덩어리 1·2·3 설계 확정 및 `HANDOFF.md` 고정.
-- [ ] [SPEC.md](SPEC.md), [docs/ROADMAP.md](docs/ROADMAP.md), [docs/spec/DELIVERY.md](docs/spec/DELIVERY.md) 규범 동기화.
-- [ ] Wrapper Phase 2.1 잔여 코드 제거 ([system_config.rs](crates/wrapper/src/system_config.rs), [extensions.rs](crates/wrapper/src/extensions.rs), [wrapper_cli.rs](crates/wrapper/src/wrapper_cli.rs) 슬림화, 관련 호출부·테스트·[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)·[wrapper-verify.yml](.github/workflows/wrapper-verify.yml) 정리).
+- [x] [SPEC.md](SPEC.md), [docs/ROADMAP.md](docs/ROADMAP.md), [docs/spec/DELIVERY.md](docs/spec/DELIVERY.md) 규범 동기화.
+- [x] Wrapper Phase 2.1 잔여 코드 제거 (`system_config.rs`, `extensions.rs` 제거 및 [wrapper_cli.rs](crates/wrapper/src/wrapper_cli.rs) 슬림화, 관련 호출부·테스트·[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)·[wrapper-verify.yml](.github/workflows/wrapper-verify.yml) 정리).
 - [ ] 공용 경량 `SHA256SUMS.sig` Ed25519 서명/검증 구현 ([publish_wrapper_release.py](.github/scripts/publish_wrapper_release.py), 공용 서명/검증 스크립트, [install.sh](install.sh) 사전 검증 + sequence anti-rollback + `release-public-key.pem` 핀 검증).
 - [ ] 출구 게이트: `cargo fmt --check`, `cargo clippy --workspace --all-targets --locked -- -D warnings`, `cargo test --workspace --locked` (umask `0022`/`0077`), `python3 -m unittest discover -s .github/scripts`, `check_doc_links.py`, `shellcheck install.sh`, 서명 변조·다운그레이드·로테이션·미서명 로컬 폴백 테스트 통과.

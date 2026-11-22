@@ -9,8 +9,6 @@ mod doctor;
 #[cfg(unix)]
 mod error;
 #[cfg(unix)]
-mod extensions;
-#[cfg(unix)]
 mod fs_util;
 #[cfg(unix)]
 mod generation;
@@ -32,8 +30,6 @@ mod runtime_env;
 mod shared_home;
 #[cfg(unix)]
 mod state;
-#[cfg(unix)]
-mod system_config;
 #[cfg(unix)]
 mod timezone;
 #[cfg(unix)]
@@ -66,7 +62,6 @@ pub(crate) struct LocalPublicDispatchContext<'context, 'runtime_selection, 'runt
     pub(crate) cert_dir: Option<&'context OsStr>,
     pub(crate) resolver_path: &'context Path,
     pub(crate) config_dir: &'context Path,
-    pub(crate) state_root: &'context Path,
     pub(crate) wrapper_doctor_status: doctor::WrapperDoctorStatus,
     pub(crate) generation_id: &'context str,
     pub(crate) generation_layout: GenerationLayout,
@@ -105,7 +100,6 @@ fn execute_activated_route(
                 cert_dir: Some(roots.cert_dir.as_os_str()),
                 resolver_path: &roots.resolver_path,
                 config_dir: &roots.config_dir,
-                state_root: &roots.state_root,
                 wrapper_doctor_status: doctor::WrapperDoctorStatus::Healthy,
                 generation_id: &loaded.generation_id,
                 generation_layout: loaded.generation_layout,
@@ -169,11 +163,8 @@ where
             };
             let result = LocalWrapperRoots::from_environment().and_then(|roots| {
                 if let PublicDispatchRoute::Upstream(ref args) = route {
-                    if !scan.help_or_version {
-                        warn_unavailable_addons(&roots);
-                        if args.is_empty() {
-                            update::maybe_prompt_and_update_on_bare_launch(&roots);
-                        }
+                    if !scan.help_or_version && args.is_empty() {
+                        update::maybe_prompt_and_update_on_bare_launch(&roots);
                     }
                 }
                 execute_activated_route(route, &roots, &capture_termux_process_env(), &scan)
@@ -190,22 +181,6 @@ where
             };
             print!("{}", outcome.output);
             doctor::doctor_exit_code(outcome.exit_class)
-        }
-    }
-}
-
-#[cfg(unix)]
-fn warn_unavailable_addons(roots: &LocalWrapperRoots) {
-    match extensions::WrapperSettings::read(&roots.state_root) {
-        Ok(settings) => {
-            if let Some(modules) = settings.unavailable_addons() {
-                eprintln!("codex: optional module(s) {modules} are unavailable; continuing with standalone upstream");
-            }
-        }
-        Err(err) => {
-            eprintln!(
-                "codex: warning: ignoring invalid wrapper.toml ({err}); using bare standalone mode"
-            );
         }
     }
 }

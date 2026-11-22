@@ -379,39 +379,9 @@ fn e2e_activation_doctor_status_and_rollback_in_isolated_roots() {
         .unwrap();
     assert_eq!(recovered.current, "gen-1");
     assert_eq!(run_public_main(os_vec(&["doctor", "--json"])), 0);
-
-    // Absent wrapper.toml performs zero snapshot writes or config creation on version/status.
-    assert!(!roots.config_dir.join("snapshots").exists());
-
-    // Malformed wrapper.toml keeps status/setup-show inspectable & non-mutating and rejects mutating setup/--with,
-    // while ordinary execution degrades gracefully with warning without overwriting wrapper.toml.
-    fs::write(roots.state_root.join("wrapper.toml"), "broken = invalid\n").unwrap();
     assert_eq!(run_public_main(os_vec(&["wrapper", "status"])), 0);
-    assert_eq!(run_public_main(os_vec(&["wrapper", "setup", "show"])), 0);
-    assert_eq!(run_public_main(os_vec(&["doctor", "--json"])), 0);
-    assert_eq!(
-        run_public_main(os_vec(&["wrapper", "setup", "--enable", "manager"])),
-        2
-    );
-    assert_eq!(
-        fs::read_to_string(roots.state_root.join("wrapper.toml")).unwrap(),
-        "broken = invalid\n"
-    );
+    assert_eq!(run_public_main(os_vec(&["wrapper", "status", "--json"])), 0);
 
-    // Reset via removal -> test multi-flag setup and --bare preserving signed_update.
-    fs::remove_file(roots.state_root.join("wrapper.toml")).unwrap();
-    assert_eq!(
-        run_public_main(os_vec(&[
-            "wrapper",
-            "setup",
-            "--enable",
-            "manager,tui",
-            "--signed-update",
-            "true"
-        ])),
-        0
-    );
-    // Persisted optional selection cannot brick standalone execution.
     // Run the actual exec boundary in a child, preserving this test runner.
     let launch = Command::new(std::env::current_exe().unwrap())
         .args([
@@ -424,22 +394,6 @@ fn e2e_activation_doctor_status_and_rollback_in_isolated_roots() {
         .unwrap();
     assert!(launch.status.success(), "{launch:?}");
     assert!(String::from_utf8_lossy(&launch.stdout).contains("codex 1.2.3"));
-    assert!(String::from_utf8_lossy(&launch.stderr).contains("continuing with standalone upstream"));
-    assert_eq!(
-        run_public_main(os_vec(&["wrapper", "--with", "manager"])),
-        1
-    );
-    // Mixing show with mutating flags fails with exit code 2 cleanly.
-    assert_eq!(
-        run_public_main(os_vec(&["wrapper", "setup", "show", "--bare"])),
-        2
-    );
-    // --bare clears enabled modules while preserving signed_update = true.
-    assert_eq!(run_public_main(os_vec(&["wrapper", "setup", "--bare"])), 0);
-    let after_bare = super::extensions::WrapperSettings::read(&roots.state_root).unwrap();
-    assert_eq!(after_bare.addons_label(), "none");
-    assert!(after_bare.signed_update);
-    assert_eq!(run_public_main(os_vec(&["wrapper", "status", "--json"])), 0);
 
     drop(_env_guard);
     remove_temp_root(root);
