@@ -173,9 +173,9 @@ Slice 1: Wrapper 슬림화 + 공용 SHA256SUMS.sig 경량 Ed25519 서명·배포
 - [x] 출구 게이트: `cargo fmt --check`, `cargo clippy --workspace --all-targets --locked -- -D warnings`, `cargo test --workspace --locked` (umask `0022`/`0077`), `python3 -m unittest discover -s .github/scripts`, `check_doc_links.py`, `shellcheck install.sh`, 서명 변조·다운그레이드·로테이션·미서명 로컬 폴백 테스트 통과.
 - [x] Stage 2 전용 Ed25519 키 프로비저닝(`CODEX_SIGNING_KEY`, 공개키 핀 `0df170da...`), `main` 승격 및 [Wrapper CI run 44997871190](https://github.com/humtr/codex/actions/runs/44997871190) 서명 `wrapper` 릴리스 발행(`sequence=1`, `prerelease=false`), 실기기 Termux `--require-signed --skip-upstream` 컷오버 완료 (상세 영수증 [CURRENT.md](CURRENT.md)).
 
-> **Slice 2 (`stage2/slice-2-codex-ext`) 구현 완료:**
+> **Slice 2 완료 (`main` 머지 & 실기기 `$PREFIX/bin/codex-ext`·`cdx` 설치 완료 — 2026-11-22):**
 > - [x] [docs/spec/USER_INTERFACES.md](docs/spec/USER_INTERFACES.md) 슬림화 (`codex-ext`/`cdx` · `notify` A안 · `!cdx switch`/`!cdx provider` 규범 확정).
 > - [x] 공용 [crates/codex-daemon-client](crates/codex-daemon-client/src/lib.rs) (독립 `[workspace]`, RFC 6455 WebSocket-over-UDS + Termux FD 35 `dirfd` 해결 + `flock` writer-lock 프로브).
 > - [x] 독립 [crates/codex-ext](crates/codex-ext/src/main.rs) (`cdx` 논-PTY 런처, `!cdx switch`/`!cdx provider`, `profile` CRUD, `notify` A안, `status`) + 독립 경로 트리거 CI ([codex-ext.yml](.github/workflows/codex-ext.yml)).
-> - [x] 격리 Android API 37 실증: §7 동일 UUID writer-lock 해제(`flock`)·문맥 유지 인계 및 `session_index.jsonl`/`state_5.sqlite` 권위 원천 확인, 다중 창 분기, 바쁜 데몬 사전 차단, `contrib/codex-account` 퇴역.
-> - [ ] 사후 감사·개선 승인 후 `main` 머지 및 **Slice 3 (`crates/mcp-kit` + `@TermuxShell` + `tunnel-client` + `runit` 3상태 수퍼비전)** 착수.
+> - [x] 사후 감사·개선 (`SIGINT` 부모 보호, 데몬 프로브 fail-closed, 외부 프로바이더→계정 전환 가드, symlink 경로 정규화, 멀티라인 `notify` TOML, `codex-ext.yml` 시퀀스 단조증가·readback), §7 격리 실증, `contrib/codex-account` 퇴역, 실기기 설치(`138def40...`) 완료.
+> - [ ] **다음 착수:** **Slice 3 (`crates/mcp-kit` + `mcp/termux-shell` `@TermuxShell` + `transport/tunnel-client` + `runit` 3상태 수퍼비전)** — 신규 브랜치 `stage2/slice-3-shell-tunnel`.
