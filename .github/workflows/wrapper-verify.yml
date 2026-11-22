@@ -92,6 +92,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          PYTHONDONTWRITEBYTECODE=1 python3 .github/scripts/test_release_sign.py
           PYTHONDONTWRITEBYTECODE=1 python3 .github/scripts/test_publish_wrapper_release.py
 
       - name: Install Rust toolchain

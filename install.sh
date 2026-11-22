@@ -826,8 +826,9 @@ case $source_mode in
         fail 'signed release verification requested, but no --verify-key or installed release-public-key.pem was found'
       require_regular_file "$verify_key" 'verifier public key'
       key_size=$(wc -c < "$verify_key" | tr -d '[:space:]')
-      [ "$key_size" -gt 0 ] && [ "$key_size" -le "$MAX_PUBKEY_BYTES" ] ||
+      if [ "$key_size" -le 0 ] || [ "$key_size" -gt "$MAX_PUBKEY_BYTES" ]; then
         fail "verifier public key out of bounds: $verify_key"
+      fi
       if [ -n "$key_sha256" ]; then
         actual_key_sha=$(sha256_hex "$verify_key")
         [ "$actual_key_sha" = "$key_sha256" ] ||
