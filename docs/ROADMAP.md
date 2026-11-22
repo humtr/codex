@@ -6,7 +6,7 @@
 > Normative contracts: [SPEC.md](../SPEC.md), [DELIVERY.md](spec/DELIVERY.md),
 > [USER_INTERFACES.md](spec/USER_INTERFACES.md), [BRIDGE.md](spec/BRIDGE.md).
 > Active design & slice checklist: [HANDOFF.md](../HANDOFF.md).
-> **Current implementation state:** **Stage 1** and **Stage 2 Slices 1–4** are complete and live on `main` (see [CURRENT.md](../CURRENT.md)). Stage 2 was reassessed from first principles on **2026-11-22** to keep `codex` Wrapper strictly zero-coupling and source-patch-free, replacing the legacy `c200e676` coupled Phases 2.1–2.5 (`shared_server`, `native_route.patch`, `frontend/tui` fork, CDN `update-index`, DDPE monolith) with **6 independent decoupled slices (Slices 1–6)** — **Slices 5–6 remain to be built**.
+> **Current implementation state:** **Stage 1** and **Stage 2 Slices 1–4** are complete and live on `main` (see [CURRENT.md](../CURRENT.md)); **Slice 5** (`Gate 5-0` + `host/chatgpt-desktop` + slim `providers/chatgpt`) is implemented on `stage2/slice-5-chatgpt-provider`. Stage 2 was reassessed from first principles on **2026-11-22** to keep `codex` Wrapper strictly zero-coupling and source-patch-free, replacing the legacy `c200e676` coupled Phases 2.1–2.5 (`shared_server`, `native_route.patch`, `frontend/tui` fork, CDN `update-index`, DDPE monolith) with **6 independent decoupled slices (Slices 1–6)** — **Slice 6 remains to be built**.
 
 ---
 

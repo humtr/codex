@@ -1,0 +1,25 @@
+[workspace]
+members = ["."]
+resolver = "2"
+
+[package]
+name = "chatgpt-provider"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[[bin]]
+name = "chatgpt-provider"
+path = "src/main.rs"
+
+[dependencies]
+axum = { version = "0.8", default-features = false, features = ["http1", "json", "query", "tokio", "ws"] }
+futures-util = { version = "0.3", default-features = false, features = ["sink"] }
+libc = "0.2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "net", "process", "signal", "io-util", "fs"] }
+toml = "0.8"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["test-util"] }
