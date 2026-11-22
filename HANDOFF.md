@@ -178,9 +178,9 @@ Slice 1: Wrapper 슬림화 + 공용 SHA256SUMS.sig 경량 Ed25519 서명·배포
 > - [x] 공용 [crates/codex-daemon-client](crates/codex-daemon-client/src/lib.rs) (독립 `[workspace]`, RFC 6455 WebSocket-over-UDS + Termux FD 35 `dirfd` 해결 + `flock` writer-lock 프로브).
 > - [x] 독립 [crates/codex-ext](crates/codex-ext/src/main.rs) (`cdx` 논-PTY 런처, `!cdx switch`/`!cdx provider`, `profile` CRUD, `notify` A안, `status`) + 독립 경로 트리거 CI ([codex-ext.yml](.github/workflows/codex-ext.yml)).
 > - [x] 사후 감사·개선 (`SIGINT` 부모 보호, 데몬 프로브 fail-closed, 외부 프로바이더→계정 전환 가드, symlink 경로 정규화, 멀티라인 `notify` TOML, `codex-ext.yml` 시퀀스 단조증가·readback), §7 격리 실증, `contrib/codex-account` 퇴역, 실기기 설치(`138def40...`) 완료.
-> **Slice 3 (`stage2/slice-3-shell-tunnel`) 구현 완료:**
-> - [x] 공용 [crates/mcp-kit](crates/mcp-kit/src/lib.rs) (독립 `[workspace]`, 불변 어노테이션, 상호배타 `catalog`/`call` 레지스트리, `O_NOFOLLOW` + `fsync` `call_id` 영수증 저널, bounded stdio JSON-RPC 루프).
+> **Slice 3 완료 (`main` 머지 & `~/.local/lib/termux-shell-mcp/current/termux-shell-mcp` + `$PREFIX/bin/termux-shell-mcp` 설치 완료 — 2026-11-22):**
+> - [x] 공용 [crates/mcp-kit](crates/mcp-kit/src/lib.rs) (독립 `[workspace]`, 불변 어노테이션, 상호배타 `catalog`/`call` 레지스트리, `O_NOFOLLOW` + `fsync` `call_id` 영수증 저널·상한 프루닝, 바운디드 stdio JSON-RPC 루프).
 > - [x] 독립 [mcp/termux-shell](mcp/termux-shell/src/main.rs) (`@TermuxShell` `termux-shell-mcp`, 정적 1도구 `termux_shell`, 비-tokio 경량 프로세스 그룹/바운디드 캡처, `termux-shell-v1/v2` 호환) + [docs/spec/MCP_SHELL.md](docs/spec/MCP_SHELL.md) + [termux-shell.yml](.github/workflows/termux-shell.yml).
-> - [x] [transport/tunnel-client](transport/tunnel-client/recipe.json) (`v0.0.21` + `termux.patch` HTTP/2 half-open PING), [scripts/build_tunnel_client.py](scripts/build_tunnel_client.py) (GitHub API 403 리다이렉트 폴백 + NDK 크로스컴파일 지원) + [tunnel-client.yml](.github/workflows/tunnel-client.yml).
-> - [x] opt-in `runit` 3상태 수퍼비전 ([scripts/runit_service.py](scripts/runit_service.py) + [docs/spec/SUPERVISION.md](docs/spec/SUPERVISION.md) + 단위/롤백 테스트).
-> - [ ] 사후 감사·개선 승인 후 `main` 현행화 및 **Slice 4 (`mcp/termux-codex` `@TermuxCodex` 5도구 그린필드)** 착수.
+> - [x] [transport/tunnel-client](transport/tunnel-client/recipe.json) (`v0.0.21` + `termux.patch` HTTP/2 half-open PING), [scripts/build_tunnel_client.py](scripts/build_tunnel_client.py) (GitHub API 403 리다이렉트 폴백 + NDK 크로스컴파일 지원) + [tunnel-client.yml](.github/workflows/tunnel-client.yml) (Go `1.27.4`).
+> - [x] opt-in `runit` 3상태 수퍼비전 ([scripts/runit_service.py](scripts/runit_service.py) + [docs/spec/SUPERVISION.md](docs/spec/SUPERVISION.md) + 지연 활성화 재시도·롤백 시 `previous` 보존 테스트).
+> - [ ] **다음 착수:** **Slice 4 (`mcp/termux-codex` `@TermuxCodex` 5도구 그린필드)** — 신규 브랜치 `stage2/slice-4-termux-codex`.
