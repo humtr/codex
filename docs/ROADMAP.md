@@ -286,9 +286,10 @@ Stage 1의 FD 34는 스레드 수명을 업스트림 정책에 맡깁니다. 마
 - **R-5** The manual read-only canary uses the shared Wrapper verification
   workflow. The restricted physical-device promotion gate remains deferred.
   [Phase 2.6](#3-phase-26--read-only-upstream-discovery-and-qualification)
-- **R-6** Test installer recovery after an Android Termux force-stop.
-  Physical power removal and execution on a device with a real 16 KiB kernel
-  page size are long-term checks.
+- **R-6** Installer recovery after an Android Termux force-stop passed.
+  Physical power removal and execution on a device with a 16 KiB kernel page
+  size are long-term checks.
+  [Force-stop recovery evidence](../CURRENT.md#2026-11-23--android-termux-force-stop-recovery)
 - **AppHost shutdown.** Cross-device Android behavior and an exact
   `SHMHELPER_DISTRIBUTE` `accept()` race reproduction remain open.
   [Signed device evidence](../CURRENT.md#2026-11-23--provider-and-orchestration-development-version-restored-on-termux)

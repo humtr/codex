@@ -38,9 +38,9 @@ Observed on 2026-11-23.
 - **R-5.** The manual read-only canary passed for the current official stable
   release. The restricted physical-device promotion gate remains deferred.
   [Phase 2.6](docs/ROADMAP.md#3-phase-26--read-only-upstream-discovery-and-qualification)
-- **R-6.** The API 37 device uses 4 KiB pages. Android Termux force-stop
-  recovery is a separate test from physical power removal. A 16 KiB page-size
-  device and physical power removal remain long-term verification.
+- **R-6.** Installer recovery after an Android Termux force-stop passed on the
+  API 37 device with 4 KiB pages. Physical power removal and execution on a
+  16 KiB page-size device remain long-term checks.
 - **Slice 7B evidence boundary.** Natural context exhaustion remains open.
   Live evidence covers the configured turn-count trigger, a detached Shell
   run exceeding ten minutes, and an explicit Stop invocation. Manual
@@ -50,6 +50,15 @@ Observed on 2026-11-23.
 ---
 
 ## Recent Verified Evidence (Newest-First)
+
+### 2026-11-23 — Android Termux force-stop recovery
+
+- The repository installer paused at transaction phase `ready` just after
+  replacing a fixture executable in a disposable prefix. The operator
+  force-stopped Termux, reopened it, and ran recovery in the same kernel boot.
+  Recovery exited with code 0. The saved receipt and direct readback confirmed
+  that the executable matched its pre-install SHA-256 and that the installer
+  lock and recovery gate were gone.
 
 ### 2026-11-23 — Signed Work project reuse and interactive launcher update
 
@@ -108,13 +117,6 @@ Observed on 2026-11-23.
   The installed Wrapper, runtime and both runtime companions passed 16 KiB
   ELF alignment checks. The observed kernel page size was 4 KiB. Actual power
   removal and 16 KiB kernel execution remain open.
-- **Termux force-stop fixture.** The installer is paused just after replacing
-  the executable in a disposable prefix, with its `ready` transaction and
-  the old and new digests recorded durably. A separate owned process-group
-  interruption rehearsal restored the original digest and removed the lock.
-  The actual Android force-stop test awaits the operator action and same-boot
-  readback. On this device the recovery command is
-  `python3 "$HOME/.local/state/codex/verification/r6-termux-stop.3fe1TJ6O/check.py" recover`.
 
 ### 2026-11-23 — Local in-TUI account switch repair
 
