@@ -82,8 +82,23 @@ impl RelayEngine {
         let mut dirty = false;
         let now = now_unix();
 
-        // 1. Observe running participants (only if work is not cancelled/completed).
+        // A missing dispatch response may still represent accepted work.
         if !work.is_terminal() {
+            if let Some(mut lead) = work.pending_lead.clone() {
+                if let Some((ref_id, turn_id)) = self.owners.reconcile_model_dispatch(
+                    &lead.kind,
+                    lead.profile.as_deref(),
+                    &lead.ref_id,
+                    lead.dispatch_id.as_deref().unwrap_or_default(),
+                    work.account_id.as_deref(),
+                    work.project_id.as_deref(),
+                ) {
+                    lead.ref_id = ref_id;
+                    lead.turn_id = turn_id;
+                    work.bind_lead(lead);
+                    self.ledger.save_work(&work).map_err(|e| e.to_string())?;
+                }
+            }
             for participant in &mut work.participants {
                 if participant.state != "dispatching" {
                     continue;
@@ -91,45 +106,18 @@ impl RelayEngine {
                 let Some(id) = participant.dispatch_id.as_deref() else {
                     continue;
                 };
-                let marker = format!("[ORCH_DISPATCH {id}]");
-                match participant.backend.as_str() {
-                    "codex" if !participant.ref_id.is_empty() => {
-                        if let Ok(Some(turn)) = self.owners.codex_find_marked_turn(
-                            participant.profile.as_deref(),
-                            &participant.ref_id,
-                            &marker,
-                        ) {
-                            participant.turn_id = Some(turn);
-                            participant.state = "running".to_owned();
-                            dirty = true;
-                        }
-                    }
-                    "chatgpt"
-                        if work.account_id.as_ref().is_some_and(|pinned| {
-                            self.owners
-                                .chatgpt_account_id()
-                                .is_ok_and(|account| &account == pinned)
-                        }) =>
-                    {
-                        if let Ok(lane) = self.owners.chatgpt_observe_lane(id) {
-                            if let Some(chat) = lane["chat_id"]
-                                .as_str()
-                                .filter(|chat| !chat.is_empty() && lane["lane_id"] == id)
-                            {
-                                if self.owners.chatgpt_has_delivery_marker(
-                                    chat,
-                                    work.project_id.as_deref(),
-                                    &marker,
-                                ) == Ok(true)
-                                {
-                                    participant.ref_id = chat.to_owned();
-                                    participant.state = "running".to_owned();
-                                    dirty = true;
-                                }
-                            }
-                        }
-                    }
-                    _ => (),
+                if let Some((ref_id, turn_id)) = self.owners.reconcile_model_dispatch(
+                    &participant.backend,
+                    participant.profile.as_deref(),
+                    &participant.ref_id,
+                    id,
+                    work.account_id.as_deref(),
+                    work.project_id.as_deref(),
+                ) {
+                    participant.ref_id = ref_id;
+                    participant.turn_id = turn_id;
+                    participant.state = "running".to_owned();
+                    dirty = true;
                 }
             }
             if work.state == "cancelling" {
@@ -281,7 +269,7 @@ impl RelayEngine {
             }
         }
         let rollover = crate::rollover::Rollover::new(&self.ledger, &self.owners);
-        if work.can_start() && work.lead_rollover.is_some() {
+        if work.can_start() && work.pending_lead.is_none() && work.lead_rollover.is_some() {
             let _ = rollover.advance(&mut work);
             return Ok(summary);
         }
@@ -290,7 +278,7 @@ impl RelayEngine {
             let _ = rollover.replay(&mut work);
             return Ok(summary);
         }
-        if work.can_start() {
+        if work.can_start() && work.pending_lead.is_none() {
             if let Some(reason) = rollover.automatic_reason(&work) {
                 let _ = rollover.start(&mut work, &reason, None);
                 if work.lead_rollover.is_some() || work.lead_replay.is_some() {
@@ -300,7 +288,7 @@ impl RelayEngine {
         }
 
         // 2. Evaluate armed Wait-Set.
-        if work.can_start() {
+        if work.can_start() && work.pending_lead.is_none() {
             // Only one delivery may own the next Inbox prefix. Otherwise a
             // newly armed Wait-Set can advance past an earlier deferred wake.
             if let Some(ws) = work.wait_set.clone().filter(|w| {
@@ -668,70 +656,37 @@ impl RelayEngine {
     }
     fn progress_cancellation(&self, work: &mut WorkRecord) -> Result<(), String> {
         for participant in work.participants.iter_mut().filter(|p| !p.is_terminal()) {
-            let stopped = match participant.backend.as_str() {
-                "shell" => crate::shell_job::ShellJob::new(
-                    &self.ledger,
-                    &work.work_id,
+            let stopped = if participant.backend == "shell" {
+                crate::shell_job::ShellJob::new(&self.ledger, &work.work_id, &participant.ref_id)
+                    .and_then(|job| job.confirmed_exit())
+                    .unwrap_or(false)
+            } else {
+                self.stop_model_launch(
+                    &participant.backend,
                     &participant.ref_id,
+                    participant.profile.as_deref(),
+                    participant.dispatch_id.as_deref(),
+                    participant.turn_id.as_deref(),
+                    work.account_id.as_deref(),
                 )
-                .and_then(|job| job.confirmed_exit())
-                .unwrap_or(false),
-                "codex" if participant.dispatch_id.is_some() => {
-                    let Some(turn) = participant.turn_id.as_deref() else {
-                        continue;
-                    };
-                    let profile = participant.profile.as_deref();
-                    if let Ok(observed) =
-                        self.owners
-                            .codex_observe_turn(profile, &participant.ref_id, Some(turn))
-                    {
-                        match observed.turn_status.as_deref() {
-                            Some("completed" | "failed" | "interrupted") => true,
-                            Some("inProgress") => {
-                                let _ = self.owners.codex_interrupt_turn(
-                                    profile,
-                                    &participant.ref_id,
-                                    turn,
-                                );
-                                false
-                            }
-                            _ => false,
-                        }
-                    } else {
-                        false
-                    }
-                }
-                "chatgpt" if participant.dispatch_id.is_some() => {
-                    let lane = participant.dispatch_id.as_deref().unwrap();
-                    if !work.account_id.as_ref().is_some_and(|pinned| {
-                        self.owners
-                            .chatgpt_account_id()
-                            .is_ok_and(|account| &account == pinned)
-                    }) {
-                        continue;
-                    }
-                    let Ok(observed) = self.owners.chatgpt_observe_lane(lane) else {
-                        continue;
-                    };
-                    if observed["lane_id"] != lane || observed["chat_id"] != participant.ref_id {
-                        continue;
-                    }
-                    if observed["generating"] == true {
-                        let _ = self.owners.chatgpt_stop_lane(lane, &participant.ref_id);
-                        false
-                    } else {
-                        matches!(observed["state"].as_str(), Some("settled" | "error"))
-                    }
-                }
-                // A pre-existing model session has no Work-owned launch to stop.
-                _ => true,
             };
             if stopped {
                 participant.state = "cancelled".to_owned();
                 participant.updated_at_unix = now_unix();
             }
         }
-        if work.participants.iter().all(Participant::is_terminal) {
+        let lead_settled = work.pending_lead.is_none()
+            && work.lead.as_ref().is_none_or(|lead| {
+                self.stop_model_launch(
+                    &lead.kind,
+                    &lead.ref_id,
+                    lead.profile.as_deref(),
+                    lead.dispatch_id.as_deref(),
+                    lead.turn_id.as_deref(),
+                    work.account_id.as_deref(),
+                )
+            });
+        if lead_settled && work.participants.iter().all(Participant::is_terminal) {
             work.state = "cancelled".to_owned();
             self.ledger
                 .append_event_if_absent(
@@ -745,6 +700,62 @@ impl RelayEngine {
                 .map_err(|e| e.to_string())?;
         }
         self.ledger.save_work(work).map_err(|e| e.to_string())
+    }
+
+    fn stop_model_launch(
+        &self,
+        backend: &str,
+        ref_id: &str,
+        profile: Option<&str>,
+        dispatch_id: Option<&str>,
+        turn_id: Option<&str>,
+        account: Option<&str>,
+    ) -> bool {
+        // A pre-existing model session has no Work-owned launch to stop.
+        let Some(dispatch) = dispatch_id else {
+            return true;
+        };
+        match backend {
+            "codex" => {
+                let Some(turn) = turn_id else { return false };
+                let Ok(observed) = self.owners.codex_observe_turn(profile, ref_id, Some(turn))
+                else {
+                    return false;
+                };
+                match observed.turn_status.as_deref() {
+                    Some("completed" | "failed" | "interrupted") => true,
+                    Some("inProgress") => {
+                        let _ = self.owners.codex_interrupt_turn(profile, ref_id, turn);
+                        false
+                    }
+                    _ => false,
+                }
+            }
+            "chatgpt"
+                if account.is_some_and(|pinned| {
+                    self.owners
+                        .chatgpt_account_id()
+                        .is_ok_and(|actual| actual == pinned)
+                }) =>
+            {
+                let Ok(observed) = self.owners.chatgpt_observe_lane(dispatch) else {
+                    return false;
+                };
+                if ref_id.is_empty()
+                    || observed["lane_id"] != dispatch
+                    || observed["chat_id"] != ref_id
+                {
+                    return false;
+                }
+                if observed["generating"] == true {
+                    let _ = self.owners.chatgpt_stop_lane(dispatch, ref_id);
+                    false
+                } else {
+                    matches!(observed["state"].as_str(), Some("settled" | "error"))
+                }
+            }
+            _ => false,
+        }
     }
 
     fn continue_with_shell(

@@ -288,31 +288,6 @@ impl OwnerClient {
         })
     }
 
-    pub fn chatgpt_send(
-        &self,
-        chat_id: Option<&str>,
-        project_id: Option<&str>,
-        prompt: &str,
-        model: Option<&str>,
-        reasoning_effort: Option<&str>,
-        wait_ms: u64,
-    ) -> Result<Value, String> {
-        let timeout = Duration::from_millis(wait_ms.min(120_000) + 30_000).max(SEND_TIMEOUT);
-        self.control_call(
-            "POST",
-            "/control/send",
-            Some(&json!({
-                "chat_id": chat_id,
-                "project_id": project_id,
-                "prompt": prompt,
-                "model": model,
-                "reasoning_effort": reasoning_effort,
-                "wait_ms": wait_ms.min(300_000)
-            })),
-            timeout,
-        )
-    }
-
     pub fn chatgpt_account_id(&self) -> Result<String, String> {
         let mut status = self.chatgpt_status()?;
         if status["auth_state"] == "host_stopped" {
@@ -338,6 +313,42 @@ impl OwnerClient {
             Some(&json!({"lane_id": lane_id})),
             READ_TIMEOUT,
         )
+    }
+
+    pub fn reconcile_model_dispatch(
+        &self,
+        backend: &str,
+        profile: Option<&str>,
+        ref_id: &str,
+        id: &str,
+        account: Option<&str>,
+        project: Option<&str>,
+    ) -> Option<(String, Option<String>)> {
+        let marker = format!("[ORCH_DISPATCH {id}]");
+        match backend {
+            "codex" if !ref_id.is_empty() => self
+                .codex_find_marked_turn(profile, ref_id, &marker)
+                .ok()
+                .flatten()
+                .map(|turn| (ref_id.to_owned(), Some(turn))),
+            "chatgpt"
+                if account.is_some_and(|expected| {
+                    self.chatgpt_account_id()
+                        .is_ok_and(|actual| actual == expected)
+                }) =>
+            {
+                let lane = self.chatgpt_observe_lane(id).ok()?;
+                let chat = lane["chat_id"]
+                    .as_str()
+                    .filter(|chat| !chat.is_empty() && lane["lane_id"] == id)?;
+                let history = self.chatgpt_read_chat(chat, 100).ok()?;
+                (history["state"] == "ok"
+                    && history["gizmo_id"].as_str() == project
+                    && has_user_marker(&history, &marker))
+                .then(|| (chat.to_owned(), None))
+            }
+            _ => None,
+        }
     }
 
     pub fn chatgpt_stop_lane(&self, lane_id: &str, chat_id: &str) -> Result<Value, String> {

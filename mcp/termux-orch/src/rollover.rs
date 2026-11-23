@@ -36,7 +36,7 @@ impl<'a> Rollover<'a> {
         if !work.can_start() {
             return Err("work_already_terminal".to_owned());
         }
-        if work.lead_replay.is_some() {
+        if work.lead_replay.is_some() || work.pending_lead.is_some() {
             return Err("lead_replay_in_progress".to_owned());
         }
         if work.lead_rollover.is_some() {
@@ -226,6 +226,8 @@ impl<'a> Rollover<'a> {
         }
         next.generation = generation;
         next.ref_id = chat_id.to_owned();
+        next.dispatch_id = Some(rollover.lane_id.clone());
+        next.turn_id = None;
         next.rollover_internal_turns = 1;
         next.history.push(LeadHistoryEntry {
             generation,

@@ -369,7 +369,9 @@ mod tests {
                             let prompt = body["prompt"].as_str().unwrap_or("").to_owned();
                             let drop_response =
                                 st.lose_delivery_reply && prompt.starts_with("[ORCH_DELIVERY ");
-                            if prompt.ends_with("UNCERTAIN_PARTICIPANT") {
+                            if prompt.ends_with("UNCERTAIN_PARTICIPANT")
+                                || prompt.contains("Lost Lead Fixture")
+                            {
                                 st.pending_participant_sends += 1;
                                 st.pending_participant =
                                     Some((body["lane_id"].as_str().unwrap().to_owned(), prompt));
@@ -672,6 +674,23 @@ mod tests {
             .unwrap()
             .iter()
             .all(|event| event.kind != "verifier.passed"));
+        let (lost_lead, error) = handler.call_tool(
+            "orch_work",
+            &json!({"action":"create",
+            "call_id":"lost-lead", "tier":"orchestrated", "title":"Lost Lead Fixture",
+            "goal":"Reconcile the original launch", "project_scope":"humtr/codex"}),
+        );
+        assert!(!error, "{lost_lead}");
+        assert_eq!(lost_lead["state"], "pending");
+        let lost_id = lost_lead["work_id"].as_str().unwrap();
+        assert!(ledger.load_work(lost_id).unwrap().pending_lead.is_some());
+        RelayEngine::new(ledger.clone(), owners.clone())
+            .process_work(lost_id)
+            .unwrap();
+        let recovered = ledger.load_work(lost_id).unwrap();
+        assert!(recovered.pending_lead.is_none());
+        assert_eq!(recovered.lead.unwrap().ref_id, "chat-uncertain");
+        assert_eq!(mstate.lock().unwrap().pending_participant_sends, 2);
 
         // 8. Lead submits complete report while F2 is streaming on mobile -> deferred (PENDING_DELIVERY)!
         let (rep, is_err) = handler.call_tool(

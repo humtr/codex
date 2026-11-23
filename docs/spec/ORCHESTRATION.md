@@ -164,7 +164,7 @@ State root: `~/.local/state/codex/orchestration/jobs/<work_id>/` (`0700`,
   records the returned turn ID. Settlement uses that turn's terminal state
   and result. Older attached records can observe the latest turn in their
   bound thread.
-- **Worker and verifier dispatch:** Register the participant and a durable
+- **Model dispatch:** Register the participant or pending Lead and a durable
   request ID before sending its first model turn. Codex records the new
   thread UUID before `turn/start`. ChatGPT dispatch uses a pinned account and
   request lane. An uncertain dispatch stays pending until the original

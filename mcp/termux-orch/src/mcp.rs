@@ -13,9 +13,8 @@
 use crate::ledger::{
     format_front_title, format_lead_title, format_participant_title, generate_id, is_safe_work_id,
     now_unix, read_private_file, truncate_chars, write_atomic_private, FrontBinding,
-    FrontHistoryEntry, LeadBinding, LeadHistoryEntry, Ledger, Participant, PendingDelivery,
-    ProjectBinding, SessionPrefixes, ShellContinuation, Verification, WaitSet, WorkBudget,
-    WorkRecord, WORK_SCHEMA,
+    FrontHistoryEntry, LeadBinding, Ledger, Participant, PendingDelivery, ProjectBinding,
+    SessionPrefixes, ShellContinuation, Verification, WaitSet, WorkBudget, WorkRecord, WORK_SCHEMA,
 };
 use crate::owners::OwnerClient;
 use crate::relay::{enqueue_delivery_if_absent, RelayEngine};
@@ -819,27 +818,6 @@ impl OrchMcpHandler {
             budget.max_concurrent_workers = mc.clamp(1, 16) as u32;
         }
 
-        // Spawn or bind Lead L1 when tier == "orchestrated".
-        let lead = if tier == "orchestrated" {
-            match self.spawn_or_bind_lead(
-                &work_id,
-                title,
-                goal,
-                &criteria,
-                project_id.as_deref(),
-                &session_prefixes,
-                1,
-                obj,
-                &mut warnings,
-            ) {
-                Ok(l) => Some(l),
-                Err(err_val) => return (err_val, false),
-            }
-        } else {
-            None
-        };
-
-        // Project/Lead operations can start a cold AppHost after the first status read.
         let account_id = account_id.or_else(|| self.current_account_id());
         let mut work = WorkRecord {
             schema: WORK_SCHEMA.to_owned(),
@@ -860,7 +838,8 @@ impl OrchMcpHandler {
                 generation: if front_chat_id.is_some() { 1 } else { 0 },
                 history: front_history,
             },
-            lead: lead.clone(),
+            lead: None,
+            pending_lead: None,
             lead_rollover: None,
             lead_replay: None,
             participants: Vec::new(),
@@ -893,9 +872,20 @@ impl OrchMcpHandler {
             return (fail("ledger_write_failed", e.to_string()), false);
         }
 
+        let mut status = "ok";
+        if tier == "orchestrated" {
+            match self.spawn_or_bind_lead(&mut work, 1, obj, &mut warnings) {
+                Ok(true) => (),
+                Ok(false) => status = "pending",
+                Err(mut failure) => {
+                    failure["work_id"] = json!(work_id);
+                    return (failure, true);
+                }
+            }
+        }
         (
             json!({
-                "state": "ok",
+                "state": status,
                 "work_id": work_id,
                 "title": title,
                 "tier": tier,
@@ -912,146 +902,164 @@ impl OrchMcpHandler {
         )
     }
 
-    #[allow(clippy::too_many_arguments)]
     fn spawn_or_bind_lead(
         &self,
-        work_id: &str,
-        title: &str,
-        goal: &str,
-        criteria: &[String],
-        project_id: Option<&str>,
-        prefixes: &SessionPrefixes,
+        work: &mut WorkRecord,
         generation: u32,
         obj: &Map<String, Value>,
         warnings: &mut Vec<String>,
-    ) -> Result<LeadBinding, Value> {
+    ) -> Result<bool, Value> {
+        if work.pending_lead.is_some() {
+            return Ok(false);
+        }
         let kind = obj
             .get("lead_kind")
             .and_then(Value::as_str)
             .unwrap_or("chatgpt");
-        if kind != "chatgpt" && kind != "codex" {
+        if !matches!(kind, "chatgpt" | "codex") {
             return Err(fail(
                 "invalid_arguments",
                 "'lead_kind' must be chatgpt|codex",
             ));
         }
-        let profile = obj
-            .get("lead_profile")
-            .and_then(Value::as_str)
-            .map(ToOwned::to_owned);
-        let model = obj
-            .get("lead_model")
-            .and_then(Value::as_str)
-            .map(ToOwned::to_owned);
-        let effort = obj
-            .get("lead_reasoning_effort")
-            .and_then(Value::as_str)
-            .map(ToOwned::to_owned);
-        let cwd = obj.get("lead_cwd").and_then(Value::as_str);
-        let lead_title = format_lead_title(prefixes, generation, title);
-
-        let ref_id = if let Some(existing) = obj
+        let mut lead = LeadBinding {
+            kind: kind.to_owned(),
+            ref_id: String::new(),
+            profile: obj
+                .get("lead_profile")
+                .and_then(Value::as_str)
+                .map(ToOwned::to_owned),
+            model: obj
+                .get("lead_model")
+                .and_then(Value::as_str)
+                .map(ToOwned::to_owned),
+            reasoning_effort: obj
+                .get("lead_reasoning_effort")
+                .and_then(Value::as_str)
+                .map(ToOwned::to_owned),
+            generation,
+            history: Vec::new(),
+            rollover_internal_turns: 0,
+            dispatch_id: None,
+            turn_id: None,
+        };
+        if let Some(existing) = obj
             .get("lead_ref_id")
             .and_then(Value::as_str)
             .map(str::trim)
             .filter(|s| !s.is_empty())
         {
-            existing.to_owned()
+            lead.ref_id = existing.to_owned();
         } else {
-            let criteria_text = if criteria.is_empty() {
-                "(none specified)".to_owned()
-            } else {
-                criteria
-                    .iter()
-                    .map(|c| format!("- {c}"))
-                    .collect::<Vec<_>>()
-                    .join("\n")
-            };
-            let lead_prompt = format!(
-                "You are Lead [L{generation}] for durable Work `{work_id}` (\"{title}\").\n\
-                 Goal: {goal}\n\
-                 Completion criteria:\n{criteria_text}\n\n\
-                 Use `@TermuxCodex` / `@TermuxChatGPT` / `@TermuxShell` to dispatch scoped Workers (W) and Verifiers (V), \
-                 register them and arm a Wait-Set with `@TermuxOrch` (`orch_dispatch`), then end your turn so Runtime (R) wakes you automatically. \
-                 Report milestones, blockers, and final verified completion via `orch_report`."
-            );
-            match kind {
-                "chatgpt" => {
-                    let sent = self
-                        .owners
-                        .chatgpt_send(
-                            None,
-                            project_id,
-                            &lead_prompt,
-                            model.as_deref(),
-                            effort.as_deref(),
-                            10_000,
-                        )
-                        .map_err(|e| fail("lead_spawn_failed", e))?;
-                    sent.get("chat_id")
-                        .and_then(Value::as_str)
-                        .ok_or_else(|| {
-                            fail(
-                                "lead_spawn_failed",
-                                "chatgpt_send did not return a chat_id for Lead",
-                            )
-                        })?
-                        .to_owned()
-                }
-                "codex" => {
-                    let (tid, _) = self
-                        .owners
-                        .codex_dispatch_turn(
-                            profile.as_deref(),
-                            None,
-                            cwd,
-                            &lead_prompt,
-                            model.as_deref(),
-                            None,
-                            Some("never"),
-                            |_| Ok(()),
-                        )
-                        .map_err(|e| fail("lead_spawn_failed", e))?;
-                    tid
-                }
-                _ => unreachable!(),
-            }
-        };
-
-        // Apply uniform `[L<gen>] <title>` session name.
-        match kind {
-            "chatgpt" => {
-                if let Err(e) = self.owners.chatgpt_rename_chat(&ref_id, &lead_title) {
-                    warnings.push(format!("lead_rename_skipped: {e}"));
-                }
-            }
-            "codex" => {
-                if let Err(e) =
-                    self.owners
-                        .codex_rename_thread(profile.as_deref(), &ref_id, &lead_title)
+            if kind == "chatgpt" {
+                let account = self
+                    .owners
+                    .chatgpt_account_id()
+                    .map_err(|e| fail("lead_account_unavailable", e))?;
+                if work
+                    .account_id
+                    .as_ref()
+                    .is_some_and(|pinned| pinned != &account)
                 {
-                    warnings.push(format!("lead_rename_skipped: {e}"));
+                    return Err(fail(
+                        "account_mismatch",
+                        "Work belongs to a different account",
+                    ));
                 }
+                work.account_id = Some(account);
             }
-            _ => {}
+            let id = generate_id("dispatch");
+            lead.dispatch_id = Some(id.clone());
+            work.pending_lead = Some(lead.clone());
+            self.ledger
+                .save_work(work)
+                .map_err(|e| fail("ledger_write_failed", e.to_string()))?;
+            let criteria = work.completion_criteria.join("\n- ");
+            let prompt = format!(
+                "[ORCH_DISPATCH {id}]\nYou are Lead [L{generation}] for durable Work `{}` (\"{}\").\n\
+                 Goal: {}\nCompletion criteria:\n- {criteria}\n\n\
+                 Use the available owner tools to dispatch scoped Workers and Verifiers. Register them and arm \
+                 the Wait-Set with @TermuxOrch, then end your turn. Report milestones, blockers, and verified \
+                 completion via orch_report. Include expected_lead_generation={generation} in Work mutations.",
+                work.work_id, work.title, work.goal
+            );
+            let result = if kind == "codex" {
+                self.owners
+                    .codex_dispatch_turn(
+                        lead.profile.as_deref(),
+                        None,
+                        obj.get("lead_cwd").and_then(Value::as_str),
+                        &prompt,
+                        lead.model.as_deref(),
+                        None,
+                        None,
+                        |tid| {
+                            if let Some(pending) = work.pending_lead.as_mut() {
+                                pending.ref_id = tid.to_owned();
+                            }
+                            self.ledger.save_work(work).map_err(|e| e.to_string())
+                        },
+                    )
+                    .and_then(|(tid, turn)| {
+                        turn.map(|turn| (tid, Some(turn)))
+                            .ok_or("missing turn ID".to_owned())
+                    })
+            } else {
+                self.owners
+                    .chatgpt_dispatch_participant(
+                        work,
+                        &id,
+                        &prompt,
+                        lead.model.as_deref(),
+                        lead.reasoning_effort.as_deref(),
+                    )
+                    .and_then(|receipt| {
+                        if crate::rollover::rejected_before_send(&receipt) {
+                            work.pending_lead = None;
+                            self.ledger.save_work(work).map_err(|e| e.to_string())?;
+                        }
+                        receipt["chat_id"]
+                            .as_str()
+                            .filter(|cid| {
+                                !cid.is_empty()
+                                    && matches!(
+                                        receipt["state"].as_str(),
+                                        Some("settled" | "in_progress")
+                                    )
+                            })
+                            .map(|cid| (cid.to_owned(), None))
+                            .ok_or("missing confirmed Lead chat ID".to_owned())
+                    })
+            };
+            match result {
+                Ok((ref_id, turn_id)) => {
+                    lead.ref_id = ref_id;
+                    lead.turn_id = turn_id;
+                }
+                Err(error) if work.pending_lead.is_some() => {
+                    warnings.push(format!("lead_dispatch_pending: {error}"));
+                    return Ok(false);
+                }
+                Err(error) => return Err(fail("lead_dispatch_rejected", error)),
+            }
         }
-
-        let now = now_unix();
-        Ok(LeadBinding {
-            kind: kind.to_owned(),
-            ref_id: ref_id.clone(),
-            profile,
-            model,
-            reasoning_effort: effort,
-            generation,
-            rollover_internal_turns: 0,
-            history: vec![LeadHistoryEntry {
-                generation,
-                kind: kind.to_owned(),
-                ref_id,
-                started_at_unix: now,
-            }],
-        })
+        let title = format_lead_title(&work.session_prefixes, generation, &work.title);
+        work.bind_lead(lead.clone());
+        self.ledger
+            .save_work(work)
+            .map_err(|e| fail("ledger_write_failed", e.to_string()))?;
+        let rename = if kind == "chatgpt" {
+            self.owners
+                .chatgpt_rename_chat(&lead.ref_id, &title)
+                .map(|_| ())
+        } else {
+            self.owners
+                .codex_rename_thread(lead.profile.as_deref(), &lead.ref_id, &title)
+        };
+        if let Err(error) = rename {
+            warnings.push(format!("lead_rename_skipped: {error}"));
+        }
+        Ok(true)
     }
 
     fn op_work_promote(&self, obj: &Map<String, Value>) -> (Value, bool) {
@@ -1097,27 +1105,17 @@ impl OrchMcpHandler {
             );
         }
         let mut warnings = Vec::new();
-        let lead = match self.spawn_or_bind_lead(
-            &work.work_id,
-            &work.title,
-            &work.goal,
-            &work.completion_criteria,
-            work.project_id.as_deref(),
-            &work.session_prefixes,
-            1,
-            obj,
-            &mut warnings,
-        ) {
-            Ok(l) => l,
-            Err(err_val) => return (err_val, false),
-        };
-        work.tier = "orchestrated".to_owned();
-        work.lead = Some(lead.clone());
-        if let Some(ws) = work.wait_set.as_mut() {
-            if ws.armed && ws.wake_target == "front" {
-                ws.wake_target = "lead".to_owned();
+        match self.spawn_or_bind_lead(&mut work, 1, obj, &mut warnings) {
+            Ok(true) => (),
+            Ok(false) => {
+                return (
+                    json!({"state":"pending","work_id":wid,"warnings":warnings}),
+                    true,
+                )
             }
+            Err(error) => return (error, false),
         }
+        let lead = work.lead.clone().unwrap();
         let _ = self.ledger.append_event_if_absent(
             &mut work,
             "work:promoted:1",
@@ -2160,6 +2158,15 @@ impl OrchMcpHandler {
                     );
                 }
                 if action == "complete" {
+                    if work.pending_lead.is_some() {
+                        return (
+                            fail(
+                                "lead_dispatch_pending",
+                                "Lead launch has not been reconciled",
+                            ),
+                            false,
+                        );
+                    }
                     if work.participants.iter().any(|p| !p.is_terminal()) {
                         return (
                             fail("participants_active", "All participants must settle"),
@@ -2495,27 +2502,14 @@ impl OrchMcpHandler {
                 let mut warnings = Vec::new();
                 let mut lead_args = ext_args.clone();
                 lead_args.insert("lead_kind".to_owned(), json!("codex"));
-                let mut new_lead = match self.spawn_or_bind_lead(
-                    &work.work_id,
-                    &work.title,
-                    &work.goal,
-                    &work.completion_criteria,
-                    work.project_id.as_deref(),
-                    &work.session_prefixes,
-                    next_gen,
-                    &lead_args,
-                    &mut warnings,
-                ) {
-                    Ok(l) => l,
-                    Err(err_val) => return err_val,
-                };
-                if let Some(prev) = work.lead.take() {
-                    let mut hist = prev.history;
-                    hist.extend(new_lead.history);
-                    new_lead.history = hist;
+                match self.spawn_or_bind_lead(&mut work, next_gen, &lead_args, &mut warnings) {
+                    Ok(true) => (),
+                    Ok(false) => {
+                        return json!({"state":"pending","work_id":wid,"warnings":warnings})
+                    }
+                    Err(error) => return error,
                 }
-                work.tier = "orchestrated".to_owned();
-                work.lead = Some(new_lead.clone());
+                let new_lead = work.lead.clone().unwrap();
                 let _ = self.ledger.append_event_if_absent(
                     &mut work,
                     &format!("rollover:L{next_gen}:{}", new_lead.ref_id),

@@ -193,6 +193,10 @@ pub struct LeadBinding {
     pub history: Vec<LeadHistoryEntry>,
     #[serde(default)]
     pub rollover_internal_turns: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dispatch_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub turn_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -373,6 +377,8 @@ pub struct WorkRecord {
     pub delivery_mode: String,
     pub front: FrontBinding,
     pub lead: Option<LeadBinding>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pending_lead: Option<LeadBinding>,
     #[serde(default)]
     pub lead_rollover: Option<LeadRollover>,
     #[serde(default)]
@@ -396,6 +402,27 @@ impl WorkRecord {
 
     pub fn can_start(&self) -> bool {
         !self.is_terminal() && self.state != "cancelling"
+    }
+
+    pub fn bind_lead(&mut self, mut lead: LeadBinding) {
+        let mut history = self
+            .lead
+            .take()
+            .map(|prev| prev.history)
+            .unwrap_or_default();
+        history.push(LeadHistoryEntry {
+            generation: lead.generation,
+            kind: lead.kind.clone(),
+            ref_id: lead.ref_id.clone(),
+            started_at_unix: now_unix(),
+        });
+        lead.history = history;
+        self.lead = Some(lead);
+        self.pending_lead = None;
+        self.tier = "orchestrated".to_owned();
+        if let Some(wait) = self.wait_set.as_mut().filter(|wait| wait.armed) {
+            wait.wake_target = "lead".to_owned();
+        }
     }
 
     pub fn active_worker_count(&self) -> u32 {
