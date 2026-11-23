@@ -20,18 +20,23 @@ Observed on 2026-11-23.
 | **Published and installed Wrapper (`$PREFIX/bin/codex`)** | Stable Ed25519-signed `wrapper` tag at `3ea207cb` (`sequence=1`, key SHA-256 `0df170da...`). Published archive SHA-256 `68033d9c...`. Installed `bin/codex` SHA-256 `f83899d6...` | CI artifact ([run 44997871190](https://github.com/humtr/codex/actions/runs/44997871190)), signed `SHA256SUMS.sig` readback, and live Termux `--require-signed` install matched on 2026-11-22 |
 | **Active / rollback upstream generation** | Active `0.171.0-d8c43b-2` (`ino=9741792`, SHA-256 `26d9f90b...`). Rollback `0.170.0-3f7e1a-2` | Preserved across Slice 1 signed Wrapper cutover; `wrapper status --verify --json` (`qualified=true`) and `codex doctor --json` (`summary=healthy`) agreed |
 | **Live managed daemons (`default` / `janmori101` / `szob`)** | All three homes aligned to `$HOME/.codex/packages/standalone/current`; `janmori101` & `szob` running | `cdx profile list` sees all 8 profiles (`default` + 7 normalized `codex-manager-profile` homes) |
-| **Live doctor and external services** | `codex doctor --json` `termux_wrapper=healthy`, `summary=healthy`; `tdev` / `tdev-tunnel` / `sshd` undisturbed; legacy `0.167.2` `codex-chatgpt-*` retired & archived to `~/.local/state/codex/legacy-0.167.2-archive/` | Explicit operator-authorized retirement of conflicting `0.167.2` provider/host/tunnel services on 2026-11-22 |
+| **Live doctor and external services** | `codex doctor --json` reports `summary.status=healthy`. All six Stage 2 services and three `tdev*` services retained their running PIDs during daemon cache reclamation | The retired `0.167.2` archive remains in place with live file mappings and protected account/session data |
 | **Stage 2 progress (Slices 1–7)** | **Slices 1–7 complete & live in `runit` + registered in ChatGPT** under unified XDG `codex/` namespace: Slice 1 signed Wrapper live; Slice 2 `$PREFIX/bin/codex-ext` + `cdx` (`c8322d2e...`); Slice 3 `mcp-kit` + `termux-shell-mcp` (`40fe5e54...`) + `tunnel-client v0.0.21` + `runit` 3-state supervision (`termux-shell-tunnel` active); Slice 4 `termux-codex-mcp` (`de46babc...`, `termux-codex-tunnel` active); Slice 5 `host/chatgpt-desktop` (`26.1117.41037`, GPG-verified) + `chatgpt-provider` (`0.1.0+7b`, `de498202...`, `runit` active); Slice 6 `termux-chatgpt-mcp` (`0.1.0+multilane`, `c7aeae57...`, `termux-chatgpt-tunnel` active); **Slice 7 `termux-orch`** (`0.1.0+7b`, `b98190cb...`, `termux-orch-relay` & `termux-orch-tunnel` `runit` active, `@TermuxOrch` connector `asdk_app_6b03de61dd748191bf56fef2b1029a2e` `ACTIVE`) | All seven decoupled Stage 2 slices implemented, verified, enrolled in `runit`, and bound as live ChatGPT MCP connectors (`@TermuxShell`, `@TermuxCodex`, `@TermuxChatGPT`, `@TermuxOrch`) via programmatic `/control/connectors` (zero DOM / zero computer-use) |
-| **Stage 1 graduation status** | **Complete** (WP0–WP6 archived in [STAGE1_MILESTONES.md](docs/history/STAGE1_MILESTONES.md)) | Stage 2 architecture & slice plan tracked in [docs/ROADMAP.md](docs/ROADMAP.md) and active [HANDOFF.md](HANDOFF.md) |
+| **Milestone records** | Stage 1 WP0–WP6 and Stage 2 Slices 1–7 are archived | [Stage 1 milestones](docs/history/STAGE1_MILESTONES.md), [Stage 2 milestones](docs/history/STAGE2_MILESTONES.md) |
 
 ### Unverified / Remaining Boundaries
 
-- **Pre-existing Stage 1 / Stage 2 follow-up items (prior to Slice 7):**
-  - Signed public GitHub Release publication for the 7 Stage 2 component workflows (`codex-ext`, `termux-shell-mcp`, `termux-codex-mcp`, `chatgpt-provider`, `termux-chatgpt-mcp`, `tunnel-client`, `termux-orch` — public tags require explicit `workflow_dispatch` `publish_release=true`).
-  - Authenticated online multi-account `/switch` cross-account UUID handoff and physical interactive Termux UI `/copy` clipboard paste-back (isolated `0.171.0` §7 writer-lock release and `session_index.jsonl`/`state_5.sqlite` authority proof passed in Slice 2; see [docs/ROADMAP.md](docs/ROADMAP.md#7-follow-up-verification-session-handoff-and-session_indexjsonl)).
-  - External `codex remote-control` client pairing and Phase 2.6 read-only upstream canary / restricted physical-device promotion gate.
-  - Post-retention disk reclamation of legacy per-home `packages/app-server-daemon/releases/` and archived `~/.local/state/codex/legacy-0.167.2-archive/`.
-  - Physical power removal (as distinct from userspace `SIGKILL` and injected I/O faults) and execution on an actual 16 KiB kernel page-size device (only 16 KiB ELF geometry on Android API 37 / 4 KiB pages is verified).
+- **R-2.** The live two-account handoff covered one UUID over daemon RPC.
+  An unrelated concurrent A turn and the interactive `cdx switch` launcher
+  were outside this run. [Verification criteria](docs/ROADMAP.md#7-follow-up-verification-session-handoff-and-session_indexjsonl)
+- **R-3.** Physical Termux `/copy` long-payload paste-back and external
+  `codex remote-control` client pairing remain open.
+- **R-4.** The retired Provider archive is retained because processes map
+  files inside it and it holds protected account and session data.
+- **R-5.** The Phase 2.6 read-only canary and restricted physical-device
+  promotion gate remain deferred. [Phase 2.6](docs/ROADMAP.md#3-phase-26--read-only-upstream-discovery-and-qualification)
+- **R-6.** Physical power removal and execution on a real 16 KiB kernel
+  page-size device remain open. The API 37 device uses 4 KiB pages.
 - **Slice 7B evidence boundaries.** The live device used the configured
   turn-count trigger, a multi-second Shell worker, and an explicit Stop
   invocation. Manual rollover, a lost creation receipt, multi-batch replay,
@@ -41,6 +46,24 @@ Observed on 2026-11-23.
 ---
 
 ## Recent Verified Evidence (Newest-First)
+
+### 2026-11-23 — Stage 2 work order closeout
+
+- **R-1.** Seven stable Stage 2 component releases at `f3c9334e` passed
+  publish CI and independent four-asset readback. All seven Ed25519 signatures
+  verified with the pinned repository key. [Release tags, run IDs and signature hashes](docs/history/STAGE2_MILESTONES.md#r-1-signed-stage-2-releases)
+- **R-2.** On `0.171.0`, `szob` resumed disposable UUID
+  `01a2078c-c287-7630-a65f-0a7b24b680c9` after `janmori101` released its
+  writer lock and returned the exact nonce in a live OpenAI turn.
+  Rename, archive/unarchive and delete were checked through both RPC
+  paths, the TUI, and `codex exec resume`. The old exec name fell back to
+  a fresh disposable thread, which was removed. The original 175-row
+  shared index matched byte-for-byte after deleting the test threads, and
+  SQLite `quick_check` returned `ok`. [Four-path matrix](docs/history/STAGE2_MILESTONES.md#r-2-authenticated-uuid-handoff-and-session-lookup)
+- **R-4.** Removed `~/.codex/packages/app-server-daemon/releases/` and
+  reclaimed 514,213,376 allocated bytes (490.39 MiB). Doctor reported
+  `healthy`, the runtime reported `qualified=true`, and all three
+  managed daemons reported `running`. [Inventory and retained archive](docs/history/STAGE2_MILESTONES.md#r-4-legacy-disk-reclamation)
 
 ### 2026-11-23 — Stage 2 Slice 7B resilience on Android API 37 Termux
 
@@ -190,7 +213,7 @@ Observed on 2026-11-23.
 
 ### 2026-11-22 — Stage 2 Slice 1: Wrapper slimming, Ed25519 `SHA256SUMS.sig` signed release & live Termux cutover
 
-- **Scope & commits (`3a87150e..3ea207cb` on `main`):** Finalized zero-coupling Stage 2 architecture across [SPEC.md](SPEC.md), [docs/ROADMAP.md](docs/ROADMAP.md), [docs/spec/DELIVERY.md](docs/spec/DELIVERY.md), [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), and [HANDOFF.md](HANDOFF.md); removed unused Phase 2.1 `system_config.rs` and `extensions.rs` hooks (`-1,905` lines in `258fe62b`, leaving `$PREFIX/bin/codex` as a pure Stage 1 runtime + `update`/`rollback`/`doctor`/`wrapper status`); implemented universal lightweight Ed25519 `SHA256SUMS.sig` signing, anti-rollback `sequence`, and key-rotation verification across [release_sign.py](.github/scripts/release_sign.py), [publish_wrapper_release.py](.github/scripts/publish_wrapper_release.py), [wrapper.yml](.github/workflows/wrapper.yml), and [install.sh](install.sh); provisioned isolated Stage 2 secret `CODEX_SIGNING_KEY` and pinned [release-public-key.pem](release/release-public-key.pem) (`0df170dae2d7234b4425fcdddaa4bd9b6e2104794d0541955b022631b1105fca`).
+- **Scope & commits (`3a87150e..3ea207cb` on `main`):** Finalized zero-coupling Stage 2 architecture across [SPEC.md](SPEC.md), [docs/ROADMAP.md](docs/ROADMAP.md), [docs/spec/DELIVERY.md](docs/spec/DELIVERY.md), [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), and the [retired Stage 2 work order](docs/history/STAGE2_MILESTONES.md); removed unused Phase 2.1 `system_config.rs` and `extensions.rs` hooks (`-1,905` lines in `258fe62b`, leaving `$PREFIX/bin/codex` as a pure Stage 1 runtime + `update`/`rollback`/`doctor`/`wrapper status`); implemented universal lightweight Ed25519 `SHA256SUMS.sig` signing, anti-rollback `sequence`, and key-rotation verification across [release_sign.py](.github/scripts/release_sign.py), [publish_wrapper_release.py](.github/scripts/publish_wrapper_release.py), [wrapper.yml](.github/workflows/wrapper.yml), and [install.sh](install.sh); provisioned isolated Stage 2 secret `CODEX_SIGNING_KEY` and pinned [release-public-key.pem](release/release-public-key.pem) (`0df170dae2d7234b4425fcdddaa4bd9b6e2104794d0541955b022631b1105fca`).
 - **Signed CI & public release publication:** [Wrapper CI run 44997871190](https://github.com/humtr/codex/actions/runs/44997871190) on `main` (`3ea207cb`) passed all 4 jobs (`checks`, `android-package`, `android-smoke` including 23/23 `test_install_recovery.py` signed/tamper/rollback/rotation/SIGKILL tests and full upstream Bionic qualification, and `release`). `publish_wrapper_release.py` verified `RELEASE_VERIFIED repo=humtr/codex tag=wrapper source=3ea207cb77e42bd9c22a92425d42c110bc891a17 archive_sha256=68033d9cf26f83d08919c287e8827c22f58272935e68a634831def16d9eadb8f prerelease=False signed=True sequence=1 key_sha256=0df170dae2d7234b4425fcdddaa4bd9b6e2104794d0541955b022631b1105fca` across all 5 assets (`codex-wrapper-aarch64-linux-android.tar.gz`, `.sha256`, `install.sh`, `SHA256SUMS`, `SHA256SUMS.sig` 64 B).
 - **Live Termux API 37 signed cutover:** Ran `sh ./install.sh --release wrapper --require-signed --skip-upstream`. Verified real Ed25519 signature (`sequence 1`), archive SHA-256, and `bin/codex` SHA-256 (`f83899d654a23baf83a5bb995c3395e3a74c07f7fca8a77b0810a7069c7d2811`); persisted `~/.local/share/codex/wrapper/release-sequence` (`1`) and `~/.local/lib/codex/wrapper/release-public-key.pem` (`0df170da...`); confirmed `codex --version` (`0.171.0`), `codex wrapper status --verify --json` (`active`, `0.171.0-d8c43b-2`, rollback `0.170.0-3f7e1a-2`, `qualified=true`), `codex doctor --json` (`termux_wrapper=healthy`, `summary=healthy`), retired `codex wrapper setup` returning `exit 2`, and zero disruption to live `0.167.2` `runit` services (`codex-chatgpt-host` PID `2605`, `codex-chatgpt-provider` PID `19984`, `codex-chatgpt-tunnel` PID `2554`, `tdev` PID `2557`, `tdev-tunnel` PID `4678`, `tdev-tunnel-conn_*` PID `3868`).
 
@@ -330,5 +353,6 @@ Qualified on `rewrite/wrapper` above `0391865acfd9` with official `0.169.1-3de50
 
 ## Historical Archives
 
+- **2026-11-22 – 2026-11-23 Stage 2 Slices 1–7, signed releases and operational verification** [docs/history/STAGE2_MILESTONES.md](docs/history/STAGE2_MILESTONES.md).
 - **2026-11-16 – 2026-11-18 Stage 1 P0 cutover, installer/journal/release-provenance faults, Issue #33 FD 35 fix, Stage 2.1 snapshot engine, and retired work orders:** [docs/history/STAGE1_MILESTONES.md](docs/history/STAGE1_MILESTONES.md).
 - **Pre-rewrite generation admission and legacy `rewrite/rust-core` (`0.167.x`) archives:** [docs/history/GENERATION_ADMISSION.md](docs/history/GENERATION_ADMISSION.md) · [docs/history/LEGACY_RUST_CORE.md](docs/history/LEGACY_RUST_CORE.md).

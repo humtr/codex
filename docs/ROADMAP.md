@@ -6,8 +6,10 @@
 > Normative contracts: [SPEC.md](../SPEC.md), [DELIVERY.md](spec/DELIVERY.md),
 > [USER_INTERFACES.md](spec/USER_INTERFACES.md), [BRIDGE.md](spec/BRIDGE.md),
 > [ORCHESTRATION.md](spec/ORCHESTRATION.md).
-> Active design & slice checklist: [HANDOFF.md](../HANDOFF.md).
-> **Current implementation state:** Stage 1 and Stage 2 Slices 1–7 are implemented. [CURRENT.md](../CURRENT.md) records the live generations and verification receipts. The remaining tracks cover signed Stage 2 releases, the Phase 2.6 read-only canary, online multi-account and physical-client verification, and legacy daemon-directory cleanup.
+> Stage 1 and Stage 2 Slices 1–7 are implemented. See [CURRENT.md](../CURRENT.md)
+> for live state, [Stage 2 milestones](history/STAGE2_MILESTONES.md) for
+> release and closeout receipts, and [§8](#8-remaining-operational-and-physical-verification)
+> for the remaining operational and physical verification.
 
 ---
 
@@ -78,7 +80,8 @@ Slice 1: Wrapper slimming + universal SHA256SUMS.sig Ed25519 release signing  [C
 - **Verified (Android API 37 Termux against live `runit` `chatgpt-provider` + `chatgpt 26.1117.41037`):** `mcp/termux-chatgpt` (`fmt`/`clippy -D warnings`/`test` under `umask 0022`/`0077`), live `runit` `termux-chatgpt-tunnel` (`0.1.0+multilane`), programmatic registration & schema verification of all 3 remote ChatGPT connectors (`@TermuxShell`, `@TermuxCodex`, `@TermuxChatGPT`), live multi-worker iterative loop E2E (`6b03c20b-...`), and 3-lane parallel re-entrant ChatGPT worker E2E (`6b03c678-...`).
 
 ### Slice 7 — Durable Multi-Role Orchestration (`@TermuxOrch` / `mcp/termux-orch`, 7A & 7B) *(7A and 7B implemented)*
-- **Contract:** [docs/spec/ORCHESTRATION.md](spec/ORCHESTRATION.md); detailed execution checklist in [HANDOFF.md](../HANDOFF.md).
+- The contract and completed rollout are recorded in [ORCHESTRATION.md](spec/ORCHESTRATION.md)
+  and [Stage 2 milestones](history/STAGE2_MILESTONES.md#retired-stage-2-work-order).
 - **Goal:** Add an independent, zero-Wrapper-coupling durable orchestration layer (`F · L · W · V · R` roles; Tier 0–3 progressive durability covering both simple single-task chats and multi-hour multi-worker loops; per-work ChatGPT Project scoping and uniform `[F1]`/`[L1]`/`[W1-<slug>]`/`[V1-<slug>]` titles; `Work Ledger` + `Typed Inbox` + declarative `Wait-Set`; seamless `F1 -> Fn` mobile rebinding; default `inject_and_notify` + `termux-notification` with `stream_status` collision protection and hard Circuit Breakers).
   - **Slice 7A *(Shipped & Live)*:** `chatgpt-provider` server `stream_status` in `observeChat` + `mcp/termux-orch` (`termux-orch relay` & `termux-orch mcp`, 6-tool `@TermuxOrch`, Tier 1–3, `Verifier` role, `F1 -> Fn` rebind, `inject_and_notify`, Circuit Breaker, CI, `runit` enrollment, programmatic `@TermuxOrch` connector registration, live Tier 1/2/3 & restart-recovery E2E — receipts in [CURRENT.md](../CURRENT.md)).
   - **Slice 7B:** Automatic and manual ChatGPT Lead rollover, generation fencing, Inbox replay, detached Shell worker receipts, and the optional Stop hook wake push. See [the behavior contract](spec/ORCHESTRATION.md#7-lead-rollover-detached-shell-receipts-and-wake-pushes) and [live evidence](../CURRENT.md).
@@ -238,9 +241,11 @@ FD 34 addon hooks were retired in Slice 1.)
 
 ## 7. Follow-Up Verification: Session Handoff and `session_index.jsonl`
 
-이 두 과제는 독립 `codex-ext` (`cdx`) 런처와 연계해 검증하며, 격리된 공식 `0.171.0`
-환경에서의 1차 실증은 Slice 2에서 완료되었습니다([CURRENT.md](../CURRENT.md) 참조).
-아래 기준은 후속 실계정 온라인 재검증 및 업스트림 버전 업그레이드 회귀 기준으로 유지합니다.
+격리된 공식 `0.171.0` 환경에서 Slice 2 실증을 마쳤고, 2026-11-23에 두 실계정에서
+동일 UUID 온라인 재개와 네 경로의 이름 변경·삭제 동작을 확인했습니다. 이때
+`app-server daemon` RPC를 사용했습니다. 아래 기준은 업스트림 버전 업그레이드
+회귀와 추가 동시 작업 검증에 적용합니다.
+[실계정 검증 기록](history/STAGE2_MILESTONES.md#r-2-authenticated-uuid-handoff-and-session-lookup)
 Stage 1의 FD 34는 스레드 수명을 업스트림 정책에 맡깁니다. 마지막 클라이언트가
 연결을 닫은 뒤에도 실제 writer 해제와 업스트림 재개 조건을 확인한 다음 인계합니다.
 
@@ -249,7 +254,9 @@ Stage 1의 FD 34는 스레드 수명을 업스트림 정책에 맡깁니다. 마
   1. 계정 A가 스레드 X의 턴을 완료하고, 단순 `thread/unsubscribe` ACK가 아니라 **`thread-writer-locks/`의 실제 writer 해제가 완료된 뒤** 계정 B가 동일 UUID X를 재개합니다.
   2. B가 보낸 다음 추론 요청에 A의 직전 응답 문맥이 포함되고 B의 턴이 완료됩니다.
   3. 같은 시간 동안 A의 다른 스레드 Y 작업이 중단 없이 지속·완료됩니다.
-- **실계정 온라인 시험 계획:** 별도 승인된 새 테스트 스레드에서만 A 기준 턴 → writer 해제 → B 후속 턴을 검증합니다.
+- **실계정 관측:** `janmori101` → `szob` 실시간 인계에서 조건 1–2를 충족했습니다.
+  승인된 테스트 스레드 한 개를 기준으로 시험했으므로 별도 A 턴 연속성(조건 3)과
+  실제 `cdx switch` 런처 재검증은 남아 있습니다.
 - **계정 일치 검사 정책:** `0.170.0`의 `cli_resume_account_check` 등 업스트림 계정 일치 검사가 켜진 환경에서 타 계정 재개가 거절되면, **계정 태그나 정책을 변조해 억지로 통과시키지 말고** 해당 버전/설정의 호환성 결과로 그대로 기록합니다.
 
 ### 7.2 `session_index.jsonl` 권위 원천 및 삭제/이름변경 검증안
@@ -259,3 +266,23 @@ Stage 1의 FD 34는 스레드 수명을 업스트림 정책에 맡깁니다. 마
   3. TUI 목록 및 `/resume`
   4. `codex exec resume <NAME|UUID>`
 - **제약:** 각 조회의 권위 원천과 동시 쓰기 정합성이 입증되기 전에는 `state_5.sqlite`나 파일 타임스탬프를 역산해 `session_index.jsonl`을 임의 재생성하는 임시 우회를 적용하지 않습니다.
+- **실계정 관측** `thread/list`와 TUI는 새 이름을 표시했습니다. `thread/read`는
+  UUID만 받았습니다. `codex exec resume`은 기존 UUID와 새 이름으로 이어졌고,
+  구 이름 조회 실패 시 새 스레드를 시작했습니다. 삭제 후 네 경로에서 기존 UUID가
+  사라졌고 공유 인덱스는 기존 175개 행과 바이트 단위로 일치했습니다. 두 daemon이
+  실행 중인 상태에서 변경을 순차 수행했습니다.
+  [조회별 결과](history/STAGE2_MILESTONES.md#r-2-authenticated-uuid-handoff-and-session-lookup)
+
+## 8. Remaining operational and physical verification
+
+- **R-3** Physical Termux `/copy` long-payload paste-back and pairing an
+  external `codex remote-control` client.
+- **R-4** The default-home daemon cache was reclaimed. The retired Provider
+  archive has live mappings and protected account and session data.
+  [Reclamation evidence](history/STAGE2_MILESTONES.md#r-4-legacy-disk-reclamation)
+- **R-5** Phase 2.6 read-only canary and restricted physical-device
+  promotion gate remain deferred. [Phase 2.6](#3-phase-26--read-only-upstream-discovery-and-qualification)
+- **R-6** Physical power removal and execution on Android with a real 16 KiB
+  kernel page size.
+- **Slice 7B** Natural context exhaustion and more than ten minutes of
+  continuous detached Shell execution. [Live evidence](../CURRENT.md#2026-11-23--stage-2-slice-7b-resilience-on-android-api-37-termux)

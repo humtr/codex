@@ -17,7 +17,7 @@ distribution.
 | What is the active execution work order on this branch? | `HANDOFF.md` *(ephemeral, repo root when present)* | Sole location for active milestone execution/checklists; delete or archive to `docs/history/` when complete |
 | What is the deferred Stage 2 integration plan and open verification backlog? | [ROADMAP.md](ROADMAP.md) | Unimplemented Stage 2 sequencing, lineage rules, and deferred verification criteria; grants no activation authority |
 | What principles govern coding agents in this repo? | [AGENTS.md](../AGENTS.md) | Engineering, verification, and handoff discipline; not product functionality |
-| What happened in completed Stage 1 milestones or earlier lineages? | [Historical archives](#historical-archives) (`docs/history/*`) | Non-normative provenance only; never a current component dependency |
+| What happened in completed Stage 1 and Stage 2 milestones or earlier lineages? | [Historical archives](#historical-archives) (`docs/history/*`) | Non-normative provenance only |
 
 ### Normative Annexes
 
@@ -33,6 +33,7 @@ distribution.
 
 ### Historical Archives
 
+- [docs/history/STAGE2_MILESTONES.md](history/STAGE2_MILESTONES.md) records Slices 1–7, all seven signed release readbacks, the live two-account and four-path session checks, and the daemon cache reclamation.
 - [docs/history/STAGE1_MILESTONES.md](history/STAGE1_MILESTONES.md): Completed 2026-11-16 – 2026-11-19 Stage 1 P0/review/maintenance milestones and retired work orders.
 - [docs/history/GENERATION_ADMISSION.md](history/GENERATION_ADMISSION.md): Earlier pre-rewrite patches, release admissions, and legacy byte policies.
 - [docs/history/LEGACY_RUST_CORE.md](history/LEGACY_RUST_CORE.md): Archived `rewrite/rust-core` (`0.167.x`) development evidence. Referring to it does **not** restore its implementation.
@@ -56,8 +57,8 @@ distribution.
 ## 3. Documentation Lifecycle and Change Propagation
 
 1. **Keep one authority per question:** Avoid duplicate feature ledgers in `README.md`, `CURRENT.md`, `AGENTS.md`, or `docs/history/*`.
-2. **Ephemeral work orders live only in `HANDOFF.md`:** Never accumulate completed `*_WORK_ORDER.md` or superseded one-off plan files in permanent folders. When a milestone closes, record verified receipts in [CURRENT.md](../CURRENT.md), archive significant milestone notes into [docs/history/STAGE1_MILESTONES.md](history/STAGE1_MILESTONES.md), and remove or replace `HANDOFF.md`.
-3. **Keep `CURRENT.md` concise and newest-first:** Top = current live operating snapshot; middle = open findings/work; bottom = current-milestone verified receipts. Rotate superseded older checkpoint logs into `docs/history/STAGE1_MILESTONES.md`.
+2. **Use `HANDOFF.md` for active work orders.** At closeout, record verified receipts in [CURRENT.md](../CURRENT.md), preserve significant milestones in the matching [historical archive](#historical-archives), and retire the work order.
+3. **Keep `CURRENT.md` concise and newest-first.** Start with the live snapshot, then record open work and recent verified receipts. Move superseded checkpoints to the matching [historical archive](#historical-archives).
 4. **Propagate changes in order:**
    - Deliberate invariant/behavior change → update [SPEC.md](../SPEC.md) / relevant annex first, then source & tests.
    - Code/module/route change → update [ARCHITECTURE.md](ARCHITECTURE.md) and user-facing [README.md](../README.md) when reachable.

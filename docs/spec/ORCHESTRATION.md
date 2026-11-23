@@ -2,8 +2,8 @@
 
 **Status:** Normative annex of [SPEC.md](../../SPEC.md) — **Stage 2 Slice 7 (7A and 7B)**.
 For active implemented code consult [docs/ARCHITECTURE.md](../ARCHITECTURE.md);
-for verified live receipts consult [CURRENT.md](../../CURRENT.md);
-for phased execution checklists consult [HANDOFF.md](../../HANDOFF.md) and [docs/ROADMAP.md](../ROADMAP.md).
+for verified live receipts consult [CURRENT.md](../../CURRENT.md).
+The completed rollout is recorded in [Stage 2 milestones](../history/STAGE2_MILESTONES.md).
 
 This annex defines the optional, decoupled Stage 2 durable orchestration layer
 that ensures **both simple single-task chats and complex multi-worker, multi-hour
