@@ -28,6 +28,11 @@ The product has one public command, `codex`, built in two decoupled stages:
   [architecture and ownership map](docs/ARCHITECTURE.md),
   [current evidence](CURRENT.md) and [roadmap](docs/ROADMAP.md).
 
+The account-free ChatGPT Desktop boot probe uses the AppHost supervisor from
+the matching `chatgpt-provider` build. Use
+`manager.py probe --provider-bin /path/to/chatgpt-provider` to test a local build
+with a temporary profile. See the [AppHost contract](docs/spec/CHATGPT_PROVIDER.md).
+
 ## Requirements on Termux
 
 Stage 1 targets Android AArch64 (`aarch64-linux-android`, Android API 24+) inside

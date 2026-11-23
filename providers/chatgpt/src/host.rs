@@ -1,136 +1,41 @@
-//! Single provider-owned Linux ChatGPT AppHost lifecycle (PRoot + Xvnc + CDP pipe).
-//!
-//! No separate `codex-chatgpt-host` keepalive service: `chatgpt-provider` owns
-//! its single `OwnedHost` directly, leases `~/.local/share/codex/chatgpt-desktop/profile`
-//! via non-blocking `flock`, allocates a free X11 display, and cleans up process
-//! groups and verified X11 lock/socket artifacts on drop.
-
+//! Provider-side CDP connection and control of the supervised AppHost.
 use crate::cdp::CdpClient;
 use crate::config::{ensure_private_dir, random_hex};
 use crate::error::{ProviderError, Result};
+use crate::supervisor::{Ready, StartError};
 use serde_json::json;
-use std::fs::{self, File, OpenOptions};
-use std::io::{Read, Write};
-use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
-use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt};
+use std::fs::{self, OpenOptions};
+use std::io::{self, Read, Write};
+use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
+use std::os::unix::fs::OpenOptionsExt;
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
 use std::time::Duration;
-use tokio::process::{Child, Command};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
+use tokio::process::Command;
+use tokio::sync::oneshot;
+use tokio::task::JoinHandle;
 
-struct ChildGroup {
-    child: Child,
-    pid: u32,
+pub(crate) fn termux_prefix() -> PathBuf {
+    std::env::var_os("PREFIX")
+        .filter(|s| !s.is_empty())
+        .map_or_else(
+            || PathBuf::from("/data/data/com.termux/files/usr"),
+            PathBuf::from,
+        )
 }
 
-impl ChildGroup {
-    fn spawn(command: &mut Command) -> Result<Self> {
-        command.kill_on_drop(true);
-        let parent = unsafe { libc::getpid() };
-        unsafe {
-            command.pre_exec(move || {
-                // Start a new session (pgid == pid, detached from any controlling TTY)
-                // so background proot/Electron children can never be stopped by SIGTTIN/SIGTTOU.
-                if libc::setsid() < 0 {
-                    return Err(std::io::Error::last_os_error());
-                }
-                if libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL) != 0
-                    || libc::getppid() != parent
-                {
-                    return Err(std::io::Error::other("parent unavailable"));
-                }
-                Ok(())
-            });
-        }
-        let child = command
-            .spawn()
-            .map_err(|e| ProviderError::unavailable("host_process_start_failed", e.to_string()))?;
-        let pid = child.id().ok_or_else(|| {
-            ProviderError::unavailable("host_process_start_failed", "child exited immediately")
-        })?;
-        Ok(Self { child, pid })
+pub(crate) fn duplicate_fd(fd: RawFd) -> io::Result<OwnedFd> {
+    let duplicate = unsafe { libc::fcntl(fd, libc::F_DUPFD_CLOEXEC, 64) };
+    if duplicate < 0 {
+        return Err(io::Error::last_os_error());
     }
-
-    async fn stop(&mut self) {
-        if self.pid == 0 {
-            return;
-        }
-        unsafe {
-            libc::kill(-(self.pid as i32), libc::SIGTERM);
-        }
-        if tokio::time::timeout(Duration::from_secs(3), self.child.wait())
-            .await
-            .is_err()
-        {
-            unsafe {
-                libc::kill(-(self.pid as i32), libc::SIGKILL);
-            }
-            let _ = self.child.wait().await;
-        }
-        self.pid = 0;
-    }
-}
-
-impl Drop for ChildGroup {
-    fn drop(&mut self) {
-        if self.pid != 0 {
-            unsafe {
-                libc::kill(-(self.pid as i32), libc::SIGKILL);
-            }
-        }
-    }
-}
-
-struct TemporaryDir(PathBuf);
-impl Drop for TemporaryDir {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.0);
-    }
-}
-
-struct DisplayArtifacts(Vec<(PathBuf, u64, u64)>);
-impl DisplayArtifacts {
-    fn capture(prefix: &Path, display: u16, pid: u32) -> Result<Self> {
-        let lock = prefix.join(format!("tmp/.X{display}-lock"));
-        if fs::read_to_string(&lock)
-            .ok()
-            .and_then(|s| s.trim().parse::<u32>().ok())
-            != Some(pid)
-        {
-            return Err(ProviderError::unavailable(
-                "host_display_owner_unconfirmed",
-                format!("X display :{display} lock PID mismatch"),
-            ));
-        }
-        let mut records = Vec::new();
-        for path in [lock, prefix.join(format!("tmp/.X11-unix/X{display}"))] {
-            let m = fs::symlink_metadata(&path).map_err(|_| {
-                ProviderError::unavailable(
-                    "host_display_owner_unconfirmed",
-                    format!("missing X artifact {}", path.display()),
-                )
-            })?;
-            if m.uid() != unsafe { libc::geteuid() } {
-                return Err(ProviderError::unavailable(
-                    "host_display_owner_unconfirmed",
-                    "X artifact UID mismatch",
-                ));
-            }
-            records.push((path, m.dev(), m.ino()));
-        }
-        Ok(Self(records))
-    }
-}
-
-impl Drop for DisplayArtifacts {
-    fn drop(&mut self) {
-        for (path, dev, ino) in &self.0 {
-            if fs::symlink_metadata(path).is_ok_and(|m| m.dev() == *dev && m.ino() == *ino) {
-                let _ = fs::remove_file(path);
-            }
-        }
-    }
+    Ok(unsafe { OwnedFd::from_raw_fd(duplicate) })
 }
 
 /// Minimal allow-listed Android OAuth browser relay for in-app ChatGPT sign-in.
@@ -207,6 +112,17 @@ pub fn merge_mimeapps_defaults(previous: &str) -> String {
 }
 
 pub async fn open_android_url(prefix: &Path, url: &str) -> Result<()> {
+    tokio::time::timeout(Duration::from_secs(10), launch_android_url(prefix, url))
+        .await
+        .map_err(|_| {
+            ProviderError::unavailable(
+                "android_browser_launch_failed",
+                "Android browser launch timed out",
+            )
+        })?
+}
+
+async fn launch_android_url(prefix: &Path, url: &str) -> Result<()> {
     if url.is_empty()
         || url.len() > 16_383
         || url.chars().any(|c| {
@@ -270,35 +186,42 @@ pub async fn open_android_url(prefix: &Path, url: &str) -> Result<()> {
     ))
 }
 
+pub(crate) fn prepare_auth_browser(guest_home: &Path, ui_dir: &Path) -> Result<()> {
+    let bin = ui_dir.join("bin");
+    ensure_private_dir(&bin)?;
+    write_private_file(&bin.join("xdg-open"), AUTH_OPENER_SCRIPT.as_bytes(), true)?;
+
+    let apps_dir = guest_home.join(".local/share/applications");
+    ensure_private_dir(&guest_home.join(".local"))?;
+    ensure_private_dir(&guest_home.join(".local/share"))?;
+    ensure_private_dir(&apps_dir)?;
+    write_private_file(
+        &apps_dir.join(AUTH_DESKTOP_NAME),
+        AUTH_DESKTOP_ENTRY.as_bytes(),
+        false,
+    )?;
+
+    let cfg_dir = guest_home.join(".config");
+    ensure_private_dir(&cfg_dir)?;
+    let mime_path = cfg_dir.join("mimeapps.list");
+    let existing = fs::read_to_string(&mime_path).unwrap_or_default();
+    let merged = merge_mimeapps_defaults(&existing);
+    write_private_file(&mime_path, merged.as_bytes(), false)?;
+
+    Ok(())
+}
+
 impl AuthBrowserRelay {
-    fn start(guest_home: &Path, ui_dir: &Path, prefix: &Path) -> Result<Self> {
-        let bin = ui_dir.join("bin");
-        ensure_private_dir(&bin)?;
-        write_private_file(&bin.join("xdg-open"), AUTH_OPENER_SCRIPT.as_bytes(), true)?;
-
-        let apps_dir = guest_home.join(".local/share/applications");
-        ensure_private_dir(&guest_home.join(".local"))?;
-        ensure_private_dir(&guest_home.join(".local/share"))?;
-        ensure_private_dir(&apps_dir)?;
-        write_private_file(
-            &apps_dir.join(AUTH_DESKTOP_NAME),
-            AUTH_DESKTOP_ENTRY.as_bytes(),
-            false,
-        )?;
-
-        let cfg_dir = guest_home.join(".config");
-        ensure_private_dir(&cfg_dir)?;
-        let mime_path = cfg_dir.join("mimeapps.list");
-        let existing = fs::read_to_string(&mime_path).unwrap_or_default();
-        let merged = merge_mimeapps_defaults(&existing);
-        write_private_file(&mime_path, merged.as_bytes(), false)?;
-
+    fn start(ui_dir: &Path, prefix: &Path, running: Arc<AtomicBool>) -> Self {
         let url_file = ui_dir.join("open-url");
         let prefix_owned = prefix.to_path_buf();
         let task = tokio::spawn(async move {
             let mut ticker = tokio::time::interval(Duration::from_millis(250));
             loop {
                 ticker.tick().await;
+                if !running.load(Ordering::Acquire) {
+                    break;
+                }
                 if let Ok(file) = OpenOptions::new()
                     .read(true)
                     .custom_flags(libc::O_NOFOLLOW)
@@ -314,7 +237,7 @@ impl AuthBrowserRelay {
                 }
             }
         });
-        Ok(Self { task })
+        Self { task }
     }
 }
 
@@ -373,421 +296,185 @@ pub fn is_allowed_oauth_url(url: &str) -> bool {
     }
 }
 
-fn write_xauthority(path: &Path, display: u16) -> Result<()> {
-    let raw = random_hex(16)?;
-    let cookie: Vec<u8> = (0..32)
-        .step_by(2)
-        .map(|i| u8::from_str_radix(&raw[i..i + 2], 16).unwrap())
-        .collect();
-    let mut bytes = Vec::new();
-    bytes.extend_from_slice(&65535_u16.to_be_bytes());
-    for field in [
-        b"".as_slice(),
-        display.to_string().as_bytes(),
-        b"MIT-MAGIC-COOKIE-1".as_slice(),
-        &cookie,
-    ] {
-        bytes.extend_from_slice(&(field.len() as u16).to_be_bytes());
-        bytes.extend_from_slice(field);
-    }
-    OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(0o600)
-        .open(path)
-        .and_then(|mut f| f.write_all(&bytes))
-        .map_err(|e| ProviderError::internal("host_authority_failed", e.to_string()))
-}
-
-struct WindowAdjuster(tokio::task::JoinHandle<()>);
-impl Drop for WindowAdjuster {
-    fn drop(&mut self) {
-        self.0.abort();
-    }
-}
-
 pub struct OwnedHost {
     pub client: CdpClient,
     pub display: u16,
     pub rootfs: PathBuf,
-    app: ChildGroup,
-    window_manager: Option<ChildGroup>,
-    window_adjuster: Option<WindowAdjuster>,
-    display_child: ChildGroup,
-    _display_artifacts: DisplayArtifacts,
+    pub running: Arc<AtomicBool>,
+    directory: PathBuf,
+    close: Option<oneshot::Sender<()>>,
+    completion: Option<JoinHandle<Result<()>>>,
     _auth_browser: AuthBrowserRelay,
-    _profile_lease: File,
-    temp_dir: TemporaryDir,
 }
 
 impl OwnedHost {
-    pub async fn start(rootfs: &Path, profile_dir: &Path) -> Result<Self> {
-        let canonical_rootfs = fs::canonicalize(rootfs).map_err(|_| {
-            ProviderError::unavailable(
-                "host_rootfs_not_found",
-                format!("rootfs not found: {}", rootfs.display()),
-            )
-        })?;
-        if !canonical_rootfs.join("usr/bin/chatgpt").is_file()
-            || !canonical_rootfs
-                .join("usr/lib/chatgpt/resources/app.asar")
-                .is_file()
-        {
-            return Err(ProviderError::unavailable(
-                "official_app_rootfs_required",
-                format!(
-                    "rootfs missing chatgpt binary or app.asar: {}",
-                    canonical_rootfs.display()
-                ),
-            ));
+    pub async fn start(rootfs: &Path, profile: &Path) -> Result<Self> {
+        fn pipe_error(error: io::Error) -> ProviderError {
+            ProviderError::unavailable("host_pipe_unavailable", error.to_string())
         }
-
-        let prefix = PathBuf::from(
-            std::env::var_os("PREFIX")
-                .filter(|v| !v.is_empty())
-                .unwrap_or_else(|| "/data/data/com.termux/files/usr".into()),
-        );
-        ensure_private_dir(profile_dir)?;
-
-        // Exclusive non-blocking flock lease on a sibling `<profile_dir>.lock` file
-        // so the Chromium user-data-dir itself is never directly flock'd.
-        let mut lock_os = profile_dir.as_os_str().to_os_string();
-        lock_os.push(".lock");
-        let lock_path = PathBuf::from(lock_os);
-        let lease = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .mode(0o600)
-            .open(&lock_path)
-            .map_err(|e| ProviderError::unavailable("host_profile_unavailable", e.to_string()))?;
-        if unsafe { libc::flock(lease.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
-            return Err(ProviderError::unavailable(
-                "host_profile_busy",
-                format!(
-                    "profile directory is already locked by another host: {}",
-                    profile_dir.display()
-                ),
-            ));
-        }
-
-        // Persist BOTH Electron's Chromium profile (`/root/chromium`) AND its embedded
-        // Codex app-server OAuth credentials (`/root/.codex`) inside `profile_dir` so
-        // authentication survives restarts and rootfs generation upgrades/rollbacks.
-        let chromium_dir = profile_dir.join("chromium");
-        let codex_home_dir = profile_dir.join(".codex");
-        ensure_private_dir(&chromium_dir)?;
-        ensure_private_dir(&codex_home_dir)?;
-        // Safe to clear stale Chromium singleton artifacts because we hold the exclusive flock.
-        for stale in ["SingletonLock", "SingletonSocket", "SingletonCookie"] {
-            let _ = fs::remove_file(chromium_dir.join(stale));
-        }
-
-        let tmp_path = std::env::temp_dir().join(format!("cgp-{}", random_hex(4)?));
-        fs::DirBuilder::new()
-            .mode(0o700)
-            .create(&tmp_path)
-            .map_err(|e| ProviderError::internal("host_temp_failed", e.to_string()))?;
-        let temp_dir = TemporaryDir(tmp_path);
-        let path = &temp_dir.0;
-        for name in ["tmp", "shm", "links"] {
-            ensure_private_dir(&path.join(name))?;
-        }
-        let auth_browser = AuthBrowserRelay::start(profile_dir, path, &prefix)?;
-
-        let socket_root = prefix.join("tmp/.X11-unix");
-        let euid = unsafe { libc::geteuid() };
-        let display = (130..1950_u16)
-            .find(|id| {
-                let lock_file = prefix.join(format!("tmp/.X{id}-lock"));
-                let sock_file = socket_root.join(format!("X{id}"));
-                if lock_file.exists() {
-                    // Reclaim stale user-owned X lock/socket left behind after SIGKILL.
-                    let stale_dead = fs::symlink_metadata(&lock_file)
-                        .is_ok_and(|m| !m.file_type().is_symlink() && m.uid() == euid)
-                        && fs::read_to_string(&lock_file)
-                            .ok()
-                            .and_then(|s| s.trim().parse::<i32>().ok())
-                            .is_some_and(|pid| {
-                                pid > 1
-                                    && unsafe { libc::kill(pid, 0) } != 0
-                                    && std::io::Error::last_os_error().raw_os_error()
-                                        == Some(libc::ESRCH)
-                            });
-                    if stale_dead {
-                        let _ = fs::remove_file(&lock_file);
-                        if fs::symlink_metadata(&sock_file)
-                            .is_ok_and(|m| !m.file_type().is_symlink() && m.uid() == euid)
-                        {
-                            let _ = fs::remove_file(&sock_file);
-                        }
-                    }
-                }
-                !sock_file.exists() && !lock_file.exists()
-            })
-            .ok_or_else(|| {
-                ProviderError::unavailable("host_display_unavailable", "no free X11 display")
-            })?;
-
-        let auth = path.join("Xauthority");
-        write_xauthority(&auth, display)?;
-
-        let mut xserver = Command::new(prefix.join("bin/Xvnc"));
-        xserver
-            .env_clear()
-            .env("HOME", path)
-            .env("PATH", prefix.join("bin"))
-            .env("PREFIX", &prefix)
-            .env("TMPDIR", path)
-            .args([
-                format!(":{display}"),
-                "-geometry".into(),
-                "480x785".into(),
-                "-depth".into(),
-                "24".into(),
-                "-nolisten".into(),
-                "tcp".into(),
-                "-auth".into(),
-                auth.to_string_lossy().into_owned(),
-                "-rfbport".into(),
-                "-1".into(),
-                "-rfbunixpath".into(),
-                path.join("viewer").to_string_lossy().into_owned(),
-                "-rfbunixmode".into(),
-                "0600".into(),
-                "-SecurityTypes".into(),
-                "None".into(),
-            ])
+        let (control, peer) = UnixStream::pair().map_err(pipe_error)?;
+        let (cdp, guest) = UnixStream::pair().map_err(pipe_error)?;
+        let inherited_ctrl = duplicate_fd(peer.as_raw_fd()).map_err(pipe_error)?;
+        let inherited_cdp = duplicate_fd(guest.as_raw_fd()).map_err(pipe_error)?;
+        let ctrl_fd = inherited_ctrl.as_raw_fd();
+        let cdp_fd = inherited_cdp.as_raw_fd();
+        let mut command = Command::new(std::env::current_exe().map_err(pipe_error)?);
+        command
+            .arg("host-supervisor")
+            .arg(rootfs)
+            .arg(profile)
+            .args(["3", "4", "serve"])
             .stdin(Stdio::null())
             .stdout(Stdio::null())
-            .stderr(Stdio::null());
-        let mut display_child = ChildGroup::spawn(&mut xserver)?;
-
-        let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
-        loop {
-            if tokio::net::UnixStream::connect(socket_root.join(format!("X{display}")))
-                .await
-                .is_ok()
-            {
-                break;
-            }
-            if tokio::time::Instant::now() >= deadline {
-                display_child.stop().await;
-                return Err(ProviderError::unavailable(
-                    "host_display_start_timeout",
-                    "Xvnc did not accept connections within 10s",
-                ));
-            }
-            tokio::time::sleep(Duration::from_millis(50)).await;
-        }
-        let display_artifacts = DisplayArtifacts::capture(&prefix, display, display_child.pid)?;
-
-        let openbox_bin = prefix.join("bin/openbox");
-        let window_manager = if openbox_bin.is_file() {
-            let mut wm = Command::new(openbox_bin);
-            wm.env_clear()
-                .env("HOME", path)
-                .env("PATH", prefix.join("bin"))
-                .env("PREFIX", &prefix)
-                .env("DISPLAY", format!(":{display}"))
-                .env("XAUTHORITY", &auth)
-                .stdin(Stdio::null())
-                .stdout(Stdio::null())
-                .stderr(Stdio::null());
-            ChildGroup::spawn(&mut wm).ok()
-        } else {
-            None
-        };
-
-        let (parent, child) = UnixStream::pair()
-            .map_err(|e| ProviderError::internal("host_pipe_unavailable", e.to_string()))?;
-        parent
-            .set_nonblocking(true)
-            .map_err(|e| ProviderError::internal("host_pipe_unavailable", e.to_string()))?;
-        let dup_fd = unsafe { libc::fcntl(child.as_raw_fd(), libc::F_DUPFD_CLOEXEC, 64) };
-        if dup_fd < 0 {
-            return Err(ProviderError::internal(
-                "host_pipe_unavailable",
-                "fcntl F_DUPFD_CLOEXEC failed",
-            ));
-        }
-        let dup_owned = unsafe { OwnedFd::from_raw_fd(dup_fd) };
-        let source_fd = dup_owned.as_raw_fd();
-        let root_file = File::open(&canonical_rootfs)
-            .map_err(|e| ProviderError::unavailable("host_rootfs_open_failed", e.to_string()))?;
-        let root_fd = root_file.as_raw_fd();
-
-        let host_log_path = profile_dir.join("host.log");
-        let app_log_out = OpenOptions::new()
-            .create(true)
-            .write(true)
-            .truncate(true)
-            .mode(0o600)
-            .custom_flags(libc::O_NOFOLLOW)
-            .open(&host_log_path)
-            .ok();
-        let app_log_err = app_log_out.as_ref().and_then(|f| f.try_clone().ok());
-
-        let mut cmd = Command::new(prefix.join("bin/proot"));
-        cmd.env_clear()
-            .env("PATH", prefix.join("bin"))
-            .env("HOME", profile_dir)
-            .env("TMPDIR", path)
-            .env("PROOT_TMP_DIR", path)
-            .env("PROOT_L2S_DIR", path.join("links"))
-            .args([
-                "--kill-on-exit",
-                "--link2symlink",
-                "--sysvipc",
-                "-L",
-                "--change-id=0:0",
-                "--rootfs=.",
-                "--cwd=/root",
-                "--bind=/dev",
-                "--bind=/proc",
-                "--bind=/sys",
-                "--bind=/dev/urandom:/dev/random",
-            ])
-            .arg(format!("--bind={}:/root", profile_dir.display()))
-            .arg(format!("--bind={}:/tmp", path.join("tmp").display()))
-            .arg(format!("--bind={}:/dev/shm", path.join("shm").display()))
-            .arg(format!("--bind={}:/tmp/.X11-unix", socket_root.display()))
-            .arg(format!("--bind={}:/ui", path.display()))
-            .args([
-                "/usr/bin/env",
-                "-i",
-                "HOME=/root",
-                "CODEX_HOME=/root/.codex",
-                "PATH=/ui/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
-                "BROWSER=/ui/bin/xdg-open",
-                "LANG=C.UTF-8",
-                "XAUTHORITY=/ui/Xauthority",
-            ])
-            .arg(format!("DISPLAY=:{display}"))
-            .args([
-                "/usr/bin/dbus-run-session",
-                "--",
-                "/usr/bin/chatgpt",
-                "--no-sandbox",
-                "--disable-gpu",
-                "--disable-dev-shm-usage",
-                "--user-data-dir=/root/chromium",
-                "--remote-debugging-pipe",
-            ])
-            .stdin(Stdio::null())
-            .stdout(app_log_out.map_or_else(Stdio::null, Stdio::from))
-            .stderr(app_log_err.map_or_else(Stdio::null, Stdio::from));
+            .stderr(Stdio::inherit());
         unsafe {
-            cmd.pre_exec(move || {
-                if libc::fchdir(root_fd) != 0
-                    || libc::dup2(source_fd, 3) < 0
-                    || libc::dup2(source_fd, 4) < 0
-                {
-                    return Err(std::io::Error::last_os_error());
+            command.pre_exec(move || {
+                if libc::dup2(ctrl_fd, 3) < 0 || libc::dup2(cdp_fd, 4) < 0 {
+                    return Err(io::Error::last_os_error());
                 }
                 Ok(())
             });
         }
-        let app = ChildGroup::spawn(&mut cmd)?;
-        drop(child);
-        drop(dup_owned);
-        drop(root_file);
-
-        let tokio_pipe = tokio::net::UnixStream::from_std(parent)
-            .map_err(|e| ProviderError::internal("host_pipe_unavailable", e.to_string()))?;
-        let (rd, wr) = tokio_pipe.into_split();
-        let client = CdpClient::from_pipe(rd, wr, random_hex(8)?);
-
-        let mut host = Self {
-            client,
-            display,
-            rootfs: canonical_rootfs,
-            app,
-            window_manager,
-            window_adjuster: None,
-            display_child,
-            _display_artifacts: display_artifacts,
-            _auth_browser: auth_browser,
-            _profile_lease: lease,
-            temp_dir,
-        };
-
-        if let Err(err) = host
-            .client
-            .request_with_timeout(
-                "Browser.getVersion",
-                json!({}),
-                None,
-                Duration::from_secs(30),
-            )
+        let mut child = command.spawn().map_err(pipe_error)?;
+        drop((inherited_ctrl, inherited_cdp, peer, guest));
+        control.set_nonblocking(true).map_err(pipe_error)?;
+        cdp.set_nonblocking(true).map_err(pipe_error)?;
+        let control = tokio::net::UnixStream::from_std(control).map_err(pipe_error)?;
+        let (read, write) = control.into_split();
+        let mut read = BufReader::new(read);
+        let mut line = String::new();
+        let size = tokio::time::timeout(Duration::from_secs(17), read.read_line(&mut line))
             .await
-        {
-            host.shutdown().await;
-            let tail = fs::read(&host_log_path)
-                .ok()
-                .map(|bytes| {
-                    let start = bytes.len().saturating_sub(800);
-                    String::from_utf8_lossy(&bytes[start..]).trim().to_owned()
-                })
-                .filter(|s| !s.is_empty());
-            let detail = match tail {
-                Some(t) => format!("ChatGPT app CDP handshake failed: {err} (host.log tail: {t})"),
-                None => format!("ChatGPT app CDP handshake failed: {err}"),
-            };
+            .map_err(|_| {
+                ProviderError::unavailable(
+                    "host_start_timeout",
+                    "AppHost supervisor did not announce startup",
+                )
+            })?
+            .map_err(pipe_error)?;
+        if size == 0 {
             return Err(ProviderError::unavailable(
-                "official_app_start_failed",
-                detail,
+                "host_supervisor_exited",
+                "AppHost supervisor exited during launch",
             ));
         }
-
-        let wmctrl_bin = prefix.join("bin/wmctrl");
-        if wmctrl_bin.is_file() {
-            let display_str = format!(":{display}");
-            let auth_path = auth.clone();
-            let bin_dir = prefix.join("bin");
-            host.window_adjuster = Some(WindowAdjuster(tokio::spawn(async move {
-                let until = tokio::time::Instant::now() + Duration::from_secs(45);
-                loop {
-                    let ok = Command::new(&wmctrl_bin)
-                        .env_clear()
-                        .env("PATH", &bin_dir)
-                        .env("DISPLAY", &display_str)
-                        .env("XAUTHORITY", &auth_path)
-                        .args(["-r", "ChatGPT", "-b", "add,maximized_vert,maximized_horz"])
-                        .stdin(Stdio::null())
-                        .stdout(Stdio::null())
-                        .stderr(Stdio::null())
-                        .status()
-                        .await
-                        .is_ok_and(|s| s.success());
-                    if ok || tokio::time::Instant::now() >= until {
-                        break;
-                    }
-                    tokio::time::sleep(Duration::from_millis(250)).await;
+        let reply = serde_json::from_str::<std::result::Result<Ready, StartError>>(&line)
+            .map_err(|e| ProviderError::internal("host_supervisor_reply", e.to_string()))?;
+        let ready = reply.map_err(|error| {
+            let code = match error.code.as_str() {
+                "host_profile_busy" => "host_profile_busy",
+                "host_profile_busy_stale_electron" => "host_profile_busy_stale_electron",
+                "host_profile_unavailable" => "host_profile_unavailable",
+                "host_rootfs_not_found" => "host_rootfs_not_found",
+                "official_app_rootfs_required" => "official_app_rootfs_required",
+                _ => "host_supervisor_start_failed",
+            };
+            ProviderError::unavailable(code, error.detail)
+        })?;
+        let (rd, wr) = tokio::net::UnixStream::from_std(cdp)
+            .map_err(pipe_error)?
+            .into_split();
+        let client = CdpClient::from_pipe(rd, wr, random_hex(8)?);
+        let running = Arc::new(AtomicBool::new(true));
+        let state = running.clone();
+        let (close, close_requested) = oneshot::channel();
+        let completion = tokio::spawn(async move {
+            let mut byte = [0u8];
+            tokio::select! {
+                _ = read.read(&mut byte) => {}
+                _ = close_requested => {}
+            }
+            state.store(false, Ordering::Release);
+            // OwnedWriteHalf drop shuts down this direction even while read is open.
+            drop(write);
+            let status = child.wait().await.map_err(pipe_error)?;
+            if status.success() {
+                Ok(())
+            } else {
+                Err(ProviderError::unavailable(
+                    "host_supervisor_exited",
+                    status.to_string(),
+                ))
+            }
+        });
+        let mut host = Self {
+            client,
+            display: ready.display,
+            rootfs: ready.rootfs,
+            _auth_browser: AuthBrowserRelay::start(
+                &ready.directory,
+                &termux_prefix(),
+                running.clone(),
+            ),
+            running,
+            directory: ready.directory,
+            close: Some(close),
+            completion: Some(completion),
+        };
+        let ready = host.client.request_with_timeout(
+            "Browser.getVersion",
+            json!({}),
+            None,
+            Duration::from_secs(30),
+        );
+        let handshake = tokio::select! {
+            result = ready => result,
+            result = host.completion.as_mut().unwrap() => {
+                let detail = result.ok().and_then(std::result::Result::err)
+                    .map_or_else(|| "AppHost exited during CDP startup".to_owned(), |error| error.to_string());
+                return Err(ProviderError::unavailable("official_app_start_failed", detail));
+            }
+        };
+        if let Err(error) = handshake {
+            let _ = host.shutdown().await;
+            let mut tail = String::new();
+            if let Ok(mut log) = fs::File::open(profile.join("host.log")) {
+                use std::io::{Seek, SeekFrom};
+                if let Ok(meta) = log.metadata() {
+                    let _ = log.seek(SeekFrom::Start(meta.len().saturating_sub(800)));
                 }
-            })));
+                let _ = log.take(800).read_to_string(&mut tail);
+            }
+            return Err(ProviderError::unavailable(
+                "official_app_start_failed",
+                format!(
+                    "ChatGPT app CDP handshake failed: {error} (host.log tail: {})",
+                    tail.trim()
+                ),
+            ));
         }
-
         Ok(host)
     }
 
     pub fn viewer_socket(&self) -> PathBuf {
-        self.temp_dir.0.join("viewer")
+        self.directory.join("viewer")
     }
 
-    pub async fn shutdown(&mut self) {
-        self.window_adjuster.take();
-        let _ = tokio::time::timeout(
-            Duration::from_secs(3),
-            self.client.request("Browser.close", json!({}), None),
-        )
-        .await;
-        self.app.stop().await;
-        if let Some(ref mut wm) = self.window_manager {
-            wm.stop().await;
+    pub async fn shutdown(&mut self) -> Result<()> {
+        self._auth_browser.task.abort();
+        if self.running.swap(false, Ordering::AcqRel) {
+            let _ = tokio::time::timeout(
+                Duration::from_secs(1),
+                self.client.request("Browser.close", json!({}), None),
+            )
+            .await;
         }
-        self.display_child.stop().await;
+        self.close.take();
+        let Some(completion) = self.completion.as_mut() else {
+            return Ok(());
+        };
+        let result = tokio::time::timeout(Duration::from_secs(4), completion)
+            .await
+            .map_err(|_| {
+                ProviderError::unavailable(
+                    "host_cleanup_pending",
+                    "AppHost cleanup has not completed",
+                )
+            })?;
+        self.completion.take();
+        result.map_err(|error| {
+            ProviderError::internal("host_supervisor_wait_failed", error.to_string())
+        })?
     }
 }
 

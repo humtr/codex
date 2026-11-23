@@ -87,6 +87,7 @@ pub struct CodexObservation {
     pub status_type: String,
     pub is_active: bool,
     pub last_assistant_text: String,
+    pub turn_status: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -164,6 +165,25 @@ impl OwnerClient {
             None,
             READ_TIMEOUT,
         )
+    }
+
+    pub fn chatgpt_has_delivery_marker(
+        &self,
+        chat_id: &str,
+        project: Option<&str>,
+        marker: &str,
+    ) -> Result<bool, String> {
+        let chat = self.chatgpt_read_chat(chat_id, 100)?;
+        Ok(chat["state"] == "ok"
+            && project.is_none_or(|project| chat["gizmo_id"] == project)
+            && chat["messages"].as_array().is_some_and(|rows| {
+                rows.iter().any(|row| {
+                    row["role"] == "user"
+                        && row["text"]
+                            .as_str()
+                            .is_some_and(|text| text.lines().next() == Some(marker))
+                })
+            }))
     }
 
     pub fn chatgpt_rename_chat(&self, chat_id: &str, title: &str) -> Result<Value, String> {
@@ -294,7 +314,7 @@ impl OwnerClient {
     pub fn chatgpt_send_pinned(
         &self,
         work: &crate::ledger::WorkRecord,
-        lead: &crate::ledger::LeadBinding,
+        lead: Option<&crate::ledger::LeadBinding>,
         chat_id: Option<&str>,
         lane_id: &str,
         prompt: &str,
@@ -308,8 +328,8 @@ impl OwnerClient {
                 "expected_account_id": work.account_id,
                 "lane_id": lane_id,
                 "prompt": prompt,
-                "model": lead.model,
-                "reasoning_effort": lead.reasoning_effort,
+                "model": lead.and_then(|lead| lead.model.as_deref()),
+                "reasoning_effort": lead.and_then(|lead| lead.reasoning_effort.as_deref()),
                 "wait_ms": 3_000
             })),
             SEND_TIMEOUT,
@@ -375,6 +395,15 @@ impl OwnerClient {
         profile: Option<&str>,
         thread_id: &str,
     ) -> Result<CodexObservation, String> {
+        self.codex_observe_turn(profile, thread_id, None)
+    }
+
+    pub fn codex_observe_turn(
+        &self,
+        profile: Option<&str>,
+        thread_id: &str,
+        turn_id: Option<&str>,
+    ) -> Result<CodexObservation, String> {
         let mut client = self.connect_codex(profile)?;
         let raw = client
             .read_thread_raw(thread_id, true)
@@ -388,12 +417,46 @@ impl OwnerClient {
             .unwrap_or("unknown")
             .to_owned();
         let is_active = status_type == "active";
-        let last_assistant_text = extract_codex_last_assistant_text(thread);
+        let (turn_status, last_assistant_text) = codex_turn_evidence(thread, turn_id);
         Ok(CodexObservation {
             status_type,
             is_active,
             last_assistant_text,
+            turn_status,
         })
+    }
+
+    pub fn codex_has_delivery_marker(
+        &self,
+        profile: Option<&str>,
+        thread_id: &str,
+        marker: &str,
+    ) -> Result<bool, String> {
+        let mut client = self.connect_codex(profile)?;
+        let raw = client
+            .read_thread_raw(thread_id, true)
+            .map_err(|e| e.to_string())?;
+        client.close();
+        Ok(raw.get("thread").unwrap_or(&raw)["turns"]
+            .as_array()
+            .is_some_and(|turns| {
+                turns.iter().any(|turn| {
+                    turn["items"].as_array().is_some_and(|items| {
+                        items.iter().any(|item| {
+                            item["type"] == "userMessage"
+                                && item["content"]
+                                    .as_array()
+                                    .and_then(|content| content.first())
+                                    .is_some_and(|part| {
+                                        part["type"] == "text"
+                                            && part["text"].as_str().is_some_and(|text| {
+                                                text.lines().next() == Some(marker)
+                                            })
+                                    })
+                        })
+                    })
+                })
+            }))
     }
 
     pub fn codex_rename_thread(
@@ -527,40 +590,65 @@ pub fn chatgpt_account_identity(status: &Value) -> Option<&str> {
         .find_map(|key| account[key].as_str().filter(|id| !id.is_empty()))
 }
 
-pub fn extract_codex_last_assistant_text(thread: &Value) -> String {
-    let Some(turns) = thread.get("turns").and_then(Value::as_array) else {
-        return String::new();
+fn codex_turn_evidence(thread: &Value, turn_id: Option<&str>) -> (Option<String>, String) {
+    let turn = thread["turns"].as_array().and_then(|turns| match turn_id {
+        Some(id) => turns.iter().find(|turn| turn["id"] == id),
+        None => turns.last(),
+    });
+    let Some(turn) = turn else {
+        return (None, String::new());
     };
-    for turn in turns.iter().rev() {
-        if let Some(items) = turn.get("items").and_then(Value::as_array) {
-            for item in items.iter().rev() {
-                let kind = item.get("type").and_then(Value::as_str).unwrap_or("");
-                if kind == "agentMessage" || kind == "assistantMessage" {
-                    if let Some(text) = item.get("text").and_then(Value::as_str) {
-                        if !text.trim().is_empty() {
-                            return text.chars().take(2000).collect();
-                        }
-                    }
-                    if let Some(content) = item.get("content").and_then(Value::as_array) {
-                        let joined: String = content
-                            .iter()
-                            .filter_map(|c| c.get("text").and_then(Value::as_str))
-                            .collect::<Vec<_>>()
-                            .join("\n");
-                        if !joined.trim().is_empty() {
-                            return joined.chars().take(2000).collect();
-                        }
-                    }
+    let status = turn["status"].as_str().map(ToOwned::to_owned);
+    let mut result = String::new();
+    if let Some(items) = turn["items"].as_array() {
+        for item in items.iter().rev().filter(|item| {
+            matches!(
+                item["type"].as_str(),
+                Some("agentMessage" | "assistantMessage")
+            )
+        }) {
+            if let Some(text) = item["text"].as_str().filter(|text| !text.trim().is_empty()) {
+                result = text.chars().take(2000).collect();
+                break;
+            }
+            if let Some(content) = item["content"].as_array() {
+                let joined = content
+                    .iter()
+                    .filter_map(|part| part["text"].as_str())
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                if !joined.trim().is_empty() {
+                    result = joined.chars().take(2000).collect();
+                    break;
                 }
             }
         }
-        if let Some(err) = turn
-            .get("error")
-            .and_then(|e| e.get("message"))
-            .and_then(Value::as_str)
-        {
-            return format!("turn_error: {}", err.chars().take(500).collect::<String>());
-        }
     }
-    String::new()
+    (status, result)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn codex_turn_evidence_stays_attached_to_the_registered_turn() {
+        let thread = json!({"turns":[
+            {"id":"first","status":"failed","items":[]},
+            {"id":"second","status":"completed","items":[{"type":"agentMessage","text":"new result"}]}
+        ]});
+        assert_eq!(
+            codex_turn_evidence(&thread, Some("first")),
+            (Some("failed".into()), String::new())
+        );
+        assert_eq!(
+            codex_turn_evidence(&thread, Some("missing")),
+            (None, String::new())
+        );
+        assert_eq!(
+            codex_turn_evidence(&thread, None),
+            (Some("completed".into()), "new result".into())
+        );
+        assert_eq!(codex_turn_evidence(&json!({}), None), (None, String::new()));
+    }
 }

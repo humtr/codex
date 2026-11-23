@@ -455,10 +455,15 @@ impl OrchMcpHandler {
                     Ok(w) => w,
                     Err(e) => return fail("work_not_found", e.to_string()),
                 };
-                let events = self
-                    .ledger
-                    .read_events(wid, after_seq, limit)
-                    .unwrap_or_default();
+                let read = if obj.contains_key("after_seq") {
+                    self.ledger.read_first_events(wid, after_seq, limit)
+                } else {
+                    self.ledger.read_events(wid, after_seq, limit)
+                };
+                let events = match read {
+                    Ok(events) => events,
+                    Err(error) => return fail("inbox_read_failed", error.to_string()),
+                };
                 json!({
                     "state": "ok",
                     "work_id": wid,
@@ -1412,6 +1417,7 @@ impl OrchMcpHandler {
                 false,
             );
         }
+        let mut turn_id = None;
         let ref_id = if backend == "shell" {
             let receipt_id = existing.unwrap_or(&participant_id);
             if work
@@ -1457,7 +1463,10 @@ impl OrchMcpHandler {
                         None,
                         obj.get("approval_policy").and_then(Value::as_str),
                     ) {
-                        Ok((tid, _)) => tid,
+                        Ok((tid, observed_turn)) => {
+                            turn_id = observed_turn;
+                            tid
+                        }
                         Err(e) => return (fail("participant_spawn_failed", e), false),
                     }
                 }
@@ -1514,6 +1523,7 @@ impl OrchMcpHandler {
             role: role.to_owned(),
             backend: backend.to_owned(),
             ref_id: ref_id.clone(),
+            turn_id,
             profile,
             slug: slug.to_owned(),
             task_summary: task_summary.to_owned(),
@@ -1853,6 +1863,8 @@ impl OrchMcpHandler {
                         title: del_title,
                         payload_text,
                         advance_seq_to: None,
+                        dispatch: None,
+                        receipts_tracked: true,
                         notified: false,
                         attempts: 0,
                         next_attempt_unix: now,
@@ -1876,8 +1888,11 @@ impl OrchMcpHandler {
             let mut delivered_immediately = false;
             if flush_now {
                 let engine = RelayEngine::new(self.ledger.clone(), self.owners.clone());
-                let tick = engine.tick_once();
-                delivered_immediately = tick.deliveries_sent > 0;
+                let _ = engine.process_work(wid);
+                delivered_immediately = self
+                    .ledger
+                    .delivery_recorded(wid, &delivery_id)
+                    .unwrap_or(false);
             }
             let fresh = self.ledger.load_work(wid).ok();
             let pending_left = fresh
@@ -1947,7 +1962,8 @@ impl OrchMcpHandler {
                     "wait_sets_fired": tick.wait_sets_fired,
                     "deliveries_sent": tick.deliveries_sent,
                     "deliveries_deferred": tick.deliveries_deferred,
-                    "budget_trips": tick.budget_trips
+                    "budget_trips": tick.budget_trips,
+                    "errors": tick.errors
                 })
             }
             "budget_extend" => {

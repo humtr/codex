@@ -160,6 +160,8 @@ pub struct Participant {
     /// `"codex"`, `"chatgpt"`, or `"shell"`
     pub backend: String,
     pub ref_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub turn_id: Option<String>,
     pub profile: Option<String>,
     pub slug: String,
     pub task_summary: String,
@@ -199,6 +201,14 @@ fn default_true() -> bool {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeliveryDispatch {
+    pub backend: String,
+    pub ref_id: String,
+    pub profile: Option<String>,
+    pub lane_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PendingDelivery {
     pub delivery_id: String,
     /// `"front"` or `"lead"`
@@ -207,6 +217,10 @@ pub struct PendingDelivery {
     pub title: String,
     pub payload_text: String,
     pub advance_seq_to: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dispatch: Option<DeliveryDispatch>,
+    #[serde(default)]
+    pub receipts_tracked: bool,
     pub notified: bool,
     pub attempts: u32,
     pub next_attempt_unix: u64,
@@ -545,7 +559,17 @@ impl Ledger {
         after_seq: u64,
         limit: usize,
     ) -> io::Result<Vec<InboxEvent>> {
-        self.scan_events(work_id, after_seq, limit, false)
+        let mut events = std::collections::VecDeque::new();
+        self.visit_events(work_id, after_seq, |event| {
+            if limit != 0 {
+                if events.len() == limit {
+                    events.pop_front();
+                }
+                events.push_back(event);
+            }
+            true
+        })?;
+        Ok(events.into())
     }
 
     pub fn read_first_events(
@@ -554,44 +578,71 @@ impl Ledger {
         after_seq: u64,
         limit: usize,
     ) -> io::Result<Vec<InboxEvent>> {
-        self.scan_events(work_id, after_seq, limit, true)
+        let mut events = Vec::new();
+        if limit != 0 {
+            self.visit_events(work_id, after_seq, |event| {
+                events.push(event);
+                events.len() < limit
+            })?;
+        }
+        Ok(events)
     }
 
-    fn scan_events(
+    pub fn has_user_event_after(&self, work_id: &str, after_seq: u64) -> io::Result<bool> {
+        let mut found = false;
+        self.visit_events(work_id, after_seq, |event| {
+            found = event.kind.starts_with("user.");
+            !found
+        })?;
+        Ok(found)
+    }
+
+    pub fn delivery_recorded(&self, work_id: &str, delivery_id: &str) -> io::Result<bool> {
+        let id = format!("delivered:{delivery_id}");
+        let mut found = false;
+        self.visit_events(work_id, 0, |event| {
+            found = event.event_id == id;
+            !found
+        })?;
+        Ok(found)
+    }
+
+    fn visit_events(
         &self,
         work_id: &str,
         after_seq: u64,
-        limit: usize,
-        first: bool,
-    ) -> io::Result<Vec<InboxEvent>> {
-        let dir = self.work_dir(work_id)?;
-        let path = dir.join("events.jsonl");
-        if !path.exists() {
-            return Ok(Vec::new());
-        }
-        let file = OpenOptions::new()
+        mut visit: impl FnMut(InboxEvent) -> bool,
+    ) -> io::Result<()> {
+        let path = self.work_dir(work_id)?.join("events.jsonl");
+        let file = match OpenOptions::new()
             .read(true)
-            .custom_flags(libc::O_NOFOLLOW)
-            .open(&path)?;
-        let mut events = Vec::new();
-        for line in BufReader::new(file).lines() {
-            let line = line?;
-            if line.trim().is_empty() {
-                continue;
+            .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+            .open(&path)
+        {
+            Ok(file) => file,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
+            Err(error) => return Err(error),
+        };
+        if !file.metadata()?.is_file() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "Inbox is not a regular file",
+            ));
+        }
+        let mut reader = BufReader::new(file);
+        let mut line = Vec::new();
+        loop {
+            line.clear();
+            if reader.read_until(b'\n', &mut line)? == 0 || line.last() != Some(&b'\n') {
+                break;
             }
-            if let Ok(ev) = serde_json::from_str::<InboxEvent>(&line) {
-                if ev.seq > after_seq {
-                    events.push(ev);
-                    if first && events.len() == limit {
-                        break;
-                    }
+            if let Ok(event) = serde_json::from_slice::<InboxEvent>(&line) {
+                if event.seq > after_seq && !visit(event) {
+                    break;
                 }
             }
         }
-        if events.len() > limit {
-            events = events.split_off(events.len() - limit);
-        }
-        Ok(events)
+        Ok(())
     }
 }
 

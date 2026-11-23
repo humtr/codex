@@ -10,9 +10,9 @@ use std::future::Future;
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use std::time::Duration;
-use tokio::sync::Mutex;
+use tokio::sync::{watch, Mutex};
 
 pub const PAGE_DRIVER_JS: &str = include_str!("page_driver.js");
 
@@ -47,7 +47,8 @@ pub struct CdpDriver {
     home: PathBuf,
     listen_port: u16,
     viewer_slot: ViewerSlot,
-    host_running_flag: AtomicBool,
+    host_running: RwLock<Option<Arc<AtomicBool>>>,
+    stopping: watch::Sender<bool>,
     state: Mutex<LiveHostState>,
 }
 
@@ -63,12 +64,77 @@ impl CdpDriver {
             home,
             listen_port,
             viewer_slot,
-            host_running_flag: AtomicBool::new(false),
+            host_running: RwLock::new(None),
+            stopping: watch::Sender::new(false),
             state: Mutex::new(LiveHostState {
                 host: None,
                 session_id: None,
             }),
         })
+    }
+
+    fn running(&self) -> bool {
+        self.host_running.read().is_ok_and(|state| {
+            state
+                .as_ref()
+                .is_some_and(|value| value.load(Ordering::Acquire))
+        })
+    }
+
+    pub fn begin_shutdown(&self) {
+        self.stopping.send_replace(true);
+    }
+
+    async fn while_serving<T>(&self, action: impl Future<Output = Result<T>>) -> Result<T> {
+        let mut stopping = self.stopping.subscribe();
+        tokio::select! {
+            biased;
+            _ = stopping.wait_for(|&value| value) => Err(ProviderError::unavailable(
+                "provider_shutting_down", "provider is shutting down",
+            )),
+            result = action => result,
+        }
+    }
+
+    fn set_host(&self, guard: &mut LiveHostState, host: OwnedHost) {
+        if let Some(assets) = self.config.resolved_viewer_assets(&self.home) {
+            if let Ok(viewer) = Viewer::new(
+                host.viewer_socket(),
+                assets,
+                self.listen_port,
+                host.running.clone(),
+            ) {
+                if let Ok(mut slot) = self.viewer_slot.write() {
+                    *slot = Some(viewer);
+                }
+            }
+        }
+        if let Ok(mut running) = self.host_running.write() {
+            *running = Some(host.running.clone());
+        }
+        guard.host = Some(host);
+        guard.session_id = None;
+    }
+
+    async fn stop_host(&self, guard: &mut LiveHostState) -> Result<()> {
+        if let Ok(mut slot) = self.viewer_slot.write() {
+            *slot = None;
+        }
+        if let Ok(mut running) = self.host_running.write() {
+            *running = None;
+        }
+        guard.session_id = None;
+        let Some(host) = guard.host.as_mut() else {
+            return Ok(());
+        };
+        let result = host.shutdown().await;
+        if !result
+            .as_ref()
+            .is_err_and(|error| error.code == "host_cleanup_pending")
+        {
+            guard.host.take();
+        }
+        result
     }
 
     /// Ensure the owned host & page session are attached under `self.state`, then
@@ -81,23 +147,21 @@ impl CdpDriver {
         arg: Value,
         timeout: Duration,
     ) -> Result<Value> {
+        self.while_serving(self.call_host(method, arg, timeout))
+            .await
+    }
+
+    async fn call_host(&self, method: &str, arg: Value, timeout: Duration) -> Result<Value> {
         let (client, sid) = {
             let mut guard = self.state.lock().await;
+            if guard.host.is_some() && !self.running() {
+                self.stop_host(&mut guard).await?;
+            }
             if guard.host.is_none() {
                 let rootfs = self.config.resolved_rootfs(&self.home);
                 let profile = self.config.profile_dir(&self.home);
                 let host = OwnedHost::start(&rootfs, &profile).await?;
-                if let Some(assets) = self.config.resolved_viewer_assets(&self.home) {
-                    if let Ok(viewer) = Viewer::new(host.viewer_socket(), assets, self.listen_port)
-                    {
-                        if let Ok(mut slot) = self.viewer_slot.write() {
-                            *slot = Some(viewer);
-                        }
-                    }
-                }
-                guard.host = Some(host);
-                guard.session_id = None;
-                self.host_running_flag.store(true, Ordering::Release);
+                self.set_host(&mut guard, host);
             }
             let client = guard.host.as_ref().unwrap().client.clone();
             let (sid, freshly_attached) = match &guard.session_id {
@@ -126,14 +190,7 @@ impl CdpDriver {
                         Ok(Value::Bool(true)) => break,
                         Ok(_) => {}
                         Err(e) if e.code == "cdp_disconnected" => {
-                            guard.session_id = None;
-                            if let Ok(mut slot) = self.viewer_slot.write() {
-                                *slot = None;
-                            }
-                            self.host_running_flag.store(false, Ordering::Release);
-                            if let Some(mut dead) = guard.host.take() {
-                                dead.shutdown().await;
-                            }
+                            let _ = self.stop_host(&mut guard).await;
                             return Err(e);
                         }
                         Err(_) => {}
@@ -169,14 +226,7 @@ impl CdpDriver {
                     .is_some_and(|h| Arc::ptr_eq(&h.client.generation, &client.generation));
                 if same_generation {
                     if err.code == "cdp_disconnected" {
-                        guard.session_id = None;
-                        if let Ok(mut slot) = self.viewer_slot.write() {
-                            *slot = None;
-                        }
-                        self.host_running_flag.store(false, Ordering::Release);
-                        if let Some(mut dead) = guard.host.take() {
-                            dead.shutdown().await;
-                        }
+                        let _ = self.stop_host(&mut guard).await;
                     } else if err.code != "cdp_timeout"
                         && guard.session_id.as_deref() == Some(sid.as_str())
                     {
@@ -188,29 +238,23 @@ impl CdpDriver {
         }
     }
 
-    pub async fn shutdown(&self) {
+    pub async fn shutdown(&self) -> Result<()> {
+        self.begin_shutdown();
         let mut guard = self.state.lock().await;
-        if let Ok(mut slot) = self.viewer_slot.write() {
-            *slot = None;
-        }
-        guard.session_id = None;
-        self.host_running_flag.store(false, Ordering::Release);
-        if let Some(mut host) = guard.host.take() {
-            host.shutdown().await;
-        }
+        self.stop_host(&mut guard).await
     }
 }
 
 impl DriverBackend for CdpDriver {
     fn host_running(&self) -> BoxFuture<'_, bool> {
-        Box::pin(async move { self.host_running_flag.load(Ordering::Acquire) })
+        Box::pin(async move { self.running() })
     }
 
     fn status(&self) -> BoxFuture<'_, Result<Value>> {
         Box::pin(async move {
             let running_meta = {
                 let guard = self.state.lock().await;
-                guard.host.as_ref().map(|h| {
+                guard.host.as_ref().filter(|_| self.running()).map(|h| {
                     (
                         h.rootfs.display().to_string(),
                         h.client.generation.to_string(),
@@ -320,7 +364,7 @@ impl DriverBackend for CdpDriver {
                 .viewer_slot
                 .read()
                 .ok()
-                .and_then(|g| g.as_ref().map(|v| v.url()));
+                .and_then(|g| g.as_ref().filter(|v| v.running()).map(|v| v.url()));
             Ok(json!({
                 "state": "ok",
                 "available": url.is_some(),
@@ -330,35 +374,20 @@ impl DriverBackend for CdpDriver {
     }
 
     fn restart_host(&self) -> BoxFuture<'_, Result<Value>> {
-        Box::pin(async move {
+        Box::pin(self.while_serving(async {
             let mut guard = self.state.lock().await;
-            if let Ok(mut slot) = self.viewer_slot.write() {
-                *slot = None;
-            }
-            self.host_running_flag.store(false, Ordering::Release);
-            if let Some(mut old) = guard.host.take() {
-                old.shutdown().await;
-            }
-            guard.session_id = None;
+            self.stop_host(&mut guard).await?;
             let rootfs = self.config.resolved_rootfs(&self.home);
             let profile = self.config.profile_dir(&self.home);
             let host = OwnedHost::start(&rootfs, &profile).await?;
             let display = host.display;
-            if let Some(assets) = self.config.resolved_viewer_assets(&self.home) {
-                if let Ok(viewer) = Viewer::new(host.viewer_socket(), assets, self.listen_port) {
-                    if let Ok(mut slot) = self.viewer_slot.write() {
-                        *slot = Some(viewer);
-                    }
-                }
-            }
-            guard.host = Some(host);
-            self.host_running_flag.store(true, Ordering::Release);
+            self.set_host(&mut guard, host);
             Ok(json!({
                 "state": "ok",
                 "restarted": true,
                 "display": display
             }))
-        })
+        }))
     }
 
     fn list_connectors(&self, params: Value) -> BoxFuture<'_, Result<Value>> {

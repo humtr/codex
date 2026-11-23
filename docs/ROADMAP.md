@@ -284,5 +284,14 @@ Stage 1의 FD 34는 스레드 수명을 업스트림 정책에 맡깁니다. 마
   promotion gate remain deferred. [Phase 2.6](#3-phase-26--read-only-upstream-discovery-and-qualification)
 - **R-6** Physical power removal and execution on Android with a real 16 KiB
   kernel page size.
+- **AppHost shutdown candidate.** Qualify the signed release and device
+  activation separately. Cross-device Android behavior and an exact
+  `SHMHELPER_DISTRIBUTE` `accept()` race reproduction remain open.
+  [Candidate evidence](../CURRENT.md#2026-11-23--apphost-shutdown-candidate-on-android-termux)
+- **Signed-image activation.** Verify the exact signed artifacts for
+  `codex-ext`, Provider and Orchestration through device activation and
+  connected use. The later Slice 5 and Slice 7 candidates need their own
+  signed readback and activation. Pending legacy deliveries without an owner
+  marker require reconciliation before upgrading a populated state directory.
 - **Slice 7B** Natural context exhaustion and more than ten minutes of
   continuous detached Shell execution. [Live evidence](../CURRENT.md#2026-11-23--stage-2-slice-7b-resilience-on-android-api-37-termux)

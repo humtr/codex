@@ -12,9 +12,12 @@
 //!    backoff + `termux-notification`, advancing `consumed_seq` only on confirmed
 //!    dispatch.
 
-use crate::ledger::{now_unix, truncate_chars, InboxEvent, Ledger, PendingDelivery, WorkRecord};
+use crate::ledger::{
+    generate_id, now_unix, truncate_chars, DeliveryDispatch, InboxEvent, Ledger, PendingDelivery,
+    WorkRecord,
+};
 use crate::owners::OwnerClient;
-use serde_json::{json, Value};
+use serde_json::json;
 use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -31,6 +34,7 @@ pub struct TickSummary {
     pub deliveries_sent: usize,
     pub deliveries_deferred: usize,
     pub budget_trips: usize,
+    pub errors: usize,
 }
 
 pub struct RelayEngine {
@@ -46,6 +50,7 @@ impl RelayEngine {
     pub fn tick_once(&self) -> TickSummary {
         let mut summary = TickSummary::default();
         let Ok(ids) = self.ledger.list_work_ids() else {
+            summary.errors += 1;
             return summary;
         };
         for work_id in ids {
@@ -56,12 +61,14 @@ impl RelayEngine {
                 summary.deliveries_sent += part.deliveries_sent;
                 summary.deliveries_deferred += part.deliveries_deferred;
                 summary.budget_trips += part.budget_trips;
+            } else {
+                summary.errors += 1;
             }
         }
         summary
     }
 
-    fn process_work(&self, work_id: &str) -> Result<TickSummary, String> {
+    pub(crate) fn process_work(&self, work_id: &str) -> Result<TickSummary, String> {
         let _lock = self.ledger.lock_work(work_id).map_err(|e| e.to_string())?;
         let mut work = self.ledger.load_work(work_id).map_err(|e| e.to_string())?;
         let mut summary = TickSummary::default();
@@ -84,21 +91,23 @@ impl RelayEngine {
                 }
                 match p.backend.as_str() {
                     "codex" => {
-                        if let Ok(obs) = self
-                            .owners
-                            .codex_observe_thread(p.profile.as_deref(), &p.ref_id)
-                        {
-                            if !obs.is_active && obs.status_type != "unknown" {
-                                let next_state = if obs.status_type == "systemError" {
-                                    "failed"
-                                } else {
-                                    "completed"
-                                };
-                                newly_settled.push((
-                                    idx,
-                                    next_state.to_owned(),
-                                    obs.last_assistant_text,
-                                ));
+                        if let Ok(obs) = self.owners.codex_observe_turn(
+                            p.profile.as_deref(),
+                            &p.ref_id,
+                            p.turn_id.as_deref(),
+                        ) {
+                            let settled = match obs.turn_status.as_deref() {
+                                Some("completed") => Some(("completed", obs.last_assistant_text)),
+                                Some(status @ ("failed" | "interrupted")) => {
+                                    Some(("failed", format!("Codex turn {status}")))
+                                }
+                                _ if obs.status_type == "systemError" => {
+                                    Some(("failed", "Codex thread systemError".to_owned()))
+                                }
+                                _ => None,
+                            };
+                            if let Some((state, detail)) = settled {
+                                newly_settled.push((idx, state.to_owned(), detail));
                             }
                         }
                     }
@@ -214,12 +223,19 @@ impl RelayEngine {
 
         // 2. Evaluate armed Wait-Set.
         if !work.is_terminal() {
-            if let Some(ws) = work.wait_set.clone().filter(|w| w.armed) {
-                let unconsumed = self
-                    .ledger
-                    .read_events(&work.work_id, work.consumed_seq, 64)
-                    .unwrap_or_default();
-                let reason = evaluate_wait_set(&work, &ws, &unconsumed, now);
+            // Only one delivery may own the next Inbox prefix. Otherwise a
+            // newly armed Wait-Set can advance past an earlier deferred wake.
+            if let Some(ws) = work
+                .wait_set
+                .clone()
+                .filter(|w| w.armed && !work.pending_deliveries.iter().any(|d| d.kind == "wakeup"))
+            {
+                let user_event = ws.on_user_event
+                    && self
+                        .ledger
+                        .has_user_event_after(&work.work_id, work.consumed_seq)
+                        .map_err(|e| e.to_string())?;
+                let reason = evaluate_wait_set(&work, &ws, user_event, now);
                 if let Some(trigger_reason) = reason {
                     let wall_exceeded =
                         now.saturating_sub(work.created_at_unix) > work.budget.max_wall_secs;
@@ -259,6 +275,8 @@ impl RelayEngine {
                                 title: budget_title,
                                 payload_text: budget_payload,
                                 advance_seq_to: None,
+                                dispatch: None,
+                                receipts_tracked: true,
                                 notified: false,
                                 attempts: 0,
                                 next_attempt_unix: now,
@@ -280,9 +298,24 @@ impl RelayEngine {
                             .ok()
                             .flatten()
                             .unwrap_or_default();
+                        let mut unconsumed = self
+                            .ledger
+                            .read_first_events(&work.work_id, work.consumed_seq, 20)
+                            .map_err(|e| e.to_string())?;
+                        let next = work.consumed_seq.saturating_add(1);
+                        let prefix_len = unconsumed
+                            .iter()
+                            .enumerate()
+                            .take_while(|(offset, event)| {
+                                event.seq == next.saturating_add(*offset as u64)
+                            })
+                            .count();
+                        unconsumed.truncate(prefix_len);
                         let wakeup_text =
                             build_wakeup_prompt(&work, &trigger_reason, &checkpoint, &unconsumed);
-                        let target_seq = work.last_seq;
+                        let target_seq = unconsumed
+                            .last()
+                            .map_or(work.consumed_seq, |event| event.seq);
                         let target_kind = ws.wake_target.clone();
                         let wait_id = ws.wait_id.clone();
 
@@ -295,6 +328,9 @@ impl RelayEngine {
                         work.updated_at_unix = now;
 
                         let wakeup_title = format!("[Work] {} — 라운드 깨우기", work.title);
+                        let advance_seq_to = (!(ws.wake_target == "front"
+                            && work.delivery_mode == "notify_only"))
+                            .then_some(target_seq);
                         enqueue_delivery_if_absent(
                             &mut work,
                             PendingDelivery {
@@ -303,7 +339,9 @@ impl RelayEngine {
                                 kind: "wakeup".to_owned(),
                                 title: wakeup_title,
                                 payload_text: wakeup_text,
-                                advance_seq_to: Some(target_seq),
+                                advance_seq_to,
+                                dispatch: None,
+                                receipts_tracked: true,
                                 notified: false,
                                 attempts: 0,
                                 next_attempt_unix: now,
@@ -318,169 +356,236 @@ impl RelayEngine {
             }
         }
 
-        // 3. Flush due pending deliveries.
-        if !work.pending_deliveries.is_empty() {
-            let mut remaining = Vec::new();
-            let pending = std::mem::take(&mut work.pending_deliveries);
-            for mut del in pending {
-                if del.next_attempt_unix > now {
-                    remaining.push(del);
-                    continue;
+        if dirty {
+            work.updated_at_unix = now_unix();
+            self.ledger.save_work(&work).map_err(|e| e.to_string())?;
+        }
+        // Persist each dispatch before contacting its owner, and settle it
+        // before starting another delivery.
+        let mut index = 0;
+        while index < work.pending_deliveries.len() {
+            let mut delivery = work.pending_deliveries[index].clone();
+            if delivery.next_attempt_unix > now {
+                index += 1;
+                continue;
+            }
+            match self.attempt_delivery(&mut work, index, &mut delivery)? {
+                DeliveryOutcome::Delivered => {
+                    if let Some(seq) = delivery.advance_seq_to {
+                        work.consumed_seq = work.consumed_seq.max(seq);
+                    }
+                    let kind = if delivery.target == "front" {
+                        "delivery.front_sent"
+                    } else {
+                        "wakeup.lead_sent"
+                    };
+                    self.ledger.append_event_if_absent(
+                        &mut work,
+                        &format!("delivered:{}", delivery.delivery_id),
+                        kind,
+                        "runtime",
+                        &format!("{} delivered ({})", delivery.kind, delivery.target),
+                        json!({"delivery_id": delivery.delivery_id, "target": delivery.target, "kind": delivery.kind}),
+                    ).map_err(|e| e.to_string())?;
+                    work.pending_deliveries.remove(index);
+                    summary.deliveries_sent += 1;
                 }
-                match self.attempt_delivery(&work, &mut del) {
-                    DeliveryOutcome::Delivered => {
-                        if let Some(seq) = del.advance_seq_to {
-                            if seq > work.consumed_seq {
-                                work.consumed_seq = seq;
-                            }
-                        }
-                        let ev_kind = if del.target == "front" {
-                            "delivery.front_sent"
-                        } else {
-                            "wakeup.lead_sent"
-                        };
-                        let _ = self.ledger.append_event_if_absent(
-                            &mut work,
-                            &format!("delivered:{}", del.delivery_id),
-                            ev_kind,
-                            "runtime",
-                            &format!("{} delivered ({})", del.kind, del.target),
-                            json!({
-                                "delivery_id": del.delivery_id,
-                                "target": del.target,
-                                "kind": del.kind
-                            }),
-                        );
-                        summary.deliveries_sent += 1;
-                        dirty = true;
-                    }
-                    DeliveryOutcome::Defer(reason) => {
-                        del.attempts += 1;
-                        let shift = (del.attempts.saturating_sub(1)).min(4);
-                        let backoff = (5u64 << shift).min(60);
-                        del.next_attempt_unix = now + backoff;
-                        del.last_error = Some(truncate_chars(&reason, 240));
-                        remaining.push(del);
-                        summary.deliveries_deferred += 1;
-                        dirty = true;
-                    }
+                DeliveryOutcome::Defer(reason) => {
+                    delivery.attempts = delivery.attempts.saturating_add(1);
+                    let shift = delivery.attempts.saturating_sub(1).min(4);
+                    let backoff = (5u64 << shift).min(60);
+                    delivery.next_attempt_unix = now + backoff;
+                    delivery.last_error = Some(truncate_chars(&reason, 240));
+                    work.pending_deliveries[index] = delivery;
+                    index += 1;
+                    summary.deliveries_deferred += 1;
                 }
             }
-            work.pending_deliveries = remaining;
-        }
-
-        if dirty {
             work.updated_at_unix = now_unix();
             self.ledger.save_work(&work).map_err(|e| e.to_string())?;
         }
         Ok(summary)
     }
 
-    fn attempt_delivery(&self, work: &WorkRecord, del: &mut PendingDelivery) -> DeliveryOutcome {
-        match del.target.as_str() {
-            "front" => {
-                if !del.notified {
-                    let _ =
-                        self.owners
-                            .send_notification(&work.work_id, &del.title, &del.payload_text);
-                    del.notified = true;
-                }
-                if work.delivery_mode == "notify_only" {
-                    return DeliveryOutcome::Delivered;
-                }
-                let Some(front_chat) = work.front.latest_chat_id.as_deref() else {
-                    return DeliveryOutcome::Delivered;
-                };
-                match self.owners.chatgpt_observe(front_chat) {
-                    Ok(obs) if obs.generating => {
-                        return DeliveryOutcome::Defer(format!(
-                            "front_chat_busy({})",
-                            obs.remote_stream_status.as_deref().unwrap_or("local")
-                        ));
-                    }
-                    Err(e) => return DeliveryOutcome::Defer(e),
-                    Ok(_) => {}
-                }
-                match self.owners.chatgpt_send(
-                    Some(front_chat),
-                    None,
-                    &del.payload_text,
-                    None,
-                    None,
-                    5_000,
-                ) {
-                    Ok(val) => {
-                        let st = val.get("state").and_then(Value::as_str).unwrap_or("");
-                        if st == "settled" || st == "in_progress" {
-                            DeliveryOutcome::Delivered
-                        } else {
-                            DeliveryOutcome::Defer(format!("chatgpt_send_state:{st}"))
-                        }
-                    }
-                    Err(e) => DeliveryOutcome::Defer(e),
-                }
+    fn attempt_delivery(
+        &self,
+        work: &mut WorkRecord,
+        index: usize,
+        delivery: &mut PendingDelivery,
+    ) -> Result<DeliveryOutcome, String> {
+        use DeliveryOutcome::{Defer, Delivered};
+        if !delivery.receipts_tracked {
+            // Older wakeups could contain only a fragment of the acknowledged range.
+            delivery.advance_seq_to = None;
+            if delivery.attempts != 0
+                && delivery.dispatch.is_none()
+                && !delivery.last_error.as_deref().is_some_and(|error| {
+                    error.starts_with("front_chat_busy(")
+                        || matches!(
+                            error,
+                            "lead_chat_busy" | "lead_codex_active" | "no_lead_bound"
+                        )
+                })
+            {
+                return Ok(Defer("legacy_delivery_receipt_unconfirmed".to_owned()));
             }
-            "lead" => {
-                let Some(ref lead) = work.lead else {
-                    return DeliveryOutcome::Defer("no_lead_bound".to_owned());
-                };
-                match lead.kind.as_str() {
-                    "chatgpt" => {
-                        match self.owners.chatgpt_observe(&lead.ref_id) {
-                            Ok(obs) if obs.generating => {
-                                return DeliveryOutcome::Defer("lead_chat_busy".to_owned());
-                            }
-                            Err(e) => return DeliveryOutcome::Defer(e),
-                            Ok(_) => {}
-                        }
-                        match self.owners.chatgpt_send(
-                            Some(&lead.ref_id),
-                            None,
-                            &del.payload_text,
-                            lead.model.as_deref(),
-                            lead.reasoning_effort.as_deref(),
-                            5_000,
-                        ) {
-                            Ok(val) => {
-                                let st = val.get("state").and_then(Value::as_str).unwrap_or("");
-                                if st == "settled" || st == "in_progress" {
-                                    DeliveryOutcome::Delivered
-                                } else {
-                                    DeliveryOutcome::Defer(format!("lead_send_state:{st}"))
-                                }
-                            }
-                            Err(e) => DeliveryOutcome::Defer(e),
-                        }
-                    }
-                    "codex" => {
-                        match self
-                            .owners
-                            .codex_observe_thread(lead.profile.as_deref(), &lead.ref_id)
-                        {
-                            Ok(obs) if obs.is_active => {
-                                return DeliveryOutcome::Defer("lead_codex_active".to_owned());
-                            }
-                            Err(e) => return DeliveryOutcome::Defer(e),
-                            Ok(_) => {}
-                        }
-                        match self.owners.codex_dispatch_turn(
-                            lead.profile.as_deref(),
-                            Some(&lead.ref_id),
-                            None,
-                            &del.payload_text,
-                            lead.model.as_deref(),
-                            None,
-                            None,
-                        ) {
-                            Ok(_) => DeliveryOutcome::Delivered,
-                            Err(e) => DeliveryOutcome::Defer(e),
-                        }
-                    }
-                    other => DeliveryOutcome::Defer(format!("unsupported_lead_kind:{other}")),
-                }
-            }
-            other => DeliveryOutcome::Defer(format!("unsupported_delivery_target:{other}")),
+            delivery.receipts_tracked = true;
         }
+        if delivery.target == "front" {
+            if !delivery.notified {
+                delivery.notified = self.owners.send_notification(
+                    &work.work_id,
+                    &delivery.title,
+                    &delivery.payload_text,
+                );
+            }
+            if delivery.dispatch.is_none()
+                && (work.delivery_mode == "notify_only" || work.front.latest_chat_id.is_none())
+            {
+                delivery.advance_seq_to = None;
+                return Ok(if delivery.notified {
+                    Delivered
+                } else {
+                    Defer("front_notification_failed".to_owned())
+                });
+            }
+        }
+        if let Some(dispatch) = &delivery.dispatch {
+            let marker = format!("[ORCH_DELIVERY {}]", dispatch.lane_id);
+            let confirmation = match dispatch.backend.as_str() {
+                "chatgpt" => {
+                    let account_matches = match work.account_id.as_deref() {
+                        Some(account) => self
+                            .owners
+                            .chatgpt_account_id()
+                            .is_ok_and(|actual| actual == account),
+                        None => true,
+                    };
+                    if !account_matches {
+                        return Ok(Defer("delivery_account_unverified".to_owned()));
+                    }
+                    self.owners.chatgpt_has_delivery_marker(
+                        &dispatch.ref_id,
+                        work.project_id.as_deref(),
+                        &marker,
+                    )
+                }
+                "codex" => self.owners.codex_has_delivery_marker(
+                    dispatch.profile.as_deref(),
+                    &dispatch.ref_id,
+                    &marker,
+                ),
+                _ => return Ok(Defer("unsupported_delivery_backend".to_owned())),
+            };
+            return Ok(match confirmation {
+                Ok(true) => Delivered,
+                Ok(false) => Defer("delivery_receipt_unconfirmed".to_owned()),
+                Err(error) => Defer(error),
+            });
+        }
+
+        let lead = match delivery.target.as_str() {
+            "front" => None,
+            "lead" => match &work.lead {
+                Some(lead) => Some(lead.clone()),
+                None => return Ok(Defer("no_lead_bound".to_owned())),
+            },
+            _ => return Ok(Defer("unsupported_delivery_target".to_owned())),
+        };
+        let (backend, ref_id, profile) = match &lead {
+            Some(lead) => (
+                lead.kind.as_str(),
+                lead.ref_id.clone(),
+                lead.profile.clone(),
+            ),
+            None => (
+                "chatgpt",
+                work.front
+                    .latest_chat_id
+                    .clone()
+                    .expect("front target checked"),
+                None,
+            ),
+        };
+        let ready = match backend {
+            "chatgpt" => self.owners.chatgpt_observe(&ref_id).and_then(|obs| {
+                if obs.generating {
+                    Err(format!(
+                        "{}_chat_busy({})",
+                        delivery.target,
+                        obs.remote_stream_status.as_deref().unwrap_or("local")
+                    ))
+                } else {
+                    Ok(())
+                }
+            }),
+            "codex" => self
+                .owners
+                .codex_observe_thread(profile.as_deref(), &ref_id)
+                .and_then(|obs| {
+                    if obs.is_active {
+                        Err("lead_codex_active".to_owned())
+                    } else {
+                        Ok(())
+                    }
+                }),
+            _ => return Ok(Defer("unsupported_delivery_backend".to_owned())),
+        };
+        if let Err(error) = ready {
+            return Ok(Defer(error));
+        }
+        let lane_id = generate_id("delivery");
+        let marker = format!("[ORCH_DELIVERY {lane_id}]");
+        delivery.dispatch = Some(DeliveryDispatch {
+            backend: backend.to_owned(),
+            ref_id: ref_id.clone(),
+            profile: profile.clone(),
+            lane_id: lane_id.clone(),
+        });
+        work.pending_deliveries[index] = delivery.clone();
+        self.ledger.save_work(work).map_err(|e| e.to_string())?;
+        let prompt = format!("{marker}\n{}", delivery.payload_text);
+        Ok(match backend {
+            "chatgpt" => match self.owners.chatgpt_send_pinned(
+                work,
+                lead.as_ref(),
+                Some(&ref_id),
+                &lane_id,
+                &prompt,
+            ) {
+                Ok(receipt) if crate::rollover::rejected_before_send(&receipt) => {
+                    delivery.dispatch = None;
+                    Defer(
+                        receipt["error"]
+                            .as_str()
+                            .unwrap_or("delivery_rejected")
+                            .to_owned(),
+                    )
+                }
+                Ok(receipt)
+                    if receipt["chat_id"] == ref_id
+                        && matches!(receipt["state"].as_str(), Some("settled" | "in_progress")) =>
+                {
+                    Delivered
+                }
+                Ok(_) => Defer("delivery_receipt_unconfirmed".to_owned()),
+                Err(error) => Defer(error),
+            },
+            "codex" => match self.owners.codex_dispatch_turn(
+                profile.as_deref(),
+                Some(&ref_id),
+                None,
+                &prompt,
+                lead.as_ref().and_then(|lead| lead.model.as_deref()),
+                None,
+                None,
+            ) {
+                Ok((thread, Some(_))) if thread == ref_id => Delivered,
+                Ok(_) => Defer("delivery_receipt_unconfirmed".to_owned()),
+                Err(error) => Defer(error),
+            },
+            _ => unreachable!("unsupported backend rejected before dispatch"),
+        })
     }
 }
 
@@ -502,10 +607,10 @@ pub fn enqueue_delivery_if_absent(work: &mut WorkRecord, del: PendingDelivery) {
 fn evaluate_wait_set(
     work: &WorkRecord,
     ws: &crate::ledger::WaitSet,
-    unconsumed: &[InboxEvent],
+    user_event: bool,
     now: u64,
 ) -> Option<String> {
-    if ws.on_user_event && unconsumed.iter().any(|e| e.kind.starts_with("user.")) {
+    if user_event {
         return Some("user_event".to_owned());
     }
     if !ws.all_of.is_empty() {
@@ -577,7 +682,7 @@ fn build_wakeup_prompt(
     }
     if !events.is_empty() {
         out.push_str("\n### Unconsumed Inbox Events\n");
-        for ev in events.iter().take(20) {
+        for ev in events {
             out.push_str(&format!(
                 "- #{} [{}] ({}): {}\n",
                 ev.seq,
@@ -586,6 +691,12 @@ fn build_wakeup_prompt(
                 truncate_chars(&ev.summary, 300)
             ));
         }
+    }
+    if let Some(last) = events.last() {
+        out.push_str(&format!(
+            "\nUse orch_works(inbox) with after_seq={} to read later events.\n",
+            last.seq
+        ));
     }
     out.push_str(
         "\nReview the results above. Continue the next round via `@TermuxCodex`/`@TermuxChatGPT`/`@TermuxShell` + `@TermuxOrch` (`orch_dispatch`), or report to the user via `orch_report`.",
@@ -663,6 +774,7 @@ pub fn run_relay_daemon(
                                 "service": "termux-orch-relay",
                                 "version": env!("CARGO_PKG_VERSION"),
                                 "ticks": server_health.ticks.load(Ordering::Acquire),
+                                "last_tick_errors": server_health.last_tick_errors.load(Ordering::Acquire),
                                 "wake_pushes": server_health.wake_pushes.load(Ordering::Acquire),
                                 "last_wake_tick_ms": server_health.last_wake_tick_ms.load(Ordering::Acquire),
                                 "state_root": state_root_str
@@ -714,7 +826,10 @@ pub fn run_relay_daemon(
                 .last_wake_tick_ms
                 .store(requested.elapsed().as_millis() as u64, Ordering::Release);
         }
-        let _ = engine.tick_once();
+        let tick = engine.tick_once();
+        health
+            .last_tick_errors
+            .store(tick.errors as u64, Ordering::Release);
         health.ticks.fetch_add(1, Ordering::Release);
         let deadline = Instant::now() + interval;
         while !STOP_FLAG.load(Ordering::Acquire) {
@@ -739,6 +854,7 @@ pub fn run_relay_daemon(
 #[derive(Default)]
 struct RelayHealth {
     ticks: AtomicU64,
+    last_tick_errors: AtomicU64,
     wake_pushes: AtomicU64,
     last_wake_tick_ms: AtomicU64,
 }

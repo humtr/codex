@@ -154,7 +154,7 @@ impl<'a> Rollover<'a> {
             self.save(work)?;
             let receipt = self.owners.chatgpt_send_pinned(
                 work,
-                work.lead.as_ref().unwrap(),
+                work.lead.as_ref(),
                 None,
                 &rollover.lane_id,
                 &prompt,
@@ -304,7 +304,7 @@ impl<'a> Rollover<'a> {
             self.save(work)?;
             let receipt = self.owners.chatgpt_send_pinned(
                 work,
-                work.lead.as_ref().unwrap(),
+                work.lead.as_ref(),
                 Some(&chat_id),
                 &lane,
                 &prompt,
@@ -322,21 +322,12 @@ impl<'a> Rollover<'a> {
     }
 
     fn has_marker(&self, chat_id: &str, project: &str, marker: &str) -> Result<bool, String> {
-        let chat = self.owners.chatgpt_read_chat(chat_id, 100)?;
-        Ok(chat["state"] == "ok"
-            && chat["gizmo_id"] == project
-            && chat["messages"].as_array().is_some_and(|rows| {
-                rows.iter().any(|row| {
-                    row["role"] == "user"
-                        && row["text"]
-                            .as_str()
-                            .is_some_and(|t| t.lines().next() == Some(marker))
-                })
-            }))
+        self.owners
+            .chatgpt_has_delivery_marker(chat_id, Some(project), marker)
     }
 }
 
-fn rejected_before_send(receipt: &Value) -> bool {
+pub(crate) fn rejected_before_send(receipt: &Value) -> bool {
     receipt["state"] == "error"
         && matches!(
             receipt["error"].as_str().unwrap_or_default(),

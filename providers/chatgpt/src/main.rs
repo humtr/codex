@@ -12,6 +12,7 @@ mod error;
 mod host;
 mod responses;
 mod server;
+mod supervisor;
 mod viewer;
 
 use crate::config::{load_or_create_control_token, user_home, ProviderConfig};
@@ -21,9 +22,12 @@ use crate::server::build_router;
 use crate::viewer::ViewerSlot;
 use serde_json::json;
 use std::env;
+use std::future::IntoFuture;
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
+use std::time::Duration;
 use tokio::net::TcpListener;
+use tokio::signal::unix::{signal, SignalKind};
 
 fn print_help() {
     println!(
@@ -37,9 +41,20 @@ fn print_help() {
     );
 }
 
-#[tokio::main]
-async fn main() {
-    if let Err(err) = run().await {
+fn main() {
+    let args: Vec<_> = env::args_os().skip(1).collect();
+    let result = if args.first().is_some_and(|arg| arg == "host-supervisor") {
+        supervisor::run(&args[1..])
+    } else {
+        tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .map_err(|error| {
+                crate::error::ProviderError::internal("runtime_start_failed", error.to_string())
+            })
+            .and_then(|runtime| runtime.block_on(run()))
+    };
+    if let Err(err) = result {
         eprintln!("chatgpt-provider: {err}");
         std::process::exit(1);
     }
@@ -208,8 +223,32 @@ async fn run() -> Result<()> {
                 Arc::clone(&viewer_slot),
             );
 
+            let register = |kind| {
+                signal(kind).map_err(|error| {
+                    crate::error::ProviderError::internal(
+                        "shutdown_signal_failed",
+                        error.to_string(),
+                    )
+                })
+            };
+            let (mut terminate, mut interrupt) = (
+                register(SignalKind::terminate())?,
+                register(SignalKind::interrupt())?,
+            );
+            let stopping = async {
+                tokio::select! {
+                    _ = terminate.recv() => {}
+                    _ = interrupt.recv() => {}
+                }
+            };
+            tokio::pin!(stopping);
+
             if cfg.host.eager_start {
-                let _ = driver.restart_host().await?;
+                tokio::select! {
+                    biased;
+                    _ = &mut stopping => return driver.shutdown().await,
+                    result = driver.restart_host() => { result?; }
+                }
             }
 
             let driver_dyn: Arc<dyn DriverBackend> = driver.clone();
@@ -220,10 +259,29 @@ async fn run() -> Result<()> {
                 local_addr,
                 token_path.display()
             );
-            let serve_res = axum::serve(listener, app)
-                .with_graceful_shutdown(shutdown_signal())
-                .await;
-            driver.shutdown().await;
+            let (close, closed) = tokio::sync::oneshot::channel();
+            let server = axum::serve(listener, app)
+                .with_graceful_shutdown(async {
+                    let _ = closed.await;
+                })
+                .into_future();
+            tokio::pin!(server);
+            let serve_res = tokio::select! {
+                result = &mut server => {
+                    driver.shutdown().await?;
+                    result
+                }
+                _ = &mut stopping => {
+                    driver.begin_shutdown();
+                    let _ = close.send(());
+                    let (http, host) = tokio::join!(
+                        tokio::time::timeout(Duration::from_secs(2), &mut server),
+                        driver.shutdown(),
+                    );
+                    host?;
+                    http.unwrap_or(Ok(()))
+                }
+            };
             serve_res.map_err(|e| {
                 crate::error::ProviderError::internal("server_error", e.to_string())
             })?;
@@ -245,26 +303,6 @@ fn parse_opt_path(args: &[String], flag: &str) -> Option<PathBuf> {
         i += 1;
     }
     None
-}
-
-async fn shutdown_signal() {
-    let ctrl_c = async {
-        let _ = tokio::signal::ctrl_c().await;
-    };
-    #[cfg(unix)]
-    let terminate = async {
-        if let Ok(mut sig) =
-            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
-        {
-            sig.recv().await;
-        }
-    };
-    #[cfg(not(unix))]
-    let terminate = std::future::pending::<()>();
-    tokio::select! {
-        _ = ctrl_c => {},
-        _ = terminate => {},
-    }
 }
 
 #[cfg(test)]

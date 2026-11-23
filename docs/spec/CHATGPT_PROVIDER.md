@@ -23,7 +23,7 @@ and [providers/chatgpt/src/main.rs](../../providers/chatgpt/src/main.rs).
 - **Separated persistent login profile:** User login state (both Electron's
   Chromium profile `chromium/` and its embedded Codex app-server OAuth store
   `.codex/`) lives solely under `~/.local/share/codex/chatgpt-desktop/profile/`
-  (`0700`, `flock`-leased via sibling `.lock` file by `chatgpt-provider`;
+  (`0700`, `flock`-leased via a sibling `.lock` file by the AppHost supervisor;
   bounded boot/crash diagnostics written to `profile/host.log`) and is
   never deleted during rootfs installation, activation, or rollback.
 - **Cryptographic admission:** `InRelease` is verified via `gpgv` against the
@@ -40,11 +40,18 @@ and [providers/chatgpt/src/main.rs](../../providers/chatgpt/src/main.rs).
 
 ## 2. Slim `chatgpt-provider` (`providers/chatgpt`)
 
-- **Single CDP pipe owner:** `chatgpt-provider` owns one Linux ChatGPT AppHost
+- **Single CDP pipe owner:** `chatgpt-provider` controls one Linux ChatGPT AppHost
   instance (`Xvnc` + `openbox` + `proot` + Chromium `--remote-debugging-pipe`
   FD 3/4 + allow-listed Android OAuth browser relay via `termux-am-socket`)
-  directly, retiring any redundant `codex-chatgpt-host` shell keepalive
-  service, DDPE orchestrator, embedded MCP server, and `shared_server`.
+  through a private child mode of the same executable. The child mode owns
+  process startup, the profile lease, and exit collection. It detects Provider
+  disconnection independently of CDP and holds the lease through descendant
+  reaping and X11 cleanup. Startup preserves Chromium's singleton artifacts
+  and fails closed on a live or unverified singleton. The installed PRoot
+  requires no patch. Direct supervisor death is outside its cleanup guarantee.
+  Shutdown gives Chromium a bounded exit window after `Browser.close` before
+  escalating through PRoot. The account-free generation probe uses the same
+  child mode.
 - **Clean-room `page_driver.js` (zero DOM clicking / zero computer-use):**
   Minimal greenfield page driver injected via CDP `Runtime.evaluate`, using
   Electron's native `connect-app-host` Cap'n Web `services.httpFetch` service

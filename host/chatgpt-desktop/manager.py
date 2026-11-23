@@ -22,9 +22,7 @@ import os
 import re
 import secrets
 import shutil
-import signal
 import socket
-import struct
 import subprocess
 import sys
 import tempfile
@@ -509,22 +507,6 @@ def provision_rootfs_generation(
         raise
 
 
-def _write_xauthority(path: Path, display: int) -> None:
-    cookie = secrets.token_bytes(16)
-    def field(b: bytes) -> bytes:
-        return struct.pack("!H", len(b)) + b
-    data = (
-        struct.pack("!H", 65535)
-        + field(b"")
-        + field(str(display).encode("ascii"))
-        + field(b"MIT-MAGIC-COOKIE-1")
-        + field(cookie)
-    )
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    with os.fdopen(fd, "wb") as f:
-        f.write(data)
-
-
 def _cdp_pipe_call(sock: socket.socket, req_id: int, method: str, params: dict[str, Any], timeout: float) -> dict[str, Any]:
     payload = json.dumps({"id": req_id, "method": method, "params": params}).encode("utf-8") + b"\0"
     sock.settimeout(timeout)
@@ -557,6 +539,7 @@ def probe_generation(
     version: str | None,
     prefix: Path,
     timeout_secs: int = 35,
+    provider_bin: Path | None = None,
 ) -> dict[str, Any]:
     """Isolated, account-free PRoot/Xvnc + --remote-debugging-pipe CDP boot probe."""
     ver = validate_version(version) if version else read_link_version(install_root / "current")
@@ -567,237 +550,90 @@ def probe_generation(
         raise RuntimeError(f"generation '{ver}' is invalid: {gen_path}")
     rootfs = gen_path / "rootfs"
 
-    socket_root = prefix / "tmp/.X11-unix"
-    display = next(
-        (
-            n
-            for n in range(130, 1900)
-            if not (socket_root / f"X{n}").exists() and not (prefix / f"tmp/.X{n}-lock").exists()
-        ),
-        None,
-    )
-    if display is None:
-        raise RuntimeError("no free X11 display available")
-
-    tmp_base = Path(tempfile.mkdtemp(prefix=f"cg-probe-{ver}-", dir=str(prefix / "tmp")))
-    os.chmod(tmp_base, 0o700)
-    procs: list[subprocess.Popen[Any]] = []
-    parent_sock: socket.socket | None = None
-    child_sock: socket.socket | None = None
-    x_lock = prefix / f"tmp/.X{display}-lock"
-    x_sock = socket_root / f"X{display}"
-    xvnc_pid: int | None = None
-
-    try:
-        for name in ("home", "home/profile", "tmp", "shm", "links"):
-            d = tmp_base / name
-            d.mkdir(parents=True, mode=0o700, exist_ok=True)
-        auth = tmp_base / "Xauthority"
-        _write_xauthority(auth, display)
-
-        xvnc_env = {
-            "HOME": str(tmp_base / "home"),
-            "PATH": str(prefix / "bin"),
-            "PREFIX": str(prefix),
-            "TMPDIR": str(tmp_base),
-            "LANG": "C.UTF-8",
-        }
-        xvnc = subprocess.Popen(
-            [
-                str(prefix / "bin/Xvnc"),
-                f":{display}",
-                "-geometry",
-                "480x785",
-                "-depth",
-                "24",
-                "-nolisten",
-                "tcp",
-                "-auth",
-                str(auth),
-                "-rfbport",
-                "-1",
-                "-rfbunixpath",
-                str(tmp_base / "viewer"),
-                "-rfbunixmode",
-                "0600",
-                "-SecurityTypes",
-                "None",
-            ],
-            env=xvnc_env,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            start_new_session=True,
+    if provider_bin is None:
+        bundled = Path(__file__).resolve().parent.parent / "bin/chatgpt-provider"
+        installed = Path.home() / ".local/lib/codex/providers/chatgpt/current/chatgpt-provider"
+        provider_bin = next(
+            (path for path in (bundled, installed) if os.access(path, os.X_OK)),
+            None,
         )
-        procs.append(xvnc)
-        xvnc_pid = xvnc.pid
+        if provider_bin is None and (on_path := shutil.which("chatgpt-provider")):
+            provider_bin = Path(on_path)
+    if provider_bin is None:
+        raise RuntimeError("probe requires chatgpt-provider; pass --provider-bin")
 
-        deadline = time.monotonic() + 10.0
-        while time.monotonic() < deadline:
-            if x_sock.exists():
-                break
-            if xvnc.poll() is not None:
-                raise RuntimeError(f"Xvnc exited prematurely (rc={xvnc.returncode})")
-            time.sleep(0.05)
-        else:
-            raise RuntimeError("Xvnc startup timeout")
-
-        wm_env = dict(xvnc_env, DISPLAY=f":{display}", XAUTHORITY=str(auth))
-        if (prefix / "bin/openbox").is_file():
-            procs.append(
-                subprocess.Popen(
-                    [str(prefix / "bin/openbox")],
-                    env=wm_env,
-                    stdin=subprocess.DEVNULL,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    start_new_session=True,
-                )
-            )
-
-        parent_sock, child_sock = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM)
-        child_fd = child_sock.fileno()
-
-        def setup_child() -> None:
-            os.setsid()
-            # Move child_fd above FD 4 first so dup2(..., 3/4) always clears O_CLOEXEC,
-            # then close all other inherited FDs (avoiding Python's post-preexec close_fds!).
-            hi_fd = os.dup(child_fd)
-            while hi_fd <= 4:
-                next_fd = os.dup(hi_fd)
-                os.close(hi_fd)
-                hi_fd = next_fd
-            os.dup2(hi_fd, 3)
-            os.dup2(hi_fd, 4)
-            os.set_inheritable(3, True)
-            os.set_inheritable(4, True)
-            os.closerange(5, 4096)
-
-        app_log = tmp_base / "app.log"
-        proot_env = {
-            "PATH": str(prefix / "bin"),
-            "HOME": str(tmp_base / "home"),
-            "TMPDIR": str(tmp_base),
-            "PROOT_TMP_DIR": str(tmp_base),
-            "PROOT_L2S_DIR": str(tmp_base / "links"),
-        }
-        with app_log.open("wb") as log_f:
-            app = subprocess.Popen(
-                [
-                    str(prefix / "bin/proot"),
-                    "--kill-on-exit",
-                    "--link2symlink",
-                    "--sysvipc",
-                    "-L",
-                    "--change-id=0:0",
-                    f"--rootfs={rootfs}",
-                    "--cwd=/root",
-                    "--bind=/dev",
-                    "--bind=/proc",
-                    "--bind=/sys",
-                    "--bind=/dev/urandom:/dev/random",
-                    f"--bind={tmp_base / 'home'}:/root",
-                    f"--bind={tmp_base / 'tmp'}:/tmp",
-                    f"--bind={tmp_base / 'shm'}:/dev/shm",
-                    f"--bind={socket_root}:/tmp/.X11-unix",
-                    f"--bind={auth}:/root/.Xauthority",
-                    "/usr/bin/env",
-                    "-i",
-                    "HOME=/root",
-                    "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
-                    "LANG=C.UTF-8",
-                    "XAUTHORITY=/root/.Xauthority",
-                    f"DISPLAY=:{display}",
-                    "/usr/bin/dbus-run-session",
-                    "--",
-                    "/usr/bin/chatgpt",
-                    "--no-sandbox",
-                    "--disable-gpu",
-                    "--disable-dev-shm-usage",
-                    "--user-data-dir=/root/profile",
-                    "--remote-debugging-pipe",
-                ],
-                env=proot_env,
+    with tempfile.TemporaryDirectory(prefix="cg-probe-", dir=prefix / "tmp") as temp:
+        profile = Path(temp) / "profile"
+        control, supervisor_control = socket.socketpair()
+        cdp, guest_cdp = socket.socketpair()
+        supervisor = None
+        ready = None
+        try:
+            passed = (supervisor_control.fileno(), guest_cdp.fileno())
+            supervisor = subprocess.Popen(
+                [str(provider_bin), "host-supervisor", str(rootfs), str(profile),
+                 str(passed[0]), str(passed[1]), "probe"],
+                env={**os.environ, "PREFIX": str(prefix), "TMPDIR": str(prefix / "tmp")},
                 stdin=subprocess.DEVNULL,
-                stdout=log_f,
-                stderr=log_f,
-                close_fds=False,
-                preexec_fn=setup_child,
+                stdout=subprocess.DEVNULL,
+                pass_fds=passed,
             )
-        procs.append(app)
-        child_sock.close()
-        child_sock = None
+            supervisor_control.close()
+            guest_cdp.close()
+            control.settimeout(17)
+            with control.makefile("rb") as reply:
+                line = reply.readline(16384)
+            if not line:
+                raise RuntimeError("AppHost supervisor exited during launch; verify the matching provider build")
+            message = json.loads(line)
+            if "Err" in message:
+                error = message["Err"]
+                raise RuntimeError(f'{error["code"]}: {error["detail"]}')
+            ready = message["Ok"]
+            t0 = time.monotonic()
+            browser_version = _cdp_pipe_call(cdp, 1, "Browser.getVersion", {}, float(timeout_secs))
+            # Give Electron a brief moment to register its initial renderer target.
+            targets_res: dict[str, Any] = {"targetInfos": []}
+            poll_end = time.monotonic() + min(12.0, float(timeout_secs))
+            while time.monotonic() < poll_end:
+                targets_res = _cdp_pipe_call(cdp, 2, "Target.getTargets", {}, 8.0)
+                infos = targets_res.get("targetInfos", [])
+                if any(t.get("type") == "page" and t.get("url", "").startswith(("http", "app:", "file:")) for t in infos):
+                    break
+                time.sleep(0.4)
 
-        t0 = time.monotonic()
-        try:
-            browser_version = _cdp_pipe_call(parent_sock, 1, "Browser.getVersion", {}, float(timeout_secs))
-        except Exception as exc:
-            tail = ""
-            if app_log.is_file():
-                tail = app_log.read_text(encoding="utf-8", errors="replace")[-1200:]
-            raise RuntimeError(f"{exc}; app_rc={app.poll()}; log_tail={tail!r}") from None
-        # Give Electron a brief moment to register its initial renderer target.
-        targets_res: dict[str, Any] = {"targetInfos": []}
-        poll_end = time.monotonic() + min(12.0, float(timeout_secs))
-        while time.monotonic() < poll_end:
-            targets_res = _cdp_pipe_call(parent_sock, 2, "Target.getTargets", {}, 8.0)
-            infos = targets_res.get("targetInfos", [])
-            if any(t.get("type") == "page" and t.get("url", "").startswith(("http", "app:", "file:")) for t in infos):
-                break
-            time.sleep(0.4)
-
-        safe_targets = [
-            {
-                "type": t.get("type"),
-                "title": t.get("title"),
-                "url_origin": t.get("url", "").split("?", 1)[0].split("#", 1)[0],
+            safe_targets = [
+                {
+                    "type": t.get("type"),
+                    "title": t.get("title"),
+                    "url_origin": t.get("url", "").split("?", 1)[0].split("#", 1)[0],
+                }
+                for t in targets_res.get("targetInfos", [])
+            ]
+            return {
+                "state": "ok",
+                "version": ver,
+                "account_free": True,
+                "display": ready["display"],
+                "boot_ms": int((time.monotonic() - t0) * 1000),
+                "browser_version": browser_version,
+                "targets": safe_targets,
             }
-            for t in targets_res.get("targetInfos", [])
-        ]
-        try:
-            _cdp_pipe_call(parent_sock, 3, "Browser.close", {}, 3.0)
-        except Exception:
-            pass
-        return {
-            "state": "ok",
-            "version": ver,
-            "account_free": True,
-            "display": display,
-            "boot_ms": int((time.monotonic() - t0) * 1000),
-            "browser_version": browser_version,
-            "targets": safe_targets,
-        }
-    finally:
-        if parent_sock is not None:
-            parent_sock.close()
-        if child_sock is not None:
-            child_sock.close()
-        for p in reversed(procs):
-            if p.poll() is None:
+        finally:
+            if ready is not None:
                 try:
-                    os.killpg(p.pid, signal.SIGTERM)
-                except ProcessLookupError:
+                    _cdp_pipe_call(cdp, 3, "Browser.close", {}, 1.0)
+                except (OSError, RuntimeError, ValueError):
                     pass
-                try:
-                    p.wait(timeout=4)
-                except subprocess.TimeoutExpired:
-                    try:
-                        os.killpg(p.pid, signal.SIGKILL)
-                    except ProcessLookupError:
-                        pass
-                    try:
-                        p.wait(timeout=3)
-                    except subprocess.TimeoutExpired:
-                        pass
-        # Only unlink X lock/socket if we still own them.
-        if xvnc_pid is not None and x_lock.is_file():
-            try:
-                if x_lock.read_text(encoding="utf-8", errors="replace").strip() == str(xvnc_pid):
-                    x_lock.unlink(missing_ok=True)
-                    x_sock.unlink(missing_ok=True)
-            except OSError:
-                pass
-        shutil.rmtree(tmp_base, ignore_errors=True)
+            control.close()
+            cdp.close()
+            supervisor_control.close()
+            guest_cdp.close()
+            if supervisor is not None:
+                # EOF triggered cleanup. Keep the temporary profile until the
+                # supervisor has reaped the tree and released the lease.
+                if supervisor.wait() != 0 and ready is not None:
+                    raise RuntimeError("AppHost supervisor exited before confirming cleanup")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -829,6 +665,7 @@ def main(argv: list[str] | None = None) -> int:
     p_probe = sub.add_parser("probe", help="Run isolated account-free PRoot/Xvnc CDP boot probe")
     p_probe.add_argument("--version", default=None)
     p_probe.add_argument("--timeout", type=int, default=35)
+    p_probe.add_argument("--provider-bin", type=Path, default=None)
 
     p_viewer = sub.add_parser("viewer", help="Install/verify noVNC static assets into <install_root>/viewer/")
     p_viewer.add_argument("--source", type=Path, required=True, help="Directory containing vnc.html and noVNC assets")
@@ -890,7 +727,7 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
         if args.cmd == "probe":
-            print(json.dumps(probe_generation(install_root, args.version, prefix, args.timeout), indent=2))
+            print(json.dumps(probe_generation(install_root, args.version, prefix, args.timeout, args.provider_bin), indent=2))
             return 0
 
         if args.cmd == "viewer":

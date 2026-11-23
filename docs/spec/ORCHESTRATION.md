@@ -104,6 +104,10 @@ State root: `~/.local/state/codex/orchestration/jobs/<work_id>/` (`0700`,
    - `R` advances `consumed_seq` only after confirmed wake-up dispatch receipt;
      across crashes, restarts, or `L1 -> L2` handoffs, unconsumed events
      (`seq > consumed_seq`) are preserved without loss or duplicate delivery.
+   - A Wait-Set wake-up includes a bounded oldest-first prefix. Its receipt
+     advances the cursor through the last included event. A notification-only
+     wake leaves the Inbox cursor unchanged. An explicit `after_seq` Inbox
+     query returns the next page in sequence order.
 3. **Declarative `Wait-Set`:**
    - Unifies fan-in barriers, fail-fast checks, user interrupts, and stall
      watchdogs into one declarative rule registered before `L` (or `F` in Tier 1)
@@ -133,7 +137,15 @@ State root: `~/.local/state/codex/orchestration/jobs/<work_id>/` (`0700`,
   is actively typing on Android), `R` records `PENDING_DELIVERY` and retries
   with exponential backoff rather than colliding. Every milestone, blocker, or
   final delivery also emits a `termux-notification` (and `notify_only` skips
-  chat injection entirely when requested).
+  chat injection entirely when requested). Before dispatch to ChatGPT or
+  Codex, `R` persists the destination and a delivery marker. After an
+  uncertain response, `R` reads back the original destination for matching
+  owner evidence. A missing marker leaves the dispatch pending. A failed
+  notification in `notify_only` mode remains pending for retry.
+- **Codex participant settlement:** A newly dispatched Codex participant
+  records the returned turn ID. Settlement uses that turn's terminal state
+  and result. Older attached records can observe the latest turn in their
+  bound thread.
 - **Hard Circuit Breakers:** `R` enforces `max_wakeups` (default `20`),
   `max_wall_secs`, `max_concurrent_workers`, minimum wake-up cooldown, and
   `event_id` idempotency. On budget exhaustion, `R` transitions the `Work` to

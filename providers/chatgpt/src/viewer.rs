@@ -17,6 +17,7 @@ use std::fs::{self, File};
 use std::io::Read;
 use std::os::unix::fs::{FileTypeExt, MetadataExt, OpenOptionsExt};
 use std::path::{Component, Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::UnixStream;
@@ -28,10 +29,16 @@ pub struct Viewer {
     socket: PathBuf,
     assets: PathBuf,
     port: u16,
+    running: Arc<AtomicBool>,
 }
 
 impl Viewer {
-    pub fn new(socket: PathBuf, assets: PathBuf, port: u16) -> Result<Arc<Self>> {
+    pub fn new(
+        socket: PathBuf,
+        assets: PathBuf,
+        port: u16,
+        running: Arc<AtomicBool>,
+    ) -> Result<Arc<Self>> {
         if !socket.is_absolute() || !assets.is_absolute() || port == 0 {
             return Err(ProviderError::bad_request(
                 "viewer_binding_invalid",
@@ -61,7 +68,12 @@ impl Viewer {
             socket,
             assets,
             port,
+            running,
         }))
+    }
+
+    pub fn running(&self) -> bool {
+        self.running.load(Ordering::Acquire)
     }
 
     pub fn url(&self) -> String {
@@ -158,8 +170,8 @@ async fn handle_viewer(
     request: Request,
 ) -> Response {
     let viewer = match slot.read().ok().and_then(|g| g.clone()) {
-        Some(v) => v,
-        None => return (StatusCode::NOT_FOUND, "viewer not active").into_response(),
+        Some(v) if v.running() => v,
+        _ => return (StatusCode::NOT_FOUND, "viewer not active").into_response(),
     };
     if !constant_time_eq(cap.as_bytes(), viewer.capability.as_bytes()) {
         return (StatusCode::NOT_FOUND, "not found").into_response();

@@ -163,7 +163,8 @@ fn main() {
                     "wait_sets_fired": tick.wait_sets_fired,
                     "deliveries_sent": tick.deliveries_sent,
                     "deliveries_deferred": tick.deliveries_deferred,
-                    "budget_trips": tick.budget_trips
+                    "budget_trips": tick.budget_trips,
+                    "errors": tick.errors
                 }))
                 .unwrap()
             );
@@ -265,12 +266,14 @@ mod tests {
         struct MockState {
             front_streaming: bool,
             worker_settled: bool,
+            lose_delivery_reply: bool,
             renames: Vec<(String, String)>,
             sends: Vec<(Option<String>, String)>,
         }
         let mstate = Arc::new(Mutex::new(MockState {
             front_streaming: true,
             worker_settled: false,
+            lose_delivery_reply: false,
             renames: Vec::new(),
             sends: Vec::new(),
         }));
@@ -319,13 +322,21 @@ mod tests {
                         let body: Value = serde_json::from_str(body_str).unwrap_or(json!({}));
                         let mut st = mstate_srv.lock().unwrap();
                         let resp_val = if first.starts_with("GET /control/status") {
-                            json!({"state":"ok","account":{"account_id":"acc-1","id":"u1"}})
+                            json!({"state":"ok","pinned_send":true,"auth_state":"authenticated","account":{"account_id":"acc-1","id":"u1"}})
                         } else if first.starts_with("POST /control/projects") {
                             json!({"state":"ok","project_id":"g-p-orch1","name":body["name"]})
                         } else if first.starts_with("GET /control/chats?") {
                             json!({"state":"ok","chats":[{"id":"chat-f2","title":"New Mobile Chat"}]})
                         } else if first.starts_with("GET /control/chats/chat-f2") {
                             json!({"state":"ok","messages":[{"role":"user","text":"MARKER_F2_CONTINUE please continue"}]})
+                        } else if first.starts_with("GET /control/chats/chat-l1") {
+                            let messages: Vec<_> = st
+                                .sends
+                                .iter()
+                                .filter(|(id, _)| id.as_deref() == Some("chat-l1"))
+                                .map(|(_, prompt)| json!({"role":"user","text":prompt}))
+                                .collect();
+                            json!({"state":"ok","gizmo_id":"g-p-orch1","messages":messages})
                         } else if first.contains("/rename") {
                             let cid = first
                                 .split("/control/chats/")
@@ -339,7 +350,12 @@ mod tests {
                         } else if first.starts_with("POST /control/send") {
                             let cid = body["chat_id"].as_str().map(ToOwned::to_owned);
                             let prompt = body["prompt"].as_str().unwrap_or("").to_owned();
+                            let drop_response =
+                                st.lose_delivery_reply && prompt.starts_with("[ORCH_DELIVERY ");
                             st.sends.push((cid.clone(), prompt));
+                            if drop_response {
+                                continue;
+                            }
                             let assigned = cid.unwrap_or_else(|| {
                                 if body["prompt"].as_str().unwrap_or("").contains("Lead [L1]") {
                                     "chat-l1".to_owned()
@@ -461,16 +477,68 @@ mod tests {
         assert_eq!(t0.participants_settled, 0);
         assert_eq!(t0.wait_sets_fired, 0);
 
-        // 6. W1 finishes -> relay tick settles W1, fires barrier, wakes Lead L1!
-        mstate.lock().unwrap().worker_settled = true;
-        let t1 = relay.tick_once();
-        assert_eq!(t1.participants_settled, 1);
-        assert_eq!(t1.wait_sets_fired, 1);
-        assert_eq!(t1.deliveries_sent, 1);
+        // The first wake includes only the oldest twenty rows. The owner
+        // accepts the message and closes the connection without a receipt.
+        {
+            let _lock = ledger.lock_work(&wid).unwrap();
+            let mut work = ledger.load_work(&wid).unwrap();
+            for i in 0..75 {
+                ledger
+                    .append_event_if_absent(
+                        &mut work,
+                        &format!("audit:{i}"),
+                        "test.evidence",
+                        "test",
+                        &format!("evidence {i}"),
+                        json!({}),
+                    )
+                    .unwrap();
+            }
+            ledger.save_work(&work).unwrap();
+        }
+        {
+            let mut state = mstate.lock().unwrap();
+            state.worker_settled = true;
+            state.lose_delivery_reply = true;
+        }
+        let first_attempt = relay.tick_once();
+        assert_eq!(first_attempt.participants_settled, 1);
+        assert_eq!(first_attempt.wait_sets_fired, 1);
+        assert_eq!(first_attempt.deliveries_sent, 0);
+        {
+            let _lock = ledger.lock_work(&wid).unwrap();
+            let mut work = ledger.load_work(&wid).unwrap();
+            assert_eq!(work.consumed_seq, 0);
+            assert_eq!(work.pending_deliveries[0].advance_seq_to, Some(20));
+            assert!(work.pending_deliveries[0].dispatch.is_some());
+            work.pending_deliveries[0].next_attempt_unix = 0;
+            ledger.save_work(&work).unwrap();
+        }
+        let restarted = RelayEngine::new(ledger.clone(), owners.clone());
+        assert_eq!(restarted.tick_once().deliveries_sent, 1);
         let work_after_wake = ledger.load_work(&wid).unwrap();
         assert_eq!(work_after_wake.budget.wakeups_used, 1);
-        assert_eq!(work_after_wake.consumed_seq, 4);
-        assert_eq!(work_after_wake.last_seq, 5);
+        assert_eq!(work_after_wake.consumed_seq, 20);
+        assert_eq!(work_after_wake.last_seq, 80);
+        let (page, is_err) = handler.call_tool(
+            "orch_works",
+            &json!({"action":"inbox","work_id":wid,"after_seq":20,"limit":2}),
+        );
+        assert!(!is_err, "{page}");
+        assert_eq!(page["events"][0]["seq"], 21);
+        assert_eq!(page["events"][1]["seq"], 22);
+        let mut state = mstate.lock().unwrap();
+        state.lose_delivery_reply = false;
+        let wakes: Vec<_> = state
+            .sends
+            .iter()
+            .filter(|(_, prompt)| prompt.contains("[ORCH_WAKEUP]"))
+            .collect();
+        assert_eq!(wakes.len(), 1);
+        assert!(wakes[0].1.contains("- #1 "));
+        assert!(wakes[0].1.contains("- #20 "));
+        assert!(!wakes[0].1.contains("- #21 "));
+        drop(state);
 
         // 7. New mobile chat F2 rebinds via marker -> [F2] Build Pipeline!
         let (reb, is_err) = handler.call_tool(
@@ -486,6 +554,21 @@ mod tests {
         assert_eq!(reb["front_chat_id"], "chat-f2");
         assert_eq!(reb["front_title"], "[F2] Build Pipeline");
 
+        let (notify_work, error) = handler.call_tool("orch_work", &json!({
+            "action":"create","call_id":"notification-audit","title":"Notification audit",
+            "goal":"test notification failure","tier":"direct","project_id":"offline","delivery_mode":"notify_only"
+        }));
+        assert!(!error, "{notify_work}");
+        let other_id = notify_work["work_id"].as_str().unwrap();
+        let (queued, error) = handler.call_tool(
+            "orch_report",
+            &json!({
+                "action":"milestone","call_id":"notification-queued","work_id":other_id,
+                "summary":"notification pending","flush_now":false
+            }),
+        );
+        assert!(!error, "{queued}");
+
         // 8. Lead submits complete report while F2 is streaming on mobile -> deferred (PENDING_DELIVERY)!
         let (rep, is_err) = handler.call_tool(
             "orch_report",
@@ -500,6 +583,48 @@ mod tests {
         assert!(!is_err, "report failed: {rep}");
         assert_eq!(rep["delivered_immediately"], false);
         assert_eq!(rep["pending_deliveries"], 1);
+
+        // Flushing a busy report must not report or flush another Work.
+        assert_eq!(
+            ledger.load_work(other_id).unwrap().pending_deliveries.len(),
+            1
+        );
+        let failing_notifications = RelayEngine::new(
+            ledger.clone(),
+            OwnerClient::new(OwnerConfig {
+                provider_url: format!("http://{addr}"),
+                token_path: None,
+                home: root.clone(),
+                tmpdir: root.clone(),
+                codex_socket_override: None,
+                notify_cmd: Some("/bin/false".to_owned()),
+            }),
+        );
+        let failed = failing_notifications.process_work(other_id).unwrap();
+        assert_eq!(failed.deliveries_sent, 0);
+        let other = ledger.load_work(other_id).unwrap();
+        assert_eq!(
+            other.pending_deliveries[0].last_error.as_deref(),
+            Some("front_notification_failed")
+        );
+        assert!(!other.pending_deliveries[0].notified);
+
+        {
+            let _lock = ledger.lock_work(other_id).unwrap();
+            let mut work = ledger.load_work(other_id).unwrap();
+            let pending = &mut work.pending_deliveries[0];
+            pending.receipts_tracked = false;
+            pending.last_error = Some("chatgpt_provider_transport_lost".to_owned());
+            pending.next_attempt_unix = 0;
+            ledger.save_work(&work).unwrap();
+        }
+        assert_eq!(relay.process_work(other_id).unwrap().deliveries_sent, 0);
+        assert_eq!(
+            ledger.load_work(other_id).unwrap().pending_deliveries[0]
+                .last_error
+                .as_deref(),
+            Some("legacy_delivery_receipt_unconfirmed"),
+        );
 
         // 9. Mobile finishes streaming (stream_status=COMPLETE), force next_attempt_unix=0 -> delivered to F2!
         mstate.lock().unwrap().front_streaming = false;
