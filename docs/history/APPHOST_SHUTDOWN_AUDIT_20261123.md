@@ -137,3 +137,18 @@
 | **직접 확인한 코드** | [host.rs](../../providers/chatgpt/src/host.rs), [main.rs](../../providers/chatgpt/src/main.rs), [driver.rs](../../providers/chatgpt/src/driver.rs), [cdp.rs](../../providers/chatgpt/src/cdp.rs), [server.rs](../../providers/chatgpt/src/server.rs), [manager.py](../../host/chatgpt-desktop/manager.py) (`4c6dae31`); Termux PRoot `v5.1.107.102` `cli.c`, `event.c`, `tracee.c`, `ptrace.c`, `sysvipc_shm.c`, Termux `packages/proot/build.sh` |
 | **독립 재현 · 읽기 전용 라이브 관측** | Android 14 / Linux `6.1.162`: `CLONE_NEWPID`=`EPERM`, `CLONE_NEWUSER`=`EINVAL`, cgroup 쓰기 불가, `PR_SET_CHILD_SUBREAPER(1)`=`OK`, `/proc/self/task/*/children` 부재, `pidfd_open(434)`/`pidfd_send_signal(424)`=`OK`; 라이브 `chatgpt-provider`(PID `28994`) 트리에서 `browser_crashpad_handler`(별도 SID/PGID, `ppid=1, tracer=29170`), `proot --shm-helper`(`pid=29483, ppid=1, tracer=0`, FD 3/4에 `proot`와 동일 CDP 소켓 `socket:[31925892]` 보유), `SingletonLock -> localhost-29176` 직접 확인 |
 | **추론 및 미검증 경계** | `host-supervisor` 구현체 실기기 수락 실험, 실제 Electron 고부하 중 `SIGQUIT` async-signal-safety 충돌 빈도, `SHMHELPER_DISTRIBUTE` `accept()` 경합 실측, 다기종 Android LMK 동작은 미실험 상태이며 §4 수락 실험 통과 전 운영 배포를 승인하지 않는다 |
+
+## 6. SysV SHM 후속 검증
+
+2026-11-24 실기기에서 순정 PRoot `5.1.107.102`의 SHM 헬퍼에
+연결 없이 `SHMHELPER_DISTRIBUTE` 요청을 보냈습니다. stdin을 닫은 뒤에도
+헬퍼는 `__skb_wait_for_more_packets`에서 대기했습니다. 헬퍼를 멈춘 상태에서
+클라이언트가 소켓에 연결하고 즉시 닫은 뒤 같은 요청을 넣자, 재개한 헬퍼는
+종료 코드 0을 반환했습니다.
+
+실제 `sysvipc_shmat_chain()`은 `connect()` 결과가 성공일 때만
+`SHMHELPER_DISTRIBUTE`를 전송합니다. 따라서 §2에서 기술한
+`connect()` 직전 종료 경합은 해당 코드 순서에서 성립하지 않습니다.
+서명된 AppHost의 Android 종료 시험 9건도 다시 통과했습니다.
+다른 기기와 커널의 종료 동작은 후속 검증 대상입니다.
+[PRoot의 연결과 전송 순서](https://github.com/termux/proot/blob/v5.1.107.102/src/extension/sysvipc/sysvipc_shm.c#L434-L482)

@@ -254,9 +254,10 @@ Stage 1의 FD 34는 스레드 수명을 업스트림 정책에 맡깁니다. 마
   1. 계정 A가 스레드 X의 턴을 완료하고, 단순 `thread/unsubscribe` ACK가 아니라 **`thread-writer-locks/`의 실제 writer 해제가 완료된 뒤** 계정 B가 동일 UUID X를 재개합니다.
   2. B가 보낸 다음 추론 요청에 A의 직전 응답 문맥이 포함되고 B의 턴이 완료됩니다.
   3. 같은 시간 동안 A의 다른 스레드 Y 작업이 중단 없이 지속·완료됩니다.
-- **실계정 관측:** `janmori101` → `szob` 실시간 인계에서 조건 1–2를 충족했습니다.
-  승인된 테스트 스레드 한 개를 기준으로 시험했으므로 별도 A 턴 연속성(조건 3)과
-  실제 `cdx switch` 런처 재검증은 남아 있습니다. 현재 런처는 A의 데몬 전체를
+- **실계정 관측:** `janmori101` → `szob` RPC 인계에서 조건 1–3을 충족했습니다.
+  설치된 `cdx switch`는 A가 유휴일 때 동일 UUID를 이어받아 새 턴을 완료했습니다.
+  별도 A 턴이 활성인 경우에는 종료 코드 1을 반환했습니다.
+  런처에서 조건 3을 충족하는 작업이 남았습니다. 현재 런처는 A의 데몬 전체를
   정지해 writer를 해제합니다. 업스트림 `thread/unsubscribe`는 연결의 구독만
   제거하며, 마지막 구독 종료와 스레드 유휴 시간이 충족된 뒤 writer가 해제됩니다.
   [0.171.0 스레드 수명주기](https://github.com/openai/codex/blob/rust-v0.171.0/codex-rs/app-server/src/request_processors/thread_lifecycle.rs)
@@ -283,20 +284,20 @@ Stage 1의 FD 34는 스레드 수명을 업스트림 정책에 맡깁니다. 마
 - **R-4** The default-home daemon cache was reclaimed. The retired Provider
   archive is retained for its protected account and session data.
   [Reclamation evidence](history/STAGE2_MILESTONES.md#r-4-legacy-disk-reclamation)
-- **R-5** The manual read-only canary uses the shared Wrapper verification
-  workflow. The restricted physical-device promotion gate remains deferred.
+- **R-5** The manual read-only canary and Termux qualification passed for
+  `0.171.0`. The physical-device promotion gate remains deferred.
   [Phase 2.6](#3-phase-26--read-only-upstream-discovery-and-qualification)
 - **R-6** Installer recovery after an Android Termux force-stop passed.
   Physical power removal and execution on a device with a 16 KiB kernel page
   size are long-term checks.
   [Force-stop recovery evidence](../CURRENT.md#2026-11-23--android-termux-force-stop-recovery)
-- **AppHost shutdown.** Cross-device Android behavior and an exact
-  `SHMHELPER_DISTRIBUTE` `accept()` race reproduction remain open.
-  [Signed device evidence](../CURRENT.md#2026-11-23--provider-and-orchestration-development-version-restored-on-termux)
-- **Legacy Work upgrades.** Reconcile pending legacy deliveries without
-  owner markers when upgrading a populated state directory. The signed
-  launcher and Orch activation and model-backed Work tests on the current
-  device are [recorded in CURRENT](../CURRENT.md#2026-11-23--signed-work-project-reuse-and-interactive-launcher-update).
-- **Slice 7B** Natural context exhaustion remains open. A detached Shell
-  worker exceeded ten minutes on Android and its receipt settled.
-  [Live evidence](../CURRENT.md#2026-11-23--signed-work-project-reuse-and-interactive-launcher-update)
+- **AppHost shutdown.** Cross-device Android behavior remains open.
+  [SHM helper follow-up](history/APPHOST_SHUTDOWN_AUDIT_20261123.md#6-sysv-shm-후속-검증)
+- **Legacy Work upgrades.** The 7A to 7B fixture preserved an unconfirmed
+  delivery without repeating the owner POST. An actual pending item needs
+  owner evidence before its outcome can be confirmed.
+  [Upgrade evidence](../CURRENT.md#2026-11-24--concurrent-account-handoff-context-rejection-and-upgrade-checks)
+- **Slice 7B** Automatic recovery for the observed `input_too_large` error
+  in an existing Lead chat remains open. The standard context-limit trigger
+  passed a compiled integration test.
+  [Context evidence](../CURRENT.md#2026-11-24--concurrent-account-handoff-context-rejection-and-upgrade-checks)

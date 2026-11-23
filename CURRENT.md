@@ -26,30 +26,63 @@ Observed on 2026-11-23.
 
 ### Unverified / Remaining Boundaries
 
-- **R-2.** The live two-account handoff covered one UUID over daemon RPC.
-  The interactive launcher passed a separate isolated native PTY test.
-  Authenticated launcher use and an unrelated concurrent A turn remain open.
+- **R-2.** The live two-account handoff via daemon RPC preserved the same UUID
+  and an unrelated active source turn. The installed launcher passed an
+  authenticated same-UUID switch with an idle source and rejects a switch
+  while another source turn is active. Concurrent handoff through the
+  launcher remains open.
   [Verification criteria](docs/ROADMAP.md#7-follow-up-verification-session-handoff-and-session_indexjsonl)
 - **R-3.** Termux `/copy` is accepted. External `codex remote-control` client
   pairing is tracked as long-term verification.
 - **R-4.** A new Termux-visible process map scan found no references to the
   retired Provider archive. It still holds protected account and session data
   and is retained.
-- **R-5.** The manual read-only canary passed for the current official stable
-  release. The restricted physical-device promotion gate remains deferred.
+- **R-5.** The manual read-only canary passed for official Codex `0.171.0`,
+  including a 37-step Termux run. The physical-device promotion gate remains
+  deferred.
   [Phase 2.6](docs/ROADMAP.md#3-phase-26--read-only-upstream-discovery-and-qualification)
 - **R-6.** Installer recovery after an Android Termux force-stop passed on the
   API 37 device with 4 KiB pages. Physical power removal and execution on a
   16 KiB page-size device remain long-term checks.
-- **Slice 7B evidence boundary.** Natural context exhaustion remains open.
-  Live evidence covers the configured turn-count trigger, a detached Shell
-  run exceeding ten minutes, and an explicit Stop invocation. Manual
-  rollover, a lost creation receipt, multi-batch replay and SIGKILL
-  recovery passed compiled tests.
+- **Slice 7B evidence boundary.** A live long-history request returned
+  `input_too_large` and automatic rollover did not occur. The recognized
+  context-limit path passes a compiled test with the turn threshold disabled.
 
 ---
 
 ## Recent Verified Evidence (Newest-First)
+
+### 2026-11-24 — Concurrent account handoff, context rejection and upgrade checks
+
+- **R-2.** With two authenticated `0.171.0` daemons, unsubscribe on the source
+  released the disposable thread writer in 1,024 ms using its one-second
+  thread-scoped unload setting. The destination resumed the same UUID and
+  returned the previous answer's marker. An independent 45-second source
+  command was active at destination completion and the source turn also
+  completed. In the installed `cdx` PTY, a switch with another active source
+  turn returned exit 1 before handoff. With an idle source, the same launcher
+  switched to the destination account in place, reattached the same UUID,
+  and completed a new turn through the TUI.
+- **7B context rejection.** With `lead_rollover_turns=0`, the Provider returned
+  `input_too_large` for a 63,795-byte prompt in the existing Lead chat.
+  The identical prompt settled with the expected answer in a fresh chat, and
+  a short prompt still settled in the original chat. After reproducing the
+  rejection, the installed relay tick processed the Work without an error
+  and left the Lead at generation 1. A compiled test separately exercised
+  a recognized `context_length_exceeded` response with the threshold disabled
+  and verified the new generation and exactly-once Inbox replay.
+- **AppHost.** All nine signed Android shutdown cases passed again and
+  preserved 40 runit process identities. With stock PRoot `5.1.107.102`,
+  sending `DISTRIBUTE` without a connection blocked the isolated helper after
+  stdin EOF. A client that connected and closed before `accept()` let the
+  helper exit with code 0. The normal PRoot chain sends the request only
+  after a successful connection.
+  [Audit follow-up](docs/history/APPHOST_SHUTDOWN_AUDIT_20261123.md#6-sysv-shm-후속-검증)
+- **Legacy Work upgrade.** The 7A executable wrote a pending record after
+  the fixture owner received a delivery and dropped its HTTP reply. The
+  installed signed 7B executable retained the same pending item as
+  `legacy_delivery_receipt_unconfirmed`. The owner saw one POST in total
+  and the Inbox cursor stayed at 0.
 
 ### 2026-11-23 — Android Termux force-stop recovery
 
