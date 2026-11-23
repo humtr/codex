@@ -281,7 +281,7 @@ Stage 1의 FD 34는 스레드 수명을 업스트림 정책에 맡깁니다. 마
 - **R-3** Termux `/copy` was accepted. Pairing an external
   `codex remote-control` client is a long-term check.
 - **R-4** The default-home daemon cache was reclaimed. The retired Provider
-  archive has live mappings and protected account and session data.
+  archive is retained for its protected account and session data.
   [Reclamation evidence](history/STAGE2_MILESTONES.md#r-4-legacy-disk-reclamation)
 - **R-5** The manual read-only canary uses the shared Wrapper verification
   workflow. The restricted physical-device promotion gate remains deferred.
@@ -292,12 +292,10 @@ Stage 1의 FD 34는 스레드 수명을 업스트림 정책에 맡깁니다. 마
 - **AppHost shutdown.** Cross-device Android behavior and an exact
   `SHMHELPER_DISTRIBUTE` `accept()` race reproduction remain open.
   [Signed device evidence](../CURRENT.md#2026-11-23--provider-and-orchestration-development-version-restored-on-termux)
-- **Signed-image activation.** Qualify the signed `codex-ext` artifact on the
-  live device. Provider and Orchestration have signed-image and read-only
-  connector readback. Keep their existing package versions until development
-  is complete and identify interim builds by source commit and artifact digest.
-  Run model-backed Work acceptance for the deployed
-  versions with a scoped test Work. Reconcile pending legacy deliveries
-  without owner markers when upgrading a populated state directory.
-- **Slice 7B** Natural context exhaustion and more than ten minutes of
-  continuous detached Shell execution. [Live evidence](../CURRENT.md#2026-11-23--stage-2-slice-7b-resilience-on-android-api-37-termux)
+- **Legacy Work upgrades.** Reconcile pending legacy deliveries without
+  owner markers when upgrading a populated state directory. The signed
+  launcher and Orch activation and model-backed Work tests on the current
+  device are [recorded in CURRENT](../CURRENT.md#2026-11-23--signed-work-project-reuse-and-interactive-launcher-update).
+- **Slice 7B** Natural context exhaustion remains open. A detached Shell
+  worker exceeded ten minutes on Android and its receipt settled.
+  [Live evidence](../CURRENT.md#2026-11-23--signed-work-project-reuse-and-interactive-launcher-update)

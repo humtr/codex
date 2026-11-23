@@ -136,15 +136,5 @@ monitored `runit` services retained their running PIDs.
 
 ## Remaining verification
 
-- **R-3** requires a physical Termux `/copy` long-payload paste-back and an
-  external client paired to `codex remote-control`.
-- **R-5** remains deferred. The read-only Phase 2.6 canary and dedicated
-  physical-device promotion gate are tracked in [ROADMAP.md §3](../ROADMAP.md#3-phase-26--read-only-upstream-discovery-and-qualification).
-- **R-6** requires physical power removal and execution on a real 16 KiB
-  kernel page-size device. Evidence to date covers userspace fault
-  injection and 16 KiB ELF geometry on an API 37 device with 4 KiB pages.
-- **Slice 7B** still needs natural context exhaustion and more than ten
-  minutes of continuous detached Shell execution. [Live evidence](../../CURRENT.md#2026-11-23--stage-2-slice-7b-resilience-on-android-api-37-termux)
-- **R-2** retains the unrelated concurrent A-turn criterion and a live
-  launcher run. [ROADMAP.md §7](../ROADMAP.md#7-follow-up-verification-session-handoff-and-session_indexjsonl)
-- **R-4** retains the protected archive. [ROADMAP.md §8](../ROADMAP.md#8-remaining-operational-and-physical-verification)
+See [current verification results](../../CURRENT.md#unverified--remaining-boundaries)
+and the [remaining operational checks](../ROADMAP.md#8-remaining-operational-and-physical-verification).

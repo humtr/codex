@@ -20,8 +20,8 @@ Observed on 2026-11-23.
 | **Published and installed Wrapper (`$PREFIX/bin/codex`)** | Stable Ed25519-signed `wrapper` tag at `3ea207cb` (`sequence=1`, key SHA-256 `0df170da...`). Published archive SHA-256 `68033d9c...`. Installed `bin/codex` SHA-256 `f83899d6...` | CI artifact ([run 44997871190](https://github.com/humtr/codex/actions/runs/44997871190)), signed `SHA256SUMS.sig` readback, and live Termux `--require-signed` install matched on 2026-11-22 |
 | **Active / rollback upstream generation** | Active `0.171.0-d8c43b-2` (`ino=9741792`, SHA-256 `26d9f90b...`). Rollback `0.170.0-3f7e1a-2` | Preserved across Slice 1 signed Wrapper cutover; `wrapper status --verify --json` (`qualified=true`) and `codex doctor --json` (`summary=healthy`) agreed |
 | **Live managed daemons (`default` / `janmori101` / `szob`)** | All three homes aligned to `$HOME/.codex/packages/standalone/current`; `janmori101` & `szob` running | `cdx profile list` sees all 8 profiles (`default` + 7 normalized `codex-manager-profile` homes) |
-| **Live doctor and external services** | `codex doctor --json` reports `summary.status=healthy`. All six Stage 2 services and three `tdev*` services retained their running PIDs during daemon cache reclamation | The retired `0.167.2` archive remains in place with live file mappings and protected account/session data |
-| **Stage 2 progress (Slices 1–7)** | **Released Slice 1–7 baseline** in the unified XDG `codex/` namespace: Slice 1 signed Wrapper live; Slice 2 local `$PREFIX/bin/codex-ext` + `cdx` (`0.1.0`, `0cc81c77...`); Slice 3 `mcp-kit` + `termux-shell-mcp` (`40fe5e54...`) + `tunnel-client v0.0.21` + `runit` 3-state supervision (`termux-shell-tunnel` active); Slice 4 `termux-codex-mcp` (`de46babc...`, `termux-codex-tunnel` active); Slice 5 `host/chatgpt-desktop` (`26.1117.41037`, GPG-verified) + `chatgpt-provider` (`0.1.0+7b`, `87bb368a...`, `runit` active); Slice 6 `termux-chatgpt-mcp` (`0.1.0+multilane`, `c7aeae57...`, `termux-chatgpt-tunnel` active); **Slice 7 `termux-orch`** (`0.1.0+7b`, `bc5bc2aa...`, `termux-orch-relay` & `termux-orch-tunnel` `runit` active, `@TermuxOrch` connector `asdk_app_6b03de61dd748191bf56fef2b1029a2e` `ACTIVE`) | Six long-running services use `runit`. The four MCP connectors are separate from the CLI, host generation and runner. Candidate acceptance and signed-image activation are recorded separately below. |
+| **Live doctor and external services** | `codex doctor --json` reports `summary.status=healthy`. All six Stage 2 services and three `tdev*` services retained their running PIDs during daemon cache reclamation | The retired `0.167.2` archive remains in place with protected account/session data |
+| **Stage 2 progress (Slices 1–7)** | **Released Slice 1–7 baseline** in the unified XDG `codex/` namespace: Slice 1 signed Wrapper live; Slice 2 signed `$PREFIX/bin/codex-ext` + `cdx` (`0.1.0`, `e6e9c2a3...`); Slice 3 `mcp-kit` + `termux-shell-mcp` (`40fe5e54...`) + `tunnel-client v0.0.21` + `runit` 3-state supervision (`termux-shell-tunnel` active); Slice 4 `termux-codex-mcp` (`de46babc...`, `termux-codex-tunnel` active); Slice 5 `host/chatgpt-desktop` (`26.1117.41037`, GPG-verified) + `chatgpt-provider` (`0.1.0+7b`, `87bb368a...`, `runit` active); Slice 6 `termux-chatgpt-mcp` (`0.1.0+multilane`, `c7aeae57...`, `termux-chatgpt-tunnel` active); **Slice 7 `termux-orch`** (`0.1.0+7b`, `f56c9e5c...`, `termux-orch-relay` & `termux-orch-tunnel` `runit` active, `@TermuxOrch` connector `asdk_app_6b03de61dd748191bf56fef2b1029a2e` `ACTIVE`) | Six long-running services use `runit`. The four MCP connectors are separate from the CLI, host generation and runner. Candidate acceptance and signed-image activation are recorded separately below. |
 | **Milestone records** | Stage 1 WP0–WP6 and Stage 2 Slices 1–7 are archived | [Stage 1 milestones](docs/history/STAGE1_MILESTONES.md), [Stage 2 milestones](docs/history/STAGE2_MILESTONES.md) |
 
 ### Unverified / Remaining Boundaries
@@ -32,23 +32,60 @@ Observed on 2026-11-23.
   [Verification criteria](docs/ROADMAP.md#7-follow-up-verification-session-handoff-and-session_indexjsonl)
 - **R-3.** Termux `/copy` is accepted. External `codex remote-control` client
   pairing is tracked as long-term verification.
-- **R-4.** The retired Provider archive is retained because processes map
-  files inside it and it holds protected account and session data.
+- **R-4.** A new Termux-visible process map scan found no references to the
+  retired Provider archive. It still holds protected account and session data
+  and is retained.
 - **R-5.** The manual read-only canary passed for the current official stable
   release. The restricted physical-device promotion gate remains deferred.
   [Phase 2.6](docs/ROADMAP.md#3-phase-26--read-only-upstream-discovery-and-qualification)
 - **R-6.** The API 37 device uses 4 KiB pages. Android Termux force-stop
   recovery is a separate test from physical power removal. A 16 KiB page-size
   device and physical power removal remain long-term verification.
-- **Slice 7B evidence boundaries.** The live device used the configured
-  turn-count trigger, a multi-second Shell worker, and an explicit Stop
-  invocation. Manual rollover, a lost creation receipt, multi-batch replay,
-  and SIGKILL recovery passed compiled tests. Real context exhaustion and a
-  continuous Shell run longer than ten minutes were outside this live run.
+- **Slice 7B evidence boundary.** Natural context exhaustion remains open.
+  Live evidence covers the configured turn-count trigger, a detached Shell
+  run exceeding ten minutes, and an explicit Stop invocation. Manual
+  rollover, a lost creation receipt, multi-batch replay and SIGKILL
+  recovery passed compiled tests.
 
 ---
 
 ## Recent Verified Evidence (Newest-First)
+
+### 2026-11-23 — Signed Work project reuse and interactive launcher update
+
+- Source `76a5d3fd32ad514fb731c476fe03a172096149c1` was pushed to
+  `main`. The pinned Ed25519 key verified both signed releases and their
+  artifact digests. [codex-ext sequence 6](https://github.com/humtr/codex/actions/runs/45191546037)
+  and [termux-orch sequence 7](https://github.com/humtr/codex/actions/runs/45191548688)
+  retain package versions `0.1.0` and `0.1.0+7b`, respectively.
+- Installed `$PREFIX/bin/codex-ext` SHA-256
+  `e6e9c2a3a0e444e2a13e99d1a79d734dddd7254cf149374de1d6619cfa57accd`.
+  The six CLI integration cases passed against the exact installed binary
+  in disposable homes. `cdx -- --version` reported upstream `0.171.0`.
+- Both Orch services selected immutable generation `0.1.0+7b-76a5d3fd`.
+  The running relay and installed executable matched SHA-256
+  `f56c9e5cffd803df4b6461ff12759f4c356b845b386f55ec7b32889cf1d27d28`.
+  The relay and tunnel passed readiness. The four other Stage 2 service
+  PIDs were unchanged. `@TermuxOrch` refreshed as `ACTIVE`. Its six tool
+  schemas matched the tunnel probe, including the new project and title fields.
+- Two authenticated Works `work_08cf40dedf51d772` and
+  `work_94415700a8f5d75f` used scope `humtr/codex` and shared the one
+  `Wrapper` project. ChatGPT returned both expected worker markers.
+  Provider readback confirmed the default `[W1-one] Default title receipt`
+  and custom `Run-1/two Custom title receipt` in that project. Each Wait-Set
+  delivered one wake-up and both Works reached `completed`.
+- A third authenticated Work `work_b94fbbf67dbd242d` used the same scope.
+  The configured two-turn threshold advanced its Lead to generation 2.
+  Provider readback showed `Lead/2 Wrapper Lead rollover validation` in
+  `Wrapper`. The old Lead mutation returned `stale_lead_generation`, the
+  checkpoint survived, and the Inbox marker appeared once in the new chat.
+  The replay cursor reached event 4 and the Work completed.
+- An isolated Android Work `work_577dfca7d0adf9c9` ran a detached Shell
+  worker with a 605-second sleep after the launching MCP process exited.
+  The local build from the same source started the worker. The installed
+  signed binary validated the exit receipt with the same PID and start
+  ticks, observed exit 0 and the final output marker, and settled one
+  participant and one Wait-Set.
 
 ### 2026-11-23 — Read-only upstream canary and R-3/R-6 checks
 
@@ -71,6 +108,13 @@ Observed on 2026-11-23.
   The installed Wrapper, runtime and both runtime companions passed 16 KiB
   ELF alignment checks. The observed kernel page size was 4 KiB. Actual power
   removal and 16 KiB kernel execution remain open.
+- **Termux force-stop fixture.** The installer is paused just after replacing
+  the executable in a disposable prefix, with its `ready` transaction and
+  the old and new digests recorded durably. A separate owned process-group
+  interruption rehearsal restored the original digest and removed the lock.
+  The actual Android force-stop test awaits the operator action and same-boot
+  readback. On this device the recovery command is
+  `python3 "$HOME/.local/state/codex/verification/r6-termux-stop.3fe1TJ6O/check.py" recover`.
 
 ### 2026-11-23 — Local in-TUI account switch repair
 
