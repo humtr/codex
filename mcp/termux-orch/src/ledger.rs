@@ -56,25 +56,64 @@ pub fn generate_id(prefix: &str) -> String {
     hex
 }
 
-pub fn format_project_name(title: &str) -> String {
-    let t = title.trim();
-    if t.starts_with("[Work]") {
-        truncate_chars(t, 120)
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct SessionPrefixes {
+    pub front: Option<String>,
+    pub lead: Option<String>,
+    pub worker: Option<String>,
+    pub verifier: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct ProjectBinding {
+    pub name: String,
+    pub id: Option<String>,
+}
+
+fn session_title(prefix: &str, number: u32, slug: &str, title: &str) -> String {
+    let prefix = prefix
+        .replace("{n}", &number.to_string())
+        .replace("{slug}", slug);
+    let title = format!("{prefix} {}", title.trim());
+    let title = title.trim();
+    let limit = title
+        .char_indices()
+        .map(|(i, _)| i)
+        .take_while(|i| *i <= 180)
+        .last();
+    if title.len() > 180 {
+        title[..limit.unwrap_or(0)].trim_end().to_owned()
     } else {
-        truncate_chars(&format!("[Work] {t}"), 120)
+        title.to_owned()
     }
 }
 
-pub fn format_front_title(generation: u32, work_title: &str) -> String {
-    truncate_chars(&format!("[F{generation}] {}", work_title.trim()), 180)
+pub fn format_front_title(prefixes: &SessionPrefixes, generation: u32, work_title: &str) -> String {
+    session_title(
+        prefixes.front.as_deref().unwrap_or("[F{n}]"),
+        generation,
+        "",
+        work_title,
+    )
 }
 
-pub fn format_lead_title(generation: u32, work_title: &str) -> String {
-    truncate_chars(&format!("[L{generation}] {}", work_title.trim()), 180)
+pub fn format_lead_title(prefixes: &SessionPrefixes, generation: u32, work_title: &str) -> String {
+    session_title(
+        prefixes.lead.as_deref().unwrap_or("[L{n}]"),
+        generation,
+        "",
+        work_title,
+    )
 }
 
-pub fn format_participant_title(role: &str, index: u32, slug: &str, subtask: &str) -> String {
-    let tag = if role == "verifier" { "V" } else { "W" };
+pub fn format_participant_title(
+    prefixes: &SessionPrefixes,
+    role: &str,
+    index: u32,
+    slug: &str,
+    subtask: &str,
+) -> String {
     let clean_slug: String = slug
         .trim()
         .chars()
@@ -87,12 +126,17 @@ pub fn format_participant_title(role: &str, index: u32, slug: &str, subtask: &st
         })
         .take(24)
         .collect();
-    let label = if clean_slug.is_empty() {
-        format!("[{tag}{index}]")
+    let (custom, with_slug, without_slug) = if role == "verifier" {
+        (&prefixes.verifier, "[V{n}-{slug}]", "[V{n}]")
     } else {
-        format!("[{tag}{index}-{clean_slug}]")
+        (&prefixes.worker, "[W{n}-{slug}]", "[W{n}]")
     };
-    truncate_chars(&format!("{label} {}", subtask.trim()), 180)
+    let prefix = custom.as_deref().unwrap_or(if clean_slug.is_empty() {
+        without_slug
+    } else {
+        with_slug
+    });
+    session_title(prefix, index, &clean_slug, subtask)
 }
 
 pub fn truncate_chars(s: &str, max_chars: usize) -> String {
@@ -288,6 +332,10 @@ pub struct WorkRecord {
     pub account_id: Option<String>,
     pub project_id: Option<String>,
     pub project_name: Option<String>,
+    #[serde(default)]
+    pub project_scope: Option<String>,
+    #[serde(default)]
+    pub session_prefixes: SessionPrefixes,
     /// `"inject_and_notify"` (default) or `"notify_only"`
     pub delivery_mode: String,
     pub front: FrontBinding,
@@ -380,14 +428,26 @@ impl Ledger {
     pub fn lock_work(&self, work_id: &str) -> io::Result<WorkLock> {
         let dir = self.work_dir(work_id)?;
         ensure_private_dir(&dir)?;
-        let lock_path = dir.join(".lock");
+        Self::lock(&dir.join(".lock"))
+    }
+
+    pub fn lock_project_scope(&self, account: &str, key: &str) -> io::Result<(WorkLock, PathBuf)> {
+        let dir = self.root.join("projects");
+        ensure_private_dir(&dir)?;
+        Ok((
+            Self::lock(&dir.join(format!("{account}.lock")))?,
+            dir.join(format!("{key}.json")),
+        ))
+    }
+
+    fn lock(lock_path: &Path) -> io::Result<WorkLock> {
         let file = OpenOptions::new()
             .create(true)
             .read(true)
             .write(true)
             .mode(0o600)
             .custom_flags(libc::O_NOFOLLOW)
-            .open(&lock_path)?;
+            .open(lock_path)?;
         loop {
             let rc = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) };
             if rc == 0 {

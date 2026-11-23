@@ -11,10 +11,10 @@
 //!    `reconcile_delivery`, `relay_status`, `rename_session`)
 
 use crate::ledger::{
-    format_front_title, format_lead_title, format_participant_title, format_project_name,
-    generate_id, is_safe_work_id, now_unix, truncate_chars, FrontBinding, FrontHistoryEntry,
-    LeadBinding, LeadHistoryEntry, Ledger, Participant, PendingDelivery, WaitSet, WorkBudget,
-    WorkRecord, WORK_SCHEMA,
+    format_front_title, format_lead_title, format_participant_title, generate_id, is_safe_work_id,
+    now_unix, read_private_file, truncate_chars, write_atomic_private, FrontBinding,
+    FrontHistoryEntry, LeadBinding, LeadHistoryEntry, Ledger, Participant, PendingDelivery,
+    ProjectBinding, SessionPrefixes, WaitSet, WorkBudget, WorkRecord, WORK_SCHEMA,
 };
 use crate::owners::OwnerClient;
 use crate::relay::{enqueue_delivery_if_absent, RelayEngine};
@@ -55,7 +55,7 @@ pub fn build_static_tools() -> Vec<ToolDef> {
         ),
         ToolDef::new(
             "orch_work",
-            "Create or manage a durable Work lifecycle: create (Tier 1 direct or Tier 3 orchestrated with auto ChatGPT Project & [F1]/[L1] titles), promote (Tier 1 -> Tier 3 in place), rebind_front (F1 -> Fn seamless mobile continuation), update_scope, or cancel.",
+            "Create or manage a durable Work lifecycle. Reuse a repository or branch project across Works with project_scope, or select one with project_id. Optional session_prefixes customize the role titles.",
             json!({
                 "type": "object",
                 "properties": {
@@ -68,6 +68,12 @@ pub fn build_static_tools() -> Vec<ToolDef> {
                     "tier": { "type": "string", "enum": ["direct", "orchestrated"] },
                     "completion_criteria": { "type": "array", "items": { "type": "string", "maxLength": 300 }, "maxItems": 20 },
                     "project_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+                    "project_scope": { "type": "string", "minLength": 1, "maxLength": 120, "description":"When the repository is known, reuse its stable owner/repo key. Add @branch only for a separate branch project. Keep the same key for related Works." },
+                    "project_name": { "type": "string", "minLength": 1, "maxLength": 120, "description":"Optional display name on first bind to a project_scope" },
+                    "session_prefixes": { "type":"object", "properties": {
+                        "front":{"type":"string","maxLength":80}, "lead":{"type":"string","maxLength":80},
+                        "worker":{"type":"string","maxLength":80}, "verifier":{"type":"string","maxLength":80}
+                    }, "additionalProperties":false, "description":"Override role prefixes with {n} or {slug}. Empty prefix disables it. A supplied object replaces the Work policy." },
                     "front_chat_id": { "type": "string", "minLength": 1, "maxLength": 128 },
                     "front_marker": { "type": "string", "minLength": 1, "maxLength": 160, "description": "Unique text marker in the current mobile/web chat to resolve chat_id automatically" },
                     "delivery_mode": { "type": "string", "enum": ["inject_and_notify", "notify_only"] },
@@ -321,6 +327,82 @@ impl OrchMcpHandler {
         crate::owners::chatgpt_account_identity(&status).map(ToOwned::to_owned)
     }
 
+    fn bind_project(
+        &self,
+        scope: &str,
+        label: Option<&str>,
+        explicit: Option<&str>,
+    ) -> Result<(String, String, String), String> {
+        let account = self.owners.chatgpt_account_id()?;
+        let key = sha256_hex(json!([account, scope]).to_string().as_bytes());
+        let (_lock, path) = self
+            .ledger
+            .lock_project_scope(&sha256_hex(account.as_bytes()), &key)
+            .map_err(|e| e.to_string())?;
+        let previous: Option<ProjectBinding> = match read_private_file(&path, 8192) {
+            Ok(bytes) => Some(serde_json::from_slice(&bytes).map_err(|e| e.to_string())?),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+            Err(e) => return Err(e.to_string()),
+        };
+        let previous_id = previous.as_ref().and_then(|binding| binding.id.as_deref());
+        if previous_id
+            .zip(explicit)
+            .is_some_and(|(bound, given)| bound != given)
+        {
+            return Err("project_scope is already bound to another project_id".to_owned());
+        }
+        let name = previous
+            .as_ref()
+            .map(|b| b.name.as_str())
+            .or(label)
+            .unwrap_or(scope);
+        let id = previous_id.or(explicit);
+        let persist = |binding: &ProjectBinding| {
+            let data = serde_json::to_vec(binding).map_err(|e| e.to_string())?;
+            write_atomic_private(&path, &data).map_err(|e| e.to_string())
+        };
+        let require_account = || {
+            if self.owners.chatgpt_account_id()? == account {
+                Ok(())
+            } else {
+                Err("ChatGPT account changed during project binding".to_owned())
+            }
+        };
+        require_account()?;
+        let (id, name) = match self.owners.chatgpt_find_project(name, id)? {
+            Some(project) => project,
+            None if id.is_some() => {
+                return Err("project_id is unavailable in the pinned account".to_owned())
+            }
+            None if previous.is_some() => return Err(
+                "project creation is unresolved; supply its project_id after checking the account"
+                    .to_owned(),
+            ),
+            None => {
+                require_account()?;
+                persist(&ProjectBinding {
+                    name: name.to_owned(),
+                    id: None,
+                })?;
+                let created = self.owners.chatgpt_create_project(name, None)?;
+                let id = created["project_id"]
+                    .as_str()
+                    .filter(|id| !id.is_empty())
+                    .ok_or("project creation response lacks an ID")?;
+                (
+                    id.to_owned(),
+                    created["name"].as_str().unwrap_or(name).to_owned(),
+                )
+            }
+        };
+        require_account()?;
+        persist(&ProjectBinding {
+            name: name.clone(),
+            id: Some(id.clone()),
+        })?;
+        Ok((account, id, name))
+    }
+
     fn handle_works(&self, args: &Value) -> Value {
         let Some(obj) = args.as_object() else {
             return fail("invalid_arguments", "arguments must be a JSON object");
@@ -529,6 +611,9 @@ impl OrchMcpHandler {
                 "tier",
                 "completion_criteria",
                 "project_id",
+                "project_scope",
+                "project_name",
+                "session_prefixes",
                 "front_chat_id",
                 "front_marker",
                 "delivery_mode",
@@ -628,41 +713,41 @@ impl OrchMcpHandler {
             })
             .unwrap_or_default();
 
-        let account_id = self.current_account_id();
-
-        // Resolve or auto-create ChatGPT Project (`[Work] <title>`).
-        let mut project_id = obj
+        let session_prefixes = match parse_session_prefixes(obj) {
+            Ok(prefixes) => prefixes.unwrap_or_default(),
+            Err(e) => return (fail("invalid_arguments", e), false),
+        };
+        let project_scope = match project_label(obj, "project_scope") {
+            Ok(scope) => scope,
+            Err(e) => return (fail("invalid_arguments", e), false),
+        };
+        let project_label = match project_label(obj, "project_name") {
+            Ok(label) => label,
+            Err(e) => return (fail("invalid_arguments", e), false),
+        };
+        let explicit_project = obj
             .get("project_id")
             .and_then(Value::as_str)
             .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .map(ToOwned::to_owned);
-        let mut project_name = project_id.as_ref().map(|_| format_project_name(title));
-        let mut warnings: Vec<String> = Vec::new();
-        if project_id.is_none() {
-            let pname = format_project_name(title);
-            let instructions = format!(
-                "Durable Work project for: {title}\nGoal: {}\nRoles: [F#]=Front, [L#]=Lead, [W#-slug]=Worker, [V#-slug]=Verifier.",
-                truncate_chars(goal, 1000)
-            );
-            match self
-                .owners
-                .chatgpt_create_project(&pname, Some(&instructions))
-            {
-                Ok(res) => {
-                    if let Some(pid) = res.get("project_id").and_then(Value::as_str) {
-                        project_id = Some(pid.to_owned());
-                        project_name = Some(
-                            res.get("name")
-                                .and_then(Value::as_str)
-                                .unwrap_or(&pname)
-                                .to_owned(),
-                        );
-                    }
-                }
-                Err(e) => warnings.push(format!("project_create_skipped: {e}")),
+            .filter(|s| !s.is_empty());
+        let (account_id, project_id, project_name) = match project_scope {
+            Some(scope) => match self.bind_project(scope, project_label, explicit_project) {
+                Ok((account, id, name)) => (Some(account), Some(id), Some(name)),
+                Err(e) => return (fail("project_binding_failed", e), false),
+            },
+            None if project_label.is_some() => {
+                return (
+                    fail("invalid_arguments", "project_name requires project_scope"),
+                    false,
+                )
             }
-        }
+            None => (
+                self.current_account_id(),
+                explicit_project.map(ToOwned::to_owned),
+                None,
+            ),
+        };
+        let mut warnings = Vec::new();
 
         // Resolve optional Front chat (explicit id or marker) and apply `[F1] <title>`.
         let mut front_chat_id = obj
@@ -689,7 +774,7 @@ impl OrchMcpHandler {
         let work_id = generate_id("work");
         let mut front_history = Vec::new();
         if let Some(ref fcid) = front_chat_id {
-            let ftitle = format_front_title(1, title);
+            let ftitle = format_front_title(&session_prefixes, 1, title);
             if let Err(e) = self.owners.chatgpt_rename_chat(fcid, &ftitle) {
                 warnings.push(format!("front_rename_skipped: {e}"));
             }
@@ -722,6 +807,7 @@ impl OrchMcpHandler {
                 goal,
                 &criteria,
                 project_id.as_deref(),
+                &session_prefixes,
                 1,
                 obj,
                 &mut warnings,
@@ -746,6 +832,8 @@ impl OrchMcpHandler {
             account_id,
             project_id: project_id.clone(),
             project_name: project_name.clone(),
+            project_scope: project_scope.map(ToOwned::to_owned),
+            session_prefixes,
             delivery_mode: delivery_mode.to_owned(),
             front: FrontBinding {
                 latest_chat_id: front_chat_id.clone(),
@@ -793,6 +881,8 @@ impl OrchMcpHandler {
                 "tier": tier,
                 "project_id": work.project_id,
                 "project_name": work.project_name,
+                "project_scope": work.project_scope,
+                "session_prefixes": work.session_prefixes,
                 "front_chat_id": work.front.latest_chat_id,
                 "lead": work.lead,
                 "delivery_mode": work.delivery_mode,
@@ -810,6 +900,7 @@ impl OrchMcpHandler {
         goal: &str,
         criteria: &[String],
         project_id: Option<&str>,
+        prefixes: &SessionPrefixes,
         generation: u32,
         obj: &Map<String, Value>,
         warnings: &mut Vec<String>,
@@ -837,7 +928,7 @@ impl OrchMcpHandler {
             .and_then(Value::as_str)
             .map(ToOwned::to_owned);
         let cwd = obj.get("lead_cwd").and_then(Value::as_str);
-        let lead_title = format_lead_title(generation, title);
+        let lead_title = format_lead_title(prefixes, generation, title);
 
         let ref_id = if let Some(existing) = obj
             .get("lead_ref_id")
@@ -983,6 +1074,7 @@ impl OrchMcpHandler {
             &work.goal,
             &work.completion_criteria,
             work.project_id.as_deref(),
+            &work.session_prefixes,
             1,
             obj,
             &mut warnings,
@@ -1101,7 +1193,7 @@ impl OrchMcpHandler {
         });
 
         let mut warnings = Vec::new();
-        let ftitle = format_front_title(next_gen, &work.title);
+        let ftitle = format_front_title(&work.session_prefixes, next_gen, &work.title);
         if let Err(e) = self.owners.chatgpt_rename_chat(&resolved_chat_id, &ftitle) {
             warnings.push(format!("front_rename_skipped: {e}"));
         }
@@ -1154,6 +1246,11 @@ impl OrchMcpHandler {
         if let Err(e) = check_lead_fence(&work, obj, true) {
             return (e, false);
         }
+        match parse_session_prefixes(obj) {
+            Ok(Some(prefixes)) => work.session_prefixes = prefixes,
+            Ok(None) => {}
+            Err(e) => return (fail("invalid_arguments", e), false),
+        }
         if let Some(g) = obj
             .get("goal")
             .and_then(Value::as_str)
@@ -1178,7 +1275,8 @@ impl OrchMcpHandler {
         let cid = obj.get("call_id").and_then(Value::as_str).unwrap_or("upd");
         let scope_data = json!({
             "goal": work.goal,
-            "completion_criteria": work.completion_criteria
+            "completion_criteria": work.completion_criteria,
+            "session_prefixes": work.session_prefixes
         });
         let _ = self.ledger.append_event_if_absent(
             &mut work,
@@ -1380,7 +1478,8 @@ impl OrchMcpHandler {
         let index = work.next_role_index(role);
         let tag = if role == "verifier" { "V" } else { "W" };
         let participant_id = format!("{tag}{index}");
-        let session_title = format_participant_title(role, index, slug, task_summary);
+        let session_title =
+            format_participant_title(&work.session_prefixes, role, index, slug, task_summary);
 
         let existing = obj
             .get("ref_id")
@@ -2142,6 +2241,7 @@ impl OrchMcpHandler {
                     &work.goal,
                     &work.completion_criteria,
                     work.project_id.as_deref(),
+                    &work.session_prefixes,
                     next_gen,
                     &lead_args,
                     &mut warnings,
@@ -2223,6 +2323,43 @@ fn fail(code: &str, detail: impl Into<String>) -> Value {
         "error": code,
         "detail": detail.into()
     })
+}
+
+fn project_label<'a>(obj: &'a Map<String, Value>, field: &str) -> Result<Option<&'a str>, String> {
+    obj.get(field)
+        .map(|value| {
+            value
+                .as_str()
+                .map(str::trim)
+                .filter(|s| !s.is_empty() && s.len() <= 120 && !s.chars().any(char::is_control))
+                .ok_or_else(|| {
+                    format!("{field} must be 1..=120 UTF-8 bytes without control characters")
+                })
+        })
+        .transpose()
+}
+
+fn parse_session_prefixes(obj: &Map<String, Value>) -> Result<Option<SessionPrefixes>, String> {
+    let Some(value) = obj.get("session_prefixes") else {
+        return Ok(None);
+    };
+    let prefixes: SessionPrefixes =
+        serde_json::from_value(value.clone()).map_err(|e| e.to_string())?;
+    if [
+        &prefixes.front,
+        &prefixes.lead,
+        &prefixes.worker,
+        &prefixes.verifier,
+    ]
+    .into_iter()
+    .flatten()
+    .any(|p| p.len() > 80 || p.chars().any(char::is_control))
+    {
+        return Err(
+            "session prefixes must be at most 80 UTF-8 bytes without control characters".to_owned(),
+        );
+    }
+    Ok(Some(prefixes))
 }
 
 fn check_allowed_keys(obj: &Map<String, Value>, allowed: &[&str]) -> Result<(), String> {

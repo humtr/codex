@@ -61,12 +61,15 @@ ordinary chats:
 
 ## 3. Project Organization and Consistent Session Naming
 
-- **ChatGPT Project Scoping:** Every `Work` pins `(account_id, project_id)` on
-  creation and never silently switches accounts or projects on fallback. If the
-  caller supplies an existing `project_id`, `R` reuses it; otherwise `R` creates
-  a dedicated project named `[Work] <topic>` via `chatgpt-provider`
-  `POST /control/projects`. All ChatGPT sessions (`F`, `L`, `W`, `V`) belonging
-  to that `Work` accumulate inside that project.
+- **ChatGPT Project Scoping.** Use `project_scope` for a repository or branch
+  key, such as `humtr/codex` or `humtr/codex@feature`. The account and scope
+  resolve to one durable project binding reused across Works. On first use,
+  `project_name` overrides the display name, which defaults to the scope.
+  Runtime looks for one exact name and creates a project if the name is absent.
+  An explicit `project_id` selects an existing project and resolves ambiguous
+  names. A call without a project ID or scope leaves the Work unscoped. Existing
+  Work bindings are preserved. An uncertain creation is reconciled by lookup
+  before any further create is allowed.
 - **Deterministic Session Titles:** Whenever a ChatGPT chat or Codex thread is
   created or bound for a role, `R` automatically applies a uniform, human-readable
   title via `POST /control/chats/{id}/rename` (ChatGPT) or `thread/name/set`
@@ -75,6 +78,12 @@ ordinary chats:
   - Lead: `[L<gen>] <work-title>` (e.g. `[L1] Slice 7A 구현`)
   - Worker: `[W<idx>-<slug>] <subtask>` (e.g. `[W1-ledger] Work 원장 구현`)
   - Verifier: `[V<idx>-<slug>] <scope>` (e.g. `[V1-audit] Diff 및 라이브 E2E 검증`)
+
+  Optional `session_prefixes` on `create` or `update_scope` replaces these
+  defaults for subsequent names. Keys are `front`, `lead`, `worker`, and
+  `verifier`. `{n}` expands to the generation or participant index, and
+  `{slug}` expands to the normalized participant slug. An empty string removes
+  the prefix. Use `rename_session` for a session that already exists.
 
 ---
 
@@ -128,7 +137,7 @@ State root: `~/.local/state/codex/orchestration/jobs/<work_id>/` (`0700`,
   without recreating workers, then calls `orch_work(action="rebind_front")`
   with either explicit `chat_id` or a verified prompt marker. `R` confirms the
   matching `(account_id, chat_id)` via `chatgpt-provider` `GET /control/chats`,
-  atomically updates `front.latest_chat_id = Fn`, renames the chat `[F<n>] <title>`,
+  atomically updates `front.latest_chat_id = Fn`, names the chat using the Work policy,
   and records `user.front_rebound`.
 - **Safe `inject_and_notify` Delivery:** Before calling `chatgpt-provider`
   `POST /control/send(chat_id=...)` on `F/Fn` or ChatGPT `L`, `R` checks both

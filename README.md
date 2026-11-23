@@ -28,6 +28,12 @@ The product has one public command, `codex`, built in two decoupled stages:
   [architecture and ownership map](docs/ARCHITECTURE.md),
   [current evidence](CURRENT.md) and [roadmap](docs/ROADMAP.md).
 
+For related `@TermuxOrch` Works, pass the same `project_scope` such as
+`humtr/codex`. Set `project_name: "Wrapper"` on the first Work if you want a
+shorter display name. Add `@branch` to the scope for a separate branch project.
+Set `session_prefixes` to customize the role prefixes for each Work.
+[Project and session naming](docs/spec/ORCHESTRATION.md#3-project-organization-and-consistent-session-naming)
+
 The account-free ChatGPT Desktop boot probe uses the AppHost supervisor from
 the matching `chatgpt-provider` build. Use
 `manager.py probe --provider-bin /path/to/chatgpt-provider` to test a local build

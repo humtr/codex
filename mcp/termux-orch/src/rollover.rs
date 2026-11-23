@@ -204,7 +204,7 @@ impl<'a> Rollover<'a> {
             return Ok(false);
         }
 
-        let title = format_lead_title(generation, &work.title);
+        let title = format_lead_title(&work.session_prefixes, generation, &work.title);
         let renamed = self.owners.chatgpt_rename_chat(chat_id, &title)?;
         if renamed["state"] != "ok" {
             return Err("lead_rename_failed".to_owned());

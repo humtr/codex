@@ -211,6 +211,51 @@ impl OwnerClient {
         )
     }
 
+    pub fn chatgpt_find_project(
+        &self,
+        name: &str,
+        id: Option<&str>,
+    ) -> Result<Option<(String, String)>, String> {
+        let mut cursor = None::<String>;
+        let mut found = None::<(String, String)>;
+        let mut cursors = std::collections::HashSet::new();
+        for _ in 0..64 {
+            let path = match cursor.as_deref() {
+                Some(cursor) => {
+                    format!("/control/projects?limit=100&cursor={}", url_encode(cursor))
+                }
+                None => "/control/projects?limit=100".to_owned(),
+            };
+            let page = self.control_call("GET", &path, None, READ_TIMEOUT)?;
+            let projects = page["projects"].as_array().ok_or("invalid project list")?;
+            for project in projects {
+                let (Some(pid), Some(label)) = (project["id"].as_str(), project["name"].as_str())
+                else {
+                    continue;
+                };
+                if id.is_some_and(|id| id == pid) {
+                    return Ok(Some((pid.to_owned(), label.to_owned())));
+                }
+                if id.is_none() && label == name {
+                    if found.as_ref().is_some_and(|(old, _)| old != pid) {
+                        return Err(
+                            "multiple projects match this name; supply project_id".to_owned()
+                        );
+                    }
+                    found = Some((pid.to_owned(), label.to_owned()));
+                }
+            }
+            let Some(next) = page["next_cursor"].as_str().filter(|s| !s.is_empty()) else {
+                return Ok(found);
+            };
+            if !cursors.insert(next.to_owned()) {
+                return Err("project list cursor repeated".to_owned());
+            }
+            cursor = Some(next.to_owned());
+        }
+        Err("project list did not finish".to_owned())
+    }
+
     pub fn chatgpt_observe(&self, chat_id: &str) -> Result<ChatGptObservation, String> {
         let val = self.control_call(
             "POST",

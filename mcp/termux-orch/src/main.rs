@@ -269,6 +269,7 @@ mod tests {
             lose_delivery_reply: bool,
             renames: Vec<(String, String)>,
             sends: Vec<(Option<String>, String)>,
+            projects: Vec<String>,
         }
         let mstate = Arc::new(Mutex::new(MockState {
             front_streaming: true,
@@ -276,6 +277,7 @@ mod tests {
             lose_delivery_reply: false,
             renames: Vec::new(),
             sends: Vec::new(),
+            projects: Vec::new(),
         }));
         let mstate_srv = Arc::clone(&mstate);
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -324,7 +326,15 @@ mod tests {
                         let resp_val = if first.starts_with("GET /control/status") {
                             json!({"state":"ok","pinned_send":true,"auth_state":"authenticated","account":{"account_id":"acc-1","id":"u1"}})
                         } else if first.starts_with("POST /control/projects") {
+                            st.projects.push(body["name"].as_str().unwrap().to_owned());
                             json!({"state":"ok","project_id":"g-p-orch1","name":body["name"]})
+                        } else if first.starts_with("GET /control/projects?") {
+                            let projects: Vec<_> = st
+                                .projects
+                                .iter()
+                                .map(|name| json!({"id":"g-p-orch1","name":name}))
+                                .collect();
+                            json!({"state":"ok","projects":projects,"next_cursor":null})
                         } else if first.starts_with("GET /control/chats?") {
                             json!({"state":"ok","chats":[{"id":"chat-f2","title":"New Mobile Chat"}]})
                         } else if first.starts_with("GET /control/chats/chat-f2") {
@@ -410,7 +420,7 @@ mod tests {
         });
         let mut handler = OrchMcpHandler::new(ledger.clone(), owners.clone(), rcpt_dir);
 
-        // 1. Tier 1 direct Work creation + auto project + [F1] rename
+        // 1. Tier 1 direct Work creation with a repository project and [F1] rename
         let (created, is_err) = handler.call_tool(
             "orch_work",
             &json!({
@@ -419,12 +429,15 @@ mod tests {
                 "title": "Build Pipeline",
                 "goal": "Run long build and verify",
                 "tier": "direct",
+                "project_scope": "humtr/codex",
+                "project_name": "Wrapper",
                 "front_chat_id": "chat-f1"
             }),
         );
         assert!(!is_err, "create failed: {created}");
         let wid = created["work_id"].as_str().unwrap().to_owned();
         assert_eq!(created["project_id"], "g-p-orch1");
+        assert_eq!(created["project_name"], "Wrapper");
 
         // 2. Register Worker W1 (spawns chat-w1, renames [W1-build] ...) & arm Wait-Set
         let (w1, is_err) = handler.call_tool(
@@ -553,6 +566,21 @@ mod tests {
         assert!(!is_err, "rebind_front failed: {reb}");
         assert_eq!(reb["front_chat_id"], "chat-f2");
         assert_eq!(reb["front_title"], "[F2] Build Pipeline");
+
+        let (second, error) = handler.call_tool("orch_work", &json!({
+            "action":"create", "call_id":"same-scope", "title":"Second Work", "goal":"Reuse project",
+            "tier":"direct", "project_scope":"humtr/codex", "session_prefixes":{"front":""},
+            "front_chat_id":"chat-other"
+        }));
+        assert!(!error, "{second}");
+        assert_eq!(second["project_id"], created["project_id"]);
+        assert_eq!(second["project_name"], "Wrapper");
+        let state = mstate.lock().unwrap();
+        assert_eq!(state.projects, ["Wrapper"]);
+        assert!(state
+            .renames
+            .contains(&("chat-other".to_owned(), "Second Work".to_owned())));
+        drop(state);
 
         let (notify_work, error) = handler.call_tool("orch_work", &json!({
             "action":"create","call_id":"notification-audit","title":"Notification audit",

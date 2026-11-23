@@ -30,15 +30,16 @@ Observed on 2026-11-23.
   The interactive launcher passed a separate isolated native PTY test.
   Authenticated launcher use and an unrelated concurrent A turn remain open.
   [Verification criteria](docs/ROADMAP.md#7-follow-up-verification-session-handoff-and-session_indexjsonl)
-- **R-3.** Physical Termux `/copy` long-payload paste-back and external
-  `codex remote-control` client pairing remain open.
+- **R-3.** Termux `/copy` is accepted. External `codex remote-control` client
+  pairing is tracked as long-term verification.
 - **R-4.** The retired Provider archive is retained because processes map
   files inside it and it holds protected account and session data.
 - **R-5.** The manual read-only canary passed for the current official stable
   release. The restricted physical-device promotion gate remains deferred.
   [Phase 2.6](docs/ROADMAP.md#3-phase-26--read-only-upstream-discovery-and-qualification)
-- **R-6.** Physical power removal and execution on a real 16 KiB kernel
-  page-size device remain open. The API 37 device uses 4 KiB pages.
+- **R-6.** The API 37 device uses 4 KiB pages. Android Termux force-stop
+  recovery is a separate test from physical power removal. A 16 KiB page-size
+  device and physical power removal remain long-term verification.
 - **Slice 7B evidence boundaries.** The live device used the configured
   turn-count trigger, a multi-second Shell worker, and an explicit Stop
   invocation. Manual rollover, a lost creation receipt, multi-batch replay,
@@ -64,8 +65,8 @@ Observed on 2026-11-23.
   Wrapper and daemon health checks passed in the account-free fixture.
 - **R-3.** The installed `cdx` forwarded an entire synthetic OSC 52 payload
   through a Termux PTY. The decoded 102,400 bytes matched the UTF-8 fixture,
-  including its final marker. Physical `/copy` paste-back and external client
-  pairing remain open.
+  including its final marker. The operator confirmed ordinary `/copy` and
+  accepted this item. External client pairing remains a long-term check.
 - **R-6.** All 23 isolated installer recovery cases passed on Android API 37.
   The installed Wrapper, runtime and both runtime companions passed 16 KiB
   ELF alignment checks. The observed kernel page size was 4 KiB. Actual power

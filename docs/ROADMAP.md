@@ -82,7 +82,7 @@ Slice 1: Wrapper slimming + universal SHA256SUMS.sig Ed25519 release signing  [C
 ### Slice 7 — Durable Multi-Role Orchestration (`@TermuxOrch` / `mcp/termux-orch`, 7A & 7B) *(7A and 7B implemented)*
 - The contract and completed rollout are recorded in [ORCHESTRATION.md](spec/ORCHESTRATION.md)
   and [Stage 2 milestones](history/STAGE2_MILESTONES.md#retired-stage-2-work-order).
-- **Goal:** Add an independent, zero-Wrapper-coupling durable orchestration layer (`F · L · W · V · R` roles; Tier 0–3 progressive durability covering both simple single-task chats and multi-hour multi-worker loops; per-work ChatGPT Project scoping and uniform `[F1]`/`[L1]`/`[W1-<slug>]`/`[V1-<slug>]` titles; `Work Ledger` + `Typed Inbox` + declarative `Wait-Set`; seamless `F1 -> Fn` mobile rebinding; default `inject_and_notify` + `termux-notification` with `stream_status` collision protection and hard Circuit Breakers).
+- **Goal:** Add an independent, zero-Wrapper-coupling durable orchestration layer (`F · L · W · V · R` roles; Tier 0–3 progressive durability covering both simple single-task chats and multi-hour multi-worker loops; reusable repository or branch ChatGPT Projects and configurable `[F1]`/`[L1]`/`[W1-<slug>]`/`[V1-<slug>]` titles; `Work Ledger` + `Typed Inbox` + declarative `Wait-Set`; seamless `F1 -> Fn` mobile rebinding; default `inject_and_notify` + `termux-notification` with `stream_status` collision protection and hard Circuit Breakers).
   - **Slice 7A *(Shipped & Live)*:** `chatgpt-provider` server `stream_status` in `observeChat` + `mcp/termux-orch` (`termux-orch relay` & `termux-orch mcp`, 6-tool `@TermuxOrch`, Tier 1–3, `Verifier` role, `F1 -> Fn` rebind, `inject_and_notify`, Circuit Breaker, CI, `runit` enrollment, programmatic `@TermuxOrch` connector registration, live Tier 1/2/3 & restart-recovery E2E — receipts in [CURRENT.md](../CURRENT.md)).
   - **Slice 7B:** Automatic and manual ChatGPT Lead rollover, generation fencing, Inbox replay, detached Shell worker receipts, and the optional Stop hook wake push. See [the behavior contract](spec/ORCHESTRATION.md#7-lead-rollover-detached-shell-receipts-and-wake-pushes) and [live evidence](../CURRENT.md).
 
@@ -256,7 +256,10 @@ Stage 1의 FD 34는 스레드 수명을 업스트림 정책에 맡깁니다. 마
   3. 같은 시간 동안 A의 다른 스레드 Y 작업이 중단 없이 지속·완료됩니다.
 - **실계정 관측:** `janmori101` → `szob` 실시간 인계에서 조건 1–2를 충족했습니다.
   승인된 테스트 스레드 한 개를 기준으로 시험했으므로 별도 A 턴 연속성(조건 3)과
-  실제 `cdx switch` 런처 재검증은 남아 있습니다.
+  실제 `cdx switch` 런처 재검증은 남아 있습니다. 현재 런처는 A의 데몬 전체를
+  정지해 writer를 해제합니다. 업스트림 `thread/unsubscribe`는 연결의 구독만
+  제거하며, 마지막 구독 종료와 스레드 유휴 시간이 충족된 뒤 writer가 해제됩니다.
+  [0.171.0 스레드 수명주기](https://github.com/openai/codex/blob/rust-v0.171.0/codex-rs/app-server/src/request_processors/thread_lifecycle.rs)
 - **계정 일치 검사 정책:** `0.170.0`의 `cli_resume_account_check` 등 업스트림 계정 일치 검사가 켜진 환경에서 타 계정 재개가 거절되면, **계정 태그나 정책을 변조해 억지로 통과시키지 말고** 해당 버전/설정의 호환성 결과로 그대로 기록합니다.
 
 ### 7.2 `session_index.jsonl` 권위 원천 및 삭제/이름변경 검증안
@@ -275,16 +278,17 @@ Stage 1의 FD 34는 스레드 수명을 업스트림 정책에 맡깁니다. 마
 
 ## 8. Remaining operational and physical verification
 
-- **R-3** Physical Termux `/copy` long-payload paste-back and pairing an
-  external `codex remote-control` client.
+- **R-3** Termux `/copy` was accepted. Pairing an external
+  `codex remote-control` client is a long-term check.
 - **R-4** The default-home daemon cache was reclaimed. The retired Provider
   archive has live mappings and protected account and session data.
   [Reclamation evidence](history/STAGE2_MILESTONES.md#r-4-legacy-disk-reclamation)
 - **R-5** The manual read-only canary uses the shared Wrapper verification
   workflow. The restricted physical-device promotion gate remains deferred.
   [Phase 2.6](#3-phase-26--read-only-upstream-discovery-and-qualification)
-- **R-6** Physical power removal and execution on Android with a real 16 KiB
-  kernel page size.
+- **R-6** Test installer recovery after an Android Termux force-stop.
+  Physical power removal and execution on a device with a real 16 KiB kernel
+  page size are long-term checks.
 - **AppHost shutdown.** Cross-device Android behavior and an exact
   `SHMHELPER_DISTRIBUTE` `accept()` race reproduction remain open.
   [Signed device evidence](../CURRENT.md#2026-11-23--provider-and-orchestration-development-version-restored-on-termux)
