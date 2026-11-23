@@ -813,6 +813,7 @@ impl RelayEngine {
                 slug: wait.wait_id.clone(),
                 task_summary: "Scheduled shell check".to_owned(),
                 owner_scope: None,
+                write_workspace: None,
                 call_id: None,
                 dispatch_id: None,
                 state: "starting".to_owned(),

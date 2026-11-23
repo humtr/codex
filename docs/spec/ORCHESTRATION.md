@@ -169,6 +169,12 @@ State root: `~/.local/state/codex/orchestration/jobs/<work_id>/` (`0700`,
   thread UUID before `turn/start`. ChatGPT dispatch uses a pinned account and
   request lane. An uncertain dispatch stays pending until the original
   owner confirms the turn. Repeating the registration does not resend it.
+- **Managed write order:** When a new worker has a declared working directory,
+  the relay accepts a second writing worker in that Work only when its
+  canonical directory is disjoint from the active writer. The Lead can
+  register the next writer after the first settles. A `read_only` declaration
+  allows observation in parallel. This controls scheduling of declared work
+  directories under Orch and uses the execution owner's access permissions.
 - **Cancellation:** A cancelling Work blocks new starts. The relay requests
   interruption of its identified Codex turn or ChatGPT lane. Its detached
   shell writer sends `SIGTERM` to its process group and publishes an exit

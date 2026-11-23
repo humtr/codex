@@ -114,6 +114,7 @@ pub fn build_static_tools() -> Vec<ToolDef> {
                     "command": { "type": "string", "minLength": 1, "maxLength": 65536, "description": "Detached shell command for backend=shell" },
                     "prompt": { "type": "string", "minLength": 1, "maxLength": 32768 },
                     "cwd": { "type": "string", "minLength": 1, "maxLength": 512 },
+                    "read_only": { "type":"boolean", "description":"Declare that this worker makes no workspace changes; does not change the execution owner's permissions" },
                     "model": { "type": "string", "minLength": 1, "maxLength": 128 },
                     "model_provider": { "type":"string", "minLength":1, "maxLength":128, "description":"Configured Codex model provider for a new Codex participant" },
                     "reasoning_effort": { "type": "string", "minLength": 1, "maxLength": 32 },
@@ -1446,6 +1447,7 @@ impl OrchMcpHandler {
                 "prompt",
                 "command",
                 "cwd",
+                "read_only",
                 "model",
                 "model_provider",
                 "reasoning_effort",
@@ -1593,6 +1595,45 @@ impl OrchMcpHandler {
             .filter(|s| !s.is_empty());
         let shell_command = obj.get("command").and_then(Value::as_str);
         let prompt = obj.get("prompt").and_then(Value::as_str);
+        let write_workspace = if role == "worker"
+            && existing.is_none()
+            && obj.get("read_only").and_then(Value::as_bool) != Some(true)
+        {
+            if let Some(path) = obj.get("cwd").and_then(Value::as_str) {
+                match std::fs::canonicalize(path) {
+                    Ok(path) if path.is_dir() => Some(path),
+                    _ => {
+                        return (
+                            fail("invalid_workspace", "The working directory must exist"),
+                            false,
+                        )
+                    }
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+        if let Some(path) = &write_workspace {
+            if let Some(active) = work.participants.iter().find(|p| {
+                !p.is_terminal()
+                    && p.write_workspace
+                        .as_ref()
+                        .is_some_and(|old| path.starts_with(old) || old.starts_with(path))
+            }) {
+                return (
+                    fail(
+                        "worker_workspace_busy",
+                        format!(
+                            "{} must settle before another worker writes in this directory",
+                            active.participant_id
+                        ),
+                    ),
+                    false,
+                );
+            }
+        }
         if shell_command.is_some() && backend != "shell" {
             return (
                 fail("invalid_arguments", "command requires backend=shell"),
@@ -1666,6 +1707,7 @@ impl OrchMcpHandler {
             slug: slug.to_owned(),
             task_summary: task_summary.to_owned(),
             owner_scope,
+            write_workspace,
             call_id,
             dispatch_id: launch.then(|| generate_id("dispatch")),
             state: if launch { "dispatching" } else { "running" }.to_owned(),
@@ -1702,7 +1744,11 @@ impl OrchMcpHandler {
                     .codex_dispatch_turn(
                         participant.profile.as_deref(),
                         None,
-                        obj.get("cwd").and_then(Value::as_str),
+                        participant
+                            .write_workspace
+                            .as_deref()
+                            .and_then(|path| path.to_str())
+                            .or_else(|| obj.get("cwd").and_then(Value::as_str)),
                         &text,
                         model,
                         obj.get("model_provider").and_then(Value::as_str),
@@ -1812,7 +1858,11 @@ impl OrchMcpHandler {
                         self.ledger.root(),
                         wid,
                         command,
-                        obj.get("cwd").and_then(Value::as_str),
+                        participant
+                            .write_workspace
+                            .as_deref()
+                            .and_then(|path| path.to_str())
+                            .or_else(|| obj.get("cwd").and_then(Value::as_str)),
                     )
                 });
             if let Err(e) = result {

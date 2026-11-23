@@ -445,6 +445,15 @@ fn detached_shell_restart_barrier_kill_and_authenticated_immediate_wake() {
     }));
     assert_eq!(r["state"], "ok", "{r}");
     let marker_dir = ledger(id).join("shell");
+    let overlapping = mcp.call(
+        "orch_dispatch",
+        json!({
+            "action":"register_worker","call_id":"overlap","work_id":id,"backend":"shell",
+            "command":"printf 'must not overlap' > overlap", "cwd":root.join("."),
+        }),
+    );
+    assert_eq!(overlapping["error"], "worker_workspace_busy");
+    assert!(!root.join("overlap").exists());
     let meta_path = marker_dir.join("W1.meta.json");
     let exit_path = marker_dir.join("W1.exit.json");
     let meta = wait_for(|| json_file(&meta_path));

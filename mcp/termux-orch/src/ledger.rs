@@ -230,6 +230,8 @@ pub struct Participant {
     pub slug: String,
     pub task_summary: String,
     pub owner_scope: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub write_workspace: Option<PathBuf>,
     pub call_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dispatch_id: Option<String>,
