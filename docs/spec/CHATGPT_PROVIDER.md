@@ -66,7 +66,10 @@ and [providers/chatgpt/src/main.rs](../../providers/chatgpt/src/main.rs).
   hashes or minified symbol names, and never synthesizes private reasoning.
 - **Type 1 (`codex -p chatgpt`) surface:** Localhost-only `GET /v1/models` and
   `POST /v1/responses` (monotonic OpenAI Responses SSE or JSON) supporting
-  single-path in-app tool callbacks via `local_function_signatures`.
+  single-path in-app tool callbacks via `local_function_signatures`. When
+  Codex supplies deferred nested tools through Code Mode, the description
+  sent to the AppHost retains the advertised `ALL_TOOLS` discovery instruction
+  within the description bound.
 - **Local authenticated `/control/*` plane (for Slice 6 `@TermuxChatGPT`):**
   Every `/control/*` endpoint requires constant-time `Authorization: Bearer`
   authentication against `<state_dir>/control.token` (`0600`):

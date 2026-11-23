@@ -275,7 +275,20 @@ fn collect_tools_from_array(arr: &[Value], namespace: Option<&str>, out: &mut Ve
             let desc = item
                 .get("description")
                 .and_then(Value::as_str)
-                .map(|d| truncate_chars(d.trim(), MAX_TOOL_DESC_CHARS));
+                .map(|description| {
+                    let description = description.trim();
+                    let truncated = truncate_chars(description, MAX_TOOL_DESC_CHARS);
+                    if kind == "custom" && name == "exec" && description.contains("ALL_TOOLS")
+                        && !truncated.contains("ALL_TOOLS")
+                    {
+                        // Codex's deferred MCP namespaces arrive without tool schemas.
+                        // Keep its discovery instruction within the AppHost description cap.
+                        return truncate_chars(&format!(
+                            "Discover nested tools with text(ALL_TOOLS.filter(t => t.name.includes(\"name\"))). {description}"
+                        ), MAX_TOOL_DESC_CHARS);
+                    }
+                    truncated
+                });
             let effective_ns = namespace.filter(|ns| !ns.is_empty() && *ns != "functions");
             let mut sig = json!({
                 "type": kind,
@@ -1035,5 +1048,32 @@ fn record_thread_entries(
                 prefix_sha256,
             },
         );
+    }
+}
+
+#[cfg(test)]
+mod deferred_tools_tests {
+    use super::*;
+
+    #[test]
+    fn code_mode_signature_preserves_deferred_tool_discovery() {
+        let description = format!(
+            "{} Find deferred tools in ALL_TOOLS.",
+            "ordinary tool description ".repeat(42)
+        );
+        let body = json!({"input":[{"type":"additional_tools","tools":[{
+            "type":"namespace","name":"functions","tools":[
+                {"type":"custom","name":"exec","description":description},
+                {"type":"custom","name":"other","description":description}
+            ]
+        }]}]});
+        let signatures = extract_local_function_signatures(&body);
+        let code_mode = signatures[0]["description"].as_str().unwrap();
+        assert!(code_mode.contains("text(ALL_TOOLS.filter("));
+        assert!(code_mode.chars().count() <= MAX_TOOL_DESC_CHARS + 3);
+        assert!(!signatures[1]["description"]
+            .as_str()
+            .unwrap()
+            .contains("ALL_TOOLS"));
     }
 }
