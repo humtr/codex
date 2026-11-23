@@ -435,6 +435,15 @@ fn detached_shell_restart_barrier_kill_and_authenticated_immediate_wake() {
 
 #[test]
 fn compiled_rollover_preserves_pinned_project_and_replays_every_event_once() {
+    exercise_compiled_rollover(false);
+}
+
+#[test]
+fn compiled_context_limit_rolls_over_with_turn_threshold_disabled() {
+    exercise_compiled_rollover(true);
+}
+
+fn exercise_compiled_rollover(context_limit: bool) {
     use std::collections::HashMap;
     use std::io::Read;
     use std::net::TcpListener;
@@ -448,6 +457,7 @@ fn compiled_rollover_preserves_pinned_project_and_replays_every_event_once() {
         host_stopped: bool,
         create_calls: usize,
         turns: u64,
+        local_turn_error: Option<&'static str>,
         lanes: HashMap<String, String>,
         titles: HashMap<String, String>,
         messages: Vec<String>,
@@ -523,7 +533,10 @@ fn compiled_rollover_preserves_pinned_project_and_replays_every_event_once() {
                     json!({"state":"settled","chat_id":next})
                 }
                 "/control/chats/lead-1" => {
-                    json!({"state":"ok","gizmo_id":"pinned-project","user_turn_count":p.turns})
+                    json!({
+                        "state":"ok","gizmo_id":"pinned-project","user_turn_count":p.turns,
+                        "local_turn_error":p.local_turn_error,
+                    })
                 }
                 "/control/chats/lead-2/rename"
                 | "/control/chats/lead-3/rename"
@@ -575,12 +588,18 @@ fn compiled_rollover_preserves_pinned_project_and_replays_every_event_once() {
         "orch_work",
         json!({
             "action":"create","call_id":"lead1","title":"Pinned Lead","goal":"test",
-            "project_id":"pinned-project","lead_ref_id":"lead-1","lead_rollover_turns":2,
+            "project_id":"pinned-project","lead_ref_id":"lead-1",
+            "lead_rollover_turns":if context_limit {0} else {2},
             "delivery_mode":"notify_only",
         }),
     );
     let wid = created["work_id"].as_str().unwrap();
     assert_eq!(created["lead"]["generation"], 1);
+    if context_limit {
+        provider.lock().unwrap().turns = 2;
+        tick();
+        assert_eq!(provider.lock().unwrap().create_calls, 0);
+    }
     for seq in 0..18 {
         let reported = mcp.call("orch_report", json!({
             "action":"milestone","call_id":format!("event-{seq}"),"work_id":wid,
@@ -601,6 +620,9 @@ fn compiled_rollover_preserves_pinned_project_and_replays_every_event_once() {
         p.wrong_account = false;
         p.reject_create_receipt = true;
         p.turns = 2;
+        if context_limit {
+            p.local_turn_error = Some("context_length_exceeded");
+        }
     }
     // A lost HTTP receipt must recover the original lane from a separate Relay process.
     tick();
@@ -628,6 +650,24 @@ fn compiled_rollover_preserves_pinned_project_and_replays_every_event_once() {
     let w = mcp.call("orch_works", json!({"action":"read","work_id":wid}));
     assert_eq!(w["work"]["lead"]["generation"], 2);
     assert!(w["work"]["lead_replay"].is_null());
+    let events = mcp.call(
+        "orch_works",
+        json!({"action":"inbox","work_id":wid,"after_seq":0,"limit":50}),
+    );
+    let rollover = events["events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|event| event["kind"] == "lead.rolled_over")
+        .unwrap();
+    assert_eq!(
+        rollover["data"]["reason"],
+        if context_limit {
+            "context limit (context_length_exceeded)"
+        } else {
+            "turn threshold (2/2)"
+        }
+    );
     {
         let p = provider.lock().unwrap();
         assert_eq!(p.create_calls, 1);
