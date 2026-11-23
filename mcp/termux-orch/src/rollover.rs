@@ -33,7 +33,7 @@ impl<'a> Rollover<'a> {
         reason: &str,
         checkpoint: Option<&str>,
     ) -> Result<bool, String> {
-        if work.is_terminal() {
+        if !work.can_start() {
             return Err("work_already_terminal".to_owned());
         }
         if work.lead_replay.is_some() {
@@ -47,13 +47,10 @@ impl<'a> Rollover<'a> {
             .as_ref()
             .filter(|l| l.kind == "chatgpt")
             .ok_or("chatgpt_lead_required")?;
-        let project = work
-            .project_id
-            .as_deref()
-            .ok_or("pinned_project_required")?;
+        let project = work.project_id.as_deref();
         self.verify_account(work)?;
         let chat = self.owners.chatgpt_read_chat(&lead.ref_id, 1)?;
-        if chat["state"] != "ok" || chat["gizmo_id"] != project {
+        if chat["state"] != "ok" || chat["gizmo_id"].as_str() != project {
             return Err("pinned_project_mismatch".to_owned());
         }
 
@@ -78,6 +75,7 @@ impl<'a> Rollover<'a> {
             reason: truncate_chars(reason, 240),
             dispatched: false,
             chat_id: None,
+            scan_cursor: None,
         });
         self.save(work)?;
         self.advance(work)
@@ -86,7 +84,6 @@ impl<'a> Rollover<'a> {
     pub fn automatic_reason(&self, work: &WorkRecord) -> Option<String> {
         let lead = work.lead.as_ref().filter(|l| l.kind == "chatgpt")?;
         if work.account_id.is_none()
-            || work.project_id.is_none()
             || work.state == "waiting_user"
             || work.budget.wakeups_used >= work.budget.max_wakeups
             || now_unix().saturating_sub(work.created_at_unix) > work.budget.max_wall_secs
@@ -131,10 +128,7 @@ impl<'a> Rollover<'a> {
             .generation
             .checked_add(1)
             .ok_or("lead_generation_exhausted")?;
-        let project = work
-            .project_id
-            .as_deref()
-            .ok_or("pinned_project_required")?;
+        let project = work.project_id.as_deref();
         self.verify_account(work)?;
         let marker = format!("[ORCH_ROLLOVER {}]", rollover.lane_id);
         if !rollover.dispatched {
@@ -183,7 +177,9 @@ impl<'a> Rollover<'a> {
         if rollover.chat_id.is_none() {
             // An accepted turn can outlive the provider lane cache. Recover only
             // from the unique marker in the pinned project. Absence never licenses replay.
-            let chats = self.owners.chatgpt_project_chats(project)?;
+            let chats = self
+                .owners
+                .chatgpt_chat_page(project, rollover.scan_cursor.as_deref())?;
             if let Some(rows) = chats["chats"].as_array() {
                 for row in rows {
                     if let Some(id) = row["id"].as_str() {
@@ -194,6 +190,12 @@ impl<'a> Rollover<'a> {
                     }
                 }
             }
+            let cursor = chats["next_cursor"]
+                .as_str()
+                .filter(|cursor| !cursor.is_empty());
+            rollover.scan_cursor = cursor
+                .filter(|cursor| Some(*cursor) != rollover.scan_cursor.as_deref())
+                .map(ToOwned::to_owned);
         }
         work.lead_rollover = Some(rollover.clone());
         self.save(work)?;
@@ -259,10 +261,7 @@ impl<'a> Rollover<'a> {
     pub fn replay(&self, work: &mut WorkRecord) -> Result<(), String> {
         let mut replay = work.lead_replay.clone().ok_or("lead_replay_missing")?;
         let lead = work.lead.as_ref().ok_or("chatgpt_lead_required")?;
-        let project = work
-            .project_id
-            .as_deref()
-            .ok_or("pinned_project_required")?;
+        let project = work.project_id.as_deref();
         let chat_id = lead.ref_id.clone();
         self.verify_account(work)?;
         let after = work.consumed_seq;
@@ -321,9 +320,16 @@ impl<'a> Rollover<'a> {
         self.ledger.save_work(work).map_err(|e| e.to_string())
     }
 
-    fn has_marker(&self, chat_id: &str, project: &str, marker: &str) -> Result<bool, String> {
-        self.owners
-            .chatgpt_has_delivery_marker(chat_id, Some(project), marker)
+    fn has_marker(
+        &self,
+        chat_id: &str,
+        project: Option<&str>,
+        marker: &str,
+    ) -> Result<bool, String> {
+        let chat = self.owners.chatgpt_read_chat(chat_id, 100)?;
+        Ok(chat["state"] == "ok"
+            && chat["gizmo_id"].as_str() == project
+            && crate::owners::has_user_marker(&chat, marker))
     }
 }
 

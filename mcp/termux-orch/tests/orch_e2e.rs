@@ -337,6 +337,73 @@ fn completion_requires_verification_of_the_current_work() {
 }
 
 #[test]
+fn fixed_shell_continuation_survives_relay_reentry_without_double_execution() {
+    let root = tmp_dir("termux-orch-build-check-report");
+    let state = root.join("state");
+    let command = || {
+        let mut cmd = Command::new(bin_path());
+        cmd.env("ORCH_STATE_DIR", &state)
+            .env("ORCH_RECEIPT_DIR", root.join("receipts"))
+            .env("CHATGPT_PROVIDER_URL", "http://127.0.0.1:1")
+            .env("ORCH_NOTIFY_CMD", "/bin/true");
+        cmd
+    };
+    for (case, script, expected) in [
+        ("pass", "printf 'build-ok' > artifact", "completed"),
+        ("fail", "exit 7", "failed"),
+    ] {
+        let cwd = root.join(case);
+        fs::create_dir(&cwd).unwrap();
+        let mut mcp = Mcp::start(&mut command());
+        let work = mcp.call("orch_work", json!({"action":"create","call_id":format!("work-{case}"),
+            "tier":"direct","title":"Build and check","goal":"Verify the build","delivery_mode":"notify_only"}));
+        let id = work["work_id"].as_str().unwrap();
+        let build = mcp.call(
+            "orch_dispatch",
+            json!({"action":"register_worker","call_id":format!("build-{case}"),
+            "work_id":id,"backend":"shell","cwd":cwd,
+            "command":format!("while [ ! -f release ]; do sleep 0.05; done; {script}")}),
+        );
+        assert_eq!(build["state"], "ok", "{build}");
+        let wait = mcp.call(
+            "orch_dispatch",
+            json!({"action":"wait_set","call_id":format!("wait-{case}"),
+            "work_id":id,"all_of":["W1"],"then_verify_shell":{"cwd":cwd,
+            "command":"test \"$(cat artifact)\" = build-ok && printf 'check\\n' >> runs"}}),
+        );
+        assert_eq!(wait["state"], "ok", "{wait}");
+        drop(mcp);
+        assert!(command().arg("tick").output().unwrap().status.success());
+        assert!(!cwd.join("runs").exists());
+        fs::write(cwd.join("release"), "").unwrap();
+        let path = state.join("jobs").join(id);
+        let final_work = wait_for(|| {
+            assert!(command().arg("tick").output().unwrap().status.success());
+            json_file(&path.join("work.json")).filter(|w| w["state"] == expected)
+        });
+        assert!(final_work["lead"].is_null());
+        assert_eq!(final_work["budget"]["wakeups_used"], 0);
+        assert!(command().arg("tick").output().unwrap().status.success());
+        let events = fs::read_to_string(path.join("events.jsonl")).unwrap();
+        assert_eq!(
+            events.matches("\"kind\":\"continuation.finished\"").count(),
+            1
+        );
+        if case == "pass" {
+            assert_eq!(fs::read_to_string(cwd.join("runs")).unwrap(), "check\n");
+            assert_eq!(
+                final_work["participants"][1]["verification"]["verdict"],
+                "pass"
+            );
+        } else {
+            assert!(!cwd.join("runs").exists());
+            assert_eq!(final_work["participants"].as_array().unwrap().len(), 1);
+        }
+    }
+    fs::remove_dir_all(&root).unwrap();
+}
+
+#[test]
 fn detached_shell_restart_barrier_kill_and_authenticated_immediate_wake() {
     use std::os::unix::fs::PermissionsExt;
     use std::time::{Duration, Instant};
@@ -487,6 +554,27 @@ fn detached_shell_restart_barrier_kill_and_authenticated_immediate_wake() {
     let events = fs::read_to_string(ledger(id).join("events.jsonl")).unwrap();
     assert_eq!(events.matches("\"kind\":\"worker.completed\"").count(), 1);
     assert_eq!(events.matches("\"kind\":\"worker.failed\"").count(), 2);
+    let live = mcp.call(
+        "orch_dispatch",
+        json!({"action":"register_worker","call_id":"cancellable-worker",
+        "work_id":id,"backend":"shell","command":"echo $$ > child.pid; exec sleep 30","cwd":root}),
+    );
+    assert_eq!(live["state"], "ok", "{live}");
+    let child_pid: i32 = wait_for(|| {
+        fs::read_to_string(root.join("child.pid"))
+            .ok()
+            .and_then(|text| text.trim().parse().ok())
+    });
+    let requested = mcp.call(
+        "orch_work",
+        json!({"action":"cancel","call_id":"cancel-live","work_id":id}),
+    );
+    assert_eq!(requested["work_state"], "cancelling");
+    let exit = wait_for(|| json_file(&marker_dir.join("W4.exit.json")));
+    assert_eq!(exit["exit_code"], 128 + libc::SIGTERM);
+    assert!(!std::path::Path::new(&format!("/proc/{child_pid}")).exists());
+    assert!(http(addr, "POST", "/wake", Some(&token)).0.contains("202"));
+    wait_for(|| json_file(&ledger(id).join("work.json")).filter(|w| w["state"] == "cancelled"));
     drop(mcp);
     drop(relay);
     fs::remove_dir_all(root).unwrap();
@@ -494,15 +582,20 @@ fn detached_shell_restart_barrier_kill_and_authenticated_immediate_wake() {
 
 #[test]
 fn compiled_rollover_preserves_pinned_project_and_replays_every_event_once() {
-    exercise_compiled_rollover(false);
+    exercise_compiled_rollover(false, false);
 }
 
 #[test]
 fn compiled_context_limit_rolls_over_with_turn_threshold_disabled() {
-    exercise_compiled_rollover(true);
+    exercise_compiled_rollover(true, false);
 }
 
-fn exercise_compiled_rollover(context_limit: bool) {
+#[test]
+fn compiled_unscoped_rollover_recovers_the_original_chat_from_a_later_page() {
+    exercise_compiled_rollover(true, true);
+}
+
+fn exercise_compiled_rollover(context_limit: bool, unscoped: bool) {
     use std::collections::HashMap;
     use std::io::Read;
     use std::net::TcpListener;
@@ -520,6 +613,7 @@ fn exercise_compiled_rollover(context_limit: bool) {
         lanes: HashMap<String, String>,
         titles: HashMap<String, String>,
         messages: Vec<String>,
+        listing_pages: usize,
     }
     let root = tmp_dir("termux-orch-rollover");
     let state = root.join("state");
@@ -530,12 +624,14 @@ fn exercise_compiled_rollover(context_limit: bool) {
     let addr = listener.local_addr().unwrap();
     let provider = Arc::new(Mutex::new(Provider::default()));
     let server = provider.clone();
+    let project = (!unscoped).then_some("pinned-project");
     let mock = std::thread::spawn(move || {
         for conn in listener.incoming() {
             let mut conn = conn.unwrap();
             let mut reader = BufReader::new(&conn);
             let mut line = String::new();
             reader.read_line(&mut line).unwrap();
+            let second_page = line.contains("cursor=second-page");
             let path = line
                 .split_ascii_whitespace()
                 .nth(1)
@@ -572,7 +668,7 @@ fn exercise_compiled_rollover(context_limit: bool) {
                 }
                 "/control/send" => {
                     assert_eq!(body["expected_account_id"], "pinned-account");
-                    assert_eq!(body["project_id"], "pinned-project");
+                    assert_eq!(body["project_id"].as_str(), project);
                     let prompt = body["prompt"].as_str().unwrap().to_owned();
                     let lane = body["lane_id"].as_str().unwrap().to_owned();
                     if body["chat_id"].is_null() {
@@ -587,13 +683,24 @@ fn exercise_compiled_rollover(context_limit: bool) {
                     p.messages.push(prompt);
                     if body["chat_id"].is_null() && p.reject_create_receipt {
                         p.reject_create_receipt = false;
+                        if unscoped {
+                            p.lanes.remove(body["lane_id"].as_str().unwrap());
+                        }
                         continue;
                     }
                     json!({"state":"settled","chat_id":next})
                 }
+                "/control/chats" if unscoped => {
+                    p.listing_pages += 1;
+                    if second_page {
+                        json!({"state":"ok","chats":[{"id":"lead-2"}],"next_cursor":null})
+                    } else {
+                        json!({"state":"ok","chats":[{"id":"lead-1"}],"next_cursor":"second-page"})
+                    }
+                }
                 "/control/chats/lead-1" => {
                     json!({
-                        "state":"ok","gizmo_id":"pinned-project","user_turn_count":p.turns,
+                        "state":"ok","gizmo_id":project,"user_turn_count":p.turns,
                         "local_turn_error":p.local_turn_error,
                     })
                 }
@@ -611,7 +718,7 @@ fn exercise_compiled_rollover(context_limit: bool) {
                         .iter()
                         .map(|text| json!({"role":"user","text":text}))
                         .collect::<Vec<_>>();
-                    json!({"state":"ok","gizmo_id":"pinned-project","user_turn_count":turns.len(),"messages":turns})
+                    json!({"state":"ok","gizmo_id":project,"user_turn_count":turns.len(),"messages":turns})
                 }
                 other => panic!("unexpected provider route {other}"),
             };
@@ -647,7 +754,7 @@ fn exercise_compiled_rollover(context_limit: bool) {
         "orch_work",
         json!({
             "action":"create","call_id":"lead1","title":"Pinned Lead","goal":"test",
-            "project_id":"pinned-project","lead_ref_id":"lead-1",
+            "project_id":project,"lead_ref_id":"lead-1",
             "lead_rollover_turns":if context_limit {0} else {2},
             "delivery_mode":"notify_only",
         }),
@@ -687,6 +794,10 @@ fn exercise_compiled_rollover(context_limit: bool) {
     tick();
     provider.lock().unwrap().host_stopped = true;
     tick();
+    if unscoped {
+        tick();
+        assert_eq!(provider.lock().unwrap().listing_pages, 2);
+    }
     let w = mcp.call("orch_works", json!({"action":"read","work_id":wid}));
     assert_eq!(w["work"]["lead"]["generation"], 2, "{w}");
     assert_eq!(w["work"]["lead"]["history"][0]["ref_id"], "lead-1");

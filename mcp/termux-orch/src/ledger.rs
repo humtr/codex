@@ -227,7 +227,9 @@ pub struct Participant {
     pub task_summary: String,
     pub owner_scope: Option<String>,
     pub call_id: Option<String>,
-    /// `"running"`, `"completed"`, `"failed"`, `"cancelled"`
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dispatch_id: Option<String>,
+    /// `"dispatching"`, `"running"`, `"completed"`, `"failed"`, `"cancelled"`
     pub state: String,
     pub result_summary: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -240,6 +242,13 @@ impl Participant {
     pub fn is_terminal(&self) -> bool {
         matches!(self.state.as_str(), "completed" | "failed" | "cancelled")
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ShellContinuation {
+    pub command: String,
+    pub cwd: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -256,6 +265,10 @@ pub struct WaitSet {
     pub deadline_unix: Option<u64>,
     pub armed: bool,
     pub created_at_unix: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub then_verify_shell: Option<ShellContinuation>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub continuation_id: Option<String>,
 }
 
 fn default_true() -> bool {
@@ -301,6 +314,8 @@ pub struct LeadRollover {
     #[serde(default)]
     pub dispatched: bool,
     pub chat_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scan_cursor: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -330,7 +345,7 @@ impl Default for WorkBudget {
             max_concurrent_workers: DEFAULT_MAX_CONCURRENT_WORKERS,
             min_cooldown_secs: DEFAULT_MIN_COOLDOWN_SECS,
             last_wakeup_unix: 0,
-            lead_rollover_turns: default_lead_rollover_turns(),
+            lead_rollover_turns: 0,
         }
     }
 }
@@ -377,6 +392,10 @@ pub struct WorkRecord {
 impl WorkRecord {
     pub fn is_terminal(&self) -> bool {
         matches!(self.state.as_str(), "completed" | "failed" | "cancelled")
+    }
+
+    pub fn can_start(&self) -> bool {
+        !self.is_terminal() && self.state != "cancelling"
     }
 
     pub fn active_worker_count(&self) -> u32 {
@@ -694,7 +713,7 @@ impl Ledger {
     pub fn has_user_event_after(&self, work_id: &str, after_seq: u64) -> io::Result<bool> {
         let mut found = false;
         self.visit_events(work_id, after_seq, |event| {
-            found = event.kind.starts_with("user.");
+            found = matches!(event.kind.as_str(), "user.message" | "user.scope_updated");
             !found
         })?;
         Ok(found)

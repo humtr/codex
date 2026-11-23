@@ -14,7 +14,7 @@
 
 use crate::ledger::{
     generate_id, now_unix, truncate_chars, DeliveryDispatch, InboxEvent, Ledger, Participant,
-    PendingDelivery, Verdict, WorkRecord,
+    PendingDelivery, Verdict, Verification, WaitSet, WorkRecord,
 };
 use crate::owners::OwnerClient;
 use serde_json::json;
@@ -84,9 +84,63 @@ impl RelayEngine {
 
         // 1. Observe running participants (only if work is not cancelled/completed).
         if !work.is_terminal() {
+            for participant in &mut work.participants {
+                if participant.state != "dispatching" {
+                    continue;
+                }
+                let Some(id) = participant.dispatch_id.as_deref() else {
+                    continue;
+                };
+                let marker = format!("[ORCH_DISPATCH {id}]");
+                match participant.backend.as_str() {
+                    "codex" if !participant.ref_id.is_empty() => {
+                        if let Ok(Some(turn)) = self.owners.codex_find_marked_turn(
+                            participant.profile.as_deref(),
+                            &participant.ref_id,
+                            &marker,
+                        ) {
+                            participant.turn_id = Some(turn);
+                            participant.state = "running".to_owned();
+                            dirty = true;
+                        }
+                    }
+                    "chatgpt"
+                        if work.account_id.as_ref().is_some_and(|pinned| {
+                            self.owners
+                                .chatgpt_account_id()
+                                .is_ok_and(|account| &account == pinned)
+                        }) =>
+                    {
+                        if let Ok(lane) = self.owners.chatgpt_observe_lane(id) {
+                            if let Some(chat) = lane["chat_id"]
+                                .as_str()
+                                .filter(|chat| !chat.is_empty() && lane["lane_id"] == id)
+                            {
+                                if self.owners.chatgpt_has_delivery_marker(
+                                    chat,
+                                    work.project_id.as_deref(),
+                                    &marker,
+                                ) == Ok(true)
+                                {
+                                    participant.ref_id = chat.to_owned();
+                                    participant.state = "running".to_owned();
+                                    dirty = true;
+                                }
+                            }
+                        }
+                    }
+                    _ => (),
+                }
+            }
+            if work.state == "cancelling" {
+                self.progress_cancellation(&mut work)?;
+            }
             let mut newly_settled: Vec<(usize, String, String)> = Vec::new();
             for (idx, p) in work.participants.iter().enumerate() {
-                if p.is_terminal() {
+                if !work.can_start()
+                    || p.is_terminal()
+                    || matches!(p.state.as_str(), "dispatching" | "starting")
+                {
                     continue;
                 }
                 match p.backend.as_str() {
@@ -217,16 +271,26 @@ impl RelayEngine {
             self.ledger.save_work(&work).map_err(|e| e.to_string())?;
             dirty = false;
         }
+        if work.can_start() {
+            if let Some(wait) = work
+                .wait_set
+                .clone()
+                .filter(|w| w.armed && w.then_verify_shell.is_some())
+            {
+                self.continue_with_shell(&mut work, &wait, now)?;
+            }
+        }
         let rollover = crate::rollover::Rollover::new(&self.ledger, &self.owners);
-        if !work.is_terminal() && work.lead_rollover.is_some() {
+        if work.can_start() && work.lead_rollover.is_some() {
             let _ = rollover.advance(&mut work);
             return Ok(summary);
         }
-        if work.state != "cancelled" && work.lead_replay.is_some() {
+        if !matches!(work.state.as_str(), "cancelling" | "cancelled") && work.lead_replay.is_some()
+        {
             let _ = rollover.replay(&mut work);
             return Ok(summary);
         }
-        if !work.is_terminal() {
+        if work.can_start() {
             if let Some(reason) = rollover.automatic_reason(&work) {
                 let _ = rollover.start(&mut work, &reason, None);
                 if work.lead_rollover.is_some() || work.lead_replay.is_some() {
@@ -236,14 +300,14 @@ impl RelayEngine {
         }
 
         // 2. Evaluate armed Wait-Set.
-        if !work.is_terminal() {
+        if work.can_start() {
             // Only one delivery may own the next Inbox prefix. Otherwise a
             // newly armed Wait-Set can advance past an earlier deferred wake.
-            if let Some(ws) = work
-                .wait_set
-                .clone()
-                .filter(|w| w.armed && !work.pending_deliveries.iter().any(|d| d.kind == "wakeup"))
-            {
+            if let Some(ws) = work.wait_set.clone().filter(|w| {
+                w.armed
+                    && w.then_verify_shell.is_none()
+                    && !work.pending_deliveries.iter().any(|d| d.kind == "wakeup")
+            }) {
                 let user_event = ws.on_user_event
                     && self
                         .ledger
@@ -593,6 +657,7 @@ impl RelayEngine {
                 lead.as_ref().and_then(|lead| lead.model.as_deref()),
                 None,
                 None,
+                |_| Ok(()),
             ) {
                 Ok((thread, Some(_))) if thread == ref_id => Delivered,
                 Ok(_) => Defer("delivery_receipt_unconfirmed".to_owned()),
@@ -600,6 +665,242 @@ impl RelayEngine {
             },
             _ => unreachable!("unsupported backend rejected before dispatch"),
         })
+    }
+    fn progress_cancellation(&self, work: &mut WorkRecord) -> Result<(), String> {
+        for participant in work.participants.iter_mut().filter(|p| !p.is_terminal()) {
+            let stopped = match participant.backend.as_str() {
+                "shell" => crate::shell_job::ShellJob::new(
+                    &self.ledger,
+                    &work.work_id,
+                    &participant.ref_id,
+                )
+                .and_then(|job| job.confirmed_exit())
+                .unwrap_or(false),
+                "codex" if participant.dispatch_id.is_some() => {
+                    let Some(turn) = participant.turn_id.as_deref() else {
+                        continue;
+                    };
+                    let profile = participant.profile.as_deref();
+                    if let Ok(observed) =
+                        self.owners
+                            .codex_observe_turn(profile, &participant.ref_id, Some(turn))
+                    {
+                        match observed.turn_status.as_deref() {
+                            Some("completed" | "failed" | "interrupted") => true,
+                            Some("inProgress") => {
+                                let _ = self.owners.codex_interrupt_turn(
+                                    profile,
+                                    &participant.ref_id,
+                                    turn,
+                                );
+                                false
+                            }
+                            _ => false,
+                        }
+                    } else {
+                        false
+                    }
+                }
+                "chatgpt" if participant.dispatch_id.is_some() => {
+                    let lane = participant.dispatch_id.as_deref().unwrap();
+                    if !work.account_id.as_ref().is_some_and(|pinned| {
+                        self.owners
+                            .chatgpt_account_id()
+                            .is_ok_and(|account| &account == pinned)
+                    }) {
+                        continue;
+                    }
+                    let Ok(observed) = self.owners.chatgpt_observe_lane(lane) else {
+                        continue;
+                    };
+                    if observed["lane_id"] != lane || observed["chat_id"] != participant.ref_id {
+                        continue;
+                    }
+                    if observed["generating"] == true {
+                        let _ = self.owners.chatgpt_stop_lane(lane, &participant.ref_id);
+                        false
+                    } else {
+                        matches!(observed["state"].as_str(), Some("settled" | "error"))
+                    }
+                }
+                // A pre-existing model session has no Work-owned launch to stop.
+                _ => true,
+            };
+            if stopped {
+                participant.state = "cancelled".to_owned();
+                participant.updated_at_unix = now_unix();
+            }
+        }
+        if work.participants.iter().all(Participant::is_terminal) {
+            work.state = "cancelled".to_owned();
+            self.ledger
+                .append_event_if_absent(
+                    work,
+                    "work:cancelled",
+                    "work.cancelled",
+                    "runtime",
+                    "Work cancellation settled",
+                    json!({}),
+                )
+                .map_err(|e| e.to_string())?;
+        }
+        self.ledger.save_work(work).map_err(|e| e.to_string())
+    }
+
+    fn continue_with_shell(
+        &self,
+        work: &mut WorkRecord,
+        wait: &WaitSet,
+        now: u64,
+    ) -> Result<(), String> {
+        let Some(check) = &wait.then_verify_shell else {
+            return Ok(());
+        };
+        let index = if let Some(id) = &wait.continuation_id {
+            work.participants
+                .iter()
+                .position(|p| &p.participant_id == id)
+                .ok_or("missing shell continuation participant")?
+        } else {
+            if wait.deadline_unix.is_some_and(|deadline| now >= deadline)
+                || now.saturating_sub(work.created_at_unix) > work.budget.max_wall_secs
+            {
+                return self.finish_shell_continuation(
+                    work,
+                    wait,
+                    "waiting_user",
+                    "The shell check did not start before its deadline.",
+                );
+            }
+            if work.participants.iter().any(|p| !p.is_terminal()) {
+                return Ok(());
+            }
+            if wait.all_of.iter().any(|id| {
+                !work
+                    .participants
+                    .iter()
+                    .any(|p| &p.participant_id == id && p.state == "completed")
+            }) || !work.verification_passed()
+            {
+                return self.finish_shell_continuation(
+                    work,
+                    wait,
+                    "failed",
+                    "A prerequisite did not pass. The shell check was not started.",
+                );
+            }
+            let index = work.next_role_index("verifier");
+            let id = format!("V{index}");
+            let participant = Participant {
+                participant_id: id.clone(),
+                index,
+                role: "verifier".to_owned(),
+                backend: "shell".to_owned(),
+                ref_id: id.clone(),
+                turn_id: None,
+                profile: None,
+                slug: wait.wait_id.clone(),
+                task_summary: "Scheduled shell check".to_owned(),
+                owner_scope: None,
+                call_id: None,
+                dispatch_id: None,
+                state: "starting".to_owned(),
+                result_summary: None,
+                verification: Some(Verification {
+                    subject: work.verification_subject(),
+                    challenge: generate_id("verify"),
+                    verdict: None,
+                    evidence: Vec::new(),
+                }),
+                created_at_unix: now,
+                updated_at_unix: now,
+            };
+            work.wait_set.as_mut().unwrap().continuation_id = Some(id);
+            work.participants.push(participant);
+            work.state = "running".to_owned();
+            self.ledger.save_work(work).map_err(|e| e.to_string())?;
+            work.participants.len() - 1
+        };
+        let participant = &work.participants[index];
+        if participant.is_terminal() {
+            let result = participant
+                .result_summary
+                .as_deref()
+                .unwrap_or("No verification receipt")
+                .to_owned();
+            let passed = work.verification_passed();
+            return self.finish_shell_continuation(
+                work,
+                wait,
+                if passed { "completed" } else { "failed" },
+                &result,
+            );
+        }
+        if participant.state == "starting" {
+            let job =
+                crate::shell_job::ShellJob::new(&self.ledger, &work.work_id, &participant.ref_id)
+                    .map_err(|e| e.to_string())?;
+            if job.has_owner().map_err(|e| e.to_string())? {
+                work.participants[index].state = "running".to_owned();
+                self.ledger.save_work(work).map_err(|e| e.to_string())?;
+            } else if let Err(error) = job.spawn(
+                self.ledger.root(),
+                &work.work_id,
+                &check.command,
+                check.cwd.as_deref(),
+            ) {
+                if error.kind() != std::io::ErrorKind::AlreadyExists {
+                    let detail = format!("The shell check could not start: {error}");
+                    work.participants[index].state = "failed".to_owned();
+                    work.participants[index].result_summary = Some(detail.clone());
+                    return self.finish_shell_continuation(work, wait, "failed", &detail);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn finish_shell_continuation(
+        &self,
+        work: &mut WorkRecord,
+        wait: &WaitSet,
+        state: &str,
+        detail: &str,
+    ) -> Result<(), String> {
+        let delivery_id = format!("continuation:{}", wait.wait_id);
+        let now = now_unix();
+        let detail = truncate_chars(detail, 1500);
+        self.ledger
+            .append_event_if_absent(
+                work,
+                &delivery_id,
+                "continuation.finished",
+                "runtime",
+                &detail,
+                json!({"state":state,"verifier":wait.continuation_id}),
+            )
+            .map_err(|e| e.to_string())?;
+        work.state = state.to_owned();
+        work.wait_set.as_mut().unwrap().armed = false;
+        enqueue_delivery_if_absent(
+            work,
+            PendingDelivery {
+                delivery_id,
+                target: "front".to_owned(),
+                kind: state.to_owned(),
+                title: format!("{} — {state}", work.title),
+                payload_text: format!("Work {} {state}\n{detail}", work.work_id),
+                advance_seq_to: None,
+                dispatch: None,
+                receipts_tracked: true,
+                notified: false,
+                attempts: 0,
+                next_attempt_unix: now,
+                last_error: None,
+                created_at_unix: now,
+            },
+        );
+        self.ledger.save_work(work).map_err(|e| e.to_string())
     }
 }
 

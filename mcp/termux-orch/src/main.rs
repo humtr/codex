@@ -270,6 +270,8 @@ mod tests {
             renames: Vec<(String, String)>,
             sends: Vec<(Option<String>, String)>,
             projects: Vec<String>,
+            pending_participant: Option<(String, String)>,
+            pending_participant_sends: u32,
         }
         let mstate = Arc::new(Mutex::new(MockState {
             front_streaming: true,
@@ -278,6 +280,8 @@ mod tests {
             renames: Vec::new(),
             sends: Vec::new(),
             projects: Vec::new(),
+            pending_participant: None,
+            pending_participant_sends: 0,
         }));
         let mstate_srv = Arc::clone(&mstate);
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -338,7 +342,10 @@ mod tests {
                         } else if first.starts_with("GET /control/chats?") {
                             json!({"state":"ok","chats":[{"id":"chat-f2","title":"New Mobile Chat"}]})
                         } else if first.starts_with("GET /control/chats/chat-f2") {
-                            json!({"state":"ok","messages":[{"role":"user","text":"MARKER_F2_CONTINUE please continue"}]})
+                            json!({"state":"ok","chat_id":"chat-f2","messages":[{"role":"user","text":"MARKER_F2_CONTINUE please continue"}]})
+                        } else if first.starts_with("GET /control/chats/chat-uncertain") {
+                            json!({"state":"ok","chat_id":"chat-uncertain","gizmo_id":"g-p-orch1",
+                                "messages":[{"role":"user","text":st.pending_participant.as_ref().unwrap().1}]})
                         } else if first.starts_with("GET /control/chats/chat-l1") {
                             let messages: Vec<_> = st
                                 .sends
@@ -362,6 +369,12 @@ mod tests {
                             let prompt = body["prompt"].as_str().unwrap_or("").to_owned();
                             let drop_response =
                                 st.lose_delivery_reply && prompt.starts_with("[ORCH_DELIVERY ");
+                            if prompt.ends_with("UNCERTAIN_PARTICIPANT") {
+                                st.pending_participant_sends += 1;
+                                st.pending_participant =
+                                    Some((body["lane_id"].as_str().unwrap().to_owned(), prompt));
+                                continue;
+                            }
                             st.sends.push((cid.clone(), prompt));
                             if drop_response {
                                 continue;
@@ -376,7 +389,15 @@ mod tests {
                             json!({"state":"in_progress","chat_id":assigned,"generating":true})
                         } else if first.starts_with("POST /control/observe") {
                             let cid = body["chat_id"].as_str().unwrap_or("");
-                            if cid == "chat-f1" || cid == "chat-f2" {
+                            if let Some((lane, _)) = st
+                                .pending_participant
+                                .as_ref()
+                                .filter(|(lane, _)| body["lane_id"] == *lane)
+                            {
+                                json!({"state":"in_progress","lane_id":lane,"chat_id":"chat-uncertain","generating":true})
+                            } else if cid == "chat-uncertain" {
+                                json!({"state":"settled","chat_id":cid,"generating":false,"assistant_text":"ORIGINAL_RESULT"})
+                            } else if cid == "chat-f1" || cid == "chat-f2" {
                                 if st.front_streaming {
                                     json!({"state":"in_progress","chat_id":cid,"generating":true,"remote_stream_status":"IS_STREAMING"})
                                 } else {
@@ -569,6 +590,16 @@ mod tests {
         assert!(!is_err, "rebind_front failed: {reb}");
         assert_eq!(reb["front_chat_id"], "chat-f2");
         assert_eq!(reb["front_title"], "[F2] Build Pipeline");
+        let (unreadable, error) = handler.call_tool("orch_work", &json!({
+            "action":"rebind_front","call_id":"invalid-front","work_id":wid,"front_chat_id":"missing"
+        }));
+        assert!(error, "{unreadable}");
+        assert_eq!(unreadable["error"], "front_chat_unverified");
+        let rebound = ledger.load_work(&wid).unwrap();
+        assert_eq!(rebound.front.latest_chat_id.as_deref(), Some("chat-f2"));
+        assert!(!ledger
+            .has_user_event_after(&wid, rebound.last_seq - 1)
+            .unwrap());
 
         let (second, error) = handler.call_tool("orch_work", &json!({
             "action":"create", "call_id":"same-scope", "title":"Second Work", "goal":"Reuse project",
@@ -601,6 +632,25 @@ mod tests {
         assert!(!error, "{queued}");
 
         let review_id = second["work_id"].as_str().unwrap();
+        let launch = json!({"action":"register_worker", "call_id":"lost-worker-reply",
+            "work_id":review_id, "backend":"chatgpt", "prompt":"UNCERTAIN_PARTICIPANT"});
+        let (pending, error) = handler.call_tool("orch_dispatch", &launch);
+        assert!(!error, "{pending}");
+        assert_eq!(pending["state"], "pending");
+        assert_eq!(
+            ledger.load_work(review_id).unwrap().participants[0].state,
+            "dispatching"
+        );
+        let (replayed, error) = handler.call_tool("orch_dispatch", &launch);
+        assert!(!error, "{replayed}");
+        assert_eq!(pending["participant"], replayed["participant"]);
+        RelayEngine::new(ledger.clone(), owners.clone())
+            .process_work(review_id)
+            .unwrap();
+        let original = &ledger.load_work(review_id).unwrap().participants[0];
+        assert_eq!(original.ref_id, "chat-uncertain");
+        assert_eq!(original.result_summary.as_deref(), Some("ORIGINAL_RESULT"));
+        assert_eq!(mstate.lock().unwrap().pending_participant_sends, 1);
         let (verifier, error) = handler.call_tool(
             "orch_dispatch",
             &json!({"action":"register_verifier", "call_id":"rejected-review",

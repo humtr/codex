@@ -49,6 +49,7 @@ ordinary chats:
    be promoted in place into Tier 3 (`orchestrated`) by attaching `L1`, carrying
    over running workers, receipts, and history without restarting or duplicating
    in-flight effects.
+   New Works use `direct` when no tier or Lead configuration is supplied.
 4. **Tier 3 — Full Autonomous Orchestration (`tier = "orchestrated"`):** `F`
    creates a `Work` and spawns `L1` (`lead_kind = "codex" | "chatgpt"`, chosen
    by workload: `codex` with `gpt-6-sol-wm xhigh` for multi-hour engineering
@@ -108,7 +109,7 @@ State root: `~/.local/state/codex/orchestration/jobs/<work_id>/` (`0700`,
    - Append-only immutable events deduplicated by `event_id` with monotonic
      `seq`: `worker.completed`, `worker.failed`, `worker.stalled`,
      `verifier.passed`, `verifier.rejected`, `user.message`,
-     `user.scope_updated`, `user.front_rebound`, `timer.deadline`,
+     `user.scope_updated`, `front.rebound`, `timer.deadline`,
      `budget.exhausted`.
    - `R` advances `consumed_seq` only after confirmed wake-up dispatch receipt;
      across crashes, restarts, or `L1 -> L2` handoffs, unconsumed events
@@ -126,6 +127,11 @@ State root: `~/.local/state/codex/orchestration/jobs/<work_id>/` (`0700`,
      - `any_of`: participant IDs where the first settlement/failure wakes immediately
      - `on_user_event`: wake immediately when `Fn` submits a scope update/message
      - `deadline_secs`: stall watchdog timer waking target if no condition fires in time
+   - A direct Work can set `then_verify_shell` with an `all_of` list. The relay
+     starts the fixed shell check after the named prerequisites succeed, using
+     the Work ledger and shell identity receipt. It reports success only
+     after the check and all required verification settle. If a prerequisite
+     fails, it preserves that result and does not start the check.
 
 ---
 
@@ -138,7 +144,10 @@ State root: `~/.local/state/codex/orchestration/jobs/<work_id>/` (`0700`,
   with either explicit `chat_id` or a verified prompt marker. `R` confirms the
   matching `(account_id, chat_id)` via `chatgpt-provider` `GET /control/chats`,
   atomically updates `front.latest_chat_id = Fn`, names the chat using the Work policy,
-  and records `user.front_rebound`.
+  and records `front.rebound`. A missing account pin, unavailable identity,
+  or unreadable target chat prevents rebinding. Moving the Front alone does
+  not trigger a user-event Wait-Set. A previous delivery attempt is reconciled
+  at its original destination.
 - **Safe `inject_and_notify` Delivery:** Before calling `chatgpt-provider`
   `POST /control/send(chat_id=...)` on `F/Fn` or ChatGPT `L`, `R` checks both
   local `activeTurns` and server `/conversation/{id}/stream_status` via
@@ -155,6 +164,17 @@ State root: `~/.local/state/codex/orchestration/jobs/<work_id>/` (`0700`,
   records the returned turn ID. Settlement uses that turn's terminal state
   and result. Older attached records can observe the latest turn in their
   bound thread.
+- **Worker and verifier dispatch:** Register the participant and a durable
+  request ID before sending its first model turn. Codex records the new
+  thread UUID before `turn/start`. ChatGPT dispatch uses a pinned account and
+  request lane. An uncertain dispatch stays pending until the original
+  owner confirms the turn. Repeating the registration does not resend it.
+- **Cancellation:** A cancelling Work blocks new starts. The relay requests
+  interruption of its identified Codex turn or ChatGPT lane. Its detached
+  shell writer sends `SIGTERM` to its process group and publishes an exit
+  receipt when the command ends.
+  Cancellation remains pending while a Work-owned execution is unconfirmed.
+  An attached model session is not interrupted by cancelling the Work.
 - **Verification and completion:** A registered verifier supplies a result
   separately from the terminal status of its turn. A model verifier returns
   the assigned challenge, a `pass`, `fail`, or `inconclusive` verdict, and
@@ -205,15 +225,18 @@ State root: `~/.local/state/codex/orchestration/jobs/<work_id>/` (`0700`,
 
 - A ChatGPT Lead rolls over after a context-limit signal or a configured
   user-turn count. Set `lead_rollover_turns` on `orch_work(create)`; the Work
-  stores it in the budget. The default is 80. Zero disables the turn-count
-  trigger. Rollover bootstrap and replay turns do not count toward the next
+  stores it in the budget. New Works default to zero, which disables the
+  turn-count trigger. Existing Works retain their persisted threshold and
+  older records without the field retain their legacy default. Rollover
+  bootstrap and replay turns do not count toward the next
   generation's threshold.
 - `orch_call(lead_rollover)` accepts `work_id`, optional `reason`, and optional
   `checkpoint_md`. The relay saves the checkpoint and a durable intent before
   requesting the replacement. The Provider checks the live account against
   the pinned account before dispatch, passes that identity to CompletionClient,
-  and sends in the pinned project. The relay confirms the new project's chat
-  and its creation marker, applies the `[L<n>]` title, then persists the new
+  and sends within the Work's project scope, including unscoped chats. The
+  relay confirms the replacement chat and its creation marker, applies the
+  `[L<n>]` title, then persists the new
   generation, history and `lead.rolled_over` Inbox event. Manual rollover can
   return `pending` while the relay reconciles that transaction.
 - Callers can fence a Work mutation with `expected_lead_generation`. Where

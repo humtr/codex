@@ -34,6 +34,13 @@ shorter display name. Add `@branch` to the scope for a separate branch project.
 Set `session_prefixes` to customize the role prefixes for each Work.
 [Project and session naming](docs/spec/ORCHESTRATION.md#3-project-organization-and-consistent-session-naming)
 
+To make the optional local Orch tools available in a selected Codex profile,
+run `codex mcp add termux-orch -- termux-orch mcp` with that profile's
+`CODEX_HOME`. Use `codex mcp list` to check the registration. In ChatGPT, use
+the configured `@TermuxOrch` connector. Each configuration makes the tool
+available to the session. Automatic selection depends on the session and its
+available tools.
+
 The account-free ChatGPT Desktop boot probe uses the AppHost supervisor from
 the matching `chatgpt-provider` build. Use
 `manager.py probe --provider-bin /path/to/chatgpt-provider` to test a local build

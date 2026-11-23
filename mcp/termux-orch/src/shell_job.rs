@@ -13,6 +13,8 @@ use std::time::{Duration, Instant};
 const MAX_TAIL: usize = 8192;
 const START_GRACE_SECS: u64 = 10;
 
+extern "C" fn keep_receipt_writer_alive(_: libc::c_int) {}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 struct Identity {
     pid: u32,
@@ -63,6 +65,32 @@ impl ShellJob {
             ));
         }
         Ok(identity)
+    }
+
+    pub fn has_owner(&self) -> io::Result<bool> {
+        match self.identity() {
+            Ok(_) => Ok(true),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(false),
+            Err(error) => Err(error),
+        }
+    }
+
+    pub fn confirmed_exit(&self) -> io::Result<bool> {
+        match self.identity() {
+            Ok(identity) => {
+                if self.receipt(identity)?.is_none() {
+                    return Ok(false);
+                }
+                // A recycled group leader cannot represent the old process group.
+                if process_stat(identity.pid).is_ok_and(|(start, _)| start != identity.start_ticks)
+                {
+                    return Ok(true);
+                }
+                Ok(!live_group_members(identity.pid)?)
+            }
+            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(true),
+            Err(error) => Err(error),
+        }
     }
 
     pub fn validate_attach(&self) -> io::Result<()> {
@@ -129,7 +157,7 @@ impl ShellJob {
         {
             let _lock = ledger.lock_work(work_id)?;
             let work = ledger.load_work(work_id)?;
-            if work.is_terminal()
+            if !work.can_start()
                 || !work
                     .participants
                     .iter()
@@ -137,9 +165,14 @@ impl ShellJob {
             {
                 return Err(io::Error::other("shell intent no longer active"));
             }
+            // Multiple relay attempts can launch receipt writers after a crash.
+            // Under the Work lock only the first writer may start the command.
+            if self.has_owner()? {
+                return Ok(());
+            }
             write_atomic_private(&self.path("meta.json"), &serde_json::to_vec(&identity)?)?;
         }
-        let exit_code = match self.run_command(command) {
+        let exit_code = match self.run_command(ledger, work_id, command) {
             Ok(code) => code,
             Err(e) => {
                 let _ = write_atomic_private(&self.path("output.log"), e.to_string().as_bytes());
@@ -155,7 +188,24 @@ impl ShellJob {
         write_atomic_private(&self.path("exit.json"), &serde_json::to_vec(&receipt)?)
     }
 
-    fn run_command(&self, command: &str) -> io::Result<i32> {
+    fn run_command(&self, ledger: &Ledger, work_id: &str, command: &str) -> io::Result<i32> {
+        let writer_pid = std::process::id() as libc::pid_t;
+        if unsafe { libc::getpgrp() } != writer_pid {
+            return Err(io::Error::other(
+                "shell receipt writer does not own its process group",
+            ));
+        }
+        // A caught handler is reset on exec, so the shell and its commands
+        // receive TERM normally while the writer can still record their exit.
+        if unsafe {
+            libc::signal(
+                libc::SIGTERM,
+                keep_receipt_writer_alive as *const () as libc::sighandler_t,
+            )
+        } == libc::SIG_ERR
+        {
+            return Err(io::Error::last_os_error());
+        }
         let (mut capture, output) = UnixStream::pair()?;
         capture.set_nonblocking(true)?;
         let error_output = output.try_clone()?;
@@ -178,11 +228,28 @@ impl ShellJob {
                 drain_tail(&mut capture, &mut buf, &mut tail)?;
             }
             if status.is_some() || last_flush.elapsed() >= Duration::from_secs(1) {
+                if status.is_none()
+                    && ledger
+                        .load_work(work_id)
+                        .is_ok_and(|w| w.state == "cancelling")
+                {
+                    let _ = unsafe { libc::kill(-writer_pid, libc::SIGTERM) };
+                }
                 // Keep execution and its authoritative exit status independent of tail-log errors.
                 let _ = write_atomic_private(&self.path("output.log"), &tail);
                 last_flush = Instant::now();
             }
             if let Some(status) = status {
+                if ledger
+                    .load_work(work_id)
+                    .is_ok_and(|w| w.state == "cancelling")
+                {
+                    // The command can exit before a descendant finishes handling TERM.
+                    while live_group_members(writer_pid as u32)? {
+                        let _ = unsafe { libc::kill(-writer_pid, libc::SIGTERM) };
+                        std::thread::sleep(Duration::from_millis(100));
+                    }
+                }
                 return Ok(status
                     .code()
                     .unwrap_or_else(|| 128 + status.signal().unwrap_or(0)));
@@ -292,6 +359,38 @@ fn process_alive(identity: Identity) -> io::Result<bool> {
         Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(false),
         Err(e) => Err(e),
     }
+}
+
+fn live_group_members(writer_pid: u32) -> io::Result<bool> {
+    for entry in std::fs::read_dir("/proc")? {
+        let entry = entry?;
+        let Some(pid) = entry
+            .file_name()
+            .to_str()
+            .and_then(|s| s.parse::<u32>().ok())
+        else {
+            continue;
+        };
+        if pid == writer_pid {
+            continue;
+        }
+        let Ok(stat) = std::fs::read_to_string(entry.path().join("stat")) else {
+            continue;
+        };
+        let Some((_, fields)) = stat.rsplit_once(')') else {
+            continue;
+        };
+        let mut fields = fields.split_whitespace();
+        if matches!(fields.next(), Some("Z" | "X" | "x")) {
+            continue;
+        }
+        let group = fields.nth(1).and_then(|value| value.parse::<u32>().ok());
+        let session = fields.next().and_then(|value| value.parse::<u32>().ok());
+        if group == Some(writer_pid) && session == Some(writer_pid) {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 #[cfg(test)]

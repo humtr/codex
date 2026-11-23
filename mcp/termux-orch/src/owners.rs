@@ -176,14 +176,7 @@ impl OwnerClient {
         let chat = self.chatgpt_read_chat(chat_id, 100)?;
         Ok(chat["state"] == "ok"
             && project.is_none_or(|project| chat["gizmo_id"] == project)
-            && chat["messages"].as_array().is_some_and(|rows| {
-                rows.iter().any(|row| {
-                    row["role"] == "user"
-                        && row["text"]
-                            .as_str()
-                            .is_some_and(|text| text.lines().next() == Some(marker))
-                })
-            }))
+            && has_user_marker(&chat, marker))
     }
 
     pub fn chatgpt_rename_chat(&self, chat_id: &str, title: &str) -> Result<Value, String> {
@@ -347,13 +340,51 @@ impl OwnerClient {
         )
     }
 
-    pub fn chatgpt_project_chats(&self, project_id: &str) -> Result<Value, String> {
+    pub fn chatgpt_stop_lane(&self, lane_id: &str, chat_id: &str) -> Result<Value, String> {
         self.control_call(
-            "GET",
-            &format!("/control/projects/{}?limit=30", url_encode(project_id)),
-            None,
+            "POST",
+            "/control/stop",
+            Some(&json!({
+                "lane_id":lane_id, "chat_id":chat_id,
+            })),
             READ_TIMEOUT,
         )
+    }
+
+    pub fn chatgpt_dispatch_participant(
+        &self,
+        work: &crate::ledger::WorkRecord,
+        lane_id: &str,
+        prompt: &str,
+        model: Option<&str>,
+        reasoning_effort: Option<&str>,
+    ) -> Result<Value, String> {
+        self.control_call(
+            "POST",
+            "/control/send",
+            Some(&json!({
+                "expected_account_id":work.account_id, "project_id":work.project_id,
+                "lane_id":lane_id, "prompt":prompt, "model":model,
+                "reasoning_effort":reasoning_effort, "wait_ms":5000
+            })),
+            SEND_TIMEOUT,
+        )
+    }
+
+    pub fn chatgpt_chat_page(
+        &self,
+        project: Option<&str>,
+        cursor: Option<&str>,
+    ) -> Result<Value, String> {
+        let mut path = project.map_or_else(
+            || "/control/chats?limit=30&archived=false".to_owned(),
+            |project| format!("/control/projects/{}?limit=30", url_encode(project)),
+        );
+        if let Some(cursor) = cursor {
+            path.push_str("&cursor=");
+            path.push_str(&url_encode(cursor));
+        }
+        self.control_call("GET", &path, None, READ_TIMEOUT)
     }
 
     pub fn chatgpt_send_pinned(
@@ -471,12 +502,38 @@ impl OwnerClient {
         })
     }
 
+    pub fn codex_interrupt_turn(
+        &self,
+        profile: Option<&str>,
+        thread_id: &str,
+        turn_id: &str,
+    ) -> Result<(), String> {
+        let mut client = self.connect_codex(profile)?;
+        let result = client.call(
+            "turn/interrupt",
+            json!({"threadId":thread_id,"turnId":turn_id}),
+        );
+        client.close();
+        result.map(|_| ()).map_err(|e| e.to_string())
+    }
+
     pub fn codex_has_delivery_marker(
         &self,
         profile: Option<&str>,
         thread_id: &str,
         marker: &str,
     ) -> Result<bool, String> {
+        Ok(self
+            .codex_find_marked_turn(profile, thread_id, marker)?
+            .is_some())
+    }
+
+    pub fn codex_find_marked_turn(
+        &self,
+        profile: Option<&str>,
+        thread_id: &str,
+        marker: &str,
+    ) -> Result<Option<String>, String> {
         let mut client = self.connect_codex(profile)?;
         let raw = client
             .read_thread_raw(thread_id, true)
@@ -484,8 +541,8 @@ impl OwnerClient {
         client.close();
         Ok(raw.get("thread").unwrap_or(&raw)["turns"]
             .as_array()
-            .is_some_and(|turns| {
-                turns.iter().any(|turn| {
+            .and_then(|turns| {
+                turns.iter().find(|turn| {
                     turn["items"].as_array().is_some_and(|items| {
                         items.iter().any(|item| {
                             item["type"] == "userMessage"
@@ -501,7 +558,9 @@ impl OwnerClient {
                         })
                     })
                 })
-            }))
+            })
+            .and_then(|turn| turn["id"].as_str())
+            .map(ToOwned::to_owned))
     }
 
     pub fn codex_rename_thread(
@@ -529,6 +588,7 @@ impl OwnerClient {
         model: Option<&str>,
         model_provider: Option<&str>,
         approval_policy: Option<&str>,
+        before_turn: impl FnOnce(&str) -> Result<(), String>,
     ) -> Result<(String, Option<String>), String> {
         let mut client = self.connect_codex(profile)?;
         let tid = if let Some(existing) = thread_id {
@@ -561,6 +621,8 @@ impl OwnerClient {
                 .ok_or_else(|| "codex thread/start missing thread id".to_owned())?
                 .to_owned()
         };
+
+        before_turn(&tid)?;
 
         let mut turn_params = json!({
             "threadId": tid,
@@ -633,6 +695,17 @@ pub fn chatgpt_account_identity(status: &Value) -> Option<&str> {
     ["account_id", "id"]
         .into_iter()
         .find_map(|key| account[key].as_str().filter(|id| !id.is_empty()))
+}
+
+pub fn has_user_marker(chat: &Value, marker: &str) -> bool {
+    chat["messages"].as_array().is_some_and(|rows| {
+        rows.iter().any(|row| {
+            row["role"] == "user"
+                && row["text"]
+                    .as_str()
+                    .is_some_and(|text| text.lines().next() == Some(marker))
+        })
+    })
 }
 
 fn codex_turn_evidence(thread: &Value, turn_id: Option<&str>) -> (Option<String>, String) {

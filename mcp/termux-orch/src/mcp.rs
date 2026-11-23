@@ -14,7 +14,8 @@ use crate::ledger::{
     format_front_title, format_lead_title, format_participant_title, generate_id, is_safe_work_id,
     now_unix, read_private_file, truncate_chars, write_atomic_private, FrontBinding,
     FrontHistoryEntry, LeadBinding, LeadHistoryEntry, Ledger, Participant, PendingDelivery,
-    ProjectBinding, SessionPrefixes, Verification, WaitSet, WorkBudget, WorkRecord, WORK_SCHEMA,
+    ProjectBinding, SessionPrefixes, ShellContinuation, Verification, WaitSet, WorkBudget,
+    WorkRecord, WORK_SCHEMA,
 };
 use crate::owners::OwnerClient;
 use crate::relay::{enqueue_delivery_if_absent, RelayEngine};
@@ -55,7 +56,7 @@ pub fn build_static_tools() -> Vec<ToolDef> {
         ),
         ToolDef::new(
             "orch_work",
-            "Create or manage a durable Work lifecycle. Reuse a repository or branch project across Works with project_scope, or select one with project_id. Optional session_prefixes customize the role titles.",
+            "Create or manage a durable Work. Use the current session for questions and steps it can finish itself. Register a Work when follow-up execution or delivery must survive this session. Multi-step instructions still need coordination in the current session. Use direct for a fixed sequence and do not create a separate Lead unless needed. Reuse repository projects with project_scope.",
             json!({
                 "type": "object",
                 "properties": {
@@ -115,10 +116,16 @@ pub fn build_static_tools() -> Vec<ToolDef> {
                     "prompt": { "type": "string", "minLength": 1, "maxLength": 32768 },
                     "cwd": { "type": "string", "minLength": 1, "maxLength": 512 },
                     "model": { "type": "string", "minLength": 1, "maxLength": 128 },
+                    "model_provider": { "type":"string", "minLength":1, "maxLength":128, "description":"Configured Codex model provider for a new Codex participant" },
                     "reasoning_effort": { "type": "string", "minLength": 1, "maxLength": 32 },
                     "approval_policy": { "type": "string", "enum": ["untrusted", "on-failure", "on-request", "never"] },
                     "wake_target": { "type": "string", "enum": ["lead", "front"] },
                     "all_of": { "type": "array", "items": { "type": "string", "maxLength": 96 }, "maxItems": 32 },
+                    "then_verify_shell": { "type":"object", "properties":{
+                        "command":{"type":"string","minLength":1,"maxLength":65536},
+                        "cwd":{"type":"string","minLength":1,"maxLength":512}
+                    }, "required":["command"], "additionalProperties":false,
+                    "description":"Run a fixed shell check after every all_of prerequisite succeeds, then report to the Front. No Lead turn is started." },
                     "any_of": { "type": "array", "items": { "type": "string", "maxLength": 96 }, "maxItems": 32 },
                     "on_user_event": { "type": "boolean" },
                     "deadline_secs": { "type": "integer", "minimum": 5, "maximum": 86400 },
@@ -677,10 +684,23 @@ impl OrchMcpHandler {
                 false,
             );
         };
-        let tier = obj
-            .get("tier")
-            .and_then(Value::as_str)
-            .unwrap_or("orchestrated");
+        let tier = obj.get("tier").and_then(Value::as_str).unwrap_or_else(|| {
+            if [
+                "lead_kind",
+                "lead_ref_id",
+                "lead_profile",
+                "lead_model",
+                "lead_cwd",
+                "lead_reasoning_effort",
+            ]
+            .iter()
+            .any(|k| obj.contains_key(*k))
+            {
+                "orchestrated"
+            } else {
+                "direct"
+            }
+        });
         if tier != "direct" && tier != "orchestrated" {
             return (
                 fail("invalid_arguments", "'tier' must be direct|orchestrated"),
@@ -989,6 +1009,7 @@ impl OrchMcpHandler {
                             model.as_deref(),
                             None,
                             Some("never"),
+                            |_| Ok(()),
                         )
                         .map_err(|e| fail("lead_spawn_failed", e))?;
                     tid
@@ -1052,6 +1073,14 @@ impl OrchMcpHandler {
             Ok(w) => w,
             Err(e) => return (fail("work_not_found", e.to_string()), false),
         };
+        if !work.can_start()
+            || work
+                .wait_set
+                .as_ref()
+                .is_some_and(|w| w.armed && w.then_verify_shell.is_some())
+        {
+            return (fail("work_unavailable", "Work cannot start a Lead"), false);
+        }
         if let Err(e) = check_lead_fence(&work, obj, work.lead.is_some()) {
             return (e, false);
         }
@@ -1130,6 +1159,42 @@ impl OrchMcpHandler {
                 false,
             );
         };
+        let _lock = match self.ledger.lock_work(wid) {
+            Ok(l) => l,
+            Err(e) => return (fail("ledger_lock_failed", e.to_string()), false),
+        };
+        let mut work = match self.ledger.load_work(wid) {
+            Ok(w) => w,
+            Err(e) => return (fail("work_not_found", e.to_string()), false),
+        };
+        if let Err(e) = check_lead_fence(&work, obj, true) {
+            return (e, false);
+        }
+
+        let Some(pinned) = work.account_id.as_deref() else {
+            return (
+                fail("pinned_account_required", "Work has no ChatGPT account pin"),
+                false,
+            );
+        };
+        match self.owners.chatgpt_account_id() {
+            Ok(current) if current == pinned => (),
+            Ok(_) => {
+                return (
+                    fail("account_mismatch", "Work belongs to a different account"),
+                    false,
+                )
+            }
+            Err(_) => {
+                return (
+                    fail(
+                        "account_unavailable",
+                        "The active ChatGPT account could not be confirmed",
+                    ),
+                    false,
+                )
+            }
+        }
         let resolved_chat_id = if let Some(cid) = obj
             .get("front_chat_id")
             .and_then(Value::as_str)
@@ -1157,32 +1222,40 @@ impl OrchMcpHandler {
             );
         };
 
-        let _lock = match self.ledger.lock_work(wid) {
-            Ok(l) => l,
-            Err(e) => return (fail("ledger_lock_failed", e.to_string()), false),
-        };
-        let mut work = match self.ledger.load_work(wid) {
-            Ok(w) => w,
-            Err(e) => return (fail("work_not_found", e.to_string()), false),
-        };
-        if let Err(e) = check_lead_fence(&work, obj, true) {
-            return (e, false);
-        }
-
-        // Pin account_id check (fail closed on cross-account mismatch).
-        if let (Some(pinned), Some(current)) = (&work.account_id, self.current_account_id()) {
-            if pinned != &current {
+        match self.owners.chatgpt_read_chat(&resolved_chat_id, 1) {
+            Ok(chat) if chat["state"] == "ok" && chat["chat_id"] == resolved_chat_id => (),
+            _ => {
                 return (
                     fail(
-                        "account_mismatch",
-                        format!("work belongs to account '{pinned}', current app is '{current}'"),
+                        "front_chat_unverified",
+                        "The active account could not read the target chat",
                     ),
                     false,
-                );
+                )
             }
+        }
+        if !self
+            .owners
+            .chatgpt_account_id()
+            .is_ok_and(|current| current == pinned)
+        {
+            return (
+                fail(
+                    "account_unavailable",
+                    "ChatGPT account changed during verification",
+                ),
+                false,
+            );
         }
 
         let now = now_unix();
+        if work.front.latest_chat_id.as_deref() == Some(&resolved_chat_id) {
+            return (
+                json!({"state":"ok", "work_id":wid, "front_generation":work.front.generation,
+                "front_chat_id":resolved_chat_id, "work_state":work.state}),
+                true,
+            );
+        }
         let next_gen = work.front.generation + 1;
         work.front.generation = next_gen;
         work.front.latest_chat_id = Some(resolved_chat_id.clone());
@@ -1201,7 +1274,7 @@ impl OrchMcpHandler {
         let _ = self.ledger.append_event_if_absent(
             &mut work,
             &format!("rebind:{next_gen}:{resolved_chat_id}"),
-            "user.front_rebound",
+            "front.rebound",
             &format!("F{next_gen}"),
             &format!("Front rebound to F{next_gen} ({resolved_chat_id})"),
             json!({ "generation": next_gen, "chat_id": resolved_chat_id }),
@@ -1320,19 +1393,23 @@ impl OrchMcpHandler {
         if let Err(e) = check_lead_fence(&work, obj, true) {
             return (e, false);
         }
-        work.state = "cancelled".to_owned();
+        if work.is_terminal() {
+            return (fail("work_already_terminal", &work.state), false);
+        }
+        work.state = "cancelling".to_owned();
         if let Some(ws) = work.wait_set.as_mut() {
             ws.armed = false;
         }
-        work.pending_deliveries.clear();
+        work.pending_deliveries
+            .retain(|delivery| delivery.dispatch.is_some());
         let reason = obj
             .get("reason")
             .and_then(Value::as_str)
             .unwrap_or("cancelled by user");
         let _ = self.ledger.append_event_if_absent(
             &mut work,
-            "work:cancelled",
-            "work.cancelled",
+            "work:cancel_requested",
+            "work.cancel_requested",
             "front",
             reason,
             json!({ "reason": reason }),
@@ -1344,7 +1421,7 @@ impl OrchMcpHandler {
             json!({
                 "state": "ok",
                 "work_id": work.work_id,
-                "work_state": "cancelled"
+                "work_state": work.state
             }),
             true,
         )
@@ -1372,10 +1449,12 @@ impl OrchMcpHandler {
                 "command",
                 "cwd",
                 "model",
+                "model_provider",
                 "reasoning_effort",
                 "approval_policy",
                 "wake_target",
                 "all_of",
+                "then_verify_shell",
                 "any_of",
                 "on_user_event",
                 "deadline_secs",
@@ -1453,11 +1532,33 @@ impl OrchMcpHandler {
         if let Err(e) = check_lead_fence(&work, obj, true) {
             return (e, false);
         }
-        if work.is_terminal() {
+        if !work.can_start() {
             return (
                 fail(
                     "work_already_terminal",
                     format!("work '{wid}' is already {}", work.state),
+                ),
+                false,
+            );
+        }
+        if work.participants.iter().any(|p| p.call_id == call_id) {
+            return (
+                fail(
+                    "participant_call_already_registered",
+                    "Use the original participant",
+                ),
+                false,
+            );
+        }
+        if work
+            .wait_set
+            .as_ref()
+            .is_some_and(|ws| ws.armed && ws.then_verify_shell.is_some())
+        {
+            return (
+                fail(
+                    "continuation_armed",
+                    "The fixed continuation owns this Work",
                 ),
                 false,
             );
@@ -1522,7 +1623,6 @@ impl OrchMcpHandler {
                 false,
             );
         }
-        let mut turn_id = None;
         let ref_id = if backend == "shell" {
             let receipt_id = existing.unwrap_or(&participant_id);
             if work
@@ -1540,123 +1640,160 @@ impl OrchMcpHandler {
                 }
             }
             receipt_id.to_owned()
-        } else if let Some(existing) = existing {
-            existing.to_owned()
         } else {
-            let Some(prompt) = obj
-                .get("prompt")
-                .and_then(Value::as_str)
-                .map(str::trim)
-                .filter(|s| !s.is_empty())
-            else {
-                return (
-                    fail(
-                        "invalid_arguments",
-                        "provide existing 'ref_id' or 'prompt' to spawn participant",
-                    ),
-                    false,
-                );
-            };
-            let verifier_prompt;
-            let prompt = if let Some(verification) = &verification {
+            existing.unwrap_or_default().to_owned()
+        };
+        let launch = backend != "shell" && existing.is_none();
+        if launch && prompt.is_none_or(|p| p.trim().is_empty()) {
+            return (
+                fail("invalid_arguments", "provide a prompt or existing ref_id"),
+                false,
+            );
+        }
+        if launch && backend == "chatgpt" && work.account_id.is_none() {
+            return (
+                fail("pinned_account_required", "Work has no ChatGPT account pin"),
+                false,
+            );
+        }
+        let now = now_unix();
+        let mut participant = Participant {
+            participant_id: participant_id.clone(),
+            index,
+            role: role.to_owned(),
+            backend: backend.to_owned(),
+            ref_id,
+            turn_id: None,
+            profile,
+            slug: slug.to_owned(),
+            task_summary: task_summary.to_owned(),
+            owner_scope,
+            call_id,
+            dispatch_id: launch.then(|| generate_id("dispatch")),
+            state: if launch { "dispatching" } else { "running" }.to_owned(),
+            result_summary: None,
+            verification,
+            created_at_unix: now,
+            updated_at_unix: now,
+        };
+        if let Some(id) = &participant.dispatch_id {
+            let position = work.participants.len();
+            work.participants.push(participant.clone());
+            if let Err(error) = self.ledger.save_work(&work) {
+                return (fail("ledger_write_failed", error.to_string()), false);
+            }
+            let mut text = format!(
+                "[ORCH_DISPATCH {id}]\n{}",
+                prompt.unwrap_or_default().trim()
+            );
+            if let Some(verification) = &participant.verification {
                 let result = json!({
                     "challenge": verification.challenge,
                     "verdict": "pass|fail|inconclusive",
                     "evidence": ["exact artifact or test result inspected"]
                 });
-                verifier_prompt = format!(
-                    "{prompt}\n\nReview the requested subject without making changes. Return only \
-                     a JSON object of this shape: {result}. Use one verdict, repeat the challenge \
-                     verbatim, and cite concrete evidence in a non-empty array."
-                );
-                verifier_prompt.as_str()
-            } else {
-                prompt
-            };
-            match backend {
-                "codex" => {
-                    match self.owners.codex_dispatch_turn(
-                        profile.as_deref(),
+                text.push_str(&format!(
+                    "\n\nReview the requested subject without making changes. Return only a JSON \
+                     object of this shape: {result}. Use one verdict, repeat the challenge verbatim, \
+                     and cite concrete evidence in a non-empty array."
+                ));
+            }
+            let model = obj.get("model").and_then(Value::as_str);
+            let result = if backend == "codex" {
+                self.owners
+                    .codex_dispatch_turn(
+                        participant.profile.as_deref(),
                         None,
                         obj.get("cwd").and_then(Value::as_str),
-                        prompt,
-                        obj.get("model").and_then(Value::as_str),
-                        None,
+                        &text,
+                        model,
+                        obj.get("model_provider").and_then(Value::as_str),
                         obj.get("approval_policy").and_then(Value::as_str),
-                    ) {
-                        Ok((tid, observed_turn)) => {
-                            turn_id = observed_turn;
-                            tid
-                        }
-                        Err(e) => return (fail("participant_spawn_failed", e), false),
-                    }
-                }
-                "chatgpt" => {
-                    match self.owners.chatgpt_send(
-                        None,
-                        work.project_id.as_deref(),
-                        prompt,
-                        obj.get("model").and_then(Value::as_str),
-                        obj.get("reasoning_effort").and_then(Value::as_str),
-                        5_000,
-                    ) {
-                        Ok(val) => match val.get("chat_id").and_then(Value::as_str) {
-                            Some(cid) => cid.to_owned(),
-                            None => {
-                                return (
-                                    fail(
-                                        "participant_spawn_failed",
-                                        "chatgpt_send returned no chat_id",
-                                    ),
-                                    false,
-                                )
-                            }
+                        |tid| {
+                            work.participants[position].ref_id = tid.to_owned();
+                            self.ledger.save_work(&work).map_err(|e| e.to_string())
                         },
-                        Err(e) => return (fail("participant_spawn_failed", e), false),
+                    )
+                    .and_then(|(tid, turn_id)| {
+                        turn_id
+                            .map(|turn| (tid, Some(turn)))
+                            .ok_or("missing turn ID".to_owned())
+                    })
+            } else {
+                self.owners
+                    .chatgpt_dispatch_participant(
+                        &work,
+                        id,
+                        &text,
+                        model,
+                        obj.get("reasoning_effort").and_then(Value::as_str),
+                    )
+                    .and_then(|receipt| {
+                        if crate::rollover::rejected_before_send(&receipt) {
+                            work.participants[position].state = "failed".to_owned();
+                            work.participants[position].result_summary =
+                                receipt["error"].as_str().map(ToOwned::to_owned);
+                            self.ledger.save_work(&work).map_err(|e| e.to_string())?;
+                            return Err("owner rejected the request before dispatch".to_owned());
+                        }
+                        receipt["chat_id"]
+                            .as_str()
+                            .filter(|id| {
+                                !id.is_empty()
+                                    && matches!(
+                                        receipt["state"].as_str(),
+                                        Some("settled" | "in_progress")
+                                    )
+                            })
+                            .map(|id| (id.to_owned(), None))
+                            .ok_or("missing confirmed ChatGPT chat ID".to_owned())
+                    })
+            };
+            match result {
+                Ok((ref_id, turn_id)) => {
+                    participant.ref_id = ref_id;
+                    participant.turn_id = turn_id;
+                    participant.state = "running".to_owned();
+                    work.participants[position] = participant.clone();
+                    if let Err(error) = self.ledger.save_work(&work) {
+                        return (
+                            fail("dispatch_confirmation_pending", error.to_string()),
+                            true,
+                        );
                     }
                 }
-                _ => unreachable!(),
+                Err(error) => {
+                    let original = &work.participants[position];
+                    return (
+                        json!({"state":if original.state == "failed" {"error"} else {"pending"},
+                            "work_id":wid, "participant":original, "detail":error}),
+                        true,
+                    );
+                }
             }
-        };
-
+        } else {
+            work.participants.push(participant.clone());
+        }
+        let ref_id = &participant.ref_id;
         let mut warnings = Vec::new();
         match backend {
             "chatgpt" => {
-                if let Err(e) = self.owners.chatgpt_rename_chat(&ref_id, &session_title) {
+                if let Err(e) = self.owners.chatgpt_rename_chat(ref_id, &session_title) {
                     warnings.push(format!("rename_skipped: {e}"));
                 }
             }
             "codex" => {
-                if let Err(e) =
-                    self.owners
-                        .codex_rename_thread(profile.as_deref(), &ref_id, &session_title)
-                {
+                if let Err(e) = self.owners.codex_rename_thread(
+                    participant.profile.as_deref(),
+                    ref_id,
+                    &session_title,
+                ) {
                     warnings.push(format!("rename_skipped: {e}"));
                 }
             }
             _ => {}
         }
 
-        let now = now_unix();
-        let participant = Participant {
-            participant_id: participant_id.clone(),
-            index,
-            role: role.to_owned(),
-            backend: backend.to_owned(),
-            ref_id: ref_id.clone(),
-            turn_id,
-            profile,
-            slug: slug.to_owned(),
-            task_summary: task_summary.to_owned(),
-            owner_scope,
-            call_id,
-            state: "running".to_owned(),
-            result_summary: None,
-            verification,
-            created_at_unix: now,
-            updated_at_unix: now,
-        };
-        work.participants.push(participant.clone());
         let _ = self.ledger.append_event_if_absent(
             &mut work,
             &format!("registered:{participant_id}:{ref_id}"),
@@ -1672,7 +1809,7 @@ impl OrchMcpHandler {
         if backend == "shell" && existing.is_none() {
             let command = shell_command.or(prompt).unwrap_or_default();
             let result =
-                crate::shell_job::ShellJob::new(&self.ledger, wid, &ref_id).and_then(|job| {
+                crate::shell_job::ShellJob::new(&self.ledger, wid, ref_id).and_then(|job| {
                     job.spawn(
                         self.ledger.root(),
                         wid,
@@ -1726,11 +1863,24 @@ impl OrchMcpHandler {
         if let Err(e) = check_lead_fence(&work, obj, true) {
             return (e, false);
         }
-        if work.is_terminal() {
+        if !work.can_start() {
             return (
                 fail(
                     "work_already_terminal",
                     "cannot arm Wait-Set on terminal work",
+                ),
+                false,
+            );
+        }
+        if work
+            .wait_set
+            .as_ref()
+            .is_some_and(|ws| ws.armed && ws.then_verify_shell.is_some())
+        {
+            return (
+                fail(
+                    "continuation_armed",
+                    "Clear the pending continuation or cancel the Work",
                 ),
                 false,
             );
@@ -1775,10 +1925,34 @@ impl OrchMcpHandler {
                     .collect()
             })
             .unwrap_or_default();
+        let then_verify_shell = match obj.get("then_verify_shell") {
+            Some(value) => match serde_json::from_value::<ShellContinuation>(value.clone()) {
+                Ok(next)
+                    if !next.command.trim().is_empty()
+                        && next.command.len() <= 65536
+                        && !next.command.contains('\0')
+                        && next.cwd.as_ref().is_none_or(|cwd| {
+                            !cwd.is_empty() && cwd.len() <= 512 && !cwd.contains('\0')
+                        }) =>
+                {
+                    Some(next)
+                }
+                _ => {
+                    return (
+                        fail(
+                            "invalid_arguments",
+                            "Invalid then_verify_shell command or cwd",
+                        ),
+                        false,
+                    )
+                }
+            },
+            None => None,
+        };
         let on_user_event = obj
             .get("on_user_event")
             .and_then(Value::as_bool)
-            .unwrap_or(true);
+            .unwrap_or(then_verify_shell.is_none());
         let now = now_unix();
         let deadline_unix = obj
             .get("deadline_secs")
@@ -1789,6 +1963,24 @@ impl OrchMcpHandler {
                 fail(
                     "invalid_wait_set",
                     "Wait-Set requires at least one of all_of, any_of, or deadline_secs",
+                ),
+                false,
+            );
+        }
+        if then_verify_shell.is_some()
+            && (work.tier != "direct"
+                || wake_target != "front"
+                || all_of.is_empty()
+                || !any_of.is_empty()
+                || on_user_event
+                || all_of
+                    .iter()
+                    .any(|id| !work.participants.iter().any(|p| &p.participant_id == id)))
+        {
+            return (
+                fail(
+                    "invalid_wait_set",
+                    "Fixed shell verification needs a direct Work and valid all_of prerequisites",
                 ),
                 false,
             );
@@ -1805,6 +1997,8 @@ impl OrchMcpHandler {
             deadline_unix,
             armed: true,
             created_at_unix: now,
+            then_verify_shell,
+            continuation_id: None,
         };
         work.wait_set = Some(ws.clone());
         work.state = "waiting".to_owned();
@@ -1843,6 +2037,15 @@ impl OrchMcpHandler {
             return (e, false);
         }
         if let Some(ws) = work.wait_set.as_mut() {
+            if ws.armed && ws.continuation_id.is_some() {
+                return (
+                    fail(
+                        "continuation_started",
+                        "Cancel the Work to stop a started continuation",
+                    ),
+                    false,
+                );
+            }
             ws.armed = false;
         }
         if work.state == "waiting" {
@@ -1939,8 +2142,22 @@ impl OrchMcpHandler {
                 if let Err(e) = check_lead_fence(&work, obj, true) {
                     return (e, false);
                 }
-                if work.is_terminal() {
+                if !work.can_start() {
                     return (fail("work_already_terminal", &work.state), false);
+                }
+                if matches!(action, "complete" | "fail")
+                    && work
+                        .wait_set
+                        .as_ref()
+                        .is_some_and(|w| w.armed && w.then_verify_shell.is_some())
+                {
+                    return (
+                        fail(
+                            "continuation_armed",
+                            "The fixed continuation owns the final report",
+                        ),
+                        false,
+                    );
                 }
                 if action == "complete" {
                     if work.participants.iter().any(|p| !p.is_terminal()) {
@@ -2224,7 +2441,7 @@ impl OrchMcpHandler {
                 if let Err(e) = check_lead_fence(&work, ext_args, true) {
                     return e;
                 }
-                if work.is_terminal() {
+                if !work.can_start() {
                     return fail("work_already_terminal", &work.state);
                 }
                 let current_kind = work
