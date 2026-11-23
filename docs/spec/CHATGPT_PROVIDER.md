@@ -18,11 +18,13 @@ and [providers/chatgpt/src/main.rs](../../providers/chatgpt/src/main.rs).
     atomic symlinks with rollback (`activate` / `rollback`) preserving
     `previous` on re-activation of the current version.
   - `viewer/` — optional static noVNC assets served over capability-scoped
-    `/viewer/{capability}/...`.
+    `/viewer/{capability}/...` (provisioned/verified via
+    `host/chatgpt-desktop/manager.py viewer --source <dir>`).
 - **Separated persistent login profile:** User login state (both Electron's
   Chromium profile `chromium/` and its embedded Codex app-server OAuth store
   `.codex/`) lives solely under `~/.local/share/codex/chatgpt-desktop/profile/`
-  (`0700`, `flock`-leased via sibling `.lock` file by `chatgpt-provider`) and is
+  (`0700`, `flock`-leased via sibling `.lock` file by `chatgpt-provider`;
+  bounded boot/crash diagnostics written to `profile/host.log`) and is
   never deleted during rootfs installation, activation, or rollback.
 - **Cryptographic admission:** `InRelease` is verified via `gpgv` against the
   pinned RSA-4096 keyring (`host/chatgpt-desktop/openai-apt-keyring.gpg`,

@@ -1,12 +1,15 @@
 # Current Wrapper: responsibility and implementation map
 
-**Source scope:** `main` standalone Rust `codex`, its `codex-release-builder`,
-`install.sh`, lightweight Ed25519 signing scripts (`release_sign.py`,
-`publish_wrapper_release.py`), and `wrapper.yml` CI. This is the active
-source-to-feature ownership map on `main`, not a new normative specification or
-a fresh qualification report. For verified source SHA, device hashes, CI runs
-and open boundaries consult [CURRENT](../CURRENT.md). For required policy
-consult [SPEC](../SPEC.md) and the [documentation map](INDEX.md).
+**Source scope:** `main` standalone Rust `codex` Wrapper (`crates/wrapper`,
+`crates/release-builder`, `install.sh`, `wrapper.yml`) plus the decoupled Stage 2
+independent workspaces (`crates/codex-daemon-client`, `crates/codex-ext`,
+`crates/mcp-kit`, `mcp/termux-{shell,codex,chatgpt}`, `host/chatgpt-desktop`,
+`providers/chatgpt`, `transport/tunnel-client`, `scripts/runit_service.py`, and
+shared Ed25519 release scripts `release_sign.py` / `publish_stage2_release.py`).
+This is the active source-to-feature ownership map on `main`, not a new normative
+specification or a fresh qualification report. For verified source SHA, device
+hashes, CI runs and open boundaries consult [CURRENT](../CURRENT.md). For
+required policy consult [SPEC](../SPEC.md) and the [documentation map](INDEX.md).
 
 **Four independent facts must not be conflated:**
 (1) source compiled, (2) behavior qualified, (3) artifact publicly published,
@@ -58,11 +61,11 @@ Operator / shell / existing ChatGPT or terminal client
 
 ## 2. Implemented feature matrix
 
-**Stage 1 = installed standalone Wrapper path; Slice 1 = shipped lightweight
-Ed25519 signed release pipeline & Phase 2.1 hook retirement; deferred = absent
-from this source/distribution (Slices 2–6).** Tests quoted here are **test
-types**, not a claim that every Android/device/account scenario has passed. See
-CURRENT for exact receipts.
+**Stage 1 = installed standalone Wrapper path; Stage 2 Slices 1–6 = shipped
+independent workspaces & opt-in services with zero Wrapper coupling; deferred =
+remaining operational opt-in enrollment / Phase 2.6 canary tracks.** Tests
+quoted here are **test types**, not a claim that every Android/device/account
+scenario has passed. See CURRENT for exact receipts.
 
 | Feature and observed contract | Responsible implementation | State / boundary |
 | --- | --- | --- |
@@ -137,9 +140,10 @@ CURRENT for exact receipts.
 1. **Owner first:** name the producer, authoritative writer, consumer,
    failure settlement and expected persisted state. If it belongs to
    upstream Native or an external Provider, do not duplicate it in Wrapper.
-2. **Scope first:** change an **active** Stage 1 / Slice 1 implementation here,
-   or explicitly stage a **deferred** Slice 2–6 component in its own workspace;
-   a planned command spelling does not make a route available.
+2. **Scope first:** change either the Stage 1 Wrapper (`crates/wrapper`) or an
+   independent Stage 2 component in its own workspace without introducing
+   cross-boundary coupling; a planned command spelling does not make a route
+   available.
 3. **Verify the actual path:** compare source contract, CLI parsing,
    negative/positive tests, exact artifact bytes, actual Android runtime and
    integrated account/client evidence as separate checks. A skipped CI job

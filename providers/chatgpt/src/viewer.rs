@@ -104,11 +104,29 @@ impl Viewer {
                 ))
             }
         };
-        let full = self.assets.join(relative);
+        let mut cursor = self.assets.clone();
+        for comp in Path::new(relative).components() {
+            let Component::Normal(seg) = comp else {
+                return Err(ProviderError::bad_request(
+                    "viewer_asset_invalid",
+                    "invalid viewer asset path",
+                ));
+            };
+            cursor.push(seg);
+            let meta = fs::symlink_metadata(&cursor).map_err(|_| {
+                ProviderError::unavailable("viewer_asset_unavailable", "asset missing")
+            })?;
+            if meta.file_type().is_symlink() || meta.uid() != unsafe { libc::geteuid() } {
+                return Err(ProviderError::bad_request(
+                    "viewer_asset_invalid",
+                    "symlinks and foreign-owned paths are rejected in viewer assets",
+                ));
+            }
+        }
         let f = File::options()
             .read(true)
             .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
-            .open(&full)
+            .open(&cursor)
             .map_err(|_| ProviderError::unavailable("viewer_asset_unavailable", "asset missing"))?;
         const LIMIT: u64 = 10 * 1024 * 1024;
         let meta = f

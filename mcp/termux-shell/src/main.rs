@@ -54,14 +54,17 @@ fn fail(reason: &'static str) -> Value {
     })
 }
 
+const DEFAULT_TERMUX_PREFIX: &str = "/data/data/com.termux/files/usr";
+
 fn default_receipt_root() -> Result<PathBuf, &'static str> {
     if let Some(custom) = env::var_os("TERMUX_SHELL_RECEIPT_DIR").filter(|v| !v.is_empty()) {
         return Ok(PathBuf::from(custom));
     }
     let prefix = env::var_os("PREFIX")
         .filter(|v| !v.is_empty())
-        .ok_or("termux_prefix_unavailable")?;
-    Ok(PathBuf::from(prefix).join("var/tmp/termux-mcp-shell-receipts"))
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(DEFAULT_TERMUX_PREFIX));
+    Ok(prefix.join("var/tmp/termux-mcp-shell-receipts"))
 }
 
 fn default_shell_path() -> Result<PathBuf, &'static str> {

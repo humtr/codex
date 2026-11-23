@@ -86,7 +86,7 @@ async fn v1_responses(
         Arc::clone(&st.driver),
         &st.model_cfg,
         &st.history_cfg,
-        &st.threads,
+        Arc::clone(&st.threads),
         session_hint,
         body,
     )

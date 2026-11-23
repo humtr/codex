@@ -18,9 +18,9 @@ authenticated `/control/*` plane of
   `0600` bearer token (`~/.local/state/codex/providers/chatgpt/control.token`,
   verified via `O_NOFOLLOW`, owner UID, and `0600` mode).
 - **Loopback-only fail-closed transport:** `CHATGPT_PROVIDER_URL` (default
-  `http://127.0.0.1:4319`) must resolve to a loopback address (`127.0.0.1` or
-  `::1`); non-loopback or non-HTTP URLs are rejected before reading the bearer
-  token.
+  `http://127.0.0.1:4319`) must be a literal loopback address (`127.0.0.0/8`,
+  `[::1]`, or `localhost` with a non-zero port — never issuing external DNS);
+  non-loopback or non-HTTP URLs are rejected before reading the bearer token.
 - **Zero Wrapper coupling:** Runs as an independent workspace and binary
   (`~/.local/lib/codex/mcp/termux-chatgpt/current/termux-chatgpt-mcp`,
   `$PREFIX/bin/termux-chatgpt-mcp`), with zero compile-time or runtime
@@ -54,6 +54,16 @@ authenticated `/control/*` plane of
   `fsync`) `started` receipt under `$PREFIX/var/tmp/termux-chatgpt-mcp-receipts`
   (schema `termux-chatgpt-mcp-receipt`) strictly before issuing
   `POST /control/send`.
+- If `chatgpt_send(action="send")` returns `state: "in_progress"` (when
+  `wait_ms` elapses before completion), that result is intentionally committed
+  to the receipt so retries never duplicate the in-flight turn; callers follow
+  up with `chatgpt_send(action="observe")`.
+- Guaranteed pre-dispatch rejections (`HTTP 400/401/403`, `login_required`,
+  `generation_already_active`, `completion_client_unavailable`,
+  `host_profile_busy`, `host_rootfs_not_found`, and pre-connect transport
+  errors) release the freshly claimed `started` receipt (with parent `fsync`)
+  and return `executed: false` so the caller can safely retry with the same
+  `call_id` after recovery.
 - If the local HTTP connection drops or times out mid-send after dispatch,
   `@TermuxChatGPT` leaves the `started` receipt unsettled and returns
   `state: "delivery_unknown"` — never silently resending a potentially accepted

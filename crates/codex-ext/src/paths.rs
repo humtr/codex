@@ -3,7 +3,10 @@ use std::fs::{self, DirBuilder, OpenOptions};
 use std::io::{self, Write};
 use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Component, Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
+
+static ATOMIC_WRITE_SEQ: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Debug, Clone)]
 pub struct ExtPaths {
@@ -159,8 +162,12 @@ pub fn atomic_write_private(path: &Path, content: &[u8], mode: u32) -> Result<()
         }
     }
     let fname = path.file_name().and_then(|n| n.to_str()).unwrap_or("file");
-    let nanos = now_millis();
-    let tmp = parent.join(format!(".{fname}.tmp.{}.{nanos}", std::process::id()));
+    let seq = ATOMIC_WRITE_SEQ.fetch_add(1, Ordering::Relaxed);
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let tmp = parent.join(format!(".{fname}.tmp.{}.{nanos}.{seq}", std::process::id()));
     let mut file = OpenOptions::new()
         .write(true)
         .create_new(true)

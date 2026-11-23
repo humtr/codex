@@ -654,9 +654,81 @@
     return chain;
   }
 
-  // Avoid ChatGPT backend name collisions with built-in container/runtime `exec`.
-  function wireLocalFunctionName(rawName) {
-    return rawName === "exec" ? "codex_exec" : rawName;
+  // Avoid ChatGPT backend name collisions with built-in container/runtime `exec`
+  // and disambiguate same-named tools across namespaces without dropping any tool.
+  function allocateWireLocalFunctionName(rawName, namespace, usedWireNames, reservedRawNames) {
+    const sanitize = (s) => s.replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 64);
+    let base = rawName;
+    if (rawName === "exec" && !namespace) {
+      base = reservedRawNames.has("codex_exec") ? "codex_local_exec" : "codex_exec";
+    } else if (usedWireNames.has(rawName) && namespace) {
+      base = sanitize(`${namespace}_${rawName}`);
+    }
+    let candidate = sanitize(base);
+    let suffix = 2;
+    while (!candidate || usedWireNames.has(candidate)) {
+      const tag = `_${suffix++}`;
+      candidate = `${sanitize(base).slice(0, Math.max(1, 64 - tag.length))}${tag}`;
+    }
+    usedWireNames.add(candidate);
+    return candidate;
+  }
+
+  function resolveJsonSchemaType(pdef) {
+    if (!pdef || typeof pdef !== "object") return "string";
+    if (typeof pdef.type === "string") return pdef.type;
+    if (Array.isArray(pdef.type)) {
+      const nonNull = pdef.type.find((t) => typeof t === "string" && t !== "null");
+      if (nonNull) return nonNull;
+    }
+    if (Array.isArray(pdef.anyOf)) {
+      for (const variant of pdef.anyOf) {
+        const vt = resolveJsonSchemaType(variant);
+        if (vt && vt !== "null") return vt;
+      }
+    }
+    if (pdef.properties && typeof pdef.properties === "object") return "object";
+    if (pdef.items && typeof pdef.items === "object") return "array";
+    return "string";
+  }
+
+  function normalizeParamSchema(pdef, fallbackDesc, depth = 0) {
+    const rawType = resolveJsonSchemaType(pdef);
+    const desc = truncate(
+      pdef && typeof pdef.description === "string" && pdef.description.trim()
+        ? pdef.description.trim()
+        : fallbackDesc,
+      160
+    );
+    if (rawType === "integer" || rawType === "number" || rawType === "boolean" || rawType === "string") {
+      const out = { type: rawType, description: desc };
+      if (pdef && Array.isArray(pdef.enum) && pdef.enum.length > 0 && pdef.enum.length <= 32) {
+        out.enum = pdef.enum;
+      }
+      return out;
+    }
+    if (rawType === "array" && depth < 3) {
+      const itemSchema =
+        pdef && pdef.items && typeof pdef.items === "object"
+          ? normalizeParamSchema(pdef.items, "item", depth + 1)
+          : { type: "string", description: "item" };
+      return { type: "array", description: desc, items: itemSchema };
+    }
+    if (rawType === "object" && depth < 3) {
+      const out = { type: "object", description: desc };
+      if (pdef && pdef.properties && typeof pdef.properties === "object") {
+        const nested = {};
+        for (const [k, v] of Object.entries(pdef.properties)) {
+          nested[k] = normalizeParamSchema(v, k, depth + 1);
+        }
+        out.properties = nested;
+        if (Array.isArray(pdef.required)) {
+          out.required = pdef.required.filter((r) => typeof r === "string");
+        }
+      }
+      return out;
+    }
+    return { type: "string", description: desc };
   }
 
   function buildNativeLocalFunctionSignatures(sigs) {
@@ -666,14 +738,26 @@
     const names = [];
     const signatures = [];
     const wireToOriginal = new Map();
-    const seen = new Set();
+    const seenKeys = new Set();
+    const usedWireNames = new Set();
+    const reservedRawNames = new Set();
+    for (const s of sigs) {
+      if (s && typeof s.name === "string" && s.name.trim()) {
+        reservedRawNames.add(s.name.trim());
+      }
+    }
     for (const s of sigs) {
       if (!s || typeof s.name !== "string") continue;
       const rawName = s.name.trim();
-      if (!rawName || !/^[A-Za-z0-9_-]{1,64}$/.test(rawName) || seen.has(rawName)) continue;
-      seen.add(rawName);
-      const wireName = wireLocalFunctionName(rawName);
-      wireToOriginal.set(wireName, rawName);
+      const ns =
+        typeof s.namespace === "string" && s.namespace.trim() && s.namespace.trim() !== "functions"
+          ? s.namespace.trim()
+          : null;
+      const dedupKey = `${ns || ""}::${rawName}`;
+      if (!rawName || !/^[A-Za-z0-9_-]{1,64}$/.test(rawName) || seenKeys.has(dedupKey)) continue;
+      seenKeys.add(dedupKey);
+      const wireName = allocateWireLocalFunctionName(rawName, ns, usedWireNames, reservedRawNames);
+      wireToOriginal.set(wireName, { name: rawName, namespace: ns });
       names.push(wireName);
       const params = [];
       if (s.type === "custom") {
@@ -685,21 +769,10 @@
       } else if (s.parameters && typeof s.parameters === "object" && s.parameters.properties) {
         const reqSet = new Set(Array.isArray(s.parameters.required) ? s.parameters.required : []);
         for (const [pname, pdef] of Object.entries(s.parameters.properties)) {
-          const ptype = pdef && typeof pdef.type === "string" ? pdef.type : "string";
-          const mappedType =
-            ptype === "integer" || ptype === "number" || ptype === "boolean" || ptype === "string"
-              ? ptype
-              : "string";
           params.push({
             name: pname,
             required: reqSet.has(pname),
-            type: {
-              type: mappedType,
-              description: truncate(
-                pdef && typeof pdef.description === "string" ? pdef.description : pname,
-                160
-              ),
-            },
+            type: normalizeParamSchema(pdef, pname, 0),
           });
         }
       }
@@ -708,7 +781,7 @@
         description: truncate(
           typeof s.description === "string" && s.description.trim()
             ? s.description.trim()
-            : `Invoke local Codex tool ${rawName}`,
+            : `Invoke local Codex tool ${ns ? `${ns}.${rawName}` : rawName}`,
           2400
         ),
         type: "kwargs",
@@ -727,9 +800,10 @@
     if (declaredNames.size > 0 && !declaredNames.has(recipient) && !declaredNames.has(stripped)) {
       return null;
     }
-    const content = msg.content || {};
-    let rawArgs = "";
-    if (typeof content.text === "string" && content.text.trim()) {
+    const content = msg.content;
+    if (!content || typeof content !== "object") return null;
+    let rawArgs = null;
+    if (typeof content.text === "string") {
       rawArgs = content.text.trim();
     } else if (Array.isArray(content.parts)) {
       rawArgs = content.parts
@@ -737,12 +811,23 @@
         .join("\n")
         .trim();
     }
-    if (!rawArgs) return null;
+    if (rawArgs === null) return null;
+    if (!rawArgs) {
+      // Support legitimate zero-argument native tool calls once finalized (or with empty object content).
+      if (msg.status === "finished_successfully" || msg.end_turn === true) {
+        rawArgs = "{}";
+      } else {
+        return null;
+      }
+    }
     const matchedWire = declaredNames.has(recipient) ? recipient : stripped;
-    const resolvedName = (wireToOriginal && wireToOriginal.get(matchedWire)) || matchedWire;
+    const mapped = wireToOriginal && wireToOriginal.get(matchedWire);
+    const resolvedName = mapped ? mapped.name : matchedWire;
+    const resolvedNs = mapped ? mapped.namespace : null;
     return {
       id: msg.id ? `call_${String(msg.id).replace(/[^A-Za-z0-9_-]/g, "").slice(0, 24)}` : `call_${newUuid().slice(0, 8)}`,
       name: resolvedName,
+      ...(resolvedNs ? { namespace: resolvedNs } : {}),
       arguments: rawArgs,
       native_recipient: recipient,
     };
@@ -919,7 +1004,8 @@
 
   async function listProjects(opts = {}) {
     const limit = Math.max(1, Math.min(100, Number(opts.limit) || DEFAULT_LIMIT));
-    const res = await apiFetch(`/gizmos/snorlax/sidebar?conversations_per_gizmo=0`);
+    const cursor = opts.cursor ? `&cursor=${encodeURIComponent(opts.cursor)}` : "";
+    const res = await apiFetch(`/gizmos/snorlax/sidebar?conversations_per_gizmo=0${cursor}`);
     if (!res.ok || !res.json) {
       return { state: "error", error: `backend_http_${res.status}`, detail: res.text };
     }
@@ -1008,6 +1094,21 @@
         generating: true,
         message_id: activeTurn.messageId,
         assistant_text: activeTurn.assistantText,
+      };
+    }
+
+    if (
+      activeTurn &&
+      !activeTurn.generating &&
+      activeTurn.error &&
+      (!requestedId || requestedId === activeTurn.chatId)
+    ) {
+      return {
+        state: "error",
+        error: activeTurn.error.code,
+        detail: activeTurn.error.detail,
+        chat_id: activeTurn.chatId || requestedId,
+        generating: false,
       };
     }
 
@@ -1333,14 +1434,21 @@
       };
     }
 
-    // If settled with a server conversation_id and stream text was empty, fetch authoritative tail.
-    if (!turn.assistantText && turn.chatId) {
+    // If settled with a server conversation_id, zero native tool calls, and empty stream text,
+    // fetch only an assistant message strictly AFTER this turn's userMsgId so previous-turn text
+    // can never leak into a tool-only or empty turn.
+    if (!turn.assistantText && turn.nativeToolCalls.size === 0 && turn.chatId) {
       const rd = await readChat({ chat_id: turn.chatId, limit: 10 });
       if (rd.state === "ok" && Array.isArray(rd.messages)) {
-        const lastA = [...rd.messages].reverse().find((m) => m.role === "assistant");
-        if (lastA) {
-          turn.assistantText = lastA.text;
-          turn.messageId = lastA.id;
+        const userIdx = rd.messages.findIndex((m) => m.id === userMsgId);
+        if (userIdx >= 0) {
+          const lastA = [...rd.messages.slice(userIdx + 1)]
+            .reverse()
+            .find((m) => m.role === "assistant");
+          if (lastA) {
+            turn.assistantText = lastA.text;
+            turn.messageId = lastA.id;
+          }
         }
       }
     }
@@ -1349,6 +1457,7 @@
     const nativeCalls = [...turn.nativeToolCalls.values()].map((c) => ({
       id: c.id,
       name: c.name,
+      ...(c.namespace ? { namespace: c.namespace } : {}),
       arguments: c.arguments,
     }));
     const allCalls = nativeCalls.length > 0 ? nativeCalls : parsed.calls;

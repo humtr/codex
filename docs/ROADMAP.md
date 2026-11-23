@@ -23,7 +23,7 @@
 3. **No second executor or DDPE coupling:**
    - Drop `shared_server`, FD 36 `execution_lease`, `codex-runtime-binding`, and `0.167.2` DDPE multi-worker orchestration from Stage 2. Official `codex app-server daemon` owns Codex tasks; ChatGPT owns ChatGPT sessions; MCP bridges stay thin and stateless (only bounded `call_id` transport deduplication receipts).
 4. **Live Termux Device & Service Preservation:**
-   - Never overwrite `$PREFIX/bin/codex`, stop or mutate live `0.167.2` `codex-chatgpt-*` / `tdev-tunnel*` services, touch `~/.cache/codex-web-experiment/` (`26.1007.21434`), or modify `~/.config/codex/providers/chatgpt.toml` during development or tests. New Stage 2 paths are completely disjoint from live `0.167.2`.
+   - Never overwrite `$PREFIX/bin/codex`, disrupt unrelated services (`tdev*`, `sshd`), or mutate user profiles/credentials during development or tests. Legacy `0.167.2` `codex-chatgpt-*` services were retired and archived under `~/.local/state/codex/legacy-0.167.2-archive/` on 2026-11-22 (see [CURRENT.md](../CURRENT.md)); all Stage 2 components operate under the unified XDG `codex/` namespace.
 
 ---
 
@@ -93,14 +93,11 @@ automation and of every optional module.
 descriptor comparison and immutable archive metadata. It creates no installed
 state. Shared `wrapper-verify.yml` owns the existing check/package/Bionic jobs
 and explicit account-free qualification with `qualify_wrapper.py`; the ordinary
-`wrapper.yml` caller retains publication separately. `.github/workflows/wrapper-upstream.yml`
-on `main` is strictly a read-only compatibility canary (`permissions: contents: read`)
-running in Linux + Bionic emulation (`android_api` is `None`, with no auto-deploy, PR,
-issue filing, or device access): local `codex update --upstream` resolves OpenAI releases
-directly and has zero functional dependency on CI schedules, so keeping
-`wrapper-upstream.yml` manual (`workflow_dispatch`, pointing at the current verified
-`rewrite/wrapper` commit) avoids unnecessary daily pinned-commit cron runs while
-retaining on-demand compatibility checks; see [current evidence](history/STAGE1_MILESTONES.md#standalone-qualification-and-read-only-upstream-discovery-follow-up-2026-11-16).
+`wrapper.yml` caller retains publication separately. Local `codex update --upstream`
+resolves OpenAI releases directly and has zero functional dependency on CI
+schedules; any future read-only upstream canary runs on-demand via
+`workflow_dispatch` with `permissions: contents: read` (no auto-deploy, PR,
+issue filing, or device access); see [current evidence](history/STAGE1_MILESTONES.md#standalone-qualification-and-read-only-upstream-discovery-follow-up-2026-11-16).
 
 The canary runs the existing adaptation implementation; it does not generate a
 new implementation when upstream changes. A compatible new archive needs no
@@ -115,14 +112,13 @@ work. They are not a required recurring phone/account matrix. Optional additiona
 Android/page-size or external-client evidence is reported by observed boundary;
 16-KiB ELF geometry is not actual 16-KiB-kernel execution.
 
-**Publication scope:** The **checksum-verified standalone Stage 1 prerelease**
-and actual public consumer test were accepted on 2026-11-17 (CURRENT). This
-does **not** mean Phase 2.2 Ed25519 signed distribution or automatic runtime
-deployment is implemented. Before **signed** publication, close its own
-signature/key/bootstrap/connected-client gates; read-only discovery and isolated
-base qualification are already implemented independently of optional modules.
-Base upstream **qualification and any separately authorized Stage 1 publication
-must never wait for TUI, Manager or Provider**. Scheduling is not permission
+**Publication scope:** Lightweight Ed25519 `SHA256SUMS.sig` signed distribution
+is implemented and live for the standalone Wrapper (`sequence=1`, see [CURRENT.md](../CURRENT.md)),
+and shared across Stage 2 component workflows via `.github/scripts/publish_stage2_release.py`.
+Scheduled/automatic upstream runtime publication or automatic device deployment
+is **not** enabled: publication remains an explicit `workflow_dispatch` action,
+and base upstream **qualification and any separately authorized Stage 1 publication
+must never wait for optional Stage 2 components**. Scheduling is not permission
 to publish or activate. Physical-device checks and authenticated/remote
 integration are different evidence gates, not retroactive failures of the
 already accepted standalone release.
@@ -226,8 +222,8 @@ asset readback, isolated actual Android qualification and authorized device
 Wrapper cutover are recorded in [CURRENT](../CURRENT.md). This closes
 standalone publication/operation for that qualified source, **not** the
 post-cutover authenticated inference, external remote client or physical
-power/16-KiB-kernel/other-device boundaries. The Stage 2.1 interface/FD 34
-engine is code-complete; a real Manager fragment producer is **not**.
+power/16-KiB-kernel/other-device boundaries. (Unused Phase 2.1 Wrapper-embedded
+FD 34 addon hooks were retired in Slice 1.)
 
 - Unified naming (`wrapper`, `codex-wrapper`, `codex-local-generation`, `codex-activation-state`, `package-root`, `termux-fd-remap`, `termux-uds-fd35`) across code, tests, [`install.sh`](../install.sh), [`.github/workflows/wrapper.yml`](../.github/workflows/wrapper.yml), and documentation.
 - Removed legacy `99b` / `R10` / `helpers/{0,1}` / `RootCodeModeHost` / `upstream_doctor` / version-pinned tests.
@@ -237,7 +233,9 @@ engine is code-complete; a real Manager fragment producer is **not**.
 
 ## 7. Follow-Up Verification: Session Handoff and `session_index.jsonl`
 
-이 두 과제는 `contrib/codex-account` 구현과 독립적으로 진행합니다.
+이 두 과제는 독립 `codex-ext` (`cdx`) 런처와 연계해 검증하며, 격리된 공식 `0.171.0`
+환경에서의 1차 실증은 Slice 2에서 완료되었습니다([CURRENT.md](../CURRENT.md) 참조).
+아래 기준은 후속 실계정 온라인 재검증 및 업스트림 버전 업그레이드 회귀 기준으로 유지합니다.
 Stage 1의 FD 34는 스레드 수명을 업스트림 정책에 맡깁니다. 마지막 클라이언트가
 연결을 닫은 뒤에도 실제 writer 해제와 업스트림 재개 조건을 확인한 다음 인계합니다.
 

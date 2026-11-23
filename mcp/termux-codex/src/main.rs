@@ -1151,14 +1151,15 @@ impl CodexMcpServer {
                     if !loaded.iter().any(|x| x == tid) {
                         if let Err(err) = client.call("thread/resume", json!({ "threadId": tid })) {
                             client.close();
+                            // `thread/resume` failed before `turn/start` was dispatched:
+                            // release the freshly claimed intent so the caller's call_id is not poisoned.
+                            let _ = store.release_intent(&receipt_path);
                             let out = json!({
                                 "state": "error",
                                 "executed": false,
                                 "error": "codex_thread_resume_failed",
-                                "detail": err.to_string(),
-                                "replay_safe": true
+                                "detail": err.to_string()
                             });
-                            let _ = store.commit(&receipt_path, &fp, &out);
                             return (out, true);
                         }
                     }
@@ -1187,27 +1188,38 @@ impl CodexMcpServer {
                             Some(id) => id.to_owned(),
                             None => {
                                 client.close();
+                                // Leave `started` receipt unsettled because thread/start may have committed server-side.
                                 let out = json!({
-                                    "state": "error",
-                                    "executed": false,
-                                    "error": "codex_thread_start_malformed",
-                                    "replay_safe": true
+                                    "state": "delivery_unknown",
+                                    "executed": "unknown",
+                                    "error": "codex_thread_start_malformed"
                                 });
-                                let _ = store.commit(&receipt_path, &fp, &out);
                                 return (out, true);
                             }
                         },
                         Err(err) => {
                             client.close();
-                            let out = json!({
-                                "state": "error",
-                                "executed": false,
-                                "error": "codex_thread_start_failed",
-                                "detail": err.to_string(),
-                                "replay_safe": true
-                            });
-                            let _ = store.commit(&receipt_path, &fp, &out);
-                            return (out, true);
+                            if matches!(err, DaemonError::Rpc { .. }) {
+                                let out = json!({
+                                    "state": "error",
+                                    "executed": false,
+                                    "error": "codex_thread_start_failed",
+                                    "detail": err.to_string(),
+                                    "replay_safe": true
+                                });
+                                let _ = store.commit(&receipt_path, &fp, &out);
+                                return (out, true);
+                            }
+                            // Mid-flight transport loss: leave `started` receipt unsettled!
+                            return (
+                                json!({
+                                    "state": "delivery_unknown",
+                                    "executed": "unknown",
+                                    "error": "codex_daemon_transport_lost",
+                                    "detail": err.to_string()
+                                }),
+                                true,
+                            );
                         }
                     }
                 };
@@ -1240,13 +1252,28 @@ impl CodexMcpServer {
                             wait_ms,
                         )
                     }
-                    Err(err) => json!({
-                        "state": "error",
-                        "executed": false,
-                        "thread_id": thread_id,
-                        "error": "codex_turn_start_failed",
-                        "detail": err.to_string()
-                    }),
+                    Err(err) => {
+                        if !matches!(err, DaemonError::Rpc { .. }) {
+                            client.close();
+                            return (
+                                json!({
+                                    "state": "delivery_unknown",
+                                    "executed": "unknown",
+                                    "thread_id": thread_id,
+                                    "error": "codex_daemon_transport_lost",
+                                    "detail": err.to_string()
+                                }),
+                                true,
+                            );
+                        }
+                        json!({
+                            "state": "error",
+                            "executed": false,
+                            "thread_id": thread_id,
+                            "error": "codex_turn_start_failed",
+                            "detail": err.to_string()
+                        })
+                    }
                 }
             }
             "steer" => {
@@ -1266,13 +1293,28 @@ impl CodexMcpServer {
                         Some(&expected_turn_id),
                         wait_ms,
                     ),
-                    Err(err) => json!({
-                        "state": "error",
-                        "executed": false,
-                        "thread_id": tid,
-                        "error": "codex_turn_steer_failed",
-                        "detail": err.to_string()
-                    }),
+                    Err(err) => {
+                        if !matches!(err, DaemonError::Rpc { .. }) {
+                            client.close();
+                            return (
+                                json!({
+                                    "state": "delivery_unknown",
+                                    "executed": "unknown",
+                                    "thread_id": tid,
+                                    "error": "codex_daemon_transport_lost",
+                                    "detail": err.to_string()
+                                }),
+                                true,
+                            );
+                        }
+                        json!({
+                            "state": "error",
+                            "executed": false,
+                            "thread_id": tid,
+                            "error": "codex_turn_steer_failed",
+                            "detail": err.to_string()
+                        })
+                    }
                 }
             }
             "interrupt" => {
@@ -1288,13 +1330,28 @@ impl CodexMcpServer {
                         "thread_id": tid,
                         "turn_id": active_id
                     }),
-                    Err(err) => json!({
-                        "state": "error",
-                        "executed": false,
-                        "thread_id": tid,
-                        "error": "codex_turn_interrupt_failed",
-                        "detail": err.to_string()
-                    }),
+                    Err(err) => {
+                        if !matches!(err, DaemonError::Rpc { .. }) {
+                            client.close();
+                            return (
+                                json!({
+                                    "state": "delivery_unknown",
+                                    "executed": "unknown",
+                                    "thread_id": tid,
+                                    "error": "codex_daemon_transport_lost",
+                                    "detail": err.to_string()
+                                }),
+                                true,
+                            );
+                        }
+                        json!({
+                            "state": "error",
+                            "executed": false,
+                            "thread_id": tid,
+                            "error": "codex_turn_interrupt_failed",
+                            "detail": err.to_string()
+                        })
+                    }
                 }
             }
             _ => unreachable!(),

@@ -33,8 +33,10 @@ const STATIC_TOOL_NAMES: &[&str] = &[
 const MAX_PROMPT_BYTES: usize = 64 * 1024;
 const DEFAULT_WAIT_MS: u64 = 30_000;
 const MAX_WAIT_MS: u64 = 300_000;
-const CONTROL_READ_TIMEOUT: Duration = Duration::from_secs(30);
-const CONTROL_RESTART_TIMEOUT: Duration = Duration::from_secs(60);
+/// Strictly exceeds CdpDriver's worst-case cold-boot (45s) + read RPC (20..30s) budget.
+const CONTROL_READ_TIMEOUT: Duration = Duration::from_secs(75);
+const CONTROL_RESTART_TIMEOUT: Duration = Duration::from_secs(90);
+const DEFAULT_TERMUX_PREFIX: &str = "/data/data/com.termux/files/usr";
 
 fn static_tools() -> Vec<ToolDef> {
     vec![
@@ -57,7 +59,7 @@ fn static_tools() -> Vec<ToolDef> {
                     "action": { "type": "string", "enum": ["list", "read"] },
                     "chat_id": { "type": "string", "minLength": 1, "maxLength": 128, "description": "Required for action=read" },
                     "limit": { "type": "integer", "minimum": 1, "maximum": 200, "description": "Page size (1..=100 for list, 1..=200 for read)" },
-                    "cursor": { "type": "string", "description": "Pagination cursor for action=list" },
+                    "cursor": { "type": "string", "minLength": 1, "maxLength": 256, "description": "Pagination cursor for action=list" },
                     "archived": { "type": "boolean", "description": "List archived chats when true (action=list only)" }
                 },
                 "required": ["action"],
@@ -74,7 +76,7 @@ fn static_tools() -> Vec<ToolDef> {
                     "action": { "type": "string", "enum": ["list", "read"] },
                     "project_id": { "type": "string", "minLength": 1, "maxLength": 128, "description": "Required for action=read" },
                     "limit": { "type": "integer", "minimum": 1, "maximum": 100 },
-                    "cursor": { "type": "string" }
+                    "cursor": { "type": "string", "minLength": 1, "maxLength": 256 }
                 },
                 "required": ["action"],
                 "additionalProperties": false
@@ -231,12 +233,18 @@ fn validate_safe_id<'a>(
             Some(s)
                 if !s.is_empty()
                     && s.len() <= 128
-                    && !s.contains(['/', '?', '#', '\0', '\r', '\n']) =>
+                    && s != "."
+                    && s != ".."
+                    && !s.chars().any(|c| {
+                        c.is_control()
+                            || c.is_whitespace()
+                            || matches!(c, '/' | '\\' | '?' | '#')
+                    }) =>
             {
                 Ok(Some(s))
             }
             _ => Err(format!(
-                "'{key}' must be a 1..=128 byte identifier without '/', '?', '#', or control chars"
+                "'{key}' must be a 1..=128 byte identifier (not '.'/'..') without '/', '\\', '?', '#', whitespace, or control chars"
             )),
         },
     }
@@ -308,8 +316,9 @@ fn default_receipt_root() -> Result<PathBuf, &'static str> {
     }
     let prefix = env::var_os("PREFIX")
         .filter(|v| !v.is_empty())
-        .ok_or("termux_prefix_unavailable")?;
-    Ok(PathBuf::from(prefix).join("var/tmp/termux-chatgpt-mcp-receipts"))
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(DEFAULT_TERMUX_PREFIX));
+    Ok(prefix.join("var/tmp/termux-chatgpt-mcp-receipts"))
 }
 
 struct TermuxChatGptServer {
@@ -403,12 +412,77 @@ impl TermuxChatGptServer {
         if let Err(msg) = check_allowed_keys(obj, &[]) {
             return fail("invalid_arguments", msg);
         }
-        match self.control_call("GET", "/control/status", None, CONTROL_READ_TIMEOUT) {
-            Ok(mut v) => {
-                if let Some(o) = v.as_object_mut() {
-                    o.entry("provider_reachable").or_insert_with(|| json!(true));
+        let ep = match self.resolve_endpoint() {
+            Ok(ep) => ep,
+            Err(err) => return fail(err.code(), err.detail()),
+        };
+        let token = match self.resolve_token() {
+            Ok(t) => t,
+            Err(HttpClientError::Unavailable(code, detail)) => {
+                // Distinguish a stopped provider from a running provider with a missing/unreadable token.
+                if check_healthz(&ep).is_ok() {
+                    return json!({
+                        "state": "error",
+                        "provider_reachable": true,
+                        "error": code,
+                        "detail": detail
+                    });
                 }
-                v
+                return json!({
+                    "state": "ok",
+                    "provider_reachable": false,
+                    "host_running": false,
+                    "auth_state": "provider_stopped",
+                    "error": code,
+                    "detail": detail
+                });
+            }
+            Err(err) => return fail(err.code(), err.detail()),
+        };
+        match request_json(
+            &ep,
+            "GET",
+            "/control/status",
+            Some(&token),
+            None,
+            CONTROL_READ_TIMEOUT,
+        ) {
+            Ok(resp) => {
+                if resp.status >= 200 && resp.status < 300 {
+                    if let Some(mut v) = resp.json {
+                        if let Some(o) = v.as_object_mut() {
+                            o.entry("provider_reachable").or_insert_with(|| json!(true));
+                            return v;
+                        }
+                    }
+                    return fail(
+                        "chatgpt_provider_transport_lost",
+                        "provider returned non-object 2xx status response",
+                    );
+                }
+                if let Some(mut err_json) = resp.json {
+                    if let Some(obj) = err_json.as_object_mut() {
+                        obj.entry("state").or_insert_with(|| json!("error"));
+                        obj.entry("provider_reachable")
+                            .or_insert_with(|| json!(true));
+                        obj.entry("http_status")
+                            .or_insert_with(|| json!(resp.status));
+                        return err_json;
+                    }
+                }
+                json!({
+                    "state": "error",
+                    "provider_reachable": true,
+                    "error": match resp.status {
+                        401 | 403 => "chatgpt_control_unauthorized",
+                        400 => "chatgpt_control_bad_request",
+                        404 => "chatgpt_control_not_found",
+                        503 => "chatgpt_provider_unavailable",
+                        _ => "chatgpt_provider_http_error",
+                    },
+                    "http_status": resp.status,
+                    "detail": resp.raw_text.chars().take(512).collect::<String>()
+                })
             }
             Err(HttpClientError::Unavailable(code, detail)) => json!({
                 "state": "ok",
@@ -660,6 +734,12 @@ impl TermuxChatGptServer {
             Ok(v) => v,
             Err(e) => return fail("invalid_arguments", e),
         };
+        if chat_id.is_some() && project_id.is_some() {
+            return fail(
+                "invalid_arguments",
+                "specify either 'chat_id' (continue existing chat) or 'project_id' (new chat in project), not both",
+            );
+        }
         let model = match optional_nonempty_str(obj, "model", 128) {
             Ok(v) => v,
             Err(e) => return fail("invalid_arguments", e),
@@ -693,6 +773,8 @@ impl TermuxChatGptServer {
             Err(code) => return fail(code, "cannot open chatgpt-send receipt directory"),
         };
 
+        // Exclude `wait_ms` from the payload fingerprint (matching `@TermuxCodex`) so retrying
+        // the identical turn with a different wait budget replays the receipt cleanly.
         let fp = sha256_hex(
             json!([
                 "chatgpt-send",
@@ -701,8 +783,7 @@ impl TermuxChatGptServer {
                 project_id,
                 prompt,
                 model,
-                reasoning_effort,
-                wait_ms
+                reasoning_effort
             ])
             .to_string()
             .as_bytes(),
@@ -757,7 +838,8 @@ impl TermuxChatGptServer {
             "reasoning_effort": reasoning_effort,
             "wait_ms": wait_ms
         });
-        let timeout = Duration::from_millis(wait_ms.saturating_add(55_000));
+        // Exceed CdpDriver worst-case cold boot (45s) + sendMessage (wait_ms + 45s) with headroom.
+        let timeout = Duration::from_millis(wait_ms.saturating_add(105_000));
         match request_json(
             &endpoint,
             "POST",
@@ -769,17 +851,17 @@ impl TermuxChatGptServer {
             Ok(resp) => {
                 let mut outcome = if resp.status >= 200 && resp.status < 300 {
                     match resp.json {
-                        Some(v) => v,
-                        None => {
+                        Some(v) if v.is_object() => v,
+                        _ => {
                             return json!({
                                 "state": "delivery_unknown",
                                 "executed": "unknown",
-                                "error": "chatgpt_provider_non_json_reply",
-                                "detail": "provider returned non-JSON body; call chatgpt_send(action='observe') before retrying"
+                                "error": "chatgpt_provider_non_object_reply",
+                                "detail": "provider returned non-object JSON body; call chatgpt_send(action='observe') before retrying"
                             });
                         }
                     }
-                } else if let Some(mut err_v) = resp.json {
+                } else if let Some(mut err_v) = resp.json.filter(Value::is_object) {
                     if let Some(o) = err_v.as_object_mut() {
                         o.entry("state").or_insert_with(|| json!("error"));
                         o.entry("http_status").or_insert_with(|| json!(resp.status));
@@ -788,11 +870,47 @@ impl TermuxChatGptServer {
                 } else {
                     json!({
                         "state": "error",
-                        "error": "chatgpt_provider_http_error",
+                        "error": match resp.status {
+                            401 | 403 => "chatgpt_control_unauthorized",
+                            400 => "chatgpt_control_bad_request",
+                            503 => "chatgpt_provider_unavailable",
+                            _ => "chatgpt_provider_http_error",
+                        },
                         "http_status": resp.status,
                         "detail": resp.raw_text.chars().take(512).collect::<String>()
                     })
                 };
+
+                // Guaranteed pre-dispatch rejections (nothing was sent to ChatGPT backend):
+                // release the freshly claimed intent so the caller can safely retry with the
+                // same call_id after resolving auth/token/host/busy state.
+                let err_code = outcome.get("error").and_then(Value::as_str).unwrap_or("");
+                let is_pre_dispatch_rejection = matches!(resp.status, 400 | 401 | 403)
+                    || matches!(
+                        err_code,
+                        "login_required"
+                            | "generation_already_active"
+                            | "completion_client_unavailable"
+                            | "host_rootfs_not_found"
+                            | "official_app_rootfs_required"
+                            | "host_profile_busy"
+                            | "prompt_required"
+                            | "prompt_invalid"
+                            | "invalid_chat_id"
+                            | "invalid_project_id"
+                            | "control_auth_required"
+                            | "control_auth_invalid"
+                            | "control_auth_rejected"
+                            | "chatgpt_control_unauthorized"
+                            | "chatgpt_control_bad_request"
+                    );
+                if is_pre_dispatch_rejection {
+                    let _ = store.release_intent(&receipt_path);
+                    if let Some(o) = outcome.as_object_mut() {
+                        o.insert("executed".to_owned(), json!(false));
+                    }
+                    return outcome;
+                }
 
                 if let Some(o) = outcome.as_object_mut() {
                     o.insert("replay_safe".to_owned(), json!(true));
@@ -817,28 +935,16 @@ impl TermuxChatGptServer {
                     "detail": detail
                 })
             }
-            Err(err @ HttpClientError::Unavailable(_, _)) => {
-                // Guaranteed pre-connect failure (zero bytes written to provider): remove the
-                // freshly claimed intent so the caller's call_id is not poisoned during a restart.
-                let _ = std::fs::remove_file(&receipt_path);
+            Err(err @ (HttpClientError::Unavailable(_, _) | HttpClientError::Config(_, _))) => {
+                // Guaranteed pre-dispatch failure (zero bytes written to provider): release the
+                // freshly claimed intent (with parent fsync) so the caller's call_id is never poisoned.
+                let _ = store.release_intent(&receipt_path);
                 json!({
                     "state": "rejected",
                     "executed": false,
                     "error": err.code(),
                     "detail": err.detail()
                 })
-            }
-            Err(err) => {
-                let outcome = json!({
-                    "state": "error",
-                    "executed": false,
-                    "error": err.code(),
-                    "detail": err.detail(),
-                    "replay_safe": true
-                });
-                let _ = store.commit(&receipt_path, &fp, &outcome);
-                store.prune_settled(512);
-                outcome
             }
         }
     }
@@ -874,7 +980,7 @@ impl TermuxChatGptServer {
         }
         let empty_map = Map::new();
         let act_args = match obj.get("arguments") {
-            None => &empty_map,
+            None | Some(Value::Null) => &empty_map,
             Some(Value::Object(m)) => m,
             Some(_) => {
                 return self
@@ -1016,9 +1122,10 @@ impl McpHandler for TermuxChatGptServer {
                 format!("unknown tool '{name}'"),
             ),
         };
-        let is_error = matches!(
+        // Fail closed: only explicit non-error terminal/active states clear `isError`.
+        let is_error = !matches!(
             result.get("state").and_then(Value::as_str),
-            Some("rejected" | "error" | "delivery_unknown")
+            Some("ok" | "settled" | "in_progress" | "stopped" | "idle")
         );
         (result, is_error)
     }
@@ -1148,10 +1255,35 @@ mod tests {
             json!(["chat_id", "title"])
         );
 
-        // Non-loopback URL rejected fail-closed
+        // Non-loopback URL rejected fail-closed without external DNS
         srv.provider_url = Some("http://example.com:4319".to_owned());
         let (non_lb, is_err) = srv.call_tool("chatgpt_status", &json!({}));
         assert!(is_err);
         assert_eq!(non_lb["error"], "chatgpt_provider_non_loopback_rejected");
+
+        // Traversal IDs ('.', '..', control chars, whitespace) rejected fail-closed
+        for bad_id in [".", "..", "a\tb", "a b", "x\x1by"] {
+            let (_, is_err) = srv.call_tool(
+                "chatgpt_projects",
+                &json!({"action": "read", "project_id": bad_id}),
+            );
+            assert!(is_err, "project_id={bad_id:?} must be rejected");
+        }
+
+        // Specifying both chat_id and project_id on send must be rejected
+        let (both, is_err) = srv.call_tool(
+            "chatgpt_send",
+            &json!({"action": "send", "call_id": "c1", "chat_id": "ch1", "project_id": "p1", "prompt": "hi"}),
+        );
+        assert!(is_err);
+        assert_eq!(both["error"], "invalid_arguments");
+
+        // Null `arguments` on zero-arg tools and chatgpt_call accepted cleanly
+        let null_resp = handle_message(
+            &mut srv,
+            &json!({"jsonrpc": "2.0", "id": 9, "method": "tools/call", "params": {"name": "chatgpt_catalog", "arguments": null}}),
+        )
+        .unwrap();
+        assert_eq!(null_resp["result"]["isError"], false);
     }
 }

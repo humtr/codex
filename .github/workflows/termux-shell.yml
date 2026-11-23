@@ -8,7 +8,9 @@ on:
       - 'crates/mcp-kit/**'
       - 'mcp/termux-shell/**'
       - '.github/workflows/termux-shell.yml'
+      - '.github/scripts/qualify_wrapper.py'
       - '.github/scripts/release_sign.py'
+      - '.github/scripts/publish_stage2_release.py'
   pull_request:
     branches:
       - main
@@ -16,7 +18,9 @@ on:
       - 'crates/mcp-kit/**'
       - 'mcp/termux-shell/**'
       - '.github/workflows/termux-shell.yml'
+      - '.github/scripts/qualify_wrapper.py'
       - '.github/scripts/release_sign.py'
+      - '.github/scripts/publish_stage2_release.py'
   workflow_dispatch:
     inputs:
       publish_release:
@@ -181,44 +185,12 @@ jobs:
           umask 077
           printf '%s\n' "$CODEX_SIGNING_KEY" > "$key_file"
           seq="${INPUT_SEQUENCE:-$GITHUB_RUN_NUMBER}"
-          PYTHONDONTWRITEBYTECODE=1 python3 .github/scripts/release_sign.py sign \
-            --component termux-shell-mcp --sequence "$seq" --commit "$GITHUB_SHA" \
-            --dist "$dist" --files "$tarball" --private-key "$key_file"
-          PYTHONDONTWRITEBYTECODE=1 python3 .github/scripts/release_sign.py verify \
-            --component termux-shell-mcp --dist "$dist" --public-key release/release-public-key.pem \
-            --min-sequence "$seq"
-          assets=("$dist/$tarball" "$dist/$tarball.sha256" "$dist/SHA256SUMS" "$dist/SHA256SUMS.sig")
           notes="Termux @TermuxShell standalone MCP worker ($TAG, commit $GITHUB_SHA, sequence $seq)."
-          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            prev_dir="$RUNNER_TEMP/prev-seq"
-            rm -rf "$prev_dir" && mkdir -p "$prev_dir"
-            if gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern SHA256SUMS --dir "$prev_dir" >/dev/null 2>&1; then
-              PYTHONDONTWRITEBYTECODE=1 python3 - "$prev_dir/SHA256SUMS" "$seq" <<'PYSEQ'
-          import importlib.util, sys
-          from pathlib import Path
-          spec = importlib.util.spec_from_file_location('release_sign', '.github/scripts/release_sign.py')
-          rs = importlib.util.module_from_spec(spec)
-          spec.loader.exec_module(rs)
-          prev = rs.parse_sums(Path(sys.argv[1]).read_bytes())
-          cur_seq = int(sys.argv[2])
-          if prev['component'] == 'termux-shell-mcp' and cur_seq <= prev['sequence']:
-              raise SystemExit(f"termux-shell-mcp sequence {cur_seq} must exceed published sequence {prev['sequence']}")
-          PYSEQ
-            fi
-            gh release upload "$TAG" "${assets[@]}" --repo "$GITHUB_REPOSITORY" --clobber
-            edit_flags=(--repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --notes "$notes")
-            if [ "$PRERELEASE" = "true" ]; then edit_flags+=(--prerelease); else edit_flags+=(--prerelease=false); fi
-            gh release edit "$TAG" "${edit_flags[@]}"
-          else
-            create_flags=(--repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "Termux @TermuxShell MCP ($TAG)" --notes "$notes")
-            if [ "$PRERELEASE" = "true" ]; then create_flags+=(--prerelease); fi
-            gh release create "$TAG" "${assets[@]}" "${create_flags[@]}"
-          fi
-          rb="$RUNNER_TEMP/readback"
-          rm -rf "$rb" && mkdir -p "$rb"
-          for name in "$tarball" SHA256SUMS SHA256SUMS.sig; do
-            gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern "$name" --dir "$rb"
-          done
-          PYTHONDONTWRITEBYTECODE=1 python3 .github/scripts/release_sign.py verify \
-            --component termux-shell-mcp --dist "$rb" --public-key release/release-public-key.pem \
-            --min-sequence "$seq"
+          args=(
+            --repo "$GITHUB_REPOSITORY" --tag "$TAG" --component termux-shell-mcp
+            --source-sha "$GITHUB_SHA" --dist "$dist" --tarball "$tarball"
+            --title "Termux @TermuxShell MCP ($TAG)" --notes "$notes"
+            --sequence "$seq" --signing-key "$key_file" --public-key release/release-public-key.pem
+          )
+          if [ "$PRERELEASE" = "true" ]; then args+=(--prerelease); fi
+          PYTHONDONTWRITEBYTECODE=1 python3 .github/scripts/publish_stage2_release.py "${args[@]}"

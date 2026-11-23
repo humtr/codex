@@ -11,28 +11,206 @@ use crate::config::{random_hex, HistoryConfig, ModelConfig};
 use crate::driver::DriverBackend;
 use crate::error::{ProviderError, Result};
 use axum::{
+    body::Body,
     http::{header, StatusCode},
     response::{IntoResponse, Response},
     Json,
 };
+use futures_util::Stream;
 use serde_json::{json, Value};
 use std::collections::VecDeque;
+use std::convert::Infallible;
+use std::pin::Pin;
 use std::sync::{Arc, Mutex};
+use std::task::{Context, Poll};
+use std::time::Duration;
+use tokio::sync::mpsc;
 
 const MAX_RESPONSE_THREADS: usize = 256;
-const MAX_DEVELOPER_BLOCK_CHARS: usize = 4000;
+const MAX_DEVELOPER_BLOCK_CHARS: usize = 48_000;
+const MAX_TOTAL_PROMPT_CHARS: usize = 180_000;
 const MAX_TOOL_DESC_CHARS: usize = 600;
 const RESPONSES_WAIT_MS: u64 = 240_000;
+const SSE_KEEPALIVE_INTERVAL: Duration = Duration::from_secs(12);
 
 #[derive(Debug, Clone)]
 pub struct ThreadEntry {
     pub chat_id: String,
     pub input_len: usize,
+    pub prefix_sha256: [u8; 32],
 }
 
 #[derive(Default)]
 pub struct ResponseThreadMap {
     entries: Mutex<VecDeque<(String, ThreadEntry)>>,
+}
+
+/// Pure-Rust SHA-256 (FIPS 180-4) for zero-dependency prefix digest tracking across
+/// Codex compaction / history edits.
+fn sha256_bytes(data: &[u8]) -> [u8; 32] {
+    const K: [u32; 64] = [
+        0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4,
+        0xab1c5ed5, 0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe,
+        0x9bdc06a7, 0xc19bf174, 0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f,
+        0x4a7484aa, 0x5cb0a9dc, 0x76f988da, 0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7,
+        0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967, 0x27b70a85, 0x2e1b2138, 0x4d2c6dfc,
+        0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85, 0xa2bfe8a1, 0xa81a664b,
+        0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070, 0x19a4c116,
+        0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+        0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7,
+        0xc67178f2,
+    ];
+    let mut h: [u32; 8] = [
+        0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab,
+        0x5be0cd19,
+    ];
+    let bit_len = (data.len() as u64).wrapping_mul(8);
+    let mut padded = Vec::with_capacity((data.len() + 9 + 63) & !63);
+    padded.extend_from_slice(data);
+    padded.push(0x80);
+    while (padded.len() % 64) != 56 {
+        padded.push(0);
+    }
+    padded.extend_from_slice(&bit_len.to_be_bytes());
+    for block in padded.as_chunks::<64>().0 {
+        let mut w = [0u32; 64];
+        for i in 0..16 {
+            w[i] = u32::from_be_bytes([
+                block[4 * i],
+                block[4 * i + 1],
+                block[4 * i + 2],
+                block[4 * i + 3],
+            ]);
+        }
+        for i in 16..64 {
+            let s0 = w[i - 15].rotate_right(7) ^ w[i - 15].rotate_right(18) ^ (w[i - 15] >> 3);
+            let s1 = w[i - 2].rotate_right(17) ^ w[i - 2].rotate_right(19) ^ (w[i - 2] >> 10);
+            w[i] = w[i - 16]
+                .wrapping_add(s0)
+                .wrapping_add(w[i - 7])
+                .wrapping_add(s1);
+        }
+        let [mut a, mut b, mut c, mut d, mut e, mut f, mut g, mut hh] = h;
+        for i in 0..64 {
+            let s1 = e.rotate_right(6) ^ e.rotate_right(11) ^ e.rotate_right(25);
+            let ch = (e & f) ^ ((!e) & g);
+            let t1 = hh
+                .wrapping_add(s1)
+                .wrapping_add(ch)
+                .wrapping_add(K[i])
+                .wrapping_add(w[i]);
+            let s0 = a.rotate_right(2) ^ a.rotate_right(13) ^ a.rotate_right(22);
+            let maj = (a & b) ^ (a & c) ^ (b & c);
+            let t2 = s0.wrapping_add(maj);
+            hh = g;
+            g = f;
+            f = e;
+            e = d.wrapping_add(t1);
+            d = c;
+            c = b;
+            b = a;
+            a = t1.wrapping_add(t2);
+        }
+        for (slot, delta) in h.iter_mut().zip([a, b, c, d, e, f, g, hh]) {
+            *slot = slot.wrapping_add(delta);
+        }
+    }
+    let mut out = [0u8; 32];
+    for (i, word) in h.iter().enumerate() {
+        out[4 * i..4 * i + 4].copy_from_slice(&word.to_be_bytes());
+    }
+    out
+}
+
+fn input_prefix_digest(items: &[Value], len: usize) -> [u8; 32] {
+    let slice = &items[..len.min(items.len())];
+    let serialized = serde_json::to_vec(slice).unwrap_or_default();
+    sha256_bytes(&serialized)
+}
+
+/// Detect Codex background utility calls (such as Transcript Title Generation) that
+/// should not pollute the user's configured ChatGPT Project.
+fn is_utility_title_request(body: &Value) -> bool {
+    let has_tools = body
+        .get("tools")
+        .and_then(Value::as_array)
+        .is_some_and(|a| !a.is_empty());
+    if has_tools {
+        return false;
+    }
+    if let Some(inst) = body.get("instructions").and_then(Value::as_str) {
+        let lower = inst.to_ascii_lowercase();
+        if lower.contains("generate a concise title")
+            || lower.contains("transcript title generation")
+            || lower.contains("generate a short title")
+            || lower.contains("title for this conversation")
+        {
+            return true;
+        }
+    }
+    if let Some(items) = body.get("input").and_then(Value::as_array) {
+        if items.len() <= 3 {
+            for item in items {
+                let text = extract_content_text(item.get("content"));
+                let lower = text.to_ascii_lowercase();
+                if lower.contains("transcript title generation")
+                    || lower.contains("generate a concise title for")
+                {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
+struct CancelTurnGuard {
+    driver: Arc<dyn DriverBackend>,
+    armed: bool,
+}
+
+impl CancelTurnGuard {
+    fn new(driver: Arc<dyn DriverBackend>) -> Self {
+        Self {
+            driver,
+            armed: true,
+        }
+    }
+    fn disarm(&mut self) {
+        self.armed = false;
+    }
+}
+
+impl Drop for CancelTurnGuard {
+    fn drop(&mut self) {
+        if self.armed {
+            let driver = Arc::clone(&self.driver);
+            tokio::spawn(async move {
+                let _ = driver.stop_generation().await;
+            });
+        }
+    }
+}
+
+struct MpscSseStream {
+    rx: mpsc::Receiver<String>,
+}
+
+impl Stream for MpscSseStream {
+    type Item = std::result::Result<String, Infallible>;
+
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        match self.rx.poll_recv(cx) {
+            Poll::Ready(Some(chunk)) => Poll::Ready(Some(Ok(chunk))),
+            Poll::Ready(None) => Poll::Ready(None),
+            Poll::Pending => Poll::Pending,
+        }
+    }
+}
+
+fn format_sse_frame(frame: &Value) -> String {
+    let ev = frame["type"].as_str().unwrap_or("message");
+    format!("event: {ev}\ndata: {}\n\n", frame)
 }
 
 impl ResponseThreadMap {
@@ -234,12 +412,15 @@ pub fn render_prompt_from_responses_request(
         }
     }
 
-    let joined = sections.join("\n\n").trim().to_owned();
+    let mut joined = sections.join("\n\n").trim().to_owned();
     if joined.is_empty() {
         return Err(ProviderError::bad_request(
             "responses_input_empty",
             "input produced an empty prompt",
         ));
+    }
+    if joined.chars().count() > MAX_TOTAL_PROMPT_CHARS {
+        joined = truncate_chars(&joined, MAX_TOTAL_PROMPT_CHARS);
     }
     Ok(joined)
 }
@@ -561,7 +742,7 @@ pub async fn handle_responses(
     driver: Arc<dyn DriverBackend>,
     model_cfg: &ModelConfig,
     history_cfg: &HistoryConfig,
-    threads: &ResponseThreadMap,
+    threads: Arc<ResponseThreadMap>,
     session_hint: Option<String>,
     body: Value,
 ) -> Result<Response> {
@@ -585,19 +766,29 @@ pub async fn handle_responses(
             .filter(|s| !s.trim().is_empty())
             .map(ToOwned::to_owned)
     });
-    let input_len = body
-        .get("input")
-        .and_then(Value::as_array)
-        .map_or(0, Vec::len);
+    let input_items = body.get("input").and_then(Value::as_array);
+    let input_len = input_items.map_or(0, Vec::len);
+    let current_digest = input_items
+        .map(|items| input_prefix_digest(items, items.len()))
+        .unwrap_or([0u8; 32]);
 
+    // Verify exact prefix digest before continuing an existing ChatGPT thread.
+    // If Codex compacted or edited history, fork a fresh chat (`None`) instead of
+    // appending a full history dump onto an incompatible ChatGPT thread.
     let (prev_chat_id, skip_prefix) = if let Some(ref key) = session_key {
         if let Some(entry) = threads.get(key) {
-            let skip = if entry.input_len > 0 && input_len > entry.input_len {
-                entry.input_len
+            if entry.input_len > 0 && input_len > entry.input_len {
+                let prefix_matches = input_items.is_some_and(|items| {
+                    input_prefix_digest(items, entry.input_len) == entry.prefix_sha256
+                });
+                if prefix_matches {
+                    (Some(entry.chat_id), entry.input_len)
+                } else {
+                    (None, 0)
+                }
             } else {
-                0
-            };
-            (Some(entry.chat_id), skip)
+                (None, 0)
+            }
         } else {
             (None, 0)
         }
@@ -609,20 +800,154 @@ pub async fn handle_responses(
 
     let prompt = render_prompt_from_responses_request(&body, skip_prefix)?;
     let all_sigs = extract_local_function_signatures(&body);
+    let effective_project_id = if is_utility_title_request(&body) {
+        None
+    } else {
+        history_cfg.project_id.clone()
+    };
+    let send_payload = json!({
+        "chat_id": prev_chat_id,
+        "project_id": effective_project_id,
+        "prompt": prompt,
+        "model": model,
+        "reasoning_effort": effort,
+        "local_function_signatures": all_sigs,
+        "is_continuation": skip_prefix > 0,
+        "wait_ms": RESPONSES_WAIT_MS
+    });
+    let resp_id = format!("resp_{}", random_hex(8)?);
 
-    let driver_res = driver
-        .send_message(json!({
-            "chat_id": prev_chat_id,
-            "project_id": history_cfg.project_id,
-            "prompt": prompt,
-            "model": model,
-            "reasoning_effort": effort,
-            "local_function_signatures": all_sigs,
-            "is_continuation": skip_prefix > 0,
-            "wait_ms": RESPONSES_WAIT_MS
-        }))
-        .await?;
+    if !stream {
+        let mut cancel_guard = CancelTurnGuard::new(Arc::clone(&driver));
+        let driver_res = driver.send_message(send_payload).await?;
+        cancel_guard.disarm();
+        let (assistant_text, tool_calls, chat_id) =
+            parse_settled_driver_result(&driver_res, &all_sigs)?;
+        record_thread_entries(
+            &threads,
+            &resp_id,
+            session_key.as_deref(),
+            chat_id.as_deref(),
+            input_len,
+            current_digest,
+        );
+        let (_, final_resp) =
+            build_responses_sse_frames(&resp_id, &model, &assistant_text, &tool_calls);
+        return Ok((StatusCode::OK, Json(final_resp)).into_response());
+    }
 
+    // Streaming mode: emit `response.created` + `response.in_progress` immediately, send
+    // periodic SSE keepalive comments while waiting, and call `driver.stop_generation()`
+    // if the client disconnects before settlement.
+    let (tx, rx) = mpsc::channel::<String>(32);
+    let init_resp = json!({
+        "id": resp_id,
+        "object": "response",
+        "created_at": 0,
+        "status": "in_progress",
+        "model": model,
+        "output": [],
+        "parallel_tool_calls": true,
+        "error": null
+    });
+    let created_frame = json!({
+        "type": "response.created",
+        "sequence_number": 0,
+        "response": init_resp
+    });
+    let in_progress_frame = json!({
+        "type": "response.in_progress",
+        "sequence_number": 1,
+        "response": init_resp
+    });
+    let _ = tx.try_send(format_sse_frame(&created_frame));
+    let _ = tx.try_send(format_sse_frame(&in_progress_frame));
+
+    tokio::spawn(async move {
+        let mut send_fut = driver.send_message(send_payload);
+        let mut keepalive = tokio::time::interval(SSE_KEEPALIVE_INTERVAL);
+        keepalive.tick().await; // consume immediate first tick
+
+        let outcome = loop {
+            tokio::select! {
+                res = &mut send_fut => break Some(res),
+                _ = tx.closed() => {
+                    // Client disconnected mid-turn: cancel in-flight generation so
+                    // subsequent turns are not locked out by `generation_already_active`.
+                    let _ = driver.stop_generation().await;
+                    break None;
+                }
+                _ = keepalive.tick() => {
+                    if tx.send(": keepalive\n\n".to_owned()).await.is_err() {
+                        let _ = driver.stop_generation().await;
+                        break None;
+                    }
+                }
+            }
+        };
+
+        let Some(driver_result) = outcome else {
+            return;
+        };
+
+        match driver_result.and_then(|val| parse_settled_driver_result(&val, &all_sigs)) {
+            Ok((assistant_text, tool_calls, chat_id)) => {
+                record_thread_entries(
+                    &threads,
+                    &resp_id,
+                    session_key.as_deref(),
+                    chat_id.as_deref(),
+                    input_len,
+                    current_digest,
+                );
+                let (frames, _) =
+                    build_responses_sse_frames(&resp_id, &model, &assistant_text, &tool_calls);
+                // Frames 0 and 1 (`response.created`, `response.in_progress`) were already sent.
+                for frame in frames.into_iter().skip(2) {
+                    if tx.send(format_sse_frame(&frame)).await.is_err() {
+                        break;
+                    }
+                }
+            }
+            Err(err) => {
+                let err_obj = json!({
+                    "code": err.code,
+                    "message": err.detail
+                });
+                let failed_frame = json!({
+                    "type": "response.failed",
+                    "sequence_number": 2,
+                    "response": {
+                        "id": resp_id,
+                        "object": "response",
+                        "created_at": 0,
+                        "status": "failed",
+                        "model": model,
+                        "output": [],
+                        "parallel_tool_calls": true,
+                        "error": err_obj
+                    }
+                });
+                let _ = tx.send(format_sse_frame(&failed_frame)).await;
+            }
+        }
+    });
+
+    Ok((
+        StatusCode::OK,
+        [
+            (header::CONTENT_TYPE, "text/event-stream; charset=utf-8"),
+            (header::CACHE_CONTROL, "no-cache"),
+        ],
+        Body::from_stream(MpscSseStream { rx }),
+    )
+        .into_response())
+}
+
+fn parse_settled_driver_result(
+    driver_res: &Value,
+    all_sigs: &[Value],
+) -> Result<(String, Vec<ParsedToolCall>, Option<String>)> {
     let state = driver_res.get("state").and_then(Value::as_str);
     if state == Some("error") {
         let code = driver_res
@@ -654,60 +979,52 @@ pub async fn handle_responses(
     let assistant_text = driver_res
         .get("assistant_text")
         .and_then(Value::as_str)
-        .unwrap_or("");
+        .unwrap_or("")
+        .to_owned();
     let tool_calls: Vec<ParsedToolCall> = driver_res
         .get("tool_calls")
         .and_then(Value::as_array)
         .map(|arr| {
             arr.iter()
-                .filter_map(|v| resolve_parsed_tool_call(v, &all_sigs))
+                .filter_map(|v| resolve_parsed_tool_call(v, all_sigs))
                 .collect()
         })
         .unwrap_or_default();
-
-    let resp_id = format!("resp_{}", random_hex(8)?);
-    if let Some(cid) = driver_res
+    let chat_id = driver_res
         .get("chat_id")
         .and_then(Value::as_str)
         .filter(|s| !s.is_empty())
-    {
+        .map(ToOwned::to_owned);
+    Ok((assistant_text, tool_calls, chat_id))
+}
+
+fn record_thread_entries(
+    threads: &ResponseThreadMap,
+    resp_id: &str,
+    session_key: Option<&str>,
+    chat_id: Option<&str>,
+    input_len: usize,
+    prefix_sha256: [u8; 32],
+) {
+    let Some(cid) = chat_id else {
+        return;
+    };
+    threads.upsert(
+        resp_id.to_owned(),
+        ThreadEntry {
+            chat_id: cid.to_owned(),
+            input_len: 0,
+            prefix_sha256: [0u8; 32],
+        },
+    );
+    if let Some(key) = session_key {
         threads.upsert(
-            resp_id.clone(),
+            key.to_owned(),
             ThreadEntry {
                 chat_id: cid.to_owned(),
-                input_len: 0,
+                input_len,
+                prefix_sha256,
             },
         );
-        if let Some(key) = session_key {
-            threads.upsert(
-                key,
-                ThreadEntry {
-                    chat_id: cid.to_owned(),
-                    input_len,
-                },
-            );
-        }
     }
-    let (frames, final_resp) =
-        build_responses_sse_frames(&resp_id, &model, assistant_text, &tool_calls);
-
-    if !stream {
-        return Ok((StatusCode::OK, Json(final_resp)).into_response());
-    }
-
-    let mut sse = String::new();
-    for frame in frames {
-        let ev = frame["type"].as_str().unwrap_or("message");
-        sse.push_str("event: ");
-        sse.push_str(ev);
-        sse.push_str("\ndata: ");
-        sse.push_str(&frame.to_string());
-        sse.push_str("\n\n");
-    }
-    Ok((
-        StatusCode::OK,
-        [(header::CONTENT_TYPE, "text/event-stream; charset=utf-8")],
-        sse,
-    )
-        .into_response())
 }

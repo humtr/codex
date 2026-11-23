@@ -369,9 +369,10 @@ ties active commands to code and distinguishes integrated from deferred modules.
 
 - [SPEC.md](SPEC.md) — Settled top-level product invariants.
 - [CURRENT.md](CURRENT.md) — Current live operating state and recent verified evidence.
-- [docs/ROADMAP.md](docs/ROADMAP.md) — Deferred Stage 2 reintegration roadmap, lineage warnings, and follow-up verification criteria.
+- [docs/ROADMAP.md](docs/ROADMAP.md) — Stage 2 decoupled slice summary, follow-up verification criteria, and deferred Phase 2.6 canary notes.
 - [AGENTS.md](AGENTS.md) — Agent and engineering working principles.
-- [docs/spec/DELIVERY.md](docs/spec/DELIVERY.md) and [docs/spec/USER_INTERFACES.md](docs/spec/USER_INTERFACES.md) — Detailed delivery, recovery, CLI, and conditional Stage 2 contracts.
-- [docs/spec/BRIDGE.md](docs/spec/BRIDGE.md) — Deferred Stage 2 ChatGPT Bridge/Provider contract (source preserved on `rewrite/rust-core`).
+- [docs/spec/DELIVERY.md](docs/spec/DELIVERY.md) and [docs/spec/USER_INTERFACES.md](docs/spec/USER_INTERFACES.md) — Detailed delivery, recovery, Ed25519 signing, CLI, and `codex-ext` (`cdx`) contracts.
+- [docs/spec/BRIDGE.md](docs/spec/BRIDGE.md) — Stage 2 3-MCP (`@TermuxShell`, `@TermuxCodex`, `@TermuxChatGPT`) and `chatgpt-provider` overview contract.
+- [docs/spec/MCP_SHELL.md](docs/spec/MCP_SHELL.md), [docs/spec/MCP_CODEX.md](docs/spec/MCP_CODEX.md), [docs/spec/MCP_CHATGPT.md](docs/spec/MCP_CHATGPT.md), [docs/spec/CHATGPT_PROVIDER.md](docs/spec/CHATGPT_PROVIDER.md), and [docs/spec/SUPERVISION.md](docs/spec/SUPERVISION.md) — Normative annexes for each independent Stage 2 component and opt-in `runit` 3-state supervision.
 - [docs/history/STAGE1_MILESTONES.md](docs/history/STAGE1_MILESTONES.md) — Archived 2026-11-16 – 2026-11-19 Stage 1 milestones and retired work orders.
 - [docs/history/GENERATION_ADMISSION.md](docs/history/GENERATION_ADMISSION.md) and [docs/history/LEGACY_RUST_CORE.md](docs/history/LEGACY_RUST_CORE.md) — Archived pre-rewrite admission records and `rewrite/rust-core` (`0.167.x`) evidence.

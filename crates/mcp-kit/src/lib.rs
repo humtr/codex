@@ -19,7 +19,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 pub const MCP_PROTOCOL_VERSION: &str = "2025-03-26";
 pub const MAX_CALL_ID_LEN: usize = 160;
-pub const MAX_RECEIPT_BYTES: u64 = 512 * 1024;
+/// 512 KiB response payload + 8 KiB headroom for receipt envelope metadata.
+pub const MAX_RECEIPT_BYTES: u64 = 512 * 1024 + 8192;
 pub const MAX_STDIO_LINE_BYTES: usize = 2 * 1024 * 1024;
 static RECEIPT_SERIAL: AtomicU64 = AtomicU64::new(1);
 
@@ -284,7 +285,8 @@ impl ReceiptStore {
     }
 
     /// Atomically claim a `call_id` intent (`O_CREAT | O_EXCL | O_NOFOLLOW`, `0600`, `fsync`).
-    /// Never executes twice on concurrent identical retries.
+    /// Never executes twice on concurrent identical retries, and retries briefly if a
+    /// concurrent pre-dispatch failure released the intent between check and inspect.
     pub fn claim(
         &self,
         call_id: &str,
@@ -292,13 +294,36 @@ impl ReceiptStore {
         accepted_fingerprints: &[&str],
     ) -> ReceiptClaim {
         let path = self.receipt_path(call_id);
-        if fs::symlink_metadata(&path).is_ok() {
-            return ReceiptClaim::Existing(self.inspect(call_id, accepted_fingerprints));
+        for _ in 0..3 {
+            if fs::symlink_metadata(&path).is_ok() {
+                let inspected = self.inspect(call_id, accepted_fingerprints);
+                if inspected["state"] == "not_found" {
+                    continue;
+                }
+                return ReceiptClaim::Existing(inspected);
+            }
+            match self.write_intent(&path, primary_fingerprint) {
+                Ok(true) => return ReceiptClaim::Acquired(path),
+                Ok(false) => {
+                    let inspected = self.inspect(call_id, accepted_fingerprints);
+                    if inspected["state"] == "not_found" {
+                        continue;
+                    }
+                    return ReceiptClaim::Existing(inspected);
+                }
+                Err(err) => return ReceiptClaim::Rejected(err),
+            }
         }
-        match self.write_intent(&path, primary_fingerprint) {
-            Ok(true) => ReceiptClaim::Acquired(path),
-            Ok(false) => ReceiptClaim::Existing(self.inspect(call_id, accepted_fingerprints)),
-            Err(err) => ReceiptClaim::Rejected(err),
+        ReceiptClaim::Rejected("receipt_race")
+    }
+
+    /// Release a freshly claimed `started` receipt after a guaranteed pre-dispatch failure
+    /// (zero bytes sent / no side effect executed) and durably fsync the parent directory.
+    pub fn release_intent(&self, path: &Path) -> Result<(), &'static str> {
+        match fs::remove_file(path) {
+            Ok(()) => sync_parent(path),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
+            Err(_) => Err("receipt_release_failed"),
         }
     }
 
@@ -529,7 +554,10 @@ pub fn handle_message<H: McpHandler>(handler: &mut H, msg: &Value) -> Option<Val
                 ));
             };
             let default_args = Value::Object(Map::new());
-            let args = params.get("arguments").unwrap_or(&default_args);
+            let args = match params.get("arguments") {
+                None | Some(Value::Null) => &default_args,
+                Some(v) => v,
+            };
             let (payload, is_error) = handler.call_tool(name, args);
             Some(tool_result_response(id, &payload, is_error))
         }

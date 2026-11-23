@@ -322,6 +322,48 @@ def rollback_generation(
     return status_report(install_root, profile_dir or default_profile_dir(Path.home()))
 
 
+def install_viewer_assets(install_root: Path, source_dir: Path) -> dict[str, Any]:
+    """Copy verified noVNC static assets into `<install_root>/viewer/` (rejecting symlinks)."""
+    if not source_dir.is_dir() or source_dir.is_symlink():
+        raise RuntimeError(f"viewer source directory not found or symlink: {source_dir}")
+    if not (source_dir / "vnc.html").is_file() or (source_dir / "vnc.html").is_symlink():
+        raise RuntimeError(f"viewer source missing regular vnc.html: {source_dir}")
+    install_root.mkdir(parents=True, exist_ok=True)
+    os.chmod(install_root, 0o700)
+    viewer_dir = install_root / "viewer"
+    stage_dir = install_root / f".viewer.tmp-{os.getpid()}-{secrets.token_hex(4)}"
+    try:
+        stage_dir.mkdir(mode=0o700)
+        for root, dirs, files in os.walk(source_dir, followlinks=False):
+            rel_root = Path(root).relative_to(source_dir)
+            for d in list(dirs):
+                src_d = Path(root) / d
+                if src_d.is_symlink():
+                    raise RuntimeError(f"refusing symlink directory in viewer assets: {src_d}")
+                dst_d = stage_dir / rel_root / d
+                dst_d.mkdir(mode=0o700, exist_ok=True)
+            for fname in files:
+                src_f = Path(root) / fname
+                if src_f.is_symlink() or not src_f.is_file():
+                    raise RuntimeError(f"refusing non-regular file in viewer assets: {src_f}")
+                dst_f = stage_dir / rel_root / fname
+                shutil.copyfile(src_f, dst_f)
+                os.chmod(dst_f, 0o600)
+        if viewer_dir.is_symlink():
+            viewer_dir.unlink()
+        elif viewer_dir.exists():
+            shutil.rmtree(viewer_dir)
+        os.replace(stage_dir, viewer_dir)
+        return {
+            "state": "ok",
+            "viewer_dir": str(viewer_dir),
+            "viewer_ready": (viewer_dir / "vnc.html").is_file(),
+        }
+    except Exception:
+        shutil.rmtree(stage_dir, ignore_errors=True)
+        raise
+
+
 def status_report(install_root: Path, profile_dir: Path) -> dict[str, Any]:
     gens_root = install_root / "generations"
     installed: list[dict[str, Any]] = []
@@ -788,6 +830,9 @@ def main(argv: list[str] | None = None) -> int:
     p_probe.add_argument("--version", default=None)
     p_probe.add_argument("--timeout", type=int, default=35)
 
+    p_viewer = sub.add_parser("viewer", help="Install/verify noVNC static assets into <install_root>/viewer/")
+    p_viewer.add_argument("--source", type=Path, required=True, help="Directory containing vnc.html and noVNC assets")
+
     args = parser.parse_args(argv)
     home = Path.home()
     install_root = args.install_root or default_install_root(home)
@@ -846,6 +891,10 @@ def main(argv: list[str] | None = None) -> int:
 
         if args.cmd == "probe":
             print(json.dumps(probe_generation(install_root, args.version, prefix, args.timeout), indent=2))
+            return 0
+
+        if args.cmd == "viewer":
+            print(json.dumps(install_viewer_assets(install_root, args.source), indent=2))
             return 0
     except Exception as exc:
         print(json.dumps({"state": "error", "error": str(exc)}), file=sys.stderr)

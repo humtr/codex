@@ -31,7 +31,7 @@ fn print_help() {
          Usage:\n\
          \x20 chatgpt-provider serve [--config <path>] [--bind 127.0.0.1:<port>] [--state <dir>] [--rootfs <dir>] [--eager-host]\n\
          \x20 chatgpt-provider status [--config <path>]\n\
-         \x20 chatgpt-provider print-codex-profile [--bind 127.0.0.1:4319] [--model auto]\n\
+         \x20 chatgpt-provider print-codex-profile [--bind 127.0.0.1:4319] [--model auto] [--standalone]\n\
          \x20 chatgpt-provider --version | --help",
         env!("CARGO_PKG_VERSION")
     );
@@ -59,6 +59,7 @@ async fn run() -> Result<()> {
         Some("print-codex-profile") => {
             let mut bind = "127.0.0.1:4319".to_owned();
             let mut model = "auto".to_owned();
+            let mut standalone = false;
             let mut i = 1;
             while i < args.len() {
                 match args[i].as_str() {
@@ -70,23 +71,47 @@ async fn run() -> Result<()> {
                         model = args[i + 1].clone();
                         i += 2;
                     }
+                    "--standalone" => {
+                        standalone = true;
+                        i += 1;
+                    }
                     other => {
                         eprintln!("chatgpt-provider: unknown flag '{other}'");
                         std::process::exit(2);
                     }
                 }
             }
-            println!(
-                "# Opt-in Codex CLI profile (`codex -p chatgpt`) — zero Wrapper coupling\n\
-                 [profiles.chatgpt]\n\
-                 model = \"{model}\"\n\
-                 model_provider = \"chatgpt_desktop\"\n\n\
-                 [model_providers.chatgpt_desktop]\n\
-                 name = \"ChatGPT Desktop (Stage 2)\"\n\
-                 base_url = \"http://{bind}/v1\"\n\
-                 wire_api = \"responses\"\n\
-                 requires_openai_auth = false"
-            );
+            if standalone {
+                println!(
+                    "# Standalone Codex provider config (`~/.codex/chatgpt.config.toml`) for `!cdx provider chatgpt`\n\
+                     model = \"{model}\"\n\
+                     model_provider = \"chatgpt_desktop\"\n\n\
+                     [model_providers.chatgpt_desktop]\n\
+                     name = \"ChatGPT Desktop (Stage 2)\"\n\
+                     base_url = \"http://{bind}/v1\"\n\
+                     wire_api = \"responses\"\n\
+                     requires_openai_auth = false\n\
+                     supports_websockets = false\n\
+                     request_max_retries = 0\n\
+                     stream_max_retries = 0"
+                );
+            } else {
+                println!(
+                    "# Opt-in Codex CLI profile (`codex -p chatgpt` in `~/.codex/config.toml`) — zero Wrapper coupling\n\
+                     # (Or pass `--standalone` to generate `~/.codex/chatgpt.config.toml`)\n\
+                     [profiles.chatgpt]\n\
+                     model = \"{model}\"\n\
+                     model_provider = \"chatgpt_desktop\"\n\n\
+                     [model_providers.chatgpt_desktop]\n\
+                     name = \"ChatGPT Desktop (Stage 2)\"\n\
+                     base_url = \"http://{bind}/v1\"\n\
+                     wire_api = \"responses\"\n\
+                     requires_openai_auth = false\n\
+                     supports_websockets = false\n\
+                     request_max_retries = 0\n\
+                     stream_max_retries = 0"
+                );
+            }
             Ok(())
         }
         Some("status") => {
@@ -252,6 +277,7 @@ mod tests {
     };
     use serde_json::{json, Value};
     use std::sync::Mutex;
+    use std::time::Duration;
     use tower_like::oneshot;
 
     struct MockDriver {
@@ -370,13 +396,40 @@ mod tests {
                 .unwrap()
                 .parse()
                 .unwrap();
-            let body = resp_bytes[split + 4..].to_vec();
+            let raw_body = resp_bytes[split + 4..].to_vec();
+            let mut is_chunked = false;
             let mut builder = Response::builder().status(status_code);
             for line in head.lines().skip(1) {
                 if let Some((k, v)) = line.split_once(':') {
+                    if k.trim().eq_ignore_ascii_case("transfer-encoding")
+                        && v.to_ascii_lowercase().contains("chunked")
+                    {
+                        is_chunked = true;
+                    }
                     builder = builder.header(k.trim(), v.trim());
                 }
             }
+            let body = if is_chunked {
+                let mut out = Vec::new();
+                let mut pos = 0;
+                while pos < raw_body.len() {
+                    let Some(rel) = raw_body[pos..].windows(2).position(|w| w == b"\r\n") else {
+                        break;
+                    };
+                    let sz_line = std::str::from_utf8(&raw_body[pos..pos + rel]).unwrap();
+                    let sz = usize::from_str_radix(sz_line.split(';').next().unwrap().trim(), 16)
+                        .unwrap();
+                    pos += rel + 2;
+                    if sz == 0 {
+                        break;
+                    }
+                    out.extend_from_slice(&raw_body[pos..pos + sz]);
+                    pos += sz + 2;
+                }
+                out
+            } else {
+                raw_body
+            };
             builder.body(Body::from(body)).unwrap()
         }
     }
@@ -637,6 +690,206 @@ mod tests {
         assert_eq!(
             sent2["local_function_signatures"].as_array().unwrap().len(),
             2
+        );
+
+        // Round 3: compacted/edited prefix MUST fork a fresh chat_id (None) instead of
+        // appending onto `conv-orch-1`!
+        let mut r3_body = r1_body.clone();
+        r3_body["input"][1]["content"][0]["text"] = json!("Compacted summary of prior work");
+        r3_body["input"].as_array_mut().unwrap().push(json!({
+            "type": "message",
+            "role": "user",
+            "content": [{"type": "input_text", "text": "Continue after compaction"}]
+        }));
+        let resp3 = oneshot(
+            build_router(
+                driver.clone(),
+                config::ModelConfig::default(),
+                config::HistoryConfig {
+                    project_id: Some("g-p-test-proj".to_owned()),
+                    project_name: None,
+                },
+                "tok-0123456789abcdef0123456789abcdef".to_owned(),
+                Arc::new(RwLock::new(None)),
+            ),
+            Request::builder()
+                .method("POST")
+                .uri("/v1/responses")
+                .header("content-type", "application/json")
+                .header("thread-id", "thread-orch-1")
+                .body(Body::from(r3_body.to_string()))
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(resp3.status(), StatusCode::OK);
+        let sent3 = driver.last_send.lock().unwrap().clone().unwrap();
+        assert!(sent3["chat_id"].is_null());
+        assert_eq!(sent3["is_continuation"], false);
+
+        // Background Transcript Title Generation MUST omit project_id to avoid polluting projects!
+        let title_body = json!({
+            "model": "gpt-6-sol-wm",
+            "stream": false,
+            "instructions": "Transcript Title Generation: generate a concise title for this conversation.",
+            "input": [{"role": "user", "content": [{"type": "input_text", "text": "Hello"}]}]
+        });
+        let resp_title = oneshot(
+            build_router(
+                driver.clone(),
+                config::ModelConfig::default(),
+                config::HistoryConfig {
+                    project_id: Some("g-p-test-proj".to_owned()),
+                    project_name: None,
+                },
+                "tok-0123456789abcdef0123456789abcdef".to_owned(),
+                Arc::new(RwLock::new(None)),
+            ),
+            Request::builder()
+                .method("POST")
+                .uri("/v1/responses")
+                .header("content-type", "application/json")
+                .body(Body::from(title_body.to_string()))
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(resp_title.status(), StatusCode::OK);
+        let sent_title = driver.last_send.lock().unwrap().clone().unwrap();
+        assert!(sent_title["project_id"].is_null());
+    }
+
+    #[tokio::test]
+    async fn control_plane_rejects_dotdot_and_control_char_ids() {
+        let driver =
+            MockDriver::new(json!({"state":"settled","assistant_text":"hi","tool_calls":[]}));
+        let tok = "secret-token-0123456789abcdef0123456789";
+        let router = build_router(
+            driver,
+            config::ModelConfig::default(),
+            config::HistoryConfig::default(),
+            tok.to_owned(),
+            Arc::new(RwLock::new(None)),
+        );
+        for uri in [
+            "/control/projects/..",
+            "/control/chats/..",
+            "/control/chats/.",
+        ] {
+            let r = oneshot(
+                router.clone(),
+                Request::builder()
+                    .uri(uri)
+                    .header("authorization", format!("Bearer {tok}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await;
+            assert_eq!(r.status(), StatusCode::BAD_REQUEST, "uri={uri}");
+        }
+    }
+
+    #[tokio::test]
+    async fn responses_stream_client_disconnect_triggers_stop_generation() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use tokio::io::AsyncWriteExt;
+        use tokio::net::TcpListener;
+
+        struct SlowDriver {
+            stopped: Arc<AtomicBool>,
+            started: Arc<tokio::sync::Notify>,
+        }
+        impl DriverBackend for SlowDriver {
+            fn host_running(&self) -> BoxFuture<'_, bool> {
+                Box::pin(async { true })
+            }
+            fn status(&self) -> BoxFuture<'_, Result<Value>> {
+                Box::pin(async { Ok(json!({"state":"ok"})) })
+            }
+            fn list_chats(&self, _: Value) -> BoxFuture<'_, Result<Value>> {
+                Box::pin(async { Ok(json!({"state":"ok"})) })
+            }
+            fn read_chat(&self, _: Value) -> BoxFuture<'_, Result<Value>> {
+                Box::pin(async { Ok(json!({"state":"ok"})) })
+            }
+            fn rename_chat(&self, _: Value) -> BoxFuture<'_, Result<Value>> {
+                Box::pin(async { Ok(json!({"state":"ok"})) })
+            }
+            fn list_projects(&self, _: Value) -> BoxFuture<'_, Result<Value>> {
+                Box::pin(async { Ok(json!({"state":"ok"})) })
+            }
+            fn read_project(&self, _: Value) -> BoxFuture<'_, Result<Value>> {
+                Box::pin(async { Ok(json!({"state":"ok"})) })
+            }
+            fn create_project(&self, _: Value) -> BoxFuture<'_, Result<Value>> {
+                Box::pin(async { Ok(json!({"state":"ok"})) })
+            }
+            fn send_message(&self, _: Value) -> BoxFuture<'_, Result<Value>> {
+                let started = Arc::clone(&self.started);
+                Box::pin(async move {
+                    started.notify_one();
+                    tokio::time::sleep(Duration::from_secs(30)).await;
+                    Ok(json!({"state":"settled","assistant_text":"late","tool_calls":[]}))
+                })
+            }
+            fn observe_chat(&self, _: Value) -> BoxFuture<'_, Result<Value>> {
+                Box::pin(async { Ok(json!({"state":"in_progress"})) })
+            }
+            fn stop_generation(&self) -> BoxFuture<'_, Result<Value>> {
+                let stopped = Arc::clone(&self.stopped);
+                Box::pin(async move {
+                    stopped.store(true, Ordering::Release);
+                    Ok(json!({"state":"stopped","stopped":true}))
+                })
+            }
+            fn viewer_info(&self) -> BoxFuture<'_, Result<Value>> {
+                Box::pin(async { Ok(json!({"state":"ok","available":false})) })
+            }
+            fn restart_host(&self) -> BoxFuture<'_, Result<Value>> {
+                Box::pin(async { Ok(json!({"state":"ok"})) })
+            }
+        }
+
+        let stopped = Arc::new(AtomicBool::new(false));
+        let started = Arc::new(tokio::sync::Notify::new());
+        let driver: Arc<dyn DriverBackend> = Arc::new(SlowDriver {
+            stopped: Arc::clone(&stopped),
+            started: Arc::clone(&started),
+        });
+        let router = build_router(
+            driver,
+            config::ModelConfig::default(),
+            config::HistoryConfig::default(),
+            "tok-0123456789abcdef0123456789abcdef".to_owned(),
+            Arc::new(RwLock::new(None)),
+        );
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let srv = tokio::spawn(async move {
+            let _ = axum::serve(listener, router).await;
+        });
+
+        let mut stream = tokio::net::TcpStream::connect(addr).await.unwrap();
+        let body = json!({"model":"auto","stream":true,"input":"long task"}).to_string();
+        let req = format!(
+            "POST /v1/responses HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        stream.write_all(req.as_bytes()).await.unwrap();
+        started.notified().await;
+        // Drop the client TCP stream mid-turn!
+        drop(stream);
+
+        // Wait briefly for Axum stream drop -> stop_generation() cancellation
+        for _ in 0..40 {
+            if stopped.load(Ordering::Acquire) {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        srv.abort();
+        assert!(
+            stopped.load(Ordering::Acquire),
+            "disconnecting mid-stream must invoke stop_generation()"
         );
     }
 }

@@ -379,3 +379,105 @@ test("page_driver on app://- Electron origin uses connect-app-host Cap'n Web htt
   assert.equal(chats.state, "ok");
   assert.equal(chats.chats[0].id, "c-el-1");
 });
+
+test("page_driver tool-only turn does not leak stale text, observeChat reports async error, schema types/collisions/zero-arg & listProjects cursor work", async () => {
+  let streamErrCb = null;
+  const { driver, startCalls } = createMockEnv({
+    apiMap: {
+      "GET /backend-api/me": {
+        status: 200,
+        body: { id: "u1", name: "User", orgs: { data: [{ id: "acc-1", title: "Plus", is_personal: true }] } },
+      },
+      "GET /backend-api/gizmos/snorlax/sidebar?conversations_per_gizmo=0&cursor=page2": {
+        status: 200,
+        body: { items: [{ gizmo: { gizmo: { id: "g-p-2", display: { name: "Proj 2" } } } }], cursor: null },
+      },
+      "GET /backend-api/conversation/conv-tool-only": {
+        status: 200,
+        body: {
+          title: "Tool Only",
+          current_node: "n2",
+          mapping: {
+            n1: { parent: null, message: { id: "m1", author: { role: "user" }, content: { content_type: "text", parts: ["Turn 1"] } } },
+            n2: { parent: "n1", message: { id: "m2", author: { role: "assistant" }, content: { content_type: "text", parts: ["STALE_TURN_1_TEXT"] } } },
+          },
+        },
+      },
+    },
+    completionBehavior(args) {
+      if (args.request.conversation_id === "conv-tool-only") {
+        queueMicrotask(() => {
+          args.onUpdate?.({
+            type: "message",
+            conversationId: "conv-tool-only",
+            message: {
+              id: "msg-zero-arg",
+              author: { role: "assistant" },
+              recipient: "ns_b_status",
+              status: "finished_successfully",
+              content: { content_type: "code", text: "" },
+            },
+          });
+          args.onComplete?.({ reason: "done" });
+        });
+      } else {
+        streamErrCb = args.onError;
+      }
+      return { streamRequestId: "stream-x", prepareResponse: { conduit_token: "ctok-x" } };
+    },
+  });
+
+  // 1. listProjects passes cursor query parameter
+  const page2 = await driver.listProjects({ cursor: "page2" });
+  assert.equal(page2.state, "ok");
+  assert.equal(page2.projects[0].id, "g-p-2");
+
+  // 2. Tool-only turn with array/object/nullable schema, cross-namespace collision, and zero-arg call
+  const res = await driver.sendMessage({
+    chat_id: "conv-tool-only",
+    prompt: "Check status",
+    local_function_signatures: [
+      {
+        type: "function",
+        name: "status",
+        namespace: "ns_a",
+        parameters: {
+          type: "object",
+          properties: {
+            ids: { type: ["array", "null"], items: { type: "string" } },
+            meta: { type: "object", properties: { ok: { type: "boolean" } } },
+          },
+          required: ["ids"],
+        },
+      },
+      {
+        type: "function",
+        name: "status",
+        namespace: "ns_b",
+        parameters: { type: "object", properties: {} },
+      },
+    ],
+    wait_ms: 1000,
+  });
+  assert.equal(res.state, "settled");
+  assert.equal(res.assistant_text, "");
+  assert.ok(!res.assistant_text.includes("STALE_TURN_1_TEXT"));
+  assert.equal(res.tool_calls.length, 1);
+  assert.equal(res.tool_calls[0].name, "status");
+  assert.equal(res.tool_calls[0].namespace, "ns_b");
+  assert.equal(res.tool_calls[0].arguments, "{}");
+
+  const sig0 = startCalls[0].request.local_function_signatures[0];
+  assert.equal(sig0.params[0].type.type, "array");
+  assert.equal(sig0.params[0].type.items.type, "string");
+  assert.equal(sig0.params[1].type.type, "object");
+  assert.equal(startCalls[0].request.local_function_names.length, 2);
+
+  // 3. Async onError after in_progress MUST be surfaced by observeChat (not swallowed as settled!)
+  const pending = await driver.sendMessage({ prompt: "Will fail async", wait_ms: 20 });
+  assert.equal(pending.state, "in_progress");
+  streamErrCb({ responseStatus: 429, message: "rate limited" });
+  const obsErr = await driver.observeChat({});
+  assert.equal(obsErr.state, "error");
+  assert.equal(obsErr.error, "backend_http_429");
+});

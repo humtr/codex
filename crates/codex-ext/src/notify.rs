@@ -81,7 +81,8 @@ pub fn validate_event_name(event: &str) -> Result<(), String> {
     }
 }
 
-/// Inspect whether `~/.codex/config.toml` has top-level `codex-ext` `notify = [...]`.
+/// Inspect whether `~/.codex/config.toml` has top-level `codex-ext` `notify = [...]`
+/// (supporting both single-line and multi-line TOML array blocks).
 pub fn config_toml_has_stop_notify(config_path: &Path) -> Result<bool, String> {
     if fs::symlink_metadata(config_path).is_err() {
         return Ok(false);
@@ -89,14 +90,26 @@ pub fn config_toml_has_stop_notify(config_path: &Path) -> Result<bool, String> {
     require_owned_regular_file(config_path, "config.toml")?;
     let raw = fs::read_to_string(config_path)
         .map_err(|e| format!("cannot read {}: {e}", config_path.display()))?;
-    for line in raw.lines() {
-        let trimmed = line.trim();
+    let lines: Vec<&str> = raw.lines().collect();
+    let mut idx = 0usize;
+    while idx < lines.len() {
+        let trimmed = lines[idx].trim();
         if trimmed.starts_with('[') {
             break;
         }
-        if is_top_level_notify_key(trimmed) && trimmed.contains("codex-ext") {
-            return Ok(true);
+        if is_top_level_notify_key(trimmed) {
+            let mut block = vec![lines[idx]];
+            let mut depth = toml_bracket_delta(lines[idx]);
+            while depth > 0 && idx + 1 < lines.len() {
+                idx += 1;
+                block.push(lines[idx]);
+                depth += toml_bracket_delta(lines[idx]);
+            }
+            if block.join("\n").contains("codex-ext") {
+                return Ok(true);
+            }
         }
+        idx += 1;
     }
     Ok(false)
 }

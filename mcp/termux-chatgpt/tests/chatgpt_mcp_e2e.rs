@@ -395,3 +395,75 @@ fn end_to_end_stdio_bridge_covers_all_six_tools_and_all_five_extensions() {
 
     let _ = fs::remove_dir_all(&root);
 }
+
+#[test]
+fn missing_token_on_running_provider_and_401_do_not_misreport_or_poison_call_id() {
+    let root = temp_dir("cg-mcp-neg");
+    let valid_token = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+    let wrong_token = "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff";
+    let missing_tok_path = root.join("does-not-exist.token");
+    let wrong_tok_path = root.join("wrong.token");
+    {
+        let mut f = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&wrong_tok_path)
+            .unwrap();
+        writeln!(f, "{wrong_token}").unwrap();
+    }
+    let valid_tok_path = write_private_token(&root, valid_token);
+    let rcpt = root.join("receipts");
+    let sends = Arc::new(AtomicUsize::new(0));
+    let (url, h) = start_mock_provider(valid_token.to_owned(), Arc::clone(&sends), false);
+
+    // 1. Running provider + missing control.token -> isError=true, provider_reachable=true (NOT provider_stopped!)
+    let r_missing = run_mcp_session(
+        &url,
+        &missing_tok_path,
+        &rcpt,
+        &[
+            json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"chatgpt_status","arguments":{}}}),
+        ],
+    );
+    let (st_missing, st_err) = tool_payload(&r_missing[0]);
+    assert!(st_err);
+    assert_eq!(st_missing["provider_reachable"], true);
+    assert_eq!(st_missing["error"], "chatgpt_control_token_unavailable");
+
+    // 2. HTTP 401 on chatgpt_send MUST NOT poison call_id: retrying with valid token + different wait_ms succeeds!
+    let r_401 = run_mcp_session(
+        &url,
+        &wrong_tok_path,
+        &rcpt,
+        &[
+            json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"chatgpt_send","arguments":{"action":"send","call_id":"auth-retry-1","prompt":"hello","wait_ms":5000}}}),
+        ],
+    );
+    let (p401, e401) = tool_payload(&r_401[0]);
+    assert!(e401);
+    assert_eq!(p401["executed"], false);
+    assert_eq!(p401["http_status"], 401);
+
+    let r_ok = run_mcp_session(
+        &url,
+        &valid_tok_path,
+        &rcpt,
+        &[
+            json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"chatgpt_send","arguments":{"action":"send","call_id":"auth-retry-1","prompt":"hello","wait_ms":15000}}}),
+            // Same call_id with longer wait_ms replays cleanly instead of conflicting!
+            json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"chatgpt_send","arguments":{"action":"send","call_id":"auth-retry-1","prompt":"hello","wait_ms":60000}}}),
+        ],
+    );
+    stop_mock_provider(&url, h);
+
+    let (ok1, err1) = tool_payload(&r_ok[0]);
+    assert!(!err1);
+    assert_eq!(ok1["assistant_text"], "REPLY_1");
+    let (ok2, err2) = tool_payload(&r_ok[1]);
+    assert!(!err2);
+    assert_eq!(ok2["replayed_from_receipt"], true);
+    assert_eq!(sends.load(Ordering::SeqCst), 1);
+
+    let _ = fs::remove_dir_all(&root);
+}

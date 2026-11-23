@@ -29,7 +29,7 @@ Observed on 2026-11-23.
 - Physical power removal (as distinct from userspace `SIGKILL` and injected I/O faults).
 - Execution on an actual 16 KiB kernel page-size device or other Android API/hardware (only 16 KiB ELF geometry on Android API 37 / 4 KiB pages is verified).
 - External Remote Control client pairing and post-cutover interactive model inference across all accounts.
-- Deferred Stage 2 `/switch` cross-account UUID handoff and `session_index.jsonl` authority matrix (see [docs/ROADMAP.md](docs/ROADMAP.md#7-follow-up-verification-session-handoff-and-session_indexjsonl)).
+- Authenticated multi-account online `/switch` cross-account UUID handoff and physical interactive Termux UI `/copy` clipboard paste-back (isolated `0.171.0` §7 writer-lock release and `session_index.jsonl`/`state_5.sqlite` authority proof passed in Slice 2; see [docs/ROADMAP.md](docs/ROADMAP.md#7-follow-up-verification-session-handoff-and-session_indexjsonl)).
 - Post-retention disk reclamation of legacy per-home `packages/app-server-daemon/releases/`.
 
 ---

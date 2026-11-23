@@ -274,6 +274,18 @@ fn exit_status_to_code(status: ExitStatus) -> i32 {
     }
 }
 
+fn config_toml_has_profile(config_path: &Path, name: &str) -> bool {
+    let Ok(raw) = std::fs::read_to_string(config_path) else {
+        return false;
+    };
+    let exact = format!("[profiles.{name}]");
+    let quoted = format!("[profiles.\"{name}\"]");
+    raw.lines().any(|line| {
+        let trimmed = line.split('#').next().unwrap_or("").trim();
+        trimmed == exact || trimmed == quoted
+    })
+}
+
 pub fn validate_provider_name(paths: &ExtPaths, name: &str) -> Result<(), String> {
     if name == "openai" {
         return Ok(());
@@ -286,11 +298,13 @@ pub fn validate_provider_name(paths: &ExtPaths, name: &str) -> Result<(), String
     {
         return Err(format!("invalid provider name: '{name}'"));
     }
-    let cfg = paths.shared_home.join(format!("{name}.config.toml"));
-    if !cfg.is_file() {
+    let standalone_cfg = paths.shared_home.join(format!("{name}.config.toml"));
+    let main_cfg = paths.shared_home.join("config.toml");
+    if !standalone_cfg.is_file() && !config_toml_has_profile(&main_cfg, name) {
         return Err(format!(
-            "provider config not found: {} (expected ~/.codex/{name}.config.toml)",
-            cfg.display()
+            "provider config not found: expected {} or [profiles.{name}] in {}",
+            standalone_cfg.display(),
+            main_cfg.display()
         ));
     }
     Ok(())
@@ -424,14 +438,33 @@ pub fn run_launcher(
                             busy.len(),
                             current_target.name()
                         );
-                        if let Err(err) =
-                            wait_until_daemon_idle(paths, &old_home, &cwd, Duration::from_secs(600))
-                        {
-                            eprintln!(
-                                "codex-ext: switch wait failed ({err}); resuming original session"
-                            );
-                            next_args = Vec::new();
-                            continue;
+                        match wait_until_daemon_idle(
+                            paths,
+                            &old_home,
+                            &cwd,
+                            Duration::from_secs(600),
+                        ) {
+                            Ok(true) => {}
+                            Ok(false) => {
+                                eprintln!(
+                                    "codex-ext: switch aborted — '{}' still has active turn(s) after 600s wait; resuming original session",
+                                    current_target.name()
+                                );
+                                next_args = match tid {
+                                    Some(ref id) => {
+                                        vec![OsString::from("resume"), OsString::from(id)]
+                                    }
+                                    None => Vec::new(),
+                                };
+                                continue;
+                            }
+                            Err(err) => {
+                                eprintln!(
+                                    "codex-ext: switch wait failed ({err}); resuming original session"
+                                );
+                                next_args = Vec::new();
+                                continue;
+                            }
                         }
                     } else {
                         eprintln!(
@@ -635,7 +668,12 @@ pub fn run_switch_command(
                 busy.len(),
                 current_target.name()
             );
-            wait_until_daemon_idle(paths, &old_home, &cwd, Duration::from_secs(600))?;
+            if !wait_until_daemon_idle(paths, &old_home, &cwd, Duration::from_secs(600))? {
+                return Err(format!(
+                    "'{}' still has active turn(s) after 600s wait; refusing to stop busy daemon",
+                    current_target.name()
+                ));
+            }
         } else if io::stdin().is_terminal() {
             eprintln!(
                 "codex-ext: '{}' currently has {} active turn(s).",
@@ -651,7 +689,12 @@ pub fn run_switch_command(
             let _ = io::stdin().read_line(&mut choice);
             match choice.trim().to_ascii_lowercase().as_str() {
                 "w" | "wait" => {
-                    wait_until_daemon_idle(paths, &old_home, &cwd, Duration::from_secs(600))?;
+                    if !wait_until_daemon_idle(paths, &old_home, &cwd, Duration::from_secs(600))? {
+                        return Err(format!(
+                            "'{}' still has active turn(s) after 600s wait; refusing to stop busy daemon",
+                            current_target.name()
+                        ));
+                    }
                 }
                 "r" | "return" => {
                     let args = match resolved_tid {

@@ -497,10 +497,34 @@ impl OwnedHost {
         let auth_browser = AuthBrowserRelay::start(profile_dir, path, &prefix)?;
 
         let socket_root = prefix.join("tmp/.X11-unix");
+        let euid = unsafe { libc::geteuid() };
         let display = (130..1950_u16)
             .find(|id| {
-                !socket_root.join(format!("X{id}")).exists()
-                    && !prefix.join(format!("tmp/.X{id}-lock")).exists()
+                let lock_file = prefix.join(format!("tmp/.X{id}-lock"));
+                let sock_file = socket_root.join(format!("X{id}"));
+                if lock_file.exists() {
+                    // Reclaim stale user-owned X lock/socket left behind after SIGKILL.
+                    let stale_dead = fs::symlink_metadata(&lock_file)
+                        .is_ok_and(|m| !m.file_type().is_symlink() && m.uid() == euid)
+                        && fs::read_to_string(&lock_file)
+                            .ok()
+                            .and_then(|s| s.trim().parse::<i32>().ok())
+                            .is_some_and(|pid| {
+                                pid > 1
+                                    && unsafe { libc::kill(pid, 0) } != 0
+                                    && std::io::Error::last_os_error().raw_os_error()
+                                        == Some(libc::ESRCH)
+                            });
+                    if stale_dead {
+                        let _ = fs::remove_file(&lock_file);
+                        if fs::symlink_metadata(&sock_file)
+                            .is_ok_and(|m| !m.file_type().is_symlink() && m.uid() == euid)
+                        {
+                            let _ = fs::remove_file(&sock_file);
+                        }
+                    }
+                }
+                !sock_file.exists() && !lock_file.exists()
             })
             .ok_or_else(|| {
                 ProviderError::unavailable("host_display_unavailable", "no free X11 display")
@@ -594,6 +618,17 @@ impl OwnedHost {
             .map_err(|e| ProviderError::unavailable("host_rootfs_open_failed", e.to_string()))?;
         let root_fd = root_file.as_raw_fd();
 
+        let host_log_path = profile_dir.join("host.log");
+        let app_log_out = OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .mode(0o600)
+            .custom_flags(libc::O_NOFOLLOW)
+            .open(&host_log_path)
+            .ok();
+        let app_log_err = app_log_out.as_ref().and_then(|f| f.try_clone().ok());
+
         let mut cmd = Command::new(prefix.join("bin/proot"));
         cmd.env_clear()
             .env("PATH", prefix.join("bin"))
@@ -641,8 +676,8 @@ impl OwnedHost {
                 "--remote-debugging-pipe",
             ])
             .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null());
+            .stdout(app_log_out.map_or_else(Stdio::null, Stdio::from))
+            .stderr(app_log_err.map_or_else(Stdio::null, Stdio::from));
         unsafe {
             cmd.pre_exec(move || {
                 if libc::fchdir(root_fd) != 0
@@ -689,9 +724,20 @@ impl OwnedHost {
             .await
         {
             host.shutdown().await;
+            let tail = fs::read(&host_log_path)
+                .ok()
+                .map(|bytes| {
+                    let start = bytes.len().saturating_sub(800);
+                    String::from_utf8_lossy(&bytes[start..]).trim().to_owned()
+                })
+                .filter(|s| !s.is_empty());
+            let detail = match tail {
+                Some(t) => format!("ChatGPT app CDP handshake failed: {err} (host.log tail: {t})"),
+                None => format!("ChatGPT app CDP handshake failed: {err}"),
+            };
             return Err(ProviderError::unavailable(
                 "official_app_start_failed",
-                format!("ChatGPT app CDP handshake failed: {err}"),
+                detail,
             ));
         }
 

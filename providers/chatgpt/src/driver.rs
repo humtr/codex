@@ -9,6 +9,7 @@ use serde_json::{json, Value};
 use std::future::Future;
 use std::path::PathBuf;
 use std::pin::Pin;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Mutex;
@@ -43,6 +44,7 @@ pub struct CdpDriver {
     home: PathBuf,
     listen_port: u16,
     viewer_slot: ViewerSlot,
+    host_running_flag: AtomicBool,
     state: Mutex<LiveHostState>,
 }
 
@@ -58,6 +60,7 @@ impl CdpDriver {
             home,
             listen_port,
             viewer_slot,
+            host_running_flag: AtomicBool::new(false),
             state: Mutex::new(LiveHostState {
                 host: None,
                 session_id: None,
@@ -65,68 +68,79 @@ impl CdpDriver {
         })
     }
 
+    /// Ensure the owned host & page session are attached under `self.state`, then
+    /// release the mutex BEFORE invoking `evaluate_json` so concurrent `/healthz`,
+    /// `/control/observe`, `/control/stop`, `/control/status`, and `SIGTERM` shutdown
+    /// never block behind a long-running `sendMessage` turn.
     async fn ensure_ready_and_call(
         &self,
         method: &str,
         arg: Value,
         timeout: Duration,
     ) -> Result<Value> {
-        let mut guard = self.state.lock().await;
-        if guard.host.is_none() {
-            let rootfs = self.config.resolved_rootfs(&self.home);
-            let profile = self.config.profile_dir(&self.home);
-            let host = OwnedHost::start(&rootfs, &profile).await?;
-            if let Some(assets) = self.config.resolved_viewer_assets(&self.home) {
-                if let Ok(viewer) = Viewer::new(host.viewer_socket(), assets, self.listen_port) {
-                    if let Ok(mut slot) = self.viewer_slot.write() {
-                        *slot = Some(viewer);
-                    }
-                }
-            }
-            guard.host = Some(host);
-            guard.session_id = None;
-        }
-        let client = guard.host.as_ref().unwrap().client.clone();
-        let (sid, freshly_attached) = match &guard.session_id {
-            Some(s) => (s.clone(), false),
-            None => {
-                let s = client.attach_chatgpt_page().await?;
-                guard.session_id = Some(s.clone());
-                (s, true)
-            }
-        };
-        if freshly_attached {
-            // Wait for the initial `about:blank` -> `app://-/index.html` document commit
-            // before injecting `page_driver.js`, avoiding transient
-            // "Execution context was destroyed" errors during cold boot without ever
-            // replaying a mutation.
-            let ready_deadline = tokio::time::Instant::now() + Duration::from_secs(15);
-            while tokio::time::Instant::now() < ready_deadline {
-                match client
-                    .evaluate_json(
-                        &sid,
-                        "(document.readyState === 'complete' && location.protocol !== 'about:')",
-                        Duration::from_secs(3),
-                    )
-                    .await
-                {
-                    Ok(Value::Bool(true)) => break,
-                    Ok(_) => {}
-                    Err(e) if e.code == "cdp_disconnected" => {
-                        guard.session_id = None;
+        let (client, sid) = {
+            let mut guard = self.state.lock().await;
+            if guard.host.is_none() {
+                let rootfs = self.config.resolved_rootfs(&self.home);
+                let profile = self.config.profile_dir(&self.home);
+                let host = OwnedHost::start(&rootfs, &profile).await?;
+                if let Some(assets) = self.config.resolved_viewer_assets(&self.home) {
+                    if let Ok(viewer) = Viewer::new(host.viewer_socket(), assets, self.listen_port)
+                    {
                         if let Ok(mut slot) = self.viewer_slot.write() {
-                            *slot = None;
+                            *slot = Some(viewer);
                         }
-                        if let Some(mut dead) = guard.host.take() {
-                            dead.shutdown().await;
-                        }
-                        return Err(e);
                     }
-                    Err(_) => {}
                 }
-                tokio::time::sleep(Duration::from_millis(250)).await;
+                guard.host = Some(host);
+                guard.session_id = None;
+                self.host_running_flag.store(true, Ordering::Release);
             }
-        }
+            let client = guard.host.as_ref().unwrap().client.clone();
+            let (sid, freshly_attached) = match &guard.session_id {
+                Some(s) => (s.clone(), false),
+                None => {
+                    let s = client.attach_chatgpt_page().await?;
+                    guard.session_id = Some(s.clone());
+                    (s, true)
+                }
+            };
+            if freshly_attached {
+                // Wait for the initial `about:blank` -> `app://-/index.html` document commit
+                // before injecting `page_driver.js`, avoiding transient
+                // "Execution context was destroyed" errors during cold boot without ever
+                // replaying a mutation.
+                let ready_deadline = tokio::time::Instant::now() + Duration::from_secs(15);
+                while tokio::time::Instant::now() < ready_deadline {
+                    match client
+                        .evaluate_json(
+                            &sid,
+                            "(document.readyState === 'complete' && location.protocol !== 'about:')",
+                            Duration::from_secs(3),
+                        )
+                        .await
+                    {
+                        Ok(Value::Bool(true)) => break,
+                        Ok(_) => {}
+                        Err(e) if e.code == "cdp_disconnected" => {
+                            guard.session_id = None;
+                            if let Ok(mut slot) = self.viewer_slot.write() {
+                                *slot = None;
+                            }
+                            self.host_running_flag.store(false, Ordering::Release);
+                            if let Some(mut dead) = guard.host.take() {
+                                dead.shutdown().await;
+                            }
+                            return Err(e);
+                        }
+                        Err(_) => {}
+                    }
+                    tokio::time::sleep(Duration::from_millis(250)).await;
+                }
+            }
+            (client, sid)
+        };
+
         let arg_json = serde_json::to_string(&arg)
             .map_err(|e| ProviderError::internal("driver_encode_failed", e.to_string()))?;
         // Ensure page_driver.js is installed and invoke the requested method atomically
@@ -143,13 +157,27 @@ impl CdpDriver {
         match result {
             Ok(val) => Ok(val),
             Err(err) => {
-                guard.session_id = None;
-                if err.code == "cdp_disconnected" {
-                    if let Ok(mut slot) = self.viewer_slot.write() {
-                        *slot = None;
-                    }
-                    if let Some(mut dead) = guard.host.take() {
-                        dead.shutdown().await;
+                // Re-acquire lock only for cleanup and verify matching host generation so a
+                // stale failure can never tear down a newly restarted host.
+                let mut guard = self.state.lock().await;
+                let same_generation = guard
+                    .host
+                    .as_ref()
+                    .is_some_and(|h| Arc::ptr_eq(&h.client.generation, &client.generation));
+                if same_generation {
+                    if err.code == "cdp_disconnected" {
+                        guard.session_id = None;
+                        if let Ok(mut slot) = self.viewer_slot.write() {
+                            *slot = None;
+                        }
+                        self.host_running_flag.store(false, Ordering::Release);
+                        if let Some(mut dead) = guard.host.take() {
+                            dead.shutdown().await;
+                        }
+                    } else if err.code != "cdp_timeout"
+                        && guard.session_id.as_deref() == Some(sid.as_str())
+                    {
+                        guard.session_id = None;
                     }
                 }
                 Err(err)
@@ -163,6 +191,7 @@ impl CdpDriver {
             *slot = None;
         }
         guard.session_id = None;
+        self.host_running_flag.store(false, Ordering::Release);
         if let Some(mut host) = guard.host.take() {
             host.shutdown().await;
         }
@@ -171,13 +200,21 @@ impl CdpDriver {
 
 impl DriverBackend for CdpDriver {
     fn host_running(&self) -> BoxFuture<'_, bool> {
-        Box::pin(async move { self.state.lock().await.host.is_some() })
+        Box::pin(async move { self.host_running_flag.load(Ordering::Acquire) })
     }
 
     fn status(&self) -> BoxFuture<'_, Result<Value>> {
         Box::pin(async move {
-            let guard = self.state.lock().await;
-            if guard.host.is_none() {
+            let running_meta = {
+                let guard = self.state.lock().await;
+                guard.host.as_ref().map(|h| {
+                    (
+                        h.rootfs.display().to_string(),
+                        h.client.generation.to_string(),
+                    )
+                })
+            };
+            let Some((rootfs_str, host_gen)) = running_meta else {
                 let rootfs = self.config.resolved_rootfs(&self.home);
                 let profile = self.config.profile_dir(&self.home);
                 return Ok(json!({
@@ -190,17 +227,6 @@ impl DriverBackend for CdpDriver {
                     "models": self.config.model.available,
                     "default_model": self.config.model.default,
                 }));
-            }
-            drop(guard);
-            let (rootfs_str, host_gen) = {
-                let g = self.state.lock().await;
-                match g.host.as_ref() {
-                    Some(h) => (
-                        h.rootfs.display().to_string(),
-                        h.client.generation.to_string(),
-                    ),
-                    None => (String::new(), String::new()),
-                }
             };
             let mut st = self
                 .ensure_ready_and_call("status", json!({}), Duration::from_secs(30))
@@ -306,6 +332,7 @@ impl DriverBackend for CdpDriver {
             if let Ok(mut slot) = self.viewer_slot.write() {
                 *slot = None;
             }
+            self.host_running_flag.store(false, Ordering::Release);
             if let Some(mut old) = guard.host.take() {
                 old.shutdown().await;
             }
@@ -322,6 +349,7 @@ impl DriverBackend for CdpDriver {
                 }
             }
             guard.host = Some(host);
+            self.host_running_flag.store(true, Ordering::Release);
             Ok(json!({
                 "state": "ok",
                 "restarted": true,

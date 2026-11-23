@@ -191,7 +191,9 @@ pub fn is_daemon_running(paths: &ExtPaths, target: &ProfileTarget) -> (String, O
     }
     match daemon_version_via_cli(&paths.codex_bin, &home, target.shared_home_opt(paths)) {
         Ok(info) => (info.status, info.pid),
-        Err(_) => ("stopped".to_owned(), None),
+        // Control socket exists, so fail closed ("error") if daemon inspection fails
+        // rather than misreporting "stopped" and permitting destructive rename/delete.
+        Err(_) => ("error".to_owned(), None),
     }
 }
 
@@ -281,9 +283,9 @@ pub fn rename_profile(paths: &ExtPaths, old_name: &str, new_name: &str) -> Resul
         return Err(format!("target profile '{new_name}' already exists"));
     }
     let (status, _) = is_daemon_running(paths, &old_target);
-    if status == "running" {
+    if status != "stopped" {
         return Err(format!(
-            "profile '{old_name}' has a running app-server daemon; stop it before renaming"
+            "profile '{old_name}' daemon state is '{status}' (not stopped); stop it before renaming"
         ));
     }
     let old_dir = paths.profiles_dir.join(old_name);
@@ -303,9 +305,9 @@ pub fn delete_profile(paths: &ExtPaths, name: &str) -> Result<(), String> {
         return Err("cannot delete the built-in 'default' profile".to_owned());
     }
     let (status, _) = is_daemon_running(paths, &target);
-    if status == "running" {
+    if status != "stopped" {
         return Err(format!(
-            "profile '{name}' has a running app-server daemon; stop it before deleting"
+            "profile '{name}' daemon state is '{status}' (not stopped); stop it before deleting"
         ));
     }
     let profile_dir = paths.profiles_dir.join(name);

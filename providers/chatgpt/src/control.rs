@@ -116,6 +116,16 @@ async fn list_chats(
     ))
 }
 
+fn is_safe_control_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= 128
+        && id != "."
+        && id != ".."
+        && !id
+            .chars()
+            .any(|c| c.is_control() || c.is_whitespace() || matches!(c, '/' | '\\' | '?' | '#'))
+}
+
 async fn read_chat(
     State(st): State<ControlState>,
     headers: HeaderMap,
@@ -123,7 +133,7 @@ async fn read_chat(
     Query(q): Query<ReadChatQuery>,
 ) -> Result<Json<Value>> {
     require_bearer(&headers, &st.token)?;
-    if id.is_empty() || id.len() > 128 || id.contains('/') {
+    if !is_safe_control_id(&id) {
         return Err(ProviderError::bad_request(
             "invalid_chat_id",
             "invalid chat id",
@@ -145,8 +155,7 @@ async fn rename_chat(
 ) -> Result<Json<Value>> {
     require_bearer(&headers, &st.token)?;
     let title = body.title.trim();
-    if id.is_empty() || id.len() > 128 || id.contains('/') || title.is_empty() || title.len() > 200
-    {
+    if !is_safe_control_id(&id) || title.is_empty() || title.len() > 200 {
         return Err(ProviderError::bad_request(
             "invalid_rename_request",
             "chat_id and non-empty title <= 200 bytes required",
@@ -180,7 +189,7 @@ async fn read_project(
     Query(q): Query<ListProjectsQuery>,
 ) -> Result<Json<Value>> {
     require_bearer(&headers, &st.token)?;
-    if id.is_empty() || id.len() > 128 || id.contains('/') {
+    if !is_safe_control_id(&id) {
         return Err(ProviderError::bad_request(
             "invalid_project_id",
             "invalid project id",
@@ -220,6 +229,22 @@ async fn send_message(
     Json(body): Json<Value>,
 ) -> Result<Json<Value>> {
     require_bearer(&headers, &st.token)?;
+    if let Some(cid) = body.get("chat_id").and_then(Value::as_str) {
+        if !is_safe_control_id(cid) {
+            return Err(ProviderError::bad_request(
+                "invalid_chat_id",
+                "invalid chat_id",
+            ));
+        }
+    }
+    if let Some(pid) = body.get("project_id").and_then(Value::as_str) {
+        if !is_safe_control_id(pid) {
+            return Err(ProviderError::bad_request(
+                "invalid_project_id",
+                "invalid project_id",
+            ));
+        }
+    }
     let prompt = body
         .get("prompt")
         .and_then(Value::as_str)
@@ -252,6 +277,14 @@ async fn observe_chat(
     Json(body): Json<Value>,
 ) -> Result<Json<Value>> {
     require_bearer(&headers, &st.token)?;
+    if let Some(cid) = body.get("chat_id").and_then(Value::as_str) {
+        if !is_safe_control_id(cid) {
+            return Err(ProviderError::bad_request(
+                "invalid_chat_id",
+                "invalid chat_id",
+            ));
+        }
+    }
     Ok(Json(
         st.driver
             .observe_chat(json!({ "chat_id": body.get("chat_id") }))
