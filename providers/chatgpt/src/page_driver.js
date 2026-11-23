@@ -350,7 +350,49 @@
   const appHostClient = new AppHostHttpClient();
   let cachedCompletionClient = null;
   let cachedAccountId = null;
-  let activeTurn = null;
+  const activeTurns = new Map(); // laneId -> turn state (supports multi-lane parallel execution)
+  let lastTurn = null;
+  const MAX_TRACKED_TURNS = 32;
+  const MAX_CONCURRENT_GENERATING = 8;
+
+  function generatingTurns() {
+    const out = [];
+    for (const t of activeTurns.values()) {
+      if (t && t.generating) out.push(t);
+    }
+    return out;
+  }
+
+  function pruneSettledTurns() {
+    if (activeTurns.size <= MAX_TRACKED_TURNS) return;
+    for (const [key, turn] of activeTurns.entries()) {
+      if (activeTurns.size <= MAX_TRACKED_TURNS) break;
+      if (!turn.generating && turn !== lastTurn) {
+        activeTurns.delete(key);
+      }
+    }
+  }
+
+  function findTrackedTurn({ laneId, chatId, preferGenerating = true } = {}) {
+    if (laneId && activeTurns.has(laneId)) {
+      return activeTurns.get(laneId);
+    }
+    if (chatId) {
+      let latestMatch = null;
+      for (const t of activeTurns.values()) {
+        if (t.chatId === chatId) {
+          if (preferGenerating && t.generating) return t;
+          latestMatch = t;
+        }
+      }
+      return latestMatch;
+    }
+    if (preferGenerating) {
+      const active = generatingTurns();
+      if (active.length > 0) return active[active.length - 1];
+    }
+    return lastTurn;
+  }
 
   function isElectronAppOrigin() {
     return Boolean(location && location.protocol === "app:");
@@ -917,6 +959,9 @@
             ? "onboarding"
             : "loading";
 
+    const liveTurns = generatingTurns();
+    const primaryTurn = liveTurns.length > 0 ? liveTurns[liveTurns.length - 1] : lastTurn;
+
     return {
       state: "ok",
       transport: isElectronAppOrigin() ? "app_host_http_fetch" : "same_origin_fetch",
@@ -929,8 +974,16 @@
       completion_ready: completionReady,
       onboarding_visible: onboarding,
       account,
-      active_chat_id: (activeTurn && activeTurn.chatId) || currentChatIdFromUrl(),
-      generating: Boolean(activeTurn && activeTurn.generating),
+      active_chat_id: (primaryTurn && primaryTurn.chatId) || currentChatIdFromUrl(),
+      generating: liveTurns.length > 0,
+      active_turn_count: liveTurns.length,
+      active_turns: liveTurns.map((t) => ({
+        lane_id: t.laneId,
+        chat_id: t.chatId,
+        project_id: t.projectId,
+        model: t.model,
+        started_at: t.startedAt,
+      })),
       models,
       ...(backendError ? { backend_error: backendError } : {}),
     };
@@ -964,7 +1017,8 @@
   }
 
   async function readChat(opts = {}) {
-    const chatId = opts.chat_id || (activeTurn && activeTurn.chatId) || currentChatIdFromUrl();
+    const tracked = findTrackedTurn({ laneId: opts.lane_id, chatId: opts.chat_id });
+    const chatId = opts.chat_id || (tracked && tracked.chatId) || currentChatIdFromUrl();
     if (!chatId) {
       return { state: "error", error: "chat_id_required", detail: "no chat_id provided or active" };
     }
@@ -1082,44 +1136,53 @@
   }
 
   async function observeChat(opts = {}) {
-    const requestedId = opts.chat_id || null;
-    if (
-      activeTurn &&
-      activeTurn.generating &&
-      (!requestedId || requestedId === activeTurn.chatId)
-    ) {
+    const requestedLaneId =
+      typeof opts.lane_id === "string" && opts.lane_id.trim() ? opts.lane_id.trim() : null;
+    const requestedChatId =
+      typeof opts.chat_id === "string" && opts.chat_id.trim() ? opts.chat_id.trim() : null;
+    const turn = findTrackedTurn({
+      laneId: requestedLaneId,
+      chatId: requestedChatId,
+      preferGenerating: true,
+    });
+    const matchedTurn =
+      turn &&
+      (!requestedLaneId || turn.laneId === requestedLaneId) &&
+      (!requestedChatId || turn.chatId === requestedChatId)
+        ? turn
+        : null;
+
+    if (matchedTurn && matchedTurn.generating) {
       return {
         state: "in_progress",
-        chat_id: activeTurn.chatId || requestedId,
+        lane_id: matchedTurn.laneId,
+        chat_id: matchedTurn.chatId || requestedChatId,
         generating: true,
-        message_id: activeTurn.messageId,
-        assistant_text: activeTurn.assistantText,
+        message_id: matchedTurn.messageId,
+        assistant_text: matchedTurn.assistantText,
       };
     }
 
-    if (
-      activeTurn &&
-      !activeTurn.generating &&
-      activeTurn.error &&
-      (!requestedId || requestedId === activeTurn.chatId)
-    ) {
+    if (matchedTurn && !matchedTurn.generating && matchedTurn.error) {
       return {
         state: "error",
-        error: activeTurn.error.code,
-        detail: activeTurn.error.detail,
-        chat_id: activeTurn.chatId || requestedId,
+        lane_id: matchedTurn.laneId,
+        error: matchedTurn.error.code,
+        detail: matchedTurn.error.detail,
+        chat_id: matchedTurn.chatId || requestedChatId,
         generating: false,
       };
     }
 
-    const chatId = requestedId || (activeTurn && activeTurn.chatId) || currentChatIdFromUrl();
+    const chatId = requestedChatId || (matchedTurn && matchedTurn.chatId) || currentChatIdFromUrl();
     if (!chatId) {
       return {
         state: "settled",
+        ...(matchedTurn ? { lane_id: matchedTurn.laneId } : {}),
         chat_id: null,
         generating: false,
-        message_id: (activeTurn && activeTurn.messageId) || null,
-        assistant_text: (activeTurn && activeTurn.assistantText) || "",
+        message_id: (matchedTurn && matchedTurn.messageId) || null,
+        assistant_text: (matchedTurn && matchedTurn.assistantText) || "",
       };
     }
 
@@ -1128,33 +1191,26 @@
       const lastA = [...rd.messages].reverse().find((m) => m.role === "assistant");
       return {
         state: "settled",
+        ...(matchedTurn ? { lane_id: matchedTurn.laneId } : {}),
         chat_id: chatId,
         generating: false,
-        message_id: (lastA && lastA.id) || (activeTurn && activeTurn.messageId) || null,
-        assistant_text: (lastA && lastA.text) || (activeTurn && activeTurn.assistantText) || "",
+        message_id: (lastA && lastA.id) || (matchedTurn && matchedTurn.messageId) || null,
+        assistant_text: (lastA && lastA.text) || (matchedTurn && matchedTurn.assistantText) || "",
       };
     }
     return {
       state: "settled",
+      ...(matchedTurn ? { lane_id: matchedTurn.laneId } : {}),
       chat_id: chatId,
       generating: false,
-      message_id: (activeTurn && activeTurn.messageId) || null,
-      assistant_text: (activeTurn && activeTurn.assistantText) || "",
+      message_id: (matchedTurn && matchedTurn.messageId) || null,
+      assistant_text: (matchedTurn && matchedTurn.assistantText) || "",
     };
   }
 
-  async function stopGeneration() {
-    if (!activeTurn || !activeTurn.generating) {
-      return {
-        state: "idle",
-        stopped: false,
-        chat_id: (activeTurn && activeTurn.chatId) || currentChatIdFromUrl(),
-      };
-    }
-    const turn = activeTurn;
+  async function stopSingleTurn(turn, client) {
     turn.stopped = true;
     turn.generating = false;
-    const client = await ensureCompletionClient();
     if (client) {
       if (turn.requestId) {
         try {
@@ -1171,10 +1227,69 @@
       }
     }
     turn.resolveDone();
+  }
+
+  async function stopGeneration(opts = {}) {
+    const requestedLaneId =
+      typeof opts.lane_id === "string" && opts.lane_id.trim() ? opts.lane_id.trim() : null;
+    const requestedChatId =
+      typeof opts.chat_id === "string" && opts.chat_id.trim() ? opts.chat_id.trim() : null;
+    const stopAll = opts.all === true;
+
+    const client = await ensureCompletionClient();
+
+    if (stopAll && !requestedLaneId && !requestedChatId) {
+      const targets = generatingTurns();
+      if (targets.length === 0) {
+        return {
+          state: "idle",
+          stopped: false,
+          stopped_count: 0,
+          stopped_chat_ids: [],
+          chat_id: (lastTurn && lastTurn.chatId) || currentChatIdFromUrl(),
+        };
+      }
+      const stoppedChatIds = [];
+      for (const t of targets) {
+        await stopSingleTurn(t, client);
+        if (t.chatId) stoppedChatIds.push(t.chatId);
+      }
+      return {
+        state: "stopped",
+        stopped: true,
+        stopped_count: targets.length,
+        stopped_chat_ids: stoppedChatIds,
+        remaining_active_count: generatingTurns().length,
+      };
+    }
+
+    const turn = findTrackedTurn({
+      laneId: requestedLaneId,
+      chatId: requestedChatId,
+      preferGenerating: true,
+    });
+    if (
+      !turn ||
+      !turn.generating ||
+      (requestedLaneId && turn.laneId !== requestedLaneId) ||
+      (requestedChatId && turn.chatId !== requestedChatId)
+    ) {
+      return {
+        state: "idle",
+        stopped: false,
+        chat_id: requestedChatId || (turn && turn.chatId) || currentChatIdFromUrl(),
+        ...(requestedLaneId ? { lane_id: requestedLaneId } : {}),
+        remaining_active_count: generatingTurns().length,
+      };
+    }
+
+    await stopSingleTurn(turn, client);
     return {
       state: "stopped",
       stopped: true,
+      lane_id: turn.laneId,
       chat_id: turn.chatId,
+      remaining_active_count: generatingTurns().length,
     };
   }
 
@@ -1186,11 +1301,41 @@
     if (!prompt.trim()) {
       return { state: "error", error: "prompt_required", detail: "non-empty prompt required" };
     }
-    if (activeTurn && activeTurn.generating) {
+
+    let chatId = typeof opts.chat_id === "string" && opts.chat_id.trim() ? opts.chat_id.trim() : null;
+    const laneId =
+      typeof opts.lane_id === "string" && opts.lane_id.trim() ? opts.lane_id.trim() : newUuid();
+
+    // Prevent concurrent writes to the SAME conversation tree (or reusing an active lane_id),
+    // while allowing independent conversations / new chats to execute in parallel.
+    const liveTurns = generatingTurns();
+    if (activeTurns.has(laneId) && activeTurns.get(laneId).generating) {
       return {
         state: "error",
         error: "generation_already_active",
-        detail: "stop or wait for active response",
+        detail: "lane already has an active response",
+        lane_id: laneId,
+        chat_id: activeTurns.get(laneId).chatId || chatId,
+      };
+    }
+    if (chatId) {
+      const sameChat = liveTurns.find((t) => t.chatId === chatId);
+      if (sameChat) {
+        return {
+          state: "error",
+          error: "generation_already_active",
+          detail: "conversation already has an active response",
+          lane_id: sameChat.laneId,
+          chat_id: chatId,
+        };
+      }
+    }
+    if (liveTurns.length >= MAX_CONCURRENT_GENERATING) {
+      return {
+        state: "error",
+        error: "too_many_active_generations",
+        detail: `at most ${MAX_CONCURRENT_GENERATING} concurrent lanes are allowed`,
+        active_turn_count: liveTurns.length,
       };
     }
 
@@ -1227,7 +1372,6 @@
       cachedAccountId = personalOrg?.id || me.json.account_id || null;
     }
 
-    let chatId = typeof opts.chat_id === "string" && opts.chat_id.trim() ? opts.chat_id.trim() : null;
     let projectId =
       typeof opts.project_id === "string" && opts.project_id.trim() ? opts.project_id.trim() : null;
     let parentMessageId = newUuid();
@@ -1319,6 +1463,8 @@
     });
 
     const turn = {
+      laneId,
+      startedAt: new Date().toISOString(),
       requestId: null,
       conduitToken: null,
       chatId,
@@ -1336,7 +1482,9 @@
         resolveDone();
       },
     };
-    activeTurn = turn;
+    activeTurns.set(laneId, turn);
+    lastTurn = turn;
+    pruneSettledTurns();
 
     const recordMessage = (msg) => {
       if (!msg || typeof msg !== "object") return;
@@ -1417,6 +1565,7 @@
     if (turn.error) {
       return {
         state: "error",
+        lane_id: turn.laneId,
         error: turn.error.code,
         detail: turn.error.detail,
         chat_id: turn.chatId,
@@ -1426,6 +1575,7 @@
     if (turn.generating) {
       return {
         state: "in_progress",
+        lane_id: turn.laneId,
         chat_id: turn.chatId,
         message_id: turn.messageId,
         assistant_text: turn.assistantText,
@@ -1463,6 +1613,7 @@
     const allCalls = nativeCalls.length > 0 ? nativeCalls : parsed.calls;
     return {
       state: turn.stopped ? "stopped" : "settled",
+      lane_id: turn.laneId,
       chat_id: turn.chatId,
       message_id: turn.messageId,
       assistant_text: parsed.text,

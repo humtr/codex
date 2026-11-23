@@ -57,6 +57,7 @@ function createMockEnv({ url = "https://chatgpt.com/c/conv-12345678", apiMap = {
     },
   };
 
+  let uuidSeq = 0;
   const sandbox = {
     location: new URL(url),
     window: { location: new URL(url) },
@@ -65,7 +66,7 @@ function createMockEnv({ url = "https://chatgpt.com/c/conv-12345678", apiMap = {
       querySelectorAll: () => [],
       getElementById: () => null,
     },
-    crypto: { randomUUID: () => "uuid-test-1" },
+    crypto: { randomUUID: () => `uuid-test-${++uuidSeq}` },
     __termuxMockCompletionClient: mockCompletionClient,
     fetch: async (reqUrl, opts = {}) => {
       const key = `${(opts.method || "GET").toUpperCase()} ${reqUrl}`;
@@ -218,54 +219,99 @@ test("page_driver status, chats, linear branch read (no private thoughts), proje
   assert.equal(parsedCustom.calls[1].name, "spawn_agent");
 });
 
-test("page_driver observeChat while in_progress, busy rejection, and programmatic stopGeneration", async () => {
+test("page_driver multi-lane parallel execution, per-chat collision guard, isolated observeChat, and targeted stopGeneration", async () => {
+  let seq = 0;
   const { driver, cancelCalls, stopCalls } = createMockEnv({
     apiMap: {
       "GET /backend-api/me": {
         status: 200,
         body: { id: "u1", name: "User", orgs: { data: [{ id: "acc-1", title: "Plus", is_personal: true }] } },
       },
+      "GET /backend-api/models": {
+        status: 200,
+        body: { models: [{ slug: "gpt-6-sol-wm", title: "GPT-6 Sol" }] },
+      },
     },
     completionBehavior(args) {
+      const idx = ++seq;
+      const cid = `conv-live-${idx + 8}`;
+      const text = `Streaming chunk lane ${idx}...`;
       queueMicrotask(() => {
         args.onUpdate?.({
           type: "message",
-          conversationId: "conv-live-9",
+          conversationId: cid,
           message: {
-            id: "msg-partial",
+            id: `msg-partial-${idx}`,
             author: { role: "assistant" },
-            content: { content_type: "text", parts: ["Streaming chunk..."] },
+            content: { content_type: "text", parts: [text] },
           },
         });
       });
-      return { streamRequestId: "stream-live-9", prepareResponse: { conduit_token: "ctok-9" } };
+      return { streamRequestId: `stream-live-${idx}`, prepareResponse: { conduit_token: `ctok-${idx}` } };
     },
   });
 
-  // Start with short wait_ms -> returns in_progress
-  const first = await driver.sendMessage({ prompt: "Long essay", project_id: "g-p-9", wait_ms: 30 });
+  // Lane 1 starts with short wait_ms -> returns in_progress
+  const first = await driver.sendMessage({ prompt: "Long essay A", project_id: "g-p-9", wait_ms: 30 });
   assert.equal(first.state, "in_progress");
   assert.equal(first.generating, true);
   assert.equal(first.chat_id, "conv-live-9");
-  assert.equal(first.assistant_text, "Streaming chunk...");
+  assert.equal(first.assistant_text, "Streaming chunk lane 1...");
+  assert.ok(first.lane_id);
 
-  // Concurrent send must fail closed with generation_already_active
-  const busy = await driver.sendMessage({ prompt: "Second prompt", wait_ms: 30 });
-  assert.equal(busy.state, "error");
-  assert.equal(busy.error, "generation_already_active");
+  // Concurrent send to the SAME chat_id MUST fail closed with generation_already_active
+  const sameChatBusy = await driver.sendMessage({
+    chat_id: "conv-live-9",
+    prompt: "Duplicate write to same chat",
+    wait_ms: 30,
+  });
+  assert.equal(sameChatBusy.state, "error");
+  assert.equal(sameChatBusy.error, "generation_already_active");
 
-  // observeChat returns live partial stream
-  const obs = await driver.observeChat({ chat_id: "conv-live-9" });
-  assert.equal(obs.state, "in_progress");
-  assert.equal(obs.assistant_text, "Streaming chunk...");
+  // Concurrent send to a NEW independent chat MUST run in parallel as Lane 2!
+  const second = await driver.sendMessage({ prompt: "Long essay B", project_id: "g-p-9", wait_ms: 30 });
+  assert.equal(second.state, "in_progress");
+  assert.equal(second.generating, true);
+  assert.equal(second.chat_id, "conv-live-10");
+  assert.equal(second.assistant_text, "Streaming chunk lane 2...");
+  assert.notEqual(second.lane_id, first.lane_id);
 
-  // stopGeneration cancels stream & sends server stopCompletion
-  const stopped = await driver.stopGeneration();
-  assert.equal(stopped.state, "stopped");
-  assert.equal(stopped.stopped, true);
-  assert.deepEqual(cancelCalls, ["stream-live-9"]);
+  // status() reports both active parallel lanes
+  const st = await driver.status();
+  assert.equal(st.generating, true);
+  assert.equal(st.active_turn_count, 2);
+  assert.equal(st.active_turns.length, 2);
+
+  // observeChat isolates each lane's partial stream cleanly
+  const obs1 = await driver.observeChat({ chat_id: "conv-live-9" });
+  const obs2 = await driver.observeChat({ chat_id: "conv-live-10" });
+  assert.equal(obs1.state, "in_progress");
+  assert.equal(obs1.assistant_text, "Streaming chunk lane 1...");
+  assert.equal(obs2.state, "in_progress");
+  assert.equal(obs2.assistant_text, "Streaming chunk lane 2...");
+
+  // Targeted stopGeneration({ chat_id: "conv-live-9" }) stops ONLY Lane 1, keeping Lane 2 alive!
+  const stopped1 = await driver.stopGeneration({ chat_id: "conv-live-9" });
+  assert.equal(stopped1.state, "stopped");
+  assert.equal(stopped1.stopped, true);
+  assert.equal(stopped1.chat_id, "conv-live-9");
+  assert.equal(stopped1.remaining_active_count, 1);
+  assert.deepEqual(cancelCalls, ["stream-live-1"]);
   assert.equal(stopCalls.length, 1);
   assert.equal(stopCalls[0].body.conversation_id, "conv-live-9");
+
+  // Lane 2 is STILL generating undisturbed
+  const obs2After = await driver.observeChat({ chat_id: "conv-live-10" });
+  assert.equal(obs2After.state, "in_progress");
+  assert.equal(obs2After.assistant_text, "Streaming chunk lane 2...");
+
+  // Stop remaining lane via lane_id
+  const stopped2 = await driver.stopGeneration({ lane_id: second.lane_id });
+  assert.equal(stopped2.state, "stopped");
+  assert.equal(stopped2.stopped, true);
+  assert.equal(stopped2.remaining_active_count, 0);
+  assert.deepEqual(cancelCalls, ["stream-live-1", "stream-live-2"]);
+  assert.equal(stopCalls[1].body.conversation_id, "conv-live-10");
 });
 
 test("page_driver on app://- Electron origin uses connect-app-host Cap'n Web httpFetch", async () => {

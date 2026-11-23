@@ -250,6 +250,14 @@ async fn send_message(
             ));
         }
     }
+    if let Some(lid) = body.get("lane_id").and_then(Value::as_str) {
+        if !is_safe_control_id(lid) {
+            return Err(ProviderError::bad_request(
+                "invalid_lane_id",
+                "invalid lane_id",
+            ));
+        }
+    }
     let prompt = body
         .get("prompt")
         .and_then(Value::as_str)
@@ -265,6 +273,7 @@ async fn send_message(
     Ok(Json(
         st.driver
             .send_message(json!({
+                "lane_id": body.get("lane_id"),
                 "chat_id": body.get("chat_id"),
                 "project_id": body.get("project_id"),
                 "prompt": prompt,
@@ -290,19 +299,63 @@ async fn observe_chat(
             ));
         }
     }
+    if let Some(lid) = body.get("lane_id").and_then(Value::as_str) {
+        if !is_safe_control_id(lid) {
+            return Err(ProviderError::bad_request(
+                "invalid_lane_id",
+                "invalid lane_id",
+            ));
+        }
+    }
     Ok(Json(
         st.driver
-            .observe_chat(json!({ "chat_id": body.get("chat_id") }))
+            .observe_chat(json!({
+                "chat_id": body.get("chat_id"),
+                "lane_id": body.get("lane_id")
+            }))
             .await?,
     ))
+}
+
+#[derive(Deserialize, Default)]
+struct StopGenerationBody {
+    chat_id: Option<String>,
+    lane_id: Option<String>,
+    all: Option<bool>,
 }
 
 async fn stop_generation(
     State(st): State<ControlState>,
     headers: HeaderMap,
+    body: Option<Json<StopGenerationBody>>,
 ) -> Result<Json<Value>> {
     require_bearer(&headers, &st.token)?;
-    Ok(Json(st.driver.stop_generation().await?))
+    let body = body.map(|Json(b)| b).unwrap_or_default();
+    if let Some(cid) = body.chat_id.as_deref() {
+        if !is_safe_control_id(cid) {
+            return Err(ProviderError::bad_request(
+                "invalid_chat_id",
+                "invalid chat_id",
+            ));
+        }
+    }
+    if let Some(lid) = body.lane_id.as_deref() {
+        if !is_safe_control_id(lid) {
+            return Err(ProviderError::bad_request(
+                "invalid_lane_id",
+                "invalid lane_id",
+            ));
+        }
+    }
+    Ok(Json(
+        st.driver
+            .stop_generation(json!({
+                "chat_id": body.chat_id,
+                "lane_id": body.lane_id,
+                "all": body.all.unwrap_or(false),
+            }))
+            .await?,
+    ))
 }
 
 async fn get_viewer(State(st): State<ControlState>, headers: HeaderMap) -> Result<Json<Value>> {

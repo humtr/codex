@@ -68,6 +68,11 @@ and [providers/chatgpt/src/main.rs](../../providers/chatgpt/src/main.rs).
   - `GET /control/chats`, `GET /control/chats/{id}`, `POST /control/chats/{id}/rename`
   - `GET /control/projects`, `GET /control/projects/{id}`, `POST /control/projects`
   - `POST /control/send`, `POST /control/observe`, `POST /control/stop`
+    (multi-lane parallel execution keyed by `lane_id` / `chat_id`, up to 8
+    concurrent lanes; concurrent writes to the *same* `chat_id` still fail
+    closed with `generation_already_active`, while independent chats and
+    `/v1/responses` streams run and cancel in isolation without disturbing
+    sibling lanes)
   - `GET /control/connectors`, `POST /control/connectors`,
     `POST /control/connectors/{id}/refresh` (programmatic zero-DOM custom MCP
     tunnel connector discovery, creation, noauth linking, action refresh,

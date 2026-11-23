@@ -166,13 +166,15 @@ fn is_utility_title_request(body: &Value) -> bool {
 
 struct CancelTurnGuard {
     driver: Arc<dyn DriverBackend>,
+    lane_id: String,
     armed: bool,
 }
 
 impl CancelTurnGuard {
-    fn new(driver: Arc<dyn DriverBackend>) -> Self {
+    fn new(driver: Arc<dyn DriverBackend>, lane_id: String) -> Self {
         Self {
             driver,
+            lane_id,
             armed: true,
         }
     }
@@ -185,8 +187,9 @@ impl Drop for CancelTurnGuard {
     fn drop(&mut self) {
         if self.armed {
             let driver = Arc::clone(&self.driver);
+            let lane_id = self.lane_id.clone();
             tokio::spawn(async move {
-                let _ = driver.stop_generation().await;
+                let _ = driver.stop_generation(json!({ "lane_id": lane_id })).await;
             });
         }
     }
@@ -805,7 +808,10 @@ pub async fn handle_responses(
     } else {
         history_cfg.project_id.clone()
     };
+    let resp_id = format!("resp_{}", random_hex(8)?);
+    let lane_id = resp_id.clone();
     let send_payload = json!({
+        "lane_id": lane_id,
         "chat_id": prev_chat_id,
         "project_id": effective_project_id,
         "prompt": prompt,
@@ -815,10 +821,9 @@ pub async fn handle_responses(
         "is_continuation": skip_prefix > 0,
         "wait_ms": RESPONSES_WAIT_MS
     });
-    let resp_id = format!("resp_{}", random_hex(8)?);
 
     if !stream {
-        let mut cancel_guard = CancelTurnGuard::new(Arc::clone(&driver));
+        let mut cancel_guard = CancelTurnGuard::new(Arc::clone(&driver), lane_id);
         let driver_res = driver.send_message(send_payload).await?;
         cancel_guard.disarm();
         let (assistant_text, tool_calls, chat_id) =
@@ -872,14 +877,18 @@ pub async fn handle_responses(
             tokio::select! {
                 res = &mut send_fut => break Some(res),
                 _ = tx.closed() => {
-                    // Client disconnected mid-turn: cancel in-flight generation so
-                    // subsequent turns are not locked out by `generation_already_active`.
-                    let _ = driver.stop_generation().await;
+                    // Client disconnected mid-turn: cancel ONLY this request's lane so
+                    // sibling parallel turns keep running undisturbed.
+                    let _ = driver
+                        .stop_generation(json!({ "lane_id": lane_id }))
+                        .await;
                     break None;
                 }
                 _ = keepalive.tick() => {
                     if tx.send(": keepalive\n\n".to_owned()).await.is_err() {
-                        let _ = driver.stop_generation().await;
+                        let _ = driver
+                            .stop_generation(json!({ "lane_id": lane_id }))
+                            .await;
                         break None;
                     }
                 }

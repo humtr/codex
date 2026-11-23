@@ -91,7 +91,7 @@ fn static_tools() -> Vec<ToolDef> {
                 "properties": {
                     "action": { "type": "string", "enum": ["send", "observe", "stop"] },
                     "call_id": { "type": "string", "minLength": 1, "maxLength": 160, "description": "Required for action=send; resend identical args after uncertain delivery to retrieve original receipt" },
-                    "chat_id": { "type": "string", "minLength": 1, "maxLength": 128, "description": "Target conversation ID (optional for send/observe)" },
+                    "chat_id": { "type": "string", "minLength": 1, "maxLength": 128, "description": "Target conversation ID (optional for send/observe/stop)" },
                     "project_id": { "type": "string", "minLength": 1, "maxLength": 128, "description": "Target project ID when creating a new chat inside a project (action=send)" },
                     "prompt": { "type": "string", "minLength": 1, "maxLength": 65536, "description": "Required for action=send" },
                     "model": { "type": "string", "minLength": 1, "maxLength": 128, "description": "Optional model slug (e.g. gpt-6-sol-wm, gpt-5-6-thinking, auto)" },
@@ -682,7 +682,6 @@ impl TermuxChatGptServer {
                     );
                 }
                 for forbidden in [
-                    "chat_id",
                     "project_id",
                     "prompt",
                     "model",
@@ -696,10 +695,15 @@ impl TermuxChatGptServer {
                         );
                     }
                 }
+                let chat_id = match validate_safe_id(obj, "chat_id", false) {
+                    Ok(v) => v,
+                    Err(e) => return fail("invalid_arguments", e),
+                };
+                let body = json!({ "chat_id": chat_id });
                 self.finish_control(self.control_call(
                     "POST",
                     "/control/stop",
-                    Some(&json!({})),
+                    Some(&body),
                     CONTROL_READ_TIMEOUT,
                 ))
             }

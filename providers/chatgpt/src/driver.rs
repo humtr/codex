@@ -29,7 +29,7 @@ pub trait DriverBackend: Send + Sync {
     fn create_project(&self, params: Value) -> BoxFuture<'_, Result<Value>>;
     fn send_message(&self, params: Value) -> BoxFuture<'_, Result<Value>>;
     fn observe_chat(&self, params: Value) -> BoxFuture<'_, Result<Value>>;
-    fn stop_generation(&self) -> BoxFuture<'_, Result<Value>>;
+    fn stop_generation(&self, params: Value) -> BoxFuture<'_, Result<Value>>;
     fn viewer_info(&self) -> BoxFuture<'_, Result<Value>>;
     fn restart_host(&self) -> BoxFuture<'_, Result<Value>>;
     fn list_connectors(&self, params: Value) -> BoxFuture<'_, Result<Value>>;
@@ -307,9 +307,9 @@ impl DriverBackend for CdpDriver {
         })
     }
 
-    fn stop_generation(&self) -> BoxFuture<'_, Result<Value>> {
+    fn stop_generation(&self, params: Value) -> BoxFuture<'_, Result<Value>> {
         Box::pin(async move {
-            self.ensure_ready_and_call("stopGeneration", json!({}), Duration::from_secs(15))
+            self.ensure_ready_and_call("stopGeneration", params, Duration::from_secs(15))
                 .await
         })
     }

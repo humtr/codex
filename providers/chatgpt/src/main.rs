@@ -337,8 +337,15 @@ mod tests {
                 Ok(json!({"state":"settled","chat_id":p["chat_id"],"generating":false}))
             })
         }
-        fn stop_generation(&self) -> BoxFuture<'_, Result<Value>> {
-            Box::pin(async { Ok(json!({"state":"stopped","stopped":true})) })
+        fn stop_generation(&self, p: Value) -> BoxFuture<'_, Result<Value>> {
+            Box::pin(async move {
+                Ok(json!({
+                    "state":"stopped",
+                    "stopped":true,
+                    "chat_id":p["chat_id"],
+                    "lane_id":p["lane_id"]
+                }))
+            })
         }
         fn viewer_info(&self) -> BoxFuture<'_, Result<Value>> {
             Box::pin(async { Ok(json!({"state":"ok","available":false,"url":null})) })
@@ -860,10 +867,15 @@ mod tests {
             fn observe_chat(&self, _: Value) -> BoxFuture<'_, Result<Value>> {
                 Box::pin(async { Ok(json!({"state":"in_progress"})) })
             }
-            fn stop_generation(&self) -> BoxFuture<'_, Result<Value>> {
+            fn stop_generation(&self, p: Value) -> BoxFuture<'_, Result<Value>> {
                 let stopped = Arc::clone(&self.stopped);
                 Box::pin(async move {
-                    stopped.store(true, Ordering::Release);
+                    if p.get("lane_id")
+                        .and_then(Value::as_str)
+                        .is_some_and(|s| s.starts_with("resp_"))
+                    {
+                        stopped.store(true, Ordering::Release);
+                    }
                     Ok(json!({"state":"stopped","stopped":true}))
                 })
             }
