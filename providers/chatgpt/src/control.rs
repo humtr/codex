@@ -61,6 +61,11 @@ pub fn control_router(state: ControlState) -> Router {
         .route("/control/viewer", get(get_viewer))
         .route("/control/viewer/open", post(open_viewer))
         .route("/control/host/restart", post(restart_host))
+        .route(
+            "/control/connectors",
+            get(list_connectors).post(register_connector),
+        )
+        .route("/control/connectors/{id}/refresh", post(refresh_connector))
         .with_state(state)
 }
 
@@ -334,4 +339,156 @@ async fn open_viewer(State(st): State<ControlState>, headers: HeaderMap) -> Resu
 async fn restart_host(State(st): State<ControlState>, headers: HeaderMap) -> Result<Json<Value>> {
     require_bearer(&headers, &st.token)?;
     Ok(Json(st.driver.restart_host().await?))
+}
+
+#[derive(Deserialize)]
+struct ListConnectorsQuery {
+    account_id: Option<String>,
+    sku: Option<String>,
+    include_details: Option<bool>,
+}
+
+#[derive(Deserialize)]
+struct RegisterConnectorBody {
+    name: String,
+    tunnel_id: String,
+    description: Option<String>,
+    account_id: Option<String>,
+    sku: Option<String>,
+    refresh: Option<bool>,
+}
+
+#[derive(Deserialize, Default)]
+struct RefreshConnectorBody {
+    account_id: Option<String>,
+    sku: Option<String>,
+    link_if_missing: Option<bool>,
+}
+
+fn is_valid_tunnel_id(id: &str) -> bool {
+    let Some(rest) = id.strip_prefix("tunnel_") else {
+        return false;
+    };
+    let is_lower_alnum = |s: &str| {
+        s.bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit())
+    };
+    if rest.len() == 32 && is_lower_alnum(rest) {
+        return true;
+    }
+    if let Some((prefix, suffix)) = rest.split_once('_') {
+        return prefix.len() == 4
+            && suffix.len() == 32
+            && is_lower_alnum(prefix)
+            && is_lower_alnum(suffix);
+    }
+    false
+}
+
+async fn list_connectors(
+    State(st): State<ControlState>,
+    headers: HeaderMap,
+    Query(q): Query<ListConnectorsQuery>,
+) -> Result<Json<Value>> {
+    require_bearer(&headers, &st.token)?;
+    if let Some(aid) = q.account_id.as_deref() {
+        if !is_safe_control_id(aid) {
+            return Err(ProviderError::bad_request(
+                "invalid_account_id",
+                "invalid account_id",
+            ));
+        }
+    }
+    Ok(Json(
+        st.driver
+            .list_connectors(json!({
+                "account_id": q.account_id,
+                "sku": q.sku,
+                "include_details": q.include_details.unwrap_or(true),
+            }))
+            .await?,
+    ))
+}
+
+async fn register_connector(
+    State(st): State<ControlState>,
+    headers: HeaderMap,
+    Json(body): Json<RegisterConnectorBody>,
+) -> Result<Json<Value>> {
+    require_bearer(&headers, &st.token)?;
+    let name = body.name.trim();
+    if name.is_empty() || name.len() > 120 {
+        return Err(ProviderError::bad_request(
+            "invalid_connector_name",
+            "connector name must be 1..=120 bytes",
+        ));
+    }
+    let tunnel_id = body.tunnel_id.trim();
+    if !is_valid_tunnel_id(tunnel_id) {
+        return Err(ProviderError::bad_request(
+            "invalid_tunnel_id",
+            "tunnel_id must match tunnel_[xxxx_]<32-lowercase-alnum>",
+        ));
+    }
+    if let Some(aid) = body.account_id.as_deref() {
+        if !is_safe_control_id(aid) {
+            return Err(ProviderError::bad_request(
+                "invalid_account_id",
+                "invalid account_id",
+            ));
+        }
+    }
+    let description = body.description.unwrap_or_default();
+    if description.len() > 500 {
+        return Err(ProviderError::bad_request(
+            "invalid_connector_description",
+            "description must be <= 500 bytes",
+        ));
+    }
+    Ok(Json(
+        st.driver
+            .register_connector(json!({
+                "name": name,
+                "tunnel_id": tunnel_id,
+                "description": description,
+                "account_id": body.account_id,
+                "sku": body.sku,
+                "refresh": body.refresh.unwrap_or(true),
+            }))
+            .await?,
+    ))
+}
+
+async fn refresh_connector(
+    State(st): State<ControlState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    body: Option<Json<RefreshConnectorBody>>,
+) -> Result<Json<Value>> {
+    require_bearer(&headers, &st.token)?;
+    if !is_safe_control_id(&id) {
+        return Err(ProviderError::bad_request(
+            "invalid_connector_id",
+            "invalid connector id",
+        ));
+    }
+    let body = body.map(|Json(b)| b).unwrap_or_default();
+    if let Some(aid) = body.account_id.as_deref() {
+        if !is_safe_control_id(aid) {
+            return Err(ProviderError::bad_request(
+                "invalid_account_id",
+                "invalid account_id",
+            ));
+        }
+    }
+    Ok(Json(
+        st.driver
+            .refresh_connector(json!({
+                "connector_id": id,
+                "account_id": body.account_id,
+                "sku": body.sku,
+                "link_if_missing": body.link_if_missing.unwrap_or(false),
+            }))
+            .await?,
+    ))
 }

@@ -1471,6 +1471,504 @@
     };
   }
 
+  function canonicalJsonValue(val) {
+    if (Array.isArray(val)) return val.map(canonicalJsonValue);
+    if (val && typeof val === "object") {
+      const out = {};
+      for (const k of Object.keys(val).sort()) {
+        out[k] = canonicalJsonValue(val[k]);
+      }
+      return out;
+    }
+    return val;
+  }
+
+  function catalogAgreement(actions, tools) {
+    if (!Array.isArray(actions) || !Array.isArray(tools) || actions.length !== tools.length) {
+      return false;
+    }
+    return tools.every((tool) => {
+      const matches = actions.filter((a) => a && a.name === tool.name);
+      return (
+        matches.length === 1 &&
+        matches[0].params &&
+        matches[0].params.type === "object" &&
+        tool.inputSchema &&
+        tool.inputSchema.type === "object" &&
+        JSON.stringify(canonicalJsonValue(matches[0].params)) ===
+          JSON.stringify(canonicalJsonValue(tool.inputSchema))
+      );
+    });
+  }
+
+  async function resolveChatGptAccounts(preferredAccountId) {
+    const accounts = [];
+    let ordering = [];
+    const check = await apiFetch("/accounts/check/v4-2023-04-27");
+    if (check.ok && check.json && typeof check.json === "object") {
+      if (Array.isArray(check.json.account_ordering)) {
+        ordering = check.json.account_ordering.filter((x) => typeof x === "string" && x);
+      }
+      const map = check.json.accounts && typeof check.json.accounts === "object" ? check.json.accounts : {};
+      for (const [key, entry] of Object.entries(map)) {
+        if (key === "default" || !entry || typeof entry !== "object") continue;
+        const acc = entry.account && typeof entry.account === "object" ? entry.account : {};
+        const id = acc.account_id || key;
+        if (!id || typeof id !== "string") continue;
+        accounts.push({
+          id,
+          name: acc.name || null,
+          structure: acc.structure || null,
+          plan_type: acc.plan_type || (entry.entitlement && entry.entitlement.subscription_plan) || null,
+          is_deactivated: Boolean(acc.is_deactivated),
+        });
+      }
+    }
+    if (!cachedAccountId) {
+      const me = await apiFetch("/me");
+      if (me.ok && me.json) {
+        const orgs = me.json.orgs && Array.isArray(me.json.orgs.data) ? me.json.orgs.data : [];
+        const personalOrg = orgs.find((o) => o.is_personal) || orgs[0] || null;
+        cachedAccountId = personalOrg?.id || me.json.account_id || cachedAccountId;
+      }
+    }
+    const explicit =
+      typeof preferredAccountId === "string" && preferredAccountId.trim()
+        ? preferredAccountId.trim()
+        : null;
+    const selected =
+      explicit ||
+      ordering.find((id) => accounts.some((a) => a.id === id && !a.is_deactivated)) ||
+      (accounts.find((a) => !a.is_deactivated) && accounts.find((a) => !a.is_deactivated).id) ||
+      cachedAccountId ||
+      null;
+    return { accountId: selected, accounts, ordering };
+  }
+
+  function connectorHeaders(accountId, sku) {
+    const headers = {
+      "OAI-Product-Sku": typeof sku === "string" && sku.trim() ? sku.trim() : "CONNECTOR_SETTING",
+    };
+    if (accountId) {
+      headers["ChatGPT-Account-Id"] = accountId;
+      headers["ChatGPT-Account-ID"] = accountId;
+    }
+    return headers;
+  }
+
+  async function invalidateConnectorQueries() {
+    try {
+      const scope = findAppScope();
+      if (scope && scope.queryClient && typeof scope.queryClient.invalidateQueries === "function") {
+        await scope.queryClient.invalidateQueries();
+        return true;
+      }
+    } catch (_) {}
+    return false;
+  }
+
+  async function fetchAccessibleConnectorDetails(headers, includeDetails) {
+    const linksRes = await apiFetch(
+      "/aip/connectors/links/list_accessible",
+      {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ principals: [], link_refresh_strategy: "BLOCKING" }),
+      },
+      20000
+    );
+    const rawLinks =
+      linksRes.ok && linksRes.json && Array.isArray(linksRes.json.links) ? linksRes.json.links : [];
+    const visibleLinks = rawLinks.filter(
+      (l) => l && l.visibility !== "HIDDEN" && !(typeof l.id === "string" && l.id.startsWith("implicit_link"))
+    );
+    const connectors = [];
+    if (includeDetails) {
+      const seen = new Set();
+      for (const link of visibleLinks.slice(0, 40)) {
+        const cid = link.connector_id;
+        if (!cid || seen.has(cid)) continue;
+        seen.add(cid);
+        const det = await apiFetch(
+          `/aip/connectors/${encodeURIComponent(cid)}?include_actions=true`,
+          { method: "GET", headers },
+          15000
+        );
+        if (det.ok && det.json) {
+          const c = det.json;
+          connectors.push({
+            id: c.id || cid,
+            name: c.name || link.name || "",
+            description: c.description || "",
+            connector_type: c.connector_type || null,
+            tunnel_id: c.tunnel_id || null,
+            mcp_url: c.mcp_url || null,
+            link_id: link.id || null,
+            auth_status: link.auth_status || null,
+            actions: Array.isArray(c.actions)
+              ? c.actions.map((a) => ({ name: a.name, params: a.params || null }))
+              : [],
+          });
+        } else {
+          connectors.push({
+            id: cid,
+            name: link.name || "",
+            link_id: link.id || null,
+            auth_status: link.auth_status || null,
+            detail_status: det.status,
+          });
+        }
+      }
+    }
+    return {
+      linksStatus: linksRes.status,
+      linksOk: linksRes.ok,
+      linksError: linksRes.ok ? null : linksRes.text,
+      links: visibleLinks.map((l) => ({
+        id: l.id || null,
+        connector_id: l.connector_id || null,
+        name: l.name || null,
+        auth_status: l.auth_status || null,
+        auth_type: l.auth_type || null,
+      })),
+      connectors,
+    };
+  }
+
+  async function listConnectors(opts = {}) {
+    const { accountId, accounts } = await resolveChatGptAccounts(opts.account_id);
+    const sku = typeof opts.sku === "string" && opts.sku.trim() ? opts.sku.trim() : "CONNECTOR_SETTING";
+    const headers = connectorHeaders(accountId, sku);
+
+    const tunnelsRes = await apiFetch("/aip/connectors/mcp/tunnels", { method: "GET", headers }, 15000);
+    const tunnels =
+      tunnelsRes.ok && tunnelsRes.json && Array.isArray(tunnelsRes.json.tunnels)
+        ? tunnelsRes.json.tunnels
+        : [];
+    const includeDetails = opts.include_details !== false;
+    const accessible = await fetchAccessibleConnectorDetails(headers, includeDetails);
+
+    return {
+      state: "ok",
+      account_id: accountId,
+      sku,
+      accounts,
+      tunnels_status: tunnelsRes.status,
+      tunnels,
+      ...(tunnelsRes.ok ? {} : { tunnels_error: tunnelsRes.text }),
+      links_status: accessible.linksStatus,
+      ...(accessible.linksError ? { links_error: accessible.linksError } : {}),
+      links: accessible.links,
+      connectors: accessible.connectors,
+    };
+  }
+
+  async function refreshAndProbeConnector({ connectorId, linkId, headers, expectedName }) {
+    const refreshRes = await apiFetch(
+      "/aip/connectors/mcp/refresh_actions",
+      {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ link_id: linkId }),
+      },
+      30000
+    );
+    const cacheInvalidated = await invalidateConnectorQueries();
+
+    const probeRes = await apiFetch(
+      "/ecosystem/call_mcp",
+      {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          app_uri: `connectors://${connectorId}`,
+          launcher_host: "chatgpt",
+          method: "tools/list",
+          params: {},
+        }),
+      },
+      30000
+    );
+    const liveTools =
+      probeRes.ok && probeRes.json && Array.isArray(probeRes.json.tools)
+        ? probeRes.json.tools
+        : null;
+
+    let after = null;
+    for (let i = 0; i < 4; i++) {
+      const det = await apiFetch(
+        `/aip/connectors/${encodeURIComponent(connectorId)}?include_actions=true`,
+        { method: "GET", headers },
+        15000
+      );
+      if (det.ok && det.json) {
+        after = det.json;
+        if (
+          liveTools &&
+          Array.isArray(after.actions) &&
+          catalogAgreement(after.actions, liveTools)
+        ) {
+          break;
+        }
+      }
+      if (i < 3) {
+        await new Promise((r) => setTimeout(r, 500 * (i + 1)));
+      }
+    }
+
+    const actions = after && Array.isArray(after.actions) ? after.actions : [];
+    const agreement = liveTools ? catalogAgreement(actions, liveTools) : false;
+    return {
+      refresh_ok: refreshRes.ok,
+      refresh_status: refreshRes.status,
+      ...(refreshRes.ok ? {} : { refresh_error: refreshRes.text }),
+      cache_invalidated: cacheInvalidated,
+      probe_ok: probeRes.ok && Array.isArray(liveTools),
+      probe_status: probeRes.status,
+      ...(probeRes.ok ? {} : { probe_error: probeRes.text }),
+      name: (after && after.name) || expectedName || null,
+      tunnel_id: (after && after.tunnel_id) || null,
+      actions: actions.map((a) => ({ name: a.name, params: a.params || null })),
+      live_tools: liveTools
+        ? liveTools.map((t) => ({ name: t.name, inputSchema: t.inputSchema || null }))
+        : [],
+      schema_agreement: agreement,
+    };
+  }
+
+  async function registerConnector(opts = {}) {
+    const name = typeof opts.name === "string" ? opts.name.trim() : "";
+    const tunnelId = typeof opts.tunnel_id === "string" ? opts.tunnel_id.trim() : "";
+    const description =
+      typeof opts.description === "string" ? opts.description.trim() : "";
+    if (!name || name.length > 120) {
+      return { state: "error", error: "invalid_connector_name", detail: "name must be 1..=120 chars" };
+    }
+    if (!/^tunnel_(?:[a-z0-9]{4}_)?[a-z0-9]{32}$/.test(tunnelId)) {
+      return { state: "error", error: "invalid_tunnel_id", detail: "tunnel_id must match tunnel_[xxxx_]<32-alnum>" };
+    }
+
+    const { accountId } = await resolveChatGptAccounts(opts.account_id);
+    const sku = typeof opts.sku === "string" && opts.sku.trim() ? opts.sku.trim() : "CONNECTOR_SETTING";
+    const headers = connectorHeaders(accountId, sku);
+
+    const accessible = await fetchAccessibleConnectorDetails(headers, true);
+    let existing = accessible.connectors.find((c) => c.tunnel_id === tunnelId) || null;
+    if (!existing) {
+      const nameConflict = accessible.connectors.find(
+        (c) => typeof c.name === "string" && c.name.trim() === name && c.tunnel_id !== tunnelId
+      );
+      if (nameConflict) {
+        return {
+          state: "error",
+          error: "name_conflict",
+          detail: `connector named '${name}' already exists for a different target`,
+          existing_connector_id: nameConflict.id,
+          existing_tunnel_id: nameConflict.tunnel_id || null,
+        };
+      }
+    }
+
+    let connectorId = existing ? existing.id : null;
+    let created = false;
+    let alreadyExisted = Boolean(existing);
+    if (!connectorId) {
+      const createRes = await apiFetch(
+        "/aip/connectors/mcp",
+        {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            name,
+            description,
+            tunnel_id: tunnelId,
+            logo_url: null,
+            auth_request: {
+              supported_auth: [{ type: "NONE" }],
+            },
+          }),
+        },
+        30000
+      );
+      if (!createRes.ok || !createRes.json || !createRes.json.connector || !createRes.json.connector.id) {
+        return {
+          state: "error",
+          error: `connector_create_http_${createRes.status}`,
+          status: createRes.status,
+          account_id: accountId,
+          detail: createRes.text,
+        };
+      }
+      connectorId = createRes.json.connector.id;
+      created = true;
+    }
+
+    let linkId = existing ? existing.link_id : null;
+    let authStatus = existing ? existing.auth_status : null;
+    let linked = false;
+    const linkCheck = await apiFetch(
+      `/aip/connectors/${encodeURIComponent(connectorId)}/link`,
+      { method: "GET", headers },
+      15000
+    );
+    if (linkCheck.ok && linkCheck.json && linkCheck.json.link && linkCheck.json.link.id) {
+      linkId = linkCheck.json.link.id;
+      authStatus = linkCheck.json.link.auth_status || authStatus;
+    } else {
+      const noauthRes = await apiFetch(
+        "/aip/connectors/links/noauth",
+        {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            connector_id: connectorId,
+            name,
+            action_names: [],
+          }),
+        },
+        20000
+      );
+      if (!noauthRes.ok) {
+        return {
+          state: "error",
+          error: `connector_link_http_${noauthRes.status}`,
+          status: noauthRes.status,
+          account_id: accountId,
+          connector_id: connectorId,
+          created,
+          detail: noauthRes.text,
+        };
+      }
+      linked = true;
+      linkId = (noauthRes.json && (noauthRes.json.id || (noauthRes.json.link && noauthRes.json.link.id))) || null;
+      const recheck = await apiFetch(
+        `/aip/connectors/${encodeURIComponent(connectorId)}/link`,
+        { method: "GET", headers },
+        15000
+      );
+      if (recheck.ok && recheck.json && recheck.json.link) {
+        linkId = recheck.json.link.id || linkId;
+        authStatus = recheck.json.link.auth_status || authStatus;
+      }
+    }
+
+    if (opts.refresh === false || !linkId) {
+      const cacheInvalidated = await invalidateConnectorQueries();
+      return {
+        state: "ok",
+        account_id: accountId,
+        created,
+        already_existed: alreadyExisted,
+        linked,
+        connector_id: connectorId,
+        name,
+        tunnel_id: tunnelId,
+        link_id: linkId,
+        auth_status: authStatus,
+        cache_invalidated: cacheInvalidated,
+      };
+    }
+
+    const verified = await refreshAndProbeConnector({
+      connectorId,
+      linkId,
+      headers,
+      expectedName: name,
+    });
+    return {
+      state: verified.refresh_ok && verified.probe_ok && verified.schema_agreement ? "ok" : "degraded",
+      account_id: accountId,
+      created,
+      already_existed: alreadyExisted,
+      linked,
+      connector_id: connectorId,
+      name: verified.name || name,
+      tunnel_id: verified.tunnel_id || tunnelId,
+      link_id: linkId,
+      auth_status: authStatus,
+      ...verified,
+    };
+  }
+
+  async function refreshConnector(opts = {}) {
+    const connectorId = typeof opts.connector_id === "string" ? opts.connector_id.trim() : "";
+    if (!connectorId) {
+      return { state: "error", error: "connector_id_required", detail: "connector_id is required" };
+    }
+    const { accountId } = await resolveChatGptAccounts(opts.account_id);
+    const sku = typeof opts.sku === "string" && opts.sku.trim() ? opts.sku.trim() : "CONNECTOR_SETTING";
+    const headers = connectorHeaders(accountId, sku);
+
+    const beforeRes = await apiFetch(
+      `/aip/connectors/${encodeURIComponent(connectorId)}?include_actions=true`,
+      { method: "GET", headers },
+      15000
+    );
+    if (!beforeRes.ok || !beforeRes.json) {
+      return {
+        state: "error",
+        error: `connector_get_http_${beforeRes.status}`,
+        status: beforeRes.status,
+        account_id: accountId,
+        connector_id: connectorId,
+        detail: beforeRes.text,
+      };
+    }
+
+    let linkId = null;
+    let authStatus = null;
+    const linkRes = await apiFetch(
+      `/aip/connectors/${encodeURIComponent(connectorId)}/link`,
+      { method: "GET", headers },
+      15000
+    );
+    if (linkRes.ok && linkRes.json && linkRes.json.link && linkRes.json.link.id) {
+      linkId = linkRes.json.link.id;
+      authStatus = linkRes.json.link.auth_status || null;
+    } else if (opts.link_if_missing === true) {
+      const noauthRes = await apiFetch(
+        "/aip/connectors/links/noauth",
+        {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            connector_id: connectorId,
+            name: beforeRes.json.name || connectorId,
+            action_names: [],
+          }),
+        },
+        20000
+      );
+      if (noauthRes.ok && noauthRes.json) {
+        linkId = noauthRes.json.id || (noauthRes.json.link && noauthRes.json.link.id) || null;
+      }
+    }
+    if (!linkId) {
+      return {
+        state: "error",
+        error: "connector_not_linked",
+        account_id: accountId,
+        connector_id: connectorId,
+        detail: linkRes.text || "connector has no active link",
+      };
+    }
+
+    const verified = await refreshAndProbeConnector({
+      connectorId,
+      linkId,
+      headers,
+      expectedName: beforeRes.json.name || null,
+    });
+    return {
+      state: verified.refresh_ok && verified.probe_ok && verified.schema_agreement ? "ok" : "degraded",
+      account_id: accountId,
+      connector_id: connectorId,
+      link_id: linkId,
+      auth_status: authStatus,
+      ...verified,
+    };
+  }
+
   globalThis.__termuxChatGptDriver = {
     status,
     listChats,
@@ -1482,6 +1980,9 @@
     sendMessage,
     observeChat,
     stopGeneration,
+    listConnectors,
+    registerConnector,
+    refreshConnector,
     parseToolCallsFromText,
   };
   return { installed: true };

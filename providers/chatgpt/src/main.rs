@@ -346,6 +346,33 @@ mod tests {
         fn restart_host(&self) -> BoxFuture<'_, Result<Value>> {
             Box::pin(async { Ok(json!({"state":"ok","restarted":true})) })
         }
+        fn list_connectors(&self, p: Value) -> BoxFuture<'_, Result<Value>> {
+            Box::pin(async move {
+                Ok(json!({"state":"ok","account_id":p["account_id"],"tunnels":[],"connectors":[]}))
+            })
+        }
+        fn register_connector(&self, p: Value) -> BoxFuture<'_, Result<Value>> {
+            Box::pin(async move {
+                Ok(json!({
+                    "state":"ok",
+                    "connector_id":"connector_mock1",
+                    "name":p["name"],
+                    "tunnel_id":p["tunnel_id"],
+                    "created":true,
+                    "linked":true,
+                    "schema_agreement":true
+                }))
+            })
+        }
+        fn refresh_connector(&self, p: Value) -> BoxFuture<'_, Result<Value>> {
+            Box::pin(async move {
+                Ok(json!({
+                    "state":"ok",
+                    "connector_id":p["connector_id"],
+                    "schema_agreement":true
+                }))
+            })
+        }
     }
 
     mod tower_like {
@@ -846,6 +873,15 @@ mod tests {
             fn restart_host(&self) -> BoxFuture<'_, Result<Value>> {
                 Box::pin(async { Ok(json!({"state":"ok"})) })
             }
+            fn list_connectors(&self, _: Value) -> BoxFuture<'_, Result<Value>> {
+                Box::pin(async { Ok(json!({"state":"ok","tunnels":[],"connectors":[]})) })
+            }
+            fn register_connector(&self, _: Value) -> BoxFuture<'_, Result<Value>> {
+                Box::pin(async { Ok(json!({"state":"ok"})) })
+            }
+            fn refresh_connector(&self, _: Value) -> BoxFuture<'_, Result<Value>> {
+                Box::pin(async { Ok(json!({"state":"ok"})) })
+            }
         }
 
         let stopped = Arc::new(AtomicBool::new(false));
@@ -891,5 +927,96 @@ mod tests {
             stopped.load(Ordering::Acquire),
             "disconnecting mid-stream must invoke stop_generation()"
         );
+    }
+
+    #[tokio::test]
+    async fn control_connectors_auth_and_validation() {
+        let token = "tok-0123456789abcdef0123456789abcdef";
+        let driver: Arc<dyn DriverBackend> = Arc::new(MockDriver {
+            reply: json!({"state":"settled","assistant_text":"ok","tool_calls":[]}),
+            last_send: std::sync::Mutex::new(None),
+        });
+        let router = build_router(
+            driver,
+            config::ModelConfig::default(),
+            config::HistoryConfig::default(),
+            token.to_owned(),
+            Arc::new(RwLock::new(None)),
+        );
+
+        // Unauthorized GET /control/connectors -> 401
+        let unauth = tower_like::oneshot(
+            router.clone(),
+            axum::http::Request::builder()
+                .method("GET")
+                .uri("/control/connectors")
+                .body(axum::body::Body::empty())
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(unauth.status(), 401);
+
+        // Authorized GET /control/connectors -> 200
+        let listed = tower_like::oneshot(
+            router.clone(),
+            axum::http::Request::builder()
+                .method("GET")
+                .uri("/control/connectors")
+                .header("authorization", format!("Bearer {token}"))
+                .body(axum::body::Body::empty())
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(listed.status(), 200);
+
+        // Invalid tunnel_id -> 400
+        let bad_tid = tower_like::oneshot(
+            router.clone(),
+            axum::http::Request::builder()
+                .method("POST")
+                .uri("/control/connectors")
+                .header("authorization", format!("Bearer {token}"))
+                .header("content-type", "application/json")
+                .body(axum::body::Body::from(
+                    json!({"name":"TermuxShell","tunnel_id":"not-a-tunnel"}).to_string(),
+                ))
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(bad_tid.status(), 400);
+
+        // Valid register -> 200
+        let ok_reg = tower_like::oneshot(
+            router.clone(),
+            axum::http::Request::builder()
+                .method("POST")
+                .uri("/control/connectors")
+                .header("authorization", format!("Bearer {token}"))
+                .header("content-type", "application/json")
+                .body(axum::body::Body::from(
+                    json!({
+                        "name":"TermuxShell",
+                        "tunnel_id":"tunnel_6b03b77cf8bc8191b405430734cc50f7",
+                        "description":"Stage 2 shell MCP"
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(ok_reg.status(), 200);
+
+        // Valid refresh -> 200
+        let ok_ref = tower_like::oneshot(
+            router,
+            axum::http::Request::builder()
+                .method("POST")
+                .uri("/control/connectors/connector_mock1/refresh")
+                .header("authorization", format!("Bearer {token}"))
+                .body(axum::body::Body::empty())
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(ok_ref.status(), 200);
     }
 }

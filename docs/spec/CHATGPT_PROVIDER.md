@@ -68,6 +68,11 @@ and [providers/chatgpt/src/main.rs](../../providers/chatgpt/src/main.rs).
   - `GET /control/chats`, `GET /control/chats/{id}`, `POST /control/chats/{id}/rename`
   - `GET /control/projects`, `GET /control/projects/{id}`, `POST /control/projects`
   - `POST /control/send`, `POST /control/observe`, `POST /control/stop`
+  - `GET /control/connectors`, `POST /control/connectors`,
+    `POST /control/connectors/{id}/refresh` (programmatic zero-DOM custom MCP
+    tunnel connector discovery, creation, noauth linking, action refresh,
+    in-app query cache invalidation, and `/ecosystem/call_mcp` schema-agreement
+    verification over native `connect-app-host` `services.httpFetch`)
 - **Zero Wrapper coupling:** Runs as an independent workspace and binary;
   `crates/wrapper` and root `Cargo.lock` have zero compile-time or runtime
   dependency on `chatgpt-provider`.

@@ -481,3 +481,152 @@ test("page_driver tool-only turn does not leak stale text, observeChat reports a
   assert.equal(obsErr.state, "error");
   assert.equal(obsErr.error, "backend_http_429");
 });
+
+test("page_driver listConnectors, registerConnector (create+noauth+refresh+probe), idempotency, name conflict, and refreshConnector", async () => {
+  const tunnelId = "tunnel_6b03b77cf8bc8191b405430734cc50f7";
+  const otherTunnelId = "tunnel_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+  const shellSchema = {
+    type: "object",
+    properties: { command: { type: "string" } },
+    required: ["command"],
+  };
+  let created = false;
+  let linked = false;
+  let refreshed = false;
+  const seenHeaders = [];
+
+  const { driver } = createMockEnv({
+    apiMap: {
+      "GET /backend-api/accounts/check/v4-2023-04-27": {
+        status: 200,
+        body: {
+          account_ordering: ["ws-3ebe5ee5"],
+          accounts: {
+            "ws-3ebe5ee5": {
+              account: {
+                account_id: "ws-3ebe5ee5",
+                name: "Workspace",
+                structure: "workspace",
+                plan_type: "team",
+              },
+            },
+          },
+        },
+      },
+      "GET /backend-api/aip/connectors/mcp/tunnels": {
+        status: 200,
+        body: (opts) => {
+          seenHeaders.push(opts.headers);
+          return { tunnels: [{ id: tunnelId, name: "TermuxShell" }] };
+        },
+      },
+      "POST /backend-api/aip/connectors/links/list_accessible": {
+        status: 200,
+        body: () => ({
+          links: created
+            ? [
+                {
+                  id: "link_1",
+                  connector_id: "connector_shell_1",
+                  name: "TermuxShell",
+                  auth_status: "OK",
+                  auth_type: "NONE",
+                },
+              ]
+            : [],
+        }),
+      },
+      "POST /backend-api/aip/connectors/mcp": {
+        status: 200,
+        body: (opts) => {
+          const body = JSON.parse(opts.body);
+          assert.equal(body.tunnel_id, tunnelId);
+          assert.equal(body.auth_request.supported_auth[0].type, "NONE");
+          created = true;
+          return { connector: { id: "connector_shell_1", name: body.name, tunnel_id: body.tunnel_id } };
+        },
+      },
+      "GET /backend-api/aip/connectors/connector_shell_1/link": {
+        status: 200,
+        body: () => ({
+          link: linked ? { id: "link_1", connector_id: "connector_shell_1", auth_status: "OK" } : null,
+        }),
+      },
+      "POST /backend-api/aip/connectors/links/noauth": {
+        status: 200,
+        body: (opts) => {
+          const body = JSON.parse(opts.body);
+          assert.equal(body.connector_id, "connector_shell_1");
+          linked = true;
+          return { id: "link_1" };
+        },
+      },
+      "POST /backend-api/aip/connectors/mcp/refresh_actions": {
+        status: 200,
+        body: (opts) => {
+          const body = JSON.parse(opts.body);
+          assert.equal(body.link_id, "link_1");
+          refreshed = true;
+          return { ok: true };
+        },
+      },
+      "POST /backend-api/ecosystem/call_mcp": {
+        status: 200,
+        body: {
+          tools: [{ name: "termux_shell", inputSchema: shellSchema }],
+        },
+      },
+      "GET /backend-api/aip/connectors/connector_shell_1?include_actions=true": {
+        status: 200,
+        body: () => ({
+          id: "connector_shell_1",
+          name: "TermuxShell",
+          tunnel_id: tunnelId,
+          actions: refreshed ? [{ name: "termux_shell", params: shellSchema }] : [],
+        }),
+      },
+    },
+  });
+
+  const listed = await driver.listConnectors({});
+  assert.equal(listed.state, "ok");
+  assert.equal(listed.account_id, "ws-3ebe5ee5");
+  assert.equal(listed.tunnels.length, 1);
+  assert.equal(seenHeaders[0]["ChatGPT-Account-Id"], "ws-3ebe5ee5");
+  assert.equal(seenHeaders[0]["OAI-Product-Sku"], "CONNECTOR_SETTING");
+
+  const reg = await driver.registerConnector({
+    name: "TermuxShell",
+    description: "Stage 2 shell MCP",
+    tunnel_id: tunnelId,
+  });
+  assert.equal(reg.state, "ok");
+  assert.equal(reg.created, true);
+  assert.equal(reg.linked, true);
+  assert.equal(reg.connector_id, "connector_shell_1");
+  assert.equal(reg.link_id, "link_1");
+  assert.equal(reg.schema_agreement, true);
+  assert.equal(reg.actions[0].name, "termux_shell");
+
+  // Re-registering the same tunnel_id is idempotent (no duplicate creation)
+  const again = await driver.registerConnector({
+    name: "TermuxShell",
+    tunnel_id: tunnelId,
+  });
+  assert.equal(again.state, "ok");
+  assert.equal(again.created, false);
+  assert.equal(again.already_existed, true);
+
+  // Same name with a DIFFERENT tunnel_id must fail closed with name_conflict
+  const conflict = await driver.registerConnector({
+    name: "TermuxShell",
+    tunnel_id: otherTunnelId,
+  });
+  assert.equal(conflict.state, "error");
+  assert.equal(conflict.error, "name_conflict");
+
+  // Explicit refreshConnector succeeds with schema_agreement
+  const ref = await driver.refreshConnector({ connector_id: "connector_shell_1" });
+  assert.equal(ref.state, "ok");
+  assert.equal(ref.schema_agreement, true);
+});

@@ -32,6 +32,9 @@ pub trait DriverBackend: Send + Sync {
     fn stop_generation(&self) -> BoxFuture<'_, Result<Value>>;
     fn viewer_info(&self) -> BoxFuture<'_, Result<Value>>;
     fn restart_host(&self) -> BoxFuture<'_, Result<Value>>;
+    fn list_connectors(&self, params: Value) -> BoxFuture<'_, Result<Value>>;
+    fn register_connector(&self, params: Value) -> BoxFuture<'_, Result<Value>>;
+    fn refresh_connector(&self, params: Value) -> BoxFuture<'_, Result<Value>>;
 }
 
 struct LiveHostState {
@@ -355,6 +358,27 @@ impl DriverBackend for CdpDriver {
                 "restarted": true,
                 "display": display
             }))
+        })
+    }
+
+    fn list_connectors(&self, params: Value) -> BoxFuture<'_, Result<Value>> {
+        Box::pin(async move {
+            self.ensure_ready_and_call("listConnectors", params, Duration::from_secs(45))
+                .await
+        })
+    }
+
+    fn register_connector(&self, params: Value) -> BoxFuture<'_, Result<Value>> {
+        Box::pin(async move {
+            self.ensure_ready_and_call("registerConnector", params, Duration::from_secs(90))
+                .await
+        })
+    }
+
+    fn refresh_connector(&self, params: Value) -> BoxFuture<'_, Result<Value>> {
+        Box::pin(async move {
+            self.ensure_ready_and_call("refreshConnector", params, Duration::from_secs(90))
+                .await
         })
     }
 }
