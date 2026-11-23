@@ -286,10 +286,12 @@ Stage 1의 FD 34는 스레드 수명을 업스트림 정책에 맡깁니다. 마
   kernel page size.
 - **AppHost shutdown.** Cross-device Android behavior and an exact
   `SHMHELPER_DISTRIBUTE` `accept()` race reproduction remain open.
-  [Signed device evidence](../CURRENT.md#2026-11-23--signed-provider-and-orchestration-011-active-on-termux)
+  [Signed device evidence](../CURRENT.md#2026-11-23--provider-and-orchestration-development-version-restored-on-termux)
 - **Signed-image activation.** Qualify the signed `codex-ext` artifact on the
-  live device. Provider and Orchestration 0.1.1 have signed-image and read-only
-  connector readback. Run model-backed Work acceptance for the deployed
+  live device. Provider and Orchestration have signed-image and read-only
+  connector readback. Keep their existing package versions until development
+  is complete and identify interim builds by source commit and artifact digest.
+  Run model-backed Work acceptance for the deployed
   versions with a scoped test Work. Reconcile pending legacy deliveries
   without owner markers when upgrading a populated state directory.
 - **Slice 7B** Natural context exhaustion and more than ten minutes of
