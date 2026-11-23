@@ -272,6 +272,7 @@ mod tests {
             projects: Vec<String>,
             pending_participant: Option<(String, String)>,
             pending_participant_sends: u32,
+            account_available: bool,
         }
         let mstate = Arc::new(Mutex::new(MockState {
             front_streaming: true,
@@ -282,6 +283,7 @@ mod tests {
             projects: Vec::new(),
             pending_participant: None,
             pending_participant_sends: 0,
+            account_available: true,
         }));
         let mstate_srv = Arc::clone(&mstate);
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -328,7 +330,11 @@ mod tests {
                         let body: Value = serde_json::from_str(body_str).unwrap_or(json!({}));
                         let mut st = mstate_srv.lock().unwrap();
                         let resp_val = if first.starts_with("GET /control/status") {
-                            json!({"state":"ok","pinned_send":true,"auth_state":"authenticated","account":{"account_id":"acc-1","id":"u1"}})
+                            if st.account_available {
+                                json!({"state":"ok","pinned_send":true,"auth_state":"authenticated","account":{"account_id":"acc-1","id":"u1"}})
+                            } else {
+                                json!({"state":"ok","pinned_send":true,"auth_state":"unknown"})
+                            }
                         } else if first.starts_with("POST /control/projects") {
                             st.projects.push(body["name"].as_str().unwrap().to_owned());
                             json!({"state":"ok","project_id":"g-p-orch1","name":body["name"]})
@@ -580,6 +586,22 @@ mod tests {
         drop(state);
 
         // 7. New mobile chat F2 rebinds via marker -> [F2] Build Pipeline!
+        mstate.lock().unwrap().account_available = false;
+        let (unverified, error) = handler.call_tool("orch_work", &json!({
+            "action":"rebind_front", "call_id":"unverified-front", "work_id":wid, "front_chat_id":"chat-f2"
+        }));
+        assert!(error, "{unverified}");
+        assert_eq!(unverified["error"], "account_unavailable");
+        assert_eq!(
+            ledger
+                .load_work(&wid)
+                .unwrap()
+                .front
+                .latest_chat_id
+                .as_deref(),
+            Some("chat-f1")
+        );
+        mstate.lock().unwrap().account_available = true;
         let (reb, is_err) = handler.call_tool(
             "orch_work",
             &json!({

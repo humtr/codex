@@ -41,6 +41,11 @@ the configured `@TermuxOrch` connector. Each configuration makes the tool
 available to the session. Automatic selection depends on the session and its
 available tools.
 
+For an isolated test set `ORCH_STATE_DIR` and `ORCH_RECEIPT_DIR` on the MCP
+registration with `--env`, and use the same state directory for its relay.
+The Codex MCP process may drop variables from the interactive shell's
+environment.
+
 The account-free ChatGPT Desktop boot probe uses the AppHost supervisor from
 the matching `chatgpt-provider` build. Use
 `manager.py probe --provider-bin /path/to/chatgpt-provider` to test a local build
