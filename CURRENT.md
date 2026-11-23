@@ -52,6 +52,59 @@ Observed on 2026-11-23.
 
 ## Recent Verified Evidence (Newest-First)
 
+### 2026-11-24 — Slice 7 redesign candidate on Android Termux
+
+- Compiled candidate tests separated verifier verdict from turn settlement,
+  rejected stale evidence, and ran build plus a fixed shell check across
+  separate relay ticks. The check ran once on success and zero times after
+  a failed build. Cancelling the disposable shell job produced an exit
+  receipt and the tracked command PID disappeared. The loopback Provider
+  fixture also recovered worker and Lead launches after dropped replies,
+  rejected an unreadable Front, and recovered an unscoped rollover from the
+  second chat-list page.
+- On the device, a disposable official Codex daemon accepted one Orch turn
+  through its control socket and returned the expected result from a local
+  synthetic Responses endpoint. The Work reconciled that same thread and
+  turn. The isolated daemon was stopped after the test.
+- Live signed Provider trials answered plain questions without creating Works
+  in the isolated ledger. Automatic local Orch selection did not pass for
+  the background follow-up request. Upstream `mcpServerStatus/list` exposed all
+  six Orch tools, and loopback capture showed the deferred namespace and the
+  discovery text in the long Code Mode `exec` description. The candidate
+  Provider preserves discovery at the existing description bound. One trial
+  with explicit fixture routing instructions produced native Orch MCP call
+  records. A later trial with an immutable candidate and pinned MCP paths
+  used the account's deployed connector instead of the isolated tools.
+- Three disposable Works reached the default ledger during those trials.
+  One native MCP child used the default paths because shell environment
+  variables were dropped. Two other requests used the deployed connector.
+  The tests recorded successful shell exits and three Work-scoped delivery
+  records or notification attempts. The exact three Work directories were
+  removed from the active ledger and preserved in the private fixture roots.
+  A scan for those fixture references found zero active matches. The old
+  relay had dropped an unknown continuation field on a write. Candidate
+  and older relay writers must not share the ledger during activation.
+- Trusted caller identity for automatic Front migration and live signed
+  activation of the redesign remain open.
+
+### 2026-11-24 — Codex compaction through ChatGPT Desktop
+
+- Official Codex `0.171.0` ran in stdio app-server mode with isolated
+  `CODEX_HOME` directories and the live `chatgpt_desktop` Provider
+  `0.1.0+7b`. Both a manual `thread/compact/start` and an automatic run
+  produced one completed Codex compaction and one persisted compaction
+  record per thread. The automatic run used a test-only threshold of
+  20,000 tokens.
+- Each run kept its Codex thread UUID and continued in a new ChatGPT chat
+  under the same account. The post-compaction turn completed a deferred
+  file change using instructions from before compaction. An independent
+  file check passed. A new app-server process resumed the manual run's
+  UUID, recalled the earlier completion marker, and left the file intact.
+- The installed route qualifies Codex compaction and app-server resume.
+  Model-initiated execution through Codex-owned tools and recovery across
+  a Provider restart remain unverified. Direct ChatGPT Lead recovery is
+  tracked separately below.
+
 ### 2026-11-24 — Concurrent account handoff, context rejection and upgrade checks
 
 - **R-2.** With two authenticated `0.171.0` daemons, unsubscribe on the source
