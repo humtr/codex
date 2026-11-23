@@ -15,14 +15,13 @@
 use crate::ledger::{now_unix, truncate_chars, InboxEvent, Ledger, PendingDelivery, WorkRecord};
 use crate::owners::OwnerClient;
 use serde_json::{json, Value};
-use std::fs::{self, OpenOptions};
+use std::fs::{self, File};
 use std::io::{Read, Write};
-use std::net::TcpListener;
-use std::os::unix::fs::OpenOptionsExt;
+use std::net::{TcpListener, TcpStream};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::Arc;
-use std::time::Duration;
+use std::sync::{mpsc, Arc};
+use std::time::{Duration, Instant};
 
 #[derive(Debug, Default, Clone)]
 pub struct TickSummary {
@@ -66,7 +65,10 @@ impl RelayEngine {
         let _lock = self.ledger.lock_work(work_id).map_err(|e| e.to_string())?;
         let mut work = self.ledger.load_work(work_id).map_err(|e| e.to_string())?;
         let mut summary = TickSummary::default();
-        if work.is_terminal() && work.pending_deliveries.is_empty() {
+        if work.is_terminal()
+            && work.pending_deliveries.is_empty()
+            && (work.lead_replay.is_none() || work.state == "cancelled")
+        {
             return Ok(summary);
         }
 
@@ -115,6 +117,29 @@ impl RelayEngine {
                             }
                         }
                     }
+                    "shell" => {
+                        let result =
+                            crate::shell_job::ShellJob::new(&self.ledger, work_id, &p.ref_id)
+                                .and_then(|job| job.observe(p.created_at_unix));
+                        match result {
+                            Ok(Some((state, summary))) => newly_settled.push((idx, state, summary)),
+                            Ok(None) => (),
+                            Err(e)
+                                if matches!(
+                                    e.kind(),
+                                    std::io::ErrorKind::InvalidData
+                                        | std::io::ErrorKind::InvalidInput
+                                ) =>
+                            {
+                                newly_settled.push((
+                                    idx,
+                                    "failed".to_owned(),
+                                    format!("invalid shell receipt: {e}"),
+                                ));
+                            }
+                            Err(_) => (),
+                        }
+                    }
                     _ => {}
                 }
             }
@@ -145,21 +170,45 @@ impl RelayEngine {
                     "{role} {pid} ({slug}, {ref_id}) {next_state}: {}",
                     truncate_chars(&text, 400)
                 );
-                let _ = self.ledger.append_event_if_absent(
-                    &mut work,
-                    &ev_id,
-                    event_kind,
-                    &pid,
-                    &ev_summary,
-                    json!({
-                        "participant_id": pid,
-                        "role": role,
-                        "ref_id": ref_id,
-                        "state": next_state
-                    }),
-                );
+                self.ledger
+                    .append_event_if_absent(
+                        &mut work,
+                        &ev_id,
+                        event_kind,
+                        &pid,
+                        &ev_summary,
+                        json!({
+                            "participant_id": pid,
+                            "role": role,
+                            "ref_id": ref_id,
+                            "state": next_state
+                        }),
+                    )
+                    .map_err(|e| e.to_string())?;
                 summary.participants_settled += 1;
                 dirty = true;
+            }
+        }
+
+        if dirty {
+            self.ledger.save_work(&work).map_err(|e| e.to_string())?;
+            dirty = false;
+        }
+        let rollover = crate::rollover::Rollover::new(&self.ledger, &self.owners);
+        if !work.is_terminal() && work.lead_rollover.is_some() {
+            let _ = rollover.advance(&mut work);
+            return Ok(summary);
+        }
+        if work.state != "cancelled" && work.lead_replay.is_some() {
+            let _ = rollover.replay(&mut work);
+            return Ok(summary);
+        }
+        if !work.is_terminal() {
+            if let Some(reason) = rollover.automatic_reason(&work) {
+                let _ = rollover.start(&mut work, &reason, None);
+                if work.lead_rollover.is_some() || work.lead_replay.is_some() {
+                    return Ok(summary);
+                }
             }
         }
 
@@ -575,80 +624,108 @@ pub fn run_relay_daemon(
         .set_nonblocking(true)
         .map_err(|e| format!("failed to set nonblocking listener: {e}"))?;
 
-    if let Some(url_file) = health_url_file {
-        if let Some(parent) = url_file.parent() {
-            let _ = crate::ledger::ensure_private_dir(parent);
+    let mut random = [0u8; 32];
+    File::open("/dev/urandom")
+        .and_then(|mut f| f.read_exact(&mut random))
+        .map_err(|e| format!("cannot generate wake token: {e}"))?;
+    let token: String = random.iter().map(|byte| format!("{byte:02x}")).collect();
+    let token_path = health_url_file.map(|url| url.with_file_name("wake.token"));
+    if let (Some(url_file), Some(token_path)) = (health_url_file, &token_path) {
+        if let Some(parent) = url_file.parent().filter(|p| !p.as_os_str().is_empty()) {
+            crate::ledger::ensure_private_dir(parent).map_err(|e| e.to_string())?;
         }
-        let url_str = format!("http://{}\n", local_addr);
-        if let Ok(mut f) = OpenOptions::new()
-            .create(true)
-            .truncate(true)
-            .write(true)
-            .mode(0o600)
-            .open(url_file)
-        {
-            let _ = f.write_all(url_str.as_bytes());
-            let _ = f.sync_all();
-        }
+        crate::ledger::write_atomic_private(token_path, token.as_bytes())
+            .map_err(|e| e.to_string())?;
+        crate::ledger::write_atomic_private(url_file, format!("http://{local_addr}\n").as_bytes())
+            .map_err(|e| e.to_string())?;
     }
 
-    let ticks = Arc::new(AtomicU64::new(0));
-    let ticks_srv = Arc::clone(&ticks);
+    let health = Arc::new(RelayHealth::default());
+    let server_health = Arc::clone(&health);
     let state_root_str = ledger.root().display().to_string();
+    let (wake_tx, wake_rx) = mpsc::sync_channel(1);
     let health_handle = std::thread::spawn(move || {
         while !STOP_FLAG.load(Ordering::Acquire) {
             match listener.accept() {
                 Ok((mut stream, _)) => {
-                    let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
-                    let mut req_buf = [0u8; 1024];
-                    let n = stream.read(&mut req_buf).unwrap_or(0);
-                    let req = String::from_utf8_lossy(&req_buf[..n]);
-                    let first_line = req.lines().next().unwrap_or("");
-                    let (status, ctype, body) = if first_line.starts_with("GET /readyz") {
-                        ("200 OK", "text/plain", "ready\n".to_owned())
-                    } else if first_line.starts_with("GET /healthz")
-                        || first_line.starts_with("GET /health")
-                    {
-                        let body = json!({
-                            "ok": true,
-                            "service": "termux-orch-relay",
-                            "version": env!("CARGO_PKG_VERSION"),
-                            "ticks": ticks_srv.load(Ordering::Acquire),
-                            "state_root": state_root_str
-                        })
-                        .to_string();
-                        ("200 OK", "application/json", body)
-                    } else {
-                        (
+                    let Some(request) = read_http_head(&mut stream) else {
+                        continue;
+                    };
+                    let mut lines = request.split("\r\n");
+                    let mut route = lines.next().unwrap_or_default().split_ascii_whitespace();
+                    let (status, ctype, body) = match (route.next(), route.next()) {
+                        (Some("GET"), Some("/readyz")) => {
+                            ("200 OK", "text/plain", "ready\n".to_owned())
+                        }
+                        (Some("GET"), Some("/healthz" | "/health")) => {
+                            let body = json!({
+                                "ok": true,
+                                "service": "termux-orch-relay",
+                                "version": env!("CARGO_PKG_VERSION"),
+                                "ticks": server_health.ticks.load(Ordering::Acquire),
+                                "wake_pushes": server_health.wake_pushes.load(Ordering::Acquire),
+                                "last_wake_tick_ms": server_health.last_wake_tick_ms.load(Ordering::Acquire),
+                                "state_root": state_root_str
+                            })
+                            .to_string();
+                            ("200 OK", "application/json", body)
+                        }
+                        (Some("POST"), Some("/wake")) if token_path.is_some() => {
+                            if authorized_wake(lines, &token) {
+                                server_health.wake_pushes.fetch_add(1, Ordering::Release);
+                                let _ = wake_tx.try_send(Instant::now());
+                                (
+                                    "202 Accepted",
+                                    "application/json",
+                                    r#"{"state":"accepted"}"#.to_owned(),
+                                )
+                            } else {
+                                (
+                                    "401 Unauthorized",
+                                    "application/json",
+                                    r#"{"error":"unauthorized"}"#.to_owned(),
+                                )
+                            }
+                        }
+                        _ => (
                             "404 Not Found",
                             "application/json",
                             r#"{"error":"not_found"}"#.to_owned(),
-                        )
+                        ),
                     };
                     let resp = format!(
                         "HTTP/1.1 {status}\r\nContent-Type: {ctype}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
                         body.len()
                     );
+                    let _ = stream.set_write_timeout(Some(Duration::from_millis(250)));
                     let _ = stream.write_all(resp.as_bytes());
                 }
-                Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                    std::thread::sleep(Duration::from_millis(100));
-                }
-                Err(_) => std::thread::sleep(Duration::from_millis(200)),
+                Err(_) => std::thread::sleep(Duration::from_millis(25)),
             }
         }
     });
 
     let engine = RelayEngine::new(ledger, owners);
     let interval = Duration::from_millis(poll_ms.clamp(250, 60_000));
+    let mut wake_requested = None::<Instant>;
     while !STOP_FLAG.load(Ordering::Acquire) {
+        if let Some(requested) = wake_requested.take() {
+            health
+                .last_wake_tick_ms
+                .store(requested.elapsed().as_millis() as u64, Ordering::Release);
+        }
         let _ = engine.tick_once();
-        ticks.fetch_add(1, Ordering::Release);
-        let mut slept = Duration::ZERO;
-        while slept < interval && !STOP_FLAG.load(Ordering::Acquire) {
-            let step = Duration::from_millis(200).min(interval - slept);
-            std::thread::sleep(step);
-            slept += step;
+        health.ticks.fetch_add(1, Ordering::Release);
+        let deadline = Instant::now() + interval;
+        while !STOP_FLAG.load(Ordering::Acquire) {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                break;
+            }
+            if let Ok(requested) = wake_rx.recv_timeout(remaining.min(Duration::from_millis(200))) {
+                wake_requested = Some(requested);
+                break;
+            }
         }
     }
 
@@ -657,4 +734,49 @@ pub fn run_relay_daemon(
         let _ = fs::remove_file(url_file);
     }
     Ok(())
+}
+
+#[derive(Default)]
+struct RelayHealth {
+    ticks: AtomicU64,
+    wake_pushes: AtomicU64,
+    last_wake_tick_ms: AtomicU64,
+}
+
+fn read_http_head(stream: &mut TcpStream) -> Option<String> {
+    let deadline = Instant::now() + Duration::from_millis(250);
+    let mut buffer = [0u8; 4096];
+    let mut used = 0;
+    while used < buffer.len() {
+        let remaining = deadline.checked_duration_since(Instant::now())?;
+        stream.set_read_timeout(Some(remaining)).ok()?;
+        let n = stream.read(&mut buffer[used..]).ok()?;
+        if n == 0 {
+            return None;
+        }
+        used += n;
+        if let Some(end) = buffer[..used].windows(4).position(|w| w == b"\r\n\r\n") {
+            return String::from_utf8(buffer[..end].to_vec()).ok();
+        }
+    }
+    None
+}
+
+fn authorized_wake<'a>(headers: impl Iterator<Item = &'a str>, token: &str) -> bool {
+    let mut auth = headers.filter_map(|line| {
+        let (name, value) = line.split_once(':')?;
+        name.eq_ignore_ascii_case("authorization")
+            .then_some(value.trim())
+    });
+    match (auth.next(), auth.next()) {
+        (Some(value), None) => value.strip_prefix("Bearer ").is_some_and(|given| {
+            given.len() == token.len()
+                && given
+                    .bytes()
+                    .zip(token.bytes())
+                    .fold(0, |diff, (a, b)| diff | (a ^ b))
+                    == 0
+        }),
+        _ => false,
+    }
 }

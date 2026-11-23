@@ -255,6 +255,67 @@ impl OwnerClient {
         )
     }
 
+    pub fn chatgpt_account_id(&self) -> Result<String, String> {
+        let mut status = self.chatgpt_status()?;
+        if status["auth_state"] == "host_stopped" {
+            // A read-only control request starts the AppHost after a service restart.
+            self.control_call("GET", "/control/projects?limit=1", None, READ_TIMEOUT)?;
+            status = self.chatgpt_status()?;
+        }
+        if status["pinned_send"] != true {
+            return Err("chatgpt_pinned_send_unavailable".to_owned());
+        }
+        if status["auth_state"] != "authenticated" {
+            return Err("chatgpt_account_unavailable".to_owned());
+        }
+        chatgpt_account_identity(&status)
+            .map(ToOwned::to_owned)
+            .ok_or_else(|| "chatgpt_account_unavailable".to_owned())
+    }
+
+    pub fn chatgpt_observe_lane(&self, lane_id: &str) -> Result<Value, String> {
+        self.control_call(
+            "POST",
+            "/control/observe",
+            Some(&json!({"lane_id": lane_id})),
+            READ_TIMEOUT,
+        )
+    }
+
+    pub fn chatgpt_project_chats(&self, project_id: &str) -> Result<Value, String> {
+        self.control_call(
+            "GET",
+            &format!("/control/projects/{}?limit=30", url_encode(project_id)),
+            None,
+            READ_TIMEOUT,
+        )
+    }
+
+    pub fn chatgpt_send_pinned(
+        &self,
+        work: &crate::ledger::WorkRecord,
+        lead: &crate::ledger::LeadBinding,
+        chat_id: Option<&str>,
+        lane_id: &str,
+        prompt: &str,
+    ) -> Result<Value, String> {
+        self.control_call(
+            "POST",
+            "/control/send",
+            Some(&json!({
+                "chat_id": chat_id,
+                "project_id": work.project_id,
+                "expected_account_id": work.account_id,
+                "lane_id": lane_id,
+                "prompt": prompt,
+                "model": lead.model,
+                "reasoning_effort": lead.reasoning_effort,
+                "wait_ms": 3_000
+            })),
+            SEND_TIMEOUT,
+        )
+    }
+
     pub fn resolve_codex_home(&self, profile: Option<&str>) -> Result<PathBuf, String> {
         let trimmed = profile.map(str::trim).filter(|s| !s.is_empty());
         match trimmed {
@@ -457,6 +518,13 @@ impl OwnerClient {
         let _ = child.wait();
         false
     }
+}
+
+pub fn chatgpt_account_identity(status: &Value) -> Option<&str> {
+    let account = status.get("account")?;
+    ["account_id", "id"]
+        .into_iter()
+        .find_map(|key| account[key].as_str().filter(|id| !id.is_empty()))
 }
 
 pub fn extract_codex_last_assistant_text(thread: &Value) -> String {

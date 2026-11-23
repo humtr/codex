@@ -310,6 +310,9 @@ fn run_notify_cli(paths: &ExtPaths, args: &[String]) -> Result<i32, String> {
                 }
             }
             let event = event.unwrap_or("Stop");
+            if event == "Stop" && !dry_run {
+                notify::nudge_orchestration_relay(paths);
+            }
             let cfg = load_notify_config(paths)?;
             if !cfg.enabled && !dry_run {
                 return Ok(0);

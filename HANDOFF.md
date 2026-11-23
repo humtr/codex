@@ -65,7 +65,9 @@ Normative specification: [docs/spec/ORCHESTRATION.md](docs/spec/ORCHESTRATION.md
 
 ### 3.3 Slice 7B Checklist (Long-Horizon Resilience Upgrades)
 
-- [ ] **7B-1 Automatic ChatGPT `L1 -> L2` context rollover:** Detect context-limit / turn-threshold on ChatGPT `Lead`, snapshot `checkpoint.md`, spawn `[L2] <title>` in the same pinned `project_id`, increment `generation` to fence `L1`, and replay unconsumed `Inbox` (`seq > consumed_seq`).
-- [ ] **7B-2 Detached long-running Shell worker watcher:** Track `>10 min` builds/tests via verified `(pid, start_ticks)` + atomic exit-receipt file inside `Work Ledger` and feed `worker.completed`/`worker.failed` into `Typed Inbox`.
-- [ ] **7B-3 Instant `codex-ext` `Stop` hook push:** Optional zero-latency trigger from `codex-ext notify emit Stop` into `termux-orch relay` so Codex worker settlements wake `Lead`/`Front` immediately without waiting for poll intervals.
-- [ ] **7B-4 Live resilience E2E:** Prove `L1 -> L2` rollover with fencing, detached shell barrier completion, and instant `Stop`-hook wake-up.
+- [x] **7B-1 Automatic ChatGPT `L1 -> L2` context rollover:** Detect context-limit / turn-threshold on ChatGPT `Lead`, snapshot `checkpoint.md`, spawn `[L2] <title>` in the same pinned `project_id`, increment `generation` to fence `L1`, and replay unconsumed `Inbox` (`seq > consumed_seq`).
+- [x] **7B-2 Detached long-running Shell worker watcher:** Track `>10 min` builds/tests via verified `(pid, start_ticks)` + atomic exit-receipt file inside `Work Ledger` and feed `worker.completed`/`worker.failed` into `Typed Inbox`.
+- [x] **7B-3 Instant `codex-ext` `Stop` hook push:** Optional push trigger from `codex-ext notify emit Stop` into `termux-orch relay` so Codex worker settlements wake `Lead`/`Front` immediately without waiting for poll intervals.
+- [x] **7B-4 Live resilience E2E:** Prove `L1 -> L2` rollover with fencing, detached shell barrier completion, and instant `Stop`-hook wake-up.
+
+Device and test receipts are in [CURRENT.md](CURRENT.md#2026-11-23--stage-2-slice-7b-resilience-on-android-api-37-termux).

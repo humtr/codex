@@ -713,3 +713,59 @@ test("page_driver observeChat inspects server stream_status for remote mobile/we
   assert.equal(settled.remote_stream_status, "COMPLETE");
   assert.equal(settled.assistant_text, "Done!");
 });
+
+test("pinned send verifies the live account and the continued chat's project before dispatch", async () => {
+  let account = "acct-original";
+  const { driver, startCalls } = createMockEnv({
+    apiMap: {
+      "GET /backend-api/me": { status: 200, body: () => ({ account_id: account }) },
+      "GET /backend-api/conversation/conv-other-project": {
+        status: 200, body: { gizmo_id: "g-p-other", current_node: "node" },
+      },
+    },
+  });
+  const params = {
+    expected_account_id: "acct-original",
+    project_id: "g-p-pinned",
+    prompt: "Resume", wait_ms: 50,
+  };
+  assert.equal((await driver.sendMessage(params)).state, "settled");
+  assert.equal(startCalls[0].expectedAccountId, "acct-original");
+  assert.equal(startCalls[0].request.gizmo_id, "g-p-pinned");
+  assert.equal((await driver.sendMessage({ ...params, chat_id: "conv-other-project" })).error, "pinned_project_mismatch");
+  account = "acct-replaced";
+  assert.equal((await driver.sendMessage(params)).error, "pinned_account_mismatch");
+  assert.equal(startCalls.length, 1);
+});
+
+test("legacy user pin verifies the native AppHost account instead of using membership order", async () => {
+  let ambiguous = false;
+  const accounts = {
+    "personal": { account: { account_id: "personal", structure: "personal" } },
+    "workspace": { account: { account_id: "workspace", structure: "workspace" } },
+  };
+  const { driver, startCalls } = createMockEnv({
+    apiMap: {
+      "GET /backend-api/me": {
+        status: 200,
+        body: (opts) => {
+          const expected = opts.headers?.["X-OpenAI-Expected-Account-Id"];
+          if (!ambiguous && expected === "personal") return { error: "account_changed" };
+          return { id: "user-pinned" };
+        },
+      },
+      "GET /backend-api/accounts/check/v4-2023-04-27": {
+        status: 200, body: { accounts },
+      },
+    },
+  });
+  const params = {
+    expected_account_id: "user-pinned", project_id: "g-p-pinned",
+    prompt: "Resume", wait_ms: 50,
+  };
+  assert.equal((await driver.sendMessage(params)).state, "settled");
+  assert.equal(startCalls[0].expectedAccountId, "workspace");
+  ambiguous = true;
+  assert.equal((await driver.sendMessage(params)).error, "pinned_account_unavailable");
+  assert.equal(startCalls.length, 1);
+});

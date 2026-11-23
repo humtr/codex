@@ -922,7 +922,7 @@
         authState = "authenticated";
         const orgs = me.json.orgs && Array.isArray(me.json.orgs.data) ? me.json.orgs.data : [];
         const personalOrg = orgs.find((o) => o.is_personal) || orgs[0] || null;
-        cachedAccountId = personalOrg?.id || me.json.account_id || cachedAccountId;
+        cachedAccountId = personalOrg?.id || me.json.account_id || null;
         account = {
           id: me.json.id || null,
           account_id: cachedAccountId || null,
@@ -972,6 +972,7 @@
       auth_state: authState,
       ui_state: uiState,
       completion_ready: completionReady,
+      pinned_send: true,
       onboarding_visible: onboarding,
       account,
       active_chat_id: (primaryTurn && primaryTurn.chatId) || currentChatIdFromUrl(),
@@ -1027,6 +1028,7 @@
       return { state: "error", error: `backend_http_${res.status}`, detail: res.text };
     }
     let messages = extractLinearMessages(res.json);
+    const userTurnCount = messages.filter((message) => message.role === "user").length;
     const limit = Math.max(1, Math.min(200, Number(opts.limit) || 50));
     if (messages.length > limit) {
       messages = messages.slice(messages.length - limit);
@@ -1037,6 +1039,8 @@
       title: res.json.title || "",
       gizmo_id: res.json.gizmo_id || null,
       current_node: res.json.current_node || null,
+      user_turn_count: userTurnCount,
+      ...(tracked?.chatId === chatId && tracked.error ? { local_turn_error: tracked.error.code } : {}),
       messages,
     };
   }
@@ -1376,7 +1380,12 @@
     }
 
     // Ensure we have current accountId and verify session auth (briefly retrying on cold boot).
-    if (!cachedAccountId) {
+    const expectedAccountId =
+      typeof opts.expected_account_id === "string" && opts.expected_account_id.trim()
+        ? opts.expected_account_id.trim()
+        : null;
+    let dispatchAccountId = cachedAccountId;
+    if (expectedAccountId || !cachedAccountId) {
       let me = await apiFetch("/me");
       for (let attempt = 0; attempt < 4 && !me.ok && me.status === 0 && isElectronAppOrigin(); attempt++) {
         await new Promise((r) => setTimeout(r, 1500));
@@ -1395,6 +1404,31 @@
       const orgs = me.json.orgs && Array.isArray(me.json.orgs.data) ? me.json.orgs.data : [];
       const personalOrg = orgs.find((o) => o.is_personal) || orgs[0] || null;
       cachedAccountId = personalOrg?.id || me.json.account_id || null;
+      dispatchAccountId = cachedAccountId;
+      if (expectedAccountId) {
+        const observedIdentity = dispatchAccountId || me.json.id || null;
+        if (observedIdentity !== expectedAccountId) {
+          return { state: "error", error: "pinned_account_mismatch" };
+        }
+        if (!dispatchAccountId) {
+          // /me can expose only the authenticated user ID. Resolve the
+          // native scope by testing the AppHost's account guard on read-only
+          // /me requests before dispatch. Membership or ordering alone
+          // does not identify the account bound to the AppHost.
+          const { accounts } = await resolveChatGptAccounts();
+          const candidates = accounts.filter((account) => !account.is_deactivated);
+          const verified = (await Promise.all(candidates.map(async ({ id }) => {
+            const scoped = await apiFetch("/me", {
+              headers: { "X-OpenAI-Expected-Account-Id": id },
+            });
+            return scoped.ok && scoped.json?.id === expectedAccountId ? id : null;
+          }))).filter(Boolean);
+          if (verified.length !== 1) {
+            return { state: "error", error: "pinned_account_unavailable" };
+          }
+          dispatchAccountId = verified[0];
+        }
+      }
     }
 
     let projectId =
@@ -1413,6 +1447,9 @@
       }
       if (typeof convRes.json.current_node === "string" && convRes.json.current_node) {
         parentMessageId = convRes.json.current_node;
+      }
+      if (expectedAccountId && projectId && convRes.json.gizmo_id !== projectId) {
+        return { state: "error", error: "pinned_project_mismatch" };
       }
       if (!projectId && typeof convRes.json.gizmo_id === "string" && convRes.json.gizmo_id) {
         projectId = convRes.json.gizmo_id;
@@ -1533,7 +1570,7 @@
     try {
       const handle = await client.startCompletionStream({
         request: requestPayload,
-        expectedAccountId: cachedAccountId || undefined,
+        expectedAccountId: dispatchAccountId || undefined,
         turnTraceId: newUuid(),
         onUpdate: (update) => {
           if (!update || typeof update !== "object") return;

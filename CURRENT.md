@@ -21,7 +21,7 @@ Observed on 2026-11-23.
 | **Active / rollback upstream generation** | Active `0.171.0-d8c43b-2` (`ino=9741792`, SHA-256 `26d9f90b...`). Rollback `0.170.0-3f7e1a-2` | Preserved across Slice 1 signed Wrapper cutover; `wrapper status --verify --json` (`qualified=true`) and `codex doctor --json` (`summary=healthy`) agreed |
 | **Live managed daemons (`default` / `janmori101` / `szob`)** | All three homes aligned to `$HOME/.codex/packages/standalone/current`; `janmori101` & `szob` running | `cdx profile list` sees all 8 profiles (`default` + 7 normalized `codex-manager-profile` homes) |
 | **Live doctor and external services** | `codex doctor --json` `termux_wrapper=healthy`, `summary=healthy`; `tdev` / `tdev-tunnel` / `sshd` undisturbed; legacy `0.167.2` `codex-chatgpt-*` retired & archived to `~/.local/state/codex/legacy-0.167.2-archive/` | Explicit operator-authorized retirement of conflicting `0.167.2` provider/host/tunnel services on 2026-11-22 |
-| **Stage 2 progress (Slices 1–7A)** | **Slices 1–7A complete & live in `runit` + registered in ChatGPT** under unified XDG `codex/` namespace: Slice 1 signed Wrapper live; Slice 2 `$PREFIX/bin/codex-ext` + `cdx` (`41eae28f...`); Slice 3 `mcp-kit` + `termux-shell-mcp` (`40fe5e54...`) + `tunnel-client v0.0.21` + `runit` 3-state supervision (`termux-shell-tunnel` active); Slice 4 `termux-codex-mcp` (`de46babc...`, `termux-codex-tunnel` active); Slice 5 `host/chatgpt-desktop` (`26.1117.41037`, GPG-verified) + `chatgpt-provider` (`0.1.0+7a`, `8e18211f...`, `runit` active); Slice 6 `termux-chatgpt-mcp` (`0.1.0+multilane`, `c7aeae57...`, `termux-chatgpt-tunnel` active); **Slice 7A `termux-orch`** (`0.1.0+7a`, `fce5ea31...`, `termux-orch-relay` & `termux-orch-tunnel` `runit` active, `@TermuxOrch` connector `asdk_app_6b03de61dd748191bf56fef2b1029a2e` `ACTIVE`) | All 7A decoupled Stage 2 slices implemented, verified, enrolled in `runit`, and bound as live ChatGPT MCP connectors (`@TermuxShell`, `@TermuxCodex`, `@TermuxChatGPT`, `@TermuxOrch`) via programmatic `/control/connectors` (zero DOM / zero computer-use) |
+| **Stage 2 progress (Slices 1–7)** | **Slices 1–7 complete & live in `runit` + registered in ChatGPT** under unified XDG `codex/` namespace: Slice 1 signed Wrapper live; Slice 2 `$PREFIX/bin/codex-ext` + `cdx` (`c8322d2e...`); Slice 3 `mcp-kit` + `termux-shell-mcp` (`40fe5e54...`) + `tunnel-client v0.0.21` + `runit` 3-state supervision (`termux-shell-tunnel` active); Slice 4 `termux-codex-mcp` (`de46babc...`, `termux-codex-tunnel` active); Slice 5 `host/chatgpt-desktop` (`26.1117.41037`, GPG-verified) + `chatgpt-provider` (`0.1.0+7b`, `de498202...`, `runit` active); Slice 6 `termux-chatgpt-mcp` (`0.1.0+multilane`, `c7aeae57...`, `termux-chatgpt-tunnel` active); **Slice 7 `termux-orch`** (`0.1.0+7b`, `b98190cb...`, `termux-orch-relay` & `termux-orch-tunnel` `runit` active, `@TermuxOrch` connector `asdk_app_6b03de61dd748191bf56fef2b1029a2e` `ACTIVE`) | All seven decoupled Stage 2 slices implemented, verified, enrolled in `runit`, and bound as live ChatGPT MCP connectors (`@TermuxShell`, `@TermuxCodex`, `@TermuxChatGPT`, `@TermuxOrch`) via programmatic `/control/connectors` (zero DOM / zero computer-use) |
 | **Stage 1 graduation status** | **Complete** (WP0–WP6 archived in [STAGE1_MILESTONES.md](docs/history/STAGE1_MILESTONES.md)) | Stage 2 architecture & slice plan tracked in [docs/ROADMAP.md](docs/ROADMAP.md) and active [HANDOFF.md](HANDOFF.md) |
 
 ### Unverified / Remaining Boundaries
@@ -32,15 +32,69 @@ Observed on 2026-11-23.
   - External `codex remote-control` client pairing and Phase 2.6 read-only upstream canary / restricted physical-device promotion gate.
   - Post-retention disk reclamation of legacy per-home `packages/app-server-daemon/releases/` and archived `~/.local/state/codex/legacy-0.167.2-archive/`.
   - Physical power removal (as distinct from userspace `SIGKILL` and injected I/O faults) and execution on an actual 16 KiB kernel page-size device (only 16 KiB ELF geometry on Android API 37 / 4 KiB pages is verified).
-- **Planned Stage 2 Slice 7B (`@TermuxOrch` long-horizon resilience upgrades):**
-  - Automatic ChatGPT `L1 -> L2` context-limit rollover with generation fencing, detached long-running (`>10 min`) Shell worker `(pid, start_ticks)` watcher, and instant `codex-ext` `Stop` hook push into `termux-orch relay` remain scheduled for **Slice 7B** in [HANDOFF.md](HANDOFF.md).
+- **Slice 7B evidence boundaries.** The live device used the configured
+  turn-count trigger, a multi-second Shell worker, and an explicit Stop
+  invocation. Manual rollover, a lost creation receipt, multi-batch replay,
+  and SIGKILL recovery passed compiled tests. Real context exhaustion and a
+  continuous Shell run longer than ten minutes were outside this live run.
 
 ---
 
 ## Recent Verified Evidence (Newest-First)
 
+### 2026-11-23 — Stage 2 Slice 7B resilience on Android API 37 Termux
+
+- **Deployed artifacts.** `termux-orch 0.1.0+7b` SHA-256
+  `b98190cbc5da774ebe1e7d22026009ea17fb60d2c46b85e534ab1d79f6d446e9` is selected for both services. The relay is running as PID
+  `31600` with start ticks `19047311`. The tunnel runner
+  is `tunnel-client v0.0.21` PID `29049` with start ticks
+  `19034026`. Both passed `runit` readiness.
+  `chatgpt-provider 0.1.0+7b` SHA-256 `de49820262918b79f9cfedd36c6156659d3cb51f42023b999c42ef912b1eb0de` runs as PID
+  `28994` with start ticks `19033625`.
+  The standalone `$PREFIX/bin/codex-ext 0.1.0` SHA-256 is
+  `c8322d2e6e5737466876a07f262ad02ae38f4c16e59e66ecf3d5d3a3820f9287`. `cdx` resolves to that executable.
+- **Connector readback.** Refresh of `asdk_app_6b03de61dd748191bf56fef2b1029a2e`
+  returned HTTP `200` and left the connector `ACTIVE`. The remote
+  `tools/list` probe returned HTTP `200` and reported
+  `schema_agreement: true`. Both the registered actions and the probe
+  schemas matched all six installed 7B tools, including the new fields.
+- **Lead rollover.** Work `work_90bb0f11a8294fff` kept project
+  `g-p-6b03f0dba83081919bfdd966e51ffe11` and the verified account pin. At
+  two user turns, the relay replaced `6b03f404-d618-83e8-811d-de6df5a90adc` with
+  `6b03f432-03a0-83ec-93d8-36c2409dc8d4`. Provider readback confirmed the title
+  `[L2] S7B_c8e153a8a9 automatic rollover` and the pinned project. The old generation
+  and chat reference each returned `stale_lead_generation`. The checkpoint
+  survived and Inbox event `2` appeared once in L2. The
+  `lead.rolled_over` event was `4`, with
+  `consumed_seq` advancing from `0` to `4`.
+- **Detached Shell and Wait-Set.** In `work_b351c18c7cd4636f`, Shell `W1` PID
+  `31494` and start ticks `19047199`
+  matched before and after relay restart `29030 -> 31600`.
+  The atomic exit receipt matched that identity and recorded exit `0` after
+  `2.332 s` observed. Both output tails were present.
+  The `janmori101` Codex `0.171.0` daemon (PID `3625`) completed W2 thread
+  `01a20772-529a-7530-82f8-26fc332be92f`. Inbox settlements
+  `4` and `5`
+  fired `wait_6523e8cee52d43f5` once via event `6`
+  using `notify_only`.
+- **Stop wake.** `codex-ext notify emit Stop` PID `31829` advanced
+  relay `wake_pushes` from `0` to `1`
+  and ticks from `4` to `5`.
+  The next tick was observed in `851.3 ms` and the
+  relay recorded `0 ms` from acceptance to tick
+  start at millisecond resolution.
+- **Local gates and cleanup.** Rust formatting, Clippy `-D warnings`, and
+  locked tests under both `0022` and `0077` passed for `termux-orch`
+  (5 unit, 3 compiled E2E), `codex-ext` (6 unit, 5 CLI) and the Provider
+  (10 Rust tests). All 8 Provider JavaScript tests passed. The two disposable
+  Work directories were removed after copying their receipts to the local
+  evidence directory. Live status reported `total_works: 0`.
+  The root manifests, Wrapper, release builder and three stateless bridges
+  had zero source diff.
+
 ### 2026-11-23 — Stage 2 Slice 7A: Durable Multi-Role Orchestration (`@TermuxOrch` / `mcp/termux-orch`, `F · L · W · V · R`) & Live E2E
 
+- **Source and CI.** `fd3c445d183aec7f2aed57363ede0bf443e564ac` was pushed to `main`. All push checks passed, including Android packaging and the Wrapper Bionic smoke test. [Termux-Orch](https://github.com/humtr/codex/actions/runs/45131891229), [ChatGPT Provider](https://github.com/humtr/codex/actions/runs/45131891214), [Wrapper](https://github.com/humtr/codex/actions/runs/45131891356).
 - **Scope & zero-Wrapper decoupling:** Extended [providers/chatgpt/src/page_driver.js](providers/chatgpt/src/page_driver.js) `observeChat` to inspect server `GET /conversation/{id}/stream_status` (reporting `remote_stream_status: "IS_STREAMING" | "COMPLETE"` when no local lane is active, preventing collisions with mobile/web streaming) with unit test in [page_driver.test.mjs](providers/chatgpt/tests/page_driver.test.mjs) (6/6 PASS). Added standalone [mcp/termux-orch](mcp/termux-orch/src/main.rs) (own `[workspace]` locking 14 crates, reusing `crates/mcp-kit` + `crates/codex-daemon-client` + loopback `chatgpt-provider /control/*`, zero `crates/wrapper` or root `Cargo.toml`/`Cargo.lock` diff) implementing `Work Ledger` (`work.json`, `checkpoint.md`), `Typed Inbox` (`events.jsonl` monotonic `seq`/`consumed_seq` & `event_id` dedup), declarative `Wait-Set` (`all_of`, `any_of`, `on_user_event`, `deadline_secs`), hard Circuit Breakers (`max_wakeups`, `max_wall_secs`, `max_concurrent_workers`, cooldown), per-work ChatGPT Project scoping (`[Work] <title>`) with pinned `(account_id, project_id)`, deterministic role session titles (`[F#]`, `[L#]`, `[W#-slug]`, `[V#-slug]`), Tier 1–3 lifecycle + `F1 -> Fn` marker/ID rebind, `inject_and_notify` + `PENDING_DELIVERY` backoff + `termux-notification`, 6 static `@TermuxOrch` tools (`orch_works`, `orch_work`, `orch_dispatch`, `orch_report`, `orch_catalog`, `orch_call`), and CI [termux-orch.yml](.github/workflows/termux-orch.yml).
 - **Local static, unit & compiled E2E gates:** `providers/chatgpt` passed `node --test` (6/6), `cargo fmt --check`, `clippy -D warnings`, and `cargo test --locked` (10/10); `mcp/termux-orch` passed `cargo fmt --check`, `clippy --all-targets --locked -- -D warnings`, and dual `umask 0022`/`0077` `cargo test --locked` (4 unit including Tier 1 → `promote` → Barrier wake-up → `F2` marker rebind → `IS_STREAMING` busy backoff + 1 compiled-binary stdio MCP E2E).
 - **Live `runit` deployment & programmatic `@TermuxOrch` registration (Android API 37 Termux):**

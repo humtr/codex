@@ -258,6 +258,17 @@ async fn send_message(
             ));
         }
     }
+    if let Some(account) = body
+        .get("expected_account_id")
+        .filter(|value| !value.is_null())
+    {
+        if !account.as_str().is_some_and(is_safe_control_id) {
+            return Err(ProviderError::bad_request(
+                "invalid_expected_account_id",
+                "expected_account_id must be a valid account id",
+            ));
+        }
+    }
     let prompt = body
         .get("prompt")
         .and_then(Value::as_str)
@@ -276,6 +287,7 @@ async fn send_message(
                 "lane_id": body.get("lane_id"),
                 "chat_id": body.get("chat_id"),
                 "project_id": body.get("project_id"),
+                "expected_account_id": body.get("expected_account_id"),
                 "prompt": prompt,
                 "model": body.get("model"),
                 "reasoning_effort": body.get("reasoning_effort"),

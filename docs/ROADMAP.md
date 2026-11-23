@@ -7,7 +7,7 @@
 > [USER_INTERFACES.md](spec/USER_INTERFACES.md), [BRIDGE.md](spec/BRIDGE.md),
 > [ORCHESTRATION.md](spec/ORCHESTRATION.md).
 > Active design & slice checklist: [HANDOFF.md](../HANDOFF.md).
-> **Current implementation state:** **Stage 1** and **Stage 2 Slices 1–6** (including post-audit hardening `ed3d9daf`, programmatic zero-DOM `/control/connectors*` `64667a35`, multi-lane parallel execution `336b9c1c`, `runit` enrollment of `chatgpt-provider` + all 3 MCP tunnels, and live remote ChatGPT connector binding for `@TermuxShell`/`@TermuxCodex`/`@TermuxChatGPT`) are complete and live on `main` (see [CURRENT.md](../CURRENT.md)). Remaining planned tracks are: (1) pre-existing follow-up operational/verification items (signed Stage 2 GitHub Release publication, Phase 2.6 read-only canary, §7 online multi-account `/switch` & physical UI `/copy` / `remote-control` checks, legacy daemon-dir cleanup) and (2) **Stage 2 Slice 7 (7A & 7B)** optional durable multi-role orchestration (`@TermuxOrch` / `mcp/termux-orch`, contracted in [ORCHESTRATION.md](spec/ORCHESTRATION.md), not yet implemented).
+> **Current implementation state:** Stage 1 and Stage 2 Slices 1–7 are implemented. [CURRENT.md](../CURRENT.md) records the live generations and verification receipts. The remaining tracks cover signed Stage 2 releases, the Phase 2.6 read-only canary, online multi-account and physical-client verification, and legacy daemon-directory cleanup.
 
 ---
 
@@ -44,7 +44,7 @@ Slice 1: Wrapper slimming + universal SHA256SUMS.sig Ed25519 release signing  [C
                              │
                              └──▶ Slice 6: @TermuxChatGPT (6 tools)           [COMPLETE & LIVE]
                                     │
-                                    └──▶ Slice 7 (7A & 7B): mcp/termux-orch   [CONTRACTED / NEXT]
+                                    └──▶ Slice 7 (7A & 7B): mcp/termux-orch   [IMPLEMENTED]
                                            (@TermuxOrch + termux-orch-relay:
                                             F·L·W·V·R, Tier 0–3 Work Ledger +
                                             Typed Inbox + Wait-Set + inject_and_notify)
@@ -77,11 +77,11 @@ Slice 1: Wrapper slimming + universal SHA256SUMS.sig Ed25519 release signing  [C
 - **Goal:** Build stateless thin MCP bridge over `chatgpt-provider` `/control/*` + `crates/mcp-kit`: static core (`chatgpt_status`, `chatgpt_chats` read-only, `chatgpt_projects` read-only, `chatgpt_send` `send|observe|stop` with `call_id` receipt and per-`chat_id` multi-lane stop) + disjoint extensions (`chatgpt_catalog`, `chatgpt_call`). Zero local code execution privilege. Slim `docs/spec/BRIDGE.md` around the finalized 3-MCP + `chatgpt-provider` architecture.
 - **Verified (Android API 37 Termux against live `runit` `chatgpt-provider` + `chatgpt 26.1117.41037`):** `mcp/termux-chatgpt` (`fmt`/`clippy -D warnings`/`test` under `umask 0022`/`0077`), live `runit` `termux-chatgpt-tunnel` (`0.1.0+multilane`), programmatic registration & schema verification of all 3 remote ChatGPT connectors (`@TermuxShell`, `@TermuxCodex`, `@TermuxChatGPT`), live multi-worker iterative loop E2E (`6b03c20b-...`), and 3-lane parallel re-entrant ChatGPT worker E2E (`6b03c678-...`).
 
-### Slice 7 — Durable Multi-Role Orchestration (`@TermuxOrch` / `mcp/termux-orch`, 7A & 7B) *(7A Shipped & Live; 7B Deferred)*
+### Slice 7 — Durable Multi-Role Orchestration (`@TermuxOrch` / `mcp/termux-orch`, 7A & 7B) *(7A and 7B implemented)*
 - **Contract:** [docs/spec/ORCHESTRATION.md](spec/ORCHESTRATION.md); detailed execution checklist in [HANDOFF.md](../HANDOFF.md).
 - **Goal:** Add an independent, zero-Wrapper-coupling durable orchestration layer (`F · L · W · V · R` roles; Tier 0–3 progressive durability covering both simple single-task chats and multi-hour multi-worker loops; per-work ChatGPT Project scoping and uniform `[F1]`/`[L1]`/`[W1-<slug>]`/`[V1-<slug>]` titles; `Work Ledger` + `Typed Inbox` + declarative `Wait-Set`; seamless `F1 -> Fn` mobile rebinding; default `inject_and_notify` + `termux-notification` with `stream_status` collision protection and hard Circuit Breakers).
   - **Slice 7A *(Shipped & Live)*:** `chatgpt-provider` server `stream_status` in `observeChat` + `mcp/termux-orch` (`termux-orch relay` & `termux-orch mcp`, 6-tool `@TermuxOrch`, Tier 1–3, `Verifier` role, `F1 -> Fn` rebind, `inject_and_notify`, Circuit Breaker, CI, `runit` enrollment, programmatic `@TermuxOrch` connector registration, live Tier 1/2/3 & restart-recovery E2E — receipts in [CURRENT.md](../CURRENT.md)).
-  - **Slice 7B *(Contracted — Pending)*:** Automatic ChatGPT `L1 -> L2` context-limit rollover with generation fencing, detached long-running (`>10 min`) Shell worker `(pid, start_ticks)` + exit-receipt watcher, and instant `codex-ext` `Stop` hook push into `termux-orch relay`.
+  - **Slice 7B:** Automatic and manual ChatGPT Lead rollover, generation fencing, Inbox replay, detached Shell worker receipts, and the optional Stop hook wake push. See [the behavior contract](spec/ORCHESTRATION.md#7-lead-rollover-detached-shell-receipts-and-wake-pushes) and [live evidence](../CURRENT.md).
 
 ---
 

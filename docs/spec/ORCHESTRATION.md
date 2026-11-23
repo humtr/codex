@@ -1,6 +1,6 @@
 # Durable Multi-Role Orchestration Contract (`@TermuxOrch` / `mcp/termux-orch`)
 
-**Status:** Normative annex of [SPEC.md](../../SPEC.md) — **Slice 7A Implemented & Live; Slice 7B Contracted / Pending**.
+**Status:** Normative annex of [SPEC.md](../../SPEC.md) — **Stage 2 Slice 7 (7A and 7B)**.
 For active implemented code consult [docs/ARCHITECTURE.md](../ARCHITECTURE.md);
 for verified live receipts consult [CURRENT.md](../../CURRENT.md);
 for phased execution checklists consult [HANDOFF.md](../../HANDOFF.md) and [docs/ROADMAP.md](../ROADMAP.md).
@@ -169,3 +169,38 @@ State root: `~/.local/state/codex/orchestration/jobs/<work_id>/` (`0700`,
     generation fencing, detached long-running (`>10 min`) Shell worker
     `(pid, start_ticks)` watcher, and instant `codex-ext` `Stop` hook push
     into `termux-orch relay`.
+
+## 7. Lead rollover, detached shell receipts, and wake pushes
+
+- A ChatGPT Lead rolls over after a context-limit signal or a configured
+  user-turn count. Set `lead_rollover_turns` on `orch_work(create)`; the Work
+  stores it in the budget. The default is 80. Zero disables the turn-count
+  trigger. Rollover bootstrap and replay turns do not count toward the next
+  generation's threshold.
+- `orch_call(lead_rollover)` accepts `work_id`, optional `reason`, and optional
+  `checkpoint_md`. The relay saves the checkpoint and a durable intent before
+  requesting the replacement. The Provider checks the live account against
+  the pinned account before dispatch, passes that identity to CompletionClient,
+  and sends in the pinned project. The relay confirms the new project's chat
+  and its creation marker, applies the `[L<n>]` title, then persists the new
+  generation, history and `lead.rolled_over` Inbox event. Manual rollover can
+  return `pending` while the relay reconciles that transaction.
+- Callers can fence a Work mutation with `expected_lead_generation`. Where
+  accepted as a fence, `lead_ref_id` must also match the current Lead. A
+  mismatch returns `stale_lead_generation`. Omission preserves legacy callers.
+- Replay starts at the saved `consumed_seq`, in ascending batches. The relay
+  confirms each exact user-message marker in the replacement chat before
+  advancing the cursor. An uncertain write remains pending for reconciliation
+  against its original marker. The existing Wait-Set stays in the ledger.
+- A Shell Worker accepts one of `command` or `prompt` with an optional
+  `cwd`, or a `ref_id` identifying a verified receipt in the same Work's
+  shell directory. The detached receipt writer publishes `<id>.meta.json`
+  with its PID and Linux start ticks, an 8 KiB combined `<id>.output.log` tail,
+  and an atomic `<id>.exit.json`. The relay settles against a matching exit
+  receipt or against a vanished process identity after rechecking for exit.
+- The relay accepts loopback `POST /wake` with the bearer token in the
+  adjacent owner-only `wake.token` file. An accepted request schedules an
+  immediate tick and increments `wake_pushes` in `/healthz`. Bursts can share
+  a tick. The optional `codex-ext notify emit Stop` push uses the canonical
+  relay service directory. An unavailable relay does not affect notification
+  delivery.

@@ -23,8 +23,8 @@ The product has one public command, `codex`, built in two decoupled stages:
   Ed25519 signed releases, standalone `codex-ext` (`cdx`) for profiles/notifications/switching,
   independent live MCP servers (`@TermuxShell`, `@TermuxCodex`, `@TermuxChatGPT`),
   multi-lane `chatgpt-provider` + `host/chatgpt-desktop`, `transport/tunnel-client`,
-  and planned Slice 7 durable orchestration (`@TermuxOrch`) — kept completely
-  separate from the `codex` binary. See the
+  and optional durable orchestration (`@TermuxOrch`), all separate from the
+  `codex` binary. See the
   [architecture and ownership map](docs/ARCHITECTURE.md),
   [current evidence](CURRENT.md) and [roadmap](docs/ROADMAP.md).
 

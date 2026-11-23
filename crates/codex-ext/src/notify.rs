@@ -1,8 +1,10 @@
 use crate::paths::{atomic_write_private, require_owned_regular_file, ExtPaths};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
-use std::fs;
-use std::io::{self, IsTerminal, Read};
+use std::fs::{self, OpenOptions};
+use std::io::{self, IsTerminal, Read, Write};
+use std::net::{SocketAddr, TcpStream};
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
@@ -468,6 +470,59 @@ pub fn deliver_notification(
         run_bounded(&bin, &["-s", &toast_msg], timeout)?;
     }
     Ok(())
+}
+
+/// Optional Stop-hook signal. The relay returns a receipt asynchronously.
+pub fn nudge_orchestration_relay(paths: &ExtPaths) {
+    let Some(home) = paths.shared_home.parent() else {
+        return;
+    };
+    let dir = home.join(".local/state/codex/services/termux-orch-relay");
+    let Some(url) = read_wake_file(&dir.join("health.url")) else {
+        return;
+    };
+    let Some(addr) = url
+        .trim()
+        .strip_prefix("http://")
+        .and_then(|s| s.parse::<SocketAddr>().ok())
+    else {
+        return;
+    };
+    if !addr.ip().is_loopback() || addr.port() == 0 {
+        return;
+    }
+    let Some(token) = read_wake_file(&dir.join("wake.token")) else {
+        return;
+    };
+    let token = token.trim();
+    if token.len() != 64 || !token.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return;
+    }
+    let timeout = Duration::from_millis(300);
+    let Ok(mut stream) = TcpStream::connect_timeout(&addr, timeout) else {
+        return;
+    };
+    if stream.set_write_timeout(Some(timeout)).is_ok() {
+        let _ = write!(
+            stream,
+            "POST /wake HTTP/1.1\r\nHost: {addr}\r\nAuthorization: Bearer {token}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+        );
+    }
+}
+
+fn read_wake_file(path: &Path) -> Option<String> {
+    let file = OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+        .open(path)
+        .ok()?;
+    let meta = file.metadata().ok()?;
+    if !meta.is_file() || meta.uid() != crate::paths::current_uid() || meta.mode() & 0o077 != 0 {
+        return None;
+    }
+    let mut contents = String::new();
+    file.take(257).read_to_string(&mut contents).ok()?;
+    (contents.len() <= 256).then_some(contents)
 }
 
 pub fn read_event_payload(arg_payload: Option<&str>) -> Option<Value> {

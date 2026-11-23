@@ -603,3 +603,55 @@ fn b64(input: &[u8]) -> String {
     }
     s
 }
+
+#[test]
+fn stop_wakes_live_loopback_relay_and_fails_open_when_absent_or_stopped() {
+    use std::net::TcpListener;
+    use std::time::Instant;
+
+    let root = temp_root("cdx-relay-wake");
+    let dir = root.join(".local/state/codex/services/termux-orch-relay");
+    let emit = || {
+        Command::new(ext_bin())
+            .args(["notify", "emit", "Stop", "{}"])
+            .env("HOME", &root)
+            .stdin(Stdio::null())
+            .output()
+            .unwrap()
+    };
+    let absent = emit();
+    assert!(absent.status.success() && absent.stderr.is_empty());
+    assert!(!dir.exists());
+
+    fs::create_dir_all(&dir).unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+    let token = "a".repeat(64);
+    for (name, value) in [
+        ("health.url", format!("http://{addr}\n")),
+        ("wake.token", token.clone()),
+    ] {
+        let path = dir.join(name);
+        fs::write(&path, value).unwrap();
+        fs::set_permissions(path, fs::Permissions::from_mode(0o600)).unwrap();
+    }
+
+    let delivered = emit();
+    assert!(delivered.status.success() && delivered.stderr.is_empty());
+    listener.set_nonblocking(true).unwrap();
+    let (mut stream, _) = listener.accept().unwrap();
+    stream
+        .set_read_timeout(Some(Duration::from_secs(1)))
+        .unwrap();
+    let mut request = String::new();
+    stream.read_to_string(&mut request).unwrap();
+    assert!(request.starts_with("POST /wake HTTP/1.1\r\n"));
+    assert!(request.contains(&format!("Authorization: Bearer {token}\r\n")));
+    drop(listener);
+
+    let start = Instant::now();
+    let stopped = emit();
+    assert!(stopped.status.success() && stopped.stderr.is_empty());
+    assert!(start.elapsed() < Duration::from_millis(1500));
+    fs::remove_dir_all(root).unwrap();
+}

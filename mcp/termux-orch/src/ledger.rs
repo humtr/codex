@@ -10,7 +10,6 @@
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::HashSet;
 use std::fs::{self, DirBuilder, File, OpenOptions};
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::os::fd::AsRawFd;
@@ -148,6 +147,8 @@ pub struct LeadBinding {
     pub generation: u32,
     #[serde(default)]
     pub history: Vec<LeadHistoryEntry>,
+    #[serde(default)]
+    pub rollover_internal_turns: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -213,6 +214,25 @@ pub struct PendingDelivery {
     pub created_at_unix: u64,
 }
 
+fn default_lead_rollover_turns() -> u32 {
+    80
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LeadRollover {
+    pub lane_id: String,
+    pub reason: String,
+    #[serde(default)]
+    pub dispatched: bool,
+    pub chat_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LeadReplay {
+    pub through_seq: u64,
+    pub dispatched_until: Option<u64>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorkBudget {
     pub max_wakeups: u32,
@@ -221,6 +241,8 @@ pub struct WorkBudget {
     pub max_concurrent_workers: u32,
     pub min_cooldown_secs: u64,
     pub last_wakeup_unix: u64,
+    #[serde(default = "default_lead_rollover_turns")]
+    pub lead_rollover_turns: u32,
 }
 
 impl Default for WorkBudget {
@@ -232,6 +254,7 @@ impl Default for WorkBudget {
             max_concurrent_workers: DEFAULT_MAX_CONCURRENT_WORKERS,
             min_cooldown_secs: DEFAULT_MIN_COOLDOWN_SECS,
             last_wakeup_unix: 0,
+            lead_rollover_turns: default_lead_rollover_turns(),
         }
     }
 }
@@ -255,6 +278,10 @@ pub struct WorkRecord {
     pub delivery_mode: String,
     pub front: FrontBinding,
     pub lead: Option<LeadBinding>,
+    #[serde(default)]
+    pub lead_rollover: Option<LeadRollover>,
+    #[serde(default)]
+    pub lead_replay: Option<LeadReplay>,
     #[serde(default)]
     pub participants: Vec<Participant>,
     pub wait_set: Option<WaitSet>,
@@ -412,7 +439,11 @@ impl Ledger {
     pub fn write_checkpoint(&self, work_id: &str, markdown: &str) -> io::Result<()> {
         let dir = self.work_dir(work_id)?;
         ensure_private_dir(&dir)?;
-        let bounded = truncate_chars(markdown, MAX_CHECKPOINT_BYTES);
+        let mut end = markdown.len().min(MAX_CHECKPOINT_BYTES);
+        while !markdown.is_char_boundary(end) {
+            end -= 1;
+        }
+        let bounded = &markdown[..end];
         write_atomic_private(&dir.join("checkpoint.md"), bounded.as_bytes())
     }
 
@@ -442,30 +473,42 @@ impl Ledger {
         let path = dir.join("events.jsonl");
 
         let mut max_seq = work.last_seq;
-        let mut seen = HashSet::new();
+        let mut already_present = None;
         if path.exists() {
             let file = OpenOptions::new()
                 .read(true)
-                .custom_flags(libc::O_NOFOLLOW)
+                .write(true)
+                .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
                 .open(&path)?;
-            for line in BufReader::new(file).lines() {
-                let line = line?;
-                if line.trim().is_empty() {
-                    continue;
+            let mut reader = BufReader::new(&file);
+            let mut offset = 0;
+            let mut line = Vec::new();
+            loop {
+                line.clear();
+                let read = reader.read_until(b'\n', &mut line)?;
+                if read == 0 {
+                    break;
                 }
-                if let Ok(ev) = serde_json::from_str::<InboxEvent>(&line) {
-                    if ev.seq > max_seq {
-                        max_seq = ev.seq;
-                    }
+                if line.last() != Some(&b'\n') {
+                    // A previous writer can die during the final append. Every
+                    // committed row includes its newline, so discard that tail.
+                    file.set_len(offset)?;
+                    file.sync_all()?;
+                    break;
+                }
+                offset += read as u64;
+                if let Ok(ev) = serde_json::from_slice::<InboxEvent>(&line) {
+                    max_seq = max_seq.max(ev.seq);
                     if ev.event_id == event_id {
-                        work.last_seq = max_seq;
-                        return Ok((ev, false));
+                        already_present = Some(ev);
                     }
-                    seen.insert(ev.event_id);
                 }
             }
         }
-        let _ = seen;
+        if let Some(event) = already_present {
+            work.last_seq = max_seq;
+            return Ok((event, false));
+        }
 
         let next_seq = max_seq + 1;
         let event = InboxEvent {
@@ -502,6 +545,25 @@ impl Ledger {
         after_seq: u64,
         limit: usize,
     ) -> io::Result<Vec<InboxEvent>> {
+        self.scan_events(work_id, after_seq, limit, false)
+    }
+
+    pub fn read_first_events(
+        &self,
+        work_id: &str,
+        after_seq: u64,
+        limit: usize,
+    ) -> io::Result<Vec<InboxEvent>> {
+        self.scan_events(work_id, after_seq, limit, true)
+    }
+
+    fn scan_events(
+        &self,
+        work_id: &str,
+        after_seq: u64,
+        limit: usize,
+        first: bool,
+    ) -> io::Result<Vec<InboxEvent>> {
         let dir = self.work_dir(work_id)?;
         let path = dir.join("events.jsonl");
         if !path.exists() {
@@ -520,6 +582,9 @@ impl Ledger {
             if let Ok(ev) = serde_json::from_str::<InboxEvent>(&line) {
                 if ev.seq > after_seq {
                     events.push(ev);
+                    if first && events.len() == limit {
+                        break;
+                    }
                 }
             }
         }
@@ -559,14 +624,14 @@ pub fn ensure_private_dir(path: &Path) -> io::Result<()> {
     }
 }
 
-fn read_private_file(path: &Path, max_bytes: u64) -> io::Result<Vec<u8>> {
+pub(crate) fn read_private_file(path: &Path, max_bytes: u64) -> io::Result<Vec<u8>> {
     let euid = unsafe { libc::geteuid() };
     let file = OpenOptions::new()
         .read(true)
-        .custom_flags(libc::O_NOFOLLOW)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
         .open(path)?;
     let meta = file.metadata()?;
-    if !meta.is_file() || meta.uid() != euid || meta.len() > max_bytes {
+    if !meta.is_file() || meta.uid() != euid || meta.mode() & 0o077 != 0 || meta.len() > max_bytes {
         return Err(io::Error::new(
             io::ErrorKind::PermissionDenied,
             format!("unsafe or oversized file {}", path.display()),
@@ -574,10 +639,16 @@ fn read_private_file(path: &Path, max_bytes: u64) -> io::Result<Vec<u8>> {
     }
     let mut buf = Vec::with_capacity(meta.len() as usize);
     file.take(max_bytes + 1).read_to_end(&mut buf)?;
+    if buf.len() as u64 > max_bytes {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "private file grew beyond its limit",
+        ));
+    }
     Ok(buf)
 }
 
-fn write_atomic_private(path: &Path, bytes: &[u8]) -> io::Result<()> {
+pub(crate) fn write_atomic_private(path: &Path, bytes: &[u8]) -> io::Result<()> {
     let parent = path
         .parent()
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "missing parent"))?;
@@ -615,6 +686,5 @@ fn sync_dir(dir: &Path) -> io::Result<()> {
         .read(true)
         .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW)
         .open(dir)?;
-    let _ = d.sync_all();
-    Ok(())
+    d.sync_all()
 }

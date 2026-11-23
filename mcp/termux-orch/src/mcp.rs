@@ -59,6 +59,7 @@ pub fn build_static_tools() -> Vec<ToolDef> {
             json!({
                 "type": "object",
                 "properties": {
+                    "expected_lead_generation": { "type": "integer", "minimum": 1, "maximum": 4294967295u32 },
                     "action": { "type": "string", "enum": ["create", "promote", "rebind_front", "update_scope", "cancel"] },
                     "call_id": { "type": "string", "minLength": 1, "maxLength": 160, "description": "Idempotency key required on create/promote/rebind_front/update_scope/cancel" },
                     "work_id": { "type": "string", "minLength": 1, "maxLength": 96 },
@@ -76,6 +77,7 @@ pub fn build_static_tools() -> Vec<ToolDef> {
                     "lead_reasoning_effort": { "type": "string", "minLength": 1, "maxLength": 32 },
                     "lead_cwd": { "type": "string", "minLength": 1, "maxLength": 512 },
                     "lead_ref_id": { "type": "string", "minLength": 1, "maxLength": 128, "description": "Optional pre-created Lead chat_id or thread_id" },
+                    "lead_rollover_turns": { "type": "integer", "minimum": 0, "maximum": 1000 },
                     "max_wakeups": { "type": "integer", "minimum": 1, "maximum": 200 },
                     "max_wall_secs": { "type": "integer", "minimum": 60, "maximum": 86400 },
                     "max_concurrent_workers": { "type": "integer", "minimum": 1, "maximum": 16 },
@@ -92,6 +94,8 @@ pub fn build_static_tools() -> Vec<ToolDef> {
             json!({
                 "type": "object",
                 "properties": {
+                    "expected_lead_generation": { "type": "integer", "minimum": 1, "maximum": 4294967295u32 },
+                    "lead_ref_id": { "type": "string", "minLength": 1, "maxLength": 128 },
                     "action": { "type": "string", "enum": ["register_worker", "register_verifier", "wait_set", "wait_clear"] },
                     "call_id": { "type": "string", "minLength": 1, "maxLength": 160 },
                     "work_id": { "type": "string", "minLength": 1, "maxLength": 96 },
@@ -101,6 +105,7 @@ pub fn build_static_tools() -> Vec<ToolDef> {
                     "slug": { "type": "string", "minLength": 1, "maxLength": 24 },
                     "task_summary": { "type": "string", "minLength": 1, "maxLength": 500 },
                     "owner_scope": { "type": "string", "maxLength": 256 },
+                    "command": { "type": "string", "minLength": 1, "maxLength": 65536, "description": "Detached shell command for backend=shell" },
                     "prompt": { "type": "string", "minLength": 1, "maxLength": 32768 },
                     "cwd": { "type": "string", "minLength": 1, "maxLength": 512 },
                     "model": { "type": "string", "minLength": 1, "maxLength": 128 },
@@ -124,6 +129,8 @@ pub fn build_static_tools() -> Vec<ToolDef> {
             json!({
                 "type": "object",
                 "properties": {
+                    "expected_lead_generation": { "type": "integer", "minimum": 1, "maximum": 4294967295u32 },
+                    "lead_ref_id": { "type": "string", "minLength": 1, "maxLength": 128 },
                     "action": { "type": "string", "enum": ["milestone", "need_user", "complete", "fail"] },
                     "call_id": { "type": "string", "minLength": 1, "maxLength": 160 },
                     "work_id": { "type": "string", "minLength": 1, "maxLength": 96 },
@@ -173,6 +180,9 @@ pub fn build_extension_registry() -> ExtensionRegistry {
             json!({
                 "type": "object",
                 "properties": {
+                    "expected_lead_generation": { "type": "integer", "minimum": 1, "maximum": 4294967295u32 },
+                    "lead_ref_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+                    "reason": { "type": "string", "maxLength": 240 },
                     "work_id": { "type": "string", "minLength": 1, "maxLength": 96 },
                     "checkpoint_md": { "type": "string", "maxLength": 65536 },
                     "lead_kind": { "type": "string", "enum": ["chatgpt", "codex"] },
@@ -191,6 +201,8 @@ pub fn build_extension_registry() -> ExtensionRegistry {
             json!({
                 "type": "object",
                 "properties": {
+                    "expected_lead_generation": { "type": "integer", "minimum": 1, "maximum": 4294967295u32 },
+                    "lead_ref_id": { "type": "string", "minLength": 1, "maxLength": 128 },
                     "work_id": { "type": "string", "minLength": 1, "maxLength": 96 },
                     "add_wakeups": { "type": "integer", "minimum": 1, "maximum": 100 },
                     "add_wall_secs": { "type": "integer", "minimum": 60, "maximum": 86400 },
@@ -305,18 +317,8 @@ impl OrchMcpHandler {
     }
 
     fn current_account_id(&self) -> Option<String> {
-        self.owners.chatgpt_status().ok().and_then(|st| {
-            let a = st.get("account")?;
-            a.get("account_id")
-                .and_then(Value::as_str)
-                .filter(|s| !s.trim().is_empty())
-                .or_else(|| {
-                    a.get("id")
-                        .and_then(Value::as_str)
-                        .filter(|s| !s.trim().is_empty())
-                })
-                .map(ToOwned::to_owned)
-        })
+        let status = self.owners.chatgpt_status().ok()?;
+        crate::owners::chatgpt_account_identity(&status).map(ToOwned::to_owned)
     }
 
     fn handle_works(&self, args: &Value) -> Value {
@@ -516,6 +518,7 @@ impl OrchMcpHandler {
                 "action",
                 "call_id",
                 "work_id",
+                "expected_lead_generation",
                 "title",
                 "goal",
                 "tier",
@@ -531,6 +534,7 @@ impl OrchMcpHandler {
                 "lead_cwd",
                 "lead_ref_id",
                 "max_wakeups",
+                "lead_rollover_turns",
                 "max_wall_secs",
                 "max_concurrent_workers",
                 "reason",
@@ -692,6 +696,9 @@ impl OrchMcpHandler {
         }
 
         let mut budget = WorkBudget::default();
+        if let Some(turns) = obj.get("lead_rollover_turns").and_then(Value::as_u64) {
+            budget.lead_rollover_turns = turns.min(1000) as u32;
+        }
         if let Some(mw) = obj.get("max_wakeups").and_then(Value::as_u64) {
             budget.max_wakeups = mw.clamp(1, 200) as u32;
         }
@@ -721,6 +728,8 @@ impl OrchMcpHandler {
             None
         };
 
+        // Project/Lead operations can start a cold AppHost after the first status read.
+        let account_id = account_id.or_else(|| self.current_account_id());
         let mut work = WorkRecord {
             schema: WORK_SCHEMA.to_owned(),
             work_id: work_id.clone(),
@@ -739,6 +748,8 @@ impl OrchMcpHandler {
                 history: front_history,
             },
             lead: lead.clone(),
+            lead_rollover: None,
+            lead_replay: None,
             participants: Vec::new(),
             wait_set: None,
             pending_deliveries: Vec::new(),
@@ -916,6 +927,7 @@ impl OrchMcpHandler {
             model,
             reasoning_effort: effort,
             generation,
+            rollover_internal_turns: 0,
             history: vec![LeadHistoryEntry {
                 generation,
                 kind: kind.to_owned(),
@@ -944,6 +956,9 @@ impl OrchMcpHandler {
             Ok(w) => w,
             Err(e) => return (fail("work_not_found", e.to_string()), false),
         };
+        if let Err(e) = check_lead_fence(&work, obj, work.lead.is_some()) {
+            return (e, false);
+        }
         if work.tier == "orchestrated" && work.lead.is_some() {
             return (
                 json!({
@@ -1053,6 +1068,9 @@ impl OrchMcpHandler {
             Ok(w) => w,
             Err(e) => return (fail("work_not_found", e.to_string()), false),
         };
+        if let Err(e) = check_lead_fence(&work, obj, true) {
+            return (e, false);
+        }
 
         // Pin account_id check (fail closed on cross-account mismatch).
         if let (Some(pinned), Some(current)) = (&work.account_id, self.current_account_id()) {
@@ -1128,6 +1146,9 @@ impl OrchMcpHandler {
             Ok(w) => w,
             Err(e) => return (fail("work_not_found", e.to_string()), false),
         };
+        if let Err(e) = check_lead_fence(&work, obj, true) {
+            return (e, false);
+        }
         if let Some(g) = obj
             .get("goal")
             .and_then(Value::as_str)
@@ -1193,6 +1214,9 @@ impl OrchMcpHandler {
             Ok(w) => w,
             Err(e) => return (fail("work_not_found", e.to_string()), false),
         };
+        if let Err(e) = check_lead_fence(&work, obj, true) {
+            return (e, false);
+        }
         work.state = "cancelled".to_owned();
         if let Some(ws) = work.wait_set.as_mut() {
             ws.armed = false;
@@ -1233,6 +1257,8 @@ impl OrchMcpHandler {
                 "action",
                 "call_id",
                 "work_id",
+                "expected_lead_generation",
+                "lead_ref_id",
                 "backend",
                 "ref_id",
                 "profile",
@@ -1240,6 +1266,7 @@ impl OrchMcpHandler {
                 "task_summary",
                 "owner_scope",
                 "prompt",
+                "command",
                 "cwd",
                 "model",
                 "reasoning_effort",
@@ -1320,6 +1347,9 @@ impl OrchMcpHandler {
             Ok(w) => w,
             Err(e) => return (fail("work_not_found", e.to_string()), false),
         };
+        if let Err(e) = check_lead_fence(&work, obj, true) {
+            return (e, false);
+        }
         if work.is_terminal() {
             return (
                 fail(
@@ -1347,12 +1377,59 @@ impl OrchMcpHandler {
         let participant_id = format!("{tag}{index}");
         let session_title = format_participant_title(role, index, slug, task_summary);
 
-        let ref_id = if let Some(existing) = obj
+        let existing = obj
             .get("ref_id")
             .and_then(Value::as_str)
             .map(str::trim)
-            .filter(|s| !s.is_empty())
+            .filter(|s| !s.is_empty());
+        let shell_command = obj.get("command").and_then(Value::as_str);
+        let prompt = obj.get("prompt").and_then(Value::as_str);
+        if shell_command.is_some() && backend != "shell" {
+            return (
+                fail("invalid_arguments", "command requires backend=shell"),
+                false,
+            );
+        }
+        if backend == "shell"
+            && shell_command
+                .or(prompt)
+                .is_some_and(|c| c.trim().is_empty() || c.len() > 65536 || c.contains('\0'))
         {
+            return (fail("invalid_arguments", "invalid shell command"), false);
+        }
+        if backend == "shell"
+            && [existing, shell_command, prompt]
+                .into_iter()
+                .flatten()
+                .count()
+                != 1
+        {
+            return (
+                fail(
+                    "invalid_arguments",
+                    "shell worker requires exactly one of ref_id, command, or prompt",
+                ),
+                false,
+            );
+        }
+        let ref_id = if backend == "shell" {
+            let receipt_id = existing.unwrap_or(&participant_id);
+            if work
+                .participants
+                .iter()
+                .any(|p| p.backend == "shell" && p.ref_id == receipt_id)
+            {
+                return (fail("shell_receipt_already_registered", receipt_id), false);
+            }
+            if let Some(existing) = existing {
+                if let Err(e) = crate::shell_job::ShellJob::new(&self.ledger, wid, existing)
+                    .and_then(|job| job.validate_attach())
+                {
+                    return (fail("invalid_shell_receipt", e.to_string()), false);
+                }
+            }
+            receipt_id.to_owned()
+        } else if let Some(existing) = existing {
             existing.to_owned()
         } else {
             let Some(prompt) = obj
@@ -1408,15 +1485,7 @@ impl OrchMcpHandler {
                         Err(e) => return (fail("participant_spawn_failed", e), false),
                     }
                 }
-                _ => {
-                    return (
-                        fail(
-                            "shell_spawn_deferred_7b",
-                            "detached shell watcher spawning is scheduled for Slice 7B; pass ref_id or use @TermuxShell directly",
-                        ),
-                        false,
-                    )
-                }
+                _ => unreachable!(),
             }
         };
 
@@ -1468,6 +1537,32 @@ impl OrchMcpHandler {
             return (fail("ledger_write_failed", e.to_string()), false);
         }
 
+        if backend == "shell" && existing.is_none() {
+            let command = shell_command.or(prompt).unwrap_or_default();
+            let result =
+                crate::shell_job::ShellJob::new(&self.ledger, wid, &ref_id).and_then(|job| {
+                    job.spawn(
+                        self.ledger.root(),
+                        wid,
+                        command,
+                        obj.get("cwd").and_then(Value::as_str),
+                    )
+                });
+            if let Err(e) = result {
+                warnings.push(format!("shell_spawn_failed: {e}"));
+                return (
+                    json!({
+                        "state": "error",
+                        "error": "shell_spawn_failed",
+                        "work_id": wid,
+                        "participant": participant,
+                        "warnings": warnings
+                    }),
+                    true,
+                );
+            }
+        }
+
         (
             json!({
                 "state": "ok",
@@ -1496,6 +1591,9 @@ impl OrchMcpHandler {
             Ok(w) => w,
             Err(e) => return (fail("work_not_found", e.to_string()), false),
         };
+        if let Err(e) = check_lead_fence(&work, obj, true) {
+            return (e, false);
+        }
         if work.is_terminal() {
             return (
                 fail(
@@ -1609,6 +1707,9 @@ impl OrchMcpHandler {
             Ok(w) => w,
             Err(e) => return (fail("work_not_found", e.to_string()), false),
         };
+        if let Err(e) = check_lead_fence(&work, obj, true) {
+            return (e, false);
+        }
         if let Some(ws) = work.wait_set.as_mut() {
             ws.armed = false;
         }
@@ -1639,6 +1740,8 @@ impl OrchMcpHandler {
                 "action",
                 "call_id",
                 "work_id",
+                "expected_lead_generation",
+                "lead_ref_id",
                 "summary",
                 "checkpoint_md",
                 "evidence",
@@ -1701,6 +1804,9 @@ impl OrchMcpHandler {
                     Ok(w) => w,
                     Err(e) => return (fail("work_not_found", e.to_string()), false),
                 };
+                if let Err(e) = check_lead_fence(&work, obj, true) {
+                    return (e, false);
+                }
                 if let Some(cp) = obj.get("checkpoint_md").and_then(Value::as_str) {
                     let _ = self.ledger.write_checkpoint(wid, cp);
                 }
@@ -1862,6 +1968,9 @@ impl OrchMcpHandler {
                     Ok(w) => w,
                     Err(e) => return fail("work_not_found", e.to_string()),
                 };
+                if let Err(e) = check_lead_fence(&work, ext_args, true) {
+                    return e;
+                }
                 if let Some(add_w) = ext_args.get("add_wakeups").and_then(Value::as_u64) {
                     work.budget.max_wakeups = work
                         .budget
@@ -1954,11 +2063,63 @@ impl OrchMcpHandler {
                     Ok(w) => w,
                     Err(e) => return fail("work_not_found", e.to_string()),
                 };
+                if let Err(e) = check_lead_fence(&work, ext_args, true) {
+                    return e;
+                }
+                if work.is_terminal() {
+                    return fail("work_already_terminal", &work.state);
+                }
+                let current_kind = work
+                    .lead
+                    .as_ref()
+                    .map(|lead| lead.kind.as_str())
+                    .unwrap_or("chatgpt");
+                let next_kind = ext_args
+                    .get("lead_kind")
+                    .and_then(Value::as_str)
+                    .unwrap_or(current_kind);
+                if next_kind == "chatgpt" {
+                    let rollover = crate::rollover::Rollover::new(&self.ledger, &self.owners);
+                    let reason = ext_args
+                        .get("reason")
+                        .and_then(Value::as_str)
+                        .unwrap_or("manual rollover");
+                    return match rollover.start(
+                        &mut work,
+                        reason,
+                        ext_args.get("checkpoint_md").and_then(Value::as_str),
+                    ) {
+                        Ok(done) => json!({
+                            "state": if done { "ok" } else { "pending" },
+                            "work_id": wid,
+                            "lead": work.lead,
+                            "rollover": work.lead_rollover,
+                        }),
+                        Err(e) => {
+                            let code = match e.as_str() {
+                                "pinned_account_required"
+                                | "chatgpt_pinned_send_unavailable"
+                                | "pinned_account_mismatch"
+                                | "pinned_project_required"
+                                | "pinned_project_mismatch"
+                                | "lead_replay_in_progress"
+                                | "chatgpt_lead_required" => e.as_str(),
+                                _ => "lead_rollover_failed",
+                            };
+                            fail(code, &e)
+                        }
+                    };
+                }
+                if work.lead_rollover.is_some() || work.lead_replay.is_some() {
+                    return fail("lead_rollover_in_progress", "ChatGPT handoff is pending");
+                }
                 if let Some(cp) = ext_args.get("checkpoint_md").and_then(Value::as_str) {
                     let _ = self.ledger.write_checkpoint(wid, cp);
                 }
                 let next_gen = work.lead.as_ref().map(|l| l.generation).unwrap_or(0) + 1;
                 let mut warnings = Vec::new();
+                let mut lead_args = ext_args.clone();
+                lead_args.insert("lead_kind".to_owned(), json!("codex"));
                 let mut new_lead = match self.spawn_or_bind_lead(
                     &work.work_id,
                     &work.title,
@@ -1966,7 +2127,7 @@ impl OrchMcpHandler {
                     &work.completion_criteria,
                     work.project_id.as_deref(),
                     next_gen,
-                    ext_args,
+                    &lead_args,
                     &mut warnings,
                 ) {
                     Ok(l) => l,
@@ -2053,6 +2214,30 @@ fn check_allowed_keys(obj: &Map<String, Value>, allowed: &[&str]) -> Result<(), 
         if !allowed.contains(&key.as_str()) {
             return Err(format!("unsupported argument key '{key}'"));
         }
+    }
+    Ok(())
+}
+
+fn check_lead_fence(
+    work: &WorkRecord,
+    args: &Map<String, Value>,
+    fence_ref: bool,
+) -> Result<(), Value> {
+    let generation = args.get("expected_lead_generation");
+    let reference = args.get("lead_ref_id").filter(|_| fence_ref);
+    if generation.is_none() && reference.is_none() {
+        return Ok(());
+    }
+    let Some(lead) = work.lead.as_ref() else {
+        return Err(fail("stale_lead_generation", "no current Lead is bound"));
+    };
+    if generation.is_some_and(|value| value.as_u64() != Some(u64::from(lead.generation)))
+        || reference.is_some_and(|value| value.as_str() != Some(lead.ref_id.as_str()))
+    {
+        return Err(fail(
+            "stale_lead_generation",
+            format!("current Lead generation is {}", lead.generation),
+        ));
     }
     Ok(())
 }

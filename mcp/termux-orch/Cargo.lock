@@ -111,7 +111,7 @@ dependencies = [
 
 [[package]]
 name = "termux-orch"
-version = "0.1.0"
+version = "0.1.0+7b"
 dependencies = [
  "codex-daemon-client",
  "libc",

@@ -12,6 +12,8 @@ mod ledger;
 mod mcp;
 mod owners;
 mod relay;
+mod rollover;
+mod shell_job;
 
 use crate::ledger::Ledger;
 use crate::mcp::{build_static_tools, OrchMcpHandler};
@@ -93,7 +95,9 @@ fn main() {
         }
         Some("relay") => {
             let mut bind = "127.0.0.1:0".to_owned();
-            let mut health_url_file: Option<PathBuf> = None;
+            let mut health_url_file = env::var_os("HOME").map(|home| {
+                PathBuf::from(home).join(".local/state/codex/services/termux-orch-relay/health.url")
+            });
             let mut poll_ms: u64 = 3000;
             let mut i = 1;
             while i < args.len() {
@@ -128,6 +132,15 @@ fn main() {
                 run_relay_daemon(ledger, owners, &bind, health_url_file.as_deref(), poll_ms)
             {
                 eprintln!("termux-orch relay error: {e}");
+                std::process::exit(1);
+            }
+        }
+        Some("shell-job") if args.len() == 5 => {
+            let result = Ledger::open(PathBuf::from(&args[1])).and_then(|ledger| {
+                shell_job::ShellJob::new(&ledger, &args[2], &args[3])?
+                    .run(&ledger, &args[2], &args[4])
+            });
+            if result.is_err() {
                 std::process::exit(1);
             }
         }
