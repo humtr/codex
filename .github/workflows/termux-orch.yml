@@ -180,12 +180,19 @@ jobs:
         run: |
           set -euo pipefail
           dist="$RUNNER_TEMP/dist"
-          python3 .github/scripts/publish_stage2_release.py \
-            --component termux-orch \
-            --tarball "$dist/termux-orch-aarch64-linux-android.tar.gz" \
-            --tag "$TAG" \
-            --title "Codex for Termux: termux-orch (@TermuxOrch)" \
-            --commit "$GITHUB_SHA" \
-            --public-key release/release-public-key.pem \
-            ${PRERELEASE:+$([ "$PRERELEASE" = "true" ] && echo --prerelease || true)} \
-            ${INPUT_SEQUENCE:+--sequence "$INPUT_SEQUENCE"}
+          tarball="termux-orch-aarch64-linux-android.tar.gz"
+          key_file="$RUNNER_TEMP/release-signing-key.pem"
+          trap 'rm -f "$key_file"' EXIT
+          [ -n "${CODEX_SIGNING_KEY:-}" ] || { echo "CODEX_SIGNING_KEY secret is required" >&2; exit 1; }
+          umask 077
+          printf '%s\n' "$CODEX_SIGNING_KEY" > "$key_file"
+          seq="${INPUT_SEQUENCE:-$GITHUB_RUN_NUMBER}"
+          notes="Termux @TermuxOrch ($TAG, commit $GITHUB_SHA, sequence $seq)."
+          args=(
+            --repo "$GITHUB_REPOSITORY" --tag "$TAG" --component termux-orch
+            --source-sha "$GITHUB_SHA" --dist "$dist" --tarball "$tarball"
+            --title "Termux @TermuxOrch ($TAG)" --notes "$notes"
+            --sequence "$seq" --signing-key "$key_file" --public-key release/release-public-key.pem
+          )
+          if [ "$PRERELEASE" = "true" ]; then args+=(--prerelease); fi
+          PYTHONDONTWRITEBYTECODE=1 python3 .github/scripts/publish_stage2_release.py "${args[@]}"
