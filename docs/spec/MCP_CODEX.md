@@ -43,7 +43,7 @@ and [crates/mcp-kit](../../crates/mcp-kit/src/lib.rs).
   daemon before claiming a brand-new `call_id` (so a stopped daemon returns
   `codex_daemon_not_running` without poisoning the `call_id`), and writes an
   atomic `0600` (`O_NOFOLLOW`, `fsync`) `started` receipt under
-  `$PREFIX/var/tmp/termux-codex-mcp-receipts-v1` strictly before issuing any
+  `$PREFIX/var/tmp/termux-codex-mcp-receipts` strictly before issuing any
   mutating RPC, pruning oldest settled receipts beyond 512 entries.
 - If the daemon disconnects mid-turn while `codex_turn` is polling, the bridge
   breaks immediately instead of waiting out `wait_ms` and reports
