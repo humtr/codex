@@ -586,6 +586,7 @@ fn parent_launcher_survives_sigint_and_fails_closed_on_corrupt_daemon_probe() {
         .env("TMPDIR", &tmp)
         .env("CODEX_EXT_CODEX_BIN", &fake_codex)
         .env_remove("CODEX_HOME")
+        .env_remove("CODEX_THREAD_ID")
         .output()
         .unwrap();
     assert!(!r.status.success());
