@@ -122,7 +122,9 @@ impl ShellJob {
                 ))
             }
         }
-        let mut runner = Command::new(std::env::current_exe()?);
+        // An in-flight MCP request can outlive replacement of the launcher
+        // file. The Linux procfs link still names the running generation.
+        let mut runner = Command::new("/proc/self/exe");
         runner
             .arg("shell-job")
             .arg(root)

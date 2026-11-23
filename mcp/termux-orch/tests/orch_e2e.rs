@@ -404,6 +404,36 @@ fn fixed_shell_continuation_survives_relay_reentry_without_double_execution() {
 }
 
 #[test]
+fn detached_writer_can_start_when_the_running_mcp_path_was_removed() {
+    let root = tmp_dir("termux-orch-executable-replacement");
+    let state = root.join("state");
+    let launcher = root.join("orch-fixture");
+    fs::copy(bin_path(), &launcher).unwrap();
+    let mut cmd = Command::new(&launcher);
+    cmd.env("ORCH_STATE_DIR", &state)
+        .env("ORCH_RECEIPT_DIR", root.join("receipts"))
+        .env("CHATGPT_PROVIDER_URL", "http://127.0.0.1:1");
+    let mut mcp = Mcp::start(&mut cmd);
+    let work = mcp.call(
+        "orch_work",
+        json!({"action":"create","call_id":"detached-fixture",
+        "title":"Detached writer","goal":"Verify running image"}),
+    );
+    let id = work["work_id"].as_str().unwrap();
+    fs::remove_file(&launcher).unwrap();
+    let result = mcp.call(
+        "orch_dispatch",
+        json!({"action":"register_worker","call_id":"exec-running-image",
+        "work_id":id,"backend":"shell","command":"exit 0"}),
+    );
+    assert_eq!(result["state"], "ok", "{result}");
+    let receipt = state.join("jobs").join(id).join("shell/W1.exit.json");
+    assert_eq!(wait_for(|| json_file(&receipt))["exit_code"], 0);
+    drop(mcp);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn detached_shell_restart_barrier_kill_and_authenticated_immediate_wake() {
     use std::os::unix::fs::PermissionsExt;
     use std::time::{Duration, Instant};
