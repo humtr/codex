@@ -15,6 +15,10 @@ per-component contracts live in their dedicated annexes:
   stateless 6-tool bridge over `chatgpt-provider` `/control/*`
 - [SUPERVISION.md](SUPERVISION.md) — opt-in `runit` 3-state generation
   supervision and `tunnel-client` transport
+- [ORCHESTRATION.md](ORCHESTRATION.md) — optional Stage 2 Slice 7 durable
+  multi-role orchestration (`@TermuxOrch` / `mcp/termux-orch`), strictly
+  layered *above* the three stateless MCP bridges without modifying their
+  stateless contracts
 
 For active implementation ownership consult [docs/ARCHITECTURE.md](../ARCHITECTURE.md);
 for verified device/CI receipts consult [CURRENT.md](../../CURRENT.md); for
@@ -37,8 +41,9 @@ retired pre-rewrite (`0.167.x`) history consult
    - **Linux ChatGPT AppHost + `chatgpt-provider`** owns the single CDP
      `--remote-debugging-pipe`, clean-room programmatic `page_driver.js`
      (`connect-app-host` `httpFetch` + dynamically discovered `CompletionClient`
-     + native `local_function_signatures`), OpenAI `/v1/responses` adaptation
-     for `codex -p chatgpt`, and authenticated local `/control/*`.
+     + native `local_function_signatures` + multi-lane parallel execution up to
+     8 lanes), OpenAI `/v1/responses` adaptation for `codex -p chatgpt`, and
+     authenticated local `/control/*` (including programmatic `/control/connectors*`).
    - **Each MCP worker (`@TermuxShell`, `@TermuxCodex`, `@TermuxChatGPT`)** is
      an independent stateless stdio process sharing only `crates/mcp-kit`
      (uniform annotations, disjoint `*_catalog`/`*_call`, bounded `call_id`
@@ -84,7 +89,7 @@ retired pre-rewrite (`0.167.x`) history consult
 All Stage 2 components live cleanly under the unified XDG `codex/` hierarchy
 (never `~/.cache` and never mixed with retired `0.167.2` directories):
 
-- Immutable generations: `~/.local/lib/codex/{wrapper,host/chatgpt-desktop,providers/chatgpt,mcp/termux-shell,mcp/termux-codex,mcp/termux-chatgpt,transport/tunnel-client}`
+- Immutable generations: `~/.local/lib/codex/{wrapper,host/chatgpt-desktop,providers/chatgpt,mcp/termux-shell,mcp/termux-codex,mcp/termux-chatgpt,mcp/termux-orch,transport/tunnel-client}`
 - Persistent user/profile data: `~/.local/share/codex/{wrapper,manager/profiles,chatgpt-desktop/profile}`
-- Configuration: `~/.config/codex/{providers/chatgpt.toml,ext/notify.json}`
-- Ephemeral runtime state & service logs: `~/.local/state/codex/{providers/chatgpt,ext,services/<svc>/log}`
+- Configuration: `~/.config/codex/{providers/chatgpt.toml,ext/notify.json,tunnels/*.yaml}`
+- Ephemeral runtime state, orchestration ledgers & service logs: `~/.local/state/codex/{providers/chatgpt,ext,orchestration,services/<svc>/log}`

@@ -29,6 +29,7 @@ distribution.
 - [docs/spec/CHATGPT_PROVIDER.md](spec/CHATGPT_PROVIDER.md): Stage 2 Slice 5 immutable `host/chatgpt-desktop` generation lifecycle and slim `chatgpt-provider` (single CDP pipe, clean-room `page_driver.js`, `/v1/responses`, authenticated `/control/*`) contract.
 - [docs/spec/MCP_CHATGPT.md](spec/MCP_CHATGPT.md): Stage 2 Slice 6 standalone `@TermuxChatGPT` (`termux-chatgpt-mcp`) stateless 6-tool MCP bridge contract over `chatgpt-provider` `/control/*`.
 - [docs/spec/BRIDGE.md](spec/BRIDGE.md): Stage 2 decoupled Provider and 3-MCP (`@TermuxShell`, `@TermuxCodex`, `@TermuxChatGPT`) ownership, annotation, receipt, and XDG namespace overview.
+- [docs/spec/ORCHESTRATION.md](spec/ORCHESTRATION.md): **Contracted / Deferred (Stage 2 Slice 7A & 7B)** optional `@TermuxOrch` (`mcp/termux-orch`) durable multi-role orchestration contract (`F · L · W · V · R`, Tier 0–3 progressive durability, `Work Ledger` + `Typed Inbox` + `Wait-Set`, project/session naming, `inject_and_notify`).
 
 ### Historical Archives
 

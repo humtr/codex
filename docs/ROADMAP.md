@@ -4,9 +4,10 @@
 > Follow [documentation authority](INDEX.md) and the
 > [current implementation/owner map](ARCHITECTURE.md).
 > Normative contracts: [SPEC.md](../SPEC.md), [DELIVERY.md](spec/DELIVERY.md),
-> [USER_INTERFACES.md](spec/USER_INTERFACES.md), [BRIDGE.md](spec/BRIDGE.md).
+> [USER_INTERFACES.md](spec/USER_INTERFACES.md), [BRIDGE.md](spec/BRIDGE.md),
+> [ORCHESTRATION.md](spec/ORCHESTRATION.md).
 > Active design & slice checklist: [HANDOFF.md](../HANDOFF.md).
-> **Current implementation state:** **Stage 1** and **Stage 2 Slices 1–6** are complete and live on `main` (see [CURRENT.md](../CURRENT.md)). Stage 2 was reassessed from first principles on **2026-11-22** to keep `codex` Wrapper strictly zero-coupling and source-patch-free, replacing the legacy `c200e676` coupled Phases 2.1–2.5 (`shared_server`, `native_route.patch`, `frontend/tui` fork, CDN `update-index`, DDPE monolith) with **6 independent decoupled slices (Slices 1–6)** — all 6 slices are now implemented and verified; opt-in 3-MCP tunnel enrollment, signed GitHub Release publication, and Phase 2.6 canary remain separate operational/deferred tracks.
+> **Current implementation state:** **Stage 1** and **Stage 2 Slices 1–6** (including post-audit hardening `ed3d9daf`, programmatic zero-DOM `/control/connectors*` `64667a35`, multi-lane parallel execution `336b9c1c`, `runit` enrollment of `chatgpt-provider` + all 3 MCP tunnels, and live remote ChatGPT connector binding for `@TermuxShell`/`@TermuxCodex`/`@TermuxChatGPT`) are complete and live on `main` (see [CURRENT.md](../CURRENT.md)). Remaining planned tracks are: (1) pre-existing follow-up operational/verification items (signed Stage 2 GitHub Release publication, Phase 2.6 read-only canary, §7 online multi-account `/switch` & physical UI `/copy` / `remote-control` checks, legacy daemon-dir cleanup) and (2) **Stage 2 Slice 7 (7A & 7B)** optional durable multi-role orchestration (`@TermuxOrch` / `mcp/termux-orch`, contracted in [ORCHESTRATION.md](spec/ORCHESTRATION.md), not yet implemented).
 
 ---
 
@@ -27,28 +28,26 @@
 
 ---
 
-## 2. Stage 2 Component Architecture & Slice Execution Order (Slices 1–6)
+## 2. Stage 2 Component Architecture & Slice Execution Order (Slices 1–7)
 
 ```text
-Slice 1: Wrapper slimming + universal SHA256SUMS.sig Ed25519 release signing
-  │       (closes crates/wrapper + establishes shared signed GitHub Release pipeline)
+Slice 1: Wrapper slimming + universal SHA256SUMS.sig Ed25519 release signing  [COMPLETE & LIVE]
   │
-  ├──▶ Slice 2: codex-ext (cdx) + [shared] crates/codex-daemon-client + §7 / OSC 52 proof
-  │      │     (profile CRUD, notify hooks, non-PTY launcher + !cdx switch/provider; retires contrib/codex-account)
-  │      │
-  └──▶ Slice 3: [shared] crates/mcp-kit + mcp/termux-shell (@TermuxShell) + transport/tunnel-client (v0.0.20+, 403) + runit 3-state supervision
-         │     (independent recovery plane + shared MCP & supervision foundation)
+  ├──▶ Slice 2: codex-ext (cdx) + [shared] crates/codex-daemon-client         [COMPLETE & LIVE]
+  │
+  └──▶ Slice 3: [shared] crates/mcp-kit + @TermuxShell + tunnel-client + runit [COMPLETE & LIVE]
          │
-         ├──▶ Slice 4: mcp/termux-codex (@TermuxCodex — 5 tools greenfield)
-         │             (reuses codex-daemon-client + mcp-kit; mobile Codex control without Linux app)
+         ├──▶ Slice 4: @TermuxCodex (5 tools greenfield)                      [COMPLETE & LIVE]
          │
-         └──▶ [Gate 5-0: latest official Linux chatgpt .deb isolated PRoot/Xvnc & CDP probe]
-                │
-                ▼
-              Slice 5: host/chatgpt-desktop (generation rootfs) + providers/chatgpt (clean-room page_driver.js)
-                │      (Type 1: codex -p chatgpt via /v1/responses + in-app tool callbacks; exposes /control/*)
-                │
-                └──▶ Slice 6: mcp/termux-chatgpt (@TermuxChatGPT — 6 tools greenfield) & optional 0.167.2 cutover
+         └──▶ [Gate 5-0] → Slice 5: host/chatgpt-desktop + chatgpt-provider   [COMPLETE & LIVE]
+                             (multi-lane parallel + /control/connectors*)
+                             │
+                             └──▶ Slice 6: @TermuxChatGPT (6 tools)           [COMPLETE & LIVE]
+                                    │
+                                    └──▶ Slice 7 (7A & 7B): mcp/termux-orch   [CONTRACTED / NEXT]
+                                           (@TermuxOrch + termux-orch-relay:
+                                            F·L·W·V·R, Tier 0–3 Work Ledger +
+                                            Typed Inbox + Wait-Set + inject_and_notify)
 ```
 
 ### Slice 1 — Wrapper Slimming & Universal `SHA256SUMS.sig` Signed Releases *(Complete — 2026-11-22)*
@@ -66,17 +65,23 @@ Slice 1: Wrapper slimming + universal SHA256SUMS.sig Ed25519 release signing
 - **Goal:** Establish the shared MCP foundation (`crates/mcp-kit`: stdio JSON-RPC, uniform immutable annotations `readOnlyHint=true`/`destructiveHint=false`/`openWorldHint=false` + accurate `idempotentHint`, bounded `call_id` transport receipts, disjoint `catalog`/`call` helper), extract independent `mcp/termux-shell` (`@TermuxShell`, 1 tool `termux_shell`, `docs/spec/MCP_SHELL.md`), update `transport/tunnel-client` (`v0.0.21` with `5c495538` HTTP/2 half-open PING patch, GitHub API 403 fallback, prebuilt signed CI), and define opt-in `runit` supervision using stable `current` symlinks with 3-state visibility (`selected`, `running`, `pending_activation`) in `scripts/runit_service.py` + `docs/spec/SUPERVISION.md`.
 - **Verified (isolated Android API 37 Termux):** `crates/mcp-kit` & `mcp/termux-shell` (`fmt`/`clippy`/`test` under `umask 0022`/`0077`), native Android/arm64 `tunnel-client` `v0.0.21` Go build & HTTP/2 regression tests, `test_build_tunnel_client.py` (403 fallback), and `test_runit_service.py` (opt-in enrollment, 3-state reporting, busy deferral, failed-readiness auto-rollback).
 
-### Slice 4 — `@TermuxCodex` (`mcp/termux-codex`, 5 Tools Greenfield) *(Complete — 2026-11-22)*
+### Slice 4 — `@TermuxCodex` (`mcp/termux-codex`, 5 Tools Greenfield) *(Complete & Live — 2026-11-22 / Enrolled 2026-11-23)*
 - **Goal:** Build stateless thin MCP bridge over `crates/codex-daemon-client` + `crates/mcp-kit`: static core (`codex_status`, `codex_threads` read-only, `codex_turn` `start|steer|interrupt` with 1-shot new-thread start and `call_id` transport receipt) + disjoint extensions (`codex_catalog`, `codex_call`). Zero shadow task DB; independently retirable when upstream `remote-control` matures.
-- **Verified (isolated Android API 37 Termux against official `0.171.0`):** `mcp/termux-codex` (`fmt`/`clippy`/`test` under `umask 0022`/`0077`, live `codex 0.171.0` `app-server daemon` empirical E2E, post-audit hardening, and canonical `~/.local/lib/codex/mcp/termux-codex/current/termux-codex-mcp` + `$PREFIX/bin/termux-codex-mcp` install with `not_enrolled` `runit` status).
+- **Verified (Android API 37 Termux against official `0.171.0`):** `mcp/termux-codex` (`fmt`/`clippy`/`test` under `umask 0022`/`0077`, live `codex 0.171.0` `app-server daemon` empirical E2E, post-audit hardening `ed3d9daf`, canonical install, `termux-codex-tunnel` `runit` `active`, and live remote `@TermuxCodex` ChatGPT connector E2E).
 
-### Slice 5 — `Gate 5-0` + `host/chatgpt-desktop` + `providers/chatgpt` (`page_driver.js` Clean-Room) *(Complete — 2026-11-23)*
-- **Goal:** Pass `Gate 5-0` (install latest official ARM64 `chatgpt` `.deb` from `persistent.oaistatic.com/codex-app-prod/linux/deb` into `~/.local/lib/codex/host/chatgpt-desktop/generations/<ver>/rootfs`; test isolated PRoot/Xvnc + CDP), build `host/chatgpt-desktop` generation lifecycle (`current`/`previous` + separated `~/.local/share/codex/chatgpt-desktop/profile`) and slim `providers/chatgpt` (`chatgpt-provider` owning single CDP + clean-room greenfield `page_driver.js` over Electron `connect-app-host` `httpFetch` + dynamically discovered `CompletionClient` + native `local_function_signatures` + `/v1/responses` + local authenticated `/control/*`; retire DDPE/MCP/`shared_server` and redundant `codex-chatgpt-host` keepalive).
-- **Verified (Android API 37 Termux against official `chatgpt 26.1117.41037` + `codex 0.171.0`):** `Gate 5-0` isolated CDP probe, 9-case combination E2E, live `gpt-6-sol-wm` (`xhigh`) Project creation (`POST /projects`) + multi-role `/control/send` orchestration + real unspoiled secret-nonce `codex 0.171.0 exec` Orchestrator (`collaboration.spawn_agent`/`wait_agent`) → Worker (`exec` V8 Code Mode `tools.exec_command`) → Orchestrator conclusion inside the created Project, post-audit hardening, XDG `codex/` namespace unification, version-suffix cleanup, and canonical `~/.local/lib/codex/providers/chatgpt/current/chatgpt-provider` + `$PREFIX/bin/chatgpt-provider` install (`not_enrolled`).
+### Slice 5 — `Gate 5-0` + `host/chatgpt-desktop` + `providers/chatgpt` (`page_driver.js` Clean-Room) *(Complete & Live — 2026-11-23)*
+- **Goal:** Pass `Gate 5-0` (install latest official ARM64 `chatgpt` `.deb` from `persistent.oaistatic.com/codex-app-prod/linux/deb` into `~/.local/lib/codex/host/chatgpt-desktop/generations/<ver>/rootfs`; test isolated PRoot/Xvnc + CDP), build `host/chatgpt-desktop` generation lifecycle (`current`/`previous` + separated `~/.local/share/codex/chatgpt-desktop/profile`) and slim `providers/chatgpt` (`chatgpt-provider` owning single CDP + clean-room greenfield `page_driver.js` over Electron `connect-app-host` `httpFetch` + dynamically discovered `CompletionClient` + native `local_function_signatures` + multi-lane parallel execution up to 8 lanes + `/v1/responses` + local authenticated `/control/*` including programmatic `/control/connectors*`; retire DDPE/MCP/`shared_server` and redundant `codex-chatgpt-host` keepalive).
+- **Verified (Android API 37 Termux against official `chatgpt 26.1117.41037` + `codex 0.171.0`):** `Gate 5-0` isolated CDP probe, 9-case combination E2E, live `gpt-6-sol-wm` (`xhigh`) Project creation + Codex subagent orchestration E2E, post-audit hardening (`ed3d9daf`), programmatic zero-DOM `/control/connectors*` (`64667a35`), multi-lane parallel & 3-lane re-entrant E2E (`336b9c1c`), and `runit` `active` deployment (`0.1.0+multilane`).
 
-### Slice 6 — `@TermuxChatGPT` (`mcp/termux-chatgpt`, 6 Tools Greenfield) & Stage 2 Closure *(Complete — 2026-11-23)*
-- **Goal:** Build stateless thin MCP bridge over `chatgpt-provider` `/control/*` + `crates/mcp-kit`: static core (`chatgpt_status`, `chatgpt_chats` read-only, `chatgpt_projects` read-only, `chatgpt_send` `send|observe|stop` with `call_id` receipt) + disjoint extensions (`chatgpt_catalog`, `chatgpt_call`). Zero local code execution privilege. Slim `docs/spec/BRIDGE.md` around the finalized 3-MCP + `chatgpt-provider` architecture.
-- **Verified (Android API 37 Termux against live `runit` `chatgpt-provider` + `chatgpt 26.1117.41037`):** `mcp/termux-chatgpt` (`fmt`/`clippy -D warnings`/`test` 4 unit + 2 compiled stdio E2E under `umask 0022`/`0077`), live `runit`-supervised `chatgpt-provider` E2E (`gpt-6-sol-wm` `xhigh`, `call_id` replay & conflict, chat read/rename, project list/read, observe/stop/viewer), slimmed `docs/spec/BRIDGE.md` + `docs/spec/MCP_CHATGPT.md`, and canonical `~/.local/lib/codex/mcp/termux-chatgpt/current/termux-chatgpt-mcp` + `$PREFIX/bin/termux-chatgpt-mcp` install (`not_enrolled`).
+### Slice 6 — `@TermuxChatGPT` (`mcp/termux-chatgpt`, 6 Tools Greenfield) & 3-MCP Live Cutover *(Complete & Live — 2026-11-23)*
+- **Goal:** Build stateless thin MCP bridge over `chatgpt-provider` `/control/*` + `crates/mcp-kit`: static core (`chatgpt_status`, `chatgpt_chats` read-only, `chatgpt_projects` read-only, `chatgpt_send` `send|observe|stop` with `call_id` receipt and per-`chat_id` multi-lane stop) + disjoint extensions (`chatgpt_catalog`, `chatgpt_call`). Zero local code execution privilege. Slim `docs/spec/BRIDGE.md` around the finalized 3-MCP + `chatgpt-provider` architecture.
+- **Verified (Android API 37 Termux against live `runit` `chatgpt-provider` + `chatgpt 26.1117.41037`):** `mcp/termux-chatgpt` (`fmt`/`clippy -D warnings`/`test` under `umask 0022`/`0077`), live `runit` `termux-chatgpt-tunnel` (`0.1.0+multilane`), programmatic registration & schema verification of all 3 remote ChatGPT connectors (`@TermuxShell`, `@TermuxCodex`, `@TermuxChatGPT`), live multi-worker iterative loop E2E (`6b03c20b-...`), and 3-lane parallel re-entrant ChatGPT worker E2E (`6b03c678-...`).
+
+### Slice 7 — Durable Multi-Role Orchestration (`@TermuxOrch` / `mcp/termux-orch`, 7A & 7B) *(7A Shipped & Live; 7B Deferred)*
+- **Contract:** [docs/spec/ORCHESTRATION.md](spec/ORCHESTRATION.md); detailed execution checklist in [HANDOFF.md](../HANDOFF.md).
+- **Goal:** Add an independent, zero-Wrapper-coupling durable orchestration layer (`F · L · W · V · R` roles; Tier 0–3 progressive durability covering both simple single-task chats and multi-hour multi-worker loops; per-work ChatGPT Project scoping and uniform `[F1]`/`[L1]`/`[W1-<slug>]`/`[V1-<slug>]` titles; `Work Ledger` + `Typed Inbox` + declarative `Wait-Set`; seamless `F1 -> Fn` mobile rebinding; default `inject_and_notify` + `termux-notification` with `stream_status` collision protection and hard Circuit Breakers).
+  - **Slice 7A *(Shipped & Live)*:** `chatgpt-provider` server `stream_status` in `observeChat` + `mcp/termux-orch` (`termux-orch relay` & `termux-orch mcp`, 6-tool `@TermuxOrch`, Tier 1–3, `Verifier` role, `F1 -> Fn` rebind, `inject_and_notify`, Circuit Breaker, CI, `runit` enrollment, programmatic `@TermuxOrch` connector registration, live Tier 1/2/3 & restart-recovery E2E — receipts in [CURRENT.md](../CURRENT.md)).
+  - **Slice 7B *(Contracted — Pending)*:** Automatic ChatGPT `L1 -> L2` context-limit rollover with generation fencing, detached long-running (`>10 min`) Shell worker `(pid, start_ticks)` + exit-receipt watcher, and instant `codex-ext` `Stop` hook push into `termux-orch relay`.
 
 ---
 

@@ -1,0 +1,191 @@
+name: Termux-Orch CI
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'crates/mcp-kit/**'
+      - 'crates/codex-daemon-client/**'
+      - 'mcp/termux-orch/**'
+      - '.github/workflows/termux-orch.yml'
+      - '.github/scripts/qualify_wrapper.py'
+      - '.github/scripts/release_sign.py'
+      - '.github/scripts/publish_stage2_release.py'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'crates/mcp-kit/**'
+      - 'crates/codex-daemon-client/**'
+      - 'mcp/termux-orch/**'
+      - '.github/workflows/termux-orch.yml'
+      - '.github/scripts/qualify_wrapper.py'
+      - '.github/scripts/release_sign.py'
+      - '.github/scripts/publish_stage2_release.py'
+  workflow_dispatch:
+    inputs:
+      publish_release:
+        description: Publish signed termux-orch GitHub Release assets
+        type: boolean
+        default: false
+      release_tag:
+        description: Target GitHub Release tag when publish_release is true
+        type: string
+        default: termux-orch
+      prerelease:
+        description: Mark published GitHub Release as prerelease
+        type: boolean
+        default: false
+      release_sequence:
+        description: Monotonic signed release sequence (used when CODEX_SIGNING_KEY secret is set)
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+env:
+  RUST_VERSION: '1.99.1'
+  ANDROID_TARGET: 'aarch64-linux-android'
+  ANDROID_API: '24'
+  ANDROID_NDK_VERSION: '27.3.13750724'
+  CARGO_INCREMENTAL: '0'
+
+jobs:
+  checks:
+    name: Format, clippy, and tests (termux-orch)
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact commit
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        run: |
+          set -euo pipefail
+          rustup toolchain install "$RUST_VERSION" --profile minimal --component rustfmt,clippy
+          rustup default "$RUST_VERSION"
+
+      - name: Test termux-orch, mcp-kit, and codex-daemon-client
+        run: |
+          set -euo pipefail
+          for manifest in crates/mcp-kit/Cargo.toml crates/codex-daemon-client/Cargo.toml mcp/termux-orch/Cargo.toml; do
+            cargo fmt --manifest-path "$manifest" -- --check
+            cargo clippy --manifest-path "$manifest" --all-targets --locked -- -D warnings
+            (umask 0022 && cargo test --manifest-path "$manifest" --locked)
+            (umask 0077 && cargo test --manifest-path "$manifest" --locked)
+          done
+
+  android-package:
+    name: Cross-compile and package aarch64-linux-android termux-orch
+    needs: [checks]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact commit
+        uses: actions/checkout@v4
+
+      - name: Install Rust target toolchain
+        run: |
+          set -euo pipefail
+          rustup toolchain install "$RUST_VERSION" --profile minimal --target "$ANDROID_TARGET"
+          rustup default "$RUST_VERSION"
+
+      - name: Cross-compile termux-orch
+        run: |
+          set -euo pipefail
+          toolchain="$ANDROID_SDK_ROOT/ndk/$ANDROID_NDK_VERSION/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          linker="$toolchain/aarch64-linux-android$ANDROID_API-clang"
+          ar="$toolchain/llvm-ar"
+          export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$linker"
+          export CC_aarch64_linux_android="$linker"
+          export AR_aarch64_linux_android="$ar"
+          export RUSTFLAGS="-C link-arg=-Wl,-z,max-page-size=16384 -C link-arg=-Wl,-z,common-page-size=16384"
+          unset CARGO_ENCODED_RUSTFLAGS
+          cargo build --release --locked --manifest-path mcp/termux-orch/Cargo.toml --target "$ANDROID_TARGET"
+
+          elf="mcp/termux-orch/target/$ANDROID_TARGET/release/termux-orch"
+          test -x "$elf"
+          file "$elf" | grep -F 'ARM aarch64'
+          readelf -l "$elf" | grep -F '/system/bin/linker64'
+          PYTHONDONTWRITEBYTECODE=1 python3 - <<'PYELF'
+          import importlib.util
+          from pathlib import Path
+          spec = importlib.util.spec_from_file_location('qualify_wrapper', '.github/scripts/qualify_wrapper.py')
+          module = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(module)
+          path = Path('mcp/termux-orch/target/aarch64-linux-android/release/termux-orch')
+          assert module.elf_16k(path), 'termux-orch: incompatible ELF geometry for 16 KiB pages'
+          PYELF
+
+      - name: Package termux-orch release bundle
+        run: |
+          set -euo pipefail
+          bundle="$RUNNER_TEMP/termux-orch-aarch64-linux-android"
+          dist="$RUNNER_TEMP/dist"
+          rm -rf "$bundle" "$dist"
+          mkdir -p "$bundle/bin" "$dist"
+          install -m 0755 "mcp/termux-orch/target/$ANDROID_TARGET/release/termux-orch" "$bundle/bin/termux-orch"
+          (
+            cd "$bundle"
+            sha256sum bin/termux-orch > SHA256SUMS
+            sha256sum -c SHA256SUMS
+          )
+          tarball="termux-orch-aarch64-linux-android.tar.gz"
+          tar --sort=name --mtime='UTC 2026-01-01' --owner=0 --group=0 --numeric-owner \
+            -cf - -C "$bundle" . | gzip -n -9 > "$dist/$tarball"
+          (
+            cd "$dist"
+            sha256sum "$tarball" > "$tarball.sha256"
+            sha256sum -c "$tarball.sha256"
+          )
+
+      - name: Upload termux-orch artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: termux-orch-android
+          path: ${{ runner.temp }}/dist/*
+          if-no-files-found: error
+          retention-days: 30
+
+  release:
+    name: Publish signed termux-orch GitHub Release
+    needs: [android-package]
+    if: github.event_name == 'workflow_dispatch' && inputs.publish_release == true
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    timeout-minutes: 10
+    concurrency:
+      group: termux-orch-publish-${{ github.repository }}-${{ inputs.release_tag }}
+      cancel-in-progress: false
+    steps:
+      - name: Checkout exact commit
+        uses: actions/checkout@v4
+
+      - name: Download termux-orch artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: termux-orch-android
+          path: ${{ runner.temp }}/dist
+
+      - name: Sign, enforce monotonic sequence, publish, and verify readback
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.release_tag }}
+          PRERELEASE: ${{ inputs.prerelease }}
+          INPUT_SEQUENCE: ${{ inputs.release_sequence }}
+          CODEX_SIGNING_KEY: ${{ secrets.CODEX_SIGNING_KEY }}
+        run: |
+          set -euo pipefail
+          dist="$RUNNER_TEMP/dist"
+          python3 .github/scripts/publish_stage2_release.py \
+            --component termux-orch \
+            --tarball "$dist/termux-orch-aarch64-linux-android.tar.gz" \
+            --tag "$TAG" \
+            --title "Codex for Termux: termux-orch (@TermuxOrch)" \
+            --commit "$GITHUB_SHA" \
+            --public-key release/release-public-key.pem \
+            ${PRERELEASE:+$([ "$PRERELEASE" = "true" ] && echo --prerelease || true)} \
+            ${INPUT_SEQUENCE:+--sequence "$INPUT_SEQUENCE"}

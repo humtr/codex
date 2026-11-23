@@ -11,7 +11,9 @@ ledger, or a Stage 2 feature backlog.
 - Detailed normative contracts: [DELIVERY.md](docs/spec/DELIVERY.md) (installation,
   updates, rollback, doctor, Termux compatibility), [USER_INTERFACES.md](docs/spec/USER_INTERFACES.md)
   (CLI failure scoping, external profile binding, conditional Stage 2 UI/Manager),
-  and [BRIDGE.md](docs/spec/BRIDGE.md) (conditional Stage 2 Native/Provider/Bridge).
+  [BRIDGE.md](docs/spec/BRIDGE.md) (Stage 2 Native/Provider/3-MCP bridges), and
+  [ORCHESTRATION.md](docs/spec/ORCHESTRATION.md) (conditional Stage 2 Slice 7
+  durable orchestration `@TermuxOrch`).
 - Current implemented code & owners: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 - Dated operational state & verified proof: [CURRENT.md](CURRENT.md).
 - Unsettled Stage 2 roadmap & follow-up verification: [docs/ROADMAP.md](docs/ROADMAP.md).
@@ -159,7 +161,8 @@ second executor, conversation database, credential store, or update controller.
 - **External services & Stage 2 standalone components:** Independently running
   services and Stage 2 companion tools (`codex-ext`/`cdx`, `providers/chatgpt`,
   `host/chatgpt-desktop`, `mcp/termux-shell`, `mcp/termux-codex`,
-  `mcp/termux-chatgpt`, `transport/tunnel-client`) remain completely decoupled
+  `mcp/termux-chatgpt`, optional `mcp/termux-orch`, `transport/tunnel-client`)
+  remain completely decoupled
   from `codex` Wrapper. Self-built distributed artifacts share a lightweight
   `SHA256SUMS.sig` Ed25519 signing contract ([DELIVERY.md](docs/spec/DELIVERY.md))
   without becoming a build or runtime prerequisite for standalone `codex` or

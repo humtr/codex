@@ -1,0 +1,20 @@
+[workspace]
+members = ["."]
+resolver = "2"
+
+[package]
+name = "termux-orch"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[[bin]]
+name = "termux-orch"
+path = "src/main.rs"
+
+[dependencies]
+codex-daemon-client = { path = "../../crates/codex-daemon-client" }
+libc = "0.2"
+mcp-kit = { path = "../../crates/mcp-kit" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

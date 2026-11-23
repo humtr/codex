@@ -2,7 +2,8 @@
 
 **Status:** Normative annex of [SPEC.md](../../SPEC.md) for Stage 2 background
 services (`termux-shell-tunnel`, `termux-codex-tunnel`, `chatgpt-provider`,
-`termux-chatgpt-tunnel`, and `tunnel-client`). Implemented by
+`termux-chatgpt-tunnel`, optional Slice 7 `termux-orch-relay` /
+`termux-orch-tunnel`, and `tunnel-client`). Implemented by
 [scripts/runit_service.py](../../scripts/runit_service.py).
 
 ---

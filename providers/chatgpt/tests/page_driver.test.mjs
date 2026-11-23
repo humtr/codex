@@ -676,3 +676,40 @@ test("page_driver listConnectors, registerConnector (create+noauth+refresh+probe
   assert.equal(ref.state, "ok");
   assert.equal(ref.schema_agreement, true);
 });
+
+test("page_driver observeChat inspects server stream_status for remote mobile/web turns", async () => {
+  let remoteStatus = "IS_STREAMING";
+  const { driver } = createMockEnv({
+    apiMap: {
+      "GET /backend-api/conversation/conv-mobile-1/stream_status": {
+        status: 200,
+        body: () => ({ status: remoteStatus }),
+      },
+      "GET /backend-api/conversation/conv-mobile-1": {
+        status: 200,
+        body: {
+          title: "[F1] Mobile Work",
+          current_node: "n2",
+          mapping: {
+            n1: { parent: null, message: { id: "m1", author: { role: "user" }, content: { content_type: "text", parts: ["Status?"] } } },
+            n2: { parent: "n1", message: { id: "m2", author: { role: "assistant" }, content: { content_type: "text", parts: ["Done!"] } } },
+          },
+        },
+      },
+    },
+  });
+
+  // While remote mobile turn is streaming, observeChat MUST report in_progress (no collision!)
+  const busy = await driver.observeChat({ chat_id: "conv-mobile-1" });
+  assert.equal(busy.state, "in_progress");
+  assert.equal(busy.generating, true);
+  assert.equal(busy.remote_stream_status, "IS_STREAMING");
+
+  // Once server reports COMPLETE, observeChat returns settled with final assistant text
+  remoteStatus = "COMPLETE";
+  const settled = await driver.observeChat({ chat_id: "conv-mobile-1" });
+  assert.equal(settled.state, "settled");
+  assert.equal(settled.generating, false);
+  assert.equal(settled.remote_stream_status, "COMPLETE");
+  assert.equal(settled.assistant_text, "Done!");
+});

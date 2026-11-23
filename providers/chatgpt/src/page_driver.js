@@ -1186,6 +1186,29 @@
       };
     }
 
+    // Check server-side stream_status so remote mobile/web turns on this chat_id
+    // are observed as in_progress before any automated wake-up or report injection.
+    let remoteStreamStatus = null;
+    const ssRes = await apiFetch(
+      `/conversation/${encodeURIComponent(chatId)}/stream_status`,
+      { method: "GET" },
+      8000
+    );
+    if (ssRes.ok && ssRes.json && typeof ssRes.json.status === "string") {
+      remoteStreamStatus = ssRes.json.status;
+      if (remoteStreamStatus === "IS_STREAMING") {
+        return {
+          state: "in_progress",
+          ...(matchedTurn ? { lane_id: matchedTurn.laneId } : {}),
+          chat_id: chatId,
+          generating: true,
+          remote_stream_status: remoteStreamStatus,
+          message_id: (matchedTurn && matchedTurn.messageId) || null,
+          assistant_text: (matchedTurn && matchedTurn.assistantText) || "",
+        };
+      }
+    }
+
     const rd = await readChat({ chat_id: chatId, limit: 10 });
     if (rd.state === "ok" && Array.isArray(rd.messages)) {
       const lastA = [...rd.messages].reverse().find((m) => m.role === "assistant");
@@ -1194,6 +1217,7 @@
         ...(matchedTurn ? { lane_id: matchedTurn.laneId } : {}),
         chat_id: chatId,
         generating: false,
+        ...(remoteStreamStatus ? { remote_stream_status: remoteStreamStatus } : {}),
         message_id: (lastA && lastA.id) || (matchedTurn && matchedTurn.messageId) || null,
         assistant_text: (lastA && lastA.text) || (matchedTurn && matchedTurn.assistantText) || "",
       };
@@ -1203,6 +1227,7 @@
       ...(matchedTurn ? { lane_id: matchedTurn.laneId } : {}),
       chat_id: chatId,
       generating: false,
+      ...(remoteStreamStatus ? { remote_stream_status: remoteStreamStatus } : {}),
       message_id: (matchedTurn && matchedTurn.messageId) || null,
       assistant_text: (matchedTurn && matchedTurn.assistantText) || "",
     };
