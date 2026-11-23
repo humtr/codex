@@ -97,15 +97,15 @@ version selector, updater, daemon, account dependency, or signature authority.
 The ordinary standalone update and rollback remain usable independently of this
 automation and of every optional module.
 
-**Implemented base path:** `codex update --check --json` owns official latest/exact
+**Implemented canary path:** `codex update --check --json` owns official latest/exact
 descriptor comparison and immutable archive metadata. It creates no installed
 state. Shared `wrapper-verify.yml` owns the existing check/package/Bionic jobs
 and explicit account-free qualification with `qualify_wrapper.py`; the ordinary
-`wrapper.yml` caller retains publication separately. Local `codex update --upstream`
-resolves OpenAI releases directly and has zero functional dependency on CI
-schedules; any future read-only upstream canary runs on-demand via
-`workflow_dispatch` with `permissions: contents: read` (no auto-deploy, PR,
-issue filing, or device access); see [current evidence](history/STAGE1_MILESTONES.md#standalone-qualification-and-read-only-upstream-discovery-follow-up-2026-11-16).
+`wrapper.yml` caller retains publication separately. The on-demand canary uses
+`qualify_upstream=true` with `publish_release=false` on `main`. The reusable
+verification workflow runs with `contents: read` and retains the input and
+qualification reports as CI artifacts. Local `codex update --upstream`
+resolves OpenAI releases directly. [Canary invocation](../README.md#wrapper-ci-githubworkflowswrapperyml)
 
 The canary runs the existing adaptation implementation; it does not generate a
 new implementation when upstream changes. A compatible new archive needs no
@@ -280,8 +280,9 @@ Stage 1의 FD 34는 스레드 수명을 업스트림 정책에 맡깁니다. 마
 - **R-4** The default-home daemon cache was reclaimed. The retired Provider
   archive has live mappings and protected account and session data.
   [Reclamation evidence](history/STAGE2_MILESTONES.md#r-4-legacy-disk-reclamation)
-- **R-5** Phase 2.6 read-only canary and restricted physical-device
-  promotion gate remain deferred. [Phase 2.6](#3-phase-26--read-only-upstream-discovery-and-qualification)
+- **R-5** The manual read-only canary uses the shared Wrapper verification
+  workflow. The restricted physical-device promotion gate remains deferred.
+  [Phase 2.6](#3-phase-26--read-only-upstream-discovery-and-qualification)
 - **R-6** Physical power removal and execution on Android with a real 16 KiB
   kernel page size.
 - **AppHost shutdown.** Cross-device Android behavior and an exact

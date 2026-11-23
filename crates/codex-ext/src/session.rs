@@ -14,6 +14,8 @@ pub struct SessionRecord {
     pub codex_home: String,
     pub cwd: String,
     pub provider: Option<String>,
+    #[serde(default)]
+    pub deferred_provider_switch: bool,
     pub created_at_ms: u64,
 }
 
@@ -69,6 +71,7 @@ pub fn register_current_session(
         codex_home: normalize_match_path(codex_home),
         cwd: normalize_match_path(cwd),
         provider: provider.map(ToOwned::to_owned),
+        deferred_provider_switch: true,
         created_at_ms: now_millis(),
     };
     let body = serde_json::to_string_pretty(&rec)
@@ -208,6 +211,7 @@ mod tests {
             codex_home: paths.shared_home.display().to_string(),
             cwd: cwd.display().to_string(),
             provider: None,
+            deferred_provider_switch: false,
             created_at_ms: 0,
         };
         atomic_write_private(

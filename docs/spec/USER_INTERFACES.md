@@ -106,30 +106,42 @@ symlink) that shares `crates/codex-daemon-client` with `@TermuxCodex` and has
     `crates/codex-daemon-client` (RFC 6455 WebSocket-over-UDS using
     `/proc/self/fd/<dirfd>/...` for Termux `termux-uds-fd35` short paths) and
     inspects `thread/loaded/list` + `thread/read`.
-  - If any loaded thread has `status.type == "active"` (and `--wait` is absent),
-    the command prints the active thread ID(s) and exits `1` **without**
-    disturbing the running TUI or daemon.
-  - When idle (or `--wait`), `!cdx` writes a `0600` atomic handoff ticket to
+  - The upstream `!` shell command can itself count as a turn. Account and
+    provider switches use `CODEX_THREAD_ID` to identify the caller and defer
+    the transition when that conversation is the only active one. An account
+    switch uses that ID to resume the conversation. When other threads are
+    active, the command reports them and leaves the TUI and daemon running.
+    Account switches can explicitly wait for those turns with `--wait`.
+  - The accepted `!cdx` command writes a `0600` atomic handoff ticket to
     `$HOME/.local/state/codex/ext/handoff/<parent_pid>.json`, sends `SIGUSR1`
     to the verified parent PID, and exits `0` immediately (avoiding daemon-child
-    self-kill races).
-  - Parent `cdx` terminates the child TUI (`SIGTERM`, 3s grace), restores the
-    terminal, re-checks idle status, stops the idle source daemon via official
-    `codex app-server daemon stop`, waits up to 3s for advisory `flock` release
-    on `$HOME/.codex/thread-writer-locks/<tid>.lock`, and launches
-    `codex resume <tid>` in the target profile (or `codex -p <provider>` on
-    `~/.codex`).
+    self-kill races). Parent `cdx` leaves the TUI running while waiting for the
+    daemon to become idle. An expired wait or an unavailable status check
+    leaves the existing TUI in place. Deferred provider switches require a
+    launcher that advertises support in its session record. Sessions opened by
+    older launchers keep running and decline deferred provider requests.
+  - Once idle, parent `cdx` terminates the child TUI (`SIGTERM`, 3s grace) and
+    restores the terminal. For an account switch it re-checks idle status,
+    stops the idle source daemon via official `codex app-server daemon stop`,
+    waits up to 3s for advisory `flock` release on
+    `$HOME/.codex/thread-writer-locks/<tid>.lock`, and launches `codex resume
+    <tid>` in the target profile. For a provider switch it starts a new thread
+    on `~/.codex` and leaves the source daemon running.
 - **Standalone shell switch recovery:** When invoked outside a `cdx` parent and
   the source daemon has active turns on an interactive TTY without `--wait`,
   `cdx switch` prompts `[w] wait / [r] return / [q] cancel` rather than leaving
-  the user stranded.
+  the user stranded. A Codex shell command with no registered launcher fails
+  before standalone handling for both commands, since it cannot replace the
+  originating TUI.
 
 ### 2.3 Profile lifecycle (`cdx profile`)
 
 - Storage layout (compatible with existing profiles):
   - Directory: `$HOME/.local/share/codex/manager/profiles/<NAME>/` (`0700`),
     child `home/` (`0700`), metadata `profile.meta` (`0600`).
-  - Metadata format: `codex-manager-profile\n`.
+  - New metadata uses `codex-manager-profile\n`. Existing `ai` profiles with
+    `codex-manager-profile-v2\n` or `codex-manager-profile-v1\nid\t<NAME>\n`
+    are also accepted. The v1 ID must match the directory name.
   - Default selection pointer: `$HOME/.local/share/codex/manager/default-profile`
     (`0600`, `codex-manager-default-profile\nprofile\t<NAME>\n`).
 - Name validation: 1..=64 chars matching `[A-Za-z0-9][A-Za-z0-9._-]*`; `default`,

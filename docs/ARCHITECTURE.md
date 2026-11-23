@@ -105,7 +105,7 @@ scenario has passed. See CURRENT for exact receipts.
 | --- | --- | --- |
 | Post-cutover verification | Physical `/copy` and external pairing remain open. The live RPC handoff covered one disposable thread. | [Remaining verification](ROADMAP.md#8-remaining-operational-and-physical-verification) |
 | Retired daemon caches | The default, `janmori101` and `szob` package selectors use shared `standalone/current`. The default-home legacy cache was reclaimed. | The retired Provider archive still contains live mappings and protected data. [Inventory and health checks](history/STAGE2_MILESTONES.md#r-4-legacy-disk-reclamation) |
-| Ongoing official release canary with auto-repair or auto-install | `--check` and account-free qualification exist; no automatic source repair, signing or device deployment | [Phase 2.6](ROADMAP.md#3-phase-26--read-only-upstream-discovery-and-qualification) and explicit subsequent approvals |
+| Official upstream canary | [Wrapper CI](../.github/workflows/wrapper.yml) dispatches [shared verification](../.github/workflows/wrapper-verify.yml), which delegates discovery and adaptation to the public Wrapper and retains the qualification report | The restricted dedicated physical-device promotion gate remains open. [Phase 2.6](ROADMAP.md#3-phase-26--read-only-upstream-discovery-and-qualification) |
 
 ## 3. Mutable state, authority and failure recovery
 

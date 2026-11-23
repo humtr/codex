@@ -4,7 +4,7 @@ use crate::profiles::{
 };
 use crate::session::{
     find_matching_session, normalize_match_path, register_current_session, remove_session_file,
-    take_handoff_ticket, write_handoff_ticket, HandoffTicket, SessionMatch,
+    take_handoff_ticket, write_handoff_ticket, HandoffTicket, SessionMatch, SessionRecord,
 };
 use codex_daemon_client::{
     daemon_stop_via_cli, wait_writer_lock_released, DaemonClient, DaemonError, ThreadSummary,
@@ -143,7 +143,12 @@ enum DaemonProbe {
     Error(String),
 }
 
-fn inspect_daemon_for_switch(paths: &ExtPaths, codex_home: &Path, cwd: &Path) -> DaemonProbe {
+fn inspect_daemon_for_switch(
+    paths: &ExtPaths,
+    codex_home: &Path,
+    cwd: &Path,
+    caller_thread: Option<&str>,
+) -> DaemonProbe {
     let mut client = match DaemonClient::connect(
         codex_home,
         &paths.tmpdir,
@@ -179,6 +184,16 @@ fn inspect_daemon_for_switch(paths: &ExtPaths, codex_home: &Path, cwd: &Path) ->
                 return DaemonProbe::Error(format!("thread/read({id}) failed: {err}"));
             }
         }
+    }
+
+    if let Some(id) = caller_thread {
+        let caller = loaded_summaries.iter().find(|thread| thread.id == id);
+        client.close();
+        return DaemonProbe::Ready {
+            busy,
+            auto_thread_id: caller.map(|thread| thread.id.clone()),
+            auto_thread_provider: caller.and_then(|thread| thread.model_provider.clone()),
+        };
     }
 
     // Auto-select most recently updated loaded thread in matching cwd, else single loaded thread.
@@ -229,7 +244,7 @@ fn wait_until_daemon_idle(
 ) -> Result<bool, String> {
     let deadline = Instant::now() + timeout;
     loop {
-        match inspect_daemon_for_switch(paths, codex_home, cwd) {
+        match inspect_daemon_for_switch(paths, codex_home, cwd, None) {
             DaemonProbe::NotRunning => return Ok(true),
             DaemonProbe::Ready { busy, .. } if busy.is_empty() => return Ok(true),
             DaemonProbe::Ready { .. } => {}
@@ -361,13 +376,15 @@ pub fn run_launcher(
             .spawn()
             .map_err(|e| format!("failed to spawn {}: {e}", paths.codex_bin.display()))?;
 
-        let mut handoff: Option<HandoffTicket> = None;
+        let mut handoff: Option<(HandoffTicket, Instant)> = None;
+        let mut check_at = Instant::now();
         let final_status: Option<ExitStatus> = loop {
             if HANDOFF_SIGNALED.swap(false, Ordering::SeqCst) {
                 match take_handoff_ticket(paths, std::process::id()) {
                     Ok(Some(ticket)) => {
-                        handoff = Some(ticket);
-                        break None;
+                        let now = Instant::now();
+                        handoff = Some((ticket, now + Duration::from_secs(600)));
+                        check_at = now;
                     }
                     Ok(None) => {}
                     Err(err) => {
@@ -377,14 +394,47 @@ pub fn run_launcher(
             }
             match child.try_wait() {
                 Ok(Some(status)) => break Some(status),
-                Ok(None) => std::thread::sleep(Duration::from_millis(20)),
+                Ok(None) => {}
                 Err(err) => return Err(format!("waitpid failed: {err}")),
             }
+            let now = Instant::now();
+            if let Some((ticket, deadline)) = handoff.as_ref().filter(|_| now >= check_at) {
+                let blocked = match inspect_daemon_for_switch(paths, &cur_home, &cwd, None) {
+                    DaemonProbe::NotRunning => None,
+                    DaemonProbe::Ready { busy, .. } if busy.is_empty() => None,
+                    DaemonProbe::Ready { .. } if ticket.wait && now < *deadline => {
+                        check_at = now + Duration::from_millis(250);
+                        std::thread::sleep(Duration::from_millis(20));
+                        continue;
+                    }
+                    DaemonProbe::Ready { .. } => {
+                        Some("the source daemon still has active turns".to_owned())
+                    }
+                    DaemonProbe::Error(err) => {
+                        Some(format!("cannot verify source daemon state: {err}"))
+                    }
+                };
+                let blocked = blocked.or_else(|| {
+                    if ticket.kind == "provider" {
+                        validate_provider_name(paths, &ticket.target).err()
+                    } else {
+                        None
+                    }
+                });
+                if let Some(reason) = blocked {
+                    eprintln!("codex-ext: switch aborted: {reason}");
+                    handoff = None;
+                } else {
+                    break None;
+                }
+            }
+            std::thread::sleep(Duration::from_millis(20));
         };
 
-        let Some(ticket) = handoff else {
-            return Ok(exit_status_to_code(final_status.unwrap()));
-        };
+        if let Some(status) = final_status {
+            return Ok(exit_status_to_code(status));
+        }
+        let (ticket, _) = handoff.expect("handoff admitted by the launcher loop");
 
         // Brief grace so the daemon-spawned `!cdx` child finishes returning exit 0 cleanly.
         std::thread::sleep(Duration::from_millis(30));
@@ -403,7 +453,7 @@ pub fn run_launcher(
                 };
                 let old_home = current_target.codex_home(paths);
                 let (daemon_running, busy, auto_tid, auto_prov) = match inspect_daemon_for_switch(
-                    paths, &old_home, &cwd,
+                    paths, &old_home, &cwd, None,
                 ) {
                     DaemonProbe::NotRunning => (false, Vec::new(), None, None),
                     DaemonProbe::Ready {
@@ -432,52 +482,16 @@ pub fn run_launcher(
                 }
 
                 if !busy.is_empty() {
-                    if ticket.wait {
-                        eprintln!(
-                            "codex-ext: waiting for {} active turn(s) on '{}' to finish...",
-                            busy.len(),
-                            current_target.name()
-                        );
-                        match wait_until_daemon_idle(
-                            paths,
-                            &old_home,
-                            &cwd,
-                            Duration::from_secs(600),
-                        ) {
-                            Ok(true) => {}
-                            Ok(false) => {
-                                eprintln!(
-                                    "codex-ext: switch aborted — '{}' still has active turn(s) after 600s wait; resuming original session",
-                                    current_target.name()
-                                );
-                                next_args = match tid {
-                                    Some(ref id) => {
-                                        vec![OsString::from("resume"), OsString::from(id)]
-                                    }
-                                    None => Vec::new(),
-                                };
-                                continue;
-                            }
-                            Err(err) => {
-                                eprintln!(
-                                    "codex-ext: switch wait failed ({err}); resuming original session"
-                                );
-                                next_args = Vec::new();
-                                continue;
-                            }
-                        }
-                    } else {
-                        eprintln!(
-                            "codex-ext: switch aborted — '{}' still has {} active turn(s); resuming original session",
-                            current_target.name(),
-                            busy.len()
-                        );
-                        next_args = match tid {
-                            Some(ref id) => vec![OsString::from("resume"), OsString::from(id)],
-                            None => Vec::new(),
-                        };
-                        continue;
-                    }
+                    eprintln!(
+                        "codex-ext: switch aborted — '{}' has {} active turn(s); resuming original session",
+                        current_target.name(),
+                        busy.len()
+                    );
+                    next_args = match tid {
+                        Some(ref id) => vec![OsString::from("resume"), OsString::from(id)],
+                        None => Vec::new(),
+                    };
+                    continue;
                 }
 
                 if daemon_running && current_target != new_target {
@@ -519,11 +533,6 @@ pub fn run_launcher(
                 );
             }
             "provider" => {
-                if let Err(err) = validate_provider_name(paths, &ticket.target) {
-                    eprintln!("codex-ext: provider switch aborted: {err}");
-                    next_args = Vec::new();
-                    continue;
-                }
                 current_target = ProfileTarget::Default;
                 if ticket.target == "openai" {
                     current_provider = None;
@@ -563,6 +572,33 @@ fn print_ambiguous_sessions(sessions: &[crate::session::SessionRecord]) {
     eprintln!("Re-run with --session <PID> to select the exact terminal window.");
 }
 
+fn caller_is_only_active(busy: &[ThreadSummary], caller_thread: Option<&str>) -> bool {
+    matches!(busy, [thread] if caller_thread == Some(thread.id.as_str()))
+}
+
+fn signal_handoff(
+    paths: &ExtPaths,
+    parent: &SessionRecord,
+    ticket: &HandoffTicket,
+) -> Result<(), String> {
+    write_handoff_ticket(paths, parent.pid, ticket)?;
+    if !is_live_matching_process(parent.pid, parent.start_ticks) {
+        return Err(format!(
+            "parent codex-ext session {} exited before handoff",
+            parent.pid
+        ));
+    }
+    let rc = unsafe { libc::kill(parent.pid as libc::pid_t, libc::SIGUSR1) };
+    if rc != 0 {
+        return Err(format!(
+            "failed to signal parent codex-ext ({}): {}",
+            parent.pid,
+            io::Error::last_os_error()
+        ));
+    }
+    Ok(())
+}
+
 pub fn run_switch_command(
     paths: &ExtPaths,
     target_account: &str,
@@ -573,6 +609,7 @@ pub fn run_switch_command(
     let target = resolve_profile(paths, target_account)?;
     let cwd = env::current_dir().map_err(|e| format!("cannot determine cwd: {e}"))?;
     let cur_home = current_codex_home_from_env(paths);
+    let caller_thread = env::var("CODEX_THREAD_ID").ok().filter(|id| !id.is_empty());
 
     match find_matching_session(paths, explicit_session, &cur_home, &cwd)? {
         SessionMatch::Ambiguous(list) => {
@@ -582,7 +619,8 @@ pub fn run_switch_command(
         SessionMatch::Exact(parent) => {
             // In-TUI `!cdx switch` path: pre-flight busy check BEFORE disturbing TUI!
             let parent_home = PathBuf::from(&parent.codex_home);
-            let probe = inspect_daemon_for_switch(paths, &parent_home, &cwd);
+            let probe =
+                inspect_daemon_for_switch(paths, &parent_home, &cwd, caller_thread.as_deref());
             let (busy, auto_tid, auto_prov) = match probe {
                 DaemonProbe::NotRunning => (Vec::new(), None, None),
                 DaemonProbe::Ready {
@@ -597,6 +635,7 @@ pub fn run_switch_command(
                     ));
                 }
             };
+            let wait = wait || caller_is_only_active(&busy, caller_thread.as_deref());
             if !busy.is_empty() && !wait {
                 let ids: Vec<&str> = busy.iter().map(|t| t.id.as_str()).collect();
                 eprintln!(
@@ -610,7 +649,11 @@ pub fn run_switch_command(
             }
             let allow_auto_tid =
                 parent.provider.is_none() && is_openai_compatible_provider(auto_prov.as_deref());
-            let resolved_tid = explicit_tid.or(if allow_auto_tid { auto_tid } else { None });
+            let resolved_tid = explicit_tid.or(if allow_auto_tid {
+                auto_tid.or(caller_thread)
+            } else {
+                None
+            });
             let ticket = HandoffTicket {
                 kind: "switch".to_owned(),
                 target: target.name().to_owned(),
@@ -618,23 +661,21 @@ pub fn run_switch_command(
                 wait,
                 requested_at_ms: now_millis(),
             };
-            write_handoff_ticket(paths, parent.pid, &ticket)?;
-            if !is_live_matching_process(parent.pid, parent.start_ticks) {
-                return Err(format!(
-                    "parent codex-ext session {} exited before handoff",
-                    parent.pid
-                ));
+            signal_handoff(paths, &parent, &ticket)?;
+            if busy.is_empty() {
+                println!("switching to '{}'...", target.name());
+            } else {
+                println!(
+                    "Switch to '{}' queued until the source turns finish.",
+                    target.name()
+                );
             }
-            let rc = unsafe { libc::kill(parent.pid as libc::pid_t, libc::SIGUSR1) };
-            if rc != 0 {
-                return Err(format!(
-                    "failed to signal parent codex-ext ({}): {}",
-                    parent.pid,
-                    io::Error::last_os_error()
-                ));
-            }
-            println!("switching to '{}'...", target.name());
             return Ok(0);
+        }
+        SessionMatch::None if caller_thread.is_some() => {
+            return Err(
+                "this Codex window has no cdx launcher to receive the switch request".to_owned(),
+            );
         }
         SessionMatch::None => {}
     }
@@ -644,7 +685,7 @@ pub fn run_switch_command(
     let current_target = resolve_profile(paths, &current_name).unwrap_or(ProfileTarget::Default);
     let old_home = current_target.codex_home(paths);
     let (daemon_running, busy, auto_tid, auto_prov) =
-        match inspect_daemon_for_switch(paths, &old_home, &cwd) {
+        match inspect_daemon_for_switch(paths, &old_home, &cwd, None) {
             DaemonProbe::NotRunning => (false, Vec::new(), None, None),
             DaemonProbe::Ready {
                 busy,
@@ -743,6 +784,7 @@ pub fn run_provider_command(
     validate_provider_name(paths, provider_name)?;
     let cwd = env::current_dir().map_err(|e| format!("cannot determine cwd: {e}"))?;
     let cur_home = current_codex_home_from_env(paths);
+    let caller_thread = env::var("CODEX_THREAD_ID").ok().filter(|id| !id.is_empty());
 
     match find_matching_session(paths, explicit_session, &cur_home, &cwd)? {
         SessionMatch::Ambiguous(list) => {
@@ -751,9 +793,22 @@ pub fn run_provider_command(
         }
         SessionMatch::Exact(parent) => {
             let parent_home = PathBuf::from(&parent.codex_home);
-            match inspect_daemon_for_switch(paths, &parent_home, &cwd) {
-                DaemonProbe::NotRunning => {}
-                DaemonProbe::Ready { busy, .. } if busy.is_empty() => {}
+            let wait = match inspect_daemon_for_switch(
+                paths,
+                &parent_home,
+                &cwd,
+                caller_thread.as_deref(),
+            ) {
+                DaemonProbe::NotRunning => false,
+                DaemonProbe::Ready { busy, .. } if busy.is_empty() => false,
+                DaemonProbe::Ready { busy, .. }
+                    if caller_is_only_active(&busy, caller_thread.as_deref()) =>
+                {
+                    if !parent.deferred_provider_switch {
+                        return Err("this Codex window was opened by an older cdx launcher that cannot defer a provider switch".to_owned());
+                    }
+                    true
+                }
                 DaemonProbe::Ready { busy, .. } => {
                     let ids: Vec<&str> = busy.iter().map(|t| t.id.as_str()).collect();
                     eprintln!(
@@ -770,28 +825,29 @@ pub fn run_provider_command(
                         parent.account
                     ));
                 }
-            }
+            };
             let ticket = HandoffTicket {
                 kind: "provider".to_owned(),
                 target: provider_name.to_owned(),
                 thread_id: None,
-                wait: false,
+                wait,
                 requested_at_ms: now_millis(),
             };
-            write_handoff_ticket(paths, parent.pid, &ticket)?;
-            if !is_live_matching_process(parent.pid, parent.start_ticks) {
-                return Err(format!("parent codex-ext session {} exited", parent.pid));
+            signal_handoff(paths, &parent, &ticket)?;
+            if wait {
+                println!(
+                    "Provider switch to '{provider_name}' queued until the source turns finish."
+                );
+            } else {
+                println!("switching provider to '{provider_name}'...");
             }
-            let rc = unsafe { libc::kill(parent.pid as libc::pid_t, libc::SIGUSR1) };
-            if rc != 0 {
-                return Err(format!(
-                    "failed to signal parent codex-ext ({}): {}",
-                    parent.pid,
-                    io::Error::last_os_error()
-                ));
-            }
-            println!("switching provider to '{provider_name}'...");
             return Ok(0);
+        }
+        SessionMatch::None if caller_thread.is_some() => {
+            return Err(
+                "this Codex window has no cdx launcher to receive the provider switch request"
+                    .to_owned(),
+            );
         }
         SessionMatch::None => {}
     }

@@ -66,11 +66,18 @@ pub fn validate_profile_name(name: &str) -> Result<(), String> {
     Ok(())
 }
 
-pub fn verify_profile_meta(meta_path: &Path) -> Result<(), String> {
+fn verify_profile_meta(meta_path: &Path, name: &str) -> Result<(), String> {
     require_owned_regular_file(meta_path, "profile metadata")?;
     let content = fs::read_to_string(meta_path)
         .map_err(|e| format!("cannot read {}: {e}", meta_path.display()))?;
-    if content == "codex-manager-profile\n" {
+    if matches!(
+        content.as_str(),
+        "codex-manager-profile\n" | "codex-manager-profile-v2\n"
+    ) || content
+        .strip_prefix("codex-manager-profile-v1\nid\t")
+        .and_then(|identity| identity.strip_suffix('\n'))
+        == Some(name)
+    {
         Ok(())
     } else {
         Err(format!(
@@ -142,7 +149,7 @@ pub fn resolve_profile(paths: &ExtPaths, name: &str) -> Result<ProfileTarget, St
             ));
         }
     }
-    verify_profile_meta(&meta_path)?;
+    verify_profile_meta(&meta_path, name)?;
     Ok(ProfileTarget::Named {
         name: name.to_owned(),
         home: profile_home,
@@ -391,6 +398,22 @@ mod tests {
         let bad_dir = paths.profiles_dir.join("badmeta");
         fs::create_dir_all(bad_dir.join("home")).unwrap();
         atomic_write_private(&bad_dir.join("profile.meta"), b"invalid-header\n", 0o600).unwrap();
+        assert!(resolve_profile(&paths, "badmeta").is_err());
+
+        let work_meta = paths.profiles_dir.join("work/profile.meta");
+        for metadata in [
+            b"codex-manager-profile-v1\nid\twork\n".as_slice(),
+            b"codex-manager-profile-v2\n",
+        ] {
+            atomic_write_private(&work_meta, metadata, 0o600).unwrap();
+            assert!(resolve_profile(&paths, "work").is_ok());
+        }
+        atomic_write_private(
+            &bad_dir.join("profile.meta"),
+            b"codex-manager-profile-v1\nid\twork\n",
+            0o600,
+        )
+        .unwrap();
         assert!(resolve_profile(&paths, "badmeta").is_err());
 
         write_default_profile(&paths, Some("work")).unwrap();

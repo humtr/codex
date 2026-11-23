@@ -21,20 +21,22 @@ Observed on 2026-11-23.
 | **Active / rollback upstream generation** | Active `0.171.0-d8c43b-2` (`ino=9741792`, SHA-256 `26d9f90b...`). Rollback `0.170.0-3f7e1a-2` | Preserved across Slice 1 signed Wrapper cutover; `wrapper status --verify --json` (`qualified=true`) and `codex doctor --json` (`summary=healthy`) agreed |
 | **Live managed daemons (`default` / `janmori101` / `szob`)** | All three homes aligned to `$HOME/.codex/packages/standalone/current`; `janmori101` & `szob` running | `cdx profile list` sees all 8 profiles (`default` + 7 normalized `codex-manager-profile` homes) |
 | **Live doctor and external services** | `codex doctor --json` reports `summary.status=healthy`. All six Stage 2 services and three `tdev*` services retained their running PIDs during daemon cache reclamation | The retired `0.167.2` archive remains in place with live file mappings and protected account/session data |
-| **Stage 2 progress (Slices 1–7)** | **Released Slice 1–7 baseline** in the unified XDG `codex/` namespace: Slice 1 signed Wrapper live; Slice 2 `$PREFIX/bin/codex-ext` + `cdx` (`c8322d2e...`); Slice 3 `mcp-kit` + `termux-shell-mcp` (`40fe5e54...`) + `tunnel-client v0.0.21` + `runit` 3-state supervision (`termux-shell-tunnel` active); Slice 4 `termux-codex-mcp` (`de46babc...`, `termux-codex-tunnel` active); Slice 5 `host/chatgpt-desktop` (`26.1117.41037`, GPG-verified) + `chatgpt-provider` (`0.1.0+7b`, `87bb368a...`, `runit` active); Slice 6 `termux-chatgpt-mcp` (`0.1.0+multilane`, `c7aeae57...`, `termux-chatgpt-tunnel` active); **Slice 7 `termux-orch`** (`0.1.0+7b`, `bc5bc2aa...`, `termux-orch-relay` & `termux-orch-tunnel` `runit` active, `@TermuxOrch` connector `asdk_app_6b03de61dd748191bf56fef2b1029a2e` `ACTIVE`) | Six long-running services use `runit`. The four MCP connectors are separate from the CLI, host generation and runner. Candidate acceptance and signed-image activation are recorded separately below. |
+| **Stage 2 progress (Slices 1–7)** | **Released Slice 1–7 baseline** in the unified XDG `codex/` namespace: Slice 1 signed Wrapper live; Slice 2 local `$PREFIX/bin/codex-ext` + `cdx` (`0.1.0`, `0cc81c77...`); Slice 3 `mcp-kit` + `termux-shell-mcp` (`40fe5e54...`) + `tunnel-client v0.0.21` + `runit` 3-state supervision (`termux-shell-tunnel` active); Slice 4 `termux-codex-mcp` (`de46babc...`, `termux-codex-tunnel` active); Slice 5 `host/chatgpt-desktop` (`26.1117.41037`, GPG-verified) + `chatgpt-provider` (`0.1.0+7b`, `87bb368a...`, `runit` active); Slice 6 `termux-chatgpt-mcp` (`0.1.0+multilane`, `c7aeae57...`, `termux-chatgpt-tunnel` active); **Slice 7 `termux-orch`** (`0.1.0+7b`, `bc5bc2aa...`, `termux-orch-relay` & `termux-orch-tunnel` `runit` active, `@TermuxOrch` connector `asdk_app_6b03de61dd748191bf56fef2b1029a2e` `ACTIVE`) | Six long-running services use `runit`. The four MCP connectors are separate from the CLI, host generation and runner. Candidate acceptance and signed-image activation are recorded separately below. |
 | **Milestone records** | Stage 1 WP0–WP6 and Stage 2 Slices 1–7 are archived | [Stage 1 milestones](docs/history/STAGE1_MILESTONES.md), [Stage 2 milestones](docs/history/STAGE2_MILESTONES.md) |
 
 ### Unverified / Remaining Boundaries
 
 - **R-2.** The live two-account handoff covered one UUID over daemon RPC.
-  An unrelated concurrent A turn and the interactive `cdx switch` launcher
-  were outside this run. [Verification criteria](docs/ROADMAP.md#7-follow-up-verification-session-handoff-and-session_indexjsonl)
+  The interactive launcher passed a separate isolated native PTY test.
+  Authenticated launcher use and an unrelated concurrent A turn remain open.
+  [Verification criteria](docs/ROADMAP.md#7-follow-up-verification-session-handoff-and-session_indexjsonl)
 - **R-3.** Physical Termux `/copy` long-payload paste-back and external
   `codex remote-control` client pairing remain open.
 - **R-4.** The retired Provider archive is retained because processes map
   files inside it and it holds protected account and session data.
-- **R-5.** The Phase 2.6 read-only canary and restricted physical-device
-  promotion gate remain deferred. [Phase 2.6](docs/ROADMAP.md#3-phase-26--read-only-upstream-discovery-and-qualification)
+- **R-5.** The manual read-only canary passed for the current official stable
+  release. The restricted physical-device promotion gate remains deferred.
+  [Phase 2.6](docs/ROADMAP.md#3-phase-26--read-only-upstream-discovery-and-qualification)
 - **R-6.** Physical power removal and execution on a real 16 KiB kernel
   page-size device remain open. The API 37 device uses 4 KiB pages.
 - **Slice 7B evidence boundaries.** The live device used the configured
@@ -46,6 +48,50 @@ Observed on 2026-11-23.
 ---
 
 ## Recent Verified Evidence (Newest-First)
+
+### 2026-11-23 — Read-only upstream canary and R-3/R-6 checks
+
+- **R-5.** The manual Wrapper workflow ran at `79208c1a` and discovered
+  official stable Codex `0.171.0`. The downloaded evidence reports agree on
+  the exact inputs and archive SHA-256
+  `d8c43bee6cf11b01eb18b95f4d7961092bc40228180808859e70dabb7784c1c9`.
+  The 37-step AArch64 Linux+Bionic qualification passed and confirmed
+  exact-generation rollback on the same version. The release job was skipped.
+  [Canary run](https://github.com/humtr/codex/actions/runs/45185943414)
+  A separate 37-step run on the Android API 37 device qualified the same
+  archive with the installed Wrapper in disposable directories. The fixture
+  exercised Native RPC, PTY startup, daemon restart, and exact rollback. The
+  Wrapper and daemon health checks passed in the account-free fixture.
+- **R-3.** The installed `cdx` forwarded an entire synthetic OSC 52 payload
+  through a Termux PTY. The decoded 102,400 bytes matched the UTF-8 fixture,
+  including its final marker. Physical `/copy` paste-back and external client
+  pairing remain open.
+- **R-6.** All 23 isolated installer recovery cases passed on Android API 37.
+  The installed Wrapper, runtime and both runtime companions passed 16 KiB
+  ELF alignment checks. The observed kernel page size was 4 KiB. Actual power
+  removal and 16 KiB kernel execution remain open.
+
+### 2026-11-23 — Local in-TUI account switch repair
+
+The account-switch build reported `0.1.0` with executable SHA-256
+`55aec6babe339c1eebd536f02f906b1f63dc72d84faeec72a36703a713f55379`.
+In an isolated Termux PTY, official Codex `0.171.0` accepted a `!` account
+switch from `default`, and the same launcher reached a `szob` TUI on the
+same thread UUID. A compiled daemon fixture confirmed that the source TUI
+stays alive until its shell turn clears and that a request from another
+thread still blocks while busy. The local `ai` runtime now delegates native
+interactive launches through `cdx` and reads the existing profile metadata.
+The already-running `ai`, TUI, and app-server process identities were preserved.
+
+The installed `cdx` also includes deferred provider switching. It reports
+`0.1.0` with SHA-256
+`0cc81c7798e43ca5ad06abf720bee0d6d85283cd9bbc1af7aa407883bf0a640a`.
+In an Android PTY test with loopback configurations, `!cdx provider chatgpt`
+opened a new thread under the same launcher and preserved the original daemon.
+Compiled tests covered the caller's shell turn, another active turn, and an
+older launcher. Local replacement preserved the active launcher and daemon
+identities. Deferred provider switching applies to windows opened by the new
+launcher.
 
 ### 2026-11-23 — Provider and Orchestration development version restored on Termux
 

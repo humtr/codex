@@ -272,8 +272,8 @@ cdx profile list                         # list profiles, auth presence, and dae
 cdx profile create work                  # create a new isolated OpenAI OAuth profile
 cdx notify set --enable --events Stop    # configure Termux:API notifications (config.toml Stop / hooks.json extras)
 # Inside Codex TUI (`!` shell):
-!cdx switch szob                         # pre-checks idle daemon, releases writer lock, resumes same thread
-!cdx provider chatgpt                    # switches to ~/.codex with `codex -p chatgpt` (new thread)
+!cdx switch szob                         # from a cdx-launched TUI, waits for its own shell turn and resumes the same thread
+!cdx provider chatgpt                    # waits for its own shell turn, then opens a new ChatGPT thread in this window
 ```
 
 Per-account V2 config (`-p <name>`) reads `<name>.config.toml` from the selected
@@ -350,8 +350,17 @@ Every push or pull request on `main`, `wrapper`, or `rewrite/wrapper` runs:
 3. **`android-smoke` (`ubuntu-24.04-arm`):** provisions pinned Android Runtime APEX `linker64` and Bionic libraries, installs the packaged bundle via `install.sh --skip-upstream`, and executes the real Android binary (`codex update --help`, `codex wrapper status --json`, `codex --sandbox read-only --version`, `codex sandbox linux true`).
 4. **`release` (tag `wrapper`, `wrapper-*`, or `v*`, or manual `workflow_dispatch` with `publish_release=true`):** requires official upstream runtime qualification before signing `SHA256SUMS` + `SHA256SUMS.sig` (Ed25519 with monotonic `sequence`) and publishing the verified bundle, `.sha256`, `install.sh`, `SHA256SUMS`, and `SHA256SUMS.sig`. Publication is serialized per tag and succeeds only after readback verifies the peeled tag commit, notes, prerelease setting, Ed25519 signature, and uploaded asset bytes. A mismatched annotated tag requires manual reconciliation.
 
-Manual verification can also request upstream qualification and supply
-`previous_version` to test upgrade and rollback across two official releases.
+Run the read-only upstream canary on `main` with the existing workflow.
+
+```sh
+gh workflow run wrapper.yml --ref main -f qualify_upstream=true -f publish_release=false
+```
+
+It discovers the latest official stable input by default. Set `upstream_version`
+for an exact version and `previous_version` to qualify a cross-version upgrade
+and rollback. Read the `wrapper-upstream-evidence` artifact for the input and
+qualification reports.
+
 Local `codex update` continues to qualify official OpenAI releases independently
 with built-in SHA-256 (no signing key or `openssl-tool` required). CI with a
 Bionic loader on Linux and actual Android execution remain distinct evidence

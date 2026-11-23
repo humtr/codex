@@ -5,6 +5,8 @@ use std::os::unix::fs::PermissionsExt;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -201,7 +203,16 @@ fn multi_window_disambiguation_and_provider_switch_end_to_end() {
 }
 
 #[test]
-fn busy_daemon_preflight_blocks_switch_without_disturbing_tui() {
+fn busy_daemon_blocks_unrelated_switch_and_defers_the_callers_own_switch() {
+    exercise_deferred_handoff(["switch", "szob"], "resume active-tid-42");
+}
+
+#[test]
+fn provider_handoff_waits_for_its_shell_turn_and_leaves_the_daemon_running() {
+    exercise_deferred_handoff(["provider", "chatgpt"], "-p chatgpt");
+}
+
+fn exercise_deferred_handoff(args: [&str; 2], expected_codex_args: &str) {
     let root = temp_root("cdx-busy");
     let work = root.join("work");
     let tmp = root.join("tmp");
@@ -218,91 +229,106 @@ fn busy_daemon_preflight_blocks_switch_without_disturbing_tui() {
     )
     .unwrap();
 
-    // Minimal mock WS daemon reporting 1 active thread!
+    let active = Arc::new(AtomicBool::new(true));
+    let concurrent_turn = Arc::new(AtomicBool::new(false));
+    let stopped = Arc::new(AtomicBool::new(false));
+    let server_active = Arc::clone(&active);
+    let server_concurrent_turn = Arc::clone(&concurrent_turn);
+    let server_stopped = Arc::clone(&stopped);
     let server = thread::spawn(move || {
-        let (stream, _) = listener.accept().unwrap();
-        let mut writer = stream.try_clone().unwrap();
-        let mut reader = BufReader::new(stream);
-        let mut key = String::new();
-        loop {
-            let mut line = String::new();
-            reader.read_line(&mut line).unwrap();
-            if line.trim().is_empty() {
+        for incoming in listener.incoming() {
+            let stream = incoming.unwrap();
+            if server_stopped.load(Ordering::Acquire) {
                 break;
             }
-            if let Some((k, v)) = line.split_once(':') {
-                if k.trim().eq_ignore_ascii_case("sec-websocket-key") {
-                    key = v.trim().to_owned();
+            let mut writer = stream.try_clone().unwrap();
+            let mut reader = BufReader::new(stream);
+            let mut key = String::new();
+            loop {
+                let mut line = String::new();
+                reader.read_line(&mut line).unwrap();
+                if line.trim().is_empty() {
+                    break;
+                }
+                if let Some((k, v)) = line.split_once(':') {
+                    if k.trim().eq_ignore_ascii_case("sec-websocket-key") {
+                        key = v.trim().to_owned();
+                    }
                 }
             }
-        }
-        // Compute RFC 6455 accept via python3? No, keep test pure Rust using simple handshake helper.
-        // Instead compute SHA-1 inline:
-        let accept = ws_accept(&key);
-        write!(
+            // Compute RFC 6455 accept via python3? No, keep test pure Rust using simple handshake helper.
+            // Instead compute SHA-1 inline:
+            let accept = ws_accept(&key);
+            write!(
             writer,
             "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: {accept}\r\n\r\n"
         )
         .unwrap();
-        writer.flush().unwrap();
+            writer.flush().unwrap();
 
-        loop {
-            let mut hdr = [0u8; 2];
-            if reader.read_exact(&mut hdr).is_err() {
-                break;
-            }
-            let op = hdr[0] & 0x0f;
-            if op == 0x8 {
-                break;
-            }
-            let masked = (hdr[1] & 0x80) != 0;
-            let mut len = (hdr[1] & 0x7f) as usize;
-            if len == 126 {
-                let mut ext = [0u8; 2];
-                reader.read_exact(&mut ext).unwrap();
-                len = u16::from_be_bytes(ext) as usize;
-            }
-            let mut mask = [0u8; 4];
-            if masked {
-                reader.read_exact(&mut mask).unwrap();
-            }
-            let mut data = vec![0u8; len];
-            reader.read_exact(&mut data).unwrap();
-            if masked {
-                for (i, b) in data.iter_mut().enumerate() {
-                    *b ^= mask[i & 3];
+            loop {
+                let mut hdr = [0u8; 2];
+                if reader.read_exact(&mut hdr).is_err() {
+                    break;
                 }
-            }
-            let msg: Value = serde_json::from_slice(&data).unwrap();
-            let method = msg["method"].as_str().unwrap_or("");
-            let id = msg.get("id").and_then(Value::as_u64);
-            let resp = match method {
-                "initialize" => Some(json!({"id": id, "result": {}})),
-                "initialized" => None,
-                "thread/loaded/list" => Some(
-                    json!({"id": id, "result": {"data": ["active-tid-42"], "nextCursor": null}}),
-                ),
-                "thread/read" => Some(json!({
-                    "id": id,
-                    "result": {
-                        "thread": {
-                            "id": "active-tid-42",
-                            "status": {"type": "active", "activeFlags": []},
-                            "cwd": "/tmp"
-                        }
+                let op = hdr[0] & 0x0f;
+                if op == 0x8 {
+                    break;
+                }
+                let masked = (hdr[1] & 0x80) != 0;
+                let mut len = (hdr[1] & 0x7f) as usize;
+                if len == 126 {
+                    let mut ext = [0u8; 2];
+                    reader.read_exact(&mut ext).unwrap();
+                    len = u16::from_be_bytes(ext) as usize;
+                }
+                let mut mask = [0u8; 4];
+                if masked {
+                    reader.read_exact(&mut mask).unwrap();
+                }
+                let mut data = vec![0u8; len];
+                reader.read_exact(&mut data).unwrap();
+                if masked {
+                    for (i, b) in data.iter_mut().enumerate() {
+                        *b ^= mask[i & 3];
                     }
-                })),
-                _ => Some(json!({"id": id, "result": {}})),
-            };
-            if let Some(r) = resp {
-                let bytes = r.to_string().into_bytes();
-                send_ws_unmasked(&mut writer, &bytes);
+                }
+                let msg: Value = serde_json::from_slice(&data).unwrap();
+                let method = msg["method"].as_str().unwrap_or("");
+                let id = msg.get("id").and_then(Value::as_u64);
+                let resp = match method {
+                    "initialize" => Some(json!({"id": id, "result": {}})),
+                    "initialized" => None,
+                    "thread/loaded/list" => {
+                        let mut threads = vec!["active-tid-42"];
+                        if server_concurrent_turn.load(Ordering::Acquire) {
+                            threads.push("other-active-tid");
+                        }
+                        Some(json!({"id": id, "result": {"data": threads, "nextCursor": null}}))
+                    }
+                    "thread/read" => Some(json!({
+                        "id": id,
+                        "result": {
+                            "thread": {
+                                "id": msg["params"]["threadId"],
+                                "status": {"type": if server_active.load(Ordering::Acquire) { "active" } else { "idle" }, "activeFlags": []},
+                                "cwd": "/tmp"
+                            }
+                        }
+                    })),
+                    _ => Some(json!({"id": id, "result": {}})),
+                };
+                if let Some(r) = resp {
+                    let bytes = r.to_string().into_bytes();
+                    send_ws_unmasked(&mut writer, &bytes);
+                }
             }
         }
     });
 
     let trace = root.join("trace.log");
     let fake_codex = make_fake_codex(&root, &trace);
+    fs::write(codex_home.join("chatgpt.config.toml"), "# fixture\n").unwrap();
     Command::new(ext_bin())
         .args(["profile", "create", "szob"])
         .env("HOME", &root)
@@ -311,6 +337,23 @@ fn busy_daemon_preflight_blocks_switch_without_disturbing_tui() {
         .env("CODEX_EXT_CODEX_BIN", &fake_codex)
         .status()
         .unwrap();
+
+    let run_switch = |caller: &str| {
+        let mut command = Command::new(ext_bin());
+        command
+            .args(args)
+            .current_dir(&work)
+            .env("HOME", &root)
+            .env("PREFIX", root.join("usr"))
+            .env("TMPDIR", &tmp)
+            .env("CODEX_EXT_CODEX_BIN", &fake_codex)
+            .env_remove("CODEX_HOME")
+            .env("CODEX_THREAD_ID", caller);
+        command.output().unwrap()
+    };
+    let unmanaged = run_switch("active-tid-42");
+    assert_eq!(unmanaged.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&unmanaged.stderr).contains("no cdx launcher"));
 
     let mut win = Command::new(ext_bin())
         .current_dir(&work)
@@ -323,27 +366,80 @@ fn busy_daemon_preflight_blocks_switch_without_disturbing_tui() {
         .stderr(Stdio::null())
         .spawn()
         .unwrap();
-    let _ = wait_for_session_count(&root.join(".local/state/codex/ext/sessions"), 1);
+    let sessions = root.join(".local/state/codex/ext/sessions");
+    let _ = wait_for_session_count(&sessions, 1);
 
-    let sw = Command::new(ext_bin())
-        .args(["switch", "szob"])
-        .current_dir(&work)
-        .env("HOME", &root)
-        .env("PREFIX", root.join("usr"))
-        .env("TMPDIR", &tmp)
-        .env("CODEX_EXT_CODEX_BIN", &fake_codex)
-        .env_remove("CODEX_HOME")
-        .output()
-        .unwrap();
+    let sw = run_switch("another-thread");
     assert_eq!(sw.status.code(), Some(1));
     let err = String::from_utf8_lossy(&sw.stderr);
     assert!(err.contains("active-tid-42"), "{err}");
 
-    // Parent TUI launcher MUST STILL BE RUNNING untouched!
+    concurrent_turn.store(true, Ordering::Release);
+    let blocked = run_switch("active-tid-42");
+    assert_eq!(blocked.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&blocked.stderr).contains("other-active-tid"));
+    concurrent_turn.store(false, Ordering::Release);
+
+    if args[0] == "provider" {
+        let record_path = sessions.join(format!("{}.json", win.id()));
+        let original = fs::read(&record_path).unwrap();
+        let mut legacy: Value = serde_json::from_slice(&original).unwrap();
+        legacy
+            .as_object_mut()
+            .unwrap()
+            .remove("deferred_provider_switch");
+        fs::write(&record_path, legacy.to_string()).unwrap();
+        let rejected = run_switch("active-tid-42");
+        assert_eq!(rejected.status.code(), Some(2));
+        assert!(String::from_utf8_lossy(&rejected.stderr).contains("older cdx launcher"));
+        assert!(win.try_wait().unwrap().is_none());
+        assert!(!root
+            .join(format!(".local/state/codex/ext/handoff/{}.json", win.id()))
+            .exists());
+        fs::write(&record_path, original).unwrap();
+    }
+
+    let queued = run_switch("active-tid-42");
+    assert!(queued.status.success(), "{:?}", queued);
+    assert!(String::from_utf8_lossy(&queued.stdout).contains("queued"));
+    thread::sleep(Duration::from_millis(350));
     assert!(win.try_wait().unwrap().is_none());
-    let _ = win.kill();
-    let _ = win.wait();
+    assert!(!fs::read_to_string(&trace)
+        .unwrap()
+        .contains("ARGS=app-server"));
+    active.store(false, Ordering::Release);
+    let mut outcome = None;
+    for _ in 0..250 {
+        if let Some(status) = win.try_wait().unwrap() {
+            outcome = Some(status);
+            break;
+        }
+        thread::sleep(Duration::from_millis(20));
+    }
+    if outcome.is_none() {
+        let _ = win.kill();
+        let _ = win.wait();
+    }
+    stopped.store(true, Ordering::Release);
+    let _wake_server = UnixStream::connect(sock_path).unwrap();
     server.join().unwrap();
+    assert!(outcome.is_some_and(|status| status.success()));
+    let actual = fs::read_to_string(&trace).unwrap();
+    let expected_home = if args[0] == "provider" {
+        assert!(!actual.contains("ARGS=app-server"), "{actual}");
+        "DEFAULT".to_owned()
+    } else {
+        root.join(".local/share/codex/manager/profiles/szob/home")
+            .display()
+            .to_string()
+    };
+    assert!(
+        actual
+            .lines()
+            .any(|line| line.starts_with(&format!("HOME={expected_home} "))
+                && line.ends_with(&format!("ARGS={expected_codex_args}"))),
+        "{actual}"
+    );
     let _ = fs::remove_dir_all(&root);
 }
 
