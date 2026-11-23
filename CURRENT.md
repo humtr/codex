@@ -21,7 +21,7 @@ Observed on 2026-11-23.
 | **Active / rollback upstream generation** | Active `0.171.0-d8c43b-2` (`ino=9741792`, SHA-256 `26d9f90b...`). Rollback `0.170.0-3f7e1a-2` | Preserved across Slice 1 signed Wrapper cutover; `wrapper status --verify --json` (`qualified=true`) and `codex doctor --json` (`summary=healthy`) agreed |
 | **Live managed daemons (`default` / `janmori101` / `szob`)** | All three homes aligned to `$HOME/.codex/packages/standalone/current`; `janmori101` & `szob` running | `cdx profile list` sees all 8 profiles (`default` + 7 normalized `codex-manager-profile` homes) |
 | **Live doctor and external services** | `codex doctor --json` reports `summary.status=healthy`. All six Stage 2 services and three `tdev*` services retained their running PIDs during daemon cache reclamation | The retired `0.167.2` archive remains in place with live file mappings and protected account/session data |
-| **Stage 2 progress (Slices 1–7)** | **Released Slice 1–7 baseline** in the unified XDG `codex/` namespace: Slice 1 signed Wrapper live; Slice 2 `$PREFIX/bin/codex-ext` + `cdx` (`c8322d2e...`); Slice 3 `mcp-kit` + `termux-shell-mcp` (`40fe5e54...`) + `tunnel-client v0.0.21` + `runit` 3-state supervision (`termux-shell-tunnel` active); Slice 4 `termux-codex-mcp` (`de46babc...`, `termux-codex-tunnel` active); Slice 5 `host/chatgpt-desktop` (`26.1117.41037`, GPG-verified) + `chatgpt-provider` (`0.1.0+7b`, `de498202...`, `runit` active); Slice 6 `termux-chatgpt-mcp` (`0.1.0+multilane`, `c7aeae57...`, `termux-chatgpt-tunnel` active); **Slice 7 `termux-orch`** (`0.1.0+7b`, `b98190cb...`, `termux-orch-relay` & `termux-orch-tunnel` `runit` active, `@TermuxOrch` connector `asdk_app_6b03de61dd748191bf56fef2b1029a2e` `ACTIVE`) | Six long-running services use `runit`. The four MCP connectors are separate from the CLI, host generation and runner. Candidate acceptance and signed-image activation are recorded separately below. |
+| **Stage 2 progress (Slices 1–7)** | **Released Slice 1–7 baseline** in the unified XDG `codex/` namespace: Slice 1 signed Wrapper live; Slice 2 `$PREFIX/bin/codex-ext` + `cdx` (`c8322d2e...`); Slice 3 `mcp-kit` + `termux-shell-mcp` (`40fe5e54...`) + `tunnel-client v0.0.21` + `runit` 3-state supervision (`termux-shell-tunnel` active); Slice 4 `termux-codex-mcp` (`de46babc...`, `termux-codex-tunnel` active); Slice 5 `host/chatgpt-desktop` (`26.1117.41037`, GPG-verified) + `chatgpt-provider` (`0.1.1`, `9a605a9a...`, `runit` active); Slice 6 `termux-chatgpt-mcp` (`0.1.0+multilane`, `c7aeae57...`, `termux-chatgpt-tunnel` active); **Slice 7 `termux-orch`** (`0.1.1`, `af45aedf...`, `termux-orch-relay` & `termux-orch-tunnel` `runit` active, `@TermuxOrch` connector `asdk_app_6b03de61dd748191bf56fef2b1029a2e` `ACTIVE`) | Six long-running services use `runit`. The four MCP connectors are separate from the CLI, host generation and runner. Candidate acceptance and signed-image activation are recorded separately below. |
 | **Milestone records** | Stage 1 WP0–WP6 and Stage 2 Slices 1–7 are archived | [Stage 1 milestones](docs/history/STAGE1_MILESTONES.md), [Stage 2 milestones](docs/history/STAGE2_MILESTONES.md) |
 
 ### Unverified / Remaining Boundaries
@@ -46,6 +46,37 @@ Observed on 2026-11-23.
 ---
 
 ## Recent Verified Evidence (Newest-First)
+
+### 2026-11-23 — Signed Provider and Orchestration 0.1.1 active on Termux
+
+- Release source `d6b6247d93e9bf37c10d1899db459359cccc12e8` passed the
+  Provider, Orchestration, and Wrapper push workflows. Publication and
+  independent device readback matched the pinned Ed25519 key, exact tag
+  commit, archive checksum, and inner binary checksum for each release.
+  [Provider release run](https://github.com/humtr/codex/actions/runs/45169130369) ·
+  [Orchestration release run](https://github.com/humtr/codex/actions/runs/45169130746)
+- Provider signed sequence `8` runs as PID `16214` (start ticks `20432747`).
+  The Provider and AppHost supervisor executables both matched
+  `9a605a9a55da7ef006c782e04489a15e689edb15db202e67cdd3ee4c7ccc90a0`.
+  The downloaded binary passed nine isolated Android shutdown cases and the
+  bundled account-free probe. At cutover all 22 recorded previous Provider
+  tree identities retired. The same authenticated account reached
+  `completion_ready=true`; read-only TermuxChatGPT status confirmed it.
+- Orchestration signed sequence `5` runs in the relay as PID `18798` (start
+  ticks `20436370`) and as the MCP child of tunnel runner PID `19012` (start
+  ticks `20436508`). Both relay and MCP child matched
+  `af45aedf74907781e893801f7371310289ac6660b43b7bd352e5db85c3dece1a`.
+  The signed isolated smoke verified detached Shell identity and exit
+  receipts, Wait-Set delivery, and the notification-only cursor. Live
+  relay health, tunnel readiness, Work listing, and five extension schemas
+  passed. Live Work state stayed empty.
+- Both components retain `0.1.0+7b` as their previous generation. The
+  three other MCP tunnel process identities and the two existing managed
+  Codex daemon identities were preserved. The final process scan found
+  zero zombies. Connected checks exercised read-only calls with the existing
+  account. Candidate model-backed Work execution remains an additional
+  acceptance boundary.
+  [Remaining operational verification](docs/ROADMAP.md#8-remaining-operational-and-physical-verification)
 
 ### 2026-11-23 — Slice 5, Slice 7 and product completion audit
 
@@ -98,8 +129,7 @@ Observed on 2026-11-23.
 - The account-free manager probe booted one page target through the same
   candidate. Rust tests passed under umasks `0022` and `0077`. Formatting,
   Clippy, four Python tests, eight JavaScript tests, and local document links
-  passed. The candidate was exercised separately from the installed service.
-  The signed release and activation boundaries are open.
+  passed. These checks preceded the signed release and activation recorded above.
   [Audit and acceptance design](docs/history/APPHOST_SHUTDOWN_AUDIT_20261123.md)
 
 ### 2026-11-23 — Stage 2 work order closeout

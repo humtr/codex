@@ -35,6 +35,10 @@ for the product contract, and [ROADMAP.md](../ROADMAP.md) for open verification.
 
 ## R-1 Signed Stage 2 releases
 
+The first seven Stage 2 releases are recorded here. The subsequent [signed
+Provider and Orchestration 0.1.1 deployment](../../CURRENT.md#2026-11-23--signed-provider-and-orchestration-011-active-on-termux)
+advanced only those two stable tags and their device generations.
+
 All seven stable releases were dispatched from `main` at
 `f3c9334ef3e31679ce0323bf5bf9786f69546c41` with `publish_release=true`.
 That commit fixes the Termux-Orch publish step's publisher arguments and
