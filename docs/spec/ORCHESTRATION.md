@@ -155,6 +155,16 @@ State root: `~/.local/state/codex/orchestration/jobs/<work_id>/` (`0700`,
   records the returned turn ID. Settlement uses that turn's terminal state
   and result. Older attached records can observe the latest turn in their
   bound thread.
+- **Verification and completion:** A registered verifier supplies a result
+  separately from the terminal status of its turn. A model verifier returns
+  the assigned challenge, a `pass`, `fail`, or `inconclusive` verdict, and
+  evidence references. A shell verifier uses the owner exit receipt. The
+  Work binds verification to the goal, criteria, and worker results it was
+  registered to check. New or changed worker results and scope require fresh
+  verification. `orch_report(complete)` requires all participants to be
+  settled and the latest verifier for each registered check to have passed
+  for the current subject. Older completed Works remain readable. A missing
+  or unverified legacy verdict in an active Work requires a fresh check.
 - **Hard Circuit Breakers:** `R` enforces `max_wakeups` (default `20`),
   `max_wall_secs`, `max_concurrent_workers`, minimum wake-up cooldown, and
   `event_id` idempotency. On budget exhaustion, `R` transitions the `Work` to

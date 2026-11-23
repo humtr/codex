@@ -278,6 +278,65 @@ impl Drop for Relay {
 }
 
 #[test]
+fn completion_requires_verification_of_the_current_work() {
+    let root = tmp_dir("termux-orch-review");
+    let state = root.join("state");
+    let command = || {
+        let mut command = Command::new(bin_path());
+        command
+            .env("ORCH_STATE_DIR", &state)
+            .env("ORCH_RECEIPT_DIR", root.join("receipts"))
+            .env("CHATGPT_PROVIDER_URL", "http://127.0.0.1:1");
+        command
+    };
+    let mut mcp = Mcp::start(&mut command());
+    let work = mcp.call(
+        "orch_work",
+        json!({"action":"create", "call_id":"create-review-work",
+        "title":"Review", "goal":"Initial goal", "tier":"direct"}),
+    );
+    let id = work["work_id"].as_str().unwrap();
+    let complete = |mcp: &mut Mcp| {
+        mcp.call(
+            "orch_report",
+            json!({"action":"complete", "call_id":"complete-review-work",
+            "work_id":id, "summary":"Verified", "flush_now":false}),
+        )
+    };
+    for (call, verifier, script) in [
+        ("verify-first", "V1", "test 2 -eq 2"),
+        ("verify-again", "V2", "test 3 -eq 3"),
+    ] {
+        let registered = mcp.call(
+            "orch_dispatch",
+            json!({"action":"register_verifier", "call_id":call,
+            "work_id":id, "backend":"shell", "slug":"tests", "command":script}),
+        );
+        assert_eq!(registered["state"], "ok", "{registered}");
+        assert_eq!(complete(&mut mcp)["error"], "participants_active");
+        let exit = state
+            .join("jobs")
+            .join(id)
+            .join("shell")
+            .join(format!("{verifier}.exit.json"));
+        assert_eq!(wait_for(|| json_file(&exit))["exit_code"], 0);
+        assert!(command().arg("tick").output().unwrap().status.success());
+        if verifier == "V1" {
+            let changed = mcp.call(
+                "orch_work",
+                json!({"action":"update_scope", "call_id":"new-scope",
+                "work_id":id, "goal":"Changed goal"}),
+            );
+            assert_eq!(changed["state"], "ok", "{changed}");
+            assert_eq!(complete(&mut mcp)["error"], "verification_required");
+        }
+    }
+    assert_eq!(complete(&mut mcp)["work_state"], "completed");
+    drop(mcp);
+    fs::remove_dir_all(&root).unwrap();
+}
+
+#[test]
 fn detached_shell_restart_barrier_kill_and_authenticated_immediate_wake() {
     use std::os::unix::fs::PermissionsExt;
     use std::time::{Duration, Instant};

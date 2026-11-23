@@ -13,8 +13,8 @@
 //!    dispatch.
 
 use crate::ledger::{
-    generate_id, now_unix, truncate_chars, DeliveryDispatch, InboxEvent, Ledger, PendingDelivery,
-    WorkRecord,
+    generate_id, now_unix, truncate_chars, DeliveryDispatch, InboxEvent, Ledger, Participant,
+    PendingDelivery, Verdict, WorkRecord,
 };
 use crate::owners::OwnerClient;
 use serde_json::json;
@@ -153,7 +153,17 @@ impl RelayEngine {
                 }
             }
 
+            // A worker settling in this tick changes the subject of an earlier review.
+            newly_settled.sort_by_key(|(idx, _, _)| work.participants[*idx].role == "verifier");
             for (idx, next_state, text) in newly_settled {
+                let review = (work.participants[idx].role == "verifier").then(|| {
+                    verifier_result(
+                        &work.participants[idx],
+                        &work.verification_subject(),
+                        &next_state,
+                        &text,
+                    )
+                });
                 let p = &mut work.participants[idx];
                 p.state = next_state.clone();
                 p.result_summary = Some(truncate_chars(&text, 1500));
@@ -163,16 +173,20 @@ impl RelayEngine {
                 let ref_id = p.ref_id.clone();
                 let role = p.role.clone();
                 let slug = p.slug.clone();
-                let event_kind = if role == "verifier" {
-                    if next_state == "completed" {
-                        "verifier.passed"
-                    } else {
-                        "verifier.rejected"
+                let event_kind = match review {
+                    Some((verdict, evidence)) => {
+                        if let Some(verification) = p.verification.as_mut() {
+                            verification.verdict = Some(verdict);
+                            verification.evidence = evidence;
+                        }
+                        match verdict {
+                            Verdict::Pass => "verifier.passed",
+                            Verdict::Fail => "verifier.rejected",
+                            Verdict::Inconclusive => "verifier.inconclusive",
+                        }
                     }
-                } else if next_state == "completed" {
-                    "worker.completed"
-                } else {
-                    "worker.failed"
+                    None if next_state == "completed" => "worker.completed",
+                    None => "worker.failed",
                 };
                 let ev_id = format!("settle:{pid}:{ref_id}");
                 let ev_summary = format!(
@@ -592,6 +606,46 @@ impl RelayEngine {
 enum DeliveryOutcome {
     Delivered,
     Defer(String),
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ModelVerdict {
+    challenge: String,
+    verdict: Verdict,
+    evidence: Vec<String>,
+}
+
+fn verifier_result(
+    p: &Participant,
+    subject: &str,
+    state: &str,
+    text: &str,
+) -> (Verdict, Vec<String>) {
+    let unverified = (Verdict::Inconclusive, Vec::new());
+    let Some(verification) = p.verification.as_ref().filter(|v| v.subject == subject) else {
+        return unverified;
+    };
+    if p.backend == "shell" && state == "completed" {
+        return (Verdict::Pass, vec![format!("shell/{}.exit.json", p.ref_id)]);
+    }
+    if state != "completed" {
+        return unverified;
+    }
+    let Ok(result) = serde_json::from_str::<ModelVerdict>(text.trim()) else {
+        return unverified;
+    };
+    if result.challenge != verification.challenge
+        || result.evidence.is_empty()
+        || result.evidence.len() > 20
+        || result
+            .evidence
+            .iter()
+            .any(|r| r.trim().is_empty() || r.len() > 400)
+    {
+        return unverified;
+    }
+    (result.verdict, result.evidence)
 }
 
 pub fn enqueue_delivery_if_absent(work: &mut WorkRecord, del: PendingDelivery) {

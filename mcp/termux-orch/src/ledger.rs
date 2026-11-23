@@ -195,6 +195,22 @@ pub struct LeadBinding {
     pub rollover_internal_turns: u32,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Verdict {
+    Pass,
+    Fail,
+    Inconclusive,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Verification {
+    pub subject: String,
+    pub challenge: String,
+    pub verdict: Option<Verdict>,
+    pub evidence: Vec<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Participant {
     pub participant_id: String,
@@ -214,6 +230,8 @@ pub struct Participant {
     /// `"running"`, `"completed"`, `"failed"`, `"cancelled"`
     pub state: String,
     pub result_summary: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub verification: Option<Verification>,
     pub created_at_unix: u64,
     pub updated_at_unix: u64,
 }
@@ -366,6 +384,31 @@ impl WorkRecord {
             .iter()
             .filter(|p| p.role == "worker" && !p.is_terminal())
             .count() as u32
+    }
+
+    pub fn verification_subject(&self) -> String {
+        let workers: Vec<_> = self
+            .participants
+            .iter()
+            .filter(|p| p.role == "worker")
+            .map(|p| (&p.participant_id, &p.ref_id, &p.turn_id, &p.state))
+            .collect();
+        let subject = serde_json::json!([self.goal, self.completion_criteria, workers]);
+        mcp_kit::sha256_hex(subject.to_string().as_bytes())
+    }
+
+    pub fn verification_passed(&self) -> bool {
+        let subject = self.verification_subject();
+        let mut checked = std::collections::HashSet::new();
+        self.participants
+            .iter()
+            .rev()
+            .filter(|p| p.role == "verifier" && checked.insert(&p.slug))
+            .all(|p| {
+                p.verification
+                    .as_ref()
+                    .is_some_and(|v| v.subject == subject && v.verdict == Some(Verdict::Pass))
+            })
     }
 
     pub fn next_role_index(&self, role: &str) -> u32 {

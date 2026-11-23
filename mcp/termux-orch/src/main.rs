@@ -382,6 +382,9 @@ mod tests {
                                 } else {
                                     json!({"state":"settled","chat_id":cid,"generating":false,"remote_stream_status":"COMPLETE"})
                                 }
+                            } else if cid == "chat-verifier" {
+                                json!({"state":"settled","chat_id":cid,"generating":false,
+                                    "assistant_text":"REJECTED: fixture found a regression"})
                             } else if cid == "chat-w1" {
                                 if st.worker_settled {
                                     json!({"state":"settled","chat_id":cid,"generating":false,"assistant_text":"WORKER_1_DONE_OK"})
@@ -596,6 +599,29 @@ mod tests {
             }),
         );
         assert!(!error, "{queued}");
+
+        let review_id = second["work_id"].as_str().unwrap();
+        let (verifier, error) = handler.call_tool(
+            "orch_dispatch",
+            &json!({"action":"register_verifier", "call_id":"rejected-review",
+                "work_id":review_id, "backend":"chatgpt", "ref_id":"chat-verifier"}),
+        );
+        assert!(!error, "{verifier}");
+        RelayEngine::new(ledger.clone(), owners.clone())
+            .process_work(review_id)
+            .unwrap();
+        let (report, error) = handler.call_tool(
+            "orch_report",
+            &json!({"action":"complete", "call_id":"rejected-completion",
+                "work_id":review_id, "summary":"All verified", "flush_now":false}),
+        );
+        assert!(error, "an unverified Work must not complete: {report}");
+        assert_eq!(report["error"], "verification_required");
+        assert!(ledger
+            .read_events(review_id, 0, 100)
+            .unwrap()
+            .iter()
+            .all(|event| event.kind != "verifier.passed"));
 
         // 8. Lead submits complete report while F2 is streaming on mobile -> deferred (PENDING_DELIVERY)!
         let (rep, is_err) = handler.call_tool(

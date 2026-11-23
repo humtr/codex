@@ -14,7 +14,7 @@ use crate::ledger::{
     format_front_title, format_lead_title, format_participant_title, generate_id, is_safe_work_id,
     now_unix, read_private_file, truncate_chars, write_atomic_private, FrontBinding,
     FrontHistoryEntry, LeadBinding, LeadHistoryEntry, Ledger, Participant, PendingDelivery,
-    ProjectBinding, SessionPrefixes, WaitSet, WorkBudget, WorkRecord, WORK_SCHEMA,
+    ProjectBinding, SessionPrefixes, Verification, WaitSet, WorkBudget, WorkRecord, WORK_SCHEMA,
 };
 use crate::owners::OwnerClient;
 use crate::relay::{enqueue_delivery_if_absent, RelayEngine};
@@ -1480,6 +1480,12 @@ impl OrchMcpHandler {
         let participant_id = format!("{tag}{index}");
         let session_title =
             format_participant_title(&work.session_prefixes, role, index, slug, task_summary);
+        let verification = (role == "verifier").then(|| Verification {
+            subject: work.verification_subject(),
+            challenge: generate_id("verify"),
+            verdict: None,
+            evidence: Vec::new(),
+        });
 
         let existing = obj
             .get("ref_id")
@@ -1550,6 +1556,22 @@ impl OrchMcpHandler {
                     ),
                     false,
                 );
+            };
+            let verifier_prompt;
+            let prompt = if let Some(verification) = &verification {
+                let result = json!({
+                    "challenge": verification.challenge,
+                    "verdict": "pass|fail|inconclusive",
+                    "evidence": ["exact artifact or test result inspected"]
+                });
+                verifier_prompt = format!(
+                    "{prompt}\n\nReview the requested subject without making changes. Return only \
+                     a JSON object of this shape: {result}. Use one verdict, repeat the challenge \
+                     verbatim, and cite concrete evidence in a non-empty array."
+                );
+                verifier_prompt.as_str()
+            } else {
+                prompt
             };
             match backend {
                 "codex" => {
@@ -1630,6 +1652,7 @@ impl OrchMcpHandler {
             call_id,
             state: "running".to_owned(),
             result_summary: None,
+            verification,
             created_at_unix: now,
             updated_at_unix: now,
         };
@@ -1915,6 +1938,26 @@ impl OrchMcpHandler {
                 };
                 if let Err(e) = check_lead_fence(&work, obj, true) {
                     return (e, false);
+                }
+                if work.is_terminal() {
+                    return (fail("work_already_terminal", &work.state), false);
+                }
+                if action == "complete" {
+                    if work.participants.iter().any(|p| !p.is_terminal()) {
+                        return (
+                            fail("participants_active", "All participants must settle"),
+                            false,
+                        );
+                    }
+                    if !work.verification_passed() {
+                        return (
+                            fail(
+                                "verification_required",
+                                "A current passing verdict is required",
+                            ),
+                            false,
+                        );
+                    }
                 }
                 if let Some(cp) = obj.get("checkpoint_md").and_then(Value::as_str) {
                     let _ = self.ledger.write_checkpoint(wid, cp);
