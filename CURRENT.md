@@ -21,7 +21,7 @@ Observed on 2026-11-24.
 | **Active / rollback upstream generation** | Active `0.171.0-d8c43b-2` (`ino=9741792`, SHA-256 `26d9f90b...`). Rollback `0.170.0-3f7e1a-2` | Preserved across Slice 1 signed Wrapper cutover; `wrapper status --verify --json` (`qualified=true`) and `codex doctor --json` (`summary=healthy`) agreed |
 | **Live managed daemons (`default` / `janmori101` / `szob`)** | All three homes aligned to `$HOME/.codex/packages/standalone/current`; `janmori101` & `szob` running | `cdx profile list` sees all 8 profiles (`default` + 7 normalized `codex-manager-profile` homes) |
 | **Live doctor and external services** | `codex doctor --json` reports `summary.status=healthy`. All six Stage 2 services and three `tdev*` services retained their running PIDs during daemon cache reclamation | The retired `0.167.2` archive remains in place with protected account/session data |
-| **Stage 2 progress (Slices 1–7)** | **Released Slice 1–7 baseline** in the unified XDG `codex/` namespace: Slice 1 signed Wrapper live; Slice 2 signed `$PREFIX/bin/codex-ext` + `cdx` (`0.1.0`, `18df3e03...`); Slice 3 `mcp-kit` + `termux-shell-mcp` (`9a0612a7...`) + `tunnel-client v0.0.21` + `runit` 3-state supervision (`termux-shell-tunnel` active); Slice 4 `termux-codex-mcp` (`77e361b0...`, `termux-codex-tunnel` active); Slice 5 `host/chatgpt-desktop` (`26.1117.41037`, GPG-verified) + `chatgpt-provider` (`0.1.0+7b`, `267108e6...`, `runit` active); Slice 6 `termux-chatgpt-mcp` (`0.1.0`, `c4953906...`, `termux-chatgpt-tunnel` active); **Slice 7 `termux-orch`** (`0.1.0+7b`, `ddede475...`, `termux-orch-relay` & `termux-orch-tunnel` `runit` active, `@TermuxOrch` connector `asdk_app_6b03de61dd748191bf56fef2b1029a2e` `ACTIVE`) | Six long-running services use `runit`. The four MCP connectors are separate from the CLI, host generation and runner. Provider and Orch both run signed generation `0.1.0+7b-51a710c2`. |
+| **Stage 2 progress (Slices 1–7)** | **Released Slice 1–7 baseline** in the unified XDG `codex/` namespace: Slice 1 signed Wrapper live; Slice 2 signed `$PREFIX/bin/codex-ext` + `cdx` (`0.1.0`, `59c660fe...`); Slice 3 `mcp-kit` + `termux-shell-mcp` (`84f4082b...`) + `tunnel-client v0.0.21` + `runit` 3-state supervision (`termux-shell-tunnel` active); Slice 4 `termux-codex-mcp` (`77e361b0...`, `termux-codex-tunnel` active); Slice 5 `host/chatgpt-desktop` (`26.1117.41037`, GPG-verified) + `chatgpt-provider` (`0.1.0+7b`, `267108e6...`, `runit` active); Slice 6 `termux-chatgpt-mcp` (`0.1.0`, `c4953906...`, `termux-chatgpt-tunnel` active); **Slice 7 `termux-orch`** (`0.1.0+7b`, `226478a9...`, `termux-orch-relay` & `termux-orch-tunnel` `runit` active, `@TermuxOrch` connector `asdk_app_6b03de61dd748191bf56fef2b1029a2e` `ACTIVE`) | Six long-running services use `runit`. The four MCP connectors are separate from the CLI, host generation and runner. Provider runs `0.1.0+7b-51a710c2`. Orch relay and tunnel MCP run signed generation `0.1.0+7b+d3d24d11`. |
 | **Milestone records** | Stage 1 WP0–WP6 and Stage 2 Slices 1–7 are archived | [Stage 1 milestones](docs/history/STAGE1_MILESTONES.md), [Stage 2 milestones](docs/history/STAGE2_MILESTONES.md) |
 
 ### Unverified / Remaining Boundaries
@@ -53,6 +53,23 @@ Observed on 2026-11-24.
 ---
 
 ## Recent Verified Evidence (Newest-First)
+
+### 2026-11-24 — Signed independent-audit fixes activated
+
+`d3d24d11` was promoted as `cdx` sequence 9, Shell MCP sequence 7, and
+Orch sequence 9. The Shell tunnel restarted. Orch relay and tunnel changed
+generation together. The Provider and Codex and ChatGPT tunnels retained
+their process identities. All eight public signed artifacts matched the
+installed executable hashes, all four live MCP child images matched,
+and the Wrapper remained qualified with doctor reporting healthy.
+
+Four terminal Work records and twelve ledger files retained their hashes
+through activation. On a disposable copy, the candidate processed all four
+records with zero errors, and the prior Orch generation read the same
+unchanged records afterward. A separate isolated Work proved additive field
+preservation on a real MCP update. Schema-changing rollback and authenticated
+cross-device scenarios retain their earlier qualification boundaries.
+[Evidence and signed digests](docs/history/PRODUCT_POST_DEPLOY_AUDIT_20261124.md#signed-rollout-of-regression-fixes)
 
 ### 2026-11-24 — Independent review follow-up and repeat device audit
 

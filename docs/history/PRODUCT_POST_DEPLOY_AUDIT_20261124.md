@@ -131,3 +131,42 @@ When a completed shell command cannot settle its receipt, the existing
 `delivery_unknown` behavior prevents re-execution. Schema-changing
 rollback to previously released Orch binaries requires separate
 qualification.
+
+## Signed rollout of regression fixes
+
+All eight CI workflows for `d3d24d116985eb8c13bafb77d63ac625c9308ece`
+succeeded, including the three signed publishing runs. The public tags,
+pinned Ed25519 signatures, sequence numbers, archive digests, and inner
+binary digests were verified before activation.
+
+| Component | Sequence | Archive SHA-256 | Installed binary SHA-256 | Retained generation |
+| --- | ---: | --- | --- | --- |
+| [`codex-ext`](https://github.com/humtr/codex/actions/runs/45396885793) | 9 | `8c94e39d154cd0e1440396f784784cae4465b552abe86387fb2d9191601dd530` | `59c660fe694538158b22927e5569773b1e05b64c01e807ce08e24be9ea6e0430` | `0.1.0-ff2cafbf` |
+| [`termux-shell-mcp`](https://github.com/humtr/codex/actions/runs/45396886102) | 7 | `36bf962001391aba3052298fd10029bb6e3dc6eb4e1c6088f40fe0eacb0d0834` | `84f4082b5ede613c6adc02f04dc02b1ca0ecf7a839ca45b898ae1120709475a5` | `0.1.0+ff2cafbf` |
+| [`termux-orch`](https://github.com/humtr/codex/actions/runs/45396885883) | 9 | `20f1d3d14ee7f2205f26b4b6c356ccead233f0be69c5cc73e6cd028f2aac81fa` | `226478a9e1e28153a65176fe3bfe9837fee1c069a5a76bf79e414149053bca67` | `0.1.0+7b-51a710c2` |
+
+On Android, `cdx` was replaced atomically. The old binary remained in
+its signed generation. The Shell tunnel restarted and the Orch relay and
+tunnel were stopped and restarted as one generation. Both Orch consumers
+used the same signed bytes. The three unrelated services retained their
+PID and start ticks. Local probes confirmed all six services active,
+and direct `/proc/<pid>/exe` readback matched the public binary digests
+for the four MCP children. A fresh readback found eight installed binaries
+matching the eight public releases. Wrapper status remained qualified and
+doctor remained healthy.
+
+The signed `cdx` candidate preserved the first accepted request on five
+of five forced early exits and rejected concurrent requests in both
+the exit and teardown fixtures. Shell preserved both 64 KiB binary
+streams and replayed the receipt, and five concurrent requests with the
+same call ID caused one filesystem effect. The installed Orch MCP passed
+isolated Work creation, readback, and a milestone write that preserved
+an extra field.
+
+The rollout compared twelve existing ledger files before and after, with
+identical SHA-256 for every file. The prior and new Orch generations read
+all four terminal Works on a disposable copy. The candidate's tick
+processed four records with zero errors and left the copy unchanged. This
+exercises rollback reads for the present data and generation pair. Future
+schema-changing rollback and authenticated model workflows remain separate
+checks.
