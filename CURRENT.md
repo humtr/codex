@@ -21,7 +21,7 @@ Observed on 2026-11-24.
 | **Active / rollback upstream generation** | Active `0.171.0-d8c43b-2` (`ino=9741792`, SHA-256 `26d9f90b...`). Rollback `0.170.0-3f7e1a-2` | Preserved across Slice 1 signed Wrapper cutover; `wrapper status --verify --json` (`qualified=true`) and `codex doctor --json` (`summary=healthy`) agreed |
 | **Live managed daemons (`default` / `janmori101` / `szob`)** | All three homes aligned to `$HOME/.codex/packages/standalone/current`; `janmori101` & `szob` running | `cdx profile list` sees all 8 profiles (`default` + 7 normalized `codex-manager-profile` homes) |
 | **Live doctor and external services** | `codex doctor --json` reports `summary.status=healthy`. All six Stage 2 services and three `tdev*` services retained their running PIDs during daemon cache reclamation | The retired `0.167.2` archive remains in place with protected account/session data |
-| **Stage 2 progress (Slices 1–7)** | **Released Slice 1–7 baseline** in the unified XDG `codex/` namespace: Slice 1 signed Wrapper live; Slice 2 signed `$PREFIX/bin/codex-ext` + `cdx` (`0.1.0`, `82991f03...`); Slice 3 `mcp-kit` + `termux-shell-mcp` (`0e872fbd...`) + `tunnel-client v0.0.21` + `runit` 3-state supervision (`termux-shell-tunnel` active); Slice 4 `termux-codex-mcp` (`77e361b0...`, `termux-codex-tunnel` active); Slice 5 `host/chatgpt-desktop` (`26.1117.41037`, GPG-verified) + `chatgpt-provider` (`0.1.0+7b`, `267108e6...`, `runit` active); Slice 6 `termux-chatgpt-mcp` (`0.1.0`, `c4953906...`, `termux-chatgpt-tunnel` active); **Slice 7 `termux-orch`** (`0.1.0+7b`, `ddede475...`, `termux-orch-relay` & `termux-orch-tunnel` `runit` active, `@TermuxOrch` connector `asdk_app_6b03de61dd748191bf56fef2b1029a2e` `ACTIVE`) | Six long-running services use `runit`. The four MCP connectors are separate from the CLI, host generation and runner. Provider and Orch both run signed generation `0.1.0+7b-51a710c2`. |
+| **Stage 2 progress (Slices 1–7)** | **Released Slice 1–7 baseline** in the unified XDG `codex/` namespace: Slice 1 signed Wrapper live; Slice 2 signed `$PREFIX/bin/codex-ext` + `cdx` (`0.1.0`, `18df3e03...`); Slice 3 `mcp-kit` + `termux-shell-mcp` (`9a0612a7...`) + `tunnel-client v0.0.21` + `runit` 3-state supervision (`termux-shell-tunnel` active); Slice 4 `termux-codex-mcp` (`77e361b0...`, `termux-codex-tunnel` active); Slice 5 `host/chatgpt-desktop` (`26.1117.41037`, GPG-verified) + `chatgpt-provider` (`0.1.0+7b`, `267108e6...`, `runit` active); Slice 6 `termux-chatgpt-mcp` (`0.1.0`, `c4953906...`, `termux-chatgpt-tunnel` active); **Slice 7 `termux-orch`** (`0.1.0+7b`, `ddede475...`, `termux-orch-relay` & `termux-orch-tunnel` `runit` active, `@TermuxOrch` connector `asdk_app_6b03de61dd748191bf56fef2b1029a2e` `ACTIVE`) | Six long-running services use `runit`. The four MCP connectors are separate from the CLI, host generation and runner. Provider and Orch both run signed generation `0.1.0+7b-51a710c2`. |
 | **Milestone records** | Stage 1 WP0–WP6 and Stage 2 Slices 1–7 are archived | [Stage 1 milestones](docs/history/STAGE1_MILESTONES.md), [Stage 2 milestones](docs/history/STAGE2_MILESTONES.md) |
 
 ### Unverified / Remaining Boundaries
@@ -53,6 +53,25 @@ Observed on 2026-11-24.
 ---
 
 ## Recent Verified Evidence (Newest-First)
+
+### 2026-11-24 — Independent review follow-up and repeat device audit
+
+Signed `cdx` sequence 8 and Shell MCP sequence 6 from `ff2cafbf` are
+installed. Shell alone restarted and retained its prior signed generation.
+The other five services retained their PID and start ticks. The device audit
+matched all eight downloaded signed archives to installed hashes and
+verified the four live MCP child images. The Wrapper reports healthy and
+qualified. The source-only supervisor correction is at `c4f307b0`.
+
+The repeat audit passed 269 tests across 13 suites and a separate on-device
+`runsv` two-service rollback fixture. The installed Shell MCP settled both
+64 KiB binary streams losslessly and five concurrent calls with one call ID
+produced one filesystem effect. The installed `cdx` rejected a mismatched
+process identity and resumed once in an isolated launcher fixture. An
+account-free AppHost probe reached one renderer and returned after clean
+supervisor shutdown. Authenticated and remote checks retain their recorded
+qualification status.
+[Evidence and release digests](docs/history/PRODUCT_POST_DEPLOY_AUDIT_20261124.md#independent-review-follow-up)
 
 ### 2026-11-24 — Product post-deployment audit
 

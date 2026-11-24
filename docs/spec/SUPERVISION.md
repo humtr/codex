@@ -46,6 +46,9 @@ services (`termux-shell-tunnel`, `termux-codex-tunnel`, `chatgpt-provider`,
   (such as `curl -fsS http://127.0.0.1:4319/healthz`) cleanly; command timeouts
   are treated fail-closed (`readiness_ok=false` in `status`, deferred busy
   guard or automatic rollback in `activate`) rather than crashing the CLI.
+  For a tunnel with a dynamically assigned port, the readiness command
+  reads the service's current `health.url` on each invocation before probing
+  `/readyz`.
 
 ---
 
@@ -65,6 +68,9 @@ It reports three independent fields:
    - `pending_activation`: `selected_generation` differs from the running
      process image (e.g. deferred due to active work or awaiting restart).
    - `stopped` / `not_enrolled` / `error`.
+
+Runit reports the logger separately. A live logger leaves a stopped service
+in `stopped` with no running service PID.
 
 ---
 

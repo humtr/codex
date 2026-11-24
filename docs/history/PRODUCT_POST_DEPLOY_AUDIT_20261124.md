@@ -57,3 +57,50 @@ reported the existing `janmori101` daemon running through local stdio and the
 connector. The first connector read produced no parseable result, and a
 read-only retry succeeded. The ChatGPT connector reported authenticated and
 ready, and Orch listed all four existing completed Works.
+
+## Independent review follow-up
+
+The three independent review commits were applied as `1789e029`,
+`a1c780da` and `3c111174`. Follow-up commits `1a871fa1`, `e026e974`,
+`ff2cafbf` and `c4f307b0` addressed issues observed in review and during
+the actual device activation.
+
+| Area | Final decision and evidence |
+| --- | --- |
+| `cdx` handoff | The launcher and writer use the same lock to serialize registration and admission. The launcher polls its generation-bound mailbox and closes admission before TUI teardown. Existing older launchers can still receive the legacy signal. The installed binary rejected a ticket with mismatched start ticks, resumed the requested thread exactly once with a fixture Codex, and removed registration and the ticket. |
+| Shell MCP | The capture threads use one 100 ms deadline. When control-byte escaping exceeds the receipt limit, only the text previews shrink. The installed release settled and replayed both 65,536-byte NUL streams with exact Base64, returned both untruncated tails on clean EOF in 68 ms, and kept captured output when a 1,000 ms timeout killed the process group. Five separate MCP processes using one call ID produced one side effect. |
+| Supervision | Coordinated activation stops the old service cohort before changing selection and starts the relay before the tunnel. A live logger caused the initial device cutover to stop before changing selection. The status parser now reads the service segment separately from the logger and has a regression test. The next attempt safely rolled back when the readiness probe used the old port. The successful attempt read the dynamic `health.url` on every check. An isolated Android `runsv` fixture exercised two actual services, a busy deferral, a successful cutover, and readiness-failure rollback while retaining the distinct previous link. |
+
+Both release tags point to `ff2cafbf45dbc09c276011b98bbe69252f65bfb6`.
+The downloads passed the pinned Ed25519 signature, outer archive checksum
+and inner binary checksum before installation. The source-only
+`runit_service.py` parser fix passed its separate CI workflow.
+[Supervision CI](https://github.com/humtr/codex/actions/runs/45363745217)
+
+| Component | Sequence | Archive SHA-256 | Installed binary SHA-256 | Retained rollback |
+| --- | ---: | --- | --- | --- |
+| [`cdx`](https://github.com/humtr/codex/actions/runs/45361685011) | 8 | `f05796403ee14e6c4ea1328493605a55c5f147d8abee01e257274902799d35f4` | `18df3e038d5f2520ddbb0db5d3c110637acd2ee28874c64ec3e76964e9d527be` | `ext/generations/0.1.0-2ebbdcbc/codex-ext` |
+| [Shell MCP](https://github.com/humtr/codex/actions/runs/45361685187) | 6 | `43053a259413efbd14ffd40ca9734155d13ea1220da9afbe90f7f75091ad8984` | `9a0612a7e2005e5a894669ce9c26d5786024112c1a9786f6b76a1c2afc66cc67` | `mcp/termux-shell/previous` points to `0.1.0+2ebbdcbc` |
+
+The follow-up audit downloaded and verified all eight public releases again
+and compared them to installed bytes and the active service images,
+including the four live MCP children. All six services were active, the four
+tunnels returned `/readyz`, and the Provider and Orch relay passed their
+local health endpoints. The other five services retained their PID and
+start ticks through the Shell cutover and rollback attempts. All eight
+rollback executables were present and executable. The four signed MCP
+binaries completed local stdio initialization and listed respectively 1, 5,
+6 and 6 tools, matching their advertised catalogs.
+
+The repeat product suite ran 269 passing tests and one ignored Provider
+fixture across 13 batches. It covered Wrapper and release building,
+installer and signing, the daemon client and MCP kit, `cdx`, the four MCP
+components, Provider Rust and JS, the AppHost manager and supervision.
+An account-free physical Termux AppHost probe for `26.1117.41037` reached
+one renderer in 5,681 ms and returned after the supervisor confirmed
+shutdown. The production Provider reported `host_running=true` with its
+existing supervisor. No authenticated account migration, live Orch
+shared-ledger cutover, remote connector mutation, or physical UI
+qualification is inferred from these checks. The earlier unparseable
+connector result is unresolved at the remote boundary. Successful local
+JSON-RPC and healthy transport logs only establish their observed paths.
