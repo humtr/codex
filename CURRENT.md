@@ -75,6 +75,12 @@ No authenticated account or profile is required by the above fixtures. The
 component version identifiers stay at `0.1.0+7b`. Signed promotion and live
 device activation require the remaining authenticated acceptance.
 
+The installed AppHost renderer uses the latest `content.thoughts` entry's
+`summary` as a live heading. The page driver now accepts that message shape.
+The callback fixture checks early delivery, duplicate and replacement updates,
+and exclusion of hidden headings and raw analysis. Authenticated callback
+timing remains open.
+
 ### 2026-11-24 — Slice 7 redesign candidate on Android Termux
 
 - Compiled candidate tests separated verifier verdict from turn settlement,

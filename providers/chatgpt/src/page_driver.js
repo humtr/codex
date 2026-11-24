@@ -657,13 +657,22 @@
     return false;
   }
 
+  function isVisibleAssistantMessage(msg) {
+    const meta = msg.metadata;
+    return msg.author?.role === "assistant" &&
+      (!msg.recipient || msg.recipient === "all") &&
+      !meta?.is_visually_hidden_from_conversation &&
+      !meta?.is_visually_hidden_reasoning_group &&
+      meta?.summary_type !== "raw_cot";
+  }
+
   function extractTextFromMessage(msg) {
     if (!msg || typeof msg !== "object") return null;
     const role = msg.author && msg.author.role ? msg.author.role : "unknown";
     const contentType = msg.content && msg.content.content_type ? msg.content.content_type : "";
     if (contentType === "thoughts" || contentType === "reasoning_recap") return null;
-    if (role === "assistant" && (msg.metadata?.is_visually_hidden_from_conversation ||
-      (msg.recipient && msg.recipient !== "all"))) return null;
+    if (role === "assistant" && (msg.channel === "analysis" ||
+      !isVisibleAssistantMessage(msg))) return null;
     const parts = Array.isArray(msg.content && msg.content.parts) ? msg.content.parts : [];
     const text = parts
       .filter((p) => typeof p === "string")
@@ -1575,8 +1584,24 @@
     const push = opts.push_events === true && typeof globalThis.__termuxChatGptStream === "function"
       ? (kind, text) => globalThis.__termuxChatGptStream(JSON.stringify({ lane_id: laneId, kind, text }))
       : () => {};
-    const summaries = new Map();
-    const summarySnapshot = () => truncate([...summaries.values()].join("\n\n"));
+    let reasoningSummary = "";
+    let activeSummaryKey = null;
+    const summaryByKey = new Map();
+    const recordSummary = (key, text) => {
+      if (typeof text !== "string" || reasoningSummary.length >= MAX_TEXT_CHARS) return;
+      const current = truncate(text.trim());
+      const previous = summaryByKey.get(key);
+      if (!current || previous?.startsWith(current)) return;
+      summaryByKey.set(key, current);
+      // AppHost sends snapshots. Extend a growing heading and keep a
+      // replacement heading as a new entry so delivered text stays a prefix.
+      const suffix = previous && key === activeSummaryKey && current.startsWith(previous)
+        ? current.slice(previous.length)
+        : (reasoningSummary ? "\n\n" : "") + current;
+      activeSummaryKey = key;
+      reasoningSummary = truncate(reasoningSummary + suffix);
+      push("reasoning", reasoningSummary);
+    };
     let lastActivity = 0;
     let lastAnswer = "";
     const activity = () => {
@@ -1602,18 +1627,21 @@
       const content = msg.content;
       const kind = content?.content_type;
       if (kind === "thoughts" || kind === "reasoning_recap") {
-        const userFacing = msg.author?.role === "assistant" &&
-          (!msg.recipient || msg.recipient === "all") &&
-          !msg.metadata?.is_visually_hidden_from_conversation;
-        if (!opts.push_events || !userFacing) return;
-        // A user-facing recap is distinct from raw thought bodies. Accept
-        // only explicitly public summaries from a thought-shaped message.
-        const recap = kind === "reasoning_recap"
-          ? (content.content ?? content.parts?.filter((part) => typeof part === "string").join("\n"))
-          : msg.metadata?.is_user_visible === true ? content.summary : null;
-        if (typeof recap === "string" && recap && summaries.get(msg.id) !== recap) {
-          summaries.set(msg.id || "recap", truncate(recap));
-          push("reasoning", summarySnapshot());
+        if (!opts.push_events || !isVisibleAssistantMessage(msg) ||
+            msg.metadata?.is_user_visible === false ||
+            msg.metadata?.reasoning_recap_type === "hide_all") return;
+        const key = String(msg.id ?? "");
+        if (kind === "reasoning_recap") {
+          const recap = content.content ?? (Array.isArray(content.parts)
+            ? content.parts.filter((part) => typeof part === "string").join("\n")
+            : null);
+          recordSummary(`recap:${key}`, recap);
+        } else if (Array.isArray(content.thoughts)) {
+          // The AppHost renderer uses the latest thought's summary as the
+          // visible heading. Other fields can contain internal reasoning.
+          recordSummary(`thought:${key}:${content.thoughts.length}`, content.thoughts.at(-1)?.summary);
+        } else if (msg.metadata?.is_user_visible === true) {
+          recordSummary(`thought:${key}`, content.summary);
         }
         return;
       }
@@ -1628,9 +1656,7 @@
         return;
       }
       const extracted = extractTextFromMessage(msg);
-      if (extracted && extracted.role === "assistant" &&
-          (!msg.recipient || msg.recipient === "all") &&
-          !msg.metadata?.is_visually_hidden_from_conversation) {
+      if (extracted?.role === "assistant") {
         turn.assistantText = extracted.text;
         if (extracted.id) turn.messageId = extracted.id;
         const text = visibleAnswerPrefix(extracted.text);
@@ -1763,7 +1789,7 @@
       chat_id: turn.chatId,
       message_id: turn.messageId,
       ...(opts.verify_identity ? { account_id: observedIdentity } : {}),
-      ...(opts.push_events ? { reasoning_summary: summarySnapshot() } : {}),
+      ...(opts.push_events ? { reasoning_summary: reasoningSummary } : {}),
       assistant_text: parsed.text,
       tool_calls: allCalls,
       generating: false,

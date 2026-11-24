@@ -71,7 +71,10 @@ and [providers/chatgpt/src/main.rs](../../providers/chatgpt/src/main.rs).
   sent to the AppHost retains the advertised `ALL_TOOLS` discovery instruction
   within the description bound. A streaming request forwards upstream
   user-visible reasoning summaries and assistant answer deltas as distinct
-  Responses items over a lane-scoped CDP binding. Codex uses a live reasoning
+  Responses items over a lane-scoped CDP binding. For a visible thought
+  message the source is the latest thought's public `summary` field.
+  The reasoning stream also accepts a visible `reasoning_recap`.
+  Codex uses a live reasoning
   status and keeps completed summaries in its expanded transcript. If a turn
   supplies only a user-visible summary, the same text is also returned in the
   answer view. The stream has a five-minute upstream inactivity limit

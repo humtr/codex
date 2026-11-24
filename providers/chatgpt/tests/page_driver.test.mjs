@@ -772,7 +772,7 @@ test("legacy user pin verifies the native AppHost account instead of using membe
   assert.equal(startCalls.length, 1);
 });
 
-test("streaming publishes visible recap and answer before settlement, omitting raw thoughts and tool fences", async () => {
+test("streaming publishes AppHost thought headings, recaps, and answers before settlement", async () => {
   let callbacks;
   let ready;
   const started = new Promise((resolve) => { ready = resolve; });
@@ -784,11 +784,32 @@ test("streaming publishes visible recap and answer before settlement, omitting r
   await started;
   const message = (id, content, metadata) => ({ id, author: { role: "assistant" }, content, metadata });
   const update = (msg) => callbacks.onUpdate({ type: "message", conversationId: "conv-test", message: msg });
-  update(message("private", { content_type: "thoughts", parts: ["private"] }));
+  const thought = (summary) => ({ summary, content: "PRIVATE_THOUGHT_BODY" });
+  const heading = (summary) => message("think", {
+    content_type: "thoughts",
+    thoughts: [thought("EARLIER_UNSEEN_HEADING"), thought(summary)],
+  });
+  update(message("private", { content_type: "thoughts", parts: ["PRIVATE_PARTS"] }));
+  update(message("raw", { content_type: "thoughts", thoughts: [thought("RAW_COT_HEADING")] },
+    { summary_type: "raw_cot" }));
+  update(message("hidden", { content_type: "thoughts", thoughts: [thought("HIDDEN_HEADING")] },
+    { is_visually_hidden_reasoning_group: true }));
+  update(message("private-recap", { content_type: "reasoning_recap", content: "HIDDEN_RECAP" },
+    { reasoning_recap_type: "hide_all" }));
+  update({ ...message("analysis", { content_type: "text", parts: ["PRIVATE_ANALYSIS_TEXT"] }),
+    channel: "analysis" });
+  update(heading("Checking"));
+  callbacks.onDecodedEvent({ payload: { message: heading("Checking files") } });
+  update(heading("Checking files"));
+  update(heading("Checking"));
+  update(heading("Reviewing changes"));
   update(message("recap", { content_type: "reasoning_recap", content: "Visible recap" }));
   update(message("answer", { content_type: "text", parts: ["Answer\n```codex_tool"] }));
   assert.deepEqual(streamUpdates.filter((x) => x.text).map((x) => [x.lane_id, x.kind, x.text]), [
-    ["lane", "reasoning", "Visible recap"],
+    ["lane", "reasoning", "Checking"],
+    ["lane", "reasoning", "Checking files"],
+    ["lane", "reasoning", "Checking files\n\nReviewing changes"],
+    ["lane", "reasoning", "Checking files\n\nReviewing changes\n\nVisible recap"],
     ["lane", "answer", "Answer"],
   ]);
   update(message("answer", {
@@ -796,7 +817,7 @@ test("streaming publishes visible recap and answer before settlement, omitting r
   }));
   callbacks.onComplete();
   const settled = await result;
-  assert.equal(settled.reasoning_summary, "Visible recap");
+  assert.equal(settled.reasoning_summary, "Checking files\n\nReviewing changes\n\nVisible recap");
   assert.equal(settled.assistant_text, "Answer");
   assert.equal(settled.account_id, "acc-1");
   assert.equal(settled.tool_calls[0].name, "tool");
