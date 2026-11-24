@@ -87,8 +87,9 @@ and compared them to installed bytes and the active service images,
 including the four live MCP children. All six services were active, the four
 tunnels returned `/readyz`, and the Provider and Orch relay passed their
 local health endpoints. The other five services retained their PID and
-start ticks through the Shell cutover and rollback attempts. All eight
-rollback executables were present and executable. The four signed MCP
+start ticks through the Shell cutover and rollback attempts. Seven
+component rollback executables and the Wrapper's previous upstream Codex
+generation were present and executable. The four signed MCP
 binaries completed local stdio initialization and listed respectively 1, 5,
 6 and 6 tools, matching their advertised catalogs.
 
@@ -104,3 +105,29 @@ shared-ledger cutover, remote connector mutation, or physical UI
 qualification is inferred from these checks. The earlier unparseable
 connector result is unresolved at the remote boundary. Successful local
 JSON-RPC and healthy transport logs only establish their observed paths.
+
+### Follow-up regression fixes and qualification
+
+On Termux the installed `cdx` returned success for both requests in five
+trials while a fixture TUI exited before its launcher serviced the mailbox.
+None resumed. In five matching trials the candidate resumed the first
+request once and rejected the second. A separate fixture reproduced an
+extra launcher during the installed version's teardown. The candidate
+kept the original registration and returned a pending error.
+
+Two isolated Android `runsv` services exercised a candidate relay that
+ignored `SIGTERM` and a candidate tunnel that failed readiness. Recovery
+stopped both candidates, restored the prior selection and passed the
+restored tunnel readiness check. A targeted regression rejects a stale
+`health.url` even if its old port would answer. The previous upstream
+Codex data path and the seven component rollback binaries are distinct
+from proof of live recovery for each component.
+
+Work schema tests confirmed additive field preservation on Work,
+participant and wait-set records and explicit errors for unknown schema
+versions or strict nested fields. Shell capture tests confirmed that an
+expired reader can distinguish a closed pipe from an open idle writer.
+When a completed shell command cannot settle its receipt, the existing
+`delivery_unknown` behavior prevents re-execution. Schema-changing
+rollback to previously released Orch binaries requires separate
+qualification.
