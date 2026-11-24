@@ -161,7 +161,8 @@ the exit and teardown fixtures. Shell preserved both 64 KiB binary
 streams and replayed the receipt, and five concurrent requests with the
 same call ID caused one filesystem effect. The installed Orch MCP passed
 isolated Work creation, readback, and a milestone write that preserved
-an extra field.
+an extra field. The production Orch connector returned the four existing
+Works on a read-only list call.
 
 The rollout compared twelve existing ledger files before and after, with
 identical SHA-256 for every file. The prior and new Orch generations read
