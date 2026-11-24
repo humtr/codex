@@ -24,10 +24,9 @@ Invariants:
     1. `selected_generation` (from `current` symlink + binary SHA-256)
     2. `running_generation` (from live PID `/proc/<pid>/exe` + start ticks)
     3. `activation_state` (`active` | `pending_activation` | `stopped` | `not_enrolled` | `error`)
-- Safe activation checks optional busy guard first (deferring to `pending_activation`
-  rather than force-killing active work), atomically updates `previous`/`current`,
-  restarts enrolled services via `sv restart`, verifies new PID + `/proc/<pid>/exe`
-  + optional readiness command, and rolls back to `previous` on failure or timeout.
+- Safe activation checks the busy guard, stops the selected services, changes
+  generation links, and starts and verifies each service. A failed activation
+  restores the old generation after stopping the attempted services.
 """
 import argparse
 from contextlib import contextmanager
@@ -453,7 +452,9 @@ class ServiceSupervisor:
                 "raw": "sv status timed out",
             }
         line = (res.stdout or res.stderr).strip()
-        m = re.match(r"^(run|down|finish):\s+.*?\(pid\s+(\d+)\)", line)
+        # The logger has its own PID even when the service has stopped.
+        service_status = line.split("; ", 1)[0]
+        m = re.match(r"^(run|finish):\s+.*?\(pid\s+(\d+)\)", service_status)
         if not m:
             state = "stopped" if line.startswith("down:") else "error"
             return {"enrolled": True, "state": state, "pid": None, "exe": None, "start_ticks": None, "raw": line}
@@ -891,7 +892,7 @@ class ServiceSupervisor:
                 cur.get("pid") is not None
                 and (cur.get("pid") != old_pid or cur.get("start_ticks") != old_ticks)
             )
-            if cur.get("state") == "running" and changed and cur.get("exe") == expected_bin:
+            if cur.get("state") == "running" and changed and cur.get("start_ticks") and cur.get("exe") == expected_bin:
                 if selected_component is not None and not self._runner_matches_selected_component(
                     running=cur, selected=selected_component
                 )[0]:

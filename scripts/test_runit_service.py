@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import os
 from pathlib import Path
+import subprocess
 import tempfile
 import unittest
 
@@ -88,6 +89,20 @@ class RunitSupervisionTests(unittest.TestCase):
         self.assertEqual(res["activation_state"], "not_enrolled")
         self.assertEqual(res["selected_generation"]["version"], "v0.0.20")
         self.assertFalse(sup.is_enrolled())
+
+    def test_stopped_service_does_not_use_logger_pid(self):
+        sup = self._sup()
+        sup._proc_reader = None
+        self._install_gen("v0.0.20")
+        sup.activate("v0.0.20")
+        sup.enroll(exec_args=[])
+        output = f"down: {sup.service_dir}: 0s, normally up; run: log: (pid {os.getpid()}) 4s\n"
+        stopped = subprocess.CompletedProcess([], 0, stdout=output, stderr="")
+        with mock.patch("scripts.runit_service.subprocess.run", return_value=stopped):
+            status = sup.status()["running_generation"]
+        self.assertEqual(status["state"], "stopped")
+        self.assertIsNone(status["pid"])
+        self.assertIsNone(status["exe"])
 
     def test_enroll_uses_stable_current_symlink_and_tracks_three_states(self):
         b20 = self._install_gen("v0.0.20", b"bin-20")
