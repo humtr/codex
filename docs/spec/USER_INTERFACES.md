@@ -115,7 +115,9 @@ symlink) that shares `crates/codex-daemon-client` with `@TermuxCodex` and has
   - The accepted `!cdx` command writes a `0600` atomic handoff ticket to
     `$HOME/.local/state/codex/ext/handoff/<parent_pid>.json`, sends `SIGUSR1`
     to the verified parent PID, and exits `0` immediately (avoiding daemon-child
-    self-kill races). Parent `cdx` leaves the TUI running while waiting for the
+    self-kill races). The launcher claims each ticket by rename before reading
+    it, so a newer ticket written during consumption remains pending.
+    Parent `cdx` leaves the TUI running while waiting for the
     daemon to become idle. An expired wait or an unavailable status check
     leaves the existing TUI in place. Deferred provider switches require a
     launcher that advertises support in its session record. Sessions opened by

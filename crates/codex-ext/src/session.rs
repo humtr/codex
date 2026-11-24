@@ -106,16 +106,28 @@ pub fn take_handoff_ticket(
     paths: &ExtPaths,
     parent_pid: u32,
 ) -> Result<Option<HandoffTicket>, String> {
-    let p = handoff_file_path(paths, parent_pid);
-    if fs::symlink_metadata(&p).is_err() {
+    let Some(claimed) = claim_handoff_ticket(paths, parent_pid)? else {
         return Ok(None);
+    };
+    read_claimed_handoff(&claimed).map(Some)
+}
+
+fn claim_handoff_ticket(paths: &ExtPaths, parent_pid: u32) -> Result<Option<PathBuf>, String> {
+    let p = handoff_file_path(paths, parent_pid);
+    let claimed = p.with_extension("claimed");
+    match fs::rename(&p, &claimed) {
+        Ok(()) => Ok(Some(claimed)),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(err) => Err(format!("cannot claim handoff ticket: {err}")),
     }
-    require_owned_regular_file(&p, "handoff ticket")?;
-    let raw = fs::read_to_string(&p).map_err(|e| format!("cannot read handoff ticket: {e}"))?;
-    let _ = fs::remove_file(&p);
-    let ticket: HandoffTicket =
-        serde_json::from_str(&raw).map_err(|e| format!("corrupt handoff ticket: {e}"))?;
-    Ok(Some(ticket))
+}
+
+fn read_claimed_handoff(claimed: &Path) -> Result<HandoffTicket, String> {
+    let raw = require_owned_regular_file(claimed, "handoff ticket").and_then(|()| {
+        fs::read_to_string(claimed).map_err(|e| format!("cannot read handoff ticket: {e}"))
+    });
+    let _ = fs::remove_file(claimed);
+    serde_json::from_str(&raw?).map_err(|e| format!("corrupt handoff ticket: {e}"))
 }
 
 pub fn list_live_sessions(paths: &ExtPaths) -> Result<Vec<SessionRecord>, String> {
@@ -236,8 +248,21 @@ mod tests {
             requested_at_ms: now_millis(),
         };
         write_handoff_ticket(&paths, rec.pid, &ticket).unwrap();
-        let taken = take_handoff_ticket(&paths, rec.pid).unwrap().unwrap();
+        let claimed = claim_handoff_ticket(&paths, rec.pid).unwrap().unwrap();
+        let later = HandoffTicket {
+            target: "janmori101".to_owned(),
+            ..ticket
+        };
+        write_handoff_ticket(&paths, rec.pid, &later).unwrap();
+        let taken = read_claimed_handoff(&claimed).unwrap();
         assert_eq!(taken.target, "szob");
+        assert_eq!(
+            take_handoff_ticket(&paths, rec.pid)
+                .unwrap()
+                .unwrap()
+                .target,
+            "janmori101"
+        );
         assert!(take_handoff_ticket(&paths, rec.pid).unwrap().is_none());
 
         remove_session_file(&paths, rec.pid);
