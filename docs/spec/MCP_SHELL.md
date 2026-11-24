@@ -31,7 +31,8 @@ independent recovery and automation plane even if every other component is down.
   - `cwd` (optional, absolute path without NUL; defaults to `$HOME`)
   - `timeout_ms` (optional, integer `1000..=600000`, default `60000`)
 - **Private receipt store:** `$PREFIX/var/tmp/termux-mcp-shell-receipts`
-  (`0700` owned directory, `O_NOFOLLOW`, `0600` receipt files, <= `512 KiB`,
+  (`0700` owned directory, `O_NOFOLLOW`, `0600` receipt files, at most
+  `512 KiB + 8 KiB` including the receipt envelope,
   schema `termux-mcp-shell-receipt`).
   - Before spawning a shell, the worker atomically commits a `state: "started"`
     intent (`O_CREAT | O_EXCL | O_NOFOLLOW`, `fsync(file)`, `fsync(dir)`).
@@ -47,11 +48,11 @@ independent recovery and automation plane even if every other component is down.
   - Timeout or drop terminates **only** the owned process group (`kill(-pid, SIGKILL)`),
     preserving already-captured stdout/stderr and actual exit/signal metadata.
     The worker waits for the shell leader, terminates remaining members of its
-    group, stops both capture readers concurrently within a bounded grace window
-    so dying group descendants can flush EOF without false truncation while
-    detached write holders still hit timeout, and keeps every settled receipt
-    within `<= 512 KiB` by trimming only overflowing UTF-8 text previews when
-    escaped binary bytes expand JSON while preserving lossless `*_base64`.
+    group and gives both capture readers a shared 100 ms window to drain to
+    EOF. A detached process that keeps a pipe open past the deadline causes
+    that stream to be marked truncated. If JSON escaping makes the receipt too
+    large, the worker shortens the UTF-8 previews, sets the corresponding
+    `*_text_truncated` flags and preserves the captured bytes in `*_base64`.
   - Each output stream (`stdout`, `stderr`) is capped at `64 KiB` with explicit
     `stdout_truncated`/`stderr_truncated` flags and both UTF-8 lossy text and
     Base64 (`stdout_base64`/`stderr_base64`).

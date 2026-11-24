@@ -16,10 +16,7 @@ use std::os::fd::AsRawFd;
 use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::{
-    atomic::{AtomicBool, Ordering},
-    Arc,
-};
+use std::sync::{Arc, OnceLock};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -101,7 +98,7 @@ impl Drop for ProcessGroupGuard {
 }
 
 struct StreamCapture {
-    stop: Arc<AtomicBool>,
+    stop: Arc<OnceLock<Instant>>,
     handle: Option<thread::JoinHandle<(Vec<u8>, bool)>>,
 }
 
@@ -127,21 +124,21 @@ impl StreamCapture {
         }
     }
 
-    fn spawn<R: Read + AsRawFd + Send + 'static>(mut stream: R) -> Self {
-        let stop = Arc::new(AtomicBool::new(false));
+    fn spawn<R: Read + AsRawFd + Send + 'static>(
+        mut stream: R,
+        stop: Arc<OnceLock<Instant>>,
+    ) -> Self {
         let stopping = Arc::clone(&stop);
         let handle = thread::spawn(move || {
             let mut buf = [0u8; 8192];
             let mut output = Vec::new();
             let mut truncated = false;
-            let mut stop_deadline = None;
             loop {
-                if stopping.load(Ordering::Acquire) {
-                    let deadline = stop_deadline
-                        .get_or_insert_with(|| Instant::now() + Duration::from_millis(100));
-                    if Instant::now() >= *deadline {
-                        return (output, true);
-                    }
+                let remaining = stopping
+                    .get()
+                    .map(|deadline| deadline.saturating_duration_since(Instant::now()));
+                if remaining.is_some_and(|duration| duration.is_zero()) {
+                    return (output, true);
                 }
                 match stream.read(&mut buf) {
                     Ok(0) => return (output, truncated),
@@ -151,20 +148,9 @@ impl StreamCapture {
                         truncated |= n > room;
                     }
                     Err(err) if err.kind() == io::ErrorKind::WouldBlock => {
-                        let wait = if stopping.load(Ordering::Acquire) {
-                            let deadline = stop_deadline
-                                .get_or_insert_with(|| Instant::now() + Duration::from_millis(100));
-                            let Some(remaining) = deadline.checked_duration_since(Instant::now())
-                            else {
-                                return (output, true);
-                            };
-                            if remaining.is_zero() {
-                                return (output, true);
-                            }
-                            remaining.min(Duration::from_millis(10))
-                        } else {
-                            Duration::from_millis(10)
-                        };
+                        let poll_interval = Duration::from_millis(10);
+                        let wait =
+                            remaining.map_or(poll_interval, |duration| duration.min(poll_interval));
                         Self::wait_readable(stream.as_raw_fd(), wait);
                     }
                     Err(err) if err.kind() == io::ErrorKind::Interrupted => continue,
@@ -179,7 +165,8 @@ impl StreamCapture {
     }
 
     fn request_stop(&self) {
-        self.stop.store(true, Ordering::Release);
+        self.stop
+            .get_or_init(|| Instant::now() + Duration::from_millis(100));
     }
 
     fn collect(&mut self) -> (Vec<u8>, bool) {
@@ -193,7 +180,7 @@ impl StreamCapture {
 
 impl Drop for StreamCapture {
     fn drop(&mut self) {
-        self.stop.store(true, Ordering::Relaxed);
+        self.request_stop();
         if let Some(handle) = self.handle.take() {
             let _ = handle.join();
         }
@@ -233,8 +220,9 @@ fn run_shell_command(script: &str, cwd: &Path, timeout_ms: u64, shell: &Path) ->
         let _ = child.wait();
         return json!({"state":"delivery_unknown","executed":true,"error":"termux_shell_capture_failed"});
     }
-    let mut stdout = StreamCapture::spawn(stdout);
-    let mut stderr = StreamCapture::spawn(stderr);
+    let stop = Arc::new(OnceLock::new());
+    let mut stdout = StreamCapture::spawn(stdout, Arc::clone(&stop));
+    let mut stderr = StreamCapture::spawn(stderr, stop);
 
     let started = Instant::now();
     let deadline = started + Duration::from_millis(timeout_ms);
@@ -255,6 +243,7 @@ fn run_shell_command(script: &str, cwd: &Path, timeout_ms: u64, shell: &Path) ->
             }
             Err(_) => {
                 drop(group);
+                let _ = child.wait();
                 return json!({
                     "state": "delivery_unknown",
                     "executed": true,
@@ -269,7 +258,6 @@ fn run_shell_command(script: &str, cwd: &Path, timeout_ms: u64, shell: &Path) ->
     // share one grace window.
     drop(group);
     stdout.request_stop();
-    stderr.request_stop();
     let (out, out_truncated) = stdout.collect();
     let (err, err_truncated) = stderr.collect();
 
@@ -300,41 +288,41 @@ fn fit_outcome_for_receipt(outcome: &mut Value) {
     // Trim only the UTF-8 display strings if needed while keeping lossless `*_base64` intact.
     const ENVELOPE_HEADROOM: usize = 1024;
     let limit = (MAX_RECEIPT_BYTES as usize).saturating_sub(ENVELOPE_HEADROOM);
-    let encoded_len = |v: &Value| serde_json::to_vec(v).map_or(usize::MAX, |b| b.len());
-    if encoded_len(outcome) <= limit {
+    let encoded_len = outcome.to_string().len();
+    if encoded_len <= limit {
         return;
     }
-    for key in ["stderr", "stdout"] {
-        if encoded_len(outcome) <= limit {
-            break;
+    let text_sizes = ["stdout", "stderr"].map(|key| outcome[key].to_string().len() - 2);
+    let fixed_size = encoded_len - text_sizes.iter().sum::<usize>();
+    let budget = limit.saturating_sub(fixed_size);
+    let caps = [
+        (budget / 2).max(budget.saturating_sub(text_sizes[1])),
+        (budget / 2).max(budget.saturating_sub(text_sizes[0])),
+    ];
+    for (key, cap) in ["stdout", "stderr"].into_iter().zip(caps) {
+        let text = outcome[key].as_str().expect("shell output text");
+        let mut remaining = cap;
+        let prefix_bytes = text
+            .chars()
+            .take_while(|c| {
+                let size = match c {
+                    '"' | '\\' | '\u{8}' | '\t' | '\n' | '\u{c}' | '\r' => 2,
+                    '\u{0}'..='\u{1f}' => 6,
+                    _ => c.len_utf8(),
+                };
+                if let Some(left) = remaining.checked_sub(size) {
+                    remaining = left;
+                    true
+                } else {
+                    false
+                }
+            })
+            .map(char::len_utf8)
+            .sum();
+        if prefix_bytes < text.len() {
+            outcome[key] = json!(text[..prefix_bytes]);
+            outcome[format!("{key}_text_truncated")] = json!(true);
         }
-        let orig = outcome[key].as_str().unwrap_or("").to_owned();
-        if orig.is_empty() {
-            continue;
-        }
-        // Binary search longest valid UTF-8 prefix that keeps the whole JSON within budget.
-        let mut lo = 0usize;
-        let mut hi = orig.len();
-        while lo < hi {
-            let mut mid = (lo + hi).div_ceil(2);
-            while mid > lo && !orig.is_char_boundary(mid) {
-                mid -= 1;
-            }
-            if mid == lo {
-                break;
-            }
-            outcome[key] = Value::String(orig[..mid].to_owned());
-            if encoded_len(outcome) <= limit {
-                lo = mid;
-            } else {
-                hi = mid.saturating_sub(1);
-            }
-        }
-        while lo > 0 && !orig.is_char_boundary(lo) {
-            lo -= 1;
-        }
-        outcome[key] = Value::String(orig[..lo].to_owned());
-        outcome[format!("{key}_text_truncated")] = json!(true);
     }
 }
 
@@ -533,7 +521,7 @@ mod tests {
 
         let (reader, mut writer) = UnixStream::pair().unwrap();
         StreamCapture::set_nonblocking(&reader).unwrap();
-        let mut capture = StreamCapture::spawn(reader);
+        let mut capture = StreamCapture::spawn(reader, Arc::new(OnceLock::new()));
         writer.write_all(b"captured before exit").unwrap();
         let (output, truncated) = capture.collect();
         assert_eq!(output, b"captured before exit");
