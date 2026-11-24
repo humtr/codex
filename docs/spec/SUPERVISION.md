@@ -88,7 +88,15 @@ in `stopped` with no running service PID.
   primary. Each start requires a new `(pid, start_ticks)`, the matching
   executable, and readiness within the bounded timeout.
 - After a failed start or readiness check, activation stops the attempted
-  services before restoring the prior selection. It then verifies the
-  recovered services. If stopping or recovery fails, it reports incomplete
-  recovery. A shared-ledger rollback also requires the prior generation to
-  understand the data already written to the ledger.
+  services before restoring the prior selection. If an attempted service
+  ignores the stop within the grace period, runit sends `SIGKILL` to that
+  service. Activation still waits for observed MCP children to exit and
+  reports incomplete recovery if any remain. The same readiness check
+  applies to the restored primary service.
+- When a runner publishes the service's `health.url`, activation checks
+  that the file is refreshed and that the resulting loopback `/readyz`
+  responds before confirming the new process identity.
+- A shared-ledger rollback also requires the prior generation to understand
+  the bytes and execution state the candidate may have written before
+  readiness. Validate schema-changing upgrades and rollback separately
+  against disposable ledgers.

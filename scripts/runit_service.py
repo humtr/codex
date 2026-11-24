@@ -32,6 +32,7 @@ import argparse
 from contextlib import contextmanager
 import fcntl
 import hashlib
+import http.client
 import json
 import os
 from pathlib import Path
@@ -729,13 +730,15 @@ class ServiceSupervisor:
         enrolled = [s for s in [self, *self._companions()] if s.is_enrolled()]
         running = []
         for service in enrolled:
-            observation = service._inspect_running()
+            observation = service._wait_past_finish(timeout)
             if observation.get("state") == "stopped":
                 continue
             if observation.get("state") != "running" or not observation.get("start_ticks"):
                 raise SupervisionError(f"cannot verify state of '{service.service_name}'")
             if service is not self and service._version_from_exe(observation.get("exe")) is None:
                 raise SupervisionError(f"'{service.service_name}' is not running this component")
+            if service.has_runner:
+                observation["publishes_health_url"] = service._health_file_stamp() is not None
             running.append((service, observation))
 
         current = self._read_link_version(self.current_link)
@@ -791,12 +794,17 @@ class ServiceSupervisor:
         except (SupervisionError, OSError) as err:
             try:
                 if stopped:
-                    # Drain every attempted new process before changing current.
+                    failures = []
                     for service, _ in running:
-                        service._stop_service(timeout=timeout)
+                        try:
+                            service._stop_service(timeout=timeout, force=True)
+                        except (SupervisionError, OSError) as stop:
+                            failures.append(f"{service.service_name}: {stop}")
+                    if failures:
+                        raise SupervisionError("could not drain attempted generation: " + ", ".join(failures))
                     self._select(prior, prior_previous)
                     self._start_group(running, str(self.generation_binary(prior).resolve()),
-                                      runner, None, timeout)
+                                      runner, readiness, timeout)
                 else:
                     # No selection changed. Restart only the services whose
                     # stop was requested; a failed stop may have killed one.
@@ -825,6 +833,7 @@ class ServiceSupervisor:
             info = service._restart_and_verify(
                 expected_bin=expected, old_pid=before.get("pid"), old_ticks=before.get("start_ticks"),
                 readiness_cmd=readiness if service is self else None, timeout=timeout, sv_action="start",
+                require_health_url=before.get("publishes_health_url", False),
             )
             if service.has_runner:
                 service._write_active_marker(running=info, selected=self.selected_generation(),
@@ -844,22 +853,67 @@ class ServiceSupervisor:
             return self._activate(previous, normalize_command(busy_check_cmd),
                                   normalize_command(readiness_cmd), restart_timeout)
 
-    def _stop_service(self, *, timeout: float) -> None:
+    def _wait_past_finish(self, timeout: float) -> dict:
+        deadline = time.monotonic() + timeout
+        while True:
+            observation = self._inspect_running()
+            if observation.get("state") != "finish" or time.monotonic() >= deadline:
+                return observation
+            time.sleep(0.05)
+
+    def _stop_service(self, *, timeout: float, force: bool = False) -> None:
         before = self._inspect_running()
         children = []
         if self.has_runner and self._proc_reader is None and before.get("state") == "running":
             children = proc_children(before["pid"], before["start_ticks"])
             if children is None:
                 raise SupervisionError(f"cannot inspect children of '{self.service_name}'")
-        self._run_sv("stop", timeout)
-        deadline = time.monotonic() + timeout
-        while time.monotonic() < deadline:
-            if self._inspect_running().get("state") == "stopped" and not any(
-                proc_start_ticks(pid) == ticks for pid, ticks, _ in children
-            ):
+        def wait_stopped() -> bool:
+            deadline = time.monotonic() + timeout
+            while True:
+                if self._inspect_running().get("state") == "stopped" and not any(
+                    proc_start_ticks(pid) == ticks for pid, ticks, _ in children
+                ):
+                    return True
+                if time.monotonic() >= deadline:
+                    return False
+                time.sleep(0.05)
+
+        self._run_sv("down", timeout)
+        if wait_stopped():
+            return
+        if force and self._inspect_running().get("state") == "running":
+            self._run_sv("kill", timeout)
+            if wait_stopped():
                 return
-            time.sleep(0.05)
         raise SupervisionError(f"cannot confirm '{self.service_name}' and its children stopped")
+
+    def _health_file_stamp(self) -> tuple[int, int] | None:
+        try:
+            observed = (self.state_dir / "health.url").stat()
+            return observed.st_ino, observed.st_mtime_ns
+        except FileNotFoundError:
+            return None
+
+    def _tunnel_ready(self, before: tuple[int, int] | None, timeout: float, *, required: bool = False) -> bool:
+        try:
+            after = self._health_file_stamp()
+            if after is None:
+                return before is None and not required
+            if after == before:
+                return False
+            url = (self.state_dir / "health.url").read_text().strip()
+            match = re.fullmatch(r"http://127\.0\.0\.1:(\d{1,5})", url)
+            if not match or not 0 < int(match[1]) <= 65535:
+                return False
+            conn = http.client.HTTPConnection("127.0.0.1", int(match[1]), timeout=timeout)
+            try:
+                conn.request("GET", "/readyz")
+                return conn.getresponse().status == 200
+            finally:
+                conn.close()
+        except (OSError, http.client.HTTPException, ValueError):
+            return False
 
     def _run_sv(self, action: str, timeout: float) -> None:
         try:
@@ -882,7 +936,9 @@ class ServiceSupervisor:
         readiness_cmd: list[str] | None,
         timeout: float,
         sv_action: str = "restart",
+        require_health_url: bool = False,
     ) -> dict:
+        old_health = self._health_file_stamp() if self.has_runner else None
         self._run_sv(sv_action, timeout)
         deadline = time.monotonic() + timeout
         selected_component = self.selected_generation() if self.has_runner else None
@@ -898,18 +954,24 @@ class ServiceSupervisor:
                 )[0]:
                     time.sleep(0.1)
                     continue
-                if readiness_cmd is None:
-                    return cur
+                remaining = deadline - time.monotonic()
+                if self.has_runner and not self._tunnel_ready(
+                    old_health, max(0.05, min(1.0, remaining)), required=require_health_url
+                ):
+                    time.sleep(0.1)
+                    continue
                 remaining = max(0.2, min(5.0, deadline - time.monotonic()))
                 try:
-                    chk = subprocess.run(
+                    chk = readiness_cmd is None or subprocess.run(
                         readiness_cmd,
                         capture_output=True,
                         text=True,
                         timeout=remaining,
-                    )
-                    if chk.returncode == 0:
-                        return cur
+                    ).returncode == 0
+                    if chk:
+                        current = self._inspect_running()
+                        if all(cur[key] == current[key] for key in ("state", "pid", "start_ticks", "exe")):
+                            return cur
                 except (subprocess.TimeoutExpired, OSError):
                     pass
             time.sleep(0.1)

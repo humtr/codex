@@ -34,7 +34,7 @@ class RunitSupervisionTests(unittest.TestCase):
             "#!/bin/sh\n"
             f"echo \"$*\" >> '{self.sv_log}'\n"
             f"if [ -f '{self.root}/sv-fail' ]; then exit 1; fi\n"
-            f"if [ \"$1\" = 'stop' ]; then rm -f '{self.root}/running-exe' '{self.root}/running-mcp'; fi\n"
+            f"if [ \"$1\" = 'down' ]; then rm -f '{self.root}/running-exe' '{self.root}/running-mcp'; fi\n"
             f"if [ \"$1\" = 'start' ]; then\n"
             f"  target=$(readlink -f '{self.home}/.local/lib/codex/transport/tunnel-client/current/tunnel-client')\n"
             f"  printf '%s' \"$target\" > '{self.root}/running-exe'\n"
@@ -104,6 +104,25 @@ class RunitSupervisionTests(unittest.TestCase):
         self.assertIsNone(status["pid"])
         self.assertIsNone(status["exe"])
 
+    def test_health_probe_requires_a_fresh_endpoint_even_if_old_port_answers(self):
+        sup = self._sup()
+        sup.state_dir.mkdir(parents=True)
+        health = sup.state_dir / "health.url"
+        health.write_text("http://127.0.0.1:41001\n")
+        old = sup._health_file_stamp()
+        with mock.patch("scripts.runit_service.http.client.HTTPConnection") as connection:
+            connection.return_value.getresponse.return_value.status = 200
+            self.assertFalse(sup._tunnel_ready(old, 1))
+            connection.assert_not_called()
+            next_health = health.with_suffix(".new")
+            next_health.write_text("http://127.0.0.1:41002\n")
+            next_health.replace(health)
+            self.assertTrue(sup._tunnel_ready(old, 1))
+            connection.assert_called_once_with("127.0.0.1", 41002, timeout=1)
+            connection.return_value.request.assert_called_once_with("GET", "/readyz")
+            health.unlink()
+            self.assertFalse(sup._tunnel_ready(None, 1, required=True))
+
     def test_enroll_uses_stable_current_symlink_and_tracks_three_states(self):
         b20 = self._install_gen("v0.0.20", b"bin-20")
         b21 = self._install_gen("v0.0.21", b"bin-21")
@@ -155,7 +174,7 @@ class RunitSupervisionTests(unittest.TestCase):
         (self.root / "running-exe").write_text(str(b20.resolve()))
         (self.root / "pid-seq").write_text("2000")
 
-        with self.assertRaisesRegex(SupervisionError, "rolled back"):
+        with self.assertRaisesRegex(SupervisionError, "recovery incomplete"):
             sup.activate("v0.0.21", readiness_cmd=["false"], restart_timeout=0.4)
 
         # Must have reverted `current` to v0.0.20 AND preserved `previous` as v0.0.19!
@@ -292,7 +311,7 @@ class RunitSupervisionTests(unittest.TestCase):
         self.assertEqual(st_up["running_generation"]["version"], "0.2.0")
 
         # Readiness timeout on 0.3.0 MUST roll back cleanly (never crash with TimeoutExpired!)
-        with self.assertRaisesRegex(SupervisionError, "rolled back"):
+        with self.assertRaisesRegex(SupervisionError, "recovery incomplete"):
             mcp_sup.activate("0.3.0", readiness_cmd="sleep 2", restart_timeout=0.4)
         self.assertEqual(mcp_sup.selected_generation()["version"], "0.2.0")
         self.assertEqual(mcp_sup.selected_generation()["previous_version"], "0.1.0")
@@ -496,7 +515,7 @@ class RunitSupervisionTests(unittest.TestCase):
                 svc_name = Path(cmd[2]).name
                 cur_target = str((self.home / ".local/lib/codex/mcp/termux-orch/current/termux-orch").resolve())
                 events.append((svc_name, act, os.readlink(self.home / ".local/lib/codex/mcp/termux-orch/current")))
-                if act == "stop":
+                if act == "down":
                     live[svc_name]["state"] = "stopped"
                     live[svc_name]["pid"] = None
                 elif not (fail_service["name"] == svc_name and cur_target == str(o3)):
@@ -543,8 +562,8 @@ class RunitSupervisionTests(unittest.TestCase):
             self.assertEqual(st_ok["companions"][0]["running_generation"]["version"], "0.1.0+7b-new")
             # Companion relay must have stopped BEFORE current flipped to 0.1.0+7b-new!
             self.assertEqual(events[:4], [
-                ("termux-orch-tunnel", "stop", "generations/0.1.0+7b"),
-                ("termux-orch-relay", "stop", "generations/0.1.0+7b"),
+                ("termux-orch-tunnel", "down", "generations/0.1.0+7b"),
+                ("termux-orch-relay", "down", "generations/0.1.0+7b"),
                 ("termux-orch-relay", "start", "generations/0.1.0+7b-new"),
                 ("termux-orch-tunnel", "start", "generations/0.1.0+7b-new"),
             ])
@@ -556,7 +575,7 @@ class RunitSupervisionTests(unittest.TestCase):
                 orch_sup.activate("0.1.0+7b-bad", restart_timeout=0.4)
             # The new relay has already started. Rollback must stop it and
             # the attempted tunnel before exposing the old selection.
-            rollback_stop = [event for event in events if event[1] == "stop"
+            rollback_stop = [event for event in events if event[1] == "down"
                              and event[2] == "generations/0.1.0+7b-bad"]
             self.assertEqual([event[0] for event in rollback_stop],
                              ["termux-orch-tunnel", "termux-orch-relay"])
