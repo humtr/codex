@@ -10,6 +10,8 @@ use std::path::{Path, PathBuf};
 pub struct SessionRecord {
     pub pid: u32,
     pub start_ticks: u64,
+    #[serde(default)]
+    pub generation: u64,
     pub account: String,
     pub codex_home: String,
     pub cwd: String,
@@ -26,6 +28,10 @@ pub struct HandoffTicket {
     pub thread_id: Option<String>,
     pub wait: bool,
     pub requested_at_ms: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_start_ticks: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_generation: Option<u64>,
 }
 
 pub enum SessionMatch {
@@ -42,6 +48,15 @@ pub fn handoff_file_path(paths: &ExtPaths, parent_pid: u32) -> PathBuf {
     paths.handoff_dir.join(format!("{parent_pid}.json"))
 }
 
+pub fn claimed_handoff_path(paths: &ExtPaths, parent_pid: u32) -> PathBuf {
+    handoff_file_path(paths, parent_pid).with_extension("claimed")
+}
+
+pub fn cleanup_handoff_files(paths: &ExtPaths, parent_pid: u32) {
+    let _ = fs::remove_file(handoff_file_path(paths, parent_pid));
+    let _ = fs::remove_file(claimed_handoff_path(paths, parent_pid));
+}
+
 pub fn normalize_match_path(path: &Path) -> String {
     if let Ok(canon) = fs::canonicalize(path) {
         return canon.display().to_string();
@@ -55,6 +70,7 @@ pub fn normalize_match_path(path: &Path) -> String {
     }
 }
 
+#[cfg(test)]
 pub fn register_current_session(
     paths: &ExtPaths,
     account: &str,
@@ -62,11 +78,23 @@ pub fn register_current_session(
     cwd: &Path,
     provider: Option<&str>,
 ) -> Result<SessionRecord, String> {
+    register_current_session_generation(paths, account, codex_home, cwd, provider, 1)
+}
+
+pub fn register_current_session_generation(
+    paths: &ExtPaths,
+    account: &str,
+    codex_home: &Path,
+    cwd: &Path,
+    provider: Option<&str>,
+    generation: u64,
+) -> Result<SessionRecord, String> {
     let pid = std::process::id();
     let start_ticks = proc_start_ticks(pid).unwrap_or(0);
     let rec = SessionRecord {
         pid,
         start_ticks,
+        generation,
         account: account.to_owned(),
         codex_home: normalize_match_path(codex_home),
         cwd: normalize_match_path(cwd),
@@ -219,6 +247,7 @@ mod tests {
         let dead = SessionRecord {
             pid: 999_999,
             start_ticks: 1,
+            generation: 0,
             account: "dead".to_owned(),
             codex_home: paths.shared_home.display().to_string(),
             cwd: cwd.display().to_string(),
@@ -246,6 +275,8 @@ mod tests {
             thread_id: Some("tid-123".to_owned()),
             wait: false,
             requested_at_ms: now_millis(),
+            target_start_ticks: Some(rec.start_ticks),
+            target_generation: Some(rec.generation),
         };
         write_handoff_ticket(&paths, rec.pid, &ticket).unwrap();
         let claimed = claim_handoff_ticket(&paths, rec.pid).unwrap().unwrap();
@@ -264,6 +295,19 @@ mod tests {
             "janmori101"
         );
         assert!(take_handoff_ticket(&paths, rec.pid).unwrap().is_none());
+
+        // Legacy JSON without target_start_ticks/target_generation deserializes cleanly,
+        // and cleanup_handoff_files removes both pending and claimed tickets.
+        let legacy_json = r#"{"kind":"switch","target":"szob","thread_id":null,"wait":false,"requested_at_ms":1}"#;
+        let legacy: HandoffTicket = serde_json::from_str(legacy_json).unwrap();
+        assert_eq!(legacy.target_start_ticks, None);
+        assert_eq!(legacy.target_generation, None);
+        write_handoff_ticket(&paths, rec.pid, &legacy).unwrap();
+        let _claimed2 = claim_handoff_ticket(&paths, rec.pid).unwrap().unwrap();
+        write_handoff_ticket(&paths, rec.pid, &legacy).unwrap();
+        cleanup_handoff_files(&paths, rec.pid);
+        assert!(!handoff_file_path(&paths, rec.pid).exists());
+        assert!(!claimed_handoff_path(&paths, rec.pid).exists());
 
         remove_session_file(&paths, rec.pid);
         let _ = fs::remove_dir_all(&root);

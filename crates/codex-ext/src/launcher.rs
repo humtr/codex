@@ -1,10 +1,11 @@
-use crate::paths::{is_live_matching_process, now_millis, ExtPaths};
+use crate::paths::{is_live_matching_process, now_millis, proc_start_ticks, ExtPaths};
 use crate::profiles::{
     apply_profile_env, effective_current_profile, resolve_profile, ProfileTarget,
 };
 use crate::session::{
-    find_matching_session, normalize_match_path, register_current_session, remove_session_file,
-    take_handoff_ticket, write_handoff_ticket, HandoffTicket, SessionMatch, SessionRecord,
+    cleanup_handoff_files, find_matching_session, handoff_file_path, normalize_match_path,
+    register_current_session_generation, remove_session_file, take_handoff_ticket,
+    write_handoff_ticket, HandoffTicket, SessionMatch, SessionRecord,
 };
 use codex_daemon_client::{
     daemon_stop_via_cli, wait_writer_lock_released, DaemonClient, DaemonError, ThreadSummary,
@@ -130,6 +131,39 @@ struct SessionCleanup<'a> {
 impl Drop for SessionCleanup<'_> {
     fn drop(&mut self) {
         remove_session_file(self.paths, self.pid);
+        cleanup_handoff_files(self.paths, self.pid);
+    }
+}
+
+fn take_valid_handoff_ticket(
+    paths: &ExtPaths,
+    pid: u32,
+    expected_start_ticks: u64,
+    expected_generation: u64,
+) -> Option<HandoffTicket> {
+    match take_handoff_ticket(paths, pid) {
+        Ok(Some(ticket)) => {
+            if let Some(ticks) = ticket.target_start_ticks {
+                if expected_start_ticks > 0 && ticks != expected_start_ticks {
+                    eprintln!("codex-ext: ignoring stale handoff ticket for another process start");
+                    return None;
+                }
+            }
+            if let Some(gen) = ticket.target_generation {
+                if gen != expected_generation {
+                    eprintln!(
+                        "codex-ext: ignoring stale handoff ticket for session generation {gen}"
+                    );
+                    return None;
+                }
+            }
+            Some(ticket)
+        }
+        Ok(None) => None,
+        Err(err) => {
+            eprintln!("codex-ext: ignoring invalid handoff ticket: {err}");
+            None
+        }
     }
 }
 
@@ -341,25 +375,28 @@ pub fn run_launcher(
         ));
     }
     let cwd = env::current_dir().map_err(|e| format!("cannot determine cwd: {e}"))?;
+    let my_pid = std::process::id();
+    let my_start_ticks = proc_start_ticks(my_pid).unwrap_or(0);
+    cleanup_handoff_files(paths, my_pid);
     let termios = TermiosGuard::capture();
     let _sig = SignalGuard::install_parent_signals()?;
-    let _cleanup = SessionCleanup {
-        paths,
-        pid: std::process::id(),
-    };
+    let _cleanup = SessionCleanup { paths, pid: my_pid };
 
     let mut current_target = initial_target;
     let mut current_provider = initial_provider;
     let mut next_args = initial_args;
+    let mut generation: u64 = 0;
 
     loop {
+        generation += 1;
         let cur_home = current_target.codex_home(paths);
-        let _ = register_current_session(
+        let _ = register_current_session_generation(
             paths,
             current_target.name(),
             &cur_home,
             &cwd,
             current_provider.as_deref(),
+            generation,
         )?;
 
         let mut cmd = Command::new(&paths.codex_bin);
@@ -380,16 +417,12 @@ pub fn run_launcher(
         let mut check_at = Instant::now();
         let final_status: Option<ExitStatus> = loop {
             if HANDOFF_SIGNALED.swap(false, Ordering::SeqCst) {
-                match take_handoff_ticket(paths, std::process::id()) {
-                    Ok(Some(ticket)) => {
-                        let now = Instant::now();
-                        handoff = Some((ticket, now + Duration::from_secs(600)));
-                        check_at = now;
-                    }
-                    Ok(None) => {}
-                    Err(err) => {
-                        eprintln!("codex-ext: ignoring invalid handoff ticket: {err}");
-                    }
+                if let Some(ticket) =
+                    take_valid_handoff_ticket(paths, my_pid, my_start_ticks, generation)
+                {
+                    let now = Instant::now();
+                    handoff = Some((ticket, now + Duration::from_secs(600)));
+                    check_at = now;
                 }
             }
             match child.try_wait() {
@@ -425,6 +458,17 @@ pub fn run_launcher(
                     eprintln!("codex-ext: switch aborted: {reason}");
                     handoff = None;
                 } else {
+                    // Absorb any newer matching ticket queued while validating/waiting
+                    // so the launcher performs the latest transition cleanly once.
+                    let _ = HANDOFF_SIGNALED.swap(false, Ordering::SeqCst);
+                    if let Some(newer) =
+                        take_valid_handoff_ticket(paths, my_pid, my_start_ticks, generation)
+                    {
+                        let now = Instant::now();
+                        handoff = Some((newer, now + Duration::from_secs(600)));
+                        check_at = now;
+                        continue;
+                    }
                     break None;
                 }
             }
@@ -581,8 +625,22 @@ fn signal_handoff(
     parent: &SessionRecord,
     ticket: &HandoffTicket,
 ) -> Result<(), String> {
+    let cleanup_if_dead = || {
+        let alive = unsafe { libc::kill(parent.pid as libc::pid_t, 0) } == 0
+            || io::Error::last_os_error().raw_os_error() != Some(libc::ESRCH);
+        if !alive {
+            let _ = std::fs::remove_file(handoff_file_path(paths, parent.pid));
+        }
+    };
+    if parent.start_ticks > 0 && !is_live_matching_process(parent.pid, parent.start_ticks) {
+        return Err(format!(
+            "parent codex-ext session {} exited before handoff",
+            parent.pid
+        ));
+    }
     write_handoff_ticket(paths, parent.pid, ticket)?;
-    if !is_live_matching_process(parent.pid, parent.start_ticks) {
+    if parent.start_ticks > 0 && !is_live_matching_process(parent.pid, parent.start_ticks) {
+        cleanup_if_dead();
         return Err(format!(
             "parent codex-ext session {} exited before handoff",
             parent.pid
@@ -590,10 +648,13 @@ fn signal_handoff(
     }
     let rc = unsafe { libc::kill(parent.pid as libc::pid_t, libc::SIGUSR1) };
     if rc != 0 {
+        let err = io::Error::last_os_error();
+        if err.raw_os_error() == Some(libc::ESRCH) {
+            let _ = std::fs::remove_file(handoff_file_path(paths, parent.pid));
+        }
         return Err(format!(
-            "failed to signal parent codex-ext ({}): {}",
-            parent.pid,
-            io::Error::last_os_error()
+            "failed to signal parent codex-ext ({}): {err}",
+            parent.pid
         ));
     }
     Ok(())
@@ -660,6 +721,8 @@ pub fn run_switch_command(
                 thread_id: resolved_tid,
                 wait,
                 requested_at_ms: now_millis(),
+                target_start_ticks: (parent.start_ticks > 0).then_some(parent.start_ticks),
+                target_generation: (parent.generation > 0).then_some(parent.generation),
             };
             signal_handoff(paths, &parent, &ticket)?;
             if busy.is_empty() {
@@ -832,6 +895,8 @@ pub fn run_provider_command(
                 thread_id: None,
                 wait,
                 requested_at_ms: now_millis(),
+                target_start_ticks: (parent.start_ticks > 0).then_some(parent.start_ticks),
+                target_generation: (parent.generation > 0).then_some(parent.generation),
             };
             signal_handoff(paths, &parent, &ticket)?;
             if wait {
@@ -936,6 +1001,8 @@ mod tests {
                         thread_id: Some("tid-99".to_owned()),
                         wait: false,
                         requested_at_ms: now_millis(),
+                        target_start_ticks: None,
+                        target_generation: None,
                     };
                     write_handoff_ticket(&paths_clone, parent_pid, &ticket).unwrap();
                     unsafe {
@@ -959,6 +1026,152 @@ mod tests {
         assert!(lines[1].contains("profiles/szob/home"));
         assert!(lines[1].contains("EXTRA=hooks.json"));
         assert!(lines[1].contains("ARGS=resume tid-99"));
+        assert!(!crate::session::handoff_file_path(&paths, parent_pid).exists());
+        assert!(!crate::session::claimed_handoff_path(&paths, parent_pid).exists());
+
+        // Regression test: stale ticket from mismatched start_ticks/generation or
+        // gen-1 arriving during switch to gen-2 does NOT hijack gen-2, and coalesced
+        // second ticket before switch admission wins.
+        let paths2 = paths.clone();
+        let trace2 = root.join("trace2.log");
+        let fake_codex2 = usr_bin.join("codex2");
+        fs::write(
+            &fake_codex2,
+            format!(
+                "#!/bin/sh\n\
+                 printf 'HOME=%s ARGS=%s\\n' \"${{CODEX_HOME:-DEFAULT}}\" \"$*\" >> '{}'\n\
+                 if [ \"$1\" = 'resume' ]; then exit 0; fi\n\
+                 trap 'exit 0' TERM\n\
+                 sleep 5\n",
+                trace2.display()
+            ),
+        )
+        .unwrap();
+        fs::set_permissions(&fake_codex2, fs::Permissions::from_mode(0o755)).unwrap();
+        let mut paths2 = paths2;
+        paths2.codex_bin = fake_codex2;
+        create_profile(&paths2, "janmori101").unwrap();
+
+        let p2_bg = paths2.clone();
+        let switcher2 = std::thread::spawn(move || {
+            for _ in 0..100 {
+                if p2_bg
+                    .sessions_dir
+                    .join(format!("{parent_pid}.json"))
+                    .is_file()
+                {
+                    std::thread::sleep(Duration::from_millis(50));
+                    let my_ticks = proc_start_ticks(parent_pid).unwrap();
+                    // Wrong start_ticks (PID-reuse simulation) -> must be ignored!
+                    let wrong_pid_ticket = HandoffTicket {
+                        kind: "switch".to_owned(),
+                        target: "janmori101".to_owned(),
+                        thread_id: Some("bad-tid".to_owned()),
+                        wait: false,
+                        requested_at_ms: now_millis(),
+                        target_start_ticks: Some(my_ticks + 999),
+                        target_generation: Some(1),
+                    };
+                    write_handoff_ticket(&p2_bg, parent_pid, &wrong_pid_ticket).unwrap();
+                    unsafe { libc::kill(parent_pid as libc::pid_t, libc::SIGUSR1) };
+                    std::thread::sleep(Duration::from_millis(50));
+
+                    // Rapid coalesced switch: szob followed immediately by janmori101 -> janmori101 wins
+                    for tgt in ["szob", "janmori101"] {
+                        let t = HandoffTicket {
+                            kind: "switch".to_owned(),
+                            target: tgt.to_owned(),
+                            thread_id: Some(format!("tid-{tgt}")),
+                            wait: false,
+                            requested_at_ms: now_millis(),
+                            target_start_ticks: Some(my_ticks),
+                            target_generation: Some(1),
+                        };
+                        write_handoff_ticket(&p2_bg, parent_pid, &t).unwrap();
+                    }
+                    unsafe { libc::kill(parent_pid as libc::pid_t, libc::SIGUSR1) };
+                    return;
+                }
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            panic!("launcher2 never registered session file");
+        });
+        let rc2 = run_launcher(&paths2, ProfileTarget::Default, None, Vec::new()).unwrap();
+        switcher2.join().unwrap();
+        assert_eq!(rc2, 0);
+        let t2 = fs::read_to_string(&trace2).unwrap();
+        let lines2: Vec<&str> = t2.lines().collect();
+        assert_eq!(lines2.len(), 2, "trace2 was:\n{t2}");
+        assert!(lines2[1].contains("profiles/janmori101/home"));
+        assert!(lines2[1].contains("ARGS=resume tid-janmori101"));
+
+        // Regression test: a generation-1 ticket arriving AFTER generation 2 starts
+        // (e.g. delayed delivery from terminating gen-1) MUST be ignored by gen-2.
+        let mut paths3 = paths2;
+        let trace3 = root.join("trace3.log");
+        let fake_codex3 = usr_bin.join("codex3");
+        fs::write(
+            &fake_codex3,
+            format!(
+                "#!/bin/sh\n\
+                 printf 'ARGS=%s\\n' \"$*\" >> '{}'\n\
+                 if [ \"$1\" = 'resume' ]; then sleep 0.6; exit 0; fi\n\
+                 exec sleep 5\n",
+                trace3.display()
+            ),
+        )
+        .unwrap();
+        fs::set_permissions(&fake_codex3, fs::Permissions::from_mode(0o755)).unwrap();
+        paths3.codex_bin = fake_codex3;
+        let p3_bg = paths3.clone();
+        let switcher3 = std::thread::spawn(move || {
+            let mut sent_g1 = false;
+            for _ in 0..400 {
+                let sfile = p3_bg.sessions_dir.join(format!("{parent_pid}.json"));
+                if let Ok(raw) = fs::read_to_string(&sfile) {
+                    if let Ok(rec) = serde_json::from_str::<SessionRecord>(&raw) {
+                        if rec.generation == 1 && !sent_g1 {
+                            sent_g1 = true;
+                            std::thread::sleep(Duration::from_millis(50));
+                            let t1 = HandoffTicket {
+                                kind: "switch".to_owned(),
+                                target: "szob".to_owned(),
+                                thread_id: Some("tid-g1".to_owned()),
+                                wait: false,
+                                requested_at_ms: now_millis(),
+                                target_start_ticks: Some(rec.start_ticks),
+                                target_generation: Some(1),
+                            };
+                            write_handoff_ticket(&p3_bg, parent_pid, &t1).unwrap();
+                            unsafe { libc::kill(parent_pid as libc::pid_t, libc::SIGUSR1) };
+                        } else if rec.generation == 2 {
+                            // Inject stale generation=1 ticket while gen-2 is running!
+                            let stale = HandoffTicket {
+                                kind: "switch".to_owned(),
+                                target: "janmori101".to_owned(),
+                                thread_id: Some("tid-stale".to_owned()),
+                                wait: false,
+                                requested_at_ms: now_millis(),
+                                target_start_ticks: Some(rec.start_ticks),
+                                target_generation: Some(1),
+                            };
+                            write_handoff_ticket(&p3_bg, parent_pid, &stale).unwrap();
+                            unsafe { libc::kill(parent_pid as libc::pid_t, libc::SIGUSR1) };
+                            return;
+                        }
+                    }
+                }
+                std::thread::sleep(Duration::from_millis(15));
+            }
+            panic!("launcher3 never reached generation 2");
+        });
+        let rc3 = run_launcher(&paths3, ProfileTarget::Default, None, Vec::new()).unwrap();
+        switcher3.join().unwrap();
+        assert_eq!(rc3, 0);
+        let t3 = fs::read_to_string(&trace3).unwrap();
+        let lines3: Vec<&str> = t3.lines().collect();
+        assert_eq!(lines3.len(), 2, "stale gen-1 ticket hijacked gen-2:\n{t3}");
+        assert!(lines3[1].contains("ARGS=resume tid-g1"));
 
         let _ = fs::remove_dir_all(&root);
     }
