@@ -66,7 +66,14 @@ and [providers/chatgpt/src/main.rs](../../providers/chatgpt/src/main.rs).
   hashes or minified symbol names, and never synthesizes private reasoning.
 - **Type 1 (`codex -p chatgpt`) surface:** Localhost-only `GET /v1/models` and
   `POST /v1/responses` (monotonic OpenAI Responses SSE or JSON) supporting
-  single-path in-app tool callbacks via `local_function_signatures`. When
+  single-path in-app tool callbacks via `local_function_signatures`. The
+  Provider also maintains a Codex-compatible catalog file at
+  `<state_dir>/model-catalog.json` (`0600`, atomic; seeded from configured
+  fallback models at startup and refreshed whenever `GET /v1/models`,
+  `GET /control/status`, or eager startup receives live AppHost `/models`
+  metadata) and emits `model_catalog_json = "<state_dir>/model-catalog.json"`
+  in `print-codex-profile` so Codex `/model` displays ChatGPT models instead
+  of default OpenAI slugs. When
   Codex supplies deferred nested tools through Code Mode, the description
   sent to the AppHost retains the advertised `ALL_TOOLS` discovery instruction
   within the description bound. A streaming request forwards upstream

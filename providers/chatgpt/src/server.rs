@@ -18,6 +18,7 @@ use axum::{
     Json, Router,
 };
 use serde_json::{json, Value};
+use std::path::PathBuf;
 use std::sync::Arc;
 
 #[derive(Clone)]
@@ -26,6 +27,7 @@ struct AppState {
     model_cfg: Arc<ModelConfig>,
     history_cfg: Arc<HistoryConfig>,
     threads: Arc<ResponseThreadMap>,
+    catalog_path: Option<PathBuf>,
 }
 
 #[cfg(test)]
@@ -43,6 +45,7 @@ pub fn build_router(
         control_token,
         viewer_slot,
         ResponseThreadMap::default(),
+        None,
     )
 }
 
@@ -53,12 +56,15 @@ pub fn build_router_with_threads(
     control_token: String,
     viewer_slot: ViewerSlot,
     threads: ResponseThreadMap,
+    catalog_path: Option<PathBuf>,
 ) -> Router {
+    let model_cfg = Arc::new(model_cfg);
     let app_state = AppState {
         driver: Arc::clone(&driver),
-        model_cfg: Arc::new(model_cfg),
+        model_cfg: Arc::clone(&model_cfg),
         history_cfg: Arc::new(history_cfg),
         threads: Arc::new(threads),
+        catalog_path: catalog_path.clone(),
     };
     let v1_router = Router::new()
         .route("/healthz", get(healthz))
@@ -69,6 +75,8 @@ pub fn build_router_with_threads(
     let ctrl_router = control_router(ControlState {
         driver,
         token: control_token.into(),
+        catalog_path,
+        model_cfg,
     });
 
     v1_router
@@ -86,7 +94,12 @@ async fn healthz(State(st): State<AppState>) -> Json<Value> {
 }
 
 async fn v1_models(State(st): State<AppState>) -> Json<Value> {
-    handle_models(Arc::clone(&st.driver), &st.model_cfg).await
+    handle_models(
+        Arc::clone(&st.driver),
+        &st.model_cfg,
+        st.catalog_path.as_deref(),
+    )
+    .await
 }
 
 async fn v1_responses(

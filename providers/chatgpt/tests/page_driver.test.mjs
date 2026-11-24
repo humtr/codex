@@ -147,6 +147,10 @@ test("page_driver status, chats, linear branch read (no private thoughts), proje
   assert.equal(st.completion_ready, true);
   assert.equal(st.ui_state, "ready");
   assert.equal(st.models[0].slug, "gpt-5-6");
+  assert.equal(st.models[0].title, "GPT-5.6");
+  assert.equal(st.models[0].description, null);
+  assert.equal(st.models[0].max_tokens, 128000);
+  assert.deepEqual(Array.from(st.models[0].tags), []);
 
   const list = await driver.listChats({ limit: 20 });
   assert.equal(list.chats.length, 1);
@@ -351,7 +355,20 @@ test("page_driver on app://- Electron origin uses connect-app-host Cap'n Web htt
       status: 200,
       body: { id: "u-electron", name: "Desktop User", orgs: { data: [{ id: "acc-e1", title: "Plus", is_personal: true }] } },
     },
-    "GET /models": { status: 200, body: { models: [{ slug: "gpt-5-6", title: "GPT-5.6", max_tokens: 128000 }] } },
+    "GET /models": {
+      status: 200,
+      body: {
+        models: [
+          {
+            slug: "gpt-5-6",
+            title: "GPT-5.6",
+            description: "Flagship AppHost model",
+            max_tokens: 128000,
+            tags: ["default"],
+          },
+        ],
+      },
+    },
     "GET /conversations?offset=0&limit=5&order=updated&is_archived=false": {
       status: 200,
       body: { total: 1, items: [{ id: "c-el-1", title: "App Chat", create_time: 10, update_time: 20 }] },
@@ -421,6 +438,10 @@ test("page_driver on app://- Electron origin uses connect-app-host Cap'n Web htt
   assert.equal(st.auth_state, "authenticated");
   assert.equal(st.account.id, "u-electron");
   assert.equal(st.models[0].slug, "gpt-5-6");
+  assert.equal(st.models[0].title, "GPT-5.6");
+  assert.equal(st.models[0].description, "Flagship AppHost model");
+  assert.equal(st.models[0].max_tokens, 128000);
+  assert.deepEqual(Array.from(st.models[0].tags), ["default"]);
   assert.equal(seenRequests[0].headers["X-OpenAI-Attach-Auth"], "1");
 
   const chats = await driver.listChats({ limit: 5 });

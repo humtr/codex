@@ -338,7 +338,26 @@ pub fn merge_shared_extra_files(existing: Option<&str>, required: &str) -> Strin
     items.join(":")
 }
 
-pub fn apply_profile_env(cmd: &mut Command, target: &ProfileTarget, paths: &ExtPaths) {
+pub fn normalize_provider_name(provider: Option<&str>) -> Option<String> {
+    let trimmed = provider?.trim();
+    if trimmed.is_empty()
+        || trimmed.len() > 64
+        || matches!(trimmed, "openai" | "default" | "." | "..")
+        || !trimmed
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'))
+    {
+        return None;
+    }
+    Some(trimmed.to_owned())
+}
+
+pub fn apply_profile_env(
+    cmd: &mut Command,
+    target: &ProfileTarget,
+    paths: &ExtPaths,
+    provider: Option<&str>,
+) {
     match target {
         ProfileTarget::Default => {
             cmd.env_remove("CODEX_HOME");
@@ -349,10 +368,16 @@ pub fn apply_profile_env(cmd: &mut Command, target: &ProfileTarget, paths: &ExtP
             cmd.env("CODEX_HOME", home);
             cmd.env("CODEX_SHARED_HOME", &paths.shared_home);
             cmd.env("CODEX_SQLITE_HOME", &paths.shared_home);
-            let merged = merge_shared_extra_files(
+            let mut merged = merge_shared_extra_files(
                 env::var("CODEX_SHARED_EXTRA_FILES").ok().as_deref(),
                 "hooks.json",
             );
+            if let Some(prov) = normalize_provider_name(provider) {
+                let extra = format!("{prov}.config.toml");
+                if paths.shared_home.join(&extra).is_file() {
+                    merged = merge_shared_extra_files(Some(&merged), &extra);
+                }
+            }
             cmd.env("CODEX_SHARED_EXTRA_FILES", merged);
         }
     }
@@ -445,6 +470,14 @@ mod tests {
             merge_shared_extra_files(Some("hooks.json:review.config.toml"), "hooks.json"),
             "hooks.json:review.config.toml"
         );
+        assert_eq!(
+            normalize_provider_name(Some(" chatgpt ")),
+            Some("chatgpt".to_owned())
+        );
+        assert_eq!(normalize_provider_name(Some("openai")), None);
+        assert_eq!(normalize_provider_name(Some("default")), None);
+        assert_eq!(normalize_provider_name(Some("../evil")), None);
+        assert_eq!(normalize_provider_name(Some("")), None);
         let _ = fs::remove_dir_all(&root);
     }
 }

@@ -98,6 +98,10 @@ symlink) that shares `crates/codex-daemon-client` with `@TermuxCodex` and has
   - `!cdx switch` / `!cdx provider` matches live sessions by `(CODEX_HOME, cwd)`
     unless `--session <PID>` is specified. Multiple matching windows fail closed
     (exit `2`) listing every candidate PID.
+  - Launching `cdx` with `-p <NAME>` / `--profile <NAME>` (including via
+    `cdx use <ACCOUNT> -p <NAME>`) records the active provider in the session
+    record and merges `<NAME>.config.toml` (when present in `CODEX_SHARED_HOME`)
+    into `CODEX_SHARED_EXTRA_FILES` for named-profile launches.
 - **Zero-interruption pre-flight busy check & writer-lock release:**
   - Upstream default `thread_unload_delay_secs` is preserved (`= 0` is forbidden
     to prevent `turn_aborted` on disconnect).

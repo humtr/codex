@@ -470,6 +470,30 @@ fn parse_provider_and_run(paths: &ExtPaths, args: &[String]) -> Result<i32, Stri
     run_provider_command(paths, name, session_pid)
 }
 
+fn detect_profile_flag(args: &[OsString]) -> Option<String> {
+    let mut idx = 0usize;
+    while idx < args.len() {
+        let Some(s) = args[idx].to_str() else {
+            idx += 1;
+            continue;
+        };
+        if s == "--" {
+            break;
+        }
+        if s == "-p" || s == "--profile" {
+            return args
+                .get(idx + 1)
+                .and_then(|v| v.to_str())
+                .and_then(|v| crate::profiles::normalize_provider_name(Some(v)));
+        }
+        if let Some(rest) = s.strip_prefix("--profile=") {
+            return crate::profiles::normalize_provider_name(Some(rest));
+        }
+        idx += 1;
+    }
+    None
+}
+
 fn run_main(raw_args: Vec<OsString>) -> Result<i32, String> {
     let first = raw_args.first().and_then(|s| s.to_str());
     match first {
@@ -498,7 +522,9 @@ fn run_main(raw_args: Vec<OsString>) -> Result<i32, String> {
         }
         Some("--") => {
             let target = resolve_default_target(&paths)?;
-            run_launcher(&paths, target, None, raw_args.into_iter().skip(1).collect())
+            let rest: Vec<OsString> = raw_args.into_iter().skip(1).collect();
+            let provider = detect_profile_flag(&rest);
+            run_launcher(&paths, target, provider, rest)
         }
         Some("use") => {
             let Some(acct) = raw_args.get(1).and_then(|s| s.to_str()) else {
@@ -509,7 +535,8 @@ fn run_main(raw_args: Vec<OsString>) -> Result<i32, String> {
             if rest.first().and_then(|s| s.to_str()) == Some("--") {
                 rest.remove(0);
             }
-            run_launcher(&paths, target, None, rest)
+            let provider = detect_profile_flag(&rest);
+            run_launcher(&paths, target, provider, rest)
         }
         Some("switch") => parse_switch_and_run(&paths, &str_args),
         Some("provider") => parse_provider_and_run(&paths, &str_args),
@@ -519,7 +546,8 @@ fn run_main(raw_args: Vec<OsString>) -> Result<i32, String> {
         _ => {
             // Passthrough unknown top-level flags/args directly to default Codex profile!
             let target = resolve_default_target(&paths)?;
-            run_launcher(&paths, target, None, raw_args)
+            let provider = detect_profile_flag(&raw_args);
+            run_launcher(&paths, target, provider, raw_args)
         }
     }
 }

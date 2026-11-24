@@ -980,22 +980,232 @@ async fn send_chunk(tx: &mpsc::Sender<String>, chunk: String) -> bool {
         .is_ok_and(|result| result.is_ok())
 }
 
-pub async fn handle_models(driver: Arc<dyn DriverBackend>, model_cfg: &ModelConfig) -> Json<Value> {
+pub use crate::config::ensure_private_dir;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CatalogModel {
+    pub slug: String,
+    pub title: Option<String>,
+    pub description: Option<String>,
+    pub max_tokens: Option<u64>,
+}
+
+pub fn catalog_models_from_status(st: &Value) -> Vec<CatalogModel> {
+    let mut out = Vec::new();
+    if let Some(arr) = st.get("models").and_then(Value::as_array) {
+        for m in arr {
+            let Some(slug) = m
+                .get("slug")
+                .and_then(Value::as_str)
+                .or_else(|| m.as_str())
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+            else {
+                continue;
+            };
+            let title = m
+                .get("title")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(ToOwned::to_owned);
+            let description = m
+                .get("description")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(ToOwned::to_owned);
+            let max_tokens = m.get("max_tokens").and_then(Value::as_u64).filter(|&n| n > 0);
+            out.push(CatalogModel {
+                slug: slug.to_owned(),
+                title,
+                description,
+                max_tokens,
+            });
+        }
+    }
+    out
+}
+
+pub fn fallback_catalog_models(model_cfg: &ModelConfig) -> Vec<CatalogModel> {
+    let mut out = Vec::new();
+    let mut seen = HashSet::new();
+    let candidates = std::iter::once(model_cfg.default.as_str())
+        .chain(model_cfg.available.iter().map(String::as_str));
+    for slug in candidates {
+        let trimmed = slug.trim();
+        if trimmed.is_empty() || !seen.insert(trimmed.to_owned()) {
+            continue;
+        }
+        out.push(CatalogModel {
+            slug: trimmed.to_owned(),
+            title: None,
+            description: None,
+            max_tokens: None,
+        });
+    }
+    out
+}
+
+fn is_hidden_catalog_slug(slug: &str) -> bool {
+    let lower = slug.to_ascii_lowercase();
+    lower.contains("reserved_gate")
+        || lower.starts_with("chatgpt_alpha_model_external_access_")
+        || lower == "auto"
+}
+
+fn is_non_thinking_slug(slug: &str) -> bool {
+    let lower = slug.to_ascii_lowercase();
+    lower.contains("instant") || lower == "research"
+}
+
+fn normalize_catalog_default_effort(raw: &str) -> &'static str {
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "none" | "zero" => "none",
+        "minimal" | "min" | "low" => "low",
+        "high" | "extended" => "high",
+        "xhigh" => "xhigh",
+        "max" | "ultra" => "max",
+        _ => "medium",
+    }
+}
+
+pub fn build_codex_model_catalog(models: &[CatalogModel], model_cfg: &ModelConfig) -> Value {
+    let mut entries = Vec::new();
+    let mut seen = HashSet::new();
+    let default_effort = normalize_catalog_default_effort(&model_cfg.reasoning_effort);
+    for m in models {
+        let slug = m.slug.trim();
+        if slug.is_empty() || !seen.insert(slug.to_owned()) {
+            continue;
+        }
+        let priority = (entries.len() + 1) as i64;
+        let display_name = m
+            .title
+            .as_deref()
+            .filter(|s| !s.is_empty())
+            .unwrap_or(slug);
+        let description = m
+            .description
+            .as_deref()
+            .filter(|s| !s.is_empty())
+            .map(ToOwned::to_owned)
+            .unwrap_or_else(|| format!("ChatGPT Desktop model ({slug})"));
+        let visibility = if is_hidden_catalog_slug(slug) {
+            "hide"
+        } else {
+            "list"
+        };
+        let (model_default_effort, supported_efforts) = if is_non_thinking_slug(slug) {
+            ("none", json!([]))
+        } else {
+            (
+                default_effort,
+                json!([
+                    { "effort": "none", "description": "Direct response without extended thinking" },
+                    { "effort": "low", "description": "Lighter reasoning for fast replies" },
+                    { "effort": "medium", "description": "Balanced speed and reasoning depth" },
+                    { "effort": "high", "description": "Greater reasoning depth for complex tasks" },
+                    { "effort": "xhigh", "description": "Extra high reasoning depth for hard tasks" },
+                    { "effort": "max", "description": "Maximum ChatGPT reasoning depth" }
+                ]),
+            )
+        };
+        entries.push(json!({
+            "slug": slug,
+            "display_name": display_name,
+            "description": description,
+            "default_reasoning_level": model_default_effort,
+            "supported_reasoning_levels": supported_efforts,
+            "shell_type": "unified_exec",
+            "visibility": visibility,
+            "supported_in_api": true,
+            "priority": priority,
+            "base_instructions": "",
+            "supports_reasoning_summaries": true,
+            "default_reasoning_summary": "auto",
+            "support_verbosity": false,
+            "truncation_policy": { "mode": "tokens", "limit": 10000 },
+            "context_window": m.max_tokens.unwrap_or(128_000),
+            "effective_context_window_percent": 95,
+            "input_modalities": ["text", "image"],
+            "supports_parallel_tool_calls": true,
+            "experimental_supported_tools": []
+        }));
+    }
+    json!({ "models": entries })
+}
+
+pub fn sync_model_catalog_file(path: &Path, catalog: &Value) -> io::Result<()> {
+    let mut encoded = serde_json::to_vec_pretty(catalog)
+        .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err))?;
+    encoded.push(b'\n');
+    if let Ok(existing) = fs::read(path) {
+        if existing == encoded {
+            return Ok(());
+        }
+    }
+    if let Some(parent) = path.parent() {
+        ensure_private_dir(parent).map_err(|err| io::Error::other(err.to_string()))?;
+    }
+    let tmp = path.with_extension(format!(
+        "json.tmp-{}-{}",
+        std::process::id(),
+        random_hex(4).map_err(|err| io::Error::other(err.to_string()))?
+    ));
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .custom_flags(libc::O_NOFOLLOW)
+        .open(&tmp)?;
+    let write_res = file.write_all(&encoded).and_then(|()| file.sync_all());
+    drop(file);
+    if let Err(err) = write_res {
+        let _ = fs::remove_file(&tmp);
+        return Err(err);
+    }
+    if let Err(err) = fs::rename(&tmp, path) {
+        let _ = fs::remove_file(&tmp);
+        return Err(err);
+    }
+    Ok(())
+}
+
+pub fn sync_catalog_from_status(
+    catalog_path: Option<&Path>,
+    st: &Value,
+    model_cfg: &ModelConfig,
+) {
+    let Some(path) = catalog_path else {
+        return;
+    };
+    let models = catalog_models_from_status(st);
+    if models.is_empty() {
+        return;
+    }
+    let catalog = build_codex_model_catalog(&models, model_cfg);
+    if let Err(err) = sync_model_catalog_file(path, &catalog) {
+        eprintln!(
+            "chatgpt-provider: warning: failed to update {}: {err}",
+            path.display()
+        );
+    }
+}
+
+pub async fn handle_models(
+    driver: Arc<dyn DriverBackend>,
+    model_cfg: &ModelConfig,
+    catalog_path: Option<&Path>,
+) -> Json<Value> {
     let mut slugs: Vec<String> = Vec::new();
     if driver.host_running().await {
         if let Ok(st) = driver.status().await {
-            if let Some(arr) = st.get("models").and_then(Value::as_array) {
-                for m in arr {
-                    if let Some(slug) = m
-                        .get("slug")
-                        .and_then(Value::as_str)
-                        .or_else(|| m.as_str())
-                        .filter(|s| !s.is_empty())
-                    {
-                        slugs.push(slug.to_owned());
-                    }
-                }
-            }
+            sync_catalog_from_status(catalog_path, &st, model_cfg);
+            slugs = catalog_models_from_status(&st)
+                .into_iter()
+                .map(|m| m.slug)
+                .collect();
         }
     }
     if slugs.is_empty() {

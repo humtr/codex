@@ -834,3 +834,89 @@ fn stop_wakes_live_loopback_relay_and_fails_open_when_absent_or_stopped() {
     assert!(start.elapsed() < Duration::from_millis(1500));
     fs::remove_dir_all(root).unwrap();
 }
+
+#[test]
+fn profile_flag_records_provider_and_shares_provider_config_on_named_profiles() {
+    let root = temp_root("cdx-prof-flag");
+    let work = root.join("work");
+    let tmp = root.join("tmp");
+    fs::create_dir_all(&work).unwrap();
+    fs::create_dir_all(&tmp).unwrap();
+    fs::create_dir_all(root.join(".codex")).unwrap();
+    fs::write(
+        root.join(".codex/chatgpt.config.toml"),
+        "model = \"gpt-6.2-sol\"\n",
+    )
+    .unwrap();
+
+    let created = Command::new(ext_bin())
+        .args(["profile", "create", "szob"])
+        .env("HOME", &root)
+        .env("TMPDIR", &tmp)
+        .output()
+        .unwrap();
+    assert!(created.status.success());
+
+    let trace = root.join("trace.log");
+    let snap = root.join("session_snap.json");
+    let fake_codex = root.join("usr/bin/codex");
+    fs::create_dir_all(fake_codex.parent().unwrap()).unwrap();
+    fs::write(
+        &fake_codex,
+        format!(
+            "#!/bin/sh\n\
+             printf 'EXTRA=%s HOME=%s ARGS=%s\\n' \"${{CODEX_SHARED_EXTRA_FILES:-NONE}}\" \"${{CODEX_HOME:-DEFAULT}}\" \"$*\" >> '{}'\n\
+             cat \"{}\"/*.json > '{}' 2>/dev/null || true\n\
+             exit 0\n",
+            trace.display(),
+            root.join(".local/state/codex/ext/sessions").display(),
+            snap.display(),
+        ),
+    )
+    .unwrap();
+    fs::set_permissions(&fake_codex, fs::Permissions::from_mode(0o755)).unwrap();
+
+    let out = Command::new(ext_bin())
+        .args(["use", "szob", "-p", "chatgpt"])
+        .current_dir(&work)
+        .env("HOME", &root)
+        .env("TMPDIR", &tmp)
+        .env("CODEX_EXT_CODEX_BIN", &fake_codex)
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "cdx use szob -p chatgpt failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    let logged = fs::read_to_string(&trace).unwrap();
+    assert!(logged.contains("hooks.json:chatgpt.config.toml"), "{logged}");
+    assert!(logged.contains("ARGS=-p chatgpt"), "{logged}");
+
+    let session_raw = fs::read_to_string(&snap).unwrap();
+    let rec: Value = serde_json::from_str(&session_raw).unwrap();
+    assert_eq!(rec["provider"].as_str(), Some("chatgpt"));
+    assert_eq!(rec["account"].as_str(), Some("szob"));
+
+    for bad in ["--profile=openai", "--profile=../evil"] {
+        let _ = fs::remove_file(&trace);
+        let _ = fs::remove_file(&snap);
+        let r = Command::new(ext_bin())
+            .args(["use", "szob", bad])
+            .current_dir(&work)
+            .env("HOME", &root)
+            .env("TMPDIR", &tmp)
+            .env("CODEX_EXT_CODEX_BIN", &fake_codex)
+            .output()
+            .unwrap();
+        assert!(r.status.success());
+        let logged = fs::read_to_string(&trace).unwrap();
+        assert!(logged.contains("EXTRA=hooks.json "), "{logged}");
+        assert!(!logged.contains("chatgpt.config.toml"), "{logged}");
+        let rec: Value = serde_json::from_str(&fs::read_to_string(&snap).unwrap()).unwrap();
+        assert!(rec["provider"].is_null(), "expected null provider for {bad}: {rec}");
+    }
+
+    fs::remove_dir_all(root).unwrap();
+}

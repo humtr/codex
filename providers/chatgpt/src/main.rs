@@ -25,7 +25,7 @@ use crate::viewer::ViewerSlot;
 use serde_json::json;
 use std::env;
 use std::future::IntoFuture;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 use tokio::net::TcpListener;
@@ -37,7 +37,7 @@ fn print_help() {
          Usage:\n\
          \x20 chatgpt-provider serve [--config <path>] [--bind 127.0.0.1:<port>] [--state <dir>] [--rootfs <dir>] [--eager-host]\n\
          \x20 chatgpt-provider status [--config <path>]\n\
-         \x20 chatgpt-provider print-codex-profile [--bind 127.0.0.1:4319] [--model auto] [--standalone]\n\
+         \x20 chatgpt-provider print-codex-profile [--config <path>] [--state <dir>] [--bind 127.0.0.1:4319] [--model auto] [--standalone]\n\
          \x20 chatgpt-provider --version | --help",
         env!("CARGO_PKG_VERSION")
     );
@@ -74,12 +74,23 @@ async fn run() -> Result<()> {
             Ok(())
         }
         Some("print-codex-profile") => {
+            let home = user_home()?;
+            let mut cfg_path: Option<PathBuf> = None;
+            let mut state_override: Option<PathBuf> = None;
             let mut bind = "127.0.0.1:4319".to_owned();
             let mut model = "auto".to_owned();
             let mut standalone = false;
             let mut i = 1;
             while i < args.len() {
                 match args[i].as_str() {
+                    "--config" if i + 1 < args.len() => {
+                        cfg_path = Some(PathBuf::from(&args[i + 1]));
+                        i += 2;
+                    }
+                    "--state" if i + 1 < args.len() => {
+                        state_override = Some(PathBuf::from(&args[i + 1]));
+                        i += 2;
+                    }
                     "--bind" if i + 1 < args.len() => {
                         bind = args[i + 1].clone();
                         i += 2;
@@ -98,37 +109,12 @@ async fn run() -> Result<()> {
                     }
                 }
             }
-            if standalone {
-                println!(
-                    "# Standalone Codex provider config (`~/.codex/chatgpt.config.toml`) for `!cdx provider chatgpt`\n\
-                     model = \"{model}\"\n\
-                     model_provider = \"chatgpt_desktop\"\n\n\
-                     [model_providers.chatgpt_desktop]\n\
-                     name = \"ChatGPT Desktop (Stage 2)\"\n\
-                     base_url = \"http://{bind}/v1\"\n\
-                     wire_api = \"responses\"\n\
-                     requires_openai_auth = false\n\
-                     supports_websockets = false\n\
-                     request_max_retries = 0\n\
-                     stream_max_retries = 0"
-                );
-            } else {
-                println!(
-                    "# Opt-in Codex CLI profile (`codex -p chatgpt` in `~/.codex/config.toml`) — zero Wrapper coupling\n\
-                     # (Or pass `--standalone` to generate `~/.codex/chatgpt.config.toml`)\n\
-                     [profiles.chatgpt]\n\
-                     model = \"{model}\"\n\
-                     model_provider = \"chatgpt_desktop\"\n\n\
-                     [model_providers.chatgpt_desktop]\n\
-                     name = \"ChatGPT Desktop (Stage 2)\"\n\
-                     base_url = \"http://{bind}/v1\"\n\
-                     wire_api = \"responses\"\n\
-                     requires_openai_auth = false\n\
-                     supports_websockets = false\n\
-                     request_max_retries = 0\n\
-                     stream_max_retries = 0"
-                );
-            }
+            let state_dir = match state_override {
+                Some(dir) => dir,
+                None => ProviderConfig::load_or_default(cfg_path.as_deref(), &home)?.state_dir(&home),
+            };
+            let catalog_path = state_dir.join("model-catalog.json");
+            print!("{}", format_codex_profile(&bind, &model, &catalog_path, standalone));
             Ok(())
         }
         Some("status") => {
@@ -207,6 +193,20 @@ async fn run() -> Result<()> {
             cfg.validate()?;
 
             let state_dir = cfg.state_dir(&home);
+            let catalog_path = state_dir.join("model-catalog.json");
+            if !catalog_path.exists() {
+                let fallback = crate::responses::build_codex_model_catalog(
+                    &crate::responses::fallback_catalog_models(&cfg.model),
+                    &cfg.model,
+                );
+                if let Err(err) = crate::responses::sync_model_catalog_file(&catalog_path, &fallback)
+                {
+                    eprintln!(
+                        "chatgpt-provider: warning: failed to seed {}: {err}",
+                        catalog_path.display()
+                    );
+                }
+            }
             let (token_path, token) = load_or_create_control_token(&state_dir)?;
             let response_state = cfg.response_state_dir(&home);
             config::ensure_private_dir(&response_state)?;
@@ -254,6 +254,13 @@ async fn run() -> Result<()> {
                     _ = &mut stopping => return driver.shutdown().await,
                     result = driver.restart_host() => { result?; }
                 }
+                if let Ok(st) = driver.status().await {
+                    crate::responses::sync_catalog_from_status(
+                        Some(&catalog_path),
+                        &st,
+                        &cfg.model,
+                    );
+                }
             }
 
             let driver_dyn: Arc<dyn DriverBackend> = driver.clone();
@@ -264,6 +271,7 @@ async fn run() -> Result<()> {
                 token,
                 viewer_slot,
                 threads,
+                Some(catalog_path),
             );
             eprintln!(
                 "chatgpt-provider {} listening on http://{} (control token: {})",
@@ -315,6 +323,44 @@ fn parse_opt_path(args: &[String], flag: &str) -> Option<PathBuf> {
         i += 1;
     }
     None
+}
+
+fn format_codex_profile(bind: &str, model: &str, catalog_path: &Path, standalone: bool) -> String {
+    let cat = serde_json::to_string(&catalog_path.display().to_string())
+        .unwrap_or_else(|_| format!("\"{}\"", catalog_path.display()));
+    if standalone {
+        format!(
+            "# Standalone Codex provider config (`~/.codex/chatgpt.config.toml`) for `!cdx provider chatgpt`\n\
+             model = \"{model}\"\n\
+             model_provider = \"chatgpt_desktop\"\n\
+             model_catalog_json = {cat}\n\n\
+             [model_providers.chatgpt_desktop]\n\
+             name = \"ChatGPT Desktop (Stage 2)\"\n\
+             base_url = \"http://{bind}/v1\"\n\
+             wire_api = \"responses\"\n\
+             requires_openai_auth = false\n\
+             supports_websockets = false\n\
+             request_max_retries = 0\n\
+             stream_max_retries = 0\n"
+        )
+    } else {
+        format!(
+            "# Opt-in Codex CLI profile (`codex -p chatgpt` in `~/.codex/config.toml`) — zero Wrapper coupling\n\
+             # (Or pass `--standalone` to generate `~/.codex/chatgpt.config.toml`)\n\
+             [profiles.chatgpt]\n\
+             model = \"{model}\"\n\
+             model_provider = \"chatgpt_desktop\"\n\
+             model_catalog_json = {cat}\n\n\
+             [model_providers.chatgpt_desktop]\n\
+             name = \"ChatGPT Desktop (Stage 2)\"\n\
+             base_url = \"http://{bind}/v1\"\n\
+             wire_api = \"responses\"\n\
+             requires_openai_auth = false\n\
+             supports_websockets = false\n\
+             request_max_retries = 0\n\
+             stream_max_retries = 0\n"
+        )
+    }
 }
 
 #[cfg(test)]
@@ -1316,5 +1362,147 @@ wire_api = "responses"
         )
         .await;
         assert_eq!(ok_ref.status(), 200);
+    }
+
+    #[tokio::test]
+    async fn model_catalog_json_syncs_from_v1_models_and_control_status() {
+        use std::os::unix::fs::MetadataExt;
+        struct ModelsMockDriver(Value);
+        impl DriverBackend for ModelsMockDriver {
+            fn host_running(&self) -> BoxFuture<'_, bool> {
+                Box::pin(async { true })
+            }
+            fn status(&self) -> BoxFuture<'_, Result<Value>> {
+                let v = self.0.clone();
+                Box::pin(async move { Ok(v) })
+            }
+            fn list_chats(&self, _: Value) -> BoxFuture<'_, Result<Value>> {
+                Box::pin(async { Ok(json!({})) })
+            }
+            fn read_chat(&self, _: Value) -> BoxFuture<'_, Result<Value>> {
+                Box::pin(async { Ok(json!({})) })
+            }
+            fn rename_chat(&self, _: Value) -> BoxFuture<'_, Result<Value>> {
+                Box::pin(async { Ok(json!({})) })
+            }
+            fn list_projects(&self, _: Value) -> BoxFuture<'_, Result<Value>> {
+                Box::pin(async { Ok(json!({})) })
+            }
+            fn read_project(&self, _: Value) -> BoxFuture<'_, Result<Value>> {
+                Box::pin(async { Ok(json!({})) })
+            }
+            fn create_project(&self, _: Value) -> BoxFuture<'_, Result<Value>> {
+                Box::pin(async { Ok(json!({})) })
+            }
+            fn send_message(&self, _: Value) -> BoxFuture<'_, Result<Value>> {
+                Box::pin(async { Ok(json!({})) })
+            }
+            fn stream_message(
+                &self,
+                _: Value,
+                _: tokio::sync::mpsc::Sender<crate::cdp::StreamUpdate>,
+            ) -> BoxFuture<'_, Result<Value>> {
+                Box::pin(async { Ok(json!({})) })
+            }
+            fn observe_chat(&self, _: Value) -> BoxFuture<'_, Result<Value>> {
+                Box::pin(async { Ok(json!({})) })
+            }
+            fn stop_generation(&self, _: Value) -> BoxFuture<'_, Result<Value>> {
+                Box::pin(async { Ok(json!({})) })
+            }
+            fn viewer_info(&self) -> BoxFuture<'_, Result<Value>> {
+                Box::pin(async { Ok(json!({"state":"ok","available":false,"url":null})) })
+            }
+            fn restart_host(&self) -> BoxFuture<'_, Result<Value>> {
+                Box::pin(async { Ok(json!({"state":"ok","restarted":true})) })
+            }
+            fn list_connectors(&self, _: Value) -> BoxFuture<'_, Result<Value>> {
+                Box::pin(async { Ok(json!({})) })
+            }
+            fn register_connector(&self, _: Value) -> BoxFuture<'_, Result<Value>> {
+                Box::pin(async { Ok(json!({})) })
+            }
+            fn refresh_connector(&self, _: Value) -> BoxFuture<'_, Result<Value>> {
+                Box::pin(async { Ok(json!({})) })
+            }
+        }
+
+        let dir = env::temp_dir().join(format!(
+            "cgp-catalog-{}-{}",
+            std::process::id(),
+            config::random_hex(4).unwrap()
+        ));
+        let catalog_path = dir.join("model-catalog.json");
+        let driver = Arc::new(ModelsMockDriver(json!({
+            "state": "ok",
+            "auth_state": "authenticated",
+            "models": [
+                { "slug": "gpt-6-2-thinking", "title": "GPT-6.2 Thinking", "description": "Deep", "max_tokens": 256000 },
+                { "slug": "gpt-6-instant", "title": "GPT-6 Instant", "max_tokens": 128000 },
+                { "slug": "chatgpt_alpha_model_external_access_reserved_gate_13", "title": "Gate" }
+            ]
+        })));
+        let token = "tok-cat-1234567890abcdef";
+        let mut model_cfg = config::ModelConfig::default();
+        model_cfg.reasoning_effort = "xhigh".to_owned();
+        let router = build_router_with_threads(
+            driver,
+            model_cfg,
+            config::HistoryConfig::default(),
+            token.to_owned(),
+            Arc::new(RwLock::new(None)),
+            crate::responses::ResponseThreadMap::default(),
+            Some(catalog_path.clone()),
+        );
+
+        let res = oneshot(
+            router.clone(),
+            Request::builder()
+                .method("GET")
+                .uri("/v1/models")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(res.status(), StatusCode::OK);
+
+        let raw = std::fs::read_to_string(&catalog_path).unwrap();
+        let cat: Value = serde_json::from_str(&raw).unwrap();
+        let models = cat["models"].as_array().unwrap();
+        assert_eq!(models.len(), 3);
+        assert_eq!(models[0]["slug"], "gpt-6-2-thinking");
+        assert_eq!(models[0]["display_name"], "GPT-6.2 Thinking");
+        assert_eq!(models[0]["visibility"], "list");
+        assert_eq!(models[0]["default_reasoning_level"], "xhigh");
+        assert_eq!(models[0]["context_window"], 256000);
+        assert_eq!(models[1]["slug"], "gpt-6-instant");
+        assert_eq!(models[1]["default_reasoning_level"], "none");
+        assert_eq!(models[1]["supported_reasoning_levels"], json!([]));
+        assert_eq!(models[2]["visibility"], "hide");
+
+        // Second sync via /control/status leaves identical inode untouched (no rewrite).
+        let ino1 = std::fs::metadata(&catalog_path).unwrap().ino();
+        let st_res = oneshot(
+            router,
+            Request::builder()
+                .method("GET")
+                .uri("/control/status")
+                .header("authorization", format!("Bearer {token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(st_res.status(), StatusCode::OK);
+        assert_eq!(std::fs::metadata(&catalog_path).unwrap().ino(), ino1);
+
+        // print-codex-profile emits model_catalog_json in both modes.
+        let standalone = format_codex_profile("127.0.0.1:4319", "gpt-6-2-thinking", &catalog_path, true);
+        assert!(standalone.contains("model_catalog_json = "));
+        assert!(standalone.contains("model-catalog.json"));
+        let profile = format_codex_profile("127.0.0.1:4319", "gpt-6-2-thinking", &catalog_path, false);
+        assert!(profile.contains("[profiles.chatgpt]"));
+        assert!(profile.contains("model_catalog_json = "));
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

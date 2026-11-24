@@ -3,9 +3,10 @@
 //! Every `/control/*` endpoint requires `Authorization: Bearer <token>` matching
 //! the `0600` token at `<state_dir>/control.token` in constant time.
 
-use crate::config::constant_time_eq;
+use crate::config::{constant_time_eq, ModelConfig};
 use crate::driver::DriverBackend;
 use crate::error::{ProviderError, Result};
+use crate::responses::sync_catalog_from_status;
 use axum::{
     extract::{Path, Query, State},
     http::{header, HeaderMap},
@@ -14,12 +15,15 @@ use axum::{
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
+use std::path::PathBuf;
 use std::sync::Arc;
 
 #[derive(Clone)]
 pub struct ControlState {
     pub driver: Arc<dyn DriverBackend>,
     pub token: Arc<str>,
+    pub catalog_path: Option<PathBuf>,
+    pub model_cfg: Arc<ModelConfig>,
 }
 
 fn require_bearer(headers: &HeaderMap, expected: &str) -> Result<()> {
@@ -100,7 +104,9 @@ struct CreateProjectBody {
 
 async fn get_status(State(st): State<ControlState>, headers: HeaderMap) -> Result<Json<Value>> {
     require_bearer(&headers, &st.token)?;
-    Ok(Json(st.driver.status().await?))
+    let status = st.driver.status().await?;
+    sync_catalog_from_status(st.catalog_path.as_deref(), &status, &st.model_cfg);
+    Ok(Json(status))
 }
 
 async fn list_chats(

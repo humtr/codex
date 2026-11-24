@@ -399,7 +399,12 @@ pub fn run_launcher(
         )?;
 
         let mut cmd = Command::new(&paths.codex_bin);
-        apply_profile_env(&mut cmd, &current_target, paths);
+        apply_profile_env(
+            &mut cmd,
+            &current_target,
+            paths,
+            current_provider.as_deref(),
+        );
         cmd.args(&next_args);
         // SAFETY: signal() with SIG_DFL is async-signal-safe in pre_exec.
         unsafe {

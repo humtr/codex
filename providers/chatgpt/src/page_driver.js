@@ -953,7 +953,17 @@
           models = mRes.json.models.map((m) => ({
             slug: m.slug,
             title: m.title || m.slug,
-            max_tokens: m.max_tokens || null,
+            description:
+              typeof m.description === "string" && m.description.trim()
+                ? m.description.trim()
+                : null,
+            max_tokens:
+              typeof m.max_tokens === "number" && m.max_tokens > 0
+                ? m.max_tokens
+                : null,
+            tags: Array.isArray(m.tags)
+              ? m.tags.filter((t) => typeof t === "string")
+              : [],
           }));
         }
       }
