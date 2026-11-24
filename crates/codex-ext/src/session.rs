@@ -3,7 +3,9 @@ use crate::paths::{
     proc_start_ticks, require_owned_regular_file, ExtPaths,
 };
 use serde::{Deserialize, Serialize};
-use std::fs;
+use std::fs::{self, File, OpenOptions};
+use std::os::fd::AsRawFd;
+use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -105,13 +107,60 @@ pub fn register_current_session_generation(
     let body = serde_json::to_string_pretty(&rec)
         .map_err(|e| format!("failed to serialize session record: {e}"))?
         + "\n";
+    let _lock = lock_handoff(paths)?;
     atomic_write_private(&session_file_path(paths, pid), body.as_bytes(), 0o600)?;
     Ok(rec)
 }
 
-pub fn remove_session_file(paths: &ExtPaths, pid: u32) {
-    let p = session_file_path(paths, pid);
-    let _ = fs::remove_file(p);
+pub fn remove_session_file(paths: &ExtPaths, pid: u32) -> Result<(), String> {
+    match fs::remove_file(session_file_path(paths, pid)) {
+        Ok(()) => Ok(()),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(err) => Err(format!("cannot remove session registration: {err}")),
+    }
+}
+
+pub fn lock_handoff(paths: &ExtPaths) -> Result<File, String> {
+    ensure_private_dir(&paths.handoff_dir)?;
+    let lock = OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .mode(0o600)
+        .custom_flags(libc::O_NOFOLLOW)
+        .open(paths.handoff_dir.join("handoff.lock"))
+        .map_err(|err| format!("cannot open handoff lock: {err}"))?;
+    loop {
+        if unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX) } == 0 {
+            return Ok(lock);
+        }
+        let err = std::io::Error::last_os_error();
+        if err.kind() != std::io::ErrorKind::Interrupted {
+            return Err(format!("cannot lock handoff: {err}"));
+        }
+    }
+}
+
+pub fn publish_handoff(
+    paths: &ExtPaths,
+    parent: &SessionRecord,
+    ticket: &HandoffTicket,
+) -> Result<(), String> {
+    let _lock = lock_handoff(paths)?;
+    let file = session_file_path(paths, parent.pid);
+    require_owned_regular_file(&file, "session record")?;
+    let current: SessionRecord = serde_json::from_slice(
+        &fs::read(&file).map_err(|err| format!("cannot read handoff target: {err}"))?,
+    )
+    .map_err(|err| format!("cannot decode handoff target: {err}"))?;
+    if (current.pid, current.start_ticks, current.generation)
+        != (parent.pid, parent.start_ticks, parent.generation)
+        || parent.start_ticks == 0
+        || !is_live_matching_process(parent.pid, parent.start_ticks)
+    {
+        return Err("handoff target changed. Retry from the active window.".to_owned());
+    }
+    write_handoff_ticket(paths, parent.pid, ticket)
 }
 
 pub fn write_handoff_ticket(
@@ -162,6 +211,7 @@ pub fn list_live_sessions(paths: &ExtPaths) -> Result<Vec<SessionRecord>, String
     if !paths.sessions_dir.exists() {
         return Ok(Vec::new());
     }
+    let _lock = lock_handoff(paths)?;
     let mut live = Vec::new();
     for entry in
         fs::read_dir(&paths.sessions_dir).map_err(|e| format!("cannot read sessions dir: {e}"))?
@@ -309,7 +359,7 @@ mod tests {
         assert!(!handoff_file_path(&paths, rec.pid).exists());
         assert!(!claimed_handoff_path(&paths, rec.pid).exists());
 
-        remove_session_file(&paths, rec.pid);
+        remove_session_file(&paths, rec.pid).unwrap();
         let _ = fs::remove_dir_all(&root);
     }
 }

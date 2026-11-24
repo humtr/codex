@@ -101,7 +101,7 @@ symlink) that shares `crates/codex-daemon-client` with `@TermuxCodex` and has
 - **Zero-interruption pre-flight busy check & writer-lock release:**
   - Upstream default `thread_unload_delay_secs` is preserved (`= 0` is forbidden
     to prevent `turn_aborted` on disconnect).
-  - Before signaling parent `cdx` (`SIGUSR1`), `!cdx switch` / `!cdx provider`
+  - Before submitting a handoff to parent `cdx`, `!cdx switch` / `!cdx provider`
     connects to the current daemon's control socket via
     `crates/codex-daemon-client` (RFC 6455 WebSocket-over-UDS using
     `/proc/self/fd/<dirfd>/...` for Termux `termux-uds-fd35` short paths) and
@@ -113,13 +113,14 @@ symlink) that shares `crates/codex-daemon-client` with `@TermuxCodex` and has
     active, the command reports them and leaves the TUI and daemon running.
     Account switches can explicitly wait for those turns with `--wait`.
   - The accepted `!cdx` command writes a `0600` atomic handoff ticket to
-    `$HOME/.local/state/codex/ext/handoff/<parent_pid>.json`, sends `SIGUSR1`
-    to the verified parent PID, and exits `0` immediately (avoiding daemon-child
-    self-kill races). The launcher claims each ticket by rename before reading it,
-    binds tickets against process `start_ticks` and session `generation` so PID
-    reuse or stale post-switch tickets cannot hijack a newer session, absorbs any
-    newer valid ticket before committing teardown, and removes session and
-    handoff artifacts on exit.
+    `$HOME/.local/state/codex/ext/handoff/<parent_pid>.json` and exits `0`.
+    Current launchers poll for tickets and claim them by rename. Tickets bind
+    to the target PID, process `start_ticks` and session `generation`. The
+    launcher takes any newer matching ticket under the same lock used to
+    publish, then closes admission by removing its registration before
+    teardown. Requests arriving during teardown must retry from the active
+    window. The legacy signal path remains for launchers without a generation
+    field. Current launchers require generation-bound tickets.
     Parent `cdx` leaves the TUI running while waiting for the
     daemon to become idle. An expired wait or an unavailable status check
     leaves the existing TUI in place. Deferred provider switches require a

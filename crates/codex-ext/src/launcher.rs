@@ -3,9 +3,9 @@ use crate::profiles::{
     apply_profile_env, effective_current_profile, resolve_profile, ProfileTarget,
 };
 use crate::session::{
-    cleanup_handoff_files, find_matching_session, handoff_file_path, normalize_match_path,
-    register_current_session_generation, remove_session_file, take_handoff_ticket,
-    write_handoff_ticket, HandoffTicket, SessionMatch, SessionRecord,
+    cleanup_handoff_files, find_matching_session, lock_handoff, normalize_match_path,
+    publish_handoff, register_current_session_generation, remove_session_file, take_handoff_ticket,
+    HandoffTicket, SessionMatch, SessionRecord,
 };
 use codex_daemon_client::{
     daemon_stop_via_cli, wait_writer_lock_released, DaemonClient, DaemonError, ThreadSummary,
@@ -130,8 +130,10 @@ struct SessionCleanup<'a> {
 
 impl Drop for SessionCleanup<'_> {
     fn drop(&mut self) {
-        remove_session_file(self.paths, self.pid);
-        cleanup_handoff_files(self.paths, self.pid);
+        if let Ok(_lock) = lock_handoff(self.paths) {
+            let _ = remove_session_file(self.paths, self.pid);
+            cleanup_handoff_files(self.paths, self.pid);
+        }
     }
 }
 
@@ -143,19 +145,13 @@ fn take_valid_handoff_ticket(
 ) -> Option<HandoffTicket> {
     match take_handoff_ticket(paths, pid) {
         Ok(Some(ticket)) => {
-            if let Some(ticks) = ticket.target_start_ticks {
-                if expected_start_ticks > 0 && ticks != expected_start_ticks {
-                    eprintln!("codex-ext: ignoring stale handoff ticket for another process start");
-                    return None;
-                }
-            }
-            if let Some(gen) = ticket.target_generation {
-                if gen != expected_generation {
-                    eprintln!(
-                        "codex-ext: ignoring stale handoff ticket for session generation {gen}"
-                    );
-                    return None;
-                }
+            if ticket.target_start_ticks != Some(expected_start_ticks)
+                || ticket.target_generation != Some(expected_generation)
+            {
+                eprintln!(
+                    "codex-ext: ignoring handoff ticket for an unverified launcher generation"
+                );
+                return None;
             }
             Some(ticket)
         }
@@ -376,7 +372,8 @@ pub fn run_launcher(
     }
     let cwd = env::current_dir().map_err(|e| format!("cannot determine cwd: {e}"))?;
     let my_pid = std::process::id();
-    let my_start_ticks = proc_start_ticks(my_pid).unwrap_or(0);
+    let my_start_ticks = proc_start_ticks(my_pid)
+        .ok_or_else(|| "cannot read the launcher process identity".to_owned())?;
     cleanup_handoff_files(paths, my_pid);
     let termios = TermiosGuard::capture();
     let _sig = SignalGuard::install_parent_signals()?;
@@ -415,8 +412,10 @@ pub fn run_launcher(
 
         let mut handoff: Option<(HandoffTicket, Instant)> = None;
         let mut check_at = Instant::now();
+        let mut poll_at = check_at;
         let final_status: Option<ExitStatus> = loop {
-            if HANDOFF_SIGNALED.swap(false, Ordering::SeqCst) {
+            if HANDOFF_SIGNALED.swap(false, Ordering::SeqCst) || Instant::now() >= poll_at {
+                poll_at = Instant::now() + Duration::from_millis(100);
                 if let Some(ticket) =
                     take_valid_handoff_ticket(paths, my_pid, my_start_ticks, generation)
                 {
@@ -458,6 +457,14 @@ pub fn run_launcher(
                     eprintln!("codex-ext: switch aborted: {reason}");
                     handoff = None;
                 } else {
+                    let _lock = match lock_handoff(paths) {
+                        Ok(lock) => lock,
+                        Err(err) => {
+                            eprintln!("codex-ext: switch aborted: {err}");
+                            handoff = None;
+                            continue;
+                        }
+                    };
                     // Absorb any newer matching ticket queued while validating/waiting
                     // so the launcher performs the latest transition cleanly once.
                     let _ = HANDOFF_SIGNALED.swap(false, Ordering::SeqCst);
@@ -467,6 +474,11 @@ pub fn run_launcher(
                         let now = Instant::now();
                         handoff = Some((newer, now + Duration::from_secs(600)));
                         check_at = now;
+                        continue;
+                    }
+                    if let Err(err) = remove_session_file(paths, my_pid) {
+                        eprintln!("codex-ext: switch aborted: {err}");
+                        handoff = None;
                         continue;
                     }
                     break None;
@@ -625,22 +637,12 @@ fn signal_handoff(
     parent: &SessionRecord,
     ticket: &HandoffTicket,
 ) -> Result<(), String> {
-    let cleanup_if_dead = || {
-        let alive = unsafe { libc::kill(parent.pid as libc::pid_t, 0) } == 0
-            || io::Error::last_os_error().raw_os_error() != Some(libc::ESRCH);
-        if !alive {
-            let _ = std::fs::remove_file(handoff_file_path(paths, parent.pid));
-        }
-    };
-    if parent.start_ticks > 0 && !is_live_matching_process(parent.pid, parent.start_ticks) {
-        return Err(format!(
-            "parent codex-ext session {} exited before handoff",
-            parent.pid
-        ));
+    publish_handoff(paths, parent, ticket)?;
+    if parent.generation != 0 {
+        // Current launchers poll the mailbox. Avoid signaling a recycled PID.
+        return Ok(());
     }
-    write_handoff_ticket(paths, parent.pid, ticket)?;
-    if parent.start_ticks > 0 && !is_live_matching_process(parent.pid, parent.start_ticks) {
-        cleanup_if_dead();
+    if !is_live_matching_process(parent.pid, parent.start_ticks) {
         return Err(format!(
             "parent codex-ext session {} exited before handoff",
             parent.pid
@@ -649,9 +651,6 @@ fn signal_handoff(
     let rc = unsafe { libc::kill(parent.pid as libc::pid_t, libc::SIGUSR1) };
     if rc != 0 {
         let err = io::Error::last_os_error();
-        if err.raw_os_error() == Some(libc::ESRCH) {
-            let _ = std::fs::remove_file(handoff_file_path(paths, parent.pid));
-        }
         return Err(format!(
             "failed to signal parent codex-ext ({}): {err}",
             parent.pid
@@ -932,6 +931,7 @@ pub fn run_provider_command(
 mod tests {
     use super::*;
     use crate::profiles::create_profile;
+    use crate::session::write_handoff_ticket;
     use std::fs;
     use std::os::unix::fs::PermissionsExt;
 
@@ -1001,8 +1001,8 @@ mod tests {
                         thread_id: Some("tid-99".to_owned()),
                         wait: false,
                         requested_at_ms: now_millis(),
-                        target_start_ticks: None,
-                        target_generation: None,
+                        target_start_ticks: proc_start_ticks(parent_pid),
+                        target_generation: Some(1),
                     };
                     write_handoff_ticket(&paths_clone, parent_pid, &ticket).unwrap();
                     unsafe {
