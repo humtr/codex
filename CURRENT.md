@@ -44,14 +44,54 @@ Observed on 2026-11-23.
 - **R-6.** Installer recovery after an Android Termux force-stop passed on the
   API 37 device with 4 KiB pages. Physical power removal and execution on a
   16 KiB page-size device remain long-term checks.
-- **Slice 7 redesign promotion.** The candidate has compiled and disposable
-  Android evidence below. Live natural-language delegation on all configured
-  surfaces, trusted chat context at connector entry, and authenticated AppHost
-  streaming/restart acceptance remain open.
+- **Slice 7 redesign promotion.** The remaining checks cover consistent
+  natural-language delegation, caller identity on the ChatGPT connector,
+  live public reasoning, a repeated upstream input-size rejection, and an
+  intermittent pinned-account error. Candidate evidence is below.
 
 ---
 
 ## Recent Verified Evidence (Newest-First)
+
+### 2026-11-24 — Isolated CLI, connector, and Front follow-up
+
+- The second supplied tunnel was absent from the isolated account's
+  successful tunnel listing. ChatGPT rejected connector creation with HTTP
+  424. Readback confirmed no connector was created. The test account never
+  invoked the candidate through a ChatGPT connector.
+- Basic `codex` answered the plain question with zero Works. For a natural
+  request to continue after the terminal closed, it created one Work and
+  exited in 20.311 seconds while the 45-second build was running. The relay
+  completed the build and test with exit codes 0, sent one notification
+  receipt, and spawned no Lead. `codex -p chatgpt` also answered without a
+  Work for the plain question. In one background trial it scheduled and
+  completed the two steps, but the follow-up response returned
+  `pinned_account_unavailable`. In a later untuned trial it returned without
+  calling Orch. A temporary account-diagnostic build completed a separate
+  trial end to end and did not reproduce the account failure. With a local
+  routing rule in the disposable repository and the original candidate
+  restored, a plain question still created zero Works. The same background
+  request created `work_e130345d1ce2032c`, acknowledged it in 34.942 seconds,
+  and both dependent steps exited 0 with one notification and no Lead.
+- A local MCP read with a unique user-message marker moved the Front to a
+  second real ChatGPT chat. The final chat marker appeared once in the new
+  chat and zero times in the first, and the Lead wake count stayed at zero.
+  A nonexistent target was rejected. When a loopback fault injector dropped
+  an already accepted send response, rebinding retained the first chat as
+  that delivery's reconciliation target. The next report went to the new
+  chat. Each report appeared once in its intended chat.
+- A real `gpt-5-6-thinking` `xhigh` thread completed manual compaction in
+  10.205 seconds. The next turn retained the Codex UUID and used a fresh
+  ChatGPT chat. The first answer delta arrived at 8.947 seconds and that
+  turn settled at 16.014 seconds. No public reasoning summary was received.
+  Nine page-driver tests and fourteen Provider tests passed. A separate
+  official Codex integration test consumed synthetic reasoning and answer
+  items successfully. The diagnostic build settled three concurrent pinned
+  requests. The cause of the intermittent error remains open.
+- Fresh authenticated chats accepted synthetic inputs of 32,768 and 32,766
+  bytes. The compiled recovery tests passed for both successful bounded
+  rollover and a second `input_too_large` rejection. The latter remains
+  synthetic coverage.
 
 ### 2026-11-24 — Slice 7 and Provider streaming follow-up
 

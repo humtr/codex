@@ -43,6 +43,14 @@ The model selects tools based on what the session can finish itself. Once it
 delegates a fixed sequence, Orch can launch the remaining shell steps and
 deliver the result even if the conversation closes.
 
+For a project that routinely needs background execution, add a short routing
+rule to its local Codex instructions. Have the model use the registered
+`termux-orch` MCP when the user asks for work to continue after the session
+closes, and have it discover `orch_work` through Code Mode when tools are
+deferred. For a fixed sequence, have it register one plan with dependent steps
+and return the receipt promptly. Ordinary questions can still be answered in
+the current session.
+
 For an isolated test set `ORCH_STATE_DIR` and `ORCH_RECEIPT_DIR` on the MCP
 registration with `--env`, and use the same state directory for its relay.
 The Codex MCP process may drop variables from the interactive shell's
