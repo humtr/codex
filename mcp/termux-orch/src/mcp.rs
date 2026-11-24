@@ -13,8 +13,9 @@
 use crate::ledger::{
     format_front_title, format_lead_title, format_participant_title, generate_id, is_safe_work_id,
     now_unix, read_private_file, truncate_chars, write_atomic_private, FrontBinding,
-    FrontHistoryEntry, LeadBinding, Ledger, Participant, PendingDelivery, ProjectBinding,
-    SessionPrefixes, ShellContinuation, Verification, WaitSet, WorkBudget, WorkRecord, WORK_SCHEMA,
+    FrontHistoryEntry, Isolation, LeadBinding, Ledger, Participant, PendingDelivery,
+    ProjectBinding, SessionPrefixes, ShellContinuation, StepSpec, Verification, VerificationPolicy,
+    WaitSet, WorkBudget, WorkRecord, WORK_SCHEMA,
 };
 use crate::owners::OwnerClient;
 use crate::relay::{enqueue_delivery_if_absent, RelayEngine};
@@ -38,12 +39,15 @@ pub fn build_static_tools() -> Vec<ToolDef> {
     vec![
         ToolDef::new(
             "orch_works",
-            "Read-only dashboard for durable Works (both Tier 1 direct long tasks and Tier 3 multi-role F/L/W/V/R orchestrations): list active/recent works, read a work's full status & participants, read checkpoint.md, or inspect Typed Inbox events.",
+            "Read a durable task or its evidence. When the user asks about a specific task from a new ChatGPT conversation, pass the current chat ID from trusted conversation context or a unique user-authored marker in that conversation to move future notices as part of the read. Leave these fields out of list, internal, and automated reads.",
             json!({
                 "type": "object",
                 "properties": {
                     "action": { "type": "string", "enum": ["list", "read", "checkpoint", "inbox"] },
                     "work_id": { "type": "string", "minLength": 1, "maxLength": 96, "description": "Required for read, checkpoint, and inbox" },
+                    "rebind_front_chat_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+                    "rebind_front_marker": { "type": "string", "minLength": 1, "maxLength": 160 },
+                    "call_id": { "type": "string", "minLength": 1, "maxLength": 160, "description": "Required if moving the Front." },
                     "include_terminal": { "type": "boolean", "description": "Include completed/failed/cancelled works on action=list (default true)" },
                     "after_seq": { "type": "integer", "minimum": 0, "description": "Event sequence cursor for action=inbox (default 0)" },
                     "limit": { "type": "integer", "minimum": 1, "maximum": 100 }
@@ -55,7 +59,7 @@ pub fn build_static_tools() -> Vec<ToolDef> {
         ),
         ToolDef::new(
             "orch_work",
-            "Create or manage a durable Work. Use the current session for questions and steps it can finish itself. Register a Work when follow-up execution or delivery must survive this session. Multi-step instructions still need coordination in the current session. Use direct for a fixed sequence and do not create a separate Lead unless needed. Reuse repository projects with project_scope.",
+            "Create or manage a durable Work. Use the current session for questions and steps it can finish itself. For edits, coordination, or persistent follow-up from ChatGPT, delegate the work and return promptly so the Front chat is free. For a fixed shell plan pass steps rather than opening a Lead. Select independent_review for multi-file, contract, state, permission or follow-up fixes. Multi-step instructions still need coordination in the current session. Use direct for a fixed sequence and do not create a separate Lead unless needed. Reuse repository projects with project_scope.",
             json!({
                 "type": "object",
                 "properties": {
@@ -66,6 +70,15 @@ pub fn build_static_tools() -> Vec<ToolDef> {
                     "title": { "type": "string", "minLength": 1, "maxLength": 120 },
                     "goal": { "type": "string", "minLength": 1, "maxLength": 8192 },
                     "tier": { "type": "string", "enum": ["direct", "orchestrated"] },
+                    "verification_policy": { "type": "string", "enum": ["none", "automated", "independent_review"] },
+                    "steps": {"type":"array","maxItems":16,"items":{"type":"object","properties":{
+                        "step_id":{"type":"string"},"depends_on":{"type":"array","items":{"type":"string"}},
+                        "command":{"type":"string"},"cwd":{"type":"string"},
+                        "write_paths":{"type":"array","items":{"type":"string"}},
+                        "isolation":{"type":"string","enum":["shared_serial","worktree","readonly"]},
+                        "on_failure":{"type":"string","enum":["wake_lead","fail_work"]},
+                        "auto_verify":{"type":"boolean","description":"This command verifies the final work and must depend on all edits."}
+                    },"required":["step_id","command","cwd"],"additionalProperties":false}},
                     "completion_criteria": { "type": "array", "items": { "type": "string", "maxLength": 300 }, "maxItems": 20 },
                     "project_id": { "type": "string", "minLength": 1, "maxLength": 128 },
                     "project_scope": { "type": "string", "minLength": 1, "maxLength": 120, "description":"When the repository is known, reuse its stable owner/repo key. Add @branch only for a separate branch project. Keep the same key for related Works." },
@@ -114,6 +127,8 @@ pub fn build_static_tools() -> Vec<ToolDef> {
                     "command": { "type": "string", "minLength": 1, "maxLength": 65536, "description": "Detached shell command for backend=shell" },
                     "prompt": { "type": "string", "minLength": 1, "maxLength": 32768 },
                     "cwd": { "type": "string", "minLength": 1, "maxLength": 512 },
+                    "write_paths":{"type":"array","items":{"type":"string"},"maxItems":64},
+                    "isolation":{"type":"string","enum":["shared_serial","worktree","readonly"]},
                     "read_only": { "type":"boolean", "description":"Declare that this worker makes no workspace changes; does not change the execution owner's permissions" },
                     "model": { "type": "string", "minLength": 1, "maxLength": 128 },
                     "model_provider": { "type":"string", "minLength":1, "maxLength":128, "description":"Configured Codex model provider for a new Codex participant" },
@@ -149,6 +164,7 @@ pub fn build_static_tools() -> Vec<ToolDef> {
                     "work_id": { "type": "string", "minLength": 1, "maxLength": 96 },
                     "summary": { "type": "string", "minLength": 1, "maxLength": 8192 },
                     "checkpoint_md": { "type": "string", "maxLength": 65536 },
+                    "review_cwd":{"type":"string","description":"Workspace for independent review when reporting completion."},
                     "evidence": { "type": "array", "items": { "type": "string", "maxLength": 400 }, "maxItems": 20 },
                     "flush_now": { "type": "boolean", "description": "Attempt immediate delivery tick (default true)" }
                 },
@@ -297,36 +313,47 @@ impl OrchMcpHandler {
     }
 
     fn resolve_front_chat_by_marker(&self, marker: &str) -> Result<String, String> {
-        let listed = self.owners.chatgpt_list_chats(10)?;
-        let chats = listed
-            .get("chats")
-            .and_then(Value::as_array)
-            .ok_or_else(|| "chatgpt_list_chats returned no chats array".to_owned())?;
-        for c in chats {
-            let Some(cid) = c.get("id").and_then(Value::as_str) else {
-                continue;
-            };
-            if c.get("title")
-                .and_then(Value::as_str)
-                .is_some_and(|t| t.contains(marker))
-            {
-                return Ok(cid.to_owned());
-            }
-            if let Ok(rd) = self.owners.chatgpt_read_chat(cid, 6) {
-                if let Some(msgs) = rd.get("messages").and_then(Value::as_array) {
-                    if msgs.iter().any(|m| {
-                        m.get("text")
-                            .and_then(Value::as_str)
-                            .is_some_and(|t| t.contains(marker))
+        let mut cursor: Option<String> = None;
+        let mut matched = None;
+        let mut visited = std::collections::HashSet::new();
+        for _ in 0..4 {
+            let page = self.owners.chatgpt_chat_page(None, cursor.as_deref())?;
+            let chats = page["chats"].as_array().ok_or("chat list missing chats")?;
+            for row in chats {
+                let Some(cid) = row["id"].as_str() else {
+                    continue;
+                };
+                if let Ok(chat) = self.owners.chatgpt_read_chat(cid, 6) {
+                    if chat["messages"].as_array().is_some_and(|messages| {
+                        messages.iter().any(|m| {
+                            m["role"] == "user"
+                                && m["text"].as_str().is_some_and(|text| text.contains(marker))
+                        })
                     }) {
-                        return Ok(cid.to_owned());
+                        if matched.as_deref().is_some_and(|prior| prior != cid) {
+                            return Err(
+                                "front_marker_ambiguous: multiple chats contain the marker"
+                                    .to_owned(),
+                            );
+                        }
+                        matched = Some(cid.to_owned());
                     }
                 }
             }
+            let Some(next) = page["next_cursor"]
+                .as_str()
+                .filter(|value| !value.is_empty())
+            else {
+                break;
+            };
+            if !visited.insert(next.to_owned()) {
+                break;
+            }
+            cursor = Some(next.to_owned());
         }
-        Err(format!(
-            "front_marker_not_found: no recent ChatGPT chat contained marker '{marker}'"
-        ))
+        matched.ok_or_else(|| {
+            "front_marker_not_found: no recent chat contained the user message marker".to_owned()
+        })
     }
 
     fn current_account_id(&self) -> Option<String> {
@@ -422,6 +449,9 @@ impl OrchMcpHandler {
                 "include_terminal",
                 "after_seq",
                 "limit",
+                "call_id",
+                "rebind_front_chat_id",
+                "rebind_front_marker",
             ],
         ) {
             return fail("invalid_arguments", e);
@@ -432,6 +462,19 @@ impl OrchMcpHandler {
                 "'action' must be list|read|checkpoint|inbox",
             );
         };
+        let binding = [
+            ("rebind_front_chat_id", "front_chat_id"),
+            ("rebind_front_marker", "front_marker"),
+        ]
+        .into_iter()
+        .filter_map(|(key, target)| obj.get(key).map(|value| (target, value)))
+        .collect::<Vec<_>>();
+        if binding.len() > 1 || (!binding.is_empty() && action != "read") {
+            return fail(
+                "invalid_arguments",
+                "rebind requires a specific read and exactly one Front identifier",
+            );
+        }
         match action {
             "list" => {
                 let include_terminal = obj
@@ -497,6 +540,32 @@ impl OrchMcpHandler {
                 else {
                     return fail("invalid_work_id", "valid work_id is required");
                 };
+                if let Some((target, value)) = binding.first() {
+                    let Some(value) = value.as_str().map(str::trim).filter(|value| {
+                        !value.is_empty()
+                            && value.len() <= if *target == "front_chat_id" { 128 } else { 160 }
+                    }) else {
+                        return fail("invalid_arguments", "invalid Front identifier");
+                    };
+                    let bind = json!({"action":"rebind_front","work_id":wid,"call_id":obj.get("call_id"),(*target):value});
+                    let outcome = self.handle_work(&bind);
+                    if outcome["state"] != "ok" {
+                        return outcome;
+                    }
+                    let Ok(current) = self.ledger.load_work(wid) else {
+                        return fail("work_not_found", "Work disappeared after Front update");
+                    };
+                    if !current.account_id.as_deref().is_some_and(|id| {
+                        self.owners
+                            .chatgpt_account_id()
+                            .is_ok_and(|account| account == id)
+                    }) {
+                        return fail(
+                            "account_unavailable",
+                            "The pinned account could not be confirmed",
+                        );
+                    }
+                }
                 match self.ledger.load_work(wid) {
                     Ok(work) => {
                         let cp = self.ledger.read_checkpoint(wid).ok().flatten();
@@ -617,6 +686,8 @@ impl OrchMcpHandler {
                 "goal",
                 "tier",
                 "completion_criteria",
+                "steps",
+                "verification_policy",
                 "project_id",
                 "project_scope",
                 "project_name",
@@ -704,6 +775,56 @@ impl OrchMcpHandler {
         if tier != "direct" && tier != "orchestrated" {
             return (
                 fail("invalid_arguments", "'tier' must be direct|orchestrated"),
+                false,
+            );
+        }
+        let mut steps = match obj
+            .get("steps")
+            .cloned()
+            .map(serde_json::from_value::<Vec<StepSpec>>)
+            .transpose()
+        {
+            Ok(plan) => plan.unwrap_or_default(),
+            Err(error) => return (fail("invalid_steps", error.to_string()), false),
+        };
+        if let Err(error) = StepSpec::validate_plan(&mut steps) {
+            return (fail("invalid_steps", error), false);
+        }
+        let verification_policy = match obj
+            .get("verification_policy")
+            .cloned()
+            .map(serde_json::from_value)
+            .transpose()
+        {
+            Ok(Some(policy)) => policy,
+            Ok(None)
+                if steps.iter().any(|step| {
+                    step.write_paths.len() > 1
+                        || step
+                            .write_paths
+                            .iter()
+                            .any(|path| path == "SPEC.md" || path.starts_with("docs/spec/"))
+                }) || steps
+                    .iter()
+                    .filter(|step| step.isolation == crate::ledger::Isolation::Worktree)
+                    .count()
+                    > 1 =>
+            {
+                VerificationPolicy::IndependentReview
+            }
+            Ok(None) if steps.iter().any(|step| step.auto_verify) => VerificationPolicy::Automated,
+            Ok(None) => VerificationPolicy::None,
+            Err(error) => return (fail("invalid_arguments", error.to_string()), false),
+        };
+        if !steps.is_empty()
+            && verification_policy == VerificationPolicy::Automated
+            && !steps.iter().any(|step| step.auto_verify)
+        {
+            return (
+                fail(
+                    "invalid_steps",
+                    "automated verification needs a verification step",
+                ),
                 false,
             );
         }
@@ -844,6 +965,9 @@ impl OrchMcpHandler {
             lead_rollover: None,
             lead_replay: None,
             participants: Vec::new(),
+            steps,
+            verification_policy,
+            review_cwd: None,
             wait_set: None,
             pending_deliveries: Vec::new(),
             consumed_seq: 0,
@@ -1448,6 +1572,8 @@ impl OrchMcpHandler {
                 "command",
                 "cwd",
                 "read_only",
+                "write_paths",
+                "isolation",
                 "model",
                 "model_provider",
                 "reasoning_effort",
@@ -1586,6 +1712,7 @@ impl OrchMcpHandler {
             challenge: generate_id("verify"),
             verdict: None,
             evidence: Vec::new(),
+            blocking_issues: vec![],
         });
 
         let existing = obj
@@ -1595,45 +1722,140 @@ impl OrchMcpHandler {
             .filter(|s| !s.is_empty());
         let shell_command = obj.get("command").and_then(Value::as_str);
         let prompt = obj.get("prompt").and_then(Value::as_str);
-        let write_workspace = if role == "worker"
-            && existing.is_none()
-            && obj.get("read_only").and_then(Value::as_bool) != Some(true)
+        let isolation = match obj
+            .get("isolation")
+            .cloned()
+            .map(serde_json::from_value::<Isolation>)
+            .transpose()
         {
-            if let Some(path) = obj.get("cwd").and_then(Value::as_str) {
-                match std::fs::canonicalize(path) {
-                    Ok(path) if path.is_dir() => Some(path),
-                    _ => {
-                        return (
-                            fail("invalid_workspace", "The working directory must exist"),
-                            false,
-                        )
-                    }
-                }
-            } else {
-                None
+            Ok(Some(value)) => value,
+            Ok(None) if obj.get("read_only").and_then(Value::as_bool) == Some(true) => {
+                Isolation::Readonly
+            }
+            Ok(None) => Isolation::SharedSerial,
+            Err(error) => return (fail("invalid_arguments", error.to_string()), false),
+        };
+        let write_paths = match obj
+            .get("write_paths")
+            .cloned()
+            .map(serde_json::from_value::<Vec<String>>)
+            .transpose()
+        {
+            Ok(paths) => paths.unwrap_or_default(),
+            Err(error) => return (fail("invalid_arguments", error.to_string()), false),
+        };
+        if let Err(error) = crate::workspace::validate_paths(&write_paths) {
+            return (fail("invalid_arguments", error), false);
+        }
+        if isolation == Isolation::Readonly && !write_paths.is_empty() {
+            return (
+                fail(
+                    "invalid_arguments",
+                    "readonly workers cannot declare write_paths",
+                ),
+                false,
+            );
+        }
+        if role == "verifier"
+            && existing.is_some_and(|id| {
+                work.lead
+                    .as_ref()
+                    .is_some_and(|lead| lead.kind == backend && lead.ref_id == id)
+                    || work
+                        .participants
+                        .iter()
+                        .any(|p| p.role == "worker" && p.backend == backend && p.ref_id == id)
+            })
+        {
+            return (
+                fail(
+                    "verifier_not_independent",
+                    "The verifier cannot reuse an implementation session",
+                ),
+                false,
+            );
+        }
+        let cwd = obj.get("cwd").and_then(Value::as_str);
+        let scope = if role == "worker" && existing.is_none() && isolation != Isolation::Readonly {
+            match cwd
+                .map(|path| crate::workspace::root(std::path::Path::new(path)))
+                .transpose()
+            {
+                Ok(scope) => scope,
+                Err(error) => return (fail("invalid_workspace", error), false),
             }
         } else {
             None
         };
-        if let Some(path) = &write_workspace {
-            if let Some(active) = work.participants.iter().find(|p| {
-                !p.is_terminal()
-                    && p.write_workspace
-                        .as_ref()
-                        .is_some_and(|old| path.starts_with(old) || old.starts_with(path))
-            }) {
+        let _workspace_lock = if scope.is_some() {
+            match self.ledger.lock_writers() {
+                Ok(lease) => Some(lease),
+                Err(error) => return (fail("workspace_lock_failed", error.to_string()), false),
+            }
+        } else {
+            None
+        };
+        let (write_workspace, worktree) = if isolation == Isolation::Worktree {
+            let Some(repo) = scope
+                .as_deref()
+                .filter(|path| same_workspace_root(cwd, path))
+            else {
                 return (
                     fail(
-                        "worker_workspace_busy",
-                        format!(
-                            "{} must settle before another worker writes in this directory",
-                            active.participant_id
-                        ),
+                        "invalid_workspace",
+                        "worktree requires a new worker at the repository root",
+                    ),
+                    false,
+                );
+            };
+            if backend == "chatgpt" || write_paths.is_empty() {
+                return (
+                    fail(
+                        "invalid_workspace",
+                        "worktree requires shell or Codex and declared write_paths",
                     ),
                     false,
                 );
             }
-        }
+            if work.participants.iter().any(|p| {
+                !p.is_terminal()
+                    && p.worktree.as_ref().is_some_and(|tree| tree.repo == repo)
+                    && p.write_paths.iter().any(|path| {
+                        write_paths
+                            .iter()
+                            .any(|other| crate::workspace::overlaps(path, other))
+                    })
+            }) {
+                return (
+                    fail(
+                        "worker_workspace_busy",
+                        "An active isolated worker already owns those paths",
+                    ),
+                    false,
+                );
+            }
+            match crate::workspace::WorkerTree::plan(&self.ledger, wid, &participant_id, repo) {
+                Ok(tree) => (None, Some(tree)),
+                Err(error) => return (fail("invalid_workspace", error), false),
+            }
+        } else {
+            if let Some(path) = &scope {
+                match self.ledger.writer_busy(path) {
+                    Ok(false) => (),
+                    Ok(true) => {
+                        return (
+                            fail(
+                                "worker_workspace_busy",
+                                "An active worker owns this workspace",
+                            ),
+                            false,
+                        )
+                    }
+                    Err(error) => return (fail("workspace_read_failed", error.to_string()), false),
+                }
+            }
+            (scope, None)
+        };
         if shell_command.is_some() && backend != "shell" {
             return (
                 fail("invalid_arguments", "command requires backend=shell"),
@@ -1708,6 +1930,10 @@ impl OrchMcpHandler {
             task_summary: task_summary.to_owned(),
             owner_scope,
             write_workspace,
+            step_id: None,
+            worktree,
+            changed_paths: Vec::new(),
+            write_paths,
             call_id,
             dispatch_id: launch.then(|| generate_id("dispatch")),
             state: if launch { "dispatching" } else { "running" }.to_owned(),
@@ -1716,12 +1942,33 @@ impl OrchMcpHandler {
             created_at_unix: now,
             updated_at_unix: now,
         };
+        if let Some(tree) = &participant.worktree {
+            work.verification_policy = VerificationPolicy::IndependentReview;
+            work.participants.push(participant.clone());
+            if let Err(error) = self.ledger.save_work(&work) {
+                return (fail("ledger_write_failed", error.to_string()), false);
+            }
+            if let Err(error) = tree.prepare() {
+                let saved = work.participants.last_mut().unwrap();
+                saved.state = "failed".to_owned();
+                saved.result_summary = Some(error.clone());
+                let _ = self.ledger.save_work(&work);
+                return (fail("worktree_prepare_failed", error), true);
+            }
+            work.participants.pop();
+        }
+        let cwd = participant
+            .worktree
+            .as_ref()
+            .and_then(|tree| tree.path.to_str())
+            .or(cwd);
         if let Some(id) = &participant.dispatch_id {
             let position = work.participants.len();
             work.participants.push(participant.clone());
             if let Err(error) = self.ledger.save_work(&work) {
                 return (fail("ledger_write_failed", error.to_string()), false);
             }
+            drop(_workspace_lock);
             let mut text = format!(
                 "[ORCH_DISPATCH {id}]\n{}",
                 prompt.unwrap_or_default().trim()
@@ -1730,7 +1977,8 @@ impl OrchMcpHandler {
                 let result = json!({
                     "challenge": verification.challenge,
                     "verdict": "pass|fail|inconclusive",
-                    "evidence": ["exact artifact or test result inspected"]
+                    "evidence_refs": ["exact artifact or test result inspected"],
+                    "blocking_issues": []
                 });
                 text.push_str(&format!(
                     "\n\nReview the requested subject without making changes. Return only a JSON \
@@ -1744,11 +1992,7 @@ impl OrchMcpHandler {
                     .codex_dispatch_turn(
                         participant.profile.as_deref(),
                         None,
-                        participant
-                            .write_workspace
-                            .as_deref()
-                            .and_then(|path| path.to_str())
-                            .or_else(|| obj.get("cwd").and_then(Value::as_str)),
+                        cwd,
                         &text,
                         model,
                         obj.get("model_provider").and_then(Value::as_str),
@@ -1852,19 +2096,8 @@ impl OrchMcpHandler {
 
         if backend == "shell" && existing.is_none() {
             let command = shell_command.or(prompt).unwrap_or_default();
-            let result =
-                crate::shell_job::ShellJob::new(&self.ledger, wid, ref_id).and_then(|job| {
-                    job.spawn(
-                        self.ledger.root(),
-                        wid,
-                        command,
-                        participant
-                            .write_workspace
-                            .as_deref()
-                            .and_then(|path| path.to_str())
-                            .or_else(|| obj.get("cwd").and_then(Value::as_str)),
-                    )
-                });
+            let result = crate::shell_job::ShellJob::new(&self.ledger, wid, ref_id)
+                .and_then(|job| job.spawn(self.ledger.root(), wid, command, cwd));
             if let Err(e) = result {
                 warnings.push(format!("shell_spawn_failed: {e}"));
                 return (
@@ -2128,6 +2361,7 @@ impl OrchMcpHandler {
                 "summary",
                 "checkpoint_md",
                 "evidence",
+                "review_cwd",
                 "flush_now",
             ],
         ) {
@@ -2207,7 +2441,29 @@ impl OrchMcpHandler {
                         false,
                     );
                 }
+                if action == "fail" && work.participants.iter().any(|p| !p.is_terminal()) {
+                    return (
+                        fail(
+                            "participants_active",
+                            "Stop or settle participants before recording failure",
+                        ),
+                        false,
+                    );
+                }
                 if action == "complete" {
+                    if work.steps.iter().any(|step| {
+                        !work.participants.iter().any(|p| {
+                            p.step_id.as_deref() == Some(&step.step_id) && p.state == "completed"
+                        })
+                    }) {
+                        return (
+                            fail(
+                                "steps_pending",
+                                "The durable plan has unfinished or failed steps",
+                            ),
+                            false,
+                        );
+                    }
                     if work.pending_lead.is_some() {
                         return (
                             fail(
@@ -2224,6 +2480,41 @@ impl OrchMcpHandler {
                         );
                     }
                     if !work.verification_passed() {
+                        if work.verification_policy == VerificationPolicy::IndependentReview
+                            && !work
+                                .participants
+                                .iter()
+                                .any(|p| p.role == "verifier" && p.backend != "shell")
+                            && work.steps.is_empty()
+                        {
+                            let requested = obj
+                                .get("review_cwd")
+                                .and_then(Value::as_str)
+                                .map(std::path::Path::new)
+                                .or_else(|| {
+                                    work.participants
+                                        .iter()
+                                        .find_map(|p| p.write_workspace.as_deref())
+                                });
+                            let Some(cwd) = requested else {
+                                return (
+                                    fail(
+                                        "verification_required",
+                                        "Supply review_cwd for the independent review",
+                                    ),
+                                    false,
+                                );
+                            };
+                            let cwd = match crate::workspace::root(cwd) {
+                                Ok(cwd) => cwd,
+                                Err(error) => return (fail("invalid_workspace", error), false),
+                            };
+                            work.review_cwd = Some(cwd);
+                            work.state = "waiting".to_owned();
+                            if let Err(error) = self.ledger.save_work(&work) {
+                                return (fail("ledger_write_failed", error.to_string()), false);
+                            }
+                        }
                         return (
                             fail(
                                 "verification_required",
@@ -2664,6 +2955,11 @@ fn parse_session_prefixes(obj: &Map<String, Value>) -> Result<Option<SessionPref
         );
     }
     Ok(Some(prefixes))
+}
+
+fn same_workspace_root(cwd: Option<&str>, root: &std::path::Path) -> bool {
+    cwd.and_then(|path| std::fs::canonicalize(path).ok())
+        .is_some_and(|path| path == root)
 }
 
 fn check_allowed_keys(obj: &Map<String, Value>, allowed: &[&str]) -> Result<(), String> {

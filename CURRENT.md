@@ -44,13 +44,31 @@ Observed on 2026-11-23.
 - **R-6.** Installer recovery after an Android Termux force-stop passed on the
   API 37 device with 4 KiB pages. Physical power removal and execution on a
   16 KiB page-size device remain long-term checks.
-- **Slice 7B evidence boundary.** A live long-history request returned
-  `input_too_large` and automatic rollover did not occur. The recognized
-  context-limit path passes a compiled test with the turn threshold disabled.
+- **Slice 7 redesign promotion.** The candidate has compiled and disposable
+  Android evidence below. Live natural-language delegation on all configured
+  surfaces, trusted chat context at connector entry, and authenticated AppHost
+  streaming/restart acceptance remain open.
 
 ---
 
 ## Recent Verified Evidence (Newest-First)
+
+### 2026-11-24 — Slice 7 and Provider streaming follow-up
+
+| Acceptance | Observed boundary | Remaining |
+| --- | --- | --- |
+| Plain question and automatic entry | Optional MCP registration and tool descriptions are available from both Codex profiles. Earlier model trials are recorded below. | Qualified natural-language selection with a disposable authenticated connector or model across the three entrypoints. |
+| Fixed sequence and shared writer order | Compiled MCP and separate relay processes ran dependent shell steps, held the second writer until the first settled, and used a real exit receipt to complete without a Lead. | Live Front chat notification in the same authenticated run. |
+| Parallel worker scope | A disposable Git worktree preserved the original tree and blocked completion after an undeclared write. Conflicting path detection is implemented. | Actual concurrent model-worker write intervals and integration of their branches. |
+| Review and completion | Prose rejection did not pass. An isolated official Codex daemon returned a structured rejection from a synthetic Responses endpoint. Its completed turn produced `failed_verification` with evidence and zero Lead wakeups. | Evaluation of real independent model judgments. |
+| Front migration | Loopback Provider fixtures exercised read-and-rebind, account/chat checks, and original-target delivery reconciliation. | Caller identity and notification migration on actual ChatGPT conversations. |
+| Lost reply and relay restart | Compiled/synthetic tests reconciled the original dispatch and resumed shell plans. An actual detached shell that ignored TERM returned exit code 137 after cancellation. | Authenticated model delivery reconciliation after developer-controlled faults. |
+| Restart, compaction and size errors | A fresh map instance resumed the stored chat for a matching prefix. Changed prefix selected a fresh chat. A compiled Provider fixture exercised one bounded rollover on `input_too_large` and a fresh-chat rejection with zero further attempts. | Authenticated restart with the new binary and real size-error reproduction. Earlier compaction evidence is below. |
+| Live streaming and TUI | Simulated 250 seconds with live deltas. Official Codex 0.171.0 consumed the candidate's SSE and retained reasoning and answer in its rollout. With a synthetic server, the actual TUI showed live status and answer, and its expanded transcript displayed reasoning. An account-free candidate boot reached the real AppHost control status and exited cleanly. | The exact callbacks and their timing for a logged-in ChatGPT Desktop, a wall-clock xhigh live turn, and physical UI. |
+
+No authenticated account or profile is required by the above fixtures. The
+component version identifiers stay at `0.1.0+7b`. Signed promotion and live
+device activation require the remaining authenticated acceptance.
 
 ### 2026-11-24 — Slice 7 redesign candidate on Android Termux
 

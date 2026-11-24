@@ -145,15 +145,6 @@ impl OwnerClient {
         self.control_call("GET", "/control/status", None, READ_TIMEOUT)
     }
 
-    pub fn chatgpt_list_chats(&self, limit: u64) -> Result<Value, String> {
-        self.control_call(
-            "GET",
-            &format!("/control/chats?limit={}&archived=false", limit.clamp(1, 50)),
-            None,
-            READ_TIMEOUT,
-        )
-    }
-
     pub fn chatgpt_read_chat(&self, chat_id: &str, limit: u64) -> Result<Value, String> {
         self.control_call(
             "GET",
@@ -411,7 +402,7 @@ impl OwnerClient {
             "/control/send",
             Some(&json!({
                 "chat_id": chat_id,
-                "project_id": work.project_id,
+                "project_id": lead.and(work.project_id.as_deref()),
                 "expected_account_id": work.account_id,
                 "lane_id": lane_id,
                 "prompt": prompt,

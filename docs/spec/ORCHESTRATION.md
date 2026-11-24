@@ -36,7 +36,19 @@ owners:
 ## 2. Four-Tier Progressive Durability (Simple Chats & Complex Orchestration)
 
 One unified `Work` model covers every workflow without forcing ceremony on
-ordinary chats:
+ordinary chats. Entry tools describe when a **natural-language** request should
+remain in the current session and when to delegate and release Front. After
+registration, the runtime enforces dependencies, ownership and completion.
+Stable plans can use the runtime's durable step queue with no extra Lead turn.
+Managed writers in a shared working tree are serialized. Parallel writers use
+explicit isolated worktrees and declared write paths, with actual changes
+reviewed for scope and integration conflicts. Independent review requires a
+structured verdict for the current work subject. An authenticated Front lookup
+can update the delivery target with the lookup. Unconfirmed sends are reconciled
+against their original target. New Works use context-driven rollover by default.
+Direct ChatGPT recovery uses a 32 KiB checkpoint budget and at most one fresh-chat
+attempt for the same size rejection. Historical explicit turn thresholds retain
+their meaning:
 
 1. **Tier 0 — Pure Chat (zero overhead):** Ordinary interactive ChatGPT chat.
    No `Work` created, no `R` involvement.
@@ -95,7 +107,7 @@ State root: `~/.local/state/codex/orchestration/jobs/<work_id>/` (`0700`,
 
 1. **`Work Ledger` (`work.json` + `checkpoint.md`):**
    - `work.json` holds `work_id`, `title`, `tier` (`direct | orchestrated`),
-     `goal`, `completion_criteria[]`, `state` (`running | waiting | waiting_user | completed | failed | cancelled`),
+     `goal`, `completion_criteria[]`, `state` (`running | waiting | waiting_user | completed | failed | failed_verification | cancelled`),
      pinned `(account_id, project_id)`, `delivery_mode` (`inject_and_notify`
      default | `notify_only`), `front: { latest_chat_id, generation, history[] }`,
      `lead: Option<{ kind, ref_id, profile?, generation, history[] }>`,
@@ -140,14 +152,19 @@ State root: `~/.local/state/codex/orchestration/jobs/<work_id>/` (`0700`,
 - **Seamless `Fn` Re-attachment:** When a user opens a new chat (`Fn`) on
   Android/Web ChatGPT and references prior/ongoing work, `Fn` calls
   `orch_works(action="list")` to discover active/recent `Work`s (Tier 1 & Tier 3)
-  without recreating workers, then calls `orch_work(action="rebind_front")`
-  with either explicit `chat_id` or a verified prompt marker. `R` confirms the
-  matching `(account_id, chat_id)` via `chatgpt-provider` `GET /control/chats`,
+  without recreating workers. The user-facing `orch_works(action="read")` can
+  include `rebind_front_chat_id` or `rebind_front_marker` and a `call_id`.
+  The same account and chat checks apply to explicit
+  `orch_work(action="rebind_front")`. MCP stdio has no authenticated chat
+  identity field. Pass an address from trusted session context or a unique
+  user-authored message marker. `R` confirms the account and the exact chat
+  via `chatgpt-provider` `GET /control/chats/{id}`,
   atomically updates `front.latest_chat_id = Fn`, names the chat using the Work policy,
   and records `front.rebound`. A missing account pin, unavailable identity,
   or unreadable target chat prevents rebinding. Moving the Front alone does
   not trigger a user-event Wait-Set. A previous delivery attempt is reconciled
-  at its original destination.
+  at its original destination. Front delivery follows the destination chat's
+  project. The Work's project continues to scope its Lead and workers.
 - **Safe `inject_and_notify` Delivery:** Before calling `chatgpt-provider`
   `POST /control/send(chat_id=...)` on `F/Fn` or ChatGPT `L`, `R` checks both
   local `activeTurns` and server `/conversation/{id}/stream_status` via
@@ -169,22 +186,36 @@ State root: `~/.local/state/codex/orchestration/jobs/<work_id>/` (`0700`,
   thread UUID before `turn/start`. ChatGPT dispatch uses a pinned account and
   request lane. An uncertain dispatch stays pending until the original
   owner confirms the turn. Repeating the registration does not resend it.
-- **Managed write order:** When a new worker has a declared working directory,
-  the relay accepts a second writing worker in that Work only when its
-  canonical directory is disjoint from the active writer. The Lead can
-  register the next writer after the first settles. A `read_only` declaration
-  allows observation in parallel. This controls scheduling of declared work
-  directories under Orch and uses the execution owner's access permissions.
-- **Cancellation:** A cancelling Work blocks new starts. The relay requests
-  interruption of its identified Codex turn or ChatGPT lane. Its detached
-  shell writer sends `SIGTERM` to its process group and publishes an exit
-  receipt when the command ends.
-  Cancellation remains pending while a Work-owned execution is unconfirmed.
-  An attached model session is not interrupted by cancelling the Work.
+- **Fixed step plans:** `orch_work(create)` accepts a `steps` array of shell
+  commands with `cwd`, unique `step_id`, and optional `depends_on`,
+  `write_paths`, `isolation`, `on_failure`, and `auto_verify`. Dependencies
+  refer to preceding entries. A final `auto_verify` command runs after the
+  work steps and supplies its shell receipt. The relay reserves the
+  participant before dispatch and can resume across restarts without a
+  Lead turn. A failed prerequisite blocks its dependents.
+- **Managed write order:** `shared_serial` reserves a canonical working
+  tree across managed Works. Conflicting scheduled steps wait. An
+  interactive registration gets `worker_workspace_busy` and can be
+  resubmitted after the owner settles. `worktree` gives a new shell or
+  Codex worker a dedicated Git worktree and branch with `write_paths`.
+  Runtime checks tracked and untracked changes and overlapping paths before
+  accepting the result. Changes stay in the worktree for Lead to integrate.
+  `readonly` is a declaration. Separate paths provide repository isolation
+  under the same Termux UID and carry the owner's existing OS permissions.
+- **Cancellation:** A cancelling Work blocks new starts. Runtime requests
+  interruption of its identified Codex turn or ChatGPT lane. The shell writer
+  sends `SIGTERM` and escalates to `SIGKILL` for its command's process group.
+  It waits for live members of its session to exit before it writes the
+  receipt. Cancellation stays pending while an owner is unconfirmed. Attached
+  sessions retain their original owner.
 - **Verification and completion:** A registered verifier supplies a result
   separately from the terminal status of its turn. A model verifier returns
   the assigned challenge, a `pass`, `fail`, or `inconclusive` verdict, and
-  evidence references. A shell verifier uses the owner exit receipt. The
+  `evidence_refs`, and `blocking_issues`. A shell verifier uses the owner exit
+  receipt. `verification_policy=independent_review` starts a fresh Codex
+  verifier after a completed plan or an eligible completion request that
+  identifies the review workspace. Confirmed failure records
+  `failed_verification`. An inconclusive result returns `waiting_user`. The
   Work binds verification to the goal, criteria, and worker results it was
   registered to check. New or changed worker results and scope require fresh
   verification. `orch_report(complete)` requires all participants to be
@@ -233,7 +264,11 @@ State root: `~/.local/state/codex/orchestration/jobs/<work_id>/` (`0700`,
   user-turn count. Set `lead_rollover_turns` on `orch_work(create)`; the Work
   stores it in the budget. New Works default to zero, which disables the
   turn-count trigger. Existing Works retain their persisted threshold and
-  older records without the field retain their legacy default. Rollover
+  older records without the field retain their legacy default. The runtime
+  budgets its generated checkpoint and replay payloads at 32 KiB. For
+  `input_too_large` on the active Lead it tries one bounded handoff in a
+  fresh chat. A further size rejection records `payload_too_large` and
+  pauses for the user. Rollover
   bootstrap and replay turns do not count toward the next
   generation's threshold.
 - `orch_call(lead_rollover)` accepts `work_id`, optional `reason`, and optional

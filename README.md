@@ -36,10 +36,12 @@ Set `session_prefixes` to customize the role prefixes for each Work.
 
 To make the optional local Orch tools available in a selected Codex profile,
 run `codex mcp add termux-orch -- termux-orch mcp` with that profile's
-`CODEX_HOME`. Use `codex mcp list` to check the registration. In ChatGPT, use
-the configured `@TermuxOrch` connector. Each configuration makes the tool
-available to the session. Automatic selection depends on the session and its
-available tools.
+`CODEX_HOME`. This applies to both `codex` and `codex -p chatgpt`. Use
+`codex mcp list` to check the registration. In ChatGPT, use the configured
+`@TermuxOrch` connector. Ask for the desired outcome in ordinary language.
+The model selects tools based on what the session can finish itself. Once it
+delegates a fixed sequence, Orch can launch the remaining shell steps and
+deliver the result even if the conversation closes.
 
 For an isolated test set `ORCH_STATE_DIR` and `ORCH_RECEIPT_DIR` on the MCP
 registration with `--env`, and use the same state directory for its relay.

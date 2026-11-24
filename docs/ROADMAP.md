@@ -297,15 +297,15 @@ Stage 1의 FD 34는 스레드 수명을 업스트림 정책에 맡깁니다. 마
   delivery without repeating the owner POST. An actual pending item needs
   owner evidence before its outcome can be confirmed.
   [Upgrade evidence](../CURRENT.md#2026-11-24--concurrent-account-handoff-context-rejection-and-upgrade-checks)
-- **Slice 7B** Automatic recovery for the observed `input_too_large` error
-  in an existing Lead chat remains open. The standard context-limit trigger
-  passed a compiled integration test.
+- **Slice 7B** Bounded size-error recovery has a compiled loopback fixture.
+  Reproduce the observed `input_too_large` error and recovery with a disposable
+  authenticated Lead before promoting the candidate.
   [Context evidence](../CURRENT.md#2026-11-24--concurrent-account-handoff-context-rejection-and-upgrade-checks)
 
 ## 9. Slice 7 역할 배치와 실행 환경 재설계
 
 사용자는 원하는 결과를 자연어로 요청한다. F·L·W·V는 아래의 사용자
-결정을 반영했다. R의 책임과 컴팩션 시 실행 환경별 전환 방식은 검토안이다.
+결정을 반영했다. R의 책임과 컴팩션 시 실행 환경별 전환 방식을 아래 계약에 반영한다.
 현행 동작은 [Slice 7 계약](spec/ORCHESTRATION.md)에 있다.
 
 | 역할 | 동작 |
@@ -350,8 +350,8 @@ Work를 유지하고, 컴팩션으로 기존 문맥이 교체되면 압축된 �
   입력의 크기와 기존 문맥의 한계를 구분할 수 없다. 자체 생성 로그·diff는
   요약과 참조로 줄일 수 있으며 사용자가 준 원문과 요구사항은 보존한다.
   같은 요청에 자동 전환을 반복하지 않는다. 새 채팅에서 축소된 체크포인트도
-  실패하면 관측한 오류를 남긴다. 원인이 입증될 때까지 `payload_too_large`로
-  단정하지 않는다.
+  같은 크기 오류를 반환하면 `payload_too_large`로 멈추고 원래 오류와 함께
+  기록한다. 32 KiB는 릴레이가 생성하는 페이로드 예산이다.
 - **셸.** 진행 중인 프로세스와 종료 기록을 계속 추적한다. 명령에 문맥
   컴팩션을 적용하지 않는다.
 
@@ -365,34 +365,19 @@ Work를 유지하고, 컴팩션으로 기존 문맥이 교체되면 압축된 �
 | 직접 ChatGPT | 앱 채팅 또는 `mcp/termux-chatgpt`의 `chatgpt_send(send/observe/stop)` → `chatgpt-provider /control/*` | 계정·프로젝트와 활성 채팅 확인이 필요하다. Provider 한 인스턴스는 최대 8개 동시 생성이며 같은 채팅에 대한 동시 쓰기를 막는다. 커넥터 `wait_ms`는 최대 300초다. 호스트 파일 작업은 연결된 도구를 통해 수행한다. | 채팅 ID·대화·응답·지원되는 커넥터 결과. 호스트 파일과 테스트의 원본은 실행 환경에 있다. |
 | Codex에서 ChatGPT 선택 | `codex -p chatgpt` → 공식 Codex → `providers/chatgpt`의 `/v1/responses` → ChatGPT Desktop | Codex 프로필 설정에서 Provider를 선택한다. 모델 호출은 AppHost와 ChatGPT 로그인 상태에 의존한다. | Codex 실행 기록과 UUID, 별도로 저장된 ChatGPT 채팅 ID와 대화 |
 
-### 독립 평가에서 확인한 결함과 설계 선택
+### 격리 검증과 남은 운영 확인
 
-- [참가자 기동](../mcp/termux-orch/src/mcp.rs)과 Work 생성의 Lead 기동은
-  외부 실행 뒤에 실행 ID를 저장한다. 연결이 끊기면 이미 시작한 작업을
-  찾기 어렵다. 일부 오류는 MCP 호출 영수증도 해제하므로 동일 요청을
-  다시 보낼 때 중복 실행 위험이 있다. 취소는 현재 Work 상태를 바꾸는
-  데 그치며 실행 주체에서 정지를 확인하지 않는다.
-- [릴레이](../mcp/termux-orch/src/relay.rs)는 Verifier 턴의 정상 종료를
-  `verifier.passed`로 기록한다. `orch_report(complete)`도 실행 중인 워커나
-  필수 검증 증거를 확인하지 않는다. 턴 종료, 판정, 사용자 전달을 구분한다.
-- 현행 `rebind_front`는 계정을 확인할 수 없는 경우 비교를 건너뛰고, 명시된
-  채팅 주소도 소유자를 확인하지 않는다. `user.front_rebound`는 Wait-Set을
-  발화시킬 수 있다. 조회 도구에 검증된 호출 대화가 자동으로 들어온다는
-  전제도 없다. 단일 조회의 자동 이전은 실제 호출자 확인을 먼저 검증한다.
-- `owner_scope`는 설명 문자열이다. 같은 작업 디렉터리에 대한 쓰기 실행을
-  릴레이가 직렬화할 수는 있다. 같은 Termux UID에서 `git worktree`와 `cwd`
-  지정은 접근 제어를 제공하지 않는다. 처음에는 같은 저장소에 대한 관리
-  대상 쓰기를 순서대로 실행하고, 독립 읽기·서로 분리된 쓰기만 병렬화한다.
-  외부 실행이나 워커의 범위 이탈까지 차단하려면 별도 접근 제어가 필요하다.
-- [롤오버](../mcp/termux-orch/src/rollover.rs)는 현재 프로젝트를 필수로
-  요구한다. 마커 검색 범위를 넘어가면 결과가 확인 대기에 머무른다. 같은
-  요청을 재전송하지 않는 현행 동작을 보존하면서, 프로젝트가 없는 Work도
-  계정과 원래 채팅을 확인하고 페이지를 넘겨 대조할 수 있게 한다.
-- [Provider의 채팅 매핑](../providers/chatgpt/src/responses.rs)은 메모리에
-  있다. 재시작 뒤 ChatGPT 채팅이 교체될 수 있는 경로는 컴팩션과 별도로
-  다룬다. 매핑을 영속화하는 안은 계정·프로젝트·동일 입력 기록의 검증,
-  다중 턴 경합과 이전 매핑의 유효성부터 확인한 뒤 채택한다. 공통 32 KiB
-  상한이나 고정 턴 수는 서비스의 문맥 한계로 취급하지 않는다.
+- 참가자와 Lead는 원래 실행 의도와 ID로 복구한다. 릴레이는 고정 셸 단계,
+  공유 워킹트리의 쓰기 순서, 별도 Git 워크트리의 변경 범위, 독립 판정을
+  검증한다. 같은 Termux UID의 외부 프로세스는 해당 작업 예약을 공유하지
+  않는다. 실제 브랜치 반영은 변경을 검토한 Lead가 맡는다.
+- 특정 작업 조회와 함께 검증된 채팅 주소 또는 사용자 메시지 마커를 받으면
+  알림을 이전한다. 커넥터에 주소가 전달되지 않는 경우의 자연어 이전과
+  실제 모델의 자동 도구 선택은 운영 수락 시험에 남는다.
+- Provider는 계정·프로젝트·입력 접두사가 유지되면 디스크에 저장한 채팅을
+  재사용한다. 격리 환경에서 맵 재개와 접두사 변화, 실제 Codex의 Responses
+  수신과 롤아웃을 확인한다. 실계정 재시작과 실제 최신 Electron의
+  콜백 내용·타이밍은 별도 수락 시험이다.
 
 ### 구현 순서와 합격 조건
 

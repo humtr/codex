@@ -621,20 +621,34 @@ fn detached_shell_restart_barrier_kill_and_authenticated_immediate_wake() {
 
 #[test]
 fn compiled_rollover_preserves_pinned_project_and_replays_every_event_once() {
-    exercise_compiled_rollover(false, false);
+    exercise_compiled_rollover(false, false, None);
 }
 
 #[test]
 fn compiled_context_limit_rolls_over_with_turn_threshold_disabled() {
-    exercise_compiled_rollover(true, false);
+    exercise_compiled_rollover(true, false, None);
 }
 
 #[test]
 fn compiled_unscoped_rollover_recovers_the_original_chat_from_a_later_page() {
-    exercise_compiled_rollover(true, true);
+    exercise_compiled_rollover(true, true, None);
 }
 
-fn exercise_compiled_rollover(context_limit: bool, unscoped: bool) {
+#[test]
+fn input_size_recovery_reuses_bounded_checkpoint_in_one_fresh_chat() {
+    exercise_compiled_rollover(true, true, Some(false));
+}
+
+#[test]
+fn input_size_recovery_stops_after_fresh_chat_rejects() {
+    exercise_compiled_rollover(true, true, Some(true));
+}
+
+fn exercise_compiled_rollover(
+    context_limit: bool,
+    unscoped: bool,
+    reject_fresh_size: Option<bool>,
+) {
     use std::collections::HashMap;
     use std::io::Read;
     use std::net::TcpListener;
@@ -713,6 +727,15 @@ fn exercise_compiled_rollover(context_limit: bool, unscoped: bool) {
                     if body["chat_id"].is_null() {
                         p.create_calls += 1;
                         assert!(prompt.contains("CHECKPOINT_7B"));
+                        if let Some(reject) = reject_fresh_size {
+                            assert!(prompt.len() <= 32 * 1024);
+                            if reject {
+                                let result = json!({"state":"error","error":"input_too_large","lane_id":lane});
+                                let raw = result.to_string();
+                                write!(conn, "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{raw}", raw.len()).unwrap();
+                                continue;
+                            }
+                        }
                         if p.create_calls == 2 {
                             p.messages.clear();
                         }
@@ -826,8 +849,36 @@ fn exercise_compiled_rollover(context_limit: bool, unscoped: bool) {
         p.reject_create_receipt = true;
         p.turns = 2;
         if context_limit {
-            p.local_turn_error = Some("context_length_exceeded");
+            p.local_turn_error = Some(if reject_fresh_size.is_some() {
+                "input_too_large"
+            } else {
+                "context_length_exceeded"
+            });
         }
+    }
+    if reject_fresh_size == Some(true) {
+        for _ in 0..4 {
+            tick();
+        }
+        let w = mcp.call("orch_works", json!({"action":"read","work_id":wid}));
+        assert_eq!(w["work"]["state"], "waiting_user", "{w}");
+        assert_eq!(w["work"]["lead"]["generation"], 1);
+        assert_eq!(provider.lock().unwrap().create_calls, 1);
+        let inbox = mcp.call(
+            "orch_works",
+            json!({"action":"inbox","work_id":wid,"limit":100}),
+        );
+        assert!(inbox["events"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|e| e["data"]["reason"] == "payload_too_large"));
+        use std::net::TcpStream;
+        let mut stop = TcpStream::connect(addr).unwrap();
+        write!(stop, "GET /shutdown HTTP/1.1\r\n\r\n").unwrap();
+        mock.join().unwrap();
+        fs::remove_dir_all(root).unwrap();
+        return;
     }
     // A lost HTTP receipt must recover the original lane from a separate Relay process.
     tick();
@@ -872,7 +923,11 @@ fn exercise_compiled_rollover(context_limit: bool, unscoped: bool) {
     assert_eq!(
         rollover["data"]["reason"],
         if context_limit {
-            "context limit (context_length_exceeded)"
+            if reject_fresh_size.is_some() {
+                "context limit (input_too_large)"
+            } else {
+                "context limit (context_length_exceeded)"
+            }
         } else {
             "turn threshold (2/2)"
         }
@@ -914,5 +969,161 @@ fn exercise_compiled_rollover(context_limit: bool, unscoped: bool) {
     let mut stop = std::net::TcpStream::connect(addr).unwrap();
     stop.write_all(b"GET /shutdown HTTP/1.1\r\n\r\n").unwrap();
     mock.join().unwrap();
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn durable_step_plan_orders_shared_writers_and_requires_exit_receipt() {
+    let root = tmp_dir("termux-orch-steps");
+    let state = root.join("state");
+    let workspace = root.join("workspace");
+    fs::create_dir(&workspace).unwrap();
+    let command = || {
+        let mut cmd = Command::new(bin_path());
+        cmd.env("ORCH_STATE_DIR", &state)
+            .env("ORCH_RECEIPT_DIR", root.join("receipts"))
+            .env("ORCH_NOTIFY_CMD", "/bin/true")
+            .env("CHATGPT_PROVIDER_URL", "http://127.0.0.1:1");
+        cmd
+    };
+    let tick = || assert!(command().arg("tick").output().unwrap().status.success());
+    let mut mcp = Mcp::start(&mut command());
+    let created = mcp.call("orch_work", json!({
+        "action":"create","call_id":"create-step-plan","title":"Fixed plan","goal":"Build and test",
+        "delivery_mode":"notify_only",
+        "steps":[
+            {"step_id":"build","cwd":workspace,"command":"printf first > order; while [ ! -f release ]; do sleep .05; done","write_paths":["order"]},
+            {"step_id":"append","cwd":workspace,"command":"printf second >> order","write_paths":["order"]},
+            {"step_id":"verify","cwd":workspace,"command":"test \"$(cat order)\" = firstsecond","depends_on":["build","append"],"auto_verify":true,"isolation":"readonly"}
+        ]
+    }));
+    assert_eq!(created["state"], "ok", "{created}");
+    let wid = created["work_id"].as_str().unwrap();
+    let get = |mcp: &mut Mcp| {
+        mcp.call("orch_works", json!({"action":"read","work_id":wid}))["work"].clone()
+    };
+    tick();
+    wait_for(|| fs::read_to_string(workspace.join("order")).ok());
+    tick();
+    assert_eq!(get(&mut mcp)["participants"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        fs::read_to_string(workspace.join("order")).unwrap(),
+        "first"
+    );
+    // Re-enter through a different compiled process while W1's writer still owns the job.
+    fs::write(workspace.join("release"), "").unwrap();
+    let result = wait_for(|| {
+        tick();
+        let work = get(&mut mcp);
+        (work["state"] == "completed").then_some(work)
+    });
+    assert!(result["lead"].is_null());
+    assert_eq!(result["budget"]["wakeups_used"], 0);
+    assert_eq!(result["participants"][2]["verification"]["verdict"], "pass");
+    assert_eq!(
+        fs::read_to_string(workspace.join("order")).unwrap(),
+        "firstsecond"
+    );
+    assert_eq!(result["participants"].as_array().unwrap().len(), 3);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn worktree_plan_detects_undeclared_edit_without_touching_source() {
+    let root = tmp_dir("termux-orch-worktrees");
+    let state = root.join("state");
+    let repo = root.join("repo");
+    fs::create_dir(&repo).unwrap();
+    let git = |args: &[&str]| {
+        assert!(Command::new("git")
+            .current_dir(&repo)
+            .args(args)
+            .output()
+            .unwrap()
+            .status
+            .success())
+    };
+    git(&["init", "-q"]);
+    fs::write(repo.join("owned"), "base").unwrap();
+    fs::write(repo.join("outside"), "base").unwrap();
+    git(&["add", "."]);
+    git(&[
+        "-c",
+        "user.name=Fixture",
+        "-c",
+        "user.email=fixture@example.invalid",
+        "commit",
+        "-qm",
+        "fixture",
+    ]);
+    let command = || {
+        let mut cmd = Command::new(bin_path());
+        cmd.env("ORCH_STATE_DIR", &state)
+            .env("ORCH_RECEIPT_DIR", root.join("receipts"))
+            .env("CHATGPT_PROVIDER_URL", "http://127.0.0.1:1")
+            .env("ORCH_NOTIFY_CMD", "/bin/true");
+        cmd
+    };
+    let mut mcp = Mcp::start(&mut command());
+    let created = mcp.call("orch_work", json!({
+        "action":"create","call_id":"create-worktree-plan","title":"Worktree plan","goal":"Test scope",
+        "delivery_mode":"notify_only","steps":[
+            {"step_id":"isolated","cwd":repo,"isolation":"worktree","write_paths":["owned"],
+             "on_failure":"wake_lead","command":"printf changed > outside"}
+        ]
+    }));
+    assert_eq!(created["state"], "ok", "{created}");
+    let wid = created["work_id"].as_str().unwrap();
+    let result = wait_for(|| {
+        assert!(command().arg("tick").output().unwrap().status.success());
+        let work = mcp.call("orch_works", json!({"action":"read","work_id":wid}))["work"].clone();
+        (work["state"] == "waiting_user").then_some(work)
+    });
+    let p = &result["participants"][0];
+    assert_eq!(p["state"], "failed");
+    assert!(p["result_summary"]
+        .as_str()
+        .unwrap()
+        .contains("Undeclared changes"));
+    assert_eq!(fs::read_to_string(repo.join("outside")).unwrap(), "base");
+    let tree = PathBuf::from(p["worktree"]["path"].as_str().unwrap());
+    assert_eq!(fs::read_to_string(tree.join("outside")).unwrap(), "changed");
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn cancelling_shell_plan_escalates_when_worker_ignores_term() {
+    let root = tmp_dir("termux-orch-kill");
+    let state = root.join("state");
+    let command = || {
+        let mut cmd = Command::new(bin_path());
+        cmd.env("ORCH_STATE_DIR", &state)
+            .env("ORCH_RECEIPT_DIR", root.join("receipts"))
+            .env("CHATGPT_PROVIDER_URL", "http://127.0.0.1:1")
+            .env("ORCH_NOTIFY_CMD", "/bin/true");
+        cmd
+    };
+    let mut mcp = Mcp::start(&mut command());
+    let created = mcp.call("orch_work", json!({
+        "action":"create","call_id":"create-stubborn","title":"Shell job","goal":"Cancel stubborn shell",
+        "steps":[{"step_id":"stubborn","cwd":root,"command":"trap '' TERM; echo ready > marker; while :; do sleep .2; done"}]
+    }));
+    let wid = created["work_id"].as_str().unwrap();
+    assert!(command().arg("tick").output().unwrap().status.success());
+    wait_for(|| fs::read_to_string(root.join("marker")).ok());
+    let cancelled = mcp.call(
+        "orch_work",
+        json!({"action":"cancel","call_id":"cancel-stubborn","work_id":wid}),
+    );
+    assert_eq!(cancelled["state"], "ok", "{cancelled}");
+    wait_for(|| {
+        assert!(command().arg("tick").output().unwrap().status.success());
+        let work = mcp.call("orch_works", json!({"action":"read","work_id":wid}))["work"].clone();
+        (work["state"] == "cancelled").then_some(work)
+    });
+    assert_eq!(
+        json_file(&state.join("jobs").join(wid).join("shell/W1.exit.json")).unwrap()["exit_code"],
+        137
+    );
     fs::remove_dir_all(root).unwrap();
 }

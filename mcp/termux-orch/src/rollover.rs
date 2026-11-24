@@ -1,9 +1,21 @@
 use crate::ledger::{
     format_lead_title, generate_id, now_unix, truncate_chars, LeadHistoryEntry, LeadReplay,
-    LeadRollover, Ledger, WorkRecord,
+    LeadRollover, Ledger, PendingDelivery, WorkRecord,
 };
 use crate::owners::OwnerClient;
 use serde_json::{json, Value};
+
+const PAYLOAD_BUDGET: usize = 32 * 1024;
+const SIZE_REJECTION: &str = "context limit (input_too_large)";
+
+pub(crate) fn bounded_payload(text: &str) -> String {
+    if text.len() <= PAYLOAD_BUDGET {
+        return text.to_owned();
+    }
+    let suffix = "\n[Additional details retained in the Work checkpoint and Typed Inbox.]";
+    let end = text.floor_char_boundary(PAYLOAD_BUDGET - suffix.len());
+    format!("{}{suffix}", &text[..end])
+}
 
 pub struct Rollover<'a> {
     ledger: &'a Ledger,
@@ -76,6 +88,7 @@ impl<'a> Rollover<'a> {
             dispatched: false,
             chat_id: None,
             scan_cursor: None,
+            size_rejection: reason == SIZE_REJECTION,
         });
         self.save(work)?;
         self.advance(work)
@@ -95,6 +108,9 @@ impl<'a> Rollover<'a> {
             return None;
         }
         let error = chat["local_turn_error"].as_str().unwrap_or_default();
+        if error == "input_too_large" {
+            return Some(SIZE_REJECTION.to_owned());
+        }
         if matches!(
             error,
             "context_length_exceeded"
@@ -138,11 +154,12 @@ impl<'a> Rollover<'a> {
                 .map_err(|e| e.to_string())?
                 .unwrap_or_default();
             let prompt = format!(
-                "{marker}\nResume as Lead L{generation} for work_id={}.\nGoal: {}\n\n{}\n\nAcknowledge this handoff. Wait for the Typed Inbox replay before taking action. Include expected_lead_generation={generation} in all Work mutations.",
+                "{marker}\nResume as Lead L{generation} for work_id={}.\nAcknowledge this handoff and wait for the Typed Inbox replay before taking action. Include expected_lead_generation={generation} in all Work mutations.\nGoal: {}\n\n{}",
                 work.work_id,
-                truncate_chars(&work.goal, 1000),
-                truncate_chars(&checkpoint, 8000),
+                work.goal,
+                format_args!("Criteria: {:?}\n{checkpoint}", work.completion_criteria),
             );
+            let prompt = bounded_payload(&prompt);
             rollover.dispatched = true;
             work.lead_rollover = Some(rollover.clone());
             self.save(work)?;
@@ -153,7 +170,16 @@ impl<'a> Rollover<'a> {
                 &rollover.lane_id,
                 &prompt,
             )?;
+            if rollover.size_rejection
+                && receipt["state"] == "error"
+                && receipt["error"] == "input_too_large"
+            {
+                return self.finish_size_rejection(work, &rollover.lane_id);
+            }
             if rejected_before_send(&receipt) {
+                if rollover.size_rejection {
+                    work.state = "waiting_user".to_owned();
+                }
                 work.lead_rollover = None;
                 self.save(work)?;
                 return Err(receipt["error"]
@@ -167,10 +193,24 @@ impl<'a> Rollover<'a> {
                 .map(ToOwned::to_owned);
         }
 
-        if rollover.chat_id.is_none() {
+        if rollover.chat_id.is_none() || rollover.size_rejection {
             if let Ok(lane) = self.owners.chatgpt_observe_lane(&rollover.lane_id) {
                 if lane["lane_id"] == rollover.lane_id {
-                    rollover.chat_id = lane["chat_id"].as_str().map(ToOwned::to_owned);
+                    if rollover.size_rejection
+                        && lane["state"] == "error"
+                        && lane["error"] == "input_too_large"
+                    {
+                        return self.finish_size_rejection(work, &rollover.lane_id);
+                    }
+                    rollover.chat_id = lane["chat_id"]
+                        .as_str()
+                        .map(ToOwned::to_owned)
+                        .or(rollover.chat_id);
+                    if rollover.size_rejection && lane["generating"] == true {
+                        work.lead_rollover = Some(rollover);
+                        self.save(work)?;
+                        return Ok(false);
+                    }
                 }
             }
         }
@@ -272,6 +312,16 @@ impl<'a> Rollover<'a> {
             .read_first_events(&work.work_id, after, 8)
             .map_err(|e| e.to_string())?;
         events.retain(|event| event.seq <= replay.dispatched_until.unwrap_or(replay.through_seq));
+        if replay.dispatched_until.is_none() {
+            while events.len() > 1
+                && serde_json::to_vec(&events)
+                    .map_err(|e| e.to_string())?
+                    .len()
+                    > PAYLOAD_BUDGET - 1024
+            {
+                events.pop();
+            }
+        }
         let Some(last_seq) = events.last().map(|event| event.seq) else {
             return Err("lead_replay_events_missing".to_owned());
         };
@@ -300,6 +350,9 @@ impl<'a> Rollover<'a> {
                 "{marker}\nwork_id={} expected_lead_generation={}\n{instruction}\nTyped Inbox events:\n{payload}",
                 work.work_id, lead.generation
             );
+            if prompt.len() > PAYLOAD_BUDGET {
+                return Err("inbox_event_exceeds_replay_budget".to_owned());
+            }
             replay.dispatched_until = Some(last_seq);
             work.lead_replay = Some(replay);
             self.save(work)?;
@@ -316,6 +369,48 @@ impl<'a> Rollover<'a> {
             }
         }
         Ok(())
+    }
+
+    fn finish_size_rejection(&self, work: &mut WorkRecord, lane_id: &str) -> Result<bool, String> {
+        let id = format!("rollover-size:{lane_id}");
+        let detail =
+            "payload_too_large: the bounded checkpoint was rejected in the fresh ChatGPT chat";
+        self.ledger
+            .append_event_if_absent(
+                work,
+                &id,
+                "lead.rollover_rejected",
+                "runtime",
+                detail,
+                json!({"reason":"payload_too_large","lane_id":lane_id}),
+            )
+            .map_err(|e| e.to_string())?;
+        work.lead_rollover = None;
+        work.state = "waiting_user".to_owned();
+        if let Some(wait) = work.wait_set.as_mut() {
+            wait.armed = false;
+        }
+        let now = now_unix();
+        crate::relay::enqueue_delivery_if_absent(
+            work,
+            PendingDelivery {
+                delivery_id: id,
+                target: "front".to_owned(),
+                kind: "waiting_user".to_owned(),
+                title: format!("{} — payload_too_large", work.title),
+                payload_text: detail.to_owned(),
+                advance_seq_to: None,
+                dispatch: None,
+                receipts_tracked: true,
+                notified: false,
+                attempts: 0,
+                next_attempt_unix: now,
+                last_error: None,
+                created_at_unix: now,
+            },
+        );
+        self.save(work)?;
+        Ok(false)
     }
 
     fn save(&self, work: &WorkRecord) -> Result<(), String> {

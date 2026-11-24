@@ -13,8 +13,6 @@ use std::time::{Duration, Instant};
 const MAX_TAIL: usize = 8192;
 const START_GRACE_SECS: u64 = 10;
 
-extern "C" fn keep_receipt_writer_alive(_: libc::c_int) {}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 struct Identity {
     pid: u32,
@@ -86,7 +84,7 @@ impl ShellJob {
                 {
                     return Ok(true);
                 }
-                Ok(!live_group_members(identity.pid)?)
+                Ok(!live_session_members(identity.pid)?)
             }
             Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(true),
             Err(error) => Err(error),
@@ -197,17 +195,6 @@ impl ShellJob {
                 "shell receipt writer does not own its process group",
             ));
         }
-        // A caught handler is reset on exec, so the shell and its commands
-        // receive TERM normally while the writer can still record their exit.
-        if unsafe {
-            libc::signal(
-                libc::SIGTERM,
-                keep_receipt_writer_alive as *const () as libc::sighandler_t,
-            )
-        } == libc::SIG_ERR
-        {
-            return Err(io::Error::last_os_error());
-        }
         let (mut capture, output) = UnixStream::pair()?;
         capture.set_nonblocking(true)?;
         let error_output = output.try_clone()?;
@@ -215,49 +202,79 @@ impl ShellJob {
             .map(|prefix| PathBuf::from(prefix).join("bin/sh"))
             .unwrap_or_else(|| "/bin/sh".into());
         let mut child = Command::new(shell)
+            .process_group(0)
             .args(["-c", command])
             .stdin(Stdio::null())
             .stdout(Stdio::from(OwnedFd::from(output)))
             .stderr(Stdio::from(OwnedFd::from(error_output)))
             .spawn()?;
+        let pgid = child.id() as libc::pid_t;
         let mut buf = [0; 4096];
         let mut tail = Vec::new();
+        let mut last_check = Instant::now() - Duration::from_secs(1);
         let mut last_flush = Instant::now();
-        loop {
-            drain_tail(&mut capture, &mut buf, &mut tail)?;
-            let status = child.try_wait()?;
-            if status.is_some() {
-                drain_tail(&mut capture, &mut buf, &mut tail)?;
+        let mut cancelled = None;
+        let result = loop {
+            if let Err(error) = drain_tail(&mut capture, &mut buf, &mut tail) {
+                break Err(error);
             }
-            if status.is_some() || last_flush.elapsed() >= Duration::from_secs(1) {
-                if status.is_none()
+            if last_check.elapsed() >= Duration::from_millis(100) {
+                last_check = Instant::now();
+                if cancelled.is_none()
                     && ledger
                         .load_work(work_id)
-                        .is_ok_and(|w| w.state == "cancelling")
+                        .is_ok_and(|work| work.state == "cancelling")
                 {
-                    let _ = unsafe { libc::kill(-writer_pid, libc::SIGTERM) };
+                    cancelled = Some(Instant::now());
+                    unsafe { libc::kill(-pgid, libc::SIGTERM) };
                 }
-                // Keep execution and its authoritative exit status independent of tail-log errors.
+            }
+            if cancelled.is_some_and(|start| start.elapsed() >= Duration::from_secs(1)) {
+                unsafe { libc::kill(-pgid, libc::SIGKILL) };
+            }
+            // Defer wait/reap to pin the group leader PID even if it exits
+            // before its group. A recycled PID can never receive escalation.
+            let mut status: libc::siginfo_t = unsafe { std::mem::zeroed() };
+            let rc = unsafe {
+                libc::waitid(
+                    libc::P_PID,
+                    pgid as libc::id_t,
+                    &mut status,
+                    libc::WEXITED | libc::WNOHANG | libc::WNOWAIT,
+                )
+            };
+            if rc < 0 {
+                let error = io::Error::last_os_error();
+                if error.kind() == io::ErrorKind::Interrupted {
+                    continue;
+                }
+                break Err(error);
+            }
+            if unsafe { status.si_pid() } == pgid {
+                match live_session_members(writer_pid as u32) {
+                    // The writer and reaped shell originate in different groups
+                    // but share this writer-owned session; zombies are excluded.
+                    Ok(false) => break Ok(()),
+                    Ok(true) => (),
+                    Err(error) => break Err(error),
+                }
+            }
+            if last_flush.elapsed() >= Duration::from_secs(1) {
                 let _ = write_atomic_private(&self.path("output.log"), &tail);
                 last_flush = Instant::now();
             }
-            if let Some(status) = status {
-                if ledger
-                    .load_work(work_id)
-                    .is_ok_and(|w| w.state == "cancelling")
-                {
-                    // The command can exit before a descendant finishes handling TERM.
-                    while live_group_members(writer_pid as u32)? {
-                        let _ = unsafe { libc::kill(-writer_pid, libc::SIGTERM) };
-                        std::thread::sleep(Duration::from_millis(100));
-                    }
-                }
-                return Ok(status
-                    .code()
-                    .unwrap_or_else(|| 128 + status.signal().unwrap_or(0)));
-            }
             std::thread::sleep(Duration::from_millis(20));
+        };
+        if result.is_err() {
+            unsafe { libc::kill(-pgid, libc::SIGKILL) };
         }
+        let status = child.wait()?;
+        result?;
+        drain_tail(&mut capture, &mut buf, &mut tail)?;
+        let _ = write_atomic_private(&self.path("output.log"), &tail);
+        Ok(status
+            .code()
+            .unwrap_or_else(|| 128 + status.signal().unwrap_or(0)))
     }
 
     fn receipt(&self, identity: Identity) -> io::Result<Option<ExitReceipt>> {
@@ -363,7 +380,7 @@ fn process_alive(identity: Identity) -> io::Result<bool> {
     }
 }
 
-fn live_group_members(writer_pid: u32) -> io::Result<bool> {
+fn live_session_members(writer_pid: u32) -> io::Result<bool> {
     for entry in std::fs::read_dir("/proc")? {
         let entry = entry?;
         let Some(pid) = entry
@@ -386,9 +403,8 @@ fn live_group_members(writer_pid: u32) -> io::Result<bool> {
         if matches!(fields.next(), Some("Z" | "X" | "x")) {
             continue;
         }
-        let group = fields.nth(1).and_then(|value| value.parse::<u32>().ok());
-        let session = fields.next().and_then(|value| value.parse::<u32>().ok());
-        if group == Some(writer_pid) && session == Some(writer_pid) {
+        let session = fields.nth(2).and_then(|value| value.parse::<u32>().ok());
+        if session == Some(writer_pid) {
             return Ok(true);
         }
     }

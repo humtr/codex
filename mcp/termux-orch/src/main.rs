@@ -14,6 +14,7 @@ mod owners;
 mod relay;
 mod rollover;
 mod shell_job;
+mod workspace;
 
 use crate::ledger::Ledger;
 use crate::mcp::{build_static_tools, OrchMcpHandler};
@@ -273,6 +274,7 @@ mod tests {
             pending_participant: Option<(String, String)>,
             pending_participant_sends: u32,
             account_available: bool,
+            structured_review: Option<String>,
         }
         let mstate = Arc::new(Mutex::new(MockState {
             front_streaming: true,
@@ -284,6 +286,7 @@ mod tests {
             pending_participant: None,
             pending_participant_sends: 0,
             account_available: true,
+            structured_review: None,
         }));
         let mstate_srv = Arc::clone(&mstate);
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -347,6 +350,14 @@ mod tests {
                             json!({"state":"ok","projects":projects,"next_cursor":null})
                         } else if first.starts_with("GET /control/chats?") {
                             json!({"state":"ok","chats":[{"id":"chat-f2","title":"New Mobile Chat"}]})
+                        } else if first.starts_with("GET /control/chats/chat-f1") {
+                            let messages: Vec<_> = st
+                                .sends
+                                .iter()
+                                .filter(|(id, _)| id.as_deref() == Some("chat-f1"))
+                                .map(|(_, text)| json!({"role":"user","text":text}))
+                                .collect();
+                            json!({"state":"ok","chat_id":"chat-f1","gizmo_id":"another-project","messages":messages})
                         } else if first.starts_with("GET /control/chats/chat-f2") {
                             json!({"state":"ok","chat_id":"chat-f2","messages":[{"role":"user","text":"MARKER_F2_CONTINUE please continue"}]})
                         } else if first.starts_with("GET /control/chats/chat-uncertain") {
@@ -373,6 +384,12 @@ mod tests {
                         } else if first.starts_with("POST /control/send") {
                             let cid = body["chat_id"].as_str().map(ToOwned::to_owned);
                             let prompt = body["prompt"].as_str().unwrap_or("").to_owned();
+                            if matches!(cid.as_deref(), Some("chat-f1" | "chat-f2")) {
+                                assert!(
+                                    body["project_id"].is_null(),
+                                    "Front delivery uses the target chat's project"
+                                );
+                            }
                             let drop_response =
                                 st.lose_delivery_reply && prompt.starts_with("[ORCH_DELIVERY ");
                             if prompt.ends_with("UNCERTAIN_PARTICIPANT")
@@ -413,7 +430,7 @@ mod tests {
                                 }
                             } else if cid == "chat-verifier" {
                                 json!({"state":"settled","chat_id":cid,"generating":false,
-                                    "assistant_text":"REJECTED: fixture found a regression"})
+                                    "assistant_text":st.structured_review.as_deref().unwrap_or("REJECTED: fixture found a regression")})
                             } else if cid == "chat-w1" {
                                 if st.worker_settled {
                                     json!({"state":"settled","chat_id":cid,"generating":false,"assistant_text":"WORKER_1_DONE_OK"})
@@ -603,17 +620,17 @@ mod tests {
         );
         mstate.lock().unwrap().account_available = true;
         let (reb, is_err) = handler.call_tool(
-            "orch_work",
+            "orch_works",
             &json!({
-                "action": "rebind_front",
+                "action": "read",
                 "call_id": "c-rebind-2",
                 "work_id": wid,
-                "front_marker": "MARKER_F2_CONTINUE"
+                "rebind_front_marker": "MARKER_F2_CONTINUE"
             }),
         );
         assert!(!is_err, "rebind_front failed: {reb}");
-        assert_eq!(reb["front_chat_id"], "chat-f2");
-        assert_eq!(reb["front_title"], "[F2] Build Pipeline");
+        assert_eq!(reb["work"]["front"]["latest_chat_id"], "chat-f2");
+        assert_eq!(reb["work"]["front"]["generation"], 2);
         let (unreadable, error) = handler.call_tool("orch_work", &json!({
             "action":"rebind_front","call_id":"invalid-front","work_id":wid,"front_chat_id":"missing"
         }));
@@ -696,6 +713,47 @@ mod tests {
             .unwrap()
             .iter()
             .all(|event| event.kind != "verifier.passed"));
+        let (structured, error) = handler.call_tool("orch_work", &json!({
+            "action":"create", "call_id":"structured-review-work", "title":"Structured review",
+            "goal":"Record an independent rejection", "verification_policy":"independent_review",
+            "delivery_mode":"notify_only"
+        }));
+        assert!(!error, "{structured}");
+        let structured_id = structured["work_id"].as_str().unwrap();
+        let (bound, error) = handler.call_tool(
+            "orch_dispatch",
+            &json!({
+                "action":"register_verifier", "call_id":"attach-structured-verifier",
+                "work_id":structured_id, "backend":"chatgpt", "ref_id":"chat-verifier"
+            }),
+        );
+        assert!(!error, "{bound}");
+        let challenge = ledger.load_work(structured_id).unwrap().participants[0]
+            .verification
+            .as_ref()
+            .unwrap()
+            .challenge
+            .clone();
+        mstate.lock().unwrap().structured_review = Some(
+            json!({
+                "challenge":challenge,"verdict":"fail","evidence_refs":["test.log:5"],
+                "blocking_issues":["regression"]
+            })
+            .to_string(),
+        );
+        RelayEngine::new(ledger.clone(), owners.clone())
+            .process_work(structured_id)
+            .unwrap();
+        let failure = ledger.load_work(structured_id).unwrap();
+        assert_eq!(failure.state, "failed_verification");
+        assert_eq!(
+            failure.participants[0]
+                .verification
+                .as_ref()
+                .unwrap()
+                .blocking_issues,
+            ["regression"]
+        );
         let (lost_lead, error) = handler.call_tool(
             "orch_work",
             &json!({"action":"create",
@@ -793,6 +851,58 @@ mod tests {
             .iter()
             .any(|(cid, p)| cid.as_deref() == Some("chat-f2")
                 && p.contains("[ORCH_REPORT:complete]")));
+
+        let (result, error) = handler.call_tool("orch_work", &json!({
+            "action":"create","call_id":"front-in-flight-create","title":"In-flight Front",
+            "goal":"Transfer future notices","front_chat_id":"chat-f1","project_scope":"humtr/codex"
+        }));
+        assert!(!error, "{result}");
+        let in_flight = result["work_id"].as_str().unwrap();
+        mstate.lock().unwrap().lose_delivery_reply = true;
+        let (queued, error) = handler.call_tool(
+            "orch_report",
+            &json!({
+                "action":"milestone","call_id":"front-in-flight-message","work_id":in_flight,
+                "summary":"ORIGINAL_FRONT_MESSAGE","flush_now":true
+            }),
+        );
+        assert!(!error, "{queued}");
+        let work = ledger.load_work(in_flight).unwrap();
+        assert_eq!(
+            work.pending_deliveries[0].dispatch.as_ref().unwrap().ref_id,
+            "chat-f1"
+        );
+        let (moved, error) = handler.call_tool(
+            "orch_works",
+            &json!({
+                "action":"read","call_id":"front-in-flight-move","work_id":in_flight,
+                "rebind_front_chat_id":"chat-f2"
+            }),
+        );
+        assert!(!error, "{moved}");
+        {
+            let _lock = ledger.lock_work(in_flight).unwrap();
+            let mut work = ledger.load_work(in_flight).unwrap();
+            work.pending_deliveries[0].next_attempt_unix = 0;
+            ledger.save_work(&work).unwrap();
+        }
+        assert_eq!(relay.process_work(in_flight).unwrap().deliveries_sent, 1);
+        assert_eq!(
+            ledger
+                .load_work(in_flight)
+                .unwrap()
+                .front
+                .latest_chat_id
+                .as_deref(),
+            Some("chat-f2")
+        );
+        let sends = mstate.lock().unwrap().sends.clone();
+        let matching: Vec<_> = sends
+            .iter()
+            .filter(|(_, prompt)| prompt.contains("ORIGINAL_FRONT_MESSAGE"))
+            .collect();
+        assert_eq!(matching.len(), 1);
+        assert_eq!(matching[0].0.as_deref(), Some("chat-f1"));
 
         stop_srv.store(true, std::sync::atomic::Ordering::Release);
         let _ = srv.join();

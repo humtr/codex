@@ -213,6 +213,8 @@ pub struct Verification {
     pub challenge: String,
     pub verdict: Option<Verdict>,
     pub evidence: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub blocking_issues: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -232,6 +234,14 @@ pub struct Participant {
     pub owner_scope: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub write_workspace: Option<PathBuf>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub step_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub worktree: Option<crate::workspace::WorkerTree>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub changed_paths: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub write_paths: Vec<String>,
     pub call_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dispatch_id: Option<String>,
@@ -247,6 +257,102 @@ pub struct Participant {
 impl Participant {
     pub fn is_terminal(&self) -> bool {
         matches!(self.state.as_str(), "completed" | "failed" | "cancelled")
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum Isolation {
+    #[default]
+    SharedSerial,
+    Worktree,
+    Readonly,
+}
+
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum StepFailure {
+    WakeLead,
+    #[default]
+    FailWork,
+}
+
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum VerificationPolicy {
+    #[default]
+    None,
+    Automated,
+    IndependentReview,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct StepSpec {
+    pub step_id: String,
+    #[serde(default)]
+    pub depends_on: Vec<String>,
+    pub command: String,
+    pub cwd: PathBuf,
+    #[serde(default)]
+    pub write_paths: Vec<String>,
+    #[serde(default)]
+    pub isolation: Isolation,
+    #[serde(default)]
+    pub on_failure: StepFailure,
+    #[serde(default)]
+    pub auto_verify: bool,
+}
+
+impl StepSpec {
+    pub fn validate_plan(steps: &mut [Self]) -> Result<(), String> {
+        if steps.len() > 16 {
+            return Err("at most 16 steps are supported".to_owned());
+        }
+        if steps
+            .iter()
+            .enumerate()
+            .any(|(i, step)| step.auto_verify && i + 1 != steps.len())
+        {
+            return Err("the verification command must be the final step".to_owned());
+        }
+        let mut preceding = std::collections::HashSet::new();
+        for step in steps {
+            if step.step_id.is_empty()
+                || step.step_id.len() > 48
+                || !step
+                    .step_id
+                    .bytes()
+                    .all(|c| c.is_ascii_alphanumeric() || c == b'-' || c == b'_')
+                || preceding.contains(&step.step_id)
+                || !step.depends_on.iter().all(|id| preceding.contains(id))
+            {
+                return Err(
+                    "step IDs must be unique and dependencies must precede their consumers"
+                        .to_owned(),
+                );
+            }
+            preceding.insert(step.step_id.clone());
+            if step.command.trim().is_empty()
+                || step.command.len() > 65536
+                || step.command.contains('\0')
+            {
+                return Err(format!("invalid command for step {}", step.step_id));
+            }
+            let root = crate::workspace::root(&step.cwd)?;
+            step.cwd = step.cwd.canonicalize().map_err(|err| err.to_string())?;
+            if step.isolation == Isolation::Worktree && step.cwd != root {
+                return Err("worktree steps require a repository root".to_owned());
+            }
+            crate::workspace::validate_paths(&step.write_paths)?;
+            if step.isolation == Isolation::Worktree && step.write_paths.is_empty() {
+                return Err("worktree steps require declared write_paths".to_owned());
+            }
+            if step.isolation == Isolation::Readonly && !step.write_paths.is_empty() {
+                return Err("readonly steps cannot declare write_paths".to_owned());
+            }
+        }
+        Ok(())
     }
 }
 
@@ -322,6 +428,8 @@ pub struct LeadRollover {
     pub chat_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scan_cursor: Option<String>,
+    #[serde(default)]
+    pub size_rejection: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -387,6 +495,12 @@ pub struct WorkRecord {
     pub lead_replay: Option<LeadReplay>,
     #[serde(default)]
     pub participants: Vec<Participant>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub steps: Vec<StepSpec>,
+    #[serde(default)]
+    pub verification_policy: VerificationPolicy,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub review_cwd: Option<PathBuf>,
     pub wait_set: Option<WaitSet>,
     #[serde(default)]
     pub pending_deliveries: Vec<PendingDelivery>,
@@ -399,7 +513,10 @@ pub struct WorkRecord {
 
 impl WorkRecord {
     pub fn is_terminal(&self) -> bool {
-        matches!(self.state.as_str(), "completed" | "failed" | "cancelled")
+        matches!(
+            self.state.as_str(),
+            "completed" | "failed" | "failed_verification" | "cancelled"
+        )
     }
 
     pub fn can_start(&self) -> bool {
@@ -441,18 +558,59 @@ impl WorkRecord {
             .filter(|p| p.role == "worker")
             .map(|p| (&p.participant_id, &p.ref_id, &p.turn_id, &p.state))
             .collect();
-        let subject = serde_json::json!([self.goal, self.completion_criteria, workers]);
+        let mut subject = serde_json::json!([self.goal, self.completion_criteria, workers]);
+        // The file snapshot is scoped to workspaces the Work is managing.
+        if self.verification_policy != VerificationPolicy::None {
+            let roots: std::collections::BTreeSet<_> = self
+                .steps
+                .iter()
+                .map(|step| &step.cwd)
+                .chain(self.review_cwd.iter())
+                .chain(self.participants.iter().filter_map(|p| {
+                    if p.role != "worker" {
+                        return None;
+                    }
+                    p.worktree
+                        .as_ref()
+                        .map(|tree| &tree.path)
+                        .or(p.write_workspace.as_ref())
+                }))
+                .collect();
+            let mut snapshots = Vec::new();
+            for root in roots {
+                match crate::workspace::verification_fingerprint(root) {
+                    Ok(Some(hash)) => snapshots.push((root, hash)),
+                    Ok(None) => (),
+                    // Unreadable evidence must never match a previous review.
+                    Err(_) => return generate_id("unreadable-evidence"),
+                }
+            }
+            if !snapshots.is_empty() {
+                subject
+                    .as_array_mut()
+                    .expect("verification subject is an array")
+                    .push(serde_json::json!(snapshots));
+            }
+        }
         mcp_kit::sha256_hex(subject.to_string().as_bytes())
     }
 
     pub fn verification_passed(&self) -> bool {
         let subject = self.verification_subject();
         let mut checked = std::collections::HashSet::new();
-        self.participants
+        let latest: Vec<_> = self
+            .participants
             .iter()
             .rev()
             .filter(|p| p.role == "verifier" && checked.insert(&p.slug))
-            .all(|p| {
+            .collect();
+        let any_required = match self.verification_policy {
+            VerificationPolicy::None => true,
+            VerificationPolicy::Automated => latest.iter().any(|p| p.backend == "shell"),
+            VerificationPolicy::IndependentReview => latest.iter().any(|p| p.backend != "shell"),
+        };
+        any_required
+            && latest.into_iter().all(|p| {
                 p.verification
                     .as_ref()
                     .is_some_and(|v| v.subject == subject && v.verdict == Some(Verdict::Pass))
@@ -520,6 +678,25 @@ impl Ledger {
         let dir = self.work_dir(work_id)?;
         ensure_private_dir(&dir)?;
         Self::lock(&dir.join(".lock"))
+    }
+
+    pub fn lock_writers(&self) -> io::Result<WorkLock> {
+        Self::lock(&self.root.join("writers.lock"))
+    }
+
+    pub fn writer_busy(&self, workspace: &Path) -> io::Result<bool> {
+        for id in self.list_work_ids()? {
+            let work = self.load_work(&id)?;
+            if work.participants.iter().any(|p| {
+                !p.is_terminal()
+                    && p.write_workspace
+                        .as_ref()
+                        .is_some_and(|old| workspace.starts_with(old) || old.starts_with(workspace))
+            }) {
+                return Ok(true);
+            }
+        }
+        Ok(false)
     }
 
     pub fn lock_project_scope(&self, account: &str, key: &str) -> io::Result<(WorkLock, PathBuf)> {
