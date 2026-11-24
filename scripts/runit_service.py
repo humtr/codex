@@ -30,6 +30,8 @@ Invariants:
   + optional readiness command, and rolls back to `previous` on failure or timeout.
 """
 import argparse
+from contextlib import contextmanager
+import fcntl
 import hashlib
 import json
 import os
@@ -167,12 +169,12 @@ def proc_exe_path(pid: int) -> str | None:
         return None
 
 
-def proc_child_exes(pid: int, start_ticks: int) -> list[str]:
-    exes: list[str] = []
+def proc_children(pid: int, start_ticks: int) -> list[tuple[int, int, str]] | None:
+    children: list[tuple[int, int, str]] = []
     try:
         entries = list(Path("/proc").iterdir())
     except OSError:
-        return []
+        return None
     for entry in entries:
         if not entry.name.isdigit():
             continue
@@ -180,12 +182,19 @@ def proc_child_exes(pid: int, start_ticks: int) -> list[str]:
             fields = (entry / "stat").read_text().rsplit(") ", 1)[1].split()
             if int(fields[1]) == pid and fields[0] not in ("Z", "X"):
                 try:
-                    exes.append(os.readlink(entry / "exe"))
+                    exe = os.readlink(entry / "exe")
                 except OSError:
-                    exes.append("")
+                    exe = ""
+                child_pid, child_ticks = int(entry.name), int(fields[19])
+                if proc_start_ticks(child_pid) == child_ticks:
+                    children.append((child_pid, child_ticks, exe))
         except (OSError, ValueError, IndexError):
             continue
-    return exes if proc_start_ticks(pid) == start_ticks else []
+    return children if proc_start_ticks(pid) == start_ticks else None
+
+
+def proc_child_exes(pid: int, start_ticks: int) -> list[str]:
+    return [exe for _, _, exe in proc_children(pid, start_ticks) or ()]
 
 
 def normalize_command(cmd: list[str] | str | None) -> list[str] | None:
@@ -286,12 +295,13 @@ class ServiceSupervisor:
             if runner_binary is not None
             else None
         )
-        companions: list[str] = []
-        for raw in companion_services or ():
-            cname = validate_token(raw, NAME_RE, "companion_service")
-            if cname != self.service_name and cname not in companions:
-                companions.append(cname)
-        self.companion_services = tuple(companions)
+        companions = (
+            validate_token(name, NAME_RE, "companion_service")
+            for name in companion_services or ()
+        )
+        self.companion_services = tuple(dict.fromkeys(
+            name for name in companions if name != self.service_name
+        ))
         self.home = home or Path.home()
         self.prefix = prefix or Path(os.environ.get("PREFIX", "/data/data/com.termux/files/usr"))
         self.sv_bin = sv_bin
@@ -506,10 +516,11 @@ class ServiceSupervisor:
         *,
         running: dict,
         selected: dict,
+        child_exes: list[str] | None = None,
     ) -> tuple[bool, str | None]:
         """Confirm that the runner's live MCP child uses the selected image."""
-        exes = self._child_exes_for(running)
-        if any(exe == "" for exe in exes):
+        exes = child_exes if child_exes is not None else self._child_exes_for(running)
+        if "" in exes:
             return False, None
         components = [(exe, ver) for exe in exes if (ver := self._version_from_exe(exe)) is not None]
         versions = {ver for _, ver in components}
@@ -540,6 +551,7 @@ class ServiceSupervisor:
             runner_comp_matches, running_ver = self._runner_matches_selected_component(
                 running=running,
                 selected=selected,
+                child_exes=child_exes,
             )
         else:
             running_runner_ver = None
@@ -663,6 +675,24 @@ class ServiceSupervisor:
         atomic_write_private(log_run_path, log_script, mode=0o700)
         return {"enrolled": True, "service_dir": str(self.service_dir), "stable_bin": str(stable_bin)}
 
+    @contextmanager
+    def _activation_lock(self):
+        ensure_private_dir(self.comp_root)
+        path = self.comp_root / ".activation.lock"
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as err:
+            os.close(fd)
+            raise SupervisionError(f"another activation is running for '{self.component}'") from err
+        except BaseException:
+            os.close(fd)
+            raise
+        try:
+            yield
+        finally:
+            os.close(fd)
+
     def activate(
         self,
         version: str,
@@ -671,176 +701,133 @@ class ServiceSupervisor:
         readiness_cmd: list[str] | str | None = None,
         restart_timeout: float = 15.0,
     ) -> dict:
+        with self._activation_lock():
+            return self._activate(version, normalize_command(busy_check_cmd),
+                                  normalize_command(readiness_cmd), restart_timeout)
+
+    def _activate(self, version: str, busy: list[str] | None,
+                  readiness: list[str] | None, timeout: float) -> dict:
         validate_token(version, VER_RE, "version")
-        norm_busy = normalize_command(busy_check_cmd)
-        norm_readiness = normalize_command(readiness_cmd)
-        target_bin = self.generation_binary(version)
-        if target_bin.is_symlink() or not target_bin.is_file() or not os.access(target_bin, os.X_OK):
-            raise SupervisionError(f"generation binary missing or non-executable: {target_bin}")
+        target = self.generation_binary(version)
+        if target.is_symlink() or not target.is_file() or not os.access(target, os.X_OK):
+            raise SupervisionError(f"generation binary missing or non-executable: {target}")
+        target_exe = str(target.resolve())
+        runner = self.selected_runner_generation()
+        if self.has_runner and (runner is None or not runner["valid"]):
+            raise SupervisionError(f"runner generation missing or invalid under {self.runner_current_link}")
 
-        runner_selected = self.selected_runner_generation()
-        if self.has_runner and (runner_selected is None or not runner_selected["valid"]):
-            raise SupervisionError(
-                f"runner generation missing or invalid under {self.runner_current_link}"
-            )
+        if self.component == "mcp/termux-orch":
+            orch_relay = self.prefix / "var/service/termux-orch-relay/run"
+            orch_tunnel = self.prefix / "var/service/termux-orch-tunnel/run"
+            if orch_relay.is_file() and orch_tunnel.is_file():
+                if self.service_name != "termux-orch-tunnel" or not self.has_runner:
+                    raise SupervisionError("activate the shared Orch generation from its runner-backed tunnel")
+                if "termux-orch-relay" not in self.companion_services:
+                    raise SupervisionError("use --companion-service termux-orch-relay for the shared Orch generation")
 
-        prev_ver = self._read_link_version(self.current_link)
-        old_previous = self._read_link_version(self.previous_link)
-        resolved_target_bin = str(target_bin.resolve())
-        expected_exe = (
-            runner_selected["binary_path"]
-            if self.has_runner and runner_selected is not None
-            else resolved_target_bin
-        )
+        enrolled = [s for s in [self, *self._companions()] if s.is_enrolled()]
+        running = []
+        for service in enrolled:
+            observation = service._inspect_running()
+            if observation.get("state") == "stopped":
+                continue
+            if observation.get("state") != "running" or not observation.get("start_ticks"):
+                raise SupervisionError(f"cannot verify state of '{service.service_name}'")
+            if service is not self and service._version_from_exe(observation.get("exe")) is None:
+                raise SupervisionError(f"'{service.service_name}' is not running this component")
+            running.append((service, observation))
 
-        companions = [
-            (c, c._inspect_running())
-            for c in self._companions()
-            if c.is_enrolled()
-        ]
-        companions_running = [(c, st) for c, st in companions if st.get("state") == "running"]
+        current = self._read_link_version(self.current_link)
+        previous = self._read_link_version(self.previous_link)
+        selection_changed = current != version
+        expected_primary = runner["binary_path"] if runner else target_exe
+        if not selection_changed and all(
+            info["exe"] == (expected_primary if svc is self else target_exe)
+            and (not svc.has_runner or svc._runner_matches_selected_component(
+                running=info, selected=self.selected_generation()
+            )[0])
+            for svc, info in running
+        ):
+            return self.status(readiness_cmd=readiness)
 
-        if prev_ver == version:
-            # If enrolled and running a stale image or unactivated companion generation
-            # (`pending_activation`), proceed to restart; otherwise it is already active/settled.
-            if not self.is_enrolled() and not companions_running:
-                return self.status(readiness_cmd=norm_readiness)
-            before = self._inspect_running() if self.is_enrolled() else {"state": "not_enrolled"}
-            primary_running = before.get("state") == "running"
-            if not primary_running and not companions_running:
-                return self.status(readiness_cmd=norm_readiness)
-            sel_now = self.selected_generation()
-            comp_ok = (
-                self._runner_matches_selected_component(running=before, selected=sel_now)[0]
-                if (self.has_runner and primary_running)
-                else True
-            )
-            primary_ok = (not primary_running) or (before.get("exe") == expected_exe and comp_ok)
-            companions_ok = all(
-                st.get("exe") == resolved_target_bin for _, st in companions_running
-            )
-            if primary_ok and companions_ok:
-                return self.status(readiness_cmd=norm_readiness)
-            switched_links = False
-            needs_link_flip = False
-        else:
-            before = self._inspect_running() if self.is_enrolled() else {"state": "not_enrolled"}
-            if before.get("state") != "running" and not companions_running:
-                if prev_ver is not None:
-                    atomic_symlink(self.previous_link, f"generations/{prev_ver}")
-                atomic_symlink(self.current_link, f"generations/{version}")
-                return self.status(readiness_cmd=norm_readiness)
-            switched_links = False
-            needs_link_flip = True
-
-        # If active work is in progress, defer restart safely and report pending_activation!
-        if norm_busy is not None:
-            busy_reason = None
+        if running and busy is not None:
             try:
-                busy_res = subprocess.run(norm_busy, capture_output=True, text=True, timeout=10)
-                if busy_res.returncode != 0:
-                    busy_reason = (busy_res.stderr or busy_res.stdout).strip()[:200] or "busy"
+                checked = subprocess.run(busy, capture_output=True, text=True, timeout=10)
+                reason = None if checked.returncode == 0 else (checked.stderr or checked.stdout).strip()[:200] or "busy"
             except subprocess.TimeoutExpired:
-                busy_reason = "busy check timed out"
-            if busy_reason is not None:
-                if needs_link_flip:
-                    if prev_ver is not None:
-                        atomic_symlink(self.previous_link, f"generations/{prev_ver}")
-                    atomic_symlink(self.current_link, f"generations/{version}")
-                st = self.status(readiness_cmd=norm_readiness)
-                st["deferred_reason"] = busy_reason
-                return st
+                reason = "busy check timed out"
+            except OSError as err:
+                reason = str(err)
+            if reason is not None:
+                # Publishing current during a coordinated deferral would allow
+                # runsv to start a new writer if one old writer exits.
+                if selection_changed and not self.companion_services:
+                    self._select(version, current)
+                status = self.status(readiness_cmd=readiness)
+                status["activation_state"] = "pending_activation"
+                status["deferred_reason"] = reason
+                return status
 
-        stopped_companions: list[tuple[ServiceSupervisor, dict]] = []
+        if not running:
+            self._select(version, current)
+            return self.status(readiness_cmd=readiness)
+
+        prior = current if selection_changed else previous or current
+        prior_previous = previous if selection_changed and previous != prior else None
+        if prior is None or not os.access(self.generation_binary(prior), os.X_OK):
+            raise SupervisionError("cannot restart without an executable rollback generation")
+
+        stopping = []
+        stopped = False
         try:
-            # Stop running shared-ledger companions BEFORE switching `current` or starting
-            # primary so old and new generations never write to a shared ledger concurrently.
-            for comp, c_before in companions_running:
-                comp._stop_service(timeout=min(5.0, max(1.0, restart_timeout)))
-                stopped_companions.append((comp, c_before))
-            if needs_link_flip:
-                if prev_ver is not None:
-                    atomic_symlink(self.previous_link, f"generations/{prev_ver}")
-                atomic_symlink(self.current_link, f"generations/{version}")
-                switched_links = True
-            if before.get("state") == "running":
-                running_after = self._restart_and_verify(
-                    expected_bin=expected_exe,
-                    old_pid=before.get("pid"),
-                    old_ticks=before.get("start_ticks"),
-                    readiness_cmd=norm_readiness,
-                    timeout=restart_timeout,
-                )
-                if self.has_runner:
-                    self._write_active_marker(
-                        running=running_after,
-                        selected=self.selected_generation(),
-                        runner_selected=runner_selected,
-                    )
-            for comp, c_before in stopped_companions:
-                comp._restart_and_verify(
-                    expected_bin=resolved_target_bin,
-                    old_pid=c_before.get("pid"),
-                    old_ticks=c_before.get("start_ticks"),
-                    readiness_cmd=None,
-                    timeout=restart_timeout,
-                    sv_action="start",
-                )
-        except SupervisionError as err:
-            # Roll back `current` and restore `previous` cleanly so all coordinated services match!
-            rollback_ver = prev_ver if switched_links else (prev_ver if needs_link_flip else old_previous)
-            if rollback_ver is not None:
-                if switched_links or not needs_link_flip:
-                    atomic_symlink(self.current_link, f"generations/{rollback_ver}")
-                if switched_links:
-                    if old_previous is not None:
-                        atomic_symlink(self.previous_link, f"generations/{old_previous}")
-                    elif self.previous_link.is_symlink():
-                        self.previous_link.unlink()
-                elif not needs_link_flip and old_previous == rollback_ver and self.previous_link.is_symlink():
-                    # Avoid leaving `previous` pointing to the same generation as `current`.
-                    self.previous_link.unlink()
-                rb_bin = str(self.generation_binary(rollback_ver).resolve())
-                rb_expected = (
-                    runner_selected["binary_path"]
-                    if self.has_runner and runner_selected is not None
-                    else rb_bin
-                )
-                if before.get("state") == "running":
-                    cur_primary = self._inspect_running()
-                    try:
-                        rb_running = self._restart_and_verify(
-                            expected_bin=rb_expected,
-                            old_pid=cur_primary.get("pid"),
-                            old_ticks=cur_primary.get("start_ticks"),
-                            readiness_cmd=None,
-                            timeout=max(5.0, restart_timeout),
-                        )
-                    except SupervisionError:
-                        rb_running = self._inspect_running()
-                    if self.has_runner and rb_running.get("state") == "running":
-                        self._write_active_marker(
-                            running=rb_running,
-                            selected=self.selected_generation(),
-                            runner_selected=self.selected_runner_generation(),
-                        )
-                for comp, c_before in stopped_companions:
-                    cur_c = comp._inspect_running()
-                    action = "restart" if cur_c.get("state") == "running" else "start"
-                    try:
-                        comp._restart_and_verify(
-                            expected_bin=rb_bin,
-                            old_pid=c_before.get("pid") if action == "start" else cur_c.get("pid"),
-                            old_ticks=c_before.get("start_ticks") if action == "start" else cur_c.get("start_ticks"),
-                            readiness_cmd=None,
-                            timeout=max(5.0, restart_timeout),
-                            sv_action=action,
-                        )
-                    except SupervisionError:
-                        pass
-            raise SupervisionError(f"activation of '{version}' failed (rolled back): {err}") from err
+            for service, _ in running:
+                stopping.append(service)
+                service._stop_service(timeout=timeout)
+            stopped = True
+            if selection_changed:
+                self._select(version, current)
+            self._start_group(running, target_exe, runner, readiness, timeout)
+        except (SupervisionError, OSError) as err:
+            try:
+                if stopped:
+                    # Drain every attempted new process before changing current.
+                    for service, _ in running:
+                        service._stop_service(timeout=timeout)
+                    self._select(prior, prior_previous)
+                    self._start_group(running, str(self.generation_binary(prior).resolve()),
+                                      runner, None, timeout)
+                else:
+                    # No selection changed. Restart only the services whose
+                    # stop was requested; a failed stop may have killed one.
+                    for service in reversed(stopping):
+                        service._run_sv("up", timeout)
+            except (SupervisionError, OSError) as recovery:
+                raise SupervisionError(f"activation failed: {err}; recovery incomplete: {recovery}") from err
+            if stopped:
+                raise SupervisionError(f"activation of '{version}' failed (rolled back): {err}") from err
+            raise SupervisionError(f"activation stopped before changing selection: {err}") from err
 
-        return self.status(readiness_cmd=norm_readiness)
+        return self.status(readiness_cmd=readiness)
+
+    def _select(self, current: str, previous: str | None) -> None:
+        if previous is not None and previous != current:
+            atomic_symlink(self.previous_link, f"generations/{previous}")
+        elif self.previous_link.is_symlink():
+            self.previous_link.unlink()
+            fsync_dir(self.comp_root)
+        atomic_symlink(self.current_link, f"generations/{current}")
+
+    def _start_group(self, running, component_exe, runner, readiness, timeout) -> None:
+        # Start the relay before reopening the tunnel to incoming work.
+        for service, before in reversed(running):
+            expected = runner["binary_path"] if service.has_runner else component_exe
+            info = service._restart_and_verify(
+                expected_bin=expected, old_pid=before.get("pid"), old_ticks=before.get("start_ticks"),
+                readiness_cmd=readiness if service is self else None, timeout=timeout, sv_action="start",
+            )
+            if service.has_runner:
+                service._write_active_marker(running=info, selected=self.selected_generation(),
+                                             runner_selected=runner)
 
     def rollback(
         self,
@@ -849,39 +836,41 @@ class ServiceSupervisor:
         readiness_cmd: list[str] | str | None = None,
         restart_timeout: float = 15.0,
     ) -> dict:
-        prev_ver = self._read_link_version(self.previous_link)
-        if not prev_ver:
-            raise SupervisionError(f"no previous generation recorded at {self.previous_link}")
-        return self.activate(
-            prev_ver,
-            busy_check_cmd=busy_check_cmd,
-            readiness_cmd=readiness_cmd,
-            restart_timeout=restart_timeout,
-        )
+        with self._activation_lock():
+            previous = self._read_link_version(self.previous_link)
+            if not previous:
+                raise SupervisionError(f"no previous generation recorded at {self.previous_link}")
+            return self._activate(previous, normalize_command(busy_check_cmd),
+                                  normalize_command(readiness_cmd), restart_timeout)
 
     def _stop_service(self, *, timeout: float) -> None:
-        try:
-            r = subprocess.run(
-                [self.sv_bin, "stop", str(self.service_dir)],
-                capture_output=True,
-                text=True,
-                timeout=timeout,
-            )
-        except subprocess.TimeoutExpired as err:
-            raise SupervisionError(f"sv stop timed out after {timeout}s") from err
-        except OSError as err:
-            raise SupervisionError(f"sv stop failed to execute: {err}") from err
-        if r.returncode != 0:
-            raise SupervisionError(
-                f"sv stop failed ({r.returncode}): {(r.stderr or r.stdout).strip()[:200]}"
-            )
+        before = self._inspect_running()
+        children = []
+        if self.has_runner and self._proc_reader is None and before.get("state") == "running":
+            children = proc_children(before["pid"], before["start_ticks"])
+            if children is None:
+                raise SupervisionError(f"cannot inspect children of '{self.service_name}'")
+        self._run_sv("stop", timeout)
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
-            cur = self._inspect_running()
-            if cur.get("state") != "running":
+            if self._inspect_running().get("state") == "stopped" and not any(
+                proc_start_ticks(pid) == ticks for pid, ticks, _ in children
+            ):
                 return
             time.sleep(0.05)
-        raise SupervisionError(f"timed out waiting for '{self.service_name}' to stop")
+        raise SupervisionError(f"cannot confirm '{self.service_name}' and its children stopped")
+
+    def _run_sv(self, action: str, timeout: float) -> None:
+        try:
+            result = subprocess.run(
+                [self.sv_bin, action, str(self.service_dir)],
+                capture_output=True, text=True, timeout=timeout,
+            )
+        except (subprocess.TimeoutExpired, OSError) as err:
+            raise SupervisionError(f"sv {action} failed for '{self.service_name}': {err}") from err
+        if result.returncode != 0:
+            reason = (result.stderr or result.stdout).strip()[:200]
+            raise SupervisionError(f"sv {action} failed ({result.returncode}): {reason}")
 
     def _restart_and_verify(
         self,
@@ -893,22 +882,7 @@ class ServiceSupervisor:
         timeout: float,
         sv_action: str = "restart",
     ) -> dict:
-        try:
-            r = subprocess.run(
-                [self.sv_bin, sv_action, str(self.service_dir)],
-                capture_output=True,
-                text=True,
-                timeout=timeout,
-            )
-        except subprocess.TimeoutExpired as err:
-            raise SupervisionError(f"sv {sv_action} timed out after {timeout}s") from err
-        except OSError as err:
-            raise SupervisionError(f"sv {sv_action} failed to execute: {err}") from err
-
-        if r.returncode != 0:
-            raise SupervisionError(
-                f"sv {sv_action} failed ({r.returncode}): {(r.stderr or r.stdout).strip()[:200]}"
-            )
+        self._run_sv(sv_action, timeout)
         deadline = time.monotonic() + timeout
         selected_component = self.selected_generation() if self.has_runner else None
         while time.monotonic() < deadline:

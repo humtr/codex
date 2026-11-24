@@ -33,7 +33,8 @@ class RunitSupervisionTests(unittest.TestCase):
             "#!/bin/sh\n"
             f"echo \"$*\" >> '{self.sv_log}'\n"
             f"if [ -f '{self.root}/sv-fail' ]; then exit 1; fi\n"
-            f"if [ \"$1\" = 'restart' ]; then\n"
+            f"if [ \"$1\" = 'stop' ]; then rm -f '{self.root}/running-exe' '{self.root}/running-mcp'; fi\n"
+            f"if [ \"$1\" = 'start' ]; then\n"
             f"  target=$(readlink -f '{self.home}/.local/lib/codex/transport/tunnel-client/current/tunnel-client')\n"
             f"  printf '%s' \"$target\" > '{self.root}/running-exe'\n"
             f"  mcp='{self.home}/.local/lib/codex/mcp/termux-shell/current/termux-shell-mcp'\n"
@@ -371,38 +372,50 @@ class RunitSupervisionTests(unittest.TestCase):
         os.chmod(sv_delay, 0o755)
         mcp_sup.sv_bin = str(sv_delay)
 
-        orig_inspect = mcp_sup._inspect_running
-        call_count = {"n": 0}
+        fail_new = False
+        read_after_start = 0
+        running = True
+        target_exe = str(p1)
 
-        def restart_side_effect():
-            call_count["n"] += 1
-            if call_count["n"] == 1:
-                return dynamic_reader(mcp_sup.service_dir)
-            state["pid"] = 5001
-            state["ticks"] = 50010
-            if call_count["n"] >= 4:
-                state["child_exes"] = [str(p2)]
-            else:
-                state["child_exes"] = []
+        def operate(action, _timeout):
+            nonlocal running, read_after_start, target_exe
+            running = action == "start"
+            if not running:
+                return
+            target_exe = str((mcp_sup.current_link / "termux-shell-mcp").resolve())
+            state["pid"] += 1
+            state["ticks"] += 10
+            read_after_start = 0
+
+        def inspect():
+            nonlocal read_after_start
+            if not running:
+                return {"state": "stopped"}
+            read_after_start += 1
+            state["child_exes"] = (
+                [target_exe]
+                if read_after_start >= 3 and not (fail_new and target_exe == str(p2))
+                else []
+            )
             return dynamic_reader(mcp_sup.service_dir)
 
-        with mock.patch.object(mcp_sup, "_inspect_running", side_effect=restart_side_effect):
-            st_late = mcp_sup.activate("0.2.0", restart_timeout=2.0)
-        self.assertEqual(st_late["activation_state"], "active")
-        self.assertEqual(st_late["running_generation"]["version"], "0.2.0")
+        with mock.patch.object(mcp_sup, "_inspect_running", side_effect=inspect), mock.patch.object(
+            mcp_sup, "_run_sv", side_effect=operate,
+        ):
+            self.assertEqual(mcp_sup.activate("0.2.0", restart_timeout=2.0)["activation_state"], "active")
+            read_after_start = 0
+            self.assertEqual(mcp_sup.status()["activation_state"], "pending_activation")
 
-        # Disappearing child mid-status -> pending_activation
-        state["child_exes"] = []
-        self.assertEqual(mcp_sup.status()["activation_state"], "pending_activation")
-
-        # Pending retry rollback (`switched_links=False`) must NOT leave previous == current!
-        mcp_sup._inspect_running = orig_inspect
-        state["child_exes"] = [str(p1)]
-        with self.assertRaisesRegex(SupervisionError, "rolled back"):
-            mcp_sup.activate("0.2.0", restart_timeout=0.3)
-        sel = mcp_sup.selected_generation()
-        self.assertEqual(sel["version"], "0.1.0")
-        self.assertNotEqual(sel["previous_version"], sel["version"])
+            # A failed retry of an already selected generation restores the prior
+            # running generation without duplicating the current and previous links.
+            fail_new = True
+            target_exe = str(p1)
+            with self.assertRaisesRegex(SupervisionError, "rolled back"):
+                mcp_sup.activate("0.2.0", restart_timeout=0.5)
+            sel = mcp_sup.selected_generation()
+            self.assertEqual(sel["version"], "0.1.0")
+            self.assertIsNone(sel["previous_version"])
+            self.assertEqual(mcp_sup.status()["activation_state"], "active")
 
         # Real /proc helper fail-closed tests: /proc OSError & PID start_ticks change
         with mock.patch("scripts.runit_service.Path.iterdir", side_effect=OSError("proc unavailable")):
@@ -514,14 +527,24 @@ class RunitSupervisionTests(unittest.TestCase):
             self.assertEqual(st_ok["running_generation"]["version"], "0.1.0+7b-new")
             self.assertEqual(st_ok["companions"][0]["running_generation"]["version"], "0.1.0+7b-new")
             # Companion relay must have stopped BEFORE current flipped to 0.1.0+7b-new!
-            self.assertEqual(events[0], ("termux-orch-relay", "stop", "generations/0.1.0+7b"))
-            self.assertEqual(events[1], ("termux-orch-tunnel", "restart", "generations/0.1.0+7b-new"))
-            self.assertEqual(events[2], ("termux-orch-relay", "start", "generations/0.1.0+7b-new"))
+            self.assertEqual(events[:4], [
+                ("termux-orch-tunnel", "stop", "generations/0.1.0+7b"),
+                ("termux-orch-relay", "stop", "generations/0.1.0+7b"),
+                ("termux-orch-relay", "start", "generations/0.1.0+7b-new"),
+                ("termux-orch-tunnel", "start", "generations/0.1.0+7b-new"),
+            ])
 
             # Inject failure on companion relay start -> BOTH tunnel & relay MUST roll back to 0.1.0+7b-new!
-            fail_service["name"] = "termux-orch-relay"
+            fail_service["name"] = "termux-orch-tunnel"
+            events.clear()
             with self.assertRaisesRegex(SupervisionError, "rolled back"):
                 orch_sup.activate("0.1.0+7b-bad", restart_timeout=0.4)
+            # The new relay has already started. Rollback must stop it and
+            # the attempted tunnel before exposing the old selection.
+            rollback_stop = [event for event in events if event[1] == "stop"
+                             and event[2] == "generations/0.1.0+7b-bad"]
+            self.assertEqual([event[0] for event in rollback_stop],
+                             ["termux-orch-tunnel", "termux-orch-relay"])
             st_rb = orch_sup.status()
             self.assertEqual(st_rb["activation_state"], "active")
             self.assertEqual(st_rb["selected_generation"]["version"], "0.1.0+7b-new")

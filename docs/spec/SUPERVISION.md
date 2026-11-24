@@ -30,14 +30,16 @@ services (`termux-shell-tunnel`, `termux-codex-tunnel`, `chatgpt-provider`,
 - **Tunnel-wrapped MCP supervision (`--runner-component` / `--runner-binary`):**
   For services where a transport runner hosts an MCP child process (e.g.
   `termux-{shell,codex,chatgpt}-tunnel` running `transport/tunnel-client` over
-  `mcp/termux-*`), `run` executes `<runner>/current/<runner-binary>` while
-  Both `status` and `activate` verify BOTH the live runner PID's `/proc/<pid>/exe`
+  `mcp/termux-*`), `run` executes `<runner>/current/<runner-binary>`.
+  Both `status` and `activate` verify the live runner PID's `/proc/<pid>/exe`
   and the live MCP child's executable (including deleted MCP child images in
   `deleted_image`), failing closed on `/proc` errors or overlapping children. A
   running runner with no observed MCP child remains pending. Shared-ledger
   companion services (such as `termux-orch-relay` alongside `termux-orch-tunnel`)
   use `--companion-service` so coordinated activation verifies and rolls back all
-  linked services without leaving `previous` identical to `current`. The activation receipt is stored under
+  linked services. When both Orch services are enrolled, use
+  `termux-orch-tunnel` as the primary service and pass
+  `--companion-service termux-orch-relay`. The activation receipt is stored under
   `$HOME/.local/state/codex/services/<service>/active-generation.json`.
 - **Hyphenated readiness / busy-check commands & timeout safety:**
   `--readiness-cmd` and `--busy-check-cmd` accept hyphenated subcommand flags
@@ -72,9 +74,15 @@ It reports three independent fields:
   busy-check guard. If active work/leases exist, it does **not** force-kill the
   service; it leaves the old process operational and reports
   `pending_activation`.
-- When idle, `activate` atomically updates `previous` and `current` symlinks
-  (`os.replace` + `fsync(dir)`), invokes `sv restart`, and verifies a new
-  `(pid, start_ticks)`, matching `/proc/<pid>/exe`, and readiness check within
-  the bounded timeout.
-- On restart or readiness failure, `activate` automatically restores
-  `current -> previous` and restarts the previous generation.
+  With companions, a busy guard also leaves the shared selection in place.
+- Activation and rollback hold the component's activation lock. When idle,
+  activation stops the primary and all running companions and waits for their
+  observed MCP children to exit before changing `previous` and `current`.
+  It uses atomic symlink replacement and starts the companions before the
+  primary. Each start requires a new `(pid, start_ticks)`, the matching
+  executable, and readiness within the bounded timeout.
+- After a failed start or readiness check, activation stops the attempted
+  services before restoring the prior selection. It then verifies the
+  recovered services. If stopping or recovery fails, it reports incomplete
+  recovery. A shared-ledger rollback also requires the prior generation to
+  understand the data already written to the ledger.
