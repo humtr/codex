@@ -438,25 +438,68 @@ mod tests {
         fn stream_message(
             &self,
             p: Value,
-            tx: tokio::sync::mpsc::Sender<crate::cdp::StreamUpdate>,
+            tx: crate::cdp::LaneSender,
         ) -> BoxFuture<'_, Result<Value>> {
-            use crate::cdp::StreamUpdate;
+            use crate::cdp::{StreamEvent, StreamItemKind};
             let result = self.send_message(p);
             Box::pin(async move {
                 let reply = result.await?;
                 if let Some(snapshots) = reply["test_snapshots"].as_array() {
-                    for snapshot in snapshots {
-                        let text = snapshot["text"].as_str().unwrap().to_owned();
-                        let event = if snapshot["kind"] == "reasoning" {
-                            StreamUpdate::Reasoning(text)
+                    for (idx, snapshot) in snapshots.iter().enumerate() {
+                        let event = if let Some(raw_ev) = snapshot.get("event") {
+                            serde_json::from_value::<StreamEvent>(raw_ev.clone()).unwrap()
                         } else {
-                            StreamUpdate::Answer(text)
+                            let kind_str = snapshot["kind"].as_str().unwrap_or("answer");
+                            let text = snapshot["text"].as_str().unwrap_or("").to_owned();
+                            let committed = snapshot
+                                .get("committed")
+                                .and_then(Value::as_bool)
+                                .unwrap_or(true);
+                            let item_id = snapshot
+                                .get("item_id")
+                                .and_then(Value::as_str)
+                                .map(ToOwned::to_owned)
+                                .unwrap_or_else(|| format!("{kind_str}_{idx}"));
+                            if kind_str == "tool_call" {
+                                StreamEvent::ToolCall {
+                                    id: snapshot["call_id"]
+                                        .as_str()
+                                        .unwrap_or("call_mock")
+                                        .to_owned(),
+                                    name: snapshot["name"].as_str().unwrap_or("tool").to_owned(),
+                                    namespace: snapshot
+                                        .get("namespace")
+                                        .and_then(Value::as_str)
+                                        .map(ToOwned::to_owned),
+                                    arguments: snapshot["arguments"]
+                                        .as_str()
+                                        .unwrap_or("{}")
+                                        .to_owned(),
+                                }
+                            } else {
+                                let item_kind = match kind_str {
+                                    "reasoning" | "reasoning_summary" => {
+                                        StreamItemKind::ReasoningSummary
+                                    }
+                                    "commentary" => StreamItemKind::Commentary,
+                                    _ => StreamItemKind::Answer,
+                                };
+                                StreamEvent::ItemUpsert {
+                                    item_id,
+                                    item_kind,
+                                    text,
+                                    committed,
+                                }
+                            }
                         };
-                        tx.send(event).await.unwrap();
-                        tokio::time::sleep(std::time::Duration::from_millis(
-                            reply["test_delay_ms"].as_u64().unwrap_or(125_000),
-                        ))
-                        .await;
+                        tx.send_nonblocking(event);
+                        let delay_ms = snapshot
+                            .get("delay_ms")
+                            .and_then(Value::as_u64)
+                            .unwrap_or_else(|| reply["test_delay_ms"].as_u64().unwrap_or(125_000));
+                        if delay_ms > 0 {
+                            tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+                        }
                     }
                 }
                 Ok(reply)
@@ -1410,7 +1453,7 @@ wire_api = "responses"
             fn stream_message(
                 &self,
                 _: Value,
-                _: tokio::sync::mpsc::Sender<crate::cdp::StreamUpdate>,
+                _: crate::cdp::LaneSender,
             ) -> BoxFuture<'_, Result<Value>> {
                 Box::pin(async { Ok(json!({})) })
             }
@@ -1535,6 +1578,11 @@ wire_api = "responses"
         );
         assert_eq!(visible[0]["default_reasoning_level"], "xhigh");
         assert_eq!(visible[0]["context_window"], 262144);
+        assert_eq!(visible[0]["supports_reasoning_summaries"], json!(true));
+        assert_eq!(
+            visible[0]["supports_reasoning_summary_parameter"],
+            json!(true)
+        );
         assert_eq!(
             visible[0]["supported_reasoning_levels"]
                 .as_array()
@@ -1628,5 +1676,249 @@ wire_api = "responses"
             ),
             ("gpt-6-sol-wm".to_owned(), Some("high".to_owned()))
         );
+    }
+
+    #[tokio::test]
+    async fn responses_mutable_revisions_and_stream_nonstream_equivalence() {
+        use axum::body::to_bytes;
+        let settled_items = json!([
+            {"id": "thought:m1:1", "kind": "reasoning_summary", "text": "Checking files"},
+            {"id": "thought:m1:2", "kind": "reasoning_summary", "text": "Inspecting 한국어 🚀 diff"},
+            {"id": "commentary:m2", "kind": "commentary", "text": "Looking at src/main.rs now."},
+            {"id": "answer:m3", "kind": "answer", "text": "  Preserved spaces\n다음 줄 OK  "},
+            {"id": "tool:call_1", "kind": "tool_call", "call_id": "call_1", "name": "exec_command", "arguments": "{\"cmd\":\"pwd\"}"}
+        ]);
+        let reply = json!({
+            "state": "settled",
+            "chat_id": "conv-norm-1",
+            "account_id": "acct-norm",
+            "items": settled_items,
+            "assistant_text": "  Preserved spaces\n다음 줄 OK  ",
+            "reasoning_summary": "Checking files\n\nInspecting 한국어 🚀 diff",
+            "tool_calls": [{"id": "call_1", "name": "exec_command", "arguments": "{\"cmd\":\"pwd\"}"}],
+            "test_delay_ms": 0,
+            "test_snapshots": [
+                {"item_id": "thought:m1:1", "kind": "reasoning_summary", "text": "Wrong draft heading", "committed": false},
+                {"item_id": "thought:m1:1", "kind": "reasoning_summary", "text": "Checking files", "committed": true},
+                {"item_id": "answer:m3", "kind": "answer", "text": "Initial draft that gets completely replaced", "committed": false},
+                {"item_id": "thought:m1:2", "kind": "reasoning_summary", "text": "Inspecting 한국어 🚀 diff", "committed": true},
+                {"item_id": "commentary:m2", "kind": "commentary", "text": "Looking at src/main.rs now.", "committed": true},
+                {"item_id": "answer:m3", "kind": "answer", "text": "", "committed": false},
+                {"item_id": "answer:m3", "kind": "answer", "text": "  Preserved spaces\n다음 줄 OK  ", "committed": true},
+                {"kind": "tool_call", "call_id": "call_1", "name": "exec_command", "arguments": "{\"cmd\":\"pwd\"}"}
+            ]
+        });
+        let driver = MockDriver::new(reply);
+        let sigs_input =
+            json!([{"type": "function", "name": "exec_command", "parameters": {"type": "object"}}]);
+
+        let stream_resp = crate::responses::handle_responses(
+            driver.clone(),
+            &Default::default(),
+            &Default::default(),
+            Arc::new(Default::default()),
+            None,
+            None,
+            json!({"model": "gpt-6-2", "input": "hello", "stream": true, "tools": sigs_input}),
+        )
+        .await
+        .unwrap();
+        let sse = String::from_utf8(
+            to_bytes(stream_resp.into_body(), 1024 * 1024)
+                .await
+                .unwrap()
+                .to_vec(),
+        )
+        .unwrap();
+        assert!(!sse.contains("chatgpt_stream_revised"));
+        assert!(!sse.contains("Wrong draft heading"));
+        assert!(!sse.contains("Initial draft"));
+
+        let events: Vec<Value> = sse
+            .lines()
+            .filter_map(|line| line.strip_prefix("data: "))
+            .map(|raw| serde_json::from_str::<Value>(raw).unwrap())
+            .collect();
+        for (i, ev) in events.iter().enumerate() {
+            assert_eq!(ev["sequence_number"], i);
+        }
+        let completed = events
+            .iter()
+            .find(|ev| ev["type"] == "response.completed")
+            .unwrap()["response"]
+            .clone();
+
+        // Check SSE delta concatenation matches final output text/summary & tool deduplication (exactly once).
+        let rs_deltas: Vec<String> = events
+            .iter()
+            .filter(|ev| ev["type"] == "response.reasoning_summary_text.delta")
+            .map(|ev| ev["delta"].as_str().unwrap().to_owned())
+            .collect();
+        assert_eq!(
+            rs_deltas,
+            vec![
+                "Checking files".to_owned(),
+                "Inspecting 한국어 🚀 diff".to_owned()
+            ]
+        );
+        let msg_deltas: Vec<String> = events
+            .iter()
+            .filter(|ev| ev["type"] == "response.output_text.delta")
+            .map(|ev| ev["delta"].as_str().unwrap().to_owned())
+            .collect();
+        assert_eq!(
+            msg_deltas,
+            vec![
+                "Looking at src/main.rs now.".to_owned(),
+                "  Preserved spaces\n다음 줄 OK  ".to_owned()
+            ]
+        );
+        let fc_count = events
+            .iter()
+            .filter(|ev| ev["type"] == "response.function_call_arguments.done")
+            .count();
+        assert_eq!(fc_count, 1, "tool call must be emitted exactly once");
+
+        // Compare stream=true output vs stream=false output structurally (modulo unique item IDs).
+        let json_resp = crate::responses::handle_responses(
+            driver,
+            &Default::default(),
+            &Default::default(),
+            Arc::new(Default::default()),
+            None,
+            None,
+            json!({"model": "gpt-6-2", "input": "hello", "stream": false, "tools": sigs_input}),
+        )
+        .await
+        .unwrap();
+        let non_stream: Value =
+            serde_json::from_slice(&to_bytes(json_resp.into_body(), 1024 * 1024).await.unwrap())
+                .unwrap();
+        let norm_output = |out: &Value| -> Vec<Value> {
+            out.as_array()
+                .unwrap()
+                .iter()
+                .map(|item| {
+                    let mut c = item.clone();
+                    c.as_object_mut().unwrap().remove("id");
+                    c
+                })
+                .collect()
+        };
+        assert_eq!(
+            norm_output(&completed["output"]),
+            norm_output(&non_stream["output"])
+        );
+    }
+
+    #[tokio::test]
+    async fn responses_blocks_string_replay_and_disarms_cancel_after_settlement() {
+        use axum::body::to_bytes;
+        use std::sync::atomic::{AtomicBool, Ordering};
+
+        struct SettledDriver {
+            stopped: Arc<AtomicBool>,
+        }
+        impl DriverBackend for SettledDriver {
+            fn host_running(&self) -> BoxFuture<'_, bool> {
+                Box::pin(async { true })
+            }
+            fn status(&self) -> BoxFuture<'_, Result<Value>> {
+                Box::pin(async { Ok(json!({"state":"ok"})) })
+            }
+            fn list_chats(&self, _: Value) -> BoxFuture<'_, Result<Value>> {
+                Box::pin(async { Ok(json!({"state":"ok"})) })
+            }
+            fn read_chat(&self, _: Value) -> BoxFuture<'_, Result<Value>> {
+                Box::pin(async { Ok(json!({"state":"ok"})) })
+            }
+            fn rename_chat(&self, _: Value) -> BoxFuture<'_, Result<Value>> {
+                Box::pin(async { Ok(json!({"state":"ok"})) })
+            }
+            fn list_projects(&self, _: Value) -> BoxFuture<'_, Result<Value>> {
+                Box::pin(async { Ok(json!({"state":"ok"})) })
+            }
+            fn read_project(&self, _: Value) -> BoxFuture<'_, Result<Value>> {
+                Box::pin(async { Ok(json!({"state":"ok"})) })
+            }
+            fn create_project(&self, _: Value) -> BoxFuture<'_, Result<Value>> {
+                Box::pin(async { Ok(json!({"state":"ok"})) })
+            }
+            fn send_message(&self, _: Value) -> BoxFuture<'_, Result<Value>> {
+                Box::pin(async {
+                    Ok(json!({
+                        "state": "settled",
+                        "chat_id": "conv-settled-1",
+                        "account_id": "acct-1",
+                        "assistant_text": "Done",
+                        "tool_calls": []
+                    }))
+                })
+            }
+            fn stream_message(
+                &self,
+                p: Value,
+                _tx: crate::cdp::LaneSender,
+            ) -> BoxFuture<'_, Result<Value>> {
+                self.send_message(p)
+            }
+            fn observe_chat(&self, _: Value) -> BoxFuture<'_, Result<Value>> {
+                Box::pin(async { Ok(json!({"state":"settled"})) })
+            }
+            fn stop_generation(&self, _: Value) -> BoxFuture<'_, Result<Value>> {
+                self.stopped.store(true, Ordering::Release);
+                Box::pin(async { Ok(json!({"state":"stopped","stopped":true})) })
+            }
+            fn viewer_info(&self) -> BoxFuture<'_, Result<Value>> {
+                Box::pin(async { Ok(json!({"state":"ok","available":false})) })
+            }
+            fn restart_host(&self) -> BoxFuture<'_, Result<Value>> {
+                Box::pin(async { Ok(json!({"state":"ok"})) })
+            }
+            fn list_connectors(&self, _: Value) -> BoxFuture<'_, Result<Value>> {
+                Box::pin(async { Ok(json!({"state":"ok","tunnels":[],"connectors":[]})) })
+            }
+            fn register_connector(&self, _: Value) -> BoxFuture<'_, Result<Value>> {
+                Box::pin(async { Ok(json!({"state":"ok"})) })
+            }
+            fn refresh_connector(&self, _: Value) -> BoxFuture<'_, Result<Value>> {
+                Box::pin(async { Ok(json!({"state":"ok"})) })
+            }
+        }
+
+        let stopped = Arc::new(AtomicBool::new(false));
+        let driver: Arc<dyn DriverBackend> = Arc::new(SettledDriver {
+            stopped: Arc::clone(&stopped),
+        });
+        let map = Arc::new(crate::responses::ResponseThreadMap::default());
+        let resp = crate::responses::handle_responses(
+            driver.clone(),
+            &Default::default(),
+            &Default::default(),
+            Arc::clone(&map),
+            Some("str-sess".to_owned()),
+            None,
+            json!({"input": "Same string prompt", "stream": true}),
+        )
+        .await
+        .unwrap();
+        let _ = to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        assert!(
+            !stopped.load(Ordering::Acquire),
+            "settled response must disarm CancelTurnGuard"
+        );
+        let replay_err = crate::responses::handle_responses(
+            driver,
+            &Default::default(),
+            &Default::default(),
+            map,
+            Some("str-sess".to_owned()),
+            None,
+            json!({"input": "Same string prompt", "stream": true}),
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(replay_err.code, "response_input_already_sent");
     }
 }

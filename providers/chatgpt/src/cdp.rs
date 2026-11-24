@@ -6,11 +6,11 @@
 use crate::error::{ProviderError, Result};
 use serde::Deserialize;
 use serde_json::{json, Value};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader};
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{mpsc, oneshot, Notify};
 
 const MAX_FRAME_BYTES: usize = 16 * 1024 * 1024;
 const MAX_PENDING_REQUESTS: usize = 128;
@@ -18,22 +18,196 @@ const DEFAULT_RPC_TIMEOUT: Duration = Duration::from_secs(30);
 
 pub const STREAM_BINDING: &str = "__termuxChatGptStream";
 
-#[derive(Deserialize)]
-#[serde(tag = "kind", content = "text", rename_all = "snake_case")]
-pub enum StreamUpdate {
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StreamItemKind {
+    ReasoningSummary,
+    Commentary,
+    Answer,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum StreamEvent {
     Activity,
-    Reasoning(String),
-    Answer(String),
+    ItemUpsert {
+        item_id: String,
+        item_kind: StreamItemKind,
+        text: String,
+        #[serde(default)]
+        committed: bool,
+    },
+    ItemRemove {
+        item_id: String,
+    },
+    ToolCall {
+        #[serde(rename = "call_id")]
+        id: String,
+        name: String,
+        #[serde(default)]
+        namespace: Option<String>,
+        arguments: String,
+    },
+    TurnCompleted {
+        #[serde(default)]
+        chat_id: Option<String>,
+        #[serde(default)]
+        message_id: Option<String>,
+    },
 }
 
 #[derive(Deserialize)]
 struct BindingUpdate {
     lane_id: String,
     #[serde(flatten)]
-    update: StreamUpdate,
+    event: StreamEvent,
 }
 
-type StreamRoutes = Arc<Mutex<BTreeMap<(String, String), mpsc::Sender<StreamUpdate>>>>;
+#[derive(Default)]
+struct LaneQueue {
+    committed: VecDeque<StreamEvent>,
+    mutable_order: VecDeque<String>,
+    mutable: HashMap<String, StreamEvent>,
+    activity: bool,
+    closed: bool,
+}
+
+struct LaneShared {
+    queue: Mutex<LaneQueue>,
+    notify: Notify,
+}
+
+#[derive(Clone)]
+pub struct LaneSender {
+    shared: Arc<LaneShared>,
+}
+
+pub struct LaneReceiver {
+    shared: Arc<LaneShared>,
+}
+
+pub fn lane_channel() -> (LaneSender, LaneReceiver) {
+    let shared = Arc::new(LaneShared {
+        queue: Mutex::new(LaneQueue::default()),
+        notify: Notify::new(),
+    });
+    (
+        LaneSender {
+            shared: Arc::clone(&shared),
+        },
+        LaneReceiver { shared },
+    )
+}
+
+impl LaneSender {
+    /// Non-blocking enqueue so one stalled lane can never backpressure the shared CDP pipe.
+    /// Mutable updates overwrite in-place by `item_id`; committed/terminal events queue losslessly.
+    pub fn send_nonblocking(&self, event: StreamEvent) -> bool {
+        let Ok(mut q) = self.shared.queue.lock() else {
+            return false;
+        };
+        if q.closed {
+            return false;
+        }
+        match event {
+            StreamEvent::Activity => {
+                q.activity = true;
+            }
+            StreamEvent::ItemUpsert {
+                ref item_id,
+                committed: false,
+                ..
+            } => {
+                if !q.mutable.contains_key(item_id) {
+                    q.mutable_order.push_back(item_id.clone());
+                }
+                q.mutable.insert(item_id.clone(), event);
+            }
+            StreamEvent::ItemUpsert {
+                ref item_id,
+                committed: true,
+                ..
+            }
+            | StreamEvent::ItemRemove { ref item_id } => {
+                q.mutable.remove(item_id);
+                q.committed.push_back(event);
+            }
+            StreamEvent::ToolCall { .. } | StreamEvent::TurnCompleted { .. } => {
+                q.committed.push_back(event);
+            }
+        }
+        drop(q);
+        self.shared.notify.notify_one();
+        true
+    }
+
+    pub fn close(&self) {
+        if let Ok(mut q) = self.shared.queue.lock() {
+            q.closed = true;
+        }
+        self.shared.notify.notify_one();
+    }
+}
+
+impl LaneReceiver {
+    fn pop_locked(q: &mut LaneQueue) -> Option<StreamEvent> {
+        if let Some(ev) = q.committed.pop_front() {
+            return Some(ev);
+        }
+        while let Some(id) = q.mutable_order.pop_front() {
+            if let Some(ev) = q.mutable.remove(&id) {
+                return Some(ev);
+            }
+        }
+        if q.activity {
+            q.activity = false;
+            return Some(StreamEvent::Activity);
+        }
+        None
+    }
+
+    pub fn try_recv(&mut self) -> std::result::Result<StreamEvent, mpsc::error::TryRecvError> {
+        let Ok(mut q) = self.shared.queue.lock() else {
+            return Err(mpsc::error::TryRecvError::Disconnected);
+        };
+        if let Some(ev) = Self::pop_locked(&mut q) {
+            return Ok(ev);
+        }
+        if q.closed {
+            Err(mpsc::error::TryRecvError::Disconnected)
+        } else {
+            Err(mpsc::error::TryRecvError::Empty)
+        }
+    }
+
+    pub async fn recv(&mut self) -> Option<StreamEvent> {
+        loop {
+            let notified = self.shared.notify.notified();
+            {
+                let Ok(mut q) = self.shared.queue.lock() else {
+                    return None;
+                };
+                if let Some(ev) = Self::pop_locked(&mut q) {
+                    return Some(ev);
+                }
+                if q.closed {
+                    return None;
+                }
+            }
+            notified.await;
+        }
+    }
+}
+
+impl Drop for LaneReceiver {
+    fn drop(&mut self) {
+        if let Ok(mut q) = self.shared.queue.lock() {
+            q.closed = true;
+        }
+    }
+}
+
+type StreamRoutes = Arc<Mutex<BTreeMap<(String, String), LaneSender>>>;
 
 pub struct StreamRoute {
     routes: StreamRoutes,
@@ -43,7 +217,9 @@ pub struct StreamRoute {
 impl Drop for StreamRoute {
     fn drop(&mut self) {
         if let Ok(mut routes) = self.routes.lock() {
-            routes.remove(&self.key);
+            if let Some(sender) = routes.remove(&self.key) {
+                sender.close();
+            }
         }
     }
 }
@@ -155,10 +331,8 @@ impl CdpClient {
                             if let (Some(sid), Some(payload)) = (sid, payload) {
                                 if let Ok(update) = serde_json::from_str::<BindingUpdate>(payload) {
                                     if let Ok(routes) = routes.lock() {
-                                        if let Some(tx) = routes.get(&(sid.to_owned(), update.lane_id)) {
-                                            // Updates are cumulative snapshots. Dropping an
-                                            // intermediate snapshot cannot lose final content.
-                                            let _ = tx.try_send(update.update);
+                                        if let Some(sender) = routes.get(&(sid.to_owned(), update.lane_id)) {
+                                            sender.send_nonblocking(update.event);
                                         }
                                     }
                                 }
@@ -168,6 +342,12 @@ impl CdpClient {
                 }
             }
             reader_task.abort();
+            if let Ok(mut active_routes) = routes.lock() {
+                for sender in active_routes.values() {
+                    sender.close();
+                }
+                active_routes.clear();
+            }
             for (_, reply) in pending {
                 let _ = reply.send(Err(ProviderError::unavailable(
                     "cdp_disconnected",
@@ -187,7 +367,7 @@ impl CdpClient {
         &self,
         session: &str,
         lane: &str,
-        tx: mpsc::Sender<StreamUpdate>,
+        sender: LaneSender,
     ) -> Result<StreamRoute> {
         let key = (session.to_owned(), lane.to_owned());
         let mut routes = self.streams.lock().map_err(|_| {
@@ -199,7 +379,7 @@ impl CdpClient {
                 "duplicate CDP stream route",
             ));
         }
-        routes.insert(key.clone(), tx);
+        routes.insert(key.clone(), sender);
         Ok(StreamRoute {
             routes: Arc::clone(&self.streams),
             key,
@@ -350,7 +530,7 @@ mod tests {
         let (pipe, mut peer) = tokio::io::duplex(8192);
         let (reader, writer) = tokio::io::split(pipe);
         let client = CdpClient::from_pipe(reader, writer, "test".to_owned());
-        let (tx, mut rx) = mpsc::channel(4);
+        let (tx, mut rx) = lane_channel();
         let _route = client.route_stream("session", "lane", tx).unwrap();
         for (session, lane, text) in [
             ("wrong", "lane", "wrong session"),
@@ -359,7 +539,14 @@ mod tests {
         ] {
             let msg = json!({
                 "method":"Runtime.bindingCalled", "sessionId":session, "params":{
-                    "name":STREAM_BINDING, "payload":json!({"kind":"reasoning","lane_id":lane,"text":text}).to_string()
+                    "name":STREAM_BINDING, "payload":json!({
+                        "kind":"item_upsert",
+                        "lane_id":lane,
+                        "item_id":"thought:1",
+                        "item_kind":"reasoning_summary",
+                        "text":text,
+                        "committed":true
+                    }).to_string()
                 }
             });
             peer.write_all(format!("{msg}\0").as_bytes()).await.unwrap();
@@ -367,8 +554,94 @@ mod tests {
         let update = tokio::time::timeout(Duration::from_secs(1), rx.recv())
             .await
             .unwrap();
-        assert!(matches!(update, Some(StreamUpdate::Reasoning(text)) if text == "visible"));
+        assert!(matches!(
+            update,
+            Some(StreamEvent::ItemUpsert {
+                item_kind: StreamItemKind::ReasoningSummary,
+                committed: true,
+                ref text,
+                ..
+            }) if text == "visible"
+        ));
         assert!(rx.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn lane_mailbox_coalesces_mutable_preserves_committed_and_isolates_lanes() {
+        let (tx_a, mut rx_a) = lane_channel();
+        let (tx_b, mut rx_b) = lane_channel();
+
+        for i in 0..1000 {
+            assert!(tx_a.send_nonblocking(StreamEvent::ItemUpsert {
+                item_id: "answer:1".to_owned(),
+                item_kind: StreamItemKind::Answer,
+                text: format!("draft-{i}"),
+                committed: false,
+            }));
+        }
+        assert!(tx_a.send_nonblocking(StreamEvent::ItemUpsert {
+            item_id: "thought:1".to_owned(),
+            item_kind: StreamItemKind::ReasoningSummary,
+            text: "committed thought".to_owned(),
+            committed: true,
+        }));
+        assert!(tx_a.send_nonblocking(StreamEvent::ItemUpsert {
+            item_id: "answer:1".to_owned(),
+            item_kind: StreamItemKind::Answer,
+            text: "final".to_owned(),
+            committed: true,
+        }));
+        assert!(tx_a.send_nonblocking(StreamEvent::TurnCompleted {
+            chat_id: Some("c1".to_owned()),
+            message_id: Some("m1".to_owned()),
+        }));
+        assert!(tx_b.send_nonblocking(StreamEvent::ItemUpsert {
+            item_id: "answer:b".to_owned(),
+            item_kind: StreamItemKind::Answer,
+            text: "sibling lane ok".to_owned(),
+            committed: true,
+        }));
+        tx_a.close();
+        tx_b.close();
+
+        // Lane B receives immediately without waiting on Lane A.
+        assert_eq!(
+            rx_b.recv().await,
+            Some(StreamEvent::ItemUpsert {
+                item_id: "answer:b".to_owned(),
+                item_kind: StreamItemKind::Answer,
+                text: "sibling lane ok".to_owned(),
+                committed: true,
+            })
+        );
+        assert_eq!(rx_b.recv().await, None);
+
+        // Lane A delivers committed events losslessly and drops stale mutable drafts.
+        let mut drained = Vec::new();
+        while let Some(ev) = rx_a.recv().await {
+            drained.push(ev);
+        }
+        assert_eq!(
+            drained,
+            vec![
+                StreamEvent::ItemUpsert {
+                    item_id: "thought:1".to_owned(),
+                    item_kind: StreamItemKind::ReasoningSummary,
+                    text: "committed thought".to_owned(),
+                    committed: true,
+                },
+                StreamEvent::ItemUpsert {
+                    item_id: "answer:1".to_owned(),
+                    item_kind: StreamItemKind::Answer,
+                    text: "final".to_owned(),
+                    committed: true,
+                },
+                StreamEvent::TurnCompleted {
+                    chat_id: Some("c1".to_owned()),
+                    message_id: Some("m1".to_owned()),
+                },
+            ]
+        );
     }
 
     #[tokio::test]

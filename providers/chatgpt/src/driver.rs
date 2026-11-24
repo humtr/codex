@@ -1,7 +1,7 @@
 //! Abstract `DriverBackend` trait + real CDP-backed `CdpDriver` executing
 //! the clean-room `page_driver.js` inside the owned Linux ChatGPT AppHost.
 
-use crate::cdp::{StreamUpdate, STREAM_BINDING};
+use crate::cdp::{LaneSender, STREAM_BINDING};
 use crate::config::ProviderConfig;
 use crate::error::{ProviderError, Result};
 use crate::host::OwnedHost;
@@ -13,7 +13,7 @@ use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
-use tokio::sync::{mpsc, watch, Mutex};
+use tokio::sync::{watch, Mutex};
 
 pub const PAGE_DRIVER_JS: &str = include_str!("page_driver.js");
 
@@ -29,11 +29,7 @@ pub trait DriverBackend: Send + Sync {
     fn read_project(&self, params: Value) -> BoxFuture<'_, Result<Value>>;
     fn create_project(&self, params: Value) -> BoxFuture<'_, Result<Value>>;
     fn send_message(&self, params: Value) -> BoxFuture<'_, Result<Value>>;
-    fn stream_message(
-        &self,
-        params: Value,
-        _events: mpsc::Sender<StreamUpdate>,
-    ) -> BoxFuture<'_, Result<Value>> {
+    fn stream_message(&self, params: Value, _events: LaneSender) -> BoxFuture<'_, Result<Value>> {
         self.send_message(params)
     }
     fn observe_chat(&self, params: Value) -> BoxFuture<'_, Result<Value>>;
@@ -164,7 +160,7 @@ impl CdpDriver {
         method: &str,
         arg: Value,
         timeout: Duration,
-        events: Option<mpsc::Sender<StreamUpdate>>,
+        events: Option<LaneSender>,
     ) -> Result<Value> {
         let (client, sid) = {
             let mut guard = self.state.lock().await;
@@ -379,7 +375,7 @@ impl DriverBackend for CdpDriver {
     fn stream_message(
         &self,
         mut params: Value,
-        events: mpsc::Sender<StreamUpdate>,
+        events: LaneSender,
     ) -> BoxFuture<'_, Result<Value>> {
         params["push_events"] = json!(true);
         Box::pin(self.while_serving(self.call_host(

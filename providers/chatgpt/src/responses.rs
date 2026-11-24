@@ -7,7 +7,7 @@
 //! continuation via `thread-id` / `session-id` / `prompt_cache_key` / `previous_response_id`.
 //! Never synthesizes private/hidden reasoning.
 
-use crate::cdp::StreamUpdate;
+use crate::cdp::{lane_channel, StreamEvent, StreamItemKind};
 use crate::config::{random_hex, HistoryConfig, ModelConfig};
 use crate::driver::DriverBackend;
 use crate::error::{ProviderError, Result};
@@ -673,96 +673,293 @@ fn resolve_parsed_tool_call(raw: &Value, sigs: &[Value]) -> Option<ParsedToolCal
     })
 }
 
-#[derive(Clone, Copy, PartialEq)]
-enum OutputKind {
-    Reasoning,
-    Answer,
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ContentState {
+    Mutable,
+    Committed,
 }
 
-struct OutputEvents {
-    prefix: &'static str,
-    index: &'static str,
-    added: &'static str,
-    delta: &'static str,
-    done: &'static str,
-    part_done: &'static str,
+#[derive(Debug, Clone)]
+enum AssembledContent {
+    ReasoningSummary(String),
+    Commentary(String),
+    Answer(String),
+    ToolCall(ParsedToolCall),
 }
 
-impl OutputKind {
-    fn events(self) -> OutputEvents {
-        match self {
-            Self::Reasoning => OutputEvents {
-                prefix: "rs",
-                index: "summary_index",
-                added: "response.reasoning_summary_part.added",
-                delta: "response.reasoning_summary_text.delta",
-                done: "response.reasoning_summary_text.done",
-                part_done: "response.reasoning_summary_part.done",
-            },
-            Self::Answer => OutputEvents {
-                prefix: "msg",
-                index: "content_index",
-                added: "response.content_part.added",
-                delta: "response.output_text.delta",
-                done: "response.output_text.done",
-                part_done: "response.content_part.done",
-            },
-        }
-    }
-}
-
-struct LiveItem {
-    kind: OutputKind,
+#[derive(Debug, Clone)]
+struct AssembledItem {
     id: String,
-    text: String,
+    state: ContentState,
+    content: AssembledContent,
+    emitted: bool,
 }
 
-impl LiveItem {
-    fn part(&self, text: &str) -> Value {
-        match self.kind {
-            OutputKind::Reasoning => json!({"type": "summary_text", "text": text}),
-            OutputKind::Answer => json!({"type": "output_text", "text": text, "annotations": []}),
-        }
-    }
+#[derive(Default)]
+struct TurnAssembly {
+    items: Vec<AssembledItem>,
+    seen_tool_calls: HashSet<String>,
+    turn_completed: bool,
+}
 
-    fn item(&self, completed: bool) -> Value {
-        let status = if completed {
-            "completed"
+impl TurnAssembly {
+    fn upsert_text(&mut self, id: String, kind: StreamItemKind, text: String, committed: bool) {
+        if text.is_empty() && !committed {
+            self.remove_mutable(&id);
+            return;
+        }
+        let next_state = if committed {
+            ContentState::Committed
         } else {
-            "in_progress"
+            ContentState::Mutable
         };
-        match self.kind {
-            OutputKind::Reasoning => {
-                let summary = if completed {
-                    vec![self.part(&self.text)]
-                } else {
-                    vec![]
-                };
-                json!({"id": self.id, "type": "reasoning", "summary": summary, "status": status})
+        let next_content = match kind {
+            StreamItemKind::ReasoningSummary => AssembledContent::ReasoningSummary(text),
+            StreamItemKind::Commentary => AssembledContent::Commentary(text),
+            StreamItemKind::Answer => AssembledContent::Answer(text),
+        };
+        if let Some(existing) = self.items.iter_mut().find(|item| item.id == id) {
+            if existing.state == ContentState::Committed {
+                return;
             }
-            OutputKind::Answer => json!({
-                "id": self.id, "type": "message", "role": "assistant", "status": status,
-                "phase": "final_answer", "content": [self.part(&self.text)]
-            }),
+            existing.content = next_content;
+            existing.state = next_state;
+            return;
         }
+        self.items.push(AssembledItem {
+            id,
+            state: next_state,
+            content: next_content,
+            emitted: false,
+        });
+    }
+
+    fn remove_mutable(&mut self, id: &str) {
+        self.items
+            .retain(|item| item.id != id || item.state == ContentState::Committed);
+    }
+
+    fn push_committed_tool(&mut self, tc: ParsedToolCall) {
+        if !self.seen_tool_calls.insert(tc.call_id.clone()) {
+            return;
+        }
+        self.items.push(AssembledItem {
+            id: format!("tool:{}", tc.call_id),
+            state: ContentState::Committed,
+            content: AssembledContent::ToolCall(tc),
+            emitted: false,
+        });
+    }
+
+    fn apply_event(&mut self, event: StreamEvent, all_sigs: &[Value]) {
+        match event {
+            StreamEvent::Activity => {}
+            StreamEvent::ItemUpsert {
+                item_id,
+                item_kind,
+                text,
+                committed,
+            } => self.upsert_text(item_id, item_kind, text, committed),
+            StreamEvent::ItemRemove { item_id } => self.remove_mutable(&item_id),
+            StreamEvent::ToolCall {
+                id,
+                name,
+                namespace,
+                arguments,
+            } => {
+                let raw = json!({
+                    "id": id,
+                    "name": name,
+                    "namespace": namespace,
+                    "arguments": arguments,
+                });
+                if let Some(tc) = resolve_parsed_tool_call(&raw, all_sigs) {
+                    self.push_committed_tool(tc);
+                }
+            }
+            StreamEvent::TurnCompleted { .. } => {
+                self.turn_completed = true;
+            }
+        }
+    }
+
+    fn reconcile_settled(&mut self, driver_res: &Value, all_sigs: &[Value]) -> Result<()> {
+        let state = driver_res.get("state").and_then(Value::as_str);
+        if state == Some("error") {
+            let code = driver_res
+                .get("error")
+                .and_then(Value::as_str)
+                .unwrap_or("driver_error");
+            let detail = driver_res
+                .get("detail")
+                .and_then(Value::as_str)
+                .unwrap_or("ChatGPT page driver failed");
+            return Err(ProviderError::unavailable(
+                "chatgpt_driver_failed",
+                format!("{code}: {detail}"),
+            ));
+        }
+        if state == Some("in_progress") {
+            return Err(ProviderError::unavailable(
+                "chatgpt_response_in_progress",
+                "ChatGPT response did not finish within the wait budget",
+            ));
+        }
+        if state == Some("stopped") {
+            return Err(ProviderError::unavailable(
+                "chatgpt_generation_stopped",
+                "ChatGPT generation was stopped before completion",
+            ));
+        }
+
+        // Discard any remaining mutable drafts before committing settled items.
+        self.items
+            .retain(|item| item.state == ContentState::Committed);
+        let committed_ids: HashSet<String> =
+            self.items.iter().map(|item| item.id.clone()).collect();
+
+        if let Some(items) = driver_res.get("items").and_then(Value::as_array) {
+            for entry in items {
+                let kind = entry.get("kind").and_then(Value::as_str).unwrap_or("");
+                if kind == "tool_call" {
+                    let raw = json!({
+                        "id": entry.get("call_id").or_else(|| entry.get("id")),
+                        "name": entry.get("name"),
+                        "namespace": entry.get("namespace"),
+                        "arguments": entry.get("arguments"),
+                    });
+                    if let Some(tc) = resolve_parsed_tool_call(&raw, all_sigs) {
+                        self.push_committed_tool(tc);
+                    }
+                    continue;
+                }
+                let text = entry.get("text").and_then(Value::as_str).unwrap_or("");
+                if text.is_empty() {
+                    continue;
+                }
+                let item_id = entry
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .filter(|s| !s.is_empty())
+                    .map(ToOwned::to_owned)
+                    .unwrap_or_else(|| format!("{kind}_{}", self.items.len()));
+                if committed_ids.contains(&item_id)
+                    || self.items.iter().any(|existing| existing.id == item_id)
+                {
+                    continue;
+                }
+                let stream_kind = match kind {
+                    "reasoning_summary" => StreamItemKind::ReasoningSummary,
+                    "commentary" => StreamItemKind::Commentary,
+                    "answer" => StreamItemKind::Answer,
+                    _ => continue,
+                };
+                self.upsert_text(item_id, stream_kind, text.to_owned(), true);
+            }
+        } else {
+            let summary = driver_res
+                .get("reasoning_summary")
+                .and_then(Value::as_str)
+                .unwrap_or("");
+            if !summary.is_empty()
+                && !self
+                    .items
+                    .iter()
+                    .any(|item| matches!(item.content, AssembledContent::ReasoningSummary(_)))
+            {
+                self.upsert_text(
+                    "settled_summary".to_owned(),
+                    StreamItemKind::ReasoningSummary,
+                    summary.to_owned(),
+                    true,
+                );
+            }
+            let assistant_text = driver_res
+                .get("assistant_text")
+                .and_then(Value::as_str)
+                .unwrap_or("");
+            if !assistant_text.is_empty()
+                && !self
+                    .items
+                    .iter()
+                    .any(|item| matches!(item.content, AssembledContent::Answer(_)))
+            {
+                self.upsert_text(
+                    "settled_answer".to_owned(),
+                    StreamItemKind::Answer,
+                    assistant_text.to_owned(),
+                    true,
+                );
+            }
+            if let Some(arr) = driver_res.get("tool_calls").and_then(Value::as_array) {
+                for raw in arr {
+                    if let Some(tc) = resolve_parsed_tool_call(raw, all_sigs) {
+                        self.push_committed_tool(tc);
+                    }
+                }
+            }
+        }
+
+        let has_reply_or_tool = self.items.iter().any(|item| {
+            matches!(
+                item.content,
+                AssembledContent::Answer(_)
+                    | AssembledContent::Commentary(_)
+                    | AssembledContent::ToolCall(_)
+            )
+        });
+        if !has_reply_or_tool {
+            let summary_text: String = self
+                .items
+                .iter()
+                .filter_map(|item| match &item.content {
+                    AssembledContent::ReasoningSummary(t) if !t.is_empty() => Some(t.as_str()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+                .join("\n\n");
+            // Codex keeps reasoning in an expanded transcript. Preserve a
+            // summary-only turn in the normal answer view as well.
+            self.upsert_text(
+                "settled_answer_fallback".to_owned(),
+                StreamItemKind::Answer,
+                summary_text,
+                true,
+            );
+        }
+
+        self.turn_completed = true;
+        Ok(())
     }
 }
 
-struct LiveResponse {
+struct OpenReasoningItem {
+    id: String,
+    output_index: usize,
+    parts: Vec<Value>,
+}
+
+struct ResponsesEncoder {
     id: String,
     model: String,
     sequence: u64,
-    items: Vec<LiveItem>,
+    completed_output: Vec<Value>,
+    open_reasoning: Option<OpenReasoningItem>,
 }
 
-impl LiveResponse {
+impl ResponsesEncoder {
     fn new(id: String, model: String) -> Self {
         Self {
             id,
             model,
             sequence: 0,
-            items: vec![],
+            completed_output: vec![],
+            open_reasoning: None,
         }
+    }
+
+    fn next_output_index(&self) -> usize {
+        self.completed_output.len() + usize::from(self.open_reasoning.is_some())
     }
 
     fn stamp(&mut self, mut frame: Value) -> Value {
@@ -786,82 +983,171 @@ impl LiveResponse {
         ]
     }
 
-    fn close_active(&self, frames: &mut Vec<Value>) {
-        let Some((i, item)) = self.items.iter().enumerate().next_back() else {
+    fn close_open_reasoning(&mut self, frames: &mut Vec<Value>) {
+        let Some(open) = self.open_reasoning.take() else {
             return;
         };
-        let OutputEvents {
-            index,
-            done,
-            part_done,
-            ..
-        } = item.kind.events();
-        frames.push(json!({"type": done, "item_id": item.id, "output_index": i, (index): 0, "text": item.text}));
-        frames.push(json!({"type": part_done, "item_id": item.id, "output_index": i, (index): 0, "part": item.part(&item.text)}));
-        frames.push(json!({"type": "response.output_item.done", "output_index": i, "item": item.item(true)}));
+        let done_item = json!({
+            "id": open.id,
+            "type": "reasoning",
+            "summary": open.parts,
+            "status": "completed"
+        });
+        frames.push(json!({
+            "type": "response.output_item.done",
+            "output_index": open.output_index,
+            "item": done_item
+        }));
+        self.completed_output.push(done_item);
     }
 
-    fn snapshot(&mut self, kind: OutputKind, text: &str, settled: bool) -> Result<Vec<Value>> {
-        if text.is_empty() && !settled {
-            return Ok(vec![]);
-        }
-        let mut rest = text;
-        let mut exists = false;
-        for item in self.items.iter().filter(|item| item.kind == kind) {
-            exists = true;
-            let Some(delta) = rest.strip_prefix(&item.text) else {
-                if !settled {
-                    return Ok(vec![]);
-                }
-                return Err(ProviderError::unavailable(
-                    "chatgpt_stream_revised",
-                    "ChatGPT revised text already delivered in the stream",
-                ));
-            };
-            rest = delta;
-        }
-        if rest.is_empty() && exists {
-            return Ok(vec![]);
-        }
-        let events = kind.events();
-        let mut frames = vec![];
-        // Codex associates live text with its one active output item.
-        if self.items.last().is_none_or(|item| item.kind != kind) {
-            self.close_active(&mut frames);
-            let i = self.items.len();
-            let item = LiveItem {
-                kind,
-                id: format!("{}_{}_{i}", events.prefix, self.id),
-                text: String::new(),
-            };
-            let index = events.index;
-            frames.push(json!({"type": "response.output_item.added", "output_index": i, "item": item.item(false)}));
-            frames.push(json!({"type": events.added, "item_id": item.id, "output_index": i, (index): 0, "part": item.part("")}));
-            self.items.push(item);
-        }
-        let output_index = self.items.len() - 1;
-        let item = &mut self.items[output_index];
-        if !rest.is_empty() {
-            let index = events.index;
+    fn emit_message_item(&mut self, frames: &mut Vec<Value>, phase: &str, text: &str) {
+        let idx = self.next_output_index();
+        let item_id = format!("msg_{}_{idx}", self.id);
+        let init_part = json!({"type": "output_text", "text": "", "annotations": []});
+        let done_part = json!({"type": "output_text", "text": text, "annotations": []});
+        let init_item = json!({
+            "id": item_id, "type": "message", "role": "assistant", "status": "in_progress",
+            "phase": phase, "content": [init_part]
+        });
+        let done_item = json!({
+            "id": item_id, "type": "message", "role": "assistant", "status": "completed",
+            "phase": phase, "content": [done_part]
+        });
+        frames.push(
+            json!({"type": "response.output_item.added", "output_index": idx, "item": init_item}),
+        );
+        frames.push(json!({
+            "type": "response.content_part.added",
+            "item_id": item_id,
+            "output_index": idx,
+            "content_index": 0,
+            "part": init_part
+        }));
+        if !text.is_empty() {
             frames.push(json!({
-                "type": events.delta, "item_id": item.id, "output_index": output_index, (index): 0, "delta": rest
+                "type": "response.output_text.delta",
+                "item_id": item_id,
+                "output_index": idx,
+                "content_index": 0,
+                "delta": text
             }));
-            item.text.push_str(rest);
         }
-        Ok(frames.into_iter().map(|v| self.stamp(v)).collect())
+        frames.push(json!({
+            "type": "response.output_text.done",
+            "item_id": item_id,
+            "output_index": idx,
+            "content_index": 0,
+            "text": text
+        }));
+        frames.push(json!({
+            "type": "response.content_part.done",
+            "item_id": item_id,
+            "output_index": idx,
+            "content_index": 0,
+            "part": done_part
+        }));
+        frames.push(
+            json!({"type": "response.output_item.done", "output_index": idx, "item": done_item}),
+        );
+        self.completed_output.push(done_item);
     }
 
-    fn finish(&mut self, tool_calls: &[ParsedToolCall]) -> (Vec<Value>, Value) {
-        let mut frames = vec![];
-        self.close_active(&mut frames);
-        let mut output = self.items.iter().map(|item| item.item(true)).collect();
-        append_tool_frames(&mut frames, &mut output, tool_calls);
-        let final_resp = self.response("completed", &output);
-        frames.push(json!({"type": "response.completed", "response": final_resp}));
-        (
-            frames.into_iter().map(|v| self.stamp(v)).collect(),
-            final_resp,
-        )
+    fn flush_committed(&mut self, assembly: &mut TurnAssembly) -> Vec<Value> {
+        let mut raw_frames = vec![];
+        for item in &mut assembly.items {
+            if item.emitted || item.state != ContentState::Committed {
+                continue;
+            }
+            item.emitted = true;
+            match &item.content {
+                AssembledContent::ReasoningSummary(text) => {
+                    if self.open_reasoning.is_none() {
+                        let idx = self.next_output_index();
+                        let rs_id = format!("rs_{}_{idx}", self.id);
+                        raw_frames.push(json!({
+                            "type": "response.output_item.added",
+                            "output_index": idx,
+                            "item": {
+                                "id": rs_id,
+                                "type": "reasoning",
+                                "summary": [],
+                                "status": "in_progress"
+                            }
+                        }));
+                        self.open_reasoning = Some(OpenReasoningItem {
+                            id: rs_id,
+                            output_index: idx,
+                            parts: vec![],
+                        });
+                    }
+                    let open = self.open_reasoning.as_mut().expect("reasoning item opened");
+                    let summary_index = open.parts.len();
+                    let empty_part = json!({"type": "summary_text", "text": ""});
+                    let done_part = json!({"type": "summary_text", "text": text});
+                    raw_frames.push(json!({
+                        "type": "response.reasoning_summary_part.added",
+                        "item_id": open.id,
+                        "output_index": open.output_index,
+                        "summary_index": summary_index,
+                        "part": empty_part
+                    }));
+                    if !text.is_empty() {
+                        raw_frames.push(json!({
+                            "type": "response.reasoning_summary_text.delta",
+                            "item_id": open.id,
+                            "output_index": open.output_index,
+                            "summary_index": summary_index,
+                            "delta": text
+                        }));
+                    }
+                    raw_frames.push(json!({
+                        "type": "response.reasoning_summary_text.done",
+                        "item_id": open.id,
+                        "output_index": open.output_index,
+                        "summary_index": summary_index,
+                        "text": text
+                    }));
+                    raw_frames.push(json!({
+                        "type": "response.reasoning_summary_part.done",
+                        "item_id": open.id,
+                        "output_index": open.output_index,
+                        "summary_index": summary_index,
+                        "part": done_part
+                    }));
+                    open.parts.push(done_part);
+                }
+                AssembledContent::Commentary(text) => {
+                    self.close_open_reasoning(&mut raw_frames);
+                    self.emit_message_item(&mut raw_frames, "commentary", text);
+                }
+                AssembledContent::Answer(text) => {
+                    self.close_open_reasoning(&mut raw_frames);
+                    self.emit_message_item(&mut raw_frames, "final_answer", text);
+                }
+                AssembledContent::ToolCall(tc) => {
+                    self.close_open_reasoning(&mut raw_frames);
+                    append_tool_frames(
+                        &mut raw_frames,
+                        &mut self.completed_output,
+                        std::slice::from_ref(tc),
+                    );
+                }
+            }
+        }
+        raw_frames.into_iter().map(|v| self.stamp(v)).collect()
+    }
+
+    fn finish(&mut self, assembly: &mut TurnAssembly) -> (Vec<Value>, Value) {
+        let mut stamped = self.flush_committed(assembly);
+        let mut closing = vec![];
+        self.close_open_reasoning(&mut closing);
+        let final_resp = self.response("completed", &self.completed_output);
+        closing.push(json!({"type": "response.completed", "response": final_resp}));
+        for frame in closing {
+            stamped.push(self.stamp(frame));
+        }
+        (stamped, final_resp)
     }
 
     fn failed(&mut self, err: ProviderError) -> Value {
@@ -1325,6 +1611,7 @@ fn make_catalog_entry(spec: CatalogEntrySpec<'_>) -> Value {
         "priority": spec.priority,
         "base_instructions": "",
         "supports_reasoning_summaries": true,
+        "supports_reasoning_summary_parameter": true,
         "default_reasoning_summary": "auto",
         "support_verbosity": false,
         "truncation_policy": { "mode": "tokens", "limit": 10000 },
@@ -1718,23 +2005,32 @@ pub async fn handle_responses(
         .map(|key| threads.lease(key))
         .transpose()?;
     let input_items = body.get("input").and_then(Value::as_array);
-    let input_len = input_items.map_or(0, Vec::len);
-    let current_digest = input_items
-        .map(|items| input_prefix_digest(items, items.len()))
-        .unwrap_or([0u8; 32]);
+    let input_str = body.get("input").and_then(Value::as_str);
+    let (input_len, current_digest) = if let Some(items) = input_items {
+        (items.len(), input_prefix_digest(items, items.len()))
+    } else if let Some(s) = input_str.filter(|s| !s.trim().is_empty()) {
+        let mut buf = Vec::with_capacity(4 + s.len());
+        buf.extend_from_slice(b"str:");
+        buf.extend_from_slice(s.as_bytes());
+        (1, sha256_bytes(&buf))
+    } else {
+        (0, [0u8; 32])
+    };
 
     let mut prior = None;
     let mut expected_account = None;
     let mut skip_prefix = 0;
     if let Some(entry) = session_key.as_deref().and_then(|key| threads.get(key)) {
         expected_account = entry.account_id.clone();
-        if entry.project_id == effective_project_id
-            && entry.input_len > 0
-            && input_len >= entry.input_len
-            && input_items.is_some_and(|items| {
-                input_prefix_digest(items, entry.input_len) == entry.prefix_sha256
-            })
-        {
+        let prefix_matches = if let Some(items) = input_items {
+            entry.input_len <= items.len()
+                && input_prefix_digest(items, entry.input_len) == entry.prefix_sha256
+        } else if input_len == 1 {
+            entry.input_len == 1 && current_digest == entry.prefix_sha256
+        } else {
+            false
+        };
+        if entry.project_id == effective_project_id && entry.input_len > 0 && prefix_matches {
             if input_len == entry.input_len {
                 return Err(ProviderError::bad_request(
                     "response_input_already_sent",
@@ -1763,7 +2059,7 @@ pub async fn handle_responses(
     let prompt = render_prompt_from_responses_request(&body, skip_prefix)?;
     let all_sigs = extract_local_function_signatures(&body);
     let resp_id = format!("resp_{}", random_hex(8)?);
-    let mut live = LiveResponse::new(resp_id.clone(), requested_model);
+    let mut encoder = ResponsesEncoder::new(resp_id.clone(), requested_model);
     let lane_id = resp_id.clone();
     let send_payload = json!({
         "lane_id": lane_id,
@@ -1783,8 +2079,9 @@ pub async fn handle_responses(
     if !stream {
         let mut cancel_guard = CancelTurnGuard::new(Arc::clone(&driver), lane_id);
         let driver_res = driver.send_message(send_payload).await?;
+        let mut assembly = TurnAssembly::default();
+        assembly.reconcile_settled(&driver_res, &all_sigs)?;
         cancel_guard.disarm();
-        let (assistant_text, tool_calls, _) = parse_settled_driver_result(&driver_res, &all_sigs)?;
         record_thread_entries(
             &threads,
             &resp_id,
@@ -1794,23 +2091,22 @@ pub async fn handle_responses(
             input_len,
             current_digest,
         )?;
-        if !assistant_text.is_empty() || tool_calls.is_empty() {
-            live.snapshot(OutputKind::Answer, &assistant_text, true)?;
-        }
-        return Ok((StatusCode::OK, Json(live.finish(&tool_calls).1)).into_response());
+        let (_, final_resp) = encoder.finish(&mut assembly);
+        return Ok((StatusCode::OK, Json(final_resp)).into_response());
     }
 
     // Streaming mode: emit `response.created` + `response.in_progress` immediately, send
     // periodic SSE keepalive comments while waiting, and call `driver.stop_generation()`
-    // if the client disconnects before settlement.
+    // if the client disconnects before remote settlement.
     let (tx, rx) = mpsc::channel::<String>(32);
-    for frame in live.start() {
+    for frame in encoder.start() {
         let _ = tx.try_send(format_sse_frame(&frame));
     }
     tokio::spawn(async move {
         let _lease = _lease;
         let mut cancel = CancelTurnGuard::new(Arc::clone(&driver), lane_id);
-        let (event_tx, mut event_rx) = mpsc::channel(32);
+        let (event_tx, mut event_rx) = lane_channel();
+        let mut assembly = TurnAssembly::default();
         let mut turn = driver.stream_message(send_payload, event_tx);
         let mut keepalive = tokio::time::interval_at(
             tokio::time::Instant::now() + SSE_KEEPALIVE_INTERVAL,
@@ -1830,17 +2126,10 @@ pub async fn handle_responses(
                     match event {
                         Some(event) => {
                             idle.as_mut().reset(tokio::time::Instant::now() + SSE_IDLE);
-                            let frames = match event {
-                                StreamUpdate::Activity => continue,
-                                StreamUpdate::Reasoning(text) => live.snapshot(OutputKind::Reasoning, &text, false),
-                                StreamUpdate::Answer(text) => live.snapshot(OutputKind::Answer, &text, false),
-                            };
-                            match frames {
-                                Ok(frames) if !frames.is_empty() => {
-                                    if !send_frames(&tx, frames).await { return; }
-                                }
-                                Ok(_) => {}
-                                Err(err) => break Err(err),
+                            assembly.apply_event(event, &all_sigs);
+                            let frames = encoder.flush_committed(&mut assembly);
+                            if !frames.is_empty() && !send_frames(&tx, frames).await {
+                                return;
                             }
                         }
                         None => event_open = false,
@@ -1852,35 +2141,21 @@ pub async fn handle_responses(
                 }
             }
         };
-        let result = async {
+        let result = (|| -> Result<Vec<Value>> {
             let settled = outcome?;
-            let (text, calls, _) = parse_settled_driver_result(&settled, &all_sigs)?;
-            cancel.disarm();
-            let summary = settled["reasoning_summary"].as_str().unwrap_or("");
-            // Codex keeps reasoning in an expanded transcript. Preserve a
-            // summary-only turn in the normal answer view as well.
-            let answer = if text.is_empty() && calls.is_empty() {
-                summary
-            } else {
-                &text
-            };
-            let mut frames = vec![];
-            let had_summary = live
-                .items
-                .iter()
-                .any(|item| item.kind == OutputKind::Reasoning);
-            let had_answer = live
-                .items
-                .iter()
-                .any(|item| item.kind == OutputKind::Answer);
-            if !had_answer && (!summary.is_empty() || had_summary) {
-                frames.extend(live.snapshot(OutputKind::Reasoning, summary, true)?);
+            while let Ok(event) = event_rx.try_recv() {
+                assembly.apply_event(event, &all_sigs);
             }
-            if !answer.is_empty() || calls.is_empty() || had_answer {
-                frames.extend(live.snapshot(OutputKind::Answer, answer, true)?);
-            }
-            if had_answer && (!summary.is_empty() || had_summary) {
-                frames.extend(live.snapshot(OutputKind::Reasoning, summary, true)?);
+            match assembly.reconcile_settled(&settled, &all_sigs) {
+                Ok(()) => {
+                    cancel.disarm();
+                }
+                Err(err) => {
+                    if err.code != "chatgpt_response_in_progress" {
+                        cancel.disarm();
+                    }
+                    return Err(err);
+                }
             }
             record_thread_entries(
                 &threads,
@@ -1891,13 +2166,11 @@ pub async fn handle_responses(
                 input_len,
                 current_digest,
             )?;
-            frames.extend(live.finish(&calls).0);
-            Ok::<_, ProviderError>(frames)
-        }
-        .await;
+            Ok(encoder.finish(&mut assembly).0)
+        })();
         let frames = match result {
             Ok(frames) => frames,
-            Err(err) => vec![live.failed(err)],
+            Err(err) => vec![encoder.failed(err)],
         };
         send_frames(&tx, frames).await;
     });
@@ -1911,60 +2184,6 @@ pub async fn handle_responses(
         Body::from_stream(MpscSseStream { rx }),
     )
         .into_response())
-}
-
-fn parse_settled_driver_result(
-    driver_res: &Value,
-    all_sigs: &[Value],
-) -> Result<(String, Vec<ParsedToolCall>, Option<String>)> {
-    let state = driver_res.get("state").and_then(Value::as_str);
-    if state == Some("error") {
-        let code = driver_res
-            .get("error")
-            .and_then(Value::as_str)
-            .unwrap_or("driver_error");
-        let detail = driver_res
-            .get("detail")
-            .and_then(Value::as_str)
-            .unwrap_or("ChatGPT page driver failed");
-        return Err(ProviderError::unavailable(
-            "chatgpt_driver_failed",
-            format!("{code}: {detail}"),
-        ));
-    }
-    if state == Some("in_progress") {
-        return Err(ProviderError::unavailable(
-            "chatgpt_response_in_progress",
-            "ChatGPT response did not finish within the wait budget",
-        ));
-    }
-    if state == Some("stopped") {
-        return Err(ProviderError::unavailable(
-            "chatgpt_generation_stopped",
-            "ChatGPT generation was stopped before completion",
-        ));
-    }
-
-    let assistant_text = driver_res
-        .get("assistant_text")
-        .and_then(Value::as_str)
-        .unwrap_or("")
-        .to_owned();
-    let tool_calls: Vec<ParsedToolCall> = driver_res
-        .get("tool_calls")
-        .and_then(Value::as_array)
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|v| resolve_parsed_tool_call(v, all_sigs))
-                .collect()
-        })
-        .unwrap_or_default();
-    let chat_id = driver_res
-        .get("chat_id")
-        .and_then(Value::as_str)
-        .filter(|s| !s.is_empty())
-        .map(ToOwned::to_owned);
-    Ok((assistant_text, tool_calls, chat_id))
 }
 
 fn record_thread_entries(

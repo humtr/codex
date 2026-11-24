@@ -76,29 +76,57 @@ and [providers/chatgpt/src/main.rs](../../providers/chatgpt/src/main.rs).
   of default OpenAI slugs. The visible catalog excludes Codex-only `*-wm` /
   `*-codex` / `hidden`-tagged slugs, collapses `-instant` / `-thinking` /
   `-t-mini` variants into a single latest-first entry per model family with
-  selectable reasoning efforts, and routes `/v1/responses` dispatches to the
+  selectable reasoning efforts and `"supports_reasoning_summary_parameter": true`,
+  and routes `/v1/responses` dispatches to the
   corresponding ChatGPT variant slug according to the requested reasoning
   effort. When
   Codex supplies deferred nested tools through Code Mode, the description
   sent to the AppHost retains the advertised `ALL_TOOLS` discovery instruction
-  within the description bound. A streaming request forwards upstream
-  user-visible reasoning summaries and assistant answer deltas as distinct
-  Responses items over a lane-scoped CDP binding. For a visible thought
-  message the source is the latest thought's public `summary` field.
-  The reasoning stream also accepts a visible `reasoning_recap`.
-  Codex uses a live reasoning
-  status and keeps completed summaries in its expanded transcript. If a turn
-  supplies only a user-visible summary, the same text is also returned in the
-  answer view. The stream has a five-minute upstream inactivity limit
-  and a two-hour total limit. Disconnect cancels only that lane.
-  The Provider persists up to 256 scoped continuation entries in
-  `response_threads.json` (0600, atomic) under
-  `${XDG_STATE_HOME:-$HOME/.local/state}/codex/providers/chatgpt/`, or the
-  explicit Provider state directory when configured.
-  Account and project are checked before using a stored conversation.
-  An incompatible Codex input prefix starts a new ChatGPT conversation
-  under the same account pin. An exact replay with no new input produces a
-  structured rejection.
+  within the description bound.
+- **Single-adapter streaming lifecycle (`Page Driver -> LaneMailbox -> TurnAssembly -> ResponsesEncoder`):**
+  The Provider normalizes ChatGPT AppHost completions through one lifecycle
+  pipeline shared by both streaming (`stream=true`) and non-streaming
+  (`stream=false`) `/v1/responses` execution:
+  - `page_driver.js` requests `supported_encodings: ["v1"]` and observes
+    messages through `onDecodedEvent` as the single authoritative stream path
+    (with an `onUpdate` fallback only when `onDecodedEvent` has not fired).
+  - Messages are normalized per item ID and semantic channel (`reasoning_summary`,
+    `commentary`, `answer`, and native `tool_call`), distinguishing uncommitted
+    `Mutable` snapshots (`in_progress`) from `Committed` outputs (`status !==
+    "in_progress"`, `end_turn === true`, finished `thoughts` entries, or turn
+    settlement). Uncommitted snapshot revisions, insertions, or deletions update
+    in-place without failing settled streams.
+  - Visible reasoning sources strictly follow AppHost's public visibility
+    rules: `thoughts[*].summary`, visible `metadata.{rich_reasoning_titles,
+    reasoning_titles, reasoning_title}`, visible `reasoning_recap`, and
+    `channel === "commentary"` / `is_thinking_preamble_message` preambles
+    (emitted as `type: "message", phase: "commentary"`). Private `thought.content`,
+    `summary_type === "raw_cot"`, `is_visually_hidden_reasoning_group`,
+    `is_user_visible === false`, `reasoning_recap_type === "hide_all"`, and
+    `channel === "analysis"` are never exposed.
+  - `cdp.rs` delivers structured `StreamEvent` items through a per-lane
+    non-blocking `LaneMailbox` that coalesces rapid mutable snapshots per item
+    without stalling sibling lanes and queues committed/terminal events
+    losslessly.
+  - `responses.rs` maintains one authoritative `TurnAssembly` (`Mutable` vs
+    `Committed`) and one `ResponsesEncoder` that emits immutable Responses
+    frames only for committed items (streaming committed reasoning summary
+    sections live while thinking, then preambles/answers/deduplicated tool calls).
+    If a turn supplies only a user-visible summary with no answer or tool call,
+    the same text is returned as the final answer. The stream has a five-minute
+    upstream inactivity limit and a two-hour total limit.
+  - Client disconnect before remote settlement cancels only that lane via
+    `stop_generation` without recording continuation. Remote settlement
+    disarms cancellation, reconciles the final assembly, and persists up to 256
+    scoped continuation entries in `response_threads.json` (`0600`, atomic under
+    `${XDG_STATE_HOME:-$HOME/.local/state}/codex/providers/chatgpt/`, or the
+    configured state directory) **before** final SSE frame delivery so a local
+    client disconnect after remote completion preserves the conversation pin and
+    rejects duplicate replay inputs (both array and string inputs) with
+    `response_input_already_sent`.
+  - Account and project are checked before using a stored conversation. An
+    incompatible Codex input prefix starts a new ChatGPT conversation under the
+    same account pin.
 - **Local authenticated `/control/*` plane (for Slice 6 `@TermuxChatGPT`):**
   Every `/control/*` endpoint requires constant-time `Authorization: Bearer`
   authentication against `<state_dir>/control.token` (`0600`):

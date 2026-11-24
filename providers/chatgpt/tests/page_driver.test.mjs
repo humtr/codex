@@ -793,7 +793,7 @@ test("legacy user pin verifies the native AppHost account instead of using membe
   assert.equal(startCalls.length, 1);
 });
 
-test("streaming publishes AppHost thought headings, recaps, and answers before settlement", async () => {
+test("streaming publishes AppHost thought headings, titles, recaps, commentary, revisions, and answers cleanly", async () => {
   let callbacks;
   let ready;
   const started = new Promise((resolve) => { ready = resolve; });
@@ -801,45 +801,153 @@ test("streaming publishes AppHost thought headings, recaps, and answers before s
     apiMap: { "GET /backend-api/me": { status: 200, body: { account_id: "acc-1" } } },
     completionBehavior(args) { callbacks = args; ready(); return { streamRequestId: "stream-1" }; },
   });
-  const result = driver.sendMessage({ lane_id: "lane", prompt: "test", push_events: true, verify_identity: true });
-  await started;
-  const message = (id, content, metadata) => ({ id, author: { role: "assistant" }, content, metadata });
-  const update = (msg) => callbacks.onUpdate({ type: "message", conversationId: "conv-test", message: msg });
-  const thought = (summary) => ({ summary, content: "PRIVATE_THOUGHT_BODY" });
-  const heading = (summary) => message("think", {
-    content_type: "thoughts",
-    thoughts: [thought("EARLIER_UNSEEN_HEADING"), thought(summary)],
+  const result = driver.sendMessage({
+    lane_id: "lane",
+    prompt: "test",
+    push_events: true,
+    verify_identity: true,
+    model: "gpt-6-2-thinking",
+    reasoning_effort: "max",
   });
-  update(message("private", { content_type: "thoughts", parts: ["PRIVATE_PARTS"] }));
-  update(message("raw", { content_type: "thoughts", thoughts: [thought("RAW_COT_HEADING")] },
+  await started;
+  const message = (id, content, metadata, extra = {}) => ({
+    id, author: { role: "assistant" }, content, metadata, ...extra,
+  });
+  const decoded = (msg, isInputMessage = false) =>
+    callbacks.onDecodedEvent({
+      isInputMessage,
+      update: { type: "message", conversationId: "conv-test", message: msg },
+    });
+  const thought = (summary, finished = false) => ({
+    summary, content: "PRIVATE_THOUGHT_BODY", finished,
+  });
+
+  // 1. Input messages & private/raw/hidden reasoning must never leak.
+  decoded(message("user-echo", { content_type: "text", parts: ["ECHO"] }), true);
+  decoded(message("private", { content_type: "thoughts", parts: ["PRIVATE_PARTS"] }));
+  decoded(message("raw", { content_type: "thoughts", thoughts: [thought("RAW_COT_HEADING", true)] },
     { summary_type: "raw_cot" }));
-  update(message("hidden", { content_type: "thoughts", thoughts: [thought("HIDDEN_HEADING")] },
+  decoded(message("hidden", { content_type: "thoughts", thoughts: [thought("HIDDEN_HEADING", true)] },
     { is_visually_hidden_reasoning_group: true }));
-  update(message("private-recap", { content_type: "reasoning_recap", content: "HIDDEN_RECAP" },
+  decoded(message("private-recap", { content_type: "reasoning_recap", content: "HIDDEN_RECAP" },
     { reasoning_recap_type: "hide_all" }));
-  update({ ...message("analysis", { content_type: "text", parts: ["PRIVATE_ANALYSIS_TEXT"] }),
+  decoded({ ...message("analysis", { content_type: "text", parts: ["PRIVATE_ANALYSIS_TEXT"] }),
     channel: "analysis" });
-  update(heading("Checking"));
-  callbacks.onDecodedEvent({ payload: { message: heading("Checking files") } });
-  update(heading("Checking files"));
-  update(heading("Checking"));
-  update(heading("Reviewing changes"));
-  update(message("recap", { content_type: "reasoning_recap", content: "Visible recap" }));
-  update(message("answer", { content_type: "text", parts: ["Answer\n```codex_tool"] }));
-  assert.deepEqual(streamUpdates.filter((x) => x.text).map((x) => [x.lane_id, x.kind, x.text]), [
-    ["lane", "reasoning", "Checking"],
-    ["lane", "reasoning", "Checking files"],
-    ["lane", "reasoning", "Checking files\n\nReviewing changes"],
-    ["lane", "reasoning", "Checking files\n\nReviewing changes\n\nVisible recap"],
-    ["lane", "answer", "Answer"],
-  ]);
-  update(message("answer", {
-    content_type: "text", parts: ['Answer\n```codex_tool_call\n{"name":"tool"}\n```'],
+
+  // 2. Public thought headings: mutable update -> finish, fallback update after onDecodedEvent ignored.
+  decoded(message("think", {
+    content_type: "thoughts",
+    thoughts: [thought("EARLIER_UNSEEN_HEADING"), thought("Checking")],
+  }, { is_visually_hidden_from_conversation: true }));
+  callbacks.onUpdate({
+    type: "message",
+    conversationId: "conv-test",
+    message: message("think", { content_type: "thoughts", thoughts: [thought("DUPLICATE_ON_UPDATE", true)] }),
+  });
+  decoded(message("think", {
+    content_type: "thoughts",
+    thoughts: [thought("EARLIER_UNSEEN_HEADING"), thought("Checking files", true)],
   }));
+  decoded(message("think", {
+    content_type: "thoughts",
+    thoughts: [thought("EARLIER_UNSEEN_HEADING"), thought("Checking files", true), thought("Reviewing changes", true)],
+  }));
+  decoded(message("titled", { content_type: "thoughts", thoughts: [{ summary: "", content: "PRIVATE" }] },
+    { rich_reasoning_titles: ["Reading metadata title"] }, { status: "finished_successfully" }));
+  decoded(message("recap", { content_type: "reasoning_recap", content: "Visible recap" },
+    undefined, { status: "finished_successfully" }));
+
+  // 3. Commentary preamble kept distinct from final answer + Unicode/whitespace answer revisions.
+  decoded(message("pre-1", { content_type: "text", parts: ["Step 1 preamble"] },
+    { cot_version: "v5", is_thinking_preamble_message: true }, { channel: "commentary", status: "finished_successfully" }));
+  decoded(message("ans-1", { content_type: "text", parts: ["Draft A"] },
+    undefined, { channel: "final", status: "in_progress" }));
+  decoded(message("ans-1", { content_type: "text", parts: ["Replaced 한국어  text"] },
+    undefined, { channel: "final", status: "in_progress" }));
+  decoded(message("ans-1", { content_type: "text", parts: ["  Final 한국어 🚀 answer\nLine 2"] },
+    undefined, { channel: "final", status: "finished_successfully", end_turn: true }));
+
+  const itemEvents = streamUpdates
+    .filter((x) => x.kind === "item_upsert")
+    .map((x) => [x.lane_id, x.item_id, x.item_kind, x.text, x.committed]);
+  assert.deepEqual(itemEvents, [
+    ["lane", "thought:think:2", "reasoning_summary", "Checking", false],
+    ["lane", "thought:think:2", "reasoning_summary", "Checking files", true],
+    ["lane", "thought:think:3", "reasoning_summary", "Reviewing changes", true],
+    ["lane", "title:titled:0", "reasoning_summary", "Reading metadata title", true],
+    ["lane", "recap:recap", "reasoning_summary", "Visible recap", true],
+    ["lane", "commentary:pre-1", "commentary", "Step 1 preamble", true],
+    ["lane", "answer:ans-1", "answer", "Draft A", false],
+    ["lane", "answer:ans-1", "answer", "Replaced 한국어  text", false],
+    ["lane", "answer:ans-1", "answer", "  Final 한국어 🚀 answer\nLine 2", true],
+  ]);
+
   callbacks.onComplete();
   const settled = await result;
-  assert.equal(settled.reasoning_summary, "Checking files\n\nReviewing changes\n\nVisible recap");
-  assert.equal(settled.assistant_text, "Answer");
+  assert.equal(settled.state, "settled");
   assert.equal(settled.account_id, "acc-1");
-  assert.equal(settled.tool_calls[0].name, "tool");
+  assert.equal(
+    settled.reasoning_summary,
+    "Checking files\n\nReviewing changes\n\nReading metadata title\n\nVisible recap"
+  );
+  assert.equal(settled.assistant_text, "  Final 한국어 🚀 answer\nLine 2");
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(settled.items)).map((x) => [x.kind, x.text]),
+    [
+      ["reasoning_summary", "Checking files"],
+      ["reasoning_summary", "Reviewing changes"],
+      ["reasoning_summary", "Reading metadata title"],
+      ["reasoning_summary", "Visible recap"],
+      ["commentary", "Step 1 preamble"],
+      ["answer", "  Final 한국어 🚀 answer\nLine 2"],
+    ]
+  );
+
+  // Non-streaming push_events:false yields identical normalized items and tests native tool commit + dedup.
+  let nonStreamCallbacks;
+  const nonStreamEnv = createMockEnv({
+    apiMap: { "GET /backend-api/me": { status: 200, body: { account_id: "acc-1" } } },
+    completionBehavior(args) {
+      nonStreamCallbacks = args;
+      assert.deepEqual(JSON.parse(JSON.stringify(args.request.supported_encodings)), ["v1"]);
+      return { streamRequestId: "stream-2" };
+    },
+  });
+  const nsPromise = nonStreamEnv.driver.sendMessage({
+    lane_id: "lane-ns",
+    prompt: "test",
+    push_events: false,
+    wait_ms: 5000,
+    local_function_signatures: [{ type: "function", name: "check_tool", parameters: { type: "object" } }],
+  });
+  await new Promise((r) => setTimeout(r, 10));
+  nonStreamCallbacks.onDecodedEvent({
+    update: { type: "message", conversationId: "conv-ns", message: message("t1", { content_type: "thoughts", thoughts: [thought("Thinking step", true)] }) },
+  });
+  nonStreamCallbacks.onDecodedEvent({
+    update: { type: "message", conversationId: "conv-ns", message: message("a1", { content_type: "text", parts: ["Final NS"] }, undefined, { status: "finished_successfully" }) },
+  });
+  nonStreamCallbacks.onDecodedEvent({
+    update: {
+      type: "message",
+      conversationId: "conv-ns",
+      message: { id: "tc1", author: { role: "assistant" }, recipient: "check_tool", content: { text: "{\"x\":1}" }, status: "finished_successfully" },
+    },
+  });
+  // Duplicate delivery of the same message ID must not duplicate normalized items.
+  nonStreamCallbacks.onDecodedEvent({
+    update: {
+      type: "message",
+      conversationId: "conv-ns",
+      message: { id: "tc1", author: { role: "assistant" }, recipient: "check_tool", content: { text: "{\"x\":1}" }, status: "finished_successfully" },
+    },
+  });
+  nonStreamCallbacks.onComplete();
+  const nsSettled = await nsPromise;
+  assert.deepEqual(JSON.parse(JSON.stringify(nsSettled.items)), [
+    { id: "thought:t1:1", kind: "reasoning_summary", text: "Thinking step" },
+    { id: "answer:a1", kind: "answer", text: "Final NS" },
+    { id: "tool:call_tc1", kind: "tool_call", call_id: "call_tc1", name: "check_tool", arguments: "{\"x\":1}" },
+  ]);
+  assert.equal(nonStreamEnv.streamUpdates.length, 0);
 });

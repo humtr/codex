@@ -666,6 +666,53 @@
       meta?.summary_type !== "raw_cot";
   }
 
+  function canExposeReasoning(msg) {
+    const meta = msg && msg.metadata;
+    return Boolean(
+      msg &&
+      msg.author?.role === "assistant" &&
+      (!msg.recipient || msg.recipient === "all") &&
+      msg.channel !== "analysis" &&
+      meta?.summary_type !== "raw_cot" &&
+      meta?.is_visually_hidden_reasoning_group !== true &&
+      meta?.is_user_visible !== false &&
+      meta?.reasoning_recap_type !== "hide_all"
+    );
+  }
+
+  function extractVisibleReasoningTitles(msg) {
+    const meta = msg && msg.metadata;
+    if (!meta || typeof meta !== "object") return [];
+    const list = Array.isArray(meta.rich_reasoning_titles)
+      ? meta.rich_reasoning_titles
+      : Array.isArray(meta.reasoning_titles)
+        ? meta.reasoning_titles
+        : null;
+    const out = [];
+    if (list) {
+      for (const entry of list) {
+        if (typeof entry === "string" && entry.trim()) {
+          out.push(truncate(entry.trim()));
+        }
+      }
+    }
+    if (out.length === 0) {
+      const single =
+        (typeof meta.reasoning_title === "string" && meta.reasoning_title.trim()) ||
+        (typeof meta.work_activity?.reasoning_title === "string" && meta.work_activity.reasoning_title.trim()) ||
+        null;
+      if (single) out.push(truncate(single));
+    }
+    return out;
+  }
+
+  function extractRawPartsText(msg) {
+    const parts = Array.isArray(msg?.content?.parts) ? msg.content.parts : null;
+    if (!parts) return null;
+    const strs = parts.filter((p) => typeof p === "string");
+    return strs.length > 0 ? strs.join("\n") : null;
+  }
+
   function extractTextFromMessage(msg) {
     if (!msg || typeof msg !== "object") return null;
     const role = msg.author && msg.author.role ? msg.author.role : "unknown";
@@ -1507,13 +1554,14 @@
       }
     }
 
-    let wirePrompt = prompt;
-    if (
+    const fallbackFenceMode =
       !opts.is_continuation &&
       Array.isArray(opts.local_function_signatures) &&
       opts.local_function_signatures.length > 0 &&
-      nativeTools.signatures.length === 0
-    ) {
+      nativeTools.signatures.length === 0;
+
+    let wirePrompt = prompt;
+    if (fallbackFenceMode) {
       const sigBlock = JSON.stringify(opts.local_function_signatures);
       wirePrompt =
         `[LOCAL_FUNCTION_SIGNATURES]\n${sigBlock}\n` +
@@ -1534,6 +1582,7 @@
       conversation_mode: projectId
         ? { kind: "gizmo_interaction", gizmo_id: projectId }
         : { kind: "primary_assistant" },
+      supported_encodings: ["v1"],
       ...(nativeTools.signatures.length > 0
         ? {
             local_function_names: nativeTools.names,
@@ -1577,6 +1626,7 @@
       error: null,
       messageId: null,
       assistantText: "",
+      items: new Map(),
       nativeToolCalls: new Map(),
       donePromise,
       resolveDone: () => {
@@ -1591,90 +1641,231 @@
     lastTurn = turn;
     pruneSettledTurns();
 
-    const push = opts.push_events === true && typeof globalThis.__termuxChatGptStream === "function"
-      ? (kind, text) => globalThis.__termuxChatGptStream(JSON.stringify({ lane_id: laneId, kind, text }))
+    const emitStream = opts.push_events === true && typeof globalThis.__termuxChatGptStream === "function"
+      ? (payload) => globalThis.__termuxChatGptStream(JSON.stringify({ lane_id: laneId, ...payload }))
       : () => {};
-    let reasoningSummary = "";
-    let activeSummaryKey = null;
-    const summaryByKey = new Map();
-    const recordSummary = (key, text) => {
-      if (typeof text !== "string" || reasoningSummary.length >= MAX_TEXT_CHARS) return;
-      const current = truncate(text.trim());
-      const previous = summaryByKey.get(key);
-      if (!current || previous?.startsWith(current)) return;
-      summaryByKey.set(key, current);
-      // AppHost sends snapshots. Extend a growing heading and keep a
-      // replacement heading as a new entry so delivered text stays a prefix.
-      const suffix = previous && key === activeSummaryKey && current.startsWith(previous)
-        ? current.slice(previous.length)
-        : (reasoningSummary ? "\n\n" : "") + current;
-      activeSummaryKey = key;
-      reasoningSummary = truncate(reasoningSummary + suffix);
-      push("reasoning", reasoningSummary);
-    };
+
     let lastActivity = 0;
-    let lastAnswer = "";
     const activity = () => {
       const now = Date.now();
       if (now - lastActivity >= 1000) {
         lastActivity = now;
-        push("activity");
+        emitStream({ kind: "activity" });
       }
     };
-    const visibleAnswerPrefix = (text) => {
-      const marker = "```codex_tool_call";
-      const fence = text.indexOf(marker);
-      if (fence >= 0) return text.slice(0, fence).trimEnd();
-      // A partial fence opener can become a tool call in the next snapshot.
-      for (let len = marker.length - 1; len > 0; len--) {
-        if (text.endsWith(marker.slice(0, len))) return text.slice(0, -len).trimEnd();
+
+    const upsertTextItem = (itemId, itemKind, rawText, committed) => {
+      const text = truncate(rawText);
+      const existing = turn.items.get(itemId);
+      if (!text) {
+        if (existing && !existing.committed) {
+          turn.items.delete(itemId);
+          emitStream({ kind: "item_remove", item_id: itemId });
+        }
+        return;
       }
-      return text.trimEnd();
+      if (existing) {
+        if (existing.committed) return;
+        const nextCommitted = Boolean(committed);
+        if (existing.kind === itemKind && existing.text === text && existing.committed === nextCommitted) {
+          return;
+        }
+        existing.kind = itemKind;
+        existing.text = text;
+        existing.committed = nextCommitted;
+      } else {
+        turn.items.set(itemId, {
+          id: itemId,
+          kind: itemKind,
+          text,
+          committed: Boolean(committed),
+        });
+      }
+      emitStream({
+        kind: "item_upsert",
+        item_id: itemId,
+        item_kind: itemKind,
+        text,
+        committed: Boolean(committed),
+      });
     };
+
+    const emittedToolIds = new Set();
+    const recordToolCall = (call, committed) => {
+      turn.nativeToolCalls.set(call.id, call);
+      const itemId = `tool:${call.id}`;
+      const existing = turn.items.get(itemId);
+      if (!existing || !existing.committed) {
+        turn.items.set(itemId, {
+          id: itemId,
+          kind: "tool_call",
+          committed: Boolean(committed),
+          call,
+        });
+      }
+      if (committed && !emittedToolIds.has(call.id)) {
+        emittedToolIds.add(call.id);
+        emitStream({
+          kind: "tool_call",
+          call_id: call.id,
+          name: call.name,
+          ...(call.namespace ? { namespace: call.namespace } : {}),
+          arguments: call.arguments,
+        });
+      }
+    };
+
+    const syncDerivedAssistantText = () => {
+      const answers = [];
+      for (const item of turn.items.values()) {
+        if (item.kind === "answer" && item.text) answers.push(item.text);
+      }
+      turn.assistantText = truncate(answers.join("\n\n"));
+    };
+
+    const isMessageCommitted = (msg) => Boolean(
+      (typeof msg.status === "string" && msg.status !== "in_progress") ||
+      msg.end_turn === true
+    );
 
     const recordMessage = (msg) => {
       if (!msg || typeof msg !== "object" || turn.stopped) return;
       const content = msg.content;
-      const kind = content?.content_type;
-      if (kind === "thoughts" || kind === "reasoning_recap") {
-        if (!opts.push_events || !isVisibleAssistantMessage(msg) ||
-            msg.metadata?.is_user_visible === false ||
-            msg.metadata?.reasoning_recap_type === "hide_all") return;
-        const key = String(msg.id ?? "");
-        if (kind === "reasoning_recap") {
-          const recap = content.content ?? (Array.isArray(content.parts)
-            ? content.parts.filter((part) => typeof part === "string").join("\n")
-            : null);
-          recordSummary(`recap:${key}`, recap);
-        } else if (Array.isArray(content.thoughts)) {
-          // The AppHost renderer uses the latest thought's summary as the
-          // visible heading. Other fields can contain internal reasoning.
-          recordSummary(`thought:${key}:${content.thoughts.length}`, content.thoughts.at(-1)?.summary);
-        } else if (msg.metadata?.is_user_visible === true) {
-          recordSummary(`thought:${key}`, content.summary);
-        }
-        return;
-      }
+      const contentType = content?.content_type;
+      const msgKey = String(msg.id || turn.messageId || `anon_${turn.items.size}`);
+      const msgCommitted = isMessageCommitted(msg);
+
       const nativeCall = extractNativeToolCallFromMessage(
         msg,
         declaredToolNames,
         nativeTools.wireToOriginal
       );
       if (nativeCall) {
-        turn.nativeToolCalls.set(nativeCall.id, nativeCall);
         if (msg.id) turn.messageId = msg.id;
+        recordToolCall(nativeCall, msgCommitted);
         return;
       }
-      const extracted = extractTextFromMessage(msg);
-      if (extracted?.role === "assistant") {
-        turn.assistantText = extracted.text;
-        if (extracted.id) turn.messageId = extracted.id;
-        const text = visibleAnswerPrefix(extracted.text);
-        if (text && text !== lastAnswer) {
-          lastAnswer = text;
-          push("answer", text);
+
+      if (contentType === "thoughts") {
+        if (!canExposeReasoning(msg)) return;
+        let emittedThought = false;
+        if (Array.isArray(content.thoughts)) {
+          const len = content.thoughts.length;
+          for (let i = 1; i < len; i++) {
+            const priorId = `thought:${msgKey}:${i}`;
+            const priorItem = turn.items.get(priorId);
+            if (priorItem && !priorItem.committed) {
+              const priorSummary = typeof content.thoughts[i - 1]?.summary === "string"
+                ? content.thoughts[i - 1].summary.trim()
+                : priorItem.text;
+              upsertTextItem(priorId, "reasoning_summary", priorSummary || priorItem.text, true);
+            }
+          }
+          if (len > 0) {
+            const latest = content.thoughts[len - 1];
+            const summary = typeof latest?.summary === "string" ? latest.summary.trim() : "";
+            if (summary) {
+              emittedThought = true;
+              const thoughtCommitted = Boolean(latest?.finished === true || msgCommitted);
+              upsertTextItem(`thought:${msgKey}:${len}`, "reasoning_summary", summary, thoughtCommitted);
+            }
+          }
+        } else if (msg.metadata?.is_user_visible === true && typeof content.summary === "string") {
+          const summary = content.summary.trim();
+          if (summary) {
+            emittedThought = true;
+            upsertTextItem(`thought:${msgKey}`, "reasoning_summary", summary, msgCommitted);
+          }
+        }
+        if (!emittedThought) {
+          const titles = extractVisibleReasoningTitles(msg);
+          for (let i = 0; i < titles.length; i++) {
+            const titleCommitted = Boolean(i + 1 < titles.length || msgCommitted);
+            upsertTextItem(`title:${msgKey}:${i}`, "reasoning_summary", titles[i], titleCommitted);
+          }
+        }
+        return;
+      }
+
+      if (contentType === "reasoning_recap") {
+        if (!canExposeReasoning(msg)) return;
+        const recap = typeof content.content === "string"
+          ? content.content
+          : extractRawPartsText(msg);
+        if (typeof recap === "string" && recap.trim()) {
+          upsertTextItem(`recap:${msgKey}`, "reasoning_summary", recap.trim(), msgCommitted);
+        }
+        return;
+      }
+
+      if (canExposeReasoning(msg)) {
+        const titles = extractVisibleReasoningTitles(msg);
+        for (let i = 0; i < titles.length; i++) {
+          const titleCommitted = Boolean(i + 1 < titles.length || msgCommitted);
+          upsertTextItem(`title:${msgKey}:${i}`, "reasoning_summary", titles[i], titleCommitted);
         }
       }
+
+      if (msg.channel === "analysis" || !isVisibleAssistantMessage(msg)) return;
+      const raw = extractRawPartsText(msg);
+      if (raw === null) return;
+      if (msg.id) turn.messageId = msg.id;
+      const isCommentary =
+        msg.channel === "commentary" || msg.metadata?.is_thinking_preamble_message === true;
+      if (isCommentary) {
+        upsertTextItem(`commentary:${msgKey}`, "commentary", raw, msgCommitted);
+        return;
+      }
+      if (fallbackFenceMode && raw.includes("```codex_tool_call")) {
+        // Hold mutable fallback fence text uncommitted until turn/message settles.
+        upsertTextItem(`answer:${msgKey}`, "answer", raw, false);
+      } else {
+        upsertTextItem(`answer:${msgKey}`, "answer", raw, msgCommitted);
+      }
+      syncDerivedAssistantText();
+    };
+
+    let sawDecodedEvent = false;
+    const handleStreamPayload = (cid, msg, isInput) => {
+      if (typeof cid === "string" && cid) {
+        turn.chatId = cid;
+      }
+      if (!isInput && msg) {
+        recordMessage(msg);
+      }
+    };
+
+    const settleItems = () => {
+      for (const item of turn.items.values()) {
+        if (!item.committed) {
+          item.committed = true;
+          if (item.kind === "tool_call" && item.call) {
+            if (!emittedToolIds.has(item.call.id)) {
+              emittedToolIds.add(item.call.id);
+              emitStream({
+                kind: "tool_call",
+                call_id: item.call.id,
+                name: item.call.name,
+                ...(item.call.namespace ? { namespace: item.call.namespace } : {}),
+                arguments: item.call.arguments,
+              });
+            }
+          } else {
+            emitStream({
+              kind: "item_upsert",
+              item_id: item.id,
+              item_kind: item.kind,
+              text: item.text,
+              committed: true,
+            });
+          }
+        }
+      }
+      emitStream({
+        kind: "turn_completed",
+        chat_id: turn.chatId,
+        message_id: turn.messageId,
+      });
     };
 
     try {
@@ -1682,28 +1873,25 @@
         request: requestPayload,
         expectedAccountId: dispatchAccountId || undefined,
         turnTraceId: newUuid(),
-        onUpdate: (update) => {
-          if (!update || typeof update !== "object") return;
-          activity();
-          if (typeof update.conversationId === "string" && update.conversationId) {
-            turn.chatId = update.conversationId;
-          }
-          if (update.type === "message" && update.message) {
-            recordMessage(update.message);
-          }
-        },
         onDecodedEvent: (ev) => {
-          if (ev && typeof ev === "object") activity();
+          sawDecodedEvent = true;
+          if (!ev || typeof ev !== "object") return;
+          activity();
           const cid = ev?.update?.conversationId || ev?.payload?.conversation_id;
-          if (typeof cid === "string" && cid) {
-            turn.chatId = cid;
-          }
           const msg = ev?.update?.type === "message" ? ev.update.message : ev?.payload?.message;
-          if (msg) {
-            recordMessage(msg);
+          handleStreamPayload(cid, msg, ev?.isInputMessage === true);
+        },
+        onUpdate: (update) => {
+          if (sawDecodedEvent || !update || typeof update !== "object") return;
+          activity();
+          if (update.type === "message" && update.message) {
+            handleStreamPayload(update.conversationId, update.message, false);
+          } else if (typeof update.conversationId === "string" && update.conversationId) {
+            turn.chatId = update.conversationId;
           }
         },
         onComplete: () => {
+          if (!turn.stopped) settleItems();
           turn.resolveDone();
         },
         onError: (err) => {
@@ -1766,10 +1954,11 @@
       };
     }
 
-    // If settled with a server conversation_id, zero native tool calls, and empty stream text,
+    // If settled with a server conversation_id, zero native tool calls, and empty stream answers,
     // fetch only an assistant message strictly AFTER this turn's userMsgId so previous-turn text
     // can never leak into a tool-only or empty turn.
-    if (!turn.assistantText && turn.nativeToolCalls.size === 0 && turn.chatId) {
+    const hasAnswerItem = [...turn.items.values()].some((item) => item.kind === "answer" && item.text);
+    if (!hasAnswerItem && turn.nativeToolCalls.size === 0 && turn.chatId) {
       const rd = await readChat({ chat_id: turn.chatId, limit: 10 });
       if (rd.state === "ok" && Array.isArray(rd.messages)) {
         const userIdx = rd.messages.findIndex((m) => m.id === userMsgId);
@@ -1777,31 +1966,76 @@
           const lastA = [...rd.messages.slice(userIdx + 1)]
             .reverse()
             .find((m) => m.role === "assistant");
-          if (lastA) {
-            turn.assistantText = lastA.text;
+          if (lastA && lastA.text) {
+            const fid = `answer:${lastA.id || "fallback"}`;
+            turn.items.set(fid, { id: fid, kind: "answer", text: truncate(lastA.text), committed: true });
             turn.messageId = lastA.id;
+            syncDerivedAssistantText();
           }
         }
       }
     }
 
-    const parsed = parseToolCallsFromText(turn.assistantText || "");
-    const nativeCalls = [...turn.nativeToolCalls.values()].map((c) => ({
-      id: c.id,
-      name: c.name,
-      ...(c.namespace ? { namespace: c.namespace } : {}),
-      arguments: c.arguments,
-    }));
-    const allCalls = nativeCalls.length > 0 ? nativeCalls : parsed.calls;
+    const normalizedItems = [];
+    const summaryParts = [];
+    const answerParts = [];
+    const seenToolIds = new Set();
+    const settledToolCalls = [];
+    for (const item of turn.items.values()) {
+      if (item.kind === "tool_call" && item.call) {
+        if (!seenToolIds.has(item.call.id)) {
+          seenToolIds.add(item.call.id);
+          const tc = {
+            id: item.call.id,
+            name: item.call.name,
+            ...(item.call.namespace ? { namespace: item.call.namespace } : {}),
+            arguments: item.call.arguments,
+          };
+          settledToolCalls.push(tc);
+          normalizedItems.push({ id: item.id, kind: "tool_call", call_id: tc.id, name: tc.name, ...(tc.namespace ? { namespace: tc.namespace } : {}), arguments: tc.arguments });
+        }
+        continue;
+      }
+      if (!item.text) continue;
+      if (item.kind === "reasoning_summary") {
+        summaryParts.push(item.text);
+        normalizedItems.push({ id: item.id, kind: "reasoning_summary", text: item.text });
+      } else if (item.kind === "commentary") {
+        normalizedItems.push({ id: item.id, kind: "commentary", text: item.text });
+      } else if (item.kind === "answer") {
+        if (turn.nativeToolCalls.size === 0 && (fallbackFenceMode || item.text.includes("```codex_tool_call"))) {
+          const parsed = parseToolCallsFromText(item.text);
+          if (parsed.text) {
+            answerParts.push(parsed.text);
+            normalizedItems.push({ id: item.id, kind: "answer", text: parsed.text });
+          }
+          for (const fc of parsed.calls) {
+            if (!seenToolIds.has(fc.id)) {
+              seenToolIds.add(fc.id);
+              settledToolCalls.push(fc);
+              normalizedItems.push({ id: `tool:${fc.id}`, kind: "tool_call", call_id: fc.id, name: fc.name, ...(fc.namespace ? { namespace: fc.namespace } : {}), arguments: fc.arguments });
+            }
+          }
+        } else {
+          answerParts.push(item.text);
+          normalizedItems.push({ id: item.id, kind: "answer", text: item.text });
+        }
+      }
+    }
+
+    const finalReasoningSummary = truncate(summaryParts.join("\n\n"));
+    const finalAssistantText = truncate(answerParts.join("\n\n"));
+    turn.assistantText = finalAssistantText;
     return {
       state: turn.stopped ? "stopped" : "settled",
       lane_id: turn.laneId,
       chat_id: turn.chatId,
       message_id: turn.messageId,
       ...(opts.verify_identity ? { account_id: observedIdentity } : {}),
-      ...(opts.push_events ? { reasoning_summary: reasoningSummary } : {}),
-      assistant_text: parsed.text,
-      tool_calls: allCalls,
+      items: normalizedItems,
+      reasoning_summary: finalReasoningSummary,
+      assistant_text: finalAssistantText,
+      tool_calls: settledToolCalls,
       generating: false,
     };
   }
