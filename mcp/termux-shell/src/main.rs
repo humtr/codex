@@ -7,7 +7,7 @@
 
 use mcp_kit::{
     base64_encode, serve_stdio, sha256_hex, validate_call_id, McpHandler, ReceiptClaim,
-    ReceiptStore, ToolDef,
+    ReceiptStore, ToolDef, MAX_RECEIPT_BYTES,
 };
 use serde_json::{json, Value};
 use std::env;
@@ -115,7 +115,19 @@ impl StreamCapture {
         Ok(())
     }
 
-    fn spawn<R: Read + Send + 'static>(mut stream: R) -> Self {
+    fn wait_readable(fd: libc::c_int, timeout: Duration) {
+        let millis = timeout.as_millis().clamp(1, i32::MAX as u128) as i32;
+        let mut pfd = libc::pollfd {
+            fd,
+            events: libc::POLLIN,
+            revents: 0,
+        };
+        unsafe {
+            libc::poll(&mut pfd, 1, millis);
+        }
+    }
+
+    fn spawn<R: Read + AsRawFd + Send + 'static>(mut stream: R) -> Self {
         let stop = Arc::new(AtomicBool::new(false));
         let stopping = Arc::clone(&stop);
         let handle = thread::spawn(move || {
@@ -124,7 +136,7 @@ impl StreamCapture {
             let mut truncated = false;
             let mut stop_deadline = None;
             loop {
-                if stopping.load(Ordering::Relaxed) {
+                if stopping.load(Ordering::Acquire) {
                     let deadline = stop_deadline
                         .get_or_insert_with(|| Instant::now() + Duration::from_millis(100));
                     if Instant::now() >= *deadline {
@@ -139,10 +151,21 @@ impl StreamCapture {
                         truncated |= n > room;
                     }
                     Err(err) if err.kind() == io::ErrorKind::WouldBlock => {
-                        if stopping.load(Ordering::Relaxed) {
-                            return (output, true);
-                        }
-                        thread::sleep(Duration::from_millis(10));
+                        let wait = if stopping.load(Ordering::Acquire) {
+                            let deadline = stop_deadline
+                                .get_or_insert_with(|| Instant::now() + Duration::from_millis(100));
+                            let Some(remaining) = deadline.checked_duration_since(Instant::now())
+                            else {
+                                return (output, true);
+                            };
+                            if remaining.is_zero() {
+                                return (output, true);
+                            }
+                            remaining.min(Duration::from_millis(10))
+                        } else {
+                            Duration::from_millis(10)
+                        };
+                        Self::wait_readable(stream.as_raw_fd(), wait);
                     }
                     Err(err) if err.kind() == io::ErrorKind::Interrupted => continue,
                     Err(_) => return (output, true),
@@ -155,8 +178,12 @@ impl StreamCapture {
         }
     }
 
+    fn request_stop(&self) {
+        self.stop.store(true, Ordering::Release);
+    }
+
     fn collect(&mut self) -> (Vec<u8>, bool) {
-        self.stop.store(true, Ordering::Relaxed);
+        self.request_stop();
         self.handle
             .take()
             .and_then(|h| h.join().ok())
@@ -237,12 +264,16 @@ fn run_shell_command(script: &str, cwd: &Path, timeout_ms: u64, shell: &Path) ->
         }
     };
 
-    // Terminate ordinary surviving process-group descendants on command exit.
+    // Terminate ordinary surviving process-group descendants on command exit,
+    // then signal both readers concurrently before joining so detached writers
+    // share one grace window.
     drop(group);
+    stdout.request_stop();
+    stderr.request_stop();
     let (out, out_truncated) = stdout.collect();
     let (err, err_truncated) = stderr.collect();
 
-    json!({
+    let mut outcome = json!({
         "state": if timed_out { "timed_out" } else { "exited" },
         "executed": true,
         "pid": pid,
@@ -257,7 +288,54 @@ fn run_shell_command(script: &str, cwd: &Path, timeout_ms: u64, shell: &Path) ->
         "stdout_truncated": out_truncated,
         "stderr_truncated": err_truncated,
         "cwd": cwd.to_string_lossy()
-    })
+    });
+    fit_outcome_for_receipt(&mut outcome);
+    outcome
+}
+
+fn fit_outcome_for_receipt(outcome: &mut Value) {
+    // `MAX_OUTPUT_BYTES` base64 (<= ~175 KiB combined) always fits inside `MAX_RECEIPT_BYTES`
+    // (520 KiB). However, binary control bytes in `stdout`/`stderr` JSON strings expand up to 6x
+    // (`\u00XX`), which can push both fields past `MAX_RECEIPT_BYTES` and break `call_id` replay.
+    // Trim only the UTF-8 display strings if needed while keeping lossless `*_base64` intact.
+    const ENVELOPE_HEADROOM: usize = 1024;
+    let limit = (MAX_RECEIPT_BYTES as usize).saturating_sub(ENVELOPE_HEADROOM);
+    let encoded_len = |v: &Value| serde_json::to_vec(v).map_or(usize::MAX, |b| b.len());
+    if encoded_len(outcome) <= limit {
+        return;
+    }
+    for key in ["stderr", "stdout"] {
+        if encoded_len(outcome) <= limit {
+            break;
+        }
+        let orig = outcome[key].as_str().unwrap_or("").to_owned();
+        if orig.is_empty() {
+            continue;
+        }
+        // Binary search longest valid UTF-8 prefix that keeps the whole JSON within budget.
+        let mut lo = 0usize;
+        let mut hi = orig.len();
+        while lo < hi {
+            let mut mid = (lo + hi).div_ceil(2);
+            while mid > lo && !orig.is_char_boundary(mid) {
+                mid -= 1;
+            }
+            if mid == lo {
+                break;
+            }
+            outcome[key] = Value::String(orig[..mid].to_owned());
+            if encoded_len(outcome) <= limit {
+                lo = mid;
+            } else {
+                hi = mid.saturating_sub(1);
+            }
+        }
+        while lo > 0 && !orig.is_char_boundary(lo) {
+            lo -= 1;
+        }
+        outcome[key] = Value::String(orig[..lo].to_owned());
+        outcome[format!("{key}_text_truncated")] = json!(true);
+    }
 }
 
 pub fn execute_with(receipt_root: &Path, shell: &Path, args: &Value) -> Value {
@@ -595,6 +673,50 @@ mod tests {
             serde_json::from_str(lines[1]["result"]["content"][0]["text"].as_str().unwrap())
                 .unwrap();
         assert_eq!(payload["stdout"], "ok");
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn process_group_killed_descendant_and_dual_binary_streams_preserve_flags_and_replay() {
+        let root = fixture();
+
+        // Killed process-group child closing its write FD within the grace window must NOT set truncated=true.
+        let pg_res = execute_with(
+            &root,
+            &sh(),
+            &json!({
+                "call_id": "pg-no-false-trunc",
+                "command": "sleep 5 & echo PG_OK",
+                "cwd": root
+            }),
+        );
+        assert_eq!(pg_res["exit_code"], 0);
+        assert_eq!(pg_res["stdout"], "PG_OK\n");
+        assert_eq!(pg_res["stdout_truncated"], false);
+        assert_eq!(pg_res["stderr_truncated"], false);
+        assert_eq!(pg_res["replay_safe"], true);
+
+        // Dual 64 KiB NUL bytes expand JSON strings beyond MAX_RECEIPT_BYTES unless trimmed;
+        // lossless base64 and call_id replay MUST still commit cleanly.
+        let bin_args = json!({
+            "call_id": "dual-64k-nul",
+            "command": "head -c 65536 /dev/zero; head -c 65536 /dev/zero >&2",
+            "cwd": root
+        });
+        let first = execute_with(&root, &sh(), &bin_args);
+        assert_eq!(first["exit_code"], 0);
+        assert_eq!(first["replay_safe"], true);
+        assert!(first.get("receipt_error").is_none());
+        assert_eq!(first["stdout_truncated"], false);
+        assert_eq!(first["stderr_truncated"], false);
+        assert_eq!(first["stdout_base64"].as_str().unwrap().len(), 87_384);
+        assert_eq!(first["stderr_base64"].as_str().unwrap().len(), 87_384);
+
+        let replay = execute_with(&root, &sh(), &bin_args);
+        assert_eq!(replay["replayed_from_receipt"], true);
+        assert_eq!(replay["stdout_base64"], first["stdout_base64"]);
+        assert_eq!(replay["stderr_base64"], first["stderr_base64"]);
+
         let _ = fs::remove_dir_all(&root);
     }
 }

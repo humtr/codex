@@ -46,9 +46,12 @@ independent recovery and automation plane even if every other component is down.
     group (`process_group(0)`).
   - Timeout or drop terminates **only** the owned process group (`kill(-pid, SIGKILL)`),
     preserving already-captured stdout/stderr and actual exit/signal metadata.
-    The worker waits for the shell leader and terminates remaining members of
-    its group. It drains and closes both capture readers even when a detached
-    session keeps a write end open. An incomplete capture is marked truncated.
+    The worker waits for the shell leader, terminates remaining members of its
+    group, stops both capture readers concurrently within a bounded grace window
+    so dying group descendants can flush EOF without false truncation while
+    detached write holders still hit timeout, and keeps every settled receipt
+    within `<= 512 KiB` by trimming only overflowing UTF-8 text previews when
+    escaped binary bytes expand JSON while preserving lossless `*_base64`.
   - Each output stream (`stdout`, `stderr`) is capped at `64 KiB` with explicit
     `stdout_truncated`/`stderr_truncated` flags and both UTF-8 lossy text and
     Base64 (`stdout_base64`/`stderr_base64`).
