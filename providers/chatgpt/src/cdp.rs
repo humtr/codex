@@ -4,9 +4,10 @@
 //! Zero TCP debug listener, zero relay daemon.
 
 use crate::error::{ProviderError, Result};
+use serde::Deserialize;
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::sync::{mpsc, oneshot};
@@ -14,6 +15,38 @@ use tokio::sync::{mpsc, oneshot};
 const MAX_FRAME_BYTES: usize = 16 * 1024 * 1024;
 const MAX_PENDING_REQUESTS: usize = 128;
 const DEFAULT_RPC_TIMEOUT: Duration = Duration::from_secs(30);
+
+pub const STREAM_BINDING: &str = "__termuxChatGptStream";
+
+#[derive(Deserialize)]
+#[serde(tag = "kind", content = "text", rename_all = "snake_case")]
+pub enum StreamUpdate {
+    Activity,
+    Reasoning(String),
+    Answer(String),
+}
+
+#[derive(Deserialize)]
+struct BindingUpdate {
+    lane_id: String,
+    #[serde(flatten)]
+    update: StreamUpdate,
+}
+
+type StreamRoutes = Arc<Mutex<BTreeMap<(String, String), mpsc::Sender<StreamUpdate>>>>;
+
+pub struct StreamRoute {
+    routes: StreamRoutes,
+    key: (String, String),
+}
+
+impl Drop for StreamRoute {
+    fn drop(&mut self) {
+        if let Ok(mut routes) = self.routes.lock() {
+            routes.remove(&self.key);
+        }
+    }
+}
 
 struct CdpCommand {
     method: String,
@@ -26,6 +59,7 @@ struct CdpCommand {
 pub struct CdpClient {
     tx: mpsc::Sender<CdpCommand>,
     pub generation: Arc<str>,
+    streams: StreamRoutes,
 }
 
 impl CdpClient {
@@ -37,6 +71,8 @@ impl CdpClient {
         let (tx, mut rx) = mpsc::channel::<CdpCommand>(MAX_PENDING_REQUESTS);
         let (in_tx, mut in_rx) = mpsc::channel::<Value>(MAX_PENDING_REQUESTS);
 
+        let streams = StreamRoutes::default();
+        let routes = Arc::clone(&streams);
         let reader_task = tokio::spawn(async move {
             let mut br = BufReader::new(reader);
             loop {
@@ -110,6 +146,23 @@ impl CdpClient {
                                     let _ = reply.send(Ok(msg.get("result").cloned().unwrap_or(Value::Null)));
                                 }
                             }
+                        } else if msg["method"] == "Runtime.bindingCalled"
+                            && msg["params"]["name"] == STREAM_BINDING
+                        {
+                            let sid = msg["sessionId"].as_str();
+                            let payload = msg["params"]["payload"].as_str()
+                                .filter(|data| data.len() <= 512 * 1024);
+                            if let (Some(sid), Some(payload)) = (sid, payload) {
+                                if let Ok(update) = serde_json::from_str::<BindingUpdate>(payload) {
+                                    if let Ok(routes) = routes.lock() {
+                                        if let Some(tx) = routes.get(&(sid.to_owned(), update.lane_id)) {
+                                            // Updates are cumulative snapshots. Dropping an
+                                            // intermediate snapshot cannot lose final content.
+                                            let _ = tx.try_send(update.update);
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -126,7 +179,31 @@ impl CdpClient {
         Self {
             tx,
             generation: generation.into(),
+            streams,
         }
+    }
+
+    pub fn route_stream(
+        &self,
+        session: &str,
+        lane: &str,
+        tx: mpsc::Sender<StreamUpdate>,
+    ) -> Result<StreamRoute> {
+        let key = (session.to_owned(), lane.to_owned());
+        let mut routes = self.streams.lock().map_err(|_| {
+            ProviderError::internal("cdp_stream_routes", "CDP stream route lock poisoned")
+        })?;
+        if routes.contains_key(&key) {
+            return Err(ProviderError::internal(
+                "cdp_stream_duplicate",
+                "duplicate CDP stream route",
+            ));
+        }
+        routes.insert(key.clone(), tx);
+        Ok(StreamRoute {
+            routes: Arc::clone(&self.streams),
+            key,
+        })
     }
 
     pub async fn request(
@@ -267,6 +344,32 @@ impl CdpClient {
 mod tests {
     use super::*;
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+
+    #[tokio::test]
+    async fn cdp_binding_routes_only_matching_session_and_lane() {
+        let (pipe, mut peer) = tokio::io::duplex(8192);
+        let (reader, writer) = tokio::io::split(pipe);
+        let client = CdpClient::from_pipe(reader, writer, "test".to_owned());
+        let (tx, mut rx) = mpsc::channel(4);
+        let _route = client.route_stream("session", "lane", tx).unwrap();
+        for (session, lane, text) in [
+            ("wrong", "lane", "wrong session"),
+            ("session", "wrong", "wrong lane"),
+            ("session", "lane", "visible"),
+        ] {
+            let msg = json!({
+                "method":"Runtime.bindingCalled", "sessionId":session, "params":{
+                    "name":STREAM_BINDING, "payload":json!({"kind":"reasoning","lane_id":lane,"text":text}).to_string()
+                }
+            });
+            peer.write_all(format!("{msg}\0").as_bytes()).await.unwrap();
+        }
+        let update = tokio::time::timeout(Duration::from_secs(1), rx.recv())
+            .await
+            .unwrap();
+        assert!(matches!(update, Some(StreamUpdate::Reasoning(text)) if text == "visible"));
+        assert!(rx.try_recv().is_err());
+    }
 
     #[tokio::test]
     async fn cdp_pipe_roundtrip_and_page_evaluate() {

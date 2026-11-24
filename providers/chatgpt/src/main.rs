@@ -18,7 +18,9 @@ mod viewer;
 use crate::config::{load_or_create_control_token, user_home, ProviderConfig};
 use crate::driver::{CdpDriver, DriverBackend};
 use crate::error::Result;
+#[cfg(test)]
 use crate::server::build_router;
+use crate::server::build_router_with_threads;
 use crate::viewer::ViewerSlot;
 use serde_json::json;
 use std::env;
@@ -206,6 +208,9 @@ async fn run() -> Result<()> {
 
             let state_dir = cfg.state_dir(&home);
             let (token_path, token) = load_or_create_control_token(&state_dir)?;
+            let response_state = cfg.response_state_dir(&home);
+            config::ensure_private_dir(&response_state)?;
+            let threads = crate::responses::ResponseThreadMap::open(&response_state)?;
             let listener = TcpListener::bind(&cfg.server.bind).await.map_err(|e| {
                 crate::error::ProviderError::unavailable(
                     "bind_failed",
@@ -252,7 +257,14 @@ async fn run() -> Result<()> {
             }
 
             let driver_dyn: Arc<dyn DriverBackend> = driver.clone();
-            let app = build_router(driver_dyn, cfg.model, cfg.history, token, viewer_slot);
+            let app = build_router_with_threads(
+                driver_dyn,
+                cfg.model,
+                cfg.history,
+                token,
+                viewer_slot,
+                threads,
+            );
             eprintln!(
                 "chatgpt-provider {} listening on http://{} (control token: {})",
                 env!("CARGO_PKG_VERSION"),
@@ -370,6 +382,34 @@ mod tests {
             let r = self.reply.clone();
             Box::pin(async move { Ok(r) })
         }
+        fn stream_message(
+            &self,
+            p: Value,
+            tx: tokio::sync::mpsc::Sender<crate::cdp::StreamUpdate>,
+        ) -> BoxFuture<'_, Result<Value>> {
+            use crate::cdp::StreamUpdate;
+            let result = self.send_message(p);
+            Box::pin(async move {
+                let reply = result.await?;
+                if let Some(snapshots) = reply["test_snapshots"].as_array() {
+                    for snapshot in snapshots {
+                        let text = snapshot["text"].as_str().unwrap().to_owned();
+                        let event = if snapshot["kind"] == "reasoning" {
+                            StreamUpdate::Reasoning(text)
+                        } else {
+                            StreamUpdate::Answer(text)
+                        };
+                        tx.send(event).await.unwrap();
+                        tokio::time::sleep(std::time::Duration::from_millis(
+                            reply["test_delay_ms"].as_u64().unwrap_or(125_000),
+                        ))
+                        .await;
+                    }
+                }
+                Ok(reply)
+            })
+        }
+
         fn observe_chat(&self, p: Value) -> BoxFuture<'_, Result<Value>> {
             Box::pin(async move {
                 Ok(json!({"state":"settled","chat_id":p["chat_id"],"generating":false}))
@@ -739,7 +779,7 @@ mod tests {
             ]
         }));
         let resp2 = oneshot(
-            router,
+            router.clone(),
             Request::builder()
                 .method("POST")
                 .uri("/v1/responses")
@@ -764,9 +804,9 @@ mod tests {
             2
         );
 
-        // Round 3: compacted/edited prefix MUST fork a fresh chat_id (None) instead of
-        // appending onto `conv-orch-1`!
-        let mut r3_body = r1_body.clone();
+        // Keep round 2's cached chat and grow the input so the changed prefix
+        // itself selects a fresh chat.
+        let mut r3_body = r2_body;
         r3_body["input"][1]["content"][0]["text"] = json!("Compacted summary of prior work");
         r3_body["input"].as_array_mut().unwrap().push(json!({
             "type": "message",
@@ -774,16 +814,7 @@ mod tests {
             "content": [{"type": "input_text", "text": "Continue after compaction"}]
         }));
         let resp3 = oneshot(
-            build_router(
-                driver.clone(),
-                config::ModelConfig::default(),
-                config::HistoryConfig {
-                    project_id: Some("g-p-test-proj".to_owned()),
-                    project_name: None,
-                },
-                "tok-0123456789abcdef0123456789abcdef".to_owned(),
-                Arc::new(RwLock::new(None)),
-            ),
+            router,
             Request::builder()
                 .method("POST")
                 .uri("/v1/responses")
@@ -827,6 +858,206 @@ mod tests {
         assert_eq!(resp_title.status(), StatusCode::OK);
         let sent_title = driver.last_send.lock().unwrap().clone().unwrap();
         assert!(sent_title["project_id"].is_null());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn responses_flush_live_items_before_long_turn_settles() {
+        use futures_util::StreamExt;
+        use std::time::Duration;
+        let driver = MockDriver::new(json!({
+            "state": "settled",
+            "reasoning_summary": "Visible summary",
+            "assistant_text": "Final answer",
+            "test_snapshots": [
+                {"kind":"reasoning","text":"Visible summary"},
+                {"kind":"answer","text":"Final answer"}
+            ]
+        }));
+        let start = tokio::time::Instant::now();
+        let response = crate::responses::handle_responses(
+            driver,
+            &Default::default(),
+            &Default::default(),
+            Arc::new(Default::default()),
+            Some("test".to_owned()),
+            json!({"input":"test","stream":true}),
+        )
+        .await
+        .unwrap();
+        let mut stream = response.into_body().into_data_stream();
+        let mut observed = Vec::new();
+        while let Some(chunk) = stream.next().await {
+            let chunk = chunk.unwrap();
+            let text = std::str::from_utf8(&chunk).unwrap();
+            if let Some(data) = text.lines().find_map(|line| line.strip_prefix("data: ")) {
+                let event: Value = serde_json::from_str(data).unwrap();
+                observed.push((start.elapsed(), event));
+            }
+        }
+        let time = |kind| {
+            observed
+                .iter()
+                .find(|(_, event)| event["type"] == kind)
+                .unwrap()
+                .0
+        };
+        assert!(time("response.reasoning_summary_text.delta") < time("response.output_text.delta"));
+        assert!(time("response.output_text.delta") < time("response.completed"));
+        assert!(time("response.completed") >= Duration::from_secs(250));
+        for (index, (_, event)) in observed.iter().enumerate() {
+            assert_eq!(event["sequence_number"], index);
+        }
+    }
+
+    #[tokio::test]
+    async fn responses_restart_reuses_pinned_chat_and_summary_only_survives() {
+        use axum::body::to_bytes;
+        let state =
+            std::env::temp_dir().join(format!("provider-map-{}", config::random_hex(8).unwrap()));
+        std::fs::create_dir(&state).unwrap();
+        let driver = MockDriver::new(json!({
+            "state":"settled","chat_id":"conv-one","account_id":"acct-one",
+            "reasoning_summary":"Only summary", "assistant_text":""
+        }));
+        let first = json!({"input":[{"role":"user","content":"First"}],"stream":true});
+        let mut second = first.clone();
+        second["input"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({"role":"user","content":"Second"}));
+        for (round, body) in [first, second].into_iter().enumerate() {
+            let map = Arc::new(crate::responses::ResponseThreadMap::open(&state).unwrap());
+            let response = crate::responses::handle_responses(
+                driver.clone(),
+                &Default::default(),
+                &Default::default(),
+                Arc::clone(&map),
+                Some("test-session".to_owned()),
+                body,
+            )
+            .await
+            .unwrap();
+            let bytes = to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
+            let sse = std::str::from_utf8(&bytes).unwrap();
+            assert!(sse.contains("response.completed"));
+            assert!(sse.contains("Only summary"));
+            assert!(sse.contains("response.reasoning_summary_text.delta"));
+            assert!(sse.contains("response.output_text.delta"));
+            let sent = driver.last_send.lock().unwrap();
+            if round == 0 {
+                assert!(sent.as_ref().unwrap()["chat_id"].is_null());
+            } else {
+                assert_eq!(sent.as_ref().unwrap()["chat_id"], "conv-one");
+                assert_eq!(sent.as_ref().unwrap()["expected_account_id"], "acct-one");
+                assert!(!sent.as_ref().unwrap()["prompt"]
+                    .as_str()
+                    .unwrap()
+                    .contains("First"));
+            }
+            drop(sent);
+            // The HTTP producer holds the map (and its lease) until EOF.
+            drop(map);
+        }
+        std::fs::remove_dir_all(state).unwrap();
+    }
+
+    #[tokio::test]
+    #[ignore = "requires an installed official Termux Codex 0.171.0"]
+    async fn native_codex_reads_provider_summary_and_answer_items() {
+        use std::time::Duration;
+        let root = std::env::temp_dir().join(format!(
+            "provider-native-{}",
+            config::random_hex(8).unwrap()
+        ));
+        let home = root.join("codex");
+        let cwd = root.join("work");
+        std::fs::create_dir_all(&home).unwrap();
+        std::fs::create_dir_all(&cwd).unwrap();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let router = build_router(
+            MockDriver::new(json!({
+                "state":"settled", "reasoning_summary":"VISIBLE_FIXTURE_SUMMARY",
+                "assistant_text":"VISIBLE_FIXTURE_ANSWER", "test_delay_ms":450,
+                "test_snapshots":[{"kind":"reasoning","text":"VISIBLE_FIXTURE_SUMMARY"},
+                                  {"kind":"answer","text":"VISIBLE_FIXTURE_ANSWER"}]
+            })),
+            Default::default(),
+            Default::default(),
+            "fixture-control-token".to_owned(),
+            Arc::new(RwLock::new(None)),
+        );
+        let server = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+        std::fs::write(
+            home.join("config.toml"),
+            format!(
+                r#"
+model = "fixture-model"
+model_provider = "chatgpt_desktop"
+approval_policy = "never"
+[model_providers.chatgpt_desktop]
+name = "Isolated Provider fixture"
+base_url = "http://{addr}/v1"
+requires_openai_auth = false
+wire_api = "responses"
+"#
+            ),
+        )
+        .unwrap();
+        let output = tokio::time::timeout(
+            Duration::from_secs(24),
+            tokio::process::Command::new("codex")
+                .args([
+                    "--no-daemon",
+                    "exec",
+                    "--json",
+                    "--skip-git-repo-check",
+                    "Run the streaming fixture",
+                ])
+                .current_dir(&cwd)
+                .env("CODEX_HOME", &home)
+                .env_remove("CODEX_SHARED_HOME")
+                .env_remove("CODEX_SQLITE_HOME")
+                .env_remove("CODEX_THREAD_ID")
+                .env_remove("CODEX_SHARED_EXTRA_FILES")
+                .kill_on_drop(true)
+                .output(),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        server.abort();
+        let stdout = String::from_utf8(output.stdout).unwrap();
+        let stderr = String::from_utf8(output.stderr).unwrap();
+        assert!(output.status.success(), "{stderr}\n{stdout}");
+        let items: Vec<Value> = stdout
+            .lines()
+            .filter_map(|line| serde_json::from_str(line).ok())
+            .collect();
+        assert!(
+            items.iter().any(|v| v["type"] == "item.completed"
+                && v["item"]["type"] == "reasoning"
+                && v["item"]["text"] == "VISIBLE_FIXTURE_SUMMARY"),
+            "{stdout}"
+        );
+        assert!(
+            items.iter().any(|v| v["type"] == "item.completed"
+                && v["item"]["type"] == "agent_message"
+                && v["item"]["text"] == "VISIBLE_FIXTURE_ANSWER"),
+            "{stdout}"
+        );
+        let sessions = std::process::Command::new("rg")
+            .args(["-l", "VISIBLE_FIXTURE_SUMMARY"])
+            .arg(home.join("sessions"))
+            .output()
+            .unwrap();
+        let logs = String::from_utf8(sessions.stdout).unwrap();
+        assert!(logs
+            .lines()
+            .any(|path| std::fs::read_to_string(path).is_ok_and(|log| {
+                log.contains("VISIBLE_FIXTURE_ANSWER") && log.contains("VISIBLE_FIXTURE_SUMMARY")
+            })));
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[tokio::test]

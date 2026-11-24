@@ -28,6 +28,7 @@ struct AppState {
     threads: Arc<ResponseThreadMap>,
 }
 
+#[cfg(test)]
 pub fn build_router(
     driver: Arc<dyn DriverBackend>,
     model_cfg: ModelConfig,
@@ -35,11 +36,29 @@ pub fn build_router(
     control_token: String,
     viewer_slot: ViewerSlot,
 ) -> Router {
+    build_router_with_threads(
+        driver,
+        model_cfg,
+        history_cfg,
+        control_token,
+        viewer_slot,
+        ResponseThreadMap::default(),
+    )
+}
+
+pub fn build_router_with_threads(
+    driver: Arc<dyn DriverBackend>,
+    model_cfg: ModelConfig,
+    history_cfg: HistoryConfig,
+    control_token: String,
+    viewer_slot: ViewerSlot,
+    threads: ResponseThreadMap,
+) -> Router {
     let app_state = AppState {
         driver: Arc::clone(&driver),
         model_cfg: Arc::new(model_cfg),
         history_cfg: Arc::new(history_cfg),
-        threads: Arc::new(ResponseThreadMap::default()),
+        threads: Arc::new(threads),
     };
     let v1_router = Router::new()
         .route("/healthz", get(healthz))

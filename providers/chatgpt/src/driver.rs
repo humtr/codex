@@ -1,6 +1,7 @@
 //! Abstract `DriverBackend` trait + real CDP-backed `CdpDriver` executing
 //! the clean-room `page_driver.js` inside the owned Linux ChatGPT AppHost.
 
+use crate::cdp::{StreamUpdate, STREAM_BINDING};
 use crate::config::ProviderConfig;
 use crate::error::{ProviderError, Result};
 use crate::host::OwnedHost;
@@ -12,7 +13,7 @@ use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
-use tokio::sync::{watch, Mutex};
+use tokio::sync::{mpsc, watch, Mutex};
 
 pub const PAGE_DRIVER_JS: &str = include_str!("page_driver.js");
 
@@ -28,6 +29,13 @@ pub trait DriverBackend: Send + Sync {
     fn read_project(&self, params: Value) -> BoxFuture<'_, Result<Value>>;
     fn create_project(&self, params: Value) -> BoxFuture<'_, Result<Value>>;
     fn send_message(&self, params: Value) -> BoxFuture<'_, Result<Value>>;
+    fn stream_message(
+        &self,
+        params: Value,
+        _events: mpsc::Sender<StreamUpdate>,
+    ) -> BoxFuture<'_, Result<Value>> {
+        self.send_message(params)
+    }
     fn observe_chat(&self, params: Value) -> BoxFuture<'_, Result<Value>>;
     fn stop_generation(&self, params: Value) -> BoxFuture<'_, Result<Value>>;
     fn viewer_info(&self) -> BoxFuture<'_, Result<Value>>;
@@ -147,11 +155,17 @@ impl CdpDriver {
         arg: Value,
         timeout: Duration,
     ) -> Result<Value> {
-        self.while_serving(self.call_host(method, arg, timeout))
+        self.while_serving(self.call_host(method, arg, timeout, None))
             .await
     }
 
-    async fn call_host(&self, method: &str, arg: Value, timeout: Duration) -> Result<Value> {
+    async fn call_host(
+        &self,
+        method: &str,
+        arg: Value,
+        timeout: Duration,
+        events: Option<mpsc::Sender<StreamUpdate>>,
+    ) -> Result<Value> {
         let (client, sid) = {
             let mut guard = self.state.lock().await;
             if guard.host.is_some() && !self.running() {
@@ -168,6 +182,16 @@ impl CdpDriver {
                 Some(s) => (s.clone(), false),
                 None => {
                     let s = client.attach_chatgpt_page().await?;
+                    client
+                        .request("Runtime.enable", json!({}), Some(s.clone()))
+                        .await?;
+                    client
+                        .request(
+                            "Runtime.addBinding",
+                            json!({"name": STREAM_BINDING}),
+                            Some(s.clone()),
+                        )
+                        .await?;
                     guard.session_id = Some(s.clone());
                     (s, true)
                 }
@@ -201,6 +225,14 @@ impl CdpDriver {
             (client, sid)
         };
 
+        let _route = if let Some(events) = events {
+            let lane = arg["lane_id"]
+                .as_str()
+                .ok_or_else(|| ProviderError::internal("cdp_stream_lane", "missing stream lane"))?;
+            Some(client.route_stream(&sid, lane, events)?)
+        } else {
+            None
+        };
         let arg_json = serde_json::to_string(&arg)
             .map_err(|e| ProviderError::internal("driver_encode_failed", e.to_string()))?;
         // Ensure page_driver.js is installed and invoke the requested method atomically
@@ -342,6 +374,20 @@ impl DriverBackend for CdpDriver {
             )
             .await
         })
+    }
+
+    fn stream_message(
+        &self,
+        mut params: Value,
+        events: mpsc::Sender<StreamUpdate>,
+    ) -> BoxFuture<'_, Result<Value>> {
+        params["push_events"] = json!(true);
+        Box::pin(self.while_serving(self.call_host(
+            "sendMessage",
+            params,
+            Duration::from_secs(2 * 60 * 60 + 30),
+            Some(events),
+        )))
     }
 
     fn observe_chat(&self, params: Value) -> BoxFuture<'_, Result<Value>> {

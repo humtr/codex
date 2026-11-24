@@ -351,6 +351,7 @@
   let cachedCompletionClient = null;
   let cachedAccountId = null;
   const activeTurns = new Map(); // laneId -> turn state (supports multi-lane parallel execution)
+  const cancelledLanes = new Map();
   let lastTurn = null;
   const MAX_TRACKED_TURNS = 32;
   const MAX_CONCURRENT_GENERATING = 8;
@@ -661,6 +662,8 @@
     const role = msg.author && msg.author.role ? msg.author.role : "unknown";
     const contentType = msg.content && msg.content.content_type ? msg.content.content_type : "";
     if (contentType === "thoughts" || contentType === "reasoning_recap") return null;
+    if (role === "assistant" && (msg.metadata?.is_visually_hidden_from_conversation ||
+      (msg.recipient && msg.recipient !== "all"))) return null;
     const parts = Array.isArray(msg.content && msg.content.parts) ? msg.content.parts : [];
     const text = parts
       .filter((p) => typeof p === "string")
@@ -1240,12 +1243,10 @@
   async function stopSingleTurn(turn, client) {
     turn.stopped = true;
     turn.generating = false;
-    if (client) {
-      if (turn.requestId) {
-        try {
-          client.cancelStream(turn.requestId);
-        } catch (_) {}
-      }
+    if (client && turn.requestId) {
+      try {
+        client.cancelStream(turn.requestId);
+      } catch (_) {}
       if (turn.chatId) {
         try {
           await client.stopCompletion(
@@ -1264,6 +1265,12 @@
     const requestedChatId =
       typeof opts.chat_id === "string" && opts.chat_id.trim() ? opts.chat_id.trim() : null;
     const stopAll = opts.all === true;
+    if (requestedLaneId && !requestedChatId && !activeTurns.has(requestedLaneId)) {
+      cancelledLanes.set(requestedLaneId, Date.now() + 300000);
+      while (cancelledLanes.size > MAX_TRACKED_TURNS * 2) {
+        cancelledLanes.delete(cancelledLanes.keys().next().value);
+      }
+    }
 
     const client = await ensureCompletionClient();
 
@@ -1335,38 +1342,44 @@
     const laneId =
       typeof opts.lane_id === "string" && opts.lane_id.trim() ? opts.lane_id.trim() : newUuid();
 
-    // Prevent concurrent writes to the SAME conversation tree (or reusing an active lane_id),
-    // while allowing independent conversations / new chats to execute in parallel.
-    const liveTurns = generatingTurns();
-    if (activeTurns.has(laneId) && activeTurns.get(laneId).generating) {
-      return {
-        state: "error",
-        error: "generation_already_active",
-        detail: "lane already has an active response",
-        lane_id: laneId,
-        chat_id: activeTurns.get(laneId).chatId || chatId,
-      };
-    }
-    if (chatId) {
-      const sameChat = liveTurns.find((t) => t.chatId === chatId);
-      if (sameChat) {
+    const blockedLane = () => {
+      const cancelledUntil = cancelledLanes.get(laneId);
+      if (cancelledUntil > Date.now()) return { state: "stopped", lane_id: laneId };
+      const liveTurns = generatingTurns();
+      if (activeTurns.has(laneId) && activeTurns.get(laneId).generating) {
         return {
           state: "error",
           error: "generation_already_active",
-          detail: "conversation already has an active response",
-          lane_id: sameChat.laneId,
-          chat_id: chatId,
+          detail: "lane already has an active response",
+          lane_id: laneId,
+          chat_id: activeTurns.get(laneId).chatId || chatId,
         };
       }
-    }
-    if (liveTurns.length >= MAX_CONCURRENT_GENERATING) {
-      return {
-        state: "error",
-        error: "too_many_active_generations",
-        detail: `at most ${MAX_CONCURRENT_GENERATING} concurrent lanes are allowed`,
-        active_turn_count: liveTurns.length,
-      };
-    }
+      if (chatId) {
+        const sameChat = liveTurns.find((t) => t.chatId === chatId);
+        if (sameChat) {
+          return {
+            state: "error",
+            error: "generation_already_active",
+            detail: "conversation already has an active response",
+            lane_id: sameChat.laneId,
+            chat_id: chatId,
+          };
+        }
+      }
+      if (liveTurns.length >= MAX_CONCURRENT_GENERATING) {
+        return {
+          state: "error",
+          error: "too_many_active_generations",
+          detail: `at most ${MAX_CONCURRENT_GENERATING} concurrent lanes are allowed`,
+          active_turn_count: liveTurns.length,
+        };
+      }
+
+      return null;
+    };
+    const initialBlock = blockedLane();
+    if (initialBlock) return initialBlock;
 
     const shouldWaitForBoot =
       isElectronAppOrigin() || Boolean(location && location.protocol === "about:");
@@ -1385,7 +1398,8 @@
         ? opts.expected_account_id.trim()
         : null;
     let dispatchAccountId = cachedAccountId;
-    if (expectedAccountId || !cachedAccountId) {
+    let observedIdentity = null;
+    if (expectedAccountId || opts.verify_identity || !cachedAccountId) {
       let me = await apiFetch("/me");
       for (let attempt = 0; attempt < 4 && !me.ok && me.status === 0 && isElectronAppOrigin(); attempt++) {
         await new Promise((r) => setTimeout(r, 1500));
@@ -1405,8 +1419,11 @@
       const personalOrg = orgs.find((o) => o.is_personal) || orgs[0] || null;
       cachedAccountId = personalOrg?.id || me.json.account_id || null;
       dispatchAccountId = cachedAccountId;
+      observedIdentity = dispatchAccountId || me.json.id || null;
+      if (opts.verify_identity && !observedIdentity) {
+        return { state: "error", error: "pinned_account_unavailable" };
+      }
       if (expectedAccountId) {
-        const observedIdentity = dispatchAccountId || me.json.id || null;
         if (observedIdentity !== expectedAccountId) {
           return { state: "error", error: "pinned_account_mismatch" };
         }
@@ -1437,7 +1454,10 @@
 
     // If continuing an existing conversation, resolve its exact current_node leaf & project.
     if (chatId) {
-      const convRes = await apiFetch(`/conversation/${encodeURIComponent(chatId)}`);
+      const convRes = await apiFetch(`/conversation/${encodeURIComponent(chatId)}`,
+        opts.strict_project && dispatchAccountId
+          ? { headers: { "X-OpenAI-Expected-Account-Id": dispatchAccountId } }
+          : undefined);
       if (!convRes.ok || !convRes.json) {
         return {
           state: "error",
@@ -1448,7 +1468,8 @@
       if (typeof convRes.json.current_node === "string" && convRes.json.current_node) {
         parentMessageId = convRes.json.current_node;
       }
-      if (expectedAccountId && projectId && convRes.json.gizmo_id !== projectId) {
+      if ((opts.strict_project || (expectedAccountId && projectId)) &&
+          (convRes.json.gizmo_id || null) !== projectId) {
         return { state: "error", error: "pinned_project_mismatch" };
       }
       if (!projectId && typeof convRes.json.gizmo_id === "string" && convRes.json.gizmo_id) {
@@ -1544,12 +1565,58 @@
         resolveDone();
       },
     };
+    // Auth, boot, and conversation reads above yield to other callers.
+    const finalBlock = blockedLane();
+    if (finalBlock) return finalBlock;
     activeTurns.set(laneId, turn);
     lastTurn = turn;
     pruneSettledTurns();
 
+    const push = opts.push_events === true && typeof globalThis.__termuxChatGptStream === "function"
+      ? (kind, text) => globalThis.__termuxChatGptStream(JSON.stringify({ lane_id: laneId, kind, text }))
+      : () => {};
+    const summaries = new Map();
+    const summarySnapshot = () => truncate([...summaries.values()].join("\n\n"));
+    let lastActivity = 0;
+    let lastAnswer = "";
+    const activity = () => {
+      const now = Date.now();
+      if (now - lastActivity >= 1000) {
+        lastActivity = now;
+        push("activity");
+      }
+    };
+    const visibleAnswerPrefix = (text) => {
+      const marker = "```codex_tool_call";
+      const fence = text.indexOf(marker);
+      if (fence >= 0) return text.slice(0, fence).trimEnd();
+      // A partial fence opener can become a tool call in the next snapshot.
+      for (let len = marker.length - 1; len > 0; len--) {
+        if (text.endsWith(marker.slice(0, len))) return text.slice(0, -len).trimEnd();
+      }
+      return text.trimEnd();
+    };
+
     const recordMessage = (msg) => {
-      if (!msg || typeof msg !== "object") return;
+      if (!msg || typeof msg !== "object" || turn.stopped) return;
+      const content = msg.content;
+      const kind = content?.content_type;
+      if (kind === "thoughts" || kind === "reasoning_recap") {
+        const userFacing = msg.author?.role === "assistant" &&
+          (!msg.recipient || msg.recipient === "all") &&
+          !msg.metadata?.is_visually_hidden_from_conversation;
+        if (!opts.push_events || !userFacing) return;
+        // A user-facing recap is distinct from raw thought bodies. Accept
+        // only explicitly public summaries from a thought-shaped message.
+        const recap = kind === "reasoning_recap"
+          ? (content.content ?? content.parts?.filter((part) => typeof part === "string").join("\n"))
+          : msg.metadata?.is_user_visible === true ? content.summary : null;
+        if (typeof recap === "string" && recap && summaries.get(msg.id) !== recap) {
+          summaries.set(msg.id || "recap", truncate(recap));
+          push("reasoning", summarySnapshot());
+        }
+        return;
+      }
       const nativeCall = extractNativeToolCallFromMessage(
         msg,
         declaredToolNames,
@@ -1561,9 +1628,16 @@
         return;
       }
       const extracted = extractTextFromMessage(msg);
-      if (extracted && extracted.role === "assistant") {
+      if (extracted && extracted.role === "assistant" &&
+          (!msg.recipient || msg.recipient === "all") &&
+          !msg.metadata?.is_visually_hidden_from_conversation) {
         turn.assistantText = extracted.text;
         if (extracted.id) turn.messageId = extracted.id;
+        const text = visibleAnswerPrefix(extracted.text);
+        if (text && text !== lastAnswer) {
+          lastAnswer = text;
+          push("answer", text);
+        }
       }
     };
 
@@ -1574,6 +1648,7 @@
         turnTraceId: newUuid(),
         onUpdate: (update) => {
           if (!update || typeof update !== "object") return;
+          activity();
           if (typeof update.conversationId === "string" && update.conversationId) {
             turn.chatId = update.conversationId;
           }
@@ -1582,6 +1657,7 @@
           }
         },
         onDecodedEvent: (ev) => {
+          if (ev && typeof ev === "object") activity();
           const cid = ev?.update?.conversationId || ev?.payload?.conversation_id;
           if (typeof cid === "string" && cid) {
             turn.chatId = cid;
@@ -1606,6 +1682,7 @@
       if (handle && typeof handle === "object") {
         turn.requestId = handle.streamRequestId || null;
         turn.conduitToken = handle.prepareResponse?.conduit_token || null;
+        if (turn.stopped) await stopSingleTurn(turn, client);
       }
     } catch (err) {
       turn.generating = false;
@@ -1617,11 +1694,18 @@
     }
 
     const waitMs = Math.max(0, Math.min(300000, Number(opts.wait_ms ?? 30000)));
-    if (waitMs > 0 && turn.generating) {
-      await Promise.race([
-        turn.donePromise,
-        new Promise((resolve) => setTimeout(resolve, waitMs)),
-      ]);
+    if (opts.push_events) {
+      await turn.donePromise;
+    } else if (waitMs > 0 && turn.generating) {
+      let timer;
+      try {
+        await Promise.race([
+          turn.donePromise,
+          new Promise((resolve) => { timer = setTimeout(resolve, waitMs); }),
+        ]);
+      } finally {
+        clearTimeout(timer);
+      }
     }
 
     if (turn.error) {
@@ -1678,6 +1762,8 @@
       lane_id: turn.laneId,
       chat_id: turn.chatId,
       message_id: turn.messageId,
+      ...(opts.verify_identity ? { account_id: observedIdentity } : {}),
+      ...(opts.push_events ? { reasoning_summary: summarySnapshot() } : {}),
       assistant_text: parsed.text,
       tool_calls: allCalls,
       generating: false,

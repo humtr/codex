@@ -80,7 +80,9 @@ retired pre-rewrite (`0.167.x`) history consult
   mismatches with conflict errors, and return `state: "delivery_unknown"`
   (never silently replaying) when transport drops mid-flight.
 - **No secret or private-thought leakage:** No bridge exposes OAuth tokens,
-  cookies, `control.token` contents, or private model `thoughts` blocks.
+  cookies, `control.token` contents, or private model reasoning. The Type 1
+  Responses stream carries upstream user-visible reasoning summaries as
+  separate items alongside answer text.
 
 ---
 

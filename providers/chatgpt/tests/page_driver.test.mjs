@@ -14,6 +14,7 @@ function createMockEnv({ url = "https://chatgpt.com/c/conv-12345678", apiMap = {
   const startCalls = [];
   const cancelCalls = [];
   const stopCalls = [];
+  const streamUpdates = [];
 
   const mockCompletionClient = {
     async startCompletionStream(args) {
@@ -68,6 +69,7 @@ function createMockEnv({ url = "https://chatgpt.com/c/conv-12345678", apiMap = {
     },
     crypto: { randomUUID: () => `uuid-test-${++uuidSeq}` },
     __termuxMockCompletionClient: mockCompletionClient,
+    __termuxChatGptStream: (data) => streamUpdates.push(JSON.parse(data)),
     fetch: async (reqUrl, opts = {}) => {
       const key = `${(opts.method || "GET").toUpperCase()} ${reqUrl}`;
       const hit = apiMap[key] || apiMap[reqUrl];
@@ -90,7 +92,7 @@ function createMockEnv({ url = "https://chatgpt.com/c/conv-12345678", apiMap = {
   };
   sandbox.globalThis = sandbox;
   vm.runInNewContext(DRIVER_SRC, sandbox);
-  return { driver: sandbox.__termuxChatGptDriver, startCalls, cancelCalls, stopCalls };
+  return { driver: sandbox.__termuxChatGptDriver, startCalls, cancelCalls, stopCalls, streamUpdates };
 }
 
 test("page_driver status, chats, linear branch read (no private thoughts), projects, project send, and tool callback parsing", async () => {
@@ -768,4 +770,34 @@ test("legacy user pin verifies the native AppHost account instead of using membe
   ambiguous = true;
   assert.equal((await driver.sendMessage(params)).error, "pinned_account_unavailable");
   assert.equal(startCalls.length, 1);
+});
+
+test("streaming publishes visible recap and answer before settlement, omitting raw thoughts and tool fences", async () => {
+  let callbacks;
+  let ready;
+  const started = new Promise((resolve) => { ready = resolve; });
+  const { driver, streamUpdates } = createMockEnv({
+    apiMap: { "GET /backend-api/me": { status: 200, body: { account_id: "acc-1" } } },
+    completionBehavior(args) { callbacks = args; ready(); return { streamRequestId: "stream-1" }; },
+  });
+  const result = driver.sendMessage({ lane_id: "lane", prompt: "test", push_events: true, verify_identity: true });
+  await started;
+  const message = (id, content, metadata) => ({ id, author: { role: "assistant" }, content, metadata });
+  const update = (msg) => callbacks.onUpdate({ type: "message", conversationId: "conv-test", message: msg });
+  update(message("private", { content_type: "thoughts", parts: ["private"] }));
+  update(message("recap", { content_type: "reasoning_recap", content: "Visible recap" }));
+  update(message("answer", { content_type: "text", parts: ["Answer\n```codex_tool"] }));
+  assert.deepEqual(streamUpdates.filter((x) => x.text).map((x) => [x.lane_id, x.kind, x.text]), [
+    ["lane", "reasoning", "Visible recap"],
+    ["lane", "answer", "Answer"],
+  ]);
+  update(message("answer", {
+    content_type: "text", parts: ['Answer\n```codex_tool_call\n{"name":"tool"}\n```'],
+  }));
+  callbacks.onComplete();
+  const settled = await result;
+  assert.equal(settled.reasoning_summary, "Visible recap");
+  assert.equal(settled.assistant_text, "Answer");
+  assert.equal(settled.account_id, "acc-1");
+  assert.equal(settled.tool_calls[0].name, "tool");
 });

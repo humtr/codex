@@ -69,7 +69,19 @@ and [providers/chatgpt/src/main.rs](../../providers/chatgpt/src/main.rs).
   single-path in-app tool callbacks via `local_function_signatures`. When
   Codex supplies deferred nested tools through Code Mode, the description
   sent to the AppHost retains the advertised `ALL_TOOLS` discovery instruction
-  within the description bound.
+  within the description bound. A streaming request forwards upstream
+  user-visible reasoning summaries and assistant answer deltas as distinct
+  Responses items over a lane-scoped CDP binding. Codex uses a live reasoning
+  status and keeps completed summaries in its expanded transcript. If a turn
+  supplies only a user-visible summary, the same text is also returned in the
+  answer view. The stream has a five-minute upstream inactivity limit
+  and a two-hour total limit. Disconnect cancels only that lane.
+  The Provider persists up to 256 scoped continuation entries in
+  `response_threads.json` (0600, atomic) under
+  `${XDG_STATE_HOME:-$HOME/.local/state}/codex/providers/chatgpt/`, or the
+  explicit Provider state directory when configured.
+  Account and project are checked before using a stored conversation.
+  An incompatible Codex input prefix starts a new ChatGPT conversation.
 - **Local authenticated `/control/*` plane (for Slice 6 `@TermuxChatGPT`):**
   Every `/control/*` endpoint requires constant-time `Authorization: Bearer`
   authentication against `<state_dir>/control.token` (`0600`):

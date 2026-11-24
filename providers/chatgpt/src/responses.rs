@@ -7,6 +7,7 @@
 //! continuation via `thread-id` / `session-id` / `prompt_cache_key` / `previous_response_id`.
 //! Never synthesizes private/hidden reasoning.
 
+use crate::cdp::StreamUpdate;
 use crate::config::{random_hex, HistoryConfig, ModelConfig};
 use crate::driver::DriverBackend;
 use crate::error::{ProviderError, Result};
@@ -17,9 +18,15 @@ use axum::{
     Json,
 };
 use futures_util::Stream;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::collections::VecDeque;
+use std::collections::{HashSet, VecDeque};
 use std::convert::Infallible;
+use std::fs::{self, File, OpenOptions};
+use std::io::{self, Read, Write};
+use std::os::fd::AsRawFd;
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
+use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
@@ -31,18 +38,24 @@ const MAX_DEVELOPER_BLOCK_CHARS: usize = 48_000;
 const MAX_TOTAL_PROMPT_CHARS: usize = 180_000;
 const MAX_TOOL_DESC_CHARS: usize = 600;
 const RESPONSES_WAIT_MS: u64 = 240_000;
+const SSE_IDLE: Duration = Duration::from_secs(300);
+const SSE_LIMIT: Duration = Duration::from_secs(2 * 60 * 60);
 const SSE_KEEPALIVE_INTERVAL: Duration = Duration::from_secs(12);
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ThreadEntry {
     pub chat_id: String,
     pub input_len: usize,
     pub prefix_sha256: [u8; 32],
+    pub account_id: Option<String>,
+    pub project_id: Option<String>,
 }
 
 #[derive(Default)]
 pub struct ResponseThreadMap {
     entries: Mutex<VecDeque<(String, ThreadEntry)>>,
+    store: Option<(PathBuf, File)>,
+    active: Mutex<HashSet<String>>,
 }
 
 /// Pure-Rust SHA-256 (FIPS 180-4) for zero-dependency prefix digest tracking across
@@ -216,7 +229,30 @@ fn format_sse_frame(frame: &Value) -> String {
     format!("event: {ev}\ndata: {}\n\n", frame)
 }
 
+struct ThreadLease(Arc<ResponseThreadMap>, String);
+
+impl Drop for ThreadLease {
+    fn drop(&mut self) {
+        if let Ok(mut active) = self.0.active.lock() {
+            active.remove(&self.1);
+        }
+    }
+}
+
 impl ResponseThreadMap {
+    fn lease(self: &Arc<Self>, key: &str) -> Result<ThreadLease> {
+        let mut active = self.active.lock().map_err(|_| {
+            ProviderError::internal("response_thread_map_lock", "thread lease lock poisoned")
+        })?;
+        if !active.insert(key.to_owned()) {
+            return Err(ProviderError::unavailable(
+                "response_thread_busy",
+                "this Codex session has an active response",
+            ));
+        }
+        Ok(ThreadLease(Arc::clone(self), key.to_owned()))
+    }
+
     pub fn get(&self, key: &str) -> Option<ThreadEntry> {
         let guard = self.entries.lock().ok()?;
         guard
@@ -226,16 +262,114 @@ impl ResponseThreadMap {
             .map(|(_, entry)| entry.clone())
     }
 
-    pub fn upsert(&self, key: String, entry: ThreadEntry) {
-        if let Ok(mut guard) = self.entries.lock() {
-            if let Some(pos) = guard.iter().position(|(k, _)| k == &key) {
-                guard.remove(pos);
+    pub fn open(state_dir: &Path) -> Result<Self> {
+        let open = || -> io::Result<Self> {
+            let lock = OpenOptions::new()
+                .read(true)
+                .write(true)
+                .create(true)
+                .truncate(false)
+                .mode(0o600)
+                .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+                .open(state_dir.join("response_threads.lock"))?;
+            check_private_file(&lock)?;
+            if unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
+                return Err(io::Error::last_os_error());
             }
-            if guard.len() >= MAX_RESPONSE_THREADS {
-                guard.pop_front();
+            let path = state_dir.join("response_threads.json");
+            let entries = match OpenOptions::new()
+                .read(true)
+                .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+                .open(&path)
+            {
+                Ok(file) => {
+                    check_private_file(&file)?;
+                    let mut data = Vec::new();
+                    file.take(1_048_577).read_to_end(&mut data)?;
+                    if data.len() > 1_048_576 {
+                        return Err(io::Error::other("response thread map exceeds 1 MiB"));
+                    }
+                    let entries: VecDeque<(String, ThreadEntry)> =
+                        serde_json::from_slice(&data).map_err(io::Error::other)?;
+                    if entries.len() > MAX_RESPONSE_THREADS
+                        || entries
+                            .iter()
+                            .any(|(_, entry)| entry.account_id.as_deref().is_none_or(str::is_empty))
+                    {
+                        return Err(io::Error::other("invalid response thread map"));
+                    }
+                    entries
+                }
+                Err(err) if err.kind() == io::ErrorKind::NotFound => VecDeque::new(),
+                Err(err) => return Err(err),
+            };
+            Ok(Self {
+                entries: Mutex::new(entries),
+                store: Some((path, lock)),
+                ..Self::default()
+            })
+        };
+        open().map_err(|err| ProviderError::internal("response_thread_map_open", err.to_string()))
+    }
+
+    fn record(&self, entries: impl IntoIterator<Item = (String, ThreadEntry)>) -> Result<()> {
+        let mut guard = self.entries.lock().map_err(|_| {
+            ProviderError::internal("response_thread_map_write", "thread map lock poisoned")
+        })?;
+        let mut next = guard.clone();
+        for (key, entry) in entries {
+            if let Some(pos) = next.iter().position(|(existing, _)| existing == &key) {
+                next.remove(pos);
             }
-            guard.push_back((key, entry));
+            next.push_back((key, entry));
+            if next.len() > MAX_RESPONSE_THREADS {
+                next.pop_front();
+            }
         }
+        if let Some((path, _)) = &self.store {
+            let tmp = path.with_extension(format!("tmp-{}", random_hex(8)?));
+            let write = || -> io::Result<()> {
+                let file = OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .mode(0o600)
+                    .open(&tmp)?;
+                let mut writer = io::BufWriter::new(file);
+                serde_json::to_writer(&mut writer, &next).map_err(io::Error::other)?;
+                writer.flush()?;
+                writer.get_ref().sync_all()?;
+                fs::rename(&tmp, path)?;
+                Ok(())
+            };
+            if let Err(err) = write() {
+                let _ = fs::remove_file(&tmp);
+                return Err(ProviderError::internal(
+                    "response_thread_map_write",
+                    err.to_string(),
+                ));
+            }
+            // Rename changes the visible map even if the directory sync fails.
+            *guard = next;
+            File::open(path.parent().expect("state path has a parent"))
+                .and_then(|dir| dir.sync_all())
+                .map_err(|err| {
+                    ProviderError::internal("response_thread_map_sync", err.to_string())
+                })?;
+        } else {
+            *guard = next;
+        }
+        Ok(())
+    }
+}
+
+fn check_private_file(file: &File) -> io::Result<()> {
+    let meta = file.metadata()?;
+    if meta.is_file() && meta.uid() == unsafe { libc::geteuid() } && meta.mode() & 0o777 == 0o600 {
+        Ok(())
+    } else {
+        Err(io::Error::other(
+            "response thread state must be an owned 0600 regular file",
+        ))
     }
 }
 
@@ -539,93 +673,209 @@ fn resolve_parsed_tool_call(raw: &Value, sigs: &[Value]) -> Option<ParsedToolCal
     })
 }
 
-/// Build an ordered sequence of OpenAI Responses SSE events with monotonic `sequence_number`.
-pub fn build_responses_sse_frames(
-    response_id: &str,
-    model: &str,
-    assistant_text: &str,
-    tool_calls: &[ParsedToolCall],
-) -> (Vec<Value>, Value) {
-    let mut seq = 0u64;
-    let mut next = |mut v: Value| {
-        v["sequence_number"] = json!(seq);
-        seq += 1;
-        v
-    };
+#[derive(Clone, Copy, PartialEq)]
+enum OutputKind {
+    Reasoning,
+    Answer,
+}
 
-    let base_resp = |status: &str, output: &[Value]| {
-        json!({
-            "id": response_id,
-            "object": "response",
-            "created_at": 0,
-            "status": status,
-            "model": model,
-            "output": output,
-            "parallel_tool_calls": true,
-            "error": null
-        })
-    };
+struct OutputEvents {
+    prefix: &'static str,
+    index: &'static str,
+    added: &'static str,
+    delta: &'static str,
+    done: &'static str,
+    part_done: &'static str,
+}
 
-    let mut frames = Vec::new();
-    let mut output_items: Vec<Value> = Vec::new();
-    let init = base_resp("in_progress", &[]);
-    frames.push(next(json!({"type": "response.created", "response": init})));
-    frames.push(next(
-        json!({"type": "response.in_progress", "response": init}),
-    ));
-
-    if !assistant_text.is_empty() || tool_calls.is_empty() {
-        let idx = output_items.len();
-        let msg_id = format!("msg_{response_id}");
-        let mut item = json!({
-            "id": msg_id,
-            "type": "message",
-            "role": "assistant",
-            "status": "in_progress",
-            "phase": "final_answer",
-            "content": [{"type": "output_text", "text": "", "annotations": []}]
-        });
-        frames.push(next(
-            json!({"type": "response.output_item.added", "output_index": idx, "item": item}),
-        ));
-        frames.push(next(json!({
-            "type": "response.content_part.added",
-            "item_id": msg_id,
-            "output_index": idx,
-            "content_index": 0,
-            "part": {"type": "output_text", "text": "", "annotations": []}
-        })));
-        if !assistant_text.is_empty() {
-            frames.push(next(json!({
-                "type": "response.output_text.delta",
-                "item_id": msg_id,
-                "output_index": idx,
-                "content_index": 0,
-                "delta": assistant_text
-            })));
+impl OutputKind {
+    fn events(self) -> OutputEvents {
+        match self {
+            Self::Reasoning => OutputEvents {
+                prefix: "rs",
+                index: "summary_index",
+                added: "response.reasoning_summary_part.added",
+                delta: "response.reasoning_summary_text.delta",
+                done: "response.reasoning_summary_text.done",
+                part_done: "response.reasoning_summary_part.done",
+            },
+            Self::Answer => OutputEvents {
+                prefix: "msg",
+                index: "content_index",
+                added: "response.content_part.added",
+                delta: "response.output_text.delta",
+                done: "response.output_text.done",
+                part_done: "response.content_part.done",
+            },
         }
-        item["status"] = json!("completed");
-        item["content"][0]["text"] = json!(assistant_text);
-        frames.push(next(json!({
-            "type": "response.output_text.done",
-            "item_id": msg_id,
-            "output_index": idx,
-            "content_index": 0,
-            "text": assistant_text
-        })));
-        frames.push(next(json!({
-            "type": "response.content_part.done",
-            "item_id": msg_id,
-            "output_index": idx,
-            "content_index": 0,
-            "part": item["content"][0]
-        })));
-        frames.push(next(
-            json!({"type": "response.output_item.done", "output_index": idx, "item": item}),
-        ));
-        output_items.push(item);
+    }
+}
+
+struct LiveItem {
+    kind: OutputKind,
+    id: String,
+    text: String,
+}
+
+impl LiveItem {
+    fn part(&self, text: &str) -> Value {
+        match self.kind {
+            OutputKind::Reasoning => json!({"type": "summary_text", "text": text}),
+            OutputKind::Answer => json!({"type": "output_text", "text": text, "annotations": []}),
+        }
     }
 
+    fn item(&self, completed: bool) -> Value {
+        let status = if completed {
+            "completed"
+        } else {
+            "in_progress"
+        };
+        match self.kind {
+            OutputKind::Reasoning => {
+                let summary = if completed {
+                    vec![self.part(&self.text)]
+                } else {
+                    vec![]
+                };
+                json!({"id": self.id, "type": "reasoning", "summary": summary, "status": status})
+            }
+            OutputKind::Answer => json!({
+                "id": self.id, "type": "message", "role": "assistant", "status": status,
+                "phase": "final_answer", "content": [self.part(&self.text)]
+            }),
+        }
+    }
+}
+
+struct LiveResponse {
+    id: String,
+    model: String,
+    sequence: u64,
+    items: Vec<LiveItem>,
+}
+
+impl LiveResponse {
+    fn new(id: String, model: String) -> Self {
+        Self {
+            id,
+            model,
+            sequence: 0,
+            items: vec![],
+        }
+    }
+
+    fn stamp(&mut self, mut frame: Value) -> Value {
+        frame["sequence_number"] = json!(self.sequence);
+        self.sequence += 1;
+        frame
+    }
+
+    fn response(&self, status: &str, output: &[Value]) -> Value {
+        json!({
+            "id": self.id, "object": "response", "created_at": 0, "status": status,
+            "model": self.model, "output": output, "parallel_tool_calls": true, "error": null
+        })
+    }
+
+    fn start(&mut self) -> Vec<Value> {
+        let response = self.response("in_progress", &[]);
+        vec![
+            self.stamp(json!({"type": "response.created", "response": response})),
+            self.stamp(json!({"type": "response.in_progress", "response": response})),
+        ]
+    }
+
+    fn close_active(&self, frames: &mut Vec<Value>) {
+        let Some((i, item)) = self.items.iter().enumerate().next_back() else {
+            return;
+        };
+        let OutputEvents {
+            index,
+            done,
+            part_done,
+            ..
+        } = item.kind.events();
+        frames.push(json!({"type": done, "item_id": item.id, "output_index": i, (index): 0, "text": item.text}));
+        frames.push(json!({"type": part_done, "item_id": item.id, "output_index": i, (index): 0, "part": item.part(&item.text)}));
+        frames.push(json!({"type": "response.output_item.done", "output_index": i, "item": item.item(true)}));
+    }
+
+    fn snapshot(&mut self, kind: OutputKind, text: &str, settled: bool) -> Result<Vec<Value>> {
+        if text.is_empty() && !settled {
+            return Ok(vec![]);
+        }
+        let mut rest = text;
+        let mut exists = false;
+        for item in self.items.iter().filter(|item| item.kind == kind) {
+            exists = true;
+            let Some(delta) = rest.strip_prefix(&item.text) else {
+                if !settled {
+                    return Ok(vec![]);
+                }
+                return Err(ProviderError::unavailable(
+                    "chatgpt_stream_revised",
+                    "ChatGPT revised text already delivered in the stream",
+                ));
+            };
+            rest = delta;
+        }
+        if rest.is_empty() && exists {
+            return Ok(vec![]);
+        }
+        let events = kind.events();
+        let mut frames = vec![];
+        // Codex associates live text with its one active output item.
+        if self.items.last().is_none_or(|item| item.kind != kind) {
+            self.close_active(&mut frames);
+            let i = self.items.len();
+            let item = LiveItem {
+                kind,
+                id: format!("{}_{}_{i}", events.prefix, self.id),
+                text: String::new(),
+            };
+            let index = events.index;
+            frames.push(json!({"type": "response.output_item.added", "output_index": i, "item": item.item(false)}));
+            frames.push(json!({"type": events.added, "item_id": item.id, "output_index": i, (index): 0, "part": item.part("")}));
+            self.items.push(item);
+        }
+        let output_index = self.items.len() - 1;
+        let item = &mut self.items[output_index];
+        if !rest.is_empty() {
+            let index = events.index;
+            frames.push(json!({
+                "type": events.delta, "item_id": item.id, "output_index": output_index, (index): 0, "delta": rest
+            }));
+            item.text.push_str(rest);
+        }
+        Ok(frames.into_iter().map(|v| self.stamp(v)).collect())
+    }
+
+    fn finish(&mut self, tool_calls: &[ParsedToolCall]) -> (Vec<Value>, Value) {
+        let mut frames = vec![];
+        self.close_active(&mut frames);
+        let mut output = self.items.iter().map(|item| item.item(true)).collect();
+        append_tool_frames(&mut frames, &mut output, tool_calls);
+        let final_resp = self.response("completed", &output);
+        frames.push(json!({"type": "response.completed", "response": final_resp}));
+        (
+            frames.into_iter().map(|v| self.stamp(v)).collect(),
+            final_resp,
+        )
+    }
+
+    fn failed(&mut self, err: ProviderError) -> Value {
+        let mut response = self.response("failed", &[]);
+        response["error"] = json!({"code": err.code, "message": err.detail});
+        self.stamp(json!({"type": "response.failed", "response": response}))
+    }
+}
+
+fn append_tool_frames(
+    frames: &mut Vec<Value>,
+    output_items: &mut Vec<Value>,
+    tool_calls: &[ParsedToolCall],
+) {
     for tc in tool_calls {
         let idx = output_items.len();
         if tc.is_custom {
@@ -650,24 +900,24 @@ pub fn build_responses_sse_frames(
                 init_item["namespace"] = json!(ns);
                 done_item["namespace"] = json!(ns);
             }
-            frames.push(next(
+            frames.push(
                 json!({"type": "response.output_item.added", "output_index": idx, "item": init_item}),
-            ));
-            frames.push(next(json!({
+            );
+            frames.push(json!({
                 "type": "response.custom_tool_call_input.delta",
                 "item_id": item_id,
                 "output_index": idx,
                 "delta": tc.arguments
-            })));
-            frames.push(next(json!({
+            }));
+            frames.push(json!({
                 "type": "response.custom_tool_call_input.done",
                 "item_id": item_id,
                 "output_index": idx,
                 "input": tc.arguments
-            })));
-            frames.push(next(
+            }));
+            frames.push(
                 json!({"type": "response.output_item.done", "output_index": idx, "item": done_item}),
-            ));
+            );
             output_items.push(done_item);
         } else {
             let item_id = format!("fc_{}", tc.call_id);
@@ -691,33 +941,43 @@ pub fn build_responses_sse_frames(
                 init_item["namespace"] = json!(ns);
                 done_item["namespace"] = json!(ns);
             }
-            frames.push(next(
+            frames.push(
                 json!({"type": "response.output_item.added", "output_index": idx, "item": init_item}),
-            ));
-            frames.push(next(json!({
+            );
+            frames.push(json!({
                 "type": "response.function_call_arguments.delta",
                 "item_id": item_id,
                 "output_index": idx,
                 "delta": tc.arguments
-            })));
-            frames.push(next(json!({
+            }));
+            frames.push(json!({
                 "type": "response.function_call_arguments.done",
                 "item_id": item_id,
                 "output_index": idx,
                 "arguments": tc.arguments
-            })));
-            frames.push(next(
+            }));
+            frames.push(
                 json!({"type": "response.output_item.done", "output_index": idx, "item": done_item}),
-            ));
+            );
             output_items.push(done_item);
         }
     }
+}
 
-    let final_resp = base_resp("completed", &output_items);
-    frames.push(next(
-        json!({"type": "response.completed", "response": final_resp}),
-    ));
-    (frames, final_resp)
+async fn send_frames(tx: &mpsc::Sender<String>, frames: Vec<Value>) -> bool {
+    for frame in frames {
+        if !send_chunk(tx, format_sse_frame(&frame)).await {
+            return false;
+        }
+    }
+    true
+}
+
+// A slow or abandoned HTTP reader cannot hold the lane beyond the send deadline.
+async fn send_chunk(tx: &mpsc::Sender<String>, chunk: String) -> bool {
+    tokio::time::timeout(Duration::from_secs(30), tx.send(chunk))
+        .await
+        .is_ok_and(|result| result.is_ok())
 }
 
 pub async fn handle_models(driver: Arc<dyn DriverBackend>, model_cfg: &ModelConfig) -> Json<Value> {
@@ -776,56 +1036,74 @@ pub async fn handle_responses(
         .map(ToOwned::to_owned);
     let stream = body.get("stream").and_then(Value::as_bool).unwrap_or(true);
 
-    let session_key = session_hint.or_else(|| {
-        body.get("prompt_cache_key")
-            .and_then(Value::as_str)
-            .filter(|s| !s.trim().is_empty())
-            .map(ToOwned::to_owned)
-    });
+    let utility = is_utility_title_request(&body);
+    let effective_project_id = if utility {
+        None
+    } else {
+        history_cfg.project_id.clone()
+    };
+    let session_key = if utility {
+        None
+    } else {
+        session_hint.or_else(|| {
+            body.get("prompt_cache_key")
+                .and_then(Value::as_str)
+                .filter(|s| !s.trim().is_empty() && s.len() <= 512)
+                .map(ToOwned::to_owned)
+        })
+    };
+    let session_key = session_key
+        .filter(|key| key.len() <= 512)
+        .map(|key| format!("session:{key}"));
+    let _lease = session_key
+        .as_deref()
+        .map(|key| threads.lease(key))
+        .transpose()?;
     let input_items = body.get("input").and_then(Value::as_array);
     let input_len = input_items.map_or(0, Vec::len);
     let current_digest = input_items
         .map(|items| input_prefix_digest(items, items.len()))
         .unwrap_or([0u8; 32]);
 
-    // Verify exact prefix digest before continuing an existing ChatGPT thread.
-    // If Codex compacted or edited history, fork a fresh chat (`None`) instead of
-    // appending a full history dump onto an incompatible ChatGPT thread.
-    let (prev_chat_id, skip_prefix) = if let Some(ref key) = session_key {
-        if let Some(entry) = threads.get(key) {
-            if entry.input_len > 0 && input_len > entry.input_len {
-                let prefix_matches = input_items.is_some_and(|items| {
+    let mut prior = None;
+    let mut skip_prefix = 0;
+    if let Some(key) = &session_key {
+        prior = threads.get(key).filter(|entry| {
+            entry.project_id == effective_project_id
+                && entry.input_len > 0
+                && input_len > entry.input_len
+                && input_items.is_some_and(|items| {
                     input_prefix_digest(items, entry.input_len) == entry.prefix_sha256
-                });
-                if prefix_matches {
-                    (Some(entry.chat_id), entry.input_len)
-                } else {
-                    (None, 0)
-                }
-            } else {
-                (None, 0)
-            }
-        } else {
-            (None, 0)
+                })
+        });
+        skip_prefix = prior.as_ref().map_or(0, |entry| entry.input_len);
+    } else if !utility {
+        if let Some(rid) = body.get("previous_response_id").and_then(Value::as_str) {
+            prior = Some(
+                threads
+                    .get(&format!("response:{rid}"))
+                    .filter(|entry| entry.project_id == effective_project_id)
+                    .ok_or_else(|| {
+                        ProviderError::bad_request(
+                            "previous_response_unavailable",
+                            "no continuation in the configured project",
+                        )
+                    })?,
+            );
         }
-    } else if let Some(rid) = body.get("previous_response_id").and_then(Value::as_str) {
-        (threads.get(rid).map(|e| e.chat_id), 0)
-    } else {
-        (None, 0)
-    };
+    }
 
     let prompt = render_prompt_from_responses_request(&body, skip_prefix)?;
     let all_sigs = extract_local_function_signatures(&body);
-    let effective_project_id = if is_utility_title_request(&body) {
-        None
-    } else {
-        history_cfg.project_id.clone()
-    };
     let resp_id = format!("resp_{}", random_hex(8)?);
+    let mut live = LiveResponse::new(resp_id.clone(), model.clone());
     let lane_id = resp_id.clone();
     let send_payload = json!({
         "lane_id": lane_id,
-        "chat_id": prev_chat_id,
+        "chat_id": prior.as_ref().map(|entry| &entry.chat_id),
+        "expected_account_id": prior.as_ref().and_then(|entry| entry.account_id.as_deref()),
+        "verify_identity": true,
+        "strict_project": true,
         "project_id": effective_project_id,
         "prompt": prompt,
         "model": model,
@@ -839,120 +1117,122 @@ pub async fn handle_responses(
         let mut cancel_guard = CancelTurnGuard::new(Arc::clone(&driver), lane_id);
         let driver_res = driver.send_message(send_payload).await?;
         cancel_guard.disarm();
-        let (assistant_text, tool_calls, chat_id) =
-            parse_settled_driver_result(&driver_res, &all_sigs)?;
+        let (assistant_text, tool_calls, _) = parse_settled_driver_result(&driver_res, &all_sigs)?;
         record_thread_entries(
             &threads,
             &resp_id,
             session_key.as_deref(),
-            chat_id.as_deref(),
+            &driver_res,
+            effective_project_id,
             input_len,
             current_digest,
-        );
-        let (_, final_resp) =
-            build_responses_sse_frames(&resp_id, &model, &assistant_text, &tool_calls);
-        return Ok((StatusCode::OK, Json(final_resp)).into_response());
+        )?;
+        if !assistant_text.is_empty() || tool_calls.is_empty() {
+            live.snapshot(OutputKind::Answer, &assistant_text, true)?;
+        }
+        return Ok((StatusCode::OK, Json(live.finish(&tool_calls).1)).into_response());
     }
 
     // Streaming mode: emit `response.created` + `response.in_progress` immediately, send
     // periodic SSE keepalive comments while waiting, and call `driver.stop_generation()`
     // if the client disconnects before settlement.
     let (tx, rx) = mpsc::channel::<String>(32);
-    let init_resp = json!({
-        "id": resp_id,
-        "object": "response",
-        "created_at": 0,
-        "status": "in_progress",
-        "model": model,
-        "output": [],
-        "parallel_tool_calls": true,
-        "error": null
-    });
-    let created_frame = json!({
-        "type": "response.created",
-        "sequence_number": 0,
-        "response": init_resp
-    });
-    let in_progress_frame = json!({
-        "type": "response.in_progress",
-        "sequence_number": 1,
-        "response": init_resp
-    });
-    let _ = tx.try_send(format_sse_frame(&created_frame));
-    let _ = tx.try_send(format_sse_frame(&in_progress_frame));
-
+    for frame in live.start() {
+        let _ = tx.try_send(format_sse_frame(&frame));
+    }
     tokio::spawn(async move {
-        let mut send_fut = driver.send_message(send_payload);
-        let mut keepalive = tokio::time::interval(SSE_KEEPALIVE_INTERVAL);
-        keepalive.tick().await; // consume immediate first tick
-
+        let _lease = _lease;
+        let mut cancel = CancelTurnGuard::new(Arc::clone(&driver), lane_id);
+        let (event_tx, mut event_rx) = mpsc::channel(32);
+        let mut turn = driver.stream_message(send_payload, event_tx);
+        let mut keepalive = tokio::time::interval_at(
+            tokio::time::Instant::now() + SSE_KEEPALIVE_INTERVAL,
+            SSE_KEEPALIVE_INTERVAL,
+        );
+        let idle = tokio::time::sleep(SSE_IDLE);
+        let limit = tokio::time::sleep(SSE_LIMIT);
+        tokio::pin!(idle, limit);
+        let mut event_open = true;
         let outcome = loop {
             tokio::select! {
-                res = &mut send_fut => break Some(res),
-                _ = tx.closed() => {
-                    // Client disconnected mid-turn: cancel ONLY this request's lane so
-                    // sibling parallel turns keep running undisturbed.
-                    let _ = driver
-                        .stop_generation(json!({ "lane_id": lane_id }))
-                        .await;
-                    break None;
+                biased;
+                _ = tx.closed() => return,
+                _ = &mut limit => break Err(ProviderError::unavailable("chatgpt_stream_limit", "response exceeded two hours")),
+                _ = &mut idle => break Err(ProviderError::unavailable("chatgpt_stream_idle", "no upstream event within five minutes")),
+                event = event_rx.recv(), if event_open => {
+                    match event {
+                        Some(event) => {
+                            idle.as_mut().reset(tokio::time::Instant::now() + SSE_IDLE);
+                            let frames = match event {
+                                StreamUpdate::Activity => continue,
+                                StreamUpdate::Reasoning(text) => live.snapshot(OutputKind::Reasoning, &text, false),
+                                StreamUpdate::Answer(text) => live.snapshot(OutputKind::Answer, &text, false),
+                            };
+                            match frames {
+                                Ok(frames) if !frames.is_empty() => {
+                                    if !send_frames(&tx, frames).await { return; }
+                                }
+                                Ok(_) => {}
+                                Err(err) => break Err(err),
+                            }
+                        }
+                        None => event_open = false,
+                    }
                 }
+                result = &mut turn => break result,
                 _ = keepalive.tick() => {
-                    if tx.send(": keepalive\n\n".to_owned()).await.is_err() {
-                        let _ = driver
-                            .stop_generation(json!({ "lane_id": lane_id }))
-                            .await;
-                        break None;
-                    }
+                    if !send_chunk(&tx, ": keepalive\n\n".to_owned()).await { return; }
                 }
             }
         };
-
-        let Some(driver_result) = outcome else {
-            return;
-        };
-
-        match driver_result.and_then(|val| parse_settled_driver_result(&val, &all_sigs)) {
-            Ok((assistant_text, tool_calls, chat_id)) => {
-                record_thread_entries(
-                    &threads,
-                    &resp_id,
-                    session_key.as_deref(),
-                    chat_id.as_deref(),
-                    input_len,
-                    current_digest,
-                );
-                let (frames, _) =
-                    build_responses_sse_frames(&resp_id, &model, &assistant_text, &tool_calls);
-                // Frames 0 and 1 (`response.created`, `response.in_progress`) were already sent.
-                for frame in frames.into_iter().skip(2) {
-                    if tx.send(format_sse_frame(&frame)).await.is_err() {
-                        break;
-                    }
-                }
+        let result = async {
+            let settled = outcome?;
+            let (text, calls, _) = parse_settled_driver_result(&settled, &all_sigs)?;
+            cancel.disarm();
+            let summary = settled["reasoning_summary"].as_str().unwrap_or("");
+            // Codex keeps reasoning in an expanded transcript. Preserve a
+            // summary-only turn in the normal answer view as well.
+            let answer = if text.is_empty() && calls.is_empty() {
+                summary
+            } else {
+                &text
+            };
+            let mut frames = vec![];
+            let had_summary = live
+                .items
+                .iter()
+                .any(|item| item.kind == OutputKind::Reasoning);
+            let had_answer = live
+                .items
+                .iter()
+                .any(|item| item.kind == OutputKind::Answer);
+            if !had_answer && (!summary.is_empty() || had_summary) {
+                frames.extend(live.snapshot(OutputKind::Reasoning, summary, true)?);
             }
-            Err(err) => {
-                let err_obj = json!({
-                    "code": err.code,
-                    "message": err.detail
-                });
-                let failed_frame = json!({
-                    "type": "response.failed",
-                    "sequence_number": 2,
-                    "response": {
-                        "id": resp_id,
-                        "object": "response",
-                        "created_at": 0,
-                        "status": "failed",
-                        "model": model,
-                        "output": [],
-                        "parallel_tool_calls": true,
-                        "error": err_obj
-                    }
-                });
-                let _ = tx.send(format_sse_frame(&failed_frame)).await;
+            if !answer.is_empty() || calls.is_empty() || had_answer {
+                frames.extend(live.snapshot(OutputKind::Answer, answer, true)?);
             }
+            if had_answer && (!summary.is_empty() || had_summary) {
+                frames.extend(live.snapshot(OutputKind::Reasoning, summary, true)?);
+            }
+            record_thread_entries(
+                &threads,
+                &resp_id,
+                session_key.as_deref(),
+                &settled,
+                effective_project_id,
+                input_len,
+                current_digest,
+            )?;
+            frames.extend(live.finish(&calls).0);
+            Ok::<_, ProviderError>(frames)
         }
+        .await;
+        let frames = match result {
+            Ok(frames) => frames,
+            Err(err) => vec![live.failed(err)],
+        };
+        send_frames(&tx, frames).await;
     });
 
     Ok((
@@ -1024,31 +1304,46 @@ fn record_thread_entries(
     threads: &ResponseThreadMap,
     resp_id: &str,
     session_key: Option<&str>,
-    chat_id: Option<&str>,
+    settled: &Value,
+    project_id: Option<String>,
     input_len: usize,
     prefix_sha256: [u8; 32],
-) {
-    let Some(cid) = chat_id else {
-        return;
+) -> Result<()> {
+    let Some(chat_id) = settled["chat_id"]
+        .as_str()
+        .filter(|id| !id.is_empty() && id.len() <= 256)
+    else {
+        return Ok(());
     };
-    threads.upsert(
-        resp_id.to_owned(),
-        ThreadEntry {
-            chat_id: cid.to_owned(),
-            input_len: 0,
-            prefix_sha256: [0u8; 32],
-        },
-    );
+    let account_id = settled["account_id"]
+        .as_str()
+        .filter(|id| !id.is_empty() && id.len() <= 256)
+        .map(str::to_owned);
+    if threads.store.is_some() && account_id.is_none() {
+        return Err(ProviderError::internal(
+            "response_thread_identity",
+            "missing verified ChatGPT account",
+        ));
+    }
+    let alias = ThreadEntry {
+        chat_id: chat_id.to_owned(),
+        account_id,
+        project_id,
+        input_len: 0,
+        prefix_sha256: [0; 32],
+    };
+    let mut entries = vec![(format!("response:{resp_id}"), alias.clone())];
     if let Some(key) = session_key {
-        threads.upsert(
+        entries.push((
             key.to_owned(),
             ThreadEntry {
-                chat_id: cid.to_owned(),
                 input_len,
                 prefix_sha256,
+                ..alias
             },
-        );
+        ));
     }
+    threads.record(entries)
 }
 
 #[cfg(test)]

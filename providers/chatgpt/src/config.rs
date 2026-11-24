@@ -189,6 +189,19 @@ impl ProviderConfig {
             .clone()
             .unwrap_or_else(|| home.join(".local/state/codex/providers/chatgpt"))
     }
+
+    pub fn response_state_dir(&self, home: &Path) -> PathBuf {
+        if self.server.state_dir.is_some() {
+            return self.state_dir(home);
+        }
+        env::var_os("XDG_STATE_HOME")
+            .map(PathBuf::from)
+            .filter(|path| path.is_absolute())
+            .map_or_else(
+                || self.state_dir(home),
+                |root| root.join("codex/providers/chatgpt"),
+            )
+    }
 }
 
 pub fn user_home() -> Result<PathBuf> {
