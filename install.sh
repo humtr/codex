@@ -10,10 +10,12 @@ DEFAULT_RELEASE_TAG='wrapper'
 ASSET_NAME='codex-wrapper-aarch64-linux-android.tar.gz'
 PINNED_RELEASE_PUBKEY_SHA256='0df170dae2d7234b4425fcdddaa4bd9b6e2104794d0541955b022631b1105fca'
 MAX_TARBALL_BYTES=20971520
+MAX_COMPONENT_TARBALL_BYTES=67108864
 MAX_SHA256_BYTES=4096
 MAX_SUMS_BYTES=65536
 MAX_PUBKEY_BYTES=4096
 ED25519_SIG_BYTES=64
+ALL_COMPONENTS='codex-ext tunnel-client termux-shell-mcp termux-codex-mcp chatgpt-provider termux-chatgpt-mcp termux-orch'
 
 fail() {
   printf '%s\n' "codex install: $*" >&2
@@ -28,7 +30,8 @@ usage() {
   cat <<'EOF'
 Usage: install.sh [OPTIONS]
 
-Install the Termux codex wrapper into $PREFIX/bin/codex.
+Install the Termux codex wrapper into $PREFIX/bin/codex and optionally
+install standalone companion components, services, and account setup.
 
 Options:
   --prefix <DIR>     Install root prefix (default: $PREFIX or /data/data/com.termux/files/usr)
@@ -42,13 +45,23 @@ Options:
   --require-signed   Fail closed if no verifier key or SHA256SUMS.sig is available
   --version <X.Y.Z>  Install a specific upstream Codex version after wrapper install
   --skip-upstream    Install wrapper only without running `codex update --upstream`
+  --all              Install all signed companion components & runit services too
+  --wrapper-only     Install only the core Wrapper (+ upstream Codex unless --skip-upstream)
+  --components <CSV> Install selected signed components (comma-separated list)
+  --no-services      Stage companion binaries/generations without enrolling runit services
+  --setup            Run interactive account, profile, ChatGPT & tunnel setup wizard
+  --setup-only       Skip binary installation and run only the setup wizard
+  --no-setup         Skip interactive setup prompts after installation
+  --login-method <device|browser|api-key|skip>
+                     Select Codex login method during setup (device = --device-auth)
   --recover          Reconcile a verified interrupted install (no updater replay)
   -h, --help         Show this help text
 
 Source resolution when --binary, --build, and --release are omitted:
   1. ./bin/codex or ./codex beside install.sh (unpacked release bundle)
   2. ./target/release/codex in a built git checkout
-  3. GitHub Release tag 'wrapper' from humtr/codex (default for stdin)
+  3. GitHub Release tag 'wrapper' from humtr/codex (default for stdin; on Android
+     also installs all signed companion components and launches guided setup when TTY)
 EOF
 }
 
@@ -189,16 +202,17 @@ verify_ed25519_sig() {
     fail "Ed25519 signature verification failed for $(basename -- "$v_data")"
 }
 
-verify_signed_sums_headers() {
+verify_component_sums_headers() {
   sums_file=$1
+  expected_component=${2:-wrapper}
   h_fmt=$(sed -n '1p' "$sums_file")
   h_cmp=$(sed -n '2p' "$sums_file")
   h_seq=$(sed -n '3p' "$sums_file")
   h_cmt=$(sed -n '4p' "$sums_file")
   [ "$h_fmt" = '# format=codex-release-sums-v1' ] ||
     fail "unexpected SHA256SUMS format header: $h_fmt"
-  [ "$h_cmp" = '# component=wrapper' ] ||
-    fail "unexpected SHA256SUMS component header: $h_cmp"
+  [ "$h_cmp" = "# component=$expected_component" ] ||
+    fail "unexpected SHA256SUMS component header: $h_cmp (expected $expected_component)"
   case $h_seq in
     '# sequence='[1-9]*)
       seq_val=${h_seq#'# sequence='}
@@ -215,6 +229,30 @@ verify_signed_sums_headers() {
     *) fail "missing SHA256SUMS commit header" ;;
   esac
   printf '%s\n' "$seq_val"
+}
+
+verify_signed_sums_headers() {
+  verify_component_sums_headers "$1" 'wrapper'
+}
+
+parse_signed_sums_commit() {
+  h_cmt=$(sed -n '4p' "$1")
+  cmt_val=${h_cmt#'# commit='}
+  printf '%s\n' "$cmt_val"
+}
+
+verify_bundle_checksums() {
+  b_dir=$1
+  b_sums=$2
+  b_entries=$(awk 'NF == 2 && !/^#/ { print $2 }' "$b_sums") ||
+    fail "cannot parse bundle SHA256SUMS: $b_sums"
+  [ -n "$b_entries" ] || fail "empty bundle SHA256SUMS: $b_sums"
+  for b_entry in $b_entries; do
+    b_clean=${b_entry#./}
+    b_clean=${b_clean#\*}
+    require_regular_file "$b_dir/$b_clean" "extracted asset $b_clean"
+    verify_sha256_file "$b_dir/$b_clean" "$b_sums" "$b_clean"
+  done
 }
 
 read_recorded_release_sequence() {
@@ -532,6 +570,37 @@ verified_active_pubkey=''
 upstream_version=''
 skip_upstream=0
 recover_only=0
+all_components=0
+wrapper_only=0
+selected_components=''
+no_services=0
+setup_mode='auto'
+setup_only=0
+login_method=''
+
+validate_component_list() {
+  raw_csv=$1
+  parsed=''
+  old_ifs=$IFS
+  IFS=','
+  for item in $raw_csv; do
+    [ -n "$item" ] || fail '--components must not contain empty entries'
+    case $item in
+      *[!A-Za-z0-9-]*) fail "unknown component in --components: $item (supported: $ALL_COMPONENTS)" ;;
+    esac
+    case " $ALL_COMPONENTS " in
+      *" $item "*) ;;
+      *) fail "unknown component in --components: $item (supported: $ALL_COMPONENTS)" ;;
+    esac
+    case " $parsed " in
+      *" $item "*) ;;
+      *) parsed="${parsed:+$parsed }$item" ;;
+    esac
+  done
+  IFS=$old_ifs
+  [ -n "$parsed" ] || fail '--components requires at least one component name'
+  printf '%s\n' "$parsed"
+}
 
 while [ "$#" -gt 0 ]; do
   case $1 in
@@ -593,6 +662,45 @@ while [ "$#" -gt 0 ]; do
       skip_upstream=1
       shift
       ;;
+    --all)
+      all_components=1
+      shift
+      ;;
+    --wrapper-only)
+      wrapper_only=1
+      shift
+      ;;
+    --components)
+      require_value "$1" "${2:-}"
+      selected_components=$(validate_component_list "$2")
+      shift 2
+      ;;
+    --no-services)
+      no_services=1
+      shift
+      ;;
+    --setup)
+      setup_mode='always'
+      shift
+      ;;
+    --setup-only)
+      setup_only=1
+      setup_mode='always'
+      shift
+      ;;
+    --no-setup)
+      setup_mode='never'
+      shift
+      ;;
+    --login-method)
+      require_value "$1" "${2:-}"
+      case $2 in
+        device|browser|api-key|skip) login_method=$2 ;;
+        *) fail "--login-method must be one of: device, browser, api-key, skip (got $2)" ;;
+      esac
+      setup_mode='always'
+      shift 2
+      ;;
     -h|--help)
       usage
       exit 0
@@ -602,6 +710,13 @@ while [ "$#" -gt 0 ]; do
       ;;
   esac
 done
+
+if [ "$wrapper_only" -eq 1 ] && { [ "$all_components" -eq 1 ] || [ -n "$selected_components" ]; }; then
+  fail '--wrapper-only cannot be combined with --all or --components'
+fi
+if [ "$setup_only" -eq 1 ] && { [ -n "$source_mode" ] || [ "$recover_only" -eq 1 ] || [ "$all_components" -eq 1 ] || [ -n "$selected_components" ]; }; then
+  fail '--setup-only cannot be combined with install or recovery flags'
+fi
 
 if [ -z "${HOME:-}" ] || [ ! -d "$HOME" ]; then
   fail 'HOME must point to an existing directory'
@@ -725,6 +840,28 @@ trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
+release_wrapper_transaction() {
+  install_committed=1
+  swap_pending=0
+  if [ -n "$backup_bin" ]; then
+    remove_owned_install_file "$backup_bin"
+    backup_bin=''
+  fi
+  if [ -n "$staged_tmp" ]; then
+    remove_owned_install_file "$staged_tmp"
+    staged_tmp=''
+  fi
+  if [ "$lock_owned" -eq 1 ]; then
+    for name in owner owner.next transaction transaction.next updater updater.next; do
+      remove_owned_install_file "$install_lock/$name"
+    done
+    if ! rmdir "$install_lock" || ! install_sync "$dest_dir"; then
+      fail "install lock cleanup failed: $install_lock"
+    fi
+    lock_owned=0
+  fi
+}
+
 # The child Wrapper must use the installer's runtime roots, including in recovery.
 PREFIX=$prefix
 export PREFIX
@@ -738,7 +875,10 @@ install_lock="$dest_dir/.codex-install.lock"
 recovery_gate="$dest_dir/.codex-install.recovering"
 if [ "$recover_only" -eq 1 ]; then
   if [ -n "$source_mode" ] || [ -n "$upstream_version" ] || [ "$skip_upstream" -ne 0 ] ||
-     [ -n "$verify_key" ] || [ -n "$key_sha256" ] || [ "$require_signed" -ne 0 ]; then
+     [ -n "$verify_key" ] || [ -n "$key_sha256" ] || [ "$require_signed" -ne 0 ] ||
+     [ "$all_components" -ne 0 ] || [ "$wrapper_only" -ne 0 ] || [ -n "$selected_components" ] ||
+     [ "$no_services" -ne 0 ] || [ "$setup_mode" != 'auto' ] || [ "$setup_only" -ne 0 ] ||
+     [ -n "$login_method" ]; then
     fail '--recover may only be combined with --prefix'
   fi
   [ -d "$dest_dir" ] || fail "install directory does not exist: $dest_dir"
@@ -748,6 +888,722 @@ if [ "$recover_only" -eq 1 ]; then
     [ ! -e "$recovery_gate" ] || fail 'unsettled recovery gate; manual review required'
     note 'no unfinished installer transaction'
   fi
+  exit 0
+fi
+
+component_verify_key_path=''
+
+ensure_component_verify_key() {
+  if [ -n "$component_verify_key_path" ]; then
+    return 0
+  fi
+  c_key=''
+  if [ -n "$verified_active_pubkey" ]; then
+    c_key=$verified_active_pubkey
+  elif [ -n "$verify_key" ]; then
+    c_key=$verify_key
+  else
+    c_default="$HOME/.local/lib/codex/wrapper/release-public-key.pem"
+    if [ -e "$c_default" ] || [ -L "$c_default" ]; then
+      c_key=$c_default
+    elif [ -n "$PINNED_RELEASE_PUBKEY_SHA256" ]; then
+      c_key="$work/embedded-component-public-key.pem"
+      write_embedded_release_pubkey "$c_key"
+      if [ -z "$key_sha256" ]; then
+        key_sha256=$PINNED_RELEASE_PUBKEY_SHA256
+      fi
+    fi
+  fi
+  [ -n "$c_key" ] ||
+    fail 'signed component verification requires --verify-key or installed release-public-key.pem'
+  require_regular_file "$c_key" 'component verifier public key'
+  if [ -n "$key_sha256" ] && [ -z "$verified_active_pubkey" ]; then
+    c_actual_sha=$(sha256_hex "$c_key")
+    [ "$c_actual_sha" = "$key_sha256" ] ||
+      fail "component verifier public key SHA-256 mismatch (expected $key_sha256, got $c_actual_sha)"
+  fi
+  component_verify_key_path=$c_key
+}
+
+update_generation_links() {
+  u_root=$1
+  u_gen=$2
+  mkdir -p "$u_root/generations"
+  chmod 0700 "$u_root" "$u_root/generations"
+  u_prev=''
+  if [ -L "$u_root/current" ]; then
+    u_prev=$(readlink "$u_root/current" 2>/dev/null || :)
+  fi
+  if [ -n "$u_prev" ] && [ "$u_prev" != "generations/$u_gen" ]; then
+    u_prev_tmp="$u_root/.previous.tmp.$$"
+    rm -f "$u_prev_tmp"
+    ln -s "$u_prev" "$u_prev_tmp"
+    mv -Tf "$u_prev_tmp" "$u_root/previous" 2>/dev/null || {
+      rm -f "$u_prev_tmp"
+      ln -sfn "$u_prev" "$u_root/previous"
+    }
+  fi
+  u_cur_tmp="$u_root/.current.tmp.$$"
+  rm -f "$u_cur_tmp"
+  ln -s "generations/$u_gen" "$u_cur_tmp"
+  mv -Tf "$u_cur_tmp" "$u_root/current" 2>/dev/null || {
+    rm -f "$u_cur_tmp"
+    ln -sfn "generations/$u_gen" "$u_root/current"
+  }
+}
+
+find_runit_service_script() {
+  r_installed="$HOME/.local/lib/codex/transport/tunnel-client/current/scripts/runit_service.py"
+  if [ -f "$r_installed" ] && [ ! -L "$r_installed" ]; then
+    printf '%s\n' "$r_installed"
+    return 0
+  fi
+  if [ -n "$script_dir" ] && [ -f "$script_dir/scripts/runit_service.py" ]; then
+    printf '%s\n' "$script_dir/scripts/runit_service.py"
+    return 0
+  fi
+  return 1
+}
+
+component_specs() {
+  case $1 in
+    codex-ext)
+      printf '%s:%s:%s:%s\n' 'ext' 'codex-ext' 'codex-ext-aarch64-linux-android.tar.gz' '0.1.0'
+      ;;
+    tunnel-client)
+      printf '%s:%s:%s:%s\n' 'transport/tunnel-client' 'tunnel-client' 'tunnel-client-aarch64-linux-android.tar.gz' 'v0.0.21'
+      ;;
+    termux-shell-mcp)
+      printf '%s:%s:%s:%s\n' 'mcp/termux-shell' 'termux-shell-mcp' 'termux-shell-mcp-aarch64-linux-android.tar.gz' '0.1.0'
+      ;;
+    termux-codex-mcp)
+      printf '%s:%s:%s:%s\n' 'mcp/termux-codex' 'termux-codex-mcp' 'termux-codex-mcp-aarch64-linux-android.tar.gz' '0.1.0'
+      ;;
+    chatgpt-provider)
+      printf '%s:%s:%s:%s\n' 'providers/chatgpt' 'chatgpt-provider' 'chatgpt-provider-aarch64-linux-android.tar.gz' '0.1.0'
+      ;;
+    termux-chatgpt-mcp)
+      printf '%s:%s:%s:%s\n' 'mcp/termux-chatgpt' 'termux-chatgpt-mcp' 'termux-chatgpt-mcp-aarch64-linux-android.tar.gz' '0.1.0'
+      ;;
+    termux-orch)
+      printf '%s:%s:%s:%s\n' 'mcp/termux-orch' 'termux-orch' 'termux-orch-aarch64-linux-android.tar.gz' '0.1.0'
+      ;;
+    *)
+      fail "unsupported component: $1"
+      ;;
+  esac
+}
+
+tunnel_client_updated=0
+
+install_atomic_prefix_binary() {
+  i_src=$1
+  i_name=$2
+  i_tmp="$dest_dir/.${i_name}.tmp.$$"
+  rm -f "$i_tmp"
+  cp "$i_src" "$i_tmp"
+  chmod 0755 "$i_tmp"
+  install_sync "$i_tmp"
+  mv -f "$i_tmp" "$dest_dir/$i_name"
+  install_sync "$dest_dir"
+}
+
+run_runit_service_action() {
+  a_py=$1
+  a_script=$2
+  shift 2
+  "$a_py" "$a_script" --home "$HOME" --prefix "$prefix" "$@"
+}
+
+service_matches_target() {
+  m_py=$1
+  m_script=$2
+  m_comp=$3
+  m_bin=$4
+  m_svc=$5
+  m_gen=$6
+  m_runner_comp=${7:-}
+  m_runner_bin=${8:-}
+  [ -d "$prefix/var/service/$m_svc" ] || return 1
+  if [ -n "$m_runner_comp" ]; then
+    m_out=$("$m_py" "$m_script" --home "$HOME" --prefix "$prefix" \
+      --component "$m_comp" --binary "$m_bin" --service "$m_svc" \
+      --runner-component "$m_runner_comp" --runner-binary "$m_runner_bin" status 2>/dev/null) || return 1
+  else
+    m_out=$("$m_py" "$m_script" --home "$HOME" --prefix "$prefix" \
+      --component "$m_comp" --binary "$m_bin" --service "$m_svc" status 2>/dev/null) || return 1
+  fi
+  printf '%s\n' "$m_out" | "$m_py" -c '
+import json, sys
+target = sys.argv[1]
+d = json.load(sys.stdin)
+ok = (
+    d.get("activation_state") == "active"
+    and (d.get("running_generation") or {}).get("version") == target
+    and (d.get("selected_generation") or {}).get("version") == target
+    and not (d.get("running_generation") or {}).get("deleted_image")
+)
+raise SystemExit(0 if ok else 1)
+' "$m_gen" >/dev/null 2>&1
+}
+
+ensure_chatgpt_profile_config() {
+  e_bin=$1
+  e_cfg="$HOME/.codex/chatgpt.config.toml"
+  if [ -e "$e_cfg" ] || [ -L "$e_cfg" ]; then
+    return 0
+  fi
+  [ -x /system/bin/linker64 ] || return 0
+  mkdir -p "$HOME/.codex"
+  chmod 0700 "$HOME/.codex"
+  e_tmp="$HOME/.codex/.chatgpt.config.toml.tmp.$$"
+  rm -f "$e_tmp"
+  if "$e_bin" print-codex-profile --standalone --model gpt-6-2 > "$e_tmp" 2>/dev/null; then
+    chmod 0600 "$e_tmp"
+    install_sync "$e_tmp"
+    mv -f "$e_tmp" "$e_cfg"
+    note "generated default $e_cfg"
+  else
+    rm -f "$e_tmp"
+  fi
+}
+
+activate_component_service() {
+  ac_tag=$1
+  ac_comp=$2
+  ac_bin=$3
+  ac_root=$4
+  ac_gen=$5
+  if [ "$no_services" -eq 1 ]; then
+    update_generation_links "$ac_root" "$ac_gen"
+    return 0
+  fi
+  if [ ! -x /system/bin/linker64 ]; then
+    update_generation_links "$ac_root" "$ac_gen"
+    return 0
+  fi
+  ac_py=$(find_tool python3 || :)
+  ac_sv=$(find_tool sv || :)
+  ac_script=$(find_runit_service_script || :)
+  if [ -z "$ac_py" ] || [ -z "$ac_sv" ] || [ -z "$ac_script" ]; then
+    update_generation_links "$ac_root" "$ac_gen"
+    if [ "$ac_tag" != 'tunnel-client' ]; then
+      note "staged $ac_tag ($ac_gen); install python and termux-services to supervise runit service"
+    fi
+    return 0
+  fi
+
+  case $ac_tag in
+    tunnel-client)
+      update_generation_links "$ac_root" "$ac_gen"
+      return 0
+      ;;
+    chatgpt-provider)
+      if [ ! -d "$prefix/var/service/chatgpt-provider" ]; then
+        run_runit_service_action "$ac_py" "$ac_script" \
+          --component "$ac_comp" --binary "$ac_bin" --service chatgpt-provider \
+          enroll --arg serve >/dev/null
+      fi
+      if ! service_matches_target "$ac_py" "$ac_script" "$ac_comp" "$ac_bin" chatgpt-provider "$ac_gen"; then
+        run_runit_service_action "$ac_py" "$ac_script" \
+          --component "$ac_comp" --binary "$ac_bin" --service chatgpt-provider \
+          activate "$ac_gen" --readiness-cmd 'curl -fsS http://127.0.0.1:4319/healthz' >/dev/null
+      fi
+      return 0
+      ;;
+    termux-shell-mcp|termux-codex-mcp|termux-chatgpt-mcp)
+      ac_short=${ac_tag%-mcp}
+      ac_yaml="$HOME/.config/codex/tunnels/${ac_short}.yaml"
+      ac_svc="${ac_short}-tunnel"
+      if [ -f "$ac_yaml" ]; then
+        if [ ! -d "$prefix/var/service/$ac_svc" ]; then
+          run_runit_service_action "$ac_py" "$ac_script" \
+            --component "$ac_comp" --binary "$ac_bin" --service "$ac_svc" \
+            --runner-component transport/tunnel-client --runner-binary tunnel-client \
+            enroll --arg run --arg --config --arg "$ac_yaml" --arg --mcp.stdio-send-initialized-notification >/dev/null
+        fi
+        if [ "$tunnel_client_updated" -eq 1 ] || \
+           ! service_matches_target "$ac_py" "$ac_script" "$ac_comp" "$ac_bin" "$ac_svc" "$ac_gen" transport/tunnel-client tunnel-client; then
+          run_runit_service_action "$ac_py" "$ac_script" \
+            --component "$ac_comp" --binary "$ac_bin" --service "$ac_svc" \
+            --runner-component transport/tunnel-client --runner-binary tunnel-client \
+            activate "$ac_gen" >/dev/null
+        fi
+      else
+        update_generation_links "$ac_root" "$ac_gen"
+        note "staged $ac_tag ($ac_gen); tunnel config missing ($ac_yaml)"
+      fi
+      return 0
+      ;;
+    termux-orch)
+      ac_yaml="$HOME/.config/codex/tunnels/termux-orch.yaml"
+      ac_relay_health="$HOME/.local/state/codex/services/termux-orch-relay/health.url"
+      if [ ! -d "$prefix/var/service/termux-orch-relay" ]; then
+        run_runit_service_action "$ac_py" "$ac_script" \
+          --component "$ac_comp" --binary "$ac_bin" --service termux-orch-relay \
+          enroll --arg relay --arg --bind --arg 127.0.0.1:0 \
+          --arg --health-url-file --arg "$ac_relay_health" --arg --poll-ms --arg 2000 >/dev/null
+      fi
+      if [ -f "$ac_yaml" ]; then
+        if [ ! -d "$prefix/var/service/termux-orch-tunnel" ]; then
+          run_runit_service_action "$ac_py" "$ac_script" \
+            --component "$ac_comp" --binary "$ac_bin" --service termux-orch-tunnel \
+            --runner-component transport/tunnel-client --runner-binary tunnel-client \
+            enroll --arg run --arg --config --arg "$ac_yaml" --arg --mcp.stdio-send-initialized-notification >/dev/null
+        fi
+        if [ "$tunnel_client_updated" -eq 1 ] || \
+           ! service_matches_target "$ac_py" "$ac_script" "$ac_comp" "$ac_bin" termux-orch-tunnel "$ac_gen" transport/tunnel-client tunnel-client || \
+           ! service_matches_target "$ac_py" "$ac_script" "$ac_comp" "$ac_bin" termux-orch-relay "$ac_gen"; then
+          run_runit_service_action "$ac_py" "$ac_script" \
+            --component "$ac_comp" --binary "$ac_bin" --service termux-orch-tunnel \
+            --runner-component transport/tunnel-client --runner-binary tunnel-client \
+            --companion-service termux-orch-relay \
+            activate "$ac_gen" >/dev/null
+        fi
+      else
+        if ! service_matches_target "$ac_py" "$ac_script" "$ac_comp" "$ac_bin" termux-orch-relay "$ac_gen"; then
+          run_runit_service_action "$ac_py" "$ac_script" \
+            --component "$ac_comp" --binary "$ac_bin" --service termux-orch-relay \
+            activate "$ac_gen" >/dev/null
+        fi
+        note "staged termux-orch-tunnel ($ac_gen); tunnel config missing ($ac_yaml)"
+      fi
+      return 0
+      ;;
+  esac
+}
+
+install_signed_component() {
+  ic_tag=$1
+  ic_spec=$(component_specs "$ic_tag")
+  ic_comp=${ic_spec%%:*}
+  ic_rest=${ic_spec#*:}
+  ic_bin=${ic_rest%%:*}
+  ic_rest=${ic_rest#*:}
+  ic_asset=${ic_rest%%:*}
+  ic_default_ver=${ic_rest#*:}
+
+  ensure_component_verify_key
+  ic_openssl=$(find_tool openssl) || fail 'openssl is required for Ed25519 signed component verification'
+  ic_tar=$(find_tool tar) || fail 'tar is required to unpack component release assets'
+  find_tool gzip >/dev/null 2>&1 || fail 'gzip is required to unpack component release assets'
+
+  ic_work="$work/comp-$ic_tag"
+  mkdir -p "$ic_work/extract"
+  chmod 0700 "$ic_work" "$ic_work/extract"
+  ic_url="https://github.com/$repo/releases/download/$ic_tag"
+  ic_sums="$ic_work/SHA256SUMS"
+  ic_sig="$ic_work/SHA256SUMS.sig"
+  ic_tb="$ic_work/$ic_asset"
+  ic_tb_sha="$ic_work/$ic_asset.sha256"
+
+  note "downloading signed $ic_tag ($repo)"
+  fetch_https "$ic_url/SHA256SUMS" "$ic_sums" "$MAX_SUMS_BYTES"
+  fetch_https "$ic_url/SHA256SUMS.sig" "$ic_sig" "$ED25519_SIG_BYTES"
+  verify_ed25519_sig "$ic_openssl" "$component_verify_key_path" "$ic_sums" "$ic_sig"
+  ic_seq=$(verify_component_sums_headers "$ic_sums" "$ic_tag")
+  ic_cmt=$(parse_signed_sums_commit "$ic_sums")
+  ic_cmt8=$(printf '%.8s\n' "$ic_cmt")
+
+  ic_seq_dir="$HOME/.local/share/codex/components"
+  ic_seq_file="$ic_seq_dir/${ic_tag}.sequence"
+  ic_prev_seq=$(read_recorded_release_sequence "$ic_seq_file")
+  if [ "$ic_seq" -lt "$ic_prev_seq" ]; then
+    fail "$ic_tag sequence rollback rejected (got $ic_seq, installed $ic_prev_seq)"
+  fi
+
+  fetch_https "$ic_url/$ic_asset" "$ic_tb" "$MAX_COMPONENT_TARBALL_BYTES"
+  verify_sha256_file "$ic_tb" "$ic_sums" "$ic_asset"
+  if fetch_optional_https "$ic_url/$ic_asset.sha256" "$ic_tb_sha" "$MAX_SHA256_BYTES"; then
+    verify_sha256_file "$ic_tb" "$ic_tb_sha" "$ic_asset"
+  fi
+
+  if "$ic_tar" -tzf "$ic_tb" | grep -E '(^/|(^|/)\.\.(/|$))' >/dev/null 2>&1; then
+    fail "$ic_tag tarball contains unsafe path entries"
+  fi
+  "$ic_tar" -xzf "$ic_tb" -C "$ic_work/extract"
+  require_regular_file "$ic_work/extract/bin/$ic_bin" "$ic_tag bin/$ic_bin"
+  if [ -f "$ic_work/extract/SHA256SUMS" ]; then
+    verify_bundle_checksums "$ic_work/extract" "$ic_work/extract/SHA256SUMS"
+  fi
+
+  ic_ver=$ic_default_ver
+  if [ "$ic_tag" = 'tunnel-client' ] && [ -f "$ic_work/extract/build.json" ]; then
+    ic_parsed_ver=$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$ic_work/extract/build.json" | head -n 1)
+    case $ic_parsed_ver in
+      ''|*[!A-Za-z0-9._-]*) ;;
+      *) ic_ver=$ic_parsed_ver ;;
+    esac
+  fi
+  ic_gen="${ic_ver}-${ic_cmt8}"
+  ic_root="$HOME/.local/lib/codex/$ic_comp"
+  ic_gen_dir="$ic_root/generations/$ic_gen"
+  mkdir -p "$ic_root/generations"
+  chmod 0700 "$ic_root" "$ic_root/generations"
+
+  ic_new_bin_sha=$(sha256_hex "$ic_work/extract/bin/$ic_bin")
+  ic_cur_bin_sha=$(digest_or_none "$ic_root/current/$ic_bin")
+  if [ "$ic_tag" = 'tunnel-client' ] && [ "$ic_new_bin_sha" != "$ic_cur_bin_sha" ]; then
+    tunnel_client_updated=1
+  fi
+
+  ic_cur_link=''
+  if [ -L "$ic_root/current" ]; then
+    ic_cur_link=$(readlink "$ic_root/current" 2>/dev/null || :)
+  fi
+  ic_reinstall=1
+  if [ "$ic_cur_link" = "generations/$ic_gen" ] && \
+     [ -f "$ic_gen_dir/bin/$ic_bin" ] && [ -f "$ic_gen_dir/signed/SHA256SUMS.sig" ] && \
+     [ "$(digest_or_none "$ic_gen_dir/bin/$ic_bin")" = "$ic_new_bin_sha" ]; then
+    ic_reinstall=0
+  fi
+
+  if [ "$ic_reinstall" -eq 1 ]; then
+    rm -rf "$ic_gen_dir"
+    mkdir -p "$ic_gen_dir/signed"
+    cp -R "$ic_work/extract/." "$ic_gen_dir/"
+    cp "$ic_work/extract/bin/$ic_bin" "$ic_gen_dir/$ic_bin"
+    cp "$ic_sums" "$ic_sig" "$ic_gen_dir/signed/"
+    if [ -f "$ic_tb_sha" ]; then
+      cp "$ic_tb_sha" "$ic_gen_dir/signed/"
+    fi
+    chmod 0700 "$ic_gen_dir" "$ic_gen_dir/bin" "$ic_gen_dir/signed" "$ic_gen_dir/bin/$ic_bin" "$ic_gen_dir/$ic_bin"
+    chmod 0600 "$ic_gen_dir/signed/"*
+    if [ -f "$ic_gen_dir/SHA256SUMS" ]; then
+      chmod 0600 "$ic_gen_dir/SHA256SUMS"
+    fi
+    if [ -d "$ic_gen_dir/scripts" ]; then
+      chmod 0700 "$ic_gen_dir/scripts"
+      chmod 0755 "$ic_gen_dir/scripts/"* 2>/dev/null || :
+    fi
+    if [ -d "$ic_gen_dir/host" ]; then
+      chmod 0700 "$ic_gen_dir/host"
+      chmod 0600 "$ic_gen_dir/host/"* 2>/dev/null || :
+      if [ -f "$ic_gen_dir/host/manager.py" ]; then
+        chmod 0700 "$ic_gen_dir/host/manager.py"
+      fi
+    fi
+  fi
+
+  if [ "$ic_tag" = 'codex-ext' ]; then
+    install_atomic_prefix_binary "$ic_gen_dir/bin/codex-ext" codex-ext
+    rm -f "$dest_dir/.cdx.tmp.$$"
+    ln -s codex-ext "$dest_dir/.cdx.tmp.$$"
+    mv -Tf "$dest_dir/.cdx.tmp.$$" "$dest_dir/cdx" 2>/dev/null || {
+      rm -f "$dest_dir/.cdx.tmp.$$"
+      ln -sfn codex-ext "$dest_dir/cdx"
+    }
+    update_generation_links "$ic_root" "$ic_gen"
+  else
+    activate_component_service "$ic_tag" "$ic_comp" "$ic_bin" "$ic_root" "$ic_gen"
+    if [ "$ic_tag" = 'chatgpt-provider' ]; then
+      ensure_chatgpt_profile_config "$ic_gen_dir/bin/chatgpt-provider"
+    fi
+  fi
+
+  mkdir -p "$ic_seq_dir"
+  chmod 0700 "$ic_seq_dir"
+  ic_seq_tmp="$ic_seq_dir/.${ic_tag}.sequence.tmp.$$"
+  printf '%s\n' "$ic_seq" > "$ic_seq_tmp"
+  chmod 0600 "$ic_seq_tmp"
+  install_sync "$ic_seq_tmp"
+  mv -f "$ic_seq_tmp" "$ic_seq_file"
+  install_sync "$ic_seq_dir"
+  note "installed $ic_tag generation $ic_gen (sequence $ic_seq)"
+}
+
+tty_available() {
+  [ -t 1 ] && [ -r /dev/tty ] && [ -w /dev/tty ]
+}
+
+tty_prompt() {
+  tp_msg=$1
+  tp_def=${2:-}
+  if tty_available; then
+    printf '%s' "$tp_msg" > /dev/tty
+    IFS= read -r tp_ans < /dev/tty || tp_ans=''
+    if [ -z "$tp_ans" ] && [ -n "$tp_def" ]; then
+      tp_ans=$tp_def
+    fi
+    printf '%s\n' "$tp_ans"
+  else
+    printf '%s\n' "$tp_def"
+  fi
+}
+
+tty_prompt_secret() {
+  ts_msg=$1
+  tty_available || return 1
+  printf '%s' "$ts_msg" > /dev/tty
+  stty -echo < /dev/tty 2>/dev/null || :
+  IFS= read -r ts_val < /dev/tty || ts_val=''
+  stty echo < /dev/tty 2>/dev/null || :
+  printf '\n' > /dev/tty
+  printf '%s' "$ts_val"
+}
+
+perform_codex_login() {
+  pl_method=$1
+  shift
+  case $pl_method in
+    device|1)
+      note "starting Device Code login (follow URL and one-time code on screen)..."
+      if [ "$#" -gt 0 ]; then
+        "$@" login --device-auth
+      else
+        "$dest_bin" login --device-auth
+      fi
+      ;;
+    browser|2)
+      if [ "$#" -gt 0 ]; then
+        "$@" login
+      else
+        "$dest_bin" login
+      fi
+      ;;
+    api-key|3)
+      if [ -n "${OPENAI_API_KEY:-}" ]; then
+        pl_key=$OPENAI_API_KEY
+      else
+        pl_key=$(tty_prompt_secret 'OpenAI API key (input hidden, empty skips): ') || return 0
+      fi
+      [ -n "$pl_key" ] || { note 'skipped API key login'; return 0; }
+      if [ "$#" -gt 0 ]; then
+        printf '%s\n' "$pl_key" | "$@" login --with-api-key
+      else
+        printf '%s\n' "$pl_key" | "$dest_bin" login --with-api-key
+      fi
+      pl_key=''
+      ;;
+    skip|4|'')
+      return 0
+      ;;
+    *)
+      fail "unknown login method: $pl_method"
+      ;;
+  esac
+}
+
+setup_codex_accounts() {
+  [ -x "$dest_bin" ] || fail "codex binary not found at $dest_bin; install wrapper first"
+  if [ -n "$login_method" ]; then
+    perform_codex_login "$login_method"
+    return 0
+  fi
+  tty_available || return 0
+
+  printf '\n=== Codex Account Setup ===\n' > /dev/tty
+  if "$dest_bin" login status >/dev/tty 2>&1; then
+    sca_relogin=$(tty_prompt 'Default account already configured. Re-authenticate default account? [y/N]: ' 'n')
+    case $sca_relogin in
+      y|Y|yes|YES)
+        printf 'Select login method:\n  1) Device Code (codex login --device-auth) [default]\n  2) Browser OAuth (codex login)\n  3) API Key (hidden input)\n  4) Skip\n' > /dev/tty
+        sca_choice=$(tty_prompt 'Choice [1]: ' '1')
+        perform_codex_login "$sca_choice"
+        ;;
+    esac
+  else
+    printf 'Default account is not logged in. Select login method:\n  1) Device Code (codex login --device-auth) [default]\n  2) Browser OAuth (codex login)\n  3) API Key (hidden input)\n  4) Skip\n' > /dev/tty
+    sca_choice=$(tty_prompt 'Choice [1]: ' '1')
+    perform_codex_login "$sca_choice"
+  fi
+
+  if [ -x "$dest_dir/cdx" ]; then
+    printf '\nConfigured cdx profiles:\n' > /dev/tty
+    "$dest_dir/cdx" profile list --no-daemon-check > /dev/tty 2>&1 || :
+    while true; do
+      sca_add=$(tty_prompt 'Create/login an additional cdx account profile? [y/N]: ' 'n')
+      case $sca_add in
+        y|Y|yes|YES)
+          sca_name=$(tty_prompt 'Profile name (e.g. work, alt): ' '')
+          [ -n "$sca_name" ] || break
+          if ! "$dest_dir/cdx" profile create "$sca_name" >/dev/tty 2>&1; then
+            note "using existing or failed profile '$sca_name'"
+          fi
+          printf 'Login "%s" using:\n  1) Device Code (cdx use %s login --device-auth) [default]\n  2) Browser OAuth\n  3) API Key (hidden input)\n  4) Skip\n' \
+            "$sca_name" "$sca_name" > /dev/tty
+          sca_pchoice=$(tty_prompt 'Choice [1]: ' '1')
+          perform_codex_login "$sca_pchoice" "$dest_dir/cdx" use "$sca_name"
+          ;;
+        *)
+          break
+          ;;
+      esac
+    done
+  fi
+}
+
+setup_chatgpt_provider() {
+  tty_available || return 0
+  scp_bin="$HOME/.local/lib/codex/providers/chatgpt/current/chatgpt-provider"
+  [ -x "$scp_bin" ] || return 0
+  scp_py=$(find_tool python3 || :)
+  scp_tok="$HOME/.local/state/codex/providers/chatgpt/control.token"
+  scp_auth='unknown'
+  if [ -n "$scp_py" ] && [ -f "$scp_tok" ]; then
+    scp_auth=$("$scp_py" - "$scp_tok" <<'PYEOF' 2>/dev/null || printf 'stopped'
+import json, sys, urllib.request
+tok = open(sys.argv[1]).read().strip()
+req = urllib.request.Request("http://127.0.0.1:4319/control/status", headers={"Authorization": f"Bearer {tok}"})
+with urllib.request.urlopen(req, timeout=15) as r:
+    d = json.loads(r.read().decode())
+print(d.get("auth_state") or "unknown")
+PYEOF
+)
+  fi
+  printf '\n=== ChatGPT Desktop Provider ===\n' > /dev/tty
+  printf 'Current status: %s\n' "$scp_auth" > /dev/tty
+  if [ "$scp_auth" = 'authenticated' ]; then
+    return 0
+  fi
+  scp_host="$HOME/.local/lib/codex/host/chatgpt-desktop/current"
+  scp_mgr="$HOME/.local/lib/codex/providers/chatgpt/current/host/manager.py"
+  if [ ! -e "$scp_host" ] && [ -f "$scp_mgr" ] && [ -n "$scp_py" ]; then
+    scp_inst=$(tty_prompt 'ChatGPT Desktop AppHost is not installed yet. Install it now (~400 MB)? [y/N]: ' 'n')
+    case $scp_inst in
+      y|Y|yes|YES)
+        "$scp_py" "$scp_mgr" install --provider-bin "$scp_bin" >/dev/tty 2>&1 ||
+          note 'AppHost install failed; run manager.py install later'
+        ;;
+    esac
+  fi
+  if [ -e "$scp_host" ] && [ -n "$scp_py" ] && [ -f "$scp_tok" ]; then
+    scp_open=$(tty_prompt 'Open ChatGPT Desktop viewer in browser to sign in (if needed)? [y/N]: ' 'n')
+    case $scp_open in
+      y|Y|yes|YES)
+        "$scp_py" - "$scp_tok" <<'PYEOF' >/dev/tty 2>&1 || :
+import json, sys, urllib.request
+tok = open(sys.argv[1]).read().strip()
+for path in ("/control/host/restart", "/control/viewer/open"):
+    req = urllib.request.Request(f"http://127.0.0.1:4319{path}", data=b"", method="POST", headers={"Authorization": f"Bearer {tok}"})
+    with urllib.request.urlopen(req, timeout=90) as r:
+        print(path, r.read().decode())
+PYEOF
+        ;;
+    esac
+  fi
+}
+
+setup_tunnels() {
+  tty_available || return 0
+  st_dir="$HOME/.config/codex/tunnels"
+  st_missing=0
+  printf '\n=== OpenAI MCP Tunnels ===\n' > /dev/tty
+  for st_name in termux-shell termux-codex termux-chatgpt termux-orch; do
+    if [ -f "$st_dir/${st_name}.yaml" ]; then
+      printf '  * %-15s configured\n' "$st_name" > /dev/tty
+    else
+      printf '  * %-15s not configured\n' "$st_name" > /dev/tty
+      st_missing=1
+    fi
+  done
+  [ "$st_missing" -eq 1 ] || return 0
+  st_cfg=$(tty_prompt 'Configure missing MCP tunnel YAML files now (optional)? [y/N]: ' 'n')
+  case $st_cfg in
+    y|Y|yes|YES) ;;
+    *) return 0 ;;
+  esac
+  if [ -n "${CONTROL_PLANE_API_KEY:-}" ]; then
+    st_api_key=$CONTROL_PLANE_API_KEY
+  else
+    st_api_key=$(tty_prompt_secret 'CONTROL_PLANE_API_KEY (hidden, empty cancels): ') || return 0
+  fi
+  [ -n "$st_api_key" ] || return 0
+  mkdir -p "$st_dir"
+  chmod 0700 "$st_dir"
+  for st_pair in \
+    'termux-shell:termux-shell-mcp:mcp/termux-shell:termux-shell-mcp:termux-shell-tunnel' \
+    'termux-codex:termux-codex-mcp:mcp/termux-codex:termux-codex-mcp:termux-codex-tunnel' \
+    'termux-chatgpt:termux-chatgpt-mcp:mcp/termux-chatgpt:termux-chatgpt-mcp:termux-chatgpt-tunnel' \
+    'termux-orch:termux-orch:mcp/termux-orch:termux-orch:termux-orch-tunnel'; do
+    st_n=${st_pair%%:*}
+    st_r=${st_pair#*:}
+    st_tag=${st_r%%:*}
+    st_r=${st_r#*:}
+    st_comp=${st_r%%:*}
+    st_r=${st_r#*:}
+    st_bin=${st_r%%:*}
+    st_svc=${st_r#*:}
+    [ ! -f "$st_dir/${st_n}.yaml" ] || continue
+    st_tid=$(tty_prompt "Tunnel ID for $st_n (e.g. tunnel_..., blank skips): " '')
+    [ -n "$st_tid" ] || continue
+    validate_simple_token 'tunnel_id' "$st_tid"
+    st_yaml="$st_dir/${st_n}.yaml"
+    st_ytmp="$st_dir/.${st_n}.yaml.tmp.$$"
+    cat > "$st_ytmp" <<EOF
+config_version: 1
+control_plane:
+  base_url: "https://api.openai.com"
+  tunnel_id: "$st_tid"
+  api_key: "$st_api_key"
+health:
+  listen_addr: "127.0.0.1:0"
+  url_file: "$HOME/.local/state/codex/services/$st_svc/health.url"
+admin_ui:
+  open_browser: false
+log:
+  level: info
+  format: json
+mcp:
+  commands:
+    - channel: main
+      command: "$HOME/.local/lib/codex/$st_comp/current/$st_bin"
+EOF
+    chmod 0600 "$st_ytmp"
+    install_sync "$st_ytmp"
+    mv -f "$st_ytmp" "$st_yaml"
+    if [ "$no_services" -eq 0 ] && [ -L "$HOME/.local/lib/codex/$st_comp/current" ]; then
+      st_cur_ver=$(basename -- "$(readlink "$HOME/.local/lib/codex/$st_comp/current")")
+      activate_component_service "$st_tag" "$st_comp" "$st_bin" "$HOME/.local/lib/codex/$st_comp" "$st_cur_ver" || :
+    fi
+  done
+  st_api_key=''
+}
+
+run_setup_wizard() {
+  setup_codex_accounts
+  setup_chatgpt_provider
+  setup_tunnels
+  note "setup complete (run 'codex', 'cdx', 'cdx -p chatgpt', or 'codex login --device-auth' anytime)"
+}
+
+maybe_run_components_and_setup() {
+  mr_list=''
+  if [ "$all_components" -eq 1 ]; then
+    mr_list=$ALL_COMPONENTS
+  elif [ -n "$selected_components" ]; then
+    mr_list=$selected_components
+  elif [ "$wrapper_only" -eq 0 ] && [ "$skip_upstream" -eq 0 ] && \
+       [ "$source_mode" = 'release' ] && [ "$release_tag" = 'wrapper' ] && \
+       [ -x /system/bin/linker64 ]; then
+    mr_list=$ALL_COMPONENTS
+  fi
+
+  if [ -n "$mr_list" ]; then
+    for mr_tag in $mr_list; do
+      install_signed_component "$mr_tag"
+    done
+  fi
+
+  mr_setup=0
+  case $setup_mode in
+    always) mr_setup=1 ;;
+    never) mr_setup=0 ;;
+    auto)
+      if [ "$wrapper_only" -eq 0 ] && [ "$skip_upstream" -eq 0 ] && \
+         [ "$source_mode" = 'release' ] && [ "$release_tag" = 'wrapper' ] && \
+         [ -t 1 ] && [ -x /system/bin/linker64 ] && tty_available && [ -z "${CI:-}" ]; then
+        mr_setup=1
+      fi
+      ;;
+  esac
+  if [ "$mr_setup" -eq 1 ]; then
+    run_setup_wizard
+  fi
+}
+
+if [ "$setup_only" -eq 1 ]; then
+  run_setup_wizard
   exit 0
 fi
 
@@ -981,7 +1837,8 @@ if [ "$skip_upstream" -eq 1 ]; then
     persist_signed_release_state
   fi
   note "skipped upstream bootstrap (--skip-upstream); run '$dest_bin update --upstream' when ready"
-  install_committed=1
+  release_wrapper_transaction
+  maybe_run_components_and_setup
   exit 0
 fi
 
@@ -1049,4 +1906,6 @@ fi
 if [ -n "$verified_release_sequence" ]; then
   persist_signed_release_state
 fi
-install_committed=1
+release_wrapper_transaction
+maybe_run_components_and_setup
+exit 0

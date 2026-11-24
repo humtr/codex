@@ -103,13 +103,14 @@ jobs:
           bundle="$RUNNER_TEMP/tunnel-client-aarch64-linux-android"
           dist="$RUNNER_TEMP/dist"
           rm -rf "$bundle" "$dist"
-          mkdir -p "$bundle/bin" "$dist"
+          mkdir -p "$bundle/bin" "$bundle/scripts" "$dist"
           install -m 0755 "$out/tunnel-client" "$bundle/bin/tunnel-client"
+          install -m 0755 scripts/runit_service.py "$bundle/scripts/runit_service.py"
           install -m 0644 "$out/LICENSE" "$bundle/LICENSE"
           install -m 0644 "$out/build.json" "$bundle/build.json"
           (
             cd "$bundle"
-            sha256sum bin/tunnel-client LICENSE build.json > SHA256SUMS
+            sha256sum bin/tunnel-client scripts/runit_service.py LICENSE build.json > SHA256SUMS
             sha256sum -c SHA256SUMS
           )
           tarball="tunnel-client-aarch64-linux-android.tar.gz"

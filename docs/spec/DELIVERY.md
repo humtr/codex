@@ -372,7 +372,10 @@ with zero reliance on legacy `install-online.sh`, `bootstrap/codex-bootstrap`, o
 
 ```text
 install.sh [--prefix <DIR>] [--binary <PATH>] [--build] [--release <TAG>] \
-  [--repo <OWNER/REPO>] [--version <X.Y.Z>] [--skip-upstream] [--help]
+  [--repo <OWNER/REPO>] [--verify-key <PEM>] [--key-sha256 <HEX>] [--require-signed] \
+  [--version <X.Y.Z>] [--skip-upstream] [--all | --wrapper-only | --components <CSV>] \
+  [--no-services] [--setup | --setup-only | --no-setup] \
+  [--login-method <device|browser|api-key|skip>] [--help]
 install.sh --prefix <DIR> --recover
 ```
 
@@ -381,11 +384,17 @@ install.sh --prefix <DIR> --recover
   unpacked bundle (`bin/codex` or `codex` with `SHA256SUMS`) and then for
   `target/release/codex` in a checkout. If those sources are absent, or the
   script runs from stdin via `curl ... | sh`, it fetches the GitHub Release
-  assets `codex-wrapper-aarch64-linux-android.tar.gz` and `.sha256` from tag
-  `wrapper` of `humtr/codex` over HTTPS (`curl`) + checksum verification (`sha256sum` or
-  `openssl` fallback). (Stage 1 verifies `.sha256` / `SHA256SUMS` digests only
-  without an Ed25519 signature; Phase 2.2 adds Ed25519 signature verification of
-  the Wrapper bundle and `install.sh` self-update path.)
+  assets from tag `wrapper` of `humtr/codex` over HTTPS (`curl`) with Ed25519
+  `SHA256SUMS.sig` verification (`--require-signed` / pinned public key) and
+  monotonic sequence enforcement. On Android AArch64 release installs without
+  `--wrapper-only` / `--skip-upstream`, or whenever `--all` / `--components`
+  is supplied, `install.sh` also verifies and installs all 7 signed Stage 2
+  component bundles (`codex-ext`, `tunnel-client` including `runit_service.py`,
+  `termux-shell-mcp`, `termux-codex-mcp`, `chatgpt-provider`,
+  `termux-chatgpt-mcp`, `termux-orch`), activates configured `runit` services
+  (unless `--no-services`), and launches guided account/device-code setup
+  (`codex login --device-auth`) when a TTY is available (or directly via
+  `--setup-only` / `--login-method`).
 - On Android AArch64, `install.sh` runs a non-mutating `/system/bin/linker64`
   `update --help` sanity probe on the staged binary before atomically publishing it to
   `$PREFIX/bin/codex`.

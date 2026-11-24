@@ -126,6 +126,8 @@ Useful installer options (`./install.sh --help`):
 
 - `--prefix <DIR>`: override `$PREFIX` (defaults to `$PREFIX` or `/data/data/com.termux/files/usr`).
 - `--release <TAG>`: download signed `SHA256SUMS`, `SHA256SUMS.sig`, and `codex-wrapper-aarch64-linux-android.tar.gz` from a specific GitHub Release tag (defaults to `wrapper` rather than `/releases/latest`).
+- `--all` / `--wrapper-only` / `--components <CSV>` / `--no-services`: install all signed standalone components & `runit` services (default on Android `curl ... | sh`), limit to the core Wrapper, or select specific components (`codex-ext`, `tunnel-client`, `termux-shell-mcp`, `termux-codex-mcp`, `chatgpt-provider`, `termux-chatgpt-mcp`, `termux-orch`).
+- `--setup` / `--setup-only` / `--no-setup` / `--login-method <device|browser|api-key|skip>`: run guided account, `cdx` profile, ChatGPT Desktop AppHost, and tunnel setup, including **Device Code login** (`codex login --device-auth`, or `cdx use <ACCOUNT> login --device-auth` for additional profiles).
 - `--verify-key <PEM>` / `--key-sha256 <HEX>` / `--require-signed`: override or strictly pin the Ed25519 public key used to verify `SHA256SUMS.sig`.
 - `--version <X.Y.Z>`: bootstrap a specific upstream Codex release version during install.
 - `--skip-upstream`: install `$PREFIX/bin/codex` without running `codex update --upstream` immediately.

@@ -711,6 +711,153 @@ exit 22
         self.assertNotEqual(r_rec.returncode, 0)
         self.assertIn("--recover may only be combined with --prefix", r_rec.stderr)
 
+    def _build_signed_component_dir(
+        self, tag_dir: Path, component: str, bin_name: str, tarball_name: str,
+        priv: Path, sequence: int, commit_hex: str, extra_files: dict[str, bytes] | None = None,
+    ) -> bytes:
+        import importlib.util, tarfile
+        spec = importlib.util.spec_from_file_location(
+            "release_sign", Path(__file__).with_name("release_sign.py")
+        )
+        rs = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(rs)
+
+        tag_dir.mkdir(parents=True, exist_ok=True)
+        bundle = tag_dir / "_bundle"
+        (bundle / "bin").mkdir(parents=True, exist_ok=True)
+        payload = f"#!/bin/sh\necho '{component} {sequence}'\n".encode()
+        bin_path = bundle / "bin" / bin_name
+        bin_path.write_bytes(payload)
+        bin_path.chmod(0o755)
+        sums_lines = [f"{hashlib.sha256(payload).hexdigest()}  bin/{bin_name}\n"]
+        added = [("bin/" + bin_name, bin_path)]
+        for rel_path, content in (extra_files or {}).items():
+            full = bundle / rel_path
+            full.parent.mkdir(parents=True, exist_ok=True)
+            full.write_bytes(content)
+            full.chmod(0o755 if rel_path.endswith(".py") else 0o644)
+            sums_lines.append(f"{hashlib.sha256(content).hexdigest()}  {rel_path}\n")
+            added.append((rel_path, full))
+        (bundle / "SHA256SUMS").write_text("".join(sums_lines))
+        tarball = tag_dir / tarball_name
+        with tarfile.open(tarball, "w:gz") as tf:
+            for arc, path in added:
+                tf.add(path, arcname=arc)
+            tf.add(bundle / "SHA256SUMS", arcname="SHA256SUMS")
+        tar_sha = hashlib.sha256(tarball.read_bytes()).hexdigest()
+        (tag_dir / f"{tarball_name}.sha256").write_text(f"{tar_sha}  {tarball_name}\n")
+        rs.sign_release(
+            component=component,
+            sequence=sequence,
+            commit=commit_hex,
+            dist=tag_dir,
+            files=[tarball_name],
+            private_key=priv,
+        )
+        return payload
+
+    def test_i18_full_component_signed_install_and_rollback_rejection(self):
+        rel = self.root / "release-all"
+        priv = self.root / "rel.priv.pem"
+        pub = self.root / "rel.pub.pem"
+        subprocess.run(["openssl", "genpkey", "-algorithm", "ED25519", "-out", str(priv)], check=True, capture_output=True)
+        subprocess.run(["openssl", "pkey", "-in", str(priv), "-pubout", "-out", str(pub)], check=True, capture_output=True)
+        pub_sha = hashlib.sha256(pub.read_bytes()).hexdigest()
+
+        commit_hex = "b" * 40
+        self._build_signed_release_dir(rel / "wrapper", priv, 2, self.new.read_bytes())
+        components = [
+            ("codex-ext", "codex-ext", "codex-ext-aarch64-linux-android.tar.gz", 11, None),
+            ("tunnel-client", "tunnel-client", "tunnel-client-aarch64-linux-android.tar.gz", 5, {
+                "build.json": b'{"version":"v0.0.21"}\n',
+                "LICENSE": b"Apache-2.0\n",
+                "scripts/runit_service.py": b"#!/usr/bin/env python3\n",
+            }),
+            ("termux-shell-mcp", "termux-shell-mcp", "termux-shell-mcp-aarch64-linux-android.tar.gz", 8, None),
+            ("termux-codex-mcp", "termux-codex-mcp", "termux-codex-mcp-aarch64-linux-android.tar.gz", 5, None),
+            ("chatgpt-provider", "chatgpt-provider", "chatgpt-provider-aarch64-linux-android.tar.gz", 12, {
+                "host/manager.py": b"#!/usr/bin/env python3\n",
+                "host/openai-apt-keyring.gpg": b"keyring\n",
+            }),
+            ("termux-chatgpt-mcp", "termux-chatgpt-mcp", "termux-chatgpt-mcp-aarch64-linux-android.tar.gz", 5, None),
+            ("termux-orch", "termux-orch", "termux-orch-aarch64-linux-android.tar.gz", 10, None),
+        ]
+        for tag, bin_name, tb, seq, extras in components:
+            self._build_signed_component_dir(rel / tag, tag, bin_name, tb, priv, seq, commit_hex, extras)
+
+        curl = self.shims / "curl"
+        curl.write_text(
+            "#!/bin/sh\n"
+            "out=''; url=''\n"
+            "while [ $# -gt 0 ]; do\n"
+            "  case $1 in\n"
+            "    --output) out=$2; shift 2 ;;\n"
+            "    --proto|--proto-redir|--connect-timeout|--max-time|--max-filesize) shift 2 ;;\n"
+            "    -*) shift ;;\n"
+            "    *) url=$1; shift ;;\n"
+            "  esac\n"
+            "done\n"
+            "name=${url##*/}; dir=${url%/*}; tag=${dir##*/}\n"
+            f"src='{rel}/'\"$tag/$name\"\n"
+            "[ -f \"$src\" ] || exit 22\n"
+            "cp \"$src\" \"$out\"\n"
+        )
+        curl.chmod(0o755)
+
+        r = self._run_release_install(
+            "--all", "--no-services", "--no-setup",
+            "--verify-key", str(pub), "--key-sha256", pub_sha,
+        )
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertTrue((self.prefix / "bin/codex-ext").is_file())
+        self.assertEqual(os.readlink(self.prefix / "bin/cdx"), "codex-ext")
+        expected_roots = [
+            "ext", "transport/tunnel-client", "mcp/termux-shell",
+            "mcp/termux-codex", "providers/chatgpt", "mcp/termux-chatgpt", "mcp/termux-orch",
+        ]
+        for comp_root in expected_roots:
+            cur = self.home / ".local/lib/codex" / comp_root / "current"
+            self.assertTrue(cur.is_symlink(), f"missing current link for {comp_root}")
+            self.assertTrue((cur / "signed/SHA256SUMS.sig").is_file())
+        self.assertEqual(
+            (self.home / ".local/share/codex/components/termux-orch.sequence").read_text().strip(),
+            "10",
+        )
+        self.assertTrue(
+            (self.home / ".local/lib/codex/transport/tunnel-client/current/scripts/runit_service.py").is_file()
+        )
+
+        # Component rollback (seq 9 < 10) must fail closed.
+        self._build_signed_component_dir(
+            rel / "termux-orch", "termux-orch", "termux-orch",
+            "termux-orch-aarch64-linux-android.tar.gz", priv, 9, commit_hex, None,
+        )
+        rb = self._run_release_install("--components", "termux-orch", "--no-services", "--no-setup")
+        self.assertNotEqual(rb.returncode, 0)
+        self.assertIn("rollback rejected", rb.stderr)
+
+    def test_i19_setup_only_device_auth_and_wrapper_only(self):
+        log = self.home / "login.log"
+        codex_bin = self.prefix / "bin/codex"
+        codex_bin.write_text(f"#!/bin/sh\nprintf '%s\\n' \"$*\" >> '{log}'\nexit 0\n")
+        codex_bin.chmod(0o755)
+        r = subprocess.run(
+            ["/bin/sh", str(INSTALL), "--prefix", str(self.prefix),
+             "--setup-only", "--login-method", "device"],
+            env=self.env, capture_output=True, text=True,
+        )
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("login --device-auth", log.read_text())
+
+        # --wrapper-only must not touch or fetch companion components
+        r_wo = subprocess.run(
+            ["/bin/sh", str(INSTALL), "--prefix", str(self.prefix),
+             "--binary", str(self.new), "--skip-upstream", "--wrapper-only"],
+            env=self.env, capture_output=True, text=True,
+        )
+        self.assertEqual(r_wo.returncode, 0, r_wo.stderr)
+        self.assertFalse((self.prefix / "bin/codex-ext").exists())
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
