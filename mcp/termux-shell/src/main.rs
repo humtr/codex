@@ -137,23 +137,26 @@ impl StreamCapture {
                 let remaining = stopping
                     .get()
                     .map(|deadline| deadline.saturating_duration_since(Instant::now()));
-                if remaining.is_some_and(|duration| duration.is_zero()) {
-                    return (output, true);
-                }
+                let expired = remaining.is_some_and(|duration| duration.is_zero());
+                // Try the nonblocking read once at the deadline to distinguish
+                // a closed pipe from one still held by a detached writer.
                 match stream.read(&mut buf) {
                     Ok(0) => return (output, truncated),
                     Ok(n) => {
                         let room = MAX_OUTPUT_BYTES - output.len();
                         output.extend_from_slice(&buf[..room.min(n)]);
                         truncated |= n > room;
+                        if expired {
+                            return (output, true);
+                        }
                     }
-                    Err(err) if err.kind() == io::ErrorKind::WouldBlock => {
+                    Err(err) if !expired && err.kind() == io::ErrorKind::WouldBlock => {
                         let poll_interval = Duration::from_millis(10);
                         let wait =
                             remaining.map_or(poll_interval, |duration| duration.min(poll_interval));
                         Self::wait_readable(stream.as_raw_fd(), wait);
                     }
-                    Err(err) if err.kind() == io::ErrorKind::Interrupted => continue,
+                    Err(err) if !expired && err.kind() == io::ErrorKind::Interrupted => continue,
                     Err(_) => return (output, true),
                 }
             }
@@ -512,6 +515,23 @@ mod tests {
 
     fn sh() -> PathBuf {
         default_shell_path().unwrap()
+    }
+
+    #[test]
+    fn expired_capture_distinguishes_eof_from_a_detached_writer() {
+        use std::os::unix::net::UnixStream;
+
+        for closed in [true, false] {
+            let (reader, writer) = UnixStream::pair().unwrap();
+            let mut writer = Some(writer);
+            if closed {
+                drop(writer.take());
+            }
+            StreamCapture::set_nonblocking(&reader).unwrap();
+            let deadline = Arc::new(OnceLock::from(Instant::now()));
+            let mut capture = StreamCapture::spawn(reader, deadline);
+            assert_eq!(capture.collect(), (Vec::new(), !closed));
+        }
     }
 
     #[test]
