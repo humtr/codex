@@ -1908,4 +1908,3 @@ if [ -n "$verified_release_sequence" ]; then
 fi
 release_wrapper_transaction
 maybe_run_components_and_setup
-exit 0
