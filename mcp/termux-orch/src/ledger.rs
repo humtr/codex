@@ -10,6 +10,7 @@
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::BTreeMap;
 use std::fs::{self, DirBuilder, File, OpenOptions};
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::os::fd::AsRawFd;
@@ -252,6 +253,8 @@ pub struct Participant {
     pub verification: Option<Verification>,
     pub created_at_unix: u64,
     pub updated_at_unix: u64,
+    #[serde(flatten)]
+    pub extra: BTreeMap<String, Value>,
 }
 
 impl Participant {
@@ -381,6 +384,8 @@ pub struct WaitSet {
     pub then_verify_shell: Option<ShellContinuation>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub continuation_id: Option<String>,
+    #[serde(flatten)]
+    pub extra: BTreeMap<String, Value>,
 }
 
 fn default_true() -> bool {
@@ -509,9 +514,22 @@ pub struct WorkRecord {
     pub budget: WorkBudget,
     pub created_at_unix: u64,
     pub updated_at_unix: u64,
+    #[serde(flatten)]
+    pub extra: BTreeMap<String, Value>,
 }
 
 impl WorkRecord {
+    fn check_schema(&self) -> io::Result<()> {
+        if self.schema == WORK_SCHEMA {
+            Ok(())
+        } else {
+            Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "unsupported Work schema",
+            ))
+        }
+    }
+
     pub fn is_terminal(&self) -> bool {
         matches!(
             self.state.as_str(),
@@ -730,6 +748,7 @@ impl Ledger {
     }
 
     pub fn save_work(&self, work: &WorkRecord) -> io::Result<()> {
+        work.check_schema()?;
         let dir = self.work_dir(&work.work_id)?;
         ensure_private_dir(&dir)?;
         let bytes = serde_json::to_vec_pretty(work)
@@ -741,7 +760,16 @@ impl Ledger {
         let dir = self.work_dir(work_id)?;
         let path = dir.join("work.json");
         let raw = read_private_file(&path, 2 * 1024 * 1024)?;
-        serde_json::from_slice(&raw).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
+        let work: WorkRecord = serde_json::from_slice(&raw)
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+        work.check_schema()?;
+        if work.work_id != work_id {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "Work ID does not match its directory",
+            ));
+        }
+        Ok(work)
     }
 
     pub fn list_work_ids(&self) -> io::Result<Vec<String>> {
@@ -766,9 +794,10 @@ impl Ledger {
     pub fn list_works(&self) -> io::Result<Vec<WorkRecord>> {
         let mut out = Vec::new();
         for id in self.list_work_ids()? {
-            if let Ok(rec) = self.load_work(&id) {
-                out.push(rec);
-            }
+            let rec = self.load_work(&id).map_err(|err| {
+                io::Error::new(err.kind(), format!("cannot read Work {id}: {err}"))
+            })?;
+            out.push(rec);
         }
         out.sort_by(|a, b| {
             b.updated_at_unix

@@ -179,7 +179,13 @@ fn main() {
                     std::process::exit(1);
                 }
             };
-            let works = ledger.list_works().unwrap_or_default();
+            let works = match ledger.list_works() {
+                Ok(works) => works,
+                Err(err) => {
+                    eprintln!("termux-orch status: {err}");
+                    std::process::exit(1);
+                }
+            };
             let active = works.iter().filter(|w| !w.is_terminal()).count();
             println!(
                 "{}",
@@ -221,6 +227,58 @@ mod tests {
         let d = env::temp_dir().join(format!("{prefix}-{}-{ns}", std::process::id()));
         fs::create_dir_all(&d).unwrap();
         d
+    }
+
+    #[test]
+    fn ledger_preserves_additive_fields_and_surfaces_unreadable_work() {
+        let root = tmp_dir("termux-orch-work-schema");
+        let ledger = Ledger::open(root.clone()).unwrap();
+        let dir = ledger.work_dir("work-fixture").unwrap();
+        fs::create_dir(&dir).unwrap();
+        let path = dir.join("work.json");
+        let current = crate::ledger::WORK_SCHEMA;
+        let mut record = json!({
+            "schema": current, "work_id": "work-fixture", "title": "fixture",
+            "tier": "direct", "goal": "fixture", "state": "running",
+            "delivery_mode": "notify_only",
+            "front": {"generation": 1, "history": []},
+            "budget": crate::ledger::WorkBudget::default(),
+            "consumed_seq": 0, "last_seq": 0, "created_at_unix": 0, "updated_at_unix": 0,
+            "future_work": {"seen": true},
+            "participants": [{
+                "role": "worker", "backend": "codex", "participant_id": "worker-fixture",
+                "index": 1, "ref_id": "", "slug": "fixture", "task_summary": "fixture",
+                "state": "pending", "created_at_unix": 0, "updated_at_unix": 0,
+                "future_worker": 19
+            }],
+            "wait_set": {"wait_id": "wait-fixture", "wake_target": "front",
+                         "armed": true, "created_at_unix": 0, "future_wait": [1, 2]}
+        });
+        let write = |v: &Value| {
+            fs::write(&path, serde_json::to_vec(v).unwrap()).unwrap();
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+        };
+        write(&record);
+        let mut work = ledger.load_work("work-fixture").unwrap();
+        work.title = "updated".to_owned();
+        ledger.save_work(&work).unwrap();
+        let updated: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        assert_eq!(updated["title"], "updated");
+        assert_eq!(updated["future_work"], record["future_work"]);
+        assert_eq!(updated["participants"][0]["future_worker"], 19);
+        assert_eq!(updated["wait_set"]["future_wait"], json!([1, 2]));
+
+        record["schema"] = json!("termux-orch-work-v2");
+        write(&record);
+        let err = ledger.list_works().unwrap_err().to_string();
+        assert!(err.contains("work-fixture") && err.contains("unsupported Work schema"));
+        record["schema"] = json!(current);
+        record["session_prefixes"] = json!({"unknown_field": "requires a newer reader"});
+        write(&record);
+        let err = ledger.list_works().unwrap_err().to_string();
+        assert!(err.contains("work-fixture") && err.contains("unknown_field"));
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

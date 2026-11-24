@@ -942,6 +942,7 @@ impl OrchMcpHandler {
 
         let account_id = account_id.or_else(|| self.current_account_id());
         let mut work = WorkRecord {
+            extra: Default::default(),
             schema: WORK_SCHEMA.to_owned(),
             work_id: work_id.clone(),
             title: title.to_owned(),
@@ -1919,6 +1920,7 @@ impl OrchMcpHandler {
         }
         let now = now_unix();
         let mut participant = Participant {
+            extra: Default::default(),
             participant_id: participant_id.clone(),
             index,
             role: role.to_owned(),
@@ -2270,6 +2272,7 @@ impl OrchMcpHandler {
             let _ = self.ledger.write_checkpoint(wid, cp);
         }
         let ws = WaitSet {
+            extra: Default::default(),
             wait_id: generate_id("wait"),
             wake_target: wake_target.to_owned(),
             all_of,
@@ -2662,7 +2665,10 @@ impl OrchMcpHandler {
         };
         match action {
             "relay_status" => {
-                let works = self.ledger.list_works().unwrap_or_default();
+                let works = match self.ledger.list_works() {
+                    Ok(works) => works,
+                    Err(err) => return fail("ledger_read_failed", err.to_string()),
+                };
                 let active = works.iter().filter(|w| !w.is_terminal()).count();
                 let pending: usize = works.iter().map(|w| w.pending_deliveries.len()).sum();
                 let provider_ok = self.owners.chatgpt_status().is_ok();

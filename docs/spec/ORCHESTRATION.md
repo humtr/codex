@@ -115,6 +115,11 @@ State root: `~/.local/state/codex/orchestration/jobs/<work_id>/` (`0700`,
      `ref_id`, `slug`, `owner_scope`, `call_id`, `state`, `result_summary`),
      `consumed_seq`, and `budget` (`max_wakeups`, `wakeups_used`,
      `max_wall_secs`, `max_concurrent_workers`, `min_cooldown_secs`).
+   - The reader validates `termux-orch-work-v1` and the Work ID in the record.
+     It preserves unknown fields on the Work, participant and wait-set
+     records across updates. Strict nested records, such as step definitions
+     and session prefixes, reject unrecognized fields. Work listing and
+     relay status surface unreadable Work IDs as errors.
    - `checkpoint.md` holds the concise handoff summary updated by `L` before
      ending a round or rolling over, giving `L2` and `Fn` one-read recovery.
 2. **`Typed Inbox` (`events.jsonl`):**

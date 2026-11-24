@@ -1045,6 +1045,7 @@ impl RelayEngine {
                     format!("W{index}")
                 };
                 work.participants.push(Participant {
+                    extra: Default::default(),
                     participant_id: id.clone(),
                     index,
                     role: role.to_owned(),
@@ -1187,6 +1188,7 @@ impl RelayEngine {
         };
         let position = work.participants.len();
         work.participants.push(Participant {
+            extra: Default::default(),
             participant_id: id,
             index,
             role: "verifier".to_owned(),
@@ -1343,6 +1345,7 @@ impl RelayEngine {
             let index = work.next_role_index("verifier");
             let id = format!("V{index}");
             let participant = Participant {
+                extra: Default::default(),
                 participant_id: id.clone(),
                 index,
                 role: "verifier".to_owned(),
