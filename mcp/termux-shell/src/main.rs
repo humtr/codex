@@ -11,11 +11,15 @@ use mcp_kit::{
 };
 use serde_json::{json, Value};
 use std::env;
-use std::io::Read;
+use std::io::{self, Read};
+use std::os::fd::AsRawFd;
 use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::{Arc, Mutex};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -97,52 +101,75 @@ impl Drop for ProcessGroupGuard {
 }
 
 struct StreamCapture {
-    handle: Option<thread::JoinHandle<()>>,
-    data: Arc<Mutex<(Vec<u8>, bool)>>,
+    stop: Arc<AtomicBool>,
+    handle: Option<thread::JoinHandle<(Vec<u8>, bool)>>,
 }
 
 impl StreamCapture {
+    fn set_nonblocking(stream: &impl AsRawFd) -> io::Result<()> {
+        let fd = stream.as_raw_fd();
+        let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
+        if flags < 0 || unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) } < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(())
+    }
+
     fn spawn<R: Read + Send + 'static>(mut stream: R) -> Self {
-        let data = Arc::new(Mutex::new((Vec::new(), false)));
-        let shared = Arc::clone(&data);
+        let stop = Arc::new(AtomicBool::new(false));
+        let stopping = Arc::clone(&stop);
         let handle = thread::spawn(move || {
             let mut buf = [0u8; 8192];
+            let mut output = Vec::new();
+            let mut truncated = false;
+            let mut stop_deadline = None;
             loop {
-                match stream.read(&mut buf) {
-                    Ok(0) => break,
-                    Ok(n) => {
-                        let mut guard = shared.lock().unwrap_or_else(|e| e.into_inner());
-                        let room = MAX_OUTPUT_BYTES.saturating_sub(guard.0.len());
-                        guard.0.extend_from_slice(&buf[..room.min(n)]);
-                        if n > room {
-                            guard.1 = true;
-                        }
+                if stopping.load(Ordering::Relaxed) {
+                    let deadline = stop_deadline
+                        .get_or_insert_with(|| Instant::now() + Duration::from_millis(100));
+                    if Instant::now() >= *deadline {
+                        return (output, true);
                     }
-                    Err(_) => break,
+                }
+                match stream.read(&mut buf) {
+                    Ok(0) => return (output, truncated),
+                    Ok(n) => {
+                        let room = MAX_OUTPUT_BYTES - output.len();
+                        output.extend_from_slice(&buf[..room.min(n)]);
+                        truncated |= n > room;
+                    }
+                    Err(err) if err.kind() == io::ErrorKind::WouldBlock => {
+                        if stopping.load(Ordering::Relaxed) {
+                            return (output, true);
+                        }
+                        thread::sleep(Duration::from_millis(10));
+                    }
+                    Err(err) if err.kind() == io::ErrorKind::Interrupted => continue,
+                    Err(_) => return (output, true),
                 }
             }
         });
         Self {
             handle: Some(handle),
-            data,
+            stop,
         }
     }
 
-    fn finish(mut self, timeout: Duration) -> (Vec<u8>, bool) {
-        let deadline = Instant::now() + timeout;
-        let mut incomplete = false;
+    fn collect(&mut self) -> (Vec<u8>, bool) {
+        self.stop.store(true, Ordering::Relaxed);
+        self.handle
+            .take()
+            .and_then(|h| h.join().ok())
+            .unwrap_or((Vec::new(), true))
+    }
+}
+
+impl Drop for StreamCapture {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::Relaxed);
         if let Some(handle) = self.handle.take() {
-            while !handle.is_finished() && Instant::now() < deadline {
-                thread::sleep(Duration::from_millis(10));
-            }
-            if handle.is_finished() {
-                let _ = handle.join();
-            } else {
-                incomplete = true;
-            }
+            let _ = handle.join();
         }
-        let mut guard = self.data.lock().unwrap_or_else(|e| e.into_inner());
-        (std::mem::take(&mut guard.0), guard.1 || incomplete)
     }
 }
 
@@ -169,8 +196,18 @@ fn run_shell_command(script: &str, cwd: &Path, timeout_ms: u64, shell: &Path) ->
 
     let pid = child.id() as i32;
     let group = ProcessGroupGuard((pid > 0).then_some(pid));
-    let stdout = StreamCapture::spawn(child.stdout.take().expect("piped stdout"));
-    let stderr = StreamCapture::spawn(child.stderr.take().expect("piped stderr"));
+    let stdout = child.stdout.take().expect("piped stdout");
+    let stderr = child.stderr.take().expect("piped stderr");
+    if StreamCapture::set_nonblocking(&stdout)
+        .and_then(|()| StreamCapture::set_nonblocking(&stderr))
+        .is_err()
+    {
+        drop(group);
+        let _ = child.wait();
+        return json!({"state":"delivery_unknown","executed":true,"error":"termux_shell_capture_failed"});
+    }
+    let mut stdout = StreamCapture::spawn(stdout);
+    let mut stderr = StreamCapture::spawn(stderr);
 
     let started = Instant::now();
     let deadline = started + Duration::from_millis(timeout_ms);
@@ -200,10 +237,10 @@ fn run_shell_command(script: &str, cwd: &Path, timeout_ms: u64, shell: &Path) ->
         }
     };
 
-    // Reap ordinary surviving process-group descendants on command exit.
+    // Terminate ordinary surviving process-group descendants on command exit.
     drop(group);
-    let (out, out_truncated) = stdout.finish(Duration::from_secs(2));
-    let (err, err_truncated) = stderr.finish(Duration::from_secs(2));
+    let (out, out_truncated) = stdout.collect();
+    let (err, err_truncated) = stderr.collect();
 
     json!({
         "state": if timed_out { "timed_out" } else { "exited" },
@@ -409,6 +446,24 @@ mod tests {
 
     fn sh() -> PathBuf {
         default_shell_path().unwrap()
+    }
+
+    #[test]
+    fn capture_closes_reader_when_a_writer_outlives_the_command() {
+        use std::io::Write;
+        use std::os::unix::net::UnixStream;
+
+        let (reader, mut writer) = UnixStream::pair().unwrap();
+        StreamCapture::set_nonblocking(&reader).unwrap();
+        let mut capture = StreamCapture::spawn(reader);
+        writer.write_all(b"captured before exit").unwrap();
+        let (output, truncated) = capture.collect();
+        assert_eq!(output, b"captured before exit");
+        assert!(truncated);
+        assert_eq!(
+            writer.write(b"late").unwrap_err().kind(),
+            io::ErrorKind::BrokenPipe
+        );
     }
 
     #[test]

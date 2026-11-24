@@ -46,8 +46,9 @@ independent recovery and automation plane even if every other component is down.
     group (`process_group(0)`).
   - Timeout or drop terminates **only** the owned process group (`kill(-pid, SIGKILL)`),
     preserving already-captured stdout/stderr and actual exit/signal metadata.
-    Ordinary surviving descendants in the group are reaped on exit; explicitly
-    detached sessions are never claimed as managed Codex jobs.
+    The worker waits for the shell leader and terminates remaining members of
+    its group. It drains and closes both capture readers even when a detached
+    session keeps a write end open. An incomplete capture is marked truncated.
   - Each output stream (`stdout`, `stderr`) is capped at `64 KiB` with explicit
     `stdout_truncated`/`stderr_truncated` flags and both UTF-8 lossy text and
     Base64 (`stdout_base64`/`stderr_base64`).
