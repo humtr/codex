@@ -4,7 +4,15 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from scripts.runit_service import ServiceSupervisor, SupervisionError, main as cli_main, preprocess_cli_argv
+from unittest import mock
+
+from scripts.runit_service import (
+    ServiceSupervisor,
+    SupervisionError,
+    main as cli_main,
+    preprocess_cli_argv,
+    proc_child_exes,
+)
 
 
 class RunitSupervisionTests(unittest.TestCase):
@@ -285,6 +293,241 @@ class RunitSupervisionTests(unittest.TestCase):
         self.assertEqual(st["activation_state"], "error")
         self.assertFalse(st["running_generation"]["readiness_ok"])
         self.assertIsNotNone(st["running_generation"]["readiness_error"])
+
+    def test_child_verification_handles_deleted_overlapping_late_and_proc_failures(self):
+        b_tunnel = self._install_gen("v0.0.21", b"tunnel-21")
+        tunnel_sup = ServiceSupervisor(
+            component="transport/tunnel-client",
+            binary_name="tunnel-client",
+            service_name="termux-shell-tunnel",
+            home=self.home,
+            prefix=self.prefix,
+            sv_bin=str(self.sv_bin),
+            proc_reader=self._proc_reader,
+        )
+        tunnel_sup.activate("v0.0.21")
+
+        def install_mcp(ver: str, data: bytes):
+            gdir = self.home / ".local/lib/codex/mcp/termux-shell/generations" / ver
+            gdir.mkdir(parents=True, exist_ok=True)
+            p = gdir / "termux-shell-mcp"
+            p.write_bytes(data)
+            os.chmod(p, 0o755)
+            return p.resolve()
+
+        p1 = install_mcp("0.1.0", b"mcp-1")
+        p2 = install_mcp("0.2.0", b"mcp-2")
+
+        state = {
+            "pid": 5000,
+            "ticks": 50000,
+            "child_exes": [f"{p1} (deleted)"],
+            "polls": 0,
+        }
+
+        def dynamic_reader(_svc: Path) -> dict:
+            state["polls"] += 1
+            return {
+                "enrolled": True,
+                "state": "running",
+                "pid": state["pid"],
+                "start_ticks": state["ticks"],
+                "exe": str(b_tunnel.resolve()),
+                "child_exes": list(state["child_exes"]),
+            }
+
+        mcp_sup = ServiceSupervisor(
+            component="mcp/termux-shell",
+            binary_name="termux-shell-mcp",
+            runner_component="transport/tunnel-client",
+            runner_binary="tunnel-client",
+            service_name="termux-shell-tunnel",
+            home=self.home,
+            prefix=self.prefix,
+            sv_bin=str(self.sv_bin),
+            proc_reader=dynamic_reader,
+        )
+        mcp_sup.activate("0.1.0")
+        mcp_sup.enroll(exec_args=["run"])
+
+        # Deleted MCP child image must mark deleted_image=True and pending_activation!
+        st_del = mcp_sup.status()
+        self.assertEqual(st_del["activation_state"], "pending_activation")
+        self.assertTrue(st_del["running_generation"]["deleted_image"])
+
+        # Overlapping old + new MCP children -> pending_activation
+        state["child_exes"] = [str(p1), str(p2)]
+        mcp_sup.activate("0.2.0", busy_check_cmd=["sh", "-c", "exit 1"])
+        self.assertEqual(mcp_sup.status()["activation_state"], "pending_activation")
+
+        # Unreadable live child under runner -> fail-closed pending_activation
+        state["child_exes"] = [str(p2), ""]
+        self.assertEqual(mcp_sup.status()["activation_state"], "pending_activation")
+
+        # Late-spawning MCP child on restart (empty initially, appears on poll 3) -> succeeds!
+        state["child_exes"] = []
+        sv_delay = self.prefix / "bin/sv-delay"
+        sv_delay.write_text("#!/bin/sh\nexit 0\n")
+        os.chmod(sv_delay, 0o755)
+        mcp_sup.sv_bin = str(sv_delay)
+
+        orig_inspect = mcp_sup._inspect_running
+        call_count = {"n": 0}
+
+        def restart_side_effect():
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                return dynamic_reader(mcp_sup.service_dir)
+            state["pid"] = 5001
+            state["ticks"] = 50010
+            if call_count["n"] >= 4:
+                state["child_exes"] = [str(p2)]
+            else:
+                state["child_exes"] = []
+            return dynamic_reader(mcp_sup.service_dir)
+
+        with mock.patch.object(mcp_sup, "_inspect_running", side_effect=restart_side_effect):
+            st_late = mcp_sup.activate("0.2.0", restart_timeout=2.0)
+        self.assertEqual(st_late["activation_state"], "active")
+        self.assertEqual(st_late["running_generation"]["version"], "0.2.0")
+
+        # Disappearing child mid-status -> pending_activation
+        state["child_exes"] = []
+        self.assertEqual(mcp_sup.status()["activation_state"], "pending_activation")
+
+        # Pending retry rollback (`switched_links=False`) must NOT leave previous == current!
+        mcp_sup._inspect_running = orig_inspect
+        state["child_exes"] = [str(p1)]
+        with self.assertRaisesRegex(SupervisionError, "rolled back"):
+            mcp_sup.activate("0.2.0", restart_timeout=0.3)
+        sel = mcp_sup.selected_generation()
+        self.assertEqual(sel["version"], "0.1.0")
+        self.assertNotEqual(sel["previous_version"], sel["version"])
+
+        # Real /proc helper fail-closed tests: /proc OSError & PID start_ticks change
+        with mock.patch("scripts.runit_service.Path.iterdir", side_effect=OSError("proc unavailable")):
+            self.assertEqual(proc_child_exes(os.getpid(), 1), [])
+        real_pid = os.getpid()
+        with mock.patch("scripts.runit_service.proc_start_ticks", return_value=999999999):
+            self.assertEqual(proc_child_exes(real_pid, 1), [])
+
+    def test_coordinated_companion_activation_and_rollback_prevent_mixed_orch_ledger(self):
+        b_tunnel = self._install_gen("v0.0.21", b"tunnel-21")
+        tunnel_sup = ServiceSupervisor(
+            component="transport/tunnel-client",
+            binary_name="tunnel-client",
+            service_name="termux-orch-tunnel",
+            home=self.home,
+            prefix=self.prefix,
+            sv_bin=str(self.sv_bin),
+            proc_reader=self._proc_reader,
+        )
+        tunnel_sup.activate("v0.0.21")
+
+        def install_orch(ver: str, data: bytes):
+            gdir = self.home / ".local/lib/codex/mcp/termux-orch/generations" / ver
+            gdir.mkdir(parents=True, exist_ok=True)
+            p = gdir / "termux-orch"
+            p.write_bytes(data)
+            os.chmod(p, 0o755)
+            return p.resolve()
+
+        o1 = install_orch("0.1.0+7b", b"orch-1")
+        o2 = install_orch("0.1.0+7b-new", b"orch-2")
+        o3 = install_orch("0.1.0+7b-bad", b"orch-3")
+
+        live = {
+            "termux-orch-tunnel": {"state": "running", "pid": 7001, "ticks": 70010, "exe": str(b_tunnel.resolve()), "child_exes": [str(o1)]},
+            "termux-orch-relay": {"state": "running", "pid": 7002, "ticks": 70020, "exe": str(o1), "child_exes": []},
+        }
+        fail_service = {"name": None}
+        events: list[tuple] = []
+
+        sv_orch = self.prefix / "bin/sv-orch"
+        sv_orch.write_text("#!/bin/sh\nexit 0\n")
+        os.chmod(sv_orch, 0o755)
+
+        def reader(svc_dir: Path) -> dict:
+            rec = live[svc_dir.name]
+            return {
+                "enrolled": True,
+                "state": rec["state"],
+                "pid": rec["pid"],
+                "start_ticks": rec["ticks"],
+                "exe": rec["exe"],
+                "child_exes": list(rec["child_exes"]),
+            }
+
+        # Intercept subprocess.run(['sv-orch', 'stop|start|restart', svc]) and record event order.
+        import subprocess as sp
+        real_run = sp.run
+
+        def fake_run(cmd, *args, **kwargs):
+            if isinstance(cmd, list) and len(cmd) >= 3 and cmd[0] == str(sv_orch):
+                act = cmd[1]
+                svc_name = Path(cmd[2]).name
+                cur_target = str((self.home / ".local/lib/codex/mcp/termux-orch/current/termux-orch").resolve())
+                events.append((svc_name, act, os.readlink(self.home / ".local/lib/codex/mcp/termux-orch/current")))
+                if act == "stop":
+                    live[svc_name]["state"] = "stopped"
+                    live[svc_name]["pid"] = None
+                elif not (fail_service["name"] == svc_name and cur_target == str(o3)):
+                    live[svc_name]["state"] = "running"
+                    live[svc_name]["pid"] = (live[svc_name]["pid"] or 7000) + 10
+                    live[svc_name]["ticks"] += 100
+                    if svc_name == "termux-orch-tunnel":
+                        live[svc_name]["child_exes"] = [cur_target]
+                    else:
+                        live[svc_name]["exe"] = cur_target
+                return sp.CompletedProcess(cmd, 0, "", "")
+            return real_run(cmd, *args, **kwargs)
+
+        orch_sup = ServiceSupervisor(
+            component="mcp/termux-orch",
+            binary_name="termux-orch",
+            service_name="termux-orch-tunnel",
+            runner_component="transport/tunnel-client",
+            runner_binary="tunnel-client",
+            companion_services=["termux-orch-relay"],
+            home=self.home,
+            prefix=self.prefix,
+            sv_bin=str(sv_orch),
+            proc_reader=reader,
+        )
+        relay_sup = ServiceSupervisor(
+            component="mcp/termux-orch",
+            binary_name="termux-orch",
+            service_name="termux-orch-relay",
+            home=self.home,
+            prefix=self.prefix,
+            sv_bin=str(sv_orch),
+            proc_reader=reader,
+        )
+        orch_sup.activate("0.1.0+7b")
+        orch_sup.enroll(exec_args=["mcp"])
+        relay_sup.enroll(exec_args=["relay"])
+        self.assertEqual(orch_sup.status()["activation_state"], "active")
+
+        with mock.patch("scripts.runit_service.subprocess.run", side_effect=fake_run):
+            st_ok = orch_sup.activate("0.1.0+7b-new", restart_timeout=1.0)
+            self.assertEqual(st_ok["activation_state"], "active")
+            self.assertEqual(st_ok["running_generation"]["version"], "0.1.0+7b-new")
+            self.assertEqual(st_ok["companions"][0]["running_generation"]["version"], "0.1.0+7b-new")
+            # Companion relay must have stopped BEFORE current flipped to 0.1.0+7b-new!
+            self.assertEqual(events[0], ("termux-orch-relay", "stop", "generations/0.1.0+7b"))
+            self.assertEqual(events[1], ("termux-orch-tunnel", "restart", "generations/0.1.0+7b-new"))
+            self.assertEqual(events[2], ("termux-orch-relay", "start", "generations/0.1.0+7b-new"))
+
+            # Inject failure on companion relay start -> BOTH tunnel & relay MUST roll back to 0.1.0+7b-new!
+            fail_service["name"] = "termux-orch-relay"
+            with self.assertRaisesRegex(SupervisionError, "rolled back"):
+                orch_sup.activate("0.1.0+7b-bad", restart_timeout=0.4)
+            st_rb = orch_sup.status()
+            self.assertEqual(st_rb["activation_state"], "active")
+            self.assertEqual(st_rb["selected_generation"]["version"], "0.1.0+7b-new")
+            self.assertEqual(live["termux-orch-tunnel"]["child_exes"], [str(o2)])
+            self.assertEqual(live["termux-orch-relay"]["exe"], str(o2))
+            self.assertEqual(o3.exists(), True)
 
 
 if __name__ == "__main__":

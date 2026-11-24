@@ -50,6 +50,7 @@ KNOWN_CLI_FLAGS = frozenset(
         "--service",
         "--runner-component",
         "--runner-binary",
+        "--companion-service",
         "--home",
         "--prefix",
         "--readiness-cmd",
@@ -167,14 +168,21 @@ def proc_exe_path(pid: int) -> str | None:
 
 
 def proc_child_exes(pid: int, start_ticks: int) -> list[str]:
-    exes = []
-    for entry in Path("/proc").iterdir():
+    exes: list[str] = []
+    try:
+        entries = list(Path("/proc").iterdir())
+    except OSError:
+        return []
+    for entry in entries:
         if not entry.name.isdigit():
             continue
         try:
             fields = (entry / "stat").read_text().rsplit(") ", 1)[1].split()
             if int(fields[1]) == pid and fields[0] not in ("Z", "X"):
-                exes.append(os.readlink(entry / "exe"))
+                try:
+                    exes.append(os.readlink(entry / "exe"))
+                except OSError:
+                    exes.append("")
         except (OSError, ValueError, IndexError):
             continue
     return exes if proc_start_ticks(pid) == start_ticks else []
@@ -257,6 +265,7 @@ class ServiceSupervisor:
         service_name: str,
         runner_component: str | None = None,
         runner_binary: str | None = None,
+        companion_services: list[str] | tuple[str, ...] | None = None,
         home: Path | None = None,
         prefix: Path | None = None,
         sv_bin: str = "sv",
@@ -277,6 +286,12 @@ class ServiceSupervisor:
             if runner_binary is not None
             else None
         )
+        companions: list[str] = []
+        for raw in companion_services or ():
+            cname = validate_token(raw, NAME_RE, "companion_service")
+            if cname != self.service_name and cname not in companions:
+                companions.append(cname)
+        self.companion_services = tuple(companions)
         self.home = home or Path.home()
         self.prefix = prefix or Path(os.environ.get("PREFIX", "/data/data/com.termux/files/usr"))
         self.sv_bin = sv_bin
@@ -463,6 +478,29 @@ class ServiceSupervisor:
             pass
         return None
 
+    def _companions(self) -> list["ServiceSupervisor"]:
+        return [
+            ServiceSupervisor(
+                component=self.component,
+                binary_name=self.binary_name,
+                service_name=cname,
+                home=self.home,
+                prefix=self.prefix,
+                sv_bin=self.sv_bin,
+                proc_reader=self._proc_reader,
+            )
+            for cname in self.companion_services
+        ]
+
+    def _child_exes_for(self, running: dict) -> list[str]:
+        pid = running.get("pid")
+        ticks = running.get("start_ticks")
+        if not isinstance(pid, int) or not isinstance(ticks, int):
+            return []
+        if self._proc_reader is not None:
+            return list(running.get("child_exes", []))
+        return proc_child_exes(pid, ticks)
+
     def _runner_matches_selected_component(
         self,
         *,
@@ -470,14 +508,9 @@ class ServiceSupervisor:
         selected: dict,
     ) -> tuple[bool, str | None]:
         """Confirm that the runner's live MCP child uses the selected image."""
-        pid = running.get("pid")
-        ticks = running.get("start_ticks")
-        if not isinstance(pid, int) or not isinstance(ticks, int):
+        exes = self._child_exes_for(running)
+        if any(exe == "" for exe in exes):
             return False, None
-        if self._proc_reader is not None:
-            exes = running.get("child_exes", [])
-        else:
-            exes = proc_child_exes(pid, ticks)
         components = [(exe, ver) for exe in exes if (ver := self._version_from_exe(exe)) is not None]
         versions = {ver for _, ver in components}
         version = next(iter(versions)) if len(versions) == 1 else None
@@ -498,6 +531,12 @@ class ServiceSupervisor:
                 self.runner_generations_dir,
                 self.runner_binary,
             )
+            child_exes = self._child_exes_for(running)
+            if any(
+                exe.endswith(" (deleted)") and self._version_from_exe(exe) is not None
+                for exe in child_exes
+            ):
+                running_deleted = True
             runner_comp_matches, running_ver = self._runner_matches_selected_component(
                 running=running,
                 selected=selected,
@@ -564,6 +603,16 @@ class ServiceSupervisor:
             out["runner_component"] = self.runner_component
             out["selected_runner_generation"] = runner_selected
             out["running_generation"]["runner_version"] = running_runner_ver
+        if self.companion_services:
+            comp_statuses = [c.status() for c in self._companions()]
+            out["companions"] = comp_statuses
+            if activation_state == "active":
+                for cst in comp_statuses:
+                    cstate = cst["activation_state"]
+                    if cstate in ("pending_activation", "stopped", "error"):
+                        activation_state = cstate
+                        out["activation_state"] = cstate
+                        break
         return out
 
     def enroll(self, *, exec_args: list[str], extra_env: dict[str, str] | None = None) -> dict:
@@ -644,88 +693,151 @@ class ServiceSupervisor:
             else resolved_target_bin
         )
 
+        companions = [
+            (c, c._inspect_running())
+            for c in self._companions()
+            if c.is_enrolled()
+        ]
+        companions_running = [(c, st) for c, st in companions if st.get("state") == "running"]
+
         if prev_ver == version:
             # If enrolled and running a stale image or unactivated companion generation
             # (`pending_activation`), proceed to restart; otherwise it is already active/settled.
-            if not self.is_enrolled():
+            if not self.is_enrolled() and not companions_running:
                 return self.status(readiness_cmd=norm_readiness)
-            before = self._inspect_running()
-            if before.get("state") != "running":
+            before = self._inspect_running() if self.is_enrolled() else {"state": "not_enrolled"}
+            primary_running = before.get("state") == "running"
+            if not primary_running and not companions_running:
                 return self.status(readiness_cmd=norm_readiness)
             sel_now = self.selected_generation()
             comp_ok = (
                 self._runner_matches_selected_component(running=before, selected=sel_now)[0]
-                if self.has_runner
+                if (self.has_runner and primary_running)
                 else True
             )
-            if before.get("exe") == expected_exe and comp_ok:
+            primary_ok = (not primary_running) or (before.get("exe") == expected_exe and comp_ok)
+            companions_ok = all(
+                st.get("exe") == resolved_target_bin for _, st in companions_running
+            )
+            if primary_ok and companions_ok:
                 return self.status(readiness_cmd=norm_readiness)
             switched_links = False
+            needs_link_flip = False
         else:
-            if prev_ver is not None:
-                atomic_symlink(self.previous_link, f"generations/{prev_ver}")
-            atomic_symlink(self.current_link, f"generations/{version}")
-            switched_links = True
-            # Installing/activating a generation NEVER auto-enrolls a new runit service.
-            if not self.is_enrolled():
+            before = self._inspect_running() if self.is_enrolled() else {"state": "not_enrolled"}
+            if before.get("state") != "running" and not companions_running:
+                if prev_ver is not None:
+                    atomic_symlink(self.previous_link, f"generations/{prev_ver}")
+                atomic_symlink(self.current_link, f"generations/{version}")
                 return self.status(readiness_cmd=norm_readiness)
-            before = self._inspect_running()
-            if before.get("state") != "running":
-                return self.status(readiness_cmd=norm_readiness)
+            switched_links = False
+            needs_link_flip = True
 
         # If active work is in progress, defer restart safely and report pending_activation!
         if norm_busy is not None:
+            busy_reason = None
             try:
                 busy_res = subprocess.run(norm_busy, capture_output=True, text=True, timeout=10)
+                if busy_res.returncode != 0:
+                    busy_reason = (busy_res.stderr or busy_res.stdout).strip()[:200] or "busy"
             except subprocess.TimeoutExpired:
+                busy_reason = "busy check timed out"
+            if busy_reason is not None:
+                if needs_link_flip:
+                    if prev_ver is not None:
+                        atomic_symlink(self.previous_link, f"generations/{prev_ver}")
+                    atomic_symlink(self.current_link, f"generations/{version}")
                 st = self.status(readiness_cmd=norm_readiness)
-                st["deferred_reason"] = "busy check timed out"
-                return st
-            if busy_res.returncode != 0:
-                st = self.status(readiness_cmd=norm_readiness)
-                st["deferred_reason"] = (busy_res.stderr or busy_res.stdout).strip()[:200] or "busy"
+                st["deferred_reason"] = busy_reason
                 return st
 
+        stopped_companions: list[tuple[ServiceSupervisor, dict]] = []
         try:
-            running_after = self._restart_and_verify(
-                expected_bin=expected_exe,
-                old_pid=before.get("pid"),
-                old_ticks=before.get("start_ticks"),
-                readiness_cmd=norm_readiness,
-                timeout=restart_timeout,
-            )
-            if self.has_runner:
-                self._write_active_marker(
-                    running=running_after,
-                    selected=self.selected_generation(),
-                    runner_selected=runner_selected,
+            # Stop running shared-ledger companions BEFORE switching `current` or starting
+            # primary so old and new generations never write to a shared ledger concurrently.
+            for comp, c_before in companions_running:
+                comp._stop_service(timeout=min(5.0, max(1.0, restart_timeout)))
+                stopped_companions.append((comp, c_before))
+            if needs_link_flip:
+                if prev_ver is not None:
+                    atomic_symlink(self.previous_link, f"generations/{prev_ver}")
+                atomic_symlink(self.current_link, f"generations/{version}")
+                switched_links = True
+            if before.get("state") == "running":
+                running_after = self._restart_and_verify(
+                    expected_bin=expected_exe,
+                    old_pid=before.get("pid"),
+                    old_ticks=before.get("start_ticks"),
+                    readiness_cmd=norm_readiness,
+                    timeout=restart_timeout,
+                )
+                if self.has_runner:
+                    self._write_active_marker(
+                        running=running_after,
+                        selected=self.selected_generation(),
+                        runner_selected=runner_selected,
+                    )
+            for comp, c_before in stopped_companions:
+                comp._restart_and_verify(
+                    expected_bin=resolved_target_bin,
+                    old_pid=c_before.get("pid"),
+                    old_ticks=c_before.get("start_ticks"),
+                    readiness_cmd=None,
+                    timeout=restart_timeout,
+                    sv_action="start",
                 )
         except SupervisionError as err:
-            # Roll back `current` and restore `previous` if a previous generation existed!
-            rollback_ver = prev_ver if switched_links else old_previous
+            # Roll back `current` and restore `previous` cleanly so all coordinated services match!
+            rollback_ver = prev_ver if switched_links else (prev_ver if needs_link_flip else old_previous)
             if rollback_ver is not None:
-                atomic_symlink(self.current_link, f"generations/{rollback_ver}")
+                if switched_links or not needs_link_flip:
+                    atomic_symlink(self.current_link, f"generations/{rollback_ver}")
                 if switched_links:
                     if old_previous is not None:
                         atomic_symlink(self.previous_link, f"generations/{old_previous}")
                     elif self.previous_link.is_symlink():
                         self.previous_link.unlink()
-                try:
-                    subprocess.run(
-                        [self.sv_bin, "restart", str(self.service_dir)],
-                        capture_output=True,
-                        timeout=max(5.0, restart_timeout),
-                    )
-                except (subprocess.TimeoutExpired, OSError):
-                    pass
-                if self.has_runner:
-                    rb_running = self._inspect_running()
-                    if rb_running.get("state") == "running":
+                elif not needs_link_flip and old_previous == rollback_ver and self.previous_link.is_symlink():
+                    # Avoid leaving `previous` pointing to the same generation as `current`.
+                    self.previous_link.unlink()
+                rb_bin = str(self.generation_binary(rollback_ver).resolve())
+                rb_expected = (
+                    runner_selected["binary_path"]
+                    if self.has_runner and runner_selected is not None
+                    else rb_bin
+                )
+                if before.get("state") == "running":
+                    cur_primary = self._inspect_running()
+                    try:
+                        rb_running = self._restart_and_verify(
+                            expected_bin=rb_expected,
+                            old_pid=cur_primary.get("pid"),
+                            old_ticks=cur_primary.get("start_ticks"),
+                            readiness_cmd=None,
+                            timeout=max(5.0, restart_timeout),
+                        )
+                    except SupervisionError:
+                        rb_running = self._inspect_running()
+                    if self.has_runner and rb_running.get("state") == "running":
                         self._write_active_marker(
                             running=rb_running,
                             selected=self.selected_generation(),
                             runner_selected=self.selected_runner_generation(),
                         )
+                for comp, c_before in stopped_companions:
+                    cur_c = comp._inspect_running()
+                    action = "restart" if cur_c.get("state") == "running" else "start"
+                    try:
+                        comp._restart_and_verify(
+                            expected_bin=rb_bin,
+                            old_pid=c_before.get("pid") if action == "start" else cur_c.get("pid"),
+                            old_ticks=c_before.get("start_ticks") if action == "start" else cur_c.get("start_ticks"),
+                            readiness_cmd=None,
+                            timeout=max(5.0, restart_timeout),
+                            sv_action=action,
+                        )
+                    except SupervisionError:
+                        pass
             raise SupervisionError(f"activation of '{version}' failed (rolled back): {err}") from err
 
         return self.status(readiness_cmd=norm_readiness)
@@ -747,6 +859,30 @@ class ServiceSupervisor:
             restart_timeout=restart_timeout,
         )
 
+    def _stop_service(self, *, timeout: float) -> None:
+        try:
+            r = subprocess.run(
+                [self.sv_bin, "stop", str(self.service_dir)],
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+            )
+        except subprocess.TimeoutExpired as err:
+            raise SupervisionError(f"sv stop timed out after {timeout}s") from err
+        except OSError as err:
+            raise SupervisionError(f"sv stop failed to execute: {err}") from err
+        if r.returncode != 0:
+            raise SupervisionError(
+                f"sv stop failed ({r.returncode}): {(r.stderr or r.stdout).strip()[:200]}"
+            )
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            cur = self._inspect_running()
+            if cur.get("state") != "running":
+                return
+            time.sleep(0.05)
+        raise SupervisionError(f"timed out waiting for '{self.service_name}' to stop")
+
     def _restart_and_verify(
         self,
         *,
@@ -755,22 +891,23 @@ class ServiceSupervisor:
         old_ticks: int | None,
         readiness_cmd: list[str] | None,
         timeout: float,
+        sv_action: str = "restart",
     ) -> dict:
         try:
             r = subprocess.run(
-                [self.sv_bin, "restart", str(self.service_dir)],
+                [self.sv_bin, sv_action, str(self.service_dir)],
                 capture_output=True,
                 text=True,
                 timeout=timeout,
             )
         except subprocess.TimeoutExpired as err:
-            raise SupervisionError(f"sv restart timed out after {timeout}s") from err
+            raise SupervisionError(f"sv {sv_action} timed out after {timeout}s") from err
         except OSError as err:
-            raise SupervisionError(f"sv restart failed to execute: {err}") from err
+            raise SupervisionError(f"sv {sv_action} failed to execute: {err}") from err
 
         if r.returncode != 0:
             raise SupervisionError(
-                f"sv restart failed ({r.returncode}): {(r.stderr or r.stdout).strip()[:200]}"
+                f"sv {sv_action} failed ({r.returncode}): {(r.stderr or r.stdout).strip()[:200]}"
             )
         deadline = time.monotonic() + timeout
         selected_component = self.selected_generation() if self.has_runner else None
@@ -824,6 +961,12 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="Optional supervisor runner binary name (e.g. tunnel-client)",
     )
+    parser.add_argument(
+        "--companion-service",
+        action="append",
+        default=[],
+        help="Additional service name sharing the same component generation (e.g. termux-orch-relay)",
+    )
     parser.add_argument("--home", type=Path, default=None)
     parser.add_argument("--prefix", type=Path, default=None)
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -854,6 +997,7 @@ def main(argv: list[str] | None = None) -> int:
             service_name=args.service,
             runner_component=args.runner_component,
             runner_binary=args.runner_binary,
+            companion_services=args.companion_service,
             home=args.home,
             prefix=args.prefix,
         )

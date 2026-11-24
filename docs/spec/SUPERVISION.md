@@ -31,9 +31,13 @@ services (`termux-shell-tunnel`, `termux-codex-tunnel`, `chatgpt-provider`,
   For services where a transport runner hosts an MCP child process (e.g.
   `termux-{shell,codex,chatgpt}-tunnel` running `transport/tunnel-client` over
   `mcp/termux-*`), `run` executes `<runner>/current/<runner-binary>` while
-  `status` and `activate` verify BOTH the live runner PID's `/proc/<pid>/exe`
-  and the live MCP child's executable. A running runner with no observed MCP
-  child remains pending. The activation receipt is stored under
+  Both `status` and `activate` verify BOTH the live runner PID's `/proc/<pid>/exe`
+  and the live MCP child's executable (including deleted MCP child images in
+  `deleted_image`), failing closed on `/proc` errors or overlapping children. A
+  running runner with no observed MCP child remains pending. Shared-ledger
+  companion services (such as `termux-orch-relay` alongside `termux-orch-tunnel`)
+  use `--companion-service` so coordinated activation verifies and rolls back all
+  linked services without leaving `previous` identical to `current`. The activation receipt is stored under
   `$HOME/.local/state/codex/services/<service>/active-generation.json`.
 - **Hyphenated readiness / busy-check commands & timeout safety:**
   `--readiness-cmd` and `--busy-check-cmd` accept hyphenated subcommand flags
