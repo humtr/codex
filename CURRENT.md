@@ -44,14 +44,22 @@ Observed on 2026-11-23.
 - **R-6.** Installer recovery after an Android Termux force-stop passed on the
   API 37 device with 4 KiB pages. Physical power removal and execution on a
   16 KiB page-size device remain long-term checks.
-- **Slice 7 redesign promotion.** The remaining checks cover consistent
-  natural-language delegation, caller identity on the ChatGPT connector,
-  live public reasoning, a repeated upstream input-size rejection, and an
-  intermittent pinned-account error. Candidate evidence is below.
+- **Slice 7 redesign promotion.** The user accepted the candidate under a
+  provisional assumption for the remaining authenticated scenarios. Those
+  scenarios retain their current evidence status and move to long-term
+  verification. Signed publication and device activation are separate steps.
+  [Long-term Slice 7 checks](docs/ROADMAP.md#slice-7-long-term-authenticated-checks)
 
 ---
 
 ## Recent Verified Evidence (Newest-First)
+
+### 2026-11-24 — Slice 7 provisional acceptance
+
+The user moved the remaining authenticated cases to long-term verification.
+The isolated results below remain the record of what was observed. The
+release candidate is eligible for signed publication and coordinated
+activation without waiting for those checks.
 
 ### 2026-11-24 — Isolated CLI, connector, and Front follow-up
 

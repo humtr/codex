@@ -297,10 +297,24 @@ Stage 1의 FD 34는 스레드 수명을 업스트림 정책에 맡깁니다. 마
   delivery without repeating the owner POST. An actual pending item needs
   owner evidence before its outcome can be confirmed.
   [Upgrade evidence](../CURRENT.md#2026-11-24--concurrent-account-handoff-context-rejection-and-upgrade-checks)
-- **Slice 7B** Bounded size-error recovery has a compiled loopback fixture.
-  Reproduce the observed `input_too_large` error and recovery with a disposable
-  authenticated Lead before promoting the candidate.
-  [Context evidence](../CURRENT.md#2026-11-24--concurrent-account-handoff-context-rejection-and-upgrade-checks)
+
+### Slice 7 long-term authenticated checks
+
+The user provisionally accepted promotion with the following checks deferred.
+Continue in the isolated account and preserve the existing evidence.
+
+- Connect an eligible isolated ChatGPT tunnel and exercise ordinary-language
+  delegation and trusted caller-chat attribution through the actual connector.
+- Repeat `codex -p chatgpt` automatic tool selection across models and diagnose
+  the intermittent `pinned_account_unavailable` between tool and reply turns.
+- Observe a public reasoning summary while the upstream turn is streaming,
+  including a real summary-only turn. Confirm the expanded TUI transcript and
+  rollout on the authenticated path.
+- Reproduce a second upstream `input_too_large` on the bounded fresh-chat
+  handoff. The original-chat rejection and one successful rollover passed on
+  the isolated account. The second rejection has a compiled fixture.
+
+[Isolated acceptance evidence](../CURRENT.md#2026-11-24--isolated-cli-connector-and-front-follow-up)
 
 ## 9. Slice 7 역할 배치와 실행 환경 재설계
 
