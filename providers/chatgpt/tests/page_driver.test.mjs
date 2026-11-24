@@ -951,3 +951,152 @@ test("streaming publishes AppHost thought headings, titles, recaps, commentary, 
   ]);
   assert.equal(nonStreamEnv.streamUpdates.length, 0);
 });
+
+test("page_driver disables cloud connectors on initial local-tool turns, commits prior reasoning on new messages, and allows visible tool-role titles", async () => {
+  let callbacks;
+  let ready;
+  let resolveStarted = () => {};
+  const connectorCalls = [];
+  const { driver, startCalls, streamUpdates } = createMockEnv({
+    apiMap: {
+      "GET /backend-api/me": { status: 200, body: { account_id: "acc-tools" } },
+      "GET /backend-api/conversation/conv-existing": {
+        status: 200,
+        body: { current_node: "node-1", mapping: {} },
+      },
+      "POST /backend-api/aip/connectors/links/list_accessible": {
+        status: 200,
+        body: (opts) => {
+          connectorCalls.push(opts.headers);
+          return {
+            links: [
+              { id: "lnk_1", connector_id: "asdk_app_shell", visibility: "VISIBLE" },
+              { id: "implicit_link_1", connector_id: "connector_hidden_implicit", visibility: "VISIBLE" },
+              { id: "lnk_2", connector_id: "connector_hidden", visibility: "HIDDEN" },
+              { id: "lnk_3", connector_id: "connector_github", visibility: "VISIBLE" },
+              { id: "lnk_4", connector_id: "asdk_app_shell", visibility: "VISIBLE" },
+            ],
+          };
+        },
+      },
+    },
+    completionBehavior(args) {
+      callbacks = args;
+      resolveStarted();
+      return { streamRequestId: `stream-${startCalls.length}` };
+    },
+  });
+
+  // 1. Initial local-tool turn includes deduplicated visible connector_ids and streams prior uncommitted thought before tool_call / answer.
+  ready = new Promise((resolve) => { resolveStarted = resolve; });
+  const p1 = driver.sendMessage({
+    lane_id: "lane-t1",
+    prompt: "Run pwd",
+    push_events: true,
+    model: "gpt-6-2-thinking",
+    local_function_signatures: [{ type: "function", name: "exec_command", parameters: { type: "object" } }],
+  });
+  await ready;
+  assert.equal(connectorCalls.length, 1);
+  assert.deepEqual(JSON.parse(JSON.stringify(startCalls[0].request.disabled_plugin_ids)), [
+    "asdk_app_shell",
+    "connector_github",
+  ]);
+
+  // Uncommitted thought step with finished=false & status=in_progress must commit as soon as tool-role title / tool_call / answer arrives!
+  callbacks.onDecodedEvent({
+    update: {
+      type: "message",
+      conversationId: "conv-existing",
+      message: {
+        id: "m-thought-open",
+        author: { role: "assistant" },
+        status: "in_progress",
+        content: {
+          content_type: "thoughts",
+          thoughts: [{ summary: "Planning shell command", content: "SECRET_RAW", finished: false }],
+        },
+      },
+    },
+  });
+  // Visible reasoning title on role === "tool" is exposed while tool body text & raw_cot remain blocked.
+  callbacks.onDecodedEvent({
+    update: {
+      type: "message",
+      conversationId: "conv-existing",
+      message: {
+        id: "m-tool-title",
+        author: { role: "tool" },
+        status: "finished_successfully",
+        content: { content_type: "text", parts: ["TOOL_BODY_MUST_NOT_LEAK"] },
+        metadata: { rich_reasoning_titles: ["Checked remote status"] },
+      },
+    },
+  });
+  callbacks.onDecodedEvent({
+    update: {
+      type: "message",
+      conversationId: "conv-existing",
+      message: {
+        id: "m-tool-hidden",
+        author: { role: "tool" },
+        status: "finished_successfully",
+        content: { content_type: "thoughts", thoughts: [{ summary: "HIDDEN_TOOL_COT", content: "X", finished: true }] },
+        metadata: { summary_type: "raw_cot" },
+      },
+    },
+  });
+  callbacks.onDecodedEvent({
+    update: {
+      type: "message",
+      conversationId: "conv-existing",
+      message: {
+        id: "m-call-1",
+        author: { role: "assistant" },
+        recipient: "exec_command",
+        status: "finished_successfully",
+        content: { text: "{\"cmd\":\"pwd\"}" },
+      },
+    },
+  });
+  callbacks.onComplete();
+  const s1 = await p1;
+  assert.equal(s1.state, "settled");
+  assert.ok(!JSON.stringify(streamUpdates).includes("TOOL_BODY_MUST_NOT_LEAK"));
+  assert.ok(!JSON.stringify(streamUpdates).includes("HIDDEN_TOOL_COT"));
+  const upsertsAndCalls = streamUpdates
+    .filter((x) => x.kind === "item_upsert" || x.kind === "tool_call")
+    .map((x) => x.kind === "tool_call" ? [x.kind, x.name] : [x.kind, x.item_id, x.text, x.committed]);
+  assert.deepEqual(upsertsAndCalls, [
+    ["item_upsert", "thought:m-thought-open:1", "Planning shell command", false],
+    ["item_upsert", "thought:m-thought-open:1", "Planning shell command", true],
+    ["item_upsert", "title:m-tool-title:0", "Checked remote status", true],
+    ["tool_call", "exec_command"],
+  ]);
+
+  // 2. Continuation turn (chat_id set) and non-tool turn omit disabled_plugin_ids.
+  ready = new Promise((resolve) => { resolveStarted = resolve; });
+  const p2 = driver.sendMessage({
+    lane_id: "lane-t2",
+    chat_id: "conv-existing",
+    prompt: "[Tool Output call_1]\n/repo",
+    model: "gpt-6-2-thinking",
+    local_function_signatures: [{ type: "function", name: "exec_command", parameters: { type: "object" } }],
+  });
+  await ready;
+  assert.equal(startCalls[1].request.disabled_plugin_ids, undefined);
+  callbacks.onComplete();
+  await p2;
+
+  ready = new Promise((resolve) => { resolveStarted = resolve; });
+  const p3 = driver.sendMessage({
+    lane_id: "lane-t3",
+    prompt: "Plain chat without local tools",
+    model: "gpt-6-2-thinking",
+  });
+  await ready;
+  assert.equal(startCalls[2].request.disabled_plugin_ids, undefined);
+  callbacks.onComplete();
+  await p3;
+  assert.equal(connectorCalls.length, 1);
+});

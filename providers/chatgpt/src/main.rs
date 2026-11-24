@@ -747,9 +747,12 @@ mod tests {
         assert!(sse.contains("event: response.function_call_arguments.done\n"));
         assert!(sse.contains("event: response.completed\n"));
 
-        // Verify local_function_signatures passed to page driver!
+        // Verify local_function_signatures and tool-boundary prompt directive passed to page driver!
         let sent = driver.last_send.lock().unwrap().clone().unwrap();
         assert_eq!(sent["local_function_signatures"][0]["name"], "exec_command");
+        let prompt = sent["prompt"].as_str().unwrap();
+        assert!(prompt.contains("[Codex Local Tool Boundary]"));
+        assert!(prompt.contains("exec_command"));
     }
 
     #[test]
@@ -849,6 +852,10 @@ mod tests {
         assert_eq!(sent1["project_id"], "g-p-test-proj");
         assert_eq!(sent1["model"], "gpt-6-sol-wm");
         assert_eq!(sent1["reasoning_effort"], "xhigh");
+        assert!(sent1["prompt"]
+            .as_str()
+            .unwrap()
+            .contains("[Codex Local Tool Boundary]"));
         assert_eq!(
             sent1["local_function_signatures"].as_array().unwrap().len(),
             2
@@ -896,6 +903,10 @@ mod tests {
             .unwrap()
             .contains("READ_SECRET_TASK_99"));
         assert!(!sent2["prompt"].as_str().unwrap().contains("Delegate work"));
+        assert!(!sent2["prompt"]
+            .as_str()
+            .unwrap()
+            .contains("[Codex Local Tool Boundary]"));
         assert_eq!(sent2["is_continuation"], true);
         assert_eq!(
             sent2["local_function_signatures"].as_array().unwrap().len(),

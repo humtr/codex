@@ -350,6 +350,8 @@
   const appHostClient = new AppHostHttpClient();
   let cachedCompletionClient = null;
   let cachedAccountId = null;
+  const connectorDisableCache = new Map();
+  const CONNECTOR_DISABLE_CACHE_TTL_MS = 60000;
   const activeTurns = new Map(); // laneId -> turn state (supports multi-lane parallel execution)
   const cancelledLanes = new Map();
   let lastTurn = null;
@@ -668,9 +670,10 @@
 
   function canExposeReasoning(msg) {
     const meta = msg && msg.metadata;
+    const role = msg && msg.author && msg.author.role;
     return Boolean(
       msg &&
-      msg.author?.role === "assistant" &&
+      (role === "assistant" || role === "tool") &&
       (!msg.recipient || msg.recipient === "all") &&
       msg.channel !== "analysis" &&
       meta?.summary_type !== "raw_cot" &&
@@ -1574,6 +1577,14 @@
       typeof opts.model === "string" && opts.model.trim() ? opts.model.trim() : "auto";
     const thinkingEffort = normalizeThinkingEffort(modelSlug, opts.reasoning_effort);
 
+    const disableCloudConnectors =
+      nativeTools.signatures.length > 0 &&
+      !chatId &&
+      opts.disable_cloud_connectors !== false;
+    const disabledPluginIds = disableCloudConnectors
+      ? await getDisableablePluginIds(dispatchAccountId)
+      : [];
+
     const userMsgId = newUuid();
     const requestPayload = {
       action: "next",
@@ -1583,6 +1594,7 @@
         ? { kind: "gizmo_interaction", gizmo_id: projectId }
         : { kind: "primary_assistant" },
       supported_encodings: ["v1"],
+      ...(disabledPluginIds.length > 0 ? { disabled_plugin_ids: disabledPluginIds } : {}),
       ...(nativeTools.signatures.length > 0
         ? {
             local_function_names: nativeTools.names,
@@ -1654,7 +1666,26 @@
       }
     };
 
-    const upsertTextItem = (itemId, itemKind, rawText, committed) => {
+    const commitPriorReasoningForNewMessage = (currentMsgKey) => {
+      for (const item of turn.items.values()) {
+        if (
+          item.kind === "reasoning_summary" &&
+          !item.committed &&
+          item.msgKey !== currentMsgKey
+        ) {
+          item.committed = true;
+          emitStream({
+            kind: "item_upsert",
+            item_id: item.id,
+            item_kind: item.kind,
+            text: item.text,
+            committed: true,
+          });
+        }
+      }
+    };
+
+    const upsertTextItem = (itemId, itemKind, rawText, committed, msgKey = null) => {
       const text = truncate(rawText);
       const existing = turn.items.get(itemId);
       if (!text) {
@@ -1663,6 +1694,9 @@
           emitStream({ kind: "item_remove", item_id: itemId });
         }
         return;
+      }
+      if (msgKey !== null) {
+        commitPriorReasoningForNewMessage(msgKey);
       }
       if (existing) {
         if (existing.committed) return;
@@ -1673,12 +1707,14 @@
         existing.kind = itemKind;
         existing.text = text;
         existing.committed = nextCommitted;
+        if (msgKey !== null) existing.msgKey = msgKey;
       } else {
         turn.items.set(itemId, {
           id: itemId,
           kind: itemKind,
           text,
           committed: Boolean(committed),
+          msgKey,
         });
       }
       emitStream({
@@ -1691,7 +1727,10 @@
     };
 
     const emittedToolIds = new Set();
-    const recordToolCall = (call, committed) => {
+    const recordToolCall = (call, committed, msgKey = null) => {
+      if (msgKey !== null) {
+        commitPriorReasoningForNewMessage(msgKey);
+      }
       turn.nativeToolCalls.set(call.id, call);
       const itemId = `tool:${call.id}`;
       const existing = turn.items.get(itemId);
@@ -1701,6 +1740,7 @@
           kind: "tool_call",
           committed: Boolean(committed),
           call,
+          msgKey,
         });
       }
       if (committed && !emittedToolIds.has(call.id)) {
@@ -1742,7 +1782,7 @@
       );
       if (nativeCall) {
         if (msg.id) turn.messageId = msg.id;
-        recordToolCall(nativeCall, msgCommitted);
+        recordToolCall(nativeCall, msgCommitted, msgKey);
         return;
       }
 
@@ -1758,7 +1798,7 @@
               const priorSummary = typeof content.thoughts[i - 1]?.summary === "string"
                 ? content.thoughts[i - 1].summary.trim()
                 : priorItem.text;
-              upsertTextItem(priorId, "reasoning_summary", priorSummary || priorItem.text, true);
+              upsertTextItem(priorId, "reasoning_summary", priorSummary || priorItem.text, true, msgKey);
             }
           }
           if (len > 0) {
@@ -1767,21 +1807,21 @@
             if (summary) {
               emittedThought = true;
               const thoughtCommitted = Boolean(latest?.finished === true || msgCommitted);
-              upsertTextItem(`thought:${msgKey}:${len}`, "reasoning_summary", summary, thoughtCommitted);
+              upsertTextItem(`thought:${msgKey}:${len}`, "reasoning_summary", summary, thoughtCommitted, msgKey);
             }
           }
         } else if (msg.metadata?.is_user_visible === true && typeof content.summary === "string") {
           const summary = content.summary.trim();
           if (summary) {
             emittedThought = true;
-            upsertTextItem(`thought:${msgKey}`, "reasoning_summary", summary, msgCommitted);
+            upsertTextItem(`thought:${msgKey}`, "reasoning_summary", summary, msgCommitted, msgKey);
           }
         }
         if (!emittedThought) {
           const titles = extractVisibleReasoningTitles(msg);
           for (let i = 0; i < titles.length; i++) {
             const titleCommitted = Boolean(i + 1 < titles.length || msgCommitted);
-            upsertTextItem(`title:${msgKey}:${i}`, "reasoning_summary", titles[i], titleCommitted);
+            upsertTextItem(`title:${msgKey}:${i}`, "reasoning_summary", titles[i], titleCommitted, msgKey);
           }
         }
         return;
@@ -1793,7 +1833,7 @@
           ? content.content
           : extractRawPartsText(msg);
         if (typeof recap === "string" && recap.trim()) {
-          upsertTextItem(`recap:${msgKey}`, "reasoning_summary", recap.trim(), msgCommitted);
+          upsertTextItem(`recap:${msgKey}`, "reasoning_summary", recap.trim(), msgCommitted, msgKey);
         }
         return;
       }
@@ -1802,7 +1842,7 @@
         const titles = extractVisibleReasoningTitles(msg);
         for (let i = 0; i < titles.length; i++) {
           const titleCommitted = Boolean(i + 1 < titles.length || msgCommitted);
-          upsertTextItem(`title:${msgKey}:${i}`, "reasoning_summary", titles[i], titleCommitted);
+          upsertTextItem(`title:${msgKey}:${i}`, "reasoning_summary", titles[i], titleCommitted, msgKey);
         }
       }
 
@@ -1813,14 +1853,14 @@
       const isCommentary =
         msg.channel === "commentary" || msg.metadata?.is_thinking_preamble_message === true;
       if (isCommentary) {
-        upsertTextItem(`commentary:${msgKey}`, "commentary", raw, msgCommitted);
+        upsertTextItem(`commentary:${msgKey}`, "commentary", raw, msgCommitted, msgKey);
         return;
       }
       if (fallbackFenceMode && raw.includes("```codex_tool_call")) {
         // Hold mutable fallback fence text uncommitted until turn/message settles.
-        upsertTextItem(`answer:${msgKey}`, "answer", raw, false);
+        upsertTextItem(`answer:${msgKey}`, "answer", raw, false, msgKey);
       } else {
-        upsertTextItem(`answer:${msgKey}`, "answer", raw, msgCommitted);
+        upsertTextItem(`answer:${msgKey}`, "answer", raw, msgCommitted, msgKey);
       }
       syncDerivedAssistantText();
     };
@@ -2136,6 +2176,55 @@
     return false;
   }
 
+  function isVisibleConnectorLink(link) {
+    return Boolean(
+      link &&
+      link.visibility !== "HIDDEN" &&
+      !(typeof link.id === "string" && link.id.startsWith("implicit_link"))
+    );
+  }
+
+  async function getDisableablePluginIds(accountId) {
+    const cacheKey = accountId || cachedAccountId || "__default__";
+    const now = Date.now();
+    const cached = connectorDisableCache.get(cacheKey);
+    if (cached && cached.expiresAt > now) {
+      return cached.ids;
+    }
+    try {
+      const headers = connectorHeaders(accountId || cachedAccountId || null, "CONNECTOR_SETTING");
+      const linksRes = await apiFetch(
+        "/aip/connectors/links/list_accessible",
+        {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ principals: [], link_refresh_strategy: "BLOCKING" }),
+        },
+        8000
+      );
+      if (!linksRes.ok || !linksRes.json || !Array.isArray(linksRes.json.links)) {
+        return [];
+      }
+      const seen = new Set();
+      const ids = [];
+      for (const link of linksRes.json.links) {
+        if (!isVisibleConnectorLink(link)) continue;
+        const cid = typeof link.connector_id === "string" ? link.connector_id.trim() : "";
+        if (cid && !seen.has(cid)) {
+          seen.add(cid);
+          ids.push(cid);
+        }
+      }
+      connectorDisableCache.set(cacheKey, {
+        ids,
+        expiresAt: now + CONNECTOR_DISABLE_CACHE_TTL_MS,
+      });
+      return ids;
+    } catch (_) {
+      return [];
+    }
+  }
+
   async function fetchAccessibleConnectorDetails(headers, includeDetails) {
     const linksRes = await apiFetch(
       "/aip/connectors/links/list_accessible",
@@ -2148,9 +2237,7 @@
     );
     const rawLinks =
       linksRes.ok && linksRes.json && Array.isArray(linksRes.json.links) ? linksRes.json.links : [];
-    const visibleLinks = rawLinks.filter(
-      (l) => l && l.visibility !== "HIDDEN" && !(typeof l.id === "string" && l.id.startsWith("implicit_link"))
-    );
+    const visibleLinks = rawLinks.filter(isVisibleConnectorLink);
     const connectors = [];
     if (includeDetails) {
       const seen = new Set();
