@@ -116,11 +116,14 @@ symlink) that shares `crates/codex-daemon-client` with `@TermuxCodex` and has
     `$HOME/.local/state/codex/ext/handoff/<parent_pid>.json` and exits `0`.
     Current launchers poll for tickets and claim them by rename. Tickets bind
     to the target PID, process `start_ticks` and session `generation`. The
-    launcher takes any newer matching ticket under the same lock used to
-    publish, then closes admission by removing its registration before
-    teardown. Requests arriving during teardown must retry from the active
-    window. The legacy signal path remains for launchers without a generation
-    field. Current launchers require generation-bound tickets.
+    launcher keeps a claimed ticket until it completes or aborts the switch.
+    A second request for that window receives an explicit pending error,
+    including during teardown. The registration remains discoverable while
+    the switch runs. If the TUI exits on its own, the launcher checks for a
+    final ticket under the publication lock before unregistering. Exit `0`
+    from the sending CLI acknowledges queueing. The launcher reports the
+    outcome. The legacy signal path remains for launchers without a
+    generation field. Current launchers require generation-bound tickets.
     Parent `cdx` leaves the TUI running while waiting for the
     daemon to become idle. An expired wait or an unavailable status check
     leaves the existing TUI in place. Deferred provider switches require a

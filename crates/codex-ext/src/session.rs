@@ -108,6 +108,7 @@ pub fn register_current_session_generation(
         .map_err(|e| format!("failed to serialize session record: {e}"))?
         + "\n";
     let _lock = lock_handoff(paths)?;
+    cleanup_handoff_files(paths, pid);
     atomic_write_private(&session_file_path(paths, pid), body.as_bytes(), 0o600)?;
     Ok(rec)
 }
@@ -160,6 +161,16 @@ pub fn publish_handoff(
     {
         return Err("handoff target changed. Retry from the active window.".to_owned());
     }
+    for path in [
+        handoff_file_path(paths, parent.pid),
+        claimed_handoff_path(paths, parent.pid),
+    ] {
+        match fs::symlink_metadata(path) {
+            Ok(_) => return Err("a switch is already pending for this window".to_owned()),
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+            Err(err) => return Err(format!("cannot inspect pending handoff: {err}")),
+        }
+    }
     write_handoff_ticket(paths, parent.pid, ticket)
 }
 
@@ -179,6 +190,8 @@ pub fn write_handoff_ticket(
     )
 }
 
+// The caller holds the handoff lock. Keep the claim until the launcher has
+// finished the transition so the publishing CLI cannot replace an accepted ticket.
 pub fn take_handoff_ticket(
     paths: &ExtPaths,
     parent_pid: u32,
@@ -186,7 +199,21 @@ pub fn take_handoff_ticket(
     let Some(claimed) = claim_handoff_ticket(paths, parent_pid)? else {
         return Ok(None);
     };
-    read_claimed_handoff(&claimed).map(Some)
+    match read_claimed_handoff(&claimed) {
+        Ok(ticket) => Ok(Some(ticket)),
+        Err(err) => {
+            release_handoff_claim(paths, parent_pid)?;
+            Err(err)
+        }
+    }
+}
+
+pub fn release_handoff_claim(paths: &ExtPaths, pid: u32) -> Result<(), String> {
+    match fs::remove_file(claimed_handoff_path(paths, pid)) {
+        Ok(()) => Ok(()),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(err) => Err(format!("cannot release handoff ticket: {err}")),
+    }
 }
 
 fn claim_handoff_ticket(paths: &ExtPaths, parent_pid: u32) -> Result<Option<PathBuf>, String> {
@@ -200,11 +227,10 @@ fn claim_handoff_ticket(paths: &ExtPaths, parent_pid: u32) -> Result<Option<Path
 }
 
 fn read_claimed_handoff(claimed: &Path) -> Result<HandoffTicket, String> {
-    let raw = require_owned_regular_file(claimed, "handoff ticket").and_then(|()| {
-        fs::read_to_string(claimed).map_err(|e| format!("cannot read handoff ticket: {e}"))
-    });
-    let _ = fs::remove_file(claimed);
-    serde_json::from_str(&raw?).map_err(|e| format!("corrupt handoff ticket: {e}"))
+    require_owned_regular_file(claimed, "handoff ticket")?;
+    let raw =
+        fs::read_to_string(claimed).map_err(|e| format!("cannot read handoff ticket: {e}"))?;
+    serde_json::from_str(&raw).map_err(|e| format!("corrupt handoff ticket: {e}"))
 }
 
 pub fn list_live_sessions(paths: &ExtPaths) -> Result<Vec<SessionRecord>, String> {
@@ -328,22 +354,23 @@ mod tests {
             target_start_ticks: Some(rec.start_ticks),
             target_generation: Some(rec.generation),
         };
-        write_handoff_ticket(&paths, rec.pid, &ticket).unwrap();
-        let claimed = claim_handoff_ticket(&paths, rec.pid).unwrap().unwrap();
+        publish_handoff(&paths, &rec, &ticket).unwrap();
         let later = HandoffTicket {
             target: "janmori101".to_owned(),
             ..ticket
         };
-        write_handoff_ticket(&paths, rec.pid, &later).unwrap();
-        let taken = read_claimed_handoff(&claimed).unwrap();
+        assert!(publish_handoff(&paths, &rec, &later)
+            .unwrap_err()
+            .contains("already pending"));
+        let taken = {
+            let _lock = lock_handoff(&paths).unwrap();
+            take_handoff_ticket(&paths, rec.pid).unwrap().unwrap()
+        };
         assert_eq!(taken.target, "szob");
-        assert_eq!(
-            take_handoff_ticket(&paths, rec.pid)
-                .unwrap()
-                .unwrap()
-                .target,
-            "janmori101"
-        );
+        assert!(publish_handoff(&paths, &rec, &later)
+            .unwrap_err()
+            .contains("already pending"));
+        release_handoff_claim(&paths, rec.pid).unwrap();
         assert!(take_handoff_ticket(&paths, rec.pid).unwrap().is_none());
 
         // Legacy JSON without target_start_ticks/target_generation deserializes cleanly,

@@ -212,6 +212,88 @@ fn provider_handoff_waits_for_its_shell_turn_and_leaves_the_daemon_running() {
     exercise_deferred_handoff(["provider", "chatgpt"], "-p chatgpt");
 }
 
+#[test]
+fn queued_handoff_survives_the_tui_exiting_before_the_launcher_reads_it() {
+    let root = temp_root("cdx-exit-handoff");
+    let fake = root.join("codex");
+    let trace = root.join("trace");
+    let child_pid = root.join("tui-pid");
+    let exit_gate = root.join("exit-tui");
+    fs::write(
+        &fake,
+        format!(
+            concat!(
+                "#!/bin/sh\n",
+                "if [ \"$1\" = resume ]; then printf '%s\\n' \"$*\" > '{}'; exit 0; fi\n",
+                "echo $$ > '{}'\n",
+                "for i in $(seq 100); do [ -f '{}' ] && exit 0; sleep 0.05; done\n",
+            ),
+            trace.display(),
+            child_pid.display(),
+            exit_gate.display()
+        ),
+    )
+    .unwrap();
+    fs::set_permissions(&fake, fs::Permissions::from_mode(0o755)).unwrap();
+    let command = || {
+        let mut cmd = Command::new(ext_bin());
+        cmd.env("HOME", &root)
+            .env("PREFIX", root.join("usr"))
+            .env("TMPDIR", &root)
+            .env("CODEX_EXT_CODEX_BIN", &fake)
+            .env_remove("CODEX_HOME")
+            .env_remove("CODEX_THREAD_ID")
+            .current_dir(&root);
+        cmd
+    };
+    assert!(command()
+        .args(["profile", "create", "fixture"])
+        .output()
+        .unwrap()
+        .status
+        .success());
+    let mut launcher = command().stderr(Stdio::null()).spawn().unwrap();
+    let pid = launcher.id() as libc::pid_t;
+    let end = std::time::Instant::now() + Duration::from_secs(3);
+    let child = loop {
+        if let Some(id) = fs::read_to_string(&child_pid)
+            .ok()
+            .and_then(|s| s.trim().parse::<u32>().ok())
+        {
+            break id;
+        }
+        assert!(std::time::Instant::now() < end, "fixture TUI did not start");
+        thread::sleep(Duration::from_millis(10));
+    };
+    assert_eq!(unsafe { libc::kill(pid, libc::SIGSTOP) }, 0);
+    let queued = command().args(["switch", "fixture", "kept-tid"]).output();
+    let competing = command()
+        .args(["switch", "fixture", "discarded-tid"])
+        .output();
+    let released = fs::write(&exit_gate, "");
+    let end = std::time::Instant::now() + Duration::from_secs(3);
+    let mut child_exited = false;
+    while std::time::Instant::now() < end {
+        child_exited = fs::read_to_string(format!("/proc/{child}/stat")).is_ok_and(|stat| {
+            stat.rsplit_once(") ")
+                .is_some_and(|(_, fields)| fields.starts_with("Z "))
+        });
+        if child_exited {
+            break;
+        }
+        thread::sleep(Duration::from_millis(10));
+    }
+    assert_eq!(unsafe { libc::kill(pid, libc::SIGCONT) }, 0);
+    let status = launcher.wait().unwrap();
+    assert!(released.is_ok() && child_exited && status.success());
+    assert!(queued.unwrap().status.success());
+    let competing = competing.unwrap();
+    assert!(!competing.status.success());
+    assert!(String::from_utf8_lossy(&competing.stderr).contains("already pending"));
+    assert_eq!(fs::read_to_string(trace).unwrap(), "resume kept-tid\n");
+    fs::remove_dir_all(root).unwrap();
+}
+
 fn exercise_deferred_handoff(args: [&str; 2], expected_codex_args: &str) {
     let root = temp_root("cdx-busy");
     let work = root.join("work");

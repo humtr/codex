@@ -4,8 +4,8 @@ use crate::profiles::{
 };
 use crate::session::{
     cleanup_handoff_files, find_matching_session, lock_handoff, normalize_match_path,
-    publish_handoff, register_current_session_generation, remove_session_file, take_handoff_ticket,
-    HandoffTicket, SessionMatch, SessionRecord,
+    publish_handoff, register_current_session_generation, release_handoff_claim,
+    remove_session_file, take_handoff_ticket, HandoffTicket, SessionMatch, SessionRecord,
 };
 use codex_daemon_client::{
     daemon_stop_via_cli, wait_writer_lock_released, DaemonClient, DaemonError, ThreadSummary,
@@ -151,6 +151,9 @@ fn take_valid_handoff_ticket(
                 eprintln!(
                     "codex-ext: ignoring handoff ticket for an unverified launcher generation"
                 );
+                if let Err(err) = release_handoff_claim(paths, pid) {
+                    eprintln!("codex-ext: {err}");
+                }
                 return None;
             }
             Some(ticket)
@@ -374,7 +377,6 @@ pub fn run_launcher(
     let my_pid = std::process::id();
     let my_start_ticks = proc_start_ticks(my_pid)
         .ok_or_else(|| "cannot read the launcher process identity".to_owned())?;
-    cleanup_handoff_files(paths, my_pid);
     let termios = TermiosGuard::capture();
     let _sig = SignalGuard::install_parent_signals()?;
     let _cleanup = SessionCleanup { paths, pid: my_pid };
@@ -413,23 +415,31 @@ pub fn run_launcher(
         let mut handoff: Option<(HandoffTicket, Instant)> = None;
         let mut check_at = Instant::now();
         let mut poll_at = check_at;
-        let final_status: Option<ExitStatus> = loop {
-            if HANDOFF_SIGNALED.swap(false, Ordering::SeqCst) || Instant::now() >= poll_at {
-                poll_at = Instant::now() + Duration::from_millis(100);
+        let mut exited = None;
+        loop {
+            if exited.is_none() {
+                exited = child
+                    .try_wait()
+                    .map_err(|err| format!("waitpid failed: {err}"))?;
+            }
+            let now = Instant::now();
+            if handoff.is_none()
+                && (HANDOFF_SIGNALED.swap(false, Ordering::SeqCst)
+                    || now >= poll_at
+                    || exited.is_some())
+            {
+                let _lock = lock_handoff(paths)?;
+                poll_at = now + Duration::from_millis(100);
                 if let Some(ticket) =
                     take_valid_handoff_ticket(paths, my_pid, my_start_ticks, generation)
                 {
-                    let now = Instant::now();
                     handoff = Some((ticket, now + Duration::from_secs(600)));
                     check_at = now;
+                } else if let Some(status) = exited {
+                    remove_session_file(paths, my_pid)?;
+                    return Ok(exit_status_to_code(status));
                 }
             }
-            match child.try_wait() {
-                Ok(Some(status)) => break Some(status),
-                Ok(None) => {}
-                Err(err) => return Err(format!("waitpid failed: {err}")),
-            }
-            let now = Instant::now();
             if let Some((ticket, deadline)) = handoff.as_ref().filter(|_| now >= check_at) {
                 let blocked = match inspect_daemon_for_switch(paths, &cur_home, &cwd, None) {
                     DaemonProbe::NotRunning => None,
@@ -455,46 +465,23 @@ pub fn run_launcher(
                 });
                 if let Some(reason) = blocked {
                     eprintln!("codex-ext: switch aborted: {reason}");
+                    let _lock = lock_handoff(paths)?;
+                    release_handoff_claim(paths, my_pid)?;
                     handoff = None;
                 } else {
-                    let _lock = match lock_handoff(paths) {
-                        Ok(lock) => lock,
-                        Err(err) => {
-                            eprintln!("codex-ext: switch aborted: {err}");
-                            handoff = None;
-                            continue;
-                        }
-                    };
-                    // Absorb any newer matching ticket queued while validating/waiting
-                    // so the launcher performs the latest transition cleanly once.
-                    let _ = HANDOFF_SIGNALED.swap(false, Ordering::SeqCst);
-                    if let Some(newer) =
-                        take_valid_handoff_ticket(paths, my_pid, my_start_ticks, generation)
-                    {
-                        let now = Instant::now();
-                        handoff = Some((newer, now + Duration::from_secs(600)));
-                        check_at = now;
-                        continue;
-                    }
-                    if let Err(err) = remove_session_file(paths, my_pid) {
-                        eprintln!("codex-ext: switch aborted: {err}");
-                        handoff = None;
-                        continue;
-                    }
-                    break None;
+                    break;
                 }
             }
             std::thread::sleep(Duration::from_millis(20));
-        };
-
-        if let Some(status) = final_status {
-            return Ok(exit_status_to_code(status));
         }
+
         let (ticket, _) = handoff.expect("handoff admitted by the launcher loop");
 
         // Brief grace so the daemon-spawned `!cdx` child finishes returning exit 0 cleanly.
         std::thread::sleep(Duration::from_millis(30));
-        terminate_child_gracefully(&mut child, Duration::from_secs(3));
+        if exited.is_none() {
+            terminate_child_gracefully(&mut child, Duration::from_secs(3));
+        }
         termios.restore_terminal();
 
         match ticket.kind.as_str() {
@@ -725,7 +712,7 @@ pub fn run_switch_command(
             };
             signal_handoff(paths, &parent, &ticket)?;
             if busy.is_empty() {
-                println!("switching to '{}'...", target.name());
+                println!("Switch to '{}' queued.", target.name());
             } else {
                 println!(
                     "Switch to '{}' queued until the source turns finish.",
@@ -903,7 +890,7 @@ pub fn run_provider_command(
                     "Provider switch to '{provider_name}' queued until the source turns finish."
                 );
             } else {
-                println!("switching provider to '{provider_name}'...");
+                println!("Provider switch to '{provider_name}' queued.");
             }
             return Ok(0);
         }
@@ -1029,9 +1016,8 @@ mod tests {
         assert!(!crate::session::handoff_file_path(&paths, parent_pid).exists());
         assert!(!crate::session::claimed_handoff_path(&paths, parent_pid).exists());
 
-        // Regression test: stale ticket from mismatched start_ticks/generation or
-        // gen-1 arriving during switch to gen-2 does NOT hijack gen-2, and coalesced
-        // second ticket before switch admission wins.
+        // A mismatched process identity cannot switch the window, and an
+        // accepted request cannot be replaced by a second publisher.
         let paths2 = paths.clone();
         let trace2 = root.join("trace2.log");
         let fake_codex2 = usr_bin.join("codex2");
@@ -1074,21 +1060,30 @@ mod tests {
                     };
                     write_handoff_ticket(&p2_bg, parent_pid, &wrong_pid_ticket).unwrap();
                     unsafe { libc::kill(parent_pid as libc::pid_t, libc::SIGUSR1) };
-                    std::thread::sleep(Duration::from_millis(50));
-
-                    // Rapid coalesced switch: szob followed immediately by janmori101 -> janmori101 wins
-                    for tgt in ["szob", "janmori101"] {
-                        let t = HandoffTicket {
-                            kind: "switch".to_owned(),
-                            target: tgt.to_owned(),
-                            thread_id: Some(format!("tid-{tgt}")),
-                            wait: false,
-                            requested_at_ms: now_millis(),
-                            target_start_ticks: Some(my_ticks),
-                            target_generation: Some(1),
-                        };
-                        write_handoff_ticket(&p2_bg, parent_pid, &t).unwrap();
+                    let end = Instant::now() + Duration::from_secs(1);
+                    while crate::session::handoff_file_path(&p2_bg, parent_pid).exists()
+                        && Instant::now() < end
+                    {
+                        std::thread::sleep(Duration::from_millis(10));
                     }
+                    let rec: SessionRecord = serde_json::from_slice(
+                        &fs::read(crate::session::session_file_path(&p2_bg, parent_pid)).unwrap(),
+                    )
+                    .unwrap();
+                    let first = HandoffTicket {
+                        target: "janmori101".to_owned(),
+                        thread_id: Some("tid-janmori101".to_owned()),
+                        target_start_ticks: Some(my_ticks),
+                        ..wrong_pid_ticket
+                    };
+                    publish_handoff(&p2_bg, &rec, &first).unwrap();
+                    let competing = HandoffTicket {
+                        target: "szob".to_owned(),
+                        ..first
+                    };
+                    assert!(publish_handoff(&p2_bg, &rec, &competing)
+                        .unwrap_err()
+                        .contains("already pending"));
                     unsafe { libc::kill(parent_pid as libc::pid_t, libc::SIGUSR1) };
                     return;
                 }
