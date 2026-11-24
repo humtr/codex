@@ -81,6 +81,28 @@ The callback fixture checks early delivery, duplicate and replacement updates,
 and exclusion of hidden headings and raw analysis. Authenticated callback
 timing remains open.
 
+### 2026-11-24 — Isolated authenticated Gate A
+
+- The `d1bebefc` Provider ran on a new AppHost profile with a separate test
+  account. The official Codex home, Orch ledger, receipts, and repository
+  checkout were also isolated. The first answer delta arrived at 7.784 seconds
+  and the turn completed at 16.182 seconds. After restarting only the Provider,
+  the next turn retained the Codex UUID and ChatGPT chat ID.
+- The first manual compaction returned `pinned_account_unavailable`. A repeat
+  on the original thread completed in 39.244 seconds and its next turn wrote
+  to a new ChatGPT chat under the original Codex UUID. The first error's
+  cause remains open.
+- Callback shape diagnostics recorded types and visibility flags only. The
+  observed recap was marked `hide_all`. The test has no authenticated evidence
+  yet of a visible reasoning summary or of a summary-only live turn.
+- `codex exec -p chatgpt` ran `gpt-6-2-thinking` with `xhigh` for 288.576
+  seconds, returned exit code 0, and recorded a completed turn in the
+  rollout. The rollout contained zero reasoning items for that turn.
+- The isolated official Codex OAuth login succeeded. The test ChatGPT account
+  has no connected Orch instance. Gate B's caller attribution and Front
+  delivery still need a dedicated test tunnel. Signed publication and
+  production cutover remain gated on A–C.
+
 ### 2026-11-24 — Slice 7 redesign candidate on Android Termux
 
 - Compiled candidate tests separated verifier verdict from turn settlement,
