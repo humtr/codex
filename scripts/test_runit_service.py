@@ -28,6 +28,8 @@ class RunitSupervisionTests(unittest.TestCase):
             f"if [ \"$1\" = 'restart' ]; then\n"
             f"  target=$(readlink -f '{self.home}/.local/lib/codex/transport/tunnel-client/current/tunnel-client')\n"
             f"  printf '%s' \"$target\" > '{self.root}/running-exe'\n"
+            f"  mcp='{self.home}/.local/lib/codex/mcp/termux-shell/current/termux-shell-mcp'\n"
+            f"  if [ -f \"$mcp\" ]; then readlink -f \"$mcp\" > '{self.root}/running-mcp'; fi\n"
             f"  n=$(cat '{self.root}/pid-seq' 2>/dev/null || echo 1001)\n"
             f"  n=$((n + 1))\n"
             f"  printf '%s' \"$n\" > '{self.root}/pid-seq'\n"
@@ -49,12 +51,14 @@ class RunitSupervisionTests(unittest.TestCase):
         if not exe_file.exists():
             return {"enrolled": True, "state": "stopped", "pid": None, "exe": None, "start_ticks": None}
         pid = int((self.root / "pid-seq").read_text()) if (self.root / "pid-seq").exists() else 1001
+        child = self.root / "running-mcp"
         return {
             "enrolled": True,
             "state": "running",
             "pid": pid,
             "exe": exe_file.read_text().strip(),
             "start_ticks": pid * 10,
+            "child_exes": [child.read_text().strip()] if child.exists() else [],
         }
 
     def _sup(self) -> ServiceSupervisor:
@@ -240,13 +244,17 @@ class RunitSupervisionTests(unittest.TestCase):
         enr = mcp_sup.enroll(exec_args=["run", "--profile", "termux-shell"])
         self.assertIn("transport/tunnel-client/current/tunnel-client", enr["stable_bin"])
 
-        # Simulate tunnel running v0.0.21 before activation marker is recorded -> activate 0.1.0 settles it
+        # A live runner without its MCP child can't identify an active component.
         (self.root / "running-exe").write_text(str(b_tunnel.resolve()))
         (self.root / "pid-seq").write_text("3000")
+        self.assertEqual(mcp_sup.status()["activation_state"], "pending_activation")
         st_init = mcp_sup.activate("0.1.0", readiness_cmd="sh -c 'exit 0'")
         self.assertEqual(st_init["activation_state"], "active")
         self.assertEqual(st_init["running_generation"]["version"], "0.1.0")
         self.assertEqual(st_init["running_generation"]["runner_version"], "v0.0.21")
+        (self.root / "running-mcp").unlink()
+        self.assertEqual(mcp_sup.status()["activation_state"], "pending_activation")
+        mcp_sup.activate("0.1.0")
 
         # Upgrade MCP to 0.2.0 while busy -> pending_activation
         st_busy = mcp_sup.activate("0.2.0", busy_check_cmd="sh -c 'exit 1'")

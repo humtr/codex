@@ -32,9 +32,9 @@ services (`termux-shell-tunnel`, `termux-codex-tunnel`, `chatgpt-provider`,
   `termux-{shell,codex,chatgpt}-tunnel` running `transport/tunnel-client` over
   `mcp/termux-*`), `run` executes `<runner>/current/<runner-binary>` while
   `status` and `activate` verify BOTH the live runner PID's `/proc/<pid>/exe`
-  and the linked MCP component generation (persisting verified active
-  generation metadata under
-  `$HOME/.local/state/codex/services/<service>/active-generation.json`).
+  and the live MCP child's executable. A running runner with no observed MCP
+  child remains pending. The activation receipt is stored under
+  `$HOME/.local/state/codex/services/<service>/active-generation.json`.
 - **Hyphenated readiness / busy-check commands & timeout safety:**
   `--readiness-cmd` and `--busy-check-cmd` accept hyphenated subcommand flags
   (such as `curl -fsS http://127.0.0.1:4319/healthz`) cleanly; command timeouts

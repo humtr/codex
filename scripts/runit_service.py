@@ -166,11 +166,18 @@ def proc_exe_path(pid: int) -> str | None:
         return None
 
 
-def proc_ctime_ns(pid: int) -> int | None:
-    try:
-        return os.stat(f"/proc/{pid}").st_ctime_ns
-    except OSError:
-        return None
+def proc_child_exes(pid: int, start_ticks: int) -> list[str]:
+    exes = []
+    for entry in Path("/proc").iterdir():
+        if not entry.name.isdigit():
+            continue
+        try:
+            fields = (entry / "stat").read_text().rsplit(") ", 1)[1].split()
+            if int(fields[1]) == pid and fields[0] not in ("Z", "X"):
+                exes.append(os.readlink(entry / "exe"))
+        except (OSError, ValueError, IndexError):
+            continue
+    return exes if proc_start_ticks(pid) == start_ticks else []
 
 
 def normalize_command(cmd: list[str] | str | None) -> list[str] | None:
@@ -371,15 +378,6 @@ class ServiceSupervisor:
             binary_name=self.runner_binary,
         )
 
-    def _read_active_marker(self) -> dict | None:
-        try:
-            if self.active_marker_path.is_symlink() or not self.active_marker_path.is_file():
-                return None
-            data = json.loads(self.active_marker_path.read_text(encoding="utf-8"))
-            return data if isinstance(data, dict) else None
-        except (OSError, ValueError):
-            return None
-
     def _write_active_marker(
         self,
         *,
@@ -471,32 +469,19 @@ class ServiceSupervisor:
         running: dict,
         selected: dict,
     ) -> tuple[bool, str | None]:
-        """For runner-wrapped services (e.g. tunnel-client hosting an MCP binary),
-        determine whether the currently running runner PID was started under the
-        currently selected component generation.
-        """
+        """Confirm that the runner's live MCP child uses the selected image."""
         pid = running.get("pid")
         ticks = running.get("start_ticks")
-        marker = self._read_active_marker()
-        if marker is not None and marker.get("pid") == pid and marker.get("start_ticks") == ticks:
-            recorded_ver = marker.get("component_version")
-            matches = (
-                recorded_ver == selected.get("version")
-                and marker.get("component_sha256") == selected.get("binary_sha256")
-            )
-            return matches, recorded_ver
-
-        # If the service was restarted externally (e.g. after reboot or crash), compare the
-        # live process start time against the `current` symlink mtime when `/proc/<pid>` is readable.
-        if isinstance(pid, int) and self._proc_reader is None:
-            p_ctime = proc_ctime_ns(pid)
-            try:
-                link_mtime = self.current_link.lstat().st_mtime_ns
-            except OSError:
-                link_mtime = None
-            if p_ctime is not None and link_mtime is not None and p_ctime >= link_mtime:
-                return True, selected.get("version")
-        return False, marker.get("component_version") if marker else None
+        if not isinstance(pid, int) or not isinstance(ticks, int):
+            return False, None
+        if self._proc_reader is not None:
+            exes = running.get("child_exes", [])
+        else:
+            exes = proc_child_exes(pid, ticks)
+        components = [(exe, ver) for exe in exes if (ver := self._version_from_exe(exe)) is not None]
+        versions = {ver for _, ver in components}
+        version = next(iter(versions)) if len(versions) == 1 else None
+        return bool(components) and all(exe == selected.get("binary_path") for exe, _ in components), version
 
     def status(self, *, readiness_cmd: list[str] | str | None = None) -> dict:
         norm_readiness = normalize_command(readiness_cmd)
@@ -788,6 +773,7 @@ class ServiceSupervisor:
                 f"sv restart failed ({r.returncode}): {(r.stderr or r.stdout).strip()[:200]}"
             )
         deadline = time.monotonic() + timeout
+        selected_component = self.selected_generation() if self.has_runner else None
         while time.monotonic() < deadline:
             cur = self._inspect_running()
             changed = (
@@ -795,6 +781,11 @@ class ServiceSupervisor:
                 and (cur.get("pid") != old_pid or cur.get("start_ticks") != old_ticks)
             )
             if cur.get("state") == "running" and changed and cur.get("exe") == expected_bin:
+                if selected_component is not None and not self._runner_matches_selected_component(
+                    running=cur, selected=selected_component
+                )[0]:
+                    time.sleep(0.1)
+                    continue
                 if readiness_cmd is None:
                     return cur
                 remaining = max(0.2, min(5.0, deadline - time.monotonic()))
