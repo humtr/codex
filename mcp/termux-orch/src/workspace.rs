@@ -132,9 +132,23 @@ impl WorkerTree {
         Ok(())
     }
 
-    pub fn changed_paths(&self) -> Result<Vec<String>, String> {
-        let staged_and_worktree = changed(&self.path, &self.base)?;
-        Ok(staged_and_worktree.into_iter().collect())
+    pub fn declared_changes(&self, allowed: &[String]) -> Result<Vec<String>, String> {
+        let paths = changed(&self.path, &self.base)?;
+        let outside: Vec<_> = paths
+            .iter()
+            .filter(|path| {
+                !allowed
+                    .iter()
+                    .any(|prefix| Path::new(path).starts_with(prefix))
+            })
+            .collect();
+        if !outside.is_empty() {
+            return Err(format!(
+                "Undeclared changes in {}: {outside:?}",
+                self.path.display()
+            ));
+        }
+        Ok(paths.into_iter().collect())
     }
 
     pub fn conflicting_paths(&self, paths: &[String]) -> Result<Vec<String>, String> {

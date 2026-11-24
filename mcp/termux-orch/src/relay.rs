@@ -86,7 +86,20 @@ impl RelayEngine {
         // A missing dispatch response may still represent accepted work.
         if !work.is_terminal() {
             if let Some(mut lead) = work.pending_lead.clone() {
-                if let Some((ref_id, turn_id)) = self.owners.reconcile_model_dispatch(
+                if lead.kind == "codex" && lead.ref_id.is_empty() {
+                    work.pending_lead = None;
+                    self.ledger
+                        .append_event_if_absent(
+                            &mut work,
+                            &format!("dispatch-failed:{}", lead.dispatch_id.unwrap_or_default()),
+                            "lead.dispatch_failed",
+                            "runtime",
+                            "Codex Lead dispatch stopped before turn/start",
+                            json!({"generation":lead.generation}),
+                        )
+                        .map_err(|error| error.to_string())?;
+                    dirty = true;
+                } else if let Some((ref_id, turn_id)) = self.owners.reconcile_model_dispatch(
                     &lead.kind,
                     lead.profile.as_deref(),
                     &lead.ref_id,
@@ -126,6 +139,16 @@ impl RelayEngine {
             }
             let mut newly_settled: Vec<(usize, String, String)> = Vec::new();
             for (idx, p) in work.participants.iter().enumerate() {
+                // The dispatcher holds this lock and saves the thread UUID
+                // before turn/start. An empty UUID cannot hide an accepted turn.
+                if p.state == "dispatching" && p.backend == "codex" && p.ref_id.is_empty() {
+                    newly_settled.push((
+                        idx,
+                        "failed".to_owned(),
+                        "Codex dispatch stopped before turn/start".to_owned(),
+                    ));
+                    continue;
+                }
                 if !work.can_start()
                     || p.is_terminal()
                     || matches!(p.state.as_str(), "dispatching" | "starting")
@@ -853,22 +876,7 @@ impl RelayEngine {
         tree: &crate::workspace::WorkerTree,
     ) -> Result<Vec<String>, String> {
         let participant = &work.participants[index];
-        let paths = tree.changed_paths()?;
-        let outside: Vec<_> = paths
-            .iter()
-            .filter(|path| {
-                !participant
-                    .write_paths
-                    .iter()
-                    .any(|allowed| Path::new(path).starts_with(allowed))
-            })
-            .collect();
-        if !outside.is_empty() {
-            return Err(format!(
-                "Undeclared changes in {}: {outside:?}",
-                tree.path.display()
-            ));
-        }
+        let paths = tree.declared_changes(&participant.write_paths)?;
         let mut conflicts = tree.conflicting_paths(&paths)?;
         for other in &work.participants {
             if other.participant_id == participant.participant_id

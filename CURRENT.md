@@ -103,6 +103,39 @@ timing remains open.
   delivery still need a dedicated test tunnel. Signed publication and
   production cutover remain gated on A–C.
 
+### 2026-11-24 — Isolated authenticated Gate C
+
+- The user accepted proceeding past Gate B after the test tunnel reported
+  ready and the ChatGPT connector registration returned HTTP 424. The tunnel
+  had no ChatGPT workspace binding. Natural-language connector entry and
+  caller-chat attribution still have no live acceptance evidence.
+- Two real Codex workers edited distinct files in separate Git worktrees.
+  Their command intervals overlapped by 4.001 seconds and both declared
+  edits stayed in their worktrees. A worker that created an undeclared file
+  failed its scope audit. The completion endpoint now also rejects an
+  outstanding undeclared edit in a retained worktree. For a shared file, a
+  second interactive registration returned `worker_workspace_busy` during
+  the first turn, then succeeded on resubmission and read the first edit.
+- A real independent Codex verifier ran a release fixture that exited 7.
+  Its normal turn settlement recorded `verifier.rejected` and moved the Work
+  to `failed_verification`. The completion request was rejected.
+- A loopback fault injector received a real Provider dispatch response and
+  dropped it before Orch received it. Replay and relay reconciliation kept
+  one original worker and one send. In a separate restart trial, both shell
+  steps returned 0 and the destination ChatGPT chat received exactly one
+  delivery marker. A failed Codex connection exposed intents that could hold
+  a reservation without a thread UUID. The relay now settles those intents
+  under the Work lock before releasing the reservation.
+- The existing ChatGPT Lead rejected the second 63,795-byte prompt with
+  `input_too_large`. The same input succeeded in a fresh control chat. The
+  relay rolled the unscoped Work to generation 2 once and drained its replay.
+  A 70 KiB request returned HTTP 400 `prompt_invalid` at the control route.
+  A repeated upstream size rejection on the bounded fresh-chat handoff has
+  compiled fixture coverage, with no authenticated reproduction yet.
+
+The candidate passed seven Orch unit tests and fourteen compiled integration
+tests. These results did not trigger signed publication or device activation.
+
 ### 2026-11-24 — Slice 7 redesign candidate on Android Termux
 
 - Compiled candidate tests separated verifier verdict from turn settlement,

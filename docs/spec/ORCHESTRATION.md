@@ -183,7 +183,9 @@ State root: `~/.local/state/codex/orchestration/jobs/<work_id>/` (`0700`,
   bound thread.
 - **Model dispatch:** Register the participant or pending Lead and a durable
   request ID before sending its first model turn. Codex records the new
-  thread UUID before `turn/start`. ChatGPT dispatch uses a pinned account and
+  thread UUID before `turn/start`. When the relay takes the Work lock and a
+  pending Codex intent still has no thread UUID, it records a failed dispatch
+  and releases any worker reservation. ChatGPT dispatch uses a pinned account and
   request lane. An uncertain dispatch stays pending until the original
   owner confirms the turn. Repeating the registration does not resend it.
 - **Fixed step plans:** `orch_work(create)` accepts a `steps` array of shell
@@ -199,7 +201,8 @@ State root: `~/.local/state/codex/orchestration/jobs/<work_id>/` (`0700`,
   resubmitted after the owner settles. `worktree` gives a new shell or
   Codex worker a dedicated Git worktree and branch with `write_paths`.
   Runtime checks tracked and untracked changes and overlapping paths before
-  accepting the result. Changes stay in the worktree for Lead to integrate.
+  accepting the result. Completion also checks the declared scope of retained
+  worktrees. Changes stay in the worktree for Lead to integrate.
   `readonly` is a declaration. Separate paths provide repository isolation
   under the same Termux UID and carry the owner's existing OS permissions.
 - **Cancellation:** A cancelling Work blocks new starts. Runtime requests

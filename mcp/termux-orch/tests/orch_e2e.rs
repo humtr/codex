@@ -278,6 +278,57 @@ impl Drop for Relay {
 }
 
 #[test]
+fn codex_dispatch_without_a_thread_releases_the_worker_on_tick() {
+    let root = tmp_dir("orch-unstarted");
+    let command = || {
+        let mut cmd = Command::new(bin_path());
+        cmd.env("ORCH_STATE_DIR", root.join("state"))
+            .env("ORCH_RECEIPT_DIR", root.join("receipts"))
+            .env("ORCH_CODEX_SOCKET", root.join("missing.sock"))
+            .env("CHATGPT_PROVIDER_URL", "http://127.0.0.1:1");
+        cmd
+    };
+    let mut mcp = Mcp::start(&mut command());
+    let created = mcp.call(
+        "orch_work",
+        json!({"action":"create", "call_id":"create", "title":"Unstarted",
+        "goal":"Verify a rejected launch releases the workspace", "tier":"orchestrated",
+        "lead_kind":"codex", "lead_cwd":root}),
+    );
+    assert_eq!(created["state"], "pending", "{created}");
+    let id = created["work_id"].as_str().unwrap();
+    let dispatch = |mcp: &mut Mcp, call_id: &str| {
+        mcp.call(
+            "orch_dispatch",
+            json!({"action":"register_worker", "call_id":call_id, "work_id":id,
+            "backend":"codex", "prompt":"Run the check", "cwd":root}),
+        )
+    };
+    let first = dispatch(&mut mcp, "first");
+    assert_eq!(first["state"], "pending", "{first}");
+    assert_eq!(first["participant"]["state"], "dispatching");
+    assert_eq!(first["participant"]["ref_id"], "");
+
+    assert!(command().arg("tick").output().unwrap().status.success());
+    let read = mcp.call("orch_works", json!({"action":"read", "work_id":id}));
+    assert_eq!(read["work"]["participants"][0]["state"], "failed", "{read}");
+    assert!(read["work"]["pending_lead"].is_null());
+    let inbox = mcp.call("orch_works", json!({"action":"inbox", "work_id":id}));
+    for kind in ["lead.dispatch_failed", "worker.failed"] {
+        assert!(inbox["events"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|e| e["kind"] == kind));
+    }
+    let second = dispatch(&mut mcp, "second");
+    assert_eq!(second["state"], "pending", "{second}");
+    assert_eq!(second["participant"]["participant_id"], "W2");
+    drop(mcp);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn completion_requires_verification_of_the_current_work() {
     let root = tmp_dir("termux-orch-review");
     let state = root.join("state");
@@ -1088,6 +1139,40 @@ fn worktree_plan_detects_undeclared_edit_without_touching_source() {
     assert_eq!(fs::read_to_string(repo.join("outside")).unwrap(), "base");
     let tree = PathBuf::from(p["worktree"]["path"].as_str().unwrap());
     assert_eq!(fs::read_to_string(tree.join("outside")).unwrap(), "changed");
+
+    let created = mcp.call(
+        "orch_work",
+        json!({"action":"create", "call_id":"create-interactive-worktree", "title":"Interactive",
+            "goal":"Do not offer completion while an undeclared change remains"}),
+    );
+    let wid = created["work_id"].as_str().unwrap();
+    let registered = mcp.call(
+        "orch_dispatch",
+        json!({"action":"register_worker", "call_id":"interactive-worktree", "work_id":wid,
+            "backend":"shell", "cwd":repo, "isolation":"worktree", "write_paths":["owned"],
+            "command":"printf changed > outside"}),
+    );
+    assert_eq!(registered["state"], "ok", "{registered}");
+    let failed = wait_for(|| {
+        assert!(command().arg("tick").output().unwrap().status.success());
+        let read = mcp.call("orch_works", json!({"action":"read","work_id":wid}));
+        let worker = &read["work"]["participants"][0];
+        (worker["state"] == "failed").then(|| worker.clone())
+    });
+    let complete = |mcp: &mut Mcp| {
+        mcp.call(
+            "orch_report",
+            json!({"action":"complete", "work_id":wid,"call_id":"finish-interactive",
+                "summary":"Completion check", "review_cwd":repo, "flush_now":false}),
+        )
+    };
+    assert_eq!(
+        complete(&mut mcp)["error"],
+        "worker_workspace_scope_unconfirmed"
+    );
+    let tree = PathBuf::from(failed["worktree"]["path"].as_str().unwrap());
+    fs::write(tree.join("outside"), "base").unwrap();
+    assert_eq!(complete(&mut mcp)["error"], "verification_required");
     fs::remove_dir_all(root).unwrap();
 }
 

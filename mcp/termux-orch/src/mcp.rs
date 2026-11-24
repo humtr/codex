@@ -2479,6 +2479,22 @@ impl OrchMcpHandler {
                             false,
                         );
                     }
+                    for participant in &work.participants {
+                        let Some(tree) = &participant.worktree else {
+                            continue;
+                        };
+                        let scoped = tree.path.try_exists().map_err(|e| e.to_string()).and_then(
+                            |retained| {
+                                if retained {
+                                    tree.declared_changes(&participant.write_paths)?;
+                                }
+                                Ok(())
+                            },
+                        );
+                        if let Err(error) = scoped {
+                            return (fail("worker_workspace_scope_unconfirmed", error), false);
+                        }
+                    }
                     if !work.verification_passed() {
                         if work.verification_policy == VerificationPolicy::IndependentReview
                             && !work
