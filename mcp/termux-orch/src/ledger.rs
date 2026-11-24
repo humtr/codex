@@ -975,32 +975,34 @@ impl Ledger {
 }
 
 pub fn ensure_private_dir(path: &Path) -> io::Result<()> {
-    let euid = unsafe { libc::geteuid() };
-    match fs::symlink_metadata(path) {
-        Ok(meta) => {
-            if meta.file_type().is_symlink() || !meta.is_dir() || meta.uid() != euid {
-                return Err(io::Error::new(
-                    io::ErrorKind::PermissionDenied,
-                    format!("unsafe directory {}", path.display()),
-                ));
-            }
-            if meta.permissions().mode() & 0o077 != 0 {
-                fs::set_permissions(path, fs::Permissions::from_mode(0o700))?;
-            }
-            Ok(())
+    if let Some(parent) = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+    {
+        if !parent.exists() {
+            fs::create_dir_all(parent)?;
         }
-        Err(e) if e.kind() == io::ErrorKind::NotFound => {
-            if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
-                if !parent.exists() {
-                    fs::create_dir_all(parent)?;
-                }
-            }
-            DirBuilder::new().mode(0o700).create(path)?;
-            fs::set_permissions(path, fs::Permissions::from_mode(0o700))?;
-            Ok(())
-        }
-        Err(e) => Err(e),
     }
+    match DirBuilder::new().mode(0o700).create(path) {
+        Ok(()) => (),
+        Err(error) if error.kind() == io::ErrorKind::AlreadyExists => (),
+        Err(error) => return Err(error),
+    }
+    let directory = OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW)
+        .open(path)?;
+    let metadata = directory.metadata()?;
+    if metadata.uid() != unsafe { libc::geteuid() } {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            format!("unsafe directory {}", path.display()),
+        ));
+    }
+    if metadata.mode() & 0o777 != 0o700 {
+        directory.set_permissions(fs::Permissions::from_mode(0o700))?;
+    }
+    Ok(())
 }
 
 pub(crate) fn read_private_file(path: &Path, max_bytes: u64) -> io::Result<Vec<u8>> {

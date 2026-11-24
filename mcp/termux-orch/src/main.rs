@@ -224,6 +224,35 @@ mod tests {
     }
 
     #[test]
+    fn ledger_open_allows_concurrent_mcp_and_relay_initialization() {
+        use std::os::unix::fs::{symlink, PermissionsExt};
+        let root = tmp_dir("termux-orch-concurrent-ledger");
+        for index in 0..8 {
+            let state = root.join(format!("state-{index}"));
+            let barrier = std::sync::Barrier::new(8);
+            std::thread::scope(|scope| {
+                for _ in 0..8 {
+                    scope.spawn(|| {
+                        barrier.wait();
+                        Ledger::open(state.clone()).unwrap();
+                    });
+                }
+            });
+            assert_eq!(
+                fs::metadata(state.join("jobs"))
+                    .unwrap()
+                    .permissions()
+                    .mode()
+                    & 0o777,
+                0o700
+            );
+        }
+        symlink(root.join("state-0"), root.join("unsafe")).unwrap();
+        assert!(Ledger::open(root.join("unsafe")).is_err());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn exposes_exactly_six_static_tools_with_uniform_annotations_and_disjoint_extensions() {
         let tools = build_static_tools();
         assert_eq!(tools.len(), 6);

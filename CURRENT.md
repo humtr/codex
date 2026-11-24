@@ -66,6 +66,11 @@ Observed on 2026-11-23.
 | Restart, compaction and size errors | A fresh map instance resumed the stored chat for a matching prefix. Changed prefix selected a fresh chat. A compiled Provider fixture exercised one bounded rollover on `input_too_large` and a fresh-chat rejection with zero further attempts. | Authenticated restart with the new binary and real size-error reproduction. Earlier compaction evidence is below. |
 | Live streaming and TUI | Simulated 250 seconds with live deltas. Official Codex 0.171.0 consumed the candidate's SSE and retained reasoning and answer in its rollout. With a synthetic server, the actual TUI showed live status and answer, and its expanded transcript displayed reasoning. An account-free candidate boot reached the real AppHost control status and exited cleanly. | The exact callbacks and their timing for a logged-in ChatGPT Desktop, a wall-clock xhigh live turn, and physical UI. |
 
+Launching the candidate MCP and relay together on an empty ledger reproduced
+an `EEXIST` startup race. The fix accepts a concurrent mkdir and validates
+the winning directory by descriptor. A concurrent-open regression test also
+checks that a symlink is rejected.
+
 No authenticated account or profile is required by the above fixtures. The
 component version identifiers stay at `0.1.0+7b`. Signed promotion and live
 device activation require the remaining authenticated acceptance.
