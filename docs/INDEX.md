@@ -33,6 +33,7 @@ distribution.
 
 ### Historical Archives
 
+- [docs/history/PRODUCT_POST_DEPLOY_AUDIT_20261124.md](history/PRODUCT_POST_DEPLOY_AUDIT_20261124.md) records the component-by-component audit, signed artifacts, and deployment checks.
 - [docs/history/APPHOST_SHUTDOWN_AUDIT_20261123.md](history/APPHOST_SHUTDOWN_AUDIT_20261123.md): Independent 2026-11-23 audit of Android Termux ChatGPT AppHost orphan/zombie shutdown behavior, PRoot `v5.1.107.102` `--sysvipc` subreaper deadlock counterexample, and conditional `host-supervisor` design & acceptance matrix (non-normative).
 - [docs/history/STAGE2_MILESTONES.md](history/STAGE2_MILESTONES.md) records Slices 1–7, all seven signed release readbacks, the live two-account and four-path session checks, and the daemon cache reclamation.
 - [docs/history/STAGE1_MILESTONES.md](history/STAGE1_MILESTONES.md): Completed 2026-11-16 – 2026-11-19 Stage 1 P0/review/maintenance milestones and retired work orders.
