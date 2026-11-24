@@ -1015,7 +1015,10 @@ pub fn catalog_models_from_status(st: &Value) -> Vec<CatalogModel> {
                 .map(str::trim)
                 .filter(|s| !s.is_empty())
                 .map(ToOwned::to_owned);
-            let max_tokens = m.get("max_tokens").and_then(Value::as_u64).filter(|&n| n > 0);
+            let max_tokens = m
+                .get("max_tokens")
+                .and_then(Value::as_u64)
+                .filter(|&n| n > 0);
             out.push(CatalogModel {
                 slug: slug.to_owned(),
                 title,
@@ -1080,11 +1083,7 @@ pub fn build_codex_model_catalog(models: &[CatalogModel], model_cfg: &ModelConfi
             continue;
         }
         let priority = (entries.len() + 1) as i64;
-        let display_name = m
-            .title
-            .as_deref()
-            .filter(|s| !s.is_empty())
-            .unwrap_or(slug);
+        let display_name = m.title.as_deref().filter(|s| !s.is_empty()).unwrap_or(slug);
         let description = m
             .description
             .as_deref()
@@ -1172,11 +1171,7 @@ pub fn sync_model_catalog_file(path: &Path, catalog: &Value) -> io::Result<()> {
     Ok(())
 }
 
-pub fn sync_catalog_from_status(
-    catalog_path: Option<&Path>,
-    st: &Value,
-    model_cfg: &ModelConfig,
-) {
+pub fn sync_catalog_from_status(catalog_path: Option<&Path>, st: &Value, model_cfg: &ModelConfig) {
     let Some(path) = catalog_path else {
         return;
     };

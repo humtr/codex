@@ -111,10 +111,15 @@ async fn run() -> Result<()> {
             }
             let state_dir = match state_override {
                 Some(dir) => dir,
-                None => ProviderConfig::load_or_default(cfg_path.as_deref(), &home)?.state_dir(&home),
+                None => {
+                    ProviderConfig::load_or_default(cfg_path.as_deref(), &home)?.state_dir(&home)
+                }
             };
             let catalog_path = state_dir.join("model-catalog.json");
-            print!("{}", format_codex_profile(&bind, &model, &catalog_path, standalone));
+            print!(
+                "{}",
+                format_codex_profile(&bind, &model, &catalog_path, standalone)
+            );
             Ok(())
         }
         Some("status") => {
@@ -199,7 +204,8 @@ async fn run() -> Result<()> {
                     &crate::responses::fallback_catalog_models(&cfg.model),
                     &cfg.model,
                 );
-                if let Err(err) = crate::responses::sync_model_catalog_file(&catalog_path, &fallback)
+                if let Err(err) =
+                    crate::responses::sync_model_catalog_file(&catalog_path, &fallback)
                 {
                     eprintln!(
                         "chatgpt-provider: warning: failed to seed {}: {err}",
@@ -1443,8 +1449,10 @@ wire_api = "responses"
             ]
         })));
         let token = "tok-cat-1234567890abcdef";
-        let mut model_cfg = config::ModelConfig::default();
-        model_cfg.reasoning_effort = "xhigh".to_owned();
+        let model_cfg = config::ModelConfig {
+            reasoning_effort: "xhigh".to_owned(),
+            ..Default::default()
+        };
         let router = build_router_with_threads(
             driver,
             model_cfg,
@@ -1496,10 +1504,12 @@ wire_api = "responses"
         assert_eq!(std::fs::metadata(&catalog_path).unwrap().ino(), ino1);
 
         // print-codex-profile emits model_catalog_json in both modes.
-        let standalone = format_codex_profile("127.0.0.1:4319", "gpt-6-2-thinking", &catalog_path, true);
+        let standalone =
+            format_codex_profile("127.0.0.1:4319", "gpt-6-2-thinking", &catalog_path, true);
         assert!(standalone.contains("model_catalog_json = "));
         assert!(standalone.contains("model-catalog.json"));
-        let profile = format_codex_profile("127.0.0.1:4319", "gpt-6-2-thinking", &catalog_path, false);
+        let profile =
+            format_codex_profile("127.0.0.1:4319", "gpt-6-2-thinking", &catalog_path, false);
         assert!(profile.contains("[profiles.chatgpt]"));
         assert!(profile.contains("model_catalog_json = "));
 

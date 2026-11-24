@@ -891,7 +891,10 @@ fn profile_flag_records_provider_and_shares_provider_config_on_named_profiles() 
     );
 
     let logged = fs::read_to_string(&trace).unwrap();
-    assert!(logged.contains("hooks.json:chatgpt.config.toml"), "{logged}");
+    assert!(
+        logged.contains("hooks.json:chatgpt.config.toml"),
+        "{logged}"
+    );
     assert!(logged.contains("ARGS=-p chatgpt"), "{logged}");
 
     let session_raw = fs::read_to_string(&snap).unwrap();
@@ -915,7 +918,10 @@ fn profile_flag_records_provider_and_shares_provider_config_on_named_profiles() 
         assert!(logged.contains("EXTRA=hooks.json "), "{logged}");
         assert!(!logged.contains("chatgpt.config.toml"), "{logged}");
         let rec: Value = serde_json::from_str(&fs::read_to_string(&snap).unwrap()).unwrap();
-        assert!(rec["provider"].is_null(), "expected null provider for {bad}: {rec}");
+        assert!(
+            rec["provider"].is_null(),
+            "expected null provider for {bad}: {rec}"
+        );
     }
 
     fs::remove_dir_all(root).unwrap();
