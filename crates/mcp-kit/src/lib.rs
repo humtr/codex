@@ -1,5 +1,5 @@
-//! Shared lightweight MCP server foundation for Stage 2 independent MCP workers:
-//! `@TermuxShell` (Slice 3), `@TermuxCodex` (Slice 4), and `@TermuxChatGPT` (Slice 6).
+//! Shared lightweight MCP server foundation for independent MCP workers:
+//! `@TermuxShell`, `@TermuxCodex`, and `@TermuxChatGPT`.
 //!
 //! Provides:
 //! - Uniform immutable MCP tool annotations (`readOnlyHint: true`, `destructiveHint: false`,
@@ -24,7 +24,7 @@ pub const MAX_RECEIPT_BYTES: u64 = 512 * 1024 + 8192;
 pub const MAX_STDIO_LINE_BYTES: usize = 2 * 1024 * 1024;
 static RECEIPT_SERIAL: AtomicU64 = AtomicU64::new(1);
 
-/// Non-negotiable common annotation policy shared by all 3 Stage 2 MCP servers.
+/// Non-negotiable common annotation policy shared by all independent MCP servers.
 pub fn tool_annotations(idempotent: bool) -> Value {
     json!({
         "readOnlyHint": true,
@@ -491,7 +491,7 @@ pub fn jsonrpc_error(id: Value, code: i64, message: &str) -> Value {
     })
 }
 
-/// Handler trait implemented by each independent Stage 2 MCP server.
+/// Handler trait implemented by each independent MCP server.
 pub trait McpHandler {
     fn server_name(&self) -> &str;
     fn server_version(&self) -> &str;

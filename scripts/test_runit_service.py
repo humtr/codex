@@ -479,9 +479,9 @@ class RunitSupervisionTests(unittest.TestCase):
             os.chmod(p, 0o755)
             return p.resolve()
 
-        o1 = install_orch("0.1.0+7b", b"orch-1")
-        o2 = install_orch("0.1.0+7b-new", b"orch-2")
-        o3 = install_orch("0.1.0+7b-bad", b"orch-3")
+        o1 = install_orch("0.1.0", b"orch-1")
+        o2 = install_orch("0.1.0-new", b"orch-2")
+        o3 = install_orch("0.1.0-bad", b"orch-3")
 
         live = {
             "termux-orch-tunnel": {"state": "running", "pid": 7001, "ticks": 70010, "exe": str(b_tunnel.resolve()), "child_exes": [str(o1)]},
@@ -550,38 +550,38 @@ class RunitSupervisionTests(unittest.TestCase):
             sv_bin=str(sv_orch),
             proc_reader=reader,
         )
-        orch_sup.activate("0.1.0+7b")
+        orch_sup.activate("0.1.0")
         orch_sup.enroll(exec_args=["mcp"])
         relay_sup.enroll(exec_args=["relay"])
         self.assertEqual(orch_sup.status()["activation_state"], "active")
 
         with mock.patch("scripts.runit_service.subprocess.run", side_effect=fake_run):
-            st_ok = orch_sup.activate("0.1.0+7b-new", restart_timeout=1.0)
+            st_ok = orch_sup.activate("0.1.0-new", restart_timeout=1.0)
             self.assertEqual(st_ok["activation_state"], "active")
-            self.assertEqual(st_ok["running_generation"]["version"], "0.1.0+7b-new")
-            self.assertEqual(st_ok["companions"][0]["running_generation"]["version"], "0.1.0+7b-new")
-            # Companion relay must have stopped BEFORE current flipped to 0.1.0+7b-new!
+            self.assertEqual(st_ok["running_generation"]["version"], "0.1.0-new")
+            self.assertEqual(st_ok["companions"][0]["running_generation"]["version"], "0.1.0-new")
+            # Companion relay must have stopped BEFORE current flipped to 0.1.0-new!
             self.assertEqual(events[:4], [
-                ("termux-orch-tunnel", "down", "generations/0.1.0+7b"),
-                ("termux-orch-relay", "down", "generations/0.1.0+7b"),
-                ("termux-orch-relay", "start", "generations/0.1.0+7b-new"),
-                ("termux-orch-tunnel", "start", "generations/0.1.0+7b-new"),
+                ("termux-orch-tunnel", "down", "generations/0.1.0"),
+                ("termux-orch-relay", "down", "generations/0.1.0"),
+                ("termux-orch-relay", "start", "generations/0.1.0-new"),
+                ("termux-orch-tunnel", "start", "generations/0.1.0-new"),
             ])
 
-            # Inject failure on companion relay start -> BOTH tunnel & relay MUST roll back to 0.1.0+7b-new!
+            # Inject failure on companion relay start -> BOTH tunnel & relay MUST roll back to 0.1.0-new!
             fail_service["name"] = "termux-orch-tunnel"
             events.clear()
             with self.assertRaisesRegex(SupervisionError, "rolled back"):
-                orch_sup.activate("0.1.0+7b-bad", restart_timeout=0.4)
+                orch_sup.activate("0.1.0-bad", restart_timeout=0.4)
             # The new relay has already started. Rollback must stop it and
             # the attempted tunnel before exposing the old selection.
             rollback_stop = [event for event in events if event[1] == "down"
-                             and event[2] == "generations/0.1.0+7b-bad"]
+                             and event[2] == "generations/0.1.0-bad"]
             self.assertEqual([event[0] for event in rollback_stop],
                              ["termux-orch-tunnel", "termux-orch-relay"])
             st_rb = orch_sup.status()
             self.assertEqual(st_rb["activation_state"], "active")
-            self.assertEqual(st_rb["selected_generation"]["version"], "0.1.0+7b-new")
+            self.assertEqual(st_rb["selected_generation"]["version"], "0.1.0-new")
             self.assertEqual(live["termux-orch-tunnel"]["child_exes"], [str(o2)])
             self.assertEqual(live["termux-orch-relay"]["exe"], str(o2))
             self.assertEqual(o3.exists(), True)

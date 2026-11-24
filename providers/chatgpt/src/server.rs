@@ -1,14 +1,16 @@
 //! Unified localhost-only HTTP router composing:
 //! - `GET /healthz`
 //! - Type 1 OpenAI Responses API: `GET /v1/models`, `POST /v1/responses`
-//! - Local authenticated `/control/*` control plane for Slice 6 `@TermuxChatGPT`
+//! - Local authenticated `/control/*` control plane for `@TermuxChatGPT`
 //! - Optional capability-scoped `/viewer/{capability}/{*path}` noVNC proxy
 
 use crate::config::{HistoryConfig, ModelConfig};
 use crate::control::{control_router, ControlState};
 use crate::driver::DriverBackend;
 use crate::error::Result;
-use crate::responses::{handle_models, handle_responses, ResponseThreadMap};
+use crate::responses::{
+    handle_models, handle_responses, new_live_model_set, LiveModelSet, ResponseThreadMap,
+};
 use crate::viewer::{viewer_router, ViewerSlot};
 use axum::{
     extract::State,
@@ -28,6 +30,7 @@ struct AppState {
     history_cfg: Arc<HistoryConfig>,
     threads: Arc<ResponseThreadMap>,
     catalog_path: Option<PathBuf>,
+    live_models: LiveModelSet,
 }
 
 #[cfg(test)]
@@ -58,6 +61,8 @@ pub fn build_router_with_threads(
     threads: ResponseThreadMap,
     catalog_path: Option<PathBuf>,
 ) -> Router {
+    let live_models =
+        new_live_model_set(model_cfg.available.iter().cloned(), catalog_path.as_deref());
     let model_cfg = Arc::new(model_cfg);
     let app_state = AppState {
         driver: Arc::clone(&driver),
@@ -65,6 +70,7 @@ pub fn build_router_with_threads(
         history_cfg: Arc::new(history_cfg),
         threads: Arc::new(threads),
         catalog_path: catalog_path.clone(),
+        live_models: Arc::clone(&live_models),
     };
     let v1_router = Router::new()
         .route("/healthz", get(healthz))
@@ -77,6 +83,7 @@ pub fn build_router_with_threads(
         token: control_token.into(),
         catalog_path,
         model_cfg,
+        live_models,
     });
 
     v1_router
@@ -98,6 +105,7 @@ async fn v1_models(State(st): State<AppState>) -> Json<Value> {
         Arc::clone(&st.driver),
         &st.model_cfg,
         st.catalog_path.as_deref(),
+        Some(&st.live_models),
     )
     .await
 }
@@ -120,6 +128,7 @@ async fn v1_responses(
         &st.history_cfg,
         Arc::clone(&st.threads),
         session_hint,
+        Some(&st.live_models),
         body,
     )
     .await

@@ -1,4 +1,4 @@
-//! `termux-orch` — Stage 2 Slice 7 Durable Multi-Role Orchestration (`@TermuxOrch` + `termux-orch relay`).
+//! `termux-orch` — Durable Multi-Role Orchestration (`@TermuxOrch` + `termux-orch relay`).
 //!
 //! Subcommands:
 //! - `termux-orch mcp`                                           — stdio MCP server (`@TermuxOrch`, 6 static tools)
@@ -49,7 +49,7 @@ fn default_receipt_dir() -> PathBuf {
 
 fn print_help() {
     println!(
-        "termux-orch {} — Stage 2 Durable Multi-Role Orchestration (@TermuxOrch + Runtime R)\n\n\
+        "termux-orch {} — Durable Multi-Role Orchestration (@TermuxOrch + Runtime R)\n\n\
          Usage:\n\
          \x20 termux-orch mcp\n\
          \x20 termux-orch relay [--bind 127.0.0.1:0] [--health-url-file <path>] [--poll-ms 3000]\n\

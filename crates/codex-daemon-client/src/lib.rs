@@ -1,6 +1,6 @@
 //! Minimal public JSON-RPC client for the official `codex app-server daemon`.
 //!
-//! Shared by Slice 2 (`codex-ext` / `cdx`) and Slice 4 (`mcp/termux-codex`).
+//! Shared by `codex-ext` (`cdx`) and `mcp/termux-codex`.
 //! Uses direct RFC 6455 WebSocket-over-UDS framing against the daemon's
 //! `app-server-control/app-server-control.sock` with `/proc/self/fd/<dirfd>/...`
 //! resolution for Termux `termux-uds-fd35` short socket paths.

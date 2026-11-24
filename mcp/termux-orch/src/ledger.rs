@@ -1,5 +1,5 @@
 //! Durable `Work Ledger` (`work.json`, `checkpoint.md`) and `Typed Inbox` (`events.jsonl`)
-//! for Stage 2 Slice 7 (`@TermuxOrch` / `termux-orch relay`).
+//! for `@TermuxOrch` and `termux-orch relay`.
 //!
 //! Security & crash-safety invariants:
 //! - Private `0700` directories and `0600` files (`O_NOFOLLOW`, owner UID checked).

@@ -577,7 +577,7 @@ fn notify_set_show_and_emit_dry_run_work_for_stop_and_hooks_json() {
             "notify",
             "emit",
             "Stop",
-            r#"{"cwd":"/tmp/demo","last-assistant-message":"Done building slice 2"}"#,
+            r#"{"cwd":"/tmp/demo","last-assistant-message":"Done building package"}"#,
             "--dry-run",
         ])
         .env("HOME", &root)
@@ -588,7 +588,7 @@ fn notify_set_show_and_emit_dry_run_work_for_stop_and_hooks_json() {
     assert!(r_emit.status.success());
     let ev: Value = serde_json::from_slice(&r_emit.stdout).unwrap();
     assert_eq!(ev["title"], "Codex (demo) — Stop");
-    assert_eq!(ev["body"], "Done building slice 2");
+    assert_eq!(ev["body"], "Done building package");
 
     let _ = fs::remove_dir_all(&root);
 }

@@ -51,7 +51,7 @@ fn compiled_binary_describe_tools_stdio_replay_and_cwd_validation() {
         json!({"jsonrpc":"2.0","method":"notifications/initialized"}),
         json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"termux_shell","arguments":{"call_id":"e2e-1","command":cmd,"cwd":root}}}),
         json!({"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"termux_shell","arguments":{"call_id":"e2e-1","command":cmd,"cwd":root}}}),
-        json!({"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"termux_shell","arguments":{"call_id":"e2e-badcwd","command":"echo hi","cwd":"/nonexistent-dir-slice3"}}}),
+        json!({"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"termux_shell","arguments":{"call_id":"e2e-badcwd","command":"echo hi","cwd":"/nonexistent-dir-test"}}}),
     ];
     {
         let stdin = child.stdin.as_mut().unwrap();

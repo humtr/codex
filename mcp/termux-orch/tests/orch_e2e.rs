@@ -777,7 +777,7 @@ fn exercise_compiled_rollover(
                     let lane = body["lane_id"].as_str().unwrap().to_owned();
                     if body["chat_id"].is_null() {
                         p.create_calls += 1;
-                        assert!(prompt.contains("CHECKPOINT_7B"));
+                        assert!(prompt.contains("CHECKPOINT_LEAD"));
                         if let Some(reject) = reject_fresh_size {
                             assert!(prompt.len() <= 32 * 1024);
                             if reject {
@@ -882,7 +882,7 @@ fn exercise_compiled_rollover(
     for seq in 0..18 {
         let reported = mcp.call("orch_report", json!({
             "action":"milestone","call_id":format!("event-{seq}"),"work_id":wid,
-            "summary":format!("REPLAY_EVENT_{seq:02}"),"checkpoint_md":"CHECKPOINT_7B","flush_now":false
+            "summary":format!("REPLAY_EVENT_{seq:02}"),"checkpoint_md":"CHECKPOINT_LEAD","flush_now":false
         }));
         assert_eq!(reported["state"], "ok", "{reported}");
     }
@@ -1007,7 +1007,7 @@ fn exercise_compiled_rollover(
         "orch_call",
         json!({
             "action":"lead_rollover","arguments":{"work_id":wid,"reason":"manual_test",
-            "checkpoint_md":"CHECKPOINT_7B updated","expected_lead_generation":2}
+            "checkpoint_md":"CHECKPOINT_LEAD updated","expected_lead_generation":2}
         }),
     );
     assert_eq!(manual["state"], "ok", "{manual}");

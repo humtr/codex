@@ -73,7 +73,12 @@ and [providers/chatgpt/src/main.rs](../../providers/chatgpt/src/main.rs).
   `GET /control/status`, or eager startup receives live AppHost `/models`
   metadata) and emits `model_catalog_json = "<state_dir>/model-catalog.json"`
   in `print-codex-profile` so Codex `/model` displays ChatGPT models instead
-  of default OpenAI slugs. When
+  of default OpenAI slugs. The visible catalog excludes Codex-only `*-wm` /
+  `*-codex` / `hidden`-tagged slugs, collapses `-instant` / `-thinking` /
+  `-t-mini` variants into a single latest-first entry per model family with
+  selectable reasoning efforts, and routes `/v1/responses` dispatches to the
+  corresponding ChatGPT variant slug according to the requested reasoning
+  effort. When
   Codex supplies deferred nested tools through Code Mode, the description
   sent to the AppHost retains the advertised `ALL_TOOLS` discovery instruction
   within the description bound. A streaming request forwards upstream

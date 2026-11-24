@@ -666,7 +666,7 @@ test("page_driver listConnectors, registerConnector (create+noauth+refresh+probe
 
   const reg = await driver.registerConnector({
     name: "TermuxShell",
-    description: "Stage 2 shell MCP",
+    description: "Termux shell MCP",
     tunnel_id: tunnelId,
   });
   assert.equal(reg.state, "ok");

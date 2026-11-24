@@ -20,7 +20,7 @@ use axum::{
 use futures_util::Stream;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::collections::{HashSet, VecDeque};
+use std::collections::{BTreeMap, HashSet, VecDeque};
 use std::convert::Infallible;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Write};
@@ -28,7 +28,7 @@ use std::os::fd::AsRawFd;
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 use std::task::{Context, Poll};
 use std::time::Duration;
 use tokio::sync::mpsc;
@@ -982,12 +982,61 @@ async fn send_chunk(tx: &mpsc::Sender<String>, chunk: String) -> bool {
 
 pub use crate::config::ensure_private_dir;
 
+pub type LiveModelSet = Arc<RwLock<HashSet<String>>>;
+
+pub fn new_live_model_set<I>(initial: I, catalog_path: Option<&Path>) -> LiveModelSet
+where
+    I: IntoIterator<Item = String>,
+{
+    let mut slugs: HashSet<String> = initial
+        .into_iter()
+        .map(|s| s.trim().to_owned())
+        .filter(|s| !s.is_empty())
+        .collect();
+    if let Some(path) = catalog_path {
+        if let Ok(raw) = fs::read_to_string(path) {
+            if let Ok(doc) = serde_json::from_str::<Value>(&raw) {
+                if let Some(arr) = doc.get("models").and_then(Value::as_array) {
+                    for entry in arr {
+                        if let Some(slug) = entry.get("slug").and_then(Value::as_str) {
+                            let trimmed = slug.trim();
+                            if !trimmed.is_empty() {
+                                slugs.insert(trimmed.to_owned());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    Arc::new(RwLock::new(slugs))
+}
+
+fn update_live_models(set: Option<&LiveModelSet>, models: &[CatalogModel]) {
+    let Some(lock) = set else {
+        return;
+    };
+    let fresh: HashSet<String> = models
+        .iter()
+        .map(|m| m.slug.trim())
+        .filter(|s| !s.is_empty())
+        .map(ToOwned::to_owned)
+        .collect();
+    if fresh.is_empty() {
+        return;
+    }
+    if let Ok(mut guard) = lock.write() {
+        *guard = fresh;
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CatalogModel {
     pub slug: String,
     pub title: Option<String>,
     pub description: Option<String>,
     pub max_tokens: Option<u64>,
+    pub tags: Vec<String>,
 }
 
 pub fn catalog_models_from_status(st: &Value) -> Vec<CatalogModel> {
@@ -1019,11 +1068,24 @@ pub fn catalog_models_from_status(st: &Value) -> Vec<CatalogModel> {
                 .get("max_tokens")
                 .and_then(Value::as_u64)
                 .filter(|&n| n > 0);
+            let tags = m
+                .get("tags")
+                .and_then(Value::as_array)
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(Value::as_str)
+                        .map(str::trim)
+                        .filter(|s| !s.is_empty())
+                        .map(ToOwned::to_owned)
+                        .collect()
+                })
+                .unwrap_or_default();
             out.push(CatalogModel {
                 slug: slug.to_owned(),
                 title,
                 description,
                 max_tokens,
+                tags,
             });
         }
     }
@@ -1045,16 +1107,165 @@ pub fn fallback_catalog_models(model_cfg: &ModelConfig) -> Vec<CatalogModel> {
             title: None,
             description: None,
             max_tokens: None,
+            tags: Vec::new(),
         });
     }
     out
 }
 
-fn is_hidden_catalog_slug(slug: &str) -> bool {
+fn is_codex_only_slug(slug: &str) -> bool {
     let lower = slug.to_ascii_lowercase();
-    lower.contains("reserved_gate")
+    lower.ends_with("-wm") || lower.contains("-codex") || lower.starts_with("codex-")
+}
+
+fn is_hidden_catalog_slug(slug: &str, tags: &[String]) -> bool {
+    let lower = slug.to_ascii_lowercase();
+    tags.iter().any(|t| t.eq_ignore_ascii_case("hidden"))
+        || lower.contains("reserved_gate")
         || lower.starts_with("chatgpt_alpha_model_external_access_")
         || lower == "auto"
+        || is_codex_only_slug(slug)
+}
+
+fn canonical_family_slug(slug: &str) -> String {
+    let lower = slug.trim().to_ascii_lowercase();
+    if let Some(base) = lower.strip_suffix("-instant") {
+        return base.to_owned();
+    }
+    if let Some(base) = lower.strip_suffix("-thinking") {
+        return base.to_owned();
+    }
+    if let Some(base) = lower.strip_suffix("-t-mini") {
+        return format!("{base}-mini");
+    }
+    lower
+}
+
+struct ParsedGptFamily {
+    major: u32,
+    minor: u32,
+    patch: u32,
+    minor_present: bool,
+    tier: Option<String>,
+}
+
+fn parse_gpt_family(family_slug: &str) -> Option<ParsedGptFamily> {
+    let rest = family_slug.strip_prefix("gpt-")?;
+    let mut nums: Vec<u32> = Vec::new();
+    let mut tier_parts: Vec<&str> = Vec::new();
+    let mut in_tier = false;
+    for part in rest.split('-') {
+        if !in_tier {
+            let parsed: Option<Vec<u32>> = if part.is_empty() {
+                None
+            } else {
+                part.split('.')
+                    .map(|seg| {
+                        if !seg.is_empty() && seg.bytes().all(|b| b.is_ascii_digit()) {
+                            seg.parse::<u32>().ok()
+                        } else {
+                            None
+                        }
+                    })
+                    .collect()
+            };
+            if let Some(seg_nums) = parsed {
+                nums.extend(seg_nums);
+                continue;
+            }
+            in_tier = true;
+        }
+        if !part.is_empty() {
+            tier_parts.push(part);
+        }
+    }
+    let &major = nums.first()?;
+    let minor_present = nums.len() > 1;
+    let minor = nums.get(1).copied().unwrap_or(0);
+    let patch = nums.get(2).copied().unwrap_or(0);
+    let tier = if tier_parts.is_empty() {
+        None
+    } else {
+        Some(tier_parts.join("-"))
+    };
+    Some(ParsedGptFamily {
+        major,
+        minor,
+        patch,
+        minor_present,
+        tier,
+    })
+}
+
+fn capitalize_word(word: &str) -> String {
+    let mut chars = word.chars();
+    match chars.next() {
+        Some(first) => format!("{}{}", first.to_ascii_uppercase(), chars.as_str()),
+        None => String::new(),
+    }
+}
+
+fn canonical_display_name(family_slug: &str, raw_title: Option<&str>) -> String {
+    if let Some(parsed) = parse_gpt_family(family_slug) {
+        let mut base = if parsed.patch > 0 {
+            format!("GPT-{}.{}.{}", parsed.major, parsed.minor, parsed.patch)
+        } else if parsed.minor_present {
+            format!("GPT-{}.{}", parsed.major, parsed.minor)
+        } else {
+            format!("GPT-{}", parsed.major)
+        };
+        if let Some(tier) = parsed.tier.as_deref() {
+            match tier {
+                "pro" => base.push_str(" Pro"),
+                "mini" => base.push_str(" Mini"),
+                other => {
+                    for word in other.split('-') {
+                        if !word.is_empty() {
+                            base.push(' ');
+                            base.push_str(&capitalize_word(word));
+                        }
+                    }
+                }
+            }
+        }
+        return base;
+    }
+    raw_title
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(ToOwned::to_owned)
+        .unwrap_or_else(|| family_slug.to_owned())
+}
+
+fn family_sort_key(
+    family_slug: &str,
+) -> (
+    u8,
+    std::cmp::Reverse<u32>,
+    std::cmp::Reverse<u32>,
+    std::cmp::Reverse<u32>,
+    u8,
+    &str,
+) {
+    use std::cmp::Reverse;
+    if let Some(parsed) = parse_gpt_family(family_slug) {
+        let tier_rank = match parsed.tier.as_deref() {
+            None => 0,
+            Some("pro") => 1,
+            Some("mini") => 2,
+            Some(_) => 3,
+        };
+        (
+            0,
+            Reverse(parsed.major),
+            Reverse(parsed.minor),
+            Reverse(parsed.patch),
+            tier_rank,
+            family_slug,
+        )
+    } else {
+        (1, Reverse(0), Reverse(0), Reverse(0), 0, family_slug)
+    }
 }
 
 fn is_non_thinking_slug(slug: &str) -> bool {
@@ -1073,65 +1284,283 @@ fn normalize_catalog_default_effort(raw: &str) -> &'static str {
     }
 }
 
+fn standard_reasoning_levels(include_none: bool) -> Value {
+    let mut levels = Vec::new();
+    if include_none {
+        levels.push(
+            json!({ "effort": "none", "description": "Direct response without extended thinking" }),
+        );
+    }
+    levels.extend([
+        json!({ "effort": "low", "description": "Lighter reasoning for fast replies" }),
+        json!({ "effort": "medium", "description": "Balanced speed and reasoning depth" }),
+        json!({ "effort": "high", "description": "Greater reasoning depth for complex tasks" }),
+        json!({ "effort": "xhigh", "description": "Extra high reasoning depth for hard tasks" }),
+        json!({ "effort": "max", "description": "Maximum ChatGPT reasoning depth" }),
+    ]);
+    Value::Array(levels)
+}
+
+struct CatalogEntrySpec<'a> {
+    slug: &'a str,
+    display_name: &'a str,
+    description: &'a str,
+    default_effort: &'a str,
+    supported_efforts: Value,
+    visibility: &'a str,
+    priority: i64,
+    max_tokens: Option<u64>,
+}
+
+fn make_catalog_entry(spec: CatalogEntrySpec<'_>) -> Value {
+    json!({
+        "slug": spec.slug,
+        "display_name": spec.display_name,
+        "description": spec.description,
+        "default_reasoning_level": spec.default_effort,
+        "supported_reasoning_levels": spec.supported_efforts,
+        "shell_type": "unified_exec",
+        "visibility": spec.visibility,
+        "supported_in_api": true,
+        "priority": spec.priority,
+        "base_instructions": "",
+        "supports_reasoning_summaries": true,
+        "default_reasoning_summary": "auto",
+        "support_verbosity": false,
+        "truncation_policy": { "mode": "tokens", "limit": 10000 },
+        "context_window": spec.max_tokens.unwrap_or(128_000),
+        "effective_context_window_percent": 95,
+        "input_modalities": ["text", "image"],
+        "supports_parallel_tool_calls": true,
+        "experimental_supported_tools": []
+    })
+}
+
+pub fn resolve_dispatch_model_and_effort(
+    requested_model: &str,
+    requested_effort: Option<&str>,
+    known_slugs: &HashSet<String>,
+) -> (String, Option<String>) {
+    let model = requested_model.trim();
+    let lower = model.to_ascii_lowercase();
+    let clean_effort = requested_effort
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(ToOwned::to_owned);
+
+    if lower.ends_with("-instant")
+        || lower.ends_with("-thinking")
+        || lower.ends_with("-t-mini")
+        || lower.ends_with("-pro")
+        || lower.ends_with("-wm")
+        || matches!(lower.as_str(), "auto" | "research")
+    {
+        return (model.to_owned(), clean_effort);
+    }
+
+    let effort_key = clean_effort.as_deref().map(str::to_ascii_lowercase);
+    let is_none = matches!(effort_key.as_deref(), Some("none" | "zero"));
+    let is_thinking = matches!(
+        effort_key.as_deref(),
+        Some(
+            "minimal"
+                | "min"
+                | "low"
+                | "medium"
+                | "standard"
+                | "high"
+                | "extended"
+                | "xhigh"
+                | "max"
+                | "ultra"
+        )
+    );
+
+    if let Some(prefix) = lower.strip_suffix("-mini") {
+        if is_none {
+            let target = if known_slugs.is_empty() || known_slugs.contains(&lower) {
+                model.to_owned()
+            } else {
+                let fallback = format!("{prefix}-t-mini");
+                if known_slugs.contains(&fallback) {
+                    fallback
+                } else {
+                    model.to_owned()
+                }
+            };
+            return (target, None);
+        }
+        if is_thinking {
+            let candidate = format!("{prefix}-t-mini");
+            if known_slugs.contains(&candidate) {
+                return (candidate, clean_effort);
+            }
+        }
+        return (model.to_owned(), clean_effort);
+    }
+
+    if is_none {
+        let candidate = format!("{lower}-instant");
+        if known_slugs.contains(&candidate) {
+            return (candidate, None);
+        }
+        return (model.to_owned(), clean_effort);
+    }
+
+    if is_thinking {
+        let candidate = format!("{lower}-thinking");
+        if known_slugs.contains(&candidate) {
+            return (candidate, clean_effort);
+        }
+    }
+
+    (model.to_owned(), clean_effort)
+}
+
 pub fn build_codex_model_catalog(models: &[CatalogModel], model_cfg: &ModelConfig) -> Value {
-    let mut entries = Vec::new();
-    let mut seen = HashSet::new();
-    let default_effort = normalize_catalog_default_effort(&model_cfg.reasoning_effort);
+    struct FamilyGroup {
+        title: Option<String>,
+        description: Option<String>,
+        max_tokens: Option<u64>,
+        has_non_instant: bool,
+        has_bare_or_base: bool,
+    }
+
+    let mut families: BTreeMap<String, FamilyGroup> = BTreeMap::new();
+    let mut raw_models: Vec<CatalogModel> = Vec::new();
+    let mut seen_raw = HashSet::new();
+
     for m in models {
         let slug = m.slug.trim();
-        if slug.is_empty() || !seen.insert(slug.to_owned()) {
+        if slug.is_empty() || !seen_raw.insert(slug.to_owned()) {
             continue;
         }
+        raw_models.push(CatalogModel {
+            slug: slug.to_owned(),
+            title: m.title.clone(),
+            description: m.description.clone(),
+            max_tokens: m.max_tokens,
+            tags: m.tags.clone(),
+        });
+
+        if is_hidden_catalog_slug(slug, &m.tags) {
+            continue;
+        }
+        let family = canonical_family_slug(slug);
+        let non_instant = !is_non_thinking_slug(slug);
+        let group = families
+            .entry(family.clone())
+            .or_insert_with(|| FamilyGroup {
+                title: m.title.clone(),
+                description: m.description.clone(),
+                max_tokens: m.max_tokens,
+                has_non_instant: non_instant,
+                has_bare_or_base: slug.eq_ignore_ascii_case(&family),
+            });
+        if group.title.is_none() && m.title.is_some() {
+            group.title = m.title.clone();
+        }
+        if group.description.is_none() && m.description.is_some() {
+            group.description = m.description.clone();
+        }
+        group.max_tokens = match (group.max_tokens, m.max_tokens) {
+            (Some(a), Some(b)) => Some(a.max(b)),
+            (a, b) => a.or(b),
+        };
+        group.has_non_instant |= non_instant;
+        if slug.eq_ignore_ascii_case(&family) {
+            group.has_bare_or_base = true;
+            if m.description.is_some() {
+                group.description = m.description.clone();
+            }
+        }
+    }
+
+    let mut sorted_families: Vec<(String, FamilyGroup)> = families.into_iter().collect();
+    sorted_families.sort_by(|a, b| family_sort_key(&a.0).cmp(&family_sort_key(&b.0)));
+
+    let default_effort = normalize_catalog_default_effort(&model_cfg.reasoning_effort);
+    let mut entries = Vec::new();
+    let mut emitted_slugs = HashSet::new();
+
+    for (family_slug, group) in &sorted_families {
         let priority = (entries.len() + 1) as i64;
-        let display_name = m.title.as_deref().filter(|s| !s.is_empty()).unwrap_or(slug);
+        let display_name = canonical_display_name(family_slug, group.title.as_deref());
+        let description = group
+            .description
+            .as_deref()
+            .filter(|s| !s.is_empty())
+            .map(ToOwned::to_owned)
+            .unwrap_or_else(|| format!("ChatGPT Desktop model ({family_slug})"));
+        let is_pro = family_slug.ends_with("-pro");
+        let (eff_default, supported_efforts) =
+            if !group.has_non_instant || family_slug == "research" {
+                ("none", json!([]))
+            } else if is_pro {
+                let eff = if default_effort == "none" {
+                    "medium"
+                } else {
+                    default_effort
+                };
+                (eff, standard_reasoning_levels(false))
+            } else {
+                (default_effort, standard_reasoning_levels(true))
+            };
+        emitted_slugs.insert(family_slug.clone());
+        entries.push(make_catalog_entry(CatalogEntrySpec {
+            slug: family_slug,
+            display_name: &display_name,
+            description: &description,
+            default_effort: eff_default,
+            supported_efforts,
+            visibility: "list",
+            priority,
+            max_tokens: group.max_tokens,
+        }));
+    }
+
+    let mut hidden_idx = 0i64;
+    for m in &raw_models {
+        let lower = m.slug.to_ascii_lowercase();
+        if emitted_slugs.contains(&lower) || !emitted_slugs.insert(m.slug.clone()) {
+            continue;
+        }
+        hidden_idx += 1;
+        let display_name = m
+            .title
+            .as_deref()
+            .filter(|s| !s.is_empty())
+            .unwrap_or(&m.slug);
         let description = m
             .description
             .as_deref()
             .filter(|s| !s.is_empty())
             .map(ToOwned::to_owned)
-            .unwrap_or_else(|| format!("ChatGPT Desktop model ({slug})"));
-        let visibility = if is_hidden_catalog_slug(slug) {
-            "hide"
-        } else {
-            "list"
-        };
-        let (model_default_effort, supported_efforts) = if is_non_thinking_slug(slug) {
+            .unwrap_or_else(|| format!("ChatGPT Desktop model ({})", m.slug));
+        let (eff_default, supported_efforts) = if is_non_thinking_slug(&m.slug) {
             ("none", json!([]))
+        } else if lower.ends_with("-pro") {
+            let eff = if default_effort == "none" {
+                "medium"
+            } else {
+                default_effort
+            };
+            (eff, standard_reasoning_levels(false))
         } else {
-            (
-                default_effort,
-                json!([
-                    { "effort": "none", "description": "Direct response without extended thinking" },
-                    { "effort": "low", "description": "Lighter reasoning for fast replies" },
-                    { "effort": "medium", "description": "Balanced speed and reasoning depth" },
-                    { "effort": "high", "description": "Greater reasoning depth for complex tasks" },
-                    { "effort": "xhigh", "description": "Extra high reasoning depth for hard tasks" },
-                    { "effort": "max", "description": "Maximum ChatGPT reasoning depth" }
-                ]),
-            )
+            (default_effort, standard_reasoning_levels(true))
         };
-        entries.push(json!({
-            "slug": slug,
-            "display_name": display_name,
-            "description": description,
-            "default_reasoning_level": model_default_effort,
-            "supported_reasoning_levels": supported_efforts,
-            "shell_type": "unified_exec",
-            "visibility": visibility,
-            "supported_in_api": true,
-            "priority": priority,
-            "base_instructions": "",
-            "supports_reasoning_summaries": true,
-            "default_reasoning_summary": "auto",
-            "support_verbosity": false,
-            "truncation_policy": { "mode": "tokens", "limit": 10000 },
-            "context_window": m.max_tokens.unwrap_or(128_000),
-            "effective_context_window_percent": 95,
-            "input_modalities": ["text", "image"],
-            "supports_parallel_tool_calls": true,
-            "experimental_supported_tools": []
+        entries.push(make_catalog_entry(CatalogEntrySpec {
+            slug: &m.slug,
+            display_name,
+            description: &description,
+            default_effort: eff_default,
+            supported_efforts,
+            visibility: "hide",
+            priority: 100 + hidden_idx,
+            max_tokens: m.max_tokens,
         }));
     }
+
     json!({ "models": entries })
 }
 
@@ -1171,14 +1600,20 @@ pub fn sync_model_catalog_file(path: &Path, catalog: &Value) -> io::Result<()> {
     Ok(())
 }
 
-pub fn sync_catalog_from_status(catalog_path: Option<&Path>, st: &Value, model_cfg: &ModelConfig) {
-    let Some(path) = catalog_path else {
-        return;
-    };
+pub fn sync_catalog_from_status(
+    catalog_path: Option<&Path>,
+    st: &Value,
+    model_cfg: &ModelConfig,
+    live_models: Option<&LiveModelSet>,
+) {
     let models = catalog_models_from_status(st);
     if models.is_empty() {
         return;
     }
+    update_live_models(live_models, &models);
+    let Some(path) = catalog_path else {
+        return;
+    };
     let catalog = build_codex_model_catalog(&models, model_cfg);
     if let Err(err) = sync_model_catalog_file(path, &catalog) {
         eprintln!(
@@ -1192,13 +1627,15 @@ pub async fn handle_models(
     driver: Arc<dyn DriverBackend>,
     model_cfg: &ModelConfig,
     catalog_path: Option<&Path>,
+    live_models: Option<&LiveModelSet>,
 ) -> Json<Value> {
     let mut slugs: Vec<String> = Vec::new();
     if driver.host_running().await {
         if let Ok(st) = driver.status().await {
-            sync_catalog_from_status(catalog_path, &st, model_cfg);
+            sync_catalog_from_status(catalog_path, &st, model_cfg, live_models);
             slugs = catalog_models_from_status(&st)
                 .into_iter()
+                .filter(|m| !is_hidden_catalog_slug(&m.slug, &m.tags))
                 .map(|m| m.slug)
                 .collect();
         }
@@ -1225,20 +1662,36 @@ pub async fn handle_responses(
     history_cfg: &HistoryConfig,
     threads: Arc<ResponseThreadMap>,
     session_hint: Option<String>,
+    live_models: Option<&LiveModelSet>,
     body: Value,
 ) -> Result<Response> {
-    let model = body
+    let requested_model = body
         .get("model")
         .and_then(Value::as_str)
         .filter(|s| !s.is_empty())
         .unwrap_or(&model_cfg.default)
         .to_owned();
-    let effort = body
+    let requested_effort = body
         .get("reasoning")
         .and_then(|r| r.get("effort"))
         .and_then(Value::as_str)
         .filter(|s| !s.trim().is_empty())
         .map(ToOwned::to_owned);
+    let known_slugs = live_models
+        .and_then(|lock| lock.read().ok().map(|guard| guard.clone()))
+        .unwrap_or_else(|| {
+            model_cfg
+                .available
+                .iter()
+                .map(|s| s.trim().to_owned())
+                .filter(|s| !s.is_empty())
+                .collect()
+        });
+    let (model, effort) = resolve_dispatch_model_and_effort(
+        &requested_model,
+        requested_effort.as_deref(),
+        &known_slugs,
+    );
     let stream = body.get("stream").and_then(Value::as_bool).unwrap_or(true);
 
     let utility = is_utility_title_request(&body);
@@ -1310,7 +1763,7 @@ pub async fn handle_responses(
     let prompt = render_prompt_from_responses_request(&body, skip_prefix)?;
     let all_sigs = extract_local_function_signatures(&body);
     let resp_id = format!("resp_{}", random_hex(8)?);
-    let mut live = LiveResponse::new(resp_id.clone(), model.clone());
+    let mut live = LiveResponse::new(resp_id.clone(), requested_model);
     let lane_id = resp_id.clone();
     let send_payload = json!({
         "lane_id": lane_id,

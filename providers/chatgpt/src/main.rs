@@ -1,4 +1,4 @@
-//! `chatgpt-provider` — slim Stage 2 Type 1 ChatGPT Desktop Provider.
+//! `chatgpt-provider` — ChatGPT Desktop Provider.
 //!
 //! Single CDP pipe owner + clean-room `page_driver.js` + `/v1/responses` (for
 //! `codex -p chatgpt`) + authenticated local `/control/*` (for `@TermuxChatGPT`).
@@ -33,7 +33,7 @@ use tokio::signal::unix::{signal, SignalKind};
 
 fn print_help() {
     println!(
-        "chatgpt-provider {} — slim Stage 2 ChatGPT Desktop Provider\n\n\
+        "chatgpt-provider {} — ChatGPT Desktop Provider\n\n\
          Usage:\n\
          \x20 chatgpt-provider serve [--config <path>] [--bind 127.0.0.1:<port>] [--state <dir>] [--rootfs <dir>] [--eager-host]\n\
          \x20 chatgpt-provider status [--config <path>]\n\
@@ -265,6 +265,7 @@ async fn run() -> Result<()> {
                         Some(&catalog_path),
                         &st,
                         &cfg.model,
+                        None,
                     );
                 }
             }
@@ -341,7 +342,7 @@ fn format_codex_profile(bind: &str, model: &str, catalog_path: &Path, standalone
              model_provider = \"chatgpt_desktop\"\n\
              model_catalog_json = {cat}\n\n\
              [model_providers.chatgpt_desktop]\n\
-             name = \"ChatGPT Desktop (Stage 2)\"\n\
+             name = \"ChatGPT Desktop\"\n\
              base_url = \"http://{bind}/v1\"\n\
              wire_api = \"responses\"\n\
              requires_openai_auth = false\n\
@@ -358,7 +359,7 @@ fn format_codex_profile(bind: &str, model: &str, catalog_path: &Path, standalone
              model_provider = \"chatgpt_desktop\"\n\
              model_catalog_json = {cat}\n\n\
              [model_providers.chatgpt_desktop]\n\
-             name = \"ChatGPT Desktop (Stage 2)\"\n\
+             name = \"ChatGPT Desktop\"\n\
              base_url = \"http://{bind}/v1\"\n\
              wire_api = \"responses\"\n\
              requires_openai_auth = false\n\
@@ -932,6 +933,7 @@ mod tests {
             &Default::default(),
             Arc::new(Default::default()),
             Some("test".to_owned()),
+            None,
             json!({"input":"test","stream":true}),
         )
         .await
@@ -987,6 +989,7 @@ mod tests {
                 &Default::default(),
                 Arc::clone(&map),
                 Some("test-session".to_owned()),
+                None,
                 body,
             )
             .await
@@ -1018,6 +1021,7 @@ mod tests {
                     &Default::default(),
                     Arc::clone(&map),
                     Some("test-session".to_owned()),
+                    None,
                     second.clone(),
                 )
                 .await
@@ -1347,7 +1351,7 @@ wire_api = "responses"
                     json!({
                         "name":"TermuxShell",
                         "tunnel_id":"tunnel_6b03b77cf8bc8191b405430734cc50f7",
-                        "description":"Stage 2 shell MCP"
+                        "description":"Termux shell MCP"
                     })
                     .to_string(),
                 ))
@@ -1443,9 +1447,24 @@ wire_api = "responses"
             "state": "ok",
             "auth_state": "authenticated",
             "models": [
-                { "slug": "gpt-6-2-thinking", "title": "GPT-6.2 Thinking", "description": "Deep", "max_tokens": 256000 },
-                { "slug": "gpt-6-instant", "title": "GPT-6 Instant", "max_tokens": 128000 },
-                { "slug": "chatgpt_alpha_model_external_access_reserved_gate_13", "title": "Gate" }
+                { "slug": "gpt-5-6", "title": "GPT-5.6 Sol", "description": "Older", "max_tokens": 52815 },
+                { "slug": "gpt-5-6-instant", "title": "GPT-5.6 Sol", "max_tokens": 52815 },
+                { "slug": "gpt-5-6-thinking", "title": "GPT-5.6 Sol", "max_tokens": 262144 },
+                { "slug": "gpt-5-6-pro", "title": "GPT-5.6 Pro", "max_tokens": 410000 },
+                { "slug": "gpt-5-6-mini", "title": "GPT-5.6 Luna", "max_tokens": 137000 },
+                { "slug": "gpt-5-6-t-mini", "title": "GPT-5.6 Luna", "max_tokens": 262144 },
+                { "slug": "gpt-6-sol-wm", "title": "GPT-6 Sol", "max_tokens": 262144 },
+                { "slug": "research", "title": "Deep Research", "max_tokens": 34815 },
+                { "slug": "gpt-6", "title": "GPT-6", "max_tokens": 52815 },
+                { "slug": "gpt-6-instant", "title": "GPT-6", "max_tokens": 52815 },
+                { "slug": "gpt-6-thinking", "title": "GPT-6", "max_tokens": 262144 },
+                { "slug": "gpt-6-pro", "title": "GPT-6 Pro", "max_tokens": 410000 },
+                { "slug": "gpt-6-mini", "title": "GPT-6", "max_tokens": 137000 },
+                { "slug": "gpt-6-t-mini", "title": "GPT-6", "max_tokens": 262144 },
+                { "slug": "gpt-6-2", "title": "GPT-6.2", "max_tokens": 52815 },
+                { "slug": "gpt-6-2-instant", "title": "GPT-6.2", "max_tokens": 52815 },
+                { "slug": "gpt-6-2-thinking", "title": "GPT-6.2", "description": "Latest flagship", "max_tokens": 262144 },
+                { "slug": "chatgpt_alpha_model_external_access_reserved_gate_13", "title": "Gate", "tags": ["hidden"] }
             ]
         })));
         let token = "tok-cat-1234567890abcdef";
@@ -1473,20 +1492,72 @@ wire_api = "responses"
         )
         .await;
         assert_eq!(res.status(), StatusCode::OK);
+        let v1_body: Value =
+            serde_json::from_slice(&to_bytes(res.into_body(), 1024 * 1024).await.unwrap()).unwrap();
+        let v1_ids: Vec<&str> = v1_body["data"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|x| x["id"].as_str())
+            .collect();
+        assert!(!v1_ids.contains(&"gpt-6-sol-wm"));
+        assert!(!v1_ids.contains(&"chatgpt_alpha_model_external_access_reserved_gate_13"));
 
         let raw = std::fs::read_to_string(&catalog_path).unwrap();
         let cat: Value = serde_json::from_str(&raw).unwrap();
         let models = cat["models"].as_array().unwrap();
-        assert_eq!(models.len(), 3);
-        assert_eq!(models[0]["slug"], "gpt-6-2-thinking");
-        assert_eq!(models[0]["display_name"], "GPT-6.2 Thinking");
-        assert_eq!(models[0]["visibility"], "list");
-        assert_eq!(models[0]["default_reasoning_level"], "xhigh");
-        assert_eq!(models[0]["context_window"], 256000);
-        assert_eq!(models[1]["slug"], "gpt-6-instant");
-        assert_eq!(models[1]["default_reasoning_level"], "none");
-        assert_eq!(models[1]["supported_reasoning_levels"], json!([]));
-        assert_eq!(models[2]["visibility"], "hide");
+        let visible: Vec<&Value> = models
+            .iter()
+            .filter(|m| m["visibility"] == "list")
+            .collect();
+        let visible_pairs: Vec<(&str, &str, i64)> = visible
+            .iter()
+            .map(|m| {
+                (
+                    m["slug"].as_str().unwrap(),
+                    m["display_name"].as_str().unwrap(),
+                    m["priority"].as_i64().unwrap(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            visible_pairs,
+            vec![
+                ("gpt-6-2", "GPT-6.2", 1),
+                ("gpt-6", "GPT-6", 2),
+                ("gpt-6-pro", "GPT-6 Pro", 3),
+                ("gpt-6-mini", "GPT-6 Mini", 4),
+                ("gpt-5-6", "GPT-5.6", 5),
+                ("gpt-5-6-pro", "GPT-5.6 Pro", 6),
+                ("gpt-5-6-mini", "GPT-5.6 Mini", 7),
+                ("research", "Deep Research", 8),
+            ]
+        );
+        assert_eq!(visible[0]["default_reasoning_level"], "xhigh");
+        assert_eq!(visible[0]["context_window"], 262144);
+        assert_eq!(
+            visible[0]["supported_reasoning_levels"]
+                .as_array()
+                .unwrap()
+                .len(),
+            6
+        );
+        // Pro has no "none" option
+        assert_eq!(
+            visible[2]["supported_reasoning_levels"]
+                .as_array()
+                .unwrap()
+                .len(),
+            5
+        );
+        // Research has empty efforts and default none
+        assert_eq!(visible[7]["default_reasoning_level"], "none");
+        assert_eq!(visible[7]["supported_reasoning_levels"], json!([]));
+        // Hidden entries preserve variants and exclude *-wm and reserved gates from picker
+        assert!(models
+            .iter()
+            .filter(|m| m["slug"] == "gpt-6-sol-wm" || m["slug"] == "gpt-6-2-thinking")
+            .all(|m| m["visibility"] == "hide"));
 
         // Second sync via /control/status leaves identical inode untouched (no rewrite).
         let ino1 = std::fs::metadata(&catalog_path).unwrap().ino();
@@ -1504,15 +1575,58 @@ wire_api = "responses"
         assert_eq!(std::fs::metadata(&catalog_path).unwrap().ino(), ino1);
 
         // print-codex-profile emits model_catalog_json in both modes.
-        let standalone =
-            format_codex_profile("127.0.0.1:4319", "gpt-6-2-thinking", &catalog_path, true);
+        let standalone = format_codex_profile("127.0.0.1:4319", "gpt-6-2", &catalog_path, true);
         assert!(standalone.contains("model_catalog_json = "));
         assert!(standalone.contains("model-catalog.json"));
-        let profile =
-            format_codex_profile("127.0.0.1:4319", "gpt-6-2-thinking", &catalog_path, false);
+        let profile = format_codex_profile("127.0.0.1:4319", "gpt-6-2", &catalog_path, false);
         assert!(profile.contains("[profiles.chatgpt]"));
         assert!(profile.contains("model_catalog_json = "));
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn effort_routing_maps_canonical_models_to_variant_slugs() {
+        let known: std::collections::HashSet<String> = [
+            "gpt-6-2",
+            "gpt-6-2-instant",
+            "gpt-6-2-thinking",
+            "gpt-6-mini",
+            "gpt-6-t-mini",
+            "gpt-6-pro",
+            "gpt-6-sol-wm",
+        ]
+        .into_iter()
+        .map(str::to_owned)
+        .collect();
+
+        assert_eq!(
+            crate::responses::resolve_dispatch_model_and_effort("gpt-6-2", Some("none"), &known),
+            ("gpt-6-2-instant".to_owned(), None)
+        );
+        assert_eq!(
+            crate::responses::resolve_dispatch_model_and_effort("gpt-6-2", Some("xhigh"), &known),
+            ("gpt-6-2-thinking".to_owned(), Some("xhigh".to_owned()))
+        );
+        assert_eq!(
+            crate::responses::resolve_dispatch_model_and_effort("gpt-6-mini", Some("high"), &known),
+            ("gpt-6-t-mini".to_owned(), Some("high".to_owned()))
+        );
+        assert_eq!(
+            crate::responses::resolve_dispatch_model_and_effort("gpt-6-mini", Some("none"), &known),
+            ("gpt-6-mini".to_owned(), None)
+        );
+        assert_eq!(
+            crate::responses::resolve_dispatch_model_and_effort("gpt-6-pro", Some("max"), &known),
+            ("gpt-6-pro".to_owned(), Some("max".to_owned()))
+        );
+        assert_eq!(
+            crate::responses::resolve_dispatch_model_and_effort(
+                "gpt-6-sol-wm",
+                Some("high"),
+                &known
+            ),
+            ("gpt-6-sol-wm".to_owned(), Some("high".to_owned()))
+        );
     }
 }

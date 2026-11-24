@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Opt-in runit 3-state generation supervision for Stage 2 standalone services.
+"""Opt-in runit 3-state generation supervision for standalone services.
 
 Manages immutable component generations under:
   $HOME/.local/lib/codex/<component>/{generations/<version>/<bin>, current, previous}

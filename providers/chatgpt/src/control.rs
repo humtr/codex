@@ -1,4 +1,4 @@
-//! Authenticated local `/control/*` HTTP API (consumed by Slice 6 `@TermuxChatGPT`).
+//! Authenticated local `/control/*` HTTP API (consumed by `@TermuxChatGPT`).
 //!
 //! Every `/control/*` endpoint requires `Authorization: Bearer <token>` matching
 //! the `0600` token at `<state_dir>/control.token` in constant time.
@@ -6,7 +6,7 @@
 use crate::config::{constant_time_eq, ModelConfig};
 use crate::driver::DriverBackend;
 use crate::error::{ProviderError, Result};
-use crate::responses::sync_catalog_from_status;
+use crate::responses::{sync_catalog_from_status, LiveModelSet};
 use axum::{
     extract::{Path, Query, State},
     http::{header, HeaderMap},
@@ -24,6 +24,7 @@ pub struct ControlState {
     pub token: Arc<str>,
     pub catalog_path: Option<PathBuf>,
     pub model_cfg: Arc<ModelConfig>,
+    pub live_models: LiveModelSet,
 }
 
 fn require_bearer(headers: &HeaderMap, expected: &str) -> Result<()> {
@@ -105,7 +106,12 @@ struct CreateProjectBody {
 async fn get_status(State(st): State<ControlState>, headers: HeaderMap) -> Result<Json<Value>> {
     require_bearer(&headers, &st.token)?;
     let status = st.driver.status().await?;
-    sync_catalog_from_status(st.catalog_path.as_deref(), &status, &st.model_cfg);
+    sync_catalog_from_status(
+        st.catalog_path.as_deref(),
+        &status,
+        &st.model_cfg,
+        Some(&st.live_models),
+    );
     Ok(Json(status))
 }
 
