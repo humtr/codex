@@ -1893,6 +1893,9 @@ pub fn sync_catalog_from_status(
     model_cfg: &ModelConfig,
     live_models: Option<&LiveModelSet>,
 ) {
+    if st.get("host_running").and_then(Value::as_bool) == Some(false) {
+        return;
+    }
     let models = catalog_models_from_status(st);
     if models.is_empty() {
         return;

@@ -340,7 +340,8 @@ fn format_codex_profile(bind: &str, model: &str, catalog_path: &Path, standalone
             "# Standalone Codex provider config (`~/.codex/chatgpt.config.toml`) for `!cdx provider chatgpt`\n\
              model = \"{model}\"\n\
              model_provider = \"chatgpt_desktop\"\n\
-             model_catalog_json = {cat}\n\n\
+             model_catalog_json = {cat}\n\
+             model_reasoning_summary = \"auto\"\n\n\
              [model_providers.chatgpt_desktop]\n\
              name = \"ChatGPT Desktop\"\n\
              base_url = \"http://{bind}/v1\"\n\
@@ -357,7 +358,8 @@ fn format_codex_profile(bind: &str, model: &str, catalog_path: &Path, standalone
              [profiles.chatgpt]\n\
              model = \"{model}\"\n\
              model_provider = \"chatgpt_desktop\"\n\
-             model_catalog_json = {cat}\n\n\
+             model_catalog_json = {cat}\n\
+             model_reasoning_summary = \"auto\"\n\n\
              [model_providers.chatgpt_desktop]\n\
              name = \"ChatGPT Desktop\"\n\
              base_url = \"http://{bind}/v1\"\n\
@@ -1622,13 +1624,33 @@ wire_api = "responses"
         assert_eq!(st_res.status(), StatusCode::OK);
         assert_eq!(std::fs::metadata(&catalog_path).unwrap().ino(), ino1);
 
-        // print-codex-profile emits model_catalog_json in both modes.
+        // host_running: false fallback status must never clobber the persisted live catalog or live_models.
+        let before_raw = std::fs::read_to_string(&catalog_path).unwrap();
+        let live_set = crate::responses::new_live_model_set(["gpt-6-2-thinking".to_owned()], None);
+        crate::responses::sync_catalog_from_status(
+            Some(&catalog_path),
+            &json!({
+                "state": "ok",
+                "host_running": false,
+                "auth_state": "host_stopped",
+                "models": ["gpt-5-6"]
+            }),
+            &config::ModelConfig::default(),
+            Some(&live_set),
+        );
+        assert_eq!(std::fs::metadata(&catalog_path).unwrap().ino(), ino1);
+        assert_eq!(std::fs::read_to_string(&catalog_path).unwrap(), before_raw);
+        assert!(live_set.read().unwrap().contains("gpt-6-2-thinking"));
+
+        // print-codex-profile emits model_catalog_json and model_reasoning_summary in both modes.
         let standalone = format_codex_profile("127.0.0.1:4319", "gpt-6-2", &catalog_path, true);
         assert!(standalone.contains("model_catalog_json = "));
         assert!(standalone.contains("model-catalog.json"));
+        assert!(standalone.contains("model_reasoning_summary = \"auto\""));
         let profile = format_codex_profile("127.0.0.1:4319", "gpt-6-2", &catalog_path, false);
         assert!(profile.contains("[profiles.chatgpt]"));
         assert!(profile.contains("model_catalog_json = "));
+        assert!(profile.contains("model_reasoning_summary = \"auto\""));
 
         let _ = std::fs::remove_dir_all(&dir);
     }
