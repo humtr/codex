@@ -1,4 +1,4 @@
-# Stage 2 Completed Milestones and Retired Work Order (2026-11-22 – 2026-11-23)
+# Stage 2 Completed Milestones and Retired Work Order (2026-11-22 – 2026-11-24)
 
 Historical record of the completed Stage 2 slice execution on `main`. The
 original work order is preserved in Git with `git show a5f50173:HANDOFF.md`.
@@ -34,6 +34,27 @@ for the product contract, and [ROADMAP.md](../ROADMAP.md) for open verification.
   [Slice 7B evidence](../../CURRENT.md#2026-11-23--stage-2-slice-7b-resilience-on-android-api-37-termux)
 
 ## R-1 Signed Stage 2 releases
+
+### 2026-11-24 — Signed Provider and Orch redesign
+
+Both packages were built from `51a710c2ddf4e47e4118feff643a7d53753192f7`
+and kept version `0.1.0+7b`. The downloaded archives, sidecars and signed
+manifests verified against the pinned Ed25519 public key.
+
+| Stable release | Sequence | Android archive SHA-256 | Signature SHA-256 |
+| --- | ---: | --- | --- |
+| [ChatGPT Provider](https://github.com/humtr/codex/actions/runs/45344571036) | 10 | `b69ce4f9075ff60f7613ec536c92681672bf98eba6f60eb441a5c7cfbbd8d280` | `0c39efc667bc88326cb064e11a95ed08a18ba706f695f213aee8d917febb8ec6` |
+| [TermuxOrch](https://github.com/humtr/codex/actions/runs/45344570653) | 8 | `2a3311a3e7e098cdba96b25cb68ec4dc4ac3352130a80a74dcf2fde32319e31e` | `f8b4497b7aa9b0c6b755e54564b6ebe43dbf7ce7ad8f59a32d95d7f736f546f0` |
+
+The signed binaries are active on Termux. Relay and tunnel MCP moved
+together while both writers were stopped. The device retained the previous
+binary generations and proved chat continuity, existing Work readback and
+one final delivery from a live smoke Work. The user accepted deferring the
+remaining isolated real-account cases.
+[Device activation](../../CURRENT.md#2026-11-24--signed-provider-and-orch-cutover) ·
+[Long-term checks](../ROADMAP.md#slice-7-long-term-authenticated-checks)
+
+### Baseline Stage 2 releases
 
 The first seven Stage 2 releases are recorded here. The Slice 5 and Slice 7
 audit fixes were first published as `0.1.1` from `d6b6247d` with Provider

@@ -13,7 +13,7 @@ and retired work orders are archived in
 
 ## Current Live Operating Snapshot
 
-Observed on 2026-11-23.
+Observed on 2026-11-24.
 
 | Boundary | Observed State | Notes |
 | --- | --- | --- |
@@ -21,7 +21,7 @@ Observed on 2026-11-23.
 | **Active / rollback upstream generation** | Active `0.171.0-d8c43b-2` (`ino=9741792`, SHA-256 `26d9f90b...`). Rollback `0.170.0-3f7e1a-2` | Preserved across Slice 1 signed Wrapper cutover; `wrapper status --verify --json` (`qualified=true`) and `codex doctor --json` (`summary=healthy`) agreed |
 | **Live managed daemons (`default` / `janmori101` / `szob`)** | All three homes aligned to `$HOME/.codex/packages/standalone/current`; `janmori101` & `szob` running | `cdx profile list` sees all 8 profiles (`default` + 7 normalized `codex-manager-profile` homes) |
 | **Live doctor and external services** | `codex doctor --json` reports `summary.status=healthy`. All six Stage 2 services and three `tdev*` services retained their running PIDs during daemon cache reclamation | The retired `0.167.2` archive remains in place with protected account/session data |
-| **Stage 2 progress (Slices 1–7)** | **Released Slice 1–7 baseline** in the unified XDG `codex/` namespace: Slice 1 signed Wrapper live; Slice 2 signed `$PREFIX/bin/codex-ext` + `cdx` (`0.1.0`, `e6e9c2a3...`); Slice 3 `mcp-kit` + `termux-shell-mcp` (`40fe5e54...`) + `tunnel-client v0.0.21` + `runit` 3-state supervision (`termux-shell-tunnel` active); Slice 4 `termux-codex-mcp` (`de46babc...`, `termux-codex-tunnel` active); Slice 5 `host/chatgpt-desktop` (`26.1117.41037`, GPG-verified) + `chatgpt-provider` (`0.1.0+7b`, `87bb368a...`, `runit` active); Slice 6 `termux-chatgpt-mcp` (`0.1.0+multilane`, `c7aeae57...`, `termux-chatgpt-tunnel` active); **Slice 7 `termux-orch`** (`0.1.0+7b`, `f56c9e5c...`, `termux-orch-relay` & `termux-orch-tunnel` `runit` active, `@TermuxOrch` connector `asdk_app_6b03de61dd748191bf56fef2b1029a2e` `ACTIVE`) | Six long-running services use `runit`. The four MCP connectors are separate from the CLI, host generation and runner. Candidate acceptance and signed-image activation are recorded separately below. |
+| **Stage 2 progress (Slices 1–7)** | **Released Slice 1–7 baseline** in the unified XDG `codex/` namespace: Slice 1 signed Wrapper live; Slice 2 signed `$PREFIX/bin/codex-ext` + `cdx` (`0.1.0`, `e6e9c2a3...`); Slice 3 `mcp-kit` + `termux-shell-mcp` (`40fe5e54...`) + `tunnel-client v0.0.21` + `runit` 3-state supervision (`termux-shell-tunnel` active); Slice 4 `termux-codex-mcp` (`de46babc...`, `termux-codex-tunnel` active); Slice 5 `host/chatgpt-desktop` (`26.1117.41037`, GPG-verified) + `chatgpt-provider` (`0.1.0+7b`, `267108e6...`, `runit` active); Slice 6 `termux-chatgpt-mcp` (`0.1.0+multilane`, `c7aeae57...`, `termux-chatgpt-tunnel` active); **Slice 7 `termux-orch`** (`0.1.0+7b`, `ddede475...`, `termux-orch-relay` & `termux-orch-tunnel` `runit` active, `@TermuxOrch` connector `asdk_app_6b03de61dd748191bf56fef2b1029a2e` `ACTIVE`) | Six long-running services use `runit`. The four MCP connectors are separate from the CLI, host generation and runner. Provider and Orch both run signed generation `0.1.0+7b-51a710c2`. |
 | **Milestone records** | Stage 1 WP0–WP6 and Stage 2 Slices 1–7 are archived | [Stage 1 milestones](docs/history/STAGE1_MILESTONES.md), [Stage 2 milestones](docs/history/STAGE2_MILESTONES.md) |
 
 ### Unverified / Remaining Boundaries
@@ -47,12 +47,39 @@ Observed on 2026-11-23.
 - **Slice 7 redesign promotion.** The user accepted the candidate under a
   provisional assumption for the remaining authenticated scenarios. Those
   scenarios retain their current evidence status and move to long-term
-  verification. Signed publication and device activation are separate steps.
+  verification. The signed generation is active.
   [Long-term Slice 7 checks](docs/ROADMAP.md#slice-7-long-term-authenticated-checks)
 
 ---
 
 ## Recent Verified Evidence (Newest-First)
+
+### 2026-11-24 — Signed Provider and Orch cutover
+
+Both stable tags use source `51a710c2ddf4e47e4118feff643a7d53753192f7`.
+The public Ed25519 signatures, signed manifest and archive sidecars all
+verified. Both installed components report `0.1.0+7b`.
+
+| Component | Sequence | Active binary SHA-256 | Rollback generation |
+| --- | ---: | --- | --- |
+| ChatGPT Provider | 10 | `267108e63e64789059cce96f89484149f436e34b6645671711eee37788c3176c` | `0.1.0+7b-755f3bda` |
+| TermuxOrch | 8 | `ddede475c278f076f9ed55d0c37da658062e05cbf73807e401c1740156e14707` | `0.1.0+7b-76a5d3fd` |
+
+- The signed Provider passed the account-free AppHost probe. The signed
+  Orch ran an isolated ordered plan with two zero exits and no Lead.
+- Both Orch writers were stopped before the shared generation changed.
+  The relay and tunnel MCP child now execute the same signed binary.
+  The three unrelated MCP tunnel processes kept their original identities.
+- The pre-cutover test chat resumed after deployment with its original chat
+  ID and recalled its marker. The production test Work
+  `work_8bd0dcb94e31f496` completed with shell exits `0, 0` and exactly one
+  Front delivery in that chat. The three older Work records were read
+  successfully and retained the same hashes. All six services were running
+  and `codex doctor --json` returned healthy.
+- The existing Orch connector stayed active. Refresh and tools/list probe
+  both passed, with schema agreement and cache invalidation.
+
+[Signed release evidence](docs/history/STAGE2_MILESTONES.md#2026-11-24--signed-provider-and-orch-redesign)
 
 ### 2026-11-24 — Slice 7 provisional acceptance
 

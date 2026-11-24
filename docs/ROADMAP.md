@@ -300,8 +300,10 @@ Stage 1의 FD 34는 스레드 수명을 업스트림 정책에 맡깁니다. 마
 
 ### Slice 7 long-term authenticated checks
 
-The user provisionally accepted promotion with the following checks deferred.
-Continue in the isolated account and preserve the existing evidence.
+The signed `0.1.0+7b-51a710c2` generation is active. The user deferred the
+following checks under provisional acceptance. Continue these checks in the
+isolated account.
+[Signed cutover](../CURRENT.md#2026-11-24--signed-provider-and-orch-cutover)
 
 - Connect an eligible isolated ChatGPT tunnel and exercise ordinary-language
   delegation and trusted caller-chat attribution through the actual connector.
