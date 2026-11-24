@@ -822,22 +822,22 @@ test("streaming publishes AppHost thought headings, titles, recaps, commentary, 
     summary, content: "PRIVATE_THOUGHT_BODY", finished,
   });
 
-  // 1. Input messages & private/raw/hidden reasoning must never leak.
+  // 1. Input messages never leak; full reasoning (thoughts parts/summary+content, raw_cot, hidden, hide_all recap, analysis) is opened cleanly.
   decoded(message("user-echo", { content_type: "text", parts: ["ECHO"] }), true);
-  decoded(message("private", { content_type: "thoughts", parts: ["PRIVATE_PARTS"] }));
+  decoded(message("direct-parts", { content_type: "thoughts", parts: ["Direct thought line"] }, undefined, { status: "finished_successfully" }));
   decoded(message("raw", { content_type: "thoughts", thoughts: [thought("RAW_COT_HEADING", true)] },
     { summary_type: "raw_cot" }));
   decoded(message("hidden", { content_type: "thoughts", thoughts: [thought("HIDDEN_HEADING", true)] },
     { is_visually_hidden_reasoning_group: true }));
-  decoded(message("private-recap", { content_type: "reasoning_recap", content: "HIDDEN_RECAP" },
-    { reasoning_recap_type: "hide_all" }));
-  decoded({ ...message("analysis", { content_type: "text", parts: ["PRIVATE_ANALYSIS_TEXT"] }),
-    channel: "analysis" });
+  decoded(message("recap-hide", { content_type: "reasoning_recap", content: "Thought for 3 seconds" },
+    { reasoning_recap_type: "hide_all" }, { status: "finished_successfully" }));
+  decoded({ ...message("analysis", { content_type: "text", parts: ["Full analysis reasoning"] },
+    undefined, { status: "finished_successfully" }), channel: "analysis" });
 
-  // 2. Public thought headings: mutable update -> finish, fallback update after onDecodedEvent ignored.
+  // 2. Multi-step thoughts with full content: mutable update -> finish, fallback update after onDecodedEvent ignored.
   decoded(message("think", {
     content_type: "thoughts",
-    thoughts: [thought("EARLIER_UNSEEN_HEADING"), thought("Checking")],
+    thoughts: [thought("Step 1 heading"), thought("Checking")],
   }, { is_visually_hidden_from_conversation: true }));
   callbacks.onUpdate({
     type: "message",
@@ -846,13 +846,17 @@ test("streaming publishes AppHost thought headings, titles, recaps, commentary, 
   });
   decoded(message("think", {
     content_type: "thoughts",
-    thoughts: [thought("EARLIER_UNSEEN_HEADING"), thought("Checking files", true)],
+    thoughts: [thought("Step 1 heading"), thought("Checking files", true)],
   }));
   decoded(message("think", {
     content_type: "thoughts",
-    thoughts: [thought("EARLIER_UNSEEN_HEADING"), thought("Checking files", true), thought("Reviewing changes", true)],
+    thoughts: [
+      thought("Step 1 heading"),
+      thought("Checking files", true),
+      { summary: "Reviewing changes", chunks: ["Line A\n", "Line B"], finished: true },
+    ],
   }));
-  decoded(message("titled", { content_type: "thoughts", thoughts: [{ summary: "", content: "PRIVATE" }] },
+  decoded(message("titled", { content_type: "thoughts", thoughts: [{ summary: "", content: "" }] },
     { rich_reasoning_titles: ["Reading metadata title"] }, { status: "finished_successfully" }));
   decoded(message("recap", { content_type: "reasoning_recap", content: "Visible recap" },
     undefined, { status: "finished_successfully" }));
@@ -871,9 +875,15 @@ test("streaming publishes AppHost thought headings, titles, recaps, commentary, 
     .filter((x) => x.kind === "item_upsert")
     .map((x) => [x.lane_id, x.item_id, x.item_kind, x.text, x.committed]);
   assert.deepEqual(itemEvents, [
-    ["lane", "thought:think:2", "reasoning_summary", "Checking", false],
-    ["lane", "thought:think:2", "reasoning_summary", "Checking files", true],
-    ["lane", "thought:think:3", "reasoning_summary", "Reviewing changes", true],
+    ["lane", "thought:direct-parts", "reasoning_summary", "Direct thought line", true],
+    ["lane", "thought:raw:1", "reasoning_summary", "**RAW_COT_HEADING**\nPRIVATE_THOUGHT_BODY", true],
+    ["lane", "thought:hidden:1", "reasoning_summary", "**HIDDEN_HEADING**\nPRIVATE_THOUGHT_BODY", true],
+    ["lane", "recap:recap-hide", "reasoning_summary", "Thought for 3 seconds", true],
+    ["lane", "analysis:analysis", "reasoning_summary", "Full analysis reasoning", true],
+    ["lane", "thought:think:1", "reasoning_summary", "**Step 1 heading**\nPRIVATE_THOUGHT_BODY", true],
+    ["lane", "thought:think:2", "reasoning_summary", "**Checking**\nPRIVATE_THOUGHT_BODY", false],
+    ["lane", "thought:think:2", "reasoning_summary", "**Checking files**\nPRIVATE_THOUGHT_BODY", true],
+    ["lane", "thought:think:3", "reasoning_summary", "**Reviewing changes**\nLine A\nLine B", true],
     ["lane", "title:titled:0", "reasoning_summary", "Reading metadata title", true],
     ["lane", "recap:recap", "reasoning_summary", "Visible recap", true],
     ["lane", "commentary:pre-1", "commentary", "Step 1 preamble", true],
@@ -886,16 +896,20 @@ test("streaming publishes AppHost thought headings, titles, recaps, commentary, 
   const settled = await result;
   assert.equal(settled.state, "settled");
   assert.equal(settled.account_id, "acc-1");
-  assert.equal(
-    settled.reasoning_summary,
-    "Checking files\n\nReviewing changes\n\nReading metadata title\n\nVisible recap"
-  );
+  assert.ok(!JSON.stringify(settled).includes("ECHO"));
+  assert.ok(!JSON.stringify(settled).includes("DUPLICATE_ON_UPDATE"));
   assert.equal(settled.assistant_text, "  Final 한국어 🚀 answer\nLine 2");
   assert.deepEqual(
     JSON.parse(JSON.stringify(settled.items)).map((x) => [x.kind, x.text]),
     [
-      ["reasoning_summary", "Checking files"],
-      ["reasoning_summary", "Reviewing changes"],
+      ["reasoning_summary", "Direct thought line"],
+      ["reasoning_summary", "**RAW_COT_HEADING**\nPRIVATE_THOUGHT_BODY"],
+      ["reasoning_summary", "**HIDDEN_HEADING**\nPRIVATE_THOUGHT_BODY"],
+      ["reasoning_summary", "Thought for 3 seconds"],
+      ["reasoning_summary", "Full analysis reasoning"],
+      ["reasoning_summary", "**Step 1 heading**\nPRIVATE_THOUGHT_BODY"],
+      ["reasoning_summary", "**Checking files**\nPRIVATE_THOUGHT_BODY"],
+      ["reasoning_summary", "**Reviewing changes**\nLine A\nLine B"],
       ["reasoning_summary", "Reading metadata title"],
       ["reasoning_summary", "Visible recap"],
       ["commentary", "Step 1 preamble"],
@@ -945,39 +959,23 @@ test("streaming publishes AppHost thought headings, titles, recaps, commentary, 
   nonStreamCallbacks.onComplete();
   const nsSettled = await nsPromise;
   assert.deepEqual(JSON.parse(JSON.stringify(nsSettled.items)), [
-    { id: "thought:t1:1", kind: "reasoning_summary", text: "Thinking step" },
+    { id: "thought:t1:1", kind: "reasoning_summary", text: "**Thinking step**\nPRIVATE_THOUGHT_BODY" },
     { id: "answer:a1", kind: "answer", text: "Final NS" },
     { id: "tool:call_tc1", kind: "tool_call", call_id: "call_tc1", name: "check_tool", arguments: "{\"x\":1}" },
   ]);
   assert.equal(nonStreamEnv.streamUpdates.length, 0);
 });
 
-test("page_driver disables cloud connectors on initial local-tool turns, commits prior reasoning on new messages, and allows visible tool-role titles", async () => {
+test("page_driver uses temporary chat isolation for Type 1 turns, deduplicates reasoning titles, commits prior thoughts before tools, and ignores undeclared recipients", async () => {
   let callbacks;
   let ready;
   let resolveStarted = () => {};
-  const connectorCalls = [];
   const { driver, startCalls, streamUpdates } = createMockEnv({
     apiMap: {
       "GET /backend-api/me": { status: 200, body: { account_id: "acc-tools" } },
       "GET /backend-api/conversation/conv-existing": {
         status: 200,
         body: { current_node: "node-1", mapping: {} },
-      },
-      "POST /backend-api/aip/connectors/links/list_accessible": {
-        status: 200,
-        body: (opts) => {
-          connectorCalls.push(opts.headers);
-          return {
-            links: [
-              { id: "lnk_1", connector_id: "asdk_app_shell", visibility: "VISIBLE" },
-              { id: "implicit_link_1", connector_id: "connector_hidden_implicit", visibility: "VISIBLE" },
-              { id: "lnk_2", connector_id: "connector_hidden", visibility: "HIDDEN" },
-              { id: "lnk_3", connector_id: "connector_github", visibility: "VISIBLE" },
-              { id: "lnk_4", connector_id: "asdk_app_shell", visibility: "VISIBLE" },
-            ],
-          };
-        },
       },
     },
     completionBehavior(args) {
@@ -987,23 +985,23 @@ test("page_driver disables cloud connectors on initial local-tool turns, commits
     },
   });
 
-  // 1. Initial local-tool turn includes deduplicated visible connector_ids and streams prior uncommitted thought before tool_call / answer.
+  // 1. Initial temporary chat turn sets is_do_not_remember, history_and_training_disabled, and temporary_chat_requests_personalization=false.
   ready = new Promise((resolve) => { resolveStarted = resolve; });
   const p1 = driver.sendMessage({
     lane_id: "lane-t1",
     prompt: "Run pwd",
     push_events: true,
+    temporary_chat: true,
     model: "gpt-6-2-thinking",
     local_function_signatures: [{ type: "function", name: "exec_command", parameters: { type: "object" } }],
   });
   await ready;
-  assert.equal(connectorCalls.length, 1);
-  assert.deepEqual(JSON.parse(JSON.stringify(startCalls[0].request.disabled_plugin_ids)), [
-    "asdk_app_shell",
-    "connector_github",
-  ]);
+  assert.equal(startCalls[0].request.is_do_not_remember, true);
+  assert.equal(startCalls[0].request.history_and_training_disabled, true);
+  assert.equal(startCalls[0].request.temporary_chat_requests_personalization, false);
+  assert.equal(startCalls[0].request.disabled_plugin_ids, undefined);
 
-  // Uncommitted thought step with finished=false & status=in_progress must commit as soon as tool-role title / tool_call / answer arrives!
+  // Uncommitted thought commits before new tool-role title / tool_call; duplicate heading is suppressed; tool body never leaks.
   callbacks.onDecodedEvent({
     update: {
       type: "message",
@@ -1014,35 +1012,21 @@ test("page_driver disables cloud connectors on initial local-tool turns, commits
         status: "in_progress",
         content: {
           content_type: "thoughts",
-          thoughts: [{ summary: "Planning shell command", content: "SECRET_RAW", finished: false }],
+          thoughts: [{ summary: "Planning shell command", content: "Need git branch from local repo.", finished: false }],
         },
       },
     },
   });
-  // Visible reasoning title on role === "tool" is exposed while tool body text & raw_cot remain blocked.
   callbacks.onDecodedEvent({
     update: {
       type: "message",
       conversationId: "conv-existing",
       message: {
-        id: "m-tool-title",
+        id: "m-tool-dup-title",
         author: { role: "tool" },
         status: "finished_successfully",
         content: { content_type: "text", parts: ["TOOL_BODY_MUST_NOT_LEAK"] },
-        metadata: { rich_reasoning_titles: ["Checked remote status"] },
-      },
-    },
-  });
-  callbacks.onDecodedEvent({
-    update: {
-      type: "message",
-      conversationId: "conv-existing",
-      message: {
-        id: "m-tool-hidden",
-        author: { role: "tool" },
-        status: "finished_successfully",
-        content: { content_type: "thoughts", thoughts: [{ summary: "HIDDEN_TOOL_COT", content: "X", finished: true }] },
-        metadata: { summary_type: "raw_cot" },
+        metadata: { rich_reasoning_titles: ["Planning shell command", "Checked remote status"] },
       },
     },
   });
@@ -1063,31 +1047,34 @@ test("page_driver disables cloud connectors on initial local-tool turns, commits
   const s1 = await p1;
   assert.equal(s1.state, "settled");
   assert.ok(!JSON.stringify(streamUpdates).includes("TOOL_BODY_MUST_NOT_LEAK"));
-  assert.ok(!JSON.stringify(streamUpdates).includes("HIDDEN_TOOL_COT"));
   const upsertsAndCalls = streamUpdates
     .filter((x) => x.kind === "item_upsert" || x.kind === "tool_call")
     .map((x) => x.kind === "tool_call" ? [x.kind, x.name] : [x.kind, x.item_id, x.text, x.committed]);
   assert.deepEqual(upsertsAndCalls, [
-    ["item_upsert", "thought:m-thought-open:1", "Planning shell command", false],
-    ["item_upsert", "thought:m-thought-open:1", "Planning shell command", true],
-    ["item_upsert", "title:m-tool-title:0", "Checked remote status", true],
+    ["item_upsert", "thought:m-thought-open:1", "**Planning shell command**\nNeed git branch from local repo.", false],
+    ["item_upsert", "thought:m-thought-open:1", "**Planning shell command**\nNeed git branch from local repo.", true],
+    ["item_upsert", "title:m-tool-dup-title:1", "Checked remote status", true],
     ["tool_call", "exec_command"],
   ]);
 
-  // 2. Continuation turn (chat_id set) and non-tool turn omit disabled_plugin_ids.
+  // 2. Temporary chat continuation keeps is_do_not_remember & history_and_training_disabled, omitting temporary_chat_requests_personalization (avoids HTTP 422).
   ready = new Promise((resolve) => { resolveStarted = resolve; });
   const p2 = driver.sendMessage({
     lane_id: "lane-t2",
     chat_id: "conv-existing",
+    temporary_chat: true,
     prompt: "[Tool Output call_1]\n/repo",
     model: "gpt-6-2-thinking",
     local_function_signatures: [{ type: "function", name: "exec_command", parameters: { type: "object" } }],
   });
   await ready;
-  assert.equal(startCalls[1].request.disabled_plugin_ids, undefined);
+  assert.equal(startCalls[1].request.is_do_not_remember, true);
+  assert.equal(startCalls[1].request.history_and_training_disabled, true);
+  assert.equal(startCalls[1].request.temporary_chat_requests_personalization, undefined);
   callbacks.onComplete();
   await p2;
 
+  // 3. Non-temporary / control send omits temporary chat flags, and internal recipients like `python` are ignored when no local tools are declared.
   ready = new Promise((resolve) => { resolveStarted = resolve; });
   const p3 = driver.sendMessage({
     lane_id: "lane-t3",
@@ -1095,8 +1082,35 @@ test("page_driver disables cloud connectors on initial local-tool turns, commits
     model: "gpt-6-2-thinking",
   });
   await ready;
-  assert.equal(startCalls[2].request.disabled_plugin_ids, undefined);
+  assert.equal(startCalls[2].request.is_do_not_remember, undefined);
+  assert.equal(startCalls[2].request.history_and_training_disabled, undefined);
+  callbacks.onDecodedEvent({
+    update: {
+      type: "message",
+      conversationId: "conv-plain",
+      message: {
+        id: "m-python-internal",
+        author: { role: "assistant" },
+        recipient: "python",
+        status: "finished_successfully",
+        content: { text: "print(1+1)" },
+      },
+    },
+  });
+  callbacks.onDecodedEvent({
+    update: {
+      type: "message",
+      conversationId: "conv-plain",
+      message: {
+        id: "m-final-plain",
+        author: { role: "assistant" },
+        status: "finished_successfully",
+        content: { content_type: "text", parts: ["2"] },
+      },
+    },
+  });
   callbacks.onComplete();
-  await p3;
-  assert.equal(connectorCalls.length, 1);
+  const s3 = await p3;
+  assert.equal(s3.tool_calls.length, 0);
+  assert.equal(s3.assistant_text, "2");
 });

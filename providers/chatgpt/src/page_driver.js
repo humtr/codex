@@ -350,8 +350,6 @@
   const appHostClient = new AppHostHttpClient();
   let cachedCompletionClient = null;
   let cachedAccountId = null;
-  const connectorDisableCache = new Map();
-  const CONNECTOR_DISABLE_CACHE_TTL_MS = 60000;
   const activeTurns = new Map(); // laneId -> turn state (supports multi-lane parallel execution)
   const cancelledLanes = new Map();
   let lastTurn = null;
@@ -669,18 +667,32 @@
   }
 
   function canExposeReasoning(msg) {
-    const meta = msg && msg.metadata;
     const role = msg && msg.author && msg.author.role;
     return Boolean(
       msg &&
       (role === "assistant" || role === "tool") &&
-      (!msg.recipient || msg.recipient === "all") &&
-      msg.channel !== "analysis" &&
-      meta?.summary_type !== "raw_cot" &&
-      meta?.is_visually_hidden_reasoning_group !== true &&
-      meta?.is_user_visible !== false &&
-      meta?.reasoning_recap_type !== "hide_all"
+      (!msg.recipient || msg.recipient === "all")
     );
+  }
+
+  function formatThoughtEntry(thought) {
+    if (!thought || typeof thought !== "object") return "";
+    const heading = typeof thought.summary === "string" ? thought.summary.trim() : "";
+    let body = "";
+    if (typeof thought.content === "string" && thought.content.trim()) {
+      body = thought.content.trim();
+    } else if (Array.isArray(thought.chunks)) {
+      body = thought.chunks.filter((c) => typeof c === "string").join("").trim();
+    }
+    if (heading && body) {
+      if (body === heading) return heading;
+      if (body.startsWith(heading)) {
+        const rest = body.slice(heading.length).trim();
+        return rest ? `**${heading}**\n${rest}` : heading;
+      }
+      return `**${heading}**\n${body}`;
+    }
+    return body || heading;
   }
 
   function extractVisibleReasoningTitles(msg) {
@@ -901,7 +913,7 @@
     const recipient = typeof msg.recipient === "string" ? msg.recipient.trim() : "";
     if (!recipient || recipient === "all") return null;
     const stripped = recipient.includes(".") ? recipient.split(".").pop() : recipient;
-    if (declaredNames.size > 0 && !declaredNames.has(recipient) && !declaredNames.has(stripped)) {
+    if (declaredNames.size === 0 || (!declaredNames.has(recipient) && !declaredNames.has(stripped))) {
       return null;
     }
     const content = msg.content;
@@ -1577,13 +1589,7 @@
       typeof opts.model === "string" && opts.model.trim() ? opts.model.trim() : "auto";
     const thinkingEffort = normalizeThinkingEffort(modelSlug, opts.reasoning_effort);
 
-    const disableCloudConnectors =
-      nativeTools.signatures.length > 0 &&
-      !chatId &&
-      opts.disable_cloud_connectors !== false;
-    const disabledPluginIds = disableCloudConnectors
-      ? await getDisableablePluginIds(dispatchAccountId)
-      : [];
+    const useTemporaryChat = opts.temporary_chat === true && !projectId;
 
     const userMsgId = newUuid();
     const requestPayload = {
@@ -1594,7 +1600,13 @@
         ? { kind: "gizmo_interaction", gizmo_id: projectId }
         : { kind: "primary_assistant" },
       supported_encodings: ["v1"],
-      ...(disabledPluginIds.length > 0 ? { disabled_plugin_ids: disabledPluginIds } : {}),
+      ...(useTemporaryChat
+        ? {
+            is_do_not_remember: true,
+            history_and_training_disabled: true,
+            ...(!chatId ? { temporary_chat_requests_personalization: false } : {}),
+          }
+        : {}),
       ...(nativeTools.signatures.length > 0
         ? {
             local_function_names: nativeTools.names,
@@ -1666,6 +1678,38 @@
       }
     };
 
+    const committedReasoningTexts = new Set();
+    const committedReasoningHeadings = new Set();
+    const extractReasoningHeading = (text) => {
+      if (typeof text !== "string") return "";
+      const firstLine = text.split("\n", 1)[0].trim();
+      const bold = firstLine.match(/^\*\*(.+?)\*\*$/);
+      return (bold ? bold[1] : firstLine).trim();
+    };
+    const noteCommittedReasoning = (text, headingHint = null) => {
+      const norm = typeof text === "string" ? text.trim() : "";
+      if (norm) {
+        committedReasoningTexts.add(norm);
+        const h = extractReasoningHeading(norm);
+        if (h) committedReasoningHeadings.add(h);
+      }
+      if (typeof headingHint === "string" && headingHint.trim()) {
+        committedReasoningHeadings.add(headingHint.trim());
+      }
+    };
+    const isDuplicateReasoning = (text, headingHint = null) => {
+      const norm = typeof text === "string" ? text.trim() : "";
+      if (!norm) return true;
+      if (committedReasoningTexts.has(norm)) return true;
+      if (!norm.includes("\n") && committedReasoningHeadings.has(extractReasoningHeading(norm))) {
+        return true;
+      }
+      if (headingHint && !norm.includes("\n") && committedReasoningHeadings.has(headingHint.trim())) {
+        return true;
+      }
+      return false;
+    };
+
     const commitPriorReasoningForNewMessage = (currentMsgKey) => {
       for (const item of turn.items.values()) {
         if (
@@ -1674,6 +1718,7 @@
           item.msgKey !== currentMsgKey
         ) {
           item.committed = true;
+          noteCommittedReasoning(item.text);
           emitStream({
             kind: "item_upsert",
             item_id: item.id,
@@ -1698,6 +1743,9 @@
       if (msgKey !== null) {
         commitPriorReasoningForNewMessage(msgKey);
       }
+      if (itemKind === "reasoning_summary" && !existing && isDuplicateReasoning(text)) {
+        return;
+      }
       if (existing) {
         if (existing.committed) return;
         const nextCommitted = Boolean(committed);
@@ -1716,6 +1764,9 @@
           committed: Boolean(committed),
           msgKey,
         });
+      }
+      if (itemKind === "reasoning_summary" && committed) {
+        noteCommittedReasoning(text);
       }
       emitStream({
         kind: "item_upsert",
@@ -1791,30 +1842,31 @@
         let emittedThought = false;
         if (Array.isArray(content.thoughts)) {
           const len = content.thoughts.length;
-          for (let i = 1; i < len; i++) {
-            const priorId = `thought:${msgKey}:${i}`;
-            const priorItem = turn.items.get(priorId);
-            if (priorItem && !priorItem.committed) {
-              const priorSummary = typeof content.thoughts[i - 1]?.summary === "string"
-                ? content.thoughts[i - 1].summary.trim()
-                : priorItem.text;
-              upsertTextItem(priorId, "reasoning_summary", priorSummary || priorItem.text, true, msgKey);
-            }
-          }
-          if (len > 0) {
-            const latest = content.thoughts[len - 1];
-            const summary = typeof latest?.summary === "string" ? latest.summary.trim() : "";
-            if (summary) {
-              emittedThought = true;
-              const thoughtCommitted = Boolean(latest?.finished === true || msgCommitted);
-              upsertTextItem(`thought:${msgKey}:${len}`, "reasoning_summary", summary, thoughtCommitted, msgKey);
-            }
-          }
-        } else if (msg.metadata?.is_user_visible === true && typeof content.summary === "string") {
-          const summary = content.summary.trim();
-          if (summary) {
+          for (let i = 0; i < len; i++) {
+            const entry = content.thoughts[i];
+            const formatted = formatThoughtEntry(entry);
+            if (!formatted) continue;
             emittedThought = true;
-            upsertTextItem(`thought:${msgKey}`, "reasoning_summary", summary, msgCommitted, msgKey);
+            const thoughtCommitted = Boolean(
+              i + 1 < len || entry?.finished === true || msgCommitted
+            );
+            upsertTextItem(`thought:${msgKey}:${i + 1}`, "reasoning_summary", formatted, thoughtCommitted, msgKey);
+          }
+        } else {
+          const direct = formatThoughtEntry({
+            summary: content.summary,
+            content: content.content,
+            chunks: content.chunks,
+          });
+          if (direct) {
+            emittedThought = true;
+            upsertTextItem(`thought:${msgKey}`, "reasoning_summary", direct, msgCommitted, msgKey);
+          } else {
+            const rawParts = extractRawPartsText(msg);
+            if (rawParts && rawParts.trim()) {
+              emittedThought = true;
+              upsertTextItem(`thought:${msgKey}`, "reasoning_summary", rawParts.trim(), msgCommitted, msgKey);
+            }
           }
         }
         if (!emittedThought) {
@@ -1838,6 +1890,15 @@
         return;
       }
 
+      if (msg.channel === "analysis") {
+        if (msg.author?.role !== "assistant" || (msg.recipient && msg.recipient !== "all")) return;
+        const analysisText = extractRawPartsText(msg);
+        if (analysisText && analysisText.trim()) {
+          upsertTextItem(`analysis:${msgKey}`, "reasoning_summary", analysisText.trim(), msgCommitted, msgKey);
+        }
+        return;
+      }
+
       if (canExposeReasoning(msg)) {
         const titles = extractVisibleReasoningTitles(msg);
         for (let i = 0; i < titles.length; i++) {
@@ -1846,7 +1907,7 @@
         }
       }
 
-      if (msg.channel === "analysis" || !isVisibleAssistantMessage(msg)) return;
+      if (!isVisibleAssistantMessage(msg)) return;
       const raw = extractRawPartsText(msg);
       if (raw === null) return;
       if (msg.id) turn.messageId = msg.id;
@@ -2182,47 +2243,6 @@
       link.visibility !== "HIDDEN" &&
       !(typeof link.id === "string" && link.id.startsWith("implicit_link"))
     );
-  }
-
-  async function getDisableablePluginIds(accountId) {
-    const cacheKey = accountId || cachedAccountId || "__default__";
-    const now = Date.now();
-    const cached = connectorDisableCache.get(cacheKey);
-    if (cached && cached.expiresAt > now) {
-      return cached.ids;
-    }
-    try {
-      const headers = connectorHeaders(accountId || cachedAccountId || null, "CONNECTOR_SETTING");
-      const linksRes = await apiFetch(
-        "/aip/connectors/links/list_accessible",
-        {
-          method: "POST",
-          headers,
-          body: JSON.stringify({ principals: [], link_refresh_strategy: "BLOCKING" }),
-        },
-        8000
-      );
-      if (!linksRes.ok || !linksRes.json || !Array.isArray(linksRes.json.links)) {
-        return [];
-      }
-      const seen = new Set();
-      const ids = [];
-      for (const link of linksRes.json.links) {
-        if (!isVisibleConnectorLink(link)) continue;
-        const cid = typeof link.connector_id === "string" ? link.connector_id.trim() : "";
-        if (cid && !seen.has(cid)) {
-          seen.add(cid);
-          ids.push(cid);
-        }
-      }
-      connectorDisableCache.set(cacheKey, {
-        ids,
-        expiresAt: now + CONNECTOR_DISABLE_CACHE_TTL_MS,
-      });
-      return ids;
-    } catch (_) {
-      return [];
-    }
   }
 
   async function fetchAccessibleConnectorDetails(headers, includeDetails) {

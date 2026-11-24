@@ -49,6 +49,8 @@ pub struct ThreadEntry {
     pub prefix_sha256: [u8; 32],
     pub account_id: Option<String>,
     pub project_id: Option<String>,
+    #[serde(default)]
+    pub temporary_chat: bool,
 }
 
 #[derive(Default)]
@@ -465,53 +467,6 @@ pub fn extract_local_function_signatures(body: &Value) -> Vec<Value> {
     sigs
 }
 
-/// Extract a concise boundary directive for initial Codex turns carrying local tools
-/// so ChatGPT invokes Codex's local callbacks instead of server-side cloud connectors.
-fn local_tool_boundary_directive(local_sigs: &[Value]) -> Option<String> {
-    if local_sigs.is_empty() {
-        return None;
-    }
-    let mut names = Vec::new();
-    let mut seen = HashSet::new();
-    for sig in local_sigs {
-        let Some(name) = sig
-            .get("name")
-            .and_then(Value::as_str)
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-        else {
-            continue;
-        };
-        let ns = sig
-            .get("namespace")
-            .and_then(Value::as_str)
-            .map(str::trim)
-            .filter(|s| !s.is_empty() && *s != "functions");
-        let label = match ns {
-            Some(ns) => format!("{ns}.{name}"),
-            None => name.to_owned(),
-        };
-        if seen.insert(label.clone()) {
-            names.push(label);
-            if names.len() >= 24 {
-                break;
-            }
-        }
-    }
-    if names.is_empty() {
-        return None;
-    }
-    Some(format!(
-        "[Codex Local Tool Boundary]\n\
-         This turn runs inside Codex CLI with local tool callbacks ({}). \
-         For any local shell, file, git, search, or workspace action, invoke ONLY the declared \
-         local function tools (such as `exec_command`) and do NOT call ChatGPT cloud connectors \
-         or remote MCP apps (such as TermuxShell, TermuxCodex, TermuxChatGPT, TermuxOrch, @TermuxBridge). \
-         Codex executes the local tools and owns approvals and display.",
-        names.join(", ")
-    ))
-}
-
 /// Flatten OpenAI Responses `instructions` + `input` (messages, tool outputs, agent messages)
 /// into a clean prompt string for the ChatGPT page driver.
 /// When `skip_prefix_items > 0` (multi-round continuation on an existing ChatGPT thread),
@@ -519,7 +474,6 @@ fn local_tool_boundary_directive(local_sigs: &[Value]) -> Option<String> {
 pub fn render_prompt_from_responses_request(
     body: &Value,
     skip_prefix_items: usize,
-    local_sigs: &[Value],
 ) -> Result<String> {
     let mut sections: Vec<String> = Vec::new();
     if skip_prefix_items == 0 {
@@ -616,11 +570,6 @@ pub fn render_prompt_from_responses_request(
             "responses_input_empty",
             "input produced an empty prompt",
         ));
-    }
-    if skip_prefix_items == 0 {
-        if let Some(directive) = local_tool_boundary_directive(local_sigs) {
-            joined = format!("{directive}\n\n{joined}");
-        }
     }
     if joined.chars().count() > MAX_TOTAL_PROMPT_CHARS {
         joined = truncate_chars(&joined, MAX_TOTAL_PROMPT_CHARS);
@@ -2073,6 +2022,7 @@ pub async fn handle_responses(
         (0, [0u8; 32])
     };
 
+    let use_temporary_chat = effective_project_id.is_none();
     let mut prior = None;
     let mut expected_account = None;
     let mut skip_prefix = 0;
@@ -2086,7 +2036,11 @@ pub async fn handle_responses(
         } else {
             false
         };
-        if entry.project_id == effective_project_id && entry.input_len > 0 && prefix_matches {
+        if entry.project_id == effective_project_id
+            && entry.temporary_chat == use_temporary_chat
+            && entry.input_len > 0
+            && prefix_matches
+        {
             if input_len == entry.input_len {
                 return Err(ProviderError::bad_request(
                     "response_input_already_sent",
@@ -2100,7 +2054,10 @@ pub async fn handle_responses(
         if let Some(rid) = body.get("previous_response_id").and_then(Value::as_str) {
             let entry = threads
                 .get(&format!("response:{rid}"))
-                .filter(|entry| entry.project_id == effective_project_id)
+                .filter(|entry| {
+                    entry.project_id == effective_project_id
+                        && entry.temporary_chat == use_temporary_chat
+                })
                 .ok_or_else(|| {
                     ProviderError::bad_request(
                         "previous_response_unavailable",
@@ -2113,7 +2070,7 @@ pub async fn handle_responses(
     }
 
     let all_sigs = extract_local_function_signatures(&body);
-    let prompt = render_prompt_from_responses_request(&body, skip_prefix, &all_sigs)?;
+    let prompt = render_prompt_from_responses_request(&body, skip_prefix)?;
     let resp_id = format!("resp_{}", random_hex(8)?);
     let mut encoder = ResponsesEncoder::new(resp_id.clone(), requested_model);
     let lane_id = resp_id.clone();
@@ -2124,6 +2081,7 @@ pub async fn handle_responses(
         "verify_identity": true,
         "strict_project": true,
         "project_id": effective_project_id,
+        "temporary_chat": use_temporary_chat,
         "prompt": prompt,
         "model": model,
         "reasoning_effort": effort,
@@ -2144,6 +2102,7 @@ pub async fn handle_responses(
             session_key.as_deref(),
             &driver_res,
             effective_project_id,
+            use_temporary_chat,
             input_len,
             current_digest,
         )?;
@@ -2219,6 +2178,7 @@ pub async fn handle_responses(
                 session_key.as_deref(),
                 &settled,
                 effective_project_id,
+                use_temporary_chat,
                 input_len,
                 current_digest,
             )?;
@@ -2242,12 +2202,14 @@ pub async fn handle_responses(
         .into_response())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn record_thread_entries(
     threads: &ResponseThreadMap,
     resp_id: &str,
     session_key: Option<&str>,
     settled: &Value,
     project_id: Option<String>,
+    temporary_chat: bool,
     input_len: usize,
     prefix_sha256: [u8; 32],
 ) -> Result<()> {
@@ -2271,6 +2233,7 @@ fn record_thread_entries(
         chat_id: chat_id.to_owned(),
         account_id,
         project_id,
+        temporary_chat,
         input_len: 0,
         prefix_sha256: [0; 32],
     };
@@ -2315,34 +2278,15 @@ mod deferred_tools_tests {
     }
 
     #[test]
-    fn prompt_boundary_directive_only_on_initial_turns_with_tools() {
-        let sigs = vec![
-            json!({"type": "function", "name": "exec_command"}),
-            json!({"type": "function", "namespace": "multi_agent_v1", "name": "spawn_agent"}),
-        ];
+    fn prompt_rendering_stays_clean_without_prompt_injection() {
         let body = json!({
             "input": [{"role": "user", "content": [{"type": "input_text", "text": "Run pwd"}]}]
         });
-        let with_tools = render_prompt_from_responses_request(&body, 0, &sigs).unwrap();
-        assert!(with_tools.starts_with("[Codex Local Tool Boundary]"));
-        assert!(with_tools.contains("exec_command, multi_agent_v1.spawn_agent"));
-        assert!(with_tools.contains("Run pwd"));
-
-        let without_tools = render_prompt_from_responses_request(&body, 0, &[]).unwrap();
-        assert!(!without_tools.contains("[Codex Local Tool Boundary]"));
-
-        let continuation_body = json!({
-            "input": [
-                {"role": "user", "content": [{"type": "input_text", "text": "Run pwd"}]},
-                {"type": "function_call_output", "call_id": "c1", "output": "/tmp"}
-            ]
-        });
-        let continuation =
-            render_prompt_from_responses_request(&continuation_body, 1, &sigs).unwrap();
-        assert!(!continuation.contains("[Codex Local Tool Boundary]"));
-        assert!(continuation.contains("[Tool Output c1]"));
+        let rendered = render_prompt_from_responses_request(&body, 0).unwrap();
+        assert_eq!(rendered, "[user]\nRun pwd");
+        assert!(!rendered.contains("[Codex Local Tool Boundary]"));
 
         let empty_body = json!({"input": []});
-        assert!(render_prompt_from_responses_request(&empty_body, 0, &sigs).is_err());
+        assert!(render_prompt_from_responses_request(&empty_body, 0).is_err());
     }
 }

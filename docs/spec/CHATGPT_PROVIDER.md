@@ -66,7 +66,17 @@ and [providers/chatgpt/src/main.rs](../../providers/chatgpt/src/main.rs).
   hashes or minified symbol names, and never synthesizes private reasoning.
 - **Type 1 (`codex -p chatgpt`) surface:** Localhost-only `GET /v1/models` and
   `POST /v1/responses` (monotonic OpenAI Responses SSE or JSON) supporting
-  single-path in-app tool callbacks via `local_function_signatures`. The
+  single-path in-app tool callbacks via `local_function_signatures`. When no
+  ChatGPT Project (`history.project_id`) is pinned, Type 1 turns run inside an
+  isolated ChatGPT Temporary Chat (`is_do_not_remember: true`,
+  `history_and_training_disabled: true`, plus
+  `temporary_chat_requests_personalization: false` on conversation creation
+  only) so Type 2 account-linked cloud MCP connectors (such as `@TermuxShell`,
+  `@TermuxCodex`, `@TermuxChatGPT`, `@TermuxOrch`) are never injected into
+  Codex turns and Official Codex retains exclusive ownership of local tool
+  execution, approvals, and TUI display without prompt-level workarounds;
+  pre-existing non-temporary continuation entries in `response_threads.json`
+  roll over cleanly to fresh isolated Temporary Chats. The
   Provider also maintains a Codex-compatible catalog file at
   `<state_dir>/model-catalog.json` (`0600`, atomic; seeded from configured
   fallback models at startup and refreshed whenever `GET /v1/models`,
@@ -96,14 +106,18 @@ and [providers/chatgpt/src/main.rs](../../providers/chatgpt/src/main.rs).
     "in_progress"`, `end_turn === true`, finished `thoughts` entries, or turn
     settlement). Uncommitted snapshot revisions, insertions, or deletions update
     in-place without failing settled streams.
-  - Visible reasoning sources strictly follow AppHost's public visibility
-    rules: `thoughts[*].summary`, visible `metadata.{rich_reasoning_titles,
-    reasoning_titles, reasoning_title}`, visible `reasoning_recap`, and
-    `channel === "commentary"` / `is_thinking_preamble_message` preambles
-    (emitted as `type: "message", phase: "commentary"`). Private `thought.content`,
-    `summary_type === "raw_cot"`, `is_visually_hidden_reasoning_group`,
-    `is_user_visible === false`, `reasoning_recap_type === "hide_all"`, and
-    `channel === "analysis"` are never exposed.
+  - Reasoning passthrough opens full AppHost reasoning emitted by the model for
+    `/v1/responses` turns: `thoughts[*]` entries (`summary` + `content` /
+    `chunks`, formatted as `**{summary}**\n{content}` when both are present so
+    Codex TUI displays both the live working header and reasoning body),
+    `thoughts` `parts`/`content`, `channel === "analysis"` text,
+    `reasoning_recap`, deduplicated `metadata.{rich_reasoning_titles,
+    reasoning_titles, reasoning_title}`, and `channel === "commentary"` /
+    `is_thinking_preamble_message` preambles (emitted as `type: "message",
+    phase: "commentary"`). The Provider never synthesizes reasoning text that
+    AppHost did not emit, never leaks user echo messages or non-reasoning tool
+    payloads into reasoning, and keeps `readChat` focused on visible
+    `user`/`assistant` conversation history.
   - `cdp.rs` delivers structured `StreamEvent` items through a per-lane
     non-blocking `LaneMailbox` that coalesces rapid mutable snapshots per item
     without stalling sibling lanes and queues committed/terminal events
