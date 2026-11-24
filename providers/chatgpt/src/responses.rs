@@ -1066,30 +1066,39 @@ pub async fn handle_responses(
         .unwrap_or([0u8; 32]);
 
     let mut prior = None;
+    let mut expected_account = None;
     let mut skip_prefix = 0;
-    if let Some(key) = &session_key {
-        prior = threads.get(key).filter(|entry| {
-            entry.project_id == effective_project_id
-                && entry.input_len > 0
-                && input_len > entry.input_len
-                && input_items.is_some_and(|items| {
-                    input_prefix_digest(items, entry.input_len) == entry.prefix_sha256
-                })
-        });
-        skip_prefix = prior.as_ref().map_or(0, |entry| entry.input_len);
-    } else if !utility {
+    if let Some(entry) = session_key.as_deref().and_then(|key| threads.get(key)) {
+        expected_account = entry.account_id.clone();
+        if entry.project_id == effective_project_id
+            && entry.input_len > 0
+            && input_len >= entry.input_len
+            && input_items.is_some_and(|items| {
+                input_prefix_digest(items, entry.input_len) == entry.prefix_sha256
+            })
+        {
+            if input_len == entry.input_len {
+                return Err(ProviderError::bad_request(
+                    "response_input_already_sent",
+                    "no new input follows the committed ChatGPT response",
+                ));
+            }
+            skip_prefix = entry.input_len;
+            prior = Some(entry);
+        }
+    } else if session_key.is_none() && !utility {
         if let Some(rid) = body.get("previous_response_id").and_then(Value::as_str) {
-            prior = Some(
-                threads
-                    .get(&format!("response:{rid}"))
-                    .filter(|entry| entry.project_id == effective_project_id)
-                    .ok_or_else(|| {
-                        ProviderError::bad_request(
-                            "previous_response_unavailable",
-                            "no continuation in the configured project",
-                        )
-                    })?,
-            );
+            let entry = threads
+                .get(&format!("response:{rid}"))
+                .filter(|entry| entry.project_id == effective_project_id)
+                .ok_or_else(|| {
+                    ProviderError::bad_request(
+                        "previous_response_unavailable",
+                        "no continuation in the configured project",
+                    )
+                })?;
+            expected_account = entry.account_id.clone();
+            prior = Some(entry);
         }
     }
 
@@ -1101,7 +1110,7 @@ pub async fn handle_responses(
     let send_payload = json!({
         "lane_id": lane_id,
         "chat_id": prior.as_ref().map(|entry| &entry.chat_id),
-        "expected_account_id": prior.as_ref().and_then(|entry| entry.account_id.as_deref()),
+        "expected_account_id": expected_account,
         "verify_identity": true,
         "strict_project": true,
         "project_id": effective_project_id,

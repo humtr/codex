@@ -81,7 +81,9 @@ and [providers/chatgpt/src/main.rs](../../providers/chatgpt/src/main.rs).
   `${XDG_STATE_HOME:-$HOME/.local/state}/codex/providers/chatgpt/`, or the
   explicit Provider state directory when configured.
   Account and project are checked before using a stored conversation.
-  An incompatible Codex input prefix starts a new ChatGPT conversation.
+  An incompatible Codex input prefix starts a new ChatGPT conversation
+  under the same account pin. An exact replay with no new input produces a
+  structured rejection.
 - **Local authenticated `/control/*` plane (for Slice 6 `@TermuxChatGPT`):**
   Every `/control/*` endpoint requires constant-time `Authorization: Bearer`
   authentication against `<state_dir>/control.token` (`0600`):

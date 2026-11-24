@@ -925,7 +925,9 @@ mod tests {
             .as_array_mut()
             .unwrap()
             .push(json!({"role":"user","content":"Second"}));
-        for (round, body) in [first, second].into_iter().enumerate() {
+        let mut compacted = second.clone();
+        compacted["input"][0]["content"] = json!("Compressed history");
+        for (round, body) in [first, second.clone(), compacted].into_iter().enumerate() {
             let map = Arc::new(crate::responses::ResponseThreadMap::open(&state).unwrap());
             let response = crate::responses::handle_responses(
                 driver.clone(),
@@ -943,18 +945,33 @@ mod tests {
             assert!(sse.contains("Only summary"));
             assert!(sse.contains("response.reasoning_summary_text.delta"));
             assert!(sse.contains("response.output_text.delta"));
-            let sent = driver.last_send.lock().unwrap();
+            let sent = driver.last_send.lock().unwrap().clone();
             if round == 0 {
                 assert!(sent.as_ref().unwrap()["chat_id"].is_null());
-            } else {
+            } else if round == 1 {
                 assert_eq!(sent.as_ref().unwrap()["chat_id"], "conv-one");
                 assert_eq!(sent.as_ref().unwrap()["expected_account_id"], "acct-one");
                 assert!(!sent.as_ref().unwrap()["prompt"]
                     .as_str()
                     .unwrap()
                     .contains("First"));
+            } else {
+                assert!(sent.as_ref().unwrap()["chat_id"].is_null());
+                assert_eq!(sent.as_ref().unwrap()["expected_account_id"], "acct-one");
             }
-            drop(sent);
+            if round == 1 {
+                let duplicate = crate::responses::handle_responses(
+                    driver.clone(),
+                    &Default::default(),
+                    &Default::default(),
+                    Arc::clone(&map),
+                    Some("test-session".to_owned()),
+                    second.clone(),
+                )
+                .await
+                .unwrap_err();
+                assert_eq!(duplicate.code, "response_input_already_sent");
+            }
             // The HTTP producer holds the map (and its lease) until EOF.
             drop(map);
         }
