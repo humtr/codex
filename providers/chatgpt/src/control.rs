@@ -25,6 +25,7 @@ pub struct ControlState {
     pub catalog_path: Option<PathBuf>,
     pub model_cfg: Arc<ModelConfig>,
     pub live_models: LiveModelSet,
+    pub parallel_tool_calls: bool,
 }
 
 fn require_bearer(headers: &HeaderMap, expected: &str) -> Result<()> {
@@ -111,6 +112,7 @@ async fn get_status(State(st): State<ControlState>, headers: HeaderMap) -> Resul
         &status,
         &st.model_cfg,
         Some(&st.live_models),
+        st.parallel_tool_calls,
     );
     Ok(Json(status))
 }

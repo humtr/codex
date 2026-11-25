@@ -200,10 +200,12 @@ async fn run() -> Result<()> {
 
             let state_dir = cfg.state_dir(&home);
             let catalog_path = state_dir.join("model-catalog.json");
+            let parallel_tool_calls = !cfg.history.structured_native_return;
             if !catalog_path.exists() {
                 let fallback = crate::responses::build_codex_model_catalog(
                     &crate::responses::fallback_catalog_models(&cfg.model),
                     &cfg.model,
+                    parallel_tool_calls,
                 );
                 if let Err(err) =
                     crate::responses::sync_model_catalog_file(&catalog_path, &fallback)
@@ -213,11 +215,29 @@ async fn run() -> Result<()> {
                         catalog_path.display()
                     );
                 }
+            } else if let Ok(mut catalog) = std::fs::read(&catalog_path).and_then(|bytes| {
+                serde_json::from_slice::<serde_json::Value>(&bytes).map_err(std::io::Error::other)
+            }) {
+                crate::responses::set_catalog_parallel_tool_calls(
+                    &mut catalog,
+                    parallel_tool_calls,
+                );
+                if let Err(err) = crate::responses::sync_model_catalog_file(&catalog_path, &catalog)
+                {
+                    eprintln!(
+                        "chatgpt-provider: warning: failed to update {}: {err}",
+                        catalog_path.display()
+                    );
+                }
             }
             let (token_path, token) = load_or_create_control_token(&state_dir)?;
             let response_state = cfg.response_state_dir(&home);
             config::ensure_private_dir(&response_state)?;
-            let threads = crate::responses::ResponseThreadMap::open(&response_state)?;
+            let threads = if cfg.history.structured_native_return {
+                crate::responses::ResponseThreadMap::open_native(&response_state)?
+            } else {
+                crate::responses::ResponseThreadMap::open(&response_state)?
+            };
             let listener = TcpListener::bind(&cfg.server.bind).await.map_err(|e| {
                 crate::error::ProviderError::unavailable(
                     "bind_failed",
@@ -267,6 +287,7 @@ async fn run() -> Result<()> {
                         &st,
                         &cfg.model,
                         None,
+                        parallel_tool_calls,
                     );
                 }
             }
@@ -478,6 +499,12 @@ mod tests {
                                         .as_str()
                                         .unwrap_or("{}")
                                         .to_owned(),
+                                    native_message_id: snapshot["native_message_id"]
+                                        .as_str()
+                                        .map(str::to_owned),
+                                    native_recipient: snapshot["native_recipient"]
+                                        .as_str()
+                                        .map(str::to_owned),
                                 }
                             } else {
                                 let item_kind = match kind_str {
@@ -785,6 +812,7 @@ mod tests {
         let history = config::HistoryConfig {
             project_id: Some("g-p-test-proj".to_owned()),
             project_name: None,
+            structured_native_return: false,
         };
         let router = build_router(
             driver.clone(),
@@ -952,6 +980,7 @@ mod tests {
                 config::HistoryConfig {
                     project_id: Some("g-p-test-proj".to_owned()),
                     project_name: None,
+                    structured_native_return: false,
                 },
                 "tok-0123456789abcdef0123456789abcdef".to_owned(),
                 Arc::new(RwLock::new(None)),
@@ -1648,6 +1677,7 @@ wire_api = "responses"
             }),
             &config::ModelConfig::default(),
             Some(&live_set),
+            true,
         );
         assert_eq!(std::fs::metadata(&catalog_path).unwrap().ino(), ino1);
         assert_eq!(std::fs::read_to_string(&catalog_path).unwrap(), before_raw);
@@ -1977,6 +2007,7 @@ wire_api = "responses"
             config::HistoryConfig {
                 project_id: Some("g-p-user-proj".to_owned()),
                 project_name: None,
+                structured_native_return: false,
             },
             "tok-0123456789abcdef0123456789abcdef".to_owned(),
             Arc::new(RwLock::new(None)),

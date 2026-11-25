@@ -64,6 +64,9 @@ pub struct ModelConfig {
 pub struct HistoryConfig {
     pub project_id: Option<String>,
     pub project_name: Option<String>,
+    /// Development candidate only; authenticated structured return is not yet qualified.
+    #[serde(default)]
+    pub structured_native_return: bool,
 }
 
 fn default_bind() -> String {
@@ -148,6 +151,12 @@ impl ProviderConfig {
                 "server.bind must be a loopback address (127.0.0.1 or ::1)",
             ));
         }
+        if self.history.structured_native_return && self.server.state_dir.is_none() {
+            return Err(ProviderError::bad_request(
+                "native_candidate_state_required",
+                "structured Native-return candidate requires an explicit state directory",
+            ));
+        }
         Ok(())
     }
 
@@ -191,6 +200,9 @@ impl ProviderConfig {
     }
 
     pub fn response_state_dir(&self, home: &Path) -> PathBuf {
+        if self.history.structured_native_return {
+            return self.state_dir(home).join("structured-native-return");
+        }
         if self.server.state_dir.is_some() {
             return self.state_dir(home);
         }

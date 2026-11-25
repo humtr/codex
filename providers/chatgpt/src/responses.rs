@@ -34,6 +34,7 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 
 const MAX_RESPONSE_THREADS: usize = 256;
+const NATIVE_THREAD_SCHEMA_VERSION: u32 = 3;
 const MAX_DEVELOPER_BLOCK_CHARS: usize = 48_000;
 const MAX_TOTAL_PROMPT_CHARS: usize = 180_000;
 const MAX_TOOL_DESC_CHARS: usize = 600;
@@ -49,6 +50,42 @@ pub struct ThreadEntry {
     pub prefix_sha256: [u8; 32],
     pub account_id: Option<String>,
     pub project_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    native: Option<NativeThreadBinding>,
+}
+
+// Versioned candidate state. No payloads or private reasoning are persisted.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct NativeCallBinding {
+    call_id: String,
+    message_id: String,
+    recipient: String,
+    is_custom: bool,
+    name: String,
+    namespace: Option<String>,
+    arguments_sha256: [u8; 32],
+    wire_arguments_sha256: [u8; 32],
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct NativeThreadBinding {
+    response_id: String,
+    remote_head: Option<String>,
+    pending_calls: Vec<NativeCallBinding>,
+    dispatching: bool,
+    request_sha256: [u8; 32],
+    submitted_message_ids: Vec<String>,
+    // Retain the exact dispatch anchor and content digests
+    // even when the call fails before a final response can be delivered.
+    dispatch_parent: String,
+    previous_response_id: Option<String>,
+    submitted_message_sha256: Vec<[u8; 32]>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct NativeThreadFile {
+    schema_version: u32,
+    entries: VecDeque<(String, ThreadEntry)>,
 }
 
 #[derive(Default)]
@@ -56,6 +93,7 @@ pub struct ResponseThreadMap {
     entries: Mutex<VecDeque<(String, ThreadEntry)>>,
     store: Option<(PathBuf, File)>,
     active: Mutex<HashSet<String>>,
+    native_mode: bool,
 }
 
 /// Pure-Rust SHA-256 (FIPS 180-4) for zero-dependency prefix digest tracking across
@@ -287,7 +325,27 @@ impl ResponseThreadMap {
             .map(|(_, entry)| entry.clone())
     }
 
+    fn current_native_response_key(&self, response_id: &str) -> Option<String> {
+        let guard = self.entries.lock().ok()?;
+        guard
+            .iter()
+            .find(|(_, e)| {
+                e.native
+                    .as_ref()
+                    .is_some_and(|n| n.response_id == response_id)
+            })
+            .map(|(k, _)| k.clone())
+    }
+
     pub fn open(state_dir: &Path) -> Result<Self> {
+        Self::open_mode(state_dir, false)
+    }
+
+    pub fn open_native(state_dir: &Path) -> Result<Self> {
+        Self::open_mode(state_dir, true)
+    }
+
+    fn open_mode(state_dir: &Path, native_mode: bool) -> Result<Self> {
         let open = || -> io::Result<Self> {
             let lock = OpenOptions::new()
                 .read(true)
@@ -314,12 +372,24 @@ impl ResponseThreadMap {
                     if data.len() > 1_048_576 {
                         return Err(io::Error::other("response thread map exceeds 1 MiB"));
                     }
-                    let entries: VecDeque<(String, ThreadEntry)> =
-                        serde_json::from_slice(&data).map_err(io::Error::other)?;
+                    let entries: VecDeque<(String, ThreadEntry)> = if native_mode {
+                        let disk: NativeThreadFile =
+                            serde_json::from_slice(&data).map_err(io::Error::other)?;
+                        if disk.schema_version != NATIVE_THREAD_SCHEMA_VERSION {
+                            return Err(io::Error::other(
+                                "unsupported Native candidate state schema",
+                            ));
+                        }
+                        disk.entries
+                    } else {
+                        serde_json::from_slice(&data).map_err(io::Error::other)?
+                    };
                     if entries.len() > MAX_RESPONSE_THREADS
-                        || entries
-                            .iter()
-                            .any(|(_, entry)| entry.account_id.as_deref().is_none_or(str::is_empty))
+                        || entries.iter().any(|(_, entry)| {
+                            entry.native.is_some() != native_mode
+                                || (entry.account_id.as_deref().is_none_or(str::is_empty)
+                                    && !entry.native.as_ref().is_some_and(|n| n.dispatching))
+                        })
                     {
                         return Err(io::Error::other("invalid response thread map"));
                     }
@@ -331,6 +401,7 @@ impl ResponseThreadMap {
             Ok(Self {
                 entries: Mutex::new(entries),
                 store: Some((path, lock)),
+                native_mode,
                 ..Self::default()
             })
         };
@@ -338,20 +409,51 @@ impl ResponseThreadMap {
     }
 
     fn record(&self, entries: impl IntoIterator<Item = (String, ThreadEntry)>) -> Result<()> {
+        self.update(|next| {
+            for (key, entry) in entries {
+                if let Some(pos) = next.iter().position(|(existing, _)| existing == &key) {
+                    next.remove(pos);
+                }
+                next.push_back((key, entry));
+                if next.len() > MAX_RESPONSE_THREADS {
+                    if self.native_mode {
+                        return Err(ProviderError::unavailable(
+                            "native_thread_map_full",
+                            "candidate bindings require explicit reconciliation/retention management",
+                        ));
+                    }
+                    next.pop_front();
+                }
+            }
+            Ok(())
+        })
+    }
+
+    fn update(
+        &self,
+        change: impl FnOnce(&mut VecDeque<(String, ThreadEntry)>) -> Result<()>,
+    ) -> Result<()> {
         let mut guard = self.entries.lock().map_err(|_| {
             ProviderError::internal("response_thread_map_write", "thread map lock poisoned")
         })?;
         let mut next = guard.clone();
-        for (key, entry) in entries {
-            if let Some(pos) = next.iter().position(|(existing, _)| existing == &key) {
-                next.remove(pos);
-            }
-            next.push_back((key, entry));
-            if next.len() > MAX_RESPONSE_THREADS {
-                next.pop_front();
-            }
-        }
+        change(&mut next)?;
         if let Some((path, _)) = &self.store {
+            let bytes = if self.native_mode {
+                serde_json::to_vec(&NativeThreadFile {
+                    schema_version: NATIVE_THREAD_SCHEMA_VERSION,
+                    entries: next.clone(),
+                })
+            } else {
+                serde_json::to_vec(&next)
+            }
+            .map_err(|err| ProviderError::internal("response_thread_map_write", err.to_string()))?;
+            if bytes.len() > 1_048_576 {
+                return Err(ProviderError::unavailable(
+                    "response_thread_map_full",
+                    "response thread map exceeds 1 MiB",
+                ));
+            }
             let tmp = path.with_extension(format!("tmp-{}", random_hex(8)?));
             let write = || -> io::Result<()> {
                 let file = OpenOptions::new()
@@ -360,7 +462,7 @@ impl ResponseThreadMap {
                     .mode(0o600)
                     .open(&tmp)?;
                 let mut writer = io::BufWriter::new(file);
-                serde_json::to_writer(&mut writer, &next).map_err(io::Error::other)?;
+                writer.write_all(&bytes)?;
                 writer.flush()?;
                 writer.get_ref().sync_all()?;
                 fs::rename(&tmp, path)?;
@@ -405,6 +507,8 @@ pub struct ParsedToolCall {
     pub namespace: Option<String>,
     pub arguments: String,
     pub is_custom: bool,
+    native_message_id: Option<String>,
+    native_recipient: Option<String>,
 }
 
 fn truncate_chars(s: &str, max_chars: usize) -> String {
@@ -659,6 +763,23 @@ fn resolve_parsed_tool_call(raw: &Value, sigs: &[Value]) -> Option<ParsedToolCal
                 || s.get("namespace").and_then(Value::as_str) == namespace.as_deref())
     });
 
+    let native = raw
+        .get("native_message_id")
+        .and_then(Value::as_str)
+        .is_some();
+    let matched = if native {
+        let mut exact = sigs.iter().filter(|s| {
+            s.get("name").and_then(Value::as_str) == Some(name.as_str())
+                && s.get("namespace").and_then(Value::as_str) == namespace.as_deref()
+        });
+        let first = exact.next()?;
+        if exact.next().is_some() {
+            return None;
+        }
+        Some(first)
+    } else {
+        matched
+    };
     let is_custom = matched
         .and_then(|s| s.get("type").and_then(Value::as_str))
         .is_some_and(|t| t == "custom");
@@ -676,7 +797,16 @@ fn resolve_parsed_tool_call(raw: &Value, sigs: &[Value]) -> Option<ParsedToolCal
 
     // If a custom tool (e.g., Codex `exec`) received a JSON object like {"command":"..."} or {"input":"..."},
     // unwrap the string payload cleanly so Codex executes the raw command string.
-    if is_custom && arguments.trim_start().starts_with('{') {
+    if native {
+        let parsed = serde_json::from_str::<Value>(&arguments).ok()?;
+        let obj = parsed.as_object()?;
+        if is_custom {
+            if obj.len() != 1 {
+                return None;
+            }
+            arguments = obj.get("input")?.as_str()?.to_owned();
+        }
+    } else if is_custom && arguments.trim_start().starts_with('{') {
         if let Ok(Value::Object(map)) = serde_json::from_str::<Value>(&arguments) {
             if let Some(s) = map
                 .get("input")
@@ -695,6 +825,14 @@ fn resolve_parsed_tool_call(raw: &Value, sigs: &[Value]) -> Option<ParsedToolCal
         namespace,
         arguments,
         is_custom,
+        native_message_id: raw
+            .get("native_message_id")
+            .and_then(Value::as_str)
+            .map(str::to_owned),
+        native_recipient: raw
+            .get("native_recipient")
+            .and_then(Value::as_str)
+            .map(str::to_owned),
     })
 }
 
@@ -816,7 +954,7 @@ impl TurnAssembly {
 
     fn apply_event(&mut self, event: StreamEvent, all_sigs: &[Value]) {
         match event {
-            StreamEvent::Activity => {}
+            StreamEvent::Activity | StreamEvent::NativeDispatchIdentity { .. } => {}
             StreamEvent::ItemUpsert {
                 item_id,
                 item_kind,
@@ -829,12 +967,16 @@ impl TurnAssembly {
                 name,
                 namespace,
                 arguments,
+                native_message_id,
+                native_recipient,
             } => {
                 let raw = json!({
                     "id": id,
                     "name": name,
                     "namespace": namespace,
                     "arguments": arguments,
+                    "native_message_id": native_message_id,
+                    "native_recipient": native_recipient,
                 });
                 if let Some(tc) = resolve_parsed_tool_call(&raw, all_sigs) {
                     self.push_committed_tool(tc);
@@ -890,6 +1032,8 @@ impl TurnAssembly {
                         "name": entry.get("name"),
                         "namespace": entry.get("namespace"),
                         "arguments": entry.get("arguments"),
+                        "native_message_id": entry.get("native_message_id"),
+                        "native_recipient": entry.get("native_recipient"),
                     });
                     if let Some(tc) = resolve_parsed_tool_call(&raw, all_sigs) {
                         self.push_committed_tool(tc);
@@ -1005,6 +1149,7 @@ struct OpenReasoningItem {
 struct ResponsesEncoder {
     id: String,
     model: String,
+    parallel_tool_calls: bool,
     sequence: u64,
     completed_output: Vec<Value>,
     open_reasoning: Option<OpenReasoningItem>,
@@ -1015,6 +1160,7 @@ impl ResponsesEncoder {
         Self {
             id,
             model,
+            parallel_tool_calls: true,
             sequence: 0,
             completed_output: vec![],
             open_reasoning: None,
@@ -1034,7 +1180,7 @@ impl ResponsesEncoder {
     fn response(&self, status: &str, output: &[Value]) -> Value {
         json!({
             "id": self.id, "object": "response", "created_at": 0, "status": status,
-            "model": self.model, "output": output, "parallel_tool_calls": true, "error": null
+            "model": self.model, "output": output, "parallel_tool_calls": self.parallel_tool_calls, "error": null
         })
     }
 
@@ -1118,11 +1264,16 @@ impl ResponsesEncoder {
         self.completed_output.push(done_item);
     }
 
-    fn flush_committed(&mut self, assembly: &mut TurnAssembly) -> Vec<Value> {
+    fn flush_committed(&mut self, assembly: &mut TurnAssembly, allow_tools: bool) -> Vec<Value> {
         let mut raw_frames = vec![];
         for item in &mut assembly.items {
             if item.emitted || item.state != ContentState::Committed {
                 continue;
+            }
+            // Do not expose a tool to Codex before its original remote binding
+            // is durable. Preserve ordering by also deferring following items.
+            if !allow_tools && matches!(item.content, AssembledContent::ToolCall(_)) {
+                break;
             }
             item.emitted = true;
             match &item.content {
@@ -1204,7 +1355,7 @@ impl ResponsesEncoder {
     }
 
     fn finish(&mut self, assembly: &mut TurnAssembly) -> (Vec<Value>, Value) {
-        let mut stamped = self.flush_committed(assembly);
+        let mut stamped = self.flush_committed(assembly, true);
         let mut closing = vec![];
         self.close_open_reasoning(&mut closing);
         let final_resp = self.response("completed", &self.completed_output);
@@ -1683,7 +1834,6 @@ fn make_catalog_entry(spec: CatalogEntrySpec<'_>) -> Value {
         "context_window": spec.max_tokens.unwrap_or(128_000),
         "effective_context_window_percent": 95,
         "input_modalities": ["text", "image"],
-        "supports_parallel_tool_calls": true,
         "experimental_supported_tools": []
     })
 }
@@ -1769,7 +1919,11 @@ pub fn resolve_dispatch_model_and_effort(
     (model.to_owned(), clean_effort)
 }
 
-pub fn build_codex_model_catalog(models: &[CatalogModel], model_cfg: &ModelConfig) -> Value {
+pub fn build_codex_model_catalog(
+    models: &[CatalogModel],
+    model_cfg: &ModelConfig,
+    parallel_tool_calls: bool,
+) -> Value {
     struct FamilyGroup {
         title: Option<String>,
         description: Option<String>,
@@ -1913,7 +2067,17 @@ pub fn build_codex_model_catalog(models: &[CatalogModel], model_cfg: &ModelConfi
         }));
     }
 
-    json!({ "models": entries })
+    let mut catalog = json!({ "models": entries });
+    set_catalog_parallel_tool_calls(&mut catalog, parallel_tool_calls);
+    catalog
+}
+
+pub fn set_catalog_parallel_tool_calls(catalog: &mut Value, supported: bool) {
+    if let Some(models) = catalog.get_mut("models").and_then(Value::as_array_mut) {
+        for model in models.iter_mut().filter_map(Value::as_object_mut) {
+            model.insert("supports_parallel_tool_calls".into(), json!(supported));
+        }
+    }
 }
 
 pub fn sync_model_catalog_file(path: &Path, catalog: &Value) -> io::Result<()> {
@@ -1957,6 +2121,7 @@ pub fn sync_catalog_from_status(
     st: &Value,
     model_cfg: &ModelConfig,
     live_models: Option<&LiveModelSet>,
+    parallel_tool_calls: bool,
 ) {
     if st.get("host_running").and_then(Value::as_bool) == Some(false) {
         return;
@@ -1969,7 +2134,7 @@ pub fn sync_catalog_from_status(
     let Some(path) = catalog_path else {
         return;
     };
-    let catalog = build_codex_model_catalog(&models, model_cfg);
+    let catalog = build_codex_model_catalog(&models, model_cfg, parallel_tool_calls);
     if let Err(err) = sync_model_catalog_file(path, &catalog) {
         eprintln!(
             "chatgpt-provider: warning: failed to update {}: {err}",
@@ -1983,11 +2148,18 @@ pub async fn handle_models(
     model_cfg: &ModelConfig,
     catalog_path: Option<&Path>,
     live_models: Option<&LiveModelSet>,
+    parallel_tool_calls: bool,
 ) -> Json<Value> {
     let mut slugs: Vec<String> = Vec::new();
     if driver.host_running().await {
         if let Ok(st) = driver.status().await {
-            sync_catalog_from_status(catalog_path, &st, model_cfg, live_models);
+            sync_catalog_from_status(
+                catalog_path,
+                &st,
+                model_cfg,
+                live_models,
+                parallel_tool_calls,
+            );
             slugs = catalog_models_from_status(&st)
                 .into_iter()
                 .filter(|m| !is_hidden_catalog_slug(&m.slug, &m.tags))
@@ -2035,6 +2207,662 @@ pub async fn handle_responses(
     .await
 }
 
+// Only candidate mode uses this canonical, rolling prefix. The raw Codex
+// transcript stays with Codex. Additional tool declarations are catalog data,
+// not resident messages; generated output IDs/status are transport metadata.
+fn native_canonical_item(item: &Value) -> Result<Option<Value>> {
+    let kind = item
+        .get("type")
+        .and_then(Value::as_str)
+        .unwrap_or("message");
+    let err = || {
+        ProviderError::bad_request(
+            "native_input_unsupported",
+            format!("unsupported or malformed {kind} item"),
+        )
+    };
+    match kind {
+        "additional_tools" => Ok(None),
+        "message" => {
+            let role = item.get("role").and_then(Value::as_str).ok_or_else(err)?;
+            if !matches!(role, "user" | "assistant" | "developer") {
+                return Err(err());
+            }
+            let content = native_text_parts(item.get("content").ok_or_else(err)?)?;
+            let mut v = json!({"type":"message","role":role,"parts":content});
+            if role == "assistant" {
+                if let Some(phase) = item.get("phase").and_then(Value::as_str) {
+                    v["phase"] = json!(phase);
+                }
+            }
+            Ok(Some(v))
+        }
+        "function_call" | "custom_tool_call" => {
+            let input_key = if kind == "function_call" {
+                "arguments"
+            } else {
+                "input"
+            };
+            let cid = item
+                .get("call_id")
+                .and_then(Value::as_str)
+                .filter(|s| !s.is_empty())
+                .ok_or_else(err)?;
+            let name = item
+                .get("name")
+                .and_then(Value::as_str)
+                .filter(|s| !s.is_empty())
+                .ok_or_else(err)?;
+            let args = item
+                .get(input_key)
+                .and_then(Value::as_str)
+                .ok_or_else(err)?;
+            Ok(Some(
+                json!({"type":kind,"call_id":cid,"name":name,"namespace":item.get("namespace").and_then(Value::as_str),"input":args}),
+            ))
+        }
+        "function_call_output" | "custom_tool_call_output" => {
+            let cid = item
+                .get("call_id")
+                .and_then(Value::as_str)
+                .filter(|s| !s.is_empty())
+                .ok_or_else(err)?;
+            let parts = native_text_parts(item.get("output").ok_or_else(err)?)?;
+            Ok(Some(json!({"type":kind,"call_id":cid,"parts":parts})))
+        }
+        "reasoning" => {
+            // Only the public summary actually emitted by this adapter is
+            // canonicalized. Opaque/encrypted reasoning is not reconstructed.
+            let summary = item
+                .get("summary")
+                .and_then(Value::as_array)
+                .ok_or_else(err)?;
+            if summary.iter().any(|p| {
+                p.get("type").and_then(Value::as_str) != Some("summary_text")
+                    || p.get("text").and_then(Value::as_str).is_none()
+            }) || item.get("encrypted_content").is_some_and(|v| !v.is_null())
+            {
+                return Err(err());
+            }
+            Ok(Some(json!({"type":"reasoning","summary":summary})))
+        }
+        _ => Err(err()),
+    }
+}
+
+fn native_text_parts(value: &Value) -> Result<Vec<String>> {
+    let err = || {
+        ProviderError::bad_request(
+            "native_content_unsupported",
+            "candidate supports text parts only; no lossy conversion",
+        )
+    };
+    let parts = if let Some(text) = value.as_str() {
+        vec![text.to_owned()]
+    } else if let Some(parts) = value.as_array() {
+        parts
+            .iter()
+            .map(|part| {
+                if matches!(
+                    part.get("type").and_then(Value::as_str),
+                    Some("input_text" | "output_text" | "text")
+                ) {
+                    part.get("text")
+                        .and_then(Value::as_str)
+                        .map(str::to_owned)
+                        .ok_or_else(err)
+                } else {
+                    Err(err())
+                }
+            })
+            .collect::<Result<Vec<_>>>()?
+    } else {
+        return Err(err());
+    };
+    if parts.is_empty() || parts.iter().map(String::len).sum::<usize>() > 1_048_576 {
+        return Err(ProviderError::bad_request(
+            "native_content_bound",
+            "text parts empty or exceed candidate 1 MiB bound",
+        ));
+    }
+    Ok(parts)
+}
+
+fn native_canonical_input(body: &Value) -> Result<Vec<Value>> {
+    match body.get("input") {
+        Some(Value::String(text)) if !text.trim().is_empty() => Ok(vec![native_canonical_item(
+            &json!({"role":"user","content":text}),
+        )?
+        .expect("user message")]),
+        Some(Value::Array(items)) => items
+            .iter()
+            .filter_map(|item| native_canonical_item(item).transpose())
+            .collect(),
+        _ => Err(ProviderError::bad_request(
+            "responses_input_required",
+            "input must be a string or array of items",
+        )),
+    }
+}
+
+fn native_prefix_extend(mut digest: [u8; 32], items: &[Value]) -> [u8; 32] {
+    for item in items {
+        let mut bytes = digest.to_vec();
+        bytes.extend(serde_json::to_vec(item).expect("JSON value serializes"));
+        digest = sha256_bytes(&bytes);
+    }
+    digest
+}
+
+fn native_wire_id() -> Result<String> {
+    let hex = random_hex(16)?;
+    Ok(format!(
+        "{}-{}-4{}-8{}-{}",
+        &hex[..8],
+        &hex[8..12],
+        &hex[13..16],
+        &hex[17..20],
+        &hex[20..32]
+    ))
+}
+
+struct NativePlan {
+    messages: Vec<Value>,
+    input_len: usize,
+    input_digest: [u8; 32],
+    parent: String,
+    binding: NativeThreadBinding,
+}
+
+impl NativePlan {
+    fn prepare(body: &Value, previous: Option<&ThreadEntry>, response_id: &str) -> Result<Self> {
+        // Request-scoped instructions must not be silently made durable.
+        // Keep this boundary explicit until AppHost scope is proved.
+        if body
+            .get("instructions")
+            .is_some_and(|v| !v.is_null() && v.as_str().is_none_or(|s| !s.trim().is_empty()))
+        {
+            return Err(ProviderError::bad_request(
+                "native_instruction_scope_unqualified",
+                "request-scoped instructions require a qualified AppHost instruction route",
+            ));
+        }
+        if body
+            .get("previous_response_id")
+            .is_some_and(|v| !v.is_null() && v.as_str().is_none_or(str::is_empty))
+        {
+            return Err(ProviderError::bad_request(
+                "previous_response_unavailable",
+                "invalid previous_response_id",
+            ));
+        }
+        let canonical = native_canonical_input(body)?;
+        let mut pending = Vec::new();
+        let (base_len, base_digest, tail, parent) = if let Some(entry) = previous {
+            let state = entry.native.as_ref().ok_or_else(|| {
+                ProviderError::unavailable(
+                    "native_legacy_binding",
+                    "legacy binding requires reconciliation",
+                )
+            })?;
+            if state.dispatching {
+                return Err(ProviderError::unavailable(
+                    "native_reconciliation_required",
+                    "original dispatch outcome is unresolved",
+                ));
+            }
+            let explicit_previous = body.get("previous_response_id").and_then(Value::as_str);
+            if explicit_previous.is_some_and(|id| id != state.response_id) {
+                return Err(ProviderError::bad_request(
+                    "previous_response_unavailable",
+                    "response ID is not the current committed binding",
+                ));
+            }
+            let matches_prefix = canonical.len() >= entry.input_len
+                && native_prefix_extend([0; 32], &canonical[..entry.input_len])
+                    == entry.prefix_sha256;
+            let tail = if matches_prefix {
+                &canonical[entry.input_len..]
+            } else if explicit_previous.is_some()
+                && (canonical.len() == 1
+                    && canonical[0]["type"] == "message"
+                    && canonical[0]["role"] == "user"
+                    || !state.pending_calls.is_empty()
+                        && canonical.iter().all(|item| {
+                            matches!(
+                                item["type"].as_str(),
+                                Some("function_call_output" | "custom_tool_call_output")
+                            )
+                        }))
+            {
+                canonical.as_slice()
+            } else {
+                return Err(ProviderError::bad_request("native_context_mismatch", "committed input/output prefix changed; explicit reconciliation or compaction required"));
+            };
+            pending = state.pending_calls.clone();
+            (
+                entry.input_len,
+                entry.prefix_sha256,
+                tail,
+                state
+                    .remote_head
+                    .clone()
+                    .filter(|id| !id.is_empty())
+                    .ok_or_else(|| {
+                        ProviderError::unavailable(
+                            "native_remote_head_missing",
+                            "no verified remote head",
+                        )
+                    })?,
+            )
+        } else {
+            if body
+                .get("previous_response_id")
+                .is_some_and(|v| !v.is_null())
+            {
+                return Err(ProviderError::bad_request(
+                    "previous_response_unavailable",
+                    "unknown prior response",
+                ));
+            }
+            (0, [0; 32], canonical.as_slice(), native_wire_id()?)
+        };
+        if tail.is_empty() {
+            return Err(ProviderError::bad_request(
+                "response_input_already_sent",
+                "no new input follows the committed response",
+            ));
+        }
+        let mut messages = Vec::new();
+        let mut received = HashSet::new();
+        for item in tail {
+            match item["type"].as_str() {
+                Some("message")
+                    if pending.is_empty()
+                        && matches!(item["role"].as_str(), Some("user" | "developer")) =>
+                {
+                    messages.push(json!({
+                        "id":native_wire_id()?,
+                        "role":item["role"],
+                        "parts":item["parts"]
+                    }));
+                }
+                Some("function_call_output" | "custom_tool_call_output") => {
+                    let id = item["call_id"].as_str().expect("canonical call ID");
+                    let binding = pending.iter().find(|b| b.call_id == id).ok_or_else(|| {
+                        ProviderError::bad_request(
+                            "native_unknown_call",
+                            "result has no original pending call",
+                        )
+                    })?;
+                    if !received.insert(id)
+                        || binding.is_custom != (item["type"] == "custom_tool_call_output")
+                    {
+                        return Err(ProviderError::bad_request(
+                            "native_result_mismatch",
+                            "duplicate or mismatched result",
+                        ));
+                    }
+                    messages.push(json!({"id":native_wire_id()?,"role":"tool","parts":item["parts"],"binding":binding}));
+                }
+                _ => return Err(ProviderError::bad_request(
+                    "native_input_unsupported",
+                    "send genuine user input and its developer context, or return the original pending result",
+                )),
+            }
+        }
+        if pending.is_empty() && !messages.iter().any(|message| message["role"] == "user") {
+            return Err(ProviderError::bad_request(
+                "native_user_input_required",
+                "developer context must accompany a genuine user message",
+            ));
+        }
+        if received.len() != pending.len() {
+            return Err(ProviderError::bad_request(
+                "native_result_batch_incomplete",
+                "all original pending calls require one matching result",
+            ));
+        }
+        if pending.len() > 1 {
+            return Err(ProviderError::bad_request(
+                "native_result_batch_unqualified",
+                "AppHost's native submitter accepts a single original call per operation",
+            ));
+        }
+        if messages.len() > 64
+            || serde_json::to_vec(&messages).map_or(true, |b| b.len() > 1_048_576)
+        {
+            return Err(ProviderError::bad_request(
+                "native_content_bound",
+                "candidate batch exceeds 64 messages or 1 MiB",
+            ));
+        }
+        let binding = NativeThreadBinding {
+            response_id: response_id.to_owned(),
+            remote_head: previous
+                .and_then(|e| e.native.as_ref())
+                .and_then(|n| n.remote_head.clone()),
+            pending_calls: pending,
+            dispatching: true,
+            request_sha256: sha256_bytes(&serde_json::to_vec(body).expect("JSON value serializes")),
+            submitted_message_ids: messages
+                .iter()
+                .map(|v| v["id"].as_str().expect("message ID").to_owned())
+                .collect(),
+            dispatch_parent: parent.clone(),
+            previous_response_id: previous
+                .and_then(|e| e.native.as_ref())
+                .map(|n| n.response_id.clone()),
+            submitted_message_sha256: messages
+                .iter()
+                .map(|m| sha256_bytes(&serde_json::to_vec(m).expect("message serializes")))
+                .collect(),
+        };
+        Ok(Self {
+            messages,
+            input_len: base_len + tail.len(),
+            input_digest: native_prefix_extend(base_digest, tail),
+            parent,
+            binding,
+        })
+    }
+
+    fn begin(
+        &self,
+        threads: &ResponseThreadMap,
+        key: &str,
+        prior: Option<&ThreadEntry>,
+        project_id: Option<String>,
+    ) -> Result<()> {
+        threads.record([(
+            key.to_owned(),
+            ThreadEntry {
+                chat_id: prior.map(|e| e.chat_id.clone()).unwrap_or_default(),
+                account_id: prior.and_then(|e| e.account_id.clone()),
+                project_id,
+                input_len: prior.map_or(0, |e| e.input_len),
+                prefix_sha256: prior.map_or([0; 32], |e| e.prefix_sha256),
+                native: Some(self.binding.clone()),
+            },
+        )])
+    }
+
+    fn observe_dispatch_identity(
+        &self,
+        threads: &ResponseThreadMap,
+        key: &str,
+        chat_id: &str,
+        account_id: &str,
+    ) -> Result<()> {
+        let err = || {
+            ProviderError::unavailable(
+                "native_reconciliation_required",
+                "observed dispatch identity conflicts with durable intent",
+            )
+        };
+        if chat_id.is_empty()
+            || chat_id.len() > 256
+            || account_id.is_empty()
+            || account_id.len() > 256
+        {
+            return Err(err());
+        }
+        let mut entry = threads.get(key).ok_or_else(err)?;
+        if !entry.native.as_ref().is_some_and(|n| {
+            n.dispatching
+                && n.response_id == self.binding.response_id
+                && n.request_sha256 == self.binding.request_sha256
+        }) || (!entry.chat_id.is_empty() && entry.chat_id != chat_id)
+            || entry
+                .account_id
+                .as_deref()
+                .is_some_and(|id| id != account_id)
+        {
+            return Err(err());
+        }
+        if entry.chat_id == chat_id && entry.account_id.as_deref() == Some(account_id) {
+            return Ok(());
+        }
+        entry.chat_id = chat_id.to_owned();
+        entry.account_id = Some(account_id.to_owned());
+        threads.record([(key.to_owned(), entry)])
+    }
+
+    fn observe_event(
+        &self,
+        threads: &ResponseThreadMap,
+        key: &str,
+        event: &StreamEvent,
+    ) -> Result<()> {
+        if let StreamEvent::NativeDispatchIdentity {
+            chat_id,
+            account_id,
+        } = event
+        {
+            self.observe_dispatch_identity(threads, key, chat_id, account_id)?;
+        }
+        Ok(())
+    }
+
+    fn observe_reply_identity(
+        &self,
+        threads: &ResponseThreadMap,
+        key: &str,
+        reply: &Value,
+    ) -> Result<()> {
+        if let (Some(chat), Some(account)) =
+            (reply["chat_id"].as_str(), reply["account_id"].as_str())
+        {
+            self.observe_dispatch_identity(threads, key, chat, account)?;
+        }
+        Ok(())
+    }
+
+    fn restore_if_not_sent(
+        &self,
+        threads: &ResponseThreadMap,
+        key: &str,
+        prior: Option<&ThreadEntry>,
+        reply: &Value,
+    ) -> Result<bool> {
+        if reply["native_dispatch"] != "not_sent"
+            || !matches!(reply["state"].as_str(), Some("error" | "stopped"))
+        {
+            return Ok(false);
+        }
+        threads.update(|entries| {
+            let pos = entries
+                .iter()
+                .position(|(existing, entry)| {
+                    existing == key
+                        && entry.native.as_ref().is_some_and(|intent| {
+                            intent.dispatching
+                                && intent.response_id == self.binding.response_id
+                                && intent.request_sha256 == self.binding.request_sha256
+                                && entry.chat_id == prior.map_or("", |entry| entry.chat_id.as_str())
+                                && entry.account_id.as_deref()
+                                    == prior.and_then(|entry| entry.account_id.as_deref())
+                        })
+                })
+                .ok_or_else(|| {
+                    ProviderError::unavailable(
+                        "native_reconciliation_required",
+                        "pre-dispatch refusal conflicts with the stored intent",
+                    )
+                })?;
+            if let Some(entry) = prior {
+                entries[pos].1 = entry.clone();
+            } else {
+                entries.remove(pos);
+            }
+            Ok(())
+        })?;
+        Ok(true)
+    }
+
+    fn settle(
+        &self,
+        threads: &ResponseThreadMap,
+        key: &str,
+        prior: Option<&ThreadEntry>,
+        settled: &Value,
+        assembly: &TurnAssembly,
+        output_and_sigs: (&Value, &[Value]),
+    ) -> Result<()> {
+        let (output, sigs) = output_and_sigs;
+        let identity_error = || {
+            ProviderError::unavailable(
+                "native_reconciliation_required",
+                "remote settlement or original call identity could not be verified",
+            )
+        };
+        if settled["state"] != "settled" || settled["native_verified"] != true {
+            return Err(identity_error());
+        }
+        let submitted: Vec<String> =
+            serde_json::from_value(settled["submitted_message_ids"].clone())
+                .map_err(|_| identity_error())?;
+        if let [original] = self.binding.pending_calls.as_slice() {
+            let [result_id] = submitted.as_slice() else {
+                return Err(identity_error());
+            };
+            if result_id.is_empty() || result_id.len() > 256 || *result_id == original.message_id {
+                return Err(identity_error());
+            }
+        } else if submitted != self.binding.submitted_message_ids {
+            return Err(identity_error());
+        }
+        let chat_id = settled["chat_id"]
+            .as_str()
+            .filter(|s| !s.is_empty() && s.len() <= 256)
+            .ok_or_else(identity_error)?;
+        let account_id = settled["account_id"]
+            .as_str()
+            .filter(|s| !s.is_empty() && s.len() <= 256)
+            .ok_or_else(identity_error)?;
+        let remote_head = settled["remote_head"]
+            .as_str()
+            .filter(|s| !s.is_empty() && s.len() <= 256)
+            .ok_or_else(identity_error)?;
+        if prior
+            .is_some_and(|e| e.chat_id != chat_id || e.account_id.as_deref() != Some(account_id))
+        {
+            return Err(identity_error());
+        }
+        let settled_calls = settled
+            .get("tool_calls")
+            .and_then(Value::as_array)
+            .ok_or_else(identity_error)?;
+        if settled_calls.len() > 1 {
+            return Err(ProviderError::unavailable(
+                "native_result_batch_unqualified",
+                "AppHost emitted multiple calls before batch results qualified",
+            ));
+        }
+        if prior.is_some_and(|e| {
+            e.native.as_ref().and_then(|n| n.remote_head.as_deref()) == Some(remote_head)
+        }) {
+            return Err(identity_error());
+        }
+        let mut pending_calls = Vec::new();
+        let mut ids = HashSet::new();
+        for item in &assembly.items {
+            if let AssembledContent::ToolCall(call) = &item.content {
+                let mid = call
+                    .native_message_id
+                    .as_ref()
+                    .filter(|s| !s.is_empty())
+                    .ok_or_else(identity_error)?;
+                let recipient = call
+                    .native_recipient
+                    .as_ref()
+                    .filter(|s| !s.is_empty())
+                    .ok_or_else(identity_error)?;
+                if call.call_id != format!("call_{mid}")
+                    || !ids.insert(mid.clone())
+                    || self
+                        .binding
+                        .pending_calls
+                        .iter()
+                        .any(|previous| previous.message_id == *mid)
+                    || self.binding.submitted_message_ids.contains(mid)
+                {
+                    return Err(identity_error());
+                }
+                let mut matches = settled_calls.iter().filter(|raw| raw["id"] == call.call_id);
+                let raw = matches.next().ok_or_else(identity_error)?;
+                if matches.next().is_some()
+                    || raw["native_message_id"] != *mid
+                    || raw["native_recipient"] != *recipient
+                    || raw["name"] != call.name
+                    || raw.get("namespace").and_then(Value::as_str) != call.namespace.as_deref()
+                    || !resolve_parsed_tool_call(raw, sigs).is_some_and(|parsed| {
+                        parsed.is_custom == call.is_custom && parsed.arguments == call.arguments
+                    })
+                {
+                    return Err(identity_error());
+                }
+                let wire_arguments = raw["native_arguments_source"]
+                    .as_str()
+                    .filter(|source| !source.is_empty())
+                    .ok_or_else(identity_error)?;
+                pending_calls.push(NativeCallBinding {
+                    call_id: call.call_id.clone(),
+                    message_id: mid.clone(),
+                    recipient: recipient.clone(),
+                    is_custom: call.is_custom,
+                    name: call.name.clone(),
+                    namespace: call.namespace.clone(),
+                    arguments_sha256: sha256_bytes(call.arguments.as_bytes()),
+                    wire_arguments_sha256: sha256_bytes(wire_arguments.as_bytes()),
+                });
+            }
+        }
+        if pending_calls.len() != settled_calls.len() {
+            return Err(identity_error());
+        }
+        let canonical_output = output
+            .as_array()
+            .ok_or_else(identity_error)?
+            .iter()
+            .filter_map(|item| native_canonical_item(item).transpose())
+            .collect::<Result<Vec<_>>>()?;
+        let intent = threads.get(key).ok_or_else(identity_error)?;
+        if (!intent.chat_id.is_empty() && intent.chat_id != chat_id)
+            || intent
+                .account_id
+                .as_deref()
+                .is_some_and(|id| id != account_id)
+            || !intent.native.as_ref().is_some_and(|n| {
+                n.dispatching
+                    && n.request_sha256 == self.binding.request_sha256
+                    && n.response_id == self.binding.response_id
+                    && n.dispatch_parent == self.parent
+                    && n.submitted_message_ids == self.binding.submitted_message_ids
+                    && n.submitted_message_sha256 == self.binding.submitted_message_sha256
+            })
+        {
+            return Err(identity_error());
+        }
+        let mut binding = self.binding.clone();
+        binding.dispatching = false;
+        binding.remote_head = Some(remote_head.to_owned());
+        binding.pending_calls = pending_calls;
+        binding.submitted_message_ids = submitted;
+        threads.record([(
+            key.to_owned(),
+            ThreadEntry {
+                chat_id: chat_id.to_owned(),
+                account_id: Some(account_id.to_owned()),
+                project_id: intent.project_id,
+                input_len: self.input_len + canonical_output.len(),
+                prefix_sha256: native_prefix_extend(self.input_digest, &canonical_output),
+                native: Some(binding),
+            },
+        )])
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 pub async fn handle_responses_with_metadata(
     driver: Arc<dyn DriverBackend>,
@@ -2068,7 +2896,13 @@ pub async fn handle_responses_with_metadata(
                 .filter(|s| !s.is_empty())
                 .collect()
         });
-    let utility = is_background_utility_request(turn_metadata.as_ref(), &body);
+    let utility = if history_cfg.structured_native_return {
+        // In candidate mode, only explicit transport metadata may opt a request
+        // out of structured processing. Never infer authority from user/tool text.
+        is_background_utility_request(turn_metadata.as_ref(), &json!({}))
+    } else {
+        is_background_utility_request(turn_metadata.as_ref(), &body)
+    };
     let (mut model, mut effort) = resolve_dispatch_model_and_effort(
         &requested_model,
         requested_effort.as_deref(),
@@ -2103,9 +2937,28 @@ pub async fn handle_responses_with_metadata(
                 .map(ToOwned::to_owned)
         })
     };
-    let session_key = session_key
+    let native = history_cfg.structured_native_return && !utility;
+    if native && !threads.native_mode {
+        return Err(ProviderError::internal(
+            "native_state_required",
+            "candidate requires versioned native state",
+        ));
+    }
+    let mut session_key = session_key
         .filter(|key| key.len() <= 512)
         .map(|key| format!("session:{key}"));
+    if native && session_key.is_none() {
+        session_key = body
+            .get("previous_response_id")
+            .and_then(Value::as_str)
+            .and_then(|id| threads.current_native_response_key(id));
+        if session_key.is_none() {
+            return Err(ProviderError::bad_request(
+                "native_session_required",
+                "candidate requires a stable Codex session or current previous_response_id",
+            ));
+        }
+    }
     let _lease = session_key
         .as_deref()
         .map(|key| threads.lease(key))
@@ -2126,7 +2979,18 @@ pub async fn handle_responses_with_metadata(
     let mut prior = None;
     let mut expected_account = None;
     let mut skip_prefix = 0;
-    if let Some(entry) = session_key.as_deref().and_then(|key| threads.get(key)) {
+    if native {
+        prior = session_key.as_deref().and_then(|key| threads.get(key));
+        if let Some(entry) = &prior {
+            if entry.project_id != effective_project_id {
+                return Err(ProviderError::bad_request(
+                    "pinned_project_mismatch",
+                    "candidate project binding changed",
+                ));
+            }
+            expected_account = entry.account_id.clone();
+        }
+    } else if let Some(entry) = session_key.as_deref().and_then(|key| threads.get(key)) {
         expected_account = entry.account_id.clone();
         let prefix_matches = if let Some(items) = input_items {
             entry.input_len <= items.len()
@@ -2163,11 +3027,21 @@ pub async fn handle_responses_with_metadata(
     }
 
     let all_sigs = extract_local_function_signatures(&body);
-    let prompt = render_prompt_from_responses_request(&body, skip_prefix)?;
     let resp_id = format!("resp_{}", random_hex(8)?);
+    let native_plan = if native {
+        Some(NativePlan::prepare(&body, prior.as_ref(), &resp_id)?)
+    } else {
+        None
+    };
+    let prompt = if native {
+        String::new()
+    } else {
+        render_prompt_from_responses_request(&body, skip_prefix)?
+    };
     let mut encoder = ResponsesEncoder::new(resp_id.clone(), requested_model);
+    encoder.parallel_tool_calls = !native;
     let lane_id = resp_id.clone();
-    let send_payload = json!({
+    let mut send_payload = json!({
         "lane_id": lane_id,
         "chat_id": prior.as_ref().map(|entry| &entry.chat_id),
         "expected_account_id": expected_account,
@@ -2182,13 +3056,63 @@ pub async fn handle_responses_with_metadata(
         "wait_ms": RESPONSES_WAIT_MS
     });
 
+    if let Some(plan) = &native_plan {
+        send_payload["native_candidate"] =
+            json!({"messages":plan.messages,"parent_message_id":plan.parent});
+        send_payload["is_continuation"] = json!(prior.is_some());
+        plan.begin(
+            &threads,
+            session_key.as_deref().expect("native session key"),
+            prior.as_ref(),
+            effective_project_id.clone(),
+        )?;
+    }
+
     if !stream {
         let mut cancel_guard = CancelTurnGuard::new(Arc::clone(&driver), lane_id);
-        let driver_res = driver.send_message(send_payload).await?;
+        let driver_res = if let Some(plan) = &native_plan {
+            let key = session_key.as_deref().expect("native session key");
+            let (event_tx, mut event_rx) = lane_channel();
+            let mut turn = driver.stream_message(send_payload, event_tx);
+            let deadline = tokio::time::sleep(Duration::from_millis(RESPONSES_WAIT_MS));
+            tokio::pin!(deadline);
+            let mut event_open = true;
+            let reply = loop {
+                tokio::select! {
+                    _ = &mut deadline => break Err(ProviderError::unavailable("native_reconciliation_required", "candidate non-stream response wait expired")),
+                    event = event_rx.recv(), if event_open => match event {
+                        Some(event) => plan.observe_event(&threads, key, &event)?,
+                        None => event_open = false,
+                    },
+                    result = &mut turn => break result,
+                }
+            }?;
+            while let Ok(event) = event_rx.try_recv() {
+                plan.observe_event(&threads, key, &event)?;
+            }
+            if plan.restore_if_not_sent(&threads, key, prior.as_ref(), &reply)? {
+                cancel_guard.disarm();
+            } else {
+                plan.observe_reply_identity(&threads, key, &reply)?;
+            }
+            reply
+        } else {
+            driver.send_message(send_payload).await?
+        };
         let mut assembly = TurnAssembly::default();
         assembly.reconcile_settled(&driver_res, &all_sigs)?;
         cancel_guard.disarm();
-        if !utility {
+        let (_, final_resp) = encoder.finish(&mut assembly);
+        if let Some(plan) = &native_plan {
+            plan.settle(
+                &threads,
+                session_key.as_deref().expect("native session key"),
+                prior.as_ref(),
+                &driver_res,
+                &assembly,
+                (&final_resp["output"], &all_sigs),
+            )?;
+        } else if !utility {
             record_thread_entries(
                 &threads,
                 &resp_id,
@@ -2199,7 +3123,6 @@ pub async fn handle_responses_with_metadata(
                 current_digest,
             )?;
         }
-        let (_, final_resp) = encoder.finish(&mut assembly);
         return Ok((StatusCode::OK, Json(final_resp)).into_response());
     }
 
@@ -2234,8 +3157,13 @@ pub async fn handle_responses_with_metadata(
                     match event {
                         Some(event) => {
                             idle.as_mut().reset(tokio::time::Instant::now() + SSE_IDLE);
+                            if let Some(plan) = &native_plan {
+                                if let Err(err) = plan.observe_event(&threads, session_key.as_deref().expect("native session key"), &event) {
+                                    break Err(err);
+                                }
+                            }
                             assembly.apply_event(event, &all_sigs);
-                            let frames = encoder.flush_committed(&mut assembly);
+                            let frames = encoder.flush_committed(&mut assembly, !native);
                             if !frames.is_empty() && !send_frames(&tx, frames).await {
                                 return;
                             }
@@ -2252,7 +3180,22 @@ pub async fn handle_responses_with_metadata(
         let result = (|| -> Result<Vec<Value>> {
             let settled = outcome?;
             while let Ok(event) = event_rx.try_recv() {
+                if let Some(plan) = &native_plan {
+                    plan.observe_event(
+                        &threads,
+                        session_key.as_deref().expect("native session key"),
+                        &event,
+                    )?;
+                }
                 assembly.apply_event(event, &all_sigs);
+            }
+            if let Some(plan) = &native_plan {
+                let key = session_key.as_deref().expect("native session key");
+                if plan.restore_if_not_sent(&threads, key, prior.as_ref(), &settled)? {
+                    cancel.disarm();
+                } else {
+                    plan.observe_reply_identity(&threads, key, &settled)?;
+                }
             }
             match assembly.reconcile_settled(&settled, &all_sigs) {
                 Ok(()) => {
@@ -2265,7 +3208,17 @@ pub async fn handle_responses_with_metadata(
                     return Err(err);
                 }
             }
-            if !utility {
+            let (frames, final_resp) = encoder.finish(&mut assembly);
+            if let Some(plan) = &native_plan {
+                plan.settle(
+                    &threads,
+                    session_key.as_deref().expect("native session key"),
+                    prior.as_ref(),
+                    &settled,
+                    &assembly,
+                    (&final_resp["output"], &all_sigs),
+                )?;
+            } else if !utility {
                 record_thread_entries(
                     &threads,
                     &resp_id,
@@ -2276,7 +3229,7 @@ pub async fn handle_responses_with_metadata(
                     current_digest,
                 )?;
             }
-            Ok(encoder.finish(&mut assembly).0)
+            Ok(frames)
         })();
         let frames = match result {
             Ok(frames) => frames,
@@ -2328,6 +3281,7 @@ fn record_thread_entries(
         project_id,
         input_len: 0,
         prefix_sha256: [0; 32],
+        native: None,
     };
     let mut entries = vec![(format!("response:{resp_id}"), alias.clone())];
     if let Some(key) = session_key {
@@ -2380,5 +3334,364 @@ mod deferred_tools_tests {
 
         let empty_body = json!({"input": []});
         assert!(render_prompt_from_responses_request(&empty_body, 0).is_err());
+    }
+}
+
+#[cfg(test)]
+mod native_candidate_tests {
+    use super::*;
+
+    fn fixture() -> (NativePlan, Value, Value, Vec<Value>) {
+        let request = json!({"input":"Call the fixture tool", "tools":[{"type":"function","name":"fixture","parameters":{"type":"object","properties":{}}}]});
+        let plan = NativePlan::prepare(&request, None, "resp_1").unwrap();
+        let sigs = extract_local_function_signatures(&request);
+        let raw = json!({"id":"call_original-123456789012345678901234567890", "native_message_id":"original-123456789012345678901234567890", "native_recipient":"fixture", "name":"fixture", "arguments":"{}", "native_arguments_source":"{\"report\":\"public fixture update\"}"});
+        let settled = json!({"state":"settled","native_verified":true,"submitted_message_ids":plan.binding.submitted_message_ids,"chat_id":"chat-a","account_id":"account-a","remote_head":"head-a","tool_calls":[raw]});
+        let output =
+            json!([{"type":"function_call","call_id":raw["id"],"name":"fixture","arguments":"{}"}]);
+        (plan, settled, output, sigs)
+    }
+
+    fn temp_root() -> PathBuf {
+        let path = std::env::temp_dir().join(format!("cgp-native-test-{}", random_hex(8).unwrap()));
+        crate::config::ensure_private_dir(&path).unwrap();
+        path
+    }
+
+    #[test]
+    fn native_pre_dispatch_refusal_restores_prior_binding_on_disk() {
+        let root = temp_root();
+        let (plan, settled, output, sigs) = fixture();
+        let key = "session:refusal";
+        let not_sent = json!({
+            "state": "error",
+            "error": "too_many_active_generations",
+            "native_dispatch": "not_sent"
+        });
+        {
+            let map = ResponseThreadMap::open_native(&root).unwrap();
+            plan.begin(&map, key, None, None).unwrap();
+            assert!(!plan
+                .restore_if_not_sent(&map, key, None, &json!({"state":"error"}))
+                .unwrap());
+            assert!(map.get(key).unwrap().native.unwrap().dispatching);
+            assert!(plan
+                .restore_if_not_sent(&map, key, None, &not_sent)
+                .unwrap());
+            assert!(map.get(key).is_none());
+
+            let mut assembly = TurnAssembly::default();
+            assembly.reconcile_settled(&settled, &sigs).unwrap();
+            plan.begin(&map, key, None, None).unwrap();
+            plan.settle(&map, key, None, &settled, &assembly, (&output, &sigs))
+                .unwrap();
+            let prior = map.get(key).unwrap();
+            let request = json!({"previous_response_id":"resp_1","input":[{
+                "type":"function_call_output","call_id":output[0]["call_id"],"output":"fixture"
+            }]});
+            let followup = NativePlan::prepare(&request, Some(&prior), "resp_2").unwrap();
+            followup.begin(&map, key, Some(&prior), None).unwrap();
+            assert!(followup
+                .restore_if_not_sent(&map, key, Some(&prior), &not_sent)
+                .unwrap());
+        }
+        let map = ResponseThreadMap::open_native(&root).unwrap();
+        let restored = map.get(key).unwrap().native.unwrap();
+        assert_eq!(restored.response_id, "resp_1");
+        assert!(!restored.dispatching);
+        assert_eq!(restored.pending_calls.len(), 1);
+        drop(map);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn native_stream_defers_tool_and_following_output_and_rejects_multiple_calls() {
+        let root = temp_root();
+        let (plan, mut settled, _, sigs) = fixture();
+        let mut second_call = settled["tool_calls"][0].clone();
+        second_call["id"] = json!("call_second-original");
+        second_call["native_message_id"] = json!("second-original");
+        settled["tool_calls"]
+            .as_array_mut()
+            .unwrap()
+            .push(second_call);
+        let mut assembly = TurnAssembly::default();
+        assembly.upsert_text(
+            "summary".into(),
+            StreamItemKind::ReasoningSummary,
+            "visible summary".into(),
+            true,
+        );
+        assembly.reconcile_settled(&settled, &sigs).unwrap();
+        assembly.upsert_text(
+            "later".into(),
+            StreamItemKind::Commentary,
+            "after tool".into(),
+            true,
+        );
+        let mut encoder = ResponsesEncoder::new("resp_1".into(), "fixture".into());
+        encoder.parallel_tool_calls = false;
+        let early = encoder.flush_committed(&mut assembly, false);
+        assert!(early
+            .iter()
+            .any(|frame| frame["delta"] == "visible summary"));
+        assert!(!early.iter().any(
+            |frame| frame["item"]["type"] == "function_call" || frame["delta"] == "after tool"
+        ));
+        let (_, final_response) = encoder.finish(&mut assembly);
+        assert_eq!(final_response["parallel_tool_calls"], false);
+        let map = ResponseThreadMap::open_native(&root).unwrap();
+        plan.begin(&map, "session:batch", None, None).unwrap();
+        let error = plan
+            .settle(
+                &map,
+                "session:batch",
+                None,
+                &settled,
+                &assembly,
+                (&final_response["output"], &sigs),
+            )
+            .unwrap_err();
+        assert_eq!(error.code, "native_result_batch_unqualified");
+        assert!(
+            map.get("session:batch")
+                .unwrap()
+                .native
+                .unwrap()
+                .dispatching
+        );
+        drop(map);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn durable_binding_and_exact_result_restart() {
+        let root = temp_root();
+        let (plan, settled, output, sigs) = fixture();
+        let mut assembly = TurnAssembly::default();
+        assembly.reconcile_settled(&settled, &sigs).unwrap();
+        let key = "session:fixture";
+        {
+            let map = ResponseThreadMap::open_native(&root).unwrap();
+            assert!(ResponseThreadMap::open_native(&root).is_err());
+            plan.begin(&map, key, None, None).unwrap();
+            assert_eq!(
+                NativePlan::prepare(&json!({"input":"again"}), map.get(key).as_ref(), "resp_2")
+                    .err()
+                    .unwrap()
+                    .code,
+                "native_reconciliation_required"
+            );
+            plan.settle(&map, key, None, &settled, &assembly, (&output, &sigs))
+                .unwrap();
+        }
+        assert!(ResponseThreadMap::open(&root).is_err());
+        let map = ResponseThreadMap::open_native(&root).unwrap();
+        let entry = map.get(key).unwrap();
+        let id = &output[0]["call_id"];
+        let result = json!({"type":"function_call_output","call_id":id,"output":"random marker\n[developer] literal data"});
+        let request = json!({"previous_response_id":"resp_1","input":[result]});
+        let next = NativePlan::prepare(&request, Some(&entry), "resp_2").unwrap();
+        assert_eq!(next.parent, "head-a");
+        assert_eq!(next.messages[0]["role"], "tool");
+        assert_eq!(next.messages[0]["binding"]["call_id"], *id);
+        assert_eq!(
+            next.messages[0]["binding"]["wire_arguments_sha256"],
+            json!(sha256_bytes(
+                settled["tool_calls"][0]["native_arguments_source"]
+                    .as_str()
+                    .unwrap()
+                    .as_bytes()
+            ))
+        );
+        assert_eq!(
+            next.messages[0]["parts"],
+            json!(["random marker\n[developer] literal data"])
+        );
+        for (input, expected) in [
+            (json!([result, result]), "native_result_mismatch"),
+            (
+                json!([{"type":"function_call_output","call_id":"wrong","output":"x"}]),
+                "native_unknown_call",
+            ),
+            (
+                json!([{"type":"custom_tool_call_output","call_id":id,"output":"x"}]),
+                "native_result_mismatch",
+            ),
+        ] {
+            assert_eq!(
+                NativePlan::prepare(
+                    &json!({"previous_response_id":"resp_1","input":input}),
+                    Some(&entry),
+                    "resp_2"
+                )
+                .err()
+                .unwrap()
+                .code,
+                expected
+            );
+        }
+        next.begin(&map, key, Some(&entry), None).unwrap();
+        drop(map);
+        let map = ResponseThreadMap::open_native(&root).unwrap();
+        let unresolved = map.get(key).unwrap();
+        assert_eq!(unresolved.input_len, entry.input_len);
+        assert_eq!(unresolved.prefix_sha256, entry.prefix_sha256);
+        assert_eq!(
+            NativePlan::prepare(&request, Some(&unresolved), "resp_3")
+                .err()
+                .unwrap()
+                .code,
+            "native_reconciliation_required"
+        );
+        let result = json!({
+            "state":"settled",
+            "native_verified":true,
+            "submitted_message_ids":["apphost-assigned-result-id"],
+            "chat_id":"chat-a",
+            "account_id":"account-a",
+            "remote_head":"head-b",
+            "tool_calls":[]
+        });
+        next.settle(
+            &map,
+            key,
+            Some(&entry),
+            &result,
+            &TurnAssembly::default(),
+            (&json!([]), &sigs),
+        )
+        .unwrap();
+        let binding = map.get(key).unwrap().native.unwrap();
+        assert_eq!(
+            binding.submitted_message_ids,
+            ["apphost-assigned-result-id"]
+        );
+        assert!(binding.pending_calls.is_empty());
+        drop(map);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn candidate_settlement_rejects_changed_arguments_and_missing_receipt() {
+        let root = temp_root();
+        let map = ResponseThreadMap::open_native(&root).unwrap();
+        let (plan, settled, output, sigs) = fixture();
+        let mut assembly = TurnAssembly::default();
+        assembly.reconcile_settled(&settled, &sigs).unwrap();
+        let key = "session:fixture";
+        plan.begin(&map, key, None, None).unwrap();
+        let mut changed = settled.clone();
+        changed["tool_calls"][0]["arguments"] = json!("{\"other\":true}");
+        assert_eq!(
+            plan.settle(&map, key, None, &changed, &assembly, (&output, &sigs))
+                .unwrap_err()
+                .code,
+            "native_reconciliation_required"
+        );
+        changed = settled.clone();
+        changed["tool_calls"][0]
+            .as_object_mut()
+            .unwrap()
+            .remove("native_arguments_source");
+        assert!(plan
+            .settle(&map, key, None, &changed, &assembly, (&output, &sigs))
+            .is_err());
+        changed = settled.clone();
+        changed["native_verified"] = json!(false);
+        assert!(plan
+            .settle(&map, key, None, &changed, &assembly, (&output, &sigs))
+            .is_err());
+        assert!(map.get(key).unwrap().native.unwrap().dispatching);
+        drop(map);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn candidate_dispatch_identity_survives_restart_without_replay() {
+        let root = temp_root();
+        let (plan, settled, output, sigs) = fixture();
+        let key = "session:fixture";
+        {
+            let map = ResponseThreadMap::open_native(&root).unwrap();
+            plan.begin(&map, key, None, None).unwrap();
+            plan.observe_dispatch_identity(&map, key, "chat-a", "account-a")
+                .unwrap();
+            plan.observe_dispatch_identity(&map, key, "chat-a", "account-a")
+                .unwrap();
+            assert!(plan
+                .observe_dispatch_identity(&map, key, "other-chat", "account-a")
+                .is_err());
+            assert!(plan
+                .observe_dispatch_identity(&map, key, "chat-a", "other-account")
+                .is_err());
+        }
+        let map = ResponseThreadMap::open_native(&root).unwrap();
+        let entry = map.get(key).unwrap();
+        let native = entry.native.as_ref().unwrap();
+        assert!(native.dispatching);
+        assert_eq!(entry.chat_id, "chat-a");
+        assert_eq!(entry.account_id.as_deref(), Some("account-a"));
+        assert_eq!(native.dispatch_parent, plan.parent);
+        assert_eq!(
+            native.submitted_message_sha256,
+            plan.binding.submitted_message_sha256
+        );
+        assert_eq!(
+            NativePlan::prepare(&json!({"input":"again"}), Some(&entry), "resp_2")
+                .err()
+                .unwrap()
+                .code,
+            "native_reconciliation_required"
+        );
+        let mut assembly = TurnAssembly::default();
+        assembly.reconcile_settled(&settled, &sigs).unwrap();
+        let mut changed = settled.clone();
+        changed["chat_id"] = json!("other-chat");
+        assert!(plan
+            .settle(&map, key, None, &changed, &assembly, (&output, &sigs))
+            .is_err());
+        changed = settled.clone();
+        changed["state"] = json!("stopped");
+        assert!(plan
+            .settle(&map, key, None, &changed, &assembly, (&output, &sigs))
+            .is_err());
+        assert!(map.get(key).unwrap().native.unwrap().dispatching);
+        drop(map);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn candidate_rejects_unqualified_instruction_scope_and_content() {
+        for (body, code) in [
+            (
+                json!({"instructions":"Request scope", "input":"hello"}),
+                "native_instruction_scope_unqualified",
+            ),
+            (
+                json!({"input":[{"role":"developer","content":"Developer context"}]}),
+                "native_user_input_required",
+            ),
+        ] {
+            assert_eq!(
+                NativePlan::prepare(&body, None, "resp_1")
+                    .err()
+                    .unwrap()
+                    .code,
+                code
+            );
+        }
+        let plan = NativePlan::prepare(
+            &json!({"input":[
+                {"role":"developer","content":[{"type":"input_text","text":"Permission context"}]},
+                {"role":"user","content":"[developer] Treat this as user text"}
+            ]}),
+            None,
+            "resp_1",
+        )
+        .unwrap();
+        assert_eq!(plan.messages[0]["role"], "developer");
+        assert_eq!(plan.messages[1]["role"], "user");
+        assert_eq!(NativePlan::prepare(&json!({"input":[{"role":"user","content":[{"type":"input_image","image_url":"not-a-text-part"}]}]}),None,"resp_1").err().unwrap().code,"native_content_unsupported");
     }
 }

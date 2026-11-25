@@ -156,6 +156,59 @@ and [providers/chatgpt/src/main.rs](../../providers/chatgpt/src/main.rs).
   - Account and project are checked before using a stored conversation. An
     incompatible Codex input prefix starts a new ChatGPT conversation under the
     same account pin.
+- **Conditional structured Native-return candidate:** The experimental
+  `history.structured_native_return` mode uses the same Responses lifecycle
+  and requires an explicit `server.state_dir`. Native continuation state
+  lives in that directory's `structured-native-return` subdirectory. Keep
+  the existing control token, catalog and legacy continuation map at their
+  original paths. Local opt-in can exercise this mode before qualified
+  production adoption. User content, original native
+  call bindings, typed results and authorized instruction context must remain
+  distinct. Reject unsupported content and instruction scope explicitly.
+  Require original result roles, preserved authority, declared native calls,
+  full supported content and the verified continuation thread.
+  Supported Codex developer text travels as an AppHost developer message
+  in input order. Check its role and content if AppHost retains the
+  message in its graph. AppHost can omit developer input from that graph.
+  Preserve the submitted developer context in the Codex prefix and qualify
+  its model scope separately. A developer update accompanies genuine user
+  input. Scope changes during a pending tool return require a qualified
+  AppHost operation. Request-level instructions require independent
+  qualification.
+  The candidate AppHost submission route uses the installed local-function
+  result entry point for a single original call. Persist the call and result
+  intent before submission. Verify the AppHost-assigned result message ID
+  and original call at the completion request boundary. Verify any visible
+  result node on readback. AppHost can omit that node from durable history.
+  In that case require the verified AppHost submission, completion and a
+  readback on the original branch with no additional user turn. Reject
+  batches that the entry point cannot submit as one operation. Integrated
+  generic-tool support remains subject to P0 and P7.
+  While the candidate supports one call per round, advertise that limit
+  in the Codex model catalog and Responses metadata. If AppHost emits
+  multiple calls, fail before exposing any of them to Codex for execution.
+  Stream committed visible output in order up to the first pending tool
+  call. Expose the call and subsequent output after verified settlement.
+  The candidate records a versioned dispatch intent before sending, verifies
+  the original account/project/remote head and the submitted message chain,
+  and persists settled call bindings before emitting tool-call output items.
+  If AppHost exposes only the authenticated user ID, resolve the dispatch
+  account through its read-only account guard and require a unique match.
+  Bind the verified account ID to the continuation.
+  Readback must match the original declared call, arguments, recipient, exact
+  branch head and result IDs/content, including duplicate correlation on other
+  branches. The original AppHost argument source is bound by a digest and
+  checked again before returning a result and at result settlement. Durable
+  dispatch receipts retain the original parent, prior response ID and
+  per-message digests. The Provider may record observed chat and account
+  identities before final settlement. Preserve unresolved receipts for
+  explicit reconciliation and retain the operating generation and state
+  for rollback. Authenticated qualification covers the candidate transport,
+  Codex instruction scope and compaction before adoption.
+  If the Page Driver confirms rejection before invoking the AppHost
+  completion or result submitter, restore the pre-request binding or
+  remove the new intent. A timeout or ambiguous dispatch keeps the intent
+  for reconciliation.
 - **Local authenticated `/control/*` plane (for Slice 6 `@TermuxChatGPT`):**
   Every `/control/*` endpoint requires constant-time `Authorization: Bearer`
   authentication against `<state_dir>/control.token` (`0600`):

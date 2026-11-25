@@ -13,25 +13,32 @@ and retired work orders are archived in
 
 ## Current Live Operating Snapshot
 
-Observed on 2026-11-25.
+Observed on 2026-11-25. The latest targeted Provider preflight below
+supersedes the earlier same-day Provider and tunnel snapshot; other component
+qualification receipts have not been independently refreshed in this preflight.
 
 | Boundary | Observed State | Notes |
 | --- | --- | --- |
 | **Published and installed Wrapper (`$PREFIX/bin/codex`)** | Stable Ed25519-signed `wrapper` tag at `f49e1117` (`sequence=2`, key SHA-256 `0df170da...`). Published archive SHA-256 `c9368338...`. Installed `bin/codex` SHA-256 `f83899d6...` | Signed `SHA256SUMS.sig` readback, `install.sh` CI ([run 45449340483](https://github.com/humtr/codex/actions/runs/45449340483)), and live Termux `--require-signed --all` install matched on 2026-11-25 |
 | **Active / rollback upstream generation** | Active `0.171.0-d8c43b-2` (`ino=9741792`, SHA-256 `26d9f90b...`). Rollback `0.170.0-3f7e1a-2` | Preserved across signed Wrapper & `install.sh` cutover; `codex wrapper status --verify --json` (`qualified=true`) and `codex doctor --json` (`summary=healthy`) agreed |
 | **Live managed daemons (`default` / `janmori101` / `szob`)** | All three homes aligned to `$HOME/.codex/packages/standalone/current`; `janmori101` & `szob` running | `cdx profile list` sees all 8 profiles (`default` + 7 normalized `codex-manager-profile` homes) |
-| **Live doctor and external services** | `codex doctor --json` reports `summary.status=healthy`. All six Stage 2 `runit` services (`chatgpt-provider` PID `10705`, `termux-shell-tunnel` `8182`, `termux-codex-tunnel` `8485`, `termux-chatgpt-tunnel` `9191`, `termux-orch-relay` `9581`, `termux-orch-tunnel` `9687`) verified active with `/proc/<pid>/exe`, child MCPs, and `/readyz`/`/healthz` | The retired `0.167.2` archive remains in place with protected account/session data; all `previous` rollback generations remain intact |
-| **Stage 2 progress (Slices 1–7 + streaming redesign)** | **Released and live in the unified XDG `codex/` namespace (`0.1.0`)**: `codex-ext` (`sequence=11`, `0c6de280`, SHA-256 `4a1c2ac3...`); `tunnel-client` (`sequence=5`, `v0.0.21-0c6de280`, `04c52620...`, prev `v0.0.21+f3c9334e`); `termux-shell-mcp` (`sequence=8`, `0.1.0-0c6de280`, `eeb67e96...`, prev `0.1.0+d3d24d11`); `termux-codex-mcp` (`sequence=5`, `0.1.0-0c6de280`, `abc0b04a...`, prev `0.1.0+f3c9334e`); `host/chatgpt-desktop` (`26.1117.41037`, GPG-verified) + **`chatgpt-provider`** (`sequence=14`, `0.1.0-921cbb9e`, `890c7847...`, prev `0.1.0-66f4ce05`); `termux-chatgpt-mcp` (`sequence=5`, `0.1.0-0c6de280`, `e7dae7e2...`, prev `0.1.0+f3c9334e`); `termux-orch` (`sequence=10`, `0.1.0-0c6de280`, `89d10069...`, prev `0.1.0+7b+d3d24d11`, `@TermuxOrch` connector `asdk_app_6b03de61dd748191bf56fef2b1029a2e` `ACTIVE`) | All 8 installed binaries match their signed GitHub Release archives; all 4 MCP tunnels return `200 ready` on `/readyz`, `termux-orch-relay` returns `ok:true` on `/healthz`, and `chatgpt-provider` passes live `gpt-6-2` `xhigh`/`max` streaming & `model-catalog.json` (8 latest-first families, `supports_reasoning_summary_parameter=true`) checks |
+| **Signed rollout snapshot — doctor and external services** | `codex doctor --json` reports `summary.status=healthy`. All six Stage 2 `runit` services (`chatgpt-provider` PID `10705`, `termux-shell-tunnel` `8182`, `termux-codex-tunnel` `8485`, `termux-chatgpt-tunnel` `9191`, `termux-orch-relay` `9581`, `termux-orch-tunnel` `9687`) verified active with `/proc/<pid>/exe`, child MCPs, and `/readyz`/`/healthz` | The retired `0.167.2` archive remains in place with protected account/session data; all `previous` rollback generations remain intact |
+| **Stage 2 signed rollout (Slices 1–7 + streaming redesign)** | **Released and verified at signed cutover in the unified XDG `codex/` namespace (`0.1.0`)**: `codex-ext` (`sequence=11`, `0c6de280`, SHA-256 `4a1c2ac3...`); `tunnel-client` (`sequence=5`, `v0.0.21-0c6de280`, `04c52620...`, prev `v0.0.21+f3c9334e`); `termux-shell-mcp` (`sequence=8`, `0.1.0-0c6de280`, `eeb67e96...`, prev `0.1.0+d3d24d11`); `termux-codex-mcp` (`sequence=5`, `0.1.0-0c6de280`, `abc0b04a...`, prev `0.1.0+f3c9334e`); `host/chatgpt-desktop` (`26.1117.41037`, GPG-verified) + **`chatgpt-provider`** (`sequence=14`, `0.1.0-921cbb9e`, `890c7847...`, prev `0.1.0-66f4ce05`); `termux-chatgpt-mcp` (`sequence=5`, `0.1.0-0c6de280`, `e7dae7e2...`, prev `0.1.0+f3c9334e`); `termux-orch` (`sequence=10`, `0.1.0-0c6de280`, `89d10069...`, prev `0.1.0+7b+d3d24d11`, `@TermuxOrch` connector `asdk_app_6b03de61dd748191bf56fef2b1029a2e` `ACTIVE`) | All 8 installed binaries match their signed GitHub Release archives; all 4 MCP tunnels return `200 ready` on `/readyz`, `termux-orch-relay` returns `ok:true` on `/healthz`, and `chatgpt-provider` passes live `gpt-6-2` `xhigh`/`max` streaming & `model-catalog.json` (8 latest-first families, `supports_reasoning_summary_parameter=true`) checks |
 | **Milestone records** | Stage 1 WP0–WP6 and Stage 2 Slices 1–7 are archived | [Stage 1 milestones](docs/history/STAGE1_MILESTONES.md), [Stage 2 milestones](docs/history/STAGE2_MILESTONES.md) |
+
+
+The local E01 activation supersedes the Provider process and binary in the signed rollout snapshot.
+[Active Provider on port 4319](#2026-11-25--e01-proof-binary-active-on-port-4319)
 
 ### Unverified / Remaining Boundaries
 
-- **Next Provider follow-up (planned, 2026-11-25).** User-directed order:
-  qualify and implement native tool-return/structured context before the
-  deferred Codex presentation enhancements. The current presentation behavior
-  remains a regression requirement. C's authenticated capability proof and
-  product adoption are not yet qualified; no runtime change follows from this
-  planning entry. [Ordered work and gates](docs/ROADMAP.md#0-next-provider-development-order)
+- **Provider native tool-return follow-up (P0 open, 2026-11-25).**
+  The user-directed local installation `0.1.0` is active on port 4319.
+  Its binary passed one structured Native call and return via the official
+  Codex CLI with actual AppHost, preserving the initial developer role and
+  the original tool ID. `HANDOFF.md` records the retained rollback generation
+  and the pending product gates.
+  [Ordered work and gates](docs/ROADMAP.md#0-next-provider-development-order)
 - **R-2.** The live two-account handoff via daemon RPC preserved the same UUID
   and an unrelated active source turn. The installed launcher passed an
   authenticated same-UUID switch with an idle source and rejects a switch
@@ -59,6 +66,113 @@ Observed on 2026-11-25.
 ---
 
 ## Recent Verified Evidence (Newest-First)
+
+### 2026-11-25 — E02 stopped after the first tool execution
+
+An isolated Codex CLI home and work directory exercised the existing E01
+binary on port 4319 with a fresh chat. One tool command exited 0. While
+returning its result, the Provider reported `native_reconciliation_required`
+and the CLI exited 1. Readback of the original chat found that its head
+advanced with the same two original Codex user-role inputs. The Provider
+retains the original dispatch intent and one pending call. Result acceptance
+and remote settlement remain unresolved. The command and result were not
+replayed. See `HANDOFF.md` for evidence and the unapplied source changes.
+
+### 2026-11-25 — E01 proof binary active on port 4319
+
+The existing runit service runs the exact E01 binary as local installation
+`0.1.0`. PID 17215 was verified from `/proc` against the E01 binary SHA-256
+`b6e3a5db9579187cf953ea358d2f30c10788690d3c8f0cdc26889f97c2244242`.
+Loopback health passed. The configuration, control token and continuation
+maps matched their snapshots across the restart. The immediate rollback
+selection is `0.1.0-local-native-0a1dfcb6`. The binary already reported
+package version `0.1.0`. Before the installation name was corrected,
+official Codex CLI `0.171.0` verified the same binary on port 4319 by
+returning the exact marker supplied only in its developer message and
+exiting 0 with zero local commands.
+
+### 2026-11-25 — Official Codex CLI native tool round trip
+
+Codex CLI 0.171.0 through the Termux Wrapper sent developer text and
+user-role inputs to the Android candidate. The exact command was
+supplied only in the developer message. Codex executed it once,
+submitted the structured result, returned the unpredictable marker,
+and exited 0. Independent AppHost readback matched the committed head
+and the two original user-role inputs. Candidate binary SHA-256
+`b6e3a5db9579187cf953ea358d2f30c10788690d3c8f0cdc26889f97c2244242`.
+The test restored the prior operating selection. Durable instruction
+scope, batches and the remaining P0/P7 cases remain open.
+
+### 2026-11-25 — AppHost native return round trip
+
+Android proof binary SHA-256
+`546a2e5c66ecc64685de2ff00f1da850a3e13551e4b527dc1d94667bdf34549e`
+passed a direct Responses call and return on the authenticated AppHost.
+The AppHost-native continuation returned one structured result for the
+original call. The adapter committed the result message ID and remote
+head. Independent remote readback confirmed the exact marker and one
+genuine user turn. The temporary candidate restored the selected
+operating generation. Integrated official Codex and physical UI remain
+separate gates.
+
+### 2026-11-25 — Local Native-return Provider selected
+
+`0.1.0-local-native-0a1dfcb6` started on 4319 at PID 26342. Actual
+binary SHA-256 `0a1dfcb61d904e32e3f71ee01d7388da6b506403ea855a7c28ea63c258c3da9b`.
+The running AppHost reported authenticated and completion-ready. The
+pre-activation token and legacy response map bytes matched after restart.
+The original E01 chat readback showed one visible user message. The exact
+call and return outcome remains unverified. The live Native dispatcher
+returned HTTP 400 for a developer item before dispatch. The rollback
+preflight passed for `0.1.0-c9d0e245`. This is an unsigned local activation.
+
+### 2026-11-25 — Native-return handoff identity preflight
+
+The operating AppHost was authenticated, ready and idle. It reported a
+login user ID and omitted the account-scope ID. The launcher blocked
+before creating a stop intent. The updated launcher passed against the
+operating Provider, and the rebuilt candidate pins a uniquely verified
+account through its existing AppHost account guard in synthetic tests.
+Page Driver 18/18 passed. Updated Android candidate SHA-256
+`009b5d04d5c11eaa67815e14edb1e901cccdc61b74e63d0b00a70f06b4698ceb`.
+Real E01 dispatch and developer instruction scope qualification remain open.
+
+### 2026-11-25 — Native-return candidate and handoff tests
+
+Base `84d916f4` and working-tree changes built locally on Termux for Android
+AArch64 API 24. Candidate ELF SHA-256
+`df8706e733a586a3ee3c5c3260e4c5ce6664d0cf0b9e03e0fd650ad5a7ee6786`.
+The binary passed the 16 KiB ELF gate and matched the independently
+extracted bundle payload. Page Driver tests passed 17/17, AppHost Python
+lifecycle 4/4, and locked Rust tests 29/29 under each required umask.
+Fmt, strict clippy and the separate official Codex MockDriver integration
+passed. Disposable `runsv` tests verified the operating-PID lease and
+desired-state recovery plus idle candidate shutdown. The production Provider
+and AppHost stayed running. The target E01 probe, exact AppHost wire support,
+physical UI and signed deployment remain unverified.
+
+### 2026-11-25 — Provider Native-return P0 baseline and isolation
+
+Source `main` at `84d916f4` (Provider/AppHost source unchanged from
+`c9d0e245`) was built in a private scratch root with a separate profile,
+Provider state, Codex home and loopback port. The candidate debug Android ELF
+matched its running `/proc` executable, `/healthz` reported healthy with the
+AppHost running, and local control status reported `login_required`.
+It exited 0, released its profile lease and closed its port. No model
+requests were made. Page Driver 12/12, Python lifecycle 4/4, fmt and strict
+clippy passed; locked Rust tests passed 25/25 under each umask (one ignored
+integration run separately: 1/1 with official Codex 0.171.0 and MockDriver).
+These are baseline checks, not live Native-return acceptance.
+
+Latest observed operating Provider: selected/running `0.1.0-c9d0e245`,
+PID 12838, supervisor PID 15625, both binary SHA-256
+`d490f8c796b9df0518514cb3039a74733ae66b7eba66d1c64d549f2d1cb26a3e`;
+retained `previous` is `0.1.0-74bc360b`. AppHost `26.1117.41037` retained.
+Pre/post PID start ticks and binary digests matched, operating `/healthz`
+returned HTTP 200, and generation links stayed unchanged. Orch relay PID
+9581 remained up; the four MCP tunnels were already down before the probe
+and remained down afterward. New public signing/readback, other service
+qualification and live Native-return semantics were not verified here.
 
 ### 2026-11-25 — Full-stack signed release alignment, `install.sh` setup, and `chatgpt-provider` streaming redesign
 

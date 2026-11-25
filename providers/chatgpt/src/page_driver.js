@@ -359,7 +359,7 @@
   function generatingTurns() {
     const out = [];
     for (const t of activeTurns.values()) {
-      if (t && t.generating) out.push(t);
+      if (t && (t.generating || t.verifyingCandidate)) out.push(t);
     }
     return out;
   }
@@ -368,7 +368,7 @@
     if (activeTurns.size <= MAX_TRACKED_TURNS) return;
     for (const [key, turn] of activeTurns.entries()) {
       if (activeTurns.size <= MAX_TRACKED_TURNS) break;
-      if (!turn.generating && turn !== lastTurn) {
+      if (!turn.generating && !turn.verifyingCandidate && turn !== lastTurn) {
         activeTurns.delete(key);
       }
     }
@@ -516,6 +516,28 @@
         typeof obj.stopCompletion === "function" &&
         typeof obj.cancelStream === "function"
     );
+  }
+
+  let cachedLocalFunctionSubmit = null;
+  async function findLocalFunctionSubmit() {
+    if (typeof globalThis.__termuxMockLocalFunctionSubmit === "function") {
+      return globalThis.__termuxMockLocalFunctionSubmit;
+    }
+    if (cachedLocalFunctionSubmit) return cachedLocalFunctionSubmit;
+    const require = await findWebpackRequire();
+    if (!require?.m) return null;
+    for (const [id, factory] of Object.entries(require.m)) {
+      if (typeof factory !== "function" ||
+          !Function.prototype.toString.call(factory).includes("submitChatGPTLocalFunctionResult")) continue;
+      try {
+        const module = require(id);
+        if (typeof module?.submitChatGPTLocalFunctionResult === "function") {
+          cachedLocalFunctionSubmit = module.submitChatGPTLocalFunctionResult;
+          return cachedLocalFunctionSubmit;
+        }
+      } catch (_) {}
+    }
+    return null;
   }
 
   // Dynamically discover the app's own CompletionClient by capability signature.
@@ -932,11 +954,19 @@
     return { names, signatures, wireToOriginal, injectedReportWireNames };
   }
 
+  function nativeArgumentsSource(content) {
+    if (!content || typeof content !== "object") return null;
+    if (typeof content.text === "string") return content.text.trim();
+    if (!Array.isArray(content.parts)) return null;
+    return content.parts.filter(p => typeof p === "string").join("\n").trim();
+  }
+
   function extractNativeToolCallFromMessage(
     msg,
     declaredNames,
     wireToOriginal,
-    injectedReportWireNames
+    injectedReportWireNames,
+    structuredCandidate = false
   ) {
     if (!msg || typeof msg !== "object") return null;
     if (msg.author?.role !== "assistant") return null;
@@ -946,21 +976,15 @@
     if (declaredNames.size === 0 || (!declaredNames.has(recipient) && !declaredNames.has(stripped))) {
       return null;
     }
+    if (structuredCandidate && (msg.recipient !== recipient || typeof msg.id !== "string" || !/^[A-Za-z0-9_-]{1,256}$/.test(msg.id))) return null;
     const content = msg.content;
-    if (!content || typeof content !== "object") return null;
-    let rawArgs = null;
-    if (typeof content.text === "string") {
-      rawArgs = content.text.trim();
-    } else if (Array.isArray(content.parts)) {
-      rawArgs = content.parts
-        .filter((p) => typeof p === "string")
-        .join("\n")
-        .trim();
-    }
+    const source = nativeArgumentsSource(content);
+    let rawArgs = source;
     if (rawArgs === null) return null;
     if (!rawArgs) {
       // Support legitimate zero-argument native tool calls once finalized (or with empty object content).
       if (msg.status === "finished_successfully" || msg.end_turn === true) {
+        if (structuredCandidate) return null;
         rawArgs = "{}";
       } else {
         return null;
@@ -968,6 +992,9 @@
     }
     const matchedWire = declaredNames.has(recipient) ? recipient : stripped;
     const mapped = wireToOriginal && wireToOriginal.get(matchedWire);
+    if (structuredCandidate && (!mapped ||
+        ![matchedWire, `functions.${matchedWire}`, `local.${matchedWire}`].includes(recipient) ||
+        (Array.isArray(content.parts) && content.parts.some(p => typeof p !== "string")))) return null;
     const resolvedName = mapped ? mapped.name : matchedWire;
     const resolvedNs = mapped ? mapped.namespace : null;
     let report = null;
@@ -984,7 +1011,9 @@
       } catch (_) {}
     }
     return {
-      id: msg.id ? `call_${String(msg.id).replace(/[^A-Za-z0-9_-]/g, "").slice(0, 24)}` : `call_${newUuid().slice(0, 8)}`,
+      id: structuredCandidate ? `call_${msg.id}` : (msg.id ? `call_${String(msg.id).replace(/[^A-Za-z0-9_-]/g, "").slice(0, 24)}` : `call_${newUuid().slice(0, 8)}`),
+      ...(structuredCandidate ? { native_message_id: msg.id } : {}),
+      ...(structuredCandidate ? { native_arguments_source: source } : {}),
       name: resolvedName,
       ...(resolvedNs ? { namespace: resolvedNs } : {}),
       arguments: rawArgs,
@@ -1284,7 +1313,7 @@
         ? turn
         : null;
 
-    if (matchedTurn && matchedTurn.generating) {
+    if (matchedTurn && (matchedTurn.generating || matchedTurn.verifyingCandidate)) {
       return {
         state: "in_progress",
         lane_id: matchedTurn.laneId,
@@ -1368,7 +1397,8 @@
   async function stopSingleTurn(turn, client) {
     turn.stopped = true;
     turn.generating = false;
-    if (client && turn.requestId) {
+    turn.nativeSubmitController?.abort();
+    if (client && turn.requestId && !turn.verifyingCandidate) {
       try {
         client.cancelStream(turn.requestId);
       } catch (_) {}
@@ -1431,7 +1461,7 @@
     });
     if (
       !turn ||
-      !turn.generating ||
+      (!turn.generating && !turn.verifyingCandidate) ||
       (requestedLaneId && turn.laneId !== requestedLaneId) ||
       (requestedChatId && turn.chatId !== requestedChatId)
     ) {
@@ -1454,12 +1484,266 @@
     };
   }
 
+  // Candidate only: preserve the client's role and content through the AppHost
+  // completion transport. Tool return uses AppHost's local-function submitter.
+  // This is not a qualified native continuation interface until live proof.
+  function candidateError(code) {
+    return { state: "error", error: code, detail: "structured candidate requires verified remote identity and content" };
+  }
+
+  function candidateBranch(conversation) {
+    const mapping = conversation?.mapping;
+    const head = conversation?.current_node;
+    if (!mapping || typeof head !== "string" || !head) return null;
+    const branch = [];
+    const seen = new Set();
+    let cursor = head;
+    while (cursor != null) {
+      if (typeof cursor !== "string" || seen.has(cursor) || seen.size >= 10000 || !Object.prototype.hasOwnProperty.call(mapping, cursor)) return null;
+      const node = mapping[cursor];
+      if (!node || typeof node !== "object") return null;
+      seen.add(cursor);
+      branch.push({ key: cursor, message: node.message });
+      cursor = node.parent ?? null;
+    }
+    return { head, mapping, branch: branch.reverse() };
+  }
+
+  function candidateResultEnvelope(message) {
+    if (message?.author?.role !== "tool" || message.content?.content_type !== "code" ||
+        typeof message.content.text !== "string") return null;
+    try {
+      return JSON.parse(message.content.text);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function candidateResultMatches(message, binding) {
+    const metadata = message?.metadata;
+    return candidateResultEnvelope(message)?.call_id === binding.message_id ||
+      metadata?.tool_call_id === binding.message_id || metadata?.call_id === binding.call_id;
+  }
+
+  function candidateExpectedResult(entry) {
+    return entry.parts.length === 1 ? entry.parts[0] : entry.parts;
+  }
+
+  function candidateResultToolName(binding) {
+    // AppHost calls the local function by its declared wire name. The
+    // assistant's original routing recipient retains the local. prefix.
+    return binding.recipient.split(".").pop();
+  }
+
+  function candidateVerifiedResult(message, entry) {
+    const envelope = candidateResultEnvelope(message);
+    const binding = entry.binding;
+    const tool = candidateResultToolName(binding);
+    return envelope?.call_id === binding.message_id && envelope.tool === tool &&
+      JSON.stringify(envelope.result) === JSON.stringify(candidateExpectedResult(entry)) &&
+      message.author.name === tool && message.recipient === "all" &&
+      message.channel === "commentary" && message.status === "finished_successfully";
+  }
+
+  function candidateResultScope(client, turn, entry, parentMessageId, accountId, accept, observe) {
+    // The AppHost submitter obtains its CompletionClient from this scope.
+    // Observe this invocation without modifying the shared AppHost client.
+    const observedClient = new Proxy(client, {
+      get(target, key) {
+        if (key !== "startCompletionStream") return Reflect.get(target, key, target);
+        return async args => {
+          const request = args?.request;
+          const results = request?.messages?.filter(message => message.author?.role === "tool");
+          const result = results?.[0];
+          const validId = typeof result?.id === "string" && /^[A-Za-z0-9_-]{1,256}$/.test(result.id);
+          if (turn.stopped || request?.conversation_id !== turn.chatId ||
+              request.parent_message_id !== parentMessageId ||
+              results?.length !== 1 || request.messages.some(message => message.author?.role === "user") ||
+              !validId || !candidateVerifiedResult(result, entry) ||
+              (args.expectedAccountId && args.expectedAccountId !== accountId) ||
+              !accept(result.id)) {
+            throw Error("AppHost native result request did not match its binding");
+          }
+          const handle = await target.startCompletionStream({
+            ...args,
+            expectedAccountId: accountId,
+            onDecodedEvent: (event) => {
+              args.onDecodedEvent?.(event);
+              if (!turn.stopped && turn.generating) observe.onDecodedEvent(event);
+            },
+            onUpdate: (update) => {
+              args.onUpdate?.(update);
+              if (!turn.stopped && turn.generating) observe.onUpdate(update);
+            },
+          });
+          turn.requestId = handle?.streamRequestId || null;
+          turn.conduitToken = handle?.prepareResponse?.conduit_token || null;
+          return handle;
+        };
+      },
+    });
+    return new Proxy(client.scope, {
+      get(target, key) {
+        const value = Reflect.get(target, key, target);
+        if (key === "get") return (...args) => {
+          const found = Reflect.apply(value, target, args);
+          return found === client ? observedClient : found;
+        };
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+  }
+
+  async function candidateArgumentsDigest(source) {
+    if (typeof source !== "string" || !source || !globalThis.crypto?.subtle) return null;
+    const bytes = new TextEncoder().encode(source);
+    return Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)));
+  }
+
+  async function candidateOriginalMatches(message, binding) {
+    if (message?.author?.role !== "assistant" || message.recipient !== binding.recipient || message.status !== "finished_successfully") return false;
+    if (Array.isArray(message.content?.parts) && message.content.parts.some(p => typeof p !== "string")) return false;
+    const digest = await candidateArgumentsDigest(nativeArgumentsSource(message.content));
+    return digest && JSON.stringify(digest) === JSON.stringify(binding.wire_arguments_sha256);
+  }
+
+  async function candidateWireMessages(plan, priorBranch) {
+    if (!plan || !Array.isArray(plan.messages) || !plan.messages.length || plan.messages.length > 64 || typeof plan.parent_message_id !== "string" || !plan.parent_message_id) return null;
+    const used = new Set();
+    const calls = new Set();
+    const messages = [];
+    const priorMessages = priorBranch ? Object.values(priorBranch.mapping).map(n => n?.message) : [];
+    for (const entry of plan.messages) {
+      if (!entry || typeof entry.id !== "string" || !/^[A-Za-z0-9_-]{1,256}$/.test(entry.id) || used.has(entry.id) || priorMessages.some(m => m?.id === entry.id) || !Array.isArray(entry.parts) || !entry.parts.length || entry.parts.some(p => typeof p !== "string")) return null;
+      used.add(entry.id);
+      if ((entry.role === "user" || entry.role === "developer") && !entry.binding) {
+        messages.push({
+          id: entry.id,
+          author: { role: entry.role },
+          create_time: Date.now() / 1000,
+          content: { content_type: "text", parts: entry.parts },
+          ...(entry.role === "developer" ? { metadata: { is_visually_hidden_from_conversation: true } } : {}),
+        });
+      } else if (entry.role === "tool") {
+        const b = entry.binding;
+        if (!b || typeof b.message_id !== "string" || typeof b.recipient !== "string" || !b.recipient || b.call_id !== `call_${b.message_id}` || calls.has(b.message_id)) return null;
+        const originals = priorBranch?.branch.filter(n => n.message?.id === b.message_id) || [];
+        const original = originals[0]?.message;
+        if (originals.length !== 1 || !await candidateOriginalMatches(original, b) || priorMessages.some(m => candidateResultMatches(m, b))) return null;
+        calls.add(b.message_id);
+        // The AppHost submitter assigns the message ID and creates the tool
+        // envelope. This placeholder is replaced by the verified readback.
+        messages.push({ id: entry.id, author: { role: "tool" } });
+      } else {
+        return null;
+      }
+    }
+    return messages;
+  }
+
+  async function verifyCandidateSettlement(conversation, plan, wireMessages, toolCalls, assistantId, nativeTools, observedResultId) {
+    const branch = candidateBranch(conversation);
+    if (!branch || !assistantId || !wireMessages.length) return null;
+    const positions = new Map();
+    const allIds = new Set();
+    for (const node of Object.values(branch.mapping)) {
+      const id = node?.message?.id;
+      if (typeof id === "string") {
+        if (allIds.has(id)) return null;
+        allIds.add(id);
+      }
+    }
+    for (let i = 0; i < branch.branch.length; i++) {
+      const id = branch.branch[i].message?.id;
+      if (typeof id === "string") positions.set(id, i);
+    }
+    const parentIndex = branch.branch.findIndex(n => n.key === plan.parent_message_id);
+    // The fresh-conversation root may be assigned by the server. An existing
+    // chat, however, must extend the exact committed parent, not another fork.
+    if (plan.existing_chat && parentIndex < 0) return null;
+    let last = parentIndex;
+    const expectedInputs = new Set(wireMessages.filter(m => m.author.role !== "tool").map(m => m.id));
+    const expectedResults = new Set(wireMessages.filter(m => m.author.role === "tool").map(m => m.id));
+    const returned = plan.messages.filter(m => m.role === "tool");
+    const expectedCalls = new Map(toolCalls.map(c => [c.native_message_id, c]));
+    const declared = new Set(nativeTools.names);
+    if (expectedCalls.size !== toolCalls.length) return null;
+    // Look at all branches for duplicate result effects, not just the active
+    // lineage. Both identifiers are required and either identifies ambiguity.
+    for (let i = 0; i < plan.messages.length; i++) {
+      const entry = plan.messages[i];
+      if (entry.role !== "tool") continue;
+      const matches = Object.values(branch.mapping).filter(n => candidateResultMatches(n?.message, entry.binding));
+      const id = wireMessages[i].id;
+      if (matches.length > 1 || (matches.length === 1 && matches[0].message.id !== id) ||
+          (matches.length === 0 && id !== observedResultId)) return null;
+    }
+    for (const node of branch.branch.slice(parentIndex + 1)) {
+      const m = node.message;
+      if ((m?.author?.role === "user" || m?.author?.role === "developer") && !expectedInputs.has(m.id)) return null;
+      if (m?.author?.role === "tool" && returned.some(e => candidateResultMatches(m, e.binding)) && !expectedResults.has(m.id)) return null;
+    }
+    for (let i = 0; i < wireMessages.length; i++) {
+      const sent = wireMessages[i];
+      const index = positions.get(sent.id);
+      // The AppHost request carries the developer role. The service can
+      // omit that input from the graph. A retained copy must match the
+      // original ID, role, content and branch.
+      if (sent.author.role === "developer" && index === undefined && !allIds.has(sent.id)) {
+        continue;
+      }
+      if (sent.author.role === "tool" && index === undefined && sent.id === observedResultId) {
+        const binding = plan.messages[i].binding;
+        const originalIndex = positions.get(binding.message_id);
+        if (allIds.has(sent.id) || originalIndex === undefined || originalIndex > parentIndex ||
+            !await candidateOriginalMatches(branch.branch[originalIndex]?.message, binding)) return null;
+        continue;
+      }
+      if (index === undefined || index <= last) return null;
+      const actual = branch.branch[index].message;
+      if (actual.author?.role !== sent.author.role) return null;
+      if (sent.author.role === "tool") {
+        const binding = plan.messages[i].binding;
+        const originalIndex = positions.get(binding.message_id);
+        const original = branch.branch[originalIndex]?.message;
+        if (originalIndex === undefined || originalIndex > parentIndex ||
+            !await candidateOriginalMatches(original, binding) ||
+            !candidateVerifiedResult(actual, plan.messages[i])) return null;
+      } else if (actual.content?.content_type !== sent.content.content_type ||
+          JSON.stringify(actual.content.parts) !== JSON.stringify(sent.content.parts)) {
+        return null;
+      }
+      // No inference may be interleaved into a single submitted batch.
+      if (branch.branch.slice(last + 1, index).some(n => n.message?.author?.role === "assistant" || n.message?.author?.role === "tool")) return null;
+      last = index;
+    }
+    const assistantIndex = positions.get(assistantId);
+    if (assistantIndex === undefined || assistantIndex <= last || assistantIndex !== branch.branch.length - 1 || branch.branch[assistantIndex].message?.author?.role !== "assistant") return null;
+    let observedCalls = 0;
+    for (const node of branch.branch.slice(last + 1)) {
+      const m = node.message;
+      const recipient = m?.recipient;
+      if (m?.author?.role !== "assistant" || typeof recipient !== "string" || !declared.has(recipient.split(".").pop())) continue;
+      const actual = extractNativeToolCallFromMessage(m, declared, nativeTools.wireToOriginal, nativeTools.injectedReportWireNames, true);
+      const expected = expectedCalls.get(m.id);
+      if (!actual || !expected || m.status !== "finished_successfully" || actual.id !== expected.id || actual.native_recipient !== expected.native_recipient || actual.name !== expected.name || actual.namespace !== expected.namespace || actual.arguments !== expected.arguments || actual.native_arguments_source !== expected.native_arguments_source || toolCalls[observedCalls]?.native_message_id !== m.id) return null;
+      observedCalls++;
+    }
+    if (observedCalls !== toolCalls.length) return null;
+    return branch.head;
+  }
+
   async function sendMessage(opts = {}) {
+    const candidate = opts.native_candidate || null;
+    const notSent = (reply) => candidate ? { ...reply, native_dispatch: "not_sent" } : reply;
     if (isLoginRequired()) {
-      return { state: "error", error: "login_required", detail: "ChatGPT account login required" };
+      return notSent({ state: "error", error: "login_required", detail: "ChatGPT account login required" });
+    }
+    if (candidate && (!globalThis.crypto?.subtle || typeof TextEncoder !== "function")) {
+      return notSent(candidateError("native_argument_digest_unavailable"));
     }
     const prompt = typeof opts.prompt === "string" ? opts.prompt : "";
-    if (!prompt.trim()) {
+    if (!candidate && !prompt.trim()) {
       return { state: "error", error: "prompt_required", detail: "non-empty prompt required" };
     }
 
@@ -1471,7 +1755,7 @@
       const cancelledUntil = cancelledLanes.get(laneId);
       if (cancelledUntil > Date.now()) return { state: "stopped", lane_id: laneId };
       const liveTurns = generatingTurns();
-      if (activeTurns.has(laneId) && activeTurns.get(laneId).generating) {
+      if (activeTurns.has(laneId) && (activeTurns.get(laneId).generating || activeTurns.get(laneId).verifyingCandidate)) {
         return {
           state: "error",
           error: "generation_already_active",
@@ -1504,17 +1788,17 @@
       return null;
     };
     const initialBlock = blockedLane();
-    if (initialBlock) return initialBlock;
+    if (initialBlock) return notSent(initialBlock);
 
     const shouldWaitForBoot =
       isElectronAppOrigin() || Boolean(location && location.protocol === "about:");
     const client = await ensureCompletionClient(shouldWaitForBoot ? 30000 : 0);
     if (!client) {
-      return {
+      return notSent({
         state: "error",
         error: "completion_client_unavailable",
         detail: "in-app CompletionClient not initialized yet",
-      };
+      });
     }
 
     // Ensure we have current accountId and verify session auth (briefly retrying on cold boot).
@@ -1532,50 +1816,43 @@
       }
       if (!me.ok || !me.json) {
         if (me.status === 401 || me.status === 403 || me.status === 432) {
-          return {
+          return notSent({
             state: "error",
             error: "login_required",
             detail: "ChatGPT account login required",
-          };
+          });
         }
-        return { state: "error", error: `backend_http_${me.status}`, detail: me.text };
+        return notSent({ state: "error", error: `backend_http_${me.status}`, detail: me.text });
       }
       const orgs = me.json.orgs && Array.isArray(me.json.orgs.data) ? me.json.orgs.data : [];
       const personalOrg = orgs.find((o) => o.is_personal) || orgs[0] || null;
       cachedAccountId = personalOrg?.id || me.json.account_id || null;
       dispatchAccountId = cachedAccountId;
       observedIdentity = dispatchAccountId || me.json.id || null;
-      if (opts.verify_identity && !observedIdentity) {
-        return { state: "error", error: "pinned_account_unavailable" };
+      if (candidate && !dispatchAccountId && me.json.id) {
+        dispatchAccountId = await verifiedNativeAccountForUser(me.json.id);
+        observedIdentity = dispatchAccountId;
+      }
+      if ((opts.verify_identity && !observedIdentity) || (candidate && !dispatchAccountId)) {
+        return notSent({ state: "error", error: "pinned_account_unavailable" });
       }
       if (expectedAccountId) {
         if (observedIdentity !== expectedAccountId) {
-          return { state: "error", error: "pinned_account_mismatch" };
+          return notSent({ state: "error", error: "pinned_account_mismatch" });
         }
         if (!dispatchAccountId) {
-          // /me can expose only the authenticated user ID. Resolve the
-          // native scope by testing the AppHost's account guard on read-only
-          // /me requests before dispatch. Membership or ordering alone
-          // does not identify the account bound to the AppHost.
-          const { accounts } = await resolveChatGptAccounts();
-          const candidates = accounts.filter((account) => !account.is_deactivated);
-          const verified = (await Promise.all(candidates.map(async ({ id }) => {
-            const scoped = await apiFetch("/me", {
-              headers: { "X-OpenAI-Expected-Account-Id": id },
-            });
-            return scoped.ok && scoped.json?.id === expectedAccountId ? id : null;
-          }))).filter(Boolean);
-          if (verified.length !== 1) {
-            return { state: "error", error: "pinned_account_unavailable" };
+          dispatchAccountId = await verifiedNativeAccountForUser(expectedAccountId);
+          if (!dispatchAccountId) {
+            return notSent({ state: "error", error: "pinned_account_unavailable" });
           }
-          dispatchAccountId = verified[0];
         }
       }
     }
 
     let projectId =
       typeof opts.project_id === "string" && opts.project_id.trim() ? opts.project_id.trim() : null;
-    let parentMessageId = newUuid();
+    let parentMessageId = candidate ? candidate.parent_message_id : newUuid();
+    let priorBranch = null;
 
     // If continuing an existing conversation, resolve its exact current_node leaf & project.
     if (chatId) {
@@ -1584,18 +1861,21 @@
           ? { headers: { "X-OpenAI-Expected-Account-Id": dispatchAccountId } }
           : undefined);
       if (!convRes.ok || !convRes.json) {
-        return {
+        return notSent({
           state: "error",
           error: `backend_http_${convRes.status}`,
           detail: convRes.text || "failed to load target conversation",
-        };
+        });
       }
-      if (typeof convRes.json.current_node === "string" && convRes.json.current_node) {
+      if (candidate) {
+        priorBranch = candidateBranch(convRes.json);
+        if (!priorBranch || priorBranch.head !== parentMessageId) return notSent(candidateError("native_remote_head_mismatch"));
+      } else if (typeof convRes.json.current_node === "string" && convRes.json.current_node) {
         parentMessageId = convRes.json.current_node;
       }
       if ((opts.strict_project || (expectedAccountId && projectId)) &&
           (convRes.json.gizmo_id || null) !== projectId) {
-        return { state: "error", error: "pinned_project_mismatch" };
+        return notSent({ state: "error", error: "pinned_project_mismatch" });
       }
       if (!projectId && typeof convRes.json.gizmo_id === "string" && convRes.json.gizmo_id) {
         projectId = convRes.json.gizmo_id;
@@ -1604,7 +1884,7 @@
 
     const nativeTools = buildNativeLocalFunctionSignatures(opts.local_function_signatures);
     const declaredToolNames = new Set(nativeTools.names);
-    if (Array.isArray(opts.tool_names)) {
+    if (!candidate && Array.isArray(opts.tool_names)) {
       for (const n of opts.tool_names) {
         if (typeof n === "string" && n.trim()) {
           declaredToolNames.add(n.trim());
@@ -1614,6 +1894,7 @@
     }
 
     const fallbackFenceMode =
+      !candidate &&
       !opts.is_continuation &&
       Array.isArray(opts.local_function_signatures) &&
       opts.local_function_signatures.length > 0 &&
@@ -1634,6 +1915,15 @@
     const thinkingEffort = normalizeThinkingEffort(modelSlug, opts.reasoning_effort);
 
     const userMsgId = newUuid();
+    const wireMessages = candidate ? await candidateWireMessages(candidate, priorBranch) : null;
+    if (candidate && (!wireMessages || (Array.isArray(opts.local_function_signatures) && opts.local_function_signatures.length !== nativeTools.signatures.length))) return notSent(candidateError("native_candidate_input_unsupported"));
+    const nativeResult = candidate?.messages.find(message => message.role === "tool");
+    if (nativeResult && wireMessages.length !== 1) return notSent(candidateError("native_result_batch_unqualified"));
+    const requiresNativeSubmit = candidate && (nativeResult || declaredToolNames.size > 0);
+    const submitNativeResult = requiresNativeSubmit ? await findLocalFunctionSubmit() : null;
+    if (requiresNativeSubmit && (!submitNativeResult || typeof client.scope?.get !== "function")) {
+      return notSent(candidateError("native_local_function_submit_unavailable"));
+    }
     const requestPayload = {
       action: "next",
       ...(chatId ? { conversation_id: chatId } : {}),
@@ -1648,7 +1938,7 @@
             local_function_signatures: nativeTools.signatures,
           }
         : {}),
-      messages: [
+      messages: candidate ? wireMessages : [
         {
           id: userMsgId,
           author: { role: "user" },
@@ -1683,6 +1973,7 @@
       generating: true,
       stopped: false,
       error: null,
+      nativeSubmitController: nativeResult ? new AbortController() : null,
       messageId: null,
       assistantText: "",
       items: new Map(),
@@ -1695,7 +1986,7 @@
     };
     // Auth, boot, and conversation reads above yield to other callers.
     const finalBlock = blockedLane();
-    if (finalBlock) return finalBlock;
+    if (finalBlock) return notSent(finalBlock);
     activeTurns.set(laneId, turn);
     lastTurn = turn;
     pruneSettledTurns();
@@ -1825,6 +2116,10 @@
       msgKey = null,
       promoteInterimAnswer = false
     ) => {
+      if (candidate && typeof rawText === "string" && rawText.length > MAX_TEXT_CHARS) {
+        turn.error = { code: "native_content_bound", detail: "candidate output exceeds supported item length" };
+        return;
+      }
       const text = truncate(rawText);
       const existing = turn.items.get(itemId);
       if (!text) {
@@ -1903,6 +2198,10 @@
         emitToolReportIfNeeded(call, msgKey);
       }
       const existing = turn.items.get(itemId);
+      if (candidate && existing?.committed && (existing.call.arguments !== call.arguments || existing.call.native_arguments_source !== call.native_arguments_source || existing.call.native_recipient !== call.native_recipient || existing.call.name !== call.name || existing.call.namespace !== call.namespace)) {
+        turn.error = { code: "native_call_changed", detail: "committed native call changed" };
+        return;
+      }
       if (!existing || !existing.committed) {
         if (committed && existing) {
           // Ensure tool item sits after any newly inserted `report:<call_id>` item.
@@ -1924,6 +2223,7 @@
           name: call.name,
           ...(call.namespace ? { namespace: call.namespace } : {}),
           arguments: call.arguments,
+          ...(candidate ? { native_message_id: call.native_message_id, native_recipient: call.native_recipient } : {}),
         });
       }
     };
@@ -1952,9 +2252,18 @@
         msg,
         declaredToolNames,
         nativeTools.wireToOriginal,
-        nativeTools.injectedReportWireNames
+        nativeTools.injectedReportWireNames,
+        Boolean(candidate)
       );
+      if (candidate && !nativeCall && msgCommitted && msg.author?.role === "assistant" && typeof msg.recipient === "string" && declaredToolNames.has(msg.recipient.split(".").pop())) {
+        turn.error = { code: "native_call_invalid", detail: "declared call could not be decoded" };
+        return;
+      }
       if (nativeCall) {
+        if (candidate && msgCommitted && !nativeCall.native_message_id) {
+          turn.error = { code: "native_call_identity_missing", detail: "native call has no original message identity" };
+          return;
+        }
         if (msg.id) turn.messageId = msg.id;
         recordToolCall(nativeCall, msgCommitted, msgKey);
         return;
@@ -2033,6 +2342,10 @@
       if (!isVisibleAssistantMessage(msg)) return;
       const raw = extractRawPartsText(msg);
       if (raw === null) return;
+      if (candidate && raw.length > MAX_TEXT_CHARS) {
+        turn.error = { code: "native_content_bound", detail: "candidate answer exceeds supported item length" };
+        return;
+      }
       if (msg.id) turn.messageId = msg.id;
       const isCommentary =
         msg.channel === "commentary" ||
@@ -2095,11 +2408,38 @@
     let sawDecodedEvent = false;
     const handleStreamPayload = (cid, msg, isInput) => {
       if (typeof cid === "string" && cid) {
+        if (candidate && turn.chatId && turn.chatId !== cid) {
+          turn.error = { code: "native_chat_changed", detail: "stream changed its original conversation identity" };
+          return;
+        }
         turn.chatId = cid;
+        if (candidate && !turn.identityEmitted) {
+          turn.identityEmitted = true;
+          emitStream({ kind: "native_dispatch_identity", chat_id: cid, account_id: observedIdentity });
+        }
       }
       if (!isInput && msg) {
         recordMessage(msg);
       }
+    };
+    const observeCompletion = {
+      onDecodedEvent: (ev) => {
+        sawDecodedEvent = true;
+        if (!ev || typeof ev !== "object") return;
+        activity();
+        const cid = ev?.update?.conversationId || ev?.payload?.conversation_id;
+        const msg = ev?.update?.type === "message" ? ev.update.message : ev?.payload?.message;
+        handleStreamPayload(cid, msg, ev?.isInputMessage === true);
+      },
+      onUpdate: (update) => {
+        if (sawDecodedEvent || !update || typeof update !== "object") return;
+        activity();
+        if (update.type === "message" && update.message) {
+          handleStreamPayload(update.conversationId, update.message, false);
+        } else if (typeof update.conversationId === "string" && update.conversationId) {
+          handleStreamPayload(update.conversationId, null, false);
+        }
+      },
     };
 
     const settleItems = () => {
@@ -2119,6 +2459,7 @@
                 name: item.call.name,
                 ...(item.call.namespace ? { namespace: item.call.namespace } : {}),
                 arguments: item.call.arguments,
+                ...(candidate ? { native_message_id: item.call.native_message_id, native_recipient: item.call.native_recipient } : {}),
               });
             }
           } else {
@@ -2139,51 +2480,92 @@
       });
     };
 
+    let nativeReadback = null;
+    let nativeStage = "native_submit";
+    let observedResultId = null;
     try {
-      const handle = await client.startCompletionStream({
-        request: requestPayload,
-        expectedAccountId: dispatchAccountId || undefined,
-        turnTraceId: newUuid(),
-        onDecodedEvent: (ev) => {
-          sawDecodedEvent = true;
-          if (!ev || typeof ev !== "object") return;
-          activity();
-          const cid = ev?.update?.conversationId || ev?.payload?.conversation_id;
-          const msg = ev?.update?.type === "message" ? ev.update.message : ev?.payload?.message;
-          handleStreamPayload(cid, msg, ev?.isInputMessage === true);
-        },
-        onUpdate: (update) => {
-          if (sawDecodedEvent || !update || typeof update !== "object") return;
-          activity();
-          if (update.type === "message" && update.message) {
-            handleStreamPayload(update.conversationId, update.message, false);
-          } else if (typeof update.conversationId === "string" && update.conversationId) {
-            turn.chatId = update.conversationId;
+      if (nativeResult) {
+        let complete;
+        const completion = new Promise(resolve => { complete = resolve; });
+        const current = () => !turn.stopped && activeTurns.get(laneId) === turn;
+        const scope = candidateResultScope(client, turn, nativeResult, parentMessageId, dispatchAccountId, id => {
+          if (observedResultId || id === nativeResult.binding.message_id) return false;
+          observedResultId = id;
+          return true;
+        }, observeCompletion);
+        await Promise.race([turn.donePromise, submitNativeResult(scope, {
+          callId: nativeResult.binding.message_id,
+          conversationId: chatId,
+          parentMessageId,
+          model: modelSlug,
+          thinkingEffort,
+          result: candidateExpectedResult(nativeResult),
+          toolName: candidateResultToolName(nativeResult.binding),
+          startupSignal: turn.nativeSubmitController.signal,
+          isSubmissionCurrent: current,
+          isRequestCurrent: current,
+          requireDispatchAcceptance: true,
+          onCompletion: complete,
+        })]);
+        nativeStage = "native_completion";
+        const status = await Promise.race([completion, turn.donePromise]);
+        if (!turn.stopped) {
+          if (status !== "completed" || !observedResultId) throw Error("AppHost did not confirm completion of the native return");
+          turn.verifyingCandidate = true;
+          turn.resolveDone();
+          nativeStage = "native_result_readback";
+          nativeReadback = await apiFetch(`/conversation/${encodeURIComponent(chatId)}`, {
+            headers: { "X-OpenAI-Expected-Account-Id": dispatchAccountId },
+          });
+          const branch = nativeReadback.ok && candidateBranch(nativeReadback.json);
+          const parent = branch ? branch.branch.findIndex(node => node.key === parentMessageId) : -1;
+          const delta = parent >= 0 ? branch.branch.slice(parent + 1) : [];
+          wireMessages[0].id = observedResultId;
+          const resultIndex = delta.findIndex(node => node.message?.id === observedResultId);
+          for (const { message } of delta.slice(resultIndex + 1)) {
+            if (message?.author?.role !== "assistant") continue;
+            const recipient = message.recipient;
+            const declared = typeof recipient === "string" && declaredToolNames.has(recipient.split(".").pop());
+            const visible = message.content?.content_type === "text" &&
+              (message.channel === "final" || message.channel === "commentary") &&
+              !message.metadata?.is_visually_hidden_from_conversation;
+            if (declared || visible) handleStreamPayload(chatId, message, false);
           }
-        },
-        onComplete: () => {
           if (!turn.stopped) settleItems();
-          turn.resolveDone();
-        },
-        onError: (err) => {
-          if (!turn.stopped) {
-            const code = err?.errorCode || (err?.responseStatus ? `backend_http_${err.responseStatus}` : "completion_stream_error");
-            const detail = err?.error || err?.message || String(err || "completion stream failed");
-            turn.error = { code: String(code), detail: truncate(String(detail), 512) };
-          }
-          turn.resolveDone();
-        },
-      });
-      if (handle && typeof handle === "object") {
-        turn.requestId = handle.streamRequestId || null;
-        turn.conduitToken = handle.prepareResponse?.conduit_token || null;
-        if (turn.stopped) await stopSingleTurn(turn, client);
+        }
+      } else {
+        const handle = await client.startCompletionStream({
+          request: requestPayload,
+          expectedAccountId: dispatchAccountId || undefined,
+          turnTraceId: newUuid(),
+          ...observeCompletion,
+          onComplete: () => {
+            if (!turn.stopped) settleItems();
+            turn.verifyingCandidate = Boolean(candidate && !turn.stopped && !turn.error);
+            turn.resolveDone();
+          },
+          onError: (err) => {
+            if (!turn.stopped) {
+              const code = err?.errorCode || (err?.responseStatus ? `backend_http_${err.responseStatus}` : "completion_stream_error");
+              const detail = err?.error || err?.message || String(err || "completion stream failed");
+              turn.error = { code: String(code), detail: truncate(String(detail), 512) };
+            }
+            turn.resolveDone();
+          },
+        });
+        if (handle && typeof handle === "object") {
+          turn.requestId = handle.streamRequestId || null;
+          turn.conduitToken = handle.prepareResponse?.conduit_token || null;
+          if (turn.stopped) await stopSingleTurn(turn, client);
+        }
       }
     } catch (err) {
       turn.generating = false;
+      turn.verifyingCandidate = false;
       turn.error = {
-        code: "completion_dispatch_failed",
-        detail: truncate(String(err && err.message ? err.message : err), 512),
+        code: nativeResult ? "native_reconciliation_required" : "completion_dispatch_failed",
+        detail: nativeResult ? `${nativeStage}: native result could not be confirmed` :
+          truncate(String(err && err.message ? err.message : err), 512),
       };
       turn.resolveDone();
     }
@@ -2204,12 +2586,14 @@
     }
 
     if (turn.error) {
+      turn.verifyingCandidate = false;
       return {
         state: "error",
         lane_id: turn.laneId,
         error: turn.error.code,
         detail: turn.error.detail,
         chat_id: turn.chatId,
+        ...(candidate ? { account_id: observedIdentity } : {}),
       };
     }
 
@@ -2229,7 +2613,7 @@
     // fetch only an assistant message strictly AFTER this turn's userMsgId so previous-turn text
     // can never leak into a tool-only or empty turn.
     const hasAnswerItem = [...turn.items.values()].some((item) => item.kind === "answer" && item.text);
-    if (!hasAnswerItem && turn.nativeToolCalls.size === 0 && turn.chatId) {
+    if (!candidate && !hasAnswerItem && turn.nativeToolCalls.size === 0 && turn.chatId) {
       const rd = await readChat({ chat_id: turn.chatId, limit: 10 });
       if (rd.state === "ok" && Array.isArray(rd.messages)) {
         const userIdx = rd.messages.findIndex((m) => m.id === userMsgId);
@@ -2261,9 +2645,14 @@
             name: item.call.name,
             ...(item.call.namespace ? { namespace: item.call.namespace } : {}),
             arguments: item.call.arguments,
+            ...(candidate ? {
+              native_message_id: item.call.native_message_id,
+              native_recipient: item.call.native_recipient,
+              native_arguments_source: item.call.native_arguments_source,
+            } : {}),
           };
           settledToolCalls.push(tc);
-          normalizedItems.push({ id: item.id, kind: "tool_call", call_id: tc.id, name: tc.name, ...(tc.namespace ? { namespace: tc.namespace } : {}), arguments: tc.arguments });
+          normalizedItems.push({ id: item.id, kind: "tool_call", call_id: tc.id, name: tc.name, ...(tc.namespace ? { namespace: tc.namespace } : {}), arguments: tc.arguments, ...(candidate ? { native_message_id: tc.native_message_id, native_recipient: tc.native_recipient } : {}) });
         }
         continue;
       }
@@ -2274,7 +2663,7 @@
       } else if (item.kind === "commentary") {
         normalizedItems.push({ id: item.id, kind: "commentary", text: item.text });
       } else if (item.kind === "answer") {
-        if (turn.nativeToolCalls.size === 0 && (fallbackFenceMode || item.text.includes("```codex_tool_call"))) {
+        if (!candidate && turn.nativeToolCalls.size === 0 && (fallbackFenceMode || item.text.includes("```codex_tool_call"))) {
           const parsed = parseToolCallsFromText(item.text);
           if (parsed.text) {
             answerParts.push(parsed.text);
@@ -2294,6 +2683,24 @@
       }
     }
 
+    let verifiedHead = null;
+    if (candidate && !turn.stopped) {
+      try {
+        const reconciliationError = () => {
+          turn.error = { code: "native_reconciliation_required", detail: "remote settlement could not be verified" };
+          return { ...candidateError(turn.error.code), chat_id: turn.chatId, account_id: observedIdentity };
+        };
+        if (!turn.chatId || (chatId && turn.chatId !== chatId) || !observedIdentity) return reconciliationError();
+        const result = nativeReadback || await apiFetch(`/conversation/${encodeURIComponent(turn.chatId)}`, dispatchAccountId ? { headers: { "X-OpenAI-Expected-Account-Id": dispatchAccountId } } : undefined);
+        if (turn.stopped || !result.ok || !result.json || (result.json.gizmo_id || null) !== projectId) return reconciliationError();
+        verifiedHead = await verifyCandidateSettlement(result.json, { ...candidate, existing_chat: Boolean(chatId) }, wireMessages, settledToolCalls, turn.messageId, nativeTools, observedResultId);
+        if (turn.stopped || !verifiedHead) return reconciliationError();
+      } finally {
+        turn.verifyingCandidate = false;
+      }
+    } else {
+      turn.verifyingCandidate = false;
+    }
     const finalReasoningSummary = truncate(summaryParts.join("\n\n"));
     const finalAssistantText = truncate(answerParts.join("\n\n"));
     turn.assistantText = finalAssistantText;
@@ -2303,6 +2710,7 @@
       chat_id: turn.chatId,
       message_id: turn.messageId,
       ...(opts.verify_identity ? { account_id: observedIdentity } : {}),
+      ...(candidate && verifiedHead ? { native_verified: true, remote_head: verifiedHead, submitted_message_ids: wireMessages.map(m => m.id) } : {}),
       items: normalizedItems,
       reasoning_summary: finalReasoningSummary,
       assistant_text: finalAssistantText,
@@ -2383,6 +2791,19 @@
       cachedAccountId ||
       null;
     return { accountId: selected, accounts, ordering };
+  }
+
+  async function verifiedNativeAccountForUser(userId) {
+    // Membership and ordering alone do not identify the AppHost account.
+    const { accounts } = await resolveChatGptAccounts();
+    const candidates = new Set(accounts.filter(account => !account.is_deactivated).map(account => account.id));
+    const verified = (await Promise.all(Array.from(candidates, async id => {
+      const scoped = await apiFetch("/me", {
+        headers: { "X-OpenAI-Expected-Account-Id": id },
+      });
+      return scoped.ok && scoped.json?.id === userId ? id : null;
+    }))).filter(Boolean);
+    return verified.length === 1 ? verified[0] : null;
   }
 
   function connectorHeaders(accountId, sku) {

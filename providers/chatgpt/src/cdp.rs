@@ -47,6 +47,14 @@ pub enum StreamEvent {
         #[serde(default)]
         namespace: Option<String>,
         arguments: String,
+        #[serde(default)]
+        native_message_id: Option<String>,
+        #[serde(default)]
+        native_recipient: Option<String>,
+    },
+    NativeDispatchIdentity {
+        chat_id: String,
+        account_id: String,
     },
     TurnCompleted {
         #[serde(default)]
@@ -132,7 +140,9 @@ impl LaneSender {
                 q.mutable.remove(item_id);
                 q.committed.push_back(event);
             }
-            StreamEvent::ToolCall { .. } | StreamEvent::TurnCompleted { .. } => {
+            StreamEvent::ToolCall { .. }
+            | StreamEvent::NativeDispatchIdentity { .. }
+            | StreamEvent::TurnCompleted { .. } => {
                 q.committed.push_back(event);
             }
         }

@@ -23,7 +23,7 @@ slices or reprioritize unrelated component work.
 
 | Order | Work | Admission / status |
 | --- | --- | --- |
-| 1 | [Native tool return and structured context](#10-chatgpt-provider-native-tool-return-and-structured-context) | Planned; P0 live capability gate first, then P1–P8. No new product implementation or release qualified by this document. |
+| 1 | [Native tool return and structured context](#10-chatgpt-provider-native-tool-return-and-structured-context) | Single-call C route passed with official Codex CLI and actual AppHost. E02 stopped at readback after the first result submission. Reconcile that request before repeating it. Durable instruction scope, batches and integration qualification remain open. See `HANDOFF.md` and `CURRENT.md`. |
 | 2 | [Codex presentation improvements](#11-deferred-codex-presentation-improvements) | Preserve the complete prior plan; defer new implementation until order 1 is qualified and closed, or the user explicitly changes the order. Existing presentation behavior remains a mandatory regression boundary during order 1. |
 
 A blocked native capability, reconciliation, publication or activation gate
@@ -467,11 +467,14 @@ Work를 유지하고, 컴팩션으로 기존 문맥이 교체되면 압축된 �
 
 ## 10. ChatGPT Provider native tool return and structured context
 
-**Priority:** first Provider follow-up, ahead of §11. **Status:** planned;
-no candidate implemented, authenticated native-return proof, publication or
-activation authorized or asserted by saving this plan. User decision:
-2026-11-25. Source baseline: `main` at
-`c9d0e24553085403ab791df149f748b4d6161dc3`. Prior investigation identified
+**Priority:** first Provider follow-up, ahead of §11. **Status:** the newer
+Android proof build passed a single native function call and return with
+official Codex 0.171.0 and actual AppHost. The initial developer message
+retained its role and supplied the command that Codex executed. Durable
+scope, other authenticated cases and signed publication remain open.
+Active work and receipts are in
+`HANDOFF.md` and [CURRENT.md](../CURRENT.md). Planning source baseline:
+`main` at `c9d0e24553085403ab791df149f748b4d6161dc3`. Prior investigation identified
 installed AppHost `26.1117.41037`, legacy reference `220cc2e4` (0.167.2), and
 12/12 passing current Page Driver mock tests. Those tests do not qualify the
 new native-return path. Recheck the exact checkout and installed/running
@@ -510,16 +513,19 @@ sessions, services, signed active/rollback generations and shared storage.
 
 ### 10.2 P0 — isolated capability proof and selection gate
 
-Before altering the product contract or main implementation, reread the
+Before candidate development or live proof, reread the
 repository authority documents and verify the candidate's ownership, source
 SHA, AppHost generation and actual running binary. Use an owned Termux-internal
 scratch root, independent candidate Provider on a loopback port, distinct
 Provider state, Codex home, test chat and explicitly authorized test account/
-profile; reuse existing isolation configuration. Do not copy credentials or
-restart the active service. Use an entitled non-Pro Thinking model. If
-isolation or authorized access is not available, mark the relevant live gate
-blocked rather than testing on existing user sessions. A small isolated probe
-may be built before product implementation; do not install it as the product.
+profile. Reuse existing isolation configuration. The existing Linux AppHost
+account is authorized for a fresh
+test chat; a separate account is not required. Do not copy credentials or
+concurrently open a leased profile. Reuse the existing AppHost when feasible,
+with a safe service handoff if needed. Use an entitled non-Pro Thinking model.
+If authorized live proof is unavailable, retain the open gate but continue
+conditional candidate implementation and synthetic qualification. Do not
+install or adopt an unqualified candidate as the product.
 
 Inspect the actual current interface and its version/capability constraints.
 The installed package contains candidate structured tool-result and continuation
@@ -562,9 +568,9 @@ record the precise capability gap and independently qualify B against the same
 requirements; do not use B as an automatic retry of an uncertain C dispatch.
 Select one admitted path. If both fail or the authorized live proof is blocked,
 stop product adoption, retain the existing generation, and report the open
-boundary. P0 is not passed by mocks, code inspection or request acceptance
-alone. Rerun the acceptance cases against the actual integrated candidate in
-P7; isolated capability probes cannot stand in for final product acceptance.
+boundary. Candidate development may precede P0. Production adoption
+requires actual capability proof. Rerun the acceptance cases against the
+actual integrated candidate in P7 to qualify the product.
 
 ### 10.3 P1–P4 — contract and implementation
 
@@ -633,7 +639,9 @@ drop new fields). Do not activate while unverified pending effects exist.
 
 ### 10.5 P6 — replacement cleanup and regression
 
-Only after the selected route passes qualification, remove obsolete flattened
+Run the P7 replacement-behavior checks against the candidate before removing
+the old path. After the cleanup, rerun those checks on the resulting artifact.
+Once the replacement has passed the pre-cleanup checks, remove obsolete flattened
 instruction/assistant/tool-result prompt building, fenced textual tool-call
 execution fallback, redundant history resend, silent new-chat-on-prefix-drift
 and silent loss/truncation paths. Do not remove independently required direct
@@ -668,6 +676,10 @@ the evidence and report actual status; do not weaken the test or hide it with
 fallbacks.
 
 ### 10.7 P8 — qualification, publication and activation
+
+Keep the ChatGPT Provider package and active local installation at
+`0.1.0` until the user explicitly starts versioning. Identify development
+builds by their binary SHA-256 and retain rollback artifacts.
 
 Use the existing `.github/workflows/chatgpt-provider.yml` and signing authority;
 no new release pipeline. Required checks: `node --test
