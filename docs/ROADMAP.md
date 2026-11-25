@@ -13,6 +13,28 @@
 
 ---
 
+## 0. Next Provider development order
+
+**User decision (2026-11-25):** qualify and implement the ChatGPT Provider's
+native tool-return and structured-context adapter (option C) **before** the
+previously proposed Codex presentation improvements. This order applies to
+Provider follow-up development; it does not reopen the completed Stage 2
+slices or reprioritize unrelated component work.
+
+| Order | Work | Admission / status |
+| --- | --- | --- |
+| 1 | [Native tool return and structured context](#10-chatgpt-provider-native-tool-return-and-structured-context) | Planned; P0 live capability gate first, then P1–P8. No new product implementation or release qualified by this document. |
+| 2 | [Codex presentation improvements](#11-deferred-codex-presentation-improvements) | Preserve the complete prior plan; defer new implementation until order 1 is qualified and closed, or the user explicitly changes the order. Existing presentation behavior remains a mandatory regression boundary during order 1. |
+
+A blocked native capability, reconciliation, publication or activation gate
+must be reported accurately; it does not silently authorize moving the
+presentation work ahead, reverting to synthetic user prompts, or bypassing
+approval. Publication and activation remain separately authorized. On actual
+execution start, derive the single active `HANDOFF.md` from the selected work
+below; this roadmap is the saved plan, not a claim that execution has started.
+
+---
+
 ## 1. Ground Rules & Non-Negotiable Constraints
 
 1. **Zero-coupling Stage 1 Wrapper (`$PREFIX/bin/codex`):**
@@ -440,3 +462,318 @@ Work를 유지하고, 컴팩션으로 기존 문맥이 교체되면 압축된 �
    붙은 운영 커넥터의 원장을 분리해야 한다. Codex의 실제 `mcp_tool_call`
    기록에서 후보 호출을 확인하고, 실제 작업을 시작하기 전에 시험 연결이
    운영 커넥터로 위임할 수 없는 환경인지 확인한다.
+
+---
+
+## 10. ChatGPT Provider native tool return and structured context
+
+**Priority:** first Provider follow-up, ahead of §11. **Status:** planned;
+no candidate implemented, authenticated native-return proof, publication or
+activation authorized or asserted by saving this plan. User decision:
+2026-11-25. Source baseline: `main` at
+`c9d0e24553085403ab791df149f748b4d6161dc3`. Prior investigation identified
+installed AppHost `26.1117.41037`, legacy reference `220cc2e4` (0.167.2), and
+12/12 passing current Page Driver mock tests. Those tests do not qualify the
+new native-return path. Recheck the exact checkout and installed/running
+identities at execution start; do not infer deployment from source HEAD.
+
+### 10.1 Objective, scope and ownership
+
+Keep the external name **ChatGPT Provider**, existing Provider ID, configuration,
+standalone workspace and service. Internally use one structured bidirectional
+protocol adapter between the official Codex Responses interface and the
+authorized ChatGPT AppHost interface. Prefer option C: AppHost's own supported
+message submission, tool-result return and continuation behavior. Option B
+(structured messages on the existing completion transport) is a separate
+candidate only if C cannot meet the requirements. The old flattened text path
+(option A) is not an accepted target.
+
+Official Codex owns work, execution, approval/sandbox, canonical Codex thread
+history and compaction. ChatGPT owns its account/project/chat history, model
+context construction and inference. Provider owns transport adaptation, the
+verified binding between those identities, original tool-call correlation,
+committed transfer boundaries and lifecycle reconciliation. AppHost owns its
+native request handling. Distinguish message role, authority, UI visibility and
+actual model consumption: hiding text does not change its authority or prove
+consumption. Do not impersonate higher-authority messages, synthesize private
+reasoning, access credentials, alter AppHost files, bypass policy or fabricate
+protocol capabilities. Use only authorized interfaces and test data.
+
+Preserve the current single stream assembly/encoder/mailbox, catalog, per-chat
+lanes, cancellation, direct `/control/*` users, utility isolation, existing
+presentation projection and official Codex/Wrapper/MCP contracts. No second
+executor, conversation engine, state database, permanent compatibility branch,
+upstream patch, or resurrection of the retired 0.167.2 runtime/DDPE. Legacy
+code and tests are design evidence, not runtime dependencies. Preserve user
+files (including the two existing untracked configuration files), accounts,
+sessions, services, signed active/rollback generations and shared storage.
+
+### 10.2 P0 — isolated capability proof and selection gate
+
+Before altering the product contract or main implementation, reread the
+repository authority documents and verify the candidate's ownership, source
+SHA, AppHost generation and actual running binary. Use an owned Termux-internal
+scratch root, independent candidate Provider on a loopback port, distinct
+Provider state, Codex home, test chat and explicitly authorized test account/
+profile; reuse existing isolation configuration. Do not copy credentials or
+restart the active service. Use an entitled non-Pro Thinking model. If
+isolation or authorized access is not available, mark the relevant live gate
+blocked rather than testing on existing user sessions. A small isolated probe
+may be built before product implementation; do not install it as the product.
+
+Inspect the actual current interface and its version/capability constraints.
+The installed package contains candidate structured tool-result and continuation
+behavior, but its presence is not proof of generic local-tool support. Verify
+call identity, parent-node selection, accepted message roles, result batching,
+request-scoped versus durable instructions, and actual remote acceptance. Do
+not hardcode version-specific private symbols or assume a public Responses
+contract is identical to the AppHost contract. If no authorized usable route
+exists, report the gap.
+
+For the first live proof, have the model request a declared harmless test tool;
+produce an unpredictable marker only after the call, return it once with the
+original call identity as a structured result (not a user message), and require
+the model to report it correctly. Compare sanitized transport evidence, remote
+chat identity/role/parent evidence, visible UI, and actual Codex execution
+receipts. A second assistant response alone does not prove that the same
+logical tool round continued or that private inference state was preserved.
+Do not inspect or attempt to reconstruct private reasoning.
+
+| ID | Live or isolated integration proof | Required outcome |
+| --- | --- | --- |
+| E01 | Single native function tool | Exact unpredictable result consumed; one original call and return. |
+| E02 | Three successive tool rounds | One genuine user request; all rounds continue the same logical task. |
+| E03 | Parallel/batched calls | Unique results correlate to each original call, including out-of-order arrivals; no spurious independent inference per result. |
+| E04 | Custom/namespaced tools | Original input, name, namespace and output semantics survive conversion. |
+| E05 | Execution failure | Model receives the real failure, not a fabricated success. |
+| E06 | Approval denial | Official reviewer/executor denies; no prohibited execution; denial result delivered with original identity. |
+| E07 | Large result | Lossless within supported bounds; explicit error or disclosed bounded representation beyond them, never silent truncation. |
+| E08 | Structured content | Preserve supported typed content (including image/text where supported); fail clearly for unsupported types. |
+| E09 | Durable developer instructions | Harmless canary proves actual scope across turns; no role escalation. |
+| E10 | Request-scoped/changed instructions | Verify application, expiration and replacement; do not assume one-time persistence. |
+| E11 | Ten consecutive user turns | Same verified chat; no replay of resident assistant/tool outputs. |
+| E12 | Actual ChatGPT UI | No fabricated user messages for tool results, instructions or prior replies; visible original requests preserved. |
+| E13 | Candidate Provider restart | Original pending call and result remain correlated; no unverified resend. |
+| E14 | Independent parallel chats | No cross-delivery/global busy; same-chat write exclusion and lane-local cancellation retained. |
+| E15 | Role-spoofing content | Role-looking text inside user/tool data remains data; no privilege or tool execution escalation. |
+
+Select C only with evidence that the required semantics work. If C fails,
+record the precise capability gap and independently qualify B against the same
+requirements; do not use B as an automatic retry of an uncertain C dispatch.
+Select one admitted path. If both fail or the authorized live proof is blocked,
+stop product adoption, retain the existing generation, and report the open
+boundary. P0 is not passed by mocks, code inspection or request acceptance
+alone. Rerun the acceptance cases against the actual integrated candidate in
+P7; isolated capability probes cannot stand in for final product acceptance.
+
+### 10.3 P1–P4 — contract and implementation
+
+| Step | Work and completion condition |
+| --- | --- |
+| P1 | Deliberately update [the Provider annex](spec/CHATGPT_PROVIDER.md) before public behavior changes. Specify roles, content support, developer-instruction lifetimes, tool-call/result identity, server-state anchoring, explicit compaction/handoff, failure/reconciliation and compatibility. Keep stable top-level invariants unchanged. |
+| P2 | Replace `render_prompt_from_responses_request`'s merged turn text with a typed internal request. Separate real user messages, authorized instructions/context, tool definitions, tool results and continuation binding. Preserve content ordering and authority. Unknown input types are explicit errors or proven semantic conversions, not default user messages. Keep direct user send behavior separate from Codex's typed request. |
+| P3 | Preserve the exact remote call/message/recipient identifiers and mapped Codex call ID, namespace and conversation binding through Page Driver, stream events and the Responses output. Do not rely on truncated remote IDs. Retain only distinct required IDs. Persist binding before exposing a committed tool call to Codex; return each function/custom result once to its original call using the selected native path. Preserve result order and batch semantics; verify no unintended new user message or extra model round. |
+| P4 | Compare canonical committed Codex input **plus the exact Responses output actually emitted**, not only the previous input nor raw ChatGPT text. Normalize documented stable semantics (including projected presentation/commentary, typed tool fields and ordering); verify against actual upstream rollouts. Separate resident transcript, instruction scope, tool catalog and explicit compaction/context generation. Send only new inputs and required updates. Validate the committed remote head, account/project, and exact `previous_response_id` binding; reject ambiguity instead of attaching to the newest unrelated node. |
+
+The internal type/field names are design candidates, not guessed wire contracts.
+Use the existing `responses.rs`, `page_driver.js`, `driver.rs`, `cdp.rs`,
+`main.rs` and Page Driver tests as their actual owners; extend existing types
+only as demonstrated necessary. For each successful round, the committed
+prefix covers canonical input concatenated with committed output. It is not a
+second full transcript. Existing instructions may need reapplication when the
+remote scope requires it; do not blindly resend or suppress them. `additional_tools`
+updates the catalog and must not alone fork the chat. A true compaction or
+explicit provider handoff follows official Codex's context authority and the
+qualified remote operation; do not silently retain stale incompatible context.
+
+### 10.4 P5 — durability, migration, recovery and parallelism
+
+Extend the existing `ResponseThreadMap` / `response_threads.json` owner rather
+than create a parallel store. Retain the minimal versioned durable binding:
+Codex thread/response ID, ChatGPT chat and confirmed remote node, account/project,
+canonical committed input/output boundary, instruction/context generation,
+pending native call identity and delivery/settlement receipts. Preserve atomic
+0600 storage, locking, and bounded retention; never evict unresolved calls.
+Persist sufficient original request/result identity before dispatch, and call
+binding before a committed call is exposed; record remote settlement before
+final response delivery. Keep raw sensitive payloads out of diagnostics. Reuse
+Codex's execution/rollout authority and available remote receipts instead of
+inventing duplicate execution state.
+
+Logical progression: READY → DISPATCHING → ACCEPTED → TOOL_PENDING →
+RESULT_DISPATCHING → SETTLED, with repeated tool rounds and an explicit
+uncertain/reconciliation state at any ambiguous boundary. Integrate these
+facts with the current lifecycle rather than adding a second state machine.
+When a tool executes before a disconnect, recover the original outcome from
+its owner; never execute it again merely to reconstruct missing data. When a
+remote submission may have succeeded, reconcile the original request/remote
+node/receipt before retry. If the evidence is insufficient, surface a clear
+recoverable failure and retain the original identifiers. Do not claim
+unconditional exactly-once delivery over an ambiguous network; no duplicate
+confirmed effect, no silent retry, no silent fresh chat, and explicit unknown
+outcomes are the required semantics.
+
+Test duplicate result, unknown call, mismatched result, partial batch,
+concurrent same-chat write, independent chat lanes, disconnect before/after
+remote acceptance, interruption before/after tool emission, loss after remote
+settlement but before local final delivery, restart with pending tools, external
+chat edits, changed account/project, explicit historical response ID, normal
+compaction and context mismatch. Reuse original IDs; verify one real effect
+and original result receipts, not only request counters. Cancellation must
+remain lane-local and must not be reported as settled without evidence.
+
+Migration: existing entries lack sufficient output/head/call bindings. Prove
+reconciliation against the original Codex history and actual remote state for
+settled and pending cases; never guess from old truncated IDs. Existing
+historical synthetic messages remain untouched. If reconciliation is not
+possible, preserve data and report the explicit recovery requirement. Verify
+schema-version compatibility, atomic migration, mixed-version exclusion and
+safe rollback with pending state (old binary must not silently misinterpret or
+drop new fields). Do not activate while unverified pending effects exist.
+
+### 10.5 P6 — replacement cleanup and regression
+
+Only after the selected route passes qualification, remove obsolete flattened
+instruction/assistant/tool-result prompt building, fenced textual tool-call
+execution fallback, redundant history resend, silent new-chat-on-prefix-drift
+and silent loss/truncation paths. Do not remove independently required direct
+ChatGPT send or utility behavior. Reuse `TurnAssembly`, `ResponsesEncoder` and
+`LaneMailbox`; preserve public commentary/reasoning summaries, existing
+`presentation.rs` projection, SSE ordering and stream/nonstream equivalence,
+model catalog/selection, control endpoints, account/project scoping and
+background title/memory isolation. Verify the current presentation regression
+boundary but do not implement the broader §11 enhancement in this milestone.
+
+### 10.6 P7 — integrated actual-product qualification
+
+Run E01–E15 against the exact candidate build with authorized isolated
+AppHost/ChatGPT and official Codex CLI/TUI and app-server, including actual
+Android/Termux, real tool approval/denial, manual/automatic compaction, resume,
+existing control/MCP send/observe/stop, independent lanes, and actual ChatGPT
+UI evidence. Compare equivalent stream and JSON outcomes. Include utility
+traffic during an active user turn and existing presentation projection and
+copy/literal code preservation. Preserve original source and authorized live
+service; no physical UI or authenticated evidence inferred from mocks.
+
+Minimum end-to-end targets: at least ten consecutive genuine user turns in a
+verified chat, at least twenty native tool calls/results including batched and
+failure/recovery cases, zero synthetic user turns, zero replay of resident
+assistant/tool output, zero duplicate confirmed tool effects or result
+submissions, zero lost required result content and zero cross-chat delivery.
+These are planned thresholds, not observed metrics. Compare the baseline and
+candidate on equivalent workloads: user-message count, new/resident payload
+bytes, inference request count, latency and task success. Do not claim token
+or cost savings from wire-byte measurements alone. For a failing gate preserve
+the evidence and report actual status; do not weaken the test or hide it with
+fallbacks.
+
+### 10.7 P8 — qualification, publication and activation
+
+Use the existing `.github/workflows/chatgpt-provider.yml` and signing authority;
+no new release pipeline. Required checks: `node --test
+providers/chatgpt/tests/page_driver.test.mjs`, Provider `cargo fmt --check`,
+locked `cargo clippy --all-targets -- -D warnings`, locked Rust tests under
+umask 0022 and 0077, AppHost Python lifecycle tests, docs-link validation,
+aarch64 Android cross-compile/package and 16 KiB ELF geometry. Source, CI,
+Android execution, authenticated candidate, physical UI, signed publication,
+activation and rollback are separate evidence boundaries. Run the real
+candidate before requesting publication. Sign only the exact qualified
+artifact and verify public readback, monotonic sequence and digests. Activate
+only with explicit authority and idle/safe migration, verify actual process
+binary/selected and running generations, readiness and an isolated smoke, and
+prove safe rollback to the retained signed previous generation without losing
+pending state. Do not change unrelated component versions or services. A
+blocked publication/activation is not completion and does not automatically
+advance §11.
+
+### 10.8 Evidence, documentation and closure
+
+Use a single active `HANDOFF.md` only when execution is authorized; carry
+P0–P8 and actual receipts there. Update the normative annex before changing
+observable behavior; update [ARCHITECTURE.md](ARCHITECTURE.md) and applicable
+[README.md](../README.md) after actual source changes, [CURRENT.md](../CURRENT.md)
+only for observed facts/status, and the roadmap for deferred work. Record
+exact source SHA, AppHost generation, candidate and installed binary digests,
+test IDs, non-secret correlation/settlement evidence, execution/return counts,
+exit results, CI/publish/readback/activation/rollback receipts and open gates.
+Archive/retire the active work order only after actual closeout. No account,
+credential, private reasoning or raw private conversation contents in evidence.
+
+Completion requires the selected structured path, role/content preservation,
+original call binding, committed context continuity, migration and recovery,
+regression tests, actual-model qualification and authorized release/activation
+and rollback closure. Only then move to the deferred presentation milestone,
+unless the user explicitly changes the development order.
+
+---
+
+## 11. Deferred Codex presentation improvements
+
+**Priority:** after §10. **Status:** retained, deferred; not authorization to
+implement, publish or activate. The prior approval-ready presentation work
+order is preserved below, with section headings nested under this roadmap.
+Its original baseline/evidence describes the earlier investigation, not the
+future post-§10 candidate. At eventual start, rebase its tests and integration
+point against the accepted structured adapter; retain the original required
+presentation outcomes and separate Phase 2 authorization. No broad
+presentation refactor while §10 is active; compatibility fixes needed to
+preserve existing output behavior remain within §10.
+
+Original plan evidence location (local audit, not a repository dependency):
+`$PREFIX/tmp/codex-tui-audit.8FJOHh/final-plan-preflight/IMPLEMENTATION_PLAN.md`.
+
+### Codex presentation adapter — approval-ready work order
+
+Status: PROPOSED / not authorized to edit source, publish, or activate.
+Baseline: main c9d0e24553085403ab791df149f748b4d6161dc3; installed Codex 0.171.0.
+Upstream source evidence: rust-v0.171.0, peeled ccf9be8cc458bd6b8336fe84d68d8893f2691a5e.
+Existing untracked ais.config.toml and chatgpt.config.toml are user-owned and excluded.
+
+#### Scope and ownership
+
+Phase 1 changes the standalone providers/chatgpt component only, plus relevant docs and qualification tests. Official Codex source, ELF adaptations, Wrapper, cdx, MCPs, real accounts, installed binaries and running services stay unchanged. Use official Markdown, tables, math, supported Mermaid, links and existing typed image/input capabilities only through their genuine owners. Do not synthesize tool calls, approvals, UI actions or protocol fields. AppHost and upstream Codex remain the conversation authorities. No shadow conversation DB, second executor, prompt coercion, arbitrary script evaluation, network retrieval of missing presentation bindings, or undisclosed data fabrication. Work on authorized, user-visible input only; never access private UI internals or credentials.
+
+#### Phase 1 — implementation order
+
+P1-00: after explicit approval reread AGENTS.md, docs/INDEX.md, SPEC.md, docs/spec/CHATGPT_PROVIDER.md, docs/ARCHITECTURE.md, CURRENT.md and docs/ROADMAP.md; check actual branch, HEAD, working tree and ownership. If baseline drift, reconcile first; preserve all user changes. Create active root HANDOFF.md as single work order when execution starts. Update provider annex before observable behavior changes. Do not change stable SPEC invariants.
+
+P1-01: capture sanitized, reproducible fixtures of all user-observed rendering failures, including raw choice control, unresolved values, structured table, both conditional branches rendered, chart data not rendered, nested layout indentation, unsupported components and ordinary code. Baseline three existing presentation unit tests pass; baseline-regressions.txt records failure output. Establish independent expected text/data and warnings before changing implementation.
+
+P1-02: replace string substitution with a bounded source-aware parser and a compact presentation model. Separate protected Markdown/code/literal regions from recognized presentation nodes. Retain source spans, text, order, labels, units, numbers, nulls and links. Preserve untouched ordinary Markdown bytes including nested fences, escaped literals, inline code, indented code, HTML/XML examples and Unicode. No blanket tag or brace deletion. Unknown ordinary markup remains literal. Recognized unsupported display elements use human-readable fallback, not fake rendered content. Proposed starting bounds: 1 MiB input per item, 64 nesting depth, 10000 nodes, 2 MiB projected output, subject to existing lower transport limits and fixture evidence. No silent truncation; emit explicit bounded fallback, never claim full data if missing.
+
+P1-03: resolve only explicitly supplied literal structured data and deterministic, bounded local references/operations whose semantics are demonstrable from approved fixtures. No JS eval, dynamic code, I/O, arbitrary functions, external requests or state mutation. Distinguish known initial selection, known alternatives, missing values, unavailable remote resources and unsupported calculations. Show known branches separately when state is unknown; do not assert they are simultaneously selected. Preserve recoverable data, mark unresolved parts precisely, and avoid leaking raw executable markup into visible prose. No guessed chart or citation values. Keep actual source code unchanged.
+
+P1-04: native-first renderer. Ordinary Markdown passthrough; structured headings/lists/tasklists/tables -> GFM, complex spans -> grouped sections/key-value records; cards/badges/layout -> semantic text; equations -> supported math; graph relations -> supported Mermaid only when equivalent semantics known, otherwise textual relation list. Native Mermaid limits and unsupported-source fallback respected. Chart projections: actual data table plus compact bars/trends/shares where useful; explicit units, sign, baseline, missingness, scale, rounding and labels; no misleading interpolation or omitted rows without disclosure. Responsive wrapping belongs to Codex, no ANSI/OSC/control bytes injected. Avoid accidental code indentation; use valid escaping and fences. No automatic changes to user TUI preferences. Links use validated available destinations and local file refs only when authoritative; unavailable references explicitly labelled. Existing typed image paths are not forged by text conversion.
+
+P1-05: static interaction projection: show selected/default state when known, labelled options, distinct summary/details, input defaults and bounds, form field names. Distinguish display-only controls from genuine user decision requests. Do not create buttons that appear functional, execute callbacks, submit forms, open URLs automatically or use the input request API for local view switching. Preserve available content from unsupported visualizations without running embedded code.
+
+P1-06: integrate at existing ResponsesEncoder::emit_message_item (responses.rs) for committed visible user-facing commentary/final answers; keep raw AppHost history, tool payloads, reasoning channels, utility calls and identity/continuation ownership intact. Utility outputs must retain their existing semantics; verify scope explicitly. Both stream and JSON share one deterministic projection. Preserve event indices, IDs, phase, done payloads, exactly-once semantics, lane isolation, settlement receipts and cancellation. Test strict-suffix extensions across commits and incomplete constructs: use the smallest bounded render-unit buffer only if required, flush readable fallback at tool/settlement boundaries; never rewrite already emitted items, replay a remote effect, or delay unrelated commentary. Do not add a second state machine. If item boundary evidence cannot support correct rendering, record it and narrowly adjust the existing assembly rather than guess. Existing upstream history remains source authority; do not persist private raw payloads or log input contents. Check projected text fed back by Codex, exact-prefix continuity, compaction, resumption, and utility traffic.
+
+P1-07: renderer regression fixtures + parser boundary/property tests, deterministic/fuzz-style malformed/unicode/depth/size tests, links/terminal injection tests, user-observed regressions, data equivalence. Reuse main.rs MockDriver and existing responses_dedup_commentary_and_render_dil_equivalently_across_stream_and_json test. Verify SSE delta join = text.done = content_part.done = output_item.done = response.completed = nonstream output for equivalent fixture. Check multi-lane, disconnection before/after settlement, late duplicates, no new input or tool effect, previous_response_id, raw history and tool argument equality.
+
+P1-08: run existing provider CI checks (fmt, clippy, locked Rust tests at umask 0022/0077, page_driver JS tests, host lifecycle tests as affected, docs links); reuse actual official TUI PTY harness in isolated Termux home with production-style default daemon qualification as well as diagnostic no-daemon path. Capture 100/80/48/32-column CJK and Unicode layouts, table/reflow, math, Mermaid, chart, escape and fallback fixtures, Ctrl+T, raw/copy/search/resize/resume. Distinguish captured output from physical display and actual native clicks. Earlier no-daemon probes saw two POSTs and two warnings each, terminated by harness after marker; investigate/classify rather than assert normal exit or duplication. No real account used in synthetic tests. Prove actual ChatGPT -> candidate Provider -> official Codex on an explicitly authorized isolated lane, with exact candidate build identity, without disturbing active service/account/session; if unavailable mark live gate blocked, do not substitute mock evidence. Normal entrypoint and existing rollback must still work.
+
+P1-09: review diff and scope; update ARCHITECTURE.md and applicable README, CURRENT.md only with observed results, ROADMAP.md for deferred phase 2, archive/retire HANDOFF on actual completion. Commit coherent verified changes as authorized; no unrelated configs. Existing chatgpt-provider.yml builds Android package; run source/candidate qualification before any publication. Signed release publication, activation and service switching are separate gates requiring explicit authorization; preserve active and previous generations. No Wrapper/runtime release or replacement needed for phase 1.
+
+#### Phase 2 — separate authorization
+
+2A optional companion browser, no upstream source patch if feasible: first prefer the existing public Codex inline visualization facility only where actual sandbox and path checks pass. Current Termux Wrapper rejects read-only/workspace-write modes and full-access disables official inline viewer; do not bypass guards or claim bare-binary diagnostic proves normal path. Existing Provider viewer is AppHost RFB/noVNC, not a generic answer viewer. Browser helper accepts HTTP(S) only, so direct file-link launch is unproven. An independent optional cdx/companion route may serve locally generated static, sanitized views on demand, not arbitrary model scripts. Validate actual Android browser access; private local origin, no public bind, request authentication/authorization, bounded artifact size/lifetime, no credentials in logs/history, CSP, no third-party network or shell/tool access, deny cross-session access, explicit open and visible fallback if unavailable. Same-UID full-access is not an OS isolation boundary. Reopen/resume design must not assume expired links are durable. No new generic viewer endpoint or service in phase 1.
+
+2B native assistant-body interactions: seek public upstream support/upstream contribution first. If truly necessary and separately approved, design minimal upstream TUI extension using typed, versioned safe presentation data, existing message cell/width/layout/focus/mouse/transcript/replay owners, pure local display state and deterministic Markdown fallback. No fake tool events, no model inference or execution for local tab toggles. Add optional native chart/card/image layout, keyboard and mouse focus, disclosure, filters, selection, scroll, accessibility, copy/search, persisted local selection keyed by stable message identity, cross-version fallback. Where transport changes are required, qualify app-server/CLI/protocol consumers too. Do not assume text messages carry arbitrary UI metadata. Avoid PTY screen scraping/injection. If independent frontend is needed, use official app-server client APIs and preserve canonical sessions; no new executor. A custom patched build requires explicit product contract changes, new separate candidate distribution/rollback, upstream upgrade/rebase and source-build/signed release qualification, with original official entrypoint retained. Do not silently replace the official archive update chain. Phase 2 design/prototype approval separate from phase 1.
+
+#### Existing evidence and commands
+
+Audit root: $PREFIX/tmp/codex-tui-audit.8FJOHh/ (pinned public source, probe_tui.py, probe_narrow.py, PTY outputs).
+This folder: final-plan-preflight/ (presentation-baseline-tests, reproduce.rs, baseline-regressions.txt).
+CI: .github/workflows/chatgpt-provider.yml.
+Commands after approval, from repository root:
+
+    cargo fmt --manifest-path providers/chatgpt/Cargo.toml -- --check
+    cargo clippy --manifest-path providers/chatgpt/Cargo.toml --all-targets --locked -- -D warnings
+    (umask 0022 && cargo test --manifest-path providers/chatgpt/Cargo.toml --locked)
+    (umask 0077 && cargo test --manifest-path providers/chatgpt/Cargo.toml --locked)
+    node --test providers/chatgpt/tests/page_driver.test.mjs
+    PYTHONDONTWRITEBYTECODE=1 python3 -W default -m unittest discover -s host/chatgpt-desktop -p 'test_*.py' -v
+    python3 .github/scripts/check_doc_links.py
+
+Source qualification, synthetic integration, actual installed TUI, actual candidate authenticated end-to-end, Android package, publication, activation and physical UI are distinct results. No gate is assumed passed. Current source-only baseline tests 3/3 pass; failure reproductions confirmed. No source changes, CI run, new signed release or activation made during investigation.

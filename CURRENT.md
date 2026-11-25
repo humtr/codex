@@ -26,6 +26,12 @@ Observed on 2026-11-25.
 
 ### Unverified / Remaining Boundaries
 
+- **Next Provider follow-up (planned, 2026-11-25).** User-directed order:
+  qualify and implement native tool-return/structured context before the
+  deferred Codex presentation enhancements. The current presentation behavior
+  remains a regression requirement. C's authenticated capability proof and
+  product adoption are not yet qualified; no runtime change follows from this
+  planning entry. [Ordered work and gates](docs/ROADMAP.md#0-next-provider-development-order)
 - **R-2.** The live two-account handoff via daemon RPC preserved the same UUID
   and an unrelated active source turn. The installed launcher passed an
   authenticated same-UUID switch with an idle source and rejects a switch
