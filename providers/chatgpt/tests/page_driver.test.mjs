@@ -966,7 +966,7 @@ test("streaming publishes AppHost thought headings, titles, recaps, commentary, 
   assert.equal(nonStreamEnv.streamUpdates.length, 0);
 });
 
-test("page_driver uses temporary chat isolation for Type 1 turns, deduplicates reasoning titles, commits prior thoughts before tools, and ignores undeclared recipients", async () => {
+test("page_driver omits temporary chat flags, deduplicates reasoning titles, commits prior thoughts before tools, and ignores undeclared recipients", async () => {
   let callbacks;
   let ready;
   let resolveStarted = () => {};
@@ -985,20 +985,19 @@ test("page_driver uses temporary chat isolation for Type 1 turns, deduplicates r
     },
   });
 
-  // 1. Initial temporary chat turn sets is_do_not_remember, history_and_training_disabled, and temporary_chat_requests_personalization=false.
+  // 1. Standard turn with local_function_signatures omits temporary chat & disabled_plugin_ids.
   ready = new Promise((resolve) => { resolveStarted = resolve; });
   const p1 = driver.sendMessage({
     lane_id: "lane-t1",
     prompt: "Run pwd",
     push_events: true,
-    temporary_chat: true,
     model: "gpt-6-2-thinking",
     local_function_signatures: [{ type: "function", name: "exec_command", parameters: { type: "object" } }],
   });
   await ready;
-  assert.equal(startCalls[0].request.is_do_not_remember, true);
-  assert.equal(startCalls[0].request.history_and_training_disabled, true);
-  assert.equal(startCalls[0].request.temporary_chat_requests_personalization, false);
+  assert.equal(startCalls[0].request.is_do_not_remember, undefined);
+  assert.equal(startCalls[0].request.history_and_training_disabled, undefined);
+  assert.equal(startCalls[0].request.temporary_chat_requests_personalization, undefined);
   assert.equal(startCalls[0].request.disabled_plugin_ids, undefined);
 
   // Uncommitted thought commits before new tool-role title / tool_call; duplicate heading is suppressed; tool body never leaks.
@@ -1057,24 +1056,24 @@ test("page_driver uses temporary chat isolation for Type 1 turns, deduplicates r
     ["tool_call", "exec_command"],
   ]);
 
-  // 2. Temporary chat continuation keeps is_do_not_remember & history_and_training_disabled, omitting temporary_chat_requests_personalization (avoids HTTP 422).
+  // 2. Continuation turn preserves conversation_id without temporary chat flags.
   ready = new Promise((resolve) => { resolveStarted = resolve; });
   const p2 = driver.sendMessage({
     lane_id: "lane-t2",
     chat_id: "conv-existing",
-    temporary_chat: true,
     prompt: "[Tool Output call_1]\n/repo",
     model: "gpt-6-2-thinking",
     local_function_signatures: [{ type: "function", name: "exec_command", parameters: { type: "object" } }],
   });
   await ready;
-  assert.equal(startCalls[1].request.is_do_not_remember, true);
-  assert.equal(startCalls[1].request.history_and_training_disabled, true);
+  assert.equal(startCalls[1].request.conversation_id, "conv-existing");
+  assert.equal(startCalls[1].request.is_do_not_remember, undefined);
+  assert.equal(startCalls[1].request.history_and_training_disabled, undefined);
   assert.equal(startCalls[1].request.temporary_chat_requests_personalization, undefined);
   callbacks.onComplete();
   await p2;
 
-  // 3. Non-temporary / control send omits temporary chat flags, and internal recipients like `python` are ignored when no local tools are declared.
+  // 3. Control send without local tools ignores internal recipients like `python`.
   ready = new Promise((resolve) => { resolveStarted = resolve; });
   const p3 = driver.sendMessage({
     lane_id: "lane-t3",

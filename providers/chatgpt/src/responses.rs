@@ -49,8 +49,6 @@ pub struct ThreadEntry {
     pub prefix_sha256: [u8; 32],
     pub account_id: Option<String>,
     pub project_id: Option<String>,
-    #[serde(default)]
-    pub temporary_chat: bool,
 }
 
 #[derive(Default)]
@@ -2022,7 +2020,6 @@ pub async fn handle_responses(
         (0, [0u8; 32])
     };
 
-    let use_temporary_chat = effective_project_id.is_none();
     let mut prior = None;
     let mut expected_account = None;
     let mut skip_prefix = 0;
@@ -2036,11 +2033,7 @@ pub async fn handle_responses(
         } else {
             false
         };
-        if entry.project_id == effective_project_id
-            && entry.temporary_chat == use_temporary_chat
-            && entry.input_len > 0
-            && prefix_matches
-        {
+        if entry.project_id == effective_project_id && entry.input_len > 0 && prefix_matches {
             if input_len == entry.input_len {
                 return Err(ProviderError::bad_request(
                     "response_input_already_sent",
@@ -2054,10 +2047,7 @@ pub async fn handle_responses(
         if let Some(rid) = body.get("previous_response_id").and_then(Value::as_str) {
             let entry = threads
                 .get(&format!("response:{rid}"))
-                .filter(|entry| {
-                    entry.project_id == effective_project_id
-                        && entry.temporary_chat == use_temporary_chat
-                })
+                .filter(|entry| entry.project_id == effective_project_id)
                 .ok_or_else(|| {
                     ProviderError::bad_request(
                         "previous_response_unavailable",
@@ -2081,7 +2071,6 @@ pub async fn handle_responses(
         "verify_identity": true,
         "strict_project": true,
         "project_id": effective_project_id,
-        "temporary_chat": use_temporary_chat,
         "prompt": prompt,
         "model": model,
         "reasoning_effort": effort,
@@ -2102,7 +2091,6 @@ pub async fn handle_responses(
             session_key.as_deref(),
             &driver_res,
             effective_project_id,
-            use_temporary_chat,
             input_len,
             current_digest,
         )?;
@@ -2178,7 +2166,6 @@ pub async fn handle_responses(
                 session_key.as_deref(),
                 &settled,
                 effective_project_id,
-                use_temporary_chat,
                 input_len,
                 current_digest,
             )?;
@@ -2209,7 +2196,6 @@ fn record_thread_entries(
     session_key: Option<&str>,
     settled: &Value,
     project_id: Option<String>,
-    temporary_chat: bool,
     input_len: usize,
     prefix_sha256: [u8; 32],
 ) -> Result<()> {
@@ -2233,7 +2219,6 @@ fn record_thread_entries(
         chat_id: chat_id.to_owned(),
         account_id,
         project_id,
-        temporary_chat,
         input_len: 0,
         prefix_sha256: [0; 32],
     };

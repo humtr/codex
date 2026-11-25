@@ -747,10 +747,9 @@ mod tests {
         assert!(sse.contains("event: response.function_call_arguments.done\n"));
         assert!(sse.contains("event: response.completed\n"));
 
-        // Verify local_function_signatures and clean temporary_chat isolation (zero prompt injection)!
+        // Verify local_function_signatures passed to page driver without prompt injection!
         let sent = driver.last_send.lock().unwrap().clone().unwrap();
         assert_eq!(sent["local_function_signatures"][0]["name"], "exec_command");
-        assert_eq!(sent["temporary_chat"], true);
         let prompt = sent["prompt"].as_str().unwrap();
         assert!(!prompt.contains("[Codex Local Tool Boundary]"));
     }
@@ -850,7 +849,6 @@ mod tests {
 
         let sent1 = driver.last_send.lock().unwrap().clone().unwrap();
         assert_eq!(sent1["project_id"], "g-p-test-proj");
-        assert_eq!(sent1["temporary_chat"], false);
         assert_eq!(sent1["model"], "gpt-6-sol-wm");
         assert_eq!(sent1["reasoning_effort"], "xhigh");
         assert!(!sent1["prompt"]

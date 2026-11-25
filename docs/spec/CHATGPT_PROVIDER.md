@@ -66,17 +66,7 @@ and [providers/chatgpt/src/main.rs](../../providers/chatgpt/src/main.rs).
   hashes or minified symbol names, and never synthesizes private reasoning.
 - **Type 1 (`codex -p chatgpt`) surface:** Localhost-only `GET /v1/models` and
   `POST /v1/responses` (monotonic OpenAI Responses SSE or JSON) supporting
-  single-path in-app tool callbacks via `local_function_signatures`. When no
-  ChatGPT Project (`history.project_id`) is pinned, Type 1 turns run inside an
-  isolated ChatGPT Temporary Chat (`is_do_not_remember: true`,
-  `history_and_training_disabled: true`, plus
-  `temporary_chat_requests_personalization: false` on conversation creation
-  only) so Type 2 account-linked cloud MCP connectors (such as `@TermuxShell`,
-  `@TermuxCodex`, `@TermuxChatGPT`, `@TermuxOrch`) are never injected into
-  Codex turns and Official Codex retains exclusive ownership of local tool
-  execution, approvals, and TUI display without prompt-level workarounds;
-  pre-existing non-temporary continuation entries in `response_threads.json`
-  roll over cleanly to fresh isolated Temporary Chats. The
+  single-path in-app tool callbacks via `local_function_signatures`. The
   Provider also maintains a Codex-compatible catalog file at
   `<state_dir>/model-catalog.json` (`0600`, atomic; seeded from configured
   fallback models at startup and refreshed whenever `GET /v1/models`,

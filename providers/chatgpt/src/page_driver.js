@@ -682,7 +682,10 @@
     if (typeof thought.content === "string" && thought.content.trim()) {
       body = thought.content.trim();
     } else if (Array.isArray(thought.chunks)) {
-      body = thought.chunks.filter((c) => typeof c === "string").join("").trim();
+      body = thought.chunks
+        .map((c) => (typeof c === "string" ? c : typeof c?.text === "string" ? c.text : ""))
+        .join("")
+        .trim();
     }
     if (heading && body) {
       if (body === heading) return heading;
@@ -1589,8 +1592,6 @@
       typeof opts.model === "string" && opts.model.trim() ? opts.model.trim() : "auto";
     const thinkingEffort = normalizeThinkingEffort(modelSlug, opts.reasoning_effort);
 
-    const useTemporaryChat = opts.temporary_chat === true && !projectId;
-
     const userMsgId = newUuid();
     const requestPayload = {
       action: "next",
@@ -1600,13 +1601,6 @@
         ? { kind: "gizmo_interaction", gizmo_id: projectId }
         : { kind: "primary_assistant" },
       supported_encodings: ["v1"],
-      ...(useTemporaryChat
-        ? {
-            is_do_not_remember: true,
-            history_and_training_disabled: true,
-            ...(!chatId ? { temporary_chat_requests_personalization: false } : {}),
-          }
-        : {}),
       ...(nativeTools.signatures.length > 0
         ? {
             local_function_names: nativeTools.names,
