@@ -233,11 +233,7 @@ async fn run() -> Result<()> {
             let (token_path, token) = load_or_create_control_token(&state_dir)?;
             let response_state = cfg.response_state_dir(&home);
             config::ensure_private_dir(&response_state)?;
-            let threads = if cfg.history.structured_native_return {
-                crate::responses::ResponseThreadMap::open_native(&response_state)?
-            } else {
-                crate::responses::ResponseThreadMap::open(&response_state)?
-            };
+            let threads = crate::responses::ResponseThreadMap::open(&response_state)?;
             let listener = TcpListener::bind(&cfg.server.bind).await.map_err(|e| {
                 crate::error::ProviderError::unavailable(
                     "bind_failed",
@@ -775,11 +771,15 @@ mod tests {
         assert!(sse.contains("event: response.function_call_arguments.done\n"));
         assert!(sse.contains("event: response.completed\n"));
 
-        // Verify local_function_signatures passed to page driver without prompt injection!
+        // Verify local_function_signatures passed to page driver via structured native_candidate without prompt injection!
         let sent = driver.last_send.lock().unwrap().clone().unwrap();
         assert_eq!(sent["local_function_signatures"][0]["name"], "exec_command");
-        let prompt = sent["prompt"].as_str().unwrap();
-        assert!(!prompt.contains("[Codex Local Tool Boundary]"));
+        let msgs = sent["native_candidate"]["messages"].as_array().unwrap();
+        assert_eq!(msgs[0]["role"], "user");
+        assert!(!msgs[0]["parts"][0]
+            .as_str()
+            .unwrap()
+            .contains("[Codex Local Tool Boundary]"));
     }
 
     #[test]
@@ -795,15 +795,22 @@ mod tests {
         let driver = MockDriver::new(json!({
             "state": "settled",
             "chat_id": "conv-orch-1",
+            "account_id": "acct-orch-1",
+            "remote_head": "head-orch-1",
             "assistant_text": "",
             "tool_calls": [
                 {
                     "id": "call_exec_1",
+                    "native_message_id": "exec_1",
+                    "native_recipient": "local.exec",
                     "name": "exec",
-                    "arguments": "echo hi"
+                    "arguments": "{\"input\":\"echo hi\"}"
                 },
                 {
                     "id": "call_spawn_1",
+                    "native_message_id": "spawn_1",
+                    "native_recipient": "local.spawn_agent",
+                    "namespace": "collaboration",
                     "name": "spawn_agent",
                     "arguments": "{\"task_name\":\"worker\",\"message\":\"compute\"}"
                 }
@@ -811,8 +818,7 @@ mod tests {
         }));
         let history = config::HistoryConfig {
             project_id: Some("g-p-test-proj".to_owned()),
-            project_name: None,
-            structured_native_return: false,
+            ..config::HistoryConfig::default()
         };
         let router = build_router(
             driver.clone(),
@@ -880,22 +886,31 @@ mod tests {
         assert_eq!(sent1["project_id"], "g-p-test-proj");
         assert_eq!(sent1["model"], "gpt-6-sol-wm");
         assert_eq!(sent1["reasoning_effort"], "xhigh");
-        assert!(!sent1["prompt"]
-            .as_str()
-            .unwrap()
-            .contains("[Codex Local Tool Boundary]"));
+        assert_eq!(sent1["native_candidate"]["messages"][0]["role"], "user");
         assert_eq!(
             sent1["local_function_signatures"].as_array().unwrap().len(),
             2
         );
 
-        // Round 2 with same thread-id must reuse conv-orch-1 and send only delta tail!
+        // Round 2 with same thread-id must reuse conv-orch-1 and send structured tool outputs + agent_message delta!
         let mut r2_body = r1_body.clone();
+        r2_body["input"].as_array_mut().unwrap().push(json!({
+            "type": "custom_tool_call",
+            "call_id": "call_exec_1",
+            "name": "exec",
+            "input": "echo hi"
+        }));
         r2_body["input"].as_array_mut().unwrap().push(json!({
             "type": "function_call",
             "call_id": "call_spawn_1",
             "name": "spawn_agent",
-            "arguments": "{}"
+            "namespace": "collaboration",
+            "arguments": "{\"task_name\":\"worker\",\"message\":\"compute\"}"
+        }));
+        r2_body["input"].as_array_mut().unwrap().push(json!({
+            "type": "custom_tool_call_output",
+            "call_id": "call_exec_1",
+            "output": "hi"
         }));
         r2_body["input"].as_array_mut().unwrap().push(json!({
             "type": "function_call_output",
@@ -925,31 +940,34 @@ mod tests {
         assert_eq!(resp2.status(), StatusCode::OK);
         let sent2 = driver.last_send.lock().unwrap().clone().unwrap();
         assert_eq!(sent2["chat_id"], "conv-orch-1");
-        assert!(sent2["prompt"].as_str().unwrap().contains("WORKER_DONE=42"));
-        assert!(sent2["prompt"]
+        let msgs2 = sent2["native_candidate"]["messages"].as_array().unwrap();
+        assert_eq!(msgs2.len(), 3);
+        assert_eq!(msgs2[0]["role"], "tool");
+        assert_eq!(msgs2[1]["role"], "tool");
+        assert_eq!(msgs2[1]["parts"][0], "WORKER_DONE=42");
+        assert!(msgs2[2]["parts"][0]
             .as_str()
             .unwrap()
             .contains("READ_SECRET_TASK_99"));
-        assert!(!sent2["prompt"].as_str().unwrap().contains("Delegate work"));
-        assert!(!sent2["prompt"]
+        assert!(!msgs2.iter().any(|m| m["parts"][0]
             .as_str()
-            .unwrap()
-            .contains("[Codex Local Tool Boundary]"));
-        assert_eq!(sent2["is_continuation"], true);
+            .unwrap_or("")
+            .contains("Delegate work")));
         assert_eq!(
             sent2["local_function_signatures"].as_array().unwrap().len(),
             2
         );
 
-        // Keep round 2's cached chat and grow the input so the changed prefix
-        // itself selects a fresh chat.
-        let mut r3_body = r2_body;
-        r3_body["input"][1]["content"][0]["text"] = json!("Compacted summary of prior work");
-        r3_body["input"].as_array_mut().unwrap().push(json!({
-            "type": "message",
-            "role": "user",
-            "content": [{"type": "input_text", "text": "Continue after compaction"}]
-        }));
+        // Keep round 2's cached chat and compact input so changed prefix selects a fresh chat.
+        let r3_body = json!({
+            "model": "gpt-6-sol-wm",
+            "stream": true,
+            "prompt_cache_key": "sess-orch-1",
+            "input": [
+                {"type": "message", "role": "user", "content": [{"type": "input_text", "text": "Compacted summary of prior work"}]},
+                {"type": "message", "role": "user", "content": [{"type": "input_text", "text": "Continue after compaction"}]}
+            ]
+        });
         let resp3 = oneshot(
             router,
             Request::builder()
@@ -964,9 +982,8 @@ mod tests {
         assert_eq!(resp3.status(), StatusCode::OK);
         let sent3 = driver.last_send.lock().unwrap().clone().unwrap();
         assert!(sent3["chat_id"].is_null());
-        assert_eq!(sent3["is_continuation"], false);
 
-        // Background Transcript Title Generation MUST omit project_id to avoid polluting projects!
+        // Background Transcript Title Generation MUST use temporary chat and omit project_id!
         let title_body = json!({
             "model": "gpt-6-sol-wm",
             "stream": false,
@@ -979,8 +996,7 @@ mod tests {
                 config::ModelConfig::default(),
                 config::HistoryConfig {
                     project_id: Some("g-p-test-proj".to_owned()),
-                    project_name: None,
-                    structured_native_return: false,
+                    ..config::HistoryConfig::default()
                 },
                 "tok-0123456789abcdef0123456789abcdef".to_owned(),
                 Arc::new(RwLock::new(None)),
@@ -996,6 +1012,7 @@ mod tests {
         assert_eq!(resp_title.status(), StatusCode::OK);
         let sent_title = driver.last_send.lock().unwrap().clone().unwrap();
         assert!(sent_title["project_id"].is_null());
+        assert_eq!(sent_title["temporary"], true);
     }
 
     #[tokio::test(start_paused = true)]
@@ -1055,7 +1072,7 @@ mod tests {
             std::env::temp_dir().join(format!("provider-map-{}", config::random_hex(8).unwrap()));
         std::fs::create_dir(&state).unwrap();
         let driver = MockDriver::new(json!({
-            "state":"settled","chat_id":"conv-one","account_id":"acct-one",
+            "state":"settled","chat_id":"conv-one","account_id":"acct-one","remote_head":"head-one",
             "reasoning_summary":"Only summary", "assistant_text":""
         }));
         let first = json!({"input":[{"role":"user","content":"First"}],"stream":true});
@@ -1091,10 +1108,12 @@ mod tests {
             } else if round == 1 {
                 assert_eq!(sent.as_ref().unwrap()["chat_id"], "conv-one");
                 assert_eq!(sent.as_ref().unwrap()["expected_account_id"], "acct-one");
-                assert!(!sent.as_ref().unwrap()["prompt"]
-                    .as_str()
-                    .unwrap()
-                    .contains("First"));
+                let msgs = sent.as_ref().unwrap()["native_candidate"]["messages"]
+                    .as_array()
+                    .unwrap();
+                assert!(!msgs
+                    .iter()
+                    .any(|m| m["parts"][0].as_str().unwrap_or("").contains("First")));
             } else {
                 assert!(sent.as_ref().unwrap()["chat_id"].is_null());
                 assert_eq!(sent.as_ref().unwrap()["expected_account_id"], "acct-one");
@@ -1913,6 +1932,7 @@ wire_api = "responses"
                         "state": "settled",
                         "chat_id": "conv-settled-1",
                         "account_id": "acct-1",
+                        "remote_head": "head-settled-1",
                         "assistant_text": "Done",
                         "tool_calls": []
                     }))
@@ -2006,8 +2026,7 @@ wire_api = "responses"
             },
             config::HistoryConfig {
                 project_id: Some("g-p-user-proj".to_owned()),
-                project_name: None,
-                structured_native_return: false,
+                ..config::HistoryConfig::default()
             },
             "tok-0123456789abcdef0123456789abcdef".to_owned(),
             Arc::new(RwLock::new(None)),

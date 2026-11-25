@@ -102,6 +102,8 @@ struct ListProjectsQuery {
 struct CreateProjectBody {
     name: String,
     instructions: Option<String>,
+    #[serde(default)]
+    memory_scope: Option<String>,
 }
 
 async fn get_status(State(st): State<ControlState>, headers: HeaderMap) -> Result<Json<Value>> {
@@ -235,11 +237,19 @@ async fn create_project(
             "project name must be 1..=120 bytes",
         ));
     }
-    Ok(Json(
-        st.driver
-            .create_project(json!({ "name": name, "instructions": body.instructions }))
-            .await?,
-    ))
+    if let Some(ref scope) = body.memory_scope {
+        if !matches!(scope.as_str(), "unset" | "project_v2") {
+            return Err(ProviderError::bad_request(
+                "invalid_memory_scope",
+                "memory_scope must be \"unset\" or \"project_v2\"",
+            ));
+        }
+    }
+    let mut params = json!({ "name": name, "instructions": body.instructions });
+    if let Some(ref scope) = body.memory_scope {
+        params["memory_scope"] = json!(scope);
+    }
+    Ok(Json(st.driver.create_project(params).await?))
 }
 
 async fn send_message(

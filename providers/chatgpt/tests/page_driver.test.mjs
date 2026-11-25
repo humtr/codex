@@ -40,11 +40,26 @@ function createMockEnv({ url = "https://chatgpt.com/c/conv-12345678", apiMap = {
           message: {
             id: "msg-final",
             author: { role: "assistant" },
+            recipient: "all",
+            channel: "final",
+            status: "finished_successfully",
             content: {
               content_type: "text",
-              parts: [
-                'Sure!\n```codex_tool_call\n{"call_id":"call_42","name":"exec_command","arguments":{"cmd":"ls"}}\n```',
-              ],
+              parts: ["Sure!"],
+            },
+          },
+        });
+        args.onUpdate?.({
+          type: "message",
+          conversationId: args.request.conversation_id || "conv-new-1",
+          message: {
+            id: "42",
+            author: { role: "assistant" },
+            recipient: "local.exec_command",
+            status: "finished_successfully",
+            content: {
+              content_type: "code",
+              text: '{"cmd":"ls"}',
             },
           },
         });
@@ -217,16 +232,6 @@ test("page_driver status, chats, linear branch read (no private thoughts), proje
   assert.deepEqual([...startCalls[1].request.local_function_names], ["codex_exec"]);
   assert.equal(startCalls[1].request.local_function_signatures[0].params[0].name, "input");
   assert.ok(!startCalls[1].request.messages[0].content.parts[0].includes("[LOCAL_FUNCTION_SIGNATURES]"));
-
-  // Custom input & namespace tool call parsing
-  const parsedCustom = driver.parseToolCallsFromText(
-    '```codex_tool_call\n{"call_id":"c1","name":"exec","input":"echo 123"}\n```\n' +
-    '```codex_tool_call\n{"call_id":"c2","namespace":"collaboration","name":"spawn_agent","arguments":{"task_name":"w1"}}\n```'
-  );
-  assert.equal(parsedCustom.calls.length, 2);
-  assert.equal(parsedCustom.calls[0].arguments, "echo 123");
-  assert.equal(parsedCustom.calls[1].namespace, "collaboration");
-  assert.equal(parsedCustom.calls[1].name, "spawn_agent");
 });
 
 test("page_driver multi-lane parallel execution, per-chat collision guard, isolated observeChat, and targeted stopGeneration", async () => {
@@ -1389,67 +1394,48 @@ test("page_driver enforces single item per msgKey so promoted pre-tool commentar
   assert.equal(settled.items.filter((it) => it.text === tableMsg).length, 1);
 });
 
-// Structured candidate fixtures deliberately emulate the Option B wire shape;
-// they do not establish that the real AppHost supports it.
-function structuredFixture({ mutateBefore, mutateAfter, secondRound = true, toolRounds = 1, parallelCalls = 1, streamMutation, apiMap = {}, hideResult = false, developer = false, oneTurnDeveloper = false, liveResultCommentary = false, trailingRecap = false } = {}) {
+// Structured Option B fixtures emulate the AppHost CompletionClient wire shape.
+function structuredFixture({ secondRound = true, toolRounds = 1, parallelCalls = 1, streamMutation, apiMap = {}, developer = false, oneTurnDeveloper = false, hiddenUserPreamble = false, liveResultCommentary = false, zeroArgCall = false } = {}) {
   const chat = 'conv-structured';
   const callId = 'original-call-123456789012345678901234567890';
-  const original = { id: callId, author: { role: 'assistant' }, recipient: 'local.fixture', status: 'finished_successfully', content: { content_type: 'code', text: '{"x":1}' } };
+  const original = {
+    id: callId,
+    author: { role: 'assistant' },
+    recipient: 'local.fixture',
+    status: 'finished_successfully',
+    content: zeroArgCall ? { content_type: 'code', text: '' } : { content_type: 'code', text: '{"x":1}' },
+  };
   const commentary = {
     id: 'live-result-commentary', author: { role: 'assistant' }, recipient: 'all',
     channel: 'commentary', status: 'finished_successfully',
     content: { content_type: 'text', parts: ['Checking the returned value.'] },
   };
-  const prior = { current_node: 'root', mapping: { root: { parent: null, message: null } } };
-  const add = (m, parent = prior.current_node, key = m.id) => {
-    prior.mapping[key] = { parent, message: structuredClone(m) };
-    prior.current_node = key;
-  };
+  const apiHits = [];
   let round = 0;
   const env = createMockEnv({
     apiMap: {
-      'GET /backend-api/me': { status: 200, body: { account_id: 'acc-fixture' } },
-      [`GET /backend-api/conversation/${chat}`]: { status: 200, body: () => structuredClone(prior) },
+      'GET /backend-api/me': { status: 200, body: () => { apiHits.push('GET /me'); return { account_id: 'acc-fixture' }; } },
+      [`GET /backend-api/conversation/${chat}`]: { status: 200, body: () => { apiHits.push('GET /conversation'); return { current_node: 'unexpected', mapping: {} }; } },
       ...apiMap,
     },
     completionBehavior(args) {
       const currentRound = ++round;
-      // Option B must declare Codex's local_function_names/signatures on EVERY round (including tool returns).
       assert.deepEqual(Array.from(args.request.local_function_names || []), ['fixture']);
       assert.equal(args.request.local_function_signatures?.length, 1);
       const isToolReturn = args.request.messages.every(m => m.author.role === 'tool');
-      if (!isToolReturn || !hideResult) {
-        let nextParent = Object.prototype.hasOwnProperty.call(prior.mapping, args.request.parent_message_id)
-          ? args.request.parent_message_id
-          : prior.current_node;
-        for (const m of args.request.messages) {
-          add(m, nextParent);
-          nextParent = m.id;
-        }
-      }
       const emitted = [];
-      if (isToolReturn && liveResultCommentary) {
-        add(commentary);
-        emitted.push(commentary);
-      }
+      if (isToolReturn && liveResultCommentary) emitted.push(commentary);
       if (currentRound <= toolRounds) {
         const count = currentRound === 1 ? parallelCalls : 1;
         for (let k = 0; k < count; k++) {
           const callMsg = currentRound === 1 && k === 0
             ? original
             : { ...original, id: currentRound === 1 ? `call-parallel-${k + 1}` : `call-round-${currentRound}`, content: { ...original.content, text: JSON.stringify({ x: currentRound * 10 + k }) } };
-          add(callMsg);
           emitted.push(callMsg);
         }
       } else {
-        const finalMsg = { id: 'answer-2', author: { role: 'assistant' }, recipient: 'all', channel: 'final', status: 'finished_successfully', end_turn: true, content: { content_type: 'text', parts: ['marker consumed'] } };
-        add(finalMsg);
-        emitted.push(finalMsg);
+        emitted.push({ id: 'answer-2', author: { role: 'assistant' }, recipient: 'all', channel: 'final', status: 'finished_successfully', end_turn: true, content: { content_type: 'text', parts: ['marker consumed'] } });
       }
-      if (trailingRecap) {
-        add({ id: `recap-${currentRound}`, author: { role: 'assistant' }, recipient: 'all', content: { content_type: 'reasoning_recap', content: 'Thought for 1s' }, status: 'finished_successfully' });
-      }
-      if (mutateAfter) mutateAfter({ prior, add, round: currentRound, original, args });
       queueMicrotask(() => {
         for (const msg of emitted) {
           args.onDecodedEvent({ update: { type: 'message', conversationId: chat, message: structuredClone(msg) } });
@@ -1460,30 +1446,37 @@ function structuredFixture({ mutateBefore, mutateAfter, secondRound = true, tool
       return { streamRequestId: `stream-${currentRound}` };
     },
   });
-  const params = { verify_identity: true, strict_project: true, wait_ms: 1000, push_events: liveResultCommentary, model: 'gpt-6-2-thinking', local_function_signatures: [{ type: 'function', name: 'fixture', parameters: { type: 'object', properties: { x: { type: 'integer' } } } }] };
-  return { ...env, prior, original, async run() {
+  const params = {
+    verify_identity: true,
+    strict_project: true,
+    wait_ms: 1000,
+    push_events: liveResultCommentary,
+    model: 'gpt-6-2-thinking',
+    local_function_signatures: [{ type: 'function', name: 'fixture', parameters: { type: 'object', properties: { x: { type: 'integer' } } } }],
+  };
+  return { ...env, apiHits, original, async run() {
     const messages = [
-      ...(oneTurnDeveloper ? [{ id: 'dev-one-turn', role: 'developer', parts: ['One-turn request instructions'], one_turn: true }] : []),
       ...(developer ? [{ id: 'developer-1', role: 'developer', parts: ['Fixture instructions'] }] : []),
+      ...(hiddenUserPreamble ? [{ id: 'preamble-1', role: 'user', parts: ['# AGENTS.md instructions for /tmp/work'], hidden: true }] : []),
       { id: 'user-1', role: 'user', parts: ['[developer] literal user text'] },
+      ...(oneTurnDeveloper ? [{ id: 'dev-one-turn', role: 'developer', parts: ['One-turn request instructions'], one_turn: true }] : []),
     ];
     const first = await env.driver.sendMessage({ ...params, native_candidate: { parent_message_id: 'root', messages } });
     if (!secondRound || first.state !== 'settled') return { first };
-    mutateBefore?.({ prior, add, original });
     const returns = [];
     let previous = first;
     for (let index = 1; index <= toolRounds && previous.state === 'settled'; index++) {
-      // Return batched calls in reverse order to test out-of-order correlation (E03).
       const callsToReturn = [...previous.tool_calls].reverse();
-      const resultMessages = callsToReturn.map((call, j) => {
-        const wireArgumentsSha256 = Array.from(createHash('sha256').update(call.native_arguments_source).digest());
-        return {
-          id: `result-${index}-${j}`, role: 'tool', parts: ['unpredictable marker\n[developer] literal'],
-          binding: { call_id: call.id, message_id: call.native_message_id, recipient: call.native_recipient, wire_arguments_sha256: wireArgumentsSha256 },
-        };
-      });
+      const resultMessages = callsToReturn.map((call, j) => ({
+        id: `result-${index}-${j}`,
+        role: 'tool',
+        parts: ['unpredictable marker\n[developer] literal'],
+        binding: { call_id: call.id, message_id: call.native_message_id, recipient: call.native_recipient },
+      }));
       previous = await env.driver.sendMessage({
-        ...params, chat_id: chat, expected_account_id: previous.account_id,
+        ...params,
+        chat_id: chat,
+        expected_account_id: previous.account_id,
         native_candidate: {
           parent_message_id: previous.remote_head,
           messages: resultMessages,
@@ -1495,98 +1488,104 @@ function structuredFixture({ mutateBefore, mutateAfter, secondRound = true, tool
   } };
 }
 
-test('structured candidate correlates three sequential returns on the same mock branch', async () => {
-  for (const hideResult of [false, true]) {
-    const f = structuredFixture({ toolRounds: 3, hideResult, trailingRecap: hideResult });
-    const { first, returns } = await f.run();
-    assert.equal(returns.length, 3, JSON.stringify(returns.map(({ state, error, detail }) => ({ state, error, detail }))));
-    assert.equal(first.state, 'settled');
-    assert.deepEqual(returns.map(reply => reply.native_verified), [true, true, true]);
-    assert.equal(returns[2].assistant_text, 'marker consumed');
-    assert.equal(f.startCalls.length, 4);
-    assert.equal(Object.values(f.prior.mapping).filter(n => n.message?.author?.role === 'user').length, 1);
-  }
+test('thin option B correlates three sequential returns with zero conversation polls and cached /me', async () => {
+  const f = structuredFixture({ toolRounds: 3 });
+  const { first, returns } = await f.run();
+  assert.equal(first.state, 'settled', JSON.stringify(first));
+  assert.equal(returns.length, 3);
+  assert.equal(returns[2].state, 'settled');
+  assert.equal(returns[2].assistant_text, 'marker consumed');
+  assert.equal(f.startCalls.length, 4);
+  // 0 GET /conversation/{id} calls, and only 1 cached GET /me across all 4 rounds!
+  assert.deepEqual(f.apiHits, ['GET /me']);
+  assert.equal(first.remote_head, f.original.id);
+  assert.equal(returns[2].remote_head, 'answer-2');
 });
 
-test('structured candidate batches parallel out-of-order tool results in one completion request', async () => {
-  const f = structuredFixture({ parallelCalls: 2, toolRounds: 1 });
+test('thin option B batches parallel out-of-order tool results and streams live commentary', async () => {
+  const f = structuredFixture({ parallelCalls: 2, toolRounds: 1, liveResultCommentary: true });
   const { first, second } = await f.run();
-  assert.equal(first.state, 'settled', JSON.stringify(first));
+  assert.equal(first.state, 'settled');
   assert.equal(first.tool_calls.length, 2);
-  assert.equal(second.state, 'settled', JSON.stringify(second));
+  assert.equal(second.state, 'settled');
   assert.equal(second.assistant_text, 'marker consumed');
-  assert.equal(f.startCalls.length, 2);
+  assert.equal(second.items.filter(item => item.text === 'Checking the returned value.').length, 1);
+  assert.equal(f.streamUpdates.filter(event => event.text === 'Checking the returned value.').length, 1);
   const sentResults = f.startCalls[1].request.messages;
   assert.equal(sentResults.length, 2);
   assert.equal(JSON.parse(sentResults[0].content.text).call_id, 'call-parallel-2');
   assert.equal(JSON.parse(sentResults[1].content.text).call_id, f.original.id);
-  assert.deepEqual(Array.from(second.submitted_message_ids), ['result-1-0', 'result-1-1']);
-});
-
-test('structured candidate streams commentary during a native result without duplicates', async () => {
-  const f = structuredFixture({ liveResultCommentary: true });
-  const { second } = await f.run();
-  assert.equal(second.state, 'settled', JSON.stringify(second));
-  assert.equal(second.items.filter(item => item.text === 'Checking the returned value.').length, 1);
-  assert.equal(f.streamUpdates.filter(event => event.text === 'Checking the returned value.').length, 1);
-});
-
-test('structured candidate preserves Codex developer role, one-turn metadata, and genuine user input', async () => {
-  const f = structuredFixture({ developer: true, oneTurnDeveloper: true });
-  const { first, second } = await f.run();
-  assert.equal(first.state, 'settled');
-  assert.equal(second.state, 'settled');
-  const [oneTurn, dev, user] = f.startCalls[0].request.messages;
-  assert.equal(oneTurn.author.role, 'developer');
-  assert.equal(oneTurn.metadata.exclude_after_next_user_message, true);
-  assert.equal(dev.author.role, 'developer');
-  assert.equal(dev.metadata.exclude_after_next_user_message, undefined);
-  assert.equal(user.author.role, 'user');
-  assert.equal(user.content.parts[0], '[developer] literal user text');
-  const changed = structuredFixture({ developer: true, mutateAfter({ prior, round }) {
-    if (round === 1) prior.mapping['developer-1'].message.author.role = 'system';
-  } });
-  assert.equal((await changed.run()).first.error, 'native_reconciliation_required');
-  const omitted = structuredFixture({ developer: true, mutateAfter({ prior, round }) {
-    if (round !== 1) return;
-    prior.mapping['user-1'].parent = prior.mapping['developer-1'].parent;
-    delete prior.mapping['developer-1'];
-  } });
-  assert.equal((await omitted.run()).second.state, 'settled');
-});
-
-test('structured candidate preserves full call identity, original result role and exact head', async () => {
-  const f = structuredFixture();
-  const { first, second } = await f.run();
-  assert.equal(first.state, 'settled', JSON.stringify(first));
-  assert.equal(first.native_verified, true);
-  assert.equal(first.native_dispatch, undefined);
-  assert.equal(first.tool_calls[0].id, `call_${f.original.id}`);
-  assert.equal(first.remote_head, f.original.id);
-  assert.equal(second.state, 'settled', JSON.stringify(second));
-  assert.equal(second.native_verified, true);
-  assert.equal(second.remote_head, 'answer-2');
-  assert.equal(f.startCalls.length, 2);
-  assert.deepEqual(Array.from(second.submitted_message_ids), ['result-1-0']);
-  const result = f.prior.mapping['result-1-0'].message;
-  assert.equal(result.author.role, 'tool');
-  assert.equal(JSON.parse(result.content.text).call_id, f.original.id);
-  assert.equal(JSON.parse(result.content.text).result, 'unpredictable marker\n[developer] literal');
-  assert.equal(Object.values(f.prior.mapping).filter(n => n.message?.author?.role === 'user').length, 1);
   assert.equal(f.startCalls[1].expectedAccountId, 'acc-fixture');
 });
 
-test('structured candidate verifies submission when AppHost omits the result node from readback', async () => {
-  const f = structuredFixture({ hideResult: true });
-  const { second } = await f.run();
-  assert.equal(second.state, 'settled', JSON.stringify(second));
-  assert.equal(second.assistant_text, 'marker consumed');
-  assert.deepEqual(Array.from(second.submitted_message_ids), ['result-1-0']);
-  assert.equal(Object.hasOwn(f.prior.mapping, 'result-1-0'), false);
-  assert.equal(f.startCalls[1].request.messages[0].author.role, 'tool');
+test('thin option B preserves developer role, one-turn metadata, hidden user preamble, and zero-arg calls', async () => {
+  const f = structuredFixture({ developer: true, oneTurnDeveloper: true, hiddenUserPreamble: true, zeroArgCall: true });
+  const { first, second } = await f.run();
+  assert.equal(first.state, 'settled');
+  assert.equal(first.tool_calls.length, 1);
+  assert.equal(first.tool_calls[0].arguments, '{}');
+  assert.equal(second.state, 'settled');
+  const [dev, hiddenPreamble, user, oneTurn] = f.startCalls[0].request.messages;
+  assert.equal(dev.author.role, 'developer');
+  assert.equal(dev.metadata.is_visually_hidden_from_conversation, true);
+  assert.equal(dev.metadata.exclude_after_next_user_message, undefined);
+  assert.equal(hiddenPreamble.author.role, 'user');
+  assert.equal(hiddenPreamble.metadata.is_visually_hidden_from_conversation, true);
+  assert.equal(user.author.role, 'user');
+  assert.equal(user.metadata?.is_visually_hidden_from_conversation, undefined);
+  assert.equal(oneTurn.author.role, 'developer');
+  assert.equal(oneTurn.metadata.exclude_after_next_user_message, true);
 });
 
-test('structured candidate resolves and pins the native account when AppHost exposes only the user ID', async () => {
+test('thin option B supports temporary chats and project-only memory_scope on createProject', async () => {
+  let createdBody = null;
+  const env = createMockEnv({
+    apiMap: {
+      'GET /backend-api/me': { status: 200, body: { account_id: 'acc-temp' } },
+      'POST /backend-api/projects': { status: 200, body: (opts) => {
+        createdBody = JSON.parse(opts.body);
+        return { gizmo: { id: 'g-p-util', memory_scope: createdBody.memory_scope, display: { name: createdBody.name } } };
+      } },
+    },
+    completionBehavior(args) {
+      queueMicrotask(() => {
+        args.onDecodedEvent({
+          update: {
+            type: 'message',
+            conversationId: 'conv-temp-1',
+            message: { id: 'ans-temp', author: { role: 'assistant' }, recipient: 'all', channel: 'final', status: 'finished_successfully', end_turn: true, content: { content_type: 'text', parts: ['Short Title'] } },
+          },
+        });
+        args.onComplete();
+      });
+      return { streamRequestId: 'stream-temp' };
+    },
+  });
+  const res = await env.driver.sendMessage({
+    model: 'gpt-6-2-instant',
+    temporary: true,
+    project_id: 'g-p-should-be-omitted',
+    wait_ms: 1000,
+    native_candidate: {
+      parent_message_id: 'root',
+      messages: [{ id: 'u-temp', role: 'user', parts: ['Generate a title'] }],
+    },
+  });
+  assert.equal(res.state, 'settled');
+  assert.equal(res.assistant_text, 'Short Title');
+  const req = env.startCalls[0].request;
+  assert.equal(req.history_and_training_disabled, true);
+  assert.equal(req.is_do_not_remember, true);
+  assert.equal(req.gizmo_id, undefined);
+
+  const proj = await env.driver.createProject({ name: 'Codex Utility', memory_scope: 'project_v2' });
+  assert.equal(proj.state, 'ok');
+  assert.equal(proj.project_id, 'g-p-util');
+  assert.equal(proj.memory_scope, 'project_v2');
+  assert.equal(createdBody.memory_scope, 'project_v2');
+});
+
+test('thin option B resolves native account pin, deduplicates signatures, and rejects chat identity switch', async () => {
   for (const verifiedAccounts of [['workspace'], [], ['personal', 'workspace']]) {
     const f = structuredFixture({ apiMap: {
       'GET /backend-api/me': { status: 200, body: opts => {
@@ -1606,117 +1605,39 @@ test('structured candidate resolves and pins the native account when AppHost exp
       assert.equal(first.state, 'settled');
       assert.equal(second.state, 'settled');
       assert.equal(first.account_id, 'workspace');
-      assert.equal(second.account_id, 'workspace');
       assert.deepEqual(f.startCalls.map(call => call.expectedAccountId), ['workspace', 'workspace']);
     } else {
       assert.equal(first.error, 'pinned_account_unavailable');
       assert.equal(f.startCalls.length, 0);
     }
   }
-});
 
-test('structured candidate fails readback on changed call, omitted call, or trailing visible head', async () => {
-  for (const mutateAfter of [
-    ({ prior, original }) => { prior.mapping[original.id].message.content.text = '{"x":2}'; },
-    ({ prior, original }) => { prior.mapping[original.id].message.recipient = 'other'; },
-    ({ add }) => add({ id: 'unreported-call', author: { role: 'assistant' }, recipient: 'functions.fixture', status: 'finished_successfully', content: { content_type: 'text', parts: ['{}'] } }),
-    ({ add }) => add({ id: 'external-head', author: { role: 'assistant' }, recipient: 'all', content: { content_type: 'text', parts: ['external'] } }),
-  ]) {
-    const f = structuredFixture({ mutateAfter, secondRound: false });
-    const { first } = await f.run();
-    assert.equal(first.error, 'native_reconciliation_required', JSON.stringify(first));
-    assert.equal(f.startCalls.length, 1);
-  }
-});
+  const switched = structuredFixture({
+    secondRound: false,
+    streamMutation(args) { args.onDecodedEvent({ update: { type: 'message', conversationId: 'wrong-chat' } }); },
+  });
+  assert.equal((await switched.run()).first.error, 'native_chat_changed');
 
-test('structured candidate blocks prior result, changed original call, or changed parent before dispatch', async () => {
-  for (const [mutateBefore, error] of [
-    [({ prior, original }) => { prior.mapping.duplicate = { parent: original.id, message: { id: 'duplicate', author: { role: 'tool' }, metadata: { call_id: `call_${original.id}` } } }; }, 'native_candidate_input_unsupported'],
-    [({ prior, original }) => { prior.mapping[original.id].message.content.text = '{"x":2}'; }, 'native_candidate_input_unsupported'],
-    [({ add }) => add({ id: 'external-edit', author: { role: 'user' }, content: { content_type: 'text', parts: ['external'] } }), 'native_remote_head_mismatch'],
-  ]) {
-    const f = structuredFixture({ mutateBefore });
-    const { first, second } = await f.run();
-    assert.equal(first.state, 'settled');
-    assert.equal(second.error, error, JSON.stringify(second));
-    assert.equal(f.startCalls.length, 1);
-  }
-});
-
-test('structured candidate rejects changed original or result content and duplicate off-branch correlation', async () => {
-  for (const mutateAfter of [
-    ({ prior, round, original }) => { if (round === 2) prior.mapping['result-1-0'].message.content.text = JSON.stringify({ call_id: original.id, result: 'different', tool: 'fixture' }); },
-    ({ prior, round }) => { if (round === 2) prior.mapping['result-1-0'].message.content.text = JSON.stringify({ call_id: 'wrong', result: 'unpredictable marker\n[developer] literal', tool: 'fixture' }); },
-    ({ prior, round, original }) => { if (round === 2) prior.mapping[original.id].message.content.text = '{"x":2}'; },
-    ({ prior, round, original }) => { if (round === 2) prior.mapping.duplicate = { parent: original.id, message: { id: 'duplicate', author: { role: 'tool' }, metadata: { tool_call_id: original.id } } }; },
-  ]) {
-    const f = structuredFixture({ mutateAfter });
-    const { first, second } = await f.run();
-    assert.equal(first.state, 'settled');
-    assert.equal(second.error, 'native_reconciliation_required', JSON.stringify(second));
-    assert.equal(second.native_dispatch, undefined);
-    assert.equal(f.startCalls.length, 2);
-  }
-});
-
-test('structured candidate rejects a stream that changes its chat identity', async () => {
-  const f = structuredFixture({ secondRound: false, streamMutation(args) { args.onDecodedEvent({ update: { type: 'message', conversationId: 'wrong-chat' } }); } });
-  const { first } = await f.run();
-  assert.equal(first.error, 'native_chat_changed');
-  assert.equal(f.startCalls.length, 1);
-});
-
-test('structured candidate deduplicates repeated tool signatures and allows parent branching after cancel', async () => {
+  // Duplicate tool signatures deduplicated cleanly and branching from prior remote_head works natively.
   const f = structuredFixture({ secondRound: false });
   const dupSig = { type: 'function', name: 'fixture', parameters: { type: 'object', properties: { x: { type: 'integer' } } } };
   const first = await f.driver.sendMessage({
     verify_identity: true,
-    strict_project: true,
     wait_ms: 1000,
     model: 'gpt-6-2-thinking',
     local_function_signatures: [dupSig, dupSig],
-    native_candidate: {
-      parent_message_id: 'root',
-      messages: [{ id: 'user-dup-1', role: 'user', parts: ['hello'] }],
-    },
+    native_candidate: { parent_message_id: 'root', messages: [{ id: 'u-1', role: 'user', parts: ['hello'] }] },
   });
-  assert.equal(first.state, 'settled', JSON.stringify(first));
-  // Simulate a cancelled partial turn advancing current_node beyond first.remote_head.
-  const cancelledId = 'cancelled-partial';
-  f.prior.mapping[cancelledId] = {
-    parent: first.remote_head,
-    message: { id: cancelledId, author: { role: 'assistant' }, content: { content_type: 'text', parts: ['partial'] } },
-  };
-  f.prior.current_node = cancelledId;
-  // Without allow_parent_branch -> fails closed with native_remote_head_mismatch.
-  const blocked = await f.driver.sendMessage({
+  assert.equal(first.state, 'settled');
+  const retry = await f.driver.sendMessage({
     verify_identity: true,
-    strict_project: true,
     wait_ms: 1000,
     chat_id: first.chat_id,
     expected_account_id: first.account_id,
     model: 'gpt-6-2-thinking',
     local_function_signatures: [dupSig],
-    native_candidate: {
-      parent_message_id: first.remote_head,
-      messages: [{ id: 'user-after-cancel-blocked', role: 'user', parts: ['retry'] }],
-    },
+    native_candidate: { parent_message_id: first.remote_head, messages: [{ id: 'u-2', role: 'user', parts: ['retry after cancel'] }] },
   });
-  assert.equal(blocked.error, 'native_remote_head_mismatch');
-  // With allow_parent_branch -> branches cleanly from first.remote_head.
-  const branched = await f.driver.sendMessage({
-    verify_identity: true,
-    strict_project: true,
-    wait_ms: 1000,
-    chat_id: first.chat_id,
-    expected_account_id: first.account_id,
-    model: 'gpt-6-2-thinking',
-    local_function_signatures: [dupSig],
-    native_candidate: {
-      parent_message_id: first.remote_head,
-      allow_parent_branch: true,
-      messages: [{ id: 'user-after-cancel-ok', role: 'user', parts: ['retry'] }],
-    },
-  });
-  assert.equal(branched.state, 'settled', JSON.stringify(branched));
+  assert.equal(retry.state, 'settled');
+  assert.equal(f.startCalls[1].request.parent_message_id, first.remote_head);
 });

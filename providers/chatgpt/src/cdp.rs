@@ -52,10 +52,6 @@ pub enum StreamEvent {
         #[serde(default)]
         native_recipient: Option<String>,
     },
-    NativeDispatchIdentity {
-        chat_id: String,
-        account_id: String,
-    },
     TurnCompleted {
         #[serde(default)]
         chat_id: Option<String>,
@@ -140,9 +136,7 @@ impl LaneSender {
                 q.mutable.remove(item_id);
                 q.committed.push_back(event);
             }
-            StreamEvent::ToolCall { .. }
-            | StreamEvent::NativeDispatchIdentity { .. }
-            | StreamEvent::TurnCompleted { .. } => {
+            StreamEvent::ToolCall { .. } | StreamEvent::TurnCompleted { .. } => {
                 q.committed.push_back(event);
             }
         }

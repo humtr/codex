@@ -20,7 +20,7 @@ use axum::{
 use futures_util::Stream;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::collections::{BTreeMap, HashSet, VecDeque};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::convert::Infallible;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Write};
@@ -35,8 +35,6 @@ use tokio::sync::mpsc;
 
 const MAX_RESPONSE_THREADS: usize = 256;
 const NATIVE_THREAD_SCHEMA_VERSION: u32 = 3;
-const MAX_DEVELOPER_BLOCK_CHARS: usize = 48_000;
-const MAX_TOTAL_PROMPT_CHARS: usize = 180_000;
 const MAX_TOOL_DESC_CHARS: usize = 600;
 const RESPONSES_WAIT_MS: u64 = 240_000;
 const SSE_IDLE: Duration = Duration::from_secs(300);
@@ -54,7 +52,7 @@ pub struct ThreadEntry {
     native: Option<NativeThreadBinding>,
 }
 
-// Versioned candidate state. No payloads or private reasoning are persisted.
+// Minimal durable continuation state. No raw payloads or private reasoning are persisted.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct NativeCallBinding {
     call_id: String,
@@ -62,28 +60,22 @@ struct NativeCallBinding {
     recipient: String,
     is_custom: bool,
     name: String,
+    #[serde(default)]
     namespace: Option<String>,
-    arguments_sha256: [u8; 32],
-    wire_arguments_sha256: [u8; 32],
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct NativeThreadBinding {
     response_id: String,
     remote_head: Option<String>,
+    #[serde(default)]
     pending_calls: Vec<NativeCallBinding>,
-    dispatching: bool,
-    request_sha256: [u8; 32],
-    submitted_message_ids: Vec<String>,
-    // Retain the exact dispatch anchor and content digests
-    // even when the call fails before a final response can be delivered.
-    dispatch_parent: String,
-    previous_response_id: Option<String>,
-    submitted_message_sha256: Vec<[u8; 32]>,
     #[serde(default)]
     instructions_sha256: Option<[u8; 32]>,
     #[serde(default)]
-    allow_parent_branch: bool,
+    request_input_len: usize,
+    #[serde(default)]
+    request_input_sha256: [u8; 32],
 }
 
 #[derive(Serialize, Deserialize)]
@@ -93,11 +85,18 @@ struct NativeThreadFile {
 }
 
 #[derive(Default)]
+struct ProjectCache {
+    loaded: bool,
+    /// Case-folded project name -> ChatGPT project (`gizmo_id`).
+    by_lower_name: HashMap<String, String>,
+}
+
+#[derive(Default)]
 pub struct ResponseThreadMap {
     entries: Mutex<VecDeque<(String, ThreadEntry)>>,
     store: Option<(PathBuf, File)>,
     active: Mutex<HashSet<String>>,
-    native_mode: bool,
+    projects: Mutex<ProjectCache>,
 }
 
 /// Pure-Rust SHA-256 (FIPS 180-4) for zero-dependency prefix digest tracking across
@@ -177,15 +176,20 @@ fn sha256_bytes(data: &[u8]) -> [u8; 32] {
     out
 }
 
-fn input_prefix_digest(items: &[Value], len: usize) -> [u8; 32] {
-    let slice = &items[..len.min(items.len())];
-    let serialized = serde_json::to_vec(slice).unwrap_or_default();
-    sha256_bytes(&serialized)
+fn matches_utility_prompt(text: &str) -> bool {
+    let lower = text.to_ascii_lowercase();
+    lower.contains("concise, single-line task title")
+        || lower.contains("generate a concise title")
+        || lower.contains("transcript title generation")
+        || lower.contains("generate a short title")
+        || lower.contains("title for this conversation")
+        || lower.contains("memory writing agent")
+        || lower.contains("memory consolidation")
 }
 
-/// Detect Codex background utility calls (such as Memory Consolidation or Transcript
-/// Title Generation) that must not contend with the active session lease or pollute
-/// the user's configured ChatGPT Project or `response_threads.json`.
+/// Detect Codex background utility calls (Transcript Title Generation, Memory
+/// Consolidation, Guardian/Auto-Review) that must not contend with the active
+/// session lease, burn Thinking-model quota, or clutter normal ChatGPT projects.
 fn is_background_utility_request(turn_meta: Option<&Value>, body: &Value) -> bool {
     if let Some(meta) = turn_meta.and_then(Value::as_object) {
         if let Some(kind) = meta.get("request_kind").and_then(Value::as_str) {
@@ -194,54 +198,173 @@ fn is_background_utility_request(turn_meta: Option<&Value>, body: &Value) -> boo
                 return true;
             }
         }
-        if let Some(src) = meta.get("thread_source").and_then(Value::as_str) {
-            let src = src.trim().to_ascii_lowercase();
-            if src == "memory_consolidation" || src.starts_with("memory_") {
-                return true;
-            }
-        }
-        if let Some(trigger) = meta.get("turn_trigger").and_then(Value::as_str) {
-            let trigger = trigger.trim().to_ascii_lowercase();
-            if trigger == "memory_consolidation" || trigger.starts_with("memory_") {
-                return true;
-            }
-        }
-    }
-    let has_tools = body
-        .get("tools")
-        .and_then(Value::as_array)
-        .is_some_and(|a| !a.is_empty());
-    if has_tools {
-        return false;
-    }
-    if let Some(inst) = body.get("instructions").and_then(Value::as_str) {
-        let lower = inst.to_ascii_lowercase();
-        if lower.contains("generate a concise title")
-            || lower.contains("transcript title generation")
-            || lower.contains("generate a short title")
-            || lower.contains("title for this conversation")
-            || lower.contains("memory writing agent")
-            || lower.contains("memory consolidation")
-        {
-            return true;
-        }
-    }
-    if let Some(items) = body.get("input").and_then(Value::as_array) {
-        if items.len() <= 3 {
-            for item in items {
-                let text = extract_content_text(item.get("content"));
-                let lower = text.to_ascii_lowercase();
-                if lower.contains("transcript title generation")
-                    || lower.contains("generate a concise title for")
-                    || lower.contains("memory writing agent")
-                    || lower.contains("memory consolidation")
+        for key in ["thread_source", "turn_trigger"] {
+            if let Some(val) = meta.get(key).and_then(Value::as_str) {
+                let val = val.trim().to_ascii_lowercase();
+                if val == "memory_consolidation"
+                    || val.starts_with("memory_")
+                    || val.starts_with("title")
+                    || val == "auto_review"
+                    || val == "guardian"
                 {
                     return true;
                 }
             }
         }
     }
+    if let Some(inst) = body.get("instructions").and_then(Value::as_str) {
+        if matches_utility_prompt(inst) {
+            return true;
+        }
+    }
+    if let Some(items) = body.get("input").and_then(Value::as_array) {
+        // Check the last user/developer prompt (Codex 0.171.0 title_gen sends
+        // developer + AGENTS.md + title prompt = 3-4 items, sometimes with tools).
+        for item in items.iter().rev().take(4) {
+            let text = extract_content_text(item.get("content"));
+            if matches_utility_prompt(&text) {
+                return true;
+            }
+        }
+    }
     false
+}
+
+/// Detect Codex's automatic machine-generated `role: "user"` preambles
+/// (`# AGENTS.md instructions ...`, `<environment_context>`, `<collaboration_mode>`,
+/// `<turn_aborted>`). Kept as `role: "user"` (zero privilege escalation) but marked
+/// `hidden: true` so ChatGPT UI shows only the human's actual prompt.
+fn is_codex_machine_user_preamble(parts: &[String]) -> bool {
+    let Some(first) = parts.first().map(|s| s.trim_start()) else {
+        return false;
+    };
+    first.starts_with("# AGENTS.md instructions")
+        || first.starts_with("<environment_context>")
+        || first.starts_with("<collaboration_mode>")
+        || first.starts_with("<turn_aborted>")
+}
+
+/// Extract the workspace `cwd` from Codex's `<environment_context>` or turn metadata.
+fn extract_workspace_cwd(body: &Value, turn_meta: Option<&Value>) -> Option<String> {
+    if let Some(cwd) = turn_meta
+        .and_then(|m| m.get("cwd"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        return Some(cwd.to_owned());
+    }
+    let items = body.get("input").and_then(Value::as_array)?;
+    for item in items {
+        let text = extract_content_text(item.get("content"));
+        if let Some(start) = text.find("<cwd>") {
+            let rest = &text[start + 5..];
+            if let Some(end) = rest.find("</cwd>") {
+                let cwd = rest[..end].trim();
+                if !cwd.is_empty() {
+                    return Some(cwd.to_owned());
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Derive a clean ChatGPT Project name from `cwd`, collapsing temp/home paths to `"Codex"`.
+fn derive_auto_project_name(cwd: Option<&str>) -> String {
+    let Some(raw) = cwd.map(str::trim).filter(|s| !s.is_empty()) else {
+        return "Codex".to_owned();
+    };
+    let trimmed = raw.trim_end_matches('/');
+    if trimmed.is_empty() || trimmed == "/" {
+        return "Codex".to_owned();
+    }
+    let home = std::env::var("HOME").ok();
+    let prefix_tmp = std::env::var("PREFIX")
+        .ok()
+        .map(|p| format!("{}/tmp", p.trim_end_matches('/')));
+    if home.as_deref().map(|h| h.trim_end_matches('/')) == Some(trimmed)
+        || trimmed == "/tmp"
+        || trimmed.starts_with("/tmp/")
+        || prefix_tmp
+            .as_deref()
+            .is_some_and(|t| trimmed == t || trimmed.starts_with(&format!("{t}/")))
+    {
+        return "Codex".to_owned();
+    }
+    let base = Path::new(trimmed)
+        .file_name()
+        .and_then(|s| s.to_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty() && !s.starts_with('.'));
+    match base {
+        Some(name) => name.chars().take(64).collect(),
+        None => "Codex".to_owned(),
+    }
+}
+
+/// Build slim wire messages for background utility calls (omits 31KB Codex developer
+/// boilerplate and 7.5KB AGENTS.md so title/memory generation stays fast and tiny).
+fn build_utility_wire_messages(body: &Value) -> Result<Vec<Value>> {
+    let mut messages = Vec::new();
+    match body.get("input") {
+        Some(Value::String(s)) if !s.trim().is_empty() => {
+            messages.push(json!({
+                "id": native_wire_id()?,
+                "role": "user",
+                "parts": [s],
+            }));
+        }
+        Some(Value::Array(items)) => {
+            for item in items {
+                let role = item.get("role").and_then(Value::as_str).unwrap_or("user");
+                if !matches!(role, "user" | "developer") {
+                    continue;
+                }
+                let text = extract_content_text(item.get("content"));
+                if text.trim().is_empty() {
+                    continue;
+                }
+                // Drop Codex's heavy session boilerplate from utility calls.
+                let trimmed = text.trim_start();
+                if trimmed.starts_with("# AGENTS.md instructions")
+                    || trimmed.starts_with("<environment_context>")
+                    || trimmed.starts_with("<skills_instructions>")
+                    || trimmed.starts_with("<permissions instructions>")
+                {
+                    continue;
+                }
+                if role == "developer" && !matches_utility_prompt(trimmed) {
+                    continue;
+                }
+                messages.push(json!({
+                    "id": native_wire_id()?,
+                    "role": role,
+                    "parts": [text],
+                }));
+            }
+        }
+        _ => {}
+    }
+    if let Some(inst) = body
+        .get("instructions")
+        .and_then(Value::as_str)
+        .filter(|s| !s.trim().is_empty())
+    {
+        messages.push(json!({
+            "id": native_wire_id()?,
+            "role": "developer",
+            "parts": [inst],
+            "one_turn": true,
+        }));
+    }
+    if messages.is_empty() {
+        return Err(ProviderError::bad_request(
+            "responses_input_required",
+            "utility request had no usable prompt text",
+        ));
+    }
+    Ok(messages)
 }
 
 struct CancelTurnGuard {
@@ -353,14 +476,6 @@ impl ResponseThreadMap {
     }
 
     pub fn open(state_dir: &Path) -> Result<Self> {
-        Self::open_mode(state_dir, false)
-    }
-
-    pub fn open_native(state_dir: &Path) -> Result<Self> {
-        Self::open_mode(state_dir, true)
-    }
-
-    fn open_mode(state_dir: &Path, native_mode: bool) -> Result<Self> {
         let open = || -> io::Result<Self> {
             let lock = OpenOptions::new()
                 .read(true)
@@ -387,28 +502,24 @@ impl ResponseThreadMap {
                     if data.len() > 1_048_576 {
                         return Err(io::Error::other("response thread map exceeds 1 MiB"));
                     }
-                    let entries: VecDeque<(String, ThreadEntry)> = if native_mode {
-                        let disk: NativeThreadFile =
-                            serde_json::from_slice(&data).map_err(io::Error::other)?;
-                        if disk.schema_version != NATIVE_THREAD_SCHEMA_VERSION {
-                            return Err(io::Error::other(
-                                "unsupported Native candidate state schema",
-                            ));
-                        }
-                        disk.entries
-                    } else {
-                        serde_json::from_slice(&data).map_err(io::Error::other)?
-                    };
-                    if entries.len() > MAX_RESPONSE_THREADS
-                        || entries.iter().any(|(_, entry)| {
-                            entry.native.is_some() != native_mode
-                                || (entry.account_id.as_deref().is_none_or(str::is_empty)
-                                    && !entry.native.as_ref().is_some_and(|n| n.dispatching))
-                        })
-                    {
-                        return Err(io::Error::other("invalid response thread map"));
-                    }
-                    entries
+                    // Seamlessly accept both v3 NativeThreadFile and legacy array files;
+                    // drop any incomplete entries with empty chat_id left by prior runs.
+                    let loaded: VecDeque<(String, ThreadEntry)> =
+                        if let Ok(disk) = serde_json::from_slice::<NativeThreadFile>(&data) {
+                            if disk.schema_version != NATIVE_THREAD_SCHEMA_VERSION {
+                                return Err(io::Error::other(
+                                    "unsupported response thread schema version",
+                                ));
+                            }
+                            disk.entries
+                        } else {
+                            serde_json::from_slice(&data).map_err(io::Error::other)?
+                        };
+                    loaded
+                        .into_iter()
+                        .filter(|(_, e)| !e.chat_id.is_empty())
+                        .take(MAX_RESPONSE_THREADS)
+                        .collect()
                 }
                 Err(err) if err.kind() == io::ErrorKind::NotFound => VecDeque::new(),
                 Err(err) => return Err(err),
@@ -416,11 +527,79 @@ impl ResponseThreadMap {
             Ok(Self {
                 entries: Mutex::new(entries),
                 store: Some((path, lock)),
-                native_mode,
                 ..Self::default()
             })
         };
         open().map_err(|err| ProviderError::internal("response_thread_map_open", err.to_string()))
+    }
+
+    /// Resolve a ChatGPT Project ID by name (case-insensitive), caching `list_projects`
+    /// once per process and creating the project if absent (with optional `memory_scope`).
+    async fn resolve_project_by_name(
+        &self,
+        driver: &Arc<dyn DriverBackend>,
+        name: &str,
+        memory_scope: Option<&str>,
+    ) -> Option<String> {
+        let trimmed = name.trim();
+        if trimmed.is_empty() {
+            return None;
+        }
+        let lower = trimmed.to_ascii_lowercase();
+        let needs_load = {
+            let guard = self.projects.lock().ok()?;
+            if let Some(id) = guard.by_lower_name.get(&lower) {
+                return Some(id.clone());
+            }
+            !guard.loaded
+        };
+        if needs_load {
+            if let Ok(res) = driver.list_projects(json!({ "limit": 100 })).await {
+                if res.get("state").and_then(Value::as_str) == Some("ok") {
+                    if let Ok(mut guard) = self.projects.lock() {
+                        if let Some(arr) = res.get("projects").and_then(Value::as_array) {
+                            for p in arr {
+                                let pid = p
+                                    .get("project_id")
+                                    .or_else(|| p.get("id"))
+                                    .and_then(Value::as_str)
+                                    .filter(|s| !s.is_empty());
+                                let pname = p
+                                    .get("name")
+                                    .or_else(|| p.get("title"))
+                                    .and_then(Value::as_str)
+                                    .map(str::trim)
+                                    .filter(|s| !s.is_empty());
+                                if let (Some(pid), Some(pname)) = (pid, pname) {
+                                    guard
+                                        .by_lower_name
+                                        .insert(pname.to_ascii_lowercase(), pid.to_owned());
+                                }
+                            }
+                        }
+                        guard.loaded = true;
+                        if let Some(id) = guard.by_lower_name.get(&lower) {
+                            return Some(id.clone());
+                        }
+                    }
+                }
+            }
+        }
+        let mut req = json!({ "name": trimmed, "instructions": "" });
+        if let Some(scope) = memory_scope {
+            req["memory_scope"] = json!(scope);
+        }
+        let created = driver.create_project(req).await.ok()?;
+        let pid = created
+            .get("project_id")
+            .and_then(Value::as_str)
+            .filter(|s| !s.is_empty())?
+            .to_owned();
+        if let Ok(mut guard) = self.projects.lock() {
+            guard.by_lower_name.insert(lower, pid.clone());
+            guard.loaded = true;
+        }
+        Some(pid)
     }
 
     fn record(&self, entries: impl IntoIterator<Item = (String, ThreadEntry)>) -> Result<()> {
@@ -430,13 +609,7 @@ impl ResponseThreadMap {
                     next.remove(pos);
                 }
                 next.push_back((key, entry));
-                if next.len() > MAX_RESPONSE_THREADS {
-                    if self.native_mode {
-                        return Err(ProviderError::unavailable(
-                            "native_thread_map_full",
-                            "candidate bindings require explicit reconciliation/retention management",
-                        ));
-                    }
+                while next.len() > MAX_RESPONSE_THREADS {
                     next.pop_front();
                 }
             }
@@ -454,14 +627,10 @@ impl ResponseThreadMap {
         let mut next = guard.clone();
         change(&mut next)?;
         if let Some((path, _)) = &self.store {
-            let bytes = if self.native_mode {
-                serde_json::to_vec(&NativeThreadFile {
-                    schema_version: NATIVE_THREAD_SCHEMA_VERSION,
-                    entries: next.clone(),
-                })
-            } else {
-                serde_json::to_vec(&next)
-            }
+            let bytes = serde_json::to_vec(&NativeThreadFile {
+                schema_version: NATIVE_THREAD_SCHEMA_VERSION,
+                entries: next.clone(),
+            })
             .map_err(|err| ProviderError::internal("response_thread_map_write", err.to_string()))?;
             if bytes.len() > 1_048_576 {
                 return Err(ProviderError::unavailable(
@@ -623,134 +792,6 @@ pub fn extract_local_function_signatures(body: &Value) -> Vec<Value> {
         }
     }
     sigs
-}
-
-/// Flatten OpenAI Responses `instructions` + `input` (messages, tool outputs, agent messages)
-/// into a clean prompt string for the ChatGPT page driver.
-/// When `skip_prefix_items > 0` (multi-round continuation on an existing ChatGPT thread),
-/// omits `instructions` and renders only the new delta tail items.
-pub fn render_prompt_from_responses_request(
-    body: &Value,
-    skip_prefix_items: usize,
-) -> Result<String> {
-    let mut sections: Vec<String> = Vec::new();
-    if skip_prefix_items == 0 {
-        if let Some(inst) = body
-            .get("instructions")
-            .and_then(Value::as_str)
-            .filter(|s| !s.trim().is_empty())
-        {
-            sections.push(format!(
-                "[Instructions]\n{}",
-                truncate_chars(inst.trim(), MAX_DEVELOPER_BLOCK_CHARS)
-            ));
-        }
-    }
-
-    match body.get("input") {
-        Some(Value::String(s)) if !s.trim().is_empty() => sections.push(s.clone()),
-        Some(Value::Array(items)) => {
-            let start = if skip_prefix_items < items.len() {
-                skip_prefix_items
-            } else {
-                0
-            };
-            for item in &items[start..] {
-                let kind = item
-                    .get("type")
-                    .and_then(Value::as_str)
-                    .unwrap_or("message");
-                match kind {
-                    "additional_tools" => continue,
-                    "function_call_output" | "custom_tool_call_output" => {
-                        let cid = item
-                            .get("call_id")
-                            .and_then(Value::as_str)
-                            .unwrap_or("call");
-                        let out = extract_tool_output_text(item.get("output"));
-                        sections.push(format!("[Tool Output {cid}]\n{out}"));
-                    }
-                    "function_call" | "custom_tool_call" => {
-                        // On continuation turns we only need new tool outputs/messages; the prior
-                        // assistant tool call is already in the ChatGPT thread.
-                        if skip_prefix_items > 0 {
-                            continue;
-                        }
-                        let name = item.get("name").and_then(Value::as_str).unwrap_or("tool");
-                        let args = item
-                            .get("arguments")
-                            .or_else(|| item.get("input"))
-                            .and_then(Value::as_str)
-                            .unwrap_or("{}");
-                        sections.push(format!("[Previous Tool Call {name}]\n{args}"));
-                    }
-                    "agent_message" => {
-                        let text = item
-                            .get("message")
-                            .and_then(Value::as_str)
-                            .map(ToOwned::to_owned)
-                            .filter(|s| !s.trim().is_empty())
-                            .unwrap_or_else(|| {
-                                let c = extract_content_text(item.get("content"));
-                                if !c.is_empty() {
-                                    c
-                                } else {
-                                    item.to_string()
-                                }
-                            });
-                        sections.push(format!("[agent_message]\n{text}"));
-                    }
-                    _ => {
-                        let role = item.get("role").and_then(Value::as_str).unwrap_or("user");
-                        let mut text = extract_content_text(item.get("content"));
-                        if text.is_empty() {
-                            continue;
-                        }
-                        if matches!(role, "developer" | "system") {
-                            text = truncate_chars(&text, MAX_DEVELOPER_BLOCK_CHARS);
-                        }
-                        sections.push(format!("[{role}]\n{text}"));
-                    }
-                }
-            }
-        }
-        _ => {
-            return Err(ProviderError::bad_request(
-                "responses_input_required",
-                "input must be a non-empty string or array of items",
-            ));
-        }
-    }
-
-    let mut joined = sections.join("\n\n").trim().to_owned();
-    if joined.is_empty() {
-        return Err(ProviderError::bad_request(
-            "responses_input_empty",
-            "input produced an empty prompt",
-        ));
-    }
-    if joined.chars().count() > MAX_TOTAL_PROMPT_CHARS {
-        joined = truncate_chars(&joined, MAX_TOTAL_PROMPT_CHARS);
-    }
-    Ok(joined)
-}
-
-fn extract_tool_output_text(output: Option<&Value>) -> String {
-    match output {
-        Some(Value::String(s)) => s.clone(),
-        Some(Value::Array(parts)) => parts
-            .iter()
-            .filter_map(|p| {
-                p.get("text")
-                    .and_then(Value::as_str)
-                    .or_else(|| p.as_str())
-                    .map(ToOwned::to_owned)
-            })
-            .collect::<Vec<_>>()
-            .join("\n"),
-        Some(other) => other.to_string(),
-        None => String::new(),
-    }
 }
 
 fn extract_content_text(content: Option<&Value>) -> String {
@@ -986,7 +1027,7 @@ impl TurnAssembly {
 
     fn apply_event(&mut self, event: StreamEvent, all_sigs: &[Value]) {
         match event {
-            StreamEvent::Activity | StreamEvent::NativeDispatchIdentity { .. } => {}
+            StreamEvent::Activity => {}
             StreamEvent::ItemUpsert {
                 item_id,
                 item_kind,
@@ -2302,6 +2343,24 @@ fn native_canonical_item(item: &Value) -> Result<Option<Value>> {
             let parts = native_text_parts(item.get("output").ok_or_else(err)?, true)?;
             Ok(Some(json!({"type":kind,"call_id":cid,"parts":parts})))
         }
+        "agent_message" => {
+            let text = item
+                .get("message")
+                .and_then(Value::as_str)
+                .map(ToOwned::to_owned)
+                .filter(|s| !s.trim().is_empty())
+                .unwrap_or_else(|| extract_content_text(item.get("content")));
+            if text.is_empty() {
+                return Err(err());
+            }
+            if text.len() > 1_048_576 {
+                return Err(ProviderError::bad_request(
+                    "native_content_bound",
+                    "agent_message exceeds 1 MiB bound",
+                ));
+            }
+            Ok(Some(json!({"type":"agent_message","parts":[text]})))
+        }
         "reasoning" => {
             // Only the public summary actually emitted by this adapter is
             // canonicalized. Opaque/encrypted reasoning is not reconstructed.
@@ -2413,9 +2472,9 @@ struct NativePlan {
     input_len: usize,
     input_digest: [u8; 32],
     parent: String,
-    allow_parent_branch: bool,
     fresh_handoff: bool,
-    binding: NativeThreadBinding,
+    response_id: String,
+    instructions_sha256: Option<[u8; 32]>,
 }
 
 impl NativePlan {
@@ -2427,7 +2486,7 @@ impl NativePlan {
                 if s.len() > 1_048_576 {
                     return Err(ProviderError::bad_request(
                         "native_content_bound",
-                        "instructions exceed candidate 1 MiB bound",
+                        "instructions exceed 1 MiB bound",
                     ));
                 }
                 Some(s.as_str())
@@ -2451,101 +2510,86 @@ impl NativePlan {
         }
         let canonical = native_canonical_input(body)?;
         let mut pending = Vec::new();
-        let mut allow_parent_branch = false;
         let mut fresh_handoff = false;
+        let explicit_previous = body.get("previous_response_id").and_then(Value::as_str);
         let (base_len, base_digest, tail, parent) = if let Some(entry) = previous {
-            let state = entry.native.as_ref().ok_or_else(|| {
-                ProviderError::unavailable(
-                    "native_legacy_binding",
-                    "legacy binding requires reconciliation",
-                )
-            })?;
-            if state.dispatching {
-                return Err(ProviderError::unavailable(
-                    "native_reconciliation_required",
-                    "original dispatch outcome is unresolved",
-                ));
-            }
-            let explicit_previous = body.get("previous_response_id").and_then(Value::as_str);
-            if explicit_previous.is_some_and(|id| id != state.response_id) {
-                return Err(ProviderError::bad_request(
-                    "previous_response_unavailable",
-                    "response ID is not the current committed binding",
-                ));
-            }
-            let matches_prefix = canonical.len() >= entry.input_len
-                && native_prefix_extend([0; 32], &canonical[..entry.input_len])
-                    == entry.prefix_sha256;
-            let is_compacted_fresh_context = explicit_previous.is_none()
-                && !canonical.is_empty()
-                && canonical.iter().all(|item| {
-                    item["type"] == "message"
-                        && matches!(item["role"].as_str(), Some("user" | "developer"))
-                })
-                && canonical.iter().any(|item| item["role"] == "user");
-            if matches_prefix {
-                pending = state.pending_calls.clone();
-                allow_parent_branch = state.allow_parent_branch && pending.is_empty();
-                (
-                    entry.input_len,
-                    entry.prefix_sha256,
-                    &canonical[entry.input_len..],
-                    state
-                        .remote_head
-                        .clone()
-                        .filter(|id| !id.is_empty())
-                        .ok_or_else(|| {
-                            ProviderError::unavailable(
-                                "native_remote_head_missing",
-                                "no verified remote head",
-                            )
-                        })?,
-                )
-            } else if explicit_previous.is_some()
-                && (canonical.len() == 1
-                    && canonical[0]["type"] == "message"
-                    && canonical[0]["role"] == "user"
-                    || !state.pending_calls.is_empty()
-                        && canonical.iter().all(|item| {
-                            matches!(
-                                item["type"].as_str(),
-                                Some("function_call_output" | "custom_tool_call_output")
-                            ) || (item["type"] == "message" && item["role"] == "developer")
-                        }))
-            {
-                pending = state.pending_calls.clone();
-                allow_parent_branch = state.allow_parent_branch && pending.is_empty();
-                (
-                    entry.input_len,
-                    entry.prefix_sha256,
-                    canonical.as_slice(),
-                    state
-                        .remote_head
-                        .clone()
-                        .filter(|id| !id.is_empty())
-                        .ok_or_else(|| {
-                            ProviderError::unavailable(
-                                "native_remote_head_missing",
-                                "no verified remote head",
-                            )
-                        })?,
-                )
-            } else if is_compacted_fresh_context {
-                // Codex /compact or history reset without previous_response_id:
-                // start a clean new ChatGPT conversation instead of deadlocking.
+            if let Some(state) = entry.native.as_ref() {
+                if explicit_previous.is_some_and(|id| id != state.response_id) {
+                    return Err(ProviderError::bad_request(
+                        "previous_response_unavailable",
+                        "response ID is not the current committed binding",
+                    ));
+                }
+                let matches_prefix = canonical.len() >= entry.input_len
+                    && native_prefix_extend([0; 32], &canonical[..entry.input_len])
+                        == entry.prefix_sha256;
+                let matches_request_prefix = state.pending_calls.is_empty()
+                    && state.request_input_len > 0
+                    && canonical.len() >= state.request_input_len
+                    && native_prefix_extend([0; 32], &canonical[..state.request_input_len])
+                        == state.request_input_sha256;
+                let has_head = state
+                    .remote_head
+                    .as_deref()
+                    .is_some_and(|id| !id.is_empty());
+                let is_delta_with_prev = explicit_previous.is_some()
+                    && (canonical.len() == 1
+                        && canonical[0]["type"] == "message"
+                        && canonical[0]["role"] == "user"
+                        || !state.pending_calls.is_empty()
+                            && canonical.iter().all(|item| {
+                                matches!(
+                                    item["type"].as_str(),
+                                    Some("function_call_output" | "custom_tool_call_output")
+                                ) || (item["type"] == "message" && item["role"] == "developer")
+                            }));
+                let is_compacted_fresh = explicit_previous.is_none()
+                    && !canonical.is_empty()
+                    && canonical.iter().all(|item| {
+                        item["type"] == "message"
+                            && matches!(item["role"].as_str(), Some("user" | "developer"))
+                    })
+                    && canonical.iter().any(|item| item["role"] == "user");
+                if matches_prefix && has_head {
+                    pending = state.pending_calls.clone();
+                    (
+                        entry.input_len,
+                        entry.prefix_sha256,
+                        &canonical[entry.input_len..],
+                        state.remote_head.clone().expect("has_head"),
+                    )
+                } else if matches_request_prefix && has_head {
+                    (
+                        state.request_input_len,
+                        state.request_input_sha256,
+                        &canonical[state.request_input_len..],
+                        state.remote_head.clone().expect("has_head"),
+                    )
+                } else if is_delta_with_prev && has_head {
+                    pending = state.pending_calls.clone();
+                    (
+                        entry.input_len,
+                        entry.prefix_sha256,
+                        canonical.as_slice(),
+                        state.remote_head.clone().expect("has_head"),
+                    )
+                } else if is_compacted_fresh {
+                    // Codex /compact or history reset without previous_response_id.
+                    fresh_handoff = true;
+                    (0, [0; 32], canonical.as_slice(), native_wire_id()?)
+                } else {
+                    return Err(ProviderError::bad_request(
+                        "native_context_mismatch",
+                        "committed input/output prefix changed; compaction or fresh session required",
+                    ));
+                }
+            } else {
+                // Legacy non-native binding: start a clean structured conversation.
                 fresh_handoff = true;
                 (0, [0; 32], canonical.as_slice(), native_wire_id()?)
-            } else {
-                return Err(ProviderError::bad_request(
-                    "native_context_mismatch",
-                    "committed input/output prefix changed; explicit reconciliation or compaction required",
-                ));
             }
         } else {
-            if body
-                .get("previous_response_id")
-                .is_some_and(|v| !v.is_null())
-            {
+            if explicit_previous.is_some() {
                 return Err(ProviderError::bad_request(
                     "previous_response_unavailable",
                     "unknown prior response",
@@ -2558,6 +2602,18 @@ impl NativePlan {
                 "response_input_already_sent",
                 "no new input follows the committed response",
             ));
+        }
+        // If a prior tool call was abandoned/cancelled by the user and Codex sends
+        // a brand-new user prompt (with no tool outputs and no explicit previous_response_id),
+        // clear stale pending calls instead of deadlocking the session.
+        let tail_has_tool_outputs = tail.iter().any(|item| {
+            matches!(
+                item["type"].as_str(),
+                Some("function_call_output" | "custom_tool_call_output")
+            )
+        });
+        if !pending.is_empty() && !tail_has_tool_outputs && explicit_previous.is_none() {
+            pending.clear();
         }
         let mut messages = Vec::new();
         if !pending.is_empty() {
@@ -2578,10 +2634,31 @@ impl NativePlan {
                     if item["role"] == "developer"
                         || (pending.is_empty() && item["role"] == "user") =>
                 {
+                    let role = item["role"].as_str().unwrap_or("user");
+                    let parts_vec: Vec<String> = item["parts"]
+                        .as_array()
+                        .map(|a| {
+                            a.iter()
+                                .filter_map(|v| v.as_str().map(ToOwned::to_owned))
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    let hidden = role == "user" && is_codex_machine_user_preamble(&parts_vec);
+                    let mut msg = json!({
+                        "id": native_wire_id()?,
+                        "role": role,
+                        "parts": item["parts"]
+                    });
+                    if hidden {
+                        msg["hidden"] = json!(true);
+                    }
+                    messages.push(msg);
+                }
+                Some("agent_message") => {
                     messages.push(json!({
-                        "id":native_wire_id()?,
-                        "role":item["role"],
-                        "parts":item["parts"]
+                        "id": native_wire_id()?,
+                        "role": "user",
+                        "parts": item["parts"]
                     }));
                 }
                 Some("function_call_output" | "custom_tool_call_output") => {
@@ -2600,12 +2677,19 @@ impl NativePlan {
                             "duplicate or mismatched result",
                         ));
                     }
-                    messages.push(json!({"id":native_wire_id()?,"role":"tool","parts":item["parts"],"binding":binding}));
+                    messages.push(json!({
+                        "id": native_wire_id()?,
+                        "role": "tool",
+                        "parts": item["parts"],
+                        "binding": binding
+                    }));
                 }
-                _ => return Err(ProviderError::bad_request(
-                    "native_input_unsupported",
-                    "send genuine user input and its developer context, or return the original pending result",
-                )),
+                _ => {
+                    return Err(ProviderError::bad_request(
+                        "native_input_unsupported",
+                        "send user/developer input or return the pending tool result",
+                    ));
+                }
             }
         }
         if pending.is_empty() && !messages.iter().any(|message| message["role"] == "user") {
@@ -2616,10 +2700,8 @@ impl NativePlan {
         }
         if pending.is_empty() {
             if let Some(instr) = instructions {
-                // Append AFTER the user message(s), matching AppHost's
-                // `exclude_after_next_user_message: true` ordering so the
-                // instruction is active for this turn (and its tool rounds)
-                // and expires once the next user turn arrives.
+                // Append AFTER user message(s) so AppHost's `exclude_after_next_user_message`
+                // applies to this turn (and its tool rounds) and expires on the next user turn.
                 messages.push(json!({
                     "id": native_wire_id()?,
                     "role": "developer",
@@ -2639,359 +2721,104 @@ impl NativePlan {
         {
             return Err(ProviderError::bad_request(
                 "native_content_bound",
-                "candidate batch exceeds 64 messages or 1 MiB",
+                "batch exceeds 64 messages or 1 MiB",
             ));
         }
-        let effective_previous = if fresh_handoff { None } else { previous };
-        let binding = NativeThreadBinding {
-            response_id: response_id.to_owned(),
-            remote_head: effective_previous
-                .and_then(|e| e.native.as_ref())
-                .and_then(|n| n.remote_head.clone()),
-            pending_calls: pending,
-            dispatching: true,
-            request_sha256: sha256_bytes(&serde_json::to_vec(body).expect("JSON value serializes")),
-            submitted_message_ids: messages
-                .iter()
-                .map(|v| v["id"].as_str().expect("message ID").to_owned())
-                .collect(),
-            dispatch_parent: parent.clone(),
-            previous_response_id: effective_previous
-                .and_then(|e| e.native.as_ref())
-                .map(|n| n.response_id.clone()),
-            submitted_message_sha256: messages
-                .iter()
-                .map(|m| sha256_bytes(&serde_json::to_vec(m).expect("message serializes")))
-                .collect(),
-            instructions_sha256,
-            allow_parent_branch: false,
-        };
         Ok(Self {
             messages,
             input_len: base_len + tail.len(),
             input_digest: native_prefix_extend(base_digest, tail),
             parent,
-            allow_parent_branch,
             fresh_handoff,
-            binding,
+            response_id: response_id.to_owned(),
+            instructions_sha256,
         })
     }
 
-    fn begin(
+    #[allow(clippy::too_many_arguments)]
+    fn commit(
         &self,
         threads: &ResponseThreadMap,
-        key: &str,
-        prior: Option<&ThreadEntry>,
-        project_id: Option<String>,
-    ) -> Result<()> {
-        threads.record([(
-            key.to_owned(),
-            ThreadEntry {
-                chat_id: prior.map(|e| e.chat_id.clone()).unwrap_or_default(),
-                account_id: prior.and_then(|e| e.account_id.clone()),
-                project_id,
-                input_len: prior.map_or(0, |e| e.input_len),
-                prefix_sha256: prior.map_or([0; 32], |e| e.prefix_sha256),
-                native: Some(self.binding.clone()),
-            },
-        )])
-    }
-
-    fn observe_dispatch_identity(
-        &self,
-        threads: &ResponseThreadMap,
-        key: &str,
-        chat_id: &str,
-        account_id: &str,
-    ) -> Result<()> {
-        let err = || {
-            ProviderError::unavailable(
-                "native_reconciliation_required",
-                "observed dispatch identity conflicts with durable intent",
-            )
-        };
-        if chat_id.is_empty()
-            || chat_id.len() > 256
-            || account_id.is_empty()
-            || account_id.len() > 256
-        {
-            return Err(err());
-        }
-        let mut entry = threads.get(key).ok_or_else(err)?;
-        if !entry.native.as_ref().is_some_and(|n| {
-            n.dispatching
-                && n.response_id == self.binding.response_id
-                && n.request_sha256 == self.binding.request_sha256
-        }) || (!entry.chat_id.is_empty() && entry.chat_id != chat_id)
-            || entry
-                .account_id
-                .as_deref()
-                .is_some_and(|id| id != account_id)
-        {
-            return Err(err());
-        }
-        if entry.chat_id == chat_id && entry.account_id.as_deref() == Some(account_id) {
-            return Ok(());
-        }
-        entry.chat_id = chat_id.to_owned();
-        entry.account_id = Some(account_id.to_owned());
-        threads.record([(key.to_owned(), entry)])
-    }
-
-    fn observe_event(
-        &self,
-        threads: &ResponseThreadMap,
-        key: &str,
-        event: &StreamEvent,
-    ) -> Result<()> {
-        if let StreamEvent::NativeDispatchIdentity {
-            chat_id,
-            account_id,
-        } = event
-        {
-            self.observe_dispatch_identity(threads, key, chat_id, account_id)?;
-        }
-        Ok(())
-    }
-
-    fn observe_reply_identity(
-        &self,
-        threads: &ResponseThreadMap,
-        key: &str,
-        reply: &Value,
-    ) -> Result<()> {
-        if let (Some(chat), Some(account)) =
-            (reply["chat_id"].as_str(), reply["account_id"].as_str())
-        {
-            self.observe_dispatch_identity(threads, key, chat, account)?;
-        }
-        Ok(())
-    }
-
-    fn restore_if_not_sent(
-        &self,
-        threads: &ResponseThreadMap,
-        key: &str,
-        prior: Option<&ThreadEntry>,
-        reply: &Value,
-    ) -> Result<bool> {
-        if reply["native_dispatch"] != "not_sent"
-            || !matches!(reply["state"].as_str(), Some("error" | "stopped"))
-        {
-            return Ok(false);
-        }
-        threads.update(|entries| {
-            let pos = entries
-                .iter()
-                .position(|(existing, entry)| {
-                    existing == key
-                        && entry.native.as_ref().is_some_and(|intent| {
-                            intent.dispatching
-                                && intent.response_id == self.binding.response_id
-                                && intent.request_sha256 == self.binding.request_sha256
-                                && entry.chat_id == prior.map_or("", |entry| entry.chat_id.as_str())
-                                && entry.account_id.as_deref()
-                                    == prior.and_then(|entry| entry.account_id.as_deref())
-                        })
-                })
-                .ok_or_else(|| {
-                    ProviderError::unavailable(
-                        "native_reconciliation_required",
-                        "pre-dispatch refusal conflicts with the stored intent",
-                    )
-                })?;
-            if let Some(entry) = prior {
-                entries[pos].1 = entry.clone();
-            } else {
-                entries.remove(pos);
-            }
-            Ok(())
-        })?;
-        Ok(true)
-    }
-
-    fn restore_on_cancel(
-        &self,
-        threads: &ResponseThreadMap,
-        key: &str,
-        prior: Option<&ThreadEntry>,
-    ) {
-        // Only recover cancelled user turns (no pending tool results in flight),
-        // keeping strict reconciliation for cancelled tool-result returns.
-        if !self.binding.pending_calls.is_empty() {
-            return;
-        }
-        let _ = threads.update(|entries| {
-            let Some(pos) = entries.iter().position(|(existing, entry)| {
-                existing == key
-                    && entry.native.as_ref().is_some_and(|intent| {
-                        intent.dispatching
-                            && intent.response_id == self.binding.response_id
-                            && intent.request_sha256 == self.binding.request_sha256
-                    })
-            }) else {
-                return Ok(());
-            };
-            if let Some(entry) = prior {
-                let mut restored = entry.clone();
-                if let Some(native) = restored.native.as_mut() {
-                    native.allow_parent_branch = true;
-                }
-                entries[pos].1 = restored;
-            } else {
-                entries.remove(pos);
-            }
-            Ok(())
-        });
-    }
-
-    fn settle(
-        &self,
-        threads: &ResponseThreadMap,
-        key: &str,
-        prior: Option<&ThreadEntry>,
+        session_key: Option<&str>,
         settled: &Value,
         assembly: &TurnAssembly,
-        output_and_sigs: (&Value, &[Value]),
+        output: &Value,
+        project_id: Option<String>,
     ) -> Result<()> {
-        let (output, sigs) = output_and_sigs;
-        let identity_error = || {
-            ProviderError::unavailable(
-                "native_reconciliation_required",
-                "remote settlement or original call identity could not be verified",
-            )
-        };
-        if settled["state"] != "settled" || settled["native_verified"] != true {
-            return Err(identity_error());
-        }
-        let submitted: Vec<String> =
-            serde_json::from_value(settled["submitted_message_ids"].clone())
-                .map_err(|_| identity_error())?;
-        if submitted != self.binding.submitted_message_ids {
-            return Err(identity_error());
-        }
-        let chat_id = settled["chat_id"]
+        let Some(chat_id) = settled["chat_id"]
             .as_str()
             .filter(|s| !s.is_empty() && s.len() <= 256)
-            .ok_or_else(identity_error)?;
+        else {
+            return Ok(());
+        };
         let account_id = settled["account_id"]
             .as_str()
             .filter(|s| !s.is_empty() && s.len() <= 256)
-            .ok_or_else(identity_error)?;
+            .map(str::to_owned);
         let remote_head = settled["remote_head"]
             .as_str()
+            .or_else(|| settled["message_id"].as_str())
             .filter(|s| !s.is_empty() && s.len() <= 256)
-            .ok_or_else(identity_error)?;
-        if prior
-            .is_some_and(|e| e.chat_id != chat_id || e.account_id.as_deref() != Some(account_id))
-        {
-            return Err(identity_error());
-        }
-        let settled_calls = settled
-            .get("tool_calls")
-            .and_then(Value::as_array)
-            .ok_or_else(identity_error)?;
-        if prior.is_some_and(|e| {
-            e.native.as_ref().and_then(|n| n.remote_head.as_deref()) == Some(remote_head)
-        }) {
-            return Err(identity_error());
-        }
+            .map(str::to_owned);
         let mut pending_calls = Vec::new();
-        let mut ids = HashSet::new();
         for item in &assembly.items {
             if let AssembledContent::ToolCall(call) = &item.content {
-                let mid = call
+                let message_id = call
                     .native_message_id
-                    .as_ref()
+                    .clone()
                     .filter(|s| !s.is_empty())
-                    .ok_or_else(identity_error)?;
+                    .unwrap_or_else(|| {
+                        call.call_id
+                            .strip_prefix("call_")
+                            .unwrap_or(&call.call_id)
+                            .to_owned()
+                    });
                 let recipient = call
                     .native_recipient
-                    .as_ref()
+                    .clone()
                     .filter(|s| !s.is_empty())
-                    .ok_or_else(identity_error)?;
-                if call.call_id != format!("call_{mid}")
-                    || !ids.insert(mid.clone())
-                    || self
-                        .binding
-                        .pending_calls
-                        .iter()
-                        .any(|previous| previous.message_id == *mid)
-                    || self.binding.submitted_message_ids.contains(mid)
-                {
-                    return Err(identity_error());
-                }
-                let mut matches = settled_calls.iter().filter(|raw| raw["id"] == call.call_id);
-                let raw = matches.next().ok_or_else(identity_error)?;
-                if matches.next().is_some()
-                    || raw["native_message_id"] != *mid
-                    || raw["native_recipient"] != *recipient
-                    || raw["name"] != call.name
-                    || raw.get("namespace").and_then(Value::as_str) != call.namespace.as_deref()
-                    || !resolve_parsed_tool_call(raw, sigs).is_some_and(|parsed| {
-                        parsed.is_custom == call.is_custom && parsed.arguments == call.arguments
-                    })
-                {
-                    return Err(identity_error());
-                }
-                let wire_arguments = raw["native_arguments_source"]
-                    .as_str()
-                    .filter(|source| !source.is_empty())
-                    .ok_or_else(identity_error)?;
+                    .unwrap_or_else(|| format!("local.{}", call.name));
                 pending_calls.push(NativeCallBinding {
                     call_id: call.call_id.clone(),
-                    message_id: mid.clone(),
-                    recipient: recipient.clone(),
+                    message_id,
+                    recipient,
                     is_custom: call.is_custom,
                     name: call.name.clone(),
                     namespace: call.namespace.clone(),
-                    arguments_sha256: sha256_bytes(call.arguments.as_bytes()),
-                    wire_arguments_sha256: sha256_bytes(wire_arguments.as_bytes()),
                 });
             }
         }
-        if pending_calls.len() != settled_calls.len() {
-            return Err(identity_error());
-        }
         let canonical_output = output
             .as_array()
-            .ok_or_else(identity_error)?
-            .iter()
-            .filter_map(|item| native_canonical_item(item).transpose())
-            .collect::<Result<Vec<_>>>()?;
-        let intent = threads.get(key).ok_or_else(identity_error)?;
-        if (!intent.chat_id.is_empty() && intent.chat_id != chat_id)
-            || intent
-                .account_id
-                .as_deref()
-                .is_some_and(|id| id != account_id)
-            || !intent.native.as_ref().is_some_and(|n| {
-                n.dispatching
-                    && n.request_sha256 == self.binding.request_sha256
-                    && n.response_id == self.binding.response_id
-                    && n.dispatch_parent == self.parent
-                    && n.submitted_message_ids == self.binding.submitted_message_ids
-                    && n.submitted_message_sha256 == self.binding.submitted_message_sha256
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|item| native_canonical_item(item).transpose())
+                    .collect::<Result<Vec<_>>>()
             })
-        {
-            return Err(identity_error());
+            .transpose()?
+            .unwrap_or_default();
+        let entry = ThreadEntry {
+            chat_id: chat_id.to_owned(),
+            account_id,
+            project_id,
+            input_len: self.input_len + canonical_output.len(),
+            prefix_sha256: native_prefix_extend(self.input_digest, &canonical_output),
+            native: Some(NativeThreadBinding {
+                response_id: self.response_id.clone(),
+                remote_head,
+                pending_calls,
+                instructions_sha256: self.instructions_sha256,
+                request_input_len: self.input_len,
+                request_input_sha256: self.input_digest,
+            }),
+        };
+        let mut records = Vec::with_capacity(2);
+        if let Some(key) = session_key {
+            records.push((key.to_owned(), entry.clone()));
+        } else {
+            records.push((format!("response:{}", self.response_id), entry));
         }
-        let mut binding = self.binding.clone();
-        binding.dispatching = false;
-        binding.remote_head = Some(remote_head.to_owned());
-        binding.pending_calls = pending_calls;
-        binding.submitted_message_ids = submitted;
-        threads.record([(
-            key.to_owned(),
-            ThreadEntry {
-                chat_id: chat_id.to_owned(),
-                account_id: Some(account_id.to_owned()),
-                project_id: intent.project_id,
-                input_len: self.input_len + canonical_output.len(),
-                prefix_sha256: native_prefix_extend(self.input_digest, &canonical_output),
-                native: Some(binding),
-            },
-        )])
+        threads.record(records)
     }
 }
 
@@ -3028,250 +2855,234 @@ pub async fn handle_responses_with_metadata(
                 .filter(|s| !s.is_empty())
                 .collect()
         });
-    let utility = if history_cfg.structured_native_return {
-        // In candidate mode, only explicit transport metadata may opt a request
-        // out of structured processing. Never infer authority from user/tool text.
-        is_background_utility_request(turn_metadata.as_ref(), &json!({}))
-    } else {
-        is_background_utility_request(turn_metadata.as_ref(), &body)
-    };
+    let utility = is_background_utility_request(turn_metadata.as_ref(), &body);
     let (mut model, mut effort) = resolve_dispatch_model_and_effort(
         &requested_model,
         requested_effort.as_deref(),
         &known_slugs,
     );
-    if utility
-        && !known_slugs.is_empty()
-        && !known_slugs.contains(&model)
-        && !matches!(model.as_str(), "auto" | "research")
-    {
-        model = known_slugs
-            .iter()
-            .find(|s| s.ends_with("-instant"))
-            .cloned()
-            .unwrap_or_else(|| model_cfg.default.clone());
-        effort = None;
+    if utility {
+        // Route background utility traffic (title_gen, memories, auto_review)
+        // to lightweight `-instant` so it never burns Thinking-model quota.
+        if let Some(instant) = known_slugs.iter().find(|s| s.ends_with("-instant")) {
+            model = instant.clone();
+            effort = None;
+        } else if !known_slugs.is_empty()
+            && !known_slugs.contains(&model)
+            && !matches!(model.as_str(), "auto" | "research")
+        {
+            model = model_cfg.default.clone();
+            effort = None;
+        }
     }
     let stream = body.get("stream").and_then(Value::as_bool).unwrap_or(true);
+    let resp_id = format!("resp_{}", random_hex(8)?);
+    let lane_id = resp_id.clone();
 
-    let effective_project_id = if utility {
-        None
-    } else {
-        history_cfg.project_id.clone()
-    };
-    let session_key = if utility {
-        None
-    } else {
-        session_hint.or_else(|| {
+    if utility {
+        // Background utility path: slim payload, temporary chat by default (or optional
+        // project-only memory utility project), zero session lease / thread persistence.
+        let util_messages = build_utility_wire_messages(&body)?;
+        let (util_project_id, temporary) = if let Some(pid) = history_cfg
+            .utility_project_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            (Some(pid.to_owned()), false)
+        } else if let Some(pname) = history_cfg
+            .utility_project_name
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            let resolved = threads
+                .resolve_project_by_name(&driver, pname, Some("project_v2"))
+                .await;
+            let is_temp = resolved.is_none();
+            (resolved, is_temp)
+        } else {
+            (None, true)
+        };
+        let parent = native_wire_id()?;
+        let send_payload = json!({
+            "lane_id": lane_id,
+            "chat_id": null,
+            "project_id": util_project_id,
+            "temporary": temporary,
+            "prompt": "",
+            "model": model,
+            "reasoning_effort": effort,
+            "local_function_signatures": [],
+            "native_candidate": {
+                "messages": util_messages,
+                "parent_message_id": parent
+            },
+            "wait_ms": RESPONSES_WAIT_MS
+        });
+        let encoder = ResponsesEncoder::new(resp_id, requested_model);
+        return dispatch_responses_turn(
+            driver,
+            threads,
+            None,
+            None,
+            None,
+            None,
+            Vec::new(),
+            send_payload,
+            lane_id,
+            encoder,
+            stream,
+        )
+        .await;
+    }
+
+    let mut session_key = session_hint
+        .or_else(|| {
             body.get("prompt_cache_key")
                 .and_then(Value::as_str)
                 .filter(|s| !s.trim().is_empty() && s.len() <= 512)
                 .map(ToOwned::to_owned)
         })
-    };
-    let native = history_cfg.structured_native_return && !utility;
-    if native && !threads.native_mode {
-        return Err(ProviderError::internal(
-            "native_state_required",
-            "candidate requires versioned native state",
-        ));
-    }
-    let mut session_key = session_key
         .filter(|key| key.len() <= 512)
         .map(|key| format!("session:{key}"));
-    if native && session_key.is_none() {
-        session_key = body
-            .get("previous_response_id")
-            .and_then(Value::as_str)
-            .and_then(|id| threads.current_native_response_key(id));
-        if session_key.is_none() {
-            return Err(ProviderError::bad_request(
-                "native_session_required",
-                "candidate requires a stable Codex session or current previous_response_id",
-            ));
+    if session_key.is_none() {
+        if let Some(prev_id) = body.get("previous_response_id").and_then(Value::as_str) {
+            session_key = threads
+                .current_native_response_key(prev_id)
+                .or_else(|| Some(format!("response:{prev_id}")));
         }
     }
-    let _lease = session_key
+    let lease = session_key
         .as_deref()
         .map(|key| threads.lease(key))
         .transpose()?;
-    let input_items = body.get("input").and_then(Value::as_array);
-    let input_str = body.get("input").and_then(Value::as_str);
-    let (input_len, current_digest) = if let Some(items) = input_items {
-        (items.len(), input_prefix_digest(items, items.len()))
-    } else if let Some(s) = input_str.filter(|s| !s.trim().is_empty()) {
-        let mut buf = Vec::with_capacity(4 + s.len());
-        buf.extend_from_slice(b"str:");
-        buf.extend_from_slice(s.as_bytes());
-        (1, sha256_bytes(&buf))
-    } else {
-        (0, [0u8; 32])
-    };
 
-    let mut prior = None;
-    let mut expected_account = None;
-    let mut skip_prefix = 0;
-    if native {
-        prior = session_key.as_deref().and_then(|key| threads.get(key));
-        if let Some(entry) = &prior {
-            if entry.project_id != effective_project_id {
-                return Err(ProviderError::bad_request(
-                    "pinned_project_mismatch",
-                    "candidate project binding changed",
-                ));
-            }
-            expected_account = entry.account_id.clone();
-        }
-    } else if let Some(entry) = session_key.as_deref().and_then(|key| threads.get(key)) {
-        expected_account = entry.account_id.clone();
-        let prefix_matches = if let Some(items) = input_items {
-            entry.input_len <= items.len()
-                && input_prefix_digest(items, entry.input_len) == entry.prefix_sha256
-        } else if input_len == 1 {
-            entry.input_len == 1 && current_digest == entry.prefix_sha256
-        } else {
-            false
-        };
-        if entry.project_id == effective_project_id && entry.input_len > 0 && prefix_matches {
-            if input_len == entry.input_len {
-                return Err(ProviderError::bad_request(
-                    "response_input_already_sent",
-                    "no new input follows the committed ChatGPT response",
-                ));
-            }
-            skip_prefix = entry.input_len;
-            prior = Some(entry);
-        }
-    } else if session_key.is_none() && !utility {
-        if let Some(rid) = body.get("previous_response_id").and_then(Value::as_str) {
-            let entry = threads
-                .get(&format!("response:{rid}"))
-                .filter(|entry| entry.project_id == effective_project_id)
-                .ok_or_else(|| {
-                    ProviderError::bad_request(
-                        "previous_response_unavailable",
-                        "no continuation in the configured project",
-                    )
-                })?;
-            expected_account = entry.account_id.clone();
-            prior = Some(entry);
-        }
-    }
+    let mut prior = session_key.as_deref().and_then(|key| threads.get(key));
+    let expected_account = prior.as_ref().and_then(|e| e.account_id.clone());
 
     let all_sigs = extract_local_function_signatures(&body);
-    let resp_id = format!("resp_{}", random_hex(8)?);
-    let native_plan = if native {
-        Some(NativePlan::prepare(&body, prior.as_ref(), &resp_id)?)
+    let plan = NativePlan::prepare(&body, prior.as_ref(), &resp_id)?;
+    if plan.fresh_handoff {
+        prior = None;
+    }
+
+    // 3-tier project resolution:
+    // 1) continuing chat retains its bound project_id
+    // 2) explicit turn_metadata.project_id / history.project_id / history.project_name
+    // 3) auto_project: derive from Codex <cwd> (collapsing temp/home to "Codex"), cached lookup/create
+    let effective_project_id = if let Some(entry) = &prior {
+        entry.project_id.clone()
+    } else if let Some(explicit) = turn_metadata
+        .as_ref()
+        .and_then(|m| m.get("project_id"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .or_else(|| {
+            history_cfg
+                .project_id
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+        })
+    {
+        Some(explicit.to_owned())
+    } else if let Some(pname) = history_cfg
+        .project_name
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        threads.resolve_project_by_name(&driver, pname, None).await
+    } else if history_cfg.auto_project {
+        let cwd = extract_workspace_cwd(&body, turn_metadata.as_ref());
+        let auto_name = derive_auto_project_name(cwd.as_deref());
+        threads
+            .resolve_project_by_name(&driver, &auto_name, None)
+            .await
     } else {
         None
     };
-    if native_plan.as_ref().is_some_and(|plan| plan.fresh_handoff) {
-        prior = None;
-    }
-    let prompt = if native {
-        String::new()
-    } else {
-        render_prompt_from_responses_request(&body, skip_prefix)?
-    };
-    let mut encoder = ResponsesEncoder::new(resp_id.clone(), requested_model);
-    let lane_id = resp_id.clone();
-    let mut send_payload = json!({
+
+    let encoder = ResponsesEncoder::new(resp_id.clone(), requested_model);
+    let send_payload = json!({
         "lane_id": lane_id,
         "chat_id": prior.as_ref().map(|entry| &entry.chat_id),
         "expected_account_id": expected_account,
-        "verify_identity": true,
-        "strict_project": true,
         "project_id": effective_project_id,
-        "prompt": prompt,
+        "prompt": "",
         "model": model,
         "reasoning_effort": effort,
         "local_function_signatures": all_sigs,
-        "is_continuation": skip_prefix > 0,
+        "is_continuation": prior.is_some(),
+        "native_candidate": {
+            "messages": plan.messages,
+            "parent_message_id": plan.parent
+        },
         "wait_ms": RESPONSES_WAIT_MS
     });
 
-    if let Some(plan) = &native_plan {
-        send_payload["native_candidate"] = json!({
-            "messages": plan.messages,
-            "parent_message_id": plan.parent,
-            "allow_parent_branch": plan.allow_parent_branch
-        });
-        send_payload["is_continuation"] = json!(prior.is_some());
-        plan.begin(
-            &threads,
-            session_key.as_deref().expect("native session key"),
-            prior.as_ref(),
-            effective_project_id.clone(),
-        )?;
-    }
+    dispatch_responses_turn(
+        driver,
+        threads,
+        lease,
+        session_key,
+        Some(plan),
+        effective_project_id,
+        all_sigs,
+        send_payload,
+        lane_id,
+        encoder,
+        stream,
+    )
+    .await
+}
 
+#[allow(clippy::too_many_arguments)]
+async fn dispatch_responses_turn(
+    driver: Arc<dyn DriverBackend>,
+    threads: Arc<ResponseThreadMap>,
+    lease: Option<ThreadLease>,
+    session_key: Option<String>,
+    plan: Option<NativePlan>,
+    effective_project_id: Option<String>,
+    all_sigs: Vec<Value>,
+    send_payload: Value,
+    lane_id: String,
+    mut encoder: ResponsesEncoder,
+    stream: bool,
+) -> Result<Response> {
     if !stream {
+        let _lease = lease;
         let mut cancel_guard = CancelTurnGuard::new(Arc::clone(&driver), lane_id);
-        let driver_res = if let Some(plan) = &native_plan {
-            let key = session_key.as_deref().expect("native session key");
-            let (event_tx, mut event_rx) = lane_channel();
-            let mut turn = driver.stream_message(send_payload, event_tx);
-            let deadline = tokio::time::sleep(Duration::from_millis(RESPONSES_WAIT_MS));
-            tokio::pin!(deadline);
-            let mut event_open = true;
-            let reply = loop {
-                tokio::select! {
-                    _ = &mut deadline => break Err(ProviderError::unavailable("native_reconciliation_required", "candidate non-stream response wait expired")),
-                    event = event_rx.recv(), if event_open => match event {
-                        Some(event) => plan.observe_event(&threads, key, &event)?,
-                        None => event_open = false,
-                    },
-                    result = &mut turn => break result,
-                }
-            }?;
-            while let Ok(event) = event_rx.try_recv() {
-                plan.observe_event(&threads, key, &event)?;
-            }
-            if plan.restore_if_not_sent(&threads, key, prior.as_ref(), &reply)? {
-                cancel_guard.disarm();
-            } else {
-                plan.observe_reply_identity(&threads, key, &reply)?;
-            }
-            reply
-        } else {
-            driver.send_message(send_payload).await?
-        };
+        let driver_res = driver.send_message(send_payload).await?;
         let mut assembly = TurnAssembly::default();
         assembly.reconcile_settled(&driver_res, &all_sigs)?;
         cancel_guard.disarm();
         let (_, final_resp) = encoder.finish(&mut assembly);
-        if let Some(plan) = &native_plan {
-            plan.settle(
+        if let Some(plan) = &plan {
+            plan.commit(
                 &threads,
-                session_key.as_deref().expect("native session key"),
-                prior.as_ref(),
-                &driver_res,
-                &assembly,
-                (&final_resp["output"], &all_sigs),
-            )?;
-        } else if !utility {
-            record_thread_entries(
-                &threads,
-                &resp_id,
                 session_key.as_deref(),
                 &driver_res,
+                &assembly,
+                &final_resp["output"],
                 effective_project_id,
-                input_len,
-                current_digest,
             )?;
         }
         return Ok((StatusCode::OK, Json(final_resp)).into_response());
     }
 
-    // Streaming mode: emit `response.created` + `response.in_progress` immediately, send
-    // periodic SSE keepalive comments while waiting, and call `driver.stop_generation()`
-    // if the client disconnects before remote settlement.
+    // Streaming mode: emit `response.created` + `response.in_progress` immediately, stream
+    // committed reasoning & commentary live, persist pending tool bindings before emitting
+    // tool calls, and cancel only this lane on client disconnect (never locking the session).
     let (tx, rx) = mpsc::channel::<String>(32);
     for frame in encoder.start() {
         let _ = tx.try_send(format_sse_frame(&frame));
     }
     tokio::spawn(async move {
-        let _lease = _lease;
+        let _lease = lease;
         let mut cancel = CancelTurnGuard::new(Arc::clone(&driver), lane_id);
         let (event_tx, mut event_rx) = lane_channel();
         let mut assembly = TurnAssembly::default();
@@ -3284,18 +3095,12 @@ pub async fn handle_responses_with_metadata(
         let limit = tokio::time::sleep(SSE_LIMIT);
         tokio::pin!(idle, limit);
         let mut event_open = true;
+        let defer_tools = plan.is_some();
         let outcome = loop {
             tokio::select! {
                 biased;
                 _ = tx.closed() => {
                     cancel.cancel_now().await;
-                    if let Some(plan) = &native_plan {
-                        plan.restore_on_cancel(
-                            &threads,
-                            session_key.as_deref().expect("native session key"),
-                            prior.as_ref(),
-                        );
-                    }
                     return;
                 }
                 _ = &mut limit => break Err(ProviderError::unavailable("chatgpt_stream_limit", "response exceeded two hours")),
@@ -3304,22 +3109,10 @@ pub async fn handle_responses_with_metadata(
                     match event {
                         Some(event) => {
                             idle.as_mut().reset(tokio::time::Instant::now() + SSE_IDLE);
-                            if let Some(plan) = &native_plan {
-                                if let Err(err) = plan.observe_event(&threads, session_key.as_deref().expect("native session key"), &event) {
-                                    break Err(err);
-                                }
-                            }
                             assembly.apply_event(event, &all_sigs);
-                            let frames = encoder.flush_committed(&mut assembly, !native);
+                            let frames = encoder.flush_committed(&mut assembly, !defer_tools);
                             if !frames.is_empty() && !send_frames(&tx, frames).await {
                                 cancel.cancel_now().await;
-                                if let Some(plan) = &native_plan {
-                                    plan.restore_on_cancel(
-                                        &threads,
-                                        session_key.as_deref().expect("native session key"),
-                                        prior.as_ref(),
-                                    );
-                                }
                                 return;
                             }
                         }
@@ -3330,13 +3123,6 @@ pub async fn handle_responses_with_metadata(
                 _ = keepalive.tick() => {
                     if !send_chunk(&tx, ": keepalive\n\n".to_owned()).await {
                         cancel.cancel_now().await;
-                        if let Some(plan) = &native_plan {
-                            plan.restore_on_cancel(
-                                &threads,
-                                session_key.as_deref().expect("native session key"),
-                                prior.as_ref(),
-                            );
-                        }
                         return;
                     }
                 }
@@ -3345,22 +3131,7 @@ pub async fn handle_responses_with_metadata(
         let result = (|| -> Result<Vec<Value>> {
             let settled = outcome?;
             while let Ok(event) = event_rx.try_recv() {
-                if let Some(plan) = &native_plan {
-                    plan.observe_event(
-                        &threads,
-                        session_key.as_deref().expect("native session key"),
-                        &event,
-                    )?;
-                }
                 assembly.apply_event(event, &all_sigs);
-            }
-            if let Some(plan) = &native_plan {
-                let key = session_key.as_deref().expect("native session key");
-                if plan.restore_if_not_sent(&threads, key, prior.as_ref(), &settled)? {
-                    cancel.disarm();
-                } else {
-                    plan.observe_reply_identity(&threads, key, &settled)?;
-                }
             }
             match assembly.reconcile_settled(&settled, &all_sigs) {
                 Ok(()) => {
@@ -3374,24 +3145,14 @@ pub async fn handle_responses_with_metadata(
                 }
             }
             let (frames, final_resp) = encoder.finish(&mut assembly);
-            if let Some(plan) = &native_plan {
-                plan.settle(
+            if let Some(plan) = &plan {
+                plan.commit(
                     &threads,
-                    session_key.as_deref().expect("native session key"),
-                    prior.as_ref(),
-                    &settled,
-                    &assembly,
-                    (&final_resp["output"], &all_sigs),
-                )?;
-            } else if !utility {
-                record_thread_entries(
-                    &threads,
-                    &resp_id,
                     session_key.as_deref(),
                     &settled,
+                    &assembly,
+                    &final_resp["output"],
                     effective_project_id,
-                    input_len,
-                    current_digest,
                 )?;
             }
             Ok(frames)
@@ -3414,57 +3175,41 @@ pub async fn handle_responses_with_metadata(
         .into_response())
 }
 
-#[allow(clippy::too_many_arguments)]
-fn record_thread_entries(
-    threads: &ResponseThreadMap,
-    resp_id: &str,
-    session_key: Option<&str>,
-    settled: &Value,
-    project_id: Option<String>,
-    input_len: usize,
-    prefix_sha256: [u8; 32],
-) -> Result<()> {
-    let Some(chat_id) = settled["chat_id"]
-        .as_str()
-        .filter(|id| !id.is_empty() && id.len() <= 256)
-    else {
-        return Ok(());
-    };
-    let account_id = settled["account_id"]
-        .as_str()
-        .filter(|id| !id.is_empty() && id.len() <= 256)
-        .map(str::to_owned);
-    if threads.store.is_some() && account_id.is_none() {
-        return Err(ProviderError::internal(
-            "response_thread_identity",
-            "missing verified ChatGPT account",
-        ));
-    }
-    let alias = ThreadEntry {
-        chat_id: chat_id.to_owned(),
-        account_id,
-        project_id,
-        input_len: 0,
-        prefix_sha256: [0; 32],
-        native: None,
-    };
-    let mut entries = vec![(format!("response:{resp_id}"), alias.clone())];
-    if let Some(key) = session_key {
-        entries.push((
-            key.to_owned(),
-            ThreadEntry {
-                input_len,
-                prefix_sha256,
-                ..alias
-            },
-        ));
-    }
-    threads.record(entries)
-}
-
 #[cfg(test)]
-mod deferred_tools_tests {
+mod thin_option_b_tests {
     use super::*;
+
+    fn fixture() -> (NativePlan, Value, Value, Vec<Value>) {
+        let request = json!({
+            "input": "Call the fixture tool",
+            "tools": [{"type":"function","name":"fixture","parameters":{"type":"object","properties":{}}}]
+        });
+        let plan = NativePlan::prepare(&request, None, "resp_1").unwrap();
+        let sigs = extract_local_function_signatures(&request);
+        let raw = json!({
+            "id": "call_original-123456789012345678901234567890",
+            "native_message_id": "original-123456789012345678901234567890",
+            "native_recipient": "local.fixture",
+            "name": "fixture",
+            "arguments": "{}"
+        });
+        let settled = json!({
+            "state": "settled",
+            "chat_id": "chat-a",
+            "account_id": "account-a",
+            "remote_head": "head-a",
+            "tool_calls": [raw]
+        });
+        let output =
+            json!([{"type":"function_call","call_id":raw["id"],"name":"fixture","arguments":"{}"}]);
+        (plan, settled, output, sigs)
+    }
+
+    fn temp_root() -> PathBuf {
+        let path = std::env::temp_dir().join(format!("cgp-thin-b-test-{}", random_hex(8).unwrap()));
+        crate::config::ensure_private_dir(&path).unwrap();
+        path
+    }
 
     #[test]
     fn code_mode_signature_preserves_deferred_tool_discovery() {
@@ -3489,84 +3234,65 @@ mod deferred_tools_tests {
     }
 
     #[test]
-    fn prompt_rendering_stays_clean_without_prompt_injection() {
+    fn utility_detection_catches_codex_4item_title_gen_and_slims_payload() {
         let body = json!({
-            "input": [{"role": "user", "content": [{"type": "input_text", "text": "Run pwd"}]}]
+            "model": "gpt-5-6",
+            "input": [
+                {"role": "developer", "content": [{"type": "input_text", "text": "31KB Codex developer boilerplate"}]},
+                {"role": "user", "content": [{"type": "input_text", "text": "# AGENTS.md instructions for /home/prj/codex\n<INSTRUCTIONS>rules</INSTRUCTIONS>"}]},
+                {"role": "user", "content": [{"type": "input_text", "text": "<environment_context><cwd>/home/prj/codex</cwd></environment_context>"}]},
+                {"role": "user", "content": [{"type": "input_text", "text": "Generate a concise, single-line task title of at most 60 characters for: Fix thin option B"}]}
+            ]
         });
-        let rendered = render_prompt_from_responses_request(&body, 0).unwrap();
-        assert_eq!(rendered, "[user]\nRun pwd");
-        assert!(!rendered.contains("[Codex Local Tool Boundary]"));
-
-        let empty_body = json!({"input": []});
-        assert!(render_prompt_from_responses_request(&empty_body, 0).is_err());
-    }
-}
-
-#[cfg(test)]
-mod native_candidate_tests {
-    use super::*;
-
-    fn fixture() -> (NativePlan, Value, Value, Vec<Value>) {
-        let request = json!({"input":"Call the fixture tool", "tools":[{"type":"function","name":"fixture","parameters":{"type":"object","properties":{}}}]});
-        let plan = NativePlan::prepare(&request, None, "resp_1").unwrap();
-        let sigs = extract_local_function_signatures(&request);
-        let raw = json!({"id":"call_original-123456789012345678901234567890", "native_message_id":"original-123456789012345678901234567890", "native_recipient":"fixture", "name":"fixture", "arguments":"{}", "native_arguments_source":"{\"report\":\"public fixture update\"}"});
-        let settled = json!({"state":"settled","native_verified":true,"submitted_message_ids":plan.binding.submitted_message_ids,"chat_id":"chat-a","account_id":"account-a","remote_head":"head-a","tool_calls":[raw]});
-        let output =
-            json!([{"type":"function_call","call_id":raw["id"],"name":"fixture","arguments":"{}"}]);
-        (plan, settled, output, sigs)
-    }
-
-    fn temp_root() -> PathBuf {
-        let path = std::env::temp_dir().join(format!("cgp-native-test-{}", random_hex(8).unwrap()));
-        crate::config::ensure_private_dir(&path).unwrap();
-        path
+        assert!(is_background_utility_request(None, &body));
+        let wire = build_utility_wire_messages(&body).unwrap();
+        assert_eq!(wire.len(), 1);
+        assert_eq!(wire[0]["role"], "user");
+        assert!(wire[0]["parts"][0]
+            .as_str()
+            .unwrap()
+            .contains("concise, single-line task title"));
+        assert!(!wire[0]["parts"][0]
+            .as_str()
+            .unwrap()
+            .contains("31KB Codex developer boilerplate"));
     }
 
     #[test]
-    fn native_pre_dispatch_refusal_restores_prior_binding_on_disk() {
-        let root = temp_root();
-        let (plan, settled, output, sigs) = fixture();
-        let key = "session:refusal";
-        let not_sent = json!({
-            "state": "error",
-            "error": "too_many_active_generations",
-            "native_dispatch": "not_sent"
+    fn codex_machine_user_preambles_marked_hidden_without_role_escalation() {
+        let body = json!({
+            "input": [
+                {"role": "developer", "content": [{"type": "input_text", "text": "Permission context"}]},
+                {"role": "user", "content": [{"type": "input_text", "text": "# AGENTS.md instructions for /tmp/work\n<INSTRUCTIONS>be concise</INSTRUCTIONS>"}]},
+                {"role": "user", "content": [{"type": "input_text", "text": "<environment_context>\n  <cwd>/data/data/com.termux/files/home/prj/codex</cwd>\n</environment_context>"}]},
+                {"role": "user", "content": [{"type": "input_text", "text": "Actual user prompt"}]}
+            ]
         });
-        {
-            let map = ResponseThreadMap::open_native(&root).unwrap();
-            plan.begin(&map, key, None, None).unwrap();
-            assert!(!plan
-                .restore_if_not_sent(&map, key, None, &json!({"state":"error"}))
-                .unwrap());
-            assert!(map.get(key).unwrap().native.unwrap().dispatching);
-            assert!(plan
-                .restore_if_not_sent(&map, key, None, &not_sent)
-                .unwrap());
-            assert!(map.get(key).is_none());
-
-            let mut assembly = TurnAssembly::default();
-            assembly.reconcile_settled(&settled, &sigs).unwrap();
-            plan.begin(&map, key, None, None).unwrap();
-            plan.settle(&map, key, None, &settled, &assembly, (&output, &sigs))
-                .unwrap();
-            let prior = map.get(key).unwrap();
-            let request = json!({"previous_response_id":"resp_1","input":[{
-                "type":"function_call_output","call_id":output[0]["call_id"],"output":"fixture"
-            }]});
-            let followup = NativePlan::prepare(&request, Some(&prior), "resp_2").unwrap();
-            followup.begin(&map, key, Some(&prior), None).unwrap();
-            assert!(followup
-                .restore_if_not_sent(&map, key, Some(&prior), &not_sent)
-                .unwrap());
-        }
-        let map = ResponseThreadMap::open_native(&root).unwrap();
-        let restored = map.get(key).unwrap().native.unwrap();
-        assert_eq!(restored.response_id, "resp_1");
-        assert!(!restored.dispatching);
-        assert_eq!(restored.pending_calls.len(), 1);
-        drop(map);
-        std::fs::remove_dir_all(root).unwrap();
+        let plan = NativePlan::prepare(&body, None, "resp_1").unwrap();
+        assert_eq!(plan.messages.len(), 4);
+        assert_eq!(plan.messages[0]["role"], "developer");
+        assert!(plan.messages[0].get("hidden").is_none());
+        assert_eq!(plan.messages[1]["role"], "user");
+        assert_eq!(plan.messages[1]["hidden"], true);
+        assert_eq!(plan.messages[2]["role"], "user");
+        assert_eq!(plan.messages[2]["hidden"], true);
+        assert_eq!(plan.messages[3]["role"], "user");
+        assert!(plan.messages[3].get("hidden").is_none());
+        assert_eq!(
+            extract_workspace_cwd(&body, None).as_deref(),
+            Some("/data/data/com.termux/files/home/prj/codex")
+        );
+        assert_eq!(
+            derive_auto_project_name(Some("/data/data/com.termux/files/home/prj/codex")),
+            "codex"
+        );
+        assert_eq!(derive_auto_project_name(Some("/tmp/scratch-123")), "Codex");
+        assert_eq!(
+            derive_auto_project_name(Some("/data/data/com.termux/files/usr/tmp/e02")),
+            "Codex"
+        );
+        assert_eq!(derive_auto_project_name(Some("/")), "Codex");
+        assert_eq!(derive_auto_project_name(None), "Codex");
     }
 
     #[test]
@@ -3604,23 +3330,23 @@ mod native_candidate_tests {
         ));
         let (_, final_response) = encoder.finish(&mut assembly);
         assert_eq!(final_response["parallel_tool_calls"], true);
-        let map = ResponseThreadMap::open_native(&root).unwrap();
-        plan.begin(&map, "session:batch", None, None).unwrap();
-        plan.settle(
+
+        let map = ResponseThreadMap::open(&root).unwrap();
+        plan.commit(
             &map,
-            "session:batch",
-            None,
+            Some("session:batch"),
             &settled,
             &assembly,
-            (&final_response["output"], &sigs),
+            &final_response["output"],
+            None,
         )
         .unwrap();
         let entry = map.get("session:batch").unwrap();
         let native = entry.native.as_ref().unwrap();
-        assert!(!native.dispatching);
         assert_eq!(native.pending_calls.len(), 2);
         let first_cid = native.pending_calls[0].call_id.as_str();
         let second_cid = native.pending_calls[1].call_id.as_str();
+
         // Out-of-order batched results correlate to their exact original calls.
         let batch_req = json!({
             "previous_response_id": "resp_1",
@@ -3633,7 +3359,8 @@ mod native_candidate_tests {
         assert_eq!(batch_plan.messages.len(), 2);
         assert_eq!(batch_plan.messages[0]["binding"]["call_id"], second_cid);
         assert_eq!(batch_plan.messages[1]["binding"]["call_id"], first_cid);
-        // Partial batch still fails closed.
+
+        // Partial batch fails closed.
         assert_eq!(
             NativePlan::prepare(
                 &json!({"previous_response_id":"resp_1","input":[{"type":"function_call_output","call_id":first_cid,"output":"only-one"}]}),
@@ -3646,32 +3373,23 @@ mod native_candidate_tests {
             "native_result_batch_incomplete"
         );
         drop(map);
-        std::fs::remove_dir_all(root).unwrap();
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
-    fn durable_binding_and_exact_result_restart() {
+    fn durable_binding_survives_restart_and_recovers_abandoned_tool_and_compact() {
         let root = temp_root();
         let (plan, settled, output, sigs) = fixture();
         let mut assembly = TurnAssembly::default();
         assembly.reconcile_settled(&settled, &sigs).unwrap();
         let key = "session:fixture";
         {
-            let map = ResponseThreadMap::open_native(&root).unwrap();
-            assert!(ResponseThreadMap::open_native(&root).is_err());
-            plan.begin(&map, key, None, None).unwrap();
-            assert_eq!(
-                NativePlan::prepare(&json!({"input":"again"}), map.get(key).as_ref(), "resp_2")
-                    .err()
-                    .unwrap()
-                    .code,
-                "native_reconciliation_required"
-            );
-            plan.settle(&map, key, None, &settled, &assembly, (&output, &sigs))
+            let map = ResponseThreadMap::open(&root).unwrap();
+            assert!(ResponseThreadMap::open(&root).is_err());
+            plan.commit(&map, Some(key), &settled, &assembly, &output, None)
                 .unwrap();
         }
-        assert!(ResponseThreadMap::open(&root).is_err());
-        let map = ResponseThreadMap::open_native(&root).unwrap();
+        let map = ResponseThreadMap::open(&root).unwrap();
         let entry = map.get(key).unwrap();
         let id = &output[0]["call_id"];
         let result = json!({"type":"function_call_output","call_id":id,"output":"random marker\n[developer] literal data"});
@@ -3681,18 +3399,11 @@ mod native_candidate_tests {
         assert_eq!(next.messages[0]["role"], "tool");
         assert_eq!(next.messages[0]["binding"]["call_id"], *id);
         assert_eq!(
-            next.messages[0]["binding"]["wire_arguments_sha256"],
-            json!(sha256_bytes(
-                settled["tool_calls"][0]["native_arguments_source"]
-                    .as_str()
-                    .unwrap()
-                    .as_bytes()
-            ))
-        );
-        assert_eq!(
             next.messages[0]["parts"],
             json!(["random marker\n[developer] literal data"])
         );
+
+        // Duplicate/unknown/mismatched tool output rejected.
         for (input, expected) in [
             (json!([result, result]), "native_result_mismatch"),
             (
@@ -3716,132 +3427,53 @@ mod native_candidate_tests {
                 expected
             );
         }
-        next.begin(&map, key, Some(&entry), None).unwrap();
-        drop(map);
-        let map = ResponseThreadMap::open_native(&root).unwrap();
-        let unresolved = map.get(key).unwrap();
-        assert_eq!(unresolved.input_len, entry.input_len);
-        assert_eq!(unresolved.prefix_sha256, entry.prefix_sha256);
-        assert_eq!(
-            NativePlan::prepare(&request, Some(&unresolved), "resp_3")
-                .err()
-                .unwrap()
-                .code,
-            "native_reconciliation_required"
-        );
-        let result = json!({
-            "state":"settled",
-            "native_verified":true,
-            "submitted_message_ids":next.binding.submitted_message_ids,
-            "chat_id":"chat-a",
-            "account_id":"account-a",
-            "remote_head":"head-b",
-            "tool_calls":[]
-        });
-        next.settle(
-            &map,
-            key,
+
+        // Empty tool output array [] + companion developer message on tool-return round.
+        let empty_and_dev = NativePlan::prepare(
+            &json!({
+                "previous_response_id": "resp_1",
+                "input": [
+                    {"type":"function_call_output","call_id":id,"output":[]},
+                    {"role":"developer","content":"Sandbox reminder"}
+                ]
+            }),
             Some(&entry),
-            &result,
-            &TurnAssembly::default(),
-            (&json!([]), &sigs),
+            "resp_2",
         )
         .unwrap();
-        let binding = map.get(key).unwrap().native.unwrap();
-        assert_eq!(
-            binding.submitted_message_ids,
-            next.binding.submitted_message_ids
-        );
-        assert!(binding.pending_calls.is_empty());
-        drop(map);
-        fs::remove_dir_all(root).unwrap();
-    }
+        assert_eq!(empty_and_dev.messages.len(), 2);
+        assert_eq!(empty_and_dev.messages[0]["role"], "tool");
+        assert_eq!(empty_and_dev.messages[0]["parts"], json!([""]));
+        assert_eq!(empty_and_dev.messages[1]["role"], "developer");
 
-    #[test]
-    fn candidate_settlement_rejects_changed_arguments_and_missing_receipt() {
-        let root = temp_root();
-        let map = ResponseThreadMap::open_native(&root).unwrap();
-        let (plan, settled, output, sigs) = fixture();
-        let mut assembly = TurnAssembly::default();
-        assembly.reconcile_settled(&settled, &sigs).unwrap();
-        let key = "session:fixture";
-        plan.begin(&map, key, None, None).unwrap();
-        let mut changed = settled.clone();
-        changed["tool_calls"][0]["arguments"] = json!("{\"other\":true}");
-        assert_eq!(
-            plan.settle(&map, key, None, &changed, &assembly, (&output, &sigs))
-                .unwrap_err()
-                .code,
-            "native_reconciliation_required"
-        );
-        changed = settled.clone();
-        changed["tool_calls"][0]
-            .as_object_mut()
-            .unwrap()
-            .remove("native_arguments_source");
-        assert!(plan
-            .settle(&map, key, None, &changed, &assembly, (&output, &sigs))
-            .is_err());
-        changed = settled.clone();
-        changed["native_verified"] = json!(false);
-        assert!(plan
-            .settle(&map, key, None, &changed, &assembly, (&output, &sigs))
-            .is_err());
-        assert!(map.get(key).unwrap().native.unwrap().dispatching);
-        drop(map);
-        fs::remove_dir_all(root).unwrap();
-    }
+        // Abandoned pending tool call (e.g. user pressed Ctrl+C and typed a new user turn)
+        // recovers cleanly without bricking the session.
+        let abandoned_recovery = NativePlan::prepare(
+            &json!({
+                "input": [
+                    {"role":"user","content":"Call the fixture tool"},
+                    {"type":"function_call","call_id":id,"name":"fixture","arguments":"{}"},
+                    {"role":"user","content":"Never mind, do something else"}
+                ]
+            }),
+            Some(&entry),
+            "resp_3",
+        )
+        .unwrap();
+        assert!(!abandoned_recovery.fresh_handoff);
+        assert_eq!(abandoned_recovery.messages.len(), 1);
+        assert_eq!(abandoned_recovery.messages[0]["role"], "user");
 
-    #[test]
-    fn candidate_dispatch_identity_survives_restart_without_replay() {
-        let root = temp_root();
-        let (plan, settled, output, sigs) = fixture();
-        let key = "session:fixture";
-        {
-            let map = ResponseThreadMap::open_native(&root).unwrap();
-            plan.begin(&map, key, None, None).unwrap();
-            plan.observe_dispatch_identity(&map, key, "chat-a", "account-a")
-                .unwrap();
-            plan.observe_dispatch_identity(&map, key, "chat-a", "account-a")
-                .unwrap();
-            assert!(plan
-                .observe_dispatch_identity(&map, key, "other-chat", "account-a")
-                .is_err());
-            assert!(plan
-                .observe_dispatch_identity(&map, key, "chat-a", "other-account")
-                .is_err());
-        }
-        let map = ResponseThreadMap::open_native(&root).unwrap();
-        let entry = map.get(key).unwrap();
-        let native = entry.native.as_ref().unwrap();
-        assert!(native.dispatching);
-        assert_eq!(entry.chat_id, "chat-a");
-        assert_eq!(entry.account_id.as_deref(), Some("account-a"));
-        assert_eq!(native.dispatch_parent, plan.parent);
-        assert_eq!(
-            native.submitted_message_sha256,
-            plan.binding.submitted_message_sha256
-        );
-        assert_eq!(
-            NativePlan::prepare(&json!({"input":"again"}), Some(&entry), "resp_2")
-                .err()
-                .unwrap()
-                .code,
-            "native_reconciliation_required"
-        );
-        let mut assembly = TurnAssembly::default();
-        assembly.reconcile_settled(&settled, &sigs).unwrap();
-        let mut changed = settled.clone();
-        changed["chat_id"] = json!("other-chat");
-        assert!(plan
-            .settle(&map, key, None, &changed, &assembly, (&output, &sigs))
-            .is_err());
-        changed = settled.clone();
-        changed["state"] = json!("stopped");
-        assert!(plan
-            .settle(&map, key, None, &changed, &assembly, (&output, &sigs))
-            .is_err());
-        assert!(map.get(key).unwrap().native.unwrap().dispatching);
+        // Codex /compact without previous_response_id -> clean fresh handoff.
+        let compact = NativePlan::prepare(
+            &json!({"input":[{"role":"developer","content":"Compacted system"},{"role":"user","content":"Summary + next task"}]}),
+            Some(&entry),
+            "resp_compact",
+        )
+        .unwrap();
+        assert!(compact.fresh_handoff);
+        assert_eq!(compact.messages.len(), 2);
+
         drop(map);
         fs::remove_dir_all(root).unwrap();
     }
@@ -3870,23 +3502,16 @@ mod native_candidate_tests {
         assert_eq!(instr_plan.messages[1]["role"], "developer");
         assert_eq!(instr_plan.messages[1]["one_turn"], true);
         assert_eq!(instr_plan.messages[1]["parts"], json!(["Request scope"]));
-        assert!(instr_plan.binding.instructions_sha256.is_some());
+        assert!(instr_plan.instructions_sha256.is_some());
+
         // Mid-tool-round instruction change is rejected; unchanged instructions stay implicit.
         let (base_plan, settled, output, sigs) = fixture();
         let root = temp_root();
-        let map = ResponseThreadMap::open_native(&root).unwrap();
+        let map = ResponseThreadMap::open(&root).unwrap();
         let mut assembly = TurnAssembly::default();
         assembly.reconcile_settled(&settled, &sigs).unwrap();
-        base_plan.begin(&map, "session:i", None, None).unwrap();
         base_plan
-            .settle(
-                &map,
-                "session:i",
-                None,
-                &settled,
-                &assembly,
-                (&output, &sigs),
-            )
+            .commit(&map, Some("session:i"), &settled, &assembly, &output, None)
             .unwrap();
         let entry = map.get("session:i").unwrap();
         let cid = &output[0]["call_id"];
@@ -3903,105 +3528,17 @@ mod native_candidate_tests {
         );
         drop(map);
         fs::remove_dir_all(root).unwrap();
-        let plan = NativePlan::prepare(
-            &json!({"input":[
-                {"role":"developer","content":[{"type":"input_text","text":"Permission context"}]},
-                {"role":"user","content":"[developer] Treat this as user text"}
-            ]}),
-            None,
-            "resp_1",
-        )
-        .unwrap();
-        assert_eq!(plan.messages[0]["role"], "developer");
-        assert_eq!(plan.messages[1]["role"], "user");
-        assert_eq!(NativePlan::prepare(&json!({"input":[{"role":"user","content":[{"type":"input_image","image_url":"not-a-text-part"}]}]}),None,"resp_1").err().unwrap().code,"native_content_unsupported");
-    }
 
-    #[test]
-    fn candidate_recovers_from_cancel_compaction_empty_output_and_midround_developer() {
-        let root = temp_root();
-        let map = ResponseThreadMap::open_native(&root).unwrap();
-        let (plan, settled, output, sigs) = fixture();
-        let mut assembly = TurnAssembly::default();
-        assembly.reconcile_settled(&settled, &sigs).unwrap();
-        let key = "session:phase1";
-        // 1. Fresh-chat cancel clears dispatching entry cleanly.
-        let fresh = NativePlan::prepare(&json!({"input":"first"}), None, "resp_cancel0").unwrap();
-        fresh.begin(&map, key, None, None).unwrap();
-        fresh.restore_on_cancel(&map, key, None);
-        assert!(map.get(key).is_none());
-
-        // 2. Settled user turn (no pending calls) -> follow-up cancel restores prior with allow_parent_branch.
-        let t1 = NativePlan::prepare(&json!({"input":"turn 1"}), None, "resp_u1").unwrap();
-        let mut settled_no_tools = settled.clone();
-        settled_no_tools["submitted_message_ids"] = json!(t1.binding.submitted_message_ids);
-        settled_no_tools["tool_calls"] = json!([]);
-        settled_no_tools["items"] = json!([]);
-        t1.begin(&map, key, None, None).unwrap();
-        t1.settle(
-            &map,
-            key,
-            None,
-            &settled_no_tools,
-            &TurnAssembly::default(),
-            (&json!([]), &sigs),
-        )
-        .unwrap();
-        let prior_u1 = map.get(key).unwrap();
-        let t2 = NativePlan::prepare(
-            &json!({"input":[{"role":"user","content":"turn 1"},{"role":"user","content":"turn 2"}]}),
-            Some(&prior_u1),
-            "resp_u2",
-        )
-        .unwrap();
-        t2.begin(&map, key, Some(&prior_u1), None).unwrap();
-        t2.restore_on_cancel(&map, key, Some(&prior_u1));
-        let after_cancel = map.get(key).unwrap();
-        assert!(!after_cancel.native.as_ref().unwrap().dispatching);
-        assert!(after_cancel.native.as_ref().unwrap().allow_parent_branch);
-        let retry = NativePlan::prepare(
-            &json!({"input":[{"role":"user","content":"turn 1"},{"role":"user","content":"turn 2 retry"}]}),
-            Some(&after_cancel),
-            "resp_u2b",
-        )
-        .unwrap();
-        assert!(retry.allow_parent_branch);
-        assert!(!retry.fresh_handoff);
-
-        // 3. Codex /compact (prefix mismatch without previous_response_id, developer+user only) -> clean fresh_handoff.
-        let compact = NativePlan::prepare(
-            &json!({"input":[{"role":"developer","content":"Compacted system"},{"role":"user","content":"Summary + next task"}]}),
-            Some(&after_cancel),
-            "resp_compact",
-        )
-        .unwrap();
-        assert!(compact.fresh_handoff);
-        assert_eq!(compact.messages.len(), 2);
-
-        // 4. Empty tool output array [] + companion developer message on tool-return round.
-        let key_t = "session:tool-empty";
-        plan.begin(&map, key_t, None, None).unwrap();
-        plan.settle(&map, key_t, None, &settled, &assembly, (&output, &sigs))
-            .unwrap();
-        let entry_t = map.get(key_t).unwrap();
-        let cid = &output[0]["call_id"];
-        let empty_and_dev = NativePlan::prepare(
-            &json!({
-                "previous_response_id": "resp_1",
-                "input": [
-                    {"type":"function_call_output","call_id":cid,"output":[]},
-                    {"role":"developer","content":"Sandbox reminder"}
-                ]
-            }),
-            Some(&entry_t),
-            "resp_2",
-        )
-        .unwrap();
-        assert_eq!(empty_and_dev.messages.len(), 2);
-        assert_eq!(empty_and_dev.messages[0]["role"], "tool");
-        assert_eq!(empty_and_dev.messages[0]["parts"], json!([""]));
-        assert_eq!(empty_and_dev.messages[1]["role"], "developer");
-        drop(map);
-        fs::remove_dir_all(root).unwrap();
+        assert_eq!(
+            NativePlan::prepare(
+                &json!({"input":[{"role":"user","content":[{"type":"input_image","image_url":"not-a-text-part"}]}]}),
+                None,
+                "resp_1"
+            )
+            .err()
+            .unwrap()
+            .code,
+            "native_content_unsupported"
+        );
     }
 }

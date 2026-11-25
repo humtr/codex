@@ -60,13 +60,44 @@ pub struct ModelConfig {
     pub available: Vec<String>,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HistoryConfig {
     pub project_id: Option<String>,
     pub project_name: Option<String>,
-    /// Development candidate only; authenticated structured return is not yet qualified.
+    /// Optional explicit ChatGPT Project ID for background utility requests
+    /// (`title_gen`, `memories`, `auto_review`). When unset (and `utility_project_name`
+    /// is unset), background utility calls run in a temporary chat on `-instant`.
     #[serde(default)]
+    pub utility_project_id: Option<String>,
+    /// Optional auto-created utility project name (created with `memory_scope: "project_v2"`
+    /// so utility traffic stays isolated in project-only memory).
+    #[serde(default)]
+    pub utility_project_name: Option<String>,
+    /// Automatically match or create a ChatGPT Project from Codex's workspace `cwd`
+    /// when no explicit `project_id`/`project_name` is set (default: true).
+    #[serde(default = "default_true")]
+    pub auto_project: bool,
+    /// Compatibility field kept so existing `chatgpt.toml` files parse cleanly;
+    /// structured Option B is now the unified runtime path.
+    #[serde(default = "default_true")]
     pub structured_native_return: bool,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+impl Default for HistoryConfig {
+    fn default() -> Self {
+        Self {
+            project_id: None,
+            project_name: None,
+            utility_project_id: None,
+            utility_project_name: None,
+            auto_project: true,
+            structured_native_return: true,
+        }
+    }
 }
 
 fn default_bind() -> String {
@@ -149,12 +180,6 @@ impl ProviderConfig {
             return Err(ProviderError::bad_request(
                 "loopback_bind_required",
                 "server.bind must be a loopback address (127.0.0.1 or ::1)",
-            ));
-        }
-        if self.history.structured_native_return && self.server.state_dir.is_none() {
-            return Err(ProviderError::bad_request(
-                "native_candidate_state_required",
-                "structured Native-return candidate requires an explicit state directory",
             ));
         }
         Ok(())

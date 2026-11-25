@@ -156,79 +156,66 @@ and [providers/chatgpt/src/main.rs](../../providers/chatgpt/src/main.rs).
   - Account and project are checked before using a stored conversation. An
     incompatible Codex input prefix starts a new ChatGPT conversation under the
     same account pin.
-- **Conditional structured Native-return candidate:** The experimental
-  `history.structured_native_return` mode uses the same Responses lifecycle
-  and requires an explicit `server.state_dir`. Native continuation state
-  lives in that directory's `structured-native-return` subdirectory. Keep
-  the existing control token, catalog and legacy continuation map at their
-  original paths. Local opt-in can exercise this mode before qualified
-  production adoption. User content, original native
-  call bindings, typed results and authorized instruction context must remain
-  distinct. Reject unsupported content and instruction scope explicitly.
-  Require original result roles, preserved authority, declared native calls,
-  full supported content and the verified continuation thread.
-  Supported Codex developer text travels as an AppHost developer message
-  in input order. Check its role and content if AppHost retains the
-  message in its graph. AppHost can omit developer input from that graph.
-  Preserve the submitted developer context in the Codex prefix. Request-level
-  `instructions` travel on user turns as a trailing hidden `developer` message
-  with `exclude_after_next_user_message: true` (matching AppHost's own
-  one-turn developer placement so it remains active across the turn's tool
-  rounds and expires on the next user message); unchanged `instructions` stay
-  implicit on tool-return rounds while mid-round changes fail closed with
-  `native_instruction_scope_changed`. A developer update accompanies genuine
-  user input.
-  Because AppHost's internal `submitChatGPTLocalFunctionResult` wrapper
-  overwrites declared `local_function_signatures` with AppHost built-ins on
-  round 2+ and accepts only one result per call, the candidate selects Option
-  B: submitting user/developer inputs and structured `role: "tool"` result
-  envelopes (`author.role = "tool"`, `channel = "commentary"`, `content_type
-  = "code"`, JSON `{ call_id, result, tool }`, `is_visually_hidden_from_conversation = true`)
-  directly through AppHost's unified `CompletionClient.startCompletionStream`
-  with Codex's declared `local_function_names` / `local_function_signatures`
-  preserved on every round and exact Provider-generated `submitted_message_ids`.
-  Single and batched/parallel tool returns (including out-of-order arrivals)
-  travel in one atomic completion request (`parallel_tool_calls: true`).
-  Verify any retained tool-result node on readback; if AppHost omits a tool
-  node from durable history, require exact parent-branch advancement, original
-  call/argument-digest verification, and zero synthetic user turns or
-  conflicting off-branch correlations. Trailing non-visible reasoning nodes
-  (`thoughts`, `reasoning_recap`, `analysis`, or hidden assistant nodes) on
-  the committed head are tolerated while any unstreamed visible assistant
-  message or unexpected tool call fails closed.
-  Stream committed visible output in order up to the first pending tool
-  call. Expose the call and subsequent output after verified settlement.
-  The candidate records a versioned dispatch intent before sending, verifies
-  the original account/project/remote head and the submitted message chain,
-  and persists settled call bindings before emitting tool-call output items.
-  If AppHost exposes only the authenticated user ID, resolve the dispatch
-  account through its read-only account guard and require a unique match.
-  Bind the verified account ID to the continuation.
-  Readback must match the original declared call, arguments, recipient, exact
-  branch head and exact `submitted_message_ids`, including duplicate
-  correlation on other branches. The original AppHost argument source is
-  bound by a digest and checked again before returning a result and at result
-  settlement. Durable dispatch receipts retain the original parent, prior
-  response ID, per-message digests, and active request-instruction digest.
-  The Provider may record observed chat and account identities before final
-  settlement. Preserve unresolved receipts for explicit reconciliation and
-  retain the operating generation and state for rollback. Physical UI,
-  interactive approval denial, compaction, and signed publication remain
-  explicit qualification gates before production adoption.
-  If the Page Driver confirms rejection before invoking the AppHost
-  completion stream, restore the pre-request binding or remove the new
-  intent. On explicit client disconnect (`Ctrl+C`) during a user turn (with no
-  pending tool results in flight), cancel the active lane and restore the
-  prior committed binding with `allow_parent_branch: true` so the next user
-  turn branches cleanly from the pre-cancel committed parent without
-  deadlocking the session. When Codex compacts or resets history without
-  `previous_response_id` (sending only `developer`/`user` context whose prefix
-  diverges from the prior binding), hand off cleanly to a fresh ChatGPT
-  conversation. Duplicate identical `(namespace, name)` tool declarations are
-  deduplicated before dispatch and resolution; empty tool output arrays `[]`
-  normalize to `[""]`, and companion `developer` updates may accompany tool
-  results in input order. A timeout or ambiguous dispatch keeps the intent for
-  reconciliation.
+- **Unified Thin Option B structured Native return (`CompletionClient.startCompletionStream`):**
+  All `/v1/responses` turns run on Thin Option B (the legacy Option A
+  prompt-flattening path is retired and archived for developer reference in
+  [LEGACY_PROMPT_PATH.md](../history/LEGACY_PROMPT_PATH.md); `history.structured_native_return`
+  is retained as a default-`true` compatibility key).
+  - User content, original native call bindings, typed tool results, `agent_message`
+    items, and authorized `developer` context remain distinct. Unsupported
+    content types (such as `input_image`) fail closed with HTTP 400
+    `native_content_unsupported`.
+  - Supported Codex `developer` messages travel as hidden AppHost `developer`
+    messages in input order. Codex's automatic machine-generated `role: "user"`
+    preambles (`# AGENTS.md instructions`, `<environment_context>`,
+    `<collaboration_mode>`, `<turn_aborted>`) remain `author.role = "user"`
+    (zero privilege escalation) and are marked
+    `is_visually_hidden_from_conversation: true` so ChatGPT reads them while
+    showing only genuine human prompts in the conversation UI.
+  - Request-level `instructions` travel on user turns as a trailing hidden
+    `developer` message with `exclude_after_next_user_message: true` so they
+    apply across the turn's tool rounds and expire on the next user message;
+    unchanged `instructions` stay implicit on tool-return rounds while
+    mid-round changes fail closed with `native_instruction_scope_changed`.
+  - Structured tool results travel as `author.role = "tool"` (`channel =
+    "commentary"`, `content_type = "code"`, JSON `{ call_id, result, tool }`,
+    `is_visually_hidden_from_conversation = true`) directly through AppHost's
+    unified `CompletionClient.startCompletionStream` with Codex's declared
+    `local_function_names` / `local_function_signatures` preserved on every
+    round (`parallel_tool_calls: true`, zero-arg calls normalized to `"{}"`,
+    empty tool output arrays `[]` normalized to `[""]`, duplicate identical
+    `(namespace, name)` declarations deduplicated, companion `developer`
+    updates allowed in input order).
+  - The Page Driver trusts AppHost's natural `onDecodedEvent` / `onComplete` /
+    `onError` lifecycle without redundant per-round `GET /conversation/{id}`
+    polling or permanent `dispatching: true` session lockouts, and caches
+    verified account identity (`GET /me`) with a 10-minute TTL on structured
+    turns. Committed visible output streams in order up to the first pending
+    tool call; tool bindings persist to `response_threads.json` upon settlement
+    before emitting tool-call output items.
+  - On client disconnect (`Ctrl+C`) during either a user turn or a tool-return
+    round, `CancelTurnGuard` cancels only the active lane without writing a
+    lockout state; subsequent user turns recover cleanly (clearing abandoned
+    pending tool calls when no tool outputs or `previous_response_id` are sent).
+    When Codex compacts or resets history without `previous_response_id`, the
+    Provider hands off cleanly to a fresh ChatGPT conversation.
+  - **Background utility isolation:** Codex background utility sub-sessions
+    (`title_gen` including 4-item `"concise, single-line task title"` requests,
+    `memories`, `auto_review`/`guardian`) bypass the session lease, strip heavy
+    Codex developer/AGENTS.md boilerplate, omit tools, route to `-instant` with
+    no reasoning effort, and default to ChatGPT temporary chats
+    (`history_and_training_disabled: true`, `is_do_not_remember: true`) so zero
+    permanent sidebar chats or `response_threads.json` entries are created.
+    Operators may optionally configure `history.utility_project_id` or
+    `history.utility_project_name` (auto-created with
+    `memory_scope: "project_v2"` for project-only memory isolation).
+  - **3-tier automatic project routing:** Continuing chats keep their bound
+    `project_id`. Fresh chats resolve in priority order: (1) explicit
+    `turn_metadata.project_id` / `history.project_id` / `history.project_name`,
+    (2) cached `listProjects()` match derived from Codex `<cwd>` (collapsing
+    `/tmp`, `$PREFIX/tmp`, `$HOME`, `/` to shared project `"Codex"`), or
+    (3) `createProject` for the derived name when `history.auto_project = true`
+    (default).
 - **Local authenticated `/control/*` plane (for Slice 6 `@TermuxChatGPT`):**
   Every `/control/*` endpoint requires constant-time `Authorization: Bearer`
   authentication against `<state_dir>/control.token` (`0600`):
@@ -236,6 +223,7 @@ and [providers/chatgpt/src/main.rs](../../providers/chatgpt/src/main.rs).
     `POST /control/host/restart`
   - `GET /control/chats`, `GET /control/chats/{id}`, `POST /control/chats/{id}/rename`
   - `GET /control/projects`, `GET /control/projects/{id}`, `POST /control/projects`
+    (optional `memory_scope`: `"unset"` or `"project_v2"` for project-only memory)
   - `POST /control/send`, `POST /control/observe`, `POST /control/stop`
     (multi-lane parallel execution keyed by `lane_id` / `chat_id`, up to 8
     concurrent lanes; concurrent writes to the *same* `chat_id` still fail

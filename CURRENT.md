@@ -67,6 +67,34 @@ The local E01 activation supersedes the Provider process and binary in the signe
 
 ## Recent Verified Evidence (Newest-First)
 
+### 2026-11-26 — Phase 2 Thin Option B refactoring, utility isolation, auto-project routing, and live A/B qualification
+
+Phase 2 unified `/v1/responses` onto **Thin Option B** (`CompletionClient.startCompletionStream`), archived the retired Option A prompt-flattening path into `docs/history/LEGACY_PROMPT_PATH.md`, removed the over-engineered per-round `GET /conversation/{id}` readback / `verifyCandidateSettlement` / permanent `dispatching: true` disk lockout, cached `GET /me` for 10 minutes, fixed zero-arg native tool calls, hid Codex's machine-generated `role: "user"` preambles (`# AGENTS.md`, `<environment_context>`, `<collaboration_mode>`, `<turn_aborted>`) via `is_visually_hidden_from_conversation: true` while preserving `role: "developer"` intact, routed background utility calls (`title_gen`, `memories`, `auto_review`) to `-instant` + temporary chats (`history_and_training_disabled: true`, `is_do_not_remember: true`) by default (or optional `utility_project_id` / `utility_project_name` created with `memory_scope: "project_v2"`), and added 3-tier automatic project routing (collapsing `/tmp`, `$PREFIX/tmp`, `$HOME`, `/` to shared project `"Codex"`).
+
+The exact verified binary SHA-256
+`1c5f93212d8ebcbe80d433acbe357024a8223bb9a5ea8a662a5a7f00643c963d` is active
+locally at fixed installation version `0.1.0` on port `4319` (PID `9853`,
+`/proc/9853/exe` SHA-256 verified; Phase 1 `62395f19...` backed up at
+`generations/0.1.0-p1-62395f19`, with `0.1.0-e01-b6e3a5db`, `previous ->
+0.1.0-local-native-0a1dfcb6`, `0.1.0-c9d0e245`, and `control.token` preserved):
+
+- **Unit & lint gates:** `node --test providers/chatgpt/tests/page_driver.test.mjs` 17/17 PASS (asserting 0 `GET /conversation/{id}` polls and 1 cached `GET /me` across a 3-tool turn); `cargo fmt --check` PASS; `cargo clippy --locked --all-targets -- -D warnings` PASS; `cargo test --locked` (`umask 0022` & `0077`) 29/29 PASS (1 ignored).
+- **Step 0 live canaries (real ChatGPT Desktop AppHost, isolated `127.0.0.1:4329`):**
+  - **Canary 1 (hidden `role: "user"` preamble readability):** PASS (`4,222ms`; ChatGPT read and returned hidden `AGENTS.md` token `HIDDEN_CANARY_D6A7971B` verbatim).
+  - **Canary 2 (temporary chat utility isolation):** PASS (`6,701ms`; 4-item 37KB Codex `title_gen` request returned concise title via `-instant` temporary chat with `new_permanent_chats=0` and `threads_written=False`).
+  - **Canary 3 (project-only memory `memory_scope: "project_v2"`):** PASS (`1,054ms`; `POST /control/projects` accepted and returned `memory_scope="project_v2"` on `g-p-6b075b0f710c819193e499d164c1f6fc`).
+- **Live A/B qualification vs Phase 1 (`c94dc121`):**
+  - **Code size (`providers/chatgpt/src/`):** `14,089` → **`13,411` lines** (`-678` net lines; `responses.rs` `4,008` → `3,544`, `page_driver.js` `3,175` → `2,924`).
+  - **HTTP calls per 3-tool user turn:** `15` → **`4`** (`-73.3%`; 4 `/f/conversation` + 0 cached `/me` + 0 `/conversation/{id}`).
+  - **E02 (official Codex `0.171.0`, 3 sequential shell tool rounds, `gpt-5-6` + `high`):** PASS (`35,893ms` vs Phase 1 `44,648ms` = **-19.6%**, `cli_exit=0`, 3 commands, all 3 nonces consumed, `has_reasoning=true`, **`user_turn_count=1`** confirming hidden preamble, `chat_id=6b075b8d-50b0-83ee-8e47-20c4b50be8b9`).
+  - **Auto-project routing:** PASS (`$PREFIX/tmp/...` and `$HOME` both resolved/reused cached `"Codex"` project `g-p-6b075b896c6881919d2575fb599973ff`).
+  - **E04/E05/E15 + zero-arg tool (`ping_zero`) + empty `[]` output + mid-round `developer`:** PASS (`19,062ms`, 3 rounds, `user_turn_count=1`, spoof resisted).
+  - **Tool-return round `Ctrl+C` mid-stream cancel + abandoned tool recovery:** PASS (HTTP 200 in `4,653ms`, `RECOVERED_OK`, zero `dispatching` lockout).
+  - **E06 (official Codex `0.171.0` `-a on-request` + `execpolicy` forbidden rule):** PASS (`cli_exit=0`, `file_absent=true`).
+  - **E08 (`input_image` 400), E10 (1-turn `instructions` expiry) + `/compact` (`4,782ms`, chat switched), E13 (mid-tool restart, HTTP 200):** ALL PASS.
+  - **E11 (10 consecutive user turns on `gpt-5-6-thinking`):** PASS (`10/10`, `user_turn_count=10`, `chat_id=6b075c5e-10dc-83ec-a816-439afa330f61`, **`avg=5,059ms`**, `median=4,969ms`, `max=7,354ms`, `min=4,281ms` vs Phase 1 `avg=8,419ms` = **-39.9%**).
+- **Remaining open boundaries:** E03 live multi-call model emission (model serialized `local.*` calls), E12 physical ChatGPT UI visual verification, and P8 CI/signed GitHub release.
+
 ### 2026-11-25 — Phase 1 Option B hardening, local `0.1.0` activation on port 4319, and live A/B baseline
 
 Phase 1 hardened the Option B unified `startCompletionStream` adapter against
