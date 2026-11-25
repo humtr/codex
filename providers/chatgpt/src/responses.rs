@@ -286,6 +286,10 @@ fn derive_auto_project_name(cwd: Option<&str>) -> String {
     if home.as_deref().map(|h| h.trim_end_matches('/')) == Some(trimmed)
         || trimmed == "/tmp"
         || trimmed.starts_with("/tmp/")
+        || trimmed == "/var/tmp"
+        || trimmed.starts_with("/var/tmp/")
+        || trimmed == "/data/data/com.termux/files/usr/tmp"
+        || trimmed.starts_with("/data/data/com.termux/files/usr/tmp/")
         || prefix_tmp
             .as_deref()
             .is_some_and(|t| trimmed == t || trimmed.starts_with(&format!("{t}/")))

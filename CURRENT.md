@@ -93,7 +93,8 @@ locally at fixed installation version `0.1.0` on port `4319` (PID `9853`,
   - **E06 (official Codex `0.171.0` `-a on-request` + `execpolicy` forbidden rule):** PASS (`cli_exit=0`, `file_absent=true`).
   - **E08 (`input_image` 400), E10 (1-turn `instructions` expiry) + `/compact` (`4,782ms`, chat switched), E13 (mid-tool restart, HTTP 200):** ALL PASS.
   - **E11 (10 consecutive user turns on `gpt-5-6-thinking`):** PASS (`10/10`, `user_turn_count=10`, `chat_id=6b075c5e-10dc-83ec-a816-439afa330f61`, **`avg=5,059ms`**, `median=4,969ms`, `max=7,354ms`, `min=4,281ms` vs Phase 1 `avg=8,419ms` = **-39.9%**).
-- **Remaining open boundaries:** E03 live multi-call model emission (model serialized `local.*` calls), E12 physical ChatGPT UI visual verification, and P8 CI/signed GitHub release.
+- **E12 (physical ChatGPT UI visual verification):** **PASS (2026-11-26, user-observed on `6b075b8d-50b0-83ee-8e47-20c4b50be8b9`):** Actual ChatGPT UI displays ONLY the single genuine user prompt (`Run THREE separate sequential shell commands...`), with zero visible `# AGENTS.md`, `<environment_context>`, or synthetic tool/result user bubbles across all 3 tool rounds.
+- **Remaining open boundaries:** E03 live multi-call model emission (model serialized `local.*` calls), and P8 signed GitHub release readback/activation.
 
 ### 2026-11-25 — Phase 1 Option B hardening, local `0.1.0` activation on port 4319, and live A/B baseline
 
