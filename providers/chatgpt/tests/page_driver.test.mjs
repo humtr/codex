@@ -1419,7 +1419,13 @@ function structuredFixture({ mutateBefore, mutateAfter, secondRound = true, tool
       assert.equal(args.request.local_function_signatures?.length, 1);
       const isToolReturn = args.request.messages.every(m => m.author.role === 'tool');
       if (!isToolReturn || !hideResult) {
-        for (const m of args.request.messages) add(m);
+        let nextParent = Object.prototype.hasOwnProperty.call(prior.mapping, args.request.parent_message_id)
+          ? args.request.parent_message_id
+          : prior.current_node;
+        for (const m of args.request.messages) {
+          add(m, nextParent);
+          nextParent = m.id;
+        }
       }
       const emitted = [];
       if (isToolReturn && liveResultCommentary) {
@@ -1658,4 +1664,59 @@ test('structured candidate rejects a stream that changes its chat identity', asy
   const { first } = await f.run();
   assert.equal(first.error, 'native_chat_changed');
   assert.equal(f.startCalls.length, 1);
+});
+
+test('structured candidate deduplicates repeated tool signatures and allows parent branching after cancel', async () => {
+  const f = structuredFixture({ secondRound: false });
+  const dupSig = { type: 'function', name: 'fixture', parameters: { type: 'object', properties: { x: { type: 'integer' } } } };
+  const first = await f.driver.sendMessage({
+    verify_identity: true,
+    strict_project: true,
+    wait_ms: 1000,
+    model: 'gpt-6-2-thinking',
+    local_function_signatures: [dupSig, dupSig],
+    native_candidate: {
+      parent_message_id: 'root',
+      messages: [{ id: 'user-dup-1', role: 'user', parts: ['hello'] }],
+    },
+  });
+  assert.equal(first.state, 'settled', JSON.stringify(first));
+  // Simulate a cancelled partial turn advancing current_node beyond first.remote_head.
+  const cancelledId = 'cancelled-partial';
+  f.prior.mapping[cancelledId] = {
+    parent: first.remote_head,
+    message: { id: cancelledId, author: { role: 'assistant' }, content: { content_type: 'text', parts: ['partial'] } },
+  };
+  f.prior.current_node = cancelledId;
+  // Without allow_parent_branch -> fails closed with native_remote_head_mismatch.
+  const blocked = await f.driver.sendMessage({
+    verify_identity: true,
+    strict_project: true,
+    wait_ms: 1000,
+    chat_id: first.chat_id,
+    expected_account_id: first.account_id,
+    model: 'gpt-6-2-thinking',
+    local_function_signatures: [dupSig],
+    native_candidate: {
+      parent_message_id: first.remote_head,
+      messages: [{ id: 'user-after-cancel-blocked', role: 'user', parts: ['retry'] }],
+    },
+  });
+  assert.equal(blocked.error, 'native_remote_head_mismatch');
+  // With allow_parent_branch -> branches cleanly from first.remote_head.
+  const branched = await f.driver.sendMessage({
+    verify_identity: true,
+    strict_project: true,
+    wait_ms: 1000,
+    chat_id: first.chat_id,
+    expected_account_id: first.account_id,
+    model: 'gpt-6-2-thinking',
+    local_function_signatures: [dupSig],
+    native_candidate: {
+      parent_message_id: first.remote_head,
+      allow_parent_branch: true,
+      messages: [{ id: 'user-after-cancel-ok', role: 'user', parts: ['retry'] }],
+    },
+  });
+  assert.equal(branched.state, 'settled', JSON.stringify(branched));
 });

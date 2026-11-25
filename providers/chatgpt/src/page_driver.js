@@ -857,6 +857,7 @@
         signatures: [],
         wireToOriginal: new Map(),
         injectedReportWireNames: new Set(),
+        skippedInvalid: 0,
       };
     }
     const names = [];
@@ -866,20 +867,28 @@
     const seenKeys = new Set();
     const usedWireNames = new Set();
     const reservedRawNames = new Set();
+    let skippedInvalid = 0;
     for (const s of sigs) {
       if (s && typeof s.name === "string" && s.name.trim()) {
         reservedRawNames.add(s.name.trim());
       }
     }
     for (const s of sigs) {
-      if (!s || typeof s.name !== "string") continue;
+      if (!s || typeof s.name !== "string") {
+        skippedInvalid += 1;
+        continue;
+      }
       const rawName = s.name.trim();
       const ns =
         typeof s.namespace === "string" && s.namespace.trim() && s.namespace.trim() !== "functions"
           ? s.namespace.trim()
           : null;
       const dedupKey = `${ns || ""}::${rawName}`;
-      if (!rawName || !/^[A-Za-z0-9_-]{1,64}$/.test(rawName) || seenKeys.has(dedupKey)) continue;
+      if (!rawName || !/^[A-Za-z0-9_-]{1,64}$/.test(rawName)) {
+        skippedInvalid += 1;
+        continue;
+      }
+      if (seenKeys.has(dedupKey)) continue;
       seenKeys.add(dedupKey);
       const wireName = allocateWireLocalFunctionName(rawName, ns, usedWireNames, reservedRawNames);
       wireToOriginal.set(wireName, { name: rawName, namespace: ns });
@@ -929,7 +938,7 @@
         params,
       });
     }
-    return { names, signatures, wireToOriginal, injectedReportWireNames };
+    return { names, signatures, wireToOriginal, injectedReportWireNames, skippedInvalid };
   }
 
   function nativeArgumentsSource(content) {
@@ -1832,7 +1841,16 @@
       }
       if (candidate) {
         priorBranch = candidateBranch(convRes.json);
-        if (!priorBranch || priorBranch.head !== parentMessageId) return notSent(candidateError("native_remote_head_mismatch"));
+        const allowBranch =
+          candidate.allow_parent_branch === true &&
+          Array.isArray(candidate.messages) &&
+          !candidate.messages.some(m => m && m.role === "tool");
+        const parentExists =
+          priorBranch &&
+          Object.prototype.hasOwnProperty.call(priorBranch.mapping, parentMessageId);
+        if (!priorBranch || (priorBranch.head !== parentMessageId && !(allowBranch && parentExists))) {
+          return notSent(candidateError("native_remote_head_mismatch"));
+        }
       } else if (typeof convRes.json.current_node === "string" && convRes.json.current_node) {
         parentMessageId = convRes.json.current_node;
       }
@@ -1879,7 +1897,7 @@
 
     const userMsgId = newUuid();
     const wireMessages = candidate ? await candidateWireMessages(candidate, priorBranch) : null;
-    if (candidate && (!wireMessages || (Array.isArray(opts.local_function_signatures) && opts.local_function_signatures.length !== nativeTools.signatures.length))) return notSent(candidateError("native_candidate_input_unsupported"));
+    if (candidate && (!wireMessages || nativeTools.skippedInvalid > 0)) return notSent(candidateError("native_candidate_input_unsupported"));
     const requestPayload = {
       action: "next",
       ...(chatId ? { conversation_id: chatId } : {}),

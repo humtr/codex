@@ -82,6 +82,8 @@ struct NativeThreadBinding {
     submitted_message_sha256: Vec<[u8; 32]>,
     #[serde(default)]
     instructions_sha256: Option<[u8; 32]>,
+    #[serde(default)]
+    allow_parent_branch: bool,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -258,6 +260,17 @@ impl CancelTurnGuard {
     }
     fn disarm(&mut self) {
         self.armed = false;
+    }
+    async fn cancel_now(&mut self) {
+        if self.armed {
+            self.armed = false;
+            let _ = tokio::time::timeout(
+                Duration::from_secs(5),
+                self.driver
+                    .stop_generation(json!({ "lane_id": self.lane_id })),
+            )
+            .await;
+        }
     }
 }
 
@@ -580,17 +593,33 @@ fn collect_tools_from_array(arr: &[Value], namespace: Option<&str>, out: &mut Ve
 /// Extract clean `local_function_signatures` from both top-level `tools` and
 /// Codex `0.171.0+` `input[*]` items with `type: "additional_tools"` (unwrapping namespaces).
 pub fn extract_local_function_signatures(body: &Value) -> Vec<Value> {
-    let mut sigs = Vec::new();
+    let mut raw_sigs = Vec::new();
     if let Some(arr) = body.get("tools").and_then(Value::as_array) {
-        collect_tools_from_array(arr, None, &mut sigs);
+        collect_tools_from_array(arr, None, &mut raw_sigs);
     }
     if let Some(items) = body.get("input").and_then(Value::as_array) {
         for item in items {
             if item.get("type").and_then(Value::as_str) == Some("additional_tools") {
                 if let Some(arr) = item.get("tools").and_then(Value::as_array) {
-                    collect_tools_from_array(arr, None, &mut sigs);
+                    collect_tools_from_array(arr, None, &mut raw_sigs);
                 }
             }
+        }
+    }
+    let mut sigs = Vec::with_capacity(raw_sigs.len());
+    let mut seen: HashSet<(Option<String>, String)> = HashSet::new();
+    for sig in raw_sigs {
+        let key = (
+            sig.get("namespace")
+                .and_then(Value::as_str)
+                .map(ToOwned::to_owned),
+            sig.get("name")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_owned(),
+        );
+        if seen.insert(key) {
+            sigs.push(sig);
         }
     }
     sigs
@@ -775,7 +804,8 @@ fn resolve_parsed_tool_call(raw: &Value, sigs: &[Value]) -> Option<ParsedToolCal
                 && s.get("namespace").and_then(Value::as_str) == namespace.as_deref()
         });
         let first = exact.next()?;
-        if exact.next().is_some() {
+        let first_type = first.get("type").and_then(Value::as_str);
+        if exact.any(|other| other.get("type").and_then(Value::as_str) != first_type) {
             return None;
         }
         Some(first)
@@ -2230,7 +2260,7 @@ fn native_canonical_item(item: &Value) -> Result<Option<Value>> {
             if !matches!(role, "user" | "assistant" | "developer") {
                 return Err(err());
             }
-            let content = native_text_parts(item.get("content").ok_or_else(err)?)?;
+            let content = native_text_parts(item.get("content").ok_or_else(err)?, false)?;
             let mut v = json!({"type":"message","role":role,"parts":content});
             if role == "assistant" {
                 if let Some(phase) = item.get("phase").and_then(Value::as_str) {
@@ -2269,7 +2299,7 @@ fn native_canonical_item(item: &Value) -> Result<Option<Value>> {
                 .and_then(Value::as_str)
                 .filter(|s| !s.is_empty())
                 .ok_or_else(err)?;
-            let parts = native_text_parts(item.get("output").ok_or_else(err)?)?;
+            let parts = native_text_parts(item.get("output").ok_or_else(err)?, true)?;
             Ok(Some(json!({"type":kind,"call_id":cid,"parts":parts})))
         }
         "reasoning" => {
@@ -2292,14 +2322,14 @@ fn native_canonical_item(item: &Value) -> Result<Option<Value>> {
     }
 }
 
-fn native_text_parts(value: &Value) -> Result<Vec<String>> {
+fn native_text_parts(value: &Value, allow_empty: bool) -> Result<Vec<String>> {
     let err = || {
         ProviderError::bad_request(
             "native_content_unsupported",
             "candidate supports text parts only; no lossy conversion",
         )
     };
-    let parts = if let Some(text) = value.as_str() {
+    let mut parts = if let Some(text) = value.as_str() {
         vec![text.to_owned()]
     } else if let Some(parts) = value.as_array() {
         parts
@@ -2321,7 +2351,17 @@ fn native_text_parts(value: &Value) -> Result<Vec<String>> {
     } else {
         return Err(err());
     };
-    if parts.is_empty() || parts.iter().map(String::len).sum::<usize>() > 1_048_576 {
+    if parts.is_empty() {
+        if allow_empty {
+            parts.push(String::new());
+        } else {
+            return Err(ProviderError::bad_request(
+                "native_content_bound",
+                "text parts empty or exceed candidate 1 MiB bound",
+            ));
+        }
+    }
+    if parts.iter().map(String::len).sum::<usize>() > 1_048_576 {
         return Err(ProviderError::bad_request(
             "native_content_bound",
             "text parts empty or exceed candidate 1 MiB bound",
@@ -2373,6 +2413,8 @@ struct NativePlan {
     input_len: usize,
     input_digest: [u8; 32],
     parent: String,
+    allow_parent_branch: bool,
+    fresh_handoff: bool,
     binding: NativeThreadBinding,
 }
 
@@ -2409,6 +2451,8 @@ impl NativePlan {
         }
         let canonical = native_canonical_input(body)?;
         let mut pending = Vec::new();
+        let mut allow_parent_branch = false;
+        let mut fresh_handoff = false;
         let (base_len, base_digest, tail, parent) = if let Some(entry) = previous {
             let state = entry.native.as_ref().ok_or_else(|| {
                 ProviderError::unavailable(
@@ -2432,8 +2476,31 @@ impl NativePlan {
             let matches_prefix = canonical.len() >= entry.input_len
                 && native_prefix_extend([0; 32], &canonical[..entry.input_len])
                     == entry.prefix_sha256;
-            let tail = if matches_prefix {
-                &canonical[entry.input_len..]
+            let is_compacted_fresh_context = explicit_previous.is_none()
+                && !canonical.is_empty()
+                && canonical.iter().all(|item| {
+                    item["type"] == "message"
+                        && matches!(item["role"].as_str(), Some("user" | "developer"))
+                })
+                && canonical.iter().any(|item| item["role"] == "user");
+            if matches_prefix {
+                pending = state.pending_calls.clone();
+                allow_parent_branch = state.allow_parent_branch && pending.is_empty();
+                (
+                    entry.input_len,
+                    entry.prefix_sha256,
+                    &canonical[entry.input_len..],
+                    state
+                        .remote_head
+                        .clone()
+                        .filter(|id| !id.is_empty())
+                        .ok_or_else(|| {
+                            ProviderError::unavailable(
+                                "native_remote_head_missing",
+                                "no verified remote head",
+                            )
+                        })?,
+                )
             } else if explicit_previous.is_some()
                 && (canonical.len() == 1
                     && canonical[0]["type"] == "message"
@@ -2443,29 +2510,37 @@ impl NativePlan {
                             matches!(
                                 item["type"].as_str(),
                                 Some("function_call_output" | "custom_tool_call_output")
-                            )
+                            ) || (item["type"] == "message" && item["role"] == "developer")
                         }))
             {
-                canonical.as_slice()
+                pending = state.pending_calls.clone();
+                allow_parent_branch = state.allow_parent_branch && pending.is_empty();
+                (
+                    entry.input_len,
+                    entry.prefix_sha256,
+                    canonical.as_slice(),
+                    state
+                        .remote_head
+                        .clone()
+                        .filter(|id| !id.is_empty())
+                        .ok_or_else(|| {
+                            ProviderError::unavailable(
+                                "native_remote_head_missing",
+                                "no verified remote head",
+                            )
+                        })?,
+                )
+            } else if is_compacted_fresh_context {
+                // Codex /compact or history reset without previous_response_id:
+                // start a clean new ChatGPT conversation instead of deadlocking.
+                fresh_handoff = true;
+                (0, [0; 32], canonical.as_slice(), native_wire_id()?)
             } else {
-                return Err(ProviderError::bad_request("native_context_mismatch", "committed input/output prefix changed; explicit reconciliation or compaction required"));
-            };
-            pending = state.pending_calls.clone();
-            (
-                entry.input_len,
-                entry.prefix_sha256,
-                tail,
-                state
-                    .remote_head
-                    .clone()
-                    .filter(|id| !id.is_empty())
-                    .ok_or_else(|| {
-                        ProviderError::unavailable(
-                            "native_remote_head_missing",
-                            "no verified remote head",
-                        )
-                    })?,
-            )
+                return Err(ProviderError::bad_request(
+                    "native_context_mismatch",
+                    "committed input/output prefix changed; explicit reconciliation or compaction required",
+                ));
+            }
         } else {
             if body
                 .get("previous_response_id")
@@ -2500,8 +2575,8 @@ impl NativePlan {
         for item in tail {
             match item["type"].as_str() {
                 Some("message")
-                    if pending.is_empty()
-                        && matches!(item["role"].as_str(), Some("user" | "developer")) =>
+                    if item["role"] == "developer"
+                        || (pending.is_empty() && item["role"] == "user") =>
                 {
                     messages.push(json!({
                         "id":native_wire_id()?,
@@ -2567,9 +2642,10 @@ impl NativePlan {
                 "candidate batch exceeds 64 messages or 1 MiB",
             ));
         }
+        let effective_previous = if fresh_handoff { None } else { previous };
         let binding = NativeThreadBinding {
             response_id: response_id.to_owned(),
-            remote_head: previous
+            remote_head: effective_previous
                 .and_then(|e| e.native.as_ref())
                 .and_then(|n| n.remote_head.clone()),
             pending_calls: pending,
@@ -2580,7 +2656,7 @@ impl NativePlan {
                 .map(|v| v["id"].as_str().expect("message ID").to_owned())
                 .collect(),
             dispatch_parent: parent.clone(),
-            previous_response_id: previous
+            previous_response_id: effective_previous
                 .and_then(|e| e.native.as_ref())
                 .map(|n| n.response_id.clone()),
             submitted_message_sha256: messages
@@ -2588,12 +2664,15 @@ impl NativePlan {
                 .map(|m| sha256_bytes(&serde_json::to_vec(m).expect("message serializes")))
                 .collect(),
             instructions_sha256,
+            allow_parent_branch: false,
         };
         Ok(Self {
             messages,
             input_len: base_len + tail.len(),
             input_digest: native_prefix_extend(base_digest, tail),
             parent,
+            allow_parent_branch,
+            fresh_handoff,
             binding,
         })
     }
@@ -2729,6 +2808,41 @@ impl NativePlan {
             Ok(())
         })?;
         Ok(true)
+    }
+
+    fn restore_on_cancel(
+        &self,
+        threads: &ResponseThreadMap,
+        key: &str,
+        prior: Option<&ThreadEntry>,
+    ) {
+        // Only recover cancelled user turns (no pending tool results in flight),
+        // keeping strict reconciliation for cancelled tool-result returns.
+        if !self.binding.pending_calls.is_empty() {
+            return;
+        }
+        let _ = threads.update(|entries| {
+            let Some(pos) = entries.iter().position(|(existing, entry)| {
+                existing == key
+                    && entry.native.as_ref().is_some_and(|intent| {
+                        intent.dispatching
+                            && intent.response_id == self.binding.response_id
+                            && intent.request_sha256 == self.binding.request_sha256
+                    })
+            }) else {
+                return Ok(());
+            };
+            if let Some(entry) = prior {
+                let mut restored = entry.clone();
+                if let Some(native) = restored.native.as_mut() {
+                    native.allow_parent_branch = true;
+                }
+                entries[pos].1 = restored;
+            } else {
+                entries.remove(pos);
+            }
+            Ok(())
+        });
     }
 
     fn settle(
@@ -3051,6 +3165,9 @@ pub async fn handle_responses_with_metadata(
     } else {
         None
     };
+    if native_plan.as_ref().is_some_and(|plan| plan.fresh_handoff) {
+        prior = None;
+    }
     let prompt = if native {
         String::new()
     } else {
@@ -3074,8 +3191,11 @@ pub async fn handle_responses_with_metadata(
     });
 
     if let Some(plan) = &native_plan {
-        send_payload["native_candidate"] =
-            json!({"messages":plan.messages,"parent_message_id":plan.parent});
+        send_payload["native_candidate"] = json!({
+            "messages": plan.messages,
+            "parent_message_id": plan.parent,
+            "allow_parent_branch": plan.allow_parent_branch
+        });
         send_payload["is_continuation"] = json!(prior.is_some());
         plan.begin(
             &threads,
@@ -3167,7 +3287,17 @@ pub async fn handle_responses_with_metadata(
         let outcome = loop {
             tokio::select! {
                 biased;
-                _ = tx.closed() => return,
+                _ = tx.closed() => {
+                    cancel.cancel_now().await;
+                    if let Some(plan) = &native_plan {
+                        plan.restore_on_cancel(
+                            &threads,
+                            session_key.as_deref().expect("native session key"),
+                            prior.as_ref(),
+                        );
+                    }
+                    return;
+                }
                 _ = &mut limit => break Err(ProviderError::unavailable("chatgpt_stream_limit", "response exceeded two hours")),
                 _ = &mut idle => break Err(ProviderError::unavailable("chatgpt_stream_idle", "no upstream event within five minutes")),
                 event = event_rx.recv(), if event_open => {
@@ -3182,6 +3312,14 @@ pub async fn handle_responses_with_metadata(
                             assembly.apply_event(event, &all_sigs);
                             let frames = encoder.flush_committed(&mut assembly, !native);
                             if !frames.is_empty() && !send_frames(&tx, frames).await {
+                                cancel.cancel_now().await;
+                                if let Some(plan) = &native_plan {
+                                    plan.restore_on_cancel(
+                                        &threads,
+                                        session_key.as_deref().expect("native session key"),
+                                        prior.as_ref(),
+                                    );
+                                }
                                 return;
                             }
                         }
@@ -3190,7 +3328,17 @@ pub async fn handle_responses_with_metadata(
                 }
                 result = &mut turn => break result,
                 _ = keepalive.tick() => {
-                    if !send_chunk(&tx, ": keepalive\n\n".to_owned()).await { return; }
+                    if !send_chunk(&tx, ": keepalive\n\n".to_owned()).await {
+                        cancel.cancel_now().await;
+                        if let Some(plan) = &native_plan {
+                            plan.restore_on_cancel(
+                                &threads,
+                                session_key.as_deref().expect("native session key"),
+                                prior.as_ref(),
+                            );
+                        }
+                        return;
+                    }
                 }
             }
         };
@@ -3767,5 +3915,93 @@ mod native_candidate_tests {
         assert_eq!(plan.messages[0]["role"], "developer");
         assert_eq!(plan.messages[1]["role"], "user");
         assert_eq!(NativePlan::prepare(&json!({"input":[{"role":"user","content":[{"type":"input_image","image_url":"not-a-text-part"}]}]}),None,"resp_1").err().unwrap().code,"native_content_unsupported");
+    }
+
+    #[test]
+    fn candidate_recovers_from_cancel_compaction_empty_output_and_midround_developer() {
+        let root = temp_root();
+        let map = ResponseThreadMap::open_native(&root).unwrap();
+        let (plan, settled, output, sigs) = fixture();
+        let mut assembly = TurnAssembly::default();
+        assembly.reconcile_settled(&settled, &sigs).unwrap();
+        let key = "session:phase1";
+        // 1. Fresh-chat cancel clears dispatching entry cleanly.
+        let fresh = NativePlan::prepare(&json!({"input":"first"}), None, "resp_cancel0").unwrap();
+        fresh.begin(&map, key, None, None).unwrap();
+        fresh.restore_on_cancel(&map, key, None);
+        assert!(map.get(key).is_none());
+
+        // 2. Settled user turn (no pending calls) -> follow-up cancel restores prior with allow_parent_branch.
+        let t1 = NativePlan::prepare(&json!({"input":"turn 1"}), None, "resp_u1").unwrap();
+        let mut settled_no_tools = settled.clone();
+        settled_no_tools["submitted_message_ids"] = json!(t1.binding.submitted_message_ids);
+        settled_no_tools["tool_calls"] = json!([]);
+        settled_no_tools["items"] = json!([]);
+        t1.begin(&map, key, None, None).unwrap();
+        t1.settle(
+            &map,
+            key,
+            None,
+            &settled_no_tools,
+            &TurnAssembly::default(),
+            (&json!([]), &sigs),
+        )
+        .unwrap();
+        let prior_u1 = map.get(key).unwrap();
+        let t2 = NativePlan::prepare(
+            &json!({"input":[{"role":"user","content":"turn 1"},{"role":"user","content":"turn 2"}]}),
+            Some(&prior_u1),
+            "resp_u2",
+        )
+        .unwrap();
+        t2.begin(&map, key, Some(&prior_u1), None).unwrap();
+        t2.restore_on_cancel(&map, key, Some(&prior_u1));
+        let after_cancel = map.get(key).unwrap();
+        assert!(!after_cancel.native.as_ref().unwrap().dispatching);
+        assert!(after_cancel.native.as_ref().unwrap().allow_parent_branch);
+        let retry = NativePlan::prepare(
+            &json!({"input":[{"role":"user","content":"turn 1"},{"role":"user","content":"turn 2 retry"}]}),
+            Some(&after_cancel),
+            "resp_u2b",
+        )
+        .unwrap();
+        assert!(retry.allow_parent_branch);
+        assert!(!retry.fresh_handoff);
+
+        // 3. Codex /compact (prefix mismatch without previous_response_id, developer+user only) -> clean fresh_handoff.
+        let compact = NativePlan::prepare(
+            &json!({"input":[{"role":"developer","content":"Compacted system"},{"role":"user","content":"Summary + next task"}]}),
+            Some(&after_cancel),
+            "resp_compact",
+        )
+        .unwrap();
+        assert!(compact.fresh_handoff);
+        assert_eq!(compact.messages.len(), 2);
+
+        // 4. Empty tool output array [] + companion developer message on tool-return round.
+        let key_t = "session:tool-empty";
+        plan.begin(&map, key_t, None, None).unwrap();
+        plan.settle(&map, key_t, None, &settled, &assembly, (&output, &sigs))
+            .unwrap();
+        let entry_t = map.get(key_t).unwrap();
+        let cid = &output[0]["call_id"];
+        let empty_and_dev = NativePlan::prepare(
+            &json!({
+                "previous_response_id": "resp_1",
+                "input": [
+                    {"type":"function_call_output","call_id":cid,"output":[]},
+                    {"role":"developer","content":"Sandbox reminder"}
+                ]
+            }),
+            Some(&entry_t),
+            "resp_2",
+        )
+        .unwrap();
+        assert_eq!(empty_and_dev.messages.len(), 2);
+        assert_eq!(empty_and_dev.messages[0]["role"], "tool");
+        assert_eq!(empty_and_dev.messages[0]["parts"], json!([""]));
+        assert_eq!(empty_and_dev.messages[1]["role"], "developer");
+        drop(map);
+        fs::remove_dir_all(root).unwrap();
     }
 }

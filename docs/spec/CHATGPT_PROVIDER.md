@@ -217,7 +217,18 @@ and [providers/chatgpt/src/main.rs](../../providers/chatgpt/src/main.rs).
   explicit qualification gates before production adoption.
   If the Page Driver confirms rejection before invoking the AppHost
   completion stream, restore the pre-request binding or remove the new
-  intent. A timeout or ambiguous dispatch keeps the intent for reconciliation.
+  intent. On explicit client disconnect (`Ctrl+C`) during a user turn (with no
+  pending tool results in flight), cancel the active lane and restore the
+  prior committed binding with `allow_parent_branch: true` so the next user
+  turn branches cleanly from the pre-cancel committed parent without
+  deadlocking the session. When Codex compacts or resets history without
+  `previous_response_id` (sending only `developer`/`user` context whose prefix
+  diverges from the prior binding), hand off cleanly to a fresh ChatGPT
+  conversation. Duplicate identical `(namespace, name)` tool declarations are
+  deduplicated before dispatch and resolution; empty tool output arrays `[]`
+  normalize to `[""]`, and companion `developer` updates may accompany tool
+  results in input order. A timeout or ambiguous dispatch keeps the intent for
+  reconciliation.
 - **Local authenticated `/control/*` plane (for Slice 6 `@TermuxChatGPT`):**
   Every `/control/*` endpoint requires constant-time `Authorization: Bearer`
   authentication against `<state_dir>/control.token` (`0600`):

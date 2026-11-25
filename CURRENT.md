@@ -67,6 +67,32 @@ The local E01 activation supersedes the Provider process and binary in the signe
 
 ## Recent Verified Evidence (Newest-First)
 
+### 2026-11-25 — Phase 1 Option B hardening, local `0.1.0` activation on port 4319, and live A/B baseline
+
+Phase 1 hardened the Option B unified `startCompletionStream` adapter against
+real-world Codex CLI/TUI failure modes (`Ctrl+C` mid-stream disconnect recovery
+via `restore_on_cancel` + `allow_parent_branch`, Codex `/compact` fresh-chat
+handoff when prefix diverges without `previous_response_id`, duplicate tool
+signature deduplication in both `responses.rs` and `page_driver.js`, empty tool
+output arrays `[]`, and mid-round companion `developer` updates). The exact
+verified binary SHA-256
+`62395f1950e64ea52577fc8d613f935510a70737202208c9efa1a44773985e0c` is active
+locally at fixed installation version `0.1.0` on port `4319` (PID `30080`,
+`/proc/30080/exe` SHA-256 verified; previous E01 binary backed up at
+`generations/0.1.0-e01-b6e3a5db`, `previous -> 0.1.0-local-native-0a1dfcb6`,
+`0.1.0-c9d0e245`, `control.token`, and the original E02 receipt preserved):
+
+- **Unit & lint gates:** `node --test providers/chatgpt/tests/page_driver.test.mjs` 24/24 PASS; `cargo fmt --check` PASS; `cargo clippy --locked --all-targets -- -D warnings` PASS; `cargo test --locked` (`umask 0022` & `0077`) 32/32 PASS (1 ignored).
+- **Live port `4319` (`gpt-5-6-thinking`) & official Codex `0.171.0` baseline:**
+  - **E02 (3 consecutive tool rounds, official Codex CLI + live `instructions` + reasoning):** PASS (`44,648ms`, `cli_exit=0`, 3 commands, all 3 runtime nonces consumed, `has_reasoning=true`, `user_turn_count=2` = 0 synthetic user turns, `chat_id=6b06bb3b-ca48-83e8-a452-4eec86393a04`).
+  - **`Ctrl+C` mid-stream SSE cancel + immediate recovery:** PASS (client disconnected after 120B SSE chunk; same-session follow-up succeeded HTTP 200 in `7,946ms` with zero `native_reconciliation_required` deadlock).
+  - **`/compact` fresh-chat handoff:** PASS (HTTP 200 in `8,607ms`, cleanly switched to a fresh ChatGPT chat).
+  - **E04 + E05 + E15 + duplicate sig + empty `[]` output + mid-round `developer`:** PASS (`3` rounds on `6b06bee0-e530-83ee-83f4-3417712980df`, `user_turn_count=1`, custom/namespaced/error/spoof all verified).
+  - **E06 (official Codex `0.171.0` `-a on-request` + `execpolicy` forbidden rule):** PASS (`cli_exit=0`, `file_absent=true`, `cmd_count=0`, model reported denial faithfully).
+  - **E11 (10 consecutive user turns latency baseline on `:4319`):** PASS (`10/10`, `user_turn_count=10`, `chat_id=6b06bb8b-14a0-83ec-8bed-a89bbf4f7937`, `avg=8,419ms`, `median=7,965ms`, `max=11,852ms`).
+  - **Background utility isolation (`memories` / `gpt-6-luna`):** PASS (HTTP 200, `4,846ms`).
+- **Remaining open boundaries before Phase 2 slimming / P8 signed release:** E03 live multi-call model emission (model serialized `local.*` calls), E12 physical ChatGPT UI visual verification, Phase 2 legacy-prompt archival + slim verification A/B comparison, and P8 CI/signed GitHub release.
+
 ### 2026-11-25 — Option B unified `startCompletionStream` breakthrough and isolated authenticated qualification
 
 Forensics on AppHost `26.1117.41037` (`app.asar` modules `QBVt` → `lNEL` → `Y86X`)
