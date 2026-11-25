@@ -852,11 +852,17 @@
 
   function buildNativeLocalFunctionSignatures(sigs) {
     if (!Array.isArray(sigs) || sigs.length === 0) {
-      return { names: [], signatures: [], wireToOriginal: new Map() };
+      return {
+        names: [],
+        signatures: [],
+        wireToOriginal: new Map(),
+        injectedReportWireNames: new Set(),
+      };
     }
     const names = [];
     const signatures = [];
     const wireToOriginal = new Map();
+    const injectedReportWireNames = new Set();
     const seenKeys = new Set();
     const usedWireNames = new Set();
     const reservedRawNames = new Set();
@@ -879,19 +885,35 @@
       wireToOriginal.set(wireName, { name: rawName, namespace: ns });
       names.push(wireName);
       const params = [];
+      let hasReportParam = false;
       if (s.type === "custom") {
         params.push({
           name: "input",
           required: true,
           type: { type: "string", description: "Raw tool input string" },
         });
-      } else if (s.parameters && typeof s.parameters === "object" && s.parameters.properties) {
-        const reqSet = new Set(Array.isArray(s.parameters.required) ? s.parameters.required : []);
-        for (const [pname, pdef] of Object.entries(s.parameters.properties)) {
+      } else {
+        if (s.parameters && typeof s.parameters === "object" && s.parameters.properties) {
+          const reqSet = new Set(Array.isArray(s.parameters.required) ? s.parameters.required : []);
+          for (const [pname, pdef] of Object.entries(s.parameters.properties)) {
+            if (pname === "report") hasReportParam = true;
+            params.push({
+              name: pname,
+              required: reqSet.has(pname),
+              type: normalizeParamSchema(pdef, pname, 0),
+            });
+          }
+        }
+        if (!hasReportParam) {
+          injectedReportWireNames.add(wireName);
           params.push({
-            name: pname,
-            required: reqSet.has(pname),
-            type: normalizeParamSchema(pdef, pname, 0),
+            name: "report",
+            required: false,
+            type: {
+              type: "string",
+              description:
+                "Optional concise public progress update in the user's language before running this tool (never private reasoning).",
+            },
           });
         }
       }
@@ -907,10 +929,15 @@
         params,
       });
     }
-    return { names, signatures, wireToOriginal };
+    return { names, signatures, wireToOriginal, injectedReportWireNames };
   }
 
-  function extractNativeToolCallFromMessage(msg, declaredNames, wireToOriginal) {
+  function extractNativeToolCallFromMessage(
+    msg,
+    declaredNames,
+    wireToOriginal,
+    injectedReportWireNames
+  ) {
     if (!msg || typeof msg !== "object") return null;
     if (msg.author?.role !== "assistant") return null;
     const recipient = typeof msg.recipient === "string" ? msg.recipient.trim() : "";
@@ -943,12 +970,26 @@
     const mapped = wireToOriginal && wireToOriginal.get(matchedWire);
     const resolvedName = mapped ? mapped.name : matchedWire;
     const resolvedNs = mapped ? mapped.namespace : null;
+    let report = null;
+    if (injectedReportWireNames && injectedReportWireNames.has(matchedWire)) {
+      try {
+        const parsed = JSON.parse(rawArgs);
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed) && "report" in parsed) {
+          if (typeof parsed.report === "string" && parsed.report.trim()) {
+            report = parsed.report.trim();
+          }
+          delete parsed.report;
+          rawArgs = JSON.stringify(parsed);
+        }
+      } catch (_) {}
+    }
     return {
       id: msg.id ? `call_${String(msg.id).replace(/[^A-Za-z0-9_-]/g, "").slice(0, 24)}` : `call_${newUuid().slice(0, 8)}`,
       name: resolvedName,
       ...(resolvedNs ? { namespace: resolvedNs } : {}),
       arguments: rawArgs,
       native_recipient: recipient,
+      ...(report ? { report } : {}),
     };
   }
 
@@ -1704,13 +1745,12 @@
       return false;
     };
 
-    const commitPriorReasoningForNewMessage = (currentMsgKey) => {
+    let lastCommittedCommentary = "";
+    const commitPriorItemsForNewMessage = (currentMsgKey, promoteInterimAnswer = false) => {
+      let demotedAnswer = false;
       for (const item of turn.items.values()) {
-        if (
-          item.kind === "reasoning_summary" &&
-          !item.committed &&
-          item.msgKey !== currentMsgKey
-        ) {
+        if (item.committed || item.msgKey === currentMsgKey) continue;
+        if (item.kind === "reasoning_summary") {
           item.committed = true;
           noteCommittedReasoning(item.text);
           emitStream({
@@ -1720,11 +1760,43 @@
             text: item.text,
             committed: true,
           });
+        } else if (item.kind === "commentary") {
+          item.committed = true;
+          lastCommittedCommentary = item.text.trim();
+          emitStream({
+            kind: "item_upsert",
+            item_id: item.id,
+            item_kind: item.kind,
+            text: item.text,
+            committed: true,
+          });
+        } else if (promoteInterimAnswer && item.kind === "answer") {
+          item.kind = "commentary";
+          item.committed = true;
+          lastCommittedCommentary = item.text.trim();
+          demotedAnswer = true;
+          emitStream({
+            kind: "item_upsert",
+            item_id: item.id,
+            item_kind: "commentary",
+            text: item.text,
+            committed: true,
+          });
         }
+      }
+      if (demotedAnswer) {
+        syncDerivedAssistantText();
       }
     };
 
-    const upsertTextItem = (itemId, itemKind, rawText, committed, msgKey = null) => {
+    const upsertTextItem = (
+      itemId,
+      itemKind,
+      rawText,
+      committed,
+      msgKey = null,
+      promoteInterimAnswer = false
+    ) => {
       const text = truncate(rawText);
       const existing = turn.items.get(itemId);
       if (!text) {
@@ -1735,7 +1807,7 @@
         return;
       }
       if (msgKey !== null) {
-        commitPriorReasoningForNewMessage(msgKey);
+        commitPriorItemsForNewMessage(msgKey, promoteInterimAnswer);
       }
       if (itemKind === "reasoning_summary" && !existing && isDuplicateReasoning(text)) {
         return;
@@ -1762,6 +1834,9 @@
       if (itemKind === "reasoning_summary" && committed) {
         noteCommittedReasoning(text);
       }
+      if (itemKind === "commentary" && committed) {
+        lastCommittedCommentary = text.trim();
+      }
       emitStream({
         kind: "item_upsert",
         item_id: itemId,
@@ -1772,14 +1847,29 @@
     };
 
     const emittedToolIds = new Set();
+    const emittedToolReportIds = new Set();
+    const emitToolReportIfNeeded = (call, msgKey = null) => {
+      const report = typeof call?.report === "string" ? call.report.trim() : "";
+      if (!report || emittedToolReportIds.has(call.id)) return;
+      emittedToolReportIds.add(call.id);
+      if (report === lastCommittedCommentary) return;
+      upsertTextItem(`report:${call.id}`, "commentary", report, true, msgKey);
+    };
     const recordToolCall = (call, committed, msgKey = null) => {
       if (msgKey !== null) {
-        commitPriorReasoningForNewMessage(msgKey);
+        commitPriorItemsForNewMessage(msgKey, true);
       }
       turn.nativeToolCalls.set(call.id, call);
       const itemId = `tool:${call.id}`;
+      if (committed) {
+        emitToolReportIfNeeded(call, msgKey);
+      }
       const existing = turn.items.get(itemId);
       if (!existing || !existing.committed) {
+        if (committed && existing) {
+          // Ensure tool item sits after any newly inserted `report:<call_id>` item.
+          turn.items.delete(itemId);
+        }
         turn.items.set(itemId, {
           id: itemId,
           kind: "tool_call",
@@ -1823,7 +1913,8 @@
       const nativeCall = extractNativeToolCallFromMessage(
         msg,
         declaredToolNames,
-        nativeTools.wireToOriginal
+        nativeTools.wireToOriginal,
+        nativeTools.injectedReportWireNames
       );
       if (nativeCall) {
         if (msg.id) turn.messageId = msg.id;
@@ -1906,16 +1997,26 @@
       if (raw === null) return;
       if (msg.id) turn.messageId = msg.id;
       const isCommentary =
-        msg.channel === "commentary" || msg.metadata?.is_thinking_preamble_message === true;
+        msg.channel === "commentary" ||
+        msg.metadata?.is_thinking_preamble_message === true ||
+        msg.status === "finished_partial_completion" ||
+        (msg.status === "finished_successfully" && msg.end_turn === false);
       if (isCommentary) {
-        upsertTextItem(`commentary:${msgKey}`, "commentary", raw, msgCommitted, msgKey);
+        const prevAnswerId = `answer:${msgKey}`;
+        const prevAnswer = turn.items.get(prevAnswerId);
+        if (prevAnswer && !prevAnswer.committed) {
+          turn.items.delete(prevAnswerId);
+          emitStream({ kind: "item_remove", item_id: prevAnswerId });
+        }
+        upsertTextItem(`commentary:${msgKey}`, "commentary", raw, msgCommitted, msgKey, true);
+        syncDerivedAssistantText();
         return;
       }
       if (fallbackFenceMode && raw.includes("```codex_tool_call")) {
         // Hold mutable fallback fence text uncommitted until turn/message settles.
-        upsertTextItem(`answer:${msgKey}`, "answer", raw, false, msgKey);
+        upsertTextItem(`answer:${msgKey}`, "answer", raw, false, msgKey, true);
       } else {
-        upsertTextItem(`answer:${msgKey}`, "answer", raw, msgCommitted, msgKey);
+        upsertTextItem(`answer:${msgKey}`, "answer", raw, msgCommitted, msgKey, true);
       }
       syncDerivedAssistantText();
     };
@@ -1931,10 +2032,14 @@
     };
 
     const settleItems = () => {
-      for (const item of turn.items.values()) {
+      const pending = Array.from(turn.items.values());
+      for (const item of pending) {
         if (!item.committed) {
-          item.committed = true;
           if (item.kind === "tool_call" && item.call) {
+            emitToolReportIfNeeded(item.call, item.msgKey);
+            turn.items.delete(item.id);
+            item.committed = true;
+            turn.items.set(item.id, item);
             if (!emittedToolIds.has(item.call.id)) {
               emittedToolIds.add(item.call.id);
               emitStream({

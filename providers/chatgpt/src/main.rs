@@ -1953,4 +1953,90 @@ wire_api = "responses"
         .unwrap_err();
         assert_eq!(replay_err.code, "response_input_already_sent");
     }
+
+    #[tokio::test]
+    async fn memory_utility_call_bypasses_session_lease_project_and_unknown_slug() {
+        let driver = MockDriver::new(json!({
+            "state": "settled",
+            "chat_id": "conv-mem-1",
+            "account_id": "acct-1",
+            "assistant_text": "Memory saved"
+        }));
+        let router = build_router(
+            driver.clone(),
+            config::ModelConfig {
+                default: "gpt-6-2".to_owned(),
+                available: vec![
+                    "gpt-6-2".to_owned(),
+                    "gpt-6-2-instant".to_owned(),
+                    "gpt-6-2-thinking".to_owned(),
+                ],
+                ..config::ModelConfig::default()
+            },
+            config::HistoryConfig {
+                project_id: Some("g-p-user-proj".to_owned()),
+                project_name: None,
+            },
+            "tok-0123456789abcdef0123456789abcdef".to_owned(),
+            Arc::new(RwLock::new(None)),
+        );
+
+        let mem_body = json!({
+            "model": "gpt-6-luna",
+            "stream": true,
+            "prompt_cache_key": "sess-shared-1",
+            "input": [
+                {"role": "developer", "content": [{"type": "input_text", "text": "## Memory Writing Agent: Phase 1"}]}
+            ]
+        });
+        let resp_mem = oneshot(
+            router.clone(),
+            Request::builder()
+                .method("POST")
+                .uri("/v1/responses")
+                .header("content-type", "application/json")
+                .header(
+                    "x-codex-turn-metadata",
+                    r#"{"request_kind":"memory","thread_source":"memory_consolidation","turn_trigger":"memory_consolidation"}"#,
+                )
+                .body(Body::from(mem_body.to_string()))
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(resp_mem.status(), StatusCode::OK);
+        let sent_mem = driver.last_send.lock().unwrap().clone().unwrap();
+        assert!(sent_mem["project_id"].is_null());
+        assert_eq!(sent_mem["model"], "gpt-6-2-instant");
+        assert!(sent_mem["reasoning_effort"].is_null());
+
+        // Real user turn with the exact same prompt_cache_key must NOT see any stale thread
+        // entry from the utility memory call and must still pin the configured project.
+        let user_body = json!({
+            "model": "gpt-6-2",
+            "stream": false,
+            "prompt_cache_key": "sess-shared-1",
+            "reasoning": {"effort": "high"},
+            "tools": [{"type": "function", "name": "exec_command", "parameters": {"type": "object"}}],
+            "input": [{"role": "user", "content": [{"type": "input_text", "text": "Hello"}]}]
+        });
+        let resp_user = oneshot(
+            router,
+            Request::builder()
+                .method("POST")
+                .uri("/v1/responses")
+                .header("content-type", "application/json")
+                .header(
+                    "x-codex-turn-metadata",
+                    r#"{"request_kind":"turn","thread_source":"user","turn_trigger":"exec"}"#,
+                )
+                .body(Body::from(user_body.to_string()))
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(resp_user.status(), StatusCode::OK);
+        let sent_user = driver.last_send.lock().unwrap().clone().unwrap();
+        assert_eq!(sent_user["project_id"], "g-p-user-proj");
+        assert!(sent_user["chat_id"].is_null());
+        assert_eq!(sent_user["model"], "gpt-6-2-thinking");
+    }
 }

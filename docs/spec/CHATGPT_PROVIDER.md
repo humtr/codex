@@ -96,18 +96,30 @@ and [providers/chatgpt/src/main.rs](../../providers/chatgpt/src/main.rs).
     "in_progress"`, `end_turn === true`, finished `thoughts` entries, or turn
     settlement). Uncommitted snapshot revisions, insertions, or deletions update
     in-place without failing settled streams.
-  - Reasoning passthrough opens full AppHost reasoning emitted by the model for
-    `/v1/responses` turns: `thoughts[*]` entries (`summary` + `content` /
-    `chunks`, formatted as `**{summary}**\n{content}` when both are present so
-    Codex TUI displays both the live working header and reasoning body),
-    `thoughts` `parts`/`content`, `channel === "analysis"` text,
-    `reasoning_recap`, deduplicated `metadata.{rich_reasoning_titles,
-    reasoning_titles, reasoning_title}`, and `channel === "commentary"` /
-    `is_thinking_preamble_message` preambles (emitted as `type: "message",
-    phase: "commentary"`). The Provider never synthesizes reasoning text that
-    AppHost did not emit, never leaks user echo messages or non-reasoning tool
-    payloads into reasoning, and keeps `readChat` focused on visible
-    `user`/`assistant` conversation history.
+  - Simultaneous `commentary` + `reasoning` passthrough:
+    - Public interim progress messages (`channel === "commentary"`,
+      `is_thinking_preamble_message === true`, `status === "finished_partial_completion"`,
+      `end_turn === false`, or uncommitted pre-tool assistant messages) and
+      optional per-tool `report` progress text (injected only on `type: "function"`
+      tools without an existing `report` property and strictly stripped before
+      forwarding `arguments` to Codex) emit as `type: "message", phase: "commentary"`
+      so Codex TUI displays step-by-step commentary inline alongside tool calls.
+    - Full AppHost reasoning emitted by the model (`thoughts[*]` entries with
+      `summary` + `content` / `chunks`, formatted as `**{summary}**\n{content}`
+      when both are present; `thoughts` `parts`/`content`; `channel === "analysis"`
+      text; `reasoning_recap`; deduplicated `metadata.{rich_reasoning_titles,
+      reasoning_titles, reasoning_title}`) emits simultaneously as
+      `type: "reasoning"` (`summary_text`) for Codex's live working status line
+      and `Ctrl+T` transcript. The Provider never synthesizes private reasoning,
+      never leaks user echo messages or non-reasoning tool payloads into
+      reasoning, and keeps `readChat` focused on visible `user`/`assistant`
+      conversation history.
+  - Background utility isolation: Codex background utility calls (identified via
+    `x-codex-turn-metadata` `request_kind != "turn"` or `memory_consolidation`,
+    or tool-less title/memory prompts) bypass session leasing, project pinning,
+    and `response_threads.json` persistence, and map unknown non-ChatGPT utility
+    model slugs (such as `gpt-6-luna`) to an available ChatGPT slug so they
+    never trigger `503 response_thread_busy` against the active user turn.
   - `cdp.rs` delivers structured `StreamEvent` items through a per-lane
     non-blocking `LaneMailbox` that coalesces rapid mutable snapshots per item
     without stalling sibling lanes and queues committed/terminal events

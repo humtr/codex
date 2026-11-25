@@ -1113,3 +1113,152 @@ test("page_driver omits temporary chat flags, deduplicates reasoning titles, com
   assert.equal(s3.tool_calls.length, 0);
   assert.equal(s3.assistant_text, "2");
 });
+
+test("page_driver projects interim pre-tool messages and stripped tool reports as commentary alongside reasoning", async () => {
+  let callbacks;
+  let ready;
+  let resolveStarted = () => {};
+  const { driver, startCalls, streamUpdates } = createMockEnv({
+    apiMap: {
+      "GET /backend-api/me": { status: 200, body: { account_id: "acc-commentary" } },
+    },
+    completionBehavior(args) {
+      callbacks = args;
+      resolveStarted();
+      return { streamRequestId: `stream-c-${startCalls.length}` };
+    },
+  });
+
+  ready = new Promise((resolve) => { resolveStarted = resolve; });
+  const p = driver.sendMessage({
+    lane_id: "lane-c1",
+    prompt: "Inspect repo",
+    push_events: true,
+    model: "gpt-6-2-thinking",
+    local_function_signatures: [
+      {
+        type: "function",
+        name: "exec_command",
+        parameters: { type: "object", properties: { cmd: { type: "string" } }, required: ["cmd"] },
+      },
+      {
+        type: "function",
+        name: "already_has_report",
+        parameters: { type: "object", properties: { report: { type: "string" } }, required: ["report"] },
+      },
+      {
+        type: "custom",
+        name: "apply_patch",
+      },
+    ],
+  });
+  await ready;
+
+  const sigs = startCalls[0].request.local_function_signatures;
+  const execSig = sigs.find((s) => s.name === "exec_command");
+  const keepSig = sigs.find((s) => s.name === "already_has_report");
+  const customSig = sigs.find((s) => s.name === "apply_patch");
+  assert.ok(execSig.params.some((param) => param.name === "report" && param.required === false));
+  assert.equal(keepSig.params.filter((param) => param.name === "report").length, 1);
+  assert.ok(!customSig.params.some((param) => param.name === "report"));
+
+  // Interim message with channel="final" and end_turn=false becomes commentary (not final_answer).
+  callbacks.onDecodedEvent({
+    update: {
+      type: "message",
+      conversationId: "conv-c1",
+      message: {
+        id: "m-interim",
+        author: { role: "assistant" },
+        channel: "final",
+        status: "in_progress",
+        end_turn: false,
+        content: { content_type: "text", parts: ["저장소 상태를 먼저 확인하겠습니다."] },
+      },
+    },
+  });
+  callbacks.onDecodedEvent({
+    update: {
+      type: "message",
+      conversationId: "conv-c1",
+      message: {
+        id: "m-interim",
+        author: { role: "assistant" },
+        channel: "final",
+        status: "finished_successfully",
+        end_turn: false,
+        content: { content_type: "text", parts: ["저장소 상태를 먼저 확인하겠습니다."] },
+      },
+    },
+  });
+  // Simultaneous reasoning thought arrives.
+  callbacks.onDecodedEvent({
+    update: {
+      type: "message",
+      conversationId: "conv-c1",
+      message: {
+        id: "m-thought",
+        author: { role: "assistant" },
+        status: "finished_successfully",
+        content: {
+          content_type: "thoughts",
+          thoughts: [{ summary: "Checking git status", content: "Will run git status -sb.", finished: true }],
+        },
+      },
+    },
+  });
+  // Tool call with injected `report`: stripped from forwarded arguments, emitted as commentary before tool_call.
+  callbacks.onDecodedEvent({
+    update: {
+      type: "message",
+      conversationId: "conv-c1",
+      message: {
+        id: "m-exec",
+        author: { role: "assistant" },
+        recipient: "exec_command",
+        status: "finished_successfully",
+        content: { text: JSON.stringify({ cmd: "git status -sb", report: "현재 브랜치와 변경 파일을 조회합니다." }) },
+      },
+    },
+  });
+  // Native tool that already declared `report` preserves its `report` parameter untouched.
+  callbacks.onDecodedEvent({
+    update: {
+      type: "message",
+      conversationId: "conv-c1",
+      message: {
+        id: "m-keep",
+        author: { role: "assistant" },
+        recipient: "already_has_report",
+        status: "finished_successfully",
+        content: { text: JSON.stringify({ report: "KEEP_ME" }) },
+      },
+    },
+  });
+  callbacks.onComplete();
+  const settled = await p;
+
+  assert.equal(settled.state, "settled");
+  assert.equal(settled.assistant_text, "");
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(settled.tool_calls.map((c) => [c.name, c.arguments]))),
+    [
+      ["exec_command", "{\"cmd\":\"git status -sb\"}"],
+      ["already_has_report", "{\"report\":\"KEEP_ME\"}"],
+    ]
+  );
+  const committedSeq = JSON.parse(
+    JSON.stringify(
+      streamUpdates
+        .filter((x) => (x.kind === "item_upsert" && x.committed) || x.kind === "tool_call")
+        .map((x) => (x.kind === "tool_call" ? ["tool_call", x.name, x.arguments] : [x.item_kind, x.text]))
+    )
+  );
+  assert.deepEqual(committedSeq, [
+    ["commentary", "저장소 상태를 먼저 확인하겠습니다."],
+    ["reasoning_summary", "**Checking git status**\nWill run git status -sb."],
+    ["commentary", "현재 브랜치와 변경 파일을 조회합니다."],
+    ["tool_call", "exec_command", "{\"cmd\":\"git status -sb\"}"],
+    ["tool_call", "already_has_report", "{\"report\":\"KEEP_ME\"}"],
+  ]);
+});

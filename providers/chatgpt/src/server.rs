@@ -9,7 +9,8 @@ use crate::control::{control_router, ControlState};
 use crate::driver::DriverBackend;
 use crate::error::Result;
 use crate::responses::{
-    handle_models, handle_responses, new_live_model_set, LiveModelSet, ResponseThreadMap,
+    handle_models, handle_responses_with_metadata, new_live_model_set, LiveModelSet,
+    ResponseThreadMap,
 };
 use crate::viewer::{viewer_router, ViewerSlot};
 use axum::{
@@ -122,12 +123,17 @@ async fn v1_responses(
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .map(ToOwned::to_owned);
-    handle_responses(
+    let turn_metadata = headers
+        .get("x-codex-turn-metadata")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| serde_json::from_str::<Value>(s).ok());
+    handle_responses_with_metadata(
         Arc::clone(&st.driver),
         &st.model_cfg,
         &st.history_cfg,
         Arc::clone(&st.threads),
         session_hint,
+        turn_metadata,
         Some(&st.live_models),
         body,
     )

@@ -141,9 +141,30 @@ fn input_prefix_digest(items: &[Value], len: usize) -> [u8; 32] {
     sha256_bytes(&serialized)
 }
 
-/// Detect Codex background utility calls (such as Transcript Title Generation) that
-/// should not pollute the user's configured ChatGPT Project.
-fn is_utility_title_request(body: &Value) -> bool {
+/// Detect Codex background utility calls (such as Memory Consolidation or Transcript
+/// Title Generation) that must not contend with the active session lease or pollute
+/// the user's configured ChatGPT Project or `response_threads.json`.
+fn is_background_utility_request(turn_meta: Option<&Value>, body: &Value) -> bool {
+    if let Some(meta) = turn_meta.and_then(Value::as_object) {
+        if let Some(kind) = meta.get("request_kind").and_then(Value::as_str) {
+            let kind = kind.trim().to_ascii_lowercase();
+            if !kind.is_empty() && kind != "turn" {
+                return true;
+            }
+        }
+        if let Some(src) = meta.get("thread_source").and_then(Value::as_str) {
+            let src = src.trim().to_ascii_lowercase();
+            if src == "memory_consolidation" || src.starts_with("memory_") {
+                return true;
+            }
+        }
+        if let Some(trigger) = meta.get("turn_trigger").and_then(Value::as_str) {
+            let trigger = trigger.trim().to_ascii_lowercase();
+            if trigger == "memory_consolidation" || trigger.starts_with("memory_") {
+                return true;
+            }
+        }
+    }
     let has_tools = body
         .get("tools")
         .and_then(Value::as_array)
@@ -157,6 +178,8 @@ fn is_utility_title_request(body: &Value) -> bool {
             || lower.contains("transcript title generation")
             || lower.contains("generate a short title")
             || lower.contains("title for this conversation")
+            || lower.contains("memory writing agent")
+            || lower.contains("memory consolidation")
         {
             return true;
         }
@@ -168,6 +191,8 @@ fn is_utility_title_request(body: &Value) -> bool {
                 let lower = text.to_ascii_lowercase();
                 if lower.contains("transcript title generation")
                     || lower.contains("generate a concise title for")
+                    || lower.contains("memory writing agent")
+                    || lower.contains("memory consolidation")
                 {
                     return true;
                 }
@@ -1946,12 +1971,38 @@ pub async fn handle_models(
     Json(json!({ "object": "list", "data": data }))
 }
 
+#[cfg(test)]
+#[allow(clippy::too_many_arguments)]
 pub async fn handle_responses(
     driver: Arc<dyn DriverBackend>,
     model_cfg: &ModelConfig,
     history_cfg: &HistoryConfig,
     threads: Arc<ResponseThreadMap>,
     session_hint: Option<String>,
+    live_models: Option<&LiveModelSet>,
+    body: Value,
+) -> Result<Response> {
+    handle_responses_with_metadata(
+        driver,
+        model_cfg,
+        history_cfg,
+        threads,
+        session_hint,
+        None,
+        live_models,
+        body,
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+pub async fn handle_responses_with_metadata(
+    driver: Arc<dyn DriverBackend>,
+    model_cfg: &ModelConfig,
+    history_cfg: &HistoryConfig,
+    threads: Arc<ResponseThreadMap>,
+    session_hint: Option<String>,
+    turn_metadata: Option<Value>,
     live_models: Option<&LiveModelSet>,
     body: Value,
 ) -> Result<Response> {
@@ -1977,14 +2028,26 @@ pub async fn handle_responses(
                 .filter(|s| !s.is_empty())
                 .collect()
         });
-    let (model, effort) = resolve_dispatch_model_and_effort(
+    let utility = is_background_utility_request(turn_metadata.as_ref(), &body);
+    let (mut model, mut effort) = resolve_dispatch_model_and_effort(
         &requested_model,
         requested_effort.as_deref(),
         &known_slugs,
     );
+    if utility
+        && !known_slugs.is_empty()
+        && !known_slugs.contains(&model)
+        && !matches!(model.as_str(), "auto" | "research")
+    {
+        model = known_slugs
+            .iter()
+            .find(|s| s.ends_with("-instant"))
+            .cloned()
+            .unwrap_or_else(|| model_cfg.default.clone());
+        effort = None;
+    }
     let stream = body.get("stream").and_then(Value::as_bool).unwrap_or(true);
 
-    let utility = is_utility_title_request(&body);
     let effective_project_id = if utility {
         None
     } else {
@@ -2085,15 +2148,17 @@ pub async fn handle_responses(
         let mut assembly = TurnAssembly::default();
         assembly.reconcile_settled(&driver_res, &all_sigs)?;
         cancel_guard.disarm();
-        record_thread_entries(
-            &threads,
-            &resp_id,
-            session_key.as_deref(),
-            &driver_res,
-            effective_project_id,
-            input_len,
-            current_digest,
-        )?;
+        if !utility {
+            record_thread_entries(
+                &threads,
+                &resp_id,
+                session_key.as_deref(),
+                &driver_res,
+                effective_project_id,
+                input_len,
+                current_digest,
+            )?;
+        }
         let (_, final_resp) = encoder.finish(&mut assembly);
         return Ok((StatusCode::OK, Json(final_resp)).into_response());
     }
@@ -2160,15 +2225,17 @@ pub async fn handle_responses(
                     return Err(err);
                 }
             }
-            record_thread_entries(
-                &threads,
-                &resp_id,
-                session_key.as_deref(),
-                &settled,
-                effective_project_id,
-                input_len,
-                current_digest,
-            )?;
+            if !utility {
+                record_thread_entries(
+                    &threads,
+                    &resp_id,
+                    session_key.as_deref(),
+                    &settled,
+                    effective_project_id,
+                    input_len,
+                    current_digest,
+                )?;
+            }
             Ok(encoder.finish(&mut assembly).0)
         })();
         let frames = match result {
