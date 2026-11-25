@@ -104,6 +104,19 @@ and [providers/chatgpt/src/main.rs](../../providers/chatgpt/src/main.rs).
       tools without an existing `report` property and strictly stripped before
       forwarding `arguments` to Codex) emit as `type: "message", phase: "commentary"`
       so Codex TUI displays step-by-step commentary inline alongside tool calls.
+      Each ChatGPT message `msgKey` owns at most one canonical text item ID so
+      late status updates never duplicate an already-committed message (only
+      genuine strict-suffix extensions emit incremental follow-up items), and
+      `TurnAssembly` suppresses exact duplicate commentary items and repeated
+      commentary prefixes in `final_answer` without discarding unique content.
+    - Narrow DIL-to-GFM presentation projection (`presentation.rs`): committed
+      `commentary` and `final_answer` messages translate allowlisted ChatGPT DIL
+      UI tags (`<Link>`, `<badge>`, `<row>`, `<grid>`/`<grid-item>`/`<caption>`,
+      `<title>`, `<text>`, `<box>`, `<card>`, `<divider>`, `<svg>` labels,
+      `<checkbox>`, `<MemoryCite>`, and `{@body}`/`{#if}` directives) outside
+      fenced/inline code into Codex-native GFM Markdown while preserving code
+      blocks, inline code, unknown HTML/generics, tool arguments, and `readChat`
+      host history verbatim.
     - Full AppHost reasoning emitted by the model (`thoughts[*]` entries with
       `summary` + `content` / `chunks`, formatted as `**{summary}**\n{content}`
       when both are present; `thoughts` `parts`/`content`; `channel === "analysis"`

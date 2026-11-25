@@ -1262,3 +1262,125 @@ test("page_driver projects interim pre-tool messages and stripped tool reports a
     ["tool_call", "already_has_report", "{\"report\":\"KEEP_ME\"}"],
   ]);
 });
+
+test("page_driver enforces single item per msgKey so promoted pre-tool commentary is never duplicated on late close", async () => {
+  let callbacks;
+  let ready;
+  let resolveStarted = () => {};
+  const { driver, streamUpdates } = createMockEnv({
+    apiMap: {
+      "GET /backend-api/me": { status: 200, body: { account_id: "acc-dedup" } },
+    },
+    completionBehavior(args) {
+      callbacks = args;
+      resolveStarted();
+      return { streamRequestId: "stream-dedup-1" };
+    },
+  });
+
+  ready = new Promise((resolve) => { resolveStarted = resolve; });
+  const p = driver.sendMessage({
+    lane_id: "lane-dedup",
+    prompt: "저장소 확인",
+    push_events: true,
+    model: "gpt-6-thinking",
+    local_function_signatures: [
+      {
+        type: "function",
+        name: "exec_command",
+        parameters: { type: "object", properties: { cmd: { type: "string" } }, required: ["cmd"] },
+      },
+    ],
+  });
+  await ready;
+
+  const tableMsg = "## Codex 저장소 확인 결과\n\n| 항목 | 결과 |\n|---|---|\n| 브랜치 | main |";
+  // 1. Message M1 starts in_progress as channel="final".
+  callbacks.onDecodedEvent({
+    update: {
+      type: "message",
+      conversationId: "conv-dedup",
+      message: {
+        id: "m-table",
+        author: { role: "assistant" },
+        channel: "final",
+        status: "in_progress",
+        content: { content_type: "text", parts: [tableMsg] },
+      },
+    },
+  });
+  // 2. Tool call M2 arrives, promoting M1 to committed commentary before tool_call.
+  callbacks.onDecodedEvent({
+    update: {
+      type: "message",
+      conversationId: "conv-dedup",
+      message: {
+        id: "m-call-git",
+        author: { role: "assistant" },
+        recipient: "exec_command",
+        status: "finished_successfully",
+        content: { text: JSON.stringify({ cmd: "git show -1 --stat" }) },
+      },
+    },
+  });
+  // 3. Reasoning recap arrives.
+  callbacks.onDecodedEvent({
+    update: {
+      type: "message",
+      conversationId: "conv-dedup",
+      message: {
+        id: "m-recap",
+        author: { role: "assistant" },
+        status: "finished_successfully",
+        content: { content_type: "reasoning_recap", content: "Worked for 5s" },
+      },
+    },
+  });
+  // 4. Late closing snapshot of the exact same M1 with end_turn=false arrives (reproduces resp_b7053492bc608f8e).
+  callbacks.onDecodedEvent({
+    update: {
+      type: "message",
+      conversationId: "conv-dedup",
+      message: {
+        id: "m-table",
+        author: { role: "assistant" },
+        channel: "final",
+        status: "finished_successfully",
+        end_turn: false,
+        content: { content_type: "text", parts: [tableMsg] },
+      },
+    },
+  });
+  // 5. Genuine strict suffix expansion on M1 only emits the new suffix, never repeats tableMsg.
+  callbacks.onDecodedEvent({
+    update: {
+      type: "message",
+      conversationId: "conv-dedup",
+      message: {
+        id: "m-table",
+        author: { role: "assistant" },
+        channel: "final",
+        status: "finished_successfully",
+        end_turn: false,
+        content: { content_type: "text", parts: [`${tableMsg}\n\n추가 메모: 검증 완료.`] },
+      },
+    },
+  });
+  callbacks.onComplete();
+  const settled = await p;
+
+  const committedSeq = JSON.parse(
+    JSON.stringify(
+      streamUpdates
+        .filter((x) => (x.kind === "item_upsert" && x.committed) || x.kind === "tool_call")
+        .map((x) => (x.kind === "tool_call" ? ["tool_call", x.name] : [x.item_kind, x.text]))
+    )
+  );
+  assert.deepEqual(committedSeq, [
+    ["commentary", tableMsg],
+    ["tool_call", "exec_command"],
+    ["reasoning_summary", "Worked for 5s"],
+    ["commentary", "추가 메모: 검증 완료."],
+  ]);
+  assert.equal(settled.items.filter((it) => it.text === tableMsg).length, 1);
+});

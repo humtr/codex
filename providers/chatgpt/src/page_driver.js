@@ -1745,7 +1745,20 @@
       return false;
     };
 
+    const msgTextItemId = new Map();
+    const committedMsgText = new Map();
+    const committedCommentaryTexts = new Set();
     let lastCommittedCommentary = "";
+    let suffixSeq = 0;
+
+    const noteCommittedCommentary = (text) => {
+      const norm = typeof text === "string" ? text.trim() : "";
+      if (norm) {
+        committedCommentaryTexts.add(norm);
+        lastCommittedCommentary = norm;
+      }
+    };
+
     const commitPriorItemsForNewMessage = (currentMsgKey, promoteInterimAnswer = false) => {
       let demotedAnswer = false;
       for (const item of turn.items.values()) {
@@ -1761,8 +1774,15 @@
             committed: true,
           });
         } else if (item.kind === "commentary") {
+          const norm = item.text.trim();
+          if (norm && committedCommentaryTexts.has(norm)) {
+            turn.items.delete(item.id);
+            emitStream({ kind: "item_remove", item_id: item.id });
+            continue;
+          }
           item.committed = true;
-          lastCommittedCommentary = item.text.trim();
+          if (item.msgKey) committedMsgText.set(item.msgKey, item.text);
+          noteCommittedCommentary(item.text);
           emitStream({
             kind: "item_upsert",
             item_id: item.id,
@@ -1771,9 +1791,17 @@
             committed: true,
           });
         } else if (promoteInterimAnswer && item.kind === "answer") {
+          const norm = item.text.trim();
+          if (norm && committedCommentaryTexts.has(norm)) {
+            turn.items.delete(item.id);
+            demotedAnswer = true;
+            emitStream({ kind: "item_remove", item_id: item.id });
+            continue;
+          }
           item.kind = "commentary";
           item.committed = true;
-          lastCommittedCommentary = item.text.trim();
+          if (item.msgKey) committedMsgText.set(item.msgKey, item.text);
+          noteCommittedCommentary(item.text);
           demotedAnswer = true;
           emitStream({
             kind: "item_upsert",
@@ -1812,6 +1840,13 @@
       if (itemKind === "reasoning_summary" && !existing && isDuplicateReasoning(text)) {
         return;
       }
+      if (itemKind === "commentary" && committed && committedCommentaryTexts.has(text.trim())) {
+        if (existing && !existing.committed) {
+          turn.items.delete(itemId);
+          emitStream({ kind: "item_remove", item_id: itemId });
+        }
+        return;
+      }
       if (existing) {
         if (existing.committed) return;
         const nextCommitted = Boolean(committed);
@@ -1835,7 +1870,10 @@
         noteCommittedReasoning(text);
       }
       if (itemKind === "commentary" && committed) {
-        lastCommittedCommentary = text.trim();
+        noteCommittedCommentary(text);
+      }
+      if ((itemKind === "commentary" || itemKind === "answer") && committed && msgKey !== null) {
+        committedMsgText.set(msgKey, text);
       }
       emitStream({
         kind: "item_upsert",
@@ -1852,7 +1890,7 @@
       const report = typeof call?.report === "string" ? call.report.trim() : "";
       if (!report || emittedToolReportIds.has(call.id)) return;
       emittedToolReportIds.add(call.id);
-      if (report === lastCommittedCommentary) return;
+      if (report === lastCommittedCommentary || committedCommentaryTexts.has(report)) return;
       upsertTextItem(`report:${call.id}`, "commentary", report, true, msgKey);
     };
     const recordToolCall = (call, committed, msgKey = null) => {
@@ -2001,23 +2039,56 @@
         msg.metadata?.is_thinking_preamble_message === true ||
         msg.status === "finished_partial_completion" ||
         (msg.status === "finished_successfully" && msg.end_turn === false);
-      if (isCommentary) {
-        const prevAnswerId = `answer:${msgKey}`;
-        const prevAnswer = turn.items.get(prevAnswerId);
-        if (prevAnswer && !prevAnswer.committed) {
-          turn.items.delete(prevAnswerId);
-          emitStream({ kind: "item_remove", item_id: prevAnswerId });
+      const targetKind = isCommentary ? "commentary" : "answer";
+      const targetCommitted =
+        !isCommentary && fallbackFenceMode && raw.includes("```codex_tool_call")
+          ? false
+          : msgCommitted;
+
+      // Enforce one canonical item per ChatGPT message key: once a message has
+      // already been committed (e.g. promoted to commentary before a tool call),
+      // late status/closing snapshots of the same message never duplicate it;
+      // only genuine strict-suffix extensions emit an incremental follow-up item.
+      const priorCommitted = committedMsgText.get(msgKey);
+      if (priorCommitted !== undefined) {
+        const trimmedRaw = truncate(raw);
+        if (
+          !trimmedRaw ||
+          trimmedRaw === priorCommitted ||
+          trimmedRaw.trim() === priorCommitted.trim() ||
+          priorCommitted.startsWith(trimmedRaw)
+        ) {
+          return;
         }
-        upsertTextItem(`commentary:${msgKey}`, "commentary", raw, msgCommitted, msgKey, true);
-        syncDerivedAssistantText();
+        if (trimmedRaw.startsWith(priorCommitted)) {
+          const suffix = trimmedRaw.slice(priorCommitted.length).replace(/^\r?\n+/, "");
+          if (suffix.trim()) {
+            suffixSeq += 1;
+            const extId = `${msgTextItemId.get(msgKey) || `answer:${msgKey}`}:ext:${suffixSeq}`;
+            upsertTextItem(extId, targetKind, suffix, targetCommitted, msgKey, true);
+            if (targetCommitted) {
+              committedMsgText.set(msgKey, trimmedRaw);
+            }
+            syncDerivedAssistantText();
+          }
+        }
         return;
       }
-      if (fallbackFenceMode && raw.includes("```codex_tool_call")) {
-        // Hold mutable fallback fence text uncommitted until turn/message settles.
-        upsertTextItem(`answer:${msgKey}`, "answer", raw, false, msgKey, true);
-      } else {
-        upsertTextItem(`answer:${msgKey}`, "answer", raw, msgCommitted, msgKey, true);
+
+      let canonicalId = msgTextItemId.get(msgKey);
+      if (!canonicalId) {
+        canonicalId = isCommentary ? `commentary:${msgKey}` : `answer:${msgKey}`;
+        msgTextItemId.set(msgKey, canonicalId);
+      } else if (isCommentary && canonicalId === `answer:${msgKey}`) {
+        const prev = turn.items.get(canonicalId);
+        if (prev && !prev.committed) {
+          turn.items.delete(canonicalId);
+          emitStream({ kind: "item_remove", item_id: canonicalId });
+          canonicalId = `commentary:${msgKey}`;
+          msgTextItemId.set(msgKey, canonicalId);
+        }
       }
+      upsertTextItem(canonicalId, targetKind, raw, targetCommitted, msgKey, true);
       syncDerivedAssistantText();
     };
 

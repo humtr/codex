@@ -724,11 +724,31 @@ struct AssembledItem {
 struct TurnAssembly {
     items: Vec<AssembledItem>,
     seen_tool_calls: HashSet<String>,
+    committed_commentaries: HashSet<String>,
+    last_committed_commentary: Option<String>,
     turn_completed: bool,
 }
 
 impl TurnAssembly {
-    fn upsert_text(&mut self, id: String, kind: StreamItemKind, text: String, committed: bool) {
+    fn strip_duplicate_commentary_prefix(&self, text: &str) -> Option<String> {
+        let prev = self.last_committed_commentary.as_deref()?;
+        if prev.is_empty() {
+            return None;
+        }
+        let trimmed = text.trim_start();
+        let rest = trimmed.strip_prefix(prev)?;
+        if !rest.is_empty() && !rest.starts_with('\n') {
+            return None;
+        }
+        let remainder = rest.trim_start_matches(['\r', '\n']);
+        if remainder.is_empty() {
+            None
+        } else {
+            Some(remainder.to_owned())
+        }
+    }
+
+    fn upsert_text(&mut self, id: String, kind: StreamItemKind, mut text: String, committed: bool) {
         if text.is_empty() && !committed {
             self.remove_mutable(&id);
             return;
@@ -738,6 +758,24 @@ impl TurnAssembly {
         } else {
             ContentState::Mutable
         };
+        if committed {
+            match kind {
+                StreamItemKind::Commentary => {
+                    let norm = text.trim().to_owned();
+                    if norm.is_empty() || !self.committed_commentaries.insert(norm.clone()) {
+                        self.remove_mutable(&id);
+                        return;
+                    }
+                    self.last_committed_commentary = Some(norm);
+                }
+                StreamItemKind::Answer => {
+                    if let Some(trimmed_answer) = self.strip_duplicate_commentary_prefix(&text) {
+                        text = trimmed_answer;
+                    }
+                }
+                StreamItemKind::ReasoningSummary => {}
+            }
+        }
         let next_content = match kind {
             StreamItemKind::ReasoningSummary => AssembledContent::ReasoningSummary(text),
             StreamItemKind::Commentary => AssembledContent::Commentary(text),
@@ -1027,6 +1065,8 @@ impl ResponsesEncoder {
     }
 
     fn emit_message_item(&mut self, frames: &mut Vec<Value>, phase: &str, text: &str) {
+        let rendered = crate::presentation::render_for_codex_tui(text);
+        let text = rendered.as_str();
         let idx = self.next_output_index();
         let item_id = format!("msg_{}_{idx}", self.id);
         let init_part = json!({"type": "output_text", "text": "", "annotations": []});

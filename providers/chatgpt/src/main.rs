@@ -10,6 +10,7 @@ mod control;
 mod driver;
 mod error;
 mod host;
+mod presentation;
 mod responses;
 mod server;
 mod supervisor;
@@ -2038,5 +2039,95 @@ wire_api = "responses"
         assert_eq!(sent_user["project_id"], "g-p-user-proj");
         assert!(sent_user["chat_id"].is_null());
         assert_eq!(sent_user["model"], "gpt-6-2-thinking");
+    }
+
+    #[tokio::test]
+    async fn responses_dedup_commentary_and_render_dil_equivalently_across_stream_and_json() {
+        let dil_commentary = "## 저장소 상태\n\n<row align=\"center\" gap={2}>\n  <badge color=\"success\">정상</badge>\n  <text color=\"secondary\" size=\"sm\">실제 조회 기준</text>\n</row>";
+        let dup_answer = format!(
+            "{dil_commentary}\n\nGitHub: <Link url=\"https://github.com/humtr/codex\" title=\"humtr/codex\"/>"
+        );
+        let reply = json!({
+            "state": "settled",
+            "chat_id": "conv-dil-1",
+            "account_id": "acct-1",
+            "test_delay_ms": 0,
+            "items": [
+                {"id": "commentary:m1", "kind": "commentary", "text": dil_commentary},
+                {"id": "commentary:m2", "kind": "commentary", "text": dil_commentary},
+                {"id": "answer:m3", "kind": "answer", "text": dup_answer}
+            ],
+            "test_snapshots": [
+                {"item_id": "commentary:m1", "kind": "commentary", "text": dil_commentary, "committed": true},
+                {"item_id": "commentary:m2", "kind": "commentary", "text": dil_commentary, "committed": true},
+                {"item_id": "answer:m3", "kind": "answer", "text": dup_answer, "committed": true}
+            ]
+        });
+        let driver = MockDriver::new(reply);
+        let stream_resp = crate::responses::handle_responses(
+            driver.clone(),
+            &Default::default(),
+            &Default::default(),
+            Arc::new(Default::default()),
+            None,
+            None,
+            json!({"input": "Check", "stream": true}),
+        )
+        .await
+        .unwrap();
+        let sse = String::from_utf8(
+            to_bytes(stream_resp.into_body(), 1024 * 1024)
+                .await
+                .unwrap()
+                .to_vec(),
+        )
+        .unwrap();
+        let completed_data = sse
+            .split("\n\n")
+            .find_map(|block| {
+                let mut ev = "";
+                let mut data = "";
+                for line in block.lines() {
+                    if let Some(v) = line.strip_prefix("event: ") {
+                        ev = v;
+                    } else if let Some(v) = line.strip_prefix("data: ") {
+                        data = v;
+                    }
+                }
+                (ev == "response.completed").then(|| serde_json::from_str::<Value>(data).unwrap())
+            })
+            .expect("completed event");
+
+        let json_resp = crate::responses::handle_responses(
+            driver,
+            &Default::default(),
+            &Default::default(),
+            Arc::new(Default::default()),
+            None,
+            None,
+            json!({"input": "Check", "stream": false}),
+        )
+        .await
+        .unwrap();
+        let json_val: Value =
+            serde_json::from_slice(&to_bytes(json_resp.into_body(), 1024 * 1024).await.unwrap())
+                .unwrap();
+
+        let stream_out = completed_data["response"]["output"].as_array().unwrap();
+        let json_out = json_val["output"].as_array().unwrap();
+        assert_eq!(stream_out.len(), 2);
+        assert_eq!(json_out.len(), 2);
+        assert_eq!(stream_out[0]["phase"], "commentary");
+        assert_eq!(stream_out[1]["phase"], "final_answer");
+        let c_text = stream_out[0]["content"][0]["text"].as_str().unwrap();
+        let a_text = stream_out[1]["content"][0]["text"].as_str().unwrap();
+        assert!(c_text.contains("**[✓ 정상]** · *실제 조회 기준*"));
+        assert!(!c_text.contains("<row"));
+        assert_eq!(
+            a_text,
+            "GitHub: [humtr/codex](https://github.com/humtr/codex)"
+        );
+        assert_eq!(json_out[0]["content"][0]["text"].as_str().unwrap(), c_text);
+        assert_eq!(json_out[1]["content"][0]["text"].as_str().unwrap(), a_text);
     }
 }
