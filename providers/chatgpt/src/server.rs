@@ -65,7 +65,7 @@ pub fn build_router_with_threads(
     let live_models =
         new_live_model_set(model_cfg.available.iter().cloned(), catalog_path.as_deref());
     let model_cfg = Arc::new(model_cfg);
-    let parallel_tool_calls = !history_cfg.structured_native_return;
+    let parallel_tool_calls = true;
     let app_state = AppState {
         driver: Arc::clone(&driver),
         model_cfg: Arc::clone(&model_cfg),
@@ -109,7 +109,7 @@ async fn v1_models(State(st): State<AppState>) -> Json<Value> {
         &st.model_cfg,
         st.catalog_path.as_deref(),
         Some(&st.live_models),
-        !st.history_cfg.structured_native_return,
+        true,
     )
     .await
 }

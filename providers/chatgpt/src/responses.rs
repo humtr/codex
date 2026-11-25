@@ -80,6 +80,8 @@ struct NativeThreadBinding {
     dispatch_parent: String,
     previous_response_id: Option<String>,
     submitted_message_sha256: Vec<[u8; 32]>,
+    #[serde(default)]
+    instructions_sha256: Option<[u8; 32]>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -2376,17 +2378,26 @@ struct NativePlan {
 
 impl NativePlan {
     fn prepare(body: &Value, previous: Option<&ThreadEntry>, response_id: &str) -> Result<Self> {
-        // Request-scoped instructions must not be silently made durable.
-        // Keep this boundary explicit until AppHost scope is proved.
-        if body
-            .get("instructions")
-            .is_some_and(|v| !v.is_null() && v.as_str().is_none_or(|s| !s.trim().is_empty()))
-        {
-            return Err(ProviderError::bad_request(
-                "native_instruction_scope_unqualified",
-                "request-scoped instructions require a qualified AppHost instruction route",
-            ));
-        }
+        let instructions = match body.get("instructions") {
+            None | Some(Value::Null) => None,
+            Some(Value::String(s)) if s.trim().is_empty() => None,
+            Some(Value::String(s)) => {
+                if s.len() > 1_048_576 {
+                    return Err(ProviderError::bad_request(
+                        "native_content_bound",
+                        "instructions exceed candidate 1 MiB bound",
+                    ));
+                }
+                Some(s.as_str())
+            }
+            Some(_) => {
+                return Err(ProviderError::bad_request(
+                    "native_input_unsupported",
+                    "instructions must be a string",
+                ));
+            }
+        };
+        let instructions_sha256 = instructions.map(|s| sha256_bytes(s.as_bytes()));
         if body
             .get("previous_response_id")
             .is_some_and(|v| !v.is_null() && v.as_str().is_none_or(str::is_empty))
@@ -2474,6 +2485,17 @@ impl NativePlan {
             ));
         }
         let mut messages = Vec::new();
+        if !pending.is_empty() {
+            let prior_instructions = previous
+                .and_then(|e| e.native.as_ref())
+                .and_then(|n| n.instructions_sha256);
+            if instructions_sha256 != prior_instructions {
+                return Err(ProviderError::bad_request(
+                    "native_instruction_scope_changed",
+                    "request-scoped instructions cannot change during a pending tool round",
+                ));
+            }
+        }
         let mut received = HashSet::new();
         for item in tail {
             match item["type"].as_str() {
@@ -2517,16 +2539,24 @@ impl NativePlan {
                 "developer context must accompany a genuine user message",
             ));
         }
+        if pending.is_empty() {
+            if let Some(instr) = instructions {
+                // Append AFTER the user message(s), matching AppHost's
+                // `exclude_after_next_user_message: true` ordering so the
+                // instruction is active for this turn (and its tool rounds)
+                // and expires once the next user turn arrives.
+                messages.push(json!({
+                    "id": native_wire_id()?,
+                    "role": "developer",
+                    "parts": [instr],
+                    "one_turn": true
+                }));
+            }
+        }
         if received.len() != pending.len() {
             return Err(ProviderError::bad_request(
                 "native_result_batch_incomplete",
                 "all original pending calls require one matching result",
-            ));
-        }
-        if pending.len() > 1 {
-            return Err(ProviderError::bad_request(
-                "native_result_batch_unqualified",
-                "AppHost's native submitter accepts a single original call per operation",
             ));
         }
         if messages.len() > 64
@@ -2557,6 +2587,7 @@ impl NativePlan {
                 .iter()
                 .map(|m| sha256_bytes(&serde_json::to_vec(m).expect("message serializes")))
                 .collect(),
+            instructions_sha256,
         };
         Ok(Self {
             messages,
@@ -2722,14 +2753,7 @@ impl NativePlan {
         let submitted: Vec<String> =
             serde_json::from_value(settled["submitted_message_ids"].clone())
                 .map_err(|_| identity_error())?;
-        if let [original] = self.binding.pending_calls.as_slice() {
-            let [result_id] = submitted.as_slice() else {
-                return Err(identity_error());
-            };
-            if result_id.is_empty() || result_id.len() > 256 || *result_id == original.message_id {
-                return Err(identity_error());
-            }
-        } else if submitted != self.binding.submitted_message_ids {
+        if submitted != self.binding.submitted_message_ids {
             return Err(identity_error());
         }
         let chat_id = settled["chat_id"]
@@ -2753,12 +2777,6 @@ impl NativePlan {
             .get("tool_calls")
             .and_then(Value::as_array)
             .ok_or_else(identity_error)?;
-        if settled_calls.len() > 1 {
-            return Err(ProviderError::unavailable(
-                "native_result_batch_unqualified",
-                "AppHost emitted multiple calls before batch results qualified",
-            ));
-        }
         if prior.is_some_and(|e| {
             e.native.as_ref().and_then(|n| n.remote_head.as_deref()) == Some(remote_head)
         }) {
@@ -3039,7 +3057,6 @@ pub async fn handle_responses_with_metadata(
         render_prompt_from_responses_request(&body, skip_prefix)?
     };
     let mut encoder = ResponsesEncoder::new(resp_id.clone(), requested_model);
-    encoder.parallel_tool_calls = !native;
     let lane_id = resp_id.clone();
     let mut send_payload = json!({
         "lane_id": lane_id,
@@ -3405,7 +3422,7 @@ mod native_candidate_tests {
     }
 
     #[test]
-    fn native_stream_defers_tool_and_following_output_and_rejects_multiple_calls() {
+    fn native_stream_defers_tool_and_batches_parallel_calls() {
         let root = temp_root();
         let (plan, mut settled, _, sigs) = fixture();
         let mut second_call = settled["tool_calls"][0].clone();
@@ -3430,7 +3447,6 @@ mod native_candidate_tests {
             true,
         );
         let mut encoder = ResponsesEncoder::new("resp_1".into(), "fixture".into());
-        encoder.parallel_tool_calls = false;
         let early = encoder.flush_committed(&mut assembly, false);
         assert!(early
             .iter()
@@ -3439,26 +3455,47 @@ mod native_candidate_tests {
             |frame| frame["item"]["type"] == "function_call" || frame["delta"] == "after tool"
         ));
         let (_, final_response) = encoder.finish(&mut assembly);
-        assert_eq!(final_response["parallel_tool_calls"], false);
+        assert_eq!(final_response["parallel_tool_calls"], true);
         let map = ResponseThreadMap::open_native(&root).unwrap();
         plan.begin(&map, "session:batch", None, None).unwrap();
-        let error = plan
-            .settle(
-                &map,
-                "session:batch",
-                None,
-                &settled,
-                &assembly,
-                (&final_response["output"], &sigs),
+        plan.settle(
+            &map,
+            "session:batch",
+            None,
+            &settled,
+            &assembly,
+            (&final_response["output"], &sigs),
+        )
+        .unwrap();
+        let entry = map.get("session:batch").unwrap();
+        let native = entry.native.as_ref().unwrap();
+        assert!(!native.dispatching);
+        assert_eq!(native.pending_calls.len(), 2);
+        let first_cid = native.pending_calls[0].call_id.as_str();
+        let second_cid = native.pending_calls[1].call_id.as_str();
+        // Out-of-order batched results correlate to their exact original calls.
+        let batch_req = json!({
+            "previous_response_id": "resp_1",
+            "input": [
+                {"type":"function_call_output","call_id":second_cid,"output":"second-out"},
+                {"type":"function_call_output","call_id":first_cid,"output":"first-out"}
+            ]
+        });
+        let batch_plan = NativePlan::prepare(&batch_req, Some(&entry), "resp_2").unwrap();
+        assert_eq!(batch_plan.messages.len(), 2);
+        assert_eq!(batch_plan.messages[0]["binding"]["call_id"], second_cid);
+        assert_eq!(batch_plan.messages[1]["binding"]["call_id"], first_cid);
+        // Partial batch still fails closed.
+        assert_eq!(
+            NativePlan::prepare(
+                &json!({"previous_response_id":"resp_1","input":[{"type":"function_call_output","call_id":first_cid,"output":"only-one"}]}),
+                Some(&entry),
+                "resp_2",
             )
-            .unwrap_err();
-        assert_eq!(error.code, "native_result_batch_unqualified");
-        assert!(
-            map.get("session:batch")
-                .unwrap()
-                .native
-                .unwrap()
-                .dispatching
+            .err()
+            .unwrap()
+            .code,
+            "native_result_batch_incomplete"
         );
         drop(map);
         std::fs::remove_dir_all(root).unwrap();
@@ -3547,7 +3584,7 @@ mod native_candidate_tests {
         let result = json!({
             "state":"settled",
             "native_verified":true,
-            "submitted_message_ids":["apphost-assigned-result-id"],
+            "submitted_message_ids":next.binding.submitted_message_ids,
             "chat_id":"chat-a",
             "account_id":"account-a",
             "remote_head":"head-b",
@@ -3565,7 +3602,7 @@ mod native_candidate_tests {
         let binding = map.get(key).unwrap().native.unwrap();
         assert_eq!(
             binding.submitted_message_ids,
-            ["apphost-assigned-result-id"]
+            next.binding.submitted_message_ids
         );
         assert!(binding.pending_calls.is_empty());
         drop(map);
@@ -3662,25 +3699,62 @@ mod native_candidate_tests {
     }
 
     #[test]
-    fn candidate_rejects_unqualified_instruction_scope_and_content() {
-        for (body, code) in [
-            (
-                json!({"instructions":"Request scope", "input":"hello"}),
-                "native_instruction_scope_unqualified",
-            ),
-            (
-                json!({"input":[{"role":"developer","content":"Developer context"}]}),
-                "native_user_input_required",
-            ),
-        ] {
-            assert_eq!(
-                NativePlan::prepare(&body, None, "resp_1")
-                    .err()
-                    .unwrap()
-                    .code,
-                code
-            );
-        }
+    fn candidate_scopes_request_instructions_and_rejects_unsupported_content() {
+        assert_eq!(
+            NativePlan::prepare(
+                &json!({"input":[{"role":"developer","content":"Developer context"}]}),
+                None,
+                "resp_1"
+            )
+            .err()
+            .unwrap()
+            .code,
+            "native_user_input_required"
+        );
+        let instr_plan = NativePlan::prepare(
+            &json!({"instructions":"Request scope", "input":"hello"}),
+            None,
+            "resp_1",
+        )
+        .unwrap();
+        assert_eq!(instr_plan.messages.len(), 2);
+        assert_eq!(instr_plan.messages[0]["role"], "user");
+        assert_eq!(instr_plan.messages[1]["role"], "developer");
+        assert_eq!(instr_plan.messages[1]["one_turn"], true);
+        assert_eq!(instr_plan.messages[1]["parts"], json!(["Request scope"]));
+        assert!(instr_plan.binding.instructions_sha256.is_some());
+        // Mid-tool-round instruction change is rejected; unchanged instructions stay implicit.
+        let (base_plan, settled, output, sigs) = fixture();
+        let root = temp_root();
+        let map = ResponseThreadMap::open_native(&root).unwrap();
+        let mut assembly = TurnAssembly::default();
+        assembly.reconcile_settled(&settled, &sigs).unwrap();
+        base_plan.begin(&map, "session:i", None, None).unwrap();
+        base_plan
+            .settle(
+                &map,
+                "session:i",
+                None,
+                &settled,
+                &assembly,
+                (&output, &sigs),
+            )
+            .unwrap();
+        let entry = map.get("session:i").unwrap();
+        let cid = &output[0]["call_id"];
+        assert_eq!(
+            NativePlan::prepare(
+                &json!({"previous_response_id":"resp_1","instructions":"Changed mid-round","input":[{"type":"function_call_output","call_id":cid,"output":"ok"}]}),
+                Some(&entry),
+                "resp_2",
+            )
+            .err()
+            .unwrap()
+            .code,
+            "native_instruction_scope_changed"
+        );
+        drop(map);
+        fs::remove_dir_all(root).unwrap();
         let plan = NativePlan::prepare(
             &json!({"input":[
                 {"role":"developer","content":[{"type":"input_text","text":"Permission context"}]},

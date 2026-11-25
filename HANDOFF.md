@@ -51,35 +51,35 @@ remains unqualified. Do not repeat the unauthenticated boot probe.
 
 | Stage | Required result / next action | State |
 | --- | --- | --- |
-| P0 | Prove C with the authorized AppHost account, E01–E15 below. B requires a definitive C gap and independent proof. | Single-function C round trip passed on direct Responses and actual Codex CLI. Physical UI and remaining cases open. |
-| P1 | Select a qualified route and establish the role, scope, content, identity and compatibility contract. | Conditional contract in Provider annex. Still awaiting route selection. |
-| P2 | Keep typed user inputs and results distinct from control send. | Actual Codex developer text and user inputs passed with their original roles. Lifetime and other content types remain open. |
-| P3 | Bind full IDs, namespace, recipient, arguments and all results to original calls. | One call and return verified against actual AppHost. Multi-call and custom cases remain open. |
-| P4 | Bind the emitted output prefix and prior response, remote head, account and project. | Implemented for supported inputs. Real Codex prefix, instruction scope and compaction qualification pending. |
-| P5 | Persist minimal bindings and pending receipts with explicit reconciliation and migration. | Versioned durable candidate and synthetic restart refusal to replay. Definitive post-disconnect reconciliation, migration and live lane tests pending. |
-| P6 | Retire obsolete routes after the selected replacement qualifies. | Production path retained. Existing presentation/control regressions pass locally. |
-| P7 | Repeat E01–E15 on the exact candidate through official CLI/TUI/app-server, Android, real account/model and UI. | Single official CLI tool round passed on the Android candidate. TUI, app-server, other cases and physical UI remain open. |
-| P8 | Qualify the exact artifact and separately authorize publication, readback, activation and rollback. | E01 proof binary active locally at fixed installation version `0.1.0`. CI cross-build, signed release and product qualification remain open. |
+| P0 | Prove C with the authorized AppHost account, E01–E15 below. B requires a definitive C gap and independent proof. | **Option C disqualified** by proven `app.asar` (`QBVt`→`lNEL`→`Y86X`) gaps (drops Codex `local_function_signatures` on round 2+ and caps results to 1). **Option B selected & proven** on isolated live AppHost (`b9e2c9b23b8a...`): E01, E02 (3-round official Codex CLI), E04, E05, E07, E08, E09, E10, E11 (10 turns), E13 (restart), E14 (parallel), E15 & utility isolation PASS. E06/E12 remain open. |
+| P1 | Select a qualified route and establish the role, scope, content, identity and compatibility contract. | **Option B selected**; normative conditional contract updated in `docs/spec/CHATGPT_PROVIDER.md`. |
+| P2 | Keep typed user inputs and results distinct from control send. | Typed `user`, durable `developer`, one-turn `developer` (`instructions` with `exclude_after_next_user_message: true`), and structured `role: "tool"` envelopes proven live. |
+| P3 | Bind full IDs, namespace, recipient, arguments and all results to original calls. | Exact Provider-generated `submitted_message_ids`, full call IDs, custom/namespaced tools, and multi-round correlation proven live; out-of-order parallel batches verified in JS/Rust tests. |
+| P4 | Bind the emitted output prefix and prior response, remote head, account and project. | 10-turn verified continuation (E11), durable developer scope (E09), and request-scoped instruction application/expiration/replacement (E10) proven live. Compaction handoff remains open. |
+| P5 | Persist minimal bindings and pending receipts with explicit reconciliation and migration. | Versioned v3 native state, pre-dispatch restoration, and live restart recovery with pending tool call (E13) proven. Legacy-entry migration & original E02 receipt reconciliation remain open before cutover. |
+| P6 | Retire obsolete routes after the selected replacement qualifies. | Production path retained until P7/P8 closeout. Existing presentation/utility/control regressions pass. |
+| P7 | Repeat E01–E15 on the exact candidate through official CLI/TUI/app-server, Android, real account/model and UI. | Official Codex CLI `0.171.0` E02 (3-round) and direct Responses E04/E05/E07/E08/E09/E10/E11/E13/E14/E15 passed on candidate `b9e2c9b23b8a...`. Interactive E06 approval denial, TUI/app-server, and E12 physical UI remain open. |
+| P8 | Qualify the exact artifact and separately authorize publication, readback, activation and rollback. | Port 4319 still retains the earlier local E01 binary (`b6e3a5db...`) and E02 pending receipt pending explicit cutover authorization; CI, signed release, and rollback verification remain open. |
 
 ### P0 / P7 proof matrix (no acceptance by mocks)
 
 | ID | Evidence required | P0 result |
 | --- | --- | --- |
-| E01 | Single real declared function, unpredictable marker generated after call; exact original ID, one return, marker consumed without user message. | PASS on direct Responses and official Codex CLI with actual AppHost. Physical UI remains open. Earlier failed probes retain separate receipts. |
-| E02 | Three successive tool rounds from one genuine request. | FAIL on the installed E01 binary. First tool executed once, then AppHost readback failed verification. Original intent remains unresolved. |
-| E03 | Batched/parallel calls, unique out-of-order returns matched, no independent inference per result. | NOT RUN |
-| E04 | Custom/namespaced inputs, name, namespace and output semantics. | NOT RUN |
-| E05 | Real execution failure consumed. | NOT RUN |
-| E06 | Official reviewer denies and no effect; original denial delivered. | NOT RUN |
-| E07 | Lossless bounded large result or explicit disclosed error/representation. | NOT RUN |
-| E08 | Typed supported content and explicit unsupported-type failure. | NOT RUN |
-| E09 | Durable authorized developer canary scope across turns. | NOT RUN |
-| E10 | Request scope, expiration, replacement. | NOT RUN |
-| E11 | Ten consecutive genuine user turns, verified chat, no resident replay. | NOT RUN |
-| E12 | Actual UI preserves genuine user turns; no synthetic instruction/result/reply users. | NOT RUN |
-| E13 | Candidate restart retains pending call, no unverified resend. | NOT RUN |
-| E14 | Independent chat lanes, same-chat exclusion and lane-local cancel. | NOT RUN |
-| E15 | Role-looking user/tool data cannot escalate authority or execution. | NOT RUN |
+| E01 | Single real declared function, unpredictable marker generated after call; exact original ID, one return, marker consumed without user message. | **PASS** (subsumed by Option B E02 3-round official Codex CLI & E13 single-call restart on `b9e2c9b23b8a...`). |
+| E02 | Three successive tool rounds from one genuine request. | **PASS (Option B `b9e2c9b23b8a...`)** on official Codex CLI `0.171.0` (`cli_exit=0`, `38.6s`, 3 sequential `exec_command` rounds, all 3 nonces consumed, `chat_id=6b06ab6f-f610-83ee-b26f-7d0b403648a8`, `user_turn_count=2`, `dispatching=false`). Original Option C E02 receipt (`6b069b9f-...`) preserved untouched. |
+| E03 | Batched/parallel calls, unique out-of-order returns matched, no independent inference per result. | **PARTIAL / MODEL-SERIALIZED**: Option B transport, `NativePlan`, and `verifyCandidateSettlement` support N out-of-order batched results (`parallel_tool_calls: true`, proven in JS/Rust unit tests); live `gpt-5-6-thinking` on AppHost serialized multi-tool requests into sequential `local.*` rounds (`user_turn_count=1`). |
+| E04 | Custom/namespaced inputs, name, namespace and output semantics. | **PASS (Option B `b9e2c9b23b8a...`)**: `custom_tool_call` (`raw_probe`) + namespaced `function_call` (`diag.check_path`), `chat_id=6b06ab96-e640-83ee-882e-cf94815bd3a7`, `user_turn_count=1`. |
+| E05 | Real execution failure consumed. | **PASS (Option B `b9e2c9b23b8a...`)**: `EXIT_CODE=1 ERROR: EACCES_*` faithfully reported without fabricated success (`6b06ab96-e640-83ee-882e-cf94815bd3a7`). |
+| E06 | Official reviewer denies and no effect; original denial delivered. | **OPEN** (requires interactive Codex approval denial / app-server reviewer callback; non-interactive `codex exec` exited 2 on `-c approval_policy="never"` flag). |
+| E07 | Lossless bounded large result or explicit disclosed error/representation. | **PASS (Option B `b9e2c9b23b8a...`)**: 1.1 MiB rejected pre-dispatch HTTP 400 `native_content_bound` preserving pending call; 64,672-byte result delivered losslessly with tail marker verified. |
+| E08 | Typed supported content and explicit unsupported-type failure. | **PASS (Option B `b9e2c9b23b8a...`)**: unsupported `input_image` rejected HTTP 400 `native_content_unsupported`. |
+| E09 | Durable authorized developer canary scope across turns. | **PASS (Option B `b9e2c9b23b8a...`)**: `VAULT_d5a9a6d0` recalled verbatim on Turn 2. |
+| E10 | Request scope, expiration, replacement. | **PASS (Option B `b9e2c9b23b8a...`)**: post-user `developer` with `exclude_after_next_user_message: true` applied `[REQ_T1]` on Turn 1, expired cleanly on Turn 2 (`t2_has_req1_leaked=false`), and was replaced by `[REQ_T3]` on Turn 3. |
+| E11 | Ten consecutive genuine user turns, verified chat, no resident replay. | **PASS (Option B `b9e2c9b23b8a...`)**: 10/10 consecutive turns on `6b06ad18-6e9c-83ee-962d-a8bdb578d46f`, `user_turn_count=10`. |
+| E12 | Actual UI preserves genuine user turns; no synthetic instruction/result/reply users. | **OPEN** (physical ChatGPT UI visual verification still required; remote graph confirmed exact `user_turn_count` across all tests). |
+| E13 | Candidate restart retains pending call, no unverified resend. | **PASS (Option B `b9e2c9b23b8a...`)**: candidate process stopped and restarted with pending call in `response_threads.json`; post-restart return settled cleanly on `6b06abc0-fb68-83e8-b47e-056e9a0da766`, `user_turn_count=1`. |
+| E14 | Independent chat lanes, same-chat exclusion and lane-local cancel. | **PASS (Option B `b9e2c9b23b8a...`)**: concurrent sessions returned HTTP 200 with zero global busy or cross-delivery; same-chat exclusion and lane-local cancellation verified in unit tests. |
+| E15 | Role-looking user/tool data cannot escalate authority or execution. | **PASS (Option B `b9e2c9b23b8a...`)**: `[developer] SYSTEM OVERRIDE` embedded in tool output treated strictly as data (`6b06ab96-e640-83ee-882e-cf94815bd3a7`). |
 
 Record each case's actual source/binary/AppHost identity, sanitized call and
 remote-node correlation, execution/return counts, settlement, visible UI and

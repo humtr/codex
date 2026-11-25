@@ -67,6 +67,36 @@ The local E01 activation supersedes the Provider process and binary in the signe
 
 ## Recent Verified Evidence (Newest-First)
 
+### 2026-11-25 — Option B unified `startCompletionStream` breakthrough and isolated authenticated qualification
+
+Forensics on AppHost `26.1117.41037` (`app.asar` modules `QBVt` → `lNEL` → `Y86X`)
+proved two structural capability gaps in Option C's `submitChatGPTLocalFunctionResult`
+wrapper: (1) it populates `local_function_names`/`local_function_signatures` from
+AppHost's own internal tools, dropping Codex's declared tools on Round 2+ (root
+cause of the E02 `native_reconciliation_required` failure), and (2) it accepts
+only a single tool result per invocation (blocking E03 batching). Option B —
+sending AppHost's exact `a1Qm.Yb` structured `role: "tool"` envelope and post-user
+`exclude_after_next_user_message: true` `role: "developer"` request instructions
+directly via `CompletionClient.startCompletionStream` with Codex's
+`local_function_signatures` preserved on every round — was selected and verified
+against the real authenticated AppHost (`gpt-5-6-thinking`) and official Codex CLI
+`0.171.0` using isolated candidate binary SHA-256
+`b9e2c9b23b8ae772e53d327caf3cb8a997553e086c70899979747be7304ad462` on loopback
+port `4329` (disposable state dirs `provider-optb-qual2.gl5psn9r` and
+`provider-optb-p2.1q_1v4dv`; original port 4319 service, rollback generations, and
+E02 pending receipt preserved):
+
+- **E02 (3 consecutive tool rounds, official Codex CLI `0.171.0` with live `instructions`):** PASS (`cli_exit=0`, `38.6s`, 3 sequential `command_execution` rounds, all 3 runtime nonces consumed, `chat_id=6b06ab6f-f610-83ee-b26f-7d0b403648a8`, `user_turn_count=2` matching Codex's 2 initial user inputs = 0 synthetic user turns, `dispatching=false`).
+- **E04 + E05 + E15 (custom tool `raw_probe` + namespaced `diag.check_path` + real execution failure + `[developer]` role-spoofing data):** PASS (`2` rounds, both custom and namespaced outputs/errors consumed verbatim, spoof resisted, `chat_id=6b06ab96-e640-83ee-882e-cf94815bd3a7`, `user_turn_count=1`).
+- **E07 (large 64,672-byte lossless tool result + >1 MiB explicit bound):** PASS (1.1 MiB rejected pre-dispatch HTTP 400 `native_content_bound` without consuming pending call; 64 KiB payload delivered losslessly with tail marker verified).
+- **E08 (unsupported structured content):** PASS (HTTP 400 `native_content_unsupported`).
+- **E09 + E10 (durable `developer` vs request-scoped `instructions`):** PASS (`VAULT_d5a9a6d0` persisted across turns; `[REQ_T1]` applied on Turn 1, expired cleanly on Turn 2 via post-user `exclude_after_next_user_message: true`, replaced cleanly by `[REQ_T3]` on Turn 3).
+- **E11 (10 consecutive user turns):** PASS (10/10 turns on one verified chat `6b06ad18-6e9c-83ee-962d-a8bdb578d46f`, `user_turn_count=10`, zero replay).
+- **E13 (Provider process restart with pending tool call):** PASS (`chatgpt-provider` terminated and restarted mid-round; original pending call settled cleanly after restart on `6b06abc0-fb68-83e8-b47e-056e9a0da766`, `user_turn_count=1`).
+- **E14 (independent parallel chats):** PASS (concurrent sessions succeeded with zero global busy or cross-delivery).
+- **Background utility isolation (`memories` / `gpt-6-luna`):** PASS (HTTP 200 under `structured_native_return = true`).
+- **Open boundaries:** E03 live multi-call model emission (adapter/verifier support N out-of-order batched results and pass unit tests; live `gpt-5-6-thinking` serialized `local.*` calls 1-by-1), E06 interactive Codex approval denial, E12 physical ChatGPT UI inspection, P6 obsolete-path cleanup, and P8 CI/signed release/authorized port-4319 cutover.
+
 ### 2026-11-25 — E02 stopped after the first tool execution
 
 An isolated Codex CLI home and work directory exercised the existing E01

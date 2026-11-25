@@ -23,7 +23,7 @@ slices or reprioritize unrelated component work.
 
 | Order | Work | Admission / status |
 | --- | --- | --- |
-| 1 | [Native tool return and structured context](#10-chatgpt-provider-native-tool-return-and-structured-context) | Single-call C route passed with official Codex CLI and actual AppHost. E02 stopped at readback after the first result submission. Reconcile that request before repeating it. Durable instruction scope, batches and integration qualification remain open. See `HANDOFF.md` and `CURRENT.md`. |
+| 1 | [Native tool return and structured context](#10-chatgpt-provider-native-tool-return-and-structured-context) | Option C (`submitChatGPTLocalFunctionResult`) disqualified by proven `app.asar` capability gaps (drops Codex `local_function_signatures` on round 2+, single-result cap). Option B (unified `CompletionClient.startCompletionStream` with structured `role: "tool"` envelopes and post-user one-turn `developer` `instructions`) selected and passed isolated live authenticated qualification on E02 (3-round official Codex CLI), E04/E05/E15, E07, E08, E09, E10, E11 (10 turns), E13 (restart), E14 (parallel), and utility isolation. E03 live parallel model emission, E06 approval denial, E12 physical UI, P6 cleanup, and P8 signed publication/activation remain open. See `HANDOFF.md` and `CURRENT.md`. |
 | 2 | [Codex presentation improvements](#11-deferred-codex-presentation-improvements) | Preserve the complete prior plan; defer new implementation until order 1 is qualified and closed, or the user explicitly changes the order. Existing presentation behavior remains a mandatory regression boundary during order 1. |
 
 A blocked native capability, reconciliation, publication or activation gate

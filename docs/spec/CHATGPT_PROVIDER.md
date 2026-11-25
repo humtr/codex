@@ -170,23 +170,32 @@ and [providers/chatgpt/src/main.rs](../../providers/chatgpt/src/main.rs).
   Supported Codex developer text travels as an AppHost developer message
   in input order. Check its role and content if AppHost retains the
   message in its graph. AppHost can omit developer input from that graph.
-  Preserve the submitted developer context in the Codex prefix and qualify
-  its model scope separately. A developer update accompanies genuine user
-  input. Scope changes during a pending tool return require a qualified
-  AppHost operation. Request-level instructions require independent
-  qualification.
-  The candidate AppHost submission route uses the installed local-function
-  result entry point for a single original call. Persist the call and result
-  intent before submission. Verify the AppHost-assigned result message ID
-  and original call at the completion request boundary. Verify any visible
-  result node on readback. AppHost can omit that node from durable history.
-  In that case require the verified AppHost submission, completion and a
-  readback on the original branch with no additional user turn. Reject
-  batches that the entry point cannot submit as one operation. Integrated
-  generic-tool support remains subject to P0 and P7.
-  While the candidate supports one call per round, advertise that limit
-  in the Codex model catalog and Responses metadata. If AppHost emits
-  multiple calls, fail before exposing any of them to Codex for execution.
+  Preserve the submitted developer context in the Codex prefix. Request-level
+  `instructions` travel on user turns as a trailing hidden `developer` message
+  with `exclude_after_next_user_message: true` (matching AppHost's own
+  one-turn developer placement so it remains active across the turn's tool
+  rounds and expires on the next user message); unchanged `instructions` stay
+  implicit on tool-return rounds while mid-round changes fail closed with
+  `native_instruction_scope_changed`. A developer update accompanies genuine
+  user input.
+  Because AppHost's internal `submitChatGPTLocalFunctionResult` wrapper
+  overwrites declared `local_function_signatures` with AppHost built-ins on
+  round 2+ and accepts only one result per call, the candidate selects Option
+  B: submitting user/developer inputs and structured `role: "tool"` result
+  envelopes (`author.role = "tool"`, `channel = "commentary"`, `content_type
+  = "code"`, JSON `{ call_id, result, tool }`, `is_visually_hidden_from_conversation = true`)
+  directly through AppHost's unified `CompletionClient.startCompletionStream`
+  with Codex's declared `local_function_names` / `local_function_signatures`
+  preserved on every round and exact Provider-generated `submitted_message_ids`.
+  Single and batched/parallel tool returns (including out-of-order arrivals)
+  travel in one atomic completion request (`parallel_tool_calls: true`).
+  Verify any retained tool-result node on readback; if AppHost omits a tool
+  node from durable history, require exact parent-branch advancement, original
+  call/argument-digest verification, and zero synthetic user turns or
+  conflicting off-branch correlations. Trailing non-visible reasoning nodes
+  (`thoughts`, `reasoning_recap`, `analysis`, or hidden assistant nodes) on
+  the committed head are tolerated while any unstreamed visible assistant
+  message or unexpected tool call fails closed.
   Stream committed visible output in order up to the first pending tool
   call. Expose the call and subsequent output after verified settlement.
   The candidate records a versioned dispatch intent before sending, verifies
@@ -196,19 +205,19 @@ and [providers/chatgpt/src/main.rs](../../providers/chatgpt/src/main.rs).
   account through its read-only account guard and require a unique match.
   Bind the verified account ID to the continuation.
   Readback must match the original declared call, arguments, recipient, exact
-  branch head and result IDs/content, including duplicate correlation on other
-  branches. The original AppHost argument source is bound by a digest and
-  checked again before returning a result and at result settlement. Durable
-  dispatch receipts retain the original parent, prior response ID and
-  per-message digests. The Provider may record observed chat and account
-  identities before final settlement. Preserve unresolved receipts for
-  explicit reconciliation and retain the operating generation and state
-  for rollback. Authenticated qualification covers the candidate transport,
-  Codex instruction scope and compaction before adoption.
+  branch head and exact `submitted_message_ids`, including duplicate
+  correlation on other branches. The original AppHost argument source is
+  bound by a digest and checked again before returning a result and at result
+  settlement. Durable dispatch receipts retain the original parent, prior
+  response ID, per-message digests, and active request-instruction digest.
+  The Provider may record observed chat and account identities before final
+  settlement. Preserve unresolved receipts for explicit reconciliation and
+  retain the operating generation and state for rollback. Physical UI,
+  interactive approval denial, compaction, and signed publication remain
+  explicit qualification gates before production adoption.
   If the Page Driver confirms rejection before invoking the AppHost
-  completion or result submitter, restore the pre-request binding or
-  remove the new intent. A timeout or ambiguous dispatch keeps the intent
-  for reconciliation.
+  completion stream, restore the pre-request binding or remove the new
+  intent. A timeout or ambiguous dispatch keeps the intent for reconciliation.
 - **Local authenticated `/control/*` plane (for Slice 6 `@TermuxChatGPT`):**
   Every `/control/*` endpoint requires constant-time `Authorization: Bearer`
   authentication against `<state_dir>/control.token` (`0600`):

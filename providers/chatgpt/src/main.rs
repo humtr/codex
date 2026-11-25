@@ -200,7 +200,7 @@ async fn run() -> Result<()> {
 
             let state_dir = cfg.state_dir(&home);
             let catalog_path = state_dir.join("model-catalog.json");
-            let parallel_tool_calls = !cfg.history.structured_native_return;
+            let parallel_tool_calls = true;
             if !catalog_path.exists() {
                 let fallback = crate::responses::build_codex_model_catalog(
                     &crate::responses::fallback_catalog_models(&cfg.model),
