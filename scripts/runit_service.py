@@ -45,6 +45,16 @@ import time
 NAME_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
 VER_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$")
 
+# Match install.sh component_specs: installation directories are not release tags.
+RELEASE_COMPONENTS = {
+    "providers/chatgpt": "chatgpt-provider",
+    "transport/tunnel-client": "tunnel-client",
+    "mcp/termux-shell": "termux-shell-mcp",
+    "mcp/termux-codex": "termux-codex-mcp",
+    "mcp/termux-chatgpt": "termux-chatgpt-mcp",
+    "mcp/termux-orch": "termux-orch",
+}
+
 KNOWN_CLI_FLAGS = frozenset(
     {
         "--component",
@@ -82,6 +92,24 @@ def sha256_file(path: Path) -> str:
         for chunk in iter(lambda: f.read(1024 * 1024), b""):
             h.update(chunk)
     return h.hexdigest()
+
+
+def read_checksums(path: Path) -> dict[str, str]:
+    """Parse unique SHA-256 entries in release and extracted bundle manifests."""
+    if path.is_symlink() or not path.is_file():
+        raise ValueError("checksum manifest is not a regular file")
+    entries = {}
+    for line in path.read_text(encoding="ascii").splitlines():
+        if not line.strip() or line.startswith("#"):
+            continue
+        fields = line.split()
+        if len(fields) != 2 or not re.fullmatch(r"[0-9a-fA-F]{64}", fields[0]):
+            raise ValueError("malformed checksum entry")
+        name = fields[1].removeprefix("*").removeprefix("./")
+        if name in entries:
+            raise ValueError("duplicate checksum entry")
+        entries[name] = fields[0].lower()
+    return entries
 
 
 def fsync_dir(path: Path) -> None:
@@ -354,9 +382,19 @@ class ServiceSupervisor:
         previous_link: Path | None,
         generations_dir: Path,
         binary_name: str,
+        component: str,
     ) -> dict:
-        ver = self._read_link_version(current_link)
-        prev = self._read_link_version(previous_link) if previous_link is not None else None
+        return self._generation_info(
+            version=self._read_link_version(current_link),
+            previous=self._read_link_version(previous_link) if previous_link is not None else None,
+            generations_dir=generations_dir, binary_name=binary_name, component=component,
+        )
+
+    def _generation_info(
+        self, *, version: str | None, previous: str | None,
+        generations_dir: Path, binary_name: str, component: str,
+    ) -> dict:
+        ver, prev = version, previous
         if ver is None:
             return {
                 "version": None,
@@ -367,7 +405,10 @@ class ServiceSupervisor:
             }
         generation_dir = generations_dir / ver
         bin_path = generation_dir / binary_name
-        if bin_path.is_symlink() or not bin_path.is_file() or not os.access(bin_path, os.X_OK):
+        release_component = RELEASE_COMPONENTS.get(component, binary_name)
+        if (binary_name != release_component or generations_dir.is_symlink() or
+                generation_dir.is_symlink() or bin_path.is_symlink() or
+                not bin_path.is_file() or not os.access(bin_path, os.X_OK)):
             return {
                 "version": ver,
                 "previous_version": prev,
@@ -375,31 +416,28 @@ class ServiceSupervisor:
                 "binary_sha256": None,
                 "valid": False,
             }
-        # Signed component generations carry the signed SHA256SUMS and its
-        # detached signature. Never treat mere executability as integrity proof.
-        sums_path = generation_dir / "signed" / "SHA256SUMS"
-        sig_path = generation_dir / "signed" / "SHA256SUMS.sig"
-        key_path = generation_dir / "signed" / "release-public-key.pem"
-        if (not sums_path.is_file() or sums_path.is_symlink() or
-                not sig_path.is_file() or sig_path.is_symlink() or
-                not key_path.is_file() or key_path.is_symlink()):
-            return {
-                "version": ver, "previous_version": prev, "binary_path": str(bin_path),
-                "binary_sha256": None, "valid": False,
-            }
+        # Release signatures cover archive digests; older/direct manifests may
+        # instead cover the binary itself. install.sh admits the signed archive
+        # before extraction and keeps its release manifest, not the archive.
+        signed_dir = generation_dir / "signed"
+        sums_path = signed_dir / "SHA256SUMS"
+        sig_path = signed_dir / "SHA256SUMS.sig"
+        key_path = signed_dir / "release-public-key.pem"
         try:
-            expected = None
-            for line in sums_path.read_text(encoding="ascii").splitlines():
-                fields = line.split()
-                if len(fields) == 2 and fields[1].lstrip("*") == f"bin/{binary_name}":
-                    expected = fields[0].lower()
-                    break
-            actual = sha256_file(bin_path)
-            if expected is None or not re.fullmatch(r"[0-9a-f]{64}", expected) or actual != expected:
-                raise ValueError("signed checksum mismatch")
+            if (generation_dir.is_symlink() or signed_dir.is_symlink() or
+                    not sums_path.is_file() or sums_path.is_symlink() or
+                    not sig_path.is_file() or sig_path.is_symlink() or
+                    sig_path.stat().st_size != 64):
+                raise ValueError("missing or invalid release signature")
             trusted_key = self.home / ".local/lib/codex/wrapper/release-public-key.pem"
-            if not trusted_key.is_file() or trusted_key.is_symlink() or key_path.read_bytes() != trusted_key.read_bytes():
-                raise ValueError("generation signing key is not the installed trusted key")
+            if not trusted_key.is_file() or trusted_key.is_symlink():
+                raise ValueError("missing installed trusted key")
+            # Legacy installs did not keep a per-generation key copy. Always
+            # verify with the installed trust root, and reject a conflicting copy.
+            if key_path.exists() or key_path.is_symlink():
+                if (not key_path.is_file() or key_path.is_symlink() or
+                        key_path.read_bytes() != trusted_key.read_bytes()):
+                    raise ValueError("generation signing key is not the installed trusted key")
             verified = subprocess.run(
                 ["openssl", "pkeyutl", "-verify", "-pubin", "-inkey", str(trusted_key),
                  "-rawin", "-in", str(sums_path), "-sigfile", str(sig_path)],
@@ -407,7 +445,41 @@ class ServiceSupervisor:
             )
             if verified.returncode != 0:
                 raise ValueError("generation signature verification failed")
-        except (OSError, UnicodeError, ValueError):
+
+            entry = f"bin/{binary_name}"
+            release_checksums = read_checksums(sums_path)
+            expected = release_checksums.get(entry)
+            headers = sums_path.read_text(encoding="ascii").splitlines()[:4]
+            if expected is None or (headers and headers[0].startswith("# format=")):
+                if (len(headers) != 4 or headers[:2] != [
+                        "# format=codex-release-sums-v1", f"# component={release_component}"] or
+                        not re.fullmatch(r"# sequence=[1-9][0-9]{0,9}", headers[2]) or
+                        int(headers[2].removeprefix("# sequence=")) > 2147483647 or
+                        not re.fullmatch(r"# commit=[0-9a-f]{40}", headers[3])):
+                    raise ValueError("invalid release manifest headers")
+            if expected is None:
+                archive = f"{release_component}-aarch64-linux-android.tar.gz"
+                archive_digest = release_checksums.get(archive)
+                if archive_digest is None:
+                    raise ValueError("missing signed archive checksum")
+                # The archive sidecar is optional in install.sh; if retained,
+                # it must agree with the authenticated release manifest.
+                sidecar = signed_dir / f"{archive}.sha256"
+                if sidecar.exists() or sidecar.is_symlink():
+                    if read_checksums(sidecar).get(archive) != archive_digest:
+                        raise ValueError("archive checksum sidecar mismatch")
+                # This is a local integrity check of the installer-admitted
+                # extraction, not a new cryptographic verification of its origin.
+                expected = read_checksums(generation_dir / "SHA256SUMS").get(entry)
+                packaged_bin = generation_dir / entry
+                if (expected is None or packaged_bin.parent.is_symlink() or
+                        packaged_bin.is_symlink() or not packaged_bin.is_file() or
+                        sha256_file(packaged_bin) != expected):
+                    raise ValueError("extracted bundle checksum mismatch")
+            actual = sha256_file(bin_path)
+            if actual != expected:
+                raise ValueError("binary checksum mismatch")
+        except (OSError, UnicodeError, ValueError, subprocess.TimeoutExpired):
             return {
                 "version": ver, "previous_version": prev, "binary_path": str(bin_path),
                 "binary_sha256": None, "valid": False,
@@ -426,6 +498,14 @@ class ServiceSupervisor:
             previous_link=self.previous_link,
             generations_dir=self.generations_dir,
             binary_name=self.binary_name,
+            component=self.component,
+        )
+
+    def _component_generation(self, version: str) -> dict:
+        return self._generation_info(
+            version=validate_token(version, VER_RE, "version"), previous=None,
+            generations_dir=self.generations_dir, binary_name=self.binary_name,
+            component=self.component,
         )
 
     def selected_runner_generation(self) -> dict | None:
@@ -434,11 +514,13 @@ class ServiceSupervisor:
         assert self.runner_current_link is not None
         assert self.runner_generations_dir is not None
         assert self.runner_binary is not None
+        assert self.runner_component is not None
         return self._selected_from_links(
             current_link=self.runner_current_link,
             previous_link=self.runner_root / "previous" if self.runner_root else None,
             generations_dir=self.runner_generations_dir,
             binary_name=self.runner_binary,
+            component=self.runner_component,
         )
 
     def _write_active_marker(
@@ -565,7 +647,10 @@ class ServiceSupervisor:
         components = [(exe, ver) for exe in exes if (ver := self._version_from_exe(exe)) is not None]
         versions = {ver for _, ver in components}
         version = next(iter(versions)) if len(versions) == 1 else None
-        return bool(components) and all(exe == selected.get("binary_path") for exe, _ in components), version
+        return (
+            bool(selected.get("valid")) and len(components) == 1
+            and components[0][0] == selected.get("binary_path")
+        ), version
 
     def status(self, *, readiness_cmd: list[str] | str | None = None) -> dict:
         norm_readiness = normalize_command(readiness_cmd)
@@ -748,10 +833,10 @@ class ServiceSupervisor:
     def _activate(self, version: str, busy: list[str] | None,
                   readiness: list[str] | None, timeout: float) -> dict:
         validate_token(version, VER_RE, "version")
-        target = self.generation_binary(version)
-        if target.is_symlink() or not target.is_file() or not os.access(target, os.X_OK):
-            raise SupervisionError(f"generation binary missing or non-executable: {target}")
-        target_exe = str(target.resolve())
+        candidate = self._component_generation(version)
+        if not candidate["valid"]:
+            raise SupervisionError(f"generation missing or invalid: {candidate['binary_path']}")
+        target_exe = candidate["binary_path"]
         runner = self.selected_runner_generation()
         if self.has_runner and (runner is None or not runner["valid"]):
             raise SupervisionError(f"runner generation missing or invalid under {self.runner_current_link}")
@@ -773,10 +858,17 @@ class ServiceSupervisor:
                 continue
             if observation.get("state") != "running" or not observation.get("start_ticks"):
                 raise SupervisionError(f"cannot verify state of '{service.service_name}'")
-            if service is not self and service._version_from_exe(observation.get("exe")) is None:
+            if service.has_runner:
+                observed_runner = service._version_from_exe(
+                    observation.get("exe"), service.runner_generations_dir, service.runner_binary,
+                )
+                if observed_runner is None:
+                    raise SupervisionError(f"'{service.service_name}' is not running this runner")
+            elif service._version_from_exe(observation.get("exe")) is None:
                 raise SupervisionError(f"'{service.service_name}' is not running this component")
             if service.has_runner:
                 observation["publishes_health_url"] = service._health_file_stamp() is not None
+                observation["component_children"] = service._child_exes_for(observation)
             running.append((service, observation))
 
         current = self._read_link_version(self.current_link)
@@ -786,13 +878,17 @@ class ServiceSupervisor:
         if not selection_changed and all(
             info["exe"] == (expected_primary if svc is self else target_exe)
             and (not svc.has_runner or svc._runner_matches_selected_component(
-                running=info, selected=self.selected_generation()
+                running=info, selected=candidate, child_exes=info.get("component_children"),
             )[0])
             for svc, info in running
         ):
             return self.status(readiness_cmd=readiness)
 
-        if running and selection_changed and busy is None:
+        runner_changed = any(
+            service.has_runner and info["exe"] != expected_primary
+            for service, info in running
+        )
+        if running and (selection_changed or runner_changed) and busy is None:
             status = self.status(readiness_cmd=readiness)
             status["activation_state"] = "pending_activation"
             status["deferred_reason"] = "busy check required for a running service"
@@ -815,13 +911,29 @@ class ServiceSupervisor:
                 return status
 
         if not running:
-            self._select(version, current)
+            if selection_changed:
+                self._select(version, current)
             return self.status(readiness_cmd=readiness)
 
-        prior = current if selection_changed else previous or current
-        prior_previous = previous if selection_changed and previous != prior else None
-        if prior is None or not os.access(self.generation_binary(prior), os.X_OK):
-            raise SupervisionError("cannot restart without an executable rollback generation")
+        # A runner-only reload must not roll back an unrelated MCP generation.
+        # On a pending component activation, use the observed old component,
+        # not just the historical previous link, as the rollback target.
+        observed_versions = set()
+        for service, info in running:
+            if service.has_runner:
+                _, observed = service._runner_matches_selected_component(
+                    running=info, selected=candidate, child_exes=info.get("component_children"),
+                )
+            else:
+                observed = service._version_from_exe(info.get("exe"))
+            if observed is not None:
+                observed_versions.add(observed)
+        if len(observed_versions) > 1:
+            raise SupervisionError("cannot restart with mixed running component generations")
+        prior = current if selection_changed else next(iter(observed_versions), current)
+        prior_previous = previous if prior == current and previous != prior else None
+        if prior is None or not self._component_generation(prior)["valid"]:
+            raise SupervisionError("cannot restart without a verified rollback generation")
 
         stopping = []
         stopped = False
@@ -844,9 +956,13 @@ class ServiceSupervisor:
                             failures.append(f"{service.service_name}: {stop}")
                     if failures:
                         raise SupervisionError("could not drain attempted generation: " + ", ".join(failures))
+                    if not self._component_generation(prior)["valid"]:
+                        raise SupervisionError("rollback generation is no longer valid")
                     self._select(prior, prior_previous)
                     self._start_group(running, str(self.generation_binary(prior).resolve()),
                                       runner, readiness, timeout)
+                    if runner_changed:
+                        raise SupervisionError("shared runner selection changed; original runner not restored")
                 else:
                     # No selection changed. Restart only the services whose
                     # stop was requested; a failed stop may have killed one.
@@ -855,7 +971,8 @@ class ServiceSupervisor:
             except (SupervisionError, OSError) as recovery:
                 raise SupervisionError(f"activation failed: {err}; recovery incomplete: {recovery}") from err
             if stopped:
-                raise SupervisionError(f"activation of '{version}' failed (rolled back): {err}") from err
+                outcome = "rolled back" if prior != version else "original component restored"
+                raise SupervisionError(f"activation of '{version}' failed ({outcome}): {err}") from err
             raise SupervisionError(f"activation stopped before changing selection: {err}") from err
 
         return self.status(readiness_cmd=readiness)
@@ -1013,7 +1130,10 @@ class ServiceSupervisor:
                     if chk:
                         current = self._inspect_running()
                         if all(cur[key] == current[key] for key in ("state", "pid", "start_ticks", "exe")):
-                            return cur
+                            if selected_component is None or self._runner_matches_selected_component(
+                                running=current, selected=selected_component,
+                            )[0]:
+                                return cur
                 except (subprocess.TimeoutExpired, OSError):
                     pass
             time.sleep(0.1)

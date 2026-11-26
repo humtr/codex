@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
+import hashlib
+import io
 import os
 from pathlib import Path
 import subprocess
+import tarfile
 import tempfile
 import unittest
 
@@ -65,17 +68,253 @@ class RunitSupervisionTests(unittest.TestCase):
         self._sign_test_generation(gdir, b)
         return b
 
-    def _sign_test_generation(self, gdir: Path, binary: Path):
+    def _sign_test_generation(self, gdir: Path, binary: Path, *, direct=False):
         signed = gdir / "signed"
         signed.mkdir(exist_ok=True)
         public = signed / "release-public-key.pem"
         public.write_bytes(self.test_public_key.read_bytes())
         sums = signed / "SHA256SUMS"
-        import hashlib
-        sums.write_text(f"{hashlib.sha256(binary.read_bytes()).hexdigest()}  bin/{binary.name}\n")
+        binary_entry = f"{hashlib.sha256(binary.read_bytes()).hexdigest()}  bin/{binary.name}\n"
+        if direct:
+            sums.write_text(binary_entry)
+        else:
+            # Match install.sh: the signed release lists the archive digest,
+            # while the extracted bundle lists its own files. Only the latter
+            # and the signature/sidecar are retained after installation.
+            packaged = gdir / "bin" / binary.name
+            packaged.parent.mkdir(exist_ok=True)
+            packaged.write_bytes(binary.read_bytes())
+            packaged.chmod(0o755)
+            bundle_sums = gdir / "SHA256SUMS"
+            bundle_sums.write_text(binary_entry)
+            archive = io.BytesIO()
+            with tarfile.open(fileobj=archive, mode="w:gz") as bundle:
+                bundle.add(packaged, arcname=f"bin/{binary.name}")
+                bundle.add(bundle_sums, arcname="SHA256SUMS")
+            archive_name = f"{binary.name}-aarch64-linux-android.tar.gz"
+            archive_entry = f"{hashlib.sha256(archive.getvalue()).hexdigest()}  {archive_name}\n"
+            (signed / f"{archive_name}.sha256").write_text(archive_entry)
+            sums.write_text(
+                "# format=codex-release-sums-v1\n"
+                f"# component={binary.name}\n"
+                "# sequence=13\n"
+                f"# commit={'a' * 40}\n"
+                + archive_entry
+            )
+        self._sign_manifest(sums)
+
+    def _sign_manifest(self, sums: Path):
         subprocess.run(["openssl", "pkeyutl", "-sign", "-inkey", str(self.test_private_key), "-rawin",
-                        "-in", str(sums), "-out", str(signed / "SHA256SUMS.sig")],
+                        "-in", str(sums), "-out", str(sums.with_name("SHA256SUMS.sig"))],
                        check=True, capture_output=True)
+
+    def _runner_selection(self, version):
+        sup = ServiceSupervisor(
+            component="mcp/termux-shell",
+            binary_name="termux-shell-mcp",
+            service_name="termux-shell-tunnel",
+            runner_component="transport/tunnel-client",
+            runner_binary="tunnel-client",
+            home=self.home,
+            prefix=self.prefix,
+            sv_bin=str(self.sv_bin),
+        )
+        sup.runner_current_link.symlink_to(f"generations/{version}")
+        return sup
+
+    def test_runner_generation_accepts_archive_and_direct_binary_signatures(self):
+        binary = self._install_gen("v0.0.21-aabbccdd")
+        sup = self._runner_selection(binary.parent.name)
+        signed = binary.parent / "signed"
+        for layout in ("current", "legacy-no-key-copy", "no-optional-sidecar", "direct-binary"):
+            with self.subTest(layout=layout):
+                if layout == "legacy-no-key-copy":
+                    (signed / "release-public-key.pem").unlink()
+                elif layout == "no-optional-sidecar":
+                    (signed / "tunnel-client-aarch64-linux-android.tar.gz.sha256").unlink()
+                elif layout == "direct-binary":
+                    self._sign_test_generation(binary.parent, binary, direct=True)
+                    (binary.parent / "SHA256SUMS").unlink()
+                result = sup.selected_runner_generation()
+                self.assertTrue(result["valid"])
+                self.assertEqual(result["binary_sha256"], hashlib.sha256(binary.read_bytes()).hexdigest())
+                self.assertEqual(result["binary_path"], str(binary.resolve()))
+
+    def test_runner_generation_rejects_corrupt_or_missing_evidence(self):
+        for failure in (
+            "root-binary", "packaged-binary", "missing-inner-manifest", "duplicate-inner-entry",
+            "bad-signature", "missing-signature", "wrong-key", "missing-trusted-key", "bad-sidecar",
+            "wrong-component", "missing-archive-entry", "duplicate-signed-entry", "bad-signed-digest",
+            "direct-binary-mismatch", "symlink-inner-manifest",
+        ):
+            with self.subTest(failure=failure):
+                binary = self._install_gen(failure)
+                sup = self._runner_selection(failure)
+                signed = binary.parent / "signed"
+                release_sums = signed / "SHA256SUMS"
+                inner_sums = binary.parent / "SHA256SUMS"
+                if failure == "root-binary":
+                    binary.write_bytes(b"tampered")
+                elif failure == "packaged-binary":
+                    (binary.parent / "bin/tunnel-client").write_bytes(b"tampered")
+                elif failure == "missing-inner-manifest":
+                    inner_sums.unlink()
+                elif failure == "duplicate-inner-entry":
+                    inner_sums.write_text(inner_sums.read_text() * 2)
+                elif failure == "bad-signature":
+                    (signed / "SHA256SUMS.sig").write_bytes(b"x" * 64)
+                elif failure == "missing-signature":
+                    (signed / "SHA256SUMS.sig").unlink()
+                elif failure == "wrong-key":
+                    (signed / "release-public-key.pem").write_bytes(b"not the trusted key")
+                elif failure == "missing-trusted-key":
+                    self.test_public_key.rename(self.root / "saved-key.pem")
+                elif failure == "bad-sidecar":
+                    (signed / "tunnel-client-aarch64-linux-android.tar.gz.sha256").write_text(
+                        f"{'0' * 64}  tunnel-client-aarch64-linux-android.tar.gz\n"
+                    )
+                elif failure in ("wrong-component", "missing-archive-entry", "duplicate-signed-entry", "bad-signed-digest"):
+                    lines = release_sums.read_text().splitlines()
+                    if failure == "wrong-component":
+                        lines[1] = "# component=termux-shell-mcp"
+                    elif failure == "missing-archive-entry":
+                        lines[-1] = lines[-1].replace("tunnel-client", "other-component")
+                    elif failure == "duplicate-signed-entry":
+                        lines.append(lines[-1])
+                    else:
+                        lines[-1] = "bad  tunnel-client-aarch64-linux-android.tar.gz"
+                    release_sums.write_text("\n".join(lines) + "\n")
+                    self._sign_manifest(release_sums)
+                elif failure == "direct-binary-mismatch":
+                    self._sign_test_generation(binary.parent, binary, direct=True)
+                    binary.write_bytes(b"tampered")
+                elif failure == "symlink-inner-manifest":
+                    target = inner_sums.with_name("other-sums")
+                    inner_sums.rename(target)
+                    inner_sums.symlink_to(target)
+                try:
+                    result = sup.selected_runner_generation()
+                    self.assertFalse(result["valid"])
+                    self.assertIsNone(result["binary_sha256"])
+                finally:
+                    sup.runner_current_link.unlink()
+                    if failure == "missing-trusted-key":
+                        (self.root / "saved-key.pem").rename(self.test_public_key)
+
+    def test_all_installer_component_names_and_generation_paths(self):
+        components = (
+            ("providers/chatgpt", "chatgpt-provider"),
+            ("transport/tunnel-client", "tunnel-client"),
+            ("mcp/termux-shell", "termux-shell-mcp"),
+            ("mcp/termux-codex", "termux-codex-mcp"),
+            ("mcp/termux-chatgpt", "termux-chatgpt-mcp"),
+            ("mcp/termux-orch", "termux-orch"),
+        )
+        runner = self._install_gen("v0.0.21-aabbccdd")
+        (runner.parent.parent.parent / "current").symlink_to(f"generations/{runner.parent.name}")
+        for component, name in components:
+            with self.subTest(component=component):
+                wrapped = component.startswith("mcp/")
+                sup = ServiceSupervisor(
+                    component=component, binary_name=name, service_name=name,
+                    runner_component="transport/tunnel-client" if wrapped else None,
+                    runner_binary="tunnel-client" if wrapped else None,
+                    home=self.home, prefix=self.prefix, sv_bin=str(self.sv_bin),
+                    proc_reader=self._proc_reader,
+                )
+                for version in ("0.1.0-aaaaaaaa", "0.1.0-bbbbbbbb"):
+                    binary = sup.generation_binary(version)
+                    binary.parent.mkdir(parents=True)
+                    binary.write_bytes(version.encode())
+                    binary.chmod(0o755)
+                    self._sign_test_generation(binary.parent, binary)
+                    self.assertTrue(sup.activate(version)["selected_generation"]["valid"])
+                self.assertTrue(sup.rollback()["selected_generation"]["valid"])
+                self.assertEqual(sup.selected_generation()["version"], "0.1.0-aaaaaaaa")
+                self.assertEqual(sup.selected_generation()["previous_version"], "0.1.0-bbbbbbbb")
+                if wrapped:
+                    self.assertTrue(sup.selected_runner_generation()["valid"])
+                enrollment = sup.enroll(exec_args=["run"])
+                self.assertTrue(enrollment["enrolled"])
+                expected = sup.runner_current_link / "tunnel-client" if wrapped else sup.current_link / name
+                self.assertEqual(enrollment["stable_bin"], str(expected))
+                if name.endswith("-mcp"):
+                    short = name.removesuffix("-mcp")
+                    wrong = sup.generation_dir("0.1.0-aaaaaaaa") / short
+                    wrong.write_bytes(b"wrong identity")
+                    wrong.chmod(0o755)
+                    wrong_sup = ServiceSupervisor(
+                        component=component, binary_name=short, service_name=name,
+                        home=self.home, prefix=self.prefix,
+                    )
+                    self.assertFalse(wrong_sup.selected_generation()["valid"])
+                    sums = sup.current_link / "signed/SHA256SUMS"
+                    original = sums.read_text()
+                    for malformed in (
+                        original.replace(f"# component={name}", f"# component={short}"),
+                        original.replace(f"{name}-aarch64", f"{short}-aarch64"),
+                    ):
+                        sums.write_text(malformed)
+                        self._sign_manifest(sums)
+                        self.assertFalse(sup.selected_generation()["valid"])
+                    sums.write_text(original)
+                    self._sign_manifest(sums)
+                    self.assertTrue(sup.selected_generation()["valid"])
+                # The runner fixture must remain selected for subsequent MCP cases.
+                if component == "transport/tunnel-client":
+                    sup.current_link.unlink()
+                    sup.current_link.symlink_to(f"generations/{runner.parent.name}")
+
+    def test_activation_and_rollback_reject_unverified_target_before_side_effects(self):
+        old = self._install_gen("v0.0.19", b"old")
+        current = self._install_gen("v0.0.20", b"current")
+        candidate = self._install_gen("v0.0.21", b"candidate")
+        sup = self._sup()
+        sup.activate(old.parent.name)
+        sup.activate(current.parent.name)
+        sup.enroll(exec_args=["run"])
+        (self.root / "running-exe").write_text(str(current.resolve()))
+        candidate.write_bytes(b"tampered candidate")
+        with self.assertRaisesRegex(SupervisionError, "generation missing or invalid"):
+            sup.activate(candidate.parent.name, busy_check_cmd=["true"])
+        old.write_bytes(b"tampered previous")
+        with self.assertRaisesRegex(SupervisionError, "generation missing or invalid"):
+            sup.rollback(busy_check_cmd=["true"])
+        candidate.write_bytes(b"candidate")
+        current.write_bytes(b"tampered current")
+        with self.assertRaisesRegex(SupervisionError, "verified rollback generation"):
+            sup.activate(candidate.parent.name, busy_check_cmd=["true"])
+        self.assertEqual(sup.current_link.readlink(), Path("generations/v0.0.20"))
+        self.assertEqual(sup.previous_link.readlink(), Path("generations/v0.0.19"))
+        self.assertFalse(self.sv_log.exists())
+
+    def test_runner_only_reload_preserves_component_rollback_slot(self):
+        old_runner = self._install_gen("v0.0.20", b"runner-old")
+        new_runner = self._install_gen("v0.0.21", b"runner-new")
+        sup = self._runner_selection(new_runner.parent.name)
+        sup._proc_reader = self._proc_reader
+        sup.runner_root.joinpath("previous").symlink_to(f"generations/{old_runner.parent.name}")
+        for version in ("0.1.0", "0.2.0"):
+            binary = sup.generation_binary(version)
+            binary.parent.mkdir(parents=True)
+            binary.write_bytes(version.encode())
+            binary.chmod(0o755)
+            self._sign_test_generation(binary.parent, binary)
+            sup.activate(version)
+        sup.enroll(exec_args=["run"])
+        (self.root / "running-exe").write_text(str(old_runner.resolve()))
+        (self.root / "running-mcp").write_text(str(binary.resolve()))
+        pending = sup.activate("0.2.0")
+        self.assertEqual(pending["activation_state"], "pending_activation")
+        self.assertFalse(self.sv_log.exists())
+        with self.assertRaisesRegex(SupervisionError, "recovery incomplete"):
+            sup.activate("0.2.0", busy_check_cmd=["true"], readiness_cmd=["false"], restart_timeout=0.4)
+        selected = sup.selected_generation()
+        self.assertEqual(selected["version"], "0.2.0")
+        self.assertEqual(selected["previous_version"], "0.1.0")
+        self.assertTrue(selected["valid"])
+        self.assertEqual(sup.runner_current_link.readlink(), Path("generations/v0.0.21"))
+        self.assertEqual(sup.runner_root.joinpath("previous").readlink(), Path("generations/v0.0.20"))
 
     def _proc_reader(self, _service_dir: Path) -> dict:
         exe_file = self.root / "running-exe"
@@ -201,7 +440,14 @@ class RunitSupervisionTests(unittest.TestCase):
         self.assertEqual(missing["activation_state"], "pending_activation")
         self.assertEqual(sup._read_link_version(sup.current_link), "v0.0.20")
 
-        with mock.patch("scripts.runit_service.subprocess.run", side_effect=OSError("guard unavailable")):
+        real_run = subprocess.run
+
+        def unavailable_guard(cmd, *args, **kwargs):
+            if cmd == ["missing-busy-check"]:
+                raise OSError("guard unavailable")
+            return real_run(cmd, *args, **kwargs)
+
+        with mock.patch("scripts.runit_service.subprocess.run", side_effect=unavailable_guard):
             unknown = sup.activate("v0.0.21", busy_check_cmd=["missing-busy-check"])
         self.assertEqual(unknown["activation_state"], "pending_activation")
         self.assertEqual(sup._read_link_version(sup.current_link), "v0.0.20")
@@ -489,6 +735,9 @@ class RunitSupervisionTests(unittest.TestCase):
             # running generation without duplicating the current and previous links.
             fail_new = True
             target_exe = str(p1)
+            # Establish the old live child before the retry; a missing child
+            # alone is not evidence that the historical previous image is running.
+            read_after_start = 3
             with self.assertRaisesRegex(SupervisionError, "rolled back"):
                 mcp_sup.activate("0.2.0", busy_check_cmd=["true"], restart_timeout=0.5)
             sel = mcp_sup.selected_generation()

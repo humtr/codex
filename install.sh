@@ -986,13 +986,16 @@ update_generation_links() {
 }
 
 find_runit_service_script() {
+  # An explicitly invoked checkout ships the matching supervisor source.
+  # Remote/stdin installers use the helper from the selected tunnel bundle.
+  if [ -n "$script_dir" ] && [ -f "$script_dir/scripts/runit_service.py" ] &&
+     [ ! -L "$script_dir/scripts/runit_service.py" ]; then
+    printf '%s\n' "$script_dir/scripts/runit_service.py"
+    return 0
+  fi
   r_installed="$HOME/.local/lib/codex/transport/tunnel-client/current/scripts/runit_service.py"
   if [ -f "$r_installed" ] && [ ! -L "$r_installed" ]; then
     printf '%s\n' "$r_installed"
-    return 0
-  fi
-  if [ -n "$script_dir" ] && [ -f "$script_dir/scripts/runit_service.py" ]; then
-    printf '%s\n' "$script_dir/scripts/runit_service.py"
     return 0
   fi
   return 1
@@ -1045,7 +1048,24 @@ run_runit_service_action() {
   a_py=$1
   a_script=$2
   shift 2
-  "$a_py" "$a_script" --home "$HOME" --prefix "$prefix" "$@"
+  a_out=$("$a_py" "$a_script" --home "$HOME" --prefix "$prefix" "$@") || return 1
+  # A successful CLI invocation is not proof that the requested image is active.
+  printf '%s\n' "$a_out" | "$a_py" -c '
+import json, sys
+result = json.load(sys.stdin)
+state = result.get("activation_state")
+if result.get("enrolled") is True:
+    sys.exit(0)
+if state == "pending_activation":
+    print("codex install: activation pending for " + result["service"] + ": "
+          + result.get("deferred_reason", "selected and running images differ"), file=sys.stderr)
+elif state in ("stopped", "not_enrolled"):
+    print("codex install: generation selected; service " + result["service"]
+          + " is " + state, file=sys.stderr)
+elif state != "active":
+    print("codex install: service activation could not be verified", file=sys.stderr)
+    sys.exit(1)
+'
 }
 
 service_matches_target() {
@@ -1259,8 +1279,12 @@ install_signed_component() {
   fi
   "$ic_tar" -xzf "$ic_tb" -C "$ic_work/extract"
   require_regular_file "$ic_work/extract/bin/$ic_bin" "$ic_tag bin/$ic_bin"
-  if [ -f "$ic_work/extract/SHA256SUMS" ]; then
-    verify_bundle_checksums "$ic_work/extract" "$ic_work/extract/SHA256SUMS"
+  require_regular_file "$ic_work/extract/SHA256SUMS" "$ic_tag bundle checksums"
+  verify_bundle_checksums "$ic_work/extract" "$ic_work/extract/SHA256SUMS"
+  verify_sha256_file "$ic_work/extract/bin/$ic_bin" "$ic_work/extract/SHA256SUMS" "bin/$ic_bin"
+  if [ "$ic_tag" = 'tunnel-client' ]; then
+    require_regular_file "$ic_work/extract/scripts/runit_service.py" 'tunnel supervisor'
+    verify_sha256_file "$ic_work/extract/scripts/runit_service.py" "$ic_work/extract/SHA256SUMS" 'scripts/runit_service.py'
   fi
 
   ic_ver=$ic_default_ver
@@ -1291,12 +1315,18 @@ install_signed_component() {
     if ! { [ -d "$ic_gen_dir/signed" ] && [ ! -L "$ic_gen_dir/signed" ] &&
       [ -f "$ic_gen_dir/bin/$ic_bin" ] && [ ! -L "$ic_gen_dir/bin/$ic_bin" ] &&
       [ "$(sha256_hex "$ic_gen_dir/bin/$ic_bin")" = "$ic_new_bin_sha" ] &&
+      [ -f "$ic_gen_dir/$ic_bin" ] && [ ! -L "$ic_gen_dir/$ic_bin" ] &&
+      [ -x "$ic_gen_dir/$ic_bin" ] &&
+      [ "$(sha256_hex "$ic_gen_dir/$ic_bin")" = "$ic_new_bin_sha" ] &&
+      [ -f "$ic_gen_dir/SHA256SUMS" ] && [ ! -L "$ic_gen_dir/SHA256SUMS" ] &&
+      cmp -s "$ic_gen_dir/SHA256SUMS" "$ic_work/extract/SHA256SUMS" &&
       [ -f "$ic_gen_dir/signed/SHA256SUMS" ] && [ ! -L "$ic_gen_dir/signed/SHA256SUMS" ] &&
       cmp -s "$ic_gen_dir/signed/SHA256SUMS" "$ic_sums" &&
       [ -f "$ic_gen_dir/signed/SHA256SUMS.sig" ] && [ ! -L "$ic_gen_dir/signed/SHA256SUMS.sig" ] &&
       cmp -s "$ic_gen_dir/signed/SHA256SUMS.sig" "$ic_sig"; }; then
       fail "immutable generation identity conflict; refusing to replace $ic_gen_dir"
     fi
+    verify_bundle_checksums "$ic_gen_dir" "$ic_work/extract/SHA256SUMS"
     ic_key="$ic_gen_dir/signed/release-public-key.pem"
     if [ -e "$ic_key" ] || [ -L "$ic_key" ]; then
       require_regular_file "$ic_key" 'generation release public key'
