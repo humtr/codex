@@ -14,6 +14,7 @@ use std::os::unix::process::CommandExt as _;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 
 pub const RESOLVER_FD: c_int = 33;
 pub const CONFIG_DIR_FD: c_int = 34;
@@ -22,7 +23,6 @@ pub const TEMP_ROOT_FD: c_int = 35;
 pub(super) const SAFE_MIN_FD: c_int = 64;
 const F_DUPFD_CLOEXEC: c_int = 1030;
 const O_NONBLOCK_LINUX: c_int = 0o4000;
-const F_SETFD: c_int = 2;
 const RESOLVER_SYNTHESIS_MAX_BYTES: usize = 64 * 1024;
 const RESOLVER_DEFAULT_OPTIONS: &[u8] = b"options timeout:2 attempts:10\n";
 
@@ -34,11 +34,7 @@ unsafe extern "C" {
     fn dup2(oldfd: c_int, newfd: c_int) -> c_int;
 }
 
-pub(super) struct RuntimeFdSources {
-    resolver: OwnedFd,
-    config_dir: OwnedFd,
-    temporary_root: OwnedFd,
-}
+pub(super) struct RuntimeFdSources(Arc<[OwnedFd; 3]>);
 
 pub(super) fn dup_above_safe_min(fd: c_int) -> io::Result<OwnedFd> {
     let duplicated = unsafe { fcntl(fd, F_DUPFD_CLOEXEC, SAFE_MIN_FD) };
@@ -158,7 +154,6 @@ pub(super) fn open_synthesized_resolver(bytes: &[u8], cache: bool) -> io::Result
             let seq = RESOLVER_SYNTHESIS_COUNTER.fetch_add(1, Ordering::Relaxed);
             let tmp_path = state_dir.join(format!(".resolv.conf.{}.{seq}.tmp", std::process::id()));
             let mut tmp = OpenOptions::new()
-                .read(true)
                 .write(true)
                 .create_new(true)
                 .mode(0o600)
@@ -167,10 +162,13 @@ pub(super) fn open_synthesized_resolver(bytes: &[u8], cache: bool) -> io::Result
             let result = (|| -> io::Result<File> {
                 tmp.write_all(&synthesized)?;
                 tmp.sync_all()?;
-                tmp.seek(io::SeekFrom::Start(0))?;
+                let ro = OpenOptions::new()
+                    .read(true)
+                    .custom_flags(fs_util::O_NOFOLLOW | O_NONBLOCK_LINUX)
+                    .open(&tmp_path)?;
                 fs::rename(&tmp_path, &cache_path)?;
                 fs_util::sync_directory(&state_dir)?;
-                Ok(tmp)
+                Ok(ro)
             })();
             if result.is_err() {
                 let _ = fs::remove_file(&tmp_path);
@@ -184,21 +182,23 @@ pub(super) fn open_synthesized_resolver(bytes: &[u8], cache: bool) -> io::Result
         let seq = RESOLVER_SYNTHESIS_COUNTER.fetch_add(1, Ordering::Relaxed);
         let tmp_path = tmp_root.join(format!(".codex-resolv.{}.{seq}.tmp", std::process::id()));
         match OpenOptions::new()
-            .read(true)
             .write(true)
             .create_new(true)
             .mode(0o600)
             .open(&tmp_path)
         {
             Ok(mut file) => {
-                let write_res = (|| -> io::Result<()> {
+                let result = (|| -> io::Result<File> {
                     file.write_all(&synthesized)?;
-                    file.seek(io::SeekFrom::Start(0))?;
-                    Ok(())
+                    OpenOptions::new()
+                        .read(true)
+                        .custom_flags(fs_util::O_NOFOLLOW | O_NONBLOCK_LINUX)
+                        .open(&tmp_path)
                 })();
-                let _ = fs::remove_file(&tmp_path);
-                write_res?;
-                return Ok(file);
+                let removed = fs::remove_file(&tmp_path);
+                let ro = result?;
+                removed?;
+                return Ok(ro);
             }
             Err(err) if err.kind() == io::ErrorKind::AlreadyExists => continue,
             Err(err) => return Err(err),
@@ -262,41 +262,28 @@ impl RuntimeFdSources {
         }
 
         // Move every descriptor >= SAFE_MIN_FD so dup2 to 33/34/35 cannot clobber each other.
-        Ok(Self {
-            resolver: dup_above_safe_min(resolver_file.as_raw_fd())?,
-            config_dir: dup_above_safe_min(config.as_raw_fd())?,
-            temporary_root: dup_above_safe_min(temporary.as_raw_fd())?,
-        })
+        Ok(Self(Arc::new([
+            dup_above_safe_min(resolver_file.as_raw_fd())?,
+            dup_above_safe_min(config.as_raw_fd())?,
+            dup_above_safe_min(temporary.as_raw_fd())?,
+        ])))
     }
 
     pub(super) fn configure(&self, command: &mut Command) {
-        let resolver_fd = self.resolver.as_raw_fd();
-        let config_fd = self.config_dir.as_raw_fd();
-        let temp_fd = self.temporary_root.as_raw_fd();
-        let keepalive = (
-            dup_above_safe_min(self.resolver.as_raw_fd()).expect("duplicate resolver fd"),
-            dup_above_safe_min(self.config_dir.as_raw_fd()).expect("duplicate config fd"),
-            dup_above_safe_min(self.temporary_root.as_raw_fd()).expect("duplicate temp fd"),
-        );
-        // SAFETY: install_fd only calls async-signal-safe dup2/fcntl in the post-fork child.
+        // The command owns exactly the descriptors used by pre_exec. All are
+        // above the destination range and close-on-exec in the parent.
+        let sources = Arc::clone(&self.0);
+        // SAFETY: dup2 is async-signal-safe, and the sources stay alive until exec.
         unsafe {
             command.pre_exec(move || {
-                let _keepalive = &keepalive;
-                fn install_fd(src: c_int, dst: c_int) -> io::Result<()> {
-                    let rc = if src == dst {
-                        unsafe { fcntl(dst, F_SETFD, 0) }
-                    } else {
-                        unsafe { dup2(src, dst) }
-                    };
-                    if rc < 0 {
-                        Err(io::Error::last_os_error())
-                    } else {
-                        Ok(())
+                for (source, dest) in sources
+                    .iter()
+                    .zip([RESOLVER_FD, CONFIG_DIR_FD, TEMP_ROOT_FD])
+                {
+                    if dup2(source.as_raw_fd(), dest) < 0 {
+                        return Err(io::Error::last_os_error());
                     }
                 }
-                install_fd(resolver_fd, RESOLVER_FD)?;
-                install_fd(config_fd, CONFIG_DIR_FD)?;
-                install_fd(temp_fd, TEMP_ROOT_FD)?;
                 Ok(())
             });
         }
@@ -727,6 +714,12 @@ mod tests {
     use crate::tests::{make_test_roots, remove_temp_root, temp_root, EnvRestoreGuard};
     use std::io::Read;
 
+    fn assert_read_only(fd: c_int) {
+        let flags = unsafe { fcntl(fd, libc::F_GETFL) };
+        assert!(flags >= 0);
+        assert_eq!(flags & libc::O_ACCMODE, libc::O_RDONLY);
+    }
+
     #[test]
     fn resolver_fd33_cache_hits_lock_free_on_matching_bytes_and_updates_when_stale() {
         let root = temp_root("fd33");
@@ -735,6 +728,7 @@ mod tests {
         fs_util::private_dir(&root.join(".local/share/codex/wrapper")).unwrap();
 
         let f1 = open_synthesized_resolver(b"nameserver 8.8.8.8\n", true).unwrap();
+        assert_read_only(f1.as_raw_fd());
         let ino1 = f1.metadata().unwrap().ino();
         let mut s1 = String::new();
         Read::read_to_string(&mut &f1, &mut s1).unwrap();
@@ -742,10 +736,12 @@ mod tests {
         drop(f1);
 
         let f2 = open_synthesized_resolver(b"nameserver 8.8.8.8\n", true).unwrap();
+        assert_read_only(f2.as_raw_fd());
         assert_eq!(f2.metadata().unwrap().ino(), ino1);
         drop(f2);
 
         let f3 = open_synthesized_resolver(b"nameserver 1.1.1.1\n", true).unwrap();
+        assert_read_only(f3.as_raw_fd());
         assert_ne!(f3.metadata().unwrap().ino(), ino1);
         let mut old_snapshot = String::new();
         let old_fd = OpenOptions::new()
@@ -803,8 +799,8 @@ mod tests {
 
     #[test]
     fn runtime_fd_sources_move_descriptors_above_safe_min_and_install_33_34_35() {
-        let _guard = EnvRestoreGuard::new(&[]);
         let root = temp_root("fd-install");
+        let _guard = EnvRestoreGuard::new(&[("HOME", Some(&root)), ("TMPDIR", Some(&root))]);
         let roots = make_test_roots(&root);
         let sources = RuntimeFdSources::open(&roots.resolver_path, &roots.config_dir).unwrap();
         let sh = if Path::new("/system/bin/sh").is_file() {
@@ -818,6 +814,22 @@ mod tests {
             "test -d /proc/$$/fd/34 && test -d /proc/$$/fd/35 && exec cat /proc/$$/fd/33",
         ]);
         sources.configure(&mut cmd);
+        drop(sources);
+        // This child-side check executes after the installation pre_exec hook.
+        unsafe {
+            cmd.pre_exec(|| {
+                for fd in [RESOLVER_FD, CONFIG_DIR_FD, TEMP_ROOT_FD] {
+                    let flags = fcntl(fd, libc::F_GETFL);
+                    if flags < 0 {
+                        return Err(io::Error::last_os_error());
+                    }
+                    if flags & libc::O_ACCMODE != libc::O_RDONLY {
+                        return Err(io::Error::from_raw_os_error(libc::EACCES));
+                    }
+                }
+                Ok(())
+            });
+        }
         let out = cmd.output().unwrap();
         assert!(
             out.status.success(),

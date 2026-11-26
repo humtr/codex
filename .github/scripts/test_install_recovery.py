@@ -695,6 +695,10 @@ exit 22
             sha2,
         )
 
+        retired_key = self.home / ".local/lib/codex/wrapper/retired-keys" / f"{sha1}.pem"
+        self.assertEqual(retired_key.read_bytes(), pub1.read_bytes())
+        self.assertEqual(retired_key.stat().st_mode & 0o777, 0o600)
+
         # 6. Re-running install.sh against the same rotated release after k2 is already saved succeeds
         r5 = self._run_release_install()
         self.assertEqual(r5.returncode, 0, r5.stderr)
@@ -702,6 +706,15 @@ exit 22
             (self.home / ".local/share/codex/wrapper/release-sequence").read_text().strip(),
             "7",
         )
+
+        # A retired key cannot authorize a new download even at a higher sequence.
+        self._build_signed_release_dir(rel, priv1, 8, payload)
+        (rel / "release-public-key.pem.sig").unlink()
+        (rel / "release-public-key.pem").unlink()
+        rejected = self._run_release_install()
+        self.assertNotEqual(rejected.returncode, 0)
+        self.assertIn("signature verification failed", rejected.stderr)
+        self.assertEqual((self.home / ".local/share/codex/wrapper/release-sequence").read_text().strip(), "7")
 
         # 7. --recover rejects signing flags
         r_rec = subprocess.run(
@@ -835,6 +848,19 @@ exit 22
         rb = self._run_release_install("--components", "termux-orch", "--no-services", "--no-setup")
         self.assertNotEqual(rb.returncode, 0)
         self.assertIn("rollback rejected", rb.stderr)
+
+        # A new signed Wrapper commits before an independently failing Stage 2 install.
+        new_payload = self.new.read_bytes() + b"\n# updated wrapper\n"
+        self._build_signed_release_dir(rel / "wrapper", priv, 3, new_payload)
+        previous_link = os.readlink(self.home / ".local/lib/codex/mcp/termux-orch/current")
+        failed = self._run_release_install("--components", "termux-orch", "--no-services", "--no-setup")
+        self.assertNotEqual(failed.returncode, 0)
+        self.assertIn("rollback rejected", failed.stderr)
+        self.assertEqual((self.prefix / "bin/codex").read_bytes(), new_payload)
+        self.assertEqual((self.home / ".local/share/codex/wrapper/release-sequence").read_text().strip(), "3")
+        self.assertEqual((self.home / ".local/lib/codex/wrapper/release-public-key.pem").read_bytes(), pub.read_bytes())
+        self.assertEqual(os.readlink(self.home / ".local/lib/codex/mcp/termux-orch/current"), previous_link)
+        self.assertFalse(self.has_lock())
 
     def test_i19_setup_only_device_auth_and_wrapper_only(self):
         log = self.home / "login.log"

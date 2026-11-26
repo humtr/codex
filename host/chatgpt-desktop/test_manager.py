@@ -131,6 +131,35 @@ class ChatGPTDesktopManagerTests(unittest.TestCase):
             manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
             self.assertTrue(manager.is_valid_generation(gen))
 
+    def test_packaged_launcher_symlink_activation_and_rollback(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            versions = ("26.1007.21434", "26.1117.41037")
+            for version in versions:
+                gen = make_fake_generation(root, version)
+                binary = gen / "rootfs/usr/bin/chatgpt"
+                launcher = gen / "rootfs/usr/lib/chatgpt/codex-launcher"
+                binary.rename(launcher)
+                binary.symlink_to("../lib/chatgpt/codex-launcher")
+                self.assertTrue(manager.is_valid_generation(gen))
+                manager.activate_generation(root, version, root / "profile")
+            manager.rollback_generation(root, root / "profile")
+            self.assertEqual(manager.read_link_version(root / "current"), versions[0])
+            self.assertEqual(manager.read_link_version(root / "previous"), versions[1])
+
+            # Identical bytes outside the guest do not authorize a host link.
+            external = root / "outside"
+            external.write_bytes(launcher.read_bytes())
+            binary.unlink()
+            binary.symlink_to(external)
+            self.assertFalse(manager.is_valid_generation(gen))
+            binary.unlink()
+            binary.symlink_to("chatgpt")
+            self.assertFalse(manager.is_valid_generation(gen))
+            binary.unlink()
+            binary.symlink_to("missing")
+            self.assertFalse(manager.is_valid_generation(gen))
+
     def test_generation_integrity_detects_modified_payload(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             gen = make_fake_generation(Path(td), "26.1007.21434")

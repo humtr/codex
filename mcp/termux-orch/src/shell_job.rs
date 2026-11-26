@@ -175,7 +175,9 @@ impl ShellJob {
         let exit_code = match self.run_command(ledger, work_id, command) {
             Ok(code) => code,
             Err(e) => {
-                write_atomic_private(&self.path("output.log"), e.to_string().as_bytes())?;
+                // A broken log destination must not prevent a failure receipt
+                // after the command has been stopped and reaped.
+                let _ = write_atomic_private(&self.path("output.log"), e.to_string().as_bytes());
                 125
             }
         };
@@ -260,7 +262,9 @@ impl ShellJob {
                 }
             }
             if last_flush.elapsed() >= Duration::from_secs(1) {
-                write_atomic_private(&self.path("output.log"), &tail)?;
+                if let Err(error) = write_atomic_private(&self.path("output.log"), &tail) {
+                    break Err(error);
+                }
                 last_flush = Instant::now();
             }
             std::thread::sleep(Duration::from_millis(20));

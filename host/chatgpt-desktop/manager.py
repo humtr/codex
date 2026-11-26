@@ -266,11 +266,15 @@ def is_valid_generation(gen_path: Path, expected_version: str | None = None) -> 
         if (gen_path.parent.is_symlink() or not gen_path.parent.is_dir()
                 or gen_path.is_symlink() or not gen_path.is_dir() or manifest_path.is_symlink()
                 or not manifest_path.is_file() or any(path.is_symlink() or not path.is_dir() for path in protected_dirs)
-                or binary.is_symlink() or app_asar.is_symlink()
-                or not binary.is_file() or not app_asar.is_file()):
+                or app_asar.is_symlink() or not app_asar.is_file()):
+            return False
+        # The Debian package ships usr/bin/chatgpt as a relative link to its
+        # launcher. Resolve only within the guest rootfs, never the host.
+        binary = binary.resolve(strict=True)
+        if not binary.is_relative_to(rootfs.resolve(strict=True)) or not binary.is_file():
             return False
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        return (manifest.get("schema") in ("chatgpt-desktop-generation", "chatgpt-desktop-generation-v1")
+        return (isinstance(manifest, dict) and manifest.get("schema") in ("chatgpt-desktop-generation", "chatgpt-desktop-generation-v1")
                 and manifest.get("version") == (expected_version or gen_path.name)
                 and ("installed_binary_sha256" not in manifest
                      or manifest["installed_binary_sha256"] == sha256_file(binary))
@@ -278,7 +282,7 @@ def is_valid_generation(gen_path: Path, expected_version: str | None = None) -> 
                      or manifest["installed_app_asar_sha256"] == sha256_file(app_asar))
                 and re.fullmatch(r"[0-9a-f]{64}", str(manifest.get("deb_sha256", ""))) is not None
                 and isinstance(manifest.get("deb_bytes"), int) and manifest["deb_bytes"] > 0)
-    except (OSError, ValueError, TypeError):
+    except (OSError, ValueError, TypeError, RuntimeError):
         return False
 
 

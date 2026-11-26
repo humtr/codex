@@ -432,18 +432,32 @@ class ServiceSupervisor:
             trusted_key = self.home / ".local/lib/codex/wrapper/release-public-key.pem"
             if not trusted_key.is_file() or trusted_key.is_symlink():
                 raise ValueError("missing installed trusted key")
-            # Legacy installs did not keep a per-generation key copy. Always
-            # verify with the installed trust root, and reject a conflicting copy.
+            # Retired verifiers are retained by the installer before rotation.
+            # A generation's own key is never a trust root. Legacy generations
+            # without a key copy may verify against any installed verifier.
+            retired_dir = trusted_key.parent / "retired-keys"
+            candidates = [trusted_key]
+            if retired_dir.is_dir() and not retired_dir.is_symlink():
+                candidates.extend(
+                    key for key in sorted(retired_dir.glob("*.pem"))
+                    if re.fullmatch(r"[0-9a-f]{64}", key.stem)
+                    and key.is_file() and not key.is_symlink()
+                    and sha256_file(key) == key.stem
+                )
             if key_path.exists() or key_path.is_symlink():
-                if (not key_path.is_file() or key_path.is_symlink() or
-                        key_path.read_bytes() != trusted_key.read_bytes()):
-                    raise ValueError("generation signing key is not the installed trusted key")
-            verified = subprocess.run(
-                ["openssl", "pkeyutl", "-verify", "-pubin", "-inkey", str(trusted_key),
-                 "-rawin", "-in", str(sums_path), "-sigfile", str(sig_path)],
-                capture_output=True, timeout=10,
-            )
-            if verified.returncode != 0:
+                if not key_path.is_file() or key_path.is_symlink():
+                    raise ValueError("invalid generation public key")
+                supplied_key = key_path.read_bytes()
+                candidates = [key for key in candidates if key.read_bytes() == supplied_key]
+            for key in candidates:
+                verified = subprocess.run(
+                    ["openssl", "pkeyutl", "-verify", "-pubin", "-inkey", str(key),
+                     "-rawin", "-in", str(sums_path), "-sigfile", str(sig_path)],
+                    capture_output=True, timeout=10,
+                )
+                if verified.returncode == 0:
+                    break
+            else:
                 raise ValueError("generation signature verification failed")
 
             entry = f"bin/{binary_name}"

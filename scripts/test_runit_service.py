@@ -140,6 +140,33 @@ class RunitSupervisionTests(unittest.TestCase):
                 self.assertEqual(result["binary_sha256"], hashlib.sha256(binary.read_bytes()).hexdigest())
                 self.assertEqual(result["binary_path"], str(binary.resolve()))
 
+    def test_rotated_key_preserves_running_and_rollback_generations(self):
+        old = self._install_gen("v0.0.20", b"old")
+        legacy = self._install_gen("v0.0.19", b"legacy")
+        (legacy.parent / "signed/release-public-key.pem").unlink()
+        sup = self._sup()
+        sup.activate(old.parent.name)
+        sup.enroll(exec_args=["run"])
+        (self.root / "running-exe").write_text(str(old.resolve()))
+        retired = self.test_public_key.parent / "retired-keys"
+        retired.mkdir(mode=0o700)
+        old_key = self.test_public_key.read_bytes()
+        (retired / (hashlib.sha256(old_key).hexdigest() + ".pem")).write_bytes(old_key)
+        subprocess.run(["openssl", "genpkey", "-algorithm", "ED25519", "-out", str(self.test_private_key)],
+                       check=True, capture_output=True)
+        subprocess.run(["openssl", "pkey", "-in", str(self.test_private_key), "-pubout", "-out", str(self.test_public_key)],
+                       check=True, capture_output=True)
+        new = self._install_gen("v0.0.21", b"new")
+        self.assertTrue(sup.selected_generation()["valid"])
+        self.assertTrue(sup._component_generation(legacy.parent.name)["valid"])
+        self.assertEqual(sup.activate(new.parent.name, busy_check_cmd=["true"])["activation_state"], "active")
+        self.assertEqual(sup.rollback(busy_check_cmd=["true"])["activation_state"], "active")
+        self.assertEqual(sup.selected_generation()["version"], old.parent.name)
+        (retired / (hashlib.sha256(old_key).hexdigest() + ".pem")).unlink()
+        self.assertFalse(sup.selected_generation()["valid"])
+        self.assertFalse(sup._component_generation(legacy.parent.name)["valid"])
+        self.assertTrue(sup._component_generation(new.parent.name)["valid"])
+
     def test_runner_generation_rejects_corrupt_or_missing_evidence(self):
         for failure in (
             "root-binary", "packaged-binary", "missing-inner-manifest", "duplicate-inner-entry",

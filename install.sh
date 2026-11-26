@@ -277,9 +277,33 @@ read_recorded_release_sequence() {
   printf '%s\n' "$rec"
 }
 
+# Preserve the verifier that admitted existing generations before replacing it.
+# Retired keys are local verification evidence, not download trust roots.
+retain_release_key() {
+  retired_dir="$key_dir/retired-keys"
+  mkdir -p "$retired_dir"
+  [ ! -L "$retired_dir" ] && [ -d "$retired_dir" ] ||
+    fail 'retired release key directory is unsafe'
+  chmod 0700 "$retired_dir"
+  retired_key="$retired_dir/$(sha256_hex "$key_dest").pem"
+  if [ -e "$retired_key" ] || [ -L "$retired_key" ]; then
+    require_regular_file "$retired_key" 'retired release public key'
+    cmp -s "$key_dest" "$retired_key" || fail 'retired release key digest conflict'
+  else
+    retired_tmp="$retired_dir/.key.tmp.$$"
+    (umask 077; set -C; cat "$key_dest" > "$retired_tmp")
+    install_sync "$retired_tmp"
+    mv -f "$retired_tmp" "$retired_key"
+  fi
+  install_sync "$retired_dir"
+  install_sync "$key_dir"
+}
+
 persist_signed_release_state() {
   state_dir="$HOME/.local/share/codex/wrapper"
   key_dir="$HOME/.local/lib/codex/wrapper"
+  write_install_phase committing
+  signed_commit_started=1
   mkdir -p "$state_dir" "$key_dir"
   if [ -L "$state_dir" ] || [ ! -d "$state_dir" ] || [ -L "$key_dir" ] || [ ! -d "$key_dir" ]; then
     fail 'signed release state directories must be real non-symlink directories'
@@ -289,24 +313,25 @@ persist_signed_release_state() {
   if [ -L "$seq_dest" ] || { [ -e "$seq_dest" ] && [ ! -f "$seq_dest" ]; }; then
     fail "release sequence destination must be absent or a regular non-symlink file: $seq_dest"
   fi
+  key_dest="$key_dir/release-public-key.pem"
+  if [ -L "$key_dest" ] || { [ -e "$key_dest" ] && [ ! -f "$key_dest" ]; }; then
+    fail "release public key destination must be absent or a regular non-symlink file: $key_dest"
+  fi
+  if [ -f "$key_dest" ] && ! cmp -s "$key_dest" "$verified_active_pubkey"; then
+    retain_release_key
+  fi
   seq_tmp="$state_dir/.release-sequence.tmp.$$"
   printf '%s\n' "$verified_release_sequence" > "$seq_tmp"
   chmod 0600 "$seq_tmp"
   install_sync "$seq_tmp"
   mv -f "$seq_tmp" "$seq_dest"
   install_sync "$state_dir"
-  if [ -n "$verified_active_pubkey" ]; then
-    key_dest="$key_dir/release-public-key.pem"
-    if [ -L "$key_dest" ] || { [ -e "$key_dest" ] && [ ! -f "$key_dest" ]; }; then
-      fail "release public key destination must be absent or a regular non-symlink file: $key_dest"
-    fi
-    key_tmp="$key_dir/.release-public-key.pem.tmp.$$"
-    cp "$verified_active_pubkey" "$key_tmp"
-    chmod 0600 "$key_tmp"
-    install_sync "$key_tmp"
-    mv -f "$key_tmp" "$key_dest"
-    install_sync "$key_dir"
-  fi
+  key_tmp="$key_dir/.release-public-key.pem.tmp.$$"
+  cp "$verified_active_pubkey" "$key_tmp"
+  chmod 0600 "$key_tmp"
+  install_sync "$key_tmp"
+  mv -f "$key_tmp" "$key_dest"
+  install_sync "$key_dir"
 }
 
 
@@ -564,6 +589,11 @@ recover_install_lock() {
       verify_recovered_signed_state
       note 'reconciled already activated generation; updater was not replayed'
       ;;
+    committing|committed)
+      [ "$actual_sha" = "$candidate_sha" ] || fail 'committed Wrapper executable mismatch'
+      verify_recovered_signed_state
+      note 'recovered committed Wrapper without replaying components or updater'
+      ;;
     updated)
       if ! { [ "$actual_sha" = "$candidate_sha" ] && qualified_new_activation; }; then
         fail 'completed updater receipt contradicts activation metadata'
@@ -797,6 +827,7 @@ lock_owned=0
 recovery_gate_owned=0
 swap_pending=0
 install_committed=0
+signed_commit_started=0
 before_sha=none
 candidate_sha=none
 state_before_sha=none
@@ -806,7 +837,7 @@ finish_install() {
   trap - EXIT HUP INT TERM
   set +e
 
-  if [ "$swap_pending" -eq 1 ] && [ "$install_committed" -eq 0 ]; then
+  if [ "$swap_pending" -eq 1 ] && [ "$install_committed" -eq 0 ] && [ "$signed_commit_started" -eq 0 ]; then
     # A failed updater may already have committed the new generation. Never
     # restore an old Wrapper over changed authoritative activation state.
     installed_now=$(digest_or_none "$dest_bin")
@@ -838,6 +869,10 @@ finish_install() {
     fi
   fi
 
+  if [ "$signed_commit_started" -eq 1 ] && [ "$install_committed" -eq 0 ]; then
+    printf '%s\n' "codex install: signed commit incomplete; preserving $install_lock for explicit --recover" >&2
+    result=1
+  fi
   if [ "$swap_pending" -eq 0 ] || [ "$install_committed" -eq 1 ]; then
     if [ -n "$backup_bin" ]; then
       remove_owned_install_file "$backup_bin"
@@ -869,26 +904,12 @@ trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-release_wrapper_transaction() {
+commit_wrapper_transaction() {
+  # Retain the installer lock for component serialization, but never undo
+  # the qualified Wrapper if independent component installation fails.
+  write_install_phase committed
   install_committed=1
   swap_pending=0
-  if [ -n "$backup_bin" ]; then
-    remove_owned_install_file "$backup_bin"
-    backup_bin=''
-  fi
-  if [ -n "$staged_tmp" ]; then
-    remove_owned_install_file "$staged_tmp"
-    staged_tmp=''
-  fi
-  if [ "$lock_owned" -eq 1 ]; then
-    for name in owner owner.next transaction transaction.next updater updater.next; do
-      remove_owned_install_file "$install_lock/$name"
-    done
-    if ! rmdir "$install_lock" || ! install_sync "$dest_dir"; then
-      fail "install lock cleanup failed: $install_lock"
-    fi
-    lock_owned=0
-  fi
 }
 
 # The child Wrapper must use the installer's runtime roots, including in recovery.
@@ -1774,6 +1795,7 @@ case $source_mode in
     tarball_sha="$work/$ASSET_NAME.sha256"
 
     default_key="$HOME/.local/lib/codex/wrapper/release-public-key.pem"
+    initial_key_sha=$(digest_or_none "$default_key")
     if [ -z "$verify_key" ]; then
       if [ -e "$default_key" ] || [ -L "$default_key" ]; then
         verify_key=$default_key
@@ -1789,6 +1811,12 @@ case $source_mode in
       [ -n "$verify_key" ] ||
         fail 'signed release verification requested, but no --verify-key or installed release-public-key.pem was found'
       require_regular_file "$verify_key" 'verifier public key'
+      cp "$verify_key" "$work/verifier-public-key.pem"
+      if [ "$verify_key" = "$default_key" ]; then
+        [ "$(sha256_hex "$work/verifier-public-key.pem")" = "$initial_key_sha" ] ||
+          fail 'release trust key changed during verification'
+      fi
+      verify_key="$work/verifier-public-key.pem"
       key_size=$(wc -c < "$verify_key" | tr -d '[:space:]')
       if [ "$key_size" -le 0 ] || [ "$key_size" -gt "$MAX_PUBKEY_BYTES" ]; then
         fail "verifier public key out of bounds: $verify_key"
@@ -1879,6 +1907,8 @@ lock_owned=1
 install_record_owner
 
 if [ -n "$verified_release_sequence" ]; then
+  [ "$(digest_or_none "$default_key")" = "$initial_key_sha" ] ||
+    fail 'release trust key changed during download; verify again before installing'
   locked_seq=$(read_recorded_release_sequence "$HOME/.local/share/codex/wrapper/release-sequence")
   [ "$verified_release_sequence" -ge "$locked_seq" ] ||
     fail "release sequence rollback rejected under install lock (got $verified_release_sequence, installed $locked_seq)"
@@ -1939,8 +1969,8 @@ if [ "$skip_upstream" -eq 1 ]; then
     persist_signed_release_state
   fi
   note "skipped upstream bootstrap (--skip-upstream); run '$dest_bin update --upstream' when ready"
+  commit_wrapper_transaction
   maybe_run_components_and_setup
-  release_wrapper_transaction
   exit 0
 fi
 
@@ -2008,5 +2038,5 @@ fi
 if [ -n "$verified_release_sequence" ]; then
   persist_signed_release_state
 fi
+commit_wrapper_transaction
 maybe_run_components_and_setup
-release_wrapper_transaction

@@ -643,23 +643,27 @@ impl ResponseThreadMap {
     }
 
     fn record(&self, entries: impl IntoIterator<Item = (String, ThreadEntry)>) -> Result<()> {
-        self.update(|next| {
-            for (key, entry) in entries {
-                if let Some(pos) = next.iter().position(|(existing, _)| existing == &key) {
-                    next.remove(pos);
+        self.update(
+            |next| {
+                for (key, entry) in entries {
+                    if let Some(pos) = next.iter().position(|(existing, _)| existing == &key) {
+                        next.remove(pos);
+                    }
+                    next.push_back((key, entry));
+                    while next.len() > MAX_RESPONSE_THREADS {
+                        next.pop_front();
+                    }
                 }
-                next.push_back((key, entry));
-                while next.len() > MAX_RESPONSE_THREADS {
-                    next.pop_front();
-                }
-            }
-            Ok(())
-        })
+                Ok(())
+            },
+            |path| File::open(path)?.sync_all(),
+        )
     }
 
     fn update(
         &self,
         change: impl FnOnce(&mut VecDeque<(String, ThreadEntry)>) -> Result<()>,
+        sync_directory: impl FnOnce(&Path) -> io::Result<()>,
     ) -> Result<()> {
         let mut guard = self.entries.lock().map_err(|_| {
             ProviderError::internal("response_thread_map_write", "thread map lock poisoned")
@@ -699,12 +703,11 @@ impl ResponseThreadMap {
                     err.to_string(),
                 ));
             }
-            File::open(path.parent().expect("state path has a parent"))
-                .and_then(|dir| dir.sync_all())
-                .map_err(|err| {
-                    ProviderError::internal("response_thread_map_sync", err.to_string())
-                })?;
+            // Rename changes the visible map even if directory durability fails.
             *guard = next;
+            sync_directory(path.parent().expect("state path has a parent")).map_err(|err| {
+                ProviderError::internal("response_thread_map_sync", err.to_string())
+            })?;
         } else {
             *guard = next;
         }
@@ -3622,6 +3625,68 @@ mod thin_option_b_tests {
             "native_result_batch_incomplete"
         );
         drop(map);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn continuation_rename_is_visible_in_memory_even_if_directory_sync_fails() {
+        let root = temp_root();
+        let map = ResponseThreadMap::open(&root).unwrap();
+        let (plan, settled, output, sigs) = fixture();
+        let mut assembly = TurnAssembly::default();
+        assembly.reconcile_settled(&settled, &sigs).unwrap();
+        let key = "session:sync-failure";
+        plan.commit(&map, Some(key), &settled, &assembly, &output, None)
+            .unwrap();
+        let error = map
+            .update(
+                |next| {
+                    next.front_mut()
+                        .unwrap()
+                        .1
+                        .native
+                        .as_mut()
+                        .unwrap()
+                        .remote_head = Some("new-head".into());
+                    Ok(())
+                },
+                |directory| {
+                    assert_eq!(directory, root);
+                    let disk: NativeThreadFile =
+                        serde_json::from_slice(&fs::read(directory.join("response_threads.json"))?)
+                            .unwrap();
+                    assert_eq!(
+                        disk.entries[0]
+                            .1
+                            .native
+                            .as_ref()
+                            .unwrap()
+                            .remote_head
+                            .as_deref(),
+                        Some("new-head")
+                    );
+                    Err(io::Error::from_raw_os_error(libc::EIO))
+                },
+            )
+            .unwrap_err();
+        assert_eq!(error.code, "response_thread_map_sync");
+        assert_eq!(
+            map.get(key).unwrap().native.unwrap().remote_head.as_deref(),
+            Some("new-head")
+        );
+        drop(map);
+        let reopened = ResponseThreadMap::open(&root).unwrap();
+        assert_eq!(
+            reopened
+                .get(key)
+                .unwrap()
+                .native
+                .unwrap()
+                .remote_head
+                .as_deref(),
+            Some("new-head")
+        );
+        drop(reopened);
         fs::remove_dir_all(root).unwrap();
     }
 

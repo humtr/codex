@@ -1177,6 +1177,45 @@ fn worktree_plan_detects_undeclared_edit_without_touching_source() {
 }
 
 #[test]
+fn periodic_log_failure_stops_shell_before_failure_receipt() {
+    let root = tmp_dir("termux-orch-log-failure");
+    let state = root.join("state");
+    let command = || {
+        let mut cmd = Command::new(bin_path());
+        cmd.env("ORCH_STATE_DIR", &state)
+            .env("ORCH_RECEIPT_DIR", root.join("receipts"))
+            .env("CHATGPT_PROVIDER_URL", "http://127.0.0.1:1")
+            .env("ORCH_NOTIFY_CMD", "/bin/true");
+        cmd
+    };
+    let mut mcp = Mcp::start(&mut command());
+    let created = mcp.call("orch_work", json!({
+        "action":"create","call_id":"create-log-failure","title":"Shell job","goal":"Stop on failed log",
+        "steps":[{"step_id":"log-failure","cwd":root,"command":"echo $$ > shell-pid; sleep 5; echo survived > leaked"}]
+    }));
+    let wid = created["work_id"].as_str().unwrap();
+    assert!(command().arg("tick").output().unwrap().status.success());
+    let pid: u32 = wait_for(|| {
+        fs::read_to_string(root.join("shell-pid"))
+            .ok()?
+            .trim()
+            .parse()
+            .ok()
+    });
+    let job = state.join("jobs").join(wid).join("shell");
+    fs::create_dir(job.join("W1.output.log")).unwrap();
+    let receipt = wait_for(|| json_file(&job.join("W1.exit.json")));
+    assert_eq!(receipt["exit_code"], 125);
+    assert!(
+        !PathBuf::from(format!("/proc/{pid}")).exists(),
+        "shell must be reaped before receipt"
+    );
+    assert!(!root.join("leaked").exists());
+    drop(mcp);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn cancelling_shell_plan_escalates_when_worker_ignores_term() {
     let root = tmp_dir("termux-orch-kill");
     let state = root.join("state");
