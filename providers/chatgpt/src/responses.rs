@@ -2003,7 +2003,12 @@ struct CatalogEntrySpec<'a> {
     max_tokens: Option<u64>,
 }
 
+const DEFAULT_CONTEXT_WINDOW: u64 = 1_000_000;
+const AUTO_COMPACT_WINDOW_PERCENT: u64 = 80;
+
 fn make_catalog_entry(spec: CatalogEntrySpec<'_>) -> Value {
+    let context_window = spec.max_tokens.unwrap_or(0).max(DEFAULT_CONTEXT_WINDOW);
+    let auto_compact_token_limit = context_window * AUTO_COMPACT_WINDOW_PERCENT / 100;
     json!({
         "slug": spec.slug,
         "display_name": spec.display_name,
@@ -2020,8 +2025,9 @@ fn make_catalog_entry(spec: CatalogEntrySpec<'_>) -> Value {
         "default_reasoning_summary": "auto",
         "support_verbosity": false,
         "truncation_policy": { "mode": "tokens", "limit": 10000 },
-        "context_window": spec.max_tokens.unwrap_or(128_000),
+        "context_window": context_window,
         "effective_context_window_percent": 95,
+        "auto_compact_token_limit": auto_compact_token_limit,
         "input_modalities": ["text", "image"],
         "experimental_supported_tools": []
     })

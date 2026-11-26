@@ -1644,7 +1644,9 @@ wire_api = "responses"
             ]
         );
         assert_eq!(visible[0]["default_reasoning_level"], "xhigh");
-        assert_eq!(visible[0]["context_window"], 262144);
+        assert_eq!(visible[0]["context_window"], 1_000_000);
+        assert_eq!(visible[0]["auto_compact_token_limit"], 800_000);
+        assert_eq!(visible[0]["effective_context_window_percent"], 95);
         assert_eq!(visible[0]["supports_reasoning_summaries"], json!(true));
         assert_eq!(
             visible[0]["supports_reasoning_summary_parameter"],
