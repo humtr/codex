@@ -243,8 +243,9 @@ fn is_safe_interleaved(insn: u32) -> bool {
     if is_pc_relative(insn)
         || is_branch_or_call(insn)
         || (insn & 0xff00_0000) == 0xd400_0000 // exception/sys
-        || (insn & 0xff00_0000) == 0xd500_0000
-    // MSR/MRS/HINT/BARRIER
+        || (insn & 0xff00_0000) == 0xd500_0000 // MSR/MRS/HINT/BARRIER
+        || (insn & 0x0a00_0000) == 0x0800_0000
+    // all load/store forms, including write-back
     {
         return false;
     }
@@ -759,6 +760,46 @@ fn is_str_w_sp(insn: u32, reg: u8, stack_off: u16) -> bool {
     insn == (0xb900_03e0 | (imm12 << 10) | u32::from(reg & 0x1f))
 }
 
+// A removed MOVZ/MOVK pair defines `reg`. Interleaved instructions must
+// neither read nor overwrite that value. This deliberately treats every
+// encoded register operand as live; immediate-field false positives are safer
+// than accepting an instruction whose operand role is not understood.
+fn is_independent_of_removed_register(insn: u32, reg: u8) -> bool {
+    if insn == NOP_INSN {
+        return true;
+    }
+
+    let op0 = (insn >> 25) & 0xf;
+    let move_wide = is_mov_wide(insn);
+    let add_sub_immediate = (insn & 0x1f00_0000) == 0x1100_0000;
+    let logical_immediate = (insn & 0x1f80_0000) == 0x1200_0000;
+    let dp_register = (op0 & 0b0111) == 0b0101;
+    let dp_one_source = (insn & 0x7fff_0000) == 0x5ac0_0000;
+    let register_offset = (insn & 0x3b20_0c00) == 0x3820_0800;
+    let load_store = (insn & 0x0a00_0000) == 0x0800_0000;
+    let three_source = (insn & 0x1f00_0000) == 0x1b00_0000;
+
+    // Unknown instruction classes are not assumed independent. For known
+    // classes, inspect only fields that encode architectural registers.
+    if !move_wide && !add_sub_immediate && !logical_immediate && !dp_register && !load_store {
+        return false;
+    }
+
+    let mut operands = vec![insn & 0x1f]; // Rd/Rt: destination or data register.
+    if add_sub_immediate || logical_immediate || dp_register || load_store {
+        operands.push((insn >> 5) & 0x1f); // Rn/base/source.
+    }
+    if (dp_register && !dp_one_source) || register_offset {
+        operands.push((insn >> 16) & 0x1f); // Rm/index.
+    }
+    if three_source {
+        operands.push((insn >> 10) & 0x1f); // Ra accumulator.
+    }
+    operands
+        .into_iter()
+        .all(|operand| operand != u32::from(reg))
+}
+
 fn is_strb_wzr_sp(insn: u32, stack_off_plus_4: u16) -> bool {
     if stack_off_plus_4 >= 0x1000 {
         return false;
@@ -845,7 +886,7 @@ fn classify_tmp_span(window: &[u32], start_off: usize) -> Option<Site1Match> {
     let mut interleaved = Vec::new();
     for (idx, &insn) in window[..span_insns].iter().enumerate() {
         if !dead.contains(&idx) {
-            if !is_safe_interleaved(insn) {
+            if !is_safe_interleaved(insn) || !is_independent_of_removed_register(insn, mov_reg) {
                 return None;
             }
             interleaved.push(insn);
@@ -1694,16 +1735,28 @@ mod tests {
             assert!(is_mov_wide(word));
             assert!(is_safe_interleaved(word));
         }
-        for word in [
-            0xdac0_0062,
-            0xdac0_1062,
-            0x9b04_1462,
-            0xf865_6862,
-            0xf940_07e2,
-            0xf840_8c62,
-        ] {
+        for word in [0xdac0_0062, 0xdac0_1062, 0x9b04_1462] {
             assert!(is_safe_interleaved(word), "{word:#010x} is safe");
         }
+        for word in [0xf865_6862, 0xf940_07e2, 0xf840_8c62] {
+            assert!(
+                !is_safe_interleaved(word),
+                "memory access {word:#010x} is unsafe"
+            );
+        }
+    }
+
+    #[test]
+    fn interleaved_instructions_cannot_depend_on_removed_string_register() {
+        // ADD W8, W8, #1 reads and writes the value established by MOVZ/MOVK.
+        assert!(!is_independent_of_removed_register(0x1100_0508, 8));
+        // A store using W8 as its source also depends on the removed value.
+        assert!(!is_independent_of_removed_register(0xb900_03e8, 8));
+        // An unrelated register operation remains eligible.
+        assert!(is_independent_of_removed_register(0xcb1d_03e9, 8));
+        // MOVZ W9, #8 has an immediate field equal to the removed register.
+        assert!(is_independent_of_removed_register(0x5280_0109, 8));
+        assert!(is_independent_of_removed_register(NOP_INSN, 8));
     }
 
     #[test]

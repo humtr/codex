@@ -94,18 +94,30 @@ pub fn current_uid() -> u32 {
     unsafe { libc::geteuid() }
 }
 
+fn validate_private_dir(dir: &Path) -> Result<(), String> {
+    let meta = fs::symlink_metadata(dir)
+        .map_err(|e| format!("cannot stat directory {}: {e}", dir.display()))?;
+    if meta.file_type().is_symlink() || !meta.is_dir() {
+        return Err(format!("expected real directory: {}", dir.display()));
+    }
+    if meta.uid() != current_uid() {
+        return Err(format!(
+            "directory not owned by current user: {}",
+            dir.display()
+        ));
+    }
+    if meta.mode() & 0o077 != 0 {
+        return Err(format!(
+            "directory permissions are too broad (expected 0700): {}",
+            dir.display()
+        ));
+    }
+    Ok(())
+}
+
 pub fn ensure_private_dir(dir: &Path) -> Result<(), String> {
-    if let Ok(meta) = fs::symlink_metadata(dir) {
-        if meta.file_type().is_symlink() || !meta.is_dir() {
-            return Err(format!("expected real directory: {}", dir.display()));
-        }
-        if meta.uid() != current_uid() {
-            return Err(format!(
-                "directory not owned by current user: {}",
-                dir.display()
-            ));
-        }
-        return Ok(());
+    if fs::symlink_metadata(dir).is_ok() {
+        return validate_private_dir(dir);
     }
     if let Some(parent) = dir.parent() {
         if !parent.as_os_str().is_empty() && !parent.exists() {
@@ -114,15 +126,8 @@ pub fn ensure_private_dir(dir: &Path) -> Result<(), String> {
         }
     }
     match DirBuilder::new().mode(0o700).create(dir) {
-        Ok(()) => Ok(()),
-        Err(err) if err.kind() == io::ErrorKind::AlreadyExists => {
-            let meta = fs::symlink_metadata(dir)
-                .map_err(|e| format!("cannot stat {}: {e}", dir.display()))?;
-            if meta.file_type().is_symlink() || !meta.is_dir() {
-                return Err(format!("expected real directory: {}", dir.display()));
-            }
-            Ok(())
-        }
+        Ok(()) => validate_private_dir(dir),
+        Err(err) if err.kind() == io::ErrorKind::AlreadyExists => validate_private_dir(dir),
         Err(err) => Err(format!(
             "failed to create directory {}: {err}",
             dir.display()
@@ -218,4 +223,29 @@ pub fn proc_start_ticks(pid: u32) -> Option<u64> {
 
 pub fn is_live_matching_process(pid: u32, expected_start_ticks: u64) -> bool {
     proc_start_ticks(pid).is_some_and(|ticks| ticks == expected_start_ticks)
+}
+
+#[cfg(test)]
+mod private_dir_tests {
+    use super::*;
+
+    #[test]
+    fn existing_directories_must_be_owned_private_and_non_symlink() {
+        let root = std::env::temp_dir().join(format!(
+            "cdx-private-dir-{}-{}",
+            std::process::id(),
+            now_millis()
+        ));
+        fs::create_dir(&root).unwrap();
+        let broad = root.join("broad");
+        fs::create_dir(&broad).unwrap();
+        fs::set_permissions(&broad, fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(ensure_private_dir(&broad).is_err());
+        fs::set_permissions(&broad, fs::Permissions::from_mode(0o700)).unwrap();
+        assert!(ensure_private_dir(&broad).is_ok());
+        let link = root.join("link");
+        std::os::unix::fs::symlink(&broad, &link).unwrap();
+        assert!(ensure_private_dir(&link).is_err());
+        let _ = fs::remove_dir_all(root);
+    }
 }

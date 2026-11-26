@@ -25,6 +25,9 @@ pub fn binary_adaptation_available(version: &str) -> bool {
 }
 const ENTRY_MAX_BYTES: u64 = 384 * 1024 * 1024;
 const PAYLOAD_MAX_BYTES: u64 = 768 * 1024 * 1024;
+// Bound the complete decompressed tar stream, including headers, padding and
+// trailing zero blocks (not just extracted file payloads).
+const DECOMPRESSED_ARCHIVE_MAX_BYTES: u64 = 1024 * 1024 * 1024;
 const WRAPPER_ARTIFACT_MAX_BYTES: u64 = 64 * 1024 * 1024;
 const PATH_MAX_BYTES: usize = 256;
 const LOGICAL_ENTRY_MAX: usize = 1024;
@@ -1668,7 +1671,16 @@ fn select_archive(
         .stdout
         .take()
         .ok_or(BuilderError::Tool("gzip stdout is unavailable"))?;
-    let selected = parse_archive(&mut stdout, staging, &request.version);
+    let mut bounded = stdout.by_ref().take(DECOMPRESSED_ARCHIVE_MAX_BYTES + 1);
+    let selected = parse_archive(&mut bounded, staging, &request.version).and_then(|selected| {
+        if bounded.limit() == 0 {
+            Err(BuilderError::Archive(
+                "decompressed archive exceeds its total byte bound",
+            ))
+        } else {
+            Ok(selected)
+        }
+    });
     drop(stdout);
     if selected.is_err() {
         let _ = child.kill();
@@ -1883,6 +1895,10 @@ where
         let c_fd = apply_fd_path_remaps_with_options(&mut companion, false)?;
         let c_uds = if runtime_patch::contains_daemon_fmt(&companion) {
             runtime_patch::apply_uds_fd35(&mut companion).map_err(BuilderError::Archive)?
+        } else if runtime_patch::contains_daemon_prefix_literal(&companion) {
+            return Err(BuilderError::Archive(
+                "companion contains codex-daemon- without the supported FD 35 format",
+            ));
         } else {
             0
         };
@@ -2224,7 +2240,16 @@ pub fn inspect_package_archive_version(
         .stdout
         .take()
         .ok_or(BuilderError::Tool("gzip stdout is unavailable"))?;
-    let scanned = scan_package_archive_version(&mut stdout);
+    let mut bounded = stdout.by_ref().take(DECOMPRESSED_ARCHIVE_MAX_BYTES + 1);
+    let scanned = scan_package_archive_version(&mut bounded).and_then(|version| {
+        if bounded.limit() == 0 {
+            Err(BuilderError::Archive(
+                "decompressed archive exceeds its total byte bound",
+            ))
+        } else {
+            Ok(version)
+        }
+    });
     drop(stdout);
     if scanned.is_err() {
         let _ = child.kill();
@@ -2844,8 +2869,13 @@ mod tests {
         write_u64(&mut drifted, 40, 0);
         write_u16(&mut drifted, 60, 0);
         write_u16(&mut drifted, 62, 0);
-        for (name, main, companion) in [("main", &drifted, &plain), ("companion", &plain, &drifted)]
-        {
+        let mut unsupported_companion = plain.clone();
+        unsupported_companion.extend_from_slice(b"codex-daemon-%u\0");
+        for (name, main, companion) in [
+            ("main", &drifted, &plain),
+            ("companion", &plain, &drifted),
+            ("unsupported-companion", &plain, &unsupported_companion),
+        ] {
             let archive = dir.join(format!("{name}.tar.gz"));
             write_tar_gz(
                 &package_tar_bytes(&[

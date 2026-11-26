@@ -555,11 +555,17 @@ pub fn run_launcher(
                         Ok(true) => {}
                         Ok(false) => {
                             eprintln!(
-                                "codex-ext: warning: writer lock for {id} is still held after 3s; proceeding to resume"
+                                "codex-ext: switch aborted — writer lock for {id} is still held after 3s; resuming original session"
                             );
+                            next_args = vec![OsString::from("resume"), OsString::from(id)];
+                            continue;
                         }
                         Err(err) => {
-                            eprintln!("codex-ext: warning: writer-lock check failed: {err}");
+                            eprintln!(
+                                "codex-ext: switch aborted — cannot verify writer lock for {id}: {err}; resuming original session"
+                            );
+                            next_args = vec![OsString::from("resume"), OsString::from(id)];
+                            continue;
                         }
                     }
                 }
@@ -820,7 +826,19 @@ pub fn run_switch_command(
         );
     }
     if let Some(ref id) = resolved_tid {
-        let _ = wait_writer_lock_released(&paths.shared_home, id, Duration::from_secs(3));
+        match wait_writer_lock_released(&paths.shared_home, id, Duration::from_secs(3)) {
+            Ok(true) => {}
+            Ok(false) => {
+                return Err(format!(
+                    "writer lock for thread {id} is still held after 3s; refusing account switch"
+                ));
+            }
+            Err(err) => {
+                return Err(format!(
+                    "cannot verify writer lock for thread {id}; refusing account switch: {err}"
+                ));
+            }
+        }
     }
 
     let args = match resolved_tid {

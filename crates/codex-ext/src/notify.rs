@@ -107,7 +107,7 @@ pub fn config_toml_has_stop_notify(config_path: &Path) -> Result<bool, String> {
                 block.push(lines[idx]);
                 depth += toml_bracket_delta(lines[idx]);
             }
-            if block.join("\n").contains("codex-ext") {
+            if block.len() == 1 && block[0].trim() == STOP_NOTIFY_LINE {
                 return Ok(true);
             }
         }
@@ -176,13 +176,14 @@ pub fn sync_config_toml_stop_notify(config_path: &Path, enable_stop: bool) -> Re
     let mut out_lines: Vec<String> = Vec::new();
     let mut in_top_level = true;
     let mut inserted = false;
+    let mut notify_seen = false;
     let mut idx = 0usize;
 
     while idx < lines.len() {
         let line = lines[idx];
         let trimmed = line.trim();
         if in_top_level && trimmed.starts_with('[') {
-            if enable_stop && !inserted {
+            if enable_stop && !inserted && !notify_seen {
                 out_lines.push(STOP_NOTIFY_LINE.to_owned());
                 inserted = true;
             }
@@ -192,6 +193,7 @@ pub fn sync_config_toml_stop_notify(config_path: &Path, enable_stop: bool) -> Re
             continue;
         }
         if in_top_level && is_top_level_notify_key(trimmed) {
+            notify_seen = true;
             // Capture the full value block (single-line or multi-line array).
             let mut block = vec![line];
             let mut depth = toml_bracket_delta(line);
@@ -200,14 +202,21 @@ pub fn sync_config_toml_stop_notify(config_path: &Path, enable_stop: bool) -> Re
                 block.push(lines[idx]);
                 depth += toml_bracket_delta(lines[idx]);
             }
-            let block_text = block.join("\n");
+            let managed = block.len() == 1 && block[0].trim() == STOP_NOTIFY_LINE;
             if enable_stop {
-                if !inserted {
-                    out_lines.push(STOP_NOTIFY_LINE.to_owned());
+                // `notify` is one argv vector, not a list of commands. Never
+                // replace a user's existing notifier with our own command.
+                if managed {
+                    out_lines.push(block[0].to_owned());
                     inserted = true;
+                } else {
+                    for b_line in block {
+                        out_lines.push(b_line.to_owned());
+                    }
                 }
-            } else if !block_text.contains("codex-ext") {
-                // Preserve non-codex-ext user notify command when disabling.
+            } else if !managed {
+                // Only remove the exact command owned by codex-ext. A mixed or
+                // user-authored command remains byte-for-byte intact.
                 for b_line in block {
                     out_lines.push(b_line.to_owned());
                 }
@@ -219,7 +228,7 @@ pub fn sync_config_toml_stop_notify(config_path: &Path, enable_stop: bool) -> Re
         idx += 1;
     }
 
-    if enable_stop && !inserted {
+    if enable_stop && !inserted && !notify_seen {
         out_lines.push(STOP_NOTIFY_LINE.to_owned());
     }
 
@@ -582,15 +591,17 @@ mod tests {
         assert!(after_off.contains("# user header\nmodel = \"gpt-5.4\"\n"));
         assert!(after_off.contains("[tui]\n# keep comment\nfullscreen = true\n"));
 
-        // Multiline existing notify array is cleanly replaced without leaving orphan lines
+        // Existing user notify argv must survive both enable and disable.
         let multi = "model = \"gpt-5.4\"\nnotify = [\n  \"old-tool\",\n  \"--arg\" # comment [ignored]\n]\n\n[tui]\nfullscreen = true\n";
         fs::write(&cfg, multi).unwrap();
         sync_config_toml_stop_notify(&cfg, true).unwrap();
         let after_multi = fs::read_to_string(&cfg).unwrap();
-        assert!(!after_multi.contains("old-tool"));
-        assert!(!after_multi.contains("--arg"));
-        assert!(after_multi.contains(STOP_NOTIFY_LINE));
-        assert!(after_multi.contains("[tui]\nfullscreen = true\n"));
+        assert!(
+            after_multi.contains("notify = [\n  \"old-tool\",\n  \"--arg\" # comment [ignored]\n]")
+        );
+        assert!(!after_multi.contains(STOP_NOTIFY_LINE));
+        sync_config_toml_stop_notify(&cfg, false).unwrap();
+        assert_eq!(fs::read_to_string(&cfg).unwrap(), after_multi);
 
         let _ = fs::remove_dir_all(&dir);
     }

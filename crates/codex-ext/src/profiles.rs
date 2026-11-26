@@ -135,6 +135,8 @@ pub fn resolve_profile(paths: &ExtPaths, name: &str) -> Result<ProfileTarget, St
         return Ok(ProfileTarget::Default);
     }
     validate_profile_name(name)?;
+    ensure_private_dir(&paths.manager_dir)?;
+    ensure_private_dir(&paths.profiles_dir)?;
     let profile_dir = paths.profiles_dir.join(name);
     let profile_home = profile_dir.join("home");
     let meta_path = profile_dir.join("profile.meta");
@@ -142,7 +144,11 @@ pub fn resolve_profile(paths: &ExtPaths, name: &str) -> Result<ProfileTarget, St
     for dir in [&profile_dir, &profile_home] {
         let meta = fs::symlink_metadata(dir)
             .map_err(|_| format!("profile '{name}' does not exist ({})", dir.display()))?;
-        if meta.file_type().is_symlink() || !meta.is_dir() || meta.uid() != uid {
+        if meta.file_type().is_symlink()
+            || !meta.is_dir()
+            || meta.uid() != uid
+            || meta.mode() & 0o077 != 0
+        {
             return Err(format!(
                 "unsafe or unowned profile directory: {}",
                 dir.display()
@@ -387,6 +393,7 @@ pub fn apply_profile_env(
 mod tests {
     use super::*;
     use crate::paths::now_millis;
+    use std::os::unix::fs::PermissionsExt;
 
     fn test_paths(prefix: &str) -> (PathBuf, ExtPaths) {
         let root =
@@ -424,6 +431,19 @@ mod tests {
         fs::create_dir_all(bad_dir.join("home")).unwrap();
         atomic_write_private(&bad_dir.join("profile.meta"), b"invalid-header\n", 0o600).unwrap();
         assert!(resolve_profile(&paths, "badmeta").is_err());
+
+        let bad_permissions = paths.profiles_dir.join("badpermissions");
+        fs::create_dir_all(bad_permissions.join("home")).unwrap();
+        atomic_write_private(
+            &bad_permissions.join("profile.meta"),
+            b"codex-manager-profile\n",
+            0o600,
+        )
+        .unwrap();
+        fs::set_permissions(&bad_permissions, fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(resolve_profile(&paths, "badpermissions").is_err());
+        fs::set_permissions(&bad_permissions, fs::Permissions::from_mode(0o700)).unwrap();
+        fs::remove_dir_all(&bad_permissions).unwrap();
 
         let work_meta = paths.profiles_dir.join("work/profile.meta");
         for metadata in [
