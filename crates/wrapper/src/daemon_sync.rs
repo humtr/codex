@@ -439,7 +439,7 @@ impl DaemonUpdate<'_> {
             || !selected.is_some_and(|path| {
                 path == selection.join("bin/codex") || path == selection.join("codex")
             })
-            || pid_field(&version, "pid") != Some(live.pid)
+            || pid_field(&version, "pid").is_some_and(|pid| pid != live.pid)
             || !live.unchanged()
         {
             return Err(
