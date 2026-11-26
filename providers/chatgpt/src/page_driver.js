@@ -124,7 +124,7 @@
         resolve = res;
         reject = rej;
       });
-      this.pipes.set(id, {
+      const pipeState = {
         chunks: [],
         bytes: 0,
         settled: false,
@@ -143,7 +143,11 @@
             reject(e);
           }
         },
-      });
+      };
+      // A stream may fail before the HTTP response metadata is delivered.
+      // Mark the rejection handled until fetch() attaches its Promise.race.
+      pipeState.done.catch(() => {});
+      this.pipes.set(id, pipeState);
       return id;
     }
 
@@ -174,9 +178,14 @@
           if (pipe) {
             if (method === "write") {
               const bytes = toUint8Array(args[0]);
-              if (bytes && pipe.bytes + bytes.byteLength <= MAX_RESPONSE_BYTES) {
-                pipe.chunks.push(bytes);
-                pipe.bytes += bytes.byteLength;
+              if (bytes) {
+                if (pipe.bytes + bytes.byteLength > MAX_RESPONSE_BYTES) {
+                  pipe.reject(new Error("response_too_large"));
+                  pipe.chunks = [];
+                } else {
+                  pipe.chunks.push(bytes);
+                  pipe.bytes += bytes.byteLength;
+                }
               }
             } else if (method === "close" || method === "abort") {
               pipe.resolve(decodeUtf8Chunks(pipe.chunks));
@@ -270,6 +279,8 @@
             const bodyExpr = respWire[1];
             const meta = respWire[2] || {};
             const status = meta.status == null ? 200 : Number(meta.status);
+            const headers = meta.headers || [];
+            const retry_after = extractRetryAfter(headers);
             let text = "";
             if (Array.isArray(bodyExpr) && bodyExpr[0] === "readable") {
               const pipeId = bodyExpr[1];
@@ -305,6 +316,8 @@
               status,
               json,
               text: truncate(text, 4096),
+              headers,
+              ...(retry_after ? { retry_after } : {}),
             };
           }
           if (respWire && typeof respWire.text === "function") {
@@ -348,6 +361,7 @@
           ok: false,
           status: 0,
           json: null,
+          error: err && err.message === "response_too_large" ? "response_too_large" : "app_host_fetch_failed",
           text: truncate(String(err && err.message ? err.message : err), 512),
         };
       } finally {
@@ -412,6 +426,11 @@
 
   function extractRetryAfter(source) {
     if (!source || typeof source !== "object") return null;
+    if (Array.isArray(source)) {
+      for (const pair of source) {
+        if (Array.isArray(pair) && String(pair[0]).toLowerCase() === "retry-after") return extractRetryAfter({ "retry-after": pair[1] });
+      }
+    }
     const raw =
       (typeof source.get === "function" ? source.get("retry-after") || source.get("Retry-After") : null) ||
       source["retry-after"] ||
@@ -1047,9 +1066,11 @@
     let account = null;
     let models = [];
     let backendError = null;
+    let retryAfter = null;
 
     if (!loginReq) {
       const me = await apiFetch("/me");
+      retryAfter = me.retry_after || null;
       if (me.ok && me.json) {
         authState = "authenticated";
         const orgs = me.json.orgs && Array.isArray(me.json.orgs.data) ? me.json.orgs.data : [];
@@ -1064,7 +1085,7 @@
       } else if (me.status === 401 || me.status === 403 || me.status === 432) {
         authState = "login_required";
       } else {
-        backendError = `backend_http_${me.status}: ${truncate(me.text, 200)}`;
+        backendError = `${me.error || `backend_http_${me.status}`}: ${truncate(me.text, 200)}`;
       }
 
       if (authState === "authenticated") {
@@ -1129,6 +1150,7 @@
       })),
       models,
       ...(backendError ? { backend_error: backendError } : {}),
+      ...(retryAfter ? { retry_after: retryAfter } : {}),
     };
   }
 
@@ -1140,7 +1162,7 @@
       `/conversations?offset=${offset}&limit=${limit}&order=updated&is_archived=${archived}`
     );
     if (!res.ok || !res.json) {
-      return { state: "error", error: `backend_http_${res.status}`, detail: res.text };
+      return { state: "error", error: res.error || `backend_http_${res.status}`, detail: res.text };
     }
     const items = Array.isArray(res.json.items) ? res.json.items : [];
     const total = Number(res.json.total || items.length);
@@ -1167,7 +1189,7 @@
     }
     const res = await apiFetch(`/conversation/${encodeURIComponent(chatId)}`);
     if (!res.ok || !res.json) {
-      return { state: "error", error: `backend_http_${res.status}`, detail: res.text };
+      return { state: "error", error: res.error || `backend_http_${res.status}`, detail: res.text };
     }
     let messages = extractLinearMessages(res.json);
     const userTurnCount = messages.filter((message) => message.role === "user").length;
@@ -1197,7 +1219,7 @@
       body: JSON.stringify({ title }),
     });
     if (!res.ok) {
-      return { state: "error", error: `backend_http_${res.status}`, detail: res.text };
+      return { state: "error", error: res.error || `backend_http_${res.status}`, detail: res.text };
     }
     return { state: "ok", chat_id, title };
   }
@@ -1207,7 +1229,7 @@
     const cursor = opts.cursor ? `&cursor=${encodeURIComponent(opts.cursor)}` : "";
     const res = await apiFetch(`/gizmos/snorlax/sidebar?conversations_per_gizmo=0${cursor}`);
     if (!res.ok || !res.json) {
-      return { state: "error", error: `backend_http_${res.status}`, detail: res.text };
+      return { state: "error", error: res.error || `backend_http_${res.status}`, detail: res.text };
     }
     const rawItems = Array.isArray(res.json.items) ? res.json.items : [];
     const projects = rawItems.slice(0, limit).map((item) => {
@@ -1231,7 +1253,7 @@
       `/gizmos/${encodeURIComponent(project_id)}/conversations?limit=${Math.max(1, Math.min(100, Number(opts.limit) || DEFAULT_LIMIT))}${cursor}`
     );
     if (!res.ok || !res.json) {
-      return { state: "error", error: `backend_http_${res.status}`, detail: res.text };
+      return { state: "error", error: res.error || `backend_http_${res.status}`, detail: res.text };
     }
     const items = Array.isArray(res.json.items) ? res.json.items : [];
     return {
@@ -1263,7 +1285,7 @@
       body: JSON.stringify(payload),
     });
     if (!res.ok || !res.json) {
-      return { state: "error", error: `backend_http_${res.status}`, detail: res.text };
+      return { state: "error", error: res.error || `backend_http_${res.status}`, detail: res.text };
     }
     if (res.json.error) {
       return {
@@ -2126,7 +2148,10 @@
       }
 
       if (msg.channel === "analysis") {
-        if (msg.author?.role !== "assistant" || (msg.recipient && msg.recipient !== "all")) return;
+        if (!canExposeReasoning(msg) || msg.author?.role !== "assistant" ||
+            msg.metadata?.summary_type === "raw_cot" ||
+            msg.metadata?.is_visually_hidden_reasoning_group ||
+            msg.metadata?.is_visually_hidden_from_conversation) return;
         const analysisText = extractRawPartsText(msg);
         if (analysisText && analysisText.trim()) {
           upsertTextItem(`analysis:${msgKey}`, "reasoning_summary", analysisText.trim(), msgCommitted, msgKey);

@@ -730,6 +730,8 @@ mod tests {
     async fn responses_sse_emits_monotonic_events_and_in_app_tool_callbacks() {
         let driver = MockDriver::new(json!({
             "state": "settled",
+            "chat_id": "conv-sse-tool",
+            "remote_head": "head-sse-tool",
             "assistant_text": "Checking files",
             "tool_calls": [{
                 "id": "call_shell_1",
@@ -1777,6 +1779,7 @@ wire_api = "responses"
         let reply = json!({
             "state": "settled",
             "chat_id": "conv-norm-1",
+            "remote_head": "head-norm-1",
             "account_id": "acct-norm",
             "items": settled_items,
             "assistant_text": "  Preserved spaces\n다음 줄 OK  ",

@@ -31,7 +31,7 @@ use std::pin::Pin;
 use std::sync::{Arc, Mutex, RwLock};
 use std::task::{Context, Poll};
 use std::time::Duration;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, Mutex as AsyncMutex};
 
 const MAX_RESPONSE_THREADS: usize = 256;
 const NATIVE_THREAD_SCHEMA_VERSION: u32 = 3;
@@ -97,6 +97,7 @@ pub struct ResponseThreadMap {
     store: Option<(PathBuf, File)>,
     active: Mutex<HashSet<String>>,
     projects: Mutex<ProjectCache>,
+    project_locks: AsyncMutex<HashMap<String, Arc<AsyncMutex<()>>>>,
 }
 
 /// Pure-Rust SHA-256 (FIPS 180-4) for zero-dependency prefix digest tracking across
@@ -196,12 +197,53 @@ fn matches_utility_prompt(text: &str) -> bool {
 /// Consolidation, Guardian/Auto-Review) that must not contend with the active
 /// session lease, burn Thinking-model quota, or clutter normal ChatGPT projects.
 fn is_background_utility_request(turn_meta: Option<&Value>, body: &Value) -> bool {
+    if turn_meta
+        .and_then(|meta| meta.get("request_kind"))
+        .and_then(Value::as_str)
+        .is_some_and(|kind| kind.trim().eq_ignore_ascii_case("turn"))
+    {
+        return false;
+    }
+    let mut prompt_text = body
+        .get("instructions")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    if let Some(items) = body.get("input").and_then(Value::as_array) {
+        for item in items.iter().rev().take(4) {
+            prompt_text.push_str(&extract_content_text(item.get("content")).to_ascii_lowercase());
+        }
+    }
+    if [
+        "context checkpoint compaction",
+        "handoff summary",
+        "compact the conversation",
+        "compaction",
+    ]
+    .iter()
+    .any(|needle| prompt_text.contains(needle))
+    {
+        return false;
+    }
     if let Some(meta) = turn_meta.and_then(Value::as_object) {
         if let Some(kind) = meta.get("request_kind").and_then(Value::as_str) {
             let kind = kind.trim().to_ascii_lowercase();
-            if !kind.is_empty() && kind != "turn" {
+            if kind == "turn" || kind.contains("compact") || kind.contains("handoff") {
+                return false;
+            }
+            if matches!(
+                kind.as_str(),
+                "title"
+                    | "title_generation"
+                    | "memory"
+                    | "memory_consolidation"
+                    | "guardian"
+                    | "auto_review"
+            ) {
                 return true;
             }
+            // Unknown request kinds are not sufficient evidence of a background utility.
+            return false;
         }
         for key in ["thread_source", "turn_trigger"] {
             if let Some(val) = meta.get(key).and_then(Value::as_str) {
@@ -217,22 +259,46 @@ fn is_background_utility_request(turn_meta: Option<&Value>, body: &Value) -> boo
             }
         }
     }
-    if let Some(inst) = body.get("instructions").and_then(Value::as_str) {
-        if matches_utility_prompt(inst) {
-            return true;
-        }
-    }
+    // Codex compaction/handoff prompts must never be sent to the utility model.
+    let mut texts = vec![body
+        .get("instructions")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_ascii_lowercase()];
     if let Some(items) = body.get("input").and_then(Value::as_array) {
-        // Check the last user/developer prompt (Codex 0.171.0 title_gen sends
-        // developer + AGENTS.md + title prompt = 3-4 items, sometimes with tools).
-        for item in items.iter().rev().take(4) {
-            let text = extract_content_text(item.get("content"));
-            if matches_utility_prompt(&text) {
-                return true;
-            }
-        }
+        texts.extend(
+            items
+                .iter()
+                .rev()
+                .take(4)
+                .map(|item| extract_content_text(item.get("content")).to_ascii_lowercase()),
+        );
     }
-    false
+    if texts.iter().any(|text| {
+        text.contains("context checkpoint compaction")
+            || text.contains("handoff summary")
+            || text.contains("compact the conversation")
+            || text.contains("compaction")
+    }) {
+        return false;
+    }
+    // Explicit utility templates are a narrow allowlist, never generic quoted text.
+    texts.iter().any(|text| {
+        text.trim_start()
+            .starts_with("generate a concise, single-line task title")
+            || text.trim_start().starts_with("generate a concise title")
+            || text.trim_start().starts_with("generate a short title")
+            || (text.contains("transcript title generation:")
+                && text.contains("generate a concise title"))
+            || text.contains("you are the transcript title generation agent")
+            || text
+                .trim_start()
+                .starts_with("you are the memory writing agent")
+            || text.trim_start().starts_with("memory consolidation:")
+            || text.contains("part of an agent memory system")
+            || text.contains("produce json with `rollout_summary` and `rollout_slug`")
+            || text.contains("consolidate the supplied rollout summaries into `memory_summary.md`")
+    })
 }
 
 /// Detect Codex's automatic machine-generated `role: "user"` preambles
@@ -554,7 +620,23 @@ impl ResponseThreadMap {
         if trimmed.is_empty() {
             return None;
         }
+        if trimmed.len() > 256 {
+            return None;
+        }
         let lower = trimmed.to_ascii_lowercase();
+        let name_lock = {
+            let mut locks = self.project_locks.lock().await;
+            locks.retain(|_, lock| Arc::strong_count(lock) > 1);
+            if !locks.contains_key(&lower) && locks.len() >= 256 {
+                return None;
+            }
+            Arc::clone(
+                locks
+                    .entry(lower.clone())
+                    .or_insert_with(|| Arc::new(AsyncMutex::new(()))),
+            )
+        };
+        let _name_guard = name_lock.lock().await;
         let needs_load = {
             let guard = self.projects.lock().ok()?;
             if let Some(id) = guard.by_lower_name.get(&lower) {
@@ -563,34 +645,34 @@ impl ResponseThreadMap {
             !guard.loaded
         };
         if needs_load {
-            if let Ok(res) = driver.list_projects(json!({ "limit": 100 })).await {
-                if res.get("state").and_then(Value::as_str) == Some("ok") {
-                    if let Ok(mut guard) = self.projects.lock() {
-                        if let Some(arr) = res.get("projects").and_then(Value::as_array) {
-                            for p in arr {
-                                let pid = p
-                                    .get("project_id")
-                                    .or_else(|| p.get("id"))
-                                    .and_then(Value::as_str)
-                                    .filter(|s| !s.is_empty());
-                                let pname = p
-                                    .get("name")
-                                    .or_else(|| p.get("title"))
-                                    .and_then(Value::as_str)
-                                    .map(str::trim)
-                                    .filter(|s| !s.is_empty());
-                                if let (Some(pid), Some(pname)) = (pid, pname) {
-                                    guard
-                                        .by_lower_name
-                                        .insert(pname.to_ascii_lowercase(), pid.to_owned());
-                                }
-                            }
-                        }
-                        guard.loaded = true;
-                        if let Some(id) = guard.by_lower_name.get(&lower) {
-                            return Some(id.clone());
+            let res = driver.list_projects(json!({ "limit": 100 })).await.ok()?;
+            if res.get("state").and_then(Value::as_str) != Some("ok") {
+                return None;
+            }
+            if let Ok(mut guard) = self.projects.lock() {
+                if let Some(arr) = res.get("projects").and_then(Value::as_array) {
+                    for project in arr {
+                        let pid = project
+                            .get("project_id")
+                            .or_else(|| project.get("id"))
+                            .and_then(Value::as_str)
+                            .filter(|id| !id.is_empty());
+                        let pname = project
+                            .get("name")
+                            .or_else(|| project.get("title"))
+                            .and_then(Value::as_str)
+                            .map(str::trim)
+                            .filter(|name| !name.is_empty());
+                        if let (Some(pid), Some(pname)) = (pid, pname) {
+                            guard
+                                .by_lower_name
+                                .insert(pname.to_ascii_lowercase(), pid.to_owned());
                         }
                     }
+                }
+                guard.loaded = true;
+                if let Some(id) = guard.by_lower_name.get(&lower) {
+                    return Some(id.clone());
                 }
             }
         }
@@ -668,13 +750,12 @@ impl ResponseThreadMap {
                     err.to_string(),
                 ));
             }
-            // Rename changes the visible map even if the directory sync fails.
-            *guard = next;
             File::open(path.parent().expect("state path has a parent"))
                 .and_then(|dir| dir.sync_all())
                 .map_err(|err| {
                     ProviderError::internal("response_thread_map_sync", err.to_string())
                 })?;
+            *guard = next;
         } else {
             *guard = next;
         }
@@ -947,6 +1028,7 @@ struct TurnAssembly {
     committed_commentaries: HashSet<String>,
     last_committed_commentary: Option<String>,
     turn_completed: bool,
+    lane_overflowed: bool,
 }
 
 impl TurnAssembly {
@@ -1037,6 +1119,9 @@ impl TurnAssembly {
     fn apply_event(&mut self, event: StreamEvent, all_sigs: &[Value]) {
         match event {
             StreamEvent::Activity => {}
+            StreamEvent::Overflow => {
+                self.lane_overflowed = true;
+            }
             StreamEvent::ItemUpsert {
                 item_id,
                 item_kind,
@@ -1071,6 +1156,12 @@ impl TurnAssembly {
     }
 
     fn reconcile_settled(&mut self, driver_res: &Value, all_sigs: &[Value]) -> Result<()> {
+        if self.lane_overflowed {
+            return Err(ProviderError::unavailable(
+                "cdp_lane_overflow",
+                "lane event queue exceeded its bounded capacity",
+            ));
+        }
         let state = driver_res.get("state").and_then(Value::as_str);
         if state == Some("error") {
             let code = driver_res
@@ -2802,10 +2893,20 @@ impl NativePlan {
         output: &Value,
         project_id: Option<String>,
     ) -> Result<()> {
+        let has_tool_calls = assembly
+            .items
+            .iter()
+            .any(|item| matches!(item.content, AssembledContent::ToolCall(_)));
         let Some(chat_id) = settled["chat_id"]
             .as_str()
             .filter(|s| !s.is_empty() && s.len() <= 256)
         else {
+            if has_tool_calls {
+                return Err(ProviderError::unavailable(
+                    "native_binding_not_durable",
+                    "tool calls cannot be exposed without a valid chat_id",
+                ));
+            }
             return Ok(());
         };
         let account_id = settled["account_id"]
@@ -2817,6 +2918,12 @@ impl NativePlan {
             .or_else(|| settled["message_id"].as_str())
             .filter(|s| !s.is_empty() && s.len() <= 256)
             .map(str::to_owned);
+        if has_tool_calls && remote_head.is_none() {
+            return Err(ProviderError::unavailable(
+                "native_binding_not_durable",
+                "tool calls cannot be exposed without a valid remote continuation head",
+            ));
+        }
         let mut pending_calls = Vec::new();
         for item in &assembly.items {
             if let AssembledContent::ToolCall(call) = &item.content {
@@ -3291,6 +3398,50 @@ mod thin_option_b_tests {
     }
 
     #[test]
+    fn native_tool_calls_require_durable_chat_and_remote_head() {
+        let (plan, settled, output, _) = fixture();
+        let map = ResponseThreadMap::default();
+        let mut assembly = TurnAssembly::default();
+        assembly
+            .reconcile_settled(&settled, &[json!({"type":"function","name":"fixture"})])
+            .unwrap();
+
+        let mut missing_chat = settled.clone();
+        missing_chat.as_object_mut().unwrap().remove("chat_id");
+        assert_eq!(
+            plan.commit(
+                &map,
+                Some("session:missing-chat"),
+                &missing_chat,
+                &assembly,
+                &output,
+                None
+            )
+            .unwrap_err()
+            .code,
+            "native_binding_not_durable"
+        );
+
+        let mut missing_head = settled.clone();
+        missing_head.as_object_mut().unwrap().remove("remote_head");
+        assert_eq!(
+            plan.commit(
+                &map,
+                Some("session:missing-head"),
+                &missing_head,
+                &assembly,
+                &output,
+                None
+            )
+            .unwrap_err()
+            .code,
+            "native_binding_not_durable"
+        );
+        assert!(map.get("session:missing-chat").is_none());
+        assert!(map.get("session:missing-head").is_none());
+    }
+
+    #[test]
     fn utility_detection_catches_codex_4item_title_gen_and_slims_payload() {
         let body = json!({
             "model": "gpt-5-6",
@@ -3327,6 +3478,24 @@ mod thin_option_b_tests {
             "input": [{"role": "developer", "content": "Consolidate the supplied rollout summaries into `memory_summary.md`."}]
         });
         assert!(is_background_utility_request(None, &mem_v2_consolidate));
+
+        let ordinary_turn = json!({
+            "request_kind": "turn",
+        });
+        let quoted_utility = json!({"input": "Please explain why the phrase transcript title generation appears in this log."});
+        assert!(!is_background_utility_request(
+            Some(&ordinary_turn),
+            &quoted_utility
+        ));
+        let compact_meta = json!({"request_kind": "context_compaction"});
+        let compact_prompt =
+            json!({"instructions": "CONTEXT CHECKPOINT COMPACTION: summarize state"});
+        assert!(!is_background_utility_request(
+            Some(&compact_meta),
+            &compact_prompt
+        ));
+        let handoff_prompt = json!({"input": "Create a handoff summary for the next agent."});
+        assert!(!is_background_utility_request(None, &handoff_prompt));
     }
 
     #[test]

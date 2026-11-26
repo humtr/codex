@@ -4,7 +4,7 @@
 //! Zero TCP debug listener, zero relay daemon.
 
 use crate::error::{ProviderError, Result};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::sync::{Arc, Mutex};
@@ -14,11 +14,15 @@ use tokio::sync::{mpsc, oneshot, Notify};
 
 const MAX_FRAME_BYTES: usize = 16 * 1024 * 1024;
 const MAX_PENDING_REQUESTS: usize = 128;
+const MAX_LANE_COMMITTED_EVENTS: usize = 4096;
+const MAX_LANE_COMMITTED_BYTES: usize = 8 * 1024 * 1024;
+const MAX_LANE_MUTABLE_IDS: usize = 256;
+const MAX_LANE_MUTABLE_BYTES: usize = 8 * 1024 * 1024;
 const DEFAULT_RPC_TIMEOUT: Duration = Duration::from_secs(30);
 
 pub const STREAM_BINDING: &str = "__termuxChatGptStream";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum StreamItemKind {
     ReasoningSummary,
@@ -26,10 +30,11 @@ pub enum StreamItemKind {
     Answer,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum StreamEvent {
     Activity,
+    Overflow,
     ItemUpsert {
         item_id: String,
         item_kind: StreamItemKind,
@@ -72,6 +77,9 @@ struct LaneQueue {
     committed: VecDeque<StreamEvent>,
     mutable_order: VecDeque<String>,
     mutable: HashMap<String, StreamEvent>,
+    committed_bytes: usize,
+    mutable_bytes: usize,
+    overflowed: bool,
     activity: bool,
     closed: bool,
 }
@@ -113,18 +121,50 @@ impl LaneSender {
         if q.closed {
             return false;
         }
+        if q.overflowed {
+            return false;
+        }
         match event {
             StreamEvent::Activity => {
                 q.activity = true;
+            }
+            StreamEvent::Overflow => {
+                q.overflowed = true;
+                q.closed = true;
             }
             StreamEvent::ItemUpsert {
                 ref item_id,
                 committed: false,
                 ..
             } => {
+                let event_bytes =
+                    serde_json::to_vec(&event).map_or(usize::MAX, |bytes| bytes.len());
+                let old_bytes = q
+                    .mutable
+                    .get(item_id)
+                    .and_then(|old| serde_json::to_vec(old).ok())
+                    .map_or(0, |bytes| bytes.len());
+                let next_bytes = q
+                    .mutable_bytes
+                    .saturating_sub(old_bytes)
+                    .saturating_add(event_bytes);
+                if (!q.mutable.contains_key(item_id) && q.mutable.len() >= MAX_LANE_MUTABLE_IDS)
+                    || next_bytes > MAX_LANE_MUTABLE_BYTES
+                {
+                    q.overflowed = true;
+                    q.closed = true;
+                    q.committed.push_back(StreamEvent::Overflow);
+                    q.mutable.clear();
+                    q.mutable_order.clear();
+                    q.mutable_bytes = 0;
+                    drop(q);
+                    self.shared.notify.notify_one();
+                    return false;
+                }
                 if !q.mutable.contains_key(item_id) {
                     q.mutable_order.push_back(item_id.clone());
                 }
+                q.mutable_bytes = next_bytes;
                 q.mutable.insert(item_id.clone(), event);
             }
             StreamEvent::ItemUpsert {
@@ -133,10 +173,41 @@ impl LaneSender {
                 ..
             }
             | StreamEvent::ItemRemove { ref item_id } => {
-                q.mutable.remove(item_id);
+                if let Some(old) = q.mutable.remove(item_id) {
+                    q.mutable_bytes = q
+                        .mutable_bytes
+                        .saturating_sub(serde_json::to_vec(&old).map_or(0, |bytes| bytes.len()));
+                }
+                q.mutable_order.retain(|id| id != item_id);
+                let event_bytes =
+                    serde_json::to_vec(&event).map_or(usize::MAX, |bytes| bytes.len());
+                if q.committed.len() >= MAX_LANE_COMMITTED_EVENTS
+                    || q.committed_bytes.saturating_add(event_bytes) > MAX_LANE_COMMITTED_BYTES
+                {
+                    q.overflowed = true;
+                    q.closed = true;
+                    q.committed.push_back(StreamEvent::Overflow);
+                    drop(q);
+                    self.shared.notify.notify_one();
+                    return false;
+                }
+                q.committed_bytes += event_bytes;
                 q.committed.push_back(event);
             }
             StreamEvent::ToolCall { .. } | StreamEvent::TurnCompleted { .. } => {
+                let event_bytes =
+                    serde_json::to_vec(&event).map_or(usize::MAX, |bytes| bytes.len());
+                if q.committed.len() >= MAX_LANE_COMMITTED_EVENTS
+                    || q.committed_bytes.saturating_add(event_bytes) > MAX_LANE_COMMITTED_BYTES
+                {
+                    q.overflowed = true;
+                    q.closed = true;
+                    q.committed.push_back(StreamEvent::Overflow);
+                    drop(q);
+                    self.shared.notify.notify_one();
+                    return false;
+                }
+                q.committed_bytes += event_bytes;
                 q.committed.push_back(event);
             }
         }
@@ -156,10 +227,16 @@ impl LaneSender {
 impl LaneReceiver {
     fn pop_locked(q: &mut LaneQueue) -> Option<StreamEvent> {
         if let Some(ev) = q.committed.pop_front() {
+            q.committed_bytes = q
+                .committed_bytes
+                .saturating_sub(serde_json::to_vec(&ev).map_or(0, |bytes| bytes.len()));
             return Some(ev);
         }
         while let Some(id) = q.mutable_order.pop_front() {
             if let Some(ev) = q.mutable.remove(&id) {
+                q.mutable_bytes = q
+                    .mutable_bytes
+                    .saturating_sub(serde_json::to_vec(&ev).map_or(0, |bytes| bytes.len()));
                 return Some(ev);
             }
         }
@@ -528,6 +605,30 @@ impl CdpClient {
 mod tests {
     use super::*;
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+
+    #[test]
+    fn lane_mailbox_bounds_mutable_ids_and_signals_overflow() {
+        let (tx, mut rx) = lane_channel();
+        for index in 0..MAX_LANE_MUTABLE_IDS {
+            assert!(tx.send_nonblocking(StreamEvent::ItemUpsert {
+                item_id: format!("mutable-{index}"),
+                item_kind: StreamItemKind::Commentary,
+                text: "x".to_owned(),
+                committed: false,
+            }));
+        }
+        assert!(!tx.send_nonblocking(StreamEvent::ItemUpsert {
+            item_id: "overflow".to_owned(),
+            item_kind: StreamItemKind::Commentary,
+            text: "x".to_owned(),
+            committed: false,
+        }));
+        assert!(matches!(rx.try_recv(), Ok(StreamEvent::Overflow)));
+        assert!(matches!(
+            rx.try_recv(),
+            Err(mpsc::error::TryRecvError::Disconnected)
+        ));
+    }
 
     #[tokio::test]
     async fn cdp_binding_routes_only_matching_session_and_lane() {

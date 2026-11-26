@@ -255,15 +255,29 @@ def generation_dir(install_root: Path, version: str) -> Path:
     return install_root / "generations" / validate_version(version)
 
 
-def is_valid_generation(gen_path: Path) -> bool:
+def is_valid_generation(gen_path: Path, expected_version: str | None = None) -> bool:
     rootfs = gen_path / "rootfs"
-    return (
-        gen_path.is_dir()
-        and not gen_path.is_symlink()
-        and (gen_path / "generation.json").is_file()
-        and (rootfs / "usr/bin/chatgpt").is_file()
-        and (rootfs / "usr/lib/chatgpt/resources/app.asar").is_file()
-    )
+    manifest_path = gen_path / "generation.json"
+    binary = rootfs / "usr/bin/chatgpt"
+    app_asar = rootfs / "usr/lib/chatgpt/resources/app.asar"
+    protected_dirs = [rootfs, rootfs / "usr", rootfs / "usr/bin", rootfs / "usr/lib",
+                      rootfs / "usr/lib/chatgpt", rootfs / "usr/lib/chatgpt/resources"]
+    try:
+        if (gen_path.parent.is_symlink() or not gen_path.parent.is_dir()
+                or gen_path.is_symlink() or not gen_path.is_dir() or manifest_path.is_symlink()
+                or not manifest_path.is_file() or any(path.is_symlink() or not path.is_dir() for path in protected_dirs)
+                or binary.is_symlink() or app_asar.is_symlink()
+                or not binary.is_file() or not app_asar.is_file()):
+            return False
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        return (manifest.get("schema") == "chatgpt-desktop-generation"
+                and manifest.get("version") == (expected_version or gen_path.name)
+                and manifest.get("installed_binary_sha256") == sha256_file(binary)
+                and manifest.get("installed_app_asar_sha256") == sha256_file(app_asar)
+                and re.fullmatch(r"[0-9a-f]{64}", str(manifest.get("deb_sha256", ""))) is not None
+                and isinstance(manifest.get("deb_bytes"), int) and manifest["deb_bytes"] > 0)
+    except (OSError, ValueError, TypeError):
+        return False
 
 
 def read_link_version(link: Path) -> str | None:
@@ -347,11 +361,23 @@ def install_viewer_assets(install_root: Path, source_dir: Path) -> dict[str, Any
                 dst_f = stage_dir / rel_root / fname
                 shutil.copyfile(src_f, dst_f)
                 os.chmod(dst_f, 0o600)
-        if viewer_dir.is_symlink():
-            viewer_dir.unlink()
-        elif viewer_dir.exists():
-            shutil.rmtree(viewer_dir)
-        os.replace(stage_dir, viewer_dir)
+        if not (stage_dir / "vnc.html").is_file() or (stage_dir / "vnc.html").is_symlink():
+            raise RuntimeError("staged viewer failed validation")
+        backup_dir = install_root / f".viewer.backup-{os.getpid()}-{secrets.token_hex(4)}"
+        had_viewer = viewer_dir.exists() or viewer_dir.is_symlink()
+        if had_viewer:
+            os.replace(viewer_dir, backup_dir)
+        try:
+            os.replace(stage_dir, viewer_dir)
+        except Exception:
+            if had_viewer and (backup_dir.exists() or backup_dir.is_symlink()):
+                os.replace(backup_dir, viewer_dir)
+            raise
+        if backup_dir.exists() or backup_dir.is_symlink():
+            if backup_dir.is_dir() and not backup_dir.is_symlink():
+                shutil.rmtree(backup_dir)
+            else:
+                backup_dir.unlink(missing_ok=True)
         return {
             "state": "ok",
             "viewer_dir": str(viewer_dir),
@@ -409,6 +435,8 @@ def provision_rootfs_generation(
     final_dir = generation_dir(install_root, ver)
     if is_valid_generation(final_dir):
         return final_dir
+    if final_dir.exists() or final_dir.is_symlink():
+        raise RuntimeError(f"generation '{ver}' already exists but failed integrity validation; refusing destructive replacement")
 
     gens_root = install_root / "generations"
     gens_root.mkdir(parents=True, mode=0o700, exist_ok=True)
@@ -487,6 +515,8 @@ def provision_rootfs_generation(
             "deb_url": deb_meta.get("url"),
             "deb_sha256": deb_meta["sha256"],
             "deb_bytes": deb_meta["size"],
+            "installed_binary_sha256": sha256_file(rootfs / "usr/bin/chatgpt"),
+            "installed_app_asar_sha256": sha256_file(rootfs / "usr/lib/chatgpt/resources/app.asar"),
             "inrelease_date": deb_meta.get("inrelease_date"),
             "keyring_fingerprint": deb_meta.get("keyring_fingerprint", PINNED_KEYRING_FINGERPRINT),
             "installed_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -495,12 +525,12 @@ def provision_rootfs_generation(
         meta_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
         os.chmod(meta_path, 0o600)
 
-        if not is_valid_generation(stage_dir):
+        if not is_valid_generation(stage_dir, ver):
             raise RuntimeError("installed generation failed validation (missing chatgpt binary or app.asar)")
 
-        if final_dir.exists():
-            shutil.rmtree(final_dir)
         os.replace(stage_dir, final_dir)
+        if not is_valid_generation(final_dir):
+            raise RuntimeError("installed generation failed post-install integrity verification")
         return final_dir
     except Exception:
         shutil.rmtree(stage_dir, ignore_errors=True)

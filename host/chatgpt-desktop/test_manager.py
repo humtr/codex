@@ -52,13 +52,17 @@ def make_fake_generation(root: Path, version: str, complete: bool = True) -> Pat
     gen = root / "generations" / version
     (gen / "rootfs/usr/bin").mkdir(parents=True, exist_ok=True)
     (gen / "rootfs/usr/lib/chatgpt/resources").mkdir(parents=True, exist_ok=True)
-    (gen / "generation.json").write_text(
-        json.dumps({"version": version, "deb_sha256": "0" * 64, "installed_at": "2026-11-22T00:00:00Z"}),
-        encoding="utf-8",
-    )
     if complete:
         (gen / "rootfs/usr/bin/chatgpt").write_bytes(b"#!/bin/sh\n")
         (gen / "rootfs/usr/lib/chatgpt/resources/app.asar").write_bytes(b"asar")
+    binary = gen / "rootfs/usr/bin/chatgpt"
+    app_asar = gen / "rootfs/usr/lib/chatgpt/resources/app.asar"
+    (gen / "generation.json").write_text(
+        json.dumps({"schema": "chatgpt-desktop-generation", "version": version,
+                    "deb_sha256": "0" * 64, "deb_bytes": 1,
+                    "installed_binary_sha256": manager.sha256_file(binary) if complete else "0" * 64,
+                    "installed_app_asar_sha256": manager.sha256_file(app_asar) if complete else "0" * 64,
+                    "installed_at": "2026-11-22T00:00:00Z"}), encoding="utf-8")
     return gen
 
 
@@ -115,6 +119,37 @@ class ChatGPTDesktopManagerTests(unittest.TestCase):
             self.assertEqual(st3["current"], "26.1007.21434")
             self.assertEqual(st3["previous"], "26.1117.41037")
             self.assertTrue(profile.is_dir())
+
+    def test_generation_integrity_detects_modified_payload(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            gen = make_fake_generation(Path(td), "26.1007.21434")
+            self.assertTrue(manager.is_valid_generation(gen))
+            (gen / "rootfs/usr/bin/chatgpt").write_bytes(b"tampered")
+            self.assertFalse(manager.is_valid_generation(gen))
+
+    def test_viewer_failed_replacement_restores_previous_install(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "install"
+            source = Path(td) / "source"
+            root.mkdir(); source.mkdir()
+            (root / "viewer").mkdir()
+            (root / "viewer/vnc.html").write_text("old")
+            (source / "vnc.html").write_text("new")
+            original_replace = manager.os.replace
+            calls = 0
+            def fail_stage_replace(src, dst):
+                nonlocal calls
+                calls += 1
+                if calls == 2:
+                    raise OSError("simulated atomic rename failure")
+                return original_replace(src, dst)
+            manager.os.replace = fail_stage_replace
+            try:
+                with self.assertRaises(OSError):
+                    manager.install_viewer_assets(root, source)
+            finally:
+                manager.os.replace = original_replace
+            self.assertEqual((root / "viewer/vnc.html").read_text(), "old")
 
 
 if __name__ == "__main__":

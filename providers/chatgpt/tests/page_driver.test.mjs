@@ -409,7 +409,7 @@ test("page_driver on app://- Electron origin uses connect-app-host Cap'n Web htt
               serverPort.postMessage(["pipe"]);
               const payload = new TextEncoder().encode(JSON.stringify(hit ? hit.body : { error: "not_found" }));
               const status = hit ? hit.status : 404;
-              const respMeta = status === 200 ? { headers: [] } : { status, headers: [] };
+              const respMeta = status === 200 ? { headers: hit?.headers || [] } : { status, headers: hit?.headers || [] };
               serverPort.postMessage([
                 "resolve",
                 impId,
@@ -456,6 +456,14 @@ test("page_driver on app://- Electron origin uses connect-app-host Cap'n Web htt
   const chats = await driver.listChats({ limit: 5 });
   assert.equal(chats.state, "ok");
   assert.equal(chats.chats[0].id, "c-el-1");
+
+  routes["GET /me"] = { status: 429, body: { error: "rate_limited" }, headers: [["Retry-After", "37"]] };
+  const limited = await driver.status();
+  assert.equal(limited.retry_after, "37");
+
+  routes["GET /me"] = { status: 200, body: "x".repeat(8 * 1024 * 1024 + 1) };
+  const oversized = await driver.status();
+  assert.match(oversized.backend_error || "", /response_too_large/);
 });
 
 test("page_driver tool-only turn does not leak stale text, observeChat reports async error, schema types/collisions/zero-arg & listProjects cursor work", async () => {
