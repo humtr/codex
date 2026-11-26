@@ -364,9 +364,18 @@ fn reconcile_append_log(
                 shared_out.write_all(to_append.as_bytes())?;
                 shared_out.sync_all()?;
             }
-            // Keep the detached source inode in place: upstream writers do not
-            // participate in our merge lock and may still hold this inode open.
-            // A later reconciliation can merge subsequent appends safely.
+            let final_meta = fs::symlink_metadata(&profile_file)?;
+            if final_meta.dev() != profile_meta_before.dev()
+                || final_meta.ino() != profile_meta_before.ino()
+                || final_meta.len() != profile_meta_before.len()
+                || final_meta.mtime() != profile_meta_before.mtime()
+                || final_meta.mtime_nsec() != profile_meta_before.mtime_nsec()
+            {
+                return Err(err_invalid(
+                    "profile log changed before rebinding symlink; retry after writer is idle",
+                ));
+            }
+            ensure_symlink_target(&profile_file, &shared_file)?;
             Ok(())
         }
         Ok(_) => Err(err_invalid(format!(
@@ -549,10 +558,12 @@ mod tests {
             fs::read_link(profile.join("config.toml")).unwrap(),
             fs::canonicalize(&shared).unwrap().join("config.toml")
         );
-        // Keep the detached profile inode until the upstream writer is known idle.
-        assert!(fs::symlink_metadata(profile.join("session_index.jsonl"))
-            .unwrap()
-            .is_file());
+        assert_eq!(
+            fs::read_link(profile.join("session_index.jsonl")).unwrap(),
+            fs::canonicalize(&shared)
+                .unwrap()
+                .join("session_index.jsonl")
+        );
         let merged = fs::read_to_string(shared.join("session_index.jsonl")).unwrap();
         assert!(merged.contains("\"id\":\"t1\""));
         assert!(merged.contains("\"id\":\"t2\""));
@@ -691,8 +702,10 @@ mod tests {
             fs::read_to_string(shared.join(name)).unwrap(),
             format!("{original}\n{renamed}\n")
         );
-        // The source is retained because an upstream writer may still hold its inode.
-        assert!(fs::symlink_metadata(profile.join(name)).unwrap().is_file());
+        assert_eq!(
+            fs::read_link(profile.join(name)).unwrap(),
+            shared.join(name)
+        );
         remove_temp_root(root);
     }
 
