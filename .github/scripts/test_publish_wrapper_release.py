@@ -284,13 +284,15 @@ class PublicationTests(unittest.TestCase):
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
+        pub = priv.with_suffix(".pub.pem")
+        pub.write_bytes(publish.release_sign.derive_public_key_pem("openssl", priv))
         fake = FakeGh(existing=False)
         output = StringIO()
         with redirect_stdout(output):
             publish.Publication(
                 REPO, TAG, SOURCE, self.dist,
                 dispatch=True, prerelease=False,
-                signing_key=priv, sequence=7, runner=fake,
+                signing_key=priv, public_key=pub, sequence=7, runner=fake,
             ).publish()
         self.assertIn("SHA256SUMS.sig", fake.assets)
         self.assertEqual(len(fake.assets), 5)
@@ -301,7 +303,7 @@ class PublicationTests(unittest.TestCase):
             publish.Publication(
                 REPO, TAG, SOURCE, self.dist,
                 dispatch=True, prerelease=False,
-                signing_key=priv, sequence=8, runner=bad_fake,
+                signing_key=priv, public_key=pub, sequence=8, runner=bad_fake,
             ).publish()
 
         # Publisher-side monotonic sequence guard rejects seq <= existing published seq (7)
@@ -309,7 +311,7 @@ class PublicationTests(unittest.TestCase):
             publish.Publication(
                 REPO, TAG, SOURCE, self.dist,
                 dispatch=True, prerelease=False,
-                signing_key=priv, sequence=7, runner=fake,
+                signing_key=priv, public_key=pub, sequence=7, runner=fake,
             ).publish()
 
         # Strictly newer sequence (8 > 7) against existing signed release succeeds
@@ -318,7 +320,7 @@ class PublicationTests(unittest.TestCase):
             publish.Publication(
                 REPO, TAG, SOURCE, self.dist,
                 dispatch=True, prerelease=False,
-                signing_key=priv, sequence=8, runner=fake,
+                signing_key=priv, public_key=pub, sequence=8, runner=fake,
             ).publish()
         self.assertRegex(output2.getvalue(), r"signed=True sequence=8 ")
 
@@ -339,10 +341,54 @@ class PublicationTests(unittest.TestCase):
             publish.Publication(
                 REPO, TAG, SOURCE, self.dist,
                 dispatch=True, prerelease=False,
-                signing_key=priv, sequence=9,
+                signing_key=priv, public_key=pub, sequence=9,
                 rotation_key=pub2, rotation_sig=rot_sig,
                 runner=fake,
             )
+
+    def test_existing_signed_guards_and_rotation(self):
+        import subprocess
+        def keypair(name):
+            priv = self.dist / (name + ".priv")
+            pub = self.dist / (name + ".pub")
+            subprocess.run(["openssl", "genpkey", "-algorithm", "ED25519", "-out", str(priv)], check=True, capture_output=True)
+            pub.write_bytes(publish.release_sign.derive_public_key_pem("openssl", priv))
+            return priv, pub
+        old, trusted = keypair("old")
+        new, replacement = keypair("new")
+        fake = FakeGh(existing=False)
+        def candidate(seq=1, **kwargs):
+            return publish.Publication(REPO, TAG, SOURCE, self.dist, signing_key=kwargs.pop("signing_key", old),
+                                       public_key=trusted, sequence=seq, runner=fake, **kwargs)
+        candidate().publish()
+        original = dict(fake.assets)
+        with self.assertRaisesRegex(publish.PublicationError, "downgrade"):
+            self.make(fake).publish()
+        for fault in ("missing", "tampered", "foreign"):
+            fake.assets = dict(original)
+            if fault == "missing":
+                del fake.assets["SHA256SUMS.sig"]
+            elif fault == "tampered":
+                fake.assets["SHA256SUMS"] = original["SHA256SUMS"].replace(b"sequence=1", b"sequence=9")
+            else:
+                publish.release_sign.sign_release(component="other", sequence=1, commit=SOURCE,
+                    dist=self.dist, files=[publish.ARCHIVE], private_key=old)
+                for name in ("SHA256SUMS", "SHA256SUMS.sig"):
+                    fake.assets[name] = (self.dist / name).read_bytes()
+            fake.calls.clear()
+            with self.assertRaises(publish.PublicationError):
+                candidate(2).publish()
+            self.assertFalse(any("upload" in call or "PATCH" in call for call in fake.calls))
+        fake.assets = original
+        with self.assertRaisesRegex(publish.PublicationError, "trusted public key"):
+            candidate(2, signing_key=new)
+        rot = self.dist / "rotation.sig"
+        rot.write_bytes(bytes(64))
+        with self.assertRaises(publish.PublicationError):
+            candidate(2, signing_key=new, rotation_key=replacement, rotation_sig=rot)
+        publish.release_sign.sign_key_rotation(old_private_key=old, new_public_key=replacement, output_sig=rot)
+        candidate(2, signing_key=new, rotation_key=replacement, rotation_sig=rot).publish()
+        candidate(3, signing_key=new, rotation_key=replacement, rotation_sig=rot).publish()
 
 
 if __name__ == "__main__":

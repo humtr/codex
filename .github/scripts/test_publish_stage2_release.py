@@ -40,7 +40,7 @@ class Stage2ReleasePublishTests(unittest.TestCase):
         subprocess.run(["openssl", "genpkey", "-algorithm", "ED25519", "-out", str(self.priv)], check=True, capture_output=True)
         subprocess.run(["openssl", "pkey", "-in", str(self.priv), "-pubout", "-out", str(self.pub)], check=True, capture_output=True)
         (self.dist / "comp.tar.gz").write_bytes(b"tarball-bytes")
-        (self.dist / "comp.tar.gz.sha256").write_text("deadbeef  comp.tar.gz\n")
+        (self.dist / "comp.tar.gz.sha256").write_text(f"{rs_mod.sha256_file(self.dist / 'comp.tar.gz')}  comp.tar.gz\n")
         self.sha_old = "a" * 40
         self.sha_new = "b" * 40
 
@@ -57,12 +57,12 @@ class Stage2ReleasePublishTests(unittest.TestCase):
             files=["other.tar.gz"],
             private_key=self.priv,
         )
-        other_sums = (prev_dir / "SHA256SUMS").read_bytes()
 
         def fake_gh(argv):
             if argv[:3] == ["gh", "release", "download"]:
                 d = Path(argv[argv.index("--dir") + 1])
-                (d / "SHA256SUMS").write_bytes(other_sums)
+                pat = argv[argv.index("--pattern") + 1]
+                (d / pat).write_bytes((prev_dir / pat).read_bytes())
                 return FakeProc(0)
             return FakeProc(0)
 
@@ -81,7 +81,7 @@ class Stage2ReleasePublishTests(unittest.TestCase):
             runner=fake_gh,
         )
         with self.assertRaisesRegex(pub_mod.Stage2PublicationError, "cross-component tag clobber"):
-            p.enforce_existing_release_guards({"assets": [{"name": "SHA256SUMS"}]})
+            p.enforce_existing_release_guards({"assets": [{"name": "SHA256SUMS"}, {"name": "SHA256SUMS.sig"}]})
 
         # Same component with non-increasing sequence must also fail closed
         p2 = pub_mod.Stage2Publisher(
@@ -98,8 +98,14 @@ class Stage2ReleasePublishTests(unittest.TestCase):
             public_key=self.pub,
             runner=fake_gh,
         )
-        with self.assertRaisesRegex(pub_mod.Stage2PublicationError, "must exceed published sequence 5"):
+        with self.assertRaisesRegex(pub_mod.Stage2PublicationError, "missing SHA256SUMS"):
             p2.enforce_existing_release_guards({"assets": [{"name": "SHA256SUMS"}]})
+        with self.assertRaisesRegex(pub_mod.Stage2PublicationError, "must exceed published sequence 5"):
+            p2.enforce_existing_release_guards({"assets": [{"name": "SHA256SUMS"}, {"name": "SHA256SUMS.sig"}]})
+
+        (prev_dir / "SHA256SUMS").write_bytes((prev_dir / "SHA256SUMS").read_bytes().replace(b"sequence=5", b"sequence=1"))
+        with self.assertRaisesRegex(pub_mod.Stage2PublicationError, "invalid"):
+            p2.enforce_existing_release_guards({"assets": [{"name": "SHA256SUMS"}, {"name": "SHA256SUMS.sig"}]})
 
     def test_existing_release_moves_lightweight_tag_and_verifies_readback(self):
         prev_dir = self.root / "prev-same"
@@ -113,13 +119,14 @@ class Stage2ReleasePublishTests(unittest.TestCase):
             files=["comp.tar.gz"],
             private_key=self.priv,
         )
-        old_sums = (prev_dir / "SHA256SUMS").read_bytes()
         tag_sha = {"sha": self.sha_old}
         uploaded = {}
+        fault = None
+        alternate = {}
 
         def fake_gh(argv):
             if argv[:2] == ["gh", "api"] and "releases/tags/" in argv[2]:
-                return FakeProc(0, json.dumps({"tag_name": "termux-chatgpt-mcp", "assets": [{"name": "SHA256SUMS"}]}))
+                return FakeProc(0, json.dumps({"tag_name": "termux-chatgpt-mcp", "assets": [{"name": name} for name in (uploaded or ("SHA256SUMS", "SHA256SUMS.sig"))]}))
             if argv[:2] == ["gh", "api"] and "git/ref/tags/" in argv[2]:
                 return FakeProc(0, json.dumps({"object": {"type": "commit", "sha": tag_sha["sha"]}}))
             if argv[:4] == ["gh", "api", "-X", "PATCH"]:
@@ -136,9 +143,14 @@ class Stage2ReleasePublishTests(unittest.TestCase):
                 pat = argv[argv.index("--pattern") + 1]
                 d = Path(argv[argv.index("--dir") + 1])
                 if uploaded:
-                    (d / pat).write_bytes(uploaded[pat])
+                    # Inject faults only into post-upload readback, not the
+                    # existing-release manifest used by the sequence guard.
+                    data = uploaded[pat]
+                    if d.name.startswith("stage2-readback-"):
+                        data = alternate.get(pat, data) + (b"bad" if fault == pat else b"")
+                    (d / pat).write_bytes(data)
                 else:
-                    (d / pat).write_bytes(old_sums)
+                    (d / pat).write_bytes((prev_dir / pat).read_bytes())
                 return FakeProc(0)
             return FakeProc(0)
 
@@ -156,9 +168,30 @@ class Stage2ReleasePublishTests(unittest.TestCase):
             public_key=self.pub,
             runner=fake_gh,
         )
+        checksum = self.dist / "comp.tar.gz.sha256"
+        valid = checksum.read_bytes()
+        checksum.write_bytes(b"bad")
+        with self.assertRaisesRegex(pub_mod.Stage2PublicationError, "checksum mismatch"):
+            p.publish()
+        checksum.write_bytes(valid)
         p.publish()
         self.assertEqual(tag_sha["sha"], self.sha_new)
         self.assertIn("SHA256SUMS.sig", uploaded)
+        p.sequence = 4
+        fault = "comp.tar.gz.sha256"
+        with self.assertRaisesRegex(pub_mod.Stage2PublicationError, "readback asset bytes differ"):
+            p.publish()
+        fault = None
+        p.sequence = 5
+        alt = self.root / "alternate"
+        alt.mkdir()
+        (alt / "comp.tar.gz").write_bytes(b"different valid archive")
+        rs_mod.sign_release(component=p.component, sequence=6, commit=self.sha_old,
+                            dist=alt, files=[p.tarball], private_key=self.priv)
+        alternate.update({name: (alt / name).read_bytes()
+                          for name in (p.tarball, "SHA256SUMS", "SHA256SUMS.sig")})
+        with self.assertRaisesRegex(pub_mod.Stage2PublicationError, "readback identity mismatch"):
+            p.publish()
 
 
 if __name__ == "__main__":

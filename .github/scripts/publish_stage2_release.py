@@ -122,10 +122,10 @@ class Stage2Publisher:
         raise Stage2PublicationError("annotated tag chain exceeded max depth")
 
     def enforce_existing_release_guards(self, existing: dict) -> None:
-        asset_names = {a.get("name") for a in existing.get("assets", [])}
-        if "SHA256SUMS" not in asset_names:
+        asset_names = [a.get("name") for a in existing.get("assets", [])]
+        if any(asset_names.count(name) != 1 for name in ("SHA256SUMS", "SHA256SUMS.sig")):
             raise Stage2PublicationError(
-                f"existing release '{self.tag}' is missing SHA256SUMS; refusing to clobber unverified release"
+                f"existing release '{self.tag}' is missing SHA256SUMS/signature or has duplicates; refusing to clobber unverified release"
             )
         with tempfile.TemporaryDirectory(prefix="stage2-prev-seq-") as tmp:
             self._run_gh(
@@ -142,8 +142,10 @@ class Stage2Publisher:
             sums_path = Path(tmp) / "SHA256SUMS"
             if not sums_path.is_file() or sums_path.is_symlink():
                 raise Stage2PublicationError("failed to read downloaded existing SHA256SUMS")
+            self._run_gh("release", "download", self.tag, "--repo", self.repo,
+                         "--pattern", "SHA256SUMS.sig", "--dir", tmp)
             try:
-                prev = release_sign.parse_sums(sums_path.read_bytes())
+                prev = release_sign.verify_manifest("openssl", self.public_key, Path(tmp))
             except release_sign.SigningError as exc:
                 raise Stage2PublicationError(
                     f"existing release SHA256SUMS is invalid: {exc}"
@@ -163,6 +165,11 @@ class Stage2Publisher:
         sha_path = self.dist / f"{self.tarball}.sha256"
         if not tar_path.is_file() or not sha_path.is_file():
             raise Stage2PublicationError(f"missing release artifacts in {self.dist}")
+
+        release_sign.validate_filename(self.tarball)
+        expected_checksum = f"{release_sign.sha256_file(tar_path)}  {self.tarball}\n".encode("ascii")
+        if release_sign.require_regular(sha_path, "archive checksum", 1024) != expected_checksum:
+            raise Stage2PublicationError("archive checksum mismatch")
 
         # 1. Sign and locally verify BEFORE touching GitHub.
         release_sign.sign_release(
@@ -186,6 +193,8 @@ class Stage2Publisher:
             str(self.dist / "SHA256SUMS"),
             str(self.dist / "SHA256SUMS.sig"),
         ]
+
+        expected = {Path(path).name: release_sign.sha256_file(Path(path)) for path in assets}
 
         # 2. Check existing release & tag ref fail-closed.
         existing = self._api_json(f"releases/tags/{self.tag}", allow_404=True)
@@ -254,7 +263,7 @@ class Stage2Publisher:
                 f"post-publish tag commit mismatch: expected {self.source_sha}, got {verified_ref}"
             )
         with tempfile.TemporaryDirectory(prefix="stage2-readback-") as rb:
-            for name in (self.tarball, "SHA256SUMS", "SHA256SUMS.sig"):
+            for name in expected:
                 self._run_gh(
                     "release",
                     "download",
@@ -266,12 +275,26 @@ class Stage2Publisher:
                     "--dir",
                     rb,
                 )
-            release_sign.verify_release(
+            observed = release_sign.verify_release(
                 component=self.component,
                 dist=Path(rb),
                 public_key=self.public_key,
                 min_sequence=self.sequence,
             )
+            if (observed["commit"] != self.source_sha or observed["sequence"] != self.sequence
+                    or observed["files"] != {self.tarball: expected[self.tarball]}):
+                raise Stage2PublicationError("signed readback identity mismatch")
+            for name, digest in expected.items():
+                if release_sign.sha256_file(Path(rb) / name) != digest:
+                    raise Stage2PublicationError(f"readback asset bytes differ: {name}")
+        release = self._api_json(f"releases/tags/{self.tag}")
+        if release.get("tag_name") != self.tag:
+            raise Stage2PublicationError("readback release tag mismatch")
+        names = [a.get("name") for a in release.get("assets", [])]
+        if len(names) != len(expected) or set(names) != set(expected):
+            raise Stage2PublicationError("readback asset set mismatch")
+        if self._resolve_tag_commit() != verified_ref:
+            raise Stage2PublicationError("tag changed during readback")
         print(
             f"STAGE2_RELEASE_VERIFIED component={self.component} tag={self.tag} "
             f"commit={self.source_sha} sequence={self.sequence}"

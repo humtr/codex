@@ -8,6 +8,8 @@ Shared by Wrapper (`codex`) and all independent Stage 2 components (`codex-ext`,
 import argparse
 import hashlib
 import json
+import os
+import stat
 from pathlib import Path
 import re
 import subprocess
@@ -100,9 +102,37 @@ def verify_ed25519_file(openssl: str, pubkey: Path, data_path: Path, sig_path: P
     )
 
 
+def check_output(path: Path) -> None:
+    try:
+        st = path.lstat()
+    except FileNotFoundError:
+        return
+    if not stat.S_ISREG(st.st_mode) or st.st_nlink != 1:
+        raise SigningError(f"unsafe output path: {path}")
+
+
+def atomic_write(path: Path, data: bytes) -> None:
+    check_output(path)
+    with tempfile.TemporaryDirectory(prefix=".sign-", dir=path.parent) as tmp:
+        staged = Path(tmp) / "output"
+        fd = os.open(staged, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+        with os.fdopen(fd, "wb") as out:
+            out.write(data)
+        check_output(path)
+        os.replace(staged, path)
+
+
+def verify_manifest(openssl: str, public_key: Path, dist: Path) -> dict:
+    sums = dist / "SHA256SUMS"
+    raw = require_regular(sums, "SHA256SUMS", MAX_SUMS_BYTES)
+    verify_ed25519_file(openssl, public_key, sums, dist / "SHA256SUMS.sig")
+    return parse_sums(raw)
+
+
 def sign_ed25519_file(openssl: str, privkey: Path, data_path: Path, sig_out: Path) -> None:
     require_regular(privkey, "private key", MAX_PUBKEY_BYTES)
-    run_openssl(
+    check_output(sig_out)
+    sig = run_openssl(
         openssl,
         [
             "pkeyutl",
@@ -112,14 +142,12 @@ def sign_ed25519_file(openssl: str, privkey: Path, data_path: Path, sig_out: Pat
             "-rawin",
             "-in",
             str(data_path),
-            "-out",
-            str(sig_out),
         ],
         "Ed25519 sign",
     )
-    sig = require_regular(sig_out, "generated signature", ED25519_SIG_BYTES)
     if len(sig) != ED25519_SIG_BYTES:
         raise SigningError(f"generated Ed25519 signature has unexpected length {len(sig)}")
+    atomic_write(sig_out, sig)
 
 
 def validate_filename(name: str) -> str:
@@ -232,22 +260,25 @@ def sign_release(
     sums_bytes = render_sums(component, sequence, commit, entries)
     sums_path = dist / "SHA256SUMS"
     sig_path = dist / "SHA256SUMS.sig"
-    sums_path.write_bytes(sums_bytes)
-    sign_ed25519_file(openssl, private_key, sums_path, sig_path)
-
-    # Immediately self-verify using derived public key.
-    pub_pem = derive_public_key_pem(openssl, private_key)
-    with tempfile.TemporaryDirectory(prefix="codex-sign-selfverify-") as tmp:
-        pub_path = Path(tmp) / "pub.pem"
-        pub_path.write_bytes(pub_pem)
-        verified = verify_release(
-            component=component,
-            dist=dist,
-            public_key=pub_path,
-            min_sequence=sequence,
-            expected_key_sha256=hashlib.sha256(pub_pem).hexdigest(),
-            openssl=openssl,
-        )
+    check_output(sums_path)
+    check_output(sig_path)
+    with tempfile.TemporaryDirectory(prefix=".release-sign-", dir=dist) as tmp:
+        staged = Path(tmp)
+        atomic_write(staged / "SHA256SUMS", sums_bytes)
+        sign_ed25519_file(openssl, private_key, staged / "SHA256SUMS", staged / "SHA256SUMS.sig")
+        pub_pem = derive_public_key_pem(openssl, private_key)
+        pub_path = staged / "pub.pem"
+        atomic_write(pub_path, pub_pem)
+        parsed = verify_manifest(openssl, pub_path, staged)
+        for name, digest in parsed["files"].items():
+            if sha256_file(dist / name) != digest:
+                raise SigningError(f"asset SHA-256 mismatch for {name}")
+        check_output(sums_path)
+        check_output(sig_path)
+        os.replace(staged / "SHA256SUMS", sums_path)
+        os.replace(staged / "SHA256SUMS.sig", sig_path)
+        verified = {**parsed, "rotated": False,
+                    "active_key_sha256": hashlib.sha256(pub_pem).hexdigest()}
     return verified
 
 

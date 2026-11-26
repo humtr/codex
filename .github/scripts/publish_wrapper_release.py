@@ -46,7 +46,8 @@ def sha256(path: Path) -> str:
 class Publication:
     def __init__(self, repo, tag, source, dist, dispatch=False, prerelease=False,
                  signing_key=None, sequence=None, rotation_key=None, rotation_sig=None,
-                 openssl="openssl", runner=subprocess.run):
+                 openssl="openssl", runner=subprocess.run, public_key=None,
+                 allow_unsigned_migration=False):
         if not REPO.fullmatch(repo) or not TAG.fullmatch(tag) or not HEX.fullmatch(source):
             raise PublicationError("invalid repository, tag, or exact 40-digit source SHA")
         self.repo, self.tag, self.source = repo, tag, source
@@ -54,6 +55,10 @@ class Publication:
         self.dispatch, self.prerelease = dispatch, prerelease
         self.runner = runner
         self.openssl = openssl
+        self.trusted_key = Path(public_key) if public_key is not None else (
+            Path(__file__).resolve().parents[2] / "release" / "release-public-key.pem"
+        )
+        self.allow_unsigned_migration = allow_unsigned_migration
         self.signed = signing_key is not None
         self.sequence = sequence
         self.has_rotation = rotation_key is not None
@@ -72,6 +77,9 @@ class Publication:
                     raise PublicationError(
                         "--rotation-key and --rotation-sig must be provided together"
                     )
+                trusted = release_sign.require_regular(self.trusted_key, "trusted public key", release_sign.MAX_PUBKEY_BYTES)
+                if rotation_key is None and trusted != self.public_key_pem:
+                    raise PublicationError("signing key does not match trusted public key")
                 if rotation_key is not None:
                     rot_k = release_sign.require_regular(
                         Path(rotation_key), "rotation public key", release_sign.MAX_PUBKEY_BYTES
@@ -87,8 +95,13 @@ class Publication:
                         raise PublicationError(
                             f"--rotation-sig must be {release_sign.ED25519_SIG_BYTES} bytes"
                         )
-                    (self.dist / "release-public-key.pem").write_bytes(rot_k)
-                    (self.dist / "release-public-key.pem.sig").write_bytes(rot_s)
+                    if trusted == rot_k:
+                        raise PublicationError("rotation requires the previous trusted public key")
+                    release_sign.verify_ed25519_file(self.openssl, self.trusted_key, Path(rotation_key), Path(rotation_sig))
+                    for name in ROTATION_ASSETS:
+                        release_sign.check_output(self.dist / name)
+                    release_sign.atomic_write(self.dist / ROTATION_ASSETS[0], rot_k)
+                    release_sign.atomic_write(self.dist / ROTATION_ASSETS[1], rot_s)
                     self.assets.extend(ROTATION_ASSETS)
                 release_sign.sign_release(
                     component="wrapper",
@@ -99,6 +112,9 @@ class Publication:
                     private_key=key_path,
                     openssl=self.openssl,
                 )
+                release_sign.verify_release(component="wrapper", dist=self.dist,
+                                            public_key=self.trusted_key, min_sequence=sequence,
+                                            openssl=self.openssl)
             except release_sign.SigningError as exc:
                 raise PublicationError(f"release signing failed: {exc}") from exc
             self.assets.extend(SIGNED_EXTRA_ASSETS)
@@ -222,15 +238,11 @@ class Publication:
                 if asset.get("size") != path.stat().st_size:
                     raise PublicationError(f"release API asset size mismatch: {name}")
             if self.signed:
-                pub_path = Path(tmp) / ".verify-pub.pem"
-                pub_path.write_bytes(self.public_key_pem)
                 try:
-                    # Verify readback signature directly against downloaded bytes.
-                    # If rotation assets were uploaded, verify SHA256SUMS.sig with the active key.
-                    sums_path = Path(tmp) / "SHA256SUMS"
-                    sig_path = Path(tmp) / "SHA256SUMS.sig"
-                    release_sign.verify_ed25519_file(self.openssl, pub_path, sums_path, sig_path)
-                    parsed = release_sign.parse_sums(sums_path.read_bytes())
+                    parsed = release_sign.verify_release(
+                        component="wrapper", dist=Path(tmp), public_key=self.trusted_key,
+                        min_sequence=self.sequence, openssl=self.openssl,
+                    )
                     if parsed["component"] != "wrapper" or parsed["sequence"] != self.sequence or parsed["commit"] != self.source:
                         raise PublicationError("signed readback metadata mismatch")
                     for fname, expected in parsed["files"].items():
@@ -246,26 +258,52 @@ class Publication:
         return target
 
     def enforce_monotonic_sequence(self, existing_release):
-        if not self.signed or existing_release is None:
+        if existing_release is None:
             return
-        existing_names = {asset.get("name") for asset in existing_release.get("assets", [])}
-        if "SHA256SUMS" not in existing_names or "SHA256SUMS.sig" not in existing_names:
+        names = [asset.get("name") for asset in existing_release.get("assets", [])]
+        if any(names.count(name) > 1 for name in ("SHA256SUMS", "SHA256SUMS.sig", *ROTATION_ASSETS)):
+            raise PublicationError("duplicate existing release security assets")
+        signed = "SHA256SUMS.sig" in names
+        rotated = any(name in names for name in ROTATION_ASSETS)
+        if ((signed and "SHA256SUMS" not in names)
+                or (rotated and (not signed or not all(name in names for name in ROTATION_ASSETS)))):
+            raise PublicationError("incomplete existing signed release")
+        if signed and not self.signed:
+            raise PublicationError("refusing signed release downgrade")
+        if rotated and not self.has_rotation:
+            raise PublicationError("existing rotation assets require reconciliation")
+        if not signed:
+            if "- Signature: Ed25519" in (existing_release.get("body") or ""):
+                raise PublicationError("existing release advertises a missing signature")
+            if any(name not in ASSETS for name in names):
+                raise PublicationError("unrecognized existing unsigned release assets")
+            if "SHA256SUMS" in names:
+                with tempfile.TemporaryDirectory(prefix="wrapper-legacy-") as tmp:
+                    self.command("release", "download", self.tag, "--repo", self.repo,
+                                 "--pattern", "SHA256SUMS", "--dir", tmp)
+                    raw = release_sign.require_regular(Path(tmp) / "SHA256SUMS", "existing manifest", release_sign.MAX_SUMS_BYTES)
+                    if raw.lstrip().startswith(b"#"):
+                        raise PublicationError("existing signed-format manifest lacks signature")
+            if self.signed and not self.allow_unsigned_migration:
+                raise PublicationError("unsigned migration requires explicit approval")
             return
         with tempfile.TemporaryDirectory(prefix="wrapper-release-prev-seq-") as tmp:
-            self.command(
-                "release", "download", self.tag, "--repo", self.repo,
-                "--pattern", "SHA256SUMS", "--dir", tmp,
-            )
-            prev_path = Path(tmp) / "SHA256SUMS"
-            if not prev_path.is_file() or prev_path.is_symlink():
-                raise PublicationError("cannot read existing SHA256SUMS for sequence check")
+            for name in ("SHA256SUMS", "SHA256SUMS.sig", *(ROTATION_ASSETS if rotated else ())):
+                self.command("release", "download", self.tag, "--repo", self.repo,
+                             "--pattern", name, "--dir", tmp)
             try:
-                prev = release_sign.parse_sums(prev_path.read_bytes())
+                active_key = self.trusted_key
+                if rotated:
+                    replacement = Path(tmp) / ROTATION_ASSETS[0]
+                    release_sign.require_regular(replacement, "rotation key", release_sign.MAX_PUBKEY_BYTES)
+                    release_sign.verify_ed25519_file(self.openssl, active_key, replacement, Path(tmp) / ROTATION_ASSETS[1])
+                    active_key = replacement
+                prev = release_sign.verify_manifest(self.openssl, active_key, Path(tmp))
             except release_sign.SigningError as exc:
-                raise PublicationError(
-                    f"existing signed SHA256SUMS is unreadable for sequence check: {exc}"
-                ) from exc
-            if prev["component"] == "wrapper" and self.sequence <= prev["sequence"]:
+                raise PublicationError(f"existing signed manifest verification failed: {exc}") from exc
+            if prev["component"] != "wrapper":
+                raise PublicationError("refusing cross-component tag clobber")
+            if self.sequence <= prev["sequence"]:
                 raise PublicationError(
                     f"signed sequence {self.sequence} must exceed existing published sequence {prev['sequence']}"
                 )
@@ -333,6 +371,8 @@ def main():
     parser.add_argument("--prerelease", action="store_true")
     parser.add_argument("--signing-key", default=None)
     parser.add_argument("--sequence", type=int, default=None)
+    parser.add_argument("--public-key", type=Path, default=None)
+    parser.add_argument("--allow-unsigned-migration", action="store_true")
     parser.add_argument("--rotation-key", default=None)
     parser.add_argument("--rotation-sig", default=None)
     parser.add_argument("--openssl", default="openssl")
@@ -350,8 +390,10 @@ def main():
             rotation_key=args.rotation_key,
             rotation_sig=args.rotation_sig,
             openssl=args.openssl,
+            public_key=args.public_key,
+            allow_unsigned_migration=args.allow_unsigned_migration,
         ).publish()
-    except (PublicationError, OSError, UnicodeError) as err:
+    except (PublicationError, release_sign.SigningError, OSError, UnicodeError) as err:
         parser.exit(1, f"wrapper release: {err}\n")
 
 

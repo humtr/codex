@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """Offline tests for universal Ed25519 SHA256SUMS.sig signing and verification."""
 import hashlib
+import os
+from types import SimpleNamespace
+from unittest.mock import patch
 import importlib.util
 from pathlib import Path
 import subprocess
@@ -153,6 +156,48 @@ class ReleaseSignTests(unittest.TestCase):
         )
         with self.assertRaises(rs.SigningError):
             rs.verify_release(component="wrapper", dist=self.dist, public_key=self.pub)
+
+    def test_unsafe_signature_outputs_do_not_modify_target(self):
+        target = self.root / "protected"
+        target.write_bytes(b"protected")
+        for name in ("SHA256SUMS", "SHA256SUMS.sig"):
+            output = self.dist / name
+            for kind in ("symlink", "dangling"):
+                with self.subTest(name=name, kind=kind):
+                    if output.exists() or output.is_symlink():
+                        output.unlink()
+                    output.symlink_to(target if kind == "symlink" else self.root / "absent")
+                    with self.assertRaises(rs.SigningError):
+                        self.sign()
+                    self.assertEqual(target.read_bytes(), b"protected")
+                    self.assertFalse((self.root / "absent").exists())
+                    output.unlink()
+
+    def test_hardlinked_output_metadata_rejected(self):
+        output = self.dist / "SHA256SUMS"
+        output.write_bytes(b"protected")
+        st = output.stat()
+        # Android/Termux prohibits creation of hardlinks. Exercise the rejection
+        # predicate with an explicit link-count fixture on that platform.
+        with patch.object(Path, "lstat", return_value=SimpleNamespace(st_mode=st.st_mode, st_nlink=2)):
+            with self.assertRaises(rs.SigningError):
+                rs.check_output(output)
+        self.assertEqual(output.read_bytes(), b"protected")
+        if hasattr(os, "link"):
+            alias = self.root / "alias"
+            os.link(output, alias)
+            with self.assertRaises(rs.SigningError):
+                self.sign()
+            self.assertEqual(alias.read_bytes(), b"protected")
+
+    def test_rotation_signature_symlink_rejected(self):
+        target = self.root / "protected"
+        target.write_bytes(b"protected")
+        output = self.root / "rotation.sig"
+        output.symlink_to(target)
+        with self.assertRaises(rs.SigningError):
+            rs.sign_key_rotation(old_private_key=self.priv, new_public_key=self.pub, output_sig=output)
+        self.assertEqual(target.read_bytes(), b"protected")
 
     def test_rejects_symlinked_assets(self):
         real = self.root / "real.sh"
