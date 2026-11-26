@@ -214,7 +214,7 @@ impl RuntimeFdSources {
     ) -> io::Result<Self> {
         let config = OpenOptions::new()
             .read(true)
-            .custom_flags(fs_util::O_NOFOLLOW | 0o200000)
+            .custom_flags(fs_util::O_NOFOLLOW | fs_util::O_DIRECTORY)
             .open(config_dir)?;
         Self::open_with_config_file(resolver_path, &config)
     }
@@ -255,7 +255,7 @@ impl RuntimeFdSources {
         };
         let temporary = OpenOptions::new()
             .read(true)
-            .custom_flags(fs_util::O_NOFOLLOW | 0o200000)
+            .custom_flags(fs_util::O_NOFOLLOW | fs_util::O_DIRECTORY)
             .open(std::env::temp_dir())?;
         if !temporary.metadata()?.is_dir() {
             return Err(io::Error::from_raw_os_error(20));

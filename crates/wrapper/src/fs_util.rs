@@ -13,6 +13,11 @@ use std::sync::atomic::AtomicU64;
 use std::time::{Duration, Instant};
 
 #[cfg(any(target_arch = "aarch64", target_arch = "arm"))]
+pub(super) const O_DIRECTORY: c_int = 0o40000;
+#[cfg(not(any(target_arch = "aarch64", target_arch = "arm")))]
+pub(super) const O_DIRECTORY: c_int = 0o200000;
+
+#[cfg(any(target_arch = "aarch64", target_arch = "arm"))]
 pub(super) const O_NOFOLLOW: c_int = 0o100000;
 #[cfg(not(any(target_arch = "aarch64", target_arch = "arm")))]
 pub(super) const O_NOFOLLOW: c_int = 0o400000;
