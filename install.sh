@@ -186,6 +186,11 @@ verify_ed25519_sig() {
     fail "Ed25519 signature verification failed for $(basename -- "$v_data")"
 }
 
+fetch_release_manifest() {
+  fetch_https "$1/SHA256SUMS" "$2/SHA256SUMS" "$MAX_SUMS_BYTES"
+  fetch_https "$1/SHA256SUMS.sig" "$2/SHA256SUMS.sig" "$ED25519_SIG_BYTES"
+}
+
 verify_component_sums_headers() {
   sums_file=$1
   expected_component=${2:-wrapper}
@@ -257,10 +262,14 @@ read_recorded_release_sequence() {
   printf '%s\n' "$rec"
 }
 
+require_release_sequence() {
+  [ "$1" -ge "$2" ] || fail "$3 sequence rollback rejected (got $1, installed $2)"
+}
+
 # Both install and recovery publish the same durable file records.
 publish_install_file() {
   install_sync "$1"
-  mv -f "$1" "$2"
+  mv -f "$1" "$2" || fail "cannot publish $2"
   install_sync "$(dirname -- "$2")"
 }
 
@@ -463,10 +472,6 @@ qualified_generation_status() {
     set -- "$@" --upstream-version "$upstream_version"
   fi
   "$dest_bin" wrapper status --verify "$@" --json >/dev/null 2>&1
-}
-
-qualified_active_generation() {
-  qualified_generation_status
 }
 
 # Recovery uses the candidate binding as evidence of the updater's activation.
@@ -721,13 +726,15 @@ validate_component_list() {
 
 while [ "$#" -gt 0 ]; do
   case $1 in
+    --prefix|--binary|--release|--repo|--verify-key|--key-sha256|--version|--components|--login-method)
+      require_value "$1" "${2:-}" ;;
+  esac
+  case $1 in
     --prefix)
-      require_value "$1" "${2:-}"
       prefix=$2
       shift 2
       ;;
     --binary)
-      require_value "$1" "${2:-}"
       [ -z "$source_mode" ] || fail 'specify at most one of --binary, --build, or --release'
       source_mode='binary'
       binary_path=$2
@@ -739,24 +746,20 @@ while [ "$#" -gt 0 ]; do
       shift
       ;;
     --release)
-      require_value "$1" "${2:-}"
       [ -z "$source_mode" ] || fail 'specify at most one of --binary, --build, or --release'
       source_mode='release'
       release_tag=$2
       shift 2
       ;;
     --repo)
-      require_value "$1" "${2:-}"
       repo=$2
       shift 2
       ;;
     --verify-key)
-      require_value "$1" "${2:-}"
       verify_key=$2
       shift 2
       ;;
     --key-sha256)
-      require_value "$1" "${2:-}"
       [ "${#2}" -eq 64 ] || fail '--key-sha256 must be 64 lowercase hex characters'
       case $2 in *[!0-9a-f]*) fail '--key-sha256 must be 64 lowercase hex characters' ;; esac
       key_sha256=$2
@@ -767,7 +770,6 @@ while [ "$#" -gt 0 ]; do
       shift
       ;;
     --version)
-      require_value "$1" "${2:-}"
       upstream_version=$2
       shift 2
       ;;
@@ -788,7 +790,6 @@ while [ "$#" -gt 0 ]; do
       shift
       ;;
     --components)
-      require_value "$1" "${2:-}"
       selected_components=$(validate_component_list "$2")
       shift 2
       ;;
@@ -810,7 +811,6 @@ while [ "$#" -gt 0 ]; do
       shift
       ;;
     --login-method)
-      require_value "$1" "${2:-}"
       case $2 in
         device|browser|api-key|skip) login_method=$2 ;;
         *) fail "--login-method must be one of: device, browser, api-key, skip (got $2)" ;;
@@ -980,37 +980,39 @@ if [ "$require_signed" -eq 1 ] && [ "$source_mode" != release ]; then
 fi
 
 component_verify_key_path=''
+default_key="$HOME/.local/lib/codex/wrapper/release-public-key.pem"
+
+select_release_verifier() {
+  [ -z "$verify_key" ] || return 0
+  if [ -e "$default_key" ] || [ -L "$default_key" ]; then
+    verify_key=$default_key
+  elif [ -n "$PINNED_RELEASE_PUBKEY_SHA256" ]; then
+    verify_key="$work/embedded-release-public-key.pem"
+    write_embedded_release_pubkey "$verify_key"
+    key_sha256=${key_sha256:-$PINNED_RELEASE_PUBKEY_SHA256}
+  fi
+}
+
+check_verifier_pin() {
+  require_regular_file "$1" 'verifier public key'
+  if [ -n "$key_sha256" ]; then
+    pin_actual=$(sha256_hex "$1")
+    [ "$pin_actual" = "$key_sha256" ] ||
+      fail "verifier public key SHA-256 mismatch (expected $key_sha256, got $pin_actual)"
+  fi
+}
 
 ensure_component_verify_key() {
-  if [ -n "$component_verify_key_path" ]; then
-    return 0
-  fi
-  c_key=''
+  [ -z "$component_verify_key_path" ] || return 0
   if [ -n "$verified_active_pubkey" ]; then
-    c_key=$verified_active_pubkey
-  elif [ -n "$verify_key" ]; then
-    c_key=$verify_key
+    require_regular_file "$verified_active_pubkey" 'component verifier public key'
+    component_verify_key_path=$verified_active_pubkey
   else
-    c_default="$HOME/.local/lib/codex/wrapper/release-public-key.pem"
-    if [ -e "$c_default" ] || [ -L "$c_default" ]; then
-      c_key=$c_default
-    elif [ -n "$PINNED_RELEASE_PUBKEY_SHA256" ]; then
-      c_key="$work/embedded-component-public-key.pem"
-      write_embedded_release_pubkey "$c_key"
-      if [ -z "$key_sha256" ]; then
-        key_sha256=$PINNED_RELEASE_PUBKEY_SHA256
-      fi
-    fi
+    select_release_verifier
+    [ -n "$verify_key" ] || fail 'signed component verification requires --verify-key or installed release-public-key.pem'
+    check_verifier_pin "$verify_key"
+    component_verify_key_path=$verify_key
   fi
-  [ -n "$c_key" ] ||
-    fail 'signed component verification requires --verify-key or installed release-public-key.pem'
-  require_regular_file "$c_key" 'component verifier public key'
-  if [ -n "$key_sha256" ] && [ -z "$verified_active_pubkey" ]; then
-    c_actual_sha=$(sha256_hex "$c_key")
-    [ "$c_actual_sha" = "$key_sha256" ] ||
-      fail "component verifier public key SHA-256 mismatch (expected $key_sha256, got $c_actual_sha)"
-  fi
-  component_verify_key_path=$c_key
 }
 
 publish_generation_link() (
@@ -1060,7 +1062,7 @@ component_specs() {
     termux-orch) c_path=mcp/termux-orch ;;
     *) fail "unsupported component: $c_tag" ;;
   esac
-  printf '%s:%s:%s:%s\n' "$c_path" "$c_tag" "$c_tag-aarch64-linux-android.tar.gz" "$c_version"
+  printf '%s:%s\n' "$c_path" "$c_version"
 }
 
 tunnel_client_updated=0
@@ -1141,8 +1143,7 @@ ensure_chatgpt_profile_config() {
   rm -f "$e_tmp"
   if "$e_bin" print-codex-profile --standalone --model gpt-6-2 > "$e_tmp" 2>/dev/null; then
     chmod 0600 "$e_tmp"
-    install_sync "$e_tmp"
-    mv -f "$e_tmp" "$e_cfg"
+    publish_install_file "$e_tmp" "$e_cfg"
     note "generated default $e_cfg"
   else
     rm -f "$e_tmp"
@@ -1248,11 +1249,9 @@ install_signed_component() {
   ic_tag=$1
   ic_spec=$(component_specs "$ic_tag")
   ic_comp=${ic_spec%%:*}
-  ic_rest=${ic_spec#*:}
-  ic_bin=${ic_rest%%:*}
-  ic_rest=${ic_rest#*:}
-  ic_asset=${ic_rest%%:*}
-  ic_default_ver=${ic_rest#*:}
+  ic_bin=$ic_tag
+  ic_asset="$ic_tag-aarch64-linux-android.tar.gz"
+  ic_default_ver=${ic_spec#*:}
 
   ensure_component_verify_key
   ic_openssl=$(find_tool openssl) || fail 'openssl is required for Ed25519 signed component verification'
@@ -1269,8 +1268,7 @@ install_signed_component() {
   ic_tb_sha="$ic_work/$ic_asset.sha256"
 
   note "downloading signed $ic_tag ($repo)"
-  fetch_https "$ic_url/SHA256SUMS" "$ic_sums" "$MAX_SUMS_BYTES"
-  fetch_https "$ic_url/SHA256SUMS.sig" "$ic_sig" "$ED25519_SIG_BYTES"
+  fetch_release_manifest "$ic_url" "$ic_work"
   verify_ed25519_sig "$ic_openssl" "$component_verify_key_path" "$ic_sums" "$ic_sig"
   ic_seq=$(verify_component_sums_headers "$ic_sums" "$ic_tag")
   ic_cmt=$(parse_signed_sums_commit "$ic_sums")
@@ -1279,9 +1277,7 @@ install_signed_component() {
   ic_seq_dir="$HOME/.local/share/codex/components"
   ic_seq_file="$ic_seq_dir/${ic_tag}.sequence"
   ic_prev_seq=$(read_recorded_release_sequence "$ic_seq_file")
-  if [ "$ic_seq" -lt "$ic_prev_seq" ]; then
-    fail "$ic_tag sequence rollback rejected (got $ic_seq, installed $ic_prev_seq)"
-  fi
+  require_release_sequence "$ic_seq" "$ic_prev_seq" "$ic_tag"
 
   fetch_https "$ic_url/$ic_asset" "$ic_tb" "$MAX_COMPONENT_TARBALL_BYTES"
   verify_sha256_file "$ic_tb" "$ic_sums" "$ic_asset"
@@ -1319,7 +1315,6 @@ install_signed_component() {
     tunnel_client_updated=1
   fi
 
-  ic_reinstall=1
   if [ -e "$ic_gen_dir" ] || [ -L "$ic_gen_dir" ]; then
     if ! { [ -d "$ic_gen_dir" ] && [ ! -L "$ic_gen_dir" ]; }; then
       fail "generation path is not a real directory: $ic_gen_dir"
@@ -1346,14 +1341,9 @@ install_signed_component() {
       fi
       cp "$component_verify_key_path" "$ic_key_tmp"
       chmod 0600 "$ic_key_tmp"
-      install_sync "$ic_key_tmp"
-      mv "$ic_key_tmp" "$ic_key" || fail "cannot backfill generation public key: $ic_gen_dir"
-      install_sync "$ic_gen_dir/signed"
+      publish_install_file "$ic_key_tmp" "$ic_key"
     fi
-    ic_reinstall=0
-  fi
-
-  if [ "$ic_reinstall" -eq 1 ]; then
+  else
     ic_stage="$ic_root/generations/.${ic_gen}.stage.$$"
     if [ -e "$ic_stage" ] || [ -L "$ic_stage" ]; then
       fail "generation staging collision: $ic_stage"
@@ -1368,9 +1358,7 @@ install_signed_component() {
     fi
     chmod 0700 "$ic_stage" "$ic_stage/bin" "$ic_stage/signed" "$ic_stage/bin/$ic_bin" "$ic_stage/$ic_bin"
     chmod 0600 "$ic_stage/signed/"*
-    if [ -f "$ic_stage/SHA256SUMS" ]; then
-      chmod 0600 "$ic_stage/SHA256SUMS"
-    fi
+    chmod 0600 "$ic_stage/SHA256SUMS"
     if [ -d "$ic_stage/scripts" ]; then
       chmod 0700 "$ic_stage/scripts"
       chmod 0755 "$ic_stage/scripts/"* 2>/dev/null || :
@@ -1468,20 +1456,18 @@ setup_codex_accounts() {
   tty_available || return 0
 
   printf '\n=== Codex Account Setup ===\n' > /dev/tty
+  sca_relogin=y
   if "$dest_bin" login status >/dev/tty 2>&1; then
     sca_relogin=$(tty_prompt 'Default account already configured. Re-authenticate default account? [y/N]: ' 'n')
-    case $sca_relogin in
-      y|Y|yes|YES)
-        printf 'Select login method:\n  1) Device Code (codex login --device-auth) [default]\n  2) Browser OAuth (codex login)\n  3) API Key (hidden input)\n  4) Skip\n' > /dev/tty
-        sca_choice=$(tty_prompt 'Choice [1]: ' '1')
-        perform_codex_login "$sca_choice"
-        ;;
-    esac
   else
-    printf 'Default account is not logged in. Select login method:\n  1) Device Code (codex login --device-auth) [default]\n  2) Browser OAuth (codex login)\n  3) API Key (hidden input)\n  4) Skip\n' > /dev/tty
-    sca_choice=$(tty_prompt 'Choice [1]: ' '1')
-    perform_codex_login "$sca_choice"
+    printf 'Default account is not logged in. ' > /dev/tty
   fi
+  case $sca_relogin in
+    y|Y|yes|YES)
+      printf 'Select login method:\n  1) Device Code (codex login --device-auth) [default]\n  2) Browser OAuth (codex login)\n  3) API Key (hidden input)\n  4) Skip\n' > /dev/tty
+      sca_choice=$(tty_prompt 'Choice [1]: ' '1')
+      perform_codex_login "$sca_choice" ;;
+  esac
 
   if [ -x "$dest_dir/cdx" ]; then
     printf '\nConfigured cdx profiles:\n' > /dev/tty
@@ -1586,19 +1572,12 @@ setup_tunnels() {
   [ -n "$st_api_key" ] || return 0
   mkdir -p "$st_dir"
   chmod 0700 "$st_dir"
-  for st_pair in \
-    'termux-shell:termux-shell-mcp:mcp/termux-shell:termux-shell-mcp:termux-shell-tunnel' \
-    'termux-codex:termux-codex-mcp:mcp/termux-codex:termux-codex-mcp:termux-codex-tunnel' \
-    'termux-chatgpt:termux-chatgpt-mcp:mcp/termux-chatgpt:termux-chatgpt-mcp:termux-chatgpt-tunnel' \
-    'termux-orch:termux-orch:mcp/termux-orch:termux-orch:termux-orch-tunnel'; do
-    st_n=${st_pair%%:*}
-    st_r=${st_pair#*:}
-    st_tag=${st_r%%:*}
-    st_r=${st_r#*:}
-    st_comp=${st_r%%:*}
-    st_r=${st_r#*:}
-    st_bin=${st_r%%:*}
-    st_svc=${st_r#*:}
+  for st_tag in termux-shell-mcp termux-codex-mcp termux-chatgpt-mcp termux-orch; do
+    st_n=${st_tag%-mcp}
+    st_spec=$(component_specs "$st_tag")
+    st_comp=${st_spec%%:*}
+    st_bin=$st_tag
+    st_svc="$st_n-tunnel"
     [ ! -f "$st_dir/${st_n}.yaml" ] || continue
     st_tid=$(tty_prompt "Tunnel ID for $st_n (e.g. tunnel_..., blank skips): " '')
     [ -n "$st_tid" ] || continue
@@ -1625,8 +1604,7 @@ mcp:
       command: "$HOME/.local/lib/codex/$st_comp/current/$st_bin"
 EOF
     chmod 0600 "$st_ytmp"
-    install_sync "$st_ytmp"
-    mv -f "$st_ytmp" "$st_yaml"
+    publish_install_file "$st_ytmp" "$st_yaml"
     if [ "$no_services" -eq 0 ] && [ -L "$HOME/.local/lib/codex/$st_comp/current" ]; then
       st_cur_ver=$(basename -- "$(readlink "$HOME/.local/lib/codex/$st_comp/current")")
       activate_component_service "$st_tag" "$st_comp" "$st_bin" "$HOME/.local/lib/codex/$st_comp" "$st_cur_ver" || :
@@ -1747,19 +1725,8 @@ case $source_mode in
     tarball="$work/$ASSET_NAME"
     tarball_sha="$work/$ASSET_NAME.sha256"
 
-    default_key="$HOME/.local/lib/codex/wrapper/release-public-key.pem"
     initial_key_sha=$(digest_or_none "$default_key")
-    if [ -z "$verify_key" ]; then
-      if [ -e "$default_key" ] || [ -L "$default_key" ]; then
-        verify_key=$default_key
-      elif [ -n "$PINNED_RELEASE_PUBKEY_SHA256" ]; then
-        verify_key="$work/embedded-release-public-key.pem"
-        write_embedded_release_pubkey "$verify_key"
-        if [ -z "$key_sha256" ]; then
-          key_sha256=$PINNED_RELEASE_PUBKEY_SHA256
-        fi
-      fi
-    fi
+    select_release_verifier
     if [ -n "$verify_key" ] || [ "$require_signed" -eq 1 ] || [ -n "$key_sha256" ]; then
       [ -n "$verify_key" ] ||
         fail 'signed release verification requested, but no --verify-key or installed release-public-key.pem was found'
@@ -1774,18 +1741,13 @@ case $source_mode in
       if [ "$key_size" -le 0 ] || [ "$key_size" -gt "$MAX_PUBKEY_BYTES" ]; then
         fail "verifier public key out of bounds: $verify_key"
       fi
-      if [ -n "$key_sha256" ]; then
-        actual_key_sha=$(sha256_hex "$verify_key")
-        [ "$actual_key_sha" = "$key_sha256" ] ||
-          fail "verifier public key SHA-256 mismatch (expected $key_sha256, got $actual_key_sha)"
-      fi
+      check_verifier_pin "$verify_key"
       openssl_bin=$(find_tool openssl) ||
         fail 'openssl is required for Ed25519 signed release verification'
       sums_file="$work/SHA256SUMS"
       sig_file="$work/SHA256SUMS.sig"
       note "downloading signed SHA256SUMS from tag $release_tag ($repo)"
-      fetch_https "$base_url/SHA256SUMS" "$sums_file" "$MAX_SUMS_BYTES"
-      fetch_https "$base_url/SHA256SUMS.sig" "$sig_file" "$ED25519_SIG_BYTES"
+      fetch_release_manifest "$base_url" "$work"
 
       active_key="$verify_key"
       rot_sig="$work/release-public-key.pem.sig"
@@ -1806,20 +1768,18 @@ case $source_mode in
       verify_ed25519_sig "$openssl_bin" "$active_key" "$sums_file" "$sig_file"
       seq_val=$(verify_component_sums_headers "$sums_file" wrapper)
       prev_seq=$(read_recorded_release_sequence "$HOME/.local/share/codex/wrapper/release-sequence")
-      if [ "$seq_val" -lt "$prev_seq" ]; then
-        fail "release sequence rollback rejected (got $seq_val, installed $prev_seq)"
-      fi
+      require_release_sequence "$seq_val" "$prev_seq" release
       verified_release_sequence=$seq_val
       verified_active_pubkey=$active_key
       note "verified Ed25519 release signature (sequence $seq_val)"
 
-      note "downloading $ASSET_NAME from tag $release_tag ($repo)"
-      fetch_https "$base_url/$ASSET_NAME" "$tarball" "$MAX_TARBALL_BYTES"
+    fi
+    note "downloading $ASSET_NAME from tag $release_tag ($repo)"
+    fetch_https "$base_url/$ASSET_NAME" "$tarball" "$MAX_TARBALL_BYTES"
+    if [ -n "$verified_release_sequence" ]; then
       verify_sha256_file "$tarball" "$sums_file" "$ASSET_NAME"
       note 'verified release archive SHA-256 against signed SHA256SUMS'
     else
-      note "downloading $ASSET_NAME from tag $release_tag ($repo)"
-      fetch_https "$base_url/$ASSET_NAME" "$tarball" "$MAX_TARBALL_BYTES"
       fetch_https "$base_url/$ASSET_NAME.sha256" "$tarball_sha" "$MAX_SHA256_BYTES"
       verify_sha256_file "$tarball" "$tarball_sha"
       note 'verified release archive SHA-256'
@@ -1935,7 +1895,7 @@ if [ "$skip_upstream" -eq 1 ]; then
   note "skipped upstream bootstrap (--skip-upstream); run '$dest_bin update --upstream' when ready"
 elif [ -x /system/bin/linker64 ]; then
   needs_update=1
-  if qualified_active_generation; then
+  if qualified_generation_status; then
     note 'retaining the qualified active upstream generation'
     needs_update=0
   elif [ -n "$upstream_version" ]; then
@@ -1979,7 +1939,7 @@ elif [ -x /system/bin/linker64 ]; then
     qualified_new_activation ||
       fail 'updater returned but active generation is not qualified against this Wrapper SHA-256'
   else
-    qualified_active_generation ||
+    qualified_generation_status ||
       fail 'retained active generation is no longer qualified'
   fi
   note "installation complete; try '$dest_bin doctor' or '$dest_bin wrapper status'"

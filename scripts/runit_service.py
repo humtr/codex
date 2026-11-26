@@ -237,9 +237,9 @@ def normalize_command(cmd: list[str] | str | None) -> list[str] | None:
     return tokens
 
 
-def command_failure(cmd: list[str], label: str, fallback: str | None = None) -> str | None:
+def command_failure(cmd: list[str], label: str, fallback: str | None = None, *, timeout: float = 10) -> str | None:
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
     except subprocess.TimeoutExpired:
         return f"{label} timed out"
     except OSError as err:
@@ -381,19 +381,11 @@ class ServiceSupervisor:
             return ver
         return None
 
-    def _selected_from_links(
-        self,
-        *,
-        current_link: Path,
-        previous_link: Path | None,
-        generations_dir: Path,
-        binary_name: str,
-        component: str,
-    ) -> dict:
+    def _selected_from_links(self, root: Path, binary_name: str, component: str) -> dict:
         return self._generation_info(
-            version=self._read_link_version(current_link),
-            previous=self._read_link_version(previous_link) if previous_link is not None else None,
-            generations_dir=generations_dir, binary_name=binary_name, component=component,
+            version=self._read_link_version(root / "current"),
+            previous=self._read_link_version(root / "previous"),
+            generations_dir=root / "generations", binary_name=binary_name, component=component,
         )
 
     def _generation_info(
@@ -494,13 +486,7 @@ class ServiceSupervisor:
         return info
 
     def selected_generation(self) -> dict:
-        return self._selected_from_links(
-            current_link=self.current_link,
-            previous_link=self.previous_link,
-            generations_dir=self.generations_dir,
-            binary_name=self.binary_name,
-            component=self.component,
-        )
+        return self._selected_from_links(self.comp_root, self.binary_name, self.component)
 
     def _component_generation(self, version: str) -> dict:
         return self._generation_info(
@@ -512,17 +498,8 @@ class ServiceSupervisor:
     def selected_runner_generation(self) -> dict | None:
         if not self.has_runner:
             return None
-        assert self.runner_current_link is not None
-        assert self.runner_generations_dir is not None
-        assert self.runner_binary is not None
-        assert self.runner_component is not None
-        return self._selected_from_links(
-            current_link=self.runner_current_link,
-            previous_link=self.runner_root / "previous" if self.runner_root else None,
-            generations_dir=self.runner_generations_dir,
-            binary_name=self.runner_binary,
-            component=self.runner_component,
-        )
+        assert self.runner_root is not None and self.runner_binary is not None and self.runner_component is not None
+        return self._selected_from_links(self.runner_root, self.runner_binary, self.runner_component)
 
     def _write_active_marker(
         self,
@@ -552,44 +529,25 @@ class ServiceSupervisor:
         return regular_file(self.service_dir / "run")
 
     def _inspect_running(self) -> dict:
-        if not self.is_enrolled():
-            return {"enrolled": False, "state": "not_enrolled", "pid": None, "exe": None, "start_ticks": None}
+        info = dict(enrolled=self.is_enrolled(), state="not_enrolled", pid=None, exe=None, start_ticks=None)
+        if not info["enrolled"]:
+            return info
         if self._proc_reader is not None:
             return self._proc_reader(self.service_dir)
         try:
             res = subprocess.run(
-                [self.sv_bin, "status", str(self.service_dir)],
-                capture_output=True,
-                text=True,
-                timeout=10,
+                [self.sv_bin, "status", str(self.service_dir)], capture_output=True, text=True, timeout=10,
             )
         except subprocess.TimeoutExpired:
-            return {
-                "enrolled": True,
-                "state": "error",
-                "pid": None,
-                "exe": None,
-                "start_ticks": None,
-                "raw": "sv status timed out",
-            }
+            return dict(info, state="error", raw="sv status timed out")
         line = (res.stdout or res.stderr).strip()
         # The logger has its own PID even when the service has stopped.
-        service_status = line.split("; ", 1)[0]
-        m = re.match(r"^(run|finish):\s+.*?\(pid\s+(\d+)\)", service_status)
-        if not m:
-            state = "stopped" if line.startswith("down:") else "error"
-            return {"enrolled": True, "state": state, "pid": None, "exe": None, "start_ticks": None, "raw": line}
-        sv_state, pid = m.group(1), int(m.group(2))
-        exe = proc_exe_path(pid)
-        ticks = proc_start_ticks(pid)
-        return {
-            "enrolled": True,
-            "state": "running" if sv_state == "run" else sv_state,
-            "pid": pid,
-            "exe": exe,
-            "start_ticks": ticks,
-            "raw": line,
-        }
+        match = re.match(r"^(run|finish):\s+.*?\(pid\s+(\d+)\)", line.split("; ", 1)[0])
+        if not match:
+            return dict(info, state="stopped" if line.startswith("down:") else "error", raw=line)
+        state, pid = match[1], int(match[2])
+        return dict(info, state="running" if state == "run" else state, pid=pid,
+                    exe=proc_exe_path(pid), start_ticks=proc_start_ticks(pid), raw=line)
 
     def _version_from_exe(
         self,
@@ -775,23 +733,12 @@ class ServiceSupervisor:
             if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", k):
                 raise SupervisionError(f"invalid env key: {k!r}")
             env_lines.append(f"export {k}={shlex.quote(v)}")
-        env_block = ("\n".join(env_lines) + "\n") if env_lines else ""
-        arg_str = " ".join(shlex.quote(a) for a in exec_args)
-        exec_line = f"exec {shlex.quote(str(stable_bin))}" + (f" {arg_str}" if arg_str else "")
-
-        run_script = (
-            "#!/bin/sh\n"
-            "set -eu\n"
-            "exec 2>&1\n"
-            f"{env_block}"
-            f"{exec_line}\n"
-        )
+        exec_line = "exec " + shlex.join([str(stable_bin), *exec_args])
+        run_script = "\n".join(["#!/bin/sh", "set -eu", "exec 2>&1", *env_lines, exec_line, ""])
         log_script = f"#!/bin/sh\nexec svlogd -tt {shlex.quote(str(log_out))}\n"
 
-        run_path = self.service_dir / "run"
-        log_run_path = log_dir / "run"
-        atomic_write_private(run_path, run_script, mode=0o700)
-        atomic_write_private(log_run_path, log_script, mode=0o700)
+        atomic_write_private(self.service_dir / "run", run_script, mode=0o700)
+        atomic_write_private(log_dir / "run", log_script, mode=0o700)
         return {"enrolled": True, "service_dir": str(self.service_dir), "stable_bin": str(stable_bin)}
 
     @contextmanager
@@ -847,14 +794,9 @@ class ServiceSupervisor:
                 continue
             if observation.get("state") != "running" or not observation.get("start_ticks"):
                 raise SupervisionError(f"cannot verify state of '{service.service_name}'")
-            if service.has_runner:
-                observed_runner = service._version_from_exe(
-                    observation.get("exe"), service.runner_generations_dir, service.runner_binary,
-                )
-                if observed_runner is None:
-                    raise SupervisionError(f"'{service.service_name}' is not running this runner")
-            elif service._version_from_exe(observation.get("exe")) is None:
-                raise SupervisionError(f"'{service.service_name}' is not running this component")
+            if service._version_from_exe(observation.get("exe"), service.runner_generations_dir, service.runner_binary) is None:
+                family = "runner" if service.has_runner else "component"
+                raise SupervisionError(f"'{service.service_name}' is not running this {family}")
             if service.has_runner:
                 observation["publishes_health_url"] = service._health_file_stamp() is not None
                 observation["component_children"] = service._child_exes_for(observation)
@@ -916,29 +858,28 @@ class ServiceSupervisor:
 
         # Stop before publishing. A stop failure must not change either link.
         stopping = []
+        quiesced = False
         try:
             for service, _ in running:
                 stopping.append(service)
                 service._stop_service(timeout=timeout)
-        except (SupervisionError, OSError) as err:
-            try:
-                for service in reversed(stopping):
-                    service._run_sv("up", timeout)
-            except (SupervisionError, OSError) as recovery:
-                raise SupervisionError(f"activation failed: {err}; recovery incomplete: {recovery}") from err
-            raise SupervisionError(f"activation stopped before changing selection: {err}") from err
-
-        try:
+            quiesced = True
             if selection_changed:
                 self._select(version, current)
             self._start_group(running, target_exe, runner, readiness, timeout)
         except (SupervisionError, OSError) as err:
             try:
-                self._restore_group(running, prior, prior_previous, runner, readiness, timeout)
-                if runner_changed:
-                    raise SupervisionError("shared runner selection changed; original runner not restored")
+                if quiesced:
+                    self._restore_group(running, prior, prior_previous, runner, readiness, timeout)
+                    if runner_changed:
+                        raise SupervisionError("shared runner selection changed; original runner not restored")
+                else:
+                    for service in reversed(stopping):
+                        service._run_sv("up", timeout)
             except (SupervisionError, OSError) as recovery:
                 raise SupervisionError(f"activation failed: {err}; recovery incomplete: {recovery}") from err
+            if not quiesced:
+                raise SupervisionError(f"activation stopped before changing selection: {err}") from err
             outcome = "rolled back" if prior != version else "original component restored"
             raise SupervisionError(f"activation of '{version}' failed ({outcome}): {err}") from err
 
@@ -1102,22 +1043,16 @@ class ServiceSupervisor:
                     time.sleep(0.1)
                     continue
                 remaining = max(0.2, min(5.0, deadline - time.monotonic()))
-                try:
-                    chk = readiness_cmd is None or subprocess.run(
-                        readiness_cmd,
-                        capture_output=True,
-                        text=True,
-                        timeout=remaining,
-                    ).returncode == 0
-                    if chk:
+                if readiness_cmd is None or command_failure(readiness_cmd, "readiness command", timeout=remaining) is None:
+                    try:
                         current = self._inspect_running()
-                        if all(cur[key] == current[key] for key in ("state", "pid", "start_ticks", "exe")):
-                            if selected_component is None or self._runner_matches_selected_component(
-                                running=current, selected=selected_component,
-                            )[0]:
-                                return cur
-                except (subprocess.TimeoutExpired, OSError):
-                    pass
+                        if (all(cur[key] == current[key] for key in ("state", "pid", "start_ticks", "exe"))
+                                and (selected_component is None or self._runner_matches_selected_component(
+                                    running=current, selected=selected_component,
+                                )[0])):
+                            return cur
+                    except (subprocess.TimeoutExpired, OSError):
+                        pass
             time.sleep(0.1)
         raise SupervisionError(
             f"timed out waiting for '{self.service_name}' to run verified image {expected_bin}"
