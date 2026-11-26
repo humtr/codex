@@ -484,9 +484,10 @@ verify_recovered_signed_state() {
   case $signed_key_sha in *[!0-9a-f]*) fail 'invalid signed key digest in install journal' ;; esac
   [ "$(read_recorded_release_sequence "$HOME/.local/share/codex/wrapper/release-sequence")" = "$signed_sequence" ] ||
     fail 'signed release sequence was not durably committed; preserving recovery journal'
-  [ -f "$HOME/.local/lib/codex/wrapper/release-public-key.pem" ] &&
-    [ "$(sha256_hex "$HOME/.local/lib/codex/wrapper/release-public-key.pem")" = "$signed_key_sha" ] ||
+  if ! { [ -f "$HOME/.local/lib/codex/wrapper/release-public-key.pem" ] &&
+         [ "$(sha256_hex "$HOME/.local/lib/codex/wrapper/release-public-key.pem")" = "$signed_key_sha" ]; }; then
     fail 'signed release key was not durably committed; preserving recovery journal'
+  fi
 }
 
 # Recovery is serialized separately so two stale-lock reclaimers cannot both
@@ -1284,7 +1285,9 @@ install_signed_component() {
 
   ic_reinstall=1
   if [ -e "$ic_gen_dir" ] || [ -L "$ic_gen_dir" ]; then
-    [ -d "$ic_gen_dir" ] && [ ! -L "$ic_gen_dir" ] || fail "generation path is not a real directory: $ic_gen_dir"
+    if ! { [ -d "$ic_gen_dir" ] && [ ! -L "$ic_gen_dir" ]; }; then
+      fail "generation path is not a real directory: $ic_gen_dir"
+    fi
     if ! { [ -d "$ic_gen_dir/signed" ] && [ ! -L "$ic_gen_dir/signed" ] &&
       [ -f "$ic_gen_dir/bin/$ic_bin" ] && [ ! -L "$ic_gen_dir/bin/$ic_bin" ] &&
       [ "$(sha256_hex "$ic_gen_dir/bin/$ic_bin")" = "$ic_new_bin_sha" ] &&
@@ -1301,8 +1304,9 @@ install_signed_component() {
         fail "immutable generation public key conflict; refusing to reuse $ic_gen_dir"
     else
       ic_key_tmp="$ic_gen_dir/signed/.release-public-key.pem.tmp.$$"
-      [ ! -e "$ic_key_tmp" ] && [ ! -L "$ic_key_tmp" ] ||
+      if [ -e "$ic_key_tmp" ] || [ -L "$ic_key_tmp" ]; then
         fail "generation public key staging collision: $ic_key_tmp"
+      fi
       cp "$component_verify_key_path" "$ic_key_tmp"
       chmod 0600 "$ic_key_tmp"
       install_sync "$ic_key_tmp"
@@ -1314,7 +1318,9 @@ install_signed_component() {
 
   if [ "$ic_reinstall" -eq 1 ]; then
     ic_stage="$ic_root/generations/.${ic_gen}.stage.$$"
-    [ ! -e "$ic_stage" ] && [ ! -L "$ic_stage" ] || fail "generation staging collision: $ic_stage"
+    if [ -e "$ic_stage" ] || [ -L "$ic_stage" ]; then
+      fail "generation staging collision: $ic_stage"
+    fi
     mkdir -p "$ic_stage/signed"
     cp -R "$ic_work/extract/." "$ic_stage/"
     cp "$ic_work/extract/bin/$ic_bin" "$ic_stage/$ic_bin"
