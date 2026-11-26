@@ -308,7 +308,38 @@ fn reconcile_append_log(
             )?;
 
             let shared_text = read_capped_text(&shared_file)?;
-            let profile_text = read_capped_text(&profile_file)?;
+            let profile_fd = OpenOptions::new()
+                .read(true)
+                .custom_flags(fs_util::O_NOFOLLOW | 0o4000)
+                .open(&profile_file)?;
+            let profile_meta_before = profile_fd.metadata()?;
+            if !profile_meta_before.is_file()
+                || profile_meta_before.uid() != expected_uid
+                || profile_meta_before.nlink() != 1
+            {
+                return Err(err_invalid(
+                    "detached profile log changed or is not a private regular file",
+                ));
+            }
+            let mut profile_bytes = Vec::new();
+            profile_fd
+                .try_clone()?
+                .take(MERGE_MAX_BYTES + 1)
+                .read_to_end(&mut profile_bytes)?;
+            if profile_bytes.len() as u64 > MERGE_MAX_BYTES {
+                return Err(err_invalid("profile log exceeds merge bound"));
+            }
+            let profile_meta_after = profile_fd.metadata()?;
+            if profile_meta_before.len() != profile_meta_after.len()
+                || profile_meta_before.mtime() != profile_meta_after.mtime()
+                || profile_meta_before.mtime_nsec() != profile_meta_after.mtime_nsec()
+            {
+                return Err(err_invalid(
+                    "profile log changed while being merged; retry after writer is idle",
+                ));
+            }
+            let profile_text = String::from_utf8(profile_bytes)
+                .map_err(|_| err_invalid("profile log is not UTF-8"))?;
             let mut seen: HashSet<&str> = shared_text.split_terminator('\n').collect();
             let mut to_append = String::new();
             for line in profile_text
@@ -333,7 +364,9 @@ fn reconcile_append_log(
                 shared_out.write_all(to_append.as_bytes())?;
                 shared_out.sync_all()?;
             }
-            ensure_symlink_target(&profile_file, &shared_file)?;
+            // Keep the detached source inode in place: upstream writers do not
+            // participate in our merge lock and may still hold this inode open.
+            // A later reconciliation can merge subsequent appends safely.
             Ok(())
         }
         Ok(_) => Err(err_invalid(format!(
@@ -516,12 +549,10 @@ mod tests {
             fs::read_link(profile.join("config.toml")).unwrap(),
             fs::canonicalize(&shared).unwrap().join("config.toml")
         );
-        assert_eq!(
-            fs::read_link(profile.join("session_index.jsonl")).unwrap(),
-            fs::canonicalize(&shared)
-                .unwrap()
-                .join("session_index.jsonl")
-        );
+        // Keep the detached profile inode until the upstream writer is known idle.
+        assert!(fs::symlink_metadata(profile.join("session_index.jsonl"))
+            .unwrap()
+            .is_file());
         let merged = fs::read_to_string(shared.join("session_index.jsonl")).unwrap();
         assert!(merged.contains("\"id\":\"t1\""));
         assert!(merged.contains("\"id\":\"t2\""));
@@ -660,10 +691,8 @@ mod tests {
             fs::read_to_string(shared.join(name)).unwrap(),
             format!("{original}\n{renamed}\n")
         );
-        assert_eq!(
-            fs::read_link(profile.join(name)).unwrap(),
-            shared.join(name)
-        );
+        // The source is retained because an upstream writer may still hold its inode.
+        assert!(fs::symlink_metadata(profile.join(name)).unwrap().is_file());
         remove_temp_root(root);
     }
 

@@ -4,6 +4,7 @@ use std::fs::{self, File, Metadata, OpenOptions};
 use std::io::{self, Read as _};
 use std::os::fd::AsRawFd as _;
 use std::os::raw::c_int;
+const O_NONBLOCK_LINUX: c_int = 0o4000;
 use std::os::unix::ffi::OsStrExt as _;
 use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::Path;
@@ -252,11 +253,19 @@ pub(super) fn read_bounded_regular_file(
     if !sym_meta.file_type().is_file() {
         return Err(not_regular);
     }
-    let file = File::open(path).map_err(|source| LocalProductError::Io { operation, source })?;
+    let file = OpenOptions::new()
+        .read(true)
+        .custom_flags(O_NOFOLLOW | O_NONBLOCK_LINUX)
+        .open(path)
+        .map_err(|source| LocalProductError::Io { operation, source })?;
     let file_meta = file
         .metadata()
         .map_err(|source| LocalProductError::Io { operation, source })?;
-    if file_meta.dev() != sym_meta.dev() || file_meta.ino() != sym_meta.ino() {
+    if !file_meta.is_file()
+        || file_meta.nlink() != 1
+        || file_meta.dev() != sym_meta.dev()
+        || file_meta.ino() != sym_meta.ino()
+    {
         return Err(not_regular);
     }
     let mut bytes = Vec::new();
@@ -327,10 +336,27 @@ fn copy_local_directory_tree_inner(
                 }
             })?;
         } else if meta.file_type().is_file() {
-            let mut reader = File::open(&src_child).map_err(|source| LocalProductError::Io {
-                operation: "open source file for copy",
+            let mut reader = OpenOptions::new()
+                .read(true)
+                .custom_flags(O_NOFOLLOW | O_NONBLOCK_LINUX)
+                .open(&src_child)
+                .map_err(|source| LocalProductError::Io {
+                    operation: "open source file for copy",
+                    source,
+                })?;
+            let opened = reader.metadata().map_err(|source| LocalProductError::Io {
+                operation: "verify opened source file",
                 source,
             })?;
+            if !opened.is_file()
+                || opened.nlink() != 1
+                || opened.dev() != meta.dev()
+                || opened.ino() != meta.ino()
+            {
+                return Err(LocalProductError::UnsafeSource(
+                    "generation source changed during copy",
+                ));
+            }
             let mut writer = OpenOptions::new()
                 .write(true)
                 .create_new(true)

@@ -82,6 +82,7 @@ impl Probe<'_> {
         let error_watch = stderr.try_clone().map_err(io_error)?;
         let mut command = Command::new(self.program);
         command.args(args);
+        proc_exec::isolate_process_group(&mut command);
         apply_child_env_plan_and_fence(&mut command, Some(&self.env));
         command
             .env("HOME", self.home)
@@ -117,7 +118,7 @@ impl Probe<'_> {
             None => Err(rejected("candidate runtime command timed out")),
         });
         if result.is_err() {
-            proc_exec::kill_and_wait(&mut child);
+            proc_exec::reap_process_group(&mut child);
         }
         result
     }

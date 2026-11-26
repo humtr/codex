@@ -60,17 +60,32 @@ pub(super) fn create_remote_output(path: &Path) -> Result<File, LocalProductErro
             })
         }
     }
-    OpenOptions::new()
+    let file = OpenOptions::new()
         .read(true)
         .write(true)
         .create(true)
-        .truncate(true)
+        .truncate(false)
         .mode(0o600)
+        .custom_flags(NOFOLLOW | proc_exec::O_NONBLOCK_LINUX)
         .open(path)
         .map_err(|source| LocalProductError::Io {
             operation: "create remote download output",
             source,
-        })
+        })?;
+    let meta = file.metadata().map_err(|source| LocalProductError::Io {
+        operation: "verify remote output",
+        source,
+    })?;
+    if !meta.is_file() || meta.nlink() != 1 || meta.uid() != unsafe { geteuid() } {
+        return Err(LocalProductError::UnsafeSource(
+            "remote output must be an owned, unlinked regular file",
+        ));
+    }
+    file.set_len(0).map_err(|source| LocalProductError::Io {
+        operation: "truncate remote output",
+        source,
+    })?;
+    Ok(file)
 }
 
 pub(super) fn copy_bounded_file_contents<R: io::Read, W: io::Write>(

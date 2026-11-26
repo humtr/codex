@@ -19,6 +19,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 const MAX_WS_FRAME_BYTES: usize = 16 * 1024 * 1024;
 const MAX_HTTP_HEADER_BYTES: usize = 16 * 1024;
+const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
 const WS_GUID: &[u8] = b"258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 const FD35_PREFIX: &str = "/proc/self/fd/35/";
 static NONCE_COUNTER: AtomicU64 = AtomicU64::new(1);
@@ -173,7 +174,7 @@ impl ThreadSummary {
         let status_type = status_obj
             .and_then(|s| s.get("type"))
             .and_then(Value::as_str)
-            .unwrap_or("unknown")
+            .ok_or_else(|| DaemonError::Protocol("thread object missing status.type".into()))?
             .to_owned();
         let active_flags = status_obj
             .and_then(|s| s.get("activeFlags"))
@@ -233,11 +234,45 @@ pub struct DaemonVersionInfo {
     pub app_server_version: Option<String>,
 }
 
+fn read_bounded_line<R: BufRead>(
+    reader: &mut R,
+    line: &mut String,
+    remaining: usize,
+) -> Result<usize> {
+    let mut bytes = Vec::with_capacity(remaining.min(256));
+    loop {
+        if bytes.len() >= remaining {
+            return Err(DaemonError::Handshake(
+                "HTTP upgrade headers exceed limit".into(),
+            ));
+        }
+        let available = reader.fill_buf()?;
+        if available.is_empty() {
+            return Ok(bytes.len());
+        }
+        let take = available
+            .iter()
+            .position(|b| *b == b'\n')
+            .map_or(available.len(), |i| i + 1)
+            .min(remaining - bytes.len());
+        let done = available[..take].contains(&b'\n');
+        bytes.extend_from_slice(&available[..take]);
+        reader.consume(take);
+        if done {
+            break;
+        }
+    }
+    *line = String::from_utf8(bytes)
+        .map_err(|_| DaemonError::Handshake("HTTP header is not UTF-8".into()))?;
+    Ok(line.len())
+}
+
 pub struct DaemonClient {
     reader: BufReader<UnixStream>,
     writer: UnixStream,
     next_id: u64,
     notifications: Vec<Value>,
+    poisoned: bool,
 }
 
 impl DaemonClient {
@@ -280,9 +315,19 @@ impl DaemonClient {
             writer,
             next_id: 1,
             notifications: Vec::new(),
+            poisoned: false,
         };
+        client
+            .reader
+            .get_ref()
+            .set_read_timeout(Some(timeout.min(HANDSHAKE_TIMEOUT)))?;
+        client
+            .writer
+            .set_write_timeout(Some(timeout.min(HANDSHAKE_TIMEOUT)))?;
         client.ws_handshake()?;
         client.initialize(client_name, client_version)?;
+        client.reader.get_ref().set_read_timeout(Some(timeout))?;
+        client.writer.set_write_timeout(Some(timeout))?;
         Ok(client)
     }
 
@@ -302,7 +347,7 @@ impl DaemonClient {
 
         let mut total = 0usize;
         let mut status_line = String::new();
-        let n = self.reader.read_line(&mut status_line)?;
+        let n = read_bounded_line(&mut self.reader, &mut status_line, MAX_HTTP_HEADER_BYTES)?;
         if n == 0 {
             return Err(DaemonError::Handshake(
                 "unexpected EOF during upgrade".to_owned(),
@@ -319,7 +364,11 @@ impl DaemonClient {
         let mut accept_header: Option<String> = None;
         loop {
             let mut line = String::new();
-            let n = self.reader.read_line(&mut line)?;
+            let n = read_bounded_line(
+                &mut self.reader,
+                &mut line,
+                MAX_HTTP_HEADER_BYTES.saturating_sub(total),
+            )?;
             if n == 0 {
                 return Err(DaemonError::Handshake(
                     "truncated HTTP upgrade headers".to_owned(),
@@ -369,16 +418,32 @@ impl DaemonClient {
     }
 
     pub fn notify(&mut self, method: &str, params: Value) -> Result<()> {
+        self.ensure_usable()?;
         let payload = serde_json::to_string(&json!({
             "jsonrpc": "2.0",
             "method": method,
             "params": params
         }))
         .map_err(|err| DaemonError::Protocol(err.to_string()))?;
-        self.write_ws_frame(0x1, payload.as_bytes())
+        let result = self.write_ws_frame(0x1, payload.as_bytes());
+        if result.is_err() {
+            self.poisoned = true;
+        }
+        result
+    }
+
+    fn ensure_usable(&self) -> Result<()> {
+        if self.poisoned {
+            Err(DaemonError::Protocol(
+                "daemon connection is unusable after a transport failure".into(),
+            ))
+        } else {
+            Ok(())
+        }
     }
 
     pub fn call(&mut self, method: &str, params: Value) -> Result<Value> {
+        self.ensure_usable()?;
         let id = self.next_id;
         self.next_id += 1;
         let payload = serde_json::to_string(&json!({
@@ -388,12 +453,28 @@ impl DaemonClient {
             "params": params
         }))
         .map_err(|err| DaemonError::Protocol(err.to_string()))?;
-        self.write_ws_frame(0x1, payload.as_bytes())?;
+        if let Err(err) = self.write_ws_frame(0x1, payload.as_bytes()) {
+            self.poisoned = true;
+            return Err(err);
+        }
 
         loop {
-            let text = self.read_ws_text()?;
-            let msg: Value = serde_json::from_str(&text)
-                .map_err(|err| DaemonError::Protocol(format!("invalid JSON-RPC frame: {err}")))?;
+            let text = match self.read_ws_text() {
+                Ok(text) => text,
+                Err(err) => {
+                    self.poisoned = true;
+                    return Err(err);
+                }
+            };
+            let msg: Value = match serde_json::from_str(&text) {
+                Ok(msg) => msg,
+                Err(err) => {
+                    self.poisoned = true;
+                    return Err(DaemonError::Protocol(format!(
+                        "invalid JSON-RPC frame: {err}"
+                    )));
+                }
+            };
             if let Some(msg_id) = msg.get("id").and_then(Value::as_u64) {
                 if msg_id == id {
                     if let Some(err) = msg.get("error") {
@@ -405,7 +486,10 @@ impl DaemonClient {
                             .to_owned();
                         return Err(DaemonError::Rpc { code, message });
                     }
-                    return Ok(msg.get("result").cloned().unwrap_or(Value::Null));
+                    return msg.get("result").cloned().ok_or_else(|| {
+                        self.poisoned = true;
+                        DaemonError::Protocol("JSON-RPC response missing result".into())
+                    });
                 }
             }
             if self.notifications.len() < 256 {
@@ -421,25 +505,42 @@ impl DaemonClient {
     pub fn loaded_threads(&mut self) -> Result<Vec<String>> {
         let mut all = Vec::new();
         let mut cursor: Option<String> = None;
-        for _ in 0..64 {
+        let mut seen_cursors = std::collections::HashSet::new();
+        for page in 0..64 {
             let params = match &cursor {
                 Some(c) => json!({ "cursor": c }),
                 None => json!({}),
             };
             let res = self.call("thread/loaded/list", params)?;
-            if let Some(arr) = res.get("data").and_then(Value::as_array) {
-                for item in arr {
-                    if let Some(id) = item.as_str() {
-                        all.push(id.to_owned());
-                    }
-                }
+            let arr = res.get("data").and_then(Value::as_array).ok_or_else(|| {
+                DaemonError::Protocol("thread/loaded/list missing data array".into())
+            })?;
+            for item in arr {
+                all.push(
+                    item.as_str()
+                        .ok_or_else(|| {
+                            DaemonError::Protocol("loaded thread id is not a string".into())
+                        })?
+                        .to_owned(),
+                );
             }
             cursor = res
                 .get("nextCursor")
                 .and_then(Value::as_str)
                 .filter(|s| !s.is_empty())
                 .map(ToOwned::to_owned);
-            if cursor.is_none() {
+            if let Some(next) = cursor.as_ref() {
+                if !seen_cursors.insert(next.clone()) {
+                    return Err(DaemonError::Protocol(
+                        "thread/loaded/list cursor repeated".into(),
+                    ));
+                }
+                if page == 63 {
+                    return Err(DaemonError::Protocol(
+                        "thread/loaded/list exceeded 64-page safety limit".into(),
+                    ));
+                }
+            } else {
                 break;
             }
         }
@@ -468,13 +569,12 @@ impl DaemonClient {
             params["cursor"] = Value::String(c.to_owned());
         }
         let res = self.call("thread/list", params)?;
-        let mut threads = Vec::new();
-        if let Some(arr) = res.get("data").and_then(Value::as_array) {
-            for item in arr {
-                if let Ok(summary) = ThreadSummary::from_thread_value(item) {
-                    threads.push(summary);
-                }
-            }
+        let arr = res.get("data").and_then(Value::as_array).ok_or_else(|| {
+            DaemonError::Protocol("thread/list response missing data array".into())
+        })?;
+        let mut threads = Vec::with_capacity(arr.len());
+        for item in arr {
+            threads.push(ThreadSummary::from_thread_value(item)?);
         }
         let next_cursor = res
             .get("nextCursor")
@@ -1079,5 +1179,32 @@ mod tests {
         drop(lock_file);
         assert!(!is_thread_writer_lock_held(&root, tid).unwrap());
         let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn transport_write_failure_poisons_client_and_prevents_reuse() {
+        let (client_stream, server_stream) = UnixStream::pair().unwrap();
+        server_stream.shutdown(std::net::Shutdown::Both).unwrap();
+        let writer = client_stream.try_clone().unwrap();
+        let mut client = DaemonClient {
+            reader: BufReader::new(client_stream),
+            writer,
+            next_id: 1,
+            notifications: Vec::new(),
+            poisoned: false,
+        };
+        assert!(client.call("mutating/request", json!({})).is_err());
+        assert!(client.poisoned);
+        let second = client.call("mutating/request", json!({})).unwrap_err();
+        assert!(matches!(second, DaemonError::Protocol(message) if message.contains("unusable")));
+    }
+
+    #[test]
+    fn thread_summary_rejects_missing_or_unknown_status_shape() {
+        assert!(ThreadSummary::from_thread_value(&json!({"id":"t"})).is_err());
+        assert!(ThreadSummary::from_thread_value(&json!({"id":"t","status":{"type":7}})).is_err());
+        assert!(
+            ThreadSummary::from_thread_value(&json!({"id":"t","status":{"type":"idle"}})).is_ok()
+        );
     }
 }

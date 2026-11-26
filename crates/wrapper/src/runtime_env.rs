@@ -21,6 +21,7 @@ pub const TEMP_ROOT_FD: c_int = 35;
 
 pub(super) const SAFE_MIN_FD: c_int = 64;
 const F_DUPFD_CLOEXEC: c_int = 1030;
+const O_NONBLOCK_LINUX: c_int = 0o4000;
 const F_SETFD: c_int = 2;
 const RESOLVER_SYNTHESIS_MAX_BYTES: usize = 64 * 1024;
 const RESOLVER_DEFAULT_OPTIONS: &[u8] = b"options timeout:2 attempts:10\n";
@@ -69,7 +70,11 @@ fn read_regular_file_if_exact_inode(
     path: &Path,
     limit: usize,
 ) -> io::Result<Option<(File, Vec<u8>)>> {
-    let mut ro = match File::open(path) {
+    let mut ro = match OpenOptions::new()
+        .read(true)
+        .custom_flags(fs_util::O_NOFOLLOW | O_NONBLOCK_LINUX)
+        .open(path)
+    {
         Ok(file) => file,
         Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(None),
         Err(err) => return Err(err),
@@ -81,6 +86,8 @@ fn read_regular_file_if_exact_inode(
         Err(err) => return Err(err),
     };
     if !sym_meta.file_type().is_file()
+        || ro_meta.nlink() != 1
+        || ro_meta.uid() != fs_util::current_uid()?
         || sym_meta.dev() != ro_meta.dev()
         || sym_meta.ino() != ro_meta.ino()
     {
@@ -119,50 +126,56 @@ pub(super) fn open_synthesized_resolver(bytes: &[u8], cache: bool) -> io::Result
                     return Ok(ro);
                 }
             }
-
-            if let Ok(existing_meta) = fs::symlink_metadata(&cache_path) {
-                if !existing_meta.file_type().is_file() {
-                    return Err(io::Error::other(
-                        "cached resolver path must be a regular non-symlink file",
-                    ));
-                }
-            }
-            let mut rw = OpenOptions::new()
+            let lock_path = state_dir.join(".resolv.conf.lock");
+            let lock = OpenOptions::new()
                 .read(true)
                 .write(true)
                 .create(true)
-                .truncate(false)
-                .mode(0o644)
-                .open(&cache_path)?;
-            let rw_meta = rw.metadata()?;
-            let sym_meta = fs::symlink_metadata(&cache_path)?;
-            if !sym_meta.file_type().is_file()
-                || sym_meta.dev() != rw_meta.dev()
-                || sym_meta.ino() != rw_meta.ino()
+                .mode(0o600)
+                .custom_flags(fs_util::O_NOFOLLOW | O_NONBLOCK_LINUX)
+                .open(&lock_path)?;
+            let lock_meta = lock.metadata()?;
+            if !lock_meta.is_file()
+                || lock_meta.nlink() != 1
+                || lock_meta.uid() != fs_util::current_uid()?
             {
-                return Err(io::Error::other("cached resolver file changed during open"));
+                return Err(io::Error::other("resolver cache lock is unsafe"));
             }
-            fs_util::flock_fd(&rw, fs_util::LOCK_EX)?;
-            let mut existing = Vec::new();
-            io::Read::by_ref(&mut rw)
-                .take(RESOLVER_SYNTHESIS_MAX_BYTES as u64 + 1)
-                .read_to_end(&mut existing)?;
-            if existing != synthesized {
-                // Rewrite in-place (never rename) so cached resolv.conf preserves its inode.
-                rw.seek(io::SeekFrom::Start(0))?;
-                rw.write_all(&synthesized)?;
-                rw.set_len(synthesized.len() as u64)?;
-                rw.sync_all()?;
+            fs_util::flock_with_timeout(
+                &lock,
+                fs_util::LOCK_EX,
+                std::time::Duration::from_secs(5),
+                "timed out locking resolver cache",
+            )?;
+            if let Some((mut ro, existing)) =
+                read_regular_file_if_exact_inode(&cache_path, RESOLVER_SYNTHESIS_MAX_BYTES)?
+            {
+                if existing == synthesized {
+                    ro.seek(io::SeekFrom::Start(0))?;
+                    return Ok(ro);
+                }
             }
-            let ro = File::open(&cache_path)?;
-            let ro_meta = ro.metadata()?;
-            if ro_meta.dev() != rw_meta.dev() || ro_meta.ino() != rw_meta.ino() {
-                return Err(io::Error::other(
-                    "cached resolver inode changed while syncing",
-                ));
+            let seq = RESOLVER_SYNTHESIS_COUNTER.fetch_add(1, Ordering::Relaxed);
+            let tmp_path = state_dir.join(format!(".resolv.conf.{}.{seq}.tmp", std::process::id()));
+            let mut tmp = OpenOptions::new()
+                .read(true)
+                .write(true)
+                .create_new(true)
+                .mode(0o600)
+                .custom_flags(fs_util::O_NOFOLLOW | O_NONBLOCK_LINUX)
+                .open(&tmp_path)?;
+            let result = (|| -> io::Result<File> {
+                tmp.write_all(&synthesized)?;
+                tmp.sync_all()?;
+                tmp.seek(io::SeekFrom::Start(0))?;
+                fs::rename(&tmp_path, &cache_path)?;
+                fs_util::sync_directory(&state_dir)?;
+                Ok(tmp)
+            })();
+            if result.is_err() {
+                let _ = fs::remove_file(&tmp_path);
             }
-            drop(rw);
-            return Ok(ro);
+            return result;
         }
     }
 
@@ -199,7 +212,10 @@ impl RuntimeFdSources {
         resolver_path: R,
         config_dir: C,
     ) -> io::Result<Self> {
-        let config = File::open(config_dir)?;
+        let config = OpenOptions::new()
+            .read(true)
+            .custom_flags(fs_util::O_NOFOLLOW | 0o200000)
+            .open(config_dir)?;
         Self::open_with_config_file(resolver_path, &config)
     }
 
@@ -218,8 +234,11 @@ impl RuntimeFdSources {
         if !config.metadata()?.is_dir() {
             return Err(io::Error::from_raw_os_error(20));
         }
-        let mut source_resolver = File::open(resolver_path)?;
-        if source_resolver.metadata()?.is_dir() {
+        let mut source_resolver = OpenOptions::new()
+            .read(true)
+            .custom_flags(fs_util::O_NOFOLLOW | O_NONBLOCK_LINUX)
+            .open(resolver_path)?;
+        if !source_resolver.metadata()?.is_file() {
             return Err(io::Error::from_raw_os_error(21));
         }
         let mut resolver_bytes = Vec::new();
@@ -234,7 +253,10 @@ impl RuntimeFdSources {
             source_resolver.seek(io::SeekFrom::Start(0))?;
             source_resolver
         };
-        let temporary = File::open(std::env::temp_dir())?;
+        let temporary = OpenOptions::new()
+            .read(true)
+            .custom_flags(fs_util::O_NOFOLLOW | 0o200000)
+            .open(std::env::temp_dir())?;
         if !temporary.metadata()?.is_dir() {
             return Err(io::Error::from_raw_os_error(20));
         }
@@ -251,9 +273,15 @@ impl RuntimeFdSources {
         let resolver_fd = self.resolver.as_raw_fd();
         let config_fd = self.config_dir.as_raw_fd();
         let temp_fd = self.temporary_root.as_raw_fd();
+        let keepalive = (
+            dup_above_safe_min(self.resolver.as_raw_fd()).expect("duplicate resolver fd"),
+            dup_above_safe_min(self.config_dir.as_raw_fd()).expect("duplicate config fd"),
+            dup_above_safe_min(self.temporary_root.as_raw_fd()).expect("duplicate temp fd"),
+        );
         // SAFETY: install_fd only calls async-signal-safe dup2/fcntl in the post-fork child.
         unsafe {
             command.pre_exec(move || {
+                let _keepalive = &keepalive;
                 fn install_fd(src: c_int, dst: c_int) -> io::Result<()> {
                     let rc = if src == dst {
                         unsafe { fcntl(dst, F_SETFD, 0) }
@@ -718,7 +746,15 @@ mod tests {
         drop(f2);
 
         let f3 = open_synthesized_resolver(b"nameserver 1.1.1.1\n", true).unwrap();
-        assert_eq!(f3.metadata().unwrap().ino(), ino1);
+        assert_ne!(f3.metadata().unwrap().ino(), ino1);
+        let mut old_snapshot = String::new();
+        let old_fd = OpenOptions::new()
+            .read(true)
+            .custom_flags(fs_util::O_NOFOLLOW | O_NONBLOCK_LINUX)
+            .open(root.join(".local/share/codex/wrapper/resolv.conf"))
+            .unwrap();
+        Read::read_to_string(&mut &old_fd, &mut old_snapshot).unwrap();
+        assert!(old_snapshot.contains("nameserver 1.1.1.1"));
         let mut s3 = String::new();
         Read::read_to_string(&mut &f3, &mut s3).unwrap();
         assert_eq!(s3, "nameserver 1.1.1.1\noptions timeout:2 attempts:10\n");

@@ -46,10 +46,28 @@ pub(super) fn wait_for_exit<E>(
 ) -> Result<Option<ExitStatus>, E> {
     let deadline = Instant::now() + timeout;
     loop {
-        let status = child.try_wait().map_err(&io_error)?;
+        // Inspect procfs rather than Child::try_wait: try_wait reaps the group
+        // leader, allowing its numeric PID/PGID to be reused before descendants
+        // are terminated. A zombie leader pins that identity until cleanup.
+        let state = std::fs::read_to_string(format!("/proc/{}/stat", child.id()))
+            .ok()
+            .and_then(|stat| {
+                stat.rsplit_once(')')?
+                    .1
+                    .split_whitespace()
+                    .next()
+                    .map(str::to_owned)
+            });
         check()?;
-        if status.is_some() || Instant::now() >= deadline {
-            return Ok(status);
+        if state.as_deref() == Some("Z") {
+            reap_process_group(child);
+            return child.try_wait().map_err(&io_error);
+        }
+        if state.is_none() {
+            return child.try_wait().map_err(&io_error);
+        }
+        if Instant::now() >= deadline {
+            return Ok(None);
         }
         std::thread::sleep(Duration::from_millis(10));
     }
@@ -62,12 +80,13 @@ pub(super) enum OutputError {
 }
 
 pub(super) fn reap_process_group(child: &mut Child) {
+    // Do not reap the group leader until the group is gone: its zombie PID
+    // pins the numeric PGID and prevents reuse during TERM/KILL escalation.
     let group = -(child.id() as c_int);
     // The leader may already be reaped while descendants still hold the pipe.
     if unsafe { kill(group, SIGTERM_NUM) } == 0 {
         let deadline = Instant::now() + Duration::from_millis(150);
         loop {
-            let _ = child.try_wait();
             if unsafe { kill(group, 0) } != 0 {
                 break;
             }

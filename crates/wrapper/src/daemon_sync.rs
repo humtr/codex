@@ -163,6 +163,21 @@ fn saved_feature_args(home: &Path) -> Result<Vec<String>, String> {
     parse_saved_feature_args(&bytes)
 }
 
+fn parse_proc_start_time(stat: &str) -> Option<u64> {
+    let (_, rest) = stat.rsplit_once(')')?;
+    rest.split_whitespace().nth(19)?.parse().ok()
+}
+
+fn parse_proc_uid(status: &str) -> Option<u32> {
+    status.lines().find_map(|line| {
+        line.strip_prefix("Uid:")?
+            .split_whitespace()
+            .next()?
+            .parse()
+            .ok()
+    })
+}
+
 fn parse_proc_stat_ppid(stat: &str) -> Option<i32> {
     let (_, rest) = stat.rsplit_once(')')?;
     let mut fields = rest.split_whitespace();
@@ -191,6 +206,8 @@ fn ancestor_pids() -> HashSet<i32> {
 
 struct LivePid {
     pid: i32,
+    start_time: u64,
+    uid: u32,
     file: PathBuf,
     bytes: Vec<u8>,
     process: File,
@@ -212,6 +229,14 @@ impl LivePid {
 
     fn unchanged(&self) -> bool {
         fs::metadata(self.proc_path().join("exe")).is_ok_and(|exe| self.matches(&exe))
+            && fs::read_to_string(self.proc_path().join("stat"))
+                .ok()
+                .and_then(|s| parse_proc_start_time(&s))
+                == Some(self.start_time)
+            && fs::read_to_string(self.proc_path().join("status"))
+                .ok()
+                .and_then(|s| parse_proc_uid(&s))
+                == Some(self.uid)
             && read_pid_record(&self.file).is_ok_and(|bytes| bytes == self.bytes)
     }
 
@@ -269,7 +294,16 @@ fn find_live_pid(home: &Path) -> Result<Option<LivePid>, String> {
             Err(err) if err.kind() == ErrorKind::NotFound => continue,
             Err(err) => return Err(format!("cannot inspect process from {name}: {err}")),
         };
-        let exe = match fs::metadata(format!("/proc/self/fd/{}/exe", process.as_raw_fd())) {
+        let proc_root = PathBuf::from(format!("/proc/self/fd/{}", process.as_raw_fd()));
+        let start_time = fs::read_to_string(proc_root.join("stat"))
+            .ok()
+            .and_then(|s| parse_proc_start_time(&s))
+            .ok_or_else(|| format!("cannot verify process start time from {name}"))?;
+        let uid = fs::read_to_string(proc_root.join("status"))
+            .ok()
+            .and_then(|s| parse_proc_uid(&s))
+            .ok_or_else(|| format!("cannot verify process uid from {name}"))?;
+        let exe = match fs::metadata(proc_root.join("exe")) {
             Ok(exe) => exe,
             Err(err) if err.kind() == ErrorKind::NotFound => continue,
             Err(err) => return Err(format!("cannot inspect executable from {name}: {err}")),
@@ -279,6 +313,8 @@ fn find_live_pid(home: &Path) -> Result<Option<LivePid>, String> {
         }
         live = Some(LivePid {
             pid,
+            start_time,
+            uid,
             file,
             bytes,
             process,
@@ -403,6 +439,7 @@ impl DaemonUpdate<'_> {
             || !selected.is_some_and(|path| {
                 path == selection.join("bin/codex") || path == selection.join("codex")
             })
+            || pid_field(&version, "pid") != Some(live.pid)
             || !live.unchanged()
         {
             return Err(
@@ -441,12 +478,17 @@ impl DaemonUpdate<'_> {
         if !live.legacy() {
             align(&package)?;
         }
-        drop(lock);
         if !live.unchanged() {
             return Err("running daemon changed before shutdown".into());
         }
         let short_label = label.short_name();
         presentation.transient(&format!("Stopping daemon ({short_label})..."));
+        if !live.unchanged() {
+            return Err("running daemon identity changed immediately before shutdown".into());
+        }
+        // Upstream stop acquires daemon.lock itself; release our inspection lock
+        // immediately before invoking it, then reconcile the resulting PID record.
+        drop(lock);
         let stopped = self.command(home, "stop", STOP_TIMEOUT, Some(&original_env), &[])?;
         let status = string_field(&stopped, "status");
         if !matches!(status, Some("stopped" | "notRunning")) {
