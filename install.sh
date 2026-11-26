@@ -282,8 +282,9 @@ read_recorded_release_sequence() {
 retain_release_key() {
   retired_dir="$key_dir/retired-keys"
   mkdir -p "$retired_dir"
-  [ ! -L "$retired_dir" ] && [ -d "$retired_dir" ] ||
+  if [ -L "$retired_dir" ] || [ ! -d "$retired_dir" ]; then
     fail 'retired release key directory is unsafe'
+  fi
   chmod 0700 "$retired_dir"
   retired_key="$retired_dir/$(sha256_hex "$key_dest").pem"
   if [ -e "$retired_key" ] || [ -L "$retired_key" ]; then
@@ -316,8 +317,10 @@ persist_signed_release_state() {
   seq_now=$(read_recorded_release_sequence "$seq_dest")
   key_now=$(digest_or_none "$key_dest")
   validate_release_sequence "$signed_sequence" 'journal signed sequence'
-  [ "$signed_sequence" != 0 ] && valid_sha_or_none "$signed_key_sha" &&
-    [ "$signed_key_sha" != none ] || fail 'invalid signed install journal'
+  if ! { [ "$signed_sequence" != 0 ] && valid_sha_or_none "$signed_key_sha" &&
+         [ "$signed_key_sha" != none ]; }; then
+    fail 'invalid signed install journal'
+  fi
   [ "$seq_now" -le "$signed_sequence" ] || fail 'signed release sequence advanced outside installer transaction'
 
   if [ "$install_format" = codex-install-v2 ]; then
@@ -341,9 +344,10 @@ persist_signed_release_state() {
   elif [ "$key_now" != "$signed_key_sha" ]; then
     # Older journals did not save the admitted verifier. Never invent it or
     # trust a new download; only an already staged exact key can finish.
-    [ "$seq_now" = "$signed_sequence" ] &&
-      [ "$(digest_or_none "$key_dir/.release-public-key.pem.tmp.$owner_pid")" = "$signed_key_sha" ] ||
+    if ! { [ "$seq_now" = "$signed_sequence" ] &&
+           [ "$(digest_or_none "$key_dir/.release-public-key.pem.tmp.$owner_pid")" = "$signed_key_sha" ]; }; then
       fail 'legacy signed recovery lacks the admitted public key; preserving journal'
+    fi
   fi
 
   signed_commit_started=1
@@ -548,8 +552,10 @@ remove_owned_install_file() {
 verify_recovered_signed_state() {
   [ "$signed_sequence" = none ] && return 0
   validate_release_sequence "$signed_sequence" 'journal signed sequence'
-  [ "$signed_sequence" != 0 ] && valid_sha_or_none "$signed_key_sha" &&
-    [ "$signed_key_sha" != none ] || fail 'invalid signed install journal'
+  if ! { [ "$signed_sequence" != 0 ] && valid_sha_or_none "$signed_key_sha" &&
+         [ "$signed_key_sha" != none ]; }; then
+    fail 'invalid signed install journal'
+  fi
   [ "$(read_recorded_release_sequence "$HOME/.local/share/codex/wrapper/release-sequence")" = "$signed_sequence" ] ||
     fail 'signed release sequence was not durably committed; preserving recovery journal'
   [ "$(digest_or_none "$HOME/.local/lib/codex/wrapper/release-public-key.pem")" = "$signed_key_sha" ] ||
@@ -591,8 +597,10 @@ recover_install_lock() {
   fi
   if [ "$signed_sequence" != none ]; then
     validate_release_sequence "$signed_sequence" 'journal signed sequence'
-    [ "$signed_sequence" != 0 ] && valid_sha_or_none "$signed_key_sha" &&
-      [ "$signed_key_sha" != none ] || fail 'invalid signed install journal'
+    if ! { [ "$signed_sequence" != 0 ] && valid_sha_or_none "$signed_key_sha" &&
+           [ "$signed_key_sha" != none ]; }; then
+      fail 'invalid signed install journal'
+    fi
   elif [ "$signed_key_sha" != none ]; then
     fail 'contradictory unsigned install journal'
   fi
@@ -618,9 +626,10 @@ recover_install_lock() {
       [ "$(activation_snapshot)" = "$state_before_sha" ] ||
         fail 'activation state changed before updater admission; manual reconciliation required'
       if [ "$install_format" = codex-install-v2 ] && [ "$signed_sequence" != none ]; then
-        [ "$(read_recorded_release_sequence "$HOME/.local/share/codex/wrapper/release-sequence")" = "$signed_previous_sequence" ] &&
-          [ "$(digest_or_none "$HOME/.local/lib/codex/wrapper/release-public-key.pem")" = "$signed_previous_key_sha" ] ||
+        if ! { [ "$(read_recorded_release_sequence "$HOME/.local/share/codex/wrapper/release-sequence")" = "$signed_previous_sequence" ] &&
+               [ "$(digest_or_none "$HOME/.local/lib/codex/wrapper/release-public-key.pem")" = "$signed_previous_key_sha" ]; }; then
           fail 'signed state changed before commit; preserving recovery journal'
+        fi
       fi
       if [ "$recovered_phase" = preparing ] && [ "$actual_sha" != "$before_sha" ]; then
         fail 'executable changed during uncommitted preparation'
