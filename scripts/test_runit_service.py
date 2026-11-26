@@ -25,6 +25,14 @@ class RunitSupervisionTests(unittest.TestCase):
         self.prefix = self.root / "usr"
         self.home.mkdir(mode=0o700)
         (self.prefix / "bin").mkdir(parents=True, mode=0o700)
+        trusted_dir = self.home / ".local/lib/codex/wrapper"
+        trusted_dir.mkdir(parents=True)
+        self.test_private_key = self.root / "test-ed25519-private.pem"
+        self.test_public_key = trusted_dir / "release-public-key.pem"
+        subprocess.run(["openssl", "genpkey", "-algorithm", "ED25519", "-out", str(self.test_private_key)],
+                       check=True, capture_output=True)
+        subprocess.run(["openssl", "pkey", "-in", str(self.test_private_key), "-pubout", "-out", str(self.test_public_key)],
+                       check=True, capture_output=True)
         self.state = {"pid": 1001, "ticks": 500, "exe": None, "running": False, "fail_restart": False}
 
         # Fake `sv` executable updates our simulated process state file
@@ -54,7 +62,20 @@ class RunitSupervisionTests(unittest.TestCase):
         b = gdir / "tunnel-client"
         b.write_bytes(content)
         os.chmod(b, 0o755)
+        self._sign_test_generation(gdir, b)
         return b
+
+    def _sign_test_generation(self, gdir: Path, binary: Path):
+        signed = gdir / "signed"
+        signed.mkdir(exist_ok=True)
+        public = signed / "release-public-key.pem"
+        public.write_bytes(self.test_public_key.read_bytes())
+        sums = signed / "SHA256SUMS"
+        import hashlib
+        sums.write_text(f"{hashlib.sha256(binary.read_bytes()).hexdigest()}  bin/{binary.name}\n")
+        subprocess.run(["openssl", "pkeyutl", "-sign", "-inkey", str(self.test_private_key), "-rawin",
+                        "-in", str(sums), "-out", str(signed / "SHA256SUMS.sig")],
+                       check=True, capture_output=True)
 
     def _proc_reader(self, _service_dir: Path) -> dict:
         exe_file = self.root / "running-exe"
@@ -143,25 +164,47 @@ class RunitSupervisionTests(unittest.TestCase):
         self.assertEqual(st_active["activation_state"], "active")
         self.assertEqual(st_active["running_generation"]["version"], "v0.0.20")
 
-        # Busy guard defers restart cleanly -> pending_activation (selected=v0.0.21, running=v0.0.20)
+        # Busy guard fences selection; the old generation remains selected.
         st_busy = sup.activate("v0.0.21", busy_check_cmd=["sh", "-c", "echo active_lease >&2; exit 1"])
         self.assertEqual(st_busy["activation_state"], "pending_activation")
-        self.assertEqual(st_busy["selected_generation"]["version"], "v0.0.21")
+        self.assertEqual(st_busy["selected_generation"]["version"], "v0.0.20")
         self.assertEqual(st_busy["running_generation"]["version"], "v0.0.20")
         self.assertEqual(st_busy["deferred_reason"], "active_lease")
 
-        # Re-running activate("v0.0.21") once idle MUST complete deferred pending_activation!
-        st_up = sup.activate("v0.0.21", readiness_cmd=["true"])
+        # Re-running activate("v0.0.21") once idle performs the deferred selection.
+        st_up = sup.activate("v0.0.21", busy_check_cmd=["true"], readiness_cmd=["true"])
         self.assertEqual(st_up["activation_state"], "active")
         self.assertEqual(st_up["selected_generation"]["version"], "v0.0.21")
         self.assertEqual(st_up["running_generation"]["version"], "v0.0.21")
         self.assertEqual(st_up["running_generation"]["exe"], str(b21.resolve()))
 
         # Rollback restores v0.0.20 cleanly
-        st_rb = sup.rollback(readiness_cmd=["true"])
+        st_rb = sup.rollback(busy_check_cmd=["true"], readiness_cmd=["true"])
         self.assertEqual(st_rb["activation_state"], "active")
         self.assertEqual(st_rb["selected_generation"]["version"], "v0.0.20")
         self.assertEqual(st_rb["running_generation"]["version"], "v0.0.20")
+
+    def test_busy_guard_rejection_never_changes_current_generation(self):
+        b20 = self._install_gen("v0.0.20", b"bin-20")
+        self._install_gen("v0.0.21", b"bin-21")
+        sup = self._sup()
+        sup.activate("v0.0.20")
+        sup.enroll(exec_args=["run"])
+        (self.root / "running-exe").write_text(str(b20.resolve()))
+        (self.root / "pid-seq").write_text("1001")
+
+        rejected = sup.activate("v0.0.21", busy_check_cmd=["sh", "-c", "exit 1"])
+        self.assertEqual(rejected["activation_state"], "pending_activation")
+        self.assertEqual(sup._read_link_version(sup.current_link), "v0.0.20")
+
+        missing = sup.activate("v0.0.21")
+        self.assertEqual(missing["activation_state"], "pending_activation")
+        self.assertEqual(sup._read_link_version(sup.current_link), "v0.0.20")
+
+        with mock.patch("scripts.runit_service.subprocess.run", side_effect=OSError("guard unavailable")):
+            unknown = sup.activate("v0.0.21", busy_check_cmd=["missing-busy-check"])
+        self.assertEqual(unknown["activation_state"], "pending_activation")
+        self.assertEqual(sup._read_link_version(sup.current_link), "v0.0.20")
 
     def test_failed_readiness_automatically_rolls_back_and_preserves_prior_previous(self):
         self._install_gen("v0.0.19", b"bin-19")
@@ -175,7 +218,7 @@ class RunitSupervisionTests(unittest.TestCase):
         (self.root / "pid-seq").write_text("2000")
 
         with self.assertRaisesRegex(SupervisionError, "recovery incomplete"):
-            sup.activate("v0.0.21", readiness_cmd=["false"], restart_timeout=0.4)
+            sup.activate("v0.0.21", busy_check_cmd=["true"], readiness_cmd=["false"], restart_timeout=0.4)
 
         # Must have reverted `current` to v0.0.20 AND preserved `previous` as v0.0.19!
         sel = sup.selected_generation()
@@ -266,6 +309,7 @@ class RunitSupervisionTests(unittest.TestCase):
             p = gdir / "termux-shell-mcp"
             p.write_bytes(data)
             os.chmod(p, 0o755)
+            self._sign_test_generation(gdir, p)
             return p
 
         install_mcp("0.1.0", b"mcp-0.1.0")
@@ -302,17 +346,17 @@ class RunitSupervisionTests(unittest.TestCase):
         # Upgrade MCP to 0.2.0 while busy -> pending_activation
         st_busy = mcp_sup.activate("0.2.0", busy_check_cmd="sh -c 'exit 1'")
         self.assertEqual(st_busy["activation_state"], "pending_activation")
-        self.assertEqual(st_busy["selected_generation"]["version"], "0.2.0")
+        self.assertEqual(st_busy["selected_generation"]["version"], "0.1.0")
         self.assertEqual(st_busy["running_generation"]["version"], "0.1.0")
 
         # Complete upgrade when idle -> active on 0.2.0
-        st_up = mcp_sup.activate("0.2.0", readiness_cmd=["true"])
+        st_up = mcp_sup.activate("0.2.0", busy_check_cmd=["true"], readiness_cmd=["true"])
         self.assertEqual(st_up["activation_state"], "active")
         self.assertEqual(st_up["running_generation"]["version"], "0.2.0")
 
         # Readiness timeout on 0.3.0 MUST roll back cleanly (never crash with TimeoutExpired!)
         with self.assertRaisesRegex(SupervisionError, "recovery incomplete"):
-            mcp_sup.activate("0.3.0", readiness_cmd="sleep 2", restart_timeout=0.4)
+            mcp_sup.activate("0.3.0", busy_check_cmd="true", readiness_cmd="sleep 2", restart_timeout=0.4)
         self.assertEqual(mcp_sup.selected_generation()["version"], "0.2.0")
         self.assertEqual(mcp_sup.selected_generation()["previous_version"], "0.1.0")
 
@@ -348,6 +392,7 @@ class RunitSupervisionTests(unittest.TestCase):
             p = gdir / "termux-shell-mcp"
             p.write_bytes(data)
             os.chmod(p, 0o755)
+            self._sign_test_generation(gdir, p)
             return p.resolve()
 
         p1 = install_mcp("0.1.0", b"mcp-1")
@@ -436,7 +481,7 @@ class RunitSupervisionTests(unittest.TestCase):
         with mock.patch.object(mcp_sup, "_inspect_running", side_effect=inspect), mock.patch.object(
             mcp_sup, "_run_sv", side_effect=operate,
         ):
-            self.assertEqual(mcp_sup.activate("0.2.0", restart_timeout=2.0)["activation_state"], "active")
+            self.assertEqual(mcp_sup.activate("0.2.0", busy_check_cmd=["true"], restart_timeout=2.0)["activation_state"], "active")
             read_after_start = 0
             self.assertEqual(mcp_sup.status()["activation_state"], "pending_activation")
 
@@ -445,7 +490,7 @@ class RunitSupervisionTests(unittest.TestCase):
             fail_new = True
             target_exe = str(p1)
             with self.assertRaisesRegex(SupervisionError, "rolled back"):
-                mcp_sup.activate("0.2.0", restart_timeout=0.5)
+                mcp_sup.activate("0.2.0", busy_check_cmd=["true"], restart_timeout=0.5)
             sel = mcp_sup.selected_generation()
             self.assertEqual(sel["version"], "0.1.0")
             self.assertIsNone(sel["previous_version"])
@@ -477,6 +522,7 @@ class RunitSupervisionTests(unittest.TestCase):
             p = gdir / "termux-orch"
             p.write_bytes(data)
             os.chmod(p, 0o755)
+            self._sign_test_generation(gdir, p)
             return p.resolve()
 
         o1 = install_orch("0.1.0", b"orch-1")
@@ -556,7 +602,7 @@ class RunitSupervisionTests(unittest.TestCase):
         self.assertEqual(orch_sup.status()["activation_state"], "active")
 
         with mock.patch("scripts.runit_service.subprocess.run", side_effect=fake_run):
-            st_ok = orch_sup.activate("0.1.0-new", restart_timeout=1.0)
+            st_ok = orch_sup.activate("0.1.0-new", busy_check_cmd=["true"], restart_timeout=1.0)
             self.assertEqual(st_ok["activation_state"], "active")
             self.assertEqual(st_ok["running_generation"]["version"], "0.1.0-new")
             self.assertEqual(st_ok["companions"][0]["running_generation"]["version"], "0.1.0-new")
@@ -572,7 +618,7 @@ class RunitSupervisionTests(unittest.TestCase):
             fail_service["name"] = "termux-orch-tunnel"
             events.clear()
             with self.assertRaisesRegex(SupervisionError, "rolled back"):
-                orch_sup.activate("0.1.0-bad", restart_timeout=0.4)
+                orch_sup.activate("0.1.0-bad", busy_check_cmd=["true"], restart_timeout=0.4)
             # The new relay has already started. Rollback must stop it and
             # the attempted tunnel before exposing the old selection.
             rollback_stop = [event for event in events if event[1] == "down"

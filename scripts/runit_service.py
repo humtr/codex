@@ -365,7 +365,8 @@ class ServiceSupervisor:
                 "binary_sha256": None,
                 "valid": False,
             }
-        bin_path = generations_dir / ver / binary_name
+        generation_dir = generations_dir / ver
+        bin_path = generation_dir / binary_name
         if bin_path.is_symlink() or not bin_path.is_file() or not os.access(bin_path, os.X_OK):
             return {
                 "version": ver,
@@ -374,11 +375,48 @@ class ServiceSupervisor:
                 "binary_sha256": None,
                 "valid": False,
             }
+        # Signed component generations carry the signed SHA256SUMS and its
+        # detached signature. Never treat mere executability as integrity proof.
+        sums_path = generation_dir / "signed" / "SHA256SUMS"
+        sig_path = generation_dir / "signed" / "SHA256SUMS.sig"
+        key_path = generation_dir / "signed" / "release-public-key.pem"
+        if (not sums_path.is_file() or sums_path.is_symlink() or
+                not sig_path.is_file() or sig_path.is_symlink() or
+                not key_path.is_file() or key_path.is_symlink()):
+            return {
+                "version": ver, "previous_version": prev, "binary_path": str(bin_path),
+                "binary_sha256": None, "valid": False,
+            }
+        try:
+            expected = None
+            for line in sums_path.read_text(encoding="ascii").splitlines():
+                fields = line.split()
+                if len(fields) == 2 and fields[1].lstrip("*") == f"bin/{binary_name}":
+                    expected = fields[0].lower()
+                    break
+            actual = sha256_file(bin_path)
+            if expected is None or not re.fullmatch(r"[0-9a-f]{64}", expected) or actual != expected:
+                raise ValueError("signed checksum mismatch")
+            trusted_key = self.home / ".local/lib/codex/wrapper/release-public-key.pem"
+            if not trusted_key.is_file() or trusted_key.is_symlink() or key_path.read_bytes() != trusted_key.read_bytes():
+                raise ValueError("generation signing key is not the installed trusted key")
+            verified = subprocess.run(
+                ["openssl", "pkeyutl", "-verify", "-pubin", "-inkey", str(trusted_key),
+                 "-rawin", "-in", str(sums_path), "-sigfile", str(sig_path)],
+                capture_output=True, timeout=10,
+            )
+            if verified.returncode != 0:
+                raise ValueError("generation signature verification failed")
+        except (OSError, UnicodeError, ValueError):
+            return {
+                "version": ver, "previous_version": prev, "binary_path": str(bin_path),
+                "binary_sha256": None, "valid": False,
+            }
         return {
             "version": ver,
             "previous_version": prev,
             "binary_path": str(bin_path.resolve()),
-            "binary_sha256": sha256_file(bin_path),
+            "binary_sha256": actual,
             "valid": True,
         }
 
@@ -754,6 +792,12 @@ class ServiceSupervisor:
         ):
             return self.status(readiness_cmd=readiness)
 
+        if running and selection_changed and busy is None:
+            status = self.status(readiness_cmd=readiness)
+            status["activation_state"] = "pending_activation"
+            status["deferred_reason"] = "busy check required for a running service"
+            return status
+
         if running and busy is not None:
             try:
                 checked = subprocess.run(busy, capture_output=True, text=True, timeout=10)
@@ -763,10 +807,8 @@ class ServiceSupervisor:
             except OSError as err:
                 reason = str(err)
             if reason is not None:
-                # Publishing current during a coordinated deferral would allow
-                # runsv to start a new writer if one old writer exits.
-                if selection_changed and not self.companion_services:
-                    self._select(version, current)
+                # A rejected/unknown busy check is a hard fence: never publish
+                # the candidate selection while an old process may still run.
                 status = self.status(readiness_cmd=readiness)
                 status["activation_state"] = "pending_activation"
                 status["deferred_reason"] = reason

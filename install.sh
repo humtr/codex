@@ -216,7 +216,7 @@ verify_component_sums_headers() {
   case $h_seq in
     '# sequence='[1-9]*)
       seq_val=${h_seq#'# sequence='}
-      case $seq_val in *[!0-9]*) fail "malformed SHA256SUMS sequence: $h_seq" ;; esac
+      validate_release_sequence "$seq_val" 'SHA256SUMS sequence'
       ;;
     *) fail "missing or invalid SHA256SUMS sequence header: $h_seq" ;;
   esac
@@ -255,6 +255,16 @@ verify_bundle_checksums() {
   done
 }
 
+validate_release_sequence() {
+  v_seq=$1
+  v_label=$2
+  case $v_seq in ''|*[!0-9]*) fail "invalid $v_label" ;; esac
+  case $v_seq in 0|[1-9]*) ;; *) fail "non-canonical $v_label" ;; esac
+  [ "${#v_seq}" -le 10 ] || fail "$v_label exceeds supported integer range"
+  [ "${#v_seq}" -lt 10 ] || [ "$v_seq" -le 2147483647 ] ||
+    fail "$v_label exceeds supported integer range"
+}
+
 read_recorded_release_sequence() {
   seq_file=$1
   if [ ! -e "$seq_file" ] && [ ! -L "$seq_file" ]; then
@@ -263,9 +273,7 @@ read_recorded_release_sequence() {
   fi
   require_regular_file "$seq_file" 'release sequence file'
   rec=$(tr -d '\r\n' < "$seq_file")
-  case $rec in
-    ''|*[!0-9]*) fail "corrupt release sequence file: $seq_file" ;;
-  esac
+  validate_release_sequence "$rec" "recorded release sequence $seq_file"
   printf '%s\n' "$rec"
 }
 
@@ -356,8 +364,10 @@ valid_sha_or_none() {
 
 write_install_phase() {
   phase=$1
-  printf 'format=codex-install-v1\nphase=%s\nold_sha=%s\nnew_sha=%s\nstate_before=%s\nskip_upstream=%s\nrequested_version=%s\n' \
-    "$phase" "$before_sha" "$candidate_sha" "$state_before_sha" "$skip_upstream" "${upstream_version:-none}" \
+  signed_key_sha=none
+  if [ -n "$verified_active_pubkey" ]; then signed_key_sha=$(sha256_hex "$verified_active_pubkey"); fi
+  printf 'format=codex-install-v1\nphase=%s\nold_sha=%s\nnew_sha=%s\nstate_before=%s\nskip_upstream=%s\nrequested_version=%s\nsigned_sequence=%s\nsigned_key_sha=%s\n' \
+    "$phase" "$before_sha" "$candidate_sha" "$state_before_sha" "$skip_upstream" "${upstream_version:-none}" "${verified_release_sequence:-none}" "$signed_key_sha" \
     > "$install_lock/transaction.next"
   install_sync "$install_lock/transaction.next"
   mv -f "$install_lock/transaction.next" "$install_lock/transaction"
@@ -466,6 +476,19 @@ remove_owned_install_file() {
   fi
 }
 
+
+verify_recovered_signed_state() {
+  [ "$signed_sequence" = none ] && return 0
+  validate_release_sequence "$signed_sequence" 'journal signed sequence'
+  [ "${#signed_key_sha}" -eq 64 ] || fail 'invalid signed key digest in install journal'
+  case $signed_key_sha in *[!0-9a-f]*) fail 'invalid signed key digest in install journal' ;; esac
+  [ "$(read_recorded_release_sequence "$HOME/.local/share/codex/wrapper/release-sequence")" = "$signed_sequence" ] ||
+    fail 'signed release sequence was not durably committed; preserving recovery journal'
+  [ -f "$HOME/.local/lib/codex/wrapper/release-public-key.pem" ] &&
+    [ "$(sha256_hex "$HOME/.local/lib/codex/wrapper/release-public-key.pem")" = "$signed_key_sha" ] ||
+    fail 'signed release key was not durably committed; preserving recovery journal'
+}
+
 # Recovery is serialized separately so two stale-lock reclaimers cannot both
 # modify the same executable. An unrecognized or unowned lock remains closed.
 recover_install_lock() {
@@ -490,6 +513,8 @@ recover_install_lock() {
   state_before_sha=$(record_value state_before "$install_lock/transaction")
   skip_upstream=$(record_value skip_upstream "$install_lock/transaction")
   upstream_version=$(record_value requested_version "$install_lock/transaction")
+  signed_sequence=$(record_value signed_sequence "$install_lock/transaction" 2>/dev/null || printf 'none')
+  signed_key_sha=$(record_value signed_key_sha "$install_lock/transaction" 2>/dev/null || printf 'none')
   if ! { valid_sha_or_none "$before_sha" && valid_sha_or_none "$candidate_sha" &&
          valid_sha_or_none "$state_before_sha" && [ "$candidate_sha" != none ]; }; then
     fail 'invalid digest in install transaction'
@@ -516,6 +541,7 @@ recover_install_lock() {
       fi
       if [ "$recovered_phase" = swapped ] && [ "$skip_upstream" -eq 1 ] &&
          [ "$actual_sha" = "$candidate_sha" ]; then
+        verify_recovered_signed_state
         note 'recovered committed --skip-upstream executable without rerunning updater'
       elif [ "$actual_sha" = "$candidate_sha" ] && [ "$before_sha" != "$candidate_sha" ]; then
         if [ "$before_sha" = none ]; then
@@ -534,12 +560,14 @@ recover_install_lock() {
       if ! { [ "$actual_sha" = "$candidate_sha" ] && qualified_new_activation; }; then
         fail 'updater outcome remains uncertain; preserving executable, backup and lock'
       fi
+      verify_recovered_signed_state
       note 'reconciled already activated generation; updater was not replayed'
       ;;
     updated)
       if ! { [ "$actual_sha" = "$candidate_sha" ] && qualified_new_activation; }; then
         fail 'completed updater receipt contradicts activation metadata'
       fi
+      verify_recovered_signed_state
       note 'recovered completed update without replay'
       ;;
     *)
@@ -891,6 +919,10 @@ if [ "$recover_only" -eq 1 ]; then
   exit 0
 fi
 
+if [ "$require_signed" -eq 1 ] && [ "$source_mode" != release ]; then
+  fail '--require-signed is supported only with --release; local bundle/binary/build sources have no signature proof'
+fi
+
 component_verify_key_path=''
 
 ensure_component_verify_key() {
@@ -1100,6 +1132,7 @@ activate_component_service() {
       ;;
     chatgpt-provider)
       if [ ! -d "$prefix/var/service/chatgpt-provider" ]; then
+        update_generation_links "$ac_root" "$ac_gen"
         run_runit_service_action "$ac_py" "$ac_script" \
           --component "$ac_comp" --binary "$ac_bin" --service chatgpt-provider \
           enroll --arg serve >/dev/null
@@ -1117,6 +1150,7 @@ activate_component_service() {
       ac_svc="${ac_short}-tunnel"
       if [ -f "$ac_yaml" ]; then
         if [ ! -d "$prefix/var/service/$ac_svc" ]; then
+          update_generation_links "$ac_root" "$ac_gen"
           run_runit_service_action "$ac_py" "$ac_script" \
             --component "$ac_comp" --binary "$ac_bin" --service "$ac_svc" \
             --runner-component transport/tunnel-client --runner-binary tunnel-client \
@@ -1139,6 +1173,7 @@ activate_component_service() {
       ac_yaml="$HOME/.config/codex/tunnels/termux-orch.yaml"
       ac_relay_health="$HOME/.local/state/codex/services/termux-orch-relay/health.url"
       if [ ! -d "$prefix/var/service/termux-orch-relay" ]; then
+        update_generation_links "$ac_root" "$ac_gen"
         run_runit_service_action "$ac_py" "$ac_script" \
           --component "$ac_comp" --binary "$ac_bin" --service termux-orch-relay \
           enroll --arg relay --arg --bind --arg 127.0.0.1:0 \
@@ -1252,37 +1287,51 @@ install_signed_component() {
     ic_cur_link=$(readlink "$ic_root/current" 2>/dev/null || :)
   fi
   ic_reinstall=1
-  if [ "$ic_cur_link" = "generations/$ic_gen" ] && \
-     [ -f "$ic_gen_dir/bin/$ic_bin" ] && [ -f "$ic_gen_dir/signed/SHA256SUMS.sig" ] && \
-     [ "$(digest_or_none "$ic_gen_dir/bin/$ic_bin")" = "$ic_new_bin_sha" ]; then
+  if [ -e "$ic_gen_dir" ] || [ -L "$ic_gen_dir" ]; then
+    [ -d "$ic_gen_dir" ] && [ ! -L "$ic_gen_dir" ] || fail "generation path is not a real directory: $ic_gen_dir"
+    [ -f "$ic_gen_dir/bin/$ic_bin" ] && [ ! -L "$ic_gen_dir/bin/$ic_bin" ] &&
+      [ "$(sha256_hex "$ic_gen_dir/bin/$ic_bin")" = "$ic_new_bin_sha" ] &&
+      [ -f "$ic_gen_dir/signed/SHA256SUMS" ] &&
+      cmp -s "$ic_gen_dir/signed/SHA256SUMS" "$ic_sums" &&
+      [ -f "$ic_gen_dir/signed/SHA256SUMS.sig" ] &&
+      cmp -s "$ic_gen_dir/signed/SHA256SUMS.sig" "$ic_sig" &&
+      [ -f "$ic_gen_dir/signed/release-public-key.pem" ] &&
+      cmp -s "$ic_gen_dir/signed/release-public-key.pem" "$component_verify_key_path" ||
+      fail "immutable generation identity conflict; refusing to replace $ic_gen_dir"
     ic_reinstall=0
   fi
 
   if [ "$ic_reinstall" -eq 1 ]; then
-    rm -rf "$ic_gen_dir"
-    mkdir -p "$ic_gen_dir/signed"
-    cp -R "$ic_work/extract/." "$ic_gen_dir/"
-    cp "$ic_work/extract/bin/$ic_bin" "$ic_gen_dir/$ic_bin"
-    cp "$ic_sums" "$ic_sig" "$ic_gen_dir/signed/"
+    ic_stage="$ic_root/generations/.${ic_gen}.stage.$$"
+    [ ! -e "$ic_stage" ] && [ ! -L "$ic_stage" ] || fail "generation staging collision: $ic_stage"
+    mkdir -p "$ic_stage/signed"
+    cp -R "$ic_work/extract/." "$ic_stage/"
+    cp "$ic_work/extract/bin/$ic_bin" "$ic_stage/$ic_bin"
+    cp "$ic_sums" "$ic_sig" "$ic_stage/signed/"
+    cp "$component_verify_key_path" "$ic_stage/signed/release-public-key.pem"
     if [ -f "$ic_tb_sha" ]; then
-      cp "$ic_tb_sha" "$ic_gen_dir/signed/"
+      cp "$ic_tb_sha" "$ic_stage/signed/"
     fi
-    chmod 0700 "$ic_gen_dir" "$ic_gen_dir/bin" "$ic_gen_dir/signed" "$ic_gen_dir/bin/$ic_bin" "$ic_gen_dir/$ic_bin"
-    chmod 0600 "$ic_gen_dir/signed/"*
-    if [ -f "$ic_gen_dir/SHA256SUMS" ]; then
-      chmod 0600 "$ic_gen_dir/SHA256SUMS"
+    chmod 0700 "$ic_stage" "$ic_stage/bin" "$ic_stage/signed" "$ic_stage/bin/$ic_bin" "$ic_stage/$ic_bin"
+    chmod 0600 "$ic_stage/signed/"*
+    if [ -f "$ic_stage/SHA256SUMS" ]; then
+      chmod 0600 "$ic_stage/SHA256SUMS"
     fi
-    if [ -d "$ic_gen_dir/scripts" ]; then
-      chmod 0700 "$ic_gen_dir/scripts"
-      chmod 0755 "$ic_gen_dir/scripts/"* 2>/dev/null || :
+    if [ -d "$ic_stage/scripts" ]; then
+      chmod 0700 "$ic_stage/scripts"
+      chmod 0755 "$ic_stage/scripts/"* 2>/dev/null || :
     fi
-    if [ -d "$ic_gen_dir/host" ]; then
-      chmod 0700 "$ic_gen_dir/host"
-      chmod 0600 "$ic_gen_dir/host/"* 2>/dev/null || :
-      if [ -f "$ic_gen_dir/host/manager.py" ]; then
-        chmod 0700 "$ic_gen_dir/host/manager.py"
+    if [ -d "$ic_stage/host" ]; then
+      chmod 0700 "$ic_stage/host"
+      chmod 0600 "$ic_stage/host/"* 2>/dev/null || :
+      if [ -f "$ic_stage/host/manager.py" ]; then
+        chmod 0700 "$ic_stage/host/manager.py"
       fi
     fi
+    install_sync "$ic_stage/$ic_bin"
+    install_sync "$ic_stage"
+    mv "$ic_stage" "$ic_gen_dir" || fail "cannot publish immutable generation $ic_gen_dir"
+    install_sync "$ic_root/generations"
   fi
 
   if [ "$ic_tag" = 'codex-ext' ]; then
@@ -1782,6 +1831,12 @@ fi
 lock_owned=1
 install_record_owner
 
+if [ -n "$verified_release_sequence" ]; then
+  locked_seq=$(read_recorded_release_sequence "$HOME/.local/share/codex/wrapper/release-sequence")
+  [ "$verified_release_sequence" -ge "$locked_seq" ] ||
+    fail "release sequence rollback rejected under install lock (got $verified_release_sequence, installed $locked_seq)"
+fi
+
 if [ -L "$dest_bin" ] || { [ -e "$dest_bin" ] && [ ! -f "$dest_bin" ]; }; then
   fail "install destination must be absent or a regular non-symlink file: $dest_bin"
 fi
@@ -1837,8 +1892,8 @@ if [ "$skip_upstream" -eq 1 ]; then
     persist_signed_release_state
   fi
   note "skipped upstream bootstrap (--skip-upstream); run '$dest_bin update --upstream' when ready"
-  release_wrapper_transaction
   maybe_run_components_and_setup
+  release_wrapper_transaction
   exit 0
 fi
 
@@ -1906,5 +1961,5 @@ fi
 if [ -n "$verified_release_sequence" ]; then
   persist_signed_release_state
 fi
-release_wrapper_transaction
 maybe_run_components_and_setup
+release_wrapper_transaction
