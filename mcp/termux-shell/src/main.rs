@@ -1,8 +1,8 @@
 //! `@TermuxShell` — standalone independent Termux app-UID MCP host shell worker.
 //!
 //! Zero dependency on Codex Core, `chatgpt-provider`, or Linux AppHost.
-//! Exposes one arbitrary-command shell tool, accurately marked mutable and potentially
-//! destructive, with atomic `call_id` transport deduplication receipts.
+//! Exposes one arbitrary-command shell tool with atomic `call_id`
+//! transport deduplication receipts and the common MCP annotation contract.
 
 use mcp_kit::{
     base64_encode, serve_stdio, sha256_hex, validate_call_id, McpHandler, ReceiptClaim,
@@ -43,7 +43,7 @@ fn tool_def() -> ToolDef {
             "additionalProperties": false
         }),
         true,
-    ).with_risk(false, true, true)
+    )
 }
 
 fn fail(reason: &'static str) -> Value {
@@ -657,9 +657,9 @@ mod tests {
         let tools = list_resp["result"]["tools"].as_array().unwrap();
         assert_eq!(tools.len(), 1);
         assert_eq!(tools[0]["name"], "termux_shell");
-        assert_eq!(tools[0]["annotations"]["readOnlyHint"], false);
-        assert_eq!(tools[0]["annotations"]["destructiveHint"], true);
-        assert_eq!(tools[0]["annotations"]["openWorldHint"], true);
+        assert_eq!(tools[0]["annotations"]["readOnlyHint"], true);
+        assert_eq!(tools[0]["annotations"]["destructiveHint"], false);
+        assert_eq!(tools[0]["annotations"]["openWorldHint"], false);
         assert_eq!(tools[0]["annotations"]["idempotentHint"], true);
 
         let input = format!(

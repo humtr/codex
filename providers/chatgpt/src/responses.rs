@@ -177,8 +177,7 @@ fn sha256_bytes(data: &[u8]) -> [u8; 32] {
     out
 }
 
-fn matches_utility_prompt(text: &str) -> bool {
-    let lower = text.to_ascii_lowercase();
+fn matches_utility_prompt(lower: &str) -> bool {
     // Codex 0.172+ Memory v2 templates (model-agnostic)
     lower.contains("part of an agent memory system")
         || lower.contains("produce json with `rollout_summary` and `rollout_slug`")
@@ -197,108 +196,58 @@ fn matches_utility_prompt(text: &str) -> bool {
 /// Consolidation, Guardian/Auto-Review) that must not contend with the active
 /// session lease, burn Thinking-model quota, or clutter normal ChatGPT projects.
 fn is_background_utility_request(turn_meta: Option<&Value>, body: &Value) -> bool {
-    if turn_meta
-        .and_then(|meta| meta.get("request_kind"))
-        .and_then(Value::as_str)
-        .is_some_and(|kind| kind.trim().eq_ignore_ascii_case("turn"))
-    {
-        return false;
-    }
-    let mut prompt_text = body
-        .get("instructions")
-        .and_then(Value::as_str)
-        .unwrap_or("")
-        .to_ascii_lowercase();
-    if let Some(items) = body.get("input").and_then(Value::as_array) {
-        for item in items.iter().rev().take(4) {
-            prompt_text.push_str(&extract_content_text(item.get("content")).to_ascii_lowercase());
-        }
-    }
-    if [
-        "context checkpoint compaction",
-        "handoff summary",
-        "compact the conversation",
-        "compaction",
-    ]
-    .iter()
-    .any(|needle| prompt_text.contains(needle))
-    {
-        return false;
-    }
-    if let Some(meta) = turn_meta.and_then(Value::as_object) {
+    if let Some(meta) = turn_meta {
         if let Some(kind) = meta.get("request_kind").and_then(Value::as_str) {
             let kind = kind.trim().to_ascii_lowercase();
             if kind == "turn" || kind.contains("compact") || kind.contains("handoff") {
                 return false;
             }
-            if matches!(
-                kind.as_str(),
-                "title"
-                    | "title_generation"
-                    | "memory"
-                    | "memory_consolidation"
-                    | "guardian"
-                    | "auto_review"
-            ) {
-                return true;
+            if !kind.is_empty() {
+                return matches!(
+                    kind.as_str(),
+                    "title"
+                        | "title_generation"
+                        | "memory"
+                        | "memory_consolidation"
+                        | "guardian"
+                        | "auto_review"
+                );
             }
-            // Unknown request kinds are not sufficient evidence of a background utility.
-            return false;
         }
         for key in ["thread_source", "turn_trigger"] {
-            if let Some(val) = meta.get(key).and_then(Value::as_str) {
-                let val = val.trim().to_ascii_lowercase();
-                if val == "memory_consolidation"
-                    || val.starts_with("memory_")
-                    || val.starts_with("title")
-                    || val == "auto_review"
-                    || val == "guardian"
+            if let Some(value) = meta.get(key).and_then(Value::as_str) {
+                let value = value.trim().to_ascii_lowercase();
+                if matches!(
+                    value.as_str(),
+                    "title" | "memory" | "guardian" | "auto_review"
+                ) || value.starts_with("memory_")
+                    || value.starts_with("title_")
                 {
                     return true;
                 }
             }
         }
     }
-    // Codex compaction/handoff prompts must never be sent to the utility model.
-    let mut texts = vec![body
+    let mut prompt = body
         .get("instructions")
         .and_then(Value::as_str)
         .unwrap_or("")
-        .to_ascii_lowercase()];
+        .to_owned();
     if let Some(items) = body.get("input").and_then(Value::as_array) {
-        texts.extend(
-            items
-                .iter()
-                .rev()
-                .take(4)
-                .map(|item| extract_content_text(item.get("content")).to_ascii_lowercase()),
-        );
+        for item in items.iter().rev().take(4) {
+            prompt.push('\n');
+            prompt.push_str(&extract_content_text(item.get("content")));
+        }
     }
-    if texts.iter().any(|text| {
-        text.contains("context checkpoint compaction")
-            || text.contains("handoff summary")
-            || text.contains("compact the conversation")
-            || text.contains("compaction")
-    }) {
-        return false;
-    }
-    // Explicit utility templates are a narrow allowlist, never generic quoted text.
-    texts.iter().any(|text| {
-        text.trim_start()
-            .starts_with("generate a concise, single-line task title")
-            || text.trim_start().starts_with("generate a concise title")
-            || text.trim_start().starts_with("generate a short title")
-            || (text.contains("transcript title generation:")
-                && text.contains("generate a concise title"))
-            || text.contains("you are the transcript title generation agent")
-            || text
-                .trim_start()
-                .starts_with("you are the memory writing agent")
-            || text.trim_start().starts_with("memory consolidation:")
-            || text.contains("part of an agent memory system")
-            || text.contains("produce json with `rollout_summary` and `rollout_slug`")
-            || text.contains("consolidate the supplied rollout summaries into `memory_summary.md`")
-    })
+    let prompt = prompt.to_ascii_lowercase();
+    ![
+        "context checkpoint compaction",
+        "produce a summary of its thinking process",
+        "compact the conversation",
+    ]
+    .iter()
+    .any(|directive| prompt.contains(directive))
+        && matches_utility_prompt(&prompt)
 }
 
 /// Detect Codex's automatic machine-generated `role: "user"` preambles
@@ -409,7 +358,7 @@ fn build_utility_wire_messages(body: &Value) -> Result<Vec<Value>> {
                 {
                     continue;
                 }
-                if role == "developer" && !matches_utility_prompt(trimmed) {
+                if role == "developer" && !matches_utility_prompt(&trimmed.to_ascii_lowercase()) {
                     continue;
                 }
                 messages.push(json!({
@@ -3449,7 +3398,7 @@ mod thin_option_b_tests {
                 {"role": "developer", "content": [{"type": "input_text", "text": "31KB Codex developer boilerplate"}]},
                 {"role": "user", "content": [{"type": "input_text", "text": "# AGENTS.md instructions for /home/prj/codex\n<INSTRUCTIONS>rules</INSTRUCTIONS>"}]},
                 {"role": "user", "content": [{"type": "input_text", "text": "<environment_context><cwd>/home/prj/codex</cwd></environment_context>"}]},
-                {"role": "user", "content": [{"type": "input_text", "text": "Generate a concise, single-line task title of at most 60 characters for: Fix thin option B"}]}
+                {"role": "user", "content": [{"type": "input_text", "text": "Generate a concise, single-line task title of at most 60 characters for: Fix compaction in thin option B"}]}
             ]
         });
         assert!(is_background_utility_request(None, &body));
@@ -3468,10 +3417,15 @@ mod thin_option_b_tests {
         // Model-agnostic Memory v2 detection (stage 1 extraction & consolidation) with arbitrary model slug.
         let mem_v2_extract = json!({
             "model": "future-model-9",
-            "instructions": "You are part of an agent memory system. Your job is to extract information from this rollout.",
+            "instructions": "You are part of an agent memory system. Your job is to extract information from this rollout; compaction is a separate concern.",
             "input": [{"role": "user", "content": "Analyze this rollout and produce JSON with `rollout_summary` and `rollout_slug`."}]
         });
         assert!(is_background_utility_request(None, &mem_v2_extract));
+
+        assert!(is_background_utility_request(
+            Some(&json!({"request_kind": "title_generation"})),
+            &body
+        ));
 
         let mem_v2_consolidate = json!({
             "model": "future-model-9",
@@ -3487,12 +3441,36 @@ mod thin_option_b_tests {
             Some(&ordinary_turn),
             &quoted_utility
         ));
-        let compact_meta = json!({"request_kind": "context_compaction"});
-        let compact_prompt =
-            json!({"instructions": "CONTEXT CHECKPOINT COMPACTION: summarize state"});
+        for directive in [
+            "CONTEXT CHECKPOINT COMPACTION: summarize state",
+            "Produce a summary of its thinking process",
+            "Compact the conversation",
+        ] {
+            let compact_prompt = json!({
+                "instructions": directive,
+                "input": [{"role": "developer", "content": "You are part of an agent memory system"}]
+            });
+            assert!(!is_background_utility_request(None, &compact_prompt));
+        }
+        assert!(is_background_utility_request(
+            Some(&json!({"thread_source": "title_gen"})),
+            &json!({})
+        ));
         assert!(!is_background_utility_request(
-            Some(&compact_meta),
-            &compact_prompt
+            Some(&json!({"request_kind": "unknown", "turn_trigger": "title_gen"})),
+            &body
+        ));
+        assert!(!is_background_utility_request(
+            Some(&json!({"request_kind": "compact"})),
+            &json!({"instructions": "Generate a concise title"})
+        ));
+        assert!(!is_background_utility_request(
+            Some(&json!({"request_kind": "context_compaction"})),
+            &json!({"instructions": "Generate a concise title"})
+        ));
+        assert!(!is_background_utility_request(
+            Some(&json!({"request_kind": "turn"})),
+            &json!({"instructions": "You are part of an agent memory system"})
         ));
         let handoff_prompt = json!({"input": "Create a handoff summary for the next agent."});
         assert!(!is_background_utility_request(None, &handoff_prompt));

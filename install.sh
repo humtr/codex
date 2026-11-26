@@ -1282,22 +1282,33 @@ install_signed_component() {
     tunnel_client_updated=1
   fi
 
-  ic_cur_link=''
-  if [ -L "$ic_root/current" ]; then
-    ic_cur_link=$(readlink "$ic_root/current" 2>/dev/null || :)
-  fi
   ic_reinstall=1
   if [ -e "$ic_gen_dir" ] || [ -L "$ic_gen_dir" ]; then
     [ -d "$ic_gen_dir" ] && [ ! -L "$ic_gen_dir" ] || fail "generation path is not a real directory: $ic_gen_dir"
-    [ -f "$ic_gen_dir/bin/$ic_bin" ] && [ ! -L "$ic_gen_dir/bin/$ic_bin" ] &&
+    if ! { [ -d "$ic_gen_dir/signed" ] && [ ! -L "$ic_gen_dir/signed" ] &&
+      [ -f "$ic_gen_dir/bin/$ic_bin" ] && [ ! -L "$ic_gen_dir/bin/$ic_bin" ] &&
       [ "$(sha256_hex "$ic_gen_dir/bin/$ic_bin")" = "$ic_new_bin_sha" ] &&
-      [ -f "$ic_gen_dir/signed/SHA256SUMS" ] &&
+      [ -f "$ic_gen_dir/signed/SHA256SUMS" ] && [ ! -L "$ic_gen_dir/signed/SHA256SUMS" ] &&
       cmp -s "$ic_gen_dir/signed/SHA256SUMS" "$ic_sums" &&
-      [ -f "$ic_gen_dir/signed/SHA256SUMS.sig" ] &&
-      cmp -s "$ic_gen_dir/signed/SHA256SUMS.sig" "$ic_sig" &&
-      [ -f "$ic_gen_dir/signed/release-public-key.pem" ] &&
-      cmp -s "$ic_gen_dir/signed/release-public-key.pem" "$component_verify_key_path" ||
+      [ -f "$ic_gen_dir/signed/SHA256SUMS.sig" ] && [ ! -L "$ic_gen_dir/signed/SHA256SUMS.sig" ] &&
+      cmp -s "$ic_gen_dir/signed/SHA256SUMS.sig" "$ic_sig"; }; then
       fail "immutable generation identity conflict; refusing to replace $ic_gen_dir"
+    fi
+    ic_key="$ic_gen_dir/signed/release-public-key.pem"
+    if [ -e "$ic_key" ] || [ -L "$ic_key" ]; then
+      require_regular_file "$ic_key" 'generation release public key'
+      cmp -s "$ic_key" "$component_verify_key_path" ||
+        fail "immutable generation public key conflict; refusing to reuse $ic_gen_dir"
+    else
+      ic_key_tmp="$ic_gen_dir/signed/.release-public-key.pem.tmp.$$"
+      [ ! -e "$ic_key_tmp" ] && [ ! -L "$ic_key_tmp" ] ||
+        fail "generation public key staging collision: $ic_key_tmp"
+      cp "$component_verify_key_path" "$ic_key_tmp"
+      chmod 0600 "$ic_key_tmp"
+      install_sync "$ic_key_tmp"
+      mv "$ic_key_tmp" "$ic_key" || fail "cannot backfill generation public key: $ic_gen_dir"
+      install_sync "$ic_gen_dir/signed"
+    fi
     ic_reinstall=0
   fi
 

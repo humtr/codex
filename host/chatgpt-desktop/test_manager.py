@@ -120,6 +120,17 @@ class ChatGPTDesktopManagerTests(unittest.TestCase):
             self.assertEqual(st3["previous"], "26.1117.41037")
             self.assertTrue(profile.is_dir())
 
+    def test_legacy_generation_v1_without_installed_hashes_is_compatible(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            gen = make_fake_generation(Path(td), "26.1007.21434")
+            manifest_path = gen / "generation.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["schema"] = "chatgpt-desktop-generation-v1"
+            manifest.pop("installed_binary_sha256")
+            manifest.pop("installed_app_asar_sha256")
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+            self.assertTrue(manager.is_valid_generation(gen))
+
     def test_generation_integrity_detects_modified_payload(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             gen = make_fake_generation(Path(td), "26.1007.21434")

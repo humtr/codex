@@ -95,22 +95,33 @@ pub fn current_uid() -> u32 {
 }
 
 fn validate_private_dir(dir: &Path) -> Result<(), String> {
-    let meta = fs::symlink_metadata(dir)
-        .map_err(|e| format!("cannot stat directory {}: {e}", dir.display()))?;
-    if meta.file_type().is_symlink() || !meta.is_dir() {
-        return Err(format!("expected real directory: {}", dir.display()));
-    }
-    if meta.uid() != current_uid() {
-        return Err(format!(
-            "directory not owned by current user: {}",
-            dir.display()
-        ));
-    }
-    if meta.mode() & 0o077 != 0 {
-        return Err(format!(
-            "directory permissions are too broad (expected 0700): {}",
-            dir.display()
-        ));
+    let owned_directory = || -> Result<fs::Metadata, String> {
+        let meta = fs::symlink_metadata(dir)
+            .map_err(|e| format!("cannot stat directory {}: {e}", dir.display()))?;
+        if meta.file_type().is_symlink() || !meta.is_dir() {
+            return Err(format!("expected real directory: {}", dir.display()));
+        }
+        if meta.uid() != current_uid() {
+            return Err(format!(
+                "directory not owned by current user: {}",
+                dir.display()
+            ));
+        }
+        Ok(meta)
+    };
+    if owned_directory()?.mode() & 0o077 != 0 {
+        fs::set_permissions(dir, fs::Permissions::from_mode(0o700)).map_err(|e| {
+            format!(
+                "cannot restrict directory permissions {}: {e}",
+                dir.display()
+            )
+        })?;
+        if owned_directory()?.mode() & 0o077 != 0 {
+            return Err(format!(
+                "directory permissions are too broad (expected 0700): {}",
+                dir.display()
+            ));
+        }
     }
     Ok(())
 }
@@ -240,9 +251,11 @@ mod private_dir_tests {
         let broad = root.join("broad");
         fs::create_dir(&broad).unwrap();
         fs::set_permissions(&broad, fs::Permissions::from_mode(0o755)).unwrap();
-        assert!(ensure_private_dir(&broad).is_err());
-        fs::set_permissions(&broad, fs::Permissions::from_mode(0o700)).unwrap();
         assert!(ensure_private_dir(&broad).is_ok());
+        assert_eq!(
+            fs::symlink_metadata(&broad).unwrap().permissions().mode() & 0o777,
+            0o700
+        );
         let link = root.join("link");
         std::os::unix::fs::symlink(&broad, &link).unwrap();
         assert!(ensure_private_dir(&link).is_err());

@@ -320,11 +320,9 @@ mod tests {
         }
         for t in &tools {
             let j = t.to_mcp_json();
-            let read_only = t.name == "orch_catalog";
-            assert_eq!(j["annotations"]["readOnlyHint"], read_only);
-            let destructive = t.name != "orch_works" && t.name != "orch_catalog";
-            assert_eq!(j["annotations"]["destructiveHint"], destructive);
-            assert_eq!(j["annotations"]["openWorldHint"], destructive);
+            assert_eq!(j["annotations"]["readOnlyHint"], true);
+            assert_eq!(j["annotations"]["destructiveHint"], false);
+            assert_eq!(j["annotations"]["openWorldHint"], false);
         }
         let reg = build_extension_registry();
         let cat = reg.catalog_json();

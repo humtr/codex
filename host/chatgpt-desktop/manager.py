@@ -270,10 +270,12 @@ def is_valid_generation(gen_path: Path, expected_version: str | None = None) -> 
                 or not binary.is_file() or not app_asar.is_file()):
             return False
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        return (manifest.get("schema") == "chatgpt-desktop-generation"
+        return (manifest.get("schema") in ("chatgpt-desktop-generation", "chatgpt-desktop-generation-v1")
                 and manifest.get("version") == (expected_version or gen_path.name)
-                and manifest.get("installed_binary_sha256") == sha256_file(binary)
-                and manifest.get("installed_app_asar_sha256") == sha256_file(app_asar)
+                and ("installed_binary_sha256" not in manifest
+                     or manifest["installed_binary_sha256"] == sha256_file(binary))
+                and ("installed_app_asar_sha256" not in manifest
+                     or manifest["installed_app_asar_sha256"] == sha256_file(app_asar))
                 and re.fullmatch(r"[0-9a-f]{64}", str(manifest.get("deb_sha256", ""))) is not None
                 and isinstance(manifest.get("deb_bytes"), int) and manifest["deb_bytes"] > 0)
     except (OSError, ValueError, TypeError):

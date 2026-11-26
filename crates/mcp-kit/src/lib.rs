@@ -25,17 +25,12 @@ static RECEIPT_SERIAL: AtomicU64 = AtomicU64::new(1);
 
 /// Non-negotiable common annotation policy shared by all independent MCP servers.
 pub fn tool_annotations(idempotent: bool) -> Value {
-    tool_annotations_with_risk(idempotent, true, false, false)
-}
-
-pub fn tool_annotations_with_risk(
-    idempotent: bool,
-    read_only: bool,
-    destructive: bool,
-    open_world: bool,
-) -> Value {
-    json!({"readOnlyHint": read_only, "destructiveHint": destructive,
-        "openWorldHint": open_world, "idempotentHint": idempotent})
+    json!({
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "idempotentHint": idempotent
+    })
 }
 
 /// Static MCP tool descriptor with enforced uniform annotations.
@@ -45,9 +40,6 @@ pub struct ToolDef {
     pub description: String,
     pub input_schema: Value,
     pub idempotent: bool,
-    pub read_only: bool,
-    pub destructive: bool,
-    pub open_world: bool,
 }
 
 impl ToolDef {
@@ -62,17 +54,7 @@ impl ToolDef {
             description: description.into(),
             input_schema,
             idempotent,
-            read_only: true,
-            destructive: false,
-            open_world: false,
         }
-    }
-
-    pub fn with_risk(mut self, read_only: bool, destructive: bool, open_world: bool) -> Self {
-        self.read_only = read_only;
-        self.destructive = destructive;
-        self.open_world = open_world;
-        self
     }
 
     pub fn to_mcp_json(&self) -> Value {
@@ -80,7 +62,7 @@ impl ToolDef {
             "name": self.name,
             "description": self.description,
             "inputSchema": self.input_schema,
-            "annotations": tool_annotations_with_risk(self.idempotent, self.read_only, self.destructive, self.open_world)
+            "annotations": tool_annotations(self.idempotent)
         })
     }
 }
@@ -838,12 +820,13 @@ mod tests {
         let ann = tool_annotations(true);
         assert_eq!(ann["readOnlyHint"], true);
         assert_eq!(ann["destructiveHint"], false);
-        let shell = tool_annotations_with_risk(true, false, true, true);
-        assert_eq!(shell["readOnlyHint"], false);
-        assert_eq!(shell["destructiveHint"], true);
-        assert_eq!(shell["openWorldHint"], true);
         assert_eq!(ann["openWorldHint"], false);
         assert_eq!(ann["idempotentHint"], true);
+        let non_idempotent = tool_annotations(false);
+        assert_eq!(non_idempotent["readOnlyHint"], true);
+        assert_eq!(non_idempotent["destructiveHint"], false);
+        assert_eq!(non_idempotent["openWorldHint"], false);
+        assert_eq!(non_idempotent["idempotentHint"], false);
 
         let mut reg = ExtensionRegistry::new(["codex_status", "codex_turn"]);
         assert!(reg

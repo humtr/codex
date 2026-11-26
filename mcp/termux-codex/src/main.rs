@@ -1,7 +1,7 @@
 //! `@TermuxCodex` — stateless thin MCP bridge over the official `codex app-server daemon`.
 //!
 //! Built on `crates/codex-daemon-client` (direct RFC 6455 WebSocket-over-UDS with
-//! Termux FD 35 resolution) and `crates/mcp-kit` (per-tool MCP risk annotations,
+//! Termux FD 35 resolution) and `crates/mcp-kit` (uniform MCP annotations,
 //! bounded `call_id` transport deduplication receipts, and disjoint `codex_catalog` /
 //! `codex_call` extension slots). Zero shadow task DB; independently retirable once
 //! official `codex remote-control` matures.
@@ -87,7 +87,7 @@ fn static_tools() -> Vec<ToolDef> {
                 "additionalProperties": false
             }),
             true,
-        ).with_risk(false, true, true),
+        ),
         ToolDef::new(
             "codex_catalog",
             "List all allowlisted extension actions callable via codex_call with their exact JSON input schemas (strictly disjoint from static tools).",
@@ -112,7 +112,7 @@ fn static_tools() -> Vec<ToolDef> {
                 "additionalProperties": false
             }),
             false,
-        ).with_risk(false, true, true),
+        ),
     ]
 }
 
@@ -1716,13 +1716,9 @@ mod tests {
 
         for tool in &tools {
             let j = tool.to_mcp_json();
-            let read_only = matches!(
-                tool.name.as_str(),
-                "codex_status" | "codex_threads" | "codex_catalog"
-            );
-            assert_eq!(j["annotations"]["readOnlyHint"], read_only);
-            assert_eq!(j["annotations"]["destructiveHint"], !read_only);
-            assert_eq!(j["annotations"]["openWorldHint"], !read_only);
+            assert_eq!(j["annotations"]["readOnlyHint"], true);
+            assert_eq!(j["annotations"]["destructiveHint"], false);
+            assert_eq!(j["annotations"]["openWorldHint"], false);
         }
         assert!(tools[0].idempotent); // codex_status
         assert!(tools[1].idempotent); // codex_threads

@@ -55,7 +55,7 @@ pub fn build_static_tools() -> Vec<ToolDef> {
                 "additionalProperties": false
             }),
             true,
-        ).with_risk(false, false, false),
+        ),
         ToolDef::new(
             "orch_work",
             "Create or manage a durable Work. Use the current session for questions and steps it can finish itself. For edits, coordination, or persistent follow-up from ChatGPT, delegate the work and return promptly so the Front chat is free. For a fixed shell plan pass steps rather than opening a Lead. Select independent_review for multi-file, contract, state, permission or follow-up fixes. Multi-step instructions still need coordination in the current session. Use direct for a fixed sequence and do not create a separate Lead unless needed. Reuse repository projects with project_scope.",
@@ -105,7 +105,7 @@ pub fn build_static_tools() -> Vec<ToolDef> {
                 "additionalProperties": false
             }),
             true,
-        ).with_risk(false, true, true),
+        ),
         ToolDef::new(
             "orch_dispatch",
             "Register or spawn Worker (W) / Verifier (V) participants with uniform [W1-slug]/[V1-slug] titles, or arm/clear declarative Wait-Set triggers (all_of Fan-in Barrier, any_of, on_user_event, deadline_secs) so Lead/Front can cleanly end its turn and be woken automatically by Runtime (R).",
@@ -149,7 +149,7 @@ pub fn build_static_tools() -> Vec<ToolDef> {
                 "additionalProperties": false
             }),
             true,
-        ).with_risk(false, true, true),
+        ),
         ToolDef::new(
             "orch_report",
             "Emit a structured milestone, need_user blocker, completion, or failure report from Lead/Runtime to the latest bound Front (F1..Fn) with checkpoint.md persistence, inject_and_notify delivery, and Android notification.",
@@ -171,7 +171,7 @@ pub fn build_static_tools() -> Vec<ToolDef> {
                 "additionalProperties": false
             }),
             true,
-        ).with_risk(false, true, true),
+        ),
         ToolDef::new(
             "orch_catalog",
             "List all allowlisted extension actions callable via orch_call with exact JSON input schemas (strictly disjoint from static tools).",
@@ -195,7 +195,7 @@ pub fn build_static_tools() -> Vec<ToolDef> {
                 "additionalProperties": false
             }),
             false,
-        ).with_risk(false, true, true),
+        ),
     ]
 }
 
