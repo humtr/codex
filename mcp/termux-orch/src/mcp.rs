@@ -1,6 +1,7 @@
 //! `@TermuxOrch` 6-tool MCP surface (`termux-orch mcp`).
 //!
-//! Static tools advertise read-only or mutating/destructive behavior per their actual effects:
+//! Static tools use the uniform MCP annotations required by SPEC.md / BRIDGE.md;
+//! actual effects are governed by each tool's operation contract:
 //! 1. `orch_works`    — `list | read | checkpoint | inbox`
 //! 2. `orch_work`     — `create | promote | rebind_front | update_scope | cancel`
 //! 3. `orch_dispatch` — `register_worker | register_verifier | wait_set | wait_clear`

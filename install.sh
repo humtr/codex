@@ -290,7 +290,8 @@ retain_release_key() {
     require_regular_file "$retired_key" 'retired release public key'
     cmp -s "$key_dest" "$retired_key" || fail 'retired release key digest conflict'
   else
-    retired_tmp="$retired_dir/.key.tmp.$$"
+    retired_tmp="$retired_dir/.key.tmp.$owner_pid"
+    remove_owned_install_file "$retired_tmp"
     (umask 077; set -C; cat "$key_dest" > "$retired_tmp")
     install_sync "$retired_tmp"
     mv -f "$retired_tmp" "$retired_key"
@@ -299,38 +300,78 @@ retain_release_key() {
   install_sync "$key_dir"
 }
 
+# Complete the same signed transaction during normal installation or recovery.
+# The journal's admitted key is durable before the executable can be swapped.
 persist_signed_release_state() {
+  [ "$signed_sequence" != none ] || return 0
   state_dir="$HOME/.local/share/codex/wrapper"
   key_dir="$HOME/.local/lib/codex/wrapper"
-  write_install_phase committing
-  signed_commit_started=1
-  mkdir -p "$state_dir" "$key_dir"
-  if [ -L "$state_dir" ] || [ ! -d "$state_dir" ] || [ -L "$key_dir" ] || [ ! -d "$key_dir" ]; then
-    fail 'signed release state directories must be real non-symlink directories'
-  fi
-  chmod 0700 "$state_dir" "$key_dir"
   seq_dest="$state_dir/release-sequence"
-  if [ -L "$seq_dest" ] || { [ -e "$seq_dest" ] && [ ! -f "$seq_dest" ]; }; then
-    fail "release sequence destination must be absent or a regular non-symlink file: $seq_dest"
-  fi
   key_dest="$key_dir/release-public-key.pem"
-  if [ -L "$key_dest" ] || { [ -e "$key_dest" ] && [ ! -f "$key_dest" ]; }; then
-    fail "release public key destination must be absent or a regular non-symlink file: $key_dest"
+  for signed_dir in "$state_dir" "$key_dir"; do
+    if [ -L "$signed_dir" ] || { [ -e "$signed_dir" ] && [ ! -d "$signed_dir" ]; }; then
+      fail 'signed release state directories must be real non-symlink directories'
+    fi
+  done
+  seq_now=$(read_recorded_release_sequence "$seq_dest")
+  key_now=$(digest_or_none "$key_dest")
+  validate_release_sequence "$signed_sequence" 'journal signed sequence'
+  [ "$signed_sequence" != 0 ] && valid_sha_or_none "$signed_key_sha" &&
+    [ "$signed_key_sha" != none ] || fail 'invalid signed install journal'
+  [ "$seq_now" -le "$signed_sequence" ] || fail 'signed release sequence advanced outside installer transaction'
+
+  if [ "$install_format" = codex-install-v2 ]; then
+    validate_release_sequence "$signed_previous_sequence" 'journal prior sequence'
+    valid_sha_or_none "$signed_previous_key_sha" || fail 'invalid journal prior key digest'
+    [ "$signed_previous_sequence" -le "$signed_sequence" ] || fail 'invalid signed sequence transition'
+    if [ "$seq_now" != "$signed_sequence" ] && [ "$seq_now" != "$signed_previous_sequence" ]; then
+      fail 'signed release sequence differs from both transaction states'
+    fi
+    if [ "$key_now" != "$signed_previous_key_sha" ] &&
+       ! { [ "$key_now" = "$signed_key_sha" ] && [ "$seq_now" = "$signed_sequence" ]; }; then
+      fail 'signed release key differs from transaction state'
+    fi
+    if [ "$key_now" != "$signed_key_sha" ]; then
+      [ "$(digest_or_none "$install_lock/release-public-key.pem")" = "$signed_key_sha" ] ||
+        fail 'admitted recovery public key missing or corrupt'
+    elif [ "$signed_previous_key_sha" != none ] && [ "$signed_previous_key_sha" != "$signed_key_sha" ]; then
+      [ "$(digest_or_none "$key_dir/retired-keys/$signed_previous_key_sha.pem")" = "$signed_previous_key_sha" ] ||
+        fail 'retired release key missing or corrupt'
+    fi
+  elif [ "$key_now" != "$signed_key_sha" ]; then
+    # Older journals did not save the admitted verifier. Never invent it or
+    # trust a new download; only an already staged exact key can finish.
+    [ "$seq_now" = "$signed_sequence" ] &&
+      [ "$(digest_or_none "$key_dir/.release-public-key.pem.tmp.$owner_pid")" = "$signed_key_sha" ] ||
+      fail 'legacy signed recovery lacks the admitted public key; preserving journal'
   fi
-  if [ -f "$key_dest" ] && ! cmp -s "$key_dest" "$verified_active_pubkey"; then
+
+  signed_commit_started=1
+  write_install_phase committing
+  mkdir -p "$state_dir" "$key_dir"
+  chmod 0700 "$state_dir" "$key_dir"
+  if [ "$key_now" != none ] && [ "$key_now" != "$signed_key_sha" ]; then
     retain_release_key
   fi
-  seq_tmp="$state_dir/.release-sequence.tmp.$$"
-  printf '%s\n' "$verified_release_sequence" > "$seq_tmp"
+  seq_tmp="$state_dir/.release-sequence.tmp.$owner_pid"
+  remove_owned_install_file "$seq_tmp"
+  printf '%s\n' "$signed_sequence" > "$seq_tmp"
   chmod 0600 "$seq_tmp"
   install_sync "$seq_tmp"
   mv -f "$seq_tmp" "$seq_dest"
   install_sync "$state_dir"
-  key_tmp="$key_dir/.release-public-key.pem.tmp.$$"
-  cp "$verified_active_pubkey" "$key_tmp"
-  chmod 0600 "$key_tmp"
-  install_sync "$key_tmp"
-  mv -f "$key_tmp" "$key_dest"
+  key_tmp="$key_dir/.release-public-key.pem.tmp.$owner_pid"
+  if [ "$key_now" != "$signed_key_sha" ]; then
+    if [ "$install_format" = codex-install-v2 ]; then
+      remove_owned_install_file "$key_tmp"
+      cp "$install_lock/release-public-key.pem" "$key_tmp"
+    fi
+    chmod 0600 "$key_tmp"
+    install_sync "$key_tmp"
+    mv -f "$key_tmp" "$key_dest"
+  fi
+  remove_owned_install_file "$key_tmp"
+  install_sync "$key_dest"
   install_sync "$key_dir"
 }
 
@@ -389,11 +430,13 @@ valid_sha_or_none() {
 
 write_install_phase() {
   phase=$1
-  signed_key_sha=none
-  if [ -n "$verified_active_pubkey" ]; then signed_key_sha=$(sha256_hex "$verified_active_pubkey"); fi
-  printf 'format=codex-install-v1\nphase=%s\nold_sha=%s\nnew_sha=%s\nstate_before=%s\nskip_upstream=%s\nrequested_version=%s\nsigned_sequence=%s\nsigned_key_sha=%s\n' \
-    "$phase" "$before_sha" "$candidate_sha" "$state_before_sha" "$skip_upstream" "${upstream_version:-none}" "${verified_release_sequence:-none}" "$signed_key_sha" \
+  printf 'format=%s\nphase=%s\nold_sha=%s\nnew_sha=%s\nstate_before=%s\nskip_upstream=%s\nrequested_version=%s\nsigned_sequence=%s\nsigned_key_sha=%s\n' \
+    "$install_format" "$phase" "$before_sha" "$candidate_sha" "$state_before_sha" "$skip_upstream" "${upstream_version:-none}" "$signed_sequence" "$signed_key_sha" \
     > "$install_lock/transaction.next"
+  if [ "$install_format" = codex-install-v2 ]; then
+    printf 'signed_previous_sequence=%s\nsigned_previous_key_sha=%s\n' \
+      "$signed_previous_sequence" "$signed_previous_key_sha" >> "$install_lock/transaction.next"
+  fi
   install_sync "$install_lock/transaction.next"
   mv -f "$install_lock/transaction.next" "$install_lock/transaction"
   install_sync "$install_lock"
@@ -505,14 +548,12 @@ remove_owned_install_file() {
 verify_recovered_signed_state() {
   [ "$signed_sequence" = none ] && return 0
   validate_release_sequence "$signed_sequence" 'journal signed sequence'
-  [ "${#signed_key_sha}" -eq 64 ] || fail 'invalid signed key digest in install journal'
-  case $signed_key_sha in *[!0-9a-f]*) fail 'invalid signed key digest in install journal' ;; esac
+  [ "$signed_sequence" != 0 ] && valid_sha_or_none "$signed_key_sha" &&
+    [ "$signed_key_sha" != none ] || fail 'invalid signed install journal'
   [ "$(read_recorded_release_sequence "$HOME/.local/share/codex/wrapper/release-sequence")" = "$signed_sequence" ] ||
     fail 'signed release sequence was not durably committed; preserving recovery journal'
-  if ! { [ -f "$HOME/.local/lib/codex/wrapper/release-public-key.pem" ] &&
-         [ "$(sha256_hex "$HOME/.local/lib/codex/wrapper/release-public-key.pem")" = "$signed_key_sha" ]; }; then
+  [ "$(digest_or_none "$HOME/.local/lib/codex/wrapper/release-public-key.pem")" = "$signed_key_sha" ] ||
     fail 'signed release key was not durably committed; preserving recovery journal'
-  fi
 }
 
 # Recovery is serialized separately so two stale-lock reclaimers cannot both
@@ -531,16 +572,30 @@ recover_install_lock() {
     fi
   done
   owner_is_quiescent
-  [ "$(record_value format "$install_lock/transaction")" = codex-install-v1 ] ||
-    fail 'unknown install transaction format'
+  install_format=$(record_value format "$install_lock/transaction")
+  case $install_format in codex-install-v1|codex-install-v2) ;; *) fail 'unknown install transaction format' ;; esac
   recovered_phase=$(record_value phase "$install_lock/transaction")
   before_sha=$(record_value old_sha "$install_lock/transaction")
   candidate_sha=$(record_value new_sha "$install_lock/transaction")
   state_before_sha=$(record_value state_before "$install_lock/transaction")
   skip_upstream=$(record_value skip_upstream "$install_lock/transaction")
   upstream_version=$(record_value requested_version "$install_lock/transaction")
-  signed_sequence=$(record_value signed_sequence "$install_lock/transaction" 2>/dev/null || printf 'none')
-  signed_key_sha=$(record_value signed_key_sha "$install_lock/transaction" 2>/dev/null || printf 'none')
+  if [ "$install_format" = codex-install-v2 ]; then
+    signed_sequence=$(record_value signed_sequence "$install_lock/transaction") || fail 'missing journal signed sequence'
+    signed_key_sha=$(record_value signed_key_sha "$install_lock/transaction") || fail 'missing journal signed key digest'
+    signed_previous_sequence=$(record_value signed_previous_sequence "$install_lock/transaction") || fail 'missing journal prior sequence'
+    signed_previous_key_sha=$(record_value signed_previous_key_sha "$install_lock/transaction") || fail 'missing journal prior key digest'
+  else
+    signed_sequence=$(record_value signed_sequence "$install_lock/transaction" 2>/dev/null || printf 'none')
+    signed_key_sha=$(record_value signed_key_sha "$install_lock/transaction" 2>/dev/null || printf 'none')
+  fi
+  if [ "$signed_sequence" != none ]; then
+    validate_release_sequence "$signed_sequence" 'journal signed sequence'
+    [ "$signed_sequence" != 0 ] && valid_sha_or_none "$signed_key_sha" &&
+      [ "$signed_key_sha" != none ] || fail 'invalid signed install journal'
+  elif [ "$signed_key_sha" != none ]; then
+    fail 'contradictory unsigned install journal'
+  fi
   if ! { valid_sha_or_none "$before_sha" && valid_sha_or_none "$candidate_sha" &&
          valid_sha_or_none "$state_before_sha" && [ "$candidate_sha" != none ]; }; then
     fail 'invalid digest in install transaction'
@@ -562,12 +617,16 @@ recover_install_lock() {
     preparing|ready|swapped)
       [ "$(activation_snapshot)" = "$state_before_sha" ] ||
         fail 'activation state changed before updater admission; manual reconciliation required'
+      if [ "$install_format" = codex-install-v2 ] && [ "$signed_sequence" != none ]; then
+        [ "$(read_recorded_release_sequence "$HOME/.local/share/codex/wrapper/release-sequence")" = "$signed_previous_sequence" ] &&
+          [ "$(digest_or_none "$HOME/.local/lib/codex/wrapper/release-public-key.pem")" = "$signed_previous_key_sha" ] ||
+          fail 'signed state changed before commit; preserving recovery journal'
+      fi
       if [ "$recovered_phase" = preparing ] && [ "$actual_sha" != "$before_sha" ]; then
         fail 'executable changed during uncommitted preparation'
       fi
       if [ "$recovered_phase" = swapped ] && [ "$skip_upstream" -eq 1 ] &&
-         [ "$actual_sha" = "$candidate_sha" ]; then
-        verify_recovered_signed_state
+         [ "$actual_sha" = "$candidate_sha" ] && [ "$signed_sequence" = none ]; then
         note 'recovered committed --skip-upstream executable without rerunning updater'
       elif [ "$actual_sha" = "$candidate_sha" ] && [ "$before_sha" != "$candidate_sha" ]; then
         if [ "$before_sha" = none ]; then
@@ -586,34 +645,42 @@ recover_install_lock() {
       if ! { [ "$actual_sha" = "$candidate_sha" ] && qualified_new_activation; }; then
         fail 'updater outcome remains uncertain; preserving executable, backup and lock'
       fi
-      verify_recovered_signed_state
+      persist_signed_release_state
       note 'reconciled already activated generation; updater was not replayed'
       ;;
     committing|committed)
       [ "$actual_sha" = "$candidate_sha" ] || fail 'committed Wrapper executable mismatch'
-      verify_recovered_signed_state
+      if [ "$recovered_phase" = committing ]; then
+        persist_signed_release_state
+      else
+        verify_recovered_signed_state
+      fi
       note 'recovered committed Wrapper without replaying components or updater'
       ;;
     updated)
       if ! { [ "$actual_sha" = "$candidate_sha" ] && qualified_new_activation; }; then
         fail 'completed updater receipt contradicts activation metadata'
       fi
-      verify_recovered_signed_state
+      persist_signed_release_state
       note 'recovered completed update without replay'
       ;;
     *)
       fail "unknown install phase $recovered_phase"
       ;;
   esac
+  case $recovered_phase in
+    updating|updated|committing) write_install_phase committed ;;
+  esac
   remove_owned_install_file "$recovered_tmp"
   remove_owned_install_file "$recovered_backup"
-  for name in owner owner.next transaction transaction.next updater updater.next; do
+  for name in release-public-key.pem owner owner.next transaction transaction.next updater updater.next; do
     remove_owned_install_file "$install_lock/$name"
   done
   rmdir "$install_lock" || fail 'install lock contains unknown assets; refusing to remove'
   install_sync "$dest_dir"
   rmdir "$recovery_gate" || fail 'cannot release installer recovery gate'
   recovery_gate_owned=0
+  signed_commit_started=0
 }
 
 prefix=${PREFIX:-$DEFAULT_PREFIX}
@@ -881,7 +948,7 @@ finish_install() {
       remove_owned_install_file "$staged_tmp"
     fi
     if [ "$lock_owned" -eq 1 ]; then
-      for name in owner owner.next transaction transaction.next updater updater.next; do
+      for name in release-public-key.pem owner owner.next transaction transaction.next updater updater.next; do
         remove_owned_install_file "$install_lock/$name"
       done
       if ! rmdir "$install_lock" || ! install_sync "$dest_dir"; then
@@ -1904,7 +1971,14 @@ if ! mkdir "$install_lock" 2>/dev/null; then
   fail "installation already in progress or unowned lock: $install_lock (run --recover after inspection)"
 fi
 lock_owned=1
+owner_pid=$$
 install_record_owner
+install_format=codex-install-v2
+signed_sequence=${verified_release_sequence:-none}
+signed_key_sha=none
+signed_previous_sequence=none
+signed_previous_key_sha=none
+signed_commit_started=0
 
 if [ -n "$verified_release_sequence" ]; then
   [ "$(digest_or_none "$default_key")" = "$initial_key_sha" ] ||
@@ -1912,6 +1986,9 @@ if [ -n "$verified_release_sequence" ]; then
   locked_seq=$(read_recorded_release_sequence "$HOME/.local/share/codex/wrapper/release-sequence")
   [ "$verified_release_sequence" -ge "$locked_seq" ] ||
     fail "release sequence rollback rejected under install lock (got $verified_release_sequence, installed $locked_seq)"
+  signed_previous_sequence=$locked_seq
+  signed_previous_key_sha=$initial_key_sha
+  signed_key_sha=$(sha256_hex "$verified_active_pubkey")
 fi
 
 if [ -L "$dest_bin" ] || { [ -e "$dest_bin" ] && [ ! -f "$dest_bin" ]; }; then
@@ -1922,6 +1999,14 @@ before_sha=$(digest_or_none "$dest_bin")
 candidate_sha=$(sha256_hex "$binary_path")
 state_before_sha=$(activation_snapshot)
 write_install_phase preparing
+if [ "$signed_sequence" != none ]; then
+  cp "$verified_active_pubkey" "$install_lock/release-public-key.pem"
+  chmod 0600 "$install_lock/release-public-key.pem"
+  [ "$(sha256_hex "$install_lock/release-public-key.pem")" = "$signed_key_sha" ] ||
+    fail 'admitted public key changed during staging'
+  install_sync "$install_lock/release-public-key.pem"
+  install_sync "$install_lock"
+fi
 
 staged_tmp="$dest_dir/.codex.tmp.$$"
 if [ -e "$staged_tmp" ] || [ -L "$staged_tmp" ]; then

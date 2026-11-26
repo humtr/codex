@@ -387,17 +387,18 @@ impl DaemonUpdate<'_> {
             .stderr(Stdio::null());
         proc_exec::isolate_process_group(&mut cmd);
         fds.configure(&mut cmd);
-        let mut child = cmd.spawn().map_err(|err| err.to_string())?;
+        let child = cmd.spawn().map_err(|err| err.to_string())?;
         drop(cmd);
         let (out, status) =
-            proc_exec::collect_bounded_output_and_wait(&mut child, reader, timeout, 64 * 1024)
-                .map_err(|err| match err {
+            proc_exec::collect_bounded_output_and_wait(child, reader, timeout, 64 * 1024).map_err(
+                |err| match err {
                     proc_exec::OutputError::Io(err) => err.to_string(),
                     proc_exec::OutputError::TimedOut(_) => format!("daemon {subcommand} timed out"),
                     proc_exec::OutputError::OutputTooLarge(_) => {
                         format!("daemon {subcommand} output exceeded its bound")
                     }
-                })?;
+                },
+            )?;
         if !status.success() {
             return Err(format!("upstream daemon {subcommand} returned {status}"));
         }

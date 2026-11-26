@@ -2047,25 +2047,32 @@ wire_api = "responses"
                 {"role": "developer", "content": [{"type": "input_text", "text": "## Memory Writing Agent: Phase 1"}]}
             ]
         });
-        let resp_mem = oneshot(
-            router.clone(),
-            Request::builder()
-                .method("POST")
-                .uri("/v1/responses")
-                .header("content-type", "application/json")
-                .header(
-                    "x-codex-turn-metadata",
-                    r#"{"request_kind":"memory","thread_source":"memory_consolidation","turn_trigger":"memory_consolidation"}"#,
-                )
-                .body(Body::from(mem_body.to_string()))
-                .unwrap(),
-        )
-        .await;
-        assert_eq!(resp_mem.status(), StatusCode::OK);
-        let sent_mem = driver.last_send.lock().unwrap().clone().unwrap();
-        assert!(sent_mem["project_id"].is_null());
-        assert_eq!(sent_mem["model"], "gpt-6-2-instant");
-        assert!(sent_mem["reasoning_effort"].is_null());
+        for metadata in [
+            r#"{"request_kind":"memory","thread_source":"memory_consolidation","turn_trigger":"memory_consolidation"}"#,
+            r#"{"request_kind":"memories","thread_source":"memories"}"#,
+            r#"{"request_kind":"title_gen","thread_source":"title_gen"}"#,
+        ] {
+            let resp_mem = oneshot(
+                router.clone(),
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/responses")
+                    .header("content-type", "application/json")
+                    .header("x-codex-turn-metadata", metadata)
+                    .body(Body::from(mem_body.to_string()))
+                    .unwrap(),
+            )
+            .await;
+            assert_eq!(resp_mem.status(), StatusCode::OK);
+            let sent = driver.last_send.lock().unwrap().clone().unwrap();
+            assert!(sent["project_id"].is_null());
+            assert!(sent["chat_id"].is_null());
+            assert_eq!(sent["temporary"], true);
+            assert_eq!(sent["model"], "gpt-6-2-instant");
+            assert!(sent["reasoning_effort"].is_null());
+            assert_eq!(sent["local_function_signatures"], json!([]));
+            let _ = to_bytes(resp_mem.into_body(), 65536).await.unwrap();
+        }
 
         // Real user turn with the exact same prompt_cache_key must NOT see any stale thread
         // entry from the utility memory call and must still pin the configured project.

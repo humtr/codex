@@ -9,6 +9,7 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
+#[cfg(test)]
 const STOP_NOTIFY_LINE: &str = r#"notify = ["codex-ext", "notify", "emit", "Stop"]"#;
 const MAX_STDIN_PAYLOAD: u64 = 64 * 1024;
 const KNOWN_HOOK_EVENTS: &[&str] = &[
@@ -83,163 +84,52 @@ pub fn validate_event_name(event: &str) -> Result<(), String> {
     }
 }
 
-/// Inspect whether `~/.codex/config.toml` has top-level `codex-ext` `notify = [...]`
-/// (supporting both single-line and multi-line TOML array blocks).
+const STOP_NOTIFY_ARGV: &[&str] = &["codex-ext", "notify", "emit", "Stop"];
+
+fn read_config_toml(path: &Path) -> Result<toml_edit::DocumentMut, String> {
+    match fs::symlink_metadata(path) {
+        Ok(_) => require_owned_regular_file(path, "config.toml")?,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(Default::default()),
+        Err(e) => return Err(format!("cannot inspect {}: {e}", path.display())),
+    }
+    fs::read_to_string(path)
+        .map_err(|e| format!("cannot read {}: {e}", path.display()))?
+        .parse()
+        .map_err(|e| format!("cannot parse {}: {e}", path.display()))
+}
+
+fn is_managed_stop_notify(config: &toml_edit::DocumentMut) -> bool {
+    config
+        .get("notify")
+        .and_then(toml_edit::Item::as_array)
+        .is_some_and(|argv| {
+            argv.iter()
+                .map(toml_edit::Value::as_str)
+                .eq(STOP_NOTIFY_ARGV.iter().copied().map(Some))
+        })
+}
+
 pub fn config_toml_has_stop_notify(config_path: &Path) -> Result<bool, String> {
-    if fs::symlink_metadata(config_path).is_err() {
-        return Ok(false);
-    }
-    require_owned_regular_file(config_path, "config.toml")?;
-    let raw = fs::read_to_string(config_path)
-        .map_err(|e| format!("cannot read {}: {e}", config_path.display()))?;
-    let lines: Vec<&str> = raw.lines().collect();
-    let mut idx = 0usize;
-    while idx < lines.len() {
-        let trimmed = lines[idx].trim();
-        if trimmed.starts_with('[') {
-            break;
-        }
-        if is_top_level_notify_key(trimmed) {
-            let mut block = vec![lines[idx]];
-            let mut depth = toml_bracket_delta(lines[idx]);
-            while depth > 0 && idx + 1 < lines.len() {
-                idx += 1;
-                block.push(lines[idx]);
-                depth += toml_bracket_delta(lines[idx]);
-            }
-            if block.len() == 1 && block[0].trim() == STOP_NOTIFY_LINE {
-                return Ok(true);
-            }
-        }
-        idx += 1;
-    }
-    Ok(false)
+    Ok(is_managed_stop_notify(&read_config_toml(config_path)?))
 }
 
-fn is_top_level_notify_key(trimmed: &str) -> bool {
-    let Some(rest) = trimmed.strip_prefix("notify") else {
-        return false;
-    };
-    let rest = rest.trim_start();
-    rest.starts_with('=')
-}
-
-/// Count bracket balance change (`[` vs `]`) on a TOML line outside strings and comments.
-fn toml_bracket_delta(line: &str) -> i32 {
-    let bytes = line.as_bytes();
-    let mut i = 0usize;
-    let mut delta = 0i32;
-    let mut in_double = false;
-    let mut in_single = false;
-    while i < bytes.len() {
-        let b = bytes[i];
-        if in_double {
-            if b == b'\\' {
-                i += 2;
-                continue;
-            }
-            if b == b'"' {
-                in_double = false;
-            }
-        } else if in_single {
-            if b == b'\'' {
-                in_single = false;
-            }
-        } else {
-            match b {
-                b'#' => break,
-                b'"' => in_double = true,
-                b'\'' => in_single = true,
-                b'[' => delta += 1,
-                b']' => delta -= 1,
-                _ => {}
-            }
-        }
-        i += 1;
-    }
-    delta
-}
-
-/// Atomically set or remove top-level `notify = ["codex-ext", "notify", "emit", "Stop"]`
-/// in `~/.codex/config.toml` while preserving all comments, formatting, and tables.
-/// Correctly handles both single-line and multi-line TOML `notify = [...]` arrays.
+/// Edit only the top-level notify argv, preserving unrelated TOML and user commands.
 pub fn sync_config_toml_stop_notify(config_path: &Path, enable_stop: bool) -> Result<(), String> {
-    let existing = if fs::symlink_metadata(config_path).is_ok() {
-        require_owned_regular_file(config_path, "config.toml")?;
-        fs::read_to_string(config_path)
-            .map_err(|e| format!("cannot read {}: {e}", config_path.display()))?
-    } else {
-        String::new()
-    };
-
-    let lines: Vec<&str> = existing.lines().collect();
-    let mut out_lines: Vec<String> = Vec::new();
-    let mut in_top_level = true;
-    let mut inserted = false;
-    let mut notify_seen = false;
-    let mut idx = 0usize;
-
-    while idx < lines.len() {
-        let line = lines[idx];
-        let trimmed = line.trim();
-        if in_top_level && trimmed.starts_with('[') {
-            if enable_stop && !inserted && !notify_seen {
-                out_lines.push(STOP_NOTIFY_LINE.to_owned());
-                inserted = true;
-            }
-            in_top_level = false;
-            out_lines.push(line.to_owned());
-            idx += 1;
-            continue;
-        }
-        if in_top_level && is_top_level_notify_key(trimmed) {
-            notify_seen = true;
-            // Capture the full value block (single-line or multi-line array).
-            let mut block = vec![line];
-            let mut depth = toml_bracket_delta(line);
-            while depth > 0 && idx + 1 < lines.len() {
-                idx += 1;
-                block.push(lines[idx]);
-                depth += toml_bracket_delta(lines[idx]);
-            }
-            let managed = block.len() == 1 && block[0].trim() == STOP_NOTIFY_LINE;
-            if enable_stop {
-                // `notify` is one argv vector, not a list of commands. Never
-                // replace a user's existing notifier with our own command.
-                if managed {
-                    out_lines.push(block[0].to_owned());
-                    inserted = true;
-                } else {
-                    for b_line in block {
-                        out_lines.push(b_line.to_owned());
-                    }
-                }
-            } else if !managed {
-                // Only remove the exact command owned by codex-ext. A mixed or
-                // user-authored command remains byte-for-byte intact.
-                for b_line in block {
-                    out_lines.push(b_line.to_owned());
-                }
-            }
-            idx += 1;
-            continue;
-        }
-        out_lines.push(line.to_owned());
-        idx += 1;
-    }
-
-    if enable_stop && !inserted && !notify_seen {
-        out_lines.push(STOP_NOTIFY_LINE.to_owned());
-    }
-
-    let mut rendered = out_lines.join("\n");
-    if !rendered.is_empty() {
-        rendered.push('\n');
-    }
-    if rendered == existing {
+    let mut config = read_config_toml(config_path)?;
+    let managed = is_managed_stop_notify(&config);
+    if enable_stop == managed {
         return Ok(());
     }
-    atomic_write_private(config_path, rendered.as_bytes(), 0o600)
+    if enable_stop {
+        if config.contains_key("notify") {
+            return Err("cannot enable Stop: config.toml already defines a different notify command; existing configuration preserved".to_owned());
+        }
+        let argv: toml_edit::Array = STOP_NOTIFY_ARGV.iter().copied().collect();
+        config["notify"] = toml_edit::value(argv);
+    } else {
+        config.remove("notify");
+    }
+    atomic_write_private(config_path, config.to_string().as_bytes(), 0o600)
 }
 
 fn is_codex_ext_hook_group(group: &Value) -> bool {
@@ -594,11 +484,14 @@ mod tests {
         // Existing user notify argv must survive both enable and disable.
         let multi = "model = \"gpt-5.4\"\nnotify = [\n  \"old-tool\",\n  \"--arg\" # comment [ignored]\n]\n\n[tui]\nfullscreen = true\n";
         fs::write(&cfg, multi).unwrap();
-        sync_config_toml_stop_notify(&cfg, true).unwrap();
+        assert!(sync_config_toml_stop_notify(&cfg, true)
+            .unwrap_err()
+            .contains("different notify command"));
         let after_multi = fs::read_to_string(&cfg).unwrap();
         assert!(
             after_multi.contains("notify = [\n  \"old-tool\",\n  \"--arg\" # comment [ignored]\n]")
         );
+        assert_eq!(after_multi, multi);
         assert!(!after_multi.contains(STOP_NOTIFY_LINE));
         sync_config_toml_stop_notify(&cfg, false).unwrap();
         assert_eq!(fs::read_to_string(&cfg).unwrap(), after_multi);

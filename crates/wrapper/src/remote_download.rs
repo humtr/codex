@@ -292,9 +292,9 @@ pub(super) fn fetch_redirect_location(
     let started = Instant::now();
     let spawned = command.spawn();
     drop(command);
-    let mut child = spawned.map_err(|_| LocalProductError::CurlUnavailable)?;
+    let child = spawned.map_err(|_| LocalProductError::CurlUnavailable)?;
     let (out, status) = proc_exec::collect_bounded_output_and_wait(
-        &mut child,
+        child,
         reader,
         wait_timeout,
         REDIRECT_HEADER_MAX_BYTES,
@@ -431,7 +431,6 @@ pub(super) fn fetch_with_headers(
             }
             let seconds = format!("{}.{:03}", millis / 1000, millis % 1000);
             command.args(["--max-time", &seconds]);
-            proc_exec::isolate_process_group(&mut command);
         }
         TransferTimeout::Progress(_) => {
             // Expose file growth immediately to the idle timer.
@@ -452,10 +451,12 @@ pub(super) fn fetch_with_headers(
         .stdin(Stdio::null())
         .stdout(Stdio::from(child_output))
         .stderr(Stdio::from(OwnedFd::from(writer)));
+    proc_exec::isolate_process_group(&mut command);
     let started = Instant::now();
     let spawned = command.spawn();
     drop(command);
-    let mut child = spawned.map_err(|_| LocalProductError::CurlUnavailable)?;
+    let child = spawned.map_err(|_| LocalProductError::CurlUnavailable)?;
+    let mut stderr_eof = false;
     let result = (|| {
         let mut last = u64::MAX;
         let mut last_total = None;
@@ -468,14 +469,17 @@ pub(super) fn fetch_with_headers(
         let mut last_received = offset;
         let mut last_progress = started;
         loop {
-            let status = child.try_wait().map_err(transfer_io)?;
+            let exited = proc_exec::child_exit_success(&child).map_err(transfer_io)?;
             loop {
                 if matches!(timeout, TransferTimeout::Quick(until) if Instant::now() >= until) {
                     return Err(quick_timeout());
                 }
                 let mut buffer = [0; 1024];
                 match stderr.read(&mut buffer) {
-                    Ok(0) => break,
+                    Ok(0) => {
+                        stderr_eof = true;
+                        break;
+                    }
                     Ok(n) => {
                         tail.extend_from_slice(&buffer[..n]);
                         if tail.len() > STDERR_TAIL_BYTES {
@@ -494,7 +498,7 @@ pub(super) fn fetch_with_headers(
             // Curl has written the final response headers before emitting
             // body bytes. Wait for that boundary or exit so a proxy or
             // redirect response cannot supply the cached total.
-            if observed > offset || status.is_some() {
+            if observed > offset || exited.is_some() {
                 if let Some(path) = pending_headers.take() {
                     known_total = parse_total_size_from_headers(path, offset, max_bytes);
                 }
@@ -510,22 +514,11 @@ pub(super) fn fetch_with_headers(
                 last = observed;
                 last_total = known_total;
             }
-            if let Some(status) = status {
-                if !status.success() {
-                    return Err(LocalProductError::RemoteTransportFailed {
-                        code: status.code(),
-                        // The suffix may start inside a UTF-8 sequence. Lossy
-                        // decoding preserves the trailing ASCII status marker.
-                        http_status: String::from_utf8_lossy(&tail)
-                            .rsplit_once("CODEX_HTTP_STATUS=")
-                            .and_then(|(_, value)| value.parse::<u16>().ok())
-                            .filter(|code| (100..600).contains(code)),
-                        bytes: observed,
-                        elapsed_seconds: started.elapsed().as_secs(),
-                    });
+            if let Some(success) = exited {
+                if success {
+                    output.sync_all().map_err(transfer_io)?;
                 }
-                output.sync_all().map_err(transfer_io)?;
-                return Ok(observed);
+                return Ok((observed, success));
             }
             match timeout {
                 TransferTimeout::Progress(idle) if last_progress.elapsed() >= idle => {
@@ -546,15 +539,25 @@ pub(super) fn fetch_with_headers(
             std::thread::sleep(wait);
         }
     })();
-    // Reap the exact child on metadata, progress-bound and status failures too.
-    if result.is_err() {
-        if matches!(timeout, TransferTimeout::Quick(_)) {
-            proc_exec::reap_process_group(&mut child);
-        } else {
-            proc_exec::kill_and_wait(&mut child);
-        }
+    // Keep the leader reserved through every failure and through pipe cleanup.
+    let terminate = !stderr_eof || !matches!(&result, Ok((_, true)));
+    let status = proc_exec::finish_child(child, terminate).map_err(transfer_io);
+    let (observed, _) = result?;
+    let status = status?;
+    if !status.success() {
+        return Err(LocalProductError::RemoteTransportFailed {
+            code: status.code(),
+            // The suffix may start inside a UTF-8 sequence. Lossy decoding
+            // preserves the trailing ASCII status marker.
+            http_status: String::from_utf8_lossy(&tail)
+                .rsplit_once("CODEX_HTTP_STATUS=")
+                .and_then(|(_, value)| value.parse::<u16>().ok())
+                .filter(|code| (100..600).contains(code)),
+            bytes: observed,
+            elapsed_seconds: started.elapsed().as_secs(),
+        });
     }
-    result
+    Ok(observed)
 }
 
 fn private_directory(path: &Path) -> Result<File, LocalProductError> {

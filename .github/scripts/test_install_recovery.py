@@ -148,17 +148,20 @@ case "$TEST_HOOK:$op" in
         if [ "$TEST_HOOK" = swap-before ]; then exec "$real" "$@"; fi
         exit 0 ;;
     esac ;;
-  updated-after:mv)
-    case "${2:-}" in
-      */transaction.next)
-        if grep -q '^phase=updated$' "$2"; then
+  updated-after:mv|swapped-after:mv|committing-after:mv|sequence-after:mv|key-after:mv)
+    phase=${TEST_HOOK%-after}
+    hit=0
+    case "$phase:${2:-}" in
+      sequence:*/.release-sequence.tmp.*|key:*/.release-public-key.pem.tmp.*) hit=1 ;;
+      *:*/transaction.next) if grep -q "^phase=$phase$" "$2"; then hit=1; fi ;;
+    esac
+    if [ "$hit" = 1 ]; then
           "$real" "$@"
           : > "$HOME/hit"
           x=0
           while [ ! -f "$HOME/release-shim" ] && [ "$x" -lt 160 ]; do sleep 0.05; x=$((x+1)); done
           exit 0
-        fi ;;
-    esac ;;
+    fi ;;
 esac
 exec "$real" "$@"
 """
@@ -624,6 +627,15 @@ exit 22
             env=self.env, capture_output=True, text=True,
         )
 
+    def _gen_key(self, name):
+        priv = self.root / f"{name}.priv.pem"
+        pub = self.root / f"{name}.pub.pem"
+        subprocess.run(["openssl", "genpkey", "-algorithm", "ED25519", "-out", str(priv)],
+                       check=True, capture_output=True)
+        subprocess.run(["openssl", "pkey", "-in", str(priv), "-pubout", "-out", str(pub)],
+                       check=True, capture_output=True)
+        return priv, pub, hashlib.sha256(pub.read_bytes()).hexdigest()
+
     def test_i17_signed_release_verify_rollback_tamper_and_key_rotation(self):
         import importlib.util
         spec = importlib.util.spec_from_file_location(
@@ -631,18 +643,8 @@ exit 22
         )
         rs = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(rs)
-
-        def gen_key(name):
-            priv = self.root / f"{name}.priv.pem"
-            pub = self.root / f"{name}.pub.pem"
-            subprocess.run(["openssl", "genpkey", "-algorithm", "ED25519", "-out", str(priv)],
-                           check=True, capture_output=True)
-            subprocess.run(["openssl", "pkey", "-in", str(priv), "-pubout", "-out", str(pub)],
-                           check=True, capture_output=True)
-            return priv, pub, hashlib.sha256(pub.read_bytes()).hexdigest()
-
-        priv1, pub1, sha1 = gen_key("k1")
-        priv2, pub2, sha2 = gen_key("k2")
+        priv1, pub1, sha1 = self._gen_key("k1")
+        priv2, pub2, sha2 = self._gen_key("k2")
         rel = self.root / "release-srv"
         self._install_curl_shim(rel)
         payload = self.new.read_bytes()
@@ -723,6 +725,101 @@ exit 22
         )
         self.assertNotEqual(r_rec.returncode, 0)
         self.assertIn("--recover may only be combined with --prefix", r_rec.stderr)
+
+    def test_signed_recovery_at_each_commit_boundary(self):
+        priv1, pub1, sha1 = self._gen_key("old")
+        priv2, pub2, sha2 = self._gen_key("new")
+        rel = self.root / "release-srv"
+        self._install_curl_shim(rel)
+        self._build_signed_release_dir(rel, priv1, 5, self.old.read_bytes())
+        result = self._run_release_install("--verify-key", str(pub1), "--key-sha256", sha1)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        rot_sig = self.root / "rotation.sig"
+        subprocess.run(["openssl", "pkeyutl", "-sign", "-inkey", str(priv1), "-rawin",
+                        "-in", str(pub2), "-out", str(rot_sig)], check=True)
+        self._build_signed_release_dir(rel, priv2, 6, self.new.read_bytes(), pub2, rot_sig)
+        seq = self.home / ".local/share/codex/wrapper/release-sequence"
+        key = self.home / ".local/lib/codex/wrapper/release-public-key.pem"
+        lock = self.prefix / "bin/.codex-install.lock"
+        retired = key.parent / "retired-keys" / f"{sha1}.pem"
+        # All fixtures are isolated. Reset only their initial signed state
+        # between independently injected interruption points.
+        for hook in ("swapped-after", "committing-after", "sequence-after", "key-after"):
+            with self.subTest(hook=hook):
+                seq.write_text("5\n")
+                key.write_bytes(pub1.read_bytes())
+                shutil.copyfile(self.old, self.prefix / "bin/codex")
+                retired.unlink(missing_ok=True)
+                for marker in ("hit", "release-shim"):
+                    (self.home / marker).unlink(missing_ok=True)
+                with self.log.open("w") as out:
+                    proc = subprocess.Popen(
+                        ["/bin/sh", str(INSTALL), "--prefix", str(self.prefix), "--release", "wrapper",
+                         "--skip-upstream", "--no-setup"],
+                        env=dict(self.env, TEST_HOOK=hook), stdout=out, stderr=subprocess.STDOUT,
+                    )
+                    self.addCleanup(self.cleanup_process, proc)
+                    self.await_marker("hit")
+                    self.interrupt(proc)
+                self.assertEqual((lock / "release-public-key.pem").read_bytes(), pub2.read_bytes())
+                self.assertEqual(seq.read_text().strip(), "6" if hook in ("sequence-after", "key-after") else "5")
+                self.assertEqual(key.read_bytes(), pub2.read_bytes() if hook == "key-after" else pub1.read_bytes())
+                # Discard volatile download artifacts: recovery must use the journal.
+                for work in self.temp.glob(".codex-wrapper-install.*"):
+                    shutil.rmtree(work)
+                if hook == "sequence-after":
+                    # A corrupt admitted key must not advance or discard the journal.
+                    (lock / "release-public-key.pem").write_bytes(b"invalid")
+                    denied = self.recover()
+                    self.assertNotEqual(denied.returncode, 0)
+                    self.assertTrue(self.has_lock())
+                    self.assertEqual(seq.read_text().strip(), "6")
+                    self.assertEqual(key.read_bytes(), pub1.read_bytes())
+                    (lock / "release-public-key.pem").write_bytes(pub2.read_bytes())
+                result = self.recover()
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertFalse(self.has_lock())
+                if hook == "swapped-after":
+                    self.assertTrue(self.old_bytes())
+                    self.assertEqual(seq.read_text().strip(), "5")
+                    self.assertEqual(key.read_bytes(), pub1.read_bytes())
+                else:
+                    self.assertEqual((self.prefix / "bin/codex").read_bytes(), self.new.read_bytes())
+                    self.assertEqual(seq.read_text().strip(), "6")
+                    self.assertEqual(hashlib.sha256(key.read_bytes()).hexdigest(), sha2)
+                    self.assertEqual(retired.read_bytes(), pub1.read_bytes())
+                self.assertEqual(self.recover().returncode, 0)
+                self.assertFalse((self.home / "update-started").exists())
+
+    def test_legacy_signed_journal_recovers_without_replay(self):
+        _, pub, sha = self._gen_key("legacy")
+        seq = self.home / ".local/share/codex/wrapper/release-sequence"
+        key = self.home / ".local/lib/codex/wrapper/release-public-key.pem"
+        for path in (seq, key):
+            path.parent.mkdir(parents=True)
+        key.write_bytes(pub.read_bytes())
+        lock = self.prefix / "bin/.codex-install.lock"
+        candidate = self.prefix / "bin/codex"
+        for phase in ("swapped", "committing", "committed"):
+            with self.subTest(phase=phase):
+                seq.write_text("6\n" if phase == "committed" else "5\n")
+                lock.mkdir()
+                # Different boot identity proves the recorded writer is gone.
+                (lock / "owner").write_text("pid=12345\nstart=1\nboot=prior-boot\n")
+                shutil.copyfile(self.new, candidate)
+                shutil.copyfile(self.old, candidate.parent / ".codex.previous.12345")
+                (lock / "transaction").write_text(
+                    f"format=codex-install-v1\nphase={phase}\n"
+                    f"old_sha={hashlib.sha256(self.old.read_bytes()).hexdigest()}\n"
+                    f"new_sha={hashlib.sha256(self.new.read_bytes()).hexdigest()}\n"
+                    f"state_before=none\nskip_upstream=1\nrequested_version=none\n"
+                    f"signed_sequence=6\nsigned_key_sha={sha}\n")
+                result = self.recover()
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertFalse(self.has_lock())
+                self.assertEqual(seq.read_text().strip(), "5" if phase == "swapped" else "6")
+                self.assertEqual(key.read_bytes(), pub.read_bytes())
+                self.assertEqual(self.old_bytes(), phase == "swapped")
 
     def _build_signed_component_dir(
         self, tag_dir: Path, component: str, bin_name: str, tarball_name: str,

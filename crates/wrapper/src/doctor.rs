@@ -501,7 +501,7 @@ fn doctor_pty_path(process_env: &TermuxProcessEnvSnapshot) -> Option<std::path::
 }
 
 fn collect_bounded_output_and_wait(
-    child: &mut Child,
+    child: Child,
     reader: File,
     timeout: Duration,
 ) -> Result<(Vec<u8>, ExitStatus), QualifiedUpstreamDoctorProbeError> {
@@ -699,9 +699,9 @@ where
     }
     apply_doctor_color_override(&mut cmd, use_color, force_color);
     runtime_fds.configure(&mut cmd);
-    let mut child = cmd.spawn().map_err(QualifiedUpstreamDoctorProbeError::Io)?;
+    let child = cmd.spawn().map_err(QualifiedUpstreamDoctorProbeError::Io)?;
     drop(cmd);
-    let (bytes, status) = collect_bounded_output_and_wait(&mut child, reader, timeout)?;
+    let (bytes, status) = collect_bounded_output_and_wait(child, reader, timeout)?;
     Ok(QualifiedUpstreamDoctorResult {
         status: if status.success() {
             UpstreamDoctorStatus::Healthy
@@ -1350,11 +1350,11 @@ mod tests {
             .stdout(Stdio::from(writer.try_clone().unwrap()))
             .stderr(Stdio::from(writer))
             .process_group(0);
-        let mut child = command.spawn().unwrap();
+        let child = command.spawn().unwrap();
         drop(command);
         let start = Instant::now();
         let (bytes, status) =
-            collect_bounded_output_and_wait(&mut child, reader, Duration::from_secs(5)).unwrap();
+            collect_bounded_output_and_wait(child, reader, Duration::from_secs(5)).unwrap();
         assert_eq!(status.code(), Some(7));
         assert_eq!(bytes, b"upstream info\nupstream error\n");
         assert!(start.elapsed() < Duration::from_secs(2));

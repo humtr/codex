@@ -594,6 +594,65 @@ fn notify_set_show_and_emit_dry_run_work_for_stop_and_hooks_json() {
 }
 
 #[test]
+fn notify_stop_conflict_preserves_command_and_preferences() {
+    let root = temp_root("cdx-notify-conflict");
+    let config = root.join(".codex/config.toml");
+    fs::create_dir_all(config.parent().unwrap()).unwrap();
+    let original = "\"notify\" = [\n  'user-notifier', # keep\n  '--arg',\n]\n";
+    fs::write(&config, original).unwrap();
+    let prefs = root.join(".config/codex/ext/notify.json");
+    let run = |args: &[&str]| {
+        Command::new(ext_bin())
+            .args(args)
+            .env("HOME", &root)
+            .env("PREFIX", root.join("usr"))
+            .env("TMPDIR", root.join("tmp"))
+            .output()
+            .unwrap()
+    };
+    let initial = run(&["notify", "set", "--enable", "--events", "PermissionRequest"]);
+    assert!(
+        initial.status.success(),
+        "{}",
+        String::from_utf8_lossy(&initial.stderr)
+    );
+    let before = fs::read(&prefs).unwrap();
+    let hooks = root.join(".codex/hooks.json");
+    let before_hooks = fs::read(&hooks).unwrap();
+    let failed = run(&[
+        "notify",
+        "set",
+        "--enable",
+        "--events",
+        "Stop",
+        "--backend",
+        "both",
+    ]);
+    assert!(!failed.status.success());
+    assert!(String::from_utf8_lossy(&failed.stderr).contains("different notify command"));
+    assert!(!String::from_utf8_lossy(&failed.stdout).contains("notify updated"));
+    assert_eq!(fs::read_to_string(&config).unwrap(), original);
+    assert_eq!(fs::read(&prefs).unwrap(), before);
+    assert_eq!(fs::read(&hooks).unwrap(), before_hooks);
+    let shown = run(&["notify", "show", "--json"]);
+    assert!(shown.status.success());
+    let shown: Value = serde_json::from_slice(&shown.stdout).unwrap();
+    assert_eq!(shown["events"], json!(["PermissionRequest"]));
+    assert_eq!(shown["config_toml_stop_notify"], false);
+
+    // Equivalent, non-canonical TOML is already the managed command.
+    let managed = "'notify' = [\n 'codex-ext', 'notify', 'emit', 'Stop',\n]\n";
+    fs::write(&config, managed).unwrap();
+    assert!(run(&["notify", "set", "--enable", "--events", "Stop"])
+        .status
+        .success());
+    assert_eq!(fs::read_to_string(&config).unwrap(), managed);
+    assert!(run(&["notify", "set", "--disable"]).status.success());
+    assert!(!fs::read_to_string(&config).unwrap().contains("notify"));
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn parent_launcher_survives_sigint_and_fails_closed_on_corrupt_daemon_probe() {
     let root = temp_root("cdx-sigint-failclosed");
     let work_real = root.join("work-real");

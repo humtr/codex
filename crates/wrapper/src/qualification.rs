@@ -97,8 +97,8 @@ impl Probe<'_> {
             .stderr(Stdio::from(stderr));
         crate::timezone::configure_with_cache(&mut command, Some(self.home));
         self.fds.configure(&mut command);
-        let mut child = command.spawn().map_err(io_error)?;
-        let result = proc_exec::wait_for_exit(&mut child, timeout, io_error, || {
+        let child = command.spawn().map_err(io_error)?;
+        proc_exec::wait_for_exit(child, timeout, io_error, || {
             if output_watch.metadata().map_err(io_error)?.len() > OUTPUT_LIMIT
                 || error_watch.metadata().map_err(io_error)?.len() > OUTPUT_LIMIT
             {
@@ -116,11 +116,7 @@ impl Probe<'_> {
             .map_err(io_error),
             Some(_) => Err(rejected("candidate runtime command failed")),
             None => Err(rejected("candidate runtime command timed out")),
-        });
-        if result.is_err() {
-            proc_exec::reap_process_group(&mut child);
-        }
-        result
+        })
     }
 }
 

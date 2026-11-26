@@ -192,49 +192,65 @@ fn matches_utility_prompt(lower: &str) -> bool {
         || lower.contains("memory consolidation")
 }
 
-/// Detect Codex background utility calls (Transcript Title Generation, Memory
-/// Consolidation, Guardian/Auto-Review) that must not contend with the active
-/// session lease, burn Thinking-model quota, or clutter normal ChatGPT projects.
+fn matches_utility_kind(kind: &str) -> bool {
+    matches!(
+        kind,
+        "title" | "memory" | "memories" | "guardian" | "auto_review"
+    ) || kind.starts_with("title_")
+        || kind.starts_with("memory_")
+}
+
+/// Detect Codex background utility calls without diverting normal turns or
+/// compaction/handoff into the temporary, tool-less utility lane.
 fn is_background_utility_request(turn_meta: Option<&Value>, body: &Value) -> bool {
     if let Some(meta) = turn_meta {
-        if let Some(kind) = meta.get("request_kind").and_then(Value::as_str) {
-            let kind = kind.trim().to_ascii_lowercase();
-            if kind == "turn" || kind.contains("compact") || kind.contains("handoff") {
-                return false;
-            }
-            if !kind.is_empty() {
-                return matches!(
-                    kind.as_str(),
-                    "title"
-                        | "title_generation"
-                        | "memory"
-                        | "memory_consolidation"
-                        | "guardian"
-                        | "auto_review"
-                );
-            }
+        let kinds = ["request_kind", "thread_source", "turn_trigger"].map(|key| {
+            meta.get(key)
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .trim()
+                .to_ascii_lowercase()
+        });
+        if kinds
+            .iter()
+            .any(|kind| kind.contains("compact") || kind.contains("handoff"))
+        {
+            return false;
         }
-        for key in ["thread_source", "turn_trigger"] {
-            if let Some(value) = meta.get(key).and_then(Value::as_str) {
-                let value = value.trim().to_ascii_lowercase();
-                if matches!(
-                    value.as_str(),
-                    "title" | "memory" | "guardian" | "auto_review"
-                ) || value.starts_with("memory_")
-                    || value.starts_with("title_")
-                {
-                    return true;
-                }
-            }
+        // An explicit request kind is authoritative, including unknown kinds.
+        if !kinds[0].is_empty() {
+            return matches_utility_kind(&kinds[0]);
         }
+        if kinds[1..].iter().any(|kind| matches_utility_kind(kind)) {
+            return true;
+        }
+    }
+    // Only tool-less requests without a continuation qualify by prompt alone.
+    if body
+        .get("tools")
+        .and_then(Value::as_array)
+        .is_some_and(|tools| !tools.is_empty())
+        || body
+            .get("previous_response_id")
+            .and_then(Value::as_str)
+            .is_some_and(|id| !id.is_empty())
+    {
+        return false;
     }
     let mut prompt = body
         .get("instructions")
         .and_then(Value::as_str)
         .unwrap_or("")
         .to_owned();
-    if let Some(items) = body.get("input").and_then(Value::as_array) {
+    if let Some(Value::Array(items)) = body.get("input") {
         for item in items.iter().rev().take(4) {
+            if item
+                .get("type")
+                .and_then(Value::as_str)
+                .is_some_and(|kind| kind.ends_with("_call") || kind.ends_with("_call_output"))
+            {
+                return false;
+            }
             prompt.push('\n');
             prompt.push_str(&extract_content_text(item.get("content")));
         }
@@ -3428,6 +3444,44 @@ mod thin_option_b_tests {
         assert!(is_background_utility_request(
             Some(&json!({"request_kind": "title_generation"})),
             &body
+        ));
+
+        for key in ["request_kind", "thread_source", "turn_trigger"] {
+            for kind in [
+                "title_gen",
+                "title_generation",
+                "memories",
+                "memory_consolidation",
+                "guardian",
+                "auto_review",
+            ] {
+                let mut meta = json!({});
+                meta[key] = json!(kind);
+                assert!(
+                    is_background_utility_request(Some(&meta), &json!({})),
+                    "{meta}"
+                );
+            }
+        }
+        assert!(is_background_utility_request(
+            Some(&json!({"request_kind": "title_gen", "thread_source": "title_gen"})),
+            &body
+        ));
+        assert!(!is_background_utility_request(
+            Some(&json!({"thread_source": "title_gen", "turn_trigger": "context_compaction"})),
+            &body
+        ));
+        assert!(!is_background_utility_request(
+            None,
+            &json!({"instructions": "Generate a concise title", "tools": [{"type": "function", "name": "run"}]})
+        ));
+        assert!(!is_background_utility_request(
+            None,
+            &json!({"instructions": "Generate a concise title", "previous_response_id": "resp_1"})
+        ));
+        assert!(!is_background_utility_request(
+            None,
+            &json!({"input": "Generate a concise title"})
         ));
 
         let mem_v2_consolidate = json!({

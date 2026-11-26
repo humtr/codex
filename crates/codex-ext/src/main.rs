@@ -252,7 +252,6 @@ fn run_notify_cli(paths: &ExtPaths, args: &[String]) -> Result<i32, String> {
                     other => return Err(format!("unknown option for notify set: {other}")),
                 }
             }
-            save_notify_config(paths, &cfg)?;
             let stop_enabled = cfg.enabled && cfg.events.iter().any(|e| e == "Stop");
             sync_config_toml_stop_notify(&config_toml, stop_enabled)?;
             let extra_events: Vec<String> = if cfg.enabled {
@@ -265,6 +264,7 @@ fn run_notify_cli(paths: &ExtPaths, args: &[String]) -> Result<i32, String> {
                 Vec::new()
             };
             let wrote_hooks = sync_hooks_json(&hooks_json, &extra_events)?;
+            save_notify_config(paths, &cfg)?;
             println!(
                 "notify updated (enabled={}, backend={}, events={})",
                 cfg.enabled,
