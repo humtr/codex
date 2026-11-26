@@ -970,6 +970,7 @@ fn resolve_parsed_tool_call(raw: &Value, sigs: &[Value]) -> Option<ParsedToolCal
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ContentState {
     Mutable,
+    Streaming,
     Committed,
 }
 
@@ -995,7 +996,6 @@ struct TurnAssembly {
     seen_tool_calls: HashSet<String>,
     committed_commentaries: HashSet<String>,
     last_committed_commentary: Option<String>,
-    turn_completed: bool,
     lane_overflowed: bool,
 }
 
@@ -1018,19 +1018,29 @@ impl TurnAssembly {
         }
     }
 
-    fn upsert_text(&mut self, id: String, kind: StreamItemKind, mut text: String, committed: bool) {
+    fn upsert_text(
+        &mut self,
+        id: String,
+        kind: StreamItemKind,
+        mut text: String,
+        state: ContentState,
+    ) {
+        let committed = state == ContentState::Committed;
         if text.is_empty() && !committed {
             self.remove_mutable(&id);
             return;
         }
-        let next_state = if committed {
-            ContentState::Committed
-        } else {
-            ContentState::Mutable
-        };
-        if committed {
+        let next_state = state;
+        if self
+            .items
+            .iter()
+            .any(|item| item.id == id && item.state == ContentState::Committed)
+        {
+            return;
+        }
+        if state != ContentState::Mutable {
             match kind {
-                StreamItemKind::Commentary => {
+                StreamItemKind::Commentary if committed => {
                     let norm = text.trim().to_owned();
                     if norm.is_empty() || !self.committed_commentaries.insert(norm.clone()) {
                         self.remove_mutable(&id);
@@ -1039,11 +1049,18 @@ impl TurnAssembly {
                     self.last_committed_commentary = Some(norm);
                 }
                 StreamItemKind::Answer => {
+                    if !committed
+                        && self.last_committed_commentary.as_ref().is_some_and(|prev| {
+                            prev.starts_with(text.trim_start()) || text.trim_start() == prev
+                        })
+                    {
+                        return;
+                    }
                     if let Some(trimmed_answer) = self.strip_duplicate_commentary_prefix(&text) {
                         text = trimmed_answer;
                     }
                 }
-                StreamItemKind::ReasoningSummary => {}
+                _ => {}
             }
         }
         let next_content = match kind {
@@ -1051,9 +1068,36 @@ impl TurnAssembly {
             StreamItemKind::Commentary => AssembledContent::Commentary(text),
             StreamItemKind::Answer => AssembledContent::Answer(text),
         };
-        if let Some(existing) = self.items.iter_mut().find(|item| item.id == id) {
-            if existing.state == ContentState::Committed {
+        if let Some(index) = self.items.iter().position(|item| item.id == id) {
+            if self.items[index].state == ContentState::Mutable
+                && next_state != ContentState::Mutable
+            {
+                self.items.remove(index);
+                self.items.push(AssembledItem {
+                    id,
+                    state: next_state,
+                    content: next_content,
+                    emitted: false,
+                });
                 return;
+            }
+            let existing = &mut self.items[index];
+            if existing.state == ContentState::Streaming {
+                let extends = match (&existing.content, &next_content) {
+                    (
+                        AssembledContent::ReasoningSummary(old),
+                        AssembledContent::ReasoningSummary(new),
+                    )
+                    | (AssembledContent::Answer(old), AssembledContent::Answer(new)) => {
+                        new.starts_with(old)
+                    }
+                    _ => false,
+                };
+                if !extends || next_state == ContentState::Mutable {
+                    eprintln!("provider: append-only item revised; preserving published prefix");
+                    existing.state = ContentState::Committed;
+                    return;
+                }
             }
             existing.content = next_content;
             existing.state = next_state;
@@ -1068,8 +1112,14 @@ impl TurnAssembly {
     }
 
     fn remove_mutable(&mut self, id: &str) {
+        for item in &mut self.items {
+            if item.id == id && item.state == ContentState::Streaming {
+                eprintln!("provider: append-only item removed; preserving published prefix");
+                item.state = ContentState::Committed;
+            }
+        }
         self.items
-            .retain(|item| item.id != id || item.state == ContentState::Committed);
+            .retain(|item| item.id != id || item.state != ContentState::Mutable);
     }
 
     fn push_committed_tool(&mut self, tc: ParsedToolCall) {
@@ -1095,7 +1145,19 @@ impl TurnAssembly {
                 item_kind,
                 text,
                 committed,
-            } => self.upsert_text(item_id, item_kind, text, committed),
+                streamable,
+            } => self.upsert_text(
+                item_id,
+                item_kind,
+                text,
+                if committed {
+                    ContentState::Committed
+                } else if streamable && item_kind != StreamItemKind::Commentary {
+                    ContentState::Streaming
+                } else {
+                    ContentState::Mutable
+                },
+            ),
             StreamEvent::ItemRemove { item_id } => self.remove_mutable(&item_id),
             StreamEvent::ToolCall {
                 id,
@@ -1117,9 +1179,7 @@ impl TurnAssembly {
                     self.push_committed_tool(tc);
                 }
             }
-            StreamEvent::TurnCompleted { .. } => {
-                self.turn_completed = true;
-            }
+            StreamEvent::TurnCompleted { .. } => {}
         }
     }
 
@@ -1161,9 +1221,13 @@ impl TurnAssembly {
 
         // Discard any remaining mutable drafts before committing settled items.
         self.items
-            .retain(|item| item.state == ContentState::Committed);
-        let committed_ids: HashSet<String> =
-            self.items.iter().map(|item| item.id.clone()).collect();
+            .retain(|item| item.state != ContentState::Mutable);
+        let committed_ids: HashSet<String> = self
+            .items
+            .iter()
+            .filter(|item| item.state == ContentState::Committed)
+            .map(|item| item.id.clone())
+            .collect();
 
         if let Some(items) = driver_res.get("items").and_then(Value::as_array) {
             for entry in items {
@@ -1192,9 +1256,7 @@ impl TurnAssembly {
                     .filter(|s| !s.is_empty())
                     .map(ToOwned::to_owned)
                     .unwrap_or_else(|| format!("{kind}_{}", self.items.len()));
-                if committed_ids.contains(&item_id)
-                    || self.items.iter().any(|existing| existing.id == item_id)
-                {
+                if committed_ids.contains(&item_id) {
                     continue;
                 }
                 let stream_kind = match kind {
@@ -1203,7 +1265,12 @@ impl TurnAssembly {
                     "answer" => StreamItemKind::Answer,
                     _ => continue,
                 };
-                self.upsert_text(item_id, stream_kind, text.to_owned(), true);
+                self.upsert_text(
+                    item_id,
+                    stream_kind,
+                    text.to_owned(),
+                    ContentState::Committed,
+                );
             }
         } else {
             let summary = driver_res
@@ -1220,7 +1287,7 @@ impl TurnAssembly {
                     "settled_summary".to_owned(),
                     StreamItemKind::ReasoningSummary,
                     summary.to_owned(),
-                    true,
+                    ContentState::Committed,
                 );
             }
             let assistant_text = driver_res
@@ -1237,7 +1304,7 @@ impl TurnAssembly {
                     "settled_answer".to_owned(),
                     StreamItemKind::Answer,
                     assistant_text.to_owned(),
-                    true,
+                    ContentState::Committed,
                 );
             }
             if let Some(arr) = driver_res.get("tool_calls").and_then(Value::as_array) {
@@ -1249,6 +1316,11 @@ impl TurnAssembly {
             }
         }
 
+        for item in &mut self.items {
+            if item.state == ContentState::Streaming {
+                item.state = ContentState::Committed;
+            }
+        }
         let has_reply_or_tool = self.items.iter().any(|item| {
             matches!(
                 item.content,
@@ -1273,28 +1345,76 @@ impl TurnAssembly {
                 "settled_answer_fallback".to_owned(),
                 StreamItemKind::Answer,
                 summary_text,
-                true,
+                ContentState::Committed,
             );
         }
 
-        self.turn_completed = true;
         Ok(())
     }
 }
 
-struct OpenReasoningItem {
-    id: String,
-    output_index: usize,
-    parts: Vec<Value>,
+// One open Responses output item. Reasoning may contain consecutive summary parts;
+// messages have exactly one part. `text.len()` is the emitted UTF-8 byte offset.
+struct OpenTextItem {
+    item: Value,
+    part_id: Option<String>,
+    text: String,
+}
+
+impl OpenTextItem {
+    fn reasoning(&self) -> bool {
+        self.item["type"] == "reasoning"
+    }
+    fn part_key(&self) -> &'static str {
+        if self.reasoning() {
+            "summary"
+        } else {
+            "content"
+        }
+    }
+    fn part(&self, text: &str) -> Value {
+        if self.reasoning() {
+            json!({"type":"summary_text","text":text})
+        } else {
+            json!({"type":"output_text","text":text,"annotations":[]})
+        }
+    }
+    fn frame(&self, index: usize, event: &str, field: &str, value: Value) -> Value {
+        let (part_event, text_event, part_index) = if self.reasoning() {
+            (
+                "reasoning_summary_part",
+                "reasoning_summary_text",
+                "summary_index",
+            )
+        } else {
+            ("content_part", "output_text", "content_index")
+        };
+        let prefix = if field == "part" {
+            part_event
+        } else {
+            text_event
+        };
+        let mut frame = json!({"type":format!("response.{prefix}.{event}"),
+            "item_id":self.item["id"],"output_index":index});
+        frame[part_index] = json!(self.item[self.part_key()].as_array().unwrap().len());
+        frame[field] = value;
+        frame
+    }
 }
 
 struct ResponsesEncoder {
     id: String,
     model: String,
-    parallel_tool_calls: bool,
     sequence: u64,
     completed_output: Vec<Value>,
-    open_reasoning: Option<OpenReasoningItem>,
+    open: Option<OpenTextItem>,
+    input_tokens: u64,
+    usage: Value,
+}
+
+fn estimate_tokens(value: &Value) -> u64 {
+    // Approximation, not an upstream tokenizer or billing count.
+    (value.to_string().len() as u64).div_ceil(4)
 }
 
 impl ResponsesEncoder {
@@ -1302,15 +1422,12 @@ impl ResponsesEncoder {
         Self {
             id,
             model,
-            parallel_tool_calls: true,
             sequence: 0,
             completed_output: vec![],
-            open_reasoning: None,
+            open: None,
+            input_tokens: 0,
+            usage: Value::Null,
         }
-    }
-
-    fn next_output_index(&self) -> usize {
-        self.completed_output.len() + usize::from(self.open_reasoning.is_some())
     }
 
     fn stamp(&mut self, mut frame: Value) -> Value {
@@ -1320,192 +1437,163 @@ impl ResponsesEncoder {
     }
 
     fn response(&self, status: &str, output: &[Value]) -> Value {
-        json!({
-            "id": self.id, "object": "response", "created_at": 0, "status": status,
-            "model": self.model, "output": output, "parallel_tool_calls": self.parallel_tool_calls, "error": null
-        })
+        json!({"id":self.id,"object":"response","created_at":0,"status":status,
+            "model":self.model,"output":output,"parallel_tool_calls":true,"error":null,
+            "usage":self.usage})
     }
 
     fn start(&mut self) -> Vec<Value> {
         let response = self.response("in_progress", &[]);
         vec![
-            self.stamp(json!({"type": "response.created", "response": response})),
-            self.stamp(json!({"type": "response.in_progress", "response": response})),
+            self.stamp(json!({"type":"response.created","response":response})),
+            self.stamp(json!({"type":"response.in_progress","response":response})),
         ]
     }
 
-    fn close_open_reasoning(&mut self, frames: &mut Vec<Value>) {
-        let Some(open) = self.open_reasoning.take() else {
-            return;
-        };
-        let done_item = json!({
-            "id": open.id,
-            "type": "reasoning",
-            "summary": open.parts,
-            "status": "completed"
-        });
-        frames.push(json!({
-            "type": "response.output_item.done",
-            "output_index": open.output_index,
-            "item": done_item
-        }));
-        self.completed_output.push(done_item);
-    }
-
-    fn emit_message_item(&mut self, frames: &mut Vec<Value>, phase: &str, text: &str) {
-        let rendered = crate::presentation::render_for_codex_tui(text);
-        let text = rendered.as_str();
-        let idx = self.next_output_index();
-        let item_id = format!("msg_{}_{idx}", self.id);
-        let init_part = json!({"type": "output_text", "text": "", "annotations": []});
-        let done_part = json!({"type": "output_text", "text": text, "annotations": []});
-        let init_item = json!({
-            "id": item_id, "type": "message", "role": "assistant", "status": "in_progress",
-            "phase": phase, "content": [init_part]
-        });
-        let done_item = json!({
-            "id": item_id, "type": "message", "role": "assistant", "status": "completed",
-            "phase": phase, "content": [done_part]
-        });
-        frames.push(
-            json!({"type": "response.output_item.added", "output_index": idx, "item": init_item}),
-        );
-        frames.push(json!({
-            "type": "response.content_part.added",
-            "item_id": item_id,
-            "output_index": idx,
-            "content_index": 0,
-            "part": init_part
-        }));
-        if !text.is_empty() {
-            frames.push(json!({
-                "type": "response.output_text.delta",
-                "item_id": item_id,
-                "output_index": idx,
-                "content_index": 0,
-                "delta": text
-            }));
+    fn close_open(&mut self, frames: &mut Vec<Value>) {
+        if let Some(mut open) = self.open.take() {
+            debug_assert!(open.part_id.is_none());
+            open.item["status"] = json!("completed");
+            frames.push(json!({"type":"response.output_item.done",
+                "output_index":self.completed_output.len(),"item":open.item}));
+            self.completed_output.push(open.item);
         }
-        frames.push(json!({
-            "type": "response.output_text.done",
-            "item_id": item_id,
-            "output_index": idx,
-            "content_index": 0,
-            "text": text
-        }));
-        frames.push(json!({
-            "type": "response.content_part.done",
-            "item_id": item_id,
-            "output_index": idx,
-            "content_index": 0,
-            "part": done_part
-        }));
-        frames.push(
-            json!({"type": "response.output_item.done", "output_index": idx, "item": done_item}),
-        );
-        self.completed_output.push(done_item);
     }
 
-    fn flush_committed(&mut self, assembly: &mut TurnAssembly, allow_tools: bool) -> Vec<Value> {
-        let mut raw_frames = vec![];
+    fn flush_ready(&mut self, assembly: &mut TurnAssembly, allow_tools: bool) -> Vec<Value> {
+        let mut frames = vec![];
         for item in &mut assembly.items {
-            if item.emitted || item.state != ContentState::Committed {
+            if item.emitted || item.state == ContentState::Mutable {
                 continue;
             }
-            // Do not expose a tool to Codex before its original remote binding
-            // is durable. Preserve ordering by also deferring following items.
-            if !allow_tools && matches!(item.content, AssembledContent::ToolCall(_)) {
+            // Once a part is open, later items cannot overtake its closing events.
+            if self
+                .open
+                .as_ref()
+                .and_then(|o| o.part_id.as_ref())
+                .is_some_and(|id| id != &item.id)
+            {
+                continue;
+            }
+            let (reasoning, phase, text) = match &item.content {
+                AssembledContent::ReasoningSummary(t) => (true, "", t),
+                AssembledContent::Commentary(t) => (false, "commentary", t),
+                AssembledContent::Answer(t) => (false, "final_answer", t),
+                AssembledContent::ToolCall(tc) => {
+                    if !allow_tools {
+                        break;
+                    }
+                    self.close_open(&mut frames);
+                    append_tool_frames(&mut frames, &mut self.completed_output, tc);
+                    item.emitted = true;
+                    continue;
+                }
+            };
+            let committed = item.state == ContentState::Committed;
+            let rendered = if reasoning {
+                text.clone()
+            } else if committed {
+                crate::presentation::render_for_codex_tui(text)
+            } else {
+                crate::presentation::render_stream_prefix(text)
+            };
+            if rendered.is_empty() && !committed {
                 break;
             }
+            if self
+                .open
+                .as_ref()
+                .is_some_and(|o| o.part_id.is_none() && (!reasoning || !o.reasoning()))
+            {
+                self.close_open(&mut frames);
+            }
+            let index = self.completed_output.len();
+            if self.open.is_none() {
+                let id = format!(
+                    "{}_{}_{index}",
+                    if reasoning { "rs" } else { "msg" },
+                    self.id
+                );
+                let output = if reasoning {
+                    json!({"id":id,"type":"reasoning","summary":[],"status":"in_progress"})
+                } else {
+                    json!({"id":id,"type":"message","role":"assistant","phase":phase,"content":[],"status":"in_progress"})
+                };
+                let open = OpenTextItem {
+                    item: output,
+                    part_id: None,
+                    text: String::new(),
+                };
+                let mut initial = open.item.clone();
+                if !reasoning {
+                    initial["content"] = json!([open.part("")]);
+                }
+                frames.push(json!({"type":"response.output_item.added","output_index":index,"item":initial}));
+                self.open = Some(open);
+            }
+            let open = self.open.as_mut().unwrap();
+            if open.part_id.is_none() {
+                open.part_id = Some(item.id.clone());
+                frames.push(open.frame(index, "added", "part", open.part("")));
+            }
+            if let Some(suffix) = rendered.strip_prefix(&open.text) {
+                if !suffix.is_empty() {
+                    frames.push(open.frame(index, "delta", "delta", json!(suffix)));
+                    open.text = rendered;
+                }
+            } else if committed {
+                eprintln!("provider: rendered item revised; preserving emitted prefix");
+            }
+            if !committed {
+                break;
+            }
+            let part = open.part(&open.text);
+            frames.push(open.frame(index, "done", "text", json!(open.text)));
+            frames.push(open.frame(index, "done", "part", part.clone()));
+            let key = open.part_key();
+            open.item[key].as_array_mut().unwrap().push(part);
+            open.part_id = None;
+            open.text.clear();
             item.emitted = true;
-            match &item.content {
-                AssembledContent::ReasoningSummary(text) => {
-                    if self.open_reasoning.is_none() {
-                        let idx = self.next_output_index();
-                        let rs_id = format!("rs_{}_{idx}", self.id);
-                        raw_frames.push(json!({
-                            "type": "response.output_item.added",
-                            "output_index": idx,
-                            "item": {
-                                "id": rs_id,
-                                "type": "reasoning",
-                                "summary": [],
-                                "status": "in_progress"
-                            }
-                        }));
-                        self.open_reasoning = Some(OpenReasoningItem {
-                            id: rs_id,
-                            output_index: idx,
-                            parts: vec![],
-                        });
-                    }
-                    let open = self.open_reasoning.as_mut().expect("reasoning item opened");
-                    let summary_index = open.parts.len();
-                    let empty_part = json!({"type": "summary_text", "text": ""});
-                    let done_part = json!({"type": "summary_text", "text": text});
-                    raw_frames.push(json!({
-                        "type": "response.reasoning_summary_part.added",
-                        "item_id": open.id,
-                        "output_index": open.output_index,
-                        "summary_index": summary_index,
-                        "part": empty_part
-                    }));
-                    if !text.is_empty() {
-                        raw_frames.push(json!({
-                            "type": "response.reasoning_summary_text.delta",
-                            "item_id": open.id,
-                            "output_index": open.output_index,
-                            "summary_index": summary_index,
-                            "delta": text
-                        }));
-                    }
-                    raw_frames.push(json!({
-                        "type": "response.reasoning_summary_text.done",
-                        "item_id": open.id,
-                        "output_index": open.output_index,
-                        "summary_index": summary_index,
-                        "text": text
-                    }));
-                    raw_frames.push(json!({
-                        "type": "response.reasoning_summary_part.done",
-                        "item_id": open.id,
-                        "output_index": open.output_index,
-                        "summary_index": summary_index,
-                        "part": done_part
-                    }));
-                    open.parts.push(done_part);
-                }
-                AssembledContent::Commentary(text) => {
-                    self.close_open_reasoning(&mut raw_frames);
-                    self.emit_message_item(&mut raw_frames, "commentary", text);
-                }
-                AssembledContent::Answer(text) => {
-                    self.close_open_reasoning(&mut raw_frames);
-                    self.emit_message_item(&mut raw_frames, "final_answer", text);
-                }
-                AssembledContent::ToolCall(tc) => {
-                    self.close_open_reasoning(&mut raw_frames);
-                    append_tool_frames(
-                        &mut raw_frames,
-                        &mut self.completed_output,
-                        std::slice::from_ref(tc),
-                    );
-                }
+            if !reasoning {
+                self.close_open(&mut frames);
             }
         }
-        raw_frames.into_iter().map(|v| self.stamp(v)).collect()
+        frames.into_iter().map(|v| self.stamp(v)).collect()
     }
 
-    fn finish(&mut self, assembly: &mut TurnAssembly) -> (Vec<Value>, Value) {
-        let mut stamped = self.flush_committed(assembly, true);
+    fn finish(&mut self, assembly: &mut TurnAssembly, settled: &Value) -> (Vec<Value>, Value) {
+        let mut frames = self.flush_ready(assembly, true);
         let mut closing = vec![];
-        self.close_open_reasoning(&mut closing);
-        let final_resp = self.response("completed", &self.completed_output);
-        closing.push(json!({"type": "response.completed", "response": final_resp}));
-        for frame in closing {
-            stamped.push(self.stamp(frame));
-        }
-        (stamped, final_resp)
+        self.close_open(&mut closing);
+        let usage = &settled["usage"];
+        self.usage = match (
+            usage["input_tokens"].as_u64(),
+            usage["output_tokens"].as_u64(),
+        ) {
+            (Some(input), Some(output)) if input.checked_add(output).is_some() => {
+                json!({"input_tokens":input,"output_tokens":output,"total_tokens":input+output})
+            }
+            _ => {
+                let output = self
+                    .completed_output
+                    .iter()
+                    .map(|item| {
+                        let mut item = item.clone();
+                        if let Some(obj) = item.as_object_mut() {
+                            obj.remove("id");
+                        }
+                        estimate_tokens(&item)
+                    })
+                    .sum::<u64>();
+                json!({"input_tokens":self.input_tokens,"output_tokens":output,
+                    "total_tokens":self.input_tokens.saturating_add(output),"estimated":true})
+            }
+        };
+        let response = self.response("completed", &self.completed_output);
+        closing.push(json!({"type":"response.completed","response":response}));
+        frames.extend(closing.into_iter().map(|v| self.stamp(v)));
+        (frames, response)
     }
 
     fn failed(&mut self, err: ProviderError) -> Value {
@@ -1562,97 +1650,35 @@ fn classify_driver_error(code: &str, detail: &str, retry_after: Option<String>) 
     ProviderError::unavailable("chatgpt_driver_failed", message).with_retry_after(retry_after)
 }
 
-fn append_tool_frames(
-    frames: &mut Vec<Value>,
-    output_items: &mut Vec<Value>,
-    tool_calls: &[ParsedToolCall],
-) {
-    for tc in tool_calls {
-        let idx = output_items.len();
-        if tc.is_custom {
-            let item_id = format!("ct_{}", tc.call_id);
-            let mut init_item = json!({
-                "id": item_id,
-                "type": "custom_tool_call",
-                "call_id": tc.call_id,
-                "name": tc.name,
-                "input": "",
-                "status": "in_progress"
-            });
-            let mut done_item = json!({
-                "id": item_id,
-                "type": "custom_tool_call",
-                "call_id": tc.call_id,
-                "name": tc.name,
-                "input": tc.arguments,
-                "status": "completed"
-            });
-            if let Some(ref ns) = tc.namespace {
-                init_item["namespace"] = json!(ns);
-                done_item["namespace"] = json!(ns);
-            }
-            frames.push(
-                json!({"type": "response.output_item.added", "output_index": idx, "item": init_item}),
-            );
-            frames.push(json!({
-                "type": "response.custom_tool_call_input.delta",
-                "item_id": item_id,
-                "output_index": idx,
-                "delta": tc.arguments
-            }));
-            frames.push(json!({
-                "type": "response.custom_tool_call_input.done",
-                "item_id": item_id,
-                "output_index": idx,
-                "input": tc.arguments
-            }));
-            frames.push(
-                json!({"type": "response.output_item.done", "output_index": idx, "item": done_item}),
-            );
-            output_items.push(done_item);
-        } else {
-            let item_id = format!("fc_{}", tc.call_id);
-            let mut init_item = json!({
-                "id": item_id,
-                "type": "function_call",
-                "call_id": tc.call_id,
-                "name": tc.name,
-                "arguments": "",
-                "status": "in_progress"
-            });
-            let mut done_item = json!({
-                "id": item_id,
-                "type": "function_call",
-                "call_id": tc.call_id,
-                "name": tc.name,
-                "arguments": tc.arguments,
-                "status": "completed"
-            });
-            if let Some(ref ns) = tc.namespace {
-                init_item["namespace"] = json!(ns);
-                done_item["namespace"] = json!(ns);
-            }
-            frames.push(
-                json!({"type": "response.output_item.added", "output_index": idx, "item": init_item}),
-            );
-            frames.push(json!({
-                "type": "response.function_call_arguments.delta",
-                "item_id": item_id,
-                "output_index": idx,
-                "delta": tc.arguments
-            }));
-            frames.push(json!({
-                "type": "response.function_call_arguments.done",
-                "item_id": item_id,
-                "output_index": idx,
-                "arguments": tc.arguments
-            }));
-            frames.push(
-                json!({"type": "response.output_item.done", "output_index": idx, "item": done_item}),
-            );
-            output_items.push(done_item);
-        }
+fn append_tool_frames(frames: &mut Vec<Value>, output: &mut Vec<Value>, tc: &ParsedToolCall) {
+    let index = output.len();
+    let (prefix, kind, field, event) = if tc.is_custom {
+        ("ct", "custom_tool_call", "input", "custom_tool_call_input")
+    } else {
+        (
+            "fc",
+            "function_call",
+            "arguments",
+            "function_call_arguments",
+        )
+    };
+    let id = format!("{prefix}_{}", tc.call_id);
+    let mut item =
+        json!({"id":id,"type":kind,"call_id":tc.call_id,"name":tc.name,"status":"in_progress"});
+    item[field] = json!("");
+    if let Some(ns) = &tc.namespace {
+        item["namespace"] = json!(ns);
     }
+    frames.push(json!({"type":"response.output_item.added","output_index":index,"item":item}));
+    let mut done =
+        json!({"type":format!("response.{event}.done"),"item_id":id,"output_index":index});
+    done[field] = json!(tc.arguments);
+    frames.push(json!({"type":format!("response.{event}.delta"),"item_id":id,"output_index":index,"delta":tc.arguments}));
+    frames.push(done);
+    item["status"] = json!("completed");
+    item[field] = json!(tc.arguments);
+    frames.push(json!({"type":"response.output_item.done","output_index":index,"item":item}));
+    output.push(item);
 }
 
 async fn send_frames(tx: &mpsc::Sender<String>, frames: Vec<Value>) -> bool {
@@ -3017,6 +3043,9 @@ pub async fn handle_responses_with_metadata(
     let resp_id = format!("resp_{}", random_hex(8)?);
     let lane_id = resp_id.clone();
 
+    let mut encoder = ResponsesEncoder::new(resp_id.clone(), requested_model);
+    encoder.input_tokens =
+        estimate_tokens(&json!([body["input"], body["instructions"], body["tools"]]));
     if utility {
         // Background utility path: slim payload, temporary chat by default (or optional
         // project-only memory utility project), zero session lease / thread persistence.
@@ -3058,7 +3087,6 @@ pub async fn handle_responses_with_metadata(
             },
             "wait_ms": RESPONSES_WAIT_MS
         });
-        let encoder = ResponsesEncoder::new(resp_id, requested_model);
         return dispatch_responses_turn(
             driver,
             threads,
@@ -3143,7 +3171,6 @@ pub async fn handle_responses_with_metadata(
         None
     };
 
-    let encoder = ResponsesEncoder::new(resp_id.clone(), requested_model);
     let send_payload = json!({
         "lane_id": lane_id,
         "chat_id": prior.as_ref().map(|entry| &entry.chat_id),
@@ -3198,7 +3225,7 @@ async fn dispatch_responses_turn(
         let mut assembly = TurnAssembly::default();
         assembly.reconcile_settled(&driver_res, &all_sigs)?;
         cancel_guard.disarm();
-        let (_, final_resp) = encoder.finish(&mut assembly);
+        let (_, final_resp) = encoder.finish(&mut assembly, &driver_res);
         if let Some(plan) = &plan {
             plan.commit(
                 &threads,
@@ -3248,7 +3275,7 @@ async fn dispatch_responses_turn(
                         Some(event) => {
                             idle.as_mut().reset(tokio::time::Instant::now() + SSE_IDLE);
                             assembly.apply_event(event, &all_sigs);
-                            let frames = encoder.flush_committed(&mut assembly, !defer_tools);
+                            let frames = encoder.flush_ready(&mut assembly, !defer_tools);
                             if !frames.is_empty() && !send_frames(&tx, frames).await {
                                 cancel.cancel_now().await;
                                 return;
@@ -3282,7 +3309,7 @@ async fn dispatch_responses_turn(
                     return Err(err);
                 }
             }
-            let (frames, final_resp) = encoder.finish(&mut assembly);
+            let (frames, final_resp) = encoder.finish(&mut assembly, &settled);
             if let Some(plan) = &plan {
                 plan.commit(
                     &threads,
@@ -3608,6 +3635,41 @@ mod thin_option_b_tests {
     }
 
     #[test]
+    fn streamable_revisions_freeze_prefix_and_usage_prefers_upstream() {
+        let mut assembly = TurnAssembly::default();
+        let mut encoder = ResponsesEncoder::new("response".into(), "fixture".into());
+        let mut frames = encoder.start();
+        for (text, state) in [
+            ("한", ContentState::Streaming),
+            ("한국어 🚀", ContentState::Streaming),
+            ("replacement", ContentState::Committed),
+        ] {
+            assembly.upsert_text("a".into(), StreamItemKind::Answer, text.into(), state);
+            frames.extend(encoder.flush_ready(&mut assembly, false));
+        }
+        let (tail, response) = encoder.finish(
+            &mut assembly,
+            &json!({"usage":{"input_tokens":123,"output_tokens":45}}),
+        );
+        frames.extend(tail);
+        assert_eq!(response["output"][0]["content"][0]["text"], "한국어 🚀");
+        assert_eq!(
+            response["usage"],
+            json!({"input_tokens":123,"output_tokens":45,"total_tokens":168})
+        );
+        let deltas: Vec<_> = frames
+            .iter()
+            .filter(|f| f["type"] == "response.output_text.delta")
+            .map(|f| f["delta"].as_str().unwrap())
+            .collect();
+        assert_eq!(deltas, ["한", "국어 🚀"]);
+        assert!(frames
+            .iter()
+            .enumerate()
+            .all(|(i, f)| f["sequence_number"] == i));
+    }
+
+    #[test]
     fn native_stream_defers_tool_and_batches_parallel_calls() {
         let root = temp_root();
         let (plan, mut settled, _, sigs) = fixture();
@@ -3623,24 +3685,24 @@ mod thin_option_b_tests {
             "summary".into(),
             StreamItemKind::ReasoningSummary,
             "visible summary".into(),
-            true,
+            ContentState::Committed,
         );
         assembly.reconcile_settled(&settled, &sigs).unwrap();
         assembly.upsert_text(
             "later".into(),
             StreamItemKind::Commentary,
             "after tool".into(),
-            true,
+            ContentState::Committed,
         );
         let mut encoder = ResponsesEncoder::new("resp_1".into(), "fixture".into());
-        let early = encoder.flush_committed(&mut assembly, false);
+        let early = encoder.flush_ready(&mut assembly, false);
         assert!(early
             .iter()
             .any(|frame| frame["delta"] == "visible summary"));
         assert!(!early.iter().any(
             |frame| frame["item"]["type"] == "function_call" || frame["delta"] == "after tool"
         ));
-        let (_, final_response) = encoder.finish(&mut assembly);
+        let (_, final_response) = encoder.finish(&mut assembly, &settled);
         assert_eq!(final_response["parallel_tool_calls"], true);
 
         let map = ResponseThreadMap::open(&root).unwrap();

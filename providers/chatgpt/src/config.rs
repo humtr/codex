@@ -48,6 +48,9 @@ pub struct ServerConfig {
     pub bind: String,
     /// Private state directory for `control.token` and runtime metadata.
     pub state_dir: Option<PathBuf>,
+    /// Minimum time between AppHost completion dispatches (milliseconds).
+    #[serde(default)]
+    pub min_request_interval_ms: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -126,6 +129,7 @@ impl Default for ServerConfig {
         Self {
             bind: default_bind(),
             state_dir: None,
+            min_request_interval_ms: 0,
         }
     }
 }

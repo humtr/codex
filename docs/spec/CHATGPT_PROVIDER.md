@@ -139,11 +139,24 @@ and [providers/chatgpt/src/main.rs](../../providers/chatgpt/src/main.rs).
     losslessly.
   - `responses.rs` maintains one authoritative `TurnAssembly` (`Mutable` vs
     `Committed`) and one `ResponsesEncoder` that emits immutable Responses
-    frames only for committed items (streaming committed reasoning summary
-    sections live while thinking, then preambles/answers/deduplicated tool calls).
+    frames for committed items and explicitly stable append-only prefixes. Arbitrary
+    mutable snapshots remain buffered; observing prefix growth alone cannot prove
+    that a subsequent snapshot will not replace or delete the prefix. A violation
+    of an already emitted prefix fails closed rather than corrupting SSE.
+    DIL presentation is applied before text emission; incomplete presentation
+    constructs are buffered. Tool calls remain deferred until durable binding.
     If a turn supplies only a user-visible summary with no answer or tool call,
     the same text is returned as the final answer. The stream has a five-minute
     upstream inactivity limit and a two-hour total limit.
+  - Completed Responses include upstream token usage when explicitly reported;
+    otherwise a deterministic estimate based on the UTF-8 JSON size of logical
+    input, instructions, tool declarations and emitted output (four bytes per
+    token, rounded up) is marked as estimated. This is not a billing measurement
+    or proof of backend context capacity. The catalog retains the 1M context,
+    95% effective window and 800k auto-compact baseline.
+  - Optional `[server] min_request_interval_ms` (default 0) spaces completion
+    dispatch starts across lanes in the AppHost. Server Retry-After deadlines
+    reject subsequent dispatches until expiry; no automatic replay.
   - Client disconnect before remote settlement cancels only that lane via
     `stop_generation` without recording continuation. Remote settlement
     disarms cancellation, reconciles the final assembly, and persists up to 256

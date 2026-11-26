@@ -41,6 +41,8 @@ pub enum StreamEvent {
         text: String,
         #[serde(default)]
         committed: bool,
+        #[serde(default)]
+        streamable: bool,
     },
     ItemRemove {
         item_id: String,
@@ -135,6 +137,7 @@ impl LaneSender {
             StreamEvent::ItemUpsert {
                 ref item_id,
                 committed: false,
+                streamable: false,
                 ..
             } => {
                 let event_bytes =
@@ -167,11 +170,7 @@ impl LaneSender {
                 q.mutable_bytes = next_bytes;
                 q.mutable.insert(item_id.clone(), event);
             }
-            StreamEvent::ItemUpsert {
-                ref item_id,
-                committed: true,
-                ..
-            }
+            StreamEvent::ItemUpsert { ref item_id, .. }
             | StreamEvent::ItemRemove { ref item_id } => {
                 if let Some(old) = q.mutable.remove(item_id) {
                     q.mutable_bytes = q
@@ -179,6 +178,33 @@ impl LaneSender {
                         .saturating_sub(serde_json::to_vec(&old).map_or(0, |bytes| bytes.len()));
                 }
                 q.mutable_order.retain(|id| id != item_id);
+                // Only adjacent, same-kind append-only snapshots may coalesce.
+                // Never erase a revision, deletion, or ordering boundary.
+                if let (
+                    Some(StreamEvent::ItemUpsert {
+                        item_id: old_id,
+                        item_kind: old_kind,
+                        text: old_text,
+                        committed: false,
+                        streamable: true,
+                    }),
+                    StreamEvent::ItemUpsert {
+                        item_id,
+                        item_kind,
+                        text,
+                        streamable: true,
+                        ..
+                    },
+                ) = (q.committed.back(), &event)
+                {
+                    if old_id == item_id
+                        && old_kind == item_kind
+                        && text.starts_with(old_text.as_str())
+                    {
+                        let old = q.committed.pop_back().unwrap();
+                        q.committed_bytes -= serde_json::to_vec(&old).map_or(0, |b| b.len());
+                    }
+                }
                 let event_bytes =
                     serde_json::to_vec(&event).map_or(usize::MAX, |bytes| bytes.len());
                 if q.committed.len() >= MAX_LANE_COMMITTED_EVENTS
@@ -607,6 +633,27 @@ mod tests {
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
     #[test]
+    fn lane_coalesces_streamable_prefixes_without_erasing_revisions() {
+        let (tx, mut rx) = lane_channel();
+        for text in ["a", "abc", "different"] {
+            assert!(tx.send_nonblocking(StreamEvent::ItemUpsert {
+                item_id: "r".into(),
+                item_kind: StreamItemKind::ReasoningSummary,
+                text: text.into(),
+                committed: false,
+                streamable: true,
+            }));
+        }
+        assert!(
+            matches!(rx.try_recv(), Ok(StreamEvent::ItemUpsert {text, streamable: true, ..}) if text == "abc")
+        );
+        assert!(
+            matches!(rx.try_recv(), Ok(StreamEvent::ItemUpsert {text, streamable: true, ..}) if text == "different")
+        );
+        assert!(rx.try_recv().is_err());
+    }
+
+    #[test]
     fn lane_mailbox_bounds_mutable_ids_and_signals_overflow() {
         let (tx, mut rx) = lane_channel();
         for index in 0..MAX_LANE_MUTABLE_IDS {
@@ -615,6 +662,7 @@ mod tests {
                 item_kind: StreamItemKind::Commentary,
                 text: "x".to_owned(),
                 committed: false,
+                streamable: false,
             }));
         }
         assert!(!tx.send_nonblocking(StreamEvent::ItemUpsert {
@@ -622,6 +670,7 @@ mod tests {
             item_kind: StreamItemKind::Commentary,
             text: "x".to_owned(),
             committed: false,
+            streamable: false,
         }));
         assert!(matches!(rx.try_recv(), Ok(StreamEvent::Overflow)));
         assert!(matches!(
@@ -682,6 +731,7 @@ mod tests {
                 item_kind: StreamItemKind::Answer,
                 text: format!("draft-{i}"),
                 committed: false,
+                streamable: false,
             }));
         }
         assert!(tx_a.send_nonblocking(StreamEvent::ItemUpsert {
@@ -689,12 +739,14 @@ mod tests {
             item_kind: StreamItemKind::ReasoningSummary,
             text: "committed thought".to_owned(),
             committed: true,
+            streamable: false,
         }));
         assert!(tx_a.send_nonblocking(StreamEvent::ItemUpsert {
             item_id: "answer:1".to_owned(),
             item_kind: StreamItemKind::Answer,
             text: "final".to_owned(),
             committed: true,
+            streamable: false,
         }));
         assert!(tx_a.send_nonblocking(StreamEvent::TurnCompleted {
             chat_id: Some("c1".to_owned()),
@@ -705,6 +757,7 @@ mod tests {
             item_kind: StreamItemKind::Answer,
             text: "sibling lane ok".to_owned(),
             committed: true,
+            streamable: false,
         }));
         tx_a.close();
         tx_b.close();
@@ -717,6 +770,7 @@ mod tests {
                 item_kind: StreamItemKind::Answer,
                 text: "sibling lane ok".to_owned(),
                 committed: true,
+                streamable: false,
             })
         );
         assert_eq!(rx_b.recv().await, None);
@@ -734,12 +788,14 @@ mod tests {
                     item_kind: StreamItemKind::ReasoningSummary,
                     text: "committed thought".to_owned(),
                     committed: true,
+                    streamable: false,
                 },
                 StreamEvent::ItemUpsert {
                     item_id: "answer:1".to_owned(),
                     item_kind: StreamItemKind::Answer,
                     text: "final".to_owned(),
                     committed: true,
+                    streamable: false,
                 },
                 StreamEvent::TurnCompleted {
                     chat_id: Some("c1".to_owned()),

@@ -1559,6 +1559,18 @@
     return messages;
   }
 
+  let nextCompletionAt = 0;
+  let retryAfterUntil = 0;
+  function noteRetryAfter(source) {
+    const retryAfter = extractRetryAfter(source);
+    if (retryAfter) {
+      const deadline = /^\d+$/.test(retryAfter)
+        ? Date.now() + Number(retryAfter) * 1000 : Date.parse(retryAfter);
+      if (Number.isFinite(deadline)) retryAfterUntil = Math.max(retryAfterUntil, deadline);
+    }
+    return retryAfter;
+  }
+
   async function sendMessage(opts = {}) {
     const candidate = opts.native_candidate || null;
     if (isLoginRequired()) {
@@ -1872,133 +1884,77 @@
       }
     };
 
-    const commitPriorItemsForNewMessage = (currentMsgKey, promoteInterimAnswer = false) => {
-      let demotedAnswer = false;
-      for (const item of turn.items.values()) {
-        if (item.committed || item.msgKey === currentMsgKey) continue;
-        if (item.kind === "reasoning_summary") {
-          item.committed = true;
-          noteCommittedReasoning(item.text);
-          emitStream({
-            kind: "item_upsert",
-            item_id: item.id,
-            item_kind: item.kind,
-            text: item.text,
-            committed: true,
-          });
-        } else if (item.kind === "commentary") {
-          const norm = item.text.trim();
-          if (norm && committedCommentaryTexts.has(norm)) {
-            turn.items.delete(item.id);
-            emitStream({ kind: "item_remove", item_id: item.id });
-            continue;
-          }
-          item.committed = true;
-          if (item.msgKey) committedMsgText.set(item.msgKey, item.text);
-          noteCommittedCommentary(item.text);
-          emitStream({
-            kind: "item_upsert",
-            item_id: item.id,
-            item_kind: item.kind,
-            text: item.text,
-            committed: true,
-          });
-        } else if (promoteInterimAnswer && item.kind === "answer") {
-          const norm = item.text.trim();
-          if (norm && committedCommentaryTexts.has(norm)) {
-            turn.items.delete(item.id);
-            demotedAnswer = true;
-            emitStream({ kind: "item_remove", item_id: item.id });
-            continue;
-          }
-          item.kind = "commentary";
-          item.committed = true;
-          if (item.msgKey) committedMsgText.set(item.msgKey, item.text);
-          noteCommittedCommentary(item.text);
-          demotedAnswer = true;
-          emitStream({
-            kind: "item_upsert",
-            item_id: item.id,
-            item_kind: "commentary",
-            text: item.text,
-            committed: true,
-          });
-        }
+    const publishText = (item) => emitStream({
+      kind: "item_upsert", item_id: item.id, item_kind: item.kind,
+      text: item.text, committed: item.committed, streamable: Boolean(item.streamable),
+    });
+    const commitText = (item) => {
+      item.committed = true;
+      if (item.kind === "reasoning_summary") noteCommittedReasoning(item.text);
+      else {
+        if (item.msgKey) committedMsgText.set(item.msgKey, item.text);
+        if (item.kind === "commentary") noteCommittedCommentary(item.text);
       }
-      if (demotedAnswer) {
-        syncDerivedAssistantText();
+      publishText(item);
+    };
+    const removeDraft = (item) => {
+      if (!item || item.committed) return;
+      if (item.streamable) {
+        // No retraction exists in Responses SSE. Use the same frozen item in
+        // both streaming and settled results; do not log conversation text.
+        console.warn("provider: append-only item revised or removed");
+        commitText(item);
+      } else {
+        turn.items.delete(item.id);
+        emitStream({ kind: "item_remove", item_id: item.id });
       }
     };
+    const commitPriorItemsForNewMessage = (currentMsgKey, promoteInterimAnswer = false) => {
+      let changedAnswer = false;
+      for (const item of turn.items.values()) {
+        if (item.committed || item.msgKey === currentMsgKey || item.kind === "tool_call") continue;
+        if (item.kind === "answer") {
+          if (!promoteInterimAnswer) continue;
+          // A draft may be a pre-tool report, despite channel=final. Once
+          // promoted to append-only, its published phase cannot change.
+          if (!item.streamable) {
+            item.kind = "commentary";
+            changedAnswer = true;
+          }
+        }
+        if (item.kind === "commentary" && committedCommentaryTexts.has(item.text.trim())) removeDraft(item);
+        else commitText(item);
+      }
+      if (changedAnswer) syncDerivedAssistantText();
+    };
 
-    const upsertTextItem = (
-      itemId,
-      itemKind,
-      rawText,
-      committed,
-      msgKey = null,
-      promoteInterimAnswer = false
-    ) => {
+    const upsertTextItem = (itemId, itemKind, rawText, committed, msgKey = null,
+      promoteInterimAnswer = false, eligible = false) => {
       if (candidate && typeof rawText === "string" && rawText.length > MAX_TEXT_CHARS) {
         turn.error = { code: "native_content_bound", detail: "candidate output exceeds supported item length" };
         return;
       }
       const text = truncate(rawText);
       const existing = turn.items.get(itemId);
-      if (!text) {
-        if (existing && !existing.committed) {
-          turn.items.delete(itemId);
-          emitStream({ kind: "item_remove", item_id: itemId });
-        }
-        return;
-      }
-      if (msgKey !== null) {
-        commitPriorItemsForNewMessage(msgKey, promoteInterimAnswer);
-      }
-      if (itemKind === "reasoning_summary" && !existing && isDuplicateReasoning(text)) {
-        return;
-      }
+      if (existing?.committed) return;
+      if (!text) { removeDraft(existing); return; }
+      if (msgKey !== null) commitPriorItemsForNewMessage(msgKey, promoteInterimAnswer);
+      if (itemKind === "reasoning_summary" && !existing && isDuplicateReasoning(text)) return;
       if (itemKind === "commentary" && committed && committedCommentaryTexts.has(text.trim())) {
-        if (existing && !existing.committed) {
-          turn.items.delete(itemId);
-          emitStream({ kind: "item_remove", item_id: itemId });
-        }
+        removeDraft(existing);
         return;
       }
-      if (existing) {
-        if (existing.committed) return;
-        const nextCommitted = Boolean(committed);
-        if (existing.kind === itemKind && existing.text === text && existing.committed === nextCommitted) {
-          return;
-        }
-        existing.kind = itemKind;
-        existing.text = text;
-        existing.committed = nextCommitted;
-        if (msgKey !== null) existing.msgKey = msgKey;
-      } else {
-        turn.items.set(itemId, {
-          id: itemId,
-          kind: itemKind,
-          text,
-          committed: Boolean(committed),
-          msgKey,
-        });
+      const extendsPrior = existing?.kind === itemKind && text.startsWith(existing.text);
+      if (existing?.streamable && (!extendsPrior || (!eligible && !committed))) {
+        removeDraft(existing);
+        return;
       }
-      if (itemKind === "reasoning_summary" && committed) {
-        noteCommittedReasoning(text);
-      }
-      if (itemKind === "commentary" && committed) {
-        noteCommittedCommentary(text);
-      }
-      if ((itemKind === "commentary" || itemKind === "answer") && committed && msgKey !== null) {
-        committedMsgText.set(msgKey, text);
-      }
-      emitStream({
-        kind: "item_upsert",
-        item_id: itemId,
-        item_kind: itemKind,
-        text,
-        committed: Boolean(committed),
-      });
+      const streamable = Boolean(existing?.streamable || (!committed && eligible && extendsPrior && text.length > existing.text.length));
+      if (existing && existing.kind === itemKind && existing.text === text && !committed && existing.streamable === streamable) return;
+      const item = { id: itemId, kind: itemKind, text, committed: Boolean(committed), msgKey, streamable };
+      turn.items.set(itemId, item);
+      if (committed) commitText(item);
+      else publishText(item);
     };
 
     const emittedToolIds = new Set();
@@ -2072,6 +2028,10 @@
       const contentType = content?.content_type;
       const msgKey = String(msg.id || turn.messageId || `anon_${turn.items.size}`);
       const msgCommitted = isMessageCommitted(msg);
+      const publicReasoning = msg.metadata?.summary_type !== "raw_cot" &&
+        !msg.metadata?.is_visually_hidden_reasoning_group &&
+        !msg.metadata?.is_visually_hidden_from_conversation &&
+        msg.metadata?.reasoning_recap_type !== "hide_all";
 
       const nativeCall = extractNativeToolCallFromMessage(
         msg,
@@ -2099,15 +2059,19 @@
         let emittedThought = false;
         if (Array.isArray(content.thoughts)) {
           const len = content.thoughts.length;
+          for (const item of turn.items.values()) {
+            if (item.msgKey === msgKey && item.id.startsWith(`thought:${msgKey}:`) &&
+                Number(item.id.split(":").pop()) > len) removeDraft(item);
+          }
           for (let i = 0; i < len; i++) {
             const entry = content.thoughts[i];
             const formatted = formatThoughtEntry(entry);
-            if (!formatted) continue;
+            if (!formatted) { removeDraft(turn.items.get(`thought:${msgKey}:${i + 1}`)); continue; }
             emittedThought = true;
             const thoughtCommitted = Boolean(
               i + 1 < len || entry?.finished === true || msgCommitted
             );
-            upsertTextItem(`thought:${msgKey}:${i + 1}`, "reasoning_summary", formatted, thoughtCommitted, msgKey);
+            upsertTextItem(`thought:${msgKey}:${i + 1}`, "reasoning_summary", formatted, thoughtCommitted, msgKey, false, publicReasoning);
           }
         } else {
           const direct = formatThoughtEntry({
@@ -2117,12 +2081,12 @@
           });
           if (direct) {
             emittedThought = true;
-            upsertTextItem(`thought:${msgKey}`, "reasoning_summary", direct, msgCommitted, msgKey);
+            upsertTextItem(`thought:${msgKey}`, "reasoning_summary", direct, msgCommitted, msgKey, false, publicReasoning);
           } else {
             const rawParts = extractRawPartsText(msg);
             if (rawParts && rawParts.trim()) {
               emittedThought = true;
-              upsertTextItem(`thought:${msgKey}`, "reasoning_summary", rawParts.trim(), msgCommitted, msgKey);
+              upsertTextItem(`thought:${msgKey}`, "reasoning_summary", rawParts.trim(), msgCommitted, msgKey, false, publicReasoning);
             }
           }
         }
@@ -2130,7 +2094,7 @@
           const titles = extractVisibleReasoningTitles(msg);
           for (let i = 0; i < titles.length; i++) {
             const titleCommitted = Boolean(i + 1 < titles.length || msgCommitted);
-            upsertTextItem(`title:${msgKey}:${i}`, "reasoning_summary", titles[i], titleCommitted, msgKey);
+            upsertTextItem(`title:${msgKey}:${i}`, "reasoning_summary", titles[i], titleCommitted, msgKey, false, publicReasoning);
           }
         }
         return;
@@ -2142,7 +2106,7 @@
           ? content.content
           : extractRawPartsText(msg);
         if (typeof recap === "string" && recap.trim()) {
-          upsertTextItem(`recap:${msgKey}`, "reasoning_summary", recap.trim(), msgCommitted, msgKey);
+          upsertTextItem(`recap:${msgKey}`, "reasoning_summary", recap.trim(), msgCommitted, msgKey, false, publicReasoning);
         }
         return;
       }
@@ -2154,7 +2118,7 @@
             msg.metadata?.is_visually_hidden_from_conversation) return;
         const analysisText = extractRawPartsText(msg);
         if (analysisText && analysisText.trim()) {
-          upsertTextItem(`analysis:${msgKey}`, "reasoning_summary", analysisText.trim(), msgCommitted, msgKey);
+          upsertTextItem(`analysis:${msgKey}`, "reasoning_summary", analysisText.trim(), msgCommitted, msgKey, false, publicReasoning);
         }
         return;
       }
@@ -2163,7 +2127,7 @@
         const titles = extractVisibleReasoningTitles(msg);
         for (let i = 0; i < titles.length; i++) {
           const titleCommitted = Boolean(i + 1 < titles.length || msgCommitted);
-          upsertTextItem(`title:${msgKey}:${i}`, "reasoning_summary", titles[i], titleCommitted, msgKey);
+          upsertTextItem(`title:${msgKey}:${i}`, "reasoning_summary", titles[i], titleCommitted, msgKey, false, publicReasoning);
         }
       }
 
@@ -2220,13 +2184,14 @@
       } else if (isCommentary && canonicalId === `answer:${msgKey}`) {
         const prev = turn.items.get(canonicalId);
         if (prev && !prev.committed) {
-          turn.items.delete(canonicalId);
-          emitStream({ kind: "item_remove", item_id: canonicalId });
+          removeDraft(prev);
+          if (prev.streamable) { syncDerivedAssistantText(); return; }
           canonicalId = `commentary:${msgKey}`;
           msgTextItemId.set(msgKey, canonicalId);
         }
       }
-      upsertTextItem(canonicalId, targetKind, raw, targetCommitted, msgKey, true);
+      upsertTextItem(canonicalId, targetKind, raw, targetCommitted, msgKey, true,
+        !isCommentary && msg.channel === "final");
       syncDerivedAssistantText();
     };
 
@@ -2243,11 +2208,19 @@
         recordMessage(msg);
       }
     };
+    const observeUsage = (usage) => {
+      if (!usage || !Number.isSafeInteger(usage.input_tokens) || usage.input_tokens < 0 ||
+          !Number.isSafeInteger(usage.output_tokens) || usage.output_tokens < 0 ||
+          !Number.isSafeInteger(usage.input_tokens + usage.output_tokens)) return;
+      turn.usage = { input_tokens: usage.input_tokens, output_tokens: usage.output_tokens,
+        total_tokens: usage.input_tokens + usage.output_tokens };
+    };
     const observeCompletion = {
       onDecodedEvent: (ev) => {
         sawDecodedEvent = true;
         if (!ev || typeof ev !== "object") return;
         activity();
+        observeUsage(ev.payload?.usage || ev.update?.usage);
         const cid = ev?.update?.conversationId || ev?.payload?.conversation_id;
         const msg = ev?.update?.type === "message" ? ev.update.message : ev?.payload?.message;
         handleStreamPayload(cid, msg, ev?.isInputMessage === true);
@@ -2255,6 +2228,7 @@
       onUpdate: (update) => {
         if (sawDecodedEvent || !update || typeof update !== "object") return;
         activity();
+        observeUsage(update.usage);
         if (update.type === "message" && update.message) {
           handleStreamPayload(update.conversationId, update.message, false);
         } else if (typeof update.conversationId === "string" && update.conversationId) {
@@ -2284,13 +2258,7 @@
               });
             }
           } else {
-            emitStream({
-              kind: "item_upsert",
-              item_id: item.id,
-              item_kind: item.kind,
-              text: item.text,
-              committed: true,
-            });
+            commitText(item);
           }
         }
       }
@@ -2302,12 +2270,25 @@
     };
 
     try {
+      // Reserve at the actual dispatch boundary, not before asynchronous auth/reads.
+      while (!turn.stopped && Date.now() < nextCompletionAt && Date.now() >= retryAfterUntil) {
+        await Promise.race([turn.donePromise, new Promise((resolve) =>
+          setTimeout(resolve, Math.min(1000, nextCompletionAt - Date.now())))]);
+      }
+      if (turn.stopped) return { state: "stopped", lane_id: laneId };
+      if (Date.now() < retryAfterUntil) {
+        turn.resolveDone();
+        return { state: "error", error: "backend_http_429", detail: "Retry-After cooldown",
+          retry_after: String(Math.ceil((retryAfterUntil - Date.now()) / 1000)) };
+      }
+      nextCompletionAt = Date.now() + Math.max(0, Math.min(300000, Number(opts.min_request_interval_ms) || 0));
       const handle = await client.startCompletionStream({
         request: requestPayload,
         expectedAccountId: dispatchAccountId || undefined,
         turnTraceId: newUuid(),
         ...observeCompletion,
-        onComplete: () => {
+        onComplete: (result) => {
+          observeUsage(result?.usage);
           if (!turn.stopped) settleItems();
           turn.resolveDone();
         },
@@ -2315,7 +2296,7 @@
           if (!turn.stopped) {
             const code = err?.errorCode || (err?.responseStatus ? `backend_http_${err.responseStatus}` : "completion_stream_error");
             const detail = err?.error || err?.message || String(err || "completion stream failed");
-            const retry_after = extractRetryAfter(err);
+            const retry_after = noteRetryAfter(err);
             turn.error = {
               code: String(code),
               detail: truncate(String(detail), 512),
@@ -2332,9 +2313,11 @@
       }
     } catch (err) {
       turn.generating = false;
+      const retry_after = noteRetryAfter(err);
       turn.error = {
-        code: "completion_dispatch_failed",
+        code: err?.errorCode || (err?.responseStatus ? `backend_http_${err.responseStatus}` : "completion_dispatch_failed"),
         detail: truncate(String(err && err.message ? err.message : err), 512),
+        ...(retry_after ? { retry_after } : {}),
       };
       turn.resolveDone();
     }
@@ -2447,6 +2430,7 @@
       message_id: turn.messageId,
       ...(observedIdentity ? { account_id: observedIdentity } : {}),
       ...(candidate && remoteHead ? { remote_head: remoteHead } : {}),
+      ...(turn.usage ? { usage: turn.usage } : {}),
       items: normalizedItems,
       reasoning_summary: finalReasoningSummary,
       assistant_text: finalAssistantText,

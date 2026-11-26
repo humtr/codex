@@ -1675,3 +1675,52 @@ test('thin option B propagates Retry-After from completion stream errors', async
   assert.equal(res.error, 'backend_http_429');
   assert.equal(res.retry_after, '37');
 });
+
+test('live eligible snapshots grow before completion and freeze on rewrite', async () => {
+  let callbacks, ready;
+  const started = new Promise(resolve => { ready = resolve; });
+  const { driver, streamUpdates } = createMockEnv({
+    apiMap: { 'GET /backend-api/me': { status: 200, body: { account_id: 'acc-1' } } },
+    completionBehavior(args) { callbacks = args; ready(); return { streamRequestId: 'live' }; },
+  });
+  const pending = driver.sendMessage({ lane_id: 'live', prompt: 'test', push_events: true });
+  await started;
+  const update = (id, channel, text, status = 'in_progress') => callbacks.onDecodedEvent({
+    update: { type: 'message', conversationId: 'live-chat', message: {
+      id, author: { role: 'assistant' }, channel, status,
+      content: { content_type: 'text', parts: [text] },
+    } },
+  });
+  for (const text of ['Look', 'Looking', 'Looking now']) update('r', 'analysis', text);
+  update('r', 'analysis', 'Looking now', 'finished_successfully');
+  for (const text of ['한', '한국어', '한국어 🚀']) update('a', 'final', text);
+  const live = streamUpdates.filter(e => e.streamable && !e.committed);
+  assert.deepEqual(live.map(e => e.text), ['Looking', 'Looking now', '한국어', '한국어 🚀']);
+  update('a', 'final', 'rewritten');
+  callbacks.onComplete({ usage: { input_tokens: 12, output_tokens: 3 } });
+  const settled = await pending;
+  assert.equal(settled.assistant_text, '한국어 🚀');
+  assert.equal(settled.usage.total_tokens, 15);
+});
+
+test('completion dispatch pacing and Retry-After reject without replay', async () => {
+  const times = [];
+  const { driver, startCalls } = createMockEnv({
+    apiMap: { 'GET /backend-api/me': { status: 200, body: { account_id: 'acc-1' } } },
+    completionBehavior(args) {
+      times.push(Date.now());
+      if (times.length === 2) args.onError({ responseStatus: 429, responseHeaders: { 'Retry-After': '30' } });
+      else args.onComplete();
+      return { streamRequestId: 'pace' };
+    },
+  });
+  const opts = { prompt: 'test', min_request_interval_ms: 60, push_events: true };
+  await driver.sendMessage({ ...opts, lane_id: 'p1' });
+  const failed = await driver.sendMessage({ ...opts, lane_id: 'p2' });
+  assert.equal(failed.retry_after, '30');
+  assert.ok(times[1] - times[0] >= 60);
+  const blocked = await driver.sendMessage({ ...opts, lane_id: 'p3' });
+  assert.equal(blocked.error, 'backend_http_429');
+  assert.ok(Number(blocked.retry_after) > 0);
+  assert.equal(startCalls.length, 2);
+});

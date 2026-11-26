@@ -519,6 +519,7 @@ mod tests {
                                     item_kind,
                                     text,
                                     committed,
+                                    streamable: snapshot["streamable"].as_bool().unwrap_or(false),
                                 }
                             }
                         };
@@ -1029,9 +1030,14 @@ mod tests {
             "state": "settled",
             "reasoning_summary": "Visible summary",
             "assistant_text": "Final answer",
+            "items": [{"id":"r","kind":"reasoning_summary","text":"Visible summary"}, {"id":"a","kind":"answer","text":"Final answer"}],
             "test_snapshots": [
-                {"kind":"reasoning","text":"Visible summary"},
-                {"kind":"answer","text":"Final answer"}
+                {"item_id":"r","kind":"reasoning","text":"Visible","committed":false,"streamable":true,"delay_ms":1000},
+                {"item_id":"r","kind":"reasoning","text":"Visible summary","committed":false,"streamable":true,"delay_ms":1000},
+                {"item_id":"r","kind":"reasoning","text":"Visible summary","committed":true,"delay_ms":1000},
+                {"item_id":"a","kind":"answer","text":"Final","committed":false,"streamable":true,"delay_ms":1000},
+                {"item_id":"a","kind":"answer","text":"Final answer","committed":false,"streamable":true,"delay_ms":1000},
+                {"item_id":"a","kind":"answer","text":"Final answer","committed":true,"delay_ms":250000}
             ]
         }));
         let start = tokio::time::Instant::now();
@@ -1066,6 +1072,18 @@ mod tests {
         assert!(time("response.reasoning_summary_text.delta") < time("response.output_text.delta"));
         assert!(time("response.output_text.delta") < time("response.completed"));
         assert!(time("response.completed") >= Duration::from_secs(250));
+        for kind in [
+            "response.reasoning_summary_text.delta",
+            "response.output_text.delta",
+        ] {
+            let deltas: Vec<_> = observed.iter().filter(|(_, e)| e["type"] == kind).collect();
+            assert_eq!(deltas.len(), 2);
+            assert!(deltas[1].0 < time("response.completed"));
+        }
+        let response = &observed.last().unwrap().1["response"];
+        assert!(response["usage"]["input_tokens"].as_u64().unwrap() > 0);
+        assert!(response["usage"]["output_tokens"].as_u64().unwrap() > 0);
+        assert_eq!(response["usage"]["estimated"], true);
         for (index, (_, event)) in observed.iter().enumerate() {
             assert_eq!(event["sequence_number"], index);
         }
@@ -1900,6 +1918,7 @@ wire_api = "responses"
             norm_output(&completed["output"]),
             norm_output(&non_stream["output"])
         );
+        assert_eq!(completed["usage"], non_stream["usage"]);
     }
 
     #[tokio::test]

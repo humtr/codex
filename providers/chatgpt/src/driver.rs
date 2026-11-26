@@ -158,7 +158,7 @@ impl CdpDriver {
     async fn call_host(
         &self,
         method: &str,
-        arg: Value,
+        mut arg: Value,
         timeout: Duration,
         events: Option<LaneSender>,
     ) -> Result<Value> {
@@ -229,6 +229,9 @@ impl CdpDriver {
         } else {
             None
         };
+        if method == "sendMessage" {
+            arg["min_request_interval_ms"] = json!(self.config.server.min_request_interval_ms);
+        }
         let arg_json = serde_json::to_string(&arg)
             .map_err(|e| ProviderError::internal("driver_encode_failed", e.to_string()))?;
         // Ensure page_driver.js is installed and invoke the requested method atomically

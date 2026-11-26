@@ -7,7 +7,7 @@
 
 /// Render allowlisted ChatGPT DIL components into Codex-native GFM Markdown.
 pub fn render_for_codex_tui(input: &str) -> String {
-    if !input.contains('<') && !input.contains("{@body") && !input.contains("{#if") {
+    if !input.contains('<') && !input.contains('{') {
         return input.to_owned();
     }
 
@@ -58,54 +58,10 @@ pub fn render_for_codex_tui(input: &str) -> String {
     }
 
     if saw_dil {
-        collapse_excess_blank_lines(&out)
+        out
     } else {
         input.to_owned()
     }
-}
-
-fn collapse_excess_blank_lines(input: &str) -> String {
-    let mut out = String::with_capacity(input.len());
-    let mut fence: Option<(char, usize)> = None;
-    let mut blank_run = 0usize;
-
-    for line in input.split_inclusive('\n') {
-        let trimmed = line.trim_start_matches(' ');
-        let indent = line.len() - trimmed.len();
-        let first = trimmed.chars().next().unwrap_or('\0');
-        let run = trimmed.chars().take_while(|&c| c == first).count();
-
-        if indent <= 3 && matches!(first, '`' | '~') && run >= 3 {
-            match fence {
-                None => fence = Some((first, run)),
-                Some((ch, n)) if ch == first && run >= n && trimmed[run..].trim().is_empty() => {
-                    fence = None
-                }
-                _ => {}
-            }
-            blank_run = 0;
-            out.push_str(line);
-            continue;
-        }
-
-        if fence.is_some() {
-            blank_run = 0;
-            out.push_str(line);
-            continue;
-        }
-
-        if line.trim().is_empty() {
-            blank_run += 1;
-            if blank_run <= 1 {
-                out.push('\n');
-            }
-        } else {
-            blank_run = 0;
-            out.push_str(line);
-        }
-    }
-
-    out.trim_matches('\n').to_owned()
 }
 
 fn render_prose_segment(input: &str) -> (String, bool) {
@@ -138,12 +94,22 @@ fn render_prose_segment(input: &str) -> (String, bool) {
             continue;
         }
 
-        // Strip DIL template directive lines ({@body ...}, {#if ...}, {:else}, {/if}).
-        if (i == 0 || bytes[i - 1] == b'\n') && is_dil_directive_line(rest) {
-            let line_end = rest.find('\n').map_or(rest.len(), |p| p + 1);
-            changed = true;
-            i += line_end;
-            continue;
+        // Drop unevaluated template expressions, never execute them. Remove
+        // surrounding emphasis when the expression is its entire content.
+        let emphasis = if rest.starts_with("**{") {
+            2
+        } else if rest.starts_with("*{") {
+            1
+        } else {
+            0
+        };
+        if let Some(end) = template_end(&rest[emphasis..]) {
+            let end = end + emphasis;
+            if emphasis == 0 || rest[end..].starts_with(&rest[..emphasis]) {
+                changed = true;
+                i += end + emphasis;
+                continue;
+            }
         }
 
         if bytes[i] == b'<' {
@@ -163,15 +129,95 @@ fn render_prose_segment(input: &str) -> (String, bool) {
     (out, changed)
 }
 
-fn is_dil_directive_line(rest: &str) -> bool {
-    let line = rest.split('\n').next().unwrap_or("");
-    let t = line.trim();
-    t.starts_with("{@body ")
-        || t.starts_with("{#if ")
-        || t == "{:else}"
-        || t == "{/if}"
-        || (t.starts_with("{#each ") && t.ends_with('}'))
-        || t == "{/each}"
+// Recognize directive syntax or a JS member/call expression, not ordinary
+// braces such as `{name}`, LaTeX groups, JSON objects or Rust blocks.
+fn template_end(rest: &str) -> Option<usize> {
+    let body = rest.strip_prefix('{')?;
+    let mut depth = 1;
+    let mut quote = None;
+    let mut escaped = false;
+    for (i, ch) in body.char_indices() {
+        if let Some(q) = quote {
+            if escaped {
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else if ch == q {
+                quote = None;
+            }
+            continue;
+        }
+        match ch {
+            '"' | '\'' | '`' => quote = Some(ch),
+            '{' => depth += 1,
+            '}' => {
+                depth -= 1;
+                if depth == 0 {
+                    let expr = body[..i].trim();
+                    let member = expr.split_once('.').is_some_and(|(root, tail)| {
+                        !root.is_empty()
+                            && root.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+                            && tail.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_')
+                            && (!expr.contains(char::is_whitespace) || expr.contains('('))
+                    });
+                    return (expr.starts_with(['@', '#', ':', '/']) || member).then_some(i + 2);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// A conservative stable projection: do not publish an unfinished template,
+/// component or code construct. The same renderer handles the settled text.
+pub fn render_stream_prefix(input: &str) -> String {
+    let mut i = 0;
+    while i < input.len() {
+        let rest = &input[i..];
+        let ch = rest.chars().next().unwrap();
+        match ch {
+            '<' => {
+                if let Some((n, _)) = try_render_dil_element(rest) {
+                    i += n;
+                    continue;
+                }
+                // Unknown complete HTML/generics pass through at settlement;
+                // a partial tag may still become an allowlisted component.
+                break;
+            }
+            '{' => {
+                if let Some(n) = template_end(rest) {
+                    i += n;
+                    continue;
+                }
+                break;
+            }
+            '*' => {
+                // An emphasis marker might introduce an unevaluated expression.
+                let n = rest.bytes().take_while(|&b| b == b'*').count();
+                if n == rest.len() {
+                    break;
+                }
+                if rest[n..].starts_with('{') {
+                    let Some(end) = template_end(&rest[n..]) else {
+                        break;
+                    };
+                    if !rest[n + end..].starts_with(&rest[..n]) {
+                        break;
+                    }
+                    i += n + end + n;
+                    continue;
+                }
+            }
+            // Buffer code constructs as a whole rather than misread literal
+            // DIL in a fence or inline span. Ordinary prose streams immediately.
+            '`' | '~' => break,
+            _ => {}
+        }
+        i += ch.len_utf8();
+    }
+    render_for_codex_tui(&input[..i])
 }
 
 const DIL_BLOCK_TAGS: &[&str] = &[
@@ -189,6 +235,8 @@ const DIL_BLOCK_TAGS: &[&str] = &[
     "MemoryCite",
     "button",
     "checkbox",
+    "list",
+    "list-item",
 ];
 
 const DIL_VOID_OR_SELF_TAGS: &[&str] =
@@ -435,6 +483,15 @@ fn try_render_dil_element(rest: &str) -> Option<(usize, String)> {
             let (inner, _) = render_prose_segment(inner_raw);
             inner.trim().to_owned()
         }
+        "list" => render_prose_segment(inner_raw).0,
+        "list-item" => {
+            let inner = render_prose_segment(inner_raw).0;
+            if inner.trim().is_empty() {
+                String::new()
+            } else {
+                format!("- {}\n", inner.trim())
+            }
+        }
         "box" | "card" => render_container(attrs, inner_raw),
         "svg" => render_svg(inner_raw),
         "checkbox" => {
@@ -638,9 +695,9 @@ fn render_svg(inner_raw: &str) -> String {
             let slice = &inner_raw[start..];
             if let Some(open_end) = find_tag_end(slice) {
                 if let Some((inner_end, total_end)) = find_matching_close(slice, "text", open_end) {
-                    let label = slice[open_end..inner_end].trim();
-                    if !label.is_empty() {
-                        labels.push(label.to_owned());
+                    let label = render_prose_segment(&slice[open_end..inner_end]).0;
+                    if !label.trim().is_empty() {
+                        labels.push(label.trim().to_owned());
                     }
                     i = start + total_end;
                     continue;
@@ -661,6 +718,29 @@ fn render_svg(inner_raw: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cleans_template_placeholders_and_holds_incomplete_markup() {
+        let raw = "Hello 한국어 <list connector=\"solid\">{#each items as item}<list-item>{item.label}</list-item><list-item>Visible</list-item>{/each}</list> *{Object.values(checked).length}* {p.n} done";
+        let rendered = render_for_codex_tui(raw);
+        assert!(rendered.contains("- Visible"));
+        assert!(rendered.contains("Hello 한국어"));
+        assert!(!rendered.contains("{item.label}"));
+        assert!(!rendered.contains("{p.n}"));
+        assert!(!rendered.contains("Object.values"));
+        assert!(!rendered.contains("<list"));
+        assert!(!rendered.contains("{#each"));
+        for (i, _) in raw.char_indices() {
+            assert!(
+                rendered.starts_with(&render_stream_prefix(&raw[..i])),
+                "prefix at {i}"
+            );
+        }
+        assert_eq!(
+            render_for_codex_tui("`{item.label}` {name}\n```js\n{p.n}\n```"),
+            "`{item.label}` {name}\n```js\n{p.n}\n```"
+        );
+    }
 
     #[test]
     fn renders_row_badge_text_link_and_grid_for_codex_tui() {
