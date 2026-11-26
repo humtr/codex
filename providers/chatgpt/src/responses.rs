@@ -278,6 +278,7 @@ fn is_codex_machine_user_preamble(parts: &[String]) -> bool {
         || first.starts_with("<environment_context>")
         || first.starts_with("<collaboration_mode>")
         || first.starts_with("<turn_aborted>")
+        || first.starts_with("<subagent_notification>")
 }
 
 /// Extract the workspace `cwd` from Codex's `<environment_context>` or turn metadata.
@@ -2689,7 +2690,8 @@ impl NativePlan {
                                 matches!(
                                     item["type"].as_str(),
                                     Some("function_call_output" | "custom_tool_call_output")
-                                ) || (item["type"] == "message" && item["role"] == "developer")
+                                ) || (item["type"] == "message"
+                                    && matches!(item["role"].as_str(), Some("developer" | "user")))
                             }));
                 let is_compacted_fresh = explicit_previous.is_none()
                     && !canonical.is_empty()
@@ -2778,10 +2780,7 @@ impl NativePlan {
         let mut received = HashSet::new();
         for item in tail {
             match item["type"].as_str() {
-                Some("message")
-                    if item["role"] == "developer"
-                        || (pending.is_empty() && item["role"] == "user") =>
-                {
+                Some("message") if item["role"] == "developer" || item["role"] == "user" => {
                     let role = item["role"].as_str().unwrap_or("user");
                     let parts_vec: Vec<String> = item["parts"]
                         .as_array()
@@ -3962,6 +3961,24 @@ mod thin_option_b_tests {
             .code,
             "native_instruction_scope_changed"
         );
+        // Subagent notification or mid-turn user message accompanying a complete pending tool batch.
+        let subagent_plan = NativePlan::prepare(
+            &json!({
+                "previous_response_id": "resp_1",
+                "input": [
+                    {"type": "function_call_output", "call_id": cid, "output": "ok"},
+                    {"role": "user", "content": "<subagent_notification>\n{\"status\":\"completed\"}\n</subagent_notification>"}
+                ]
+            }),
+            Some(&entry),
+            "resp_2",
+        )
+        .unwrap();
+        assert_eq!(subagent_plan.messages.len(), 2);
+        assert_eq!(subagent_plan.messages[0]["role"], "tool");
+        assert_eq!(subagent_plan.messages[1]["role"], "user");
+        assert_eq!(subagent_plan.messages[1]["hidden"], true);
+
         drop(map);
         fs::remove_dir_all(root).unwrap();
 
