@@ -3,13 +3,19 @@
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 import tempfile
 import unittest
 from pathlib import Path
 
-import manager
+# Load the sibling module explicitly, including when unittest is invoked from
+# the repository root (which does not add this directory to sys.path).
+_spec = importlib.util.spec_from_file_location("manager", Path(__file__).resolve().with_name("manager.py"))
+assert _spec is not None and _spec.loader is not None
+manager = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(manager)
 
 
 SAMPLE_INRELEASE = """-----BEGIN PGP SIGNED MESSAGE-----
