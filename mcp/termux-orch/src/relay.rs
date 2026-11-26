@@ -360,17 +360,23 @@ impl RelayEngine {
         }
         let rollover = crate::rollover::Rollover::new(&self.ledger, &self.owners);
         if work.can_start() && work.pending_lead.is_none() && work.lead_rollover.is_some() {
-            let _ = rollover.advance(&mut work);
+            rollover
+                .advance(&mut work)
+                .map_err(|e| format!("lead rollover advance failed: {e}"))?;
             return Ok(summary);
         }
         if !matches!(work.state.as_str(), "cancelling" | "cancelled") && work.lead_replay.is_some()
         {
-            let _ = rollover.replay(&mut work);
+            rollover
+                .replay(&mut work)
+                .map_err(|e| format!("lead replay failed: {e}"))?;
             return Ok(summary);
         }
         if work.can_start() && work.pending_lead.is_none() {
             if let Some(reason) = rollover.automatic_reason(&work) {
-                let _ = rollover.start(&mut work, &reason, None);
+                rollover
+                    .start(&mut work, &reason, None)
+                    .map_err(|e| format!("automatic lead rollover failed: {e}"))?;
                 if work.lead_rollover.is_some() || work.lead_replay.is_some() {
                     return Ok(summary);
                 }
@@ -1788,9 +1794,15 @@ pub fn run_relay_daemon(
         }
     }
 
-    let _ = health_handle.join();
+    health_handle
+        .join()
+        .map_err(|_| "health server thread panicked")?;
     if let Some(url_file) = health_url_file {
-        let _ = fs::remove_file(url_file);
+        match fs::remove_file(url_file) {
+            Ok(()) => (),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => (),
+            Err(error) => return Err(format!("cannot remove owned health URL file: {error}")),
+        }
     }
     Ok(())
 }

@@ -34,7 +34,12 @@ fn compiled_binary_describe_tools_stdio_replay_and_cwd_validation() {
     let desc_json: Value = serde_json::from_slice(&desc.stdout).unwrap();
     assert_eq!(desc_json["tools"].as_array().unwrap().len(), 1);
     assert_eq!(desc_json["tools"][0]["name"], "termux_shell");
-    assert_eq!(desc_json["tools"][0]["annotations"]["readOnlyHint"], true);
+    assert_eq!(desc_json["tools"][0]["annotations"]["readOnlyHint"], false);
+    assert_eq!(
+        desc_json["tools"][0]["annotations"]["destructiveHint"],
+        true
+    );
+    assert_eq!(desc_json["tools"][0]["annotations"]["openWorldHint"], true);
 
     let mut child = Command::new(bin())
         .env("TERMUX_SHELL_RECEIPT_DIR", &rcpt)

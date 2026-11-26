@@ -412,9 +412,16 @@ fn read_http_response<R: Read>(stream: &mut R) -> Result<HttpResponse, HttpClien
                             }
                         }
                         content_length = Some(parsed);
-                    } else if key == "transfer-encoding"
-                        && val.to_ascii_lowercase().contains("chunked")
-                    {
+                    } else if key == "transfer-encoding" {
+                        let codings: Vec<String> = val
+                            .split(',')
+                            .map(|v| v.trim().to_ascii_lowercase())
+                            .collect();
+                        if codings.len() != 1 || codings[0] != "chunked" || is_chunked {
+                            return Err(HttpClientError::TransportLost(
+                                "unsupported or malformed Transfer-Encoding".to_owned(),
+                            ));
+                        }
                         is_chunked = true;
                     }
                 }

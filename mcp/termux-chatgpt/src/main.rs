@@ -1,6 +1,6 @@
 //! `@TermuxChatGPT` — stateless thin MCP bridge over `chatgpt-provider`'s local `/control/*` plane.
 //!
-//! Built on `crates/mcp-kit` (uniform immutable annotations, bounded `call_id` transport
+//! Built on `crates/mcp-kit` (per-tool MCP risk annotations, bounded `call_id` transport
 //! deduplication receipts, and strictly disjoint `chatgpt_catalog` / `chatgpt_call` extension
 //! slots). Owns zero local code execution privilege, zero shadow task DB, zero CDP connection,
 //! and zero `crates/wrapper` coupling.
@@ -102,7 +102,7 @@ fn static_tools() -> Vec<ToolDef> {
                 "additionalProperties": false
             }),
             true,
-        ),
+        ).with_risk(false, true, true),
         ToolDef::new(
             "chatgpt_catalog",
             "List all allowlisted extension actions callable via chatgpt_call with their exact JSON input schemas (strictly disjoint from static tools).",
@@ -126,7 +126,7 @@ fn static_tools() -> Vec<ToolDef> {
                 "additionalProperties": false
             }),
             false,
-        ),
+        ).with_risk(false, true, true),
     ]
 }
 
@@ -1205,9 +1205,13 @@ mod tests {
         for t in tools {
             let name = t["name"].as_str().unwrap();
             static_names.insert(name.to_owned());
-            assert_eq!(t["annotations"]["readOnlyHint"], true);
-            assert_eq!(t["annotations"]["destructiveHint"], false);
-            assert_eq!(t["annotations"]["openWorldHint"], false);
+            let read_only = matches!(
+                name,
+                "chatgpt_status" | "chatgpt_chats" | "chatgpt_projects" | "chatgpt_catalog"
+            );
+            assert_eq!(t["annotations"]["readOnlyHint"], read_only);
+            assert_eq!(t["annotations"]["destructiveHint"], !read_only);
+            assert_eq!(t["annotations"]["openWorldHint"], !read_only);
             if name == "chatgpt_call" {
                 assert_eq!(t["annotations"]["idempotentHint"], false);
             } else {

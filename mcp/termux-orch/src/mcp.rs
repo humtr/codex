@@ -1,7 +1,6 @@
 //! `@TermuxOrch` 6-tool MCP surface (`termux-orch mcp`).
 //!
-//! Static core tools (uniform immutable annotations `readOnlyHint=true`,
-//! `destructiveHint=false`, `openWorldHint=false`):
+//! Static tools advertise read-only or mutating/destructive behavior per their actual effects:
 //! 1. `orch_works`    — `list | read | checkpoint | inbox`
 //! 2. `orch_work`     — `create | promote | rebind_front | update_scope | cancel`
 //! 3. `orch_dispatch` — `register_worker | register_verifier | wait_set | wait_clear`
@@ -56,7 +55,7 @@ pub fn build_static_tools() -> Vec<ToolDef> {
                 "additionalProperties": false
             }),
             true,
-        ),
+        ).with_risk(false, false, false),
         ToolDef::new(
             "orch_work",
             "Create or manage a durable Work. Use the current session for questions and steps it can finish itself. For edits, coordination, or persistent follow-up from ChatGPT, delegate the work and return promptly so the Front chat is free. For a fixed shell plan pass steps rather than opening a Lead. Select independent_review for multi-file, contract, state, permission or follow-up fixes. Multi-step instructions still need coordination in the current session. Use direct for a fixed sequence and do not create a separate Lead unless needed. Reuse repository projects with project_scope.",
@@ -106,7 +105,7 @@ pub fn build_static_tools() -> Vec<ToolDef> {
                 "additionalProperties": false
             }),
             true,
-        ),
+        ).with_risk(false, true, true),
         ToolDef::new(
             "orch_dispatch",
             "Register or spawn Worker (W) / Verifier (V) participants with uniform [W1-slug]/[V1-slug] titles, or arm/clear declarative Wait-Set triggers (all_of Fan-in Barrier, any_of, on_user_event, deadline_secs) so Lead/Front can cleanly end its turn and be woken automatically by Runtime (R).",
@@ -150,7 +149,7 @@ pub fn build_static_tools() -> Vec<ToolDef> {
                 "additionalProperties": false
             }),
             true,
-        ),
+        ).with_risk(false, true, true),
         ToolDef::new(
             "orch_report",
             "Emit a structured milestone, need_user blocker, completion, or failure report from Lead/Runtime to the latest bound Front (F1..Fn) with checkpoint.md persistence, inject_and_notify delivery, and Android notification.",
@@ -172,7 +171,7 @@ pub fn build_static_tools() -> Vec<ToolDef> {
                 "additionalProperties": false
             }),
             true,
-        ),
+        ).with_risk(false, true, true),
         ToolDef::new(
             "orch_catalog",
             "List all allowlisted extension actions callable via orch_call with exact JSON input schemas (strictly disjoint from static tools).",
@@ -196,7 +195,7 @@ pub fn build_static_tools() -> Vec<ToolDef> {
                 "additionalProperties": false
             }),
             false,
-        ),
+        ).with_risk(false, true, true),
     ]
 }
 
@@ -663,10 +662,12 @@ impl OrchMcpHandler {
         };
         let (outcome, commit_outcome) = f();
         if commit_outcome {
-            let _ = store.commit(&receipt_path, &fp, &outcome);
+            if let Err(error) = store.commit(&receipt_path, &fp, &outcome) {
+                return fail("orch_receipt_commit_failed", format!("operation outcome is retained but receipt settlement failed; reconcile call_id {call_id}: {error}"));
+            }
             store.prune_settled(512);
-        } else {
-            let _ = store.release_intent(&receipt_path);
+        } else if let Err(error) = store.release_intent(&receipt_path) {
+            return fail("orch_receipt_release_failed", format!("pre-dispatch failure cleanup requires reconciliation for call_id {call_id}: {error}"));
         }
         outcome
     }
@@ -982,18 +983,22 @@ impl OrchMcpHandler {
             Ok(l) => l,
             Err(e) => return (fail("ledger_lock_failed", e.to_string()), false),
         };
-        let _ = self.ledger.append_event_if_absent(
+        if let Err(e) = self.ledger.append_event_if_absent(
             &mut work,
             "work:created",
             "work.created",
             "front",
             &format!("Work '{title}' created (tier={tier})"),
             json!({ "tier": tier, "project_id": project_id }),
-        );
+        ) {
+            return (fail("ledger_event_write_failed", e.to_string()), false);
+        }
         let initial_cp = format!(
             "# Checkpoint: {title}\n\n- work_id: `{work_id}`\n- tier: `{tier}`\n- goal: {goal}\n"
         );
-        let _ = self.ledger.write_checkpoint(&work_id, &initial_cp);
+        if let Err(e) = self.ledger.write_checkpoint(&work_id, &initial_cp) {
+            return (fail("ledger_checkpoint_write_failed", e.to_string()), false);
+        }
         if let Err(e) = self.ledger.save_work(&work) {
             return (fail("ledger_write_failed", e.to_string()), false);
         }
@@ -2269,7 +2274,12 @@ impl OrchMcpHandler {
             );
         }
         if let Some(cp) = obj.get("checkpoint_md").and_then(Value::as_str) {
-            let _ = self.ledger.write_checkpoint(wid, cp);
+            if let Err(error) = self.ledger.write_checkpoint(wid, cp) {
+                return (
+                    fail("ledger_checkpoint_write_failed", error.to_string()),
+                    false,
+                );
+            }
         }
         let ws = WaitSet {
             extra: Default::default(),
@@ -2544,7 +2554,12 @@ impl OrchMcpHandler {
                     }
                 }
                 if let Some(cp) = obj.get("checkpoint_md").and_then(Value::as_str) {
-                    let _ = self.ledger.write_checkpoint(wid, cp);
+                    if let Err(error) = self.ledger.write_checkpoint(wid, cp) {
+                        return (
+                            fail("ledger_checkpoint_write_failed", error.to_string()),
+                            false,
+                        );
+                    }
                 }
                 match action {
                     "need_user" => work.state = "waiting_user".to_owned(),
@@ -2859,7 +2874,9 @@ impl OrchMcpHandler {
                     return fail("lead_rollover_in_progress", "ChatGPT handoff is pending");
                 }
                 if let Some(cp) = ext_args.get("checkpoint_md").and_then(Value::as_str) {
-                    let _ = self.ledger.write_checkpoint(wid, cp);
+                    if let Err(error) = self.ledger.write_checkpoint(wid, cp) {
+                        return fail("ledger_checkpoint_write_failed", error.to_string());
+                    }
                 }
                 let next_gen = work.lead.as_ref().map(|l| l.generation).unwrap_or(0) + 1;
                 let mut warnings = Vec::new();

@@ -853,6 +853,7 @@ impl Ledger {
                 .open(&path)?;
             let mut reader = BufReader::new(&file);
             let mut offset = 0;
+            let mut previous_seq = 0;
             let mut line = Vec::new();
             loop {
                 line.clear();
@@ -868,11 +869,22 @@ impl Ledger {
                     break;
                 }
                 offset += read as u64;
-                if let Ok(ev) = serde_json::from_slice::<InboxEvent>(&line) {
-                    max_seq = max_seq.max(ev.seq);
-                    if ev.event_id == event_id {
-                        already_present = Some(ev);
-                    }
+                let ev = serde_json::from_slice::<InboxEvent>(&line).map_err(|e| {
+                    io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        format!("corrupt complete ledger event at byte {offset}: {e}"),
+                    )
+                })?;
+                if ev.seq <= previous_seq {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "ledger event sequence is not strictly increasing",
+                    ));
+                }
+                previous_seq = ev.seq;
+                max_seq = max_seq.max(ev.seq);
+                if ev.event_id == event_id {
+                    already_present = Some(ev);
                 }
             }
         }

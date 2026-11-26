@@ -2,8 +2,7 @@
 //! `@TermuxShell`, `@TermuxCodex`, and `@TermuxChatGPT`.
 //!
 //! Provides:
-//! - Uniform immutable MCP tool annotations (`readOnlyHint: true`, `destructiveHint: false`,
-//!   `openWorldHint: false`, plus honest per-tool `idempotentHint`).
+//! - Explicit MCP tool annotations and per-tool `idempotency` hints.
 //! - Disjoint `*_catalog` / `*_call` extension registry with self-correcting schema errors.
 //! - Atomic `O_NOFOLLOW` + `fsync` `call_id` transport deduplication receipt store (`0700`/`0600`).
 //! - Pure-Rust FIPS 180-4 SHA-256 and Base64 (zero extra crypto crates).
@@ -26,12 +25,17 @@ static RECEIPT_SERIAL: AtomicU64 = AtomicU64::new(1);
 
 /// Non-negotiable common annotation policy shared by all independent MCP servers.
 pub fn tool_annotations(idempotent: bool) -> Value {
-    json!({
-        "readOnlyHint": true,
-        "destructiveHint": false,
-        "openWorldHint": false,
-        "idempotentHint": idempotent
-    })
+    tool_annotations_with_risk(idempotent, true, false, false)
+}
+
+pub fn tool_annotations_with_risk(
+    idempotent: bool,
+    read_only: bool,
+    destructive: bool,
+    open_world: bool,
+) -> Value {
+    json!({"readOnlyHint": read_only, "destructiveHint": destructive,
+        "openWorldHint": open_world, "idempotentHint": idempotent})
 }
 
 /// Static MCP tool descriptor with enforced uniform annotations.
@@ -41,6 +45,9 @@ pub struct ToolDef {
     pub description: String,
     pub input_schema: Value,
     pub idempotent: bool,
+    pub read_only: bool,
+    pub destructive: bool,
+    pub open_world: bool,
 }
 
 impl ToolDef {
@@ -55,7 +62,17 @@ impl ToolDef {
             description: description.into(),
             input_schema,
             idempotent,
+            read_only: true,
+            destructive: false,
+            open_world: false,
         }
+    }
+
+    pub fn with_risk(mut self, read_only: bool, destructive: bool, open_world: bool) -> Self {
+        self.read_only = read_only;
+        self.destructive = destructive;
+        self.open_world = open_world;
+        self
     }
 
     pub fn to_mcp_json(&self) -> Value {
@@ -63,7 +80,7 @@ impl ToolDef {
             "name": self.name,
             "description": self.description,
             "inputSchema": self.input_schema,
-            "annotations": tool_annotations(self.idempotent)
+            "annotations": tool_annotations_with_risk(self.idempotent, self.read_only, self.destructive, self.open_world)
         })
     }
 }
@@ -328,17 +345,27 @@ impl ReceiptStore {
     }
 
     pub fn write_intent(&self, path: &Path, fingerprint: &str) -> Result<bool, &'static str> {
-        let mut file = match OpenOptions::new()
+        let parent = path.parent().ok_or("receipt_path_invalid")?;
+        let dir = OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW)
+            .open(parent)
+            .map_err(|_| "receipt_directory_unavailable")?;
+        if unsafe { libc::flock(std::os::fd::AsRawFd::as_raw_fd(&dir), libc::LOCK_EX) } != 0 {
+            return Err("receipt_lock_failed");
+        }
+        if fs::symlink_metadata(path).is_ok() {
+            return Ok(false);
+        }
+        let nonce = RECEIPT_SERIAL.fetch_add(1, Ordering::Relaxed);
+        let tmp = path.with_extension(format!("intent-{}-{nonce}", std::process::id()));
+        let mut file = OpenOptions::new()
             .write(true)
             .create_new(true)
             .mode(0o600)
             .custom_flags(libc::O_NOFOLLOW)
-            .open(path)
-        {
-            Ok(v) => v,
-            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => return Ok(false),
-            Err(_) => return Err("receipt_create_failed"),
-        };
+            .open(&tmp)
+            .map_err(|_| "receipt_create_failed")?;
         let bytes = json!({
             "schema": self.schema,
             "fingerprint": fingerprint,
@@ -346,9 +373,20 @@ impl ReceiptStore {
             "executed": "unknown"
         })
         .to_string();
-        file.write_all(bytes.as_bytes())
+        if file
+            .write_all(bytes.as_bytes())
             .and_then(|_| file.sync_all())
-            .map_err(|_| "receipt_intent_write_failed")?;
+            .is_err()
+        {
+            drop(file);
+            let _ = fs::remove_file(&tmp);
+            return Err("receipt_intent_write_failed");
+        }
+        drop(file);
+        if fs::rename(&tmp, path).is_err() {
+            let _ = fs::remove_file(&tmp);
+            return Err("receipt_intent_publish_failed");
+        }
         sync_parent(path)?;
         Ok(true)
     }
@@ -502,6 +540,10 @@ pub trait McpHandler {
 /// Process a single parsed MCP JSON-RPC message. Returns `None` for notifications.
 pub fn handle_message<H: McpHandler>(handler: &mut H, msg: &Value) -> Option<Value> {
     let method = msg.get("method").and_then(Value::as_str);
+    // Cancellation is a notification: acknowledge recognition without emitting a JSON-RPC reply.
+    if method == Some("notifications/cancelled") {
+        return None;
+    }
     // JSON-RPC notifications have no "id".
     let id = msg.get("id")?.clone();
 
@@ -796,6 +838,10 @@ mod tests {
         let ann = tool_annotations(true);
         assert_eq!(ann["readOnlyHint"], true);
         assert_eq!(ann["destructiveHint"], false);
+        let shell = tool_annotations_with_risk(true, false, true, true);
+        assert_eq!(shell["readOnlyHint"], false);
+        assert_eq!(shell["destructiveHint"], true);
+        assert_eq!(shell["openWorldHint"], true);
         assert_eq!(ann["openWorldHint"], false);
         assert_eq!(ann["idempotentHint"], true);
 
@@ -814,6 +860,31 @@ mod tests {
         assert_eq!(err["expected_schema"]["required"], json!(["thread_id"]));
         let unknown = reg.validation_error("nope", "unknown_action");
         assert_eq!(unknown["available_actions"], json!(["thread_fork"]));
+    }
+
+    #[test]
+    fn cancellation_notification_is_consumed_without_response() {
+        struct Handler;
+        impl McpHandler for Handler {
+            fn server_name(&self) -> &str {
+                "test"
+            }
+            fn server_version(&self) -> &str {
+                "1"
+            }
+            fn tools(&self) -> Vec<ToolDef> {
+                Vec::new()
+            }
+            fn call_tool(&mut self, _: &str, _: &Value) -> (Value, bool) {
+                panic!("must not execute")
+            }
+        }
+        let mut handler = Handler;
+        assert!(handle_message(
+            &mut handler,
+            &json!({"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":1}})
+        )
+        .is_none());
     }
 
     #[test]

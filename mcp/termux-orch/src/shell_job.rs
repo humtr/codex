@@ -175,7 +175,7 @@ impl ShellJob {
         let exit_code = match self.run_command(ledger, work_id, command) {
             Ok(code) => code,
             Err(e) => {
-                let _ = write_atomic_private(&self.path("output.log"), e.to_string().as_bytes());
+                write_atomic_private(&self.path("output.log"), e.to_string().as_bytes())?;
                 125
             }
         };
@@ -260,7 +260,7 @@ impl ShellJob {
                 }
             }
             if last_flush.elapsed() >= Duration::from_secs(1) {
-                let _ = write_atomic_private(&self.path("output.log"), &tail);
+                write_atomic_private(&self.path("output.log"), &tail)?;
                 last_flush = Instant::now();
             }
             std::thread::sleep(Duration::from_millis(20));
@@ -271,7 +271,7 @@ impl ShellJob {
         let status = child.wait()?;
         result?;
         drain_tail(&mut capture, &mut buf, &mut tail)?;
-        let _ = write_atomic_private(&self.path("output.log"), &tail);
+        write_atomic_private(&self.path("output.log"), &tail)?;
         Ok(status
             .code()
             .unwrap_or_else(|| 128 + status.signal().unwrap_or(0)))
@@ -414,6 +414,22 @@ fn live_session_members(writer_pid: u32) -> io::Result<bool> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn output_log_write_failure_is_reported() {
+        let root =
+            std::env::temp_dir().join(format!("shell-job-log-failure-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let file = root.join("not-a-directory");
+        std::fs::write(&file, b"occupied").unwrap();
+        let job = ShellJob {
+            dir: file,
+            id: "W1".to_owned(),
+        };
+        let error = write_atomic_private(&job.path("output.log"), b"output").unwrap_err();
+        assert_ne!(error.kind(), io::ErrorKind::NotFound);
+        std::fs::remove_file(root.join("not-a-directory")).unwrap();
+    }
 
     #[test]
     fn proc_start_ticks_and_zombie_after_last_paren() {
